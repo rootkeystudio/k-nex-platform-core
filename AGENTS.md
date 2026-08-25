@@ -7,6 +7,8 @@ These rules apply to the whole repository. Before changing anything, read this f
 - Work only on the active phase and bounded task recorded in `status.md`.
 - Follow the active implementation plan and accepted architecture contracts; do not invent a new public contract inside an implementation task.
 - Use a branch and pull request. Do not push directly to `main`.
+- Implementation agents may open and update pull requests, but must not merge their own PR or enable auto-merge.
+- Leave the PR open after validation; only the designated reviewer/project manager may issue PASS and merge it.
 - Keep each commit coherent, reviewable, and limited to one task.
 - Stop and report when requirements conflict, an accepted invariant cannot be met, or the task needs an unplanned architecture decision.
 
@@ -62,6 +64,8 @@ Every agent-authored commit that changes repository content must update `status.
 - make **Last completed** describe the work included in that commit;
 - do not include verbose logs, secrets, speculative plans, or the hash of the commit being created;
 - use `None` when there is no blocker.
+
+While implementation awaits review, use `Ready for review`. After PASS and before merge, the reviewer must update `status.md` on the PR branch to the next active task and post-merge state. `main` must not retain stale instructions such as “review and merge this task”.
 
 A commit is incomplete when its implementation and `status.md` disagree.
 
