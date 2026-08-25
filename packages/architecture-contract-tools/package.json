@@ -1,0 +1,20 @@
+{
+  "name": "@k-nex/architecture-contract-tools",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b",
+    "generate": "node dist/generate.js",
+    "validate": "node dist/generate.js --check && node dist/validate-generated.js"
+  },
+  "dependencies": {
+    "@k-nex/contracts": "workspace:*",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3"
+  }
+}

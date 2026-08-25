@@ -1,165 +1,365 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.k-nex.dev/application/v1.json",
-  "title": "K-Nex Application Manifest v1",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["schemaVersion", "application", "runtime", "framework", "plugins", "providers", "builder", "themes", "development", "build", "environment"],
-  "properties": {
-    "$schema": { "type": "string" },
-    "schemaVersion": { "const": 1 },
-    "application": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "name", "type"],
-      "properties": {
-        "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" },
-        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
-        "type": { "enum": ["customer-platform", "website-only", "backend-only"] },
-        "defaultLocale": { "type": "string", "pattern": "^[a-z]{2}(?:-[A-Z]{2})?$" },
-        "locales": { "type": "array", "uniqueItems": true, "items": { "type": "string" } }
-      }
+  "$defs": {
+    "__schema0": {
+      "type": "string"
     },
-    "runtime": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["node", "packageManager", "packageManagerVersion", "deploymentMode"],
-      "properties": {
-        "node": { "type": "string", "pattern": "^24\\.[0-9]+\\.[0-9]+$" },
-        "packageManager": { "const": "pnpm" },
-        "packageManagerVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
-        "deploymentMode": { "enum": ["container", "platform-native"] }
-      }
+    "__schema1": {
+      "const": 1,
+      "type": "number"
     },
-    "framework": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["payload"],
-      "properties": {
-        "payload": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["database"],
-          "properties": {
-            "database": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["adapter", "package", "connectionEnvironmentVariable"],
-              "properties": {
-                "adapter": { "const": "postgres" },
-                "package": { "const": "@payloadcms/db-postgres" },
-                "connectionEnvironmentVariable": { "const": "DATABASE_URL" }
-              }
-            }
+    "__schema10": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "options": {
+            "$ref": "#/$defs/__schema9"
+          },
+          "package": {
+            "type": "string"
+          },
+          "plugin": {
+            "$ref": "#/$defs/__schema7"
+          },
+          "version": {
+            "$ref": "#/$defs/__schema8"
           }
-        }
-      }
+        },
+        "required": [
+          "plugin",
+          "package",
+          "version"
+        ],
+        "type": "object"
+      },
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+        "type": "string"
+      },
+      "type": "object"
     },
-    "plugins": {
-      "type": "array",
-      "items": { "$ref": "#/$defs/pluginRequest" }
-    },
-    "providers": {
-      "type": "object",
-      "propertyNames": { "$ref": "#/$defs/capabilityId" },
-      "additionalProperties": { "$ref": "#/$defs/providerRequest" }
-    },
-    "builder": {
-      "type": "object",
+    "__schema11": {
       "additionalProperties": false,
-      "required": ["plugin", "package", "version", "profiles"],
       "properties": {
-        "plugin": { "const": "builder.puck" },
-        "package": { "type": "string" },
-        "version": { "$ref": "#/$defs/exactSemver" },
-        "profiles": { "type": "object" }
-      }
+        "package": {
+          "type": "string"
+        },
+        "plugin": {
+          "const": "builder.puck",
+          "type": "string"
+        },
+        "profiles": {
+          "$ref": "#/$defs/__schema9"
+        },
+        "version": {
+          "$ref": "#/$defs/__schema8"
+        }
+      },
+      "required": [
+        "plugin",
+        "package",
+        "version",
+        "profiles"
+      ],
+      "type": "object"
     },
-    "themes": { "type": "object" },
-    "development": {
-      "type": "object",
-      "additionalProperties": true,
-      "required": ["database"],
+    "__schema12": {
+      "additionalProperties": {},
       "properties": {
         "database": {
-          "oneOf": [
+          "anyOf": [
             {
-              "type": "object",
               "additionalProperties": false,
-              "required": ["mode", "serviceName"],
               "properties": {
-                "mode": { "const": "docker-postgres" },
-                "serviceName": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" }
-              }
+                "mode": {
+                  "const": "docker-postgres",
+                  "type": "string"
+                },
+                "serviceName": {
+                  "pattern": "^[a-z][a-z0-9-]*$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "mode",
+                "serviceName"
+              ],
+              "type": "object"
             },
             {
-              "type": "object",
               "additionalProperties": false,
-              "required": ["mode"],
-              "properties": { "mode": { "const": "external" } }
+              "properties": {
+                "mode": {
+                  "const": "external",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "mode"
+              ],
+              "type": "object"
             }
           ]
         }
-      }
+      },
+      "required": [
+        "database"
+      ],
+      "type": "object"
     },
-    "build": {
-      "type": "object",
+    "__schema13": {
       "additionalProperties": false,
-      "required": ["dockerfile", "commitGeneratedRegistries", "validateGeneratedFilesInCI"],
       "properties": {
-        "dockerfile": { "type": "boolean" },
-        "commitGeneratedRegistries": { "const": true },
-        "validateGeneratedFilesInCI": { "const": true }
-      }
+        "commitGeneratedRegistries": {
+          "const": true,
+          "type": "boolean"
+        },
+        "dockerfile": {
+          "type": "boolean"
+        },
+        "validateGeneratedFilesInCI": {
+          "const": true,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "dockerfile",
+        "commitGeneratedRegistries",
+        "validateGeneratedFilesInCI"
+      ],
+      "type": "object"
     },
-    "environment": {
-      "type": "object",
+    "__schema14": {
       "additionalProperties": false,
-      "required": ["required"],
       "properties": {
         "required": {
+          "items": {
+            "$ref": "#/$defs/__schema15"
+          },
           "type": "array",
-          "uniqueItems": true,
-          "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" }
+          "uniqueItems": true
         }
-      }
+      },
+      "required": [
+        "required"
+      ],
+      "type": "object"
+    },
+    "__schema15": {
+      "pattern": "^[A-Z][A-Z0-9_]*$",
+      "type": "string"
+    },
+    "__schema2": {
+      "additionalProperties": false,
+      "properties": {
+        "defaultLocale": {
+          "pattern": "^[a-z]{2}(?:-[A-Z]{2})?$",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+          "type": "string"
+        },
+        "locales": {
+          "items": {
+            "$ref": "#/$defs/__schema3"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "name": {
+          "maxLength": 160,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "customer-platform",
+            "website-only",
+            "backend-only"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "type"
+      ],
+      "type": "object"
+    },
+    "__schema3": {
+      "type": "string"
+    },
+    "__schema4": {
+      "additionalProperties": false,
+      "properties": {
+        "deploymentMode": {
+          "enum": [
+            "container",
+            "platform-native"
+          ],
+          "type": "string"
+        },
+        "node": {
+          "pattern": "^24\\.[0-9]+\\.[0-9]+$",
+          "type": "string"
+        },
+        "packageManager": {
+          "const": "pnpm",
+          "type": "string"
+        },
+        "packageManagerVersion": {
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "node",
+        "packageManager",
+        "packageManagerVersion",
+        "deploymentMode"
+      ],
+      "type": "object"
+    },
+    "__schema5": {
+      "additionalProperties": false,
+      "properties": {
+        "payload": {
+          "additionalProperties": false,
+          "properties": {
+            "database": {
+              "additionalProperties": false,
+              "properties": {
+                "adapter": {
+                  "const": "postgres",
+                  "type": "string"
+                },
+                "connectionEnvironmentVariable": {
+                  "const": "DATABASE_URL",
+                  "type": "string"
+                },
+                "package": {
+                  "const": "@payloadcms/db-postgres",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "adapter",
+                "package",
+                "connectionEnvironmentVariable"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "database"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "payload"
+      ],
+      "type": "object"
+    },
+    "__schema6": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "$ref": "#/$defs/__schema7"
+          },
+          "options": {
+            "$ref": "#/$defs/__schema9"
+          },
+          "package": {
+            "type": "string"
+          },
+          "version": {
+            "$ref": "#/$defs/__schema8"
+          }
+        },
+        "required": [
+          "id",
+          "package",
+          "version",
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "__schema7": {
+      "pattern": "^(module|provider|builder|theme|integration|preset)(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    },
+    "__schema8": {
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$",
+      "type": "string"
+    },
+    "__schema9": {
+      "additionalProperties": {},
+      "properties": {},
+      "type": "object"
     }
   },
-  "$defs": {
-    "exactSemver": {
-      "type": "string",
-      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+  "$id": "https://schemas.k-nex.dev/application/v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "$ref": "#/$defs/__schema0"
     },
-    "pluginId": {
-      "type": "string",
-      "pattern": "^(module|provider|builder|theme|integration|preset)(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$"
+    "application": {
+      "$ref": "#/$defs/__schema2"
     },
-    "capabilityId": {
-      "type": "string",
-      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$"
+    "build": {
+      "$ref": "#/$defs/__schema13"
     },
-    "pluginRequest": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "package", "version", "enabled"],
-      "properties": {
-        "id": { "$ref": "#/$defs/pluginId" },
-        "package": { "type": "string" },
-        "version": { "$ref": "#/$defs/exactSemver" },
-        "enabled": { "type": "boolean" },
-        "options": { "type": "object" }
-      }
+    "builder": {
+      "$ref": "#/$defs/__schema11"
     },
-    "providerRequest": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["plugin", "package", "version"],
-      "properties": {
-        "plugin": { "$ref": "#/$defs/pluginId" },
-        "package": { "type": "string" },
-        "version": { "$ref": "#/$defs/exactSemver" },
-        "options": { "type": "object" }
-      }
+    "development": {
+      "$ref": "#/$defs/__schema12"
+    },
+    "environment": {
+      "$ref": "#/$defs/__schema14"
+    },
+    "framework": {
+      "$ref": "#/$defs/__schema5"
+    },
+    "plugins": {
+      "$ref": "#/$defs/__schema6"
+    },
+    "providers": {
+      "$ref": "#/$defs/__schema10"
+    },
+    "runtime": {
+      "$ref": "#/$defs/__schema4"
+    },
+    "schemaVersion": {
+      "$ref": "#/$defs/__schema1"
+    },
+    "themes": {
+      "$ref": "#/$defs/__schema9"
     }
-  }
+  },
+  "required": [
+    "schemaVersion",
+    "application",
+    "runtime",
+    "framework",
+    "plugins",
+    "providers",
+    "builder",
+    "themes",
+    "development",
+    "build",
+    "environment"
+  ],
+  "title": "K-Nex Application Manifest v1",
+  "type": "object"
 }

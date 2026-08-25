@@ -1,9 +1,388 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "__schema0": {
+      "type": "string"
+    },
+    "__schema1": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema10": {
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    },
+    "__schema11": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/__schema12"
+      },
+      "type": "array"
+    },
+    "__schema12": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "plugin": {
+              "$ref": "#/$defs/__schema2"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "version": {
+              "$ref": "#/$defs/__schema13"
+            }
+          },
+          "required": [
+            "plugin",
+            "version"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "capability": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "version": {
+              "$ref": "#/$defs/__schema13"
+            }
+          },
+          "required": [
+            "capability",
+            "version"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "__schema13": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "__schema14": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/__schema12"
+      },
+      "type": "array"
+    },
+    "__schema15": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/__schema12"
+      },
+      "type": "array"
+    },
+    "__schema16": {
+      "items": {
+        "$ref": "#/$defs/__schema17"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "__schema17": {
+      "enum": [
+        "workspace",
+        "cms",
+        "public",
+        "driver",
+        "mobile",
+        "system"
+      ],
+      "type": "string"
+    },
+    "__schema18": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "pattern": "^[A-Z][A-Z0-9_]*$",
+            "type": "string"
+          },
+          "requiredWhen": {
+            "enum": [
+              "installed",
+              "enabled",
+              "configured-feature"
+            ],
+            "type": "string"
+          },
+          "secret": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "secret",
+          "requiredWhen"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "__schema19": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "disable": {
+              "$ref": "#/$defs/__schema21"
+            },
+            "ownsPayloadSchema": {
+              "const": true,
+              "type": "boolean"
+            },
+            "ownsPersistentData": {
+              "$ref": "#/$defs/__schema20"
+            },
+            "purge": {
+              "$ref": "#/$defs/__schema21"
+            },
+            "uninstall": {
+              "const": "unsupported",
+              "type": "string"
+            }
+          },
+          "required": [
+            "ownsPayloadSchema",
+            "ownsPersistentData",
+            "disable",
+            "purge",
+            "uninstall"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "disable": {
+              "$ref": "#/$defs/__schema21"
+            },
+            "ownsPayloadSchema": {
+              "const": false,
+              "type": "boolean"
+            },
+            "ownsPersistentData": {
+              "$ref": "#/$defs/__schema20"
+            },
+            "purge": {
+              "$ref": "#/$defs/__schema21"
+            },
+            "uninstall": {
+              "$ref": "#/$defs/__schema21"
+            }
+          },
+          "required": [
+            "ownsPayloadSchema",
+            "ownsPersistentData",
+            "disable",
+            "purge",
+            "uninstall"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "__schema2": {
+      "pattern": "^(module|provider|builder|theme|integration|preset)(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    },
+    "__schema20": {
+      "type": "boolean"
+    },
+    "__schema21": {
+      "enum": [
+        "supported",
+        "unsupported"
+      ],
+      "type": "string"
+    },
+    "__schema22": {
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "$ref": "#/$defs/__schema23"
+        },
+        "admin": {
+          "$ref": "#/$defs/__schema23"
+        },
+        "behavior": {
+          "$ref": "#/$defs/__schema23"
+        },
+        "blocks": {
+          "$ref": "#/$defs/__schema23"
+        },
+        "contracts": {
+          "$ref": "#/$defs/__schema23"
+        },
+        "dataSources": {
+          "$ref": "#/$defs/__schema23"
+        },
+        "jobs": {
+          "$ref": "#/$defs/__schema23"
+        },
+        "navigation": {
+          "$ref": "#/$defs/__schema23"
+        },
+        "schema": {
+          "$ref": "#/$defs/__schema23"
+        }
+      },
+      "type": "object"
+    },
+    "__schema23": {
+      "items": {
+        "$ref": "#/$defs/__schema24"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "__schema24": {
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    },
+    "__schema3": {
+      "enum": [
+        "module",
+        "provider",
+        "builder",
+        "theme",
+        "integration",
+        "preset"
+      ],
+      "type": "string"
+    },
+    "__schema4": {
+      "maxLength": 120,
+      "minLength": 1,
+      "type": "string"
+    },
+    "__schema5": {
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$",
+      "type": "string"
+    },
+    "__schema6": {
+      "pattern": "^@?[a-z0-9][a-z0-9._-]*(?:\\/[a-z0-9][a-z0-9._-]*)?$",
+      "type": "string"
+    },
+    "__schema7": {
+      "additionalProperties": false,
+      "properties": {
+        "core": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "node": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "payload": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "payloadDatabaseAdapters": {
+          "items": {
+            "$ref": "#/$defs/__schema8"
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "core",
+        "payload",
+        "node",
+        "payloadDatabaseAdapters"
+      ],
+      "type": "object"
+    },
+    "__schema8": {
+      "const": "postgres",
+      "type": "string"
+    },
+    "__schema9": {
+      "default": [],
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "capability": {
+            "$ref": "#/$defs/__schema10"
+          },
+          "version": {
+            "$ref": "#/$defs/__schema5"
+          }
+        },
+        "required": [
+          "capability",
+          "version"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
   "$id": "https://schemas.k-nex.dev/plugin/v1.json",
-  "title": "K-Nex Plugin Manifest v1",
-  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "apiVersion": {
+      "$ref": "#/$defs/__schema1"
+    },
+    "compatibility": {
+      "$ref": "#/$defs/__schema7"
+    },
+    "conflicts": {
+      "$ref": "#/$defs/__schema15"
+    },
+    "contributions": {
+      "$ref": "#/$defs/__schema22"
+    },
+    "displayName": {
+      "$ref": "#/$defs/__schema4"
+    },
+    "environment": {
+      "$ref": "#/$defs/__schema18"
+    },
+    "id": {
+      "$ref": "#/$defs/__schema2"
+    },
+    "kind": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "lifecycle": {
+      "$ref": "#/$defs/__schema19"
+    },
+    "optional": {
+      "$ref": "#/$defs/__schema14"
+    },
+    "package": {
+      "$ref": "#/$defs/__schema6"
+    },
+    "provides": {
+      "$ref": "#/$defs/__schema9"
+    },
+    "requires": {
+      "$ref": "#/$defs/__schema11"
+    },
+    "surfaces": {
+      "$ref": "#/$defs/__schema16"
+    },
+    "version": {
+      "$ref": "#/$defs/__schema5"
+    }
+  },
   "required": [
     "apiVersion",
     "id",
@@ -14,169 +393,6 @@
     "compatibility",
     "lifecycle"
   ],
-  "properties": {
-    "$schema": { "type": "string" },
-    "apiVersion": { "const": 1 },
-    "id": {
-      "type": "string",
-      "pattern": "^(module|provider|builder|theme|integration|preset)(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$"
-    },
-    "kind": {
-      "enum": ["module", "provider", "builder", "theme", "integration", "preset"]
-    },
-    "displayName": { "type": "string", "minLength": 1, "maxLength": 120 },
-    "version": { "$ref": "#/$defs/exactSemver" },
-    "package": {
-      "type": "string",
-      "pattern": "^@?[a-z0-9][a-z0-9._-]*(?:/[a-z0-9][a-z0-9._-]*)?$"
-    },
-    "compatibility": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["core", "payload", "node", "payloadDatabaseAdapters"],
-      "properties": {
-        "core": { "type": "string", "minLength": 1 },
-        "payload": { "type": "string", "minLength": 1 },
-        "node": { "type": "string", "minLength": 1 },
-        "payloadDatabaseAdapters": {
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": { "enum": ["postgres"] }
-        }
-      }
-    },
-    "provides": {
-      "type": "array",
-      "default": [],
-      "items": { "$ref": "#/$defs/capabilityProvision" }
-    },
-    "requires": {
-      "type": "array",
-      "default": [],
-      "items": { "$ref": "#/$defs/dependency" }
-    },
-    "optional": {
-      "type": "array",
-      "default": [],
-      "items": { "$ref": "#/$defs/dependency" }
-    },
-    "conflicts": {
-      "type": "array",
-      "default": [],
-      "items": { "$ref": "#/$defs/dependency" }
-    },
-    "surfaces": {
-      "type": "array",
-      "uniqueItems": true,
-      "items": { "enum": ["workspace", "cms", "public", "driver", "mobile", "system"] }
-    },
-    "environment": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["name", "secret", "requiredWhen"],
-        "properties": {
-          "name": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
-          "secret": { "type": "boolean" },
-          "requiredWhen": { "enum": ["installed", "enabled", "configured-feature"] },
-          "description": { "type": "string" }
-        }
-      }
-    },
-    "lifecycle": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["ownsPayloadSchema", "ownsPersistentData", "disable", "uninstall", "purge"],
-      "properties": {
-        "ownsPayloadSchema": { "type": "boolean" },
-        "ownsPersistentData": { "type": "boolean" },
-        "disable": { "enum": ["supported", "unsupported"] },
-        "uninstall": { "enum": ["supported", "unsupported"] },
-        "purge": { "enum": ["supported", "unsupported"] }
-      },
-      "allOf": [
-        {
-          "if": {
-            "properties": { "ownsPayloadSchema": { "const": true } },
-            "required": ["ownsPayloadSchema"]
-          },
-          "then": {
-            "properties": { "uninstall": { "const": "unsupported" } }
-          }
-        }
-      ]
-    },
-    "contributions": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "contracts": { "$ref": "#/$defs/stringArray" },
-        "schema": { "$ref": "#/$defs/stringArray" },
-        "behavior": { "$ref": "#/$defs/stringArray" },
-        "jobs": { "$ref": "#/$defs/stringArray" },
-        "dataSources": { "$ref": "#/$defs/stringArray" },
-        "actions": { "$ref": "#/$defs/stringArray" },
-        "blocks": { "$ref": "#/$defs/stringArray" },
-        "navigation": { "$ref": "#/$defs/stringArray" },
-        "admin": { "$ref": "#/$defs/stringArray" }
-      }
-    }
-  },
-  "$defs": {
-    "exactSemver": {
-      "type": "string",
-      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
-    },
-    "capabilityId": {
-      "type": "string",
-      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$"
-    },
-    "pluginId": {
-      "type": "string",
-      "pattern": "^(module|provider|builder|theme|integration|preset)(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$"
-    },
-    "capabilityProvision": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["capability", "version"],
-      "properties": {
-        "capability": { "$ref": "#/$defs/capabilityId" },
-        "version": { "$ref": "#/$defs/exactSemver" }
-      }
-    },
-    "dependency": {
-      "oneOf": [
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["plugin", "version"],
-          "properties": {
-            "plugin": { "$ref": "#/$defs/pluginId" },
-            "version": { "type": "string", "minLength": 1 },
-            "reason": { "type": "string" }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["capability", "version"],
-          "properties": {
-            "capability": { "$ref": "#/$defs/capabilityId" },
-            "version": { "type": "string", "minLength": 1 },
-            "reason": { "type": "string" }
-          }
-        }
-      ]
-    },
-    "stringArray": {
-      "type": "array",
-      "uniqueItems": true,
-      "items": {
-        "type": "string",
-        "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$"
-      }
-    }
-  }
+  "title": "K-Nex Plugin Manifest v1",
+  "type": "object"
 }

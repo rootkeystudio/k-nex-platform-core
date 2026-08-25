@@ -8,8 +8,9 @@
     "pnpm": "11.9.0"
   },
   "scripts": {
-    "contracts:generate": "node -e \"console.error('P0.2 contract generation is not implemented yet'); process.exit(1)\"",
-    "contracts:validate": "python3 scripts/validate_repository_contracts.py",
+    "build": "turbo run build",
+    "contracts:generate": "turbo run generate",
+    "contracts:validate": "turbo run validate && python3 scripts/validate_repository_contracts.py",
     "contracts:test": "node -e \"console.error('P0.3 contract tests are not implemented yet'); process.exit(1)\"",
     "contracts:reproducibility": "node -e \"console.error('P0.5 reproducibility is not implemented yet'); process.exit(1)\"",
     "docs:validate": "python3 scripts/validate_repository_contracts.py",
