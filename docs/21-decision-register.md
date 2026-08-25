@@ -214,7 +214,7 @@ Allowed:
 registered IDs and versions
 validated props
 source/state/context/action bindings
-selected source fields and columns
+selected stable source fields
 safe layout data
 ```
 
@@ -343,7 +343,7 @@ realtime invalidation metadata
 Examples:
 
 ```text
-sales.total-opportunities
+sales.total-potential-revenue
 sales.tasks
 sales.opportunities-by-stage
 ```
@@ -398,6 +398,40 @@ module emits invalidation topic/scope
 ```
 
 WebSocket messages normally do not carry full business records. Snapshot + typed stream is reserved for high-frequency live projections such as vehicle positions.
+
+## D-031 — Data sources use hybrid output contracts and one primary projection
+
+**Status:** accepted
+
+Related: [ADR-0012](./adr/0012-hybrid-output-contracts.md) and [output-contract documentation](./25-output-contracts.md).
+
+K-Nex owns a small canonical catalog for generic blocks:
+
+```text
+metric.scalar@1
+table.records@1
+series.category@1
+series.time@1
+options.list@1
+record.summary@1
+```
+
+Plugins can also define namespaced contracts for domain-specific blocks.
+
+Rules:
+
+```text
+one source → one primary output contract
+exact source schema must conform to declared contract
+table fields are stable opaque IDs, not nested Payload paths
+source descriptors are separate from query data
+source and contract versions evolve independently
+canonical payloads have no opaque extension bag
+charts consume server-produced series in V1
+future transforms are registered/versioned adapters
+```
+
+The first POC must implement metric, table, category-series, and time-series contracts. `options.list@1` and `record.summary@1` are accepted catalog members and can follow after the first slice.
 
 # Provisional decisions requiring POC evidence
 
@@ -456,21 +490,21 @@ customer-owned migrations
 no K-Nex database provider package
 ```
 
-## P-010 — Data-source contracts, transport, and binding runtime
+## P-010 — Data-source transport and runtime implementation
 
-POC must select/validate:
+The source/output-contract architecture is accepted. POC must select/validate:
 
 ```text
-exact defineDataSource API
+exact defineDataSource/contract helper APIs
 standard gateway route shape
-source descriptor delivery
-output contract library
-field and column metadata
+descriptor bundled/fetched balance
+schema library and JSON-schema strategy
 actor-scoped cache/query keys
-realtime invalidation scope
-source version migrations
 client query/cache implementation
+realtime invalidation scope
+source/field migration tooling
 SSR/hydration policy
+production output-validation cost
 ```
 
 # Open decisions
@@ -547,15 +581,23 @@ Neon/other hosted services may need pooling, TLS, preview, migration, and deploy
 
 ## O-017 — Generic visualization package boundary
 
-Recommendation: shared dataset/metric contracts in UI contracts and optional `module.visualization` for counter/pie/bar/line/table blocks. Complex map/data-grid adapters may split later.
+Recommendation: canonical metric/table/series contracts in `@k-nex/ui-contracts`; optional `module.visualization` for counter/pie/bar/line/table blocks. Complex map/data-grid adapters may split later.
 
 ## O-018 — UI state store and persistence
 
 Choose custom versus existing store, URL/session/user persistence, equality/batching, SSR/hydration, and cycle prevention during dynamic dashboard POC.
 
-## O-019 — Safe transformation registry
+## O-019 — First registered transformation adapter
 
-V1 uses purpose-built plugin sources plus safe field selection. Add allowlisted server transformations only after repeated need; no arbitrary visual SQL/query builder.
+V1 uses purpose-built plugin sources and canonical series. Add a trusted/versioned adapter only after repeated need.
+
+Possible future example:
+
+```text
+adapter.table-fields-to-category-series@1
+```
+
+It must remain bounded and schema-driven; no arbitrary expression, JavaScript, join, or visual SQL.
 
 ## O-020 — Per-source route versus standard gateway
 
@@ -607,18 +649,24 @@ Rejected. Modules expose deliberate bounded projections with explicit permission
 
 Rejected. Normal components refetch authenticated source endpoints; live streams include snapshot/resync behavior.
 
+## R-012 — Arbitrary source JSON, raw nested field paths, or multi-output sources
+
+Rejected because component compatibility, field authorization, migrations, cache identity, and builder UX become fragile. Use canonical/plugin-owned contracts, stable field IDs, and one source per primary projection.
+
 # Immediate decision and POC sequence
 
 1. Choose first-party monorepo topology.
 2. Prove private package publish/install and finalize scope.
 3. Generate a minimal Payload Postgres application.
 4. Prove explicit Payload module contribution composition.
-5. Implement actor/permission-aware module data-source registry and gateway.
-6. Implement one scalar source and one table source from a Sales stub.
-7. Add Counter and DataTable bindings, selected columns, pagination, sorting, and filters.
-8. Add authenticated WebSocket invalidation/refetch.
-9. Build fixed shell, semantic primitives, and two themes.
-10. Run Puck CMS/workspace canonical document POC.
-11. Test two independent customer repositories and migrations.
+5. Implement actor/permission-aware source registry and standard gateway.
+6. Implement canonical `metric.scalar@1` and `table.records@1` source helpers.
+7. Implement `series.category@1` and `series.time@1` helpers and generic charts.
+8. Prove exact source schema + canonical contract validation.
+9. Add Counter/DataTable/Chart bindings, stable fields, filters, pagination, and query sharing.
+10. Add authenticated WebSocket invalidation/refetch.
+11. Build fixed shell, semantic primitives, and two themes.
+12. Run Puck CMS/workspace canonical document POC.
+13. Test two independent customer repositories and migrations.
 
 Do not begin with full CRM, production dispatch optimization, broad database portability, visual SQL, or a plugin marketplace before these foundations are proven.
