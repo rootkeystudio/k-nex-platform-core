@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Addressed the second P0.4 review: path boundaries now reject POSIX and Windows absolute forms on every host, all valid fixtures are discovered from disk, bare relative Markdown links are checked, and malformed expected diagnostics produce stable errors.
+Addressed the third P0.4 review: Windows drive-relative paths are rejected, repository references require regular non-symlink files, generated JSON keys are inspected structurally, required valid-fixture categories are enforced, and ADR evidence arrays are shape-checked.
 
 ## Validation
 
-The reviewer-requested build, generation cleanliness, contract validation, nineteen Vitest tests, documentation validation, and diff checks pass locally on Node 24.19.0 with pnpm 11.9.0. Full `pnpm phase:0` remains intentionally blocked at P0.5 reproducibility.
+The reviewer-requested pinned build, generation cleanliness, contract validation, twenty-two Vitest tests, documentation validation, and diff checks pass locally on Node 24.19.0 with pnpm 11.9.0. Full `pnpm phase:0` remains intentionally blocked at P0.5 reproducibility.
 
 ## Next
 

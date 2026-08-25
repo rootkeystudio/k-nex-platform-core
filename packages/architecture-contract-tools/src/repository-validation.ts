@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, lstatSync } from "node:fs";
 import { access, readFile, readdir } from "node:fs/promises";
 import { dirname, extname, posix, relative, resolve, sep, win32 } from "node:path";
 
@@ -15,7 +15,8 @@ export type RepositoryDiagnosticCode =
   | "JSON_INVALID"
   | "LEGACY_SYMBOL_FORBIDDEN"
   | "MARKDOWN_LINK_INVALID"
-  | "SCHEMA_INVALID";
+  | "SCHEMA_INVALID"
+  | "VALID_FIXTURE_MISSING";
 
 export interface RepositoryDiagnostic {
   code: RepositoryDiagnosticCode | string;
@@ -38,6 +39,7 @@ export interface ExpectedDiagnostic {
 }
 
 const generatedInventoryPath = "contracts/generated-contracts.v1.json";
+const forbiddenGeneratedKeys = new Set(["absolutePath", "buildTimestamp", "generatedAt", "hostname"]);
 const scanExtensions = new Set([".json", ".md", ".ts", ".tsx", ".yaml", ".yml"]);
 
 function compare(left: string, right: string): number {
@@ -82,12 +84,20 @@ export function validateGeneratedDocument(sourcePath: string, content: string, v
   } catch (error) {
     diagnostics.push(diagnostic(sourcePath, "GENERATED_ARTIFACT_INVALID", "$", error instanceof Error ? error.message : "Generated JSON is not canonical.", "Regenerate the committed contract artifacts.", "generated-artifact"));
   }
-  for (const key of ["absolutePath", "buildTimestamp", "generatedAt", "hostname"]) {
-    if (content.includes(`"${key}"`)) {
-      diagnostics.push(diagnostic(sourcePath, "GENERATED_ARTIFACT_INVALID", `$/${key}`, `Generated artifact contains forbidden key ${key}.`, "Remove environment-dependent data from committed generated artifacts.", "generated-artifact"));
-    }
-  }
+  diagnostics.push(...validateForbiddenGeneratedKeys(sourcePath, value));
   return diagnostics;
+}
+
+export function validateForbiddenGeneratedKeys(sourcePath: string, value: unknown, path = "$"): RepositoryDiagnostic[] {
+  if (Array.isArray(value)) return value.flatMap((item, index) => validateForbiddenGeneratedKeys(sourcePath, item, `${path}/${index}`));
+  if (value === null || typeof value !== "object") return [];
+  return Object.entries(value).flatMap(([key, child]) => {
+    const childPath = `${path}/${key.replaceAll("~", "~0").replaceAll("/", "~1")}`;
+    const own = forbiddenGeneratedKeys.has(key)
+      ? [diagnostic(sourcePath, "GENERATED_ARTIFACT_INVALID", childPath, `Generated artifact contains forbidden key ${key}.`, "Remove environment-dependent data from committed generated artifacts.", "generated-artifact")]
+      : [];
+    return [...own, ...validateForbiddenGeneratedKeys(sourcePath, child, childPath)];
+  });
 }
 
 export function validateGeneratedInventory(
@@ -142,8 +152,12 @@ export async function validateGeneratedArtifacts(root: string): Promise<Reposito
   diagnostics.push(...inventory.diagnostics);
   for (const sourcePath of inventory.artifacts) {
     const target = repositoryTarget(root, sourcePath);
-    if (target === undefined || !existsSync(target)) continue;
-    const content = await readFile(target, "utf8");
+    if (target === undefined || !repositoryFileExists(root, sourcePath)) continue;
+    const content = await readFile(target, "utf8").catch((error: unknown) => {
+      diagnostics.push(diagnostic(sourcePath, "GENERATED_ARTIFACT_INVALID", "$", error instanceof Error ? error.message : "Inventoried artifact cannot be read.", "Restore a readable regular generated artifact file.", "generated-artifact"));
+      return undefined;
+    });
+    if (content === undefined) continue;
     const artifact = parseJsonDocument(sourcePath, content);
     diagnostics.push(...artifact.diagnostics);
     if (artifact.value !== undefined) diagnostics.push(...validateGeneratedDocument(sourcePath, content, artifact.value));
@@ -197,6 +211,9 @@ export function validateEvidenceRegistry(
     const record = records[id];
     if (!adrIds.has(id)) diagnostics.push(diagnostic(sourcePath, "ADR_EVIDENCE_INVALID", `$/records/${id}`, `Evidence registry references absent ADR ${id}.`, "Remove the stale record or restore the ADR file.", "adr-evidence"));
     if (!levels.has(String(record?.level))) diagnostics.push(diagnostic(sourcePath, "ADR_EVIDENCE_INVALID", `$/records/${id}/level`, `ADR ${id} uses an unknown evidence level.`, "Use a level declared by the evidence registry.", "adr-evidence"));
+    if (!Array.isArray(record?.evidence)) {
+      diagnostics.push(diagnostic(sourcePath, "ADR_EVIDENCE_INVALID", `$/records/${id}/evidence`, `ADR ${id} evidence must be an array.`, "Declare evidence as an array of repository-relative paths.", "adr-evidence"));
+    }
     const evidence = Array.isArray(record?.evidence) ? record.evidence : [];
     for (const [index, path] of evidence.entries()) {
       if (typeof path !== "string" || !evidenceExists(path)) diagnostics.push(diagnostic(sourcePath, "ADR_EVIDENCE_INVALID", `$/records/${id}/evidence/${index}`, `ADR ${id} references missing evidence: ${String(path)}`, "Point evidence at an existing repository path.", "adr-evidence"));
@@ -264,6 +281,19 @@ export function declaredFixtureSchema(value: unknown): FixtureSchema | undefined
   return undefined;
 }
 
+export function validateValidFixtureCoverage(fixtures: readonly FixtureInput[]): RepositoryDiagnostic[] {
+  const manifests = fixtures.filter(({ schema }) => schema === "plugin").map(({ value }) => value as Record<string, unknown>);
+  const requirements = [
+    [fixtures.some(({ schema }) => schema === "application"), "customer application"],
+    [manifests.some(({ id }) => id === "module.logistics.driver"), "module.logistics.driver plugin"],
+    [manifests.some(({ kind, lifecycle }) => kind === "provider" && (lifecycle as Record<string, unknown> | undefined)?.ownsPayloadSchema === false), "schema-less provider"],
+    [manifests.some(({ kind }) => kind === "theme" || kind === "builder"), "theme or builder plugin"]
+  ] as const;
+  return requirements.filter(([present]) => !present).map(([, label]) =>
+    diagnostic("fixtures/contracts/valid", "VALID_FIXTURE_MISSING", "$", `Required valid fixture category is missing: ${label}.`, "Restore a schema-declared fixture for every P0.3 valid category.", "fixture-coverage")
+  );
+}
+
 async function walk(path: string): Promise<string[]> {
   const entries = await readdir(path, { withFileTypes: true }).catch(() => []);
   const paths: string[] = [];
@@ -280,7 +310,7 @@ function repositoryPath(root: string, path: string): string {
 }
 
 function repositoryTarget(root: string, path: string): string | undefined {
-  if (path === "" || posix.isAbsolute(path) || win32.isAbsolute(path) || path.includes("\\")) return undefined;
+  if (path === "" || posix.isAbsolute(path) || win32.parse(path).root !== "" || path.includes("\\")) return undefined;
   const repositoryRoot = resolve(root);
   const destination = resolve(repositoryRoot, path);
   return destination.startsWith(`${repositoryRoot}${sep}`) && repositoryPath(repositoryRoot, destination) === path ? destination : undefined;
@@ -288,7 +318,13 @@ function repositoryTarget(root: string, path: string): string | undefined {
 
 export function repositoryFileExists(root: string, path: string): boolean {
   const destination = repositoryTarget(root, path);
-  return destination !== undefined && existsSync(destination);
+  if (destination === undefined) return false;
+  try {
+    const stat = lstatSync(destination);
+    return stat.isFile() && !stat.isSymbolicLink();
+  } catch {
+    return false;
+  }
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -360,6 +396,7 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
   diagnostics.push(...validateFixtures(validFixtures, registry, validators, pluginCapabilities).map((item) =>
     diagnostic(item.fixturePath, item.code, item.path, `Valid fixture failed with ${item.code}.`, item.remediation, item.validator)
   ));
+  diagnostics.push(...validateValidFixtureCoverage(validFixtures));
 
   const invalidPaths = (await walk(resolve(root, "fixtures/contracts/invalid")))
     .filter((path) => extname(path) === ".json")
@@ -403,8 +440,14 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
     if (![".json", ".ts"].includes(extname(path))) continue;
     const sourcePath = repositoryPath(root, path);
     const content = await readFile(path, "utf8");
-    for (const key of ["absolutePath", "buildTimestamp", "generatedAt", "hostname"]) {
-      if (content.includes(key)) diagnostics.push(diagnostic(sourcePath, "GENERATED_ARTIFACT_INVALID", `$/${key}`, `Generated artifact contains forbidden key ${key}.`, "Remove environment-dependent data from committed generated artifacts.", "generated-artifact"));
+    if (extname(path) === ".json") {
+      const parsed = parseJsonDocument(sourcePath, content);
+      diagnostics.push(...parsed.diagnostics);
+      if (parsed.value !== undefined) diagnostics.push(...validateForbiddenGeneratedKeys(sourcePath, parsed.value));
+    } else {
+      for (const key of forbiddenGeneratedKeys) {
+        if (content.includes(key)) diagnostics.push(diagnostic(sourcePath, "GENERATED_ARTIFACT_INVALID", `$/${key}`, `Generated TypeScript contains forbidden token ${key}.`, "Remove environment-dependent data from committed generated artifacts.", "generated-artifact"));
+      }
     }
   }
   return sortDiagnostics(diagnostics);

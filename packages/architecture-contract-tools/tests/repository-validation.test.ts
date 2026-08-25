@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,12 +17,14 @@ import {
   validateEvidenceRegistry,
   validateExpectedDiagnostics,
   validateFixtureInventory,
+  validateForbiddenGeneratedKeys,
   validateGeneratedArtifacts,
   validateGeneratedDocument,
   validateGeneratedInventory,
   validateLegacyText,
   validateMarkdownText,
-  validateRepository
+  validateRepository,
+  validateValidFixtureCoverage
 } from "../src/repository-validation.js";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -66,6 +68,8 @@ describe("P0.4 executable repository validation", () => {
     expect(validateMarkdownText("docs/page.md", "[missing](./missing.md)", () => false).map(({ code }) => code)).toEqual(["MARKDOWN_LINK_INVALID"]);
     expect(validateEvidenceRegistry({ levels: [], records: {} }, new Set(["0001"]), () => true).map(({ code }) => code)).toEqual(["ADR_EVIDENCE_INVALID"]);
     expect(validateGeneratedDocument("generated.json", canonicalJson({ generatedAt: "now" }), { generatedAt: "now" }).map(({ code }) => code)).toEqual(["GENERATED_ARTIFACT_INVALID"]);
+    expect(validateGeneratedDocument("generated.json", canonicalJson({ note: "generatedAt" }), { note: "generatedAt" })).toEqual([]);
+    expect(validateForbiddenGeneratedKeys("generated.json", { nested: { hostname: "value" } })).toHaveLength(1);
   });
 
   it("validates bare relative Markdown links and ignores external links", () => {
@@ -87,6 +91,15 @@ describe("P0.4 executable repository validation", () => {
     expect(result.expected).toEqual({});
     expect(result.declaredPaths).toHaveLength(2);
     expect(result.diagnostics).toHaveLength(2);
+  });
+
+  it("requires every P0.3 valid fixture category", () => {
+    expect(validateValidFixtureCoverage([]).map(({ code }) => code)).toEqual([
+      "VALID_FIXTURE_MISSING",
+      "VALID_FIXTURE_MISSING",
+      "VALID_FIXTURE_MISSING",
+      "VALID_FIXTURE_MISSING"
+    ]);
   });
 
   it("identifies fixture schemas from declarations instead of filenames", () => {
@@ -147,6 +160,37 @@ describe("P0.4 executable repository validation", () => {
     expect(repositoryFileExists(repositoryRoot, "../outside")).toBe(false);
     expect(repositoryFileExists(repositoryRoot, "/outside")).toBe(false);
     expect(repositoryFileExists(repositoryRoot, "C:/outside/file")).toBe(false);
+    expect(repositoryFileExists(repositoryRoot, "C:outside/file")).toBe(false);
+    expect(repositoryFileExists(repositoryRoot, "C:")).toBe(false);
     expect(repositoryFileExists(repositoryRoot, "README.md")).toBe(true);
+  });
+
+  it("requires repository paths to name regular non-symlink files", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "k-nex-files-"));
+    const outside = await mkdtemp(resolve(tmpdir(), "k-nex-outside-"));
+    try {
+      await mkdir(resolve(root, "directory"));
+      await writeFile(resolve(outside, "target.json"), "{}\n", "utf8");
+      await symlink(resolve(outside, "target.json"), resolve(root, "link.json"));
+      expect(repositoryFileExists(root, "directory")).toBe(false);
+      expect(repositoryFileExists(root, "link.json")).toBe(false);
+
+      await mkdir(resolve(root, "contracts"));
+      await writeFile(resolve(root, "contracts/generated-contracts.v1.json"), canonicalJson({ artifacts: ["directory", "link.json"], generator: "test", version: 1 }), "utf8");
+      const diagnostics = await validateGeneratedArtifacts(root);
+      expect(diagnostics.filter(({ message }) => message.includes("missing"))).toHaveLength(2);
+    } finally {
+      await rm(root, { recursive: true });
+      await rm(outside, { recursive: true });
+    }
+  });
+
+  it("rejects non-array ADR evidence fields", () => {
+    const diagnostics = validateEvidenceRegistry(
+      { levels: ["design-only"], records: { "0001": { level: "design-only", evidence: "README.md" } } },
+      new Set(["0001"]),
+      () => true
+    );
+    expect(diagnostics.map(({ code }) => code)).toEqual(["ADR_EVIDENCE_INVALID"]);
   });
 });
