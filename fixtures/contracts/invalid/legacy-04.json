@@ -1,1 +1,10 @@
-{ "legacy": "module.logistics-live-tracking" }
+{
+  "apiVersion": 1,
+  "id": "theme.legacy-04",
+  "kind": "theme",
+  "displayName": "module.logistics-live-tracking",
+  "version": "1.0.0",
+  "package": "@k-nex/theme-legacy-04",
+  "compatibility": { "core": "1.0.0", "payload": "3.0.0", "node": "24.19.0", "payloadDatabaseAdapters": ["postgres"] },
+  "lifecycle": { "ownsPayloadSchema": false, "ownsPersistentData": false, "disable": "supported", "uninstall": "supported", "purge": "unsupported" }
+}

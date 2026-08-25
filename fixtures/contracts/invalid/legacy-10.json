@@ -1,1 +1,13 @@
-{ "legacy": "database.primary" }
+{
+  "schemaVersion": 1,
+  "application": { "id": "legacy-key", "name": "Legacy Key", "type": "customer-platform" },
+  "runtime": { "node": "24.19.0", "packageManager": "pnpm", "packageManagerVersion": "11.9.0", "deploymentMode": "container" },
+  "framework": { "payload": { "database": { "adapter": "postgres", "package": "@payloadcms/db-postgres", "connectionEnvironmentVariable": "DATABASE_URL" } } },
+  "plugins": [],
+  "providers": {},
+  "builder": { "plugin": "builder.puck", "package": "@k-nex/builder-puck", "version": "1.0.0", "profiles": {} },
+  "themes": { "database.primary": {} },
+  "development": { "database": { "mode": "external" } },
+  "build": { "dockerfile": false, "commitGeneratedRegistries": true, "validateGeneratedFilesInCI": true },
+  "environment": { "required": ["DATABASE_URL"] }
+}

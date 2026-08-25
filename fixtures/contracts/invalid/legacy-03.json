@@ -1,1 +1,10 @@
-{ "legacy": "module.logistics-driver" }
+{
+  "apiVersion": 1,
+  "id": "theme.legacy-03",
+  "kind": "theme",
+  "displayName": "module.logistics-driver",
+  "version": "1.0.0",
+  "package": "@k-nex/theme-legacy-03",
+  "compatibility": { "core": "1.0.0", "payload": "3.0.0", "node": "24.19.0", "payloadDatabaseAdapters": ["postgres"] },
+  "lifecycle": { "ownsPayloadSchema": false, "ownsPersistentData": false, "disable": "supported", "uninstall": "supported", "purge": "unsupported" }
+}

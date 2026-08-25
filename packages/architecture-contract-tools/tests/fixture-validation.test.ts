@@ -62,9 +62,19 @@ describe("P0.3 contract fixtures", () => {
   it("covers every forbidden legacy symbol with one intentional fixture", () => {
     const legacyFixtures = invalidFixtures.filter(({ fixturePath }) => fixturePath.includes("/legacy-"));
     expect(legacyFixtures).toHaveLength(registry.forbiddenLegacySymbols.length);
-    const covered = legacyFixtures.flatMap(({ value }) => registry.forbiddenLegacySymbols.filter((symbol) => JSON.stringify(value).includes(symbol)));
+    const covered = legacyFixtures.flatMap(({ fixturePath, value }) => {
+      const matches = registry.forbiddenLegacySymbols.filter((symbol) => JSON.stringify(value).includes(symbol));
+      expect(matches, `${fixturePath} must contain exactly one forbidden legacy symbol`).toHaveLength(1);
+      return matches;
+    });
     expect(new Set(covered)).toEqual(new Set(registry.forbiddenLegacySymbols));
-    expect(covered).toHaveLength(registry.forbiddenLegacySymbols.length);
+  });
+
+  it("keeps every legacy fixture valid against its declared JSON Schema", () => {
+    for (const item of invalidFixtures.filter(({ fixturePath }) => fixturePath.includes("/legacy-"))) {
+      const validate = validators[item.schema];
+      expect(validate(item.value), `${item.fixturePath}: ${ajv.errorsText(validate.errors)}`).toBe(true);
+    }
   });
 
   it("rejects each invalid fixture with its declared primary diagnostic", () => {

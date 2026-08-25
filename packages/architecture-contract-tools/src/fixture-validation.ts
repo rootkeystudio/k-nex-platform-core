@@ -62,6 +62,8 @@ function findLegacySymbol(value: unknown, symbols: readonly string[], path = "$"
     }
   } else if (value !== null && typeof value === "object") {
     for (const key of Object.keys(value).sort()) {
+      const symbol = symbols.find((candidate) => key.includes(candidate));
+      if (symbol !== undefined) return { path: `${path}/${key}`, symbol };
       const found = findLegacySymbol((value as Record<string, unknown>)[key], symbols, `${path}/${key}`);
       if (found !== undefined) return found;
     }

@@ -23,7 +23,7 @@
   "fixtures/contracts/invalid/legacy-07.json": { "schema": "plugin", "validator": "repository-semantic", "code": "LEGACY_SYMBOL_FORBIDDEN" },
   "fixtures/contracts/invalid/legacy-08.json": { "schema": "plugin", "validator": "repository-semantic", "code": "LEGACY_SYMBOL_FORBIDDEN" },
   "fixtures/contracts/invalid/legacy-09.json": { "schema": "plugin", "validator": "repository-semantic", "code": "LEGACY_SYMBOL_FORBIDDEN" },
-  "fixtures/contracts/invalid/legacy-10.json": { "schema": "plugin", "validator": "repository-semantic", "code": "LEGACY_SYMBOL_FORBIDDEN" },
+  "fixtures/contracts/invalid/legacy-10.json": { "schema": "application", "validator": "repository-semantic", "code": "LEGACY_SYMBOL_FORBIDDEN" },
   "fixtures/contracts/invalid/legacy-11.json": { "schema": "plugin", "validator": "repository-semantic", "code": "LEGACY_SYMBOL_FORBIDDEN" },
   "fixtures/contracts/invalid/plugin.invalid-capability-identity.json": {
     "schema": "plugin",
