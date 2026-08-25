@@ -6,7 +6,7 @@ The documents are implementation-oriented: each major concept should eventually 
 
 ## Product in one sentence
 
-> K-Nex is a manifest-driven application factory that composes versioned backend/UI plugins, infrastructure providers, a visual CMS/workspace builder, and installable runtime-configurable themes into independently deployed customer products.
+> K-Nex is a manifest-driven application factory that composes versioned backend/UI plugins, infrastructure providers, typed data and state contracts, a visual CMS/workspace builder, and installable runtime-configurable themes into independently deployed customer products.
 
 ## Reading paths
 
@@ -27,21 +27,23 @@ The documents are implementation-oriented: each major concept should eventually 
 5. [Customer applications](./06-customer-applications.md)
 6. [Plugin lifecycle and package management](./19-plugin-lifecycle-and-package-management.md)
 
-### UI, builder, and theme model
+### UI, builder, theme, and data binding
 
 1. [CMS and page builder](./07-cms-and-page-builder.md)
 2. [UI composition runtime](./16-ui-composition-runtime.md)
 3. [Builder engine and profiles](./17-builder-engine-and-profiles.md)
 4. [Theme and design system](./18-theme-and-design-system.md)
+5. [Data sources, UI state, and binding graph](./24-data-sources-state-and-binding-graph.md)
 
-### Backend and operations
+### Data platform, backend, and operations
 
-1. [WebSocket and realtime](./05-websocket-and-realtime.md)
-2. [Domain blueprints](./08-domain-blueprints.md)
-3. [Permissions, events, and jobs](./09-permissions-events-and-jobs.md)
-4. [Data, migrations, and versioning](./10-data-migrations-and-versioning.md)
-5. [Deployment and operations](./11-deployment-and-operations.md)
-6. [Security and trust boundaries](./20-security-and-trust-boundaries.md)
+1. [Database adapters and runtime providers](./23-database-adapters-and-runtime-providers.md)
+2. [Data, migrations, and versioning](./10-data-migrations-and-versioning.md)
+3. [WebSocket and realtime](./05-websocket-and-realtime.md)
+4. [Domain blueprints](./08-domain-blueprints.md)
+5. [Permissions, events, actions, and jobs](./09-permissions-events-and-jobs.md)
+6. [Deployment and operations](./11-deployment-and-operations.md)
+7. [Security and trust boundaries](./20-security-and-trust-boundaries.md)
 
 ### Research and decisions
 
@@ -62,7 +64,7 @@ The documents are implementation-oriented: each major concept should eventually 
 | [06 — Customer applications](./06-customer-applications.md) | Separate repositories, composition root, extensions, customer ownership |
 | [07 — CMS and page builder](./07-cms-and-page-builder.md) | CMS lifecycle and visual page composition |
 | [08 — Domain blueprints](./08-domain-blueprints.md) | Logistics and restaurant module boundaries/invariants |
-| [09 — Permissions, events, and jobs](./09-permissions-events-and-jobs.md) | Cross-module security and asynchronous collaboration contracts |
+| [09 — Permissions, events, actions, and jobs](./09-permissions-events-and-jobs.md) | Cross-module security, commands/queries, and asynchronous collaboration contracts |
 | [10 — Data, migrations, and versioning](./10-data-migrations-and-versioning.md) | Customer-owned final migrations and package/data evolution |
 | [11 — Deployment and operations](./11-deployment-and-operations.md) | Independent customer runtime, CI/CD, backups, fleet inventory |
 | [12 — Research plan and POC](./12-research-plan-and-poc.md) | Phases, deliberate failures, and acceptance/rejection criteria |
@@ -76,6 +78,8 @@ The documents are implementation-oriented: each major concept should eventually 
 | [20 — Security and trust boundaries](./20-security-and-trust-boundaries.md) | Package, CLI, builder, theme, public/private, realtime security model |
 | [21 — Decision register](./21-decision-register.md) | Accepted, provisional, open, and rejected decisions |
 | [22 — Glossary](./22-glossary.md) | Canonical terminology |
+| [23 — Database adapters and runtime providers](./23-database-adapters-and-runtime-providers.md) | Postgres-first adapter plugins, connection targets, capabilities, CLI, health, migrations |
+| [24 — Data sources, state, and binding graph](./24-data-sources-state-and-binding-graph.md) | Plugin-exposed data/state, generic charts, bindings, security, realtime, versioning |
 | [ADRs](./adr/README.md) | Consequential architecture decisions and rationale |
 | [References](./references.md) | Primary implementation-candidate references |
 
@@ -92,7 +96,10 @@ The documents are implementation-oriented: each major concept should eventually 
 | Project tooling | `create-k-nex-app` and `k-nex` plan/apply CLI |
 | Generated code | Static registries committed in V1 and checked in CI |
 | Backend foundation | Payload is the provisional first implementation candidate |
-| Production database | Postgres; local default is Docker Postgres |
+| Database integration | Database adapter and connection target participate in the plugin/provider model |
+| Production database | Postgres only in V1; local default is Docker Postgres |
+| Hosted Postgres | Future targets such as Neon reuse the Postgres adapter instead of duplicating dialect logic |
+| Alternative adapters | SQLite/others remain experimental until capability and migration matrices pass |
 | UI shell | Fixed shell; module-generated permission-aware navigation |
 | Composable surfaces | CMS pages, dashboards, overviews, reports, scoped workspaces |
 | Operational screens | Module-owned with controlled extension slots in V1 |
@@ -101,11 +108,16 @@ The documents are implementation-oriented: each major concept should eventually 
 | Theme model | Installed code package plus DB-backed validated draft/published profile |
 | Theme surfaces | Separate admin and public themes |
 | Styling | Style-agnostic module UI + semantic primitives + theme + customer overrides |
+| Dynamic data | Plugins expose typed, bounded, permission-aware data sources |
+| UI state | Explicit typed state/context definitions with scope and persistence policy |
+| Component binding | Blocks declare input/output ports; layouts store declarative validated connections |
+| Generic visualization | Charts/tables can select compatible sources from any enabled plugin |
+| Builder code policy | No arbitrary JS, SQL, imports, secrets, unrestricted URLs, or raw global CSS |
 | Runtime code install | Not allowed from admin panel |
 | Plugin states | Installed, enabled/disabled, configured, uninstalled, purged are distinct |
 | Migrations | Final migration history belongs to each customer repository |
-| Realtime | Capability provider; driver requires `realtime.gateway` |
-| Security | Server authorization; no arbitrary builder JS/SQL/imports/secrets/CSS |
+| Realtime | Capability provider; driver requires `realtime.gateway`; data sources may invalidate or stream |
+| Security | Server authorization remains authoritative for data sources, actions, commands, and subscriptions |
 
 ## Architecture at a glance
 
@@ -116,18 +128,20 @@ trusted plugin catalog
 create-k-nex-app / k-nex CLI
         │
         ├── validates k-nex.app.json
-        ├── resolves capabilities and providers
+        ├── resolves modules, database adapter/target, and capabilities
         ├── installs exact packages
-        ├── generates static registries
+        ├── generates static plugin/UI/data/state/theme registries
         ├── prepares local/production infrastructure files
-        └── reports migration, UI, theme, and security impact
+        └── reports migration, binding, UI, theme, and security impact
                 │
                 ▼
 customer application repository
         │
         ├── Payload/backend composition
+        ├── Postgres database provider composition
         ├── fixed application shell
-        ├── module UI contributions
+        ├── module navigation/screens/blocks
+        ├── typed data sources, state, actions, and binding graph
         ├── CMS/workspace builder profiles
         ├── installed theme packages
         ├── DB-backed theme/layout/content revisions
@@ -138,43 +152,77 @@ customer application repository
 independent customer runtime
 ```
 
+## Example dynamic UI flow
+
+```text
+CRM plugin exposes crm.opportunities.by-stage
+        │
+DateRange block writes page.filters.date-range
+        │
+PieChart block selects CRM source and binds period to page state
+        │
+Pie slice selection writes page.filters.selected-stage
+        │
+OpportunityTable source binds to both state values
+        │
+Runtime authorizes and executes each source on the server
+        │
+Selected customer theme renders every semantic component
+```
+
+The stored layout contains registered IDs, versions, parameters, mappings, and bindings—not query code or live records.
+
 ## Documentation conventions
 
 The package scope `@k-nex/*` is conceptual until registry ownership is finalized.
 
-Stable persisted identities use plugin/capability/block IDs rather than package paths:
+Stable persisted identities use plugin/capability/block/source/state IDs rather than package paths:
 
 ```text
 module.crm
-provider.realtime-websocket-local
+provider.database-postgres
+provider.database-target-neon
 realtime.gateway
 crm.pipeline-summary
+crm.opportunities.by-stage
+ui.filters.date-range
 ```
 
-The terms **plugin**, **module**, and **Payload plugin** are not synonyms:
+The terms **plugin**, **module**, **provider**, **data source**, **state**, and **Payload plugin** are not synonyms:
 
 - a **K-Nex plugin** is any installable K-Nex package participating in composition;
 - a **module** is a plugin kind implementing business/horizontal capability;
+- a **provider** implements an infrastructure/runtime capability, including database adapters and targets;
+- a **data source** is a registered query/projection contract;
+- **UI state** is a typed coordination value with an explicit scope and persistence policy;
 - a K-Nex plugin may internally contribute one or more **Payload plugins**.
 
 Code examples are architectural drafts until implemented and covered by contract/integration tests.
 
 ## Decision discipline
 
-- Check the [decision register](./21-decision-register.md) before treating a direction as final.
+- Check the [decision register](./21-decision-register.md) and [ADRs](./adr/README.md) before treating a direction as final.
 - Accepted decisions should be implemented unless explicitly changed.
 - Provisional decisions require the named POC evidence.
 - Open decisions include a recommendation and trigger; do not block unrelated work indefinitely.
-- Consequential changes should add or supersede an [ADR](./adr/README.md).
+- Consequential changes should add or supersede an ADR.
 
 ## Immediate next step
 
-Resolve the Phase 0 open decisions in the decision register—repository topology, private package registry/scope, and initial semantic primitive foundation—then implement the smallest POC proving:
+Resolve the Phase 0 open decisions—repository topology, private package registry/scope, and initial semantic primitive foundation—then implement the smallest POC proving:
 
 ```text
-manifest → dependency resolution → static registry → Payload boot
-     → fixed shell + module navigation
-     → one CMS page + one workspace dashboard
-     → two installed themes
-     → separate cargo and restaurant customer repositories
+manifest
+  → capability resolution
+  → Postgres provider + local Docker target
+  → static plugin/UI/data/state/theme registries
+  → Payload boot and customer-owned migration
+  → fixed shell + module navigation
+  → one CMS page + one workspace dashboard
+  → generic chart bound to a plugin data source
+  → one page filter state shared by chart and table
+  → two installed themes
+  → separate cargo and restaurant customer repositories
 ```
+
+The POC must also deliberately reject an incompatible database provider, an unauthorized data source, a public/private binding violation, a binding cycle, and an orphaned source after plugin removal.
