@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { access, readFile, readdir } from "node:fs/promises";
-import { dirname, extname, isAbsolute, relative, resolve, sep } from "node:path";
+import { dirname, extname, posix, relative, resolve, sep, win32 } from "node:path";
 
 import { Ajv2020, type AnySchema, type ValidateFunction } from "ajv/dist/2020.js";
 import addFormatsModule from "ajv-formats";
@@ -31,7 +31,7 @@ interface Registry {
   identity: { capabilityIdPattern: string; pluginIdPattern: string };
 }
 
-interface ExpectedDiagnostic {
+export interface ExpectedDiagnostic {
   code: string;
   schema: FixtureSchema;
   validator: string;
@@ -163,10 +163,12 @@ export function validateMarkdownText(
   targetExists: (target: string) => boolean
 ): RepositoryDiagnostic[] {
   const diagnostics: RepositoryDiagnostic[] = [];
-  const pattern = /\[[^\]]+\]\((\.{1,2}\/[^)#?]+)(?:#[^)]+)?\)/g;
+  const pattern = /\[[^\]]+\]\(([^)\s]+)\)/g;
   for (const match of content.matchAll(pattern)) {
-    const target = match[1];
-    if (target !== undefined && !targetExists(target)) {
+    const reference = match[1];
+    if (reference === undefined || reference.startsWith("#") || reference.startsWith("/") || /^[a-z][a-z0-9+.-]*:/i.test(reference)) continue;
+    const target = reference.split(/[?#]/, 1)[0];
+    if (target !== undefined && target !== "" && !targetExists(target)) {
       diagnostics.push(diagnostic(sourcePath, "MARKDOWN_LINK_INVALID", target, `Local Markdown link target does not exist: ${target}`, "Correct the relative link or add the referenced repository file.", "markdown-link"));
     }
   }
@@ -219,6 +221,49 @@ export function validateFixtureInventory(
   return diagnostics;
 }
 
+export function validateExpectedDiagnostics(value: unknown): {
+  declaredPaths: string[];
+  diagnostics: RepositoryDiagnostic[];
+  expected: Record<string, ExpectedDiagnostic>;
+} {
+  const sourcePath = "fixtures/contracts/expected-diagnostics.json";
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return {
+      declaredPaths: [],
+      diagnostics: [diagnostic(sourcePath, "EXPECTED_DIAGNOSTIC_MISMATCH", "$", "Expected diagnostics must be a JSON object.", "Declare one diagnostic object per invalid fixture.", "fixture-expectation")],
+      expected: {}
+    };
+  }
+  const entries = value as Record<string, unknown>;
+  const expected: Record<string, ExpectedDiagnostic> = {};
+  const diagnostics: RepositoryDiagnostic[] = [];
+  for (const path of Object.keys(entries).sort(compare)) {
+    const declaration = entries[path];
+    if (declaration === null || typeof declaration !== "object" || Array.isArray(declaration)) {
+      diagnostics.push(diagnostic(sourcePath, "EXPECTED_DIAGNOSTIC_MISMATCH", `$/entries/${path}`, `Invalid expected diagnostic declaration for ${path}.`, "Declare schema, validator, and stable code strings.", "fixture-expectation"));
+      continue;
+    }
+    const candidate = declaration as Record<string, unknown>;
+    if ((candidate.schema !== "application" && candidate.schema !== "plugin")
+      || (candidate.validator !== "json-schema" && candidate.validator !== "repository-semantic")
+      || typeof candidate.code !== "string" || candidate.code === "") {
+      diagnostics.push(diagnostic(sourcePath, "EXPECTED_DIAGNOSTIC_MISMATCH", `$/entries/${path}`, `Invalid expected diagnostic declaration for ${path}.`, "Use a supported schema, validator, and non-empty stable code.", "fixture-expectation"));
+      continue;
+    }
+    expected[path] = { code: candidate.code, schema: candidate.schema, validator: candidate.validator };
+  }
+  return { declaredPaths: Object.keys(entries), diagnostics, expected };
+}
+
+export function declaredFixtureSchema(value: unknown): FixtureSchema | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const schema = (value as Record<string, unknown>)["$schema"];
+  if (typeof schema !== "string") return undefined;
+  if (schema.endsWith("/application-manifest.v1.schema.json")) return "application";
+  if (schema.endsWith("/plugin-manifest.v1.schema.json")) return "plugin";
+  return undefined;
+}
+
 async function walk(path: string): Promise<string[]> {
   const entries = await readdir(path, { withFileTypes: true }).catch(() => []);
   const paths: string[] = [];
@@ -235,7 +280,7 @@ function repositoryPath(root: string, path: string): string {
 }
 
 function repositoryTarget(root: string, path: string): string | undefined {
-  if (path === "" || isAbsolute(path) || path.includes("\\")) return undefined;
+  if (path === "" || posix.isAbsolute(path) || win32.isAbsolute(path) || path.includes("\\")) return undefined;
   const repositoryRoot = resolve(root);
   const destination = resolve(repositoryRoot, path);
   return destination.startsWith(`${repositoryRoot}${sep}`) && repositoryPath(repositoryRoot, destination) === path ? destination : undefined;
@@ -279,7 +324,9 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
   if (registryValue === undefined || pluginSchema === undefined || applicationSchema === undefined || expectedValue === undefined) return sortDiagnostics(diagnostics);
 
   const registry = registryValue as Registry;
-  const expected = expectedValue as Record<string, ExpectedDiagnostic>;
+  const expectedResult = validateExpectedDiagnostics(expectedValue);
+  diagnostics.push(...expectedResult.diagnostics);
+  const expected = expectedResult.expected;
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormatsModule.default(ajv);
   let validators: { application: ValidateFunction; plugin: ValidateFunction };
@@ -290,16 +337,20 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
     return sortDiagnostics(diagnostics);
   }
 
-  const validPaths = [
-    "fixtures/contracts/valid/application.minimal.json",
-    "fixtures/contracts/valid/provider.realtime.socketio.json",
-    "fixtures/contracts/valid/theme.minimal.json",
-    "fixtures/plugin-manifests/module.logistics.driver.json"
-  ];
+  const validPaths = [...await walk(resolve(root, "fixtures/contracts/valid")), ...await walk(resolve(root, "fixtures/plugin-manifests"))]
+    .filter((path) => extname(path) === ".json")
+    .map((path) => repositoryPath(root, path))
+    .sort(compare);
   const validFixtures: FixtureInput[] = [];
   for (const sourcePath of validPaths) {
     const value = await loadJson(root, sourcePath, diagnostics);
-    if (value !== undefined) validFixtures.push({ fixturePath: sourcePath, schema: sourcePath.includes("application.") ? "application" : "plugin", value });
+    if (value === undefined) continue;
+    const schema = declaredFixtureSchema(value);
+    if (schema === undefined) {
+      diagnostics.push(diagnostic(sourcePath, "SCHEMA_INVALID", "$/$schema", "Valid fixture does not declare a supported contract schema.", "Reference the generated application or plugin manifest schema.", "fixture-schema"));
+      continue;
+    }
+    validFixtures.push({ fixturePath: sourcePath, schema, value });
   }
   const pluginCapabilities = new Map<string, ReadonlySet<string>>();
   for (const item of validFixtures.filter(({ schema }) => schema === "plugin")) {
@@ -313,7 +364,7 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
   const invalidPaths = (await walk(resolve(root, "fixtures/contracts/invalid")))
     .filter((path) => extname(path) === ".json")
     .map((path) => repositoryPath(root, path));
-  diagnostics.push(...validateFixtureInventory(invalidPaths, Object.keys(expected)));
+  diagnostics.push(...validateFixtureInventory(invalidPaths, expectedResult.declaredPaths));
   for (const sourcePath of invalidPaths.filter((path) => path in expected).sort(compare)) {
     const declaration = expected[sourcePath];
     const value = await loadJson(root, sourcePath, diagnostics);

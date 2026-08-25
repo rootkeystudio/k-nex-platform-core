@@ -10,10 +10,12 @@ import { describe, expect, it } from "vitest";
 import { canonicalJson } from "../src/canonical-json.js";
 import { validateFixtures } from "../src/fixture-validation.js";
 import {
+  declaredFixtureSchema,
   formatDiagnostics,
   parseJsonDocument,
   repositoryFileExists,
   validateEvidenceRegistry,
+  validateExpectedDiagnostics,
   validateFixtureInventory,
   validateGeneratedArtifacts,
   validateGeneratedDocument,
@@ -66,6 +68,33 @@ describe("P0.4 executable repository validation", () => {
     expect(validateGeneratedDocument("generated.json", canonicalJson({ generatedAt: "now" }), { generatedAt: "now" }).map(({ code }) => code)).toEqual(["GENERATED_ARTIFACT_INVALID"]);
   });
 
+  it("validates bare relative Markdown links and ignores external links", () => {
+    const checked: string[] = [];
+    const diagnostics = validateMarkdownText(
+      "docs/page.md",
+      "[bare](guide.md) [dot](./guide.md) [external](https://example.com) [fragment](#section)",
+      (target) => { checked.push(target); return false; }
+    );
+    expect(checked).toEqual(["guide.md", "./guide.md"]);
+    expect(diagnostics).toHaveLength(2);
+  });
+
+  it("rejects malformed expected diagnostic declarations without throwing", () => {
+    const result = validateExpectedDiagnostics({
+      "fixtures/contracts/invalid/null.json": null,
+      "fixtures/contracts/invalid/schema.json": { code: "SCHEMA_INVALID", schema: "unknown", validator: "json-schema" }
+    });
+    expect(result.expected).toEqual({});
+    expect(result.declaredPaths).toHaveLength(2);
+    expect(result.diagnostics).toHaveLength(2);
+  });
+
+  it("identifies fixture schemas from declarations instead of filenames", () => {
+    expect(declaredFixtureSchema({ $schema: "../../../schemas/application-manifest.v1.schema.json" })).toBe("application");
+    expect(declaredFixtureSchema({ $schema: "../../../schemas/plugin-manifest.v1.schema.json" })).toBe("plugin");
+    expect(declaredFixtureSchema({})).toBeUndefined();
+  });
+
   it("discovers missing and stale invalid-fixture declarations", () => {
     expect(validateFixtureInventory(["fixtures/contracts/invalid/new.json"], [])).toHaveLength(1);
     expect(validateFixtureInventory([], ["fixtures/contracts/invalid/stale.json"])).toHaveLength(1);
@@ -110,10 +139,14 @@ describe("P0.4 executable repository validation", () => {
     const absolutePath = resolve(repositoryRoot, "README.md");
     const evidence = {
       levels: ["design-only"],
-      records: { "0001": { level: "design-only", evidence: ["../outside", absolutePath] } }
+      records: { "0001": { level: "design-only", evidence: ["../outside", absolutePath, "C:/outside/file"] } }
     };
     const diagnostics = validateEvidenceRegistry(evidence, new Set(["0001"]), (path) => repositoryFileExists(repositoryRoot, path));
-    expect(diagnostics).toHaveLength(2);
+    expect(diagnostics).toHaveLength(3);
     expect(repositoryFileExists(repositoryRoot, "")).toBe(false);
+    expect(repositoryFileExists(repositoryRoot, "../outside")).toBe(false);
+    expect(repositoryFileExists(repositoryRoot, "/outside")).toBe(false);
+    expect(repositoryFileExists(repositoryRoot, "C:/outside/file")).toBe(false);
+    expect(repositoryFileExists(repositoryRoot, "README.md")).toBe(true);
   });
 });

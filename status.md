@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Addressed the P0.4 review: generated artifacts now derive from the validated sidecar inventory, invalid fixtures are discovered from disk, and artifact/evidence paths are constrained to normalized repository-relative locations.
+Addressed the second P0.4 review: path boundaries now reject POSIX and Windows absolute forms on every host, all valid fixtures are discovered from disk, bare relative Markdown links are checked, and malformed expected diagnostics produce stable errors.
 
 ## Validation
 
-The reviewer-requested install, build, generation cleanliness, contract validation, sixteen Vitest tests, documentation validation, and diff checks pass locally on Node 24.19.0 with pnpm 11.9.0. Full `pnpm phase:0` remains intentionally blocked at P0.5 reproducibility.
+The reviewer-requested build, generation cleanliness, contract validation, nineteen Vitest tests, documentation validation, and diff checks pass locally on Node 24.19.0 with pnpm 11.9.0. Full `pnpm phase:0` remains intentionally blocked at P0.5 reproducibility.
 
 ## Next
 
