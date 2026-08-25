@@ -100,7 +100,7 @@ A Phase 0 PR that introduces any of these must be split or rejected.
 | Toolchain pinning | Architecture baseline documented | Add exact Node 24, pnpm, package manager, workspace, and lockfile |
 | CI | Basic architecture check exists | Run pinned Node contract generation, fixtures, tests, and reproducibility |
 | Repository protection | Source-controlled CODEOWNERS/PR template exist | Configure GitHub ruleset; close issue #2 only after manual verification |
-| ADR evidence | Registry exists; ADR-0014 is design-only | Promote only after executable checks and CI links exist |
+| ADR evidence | ADR-0014 isolates Gate 0 governance; ADR-0017 isolates Gate 1 composition | Promote only the fully proved ADR-0014 scope after executable checks and CI links exist |
 
 ## 6. Target repository shape
 
@@ -527,7 +527,10 @@ Only after executable completion:
 
 - promote ADR-0014 from `design-only` to `executable-poc`;
 - link the implementation commit, validator tests, fixture corpus, and CI run;
+- keep the Gate 1 composition and registration decisions in ADR-0017 at `design-only`;
 - keep runtime/security/builder/realtime ADRs as `design-only` because Phase 0 does not prove them.
+
+Evidence maturity is atomic per ADR. If independently meaningful normative decisions are assigned to different gates, split the ADR before promotion; otherwise keep it at the lowest common evidence level. A phase must not require promotion of decisions outside its scope.
 
 #### Acceptance
 
@@ -661,7 +664,7 @@ Phase 0 is complete only when all statements are true:
 - [ ] `pnpm phase:0` is the required passing CI check.
 - [ ] GitHub `main` protection and CODEOWNERS review are verified; issue #2 is closed with evidence.
 - [ ] `phase-0-result.md` records real evidence and limitations.
-- [ ] ADR-0014 evidence is promoted only after successful implementation and CI.
+- [ ] Gate 0-scoped ADR-0014 evidence is promoted only after successful implementation and CI; Gate 1 ADR-0017 remains design-only.
 - [ ] A written GO decision authorizes Phase 1.
 
 ## 13. Rework triggers

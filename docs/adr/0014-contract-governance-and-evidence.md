@@ -3,8 +3,8 @@
 - Status: accepted
 - Date: 2026-08-25
 - Decision owners: K-Nex platform maintainers
-- Evidence: design-only; machine-readable schemas and fixture introduced in this branch
-- Related: [Contract governance](../28-contract-governance-and-determinism.md), [POC gates](../30-executable-poc-gates.md)
+- Evidence: executable-poc; see [Phase 0 result](../implementation/phase-0-result.md)
+- Related: [Contract governance](../28-contract-governance-and-determinism.md), [POC gates](../30-executable-poc-gates.md), [ADR-0017](./0017-deterministic-composition-and-registration-reconciliation.md)
 
 ## Context
 
@@ -13,22 +13,19 @@ K-Nex persists plugin, capability, source, action, block, state, and output-cont
 ## Decision
 
 1. Machine-readable schemas, registries, fixtures, and validators are normative before prose snippets.
-2. Persisted IDs use the canonical hierarchical grammar in `contracts/architecture-contracts.v1.json`.
-3. Plugin manifests use one versioned JSON Schema and canonical fixtures.
-4. Registration uses one phase enum with descriptor/handler/UI separation.
-5. The resolver emits a deterministic committed `k-nex.resolved.json` without timestamps or host data.
-6. `k-nex.config.ts` is a hermetic static registration module and is fingerprinted.
-7. Runtime registration is compared with static declarations; undeclared contributions or capability access fail.
-8. ADR decision status and evidence maturity are independent. Evidence is recorded in `docs/adr/evidence-registry.json`.
-9. Public/persisted contracts remain design-only until executable fixtures and migrations prove them.
+2. K-Nex identifiers intended for persistence use the canonical hierarchical grammar in `contracts/architecture-contracts.v1.json`. Gate 0 proves the current pre-v1 grammar and rejection of drift; it does not claim migration compatibility from an earlier released grammar.
+3. Plugin and application manifests have one typed Zod authoring source, versioned generated JSON Schemas, and canonical fixtures.
+4. Registration uses one canonical phase enum with descriptor/handler/UI separation. Gate 0 freezes and validates the phase contract; runtime phase enforcement belongs to ADR-0017 and Gate 1.
+5. ADR decision status and evidence maturity are independent. Evidence is recorded in `docs/adr/evidence-registry.json`.
+6. Evidence maturity is atomic per ADR: a level applies only when every normative decision in that ADR has evidence at that level. Independently meaningful decisions assigned to different gates are split before promotion; otherwise the ADR remains at the lowest common evidence level.
 
 ## Consequences
 
 - Documentation examples cannot invent alternate manifest fields or IDs.
-- Generator changes require golden corpus and deterministic-output review.
-- Customer extensions retain TypeScript flexibility but cannot make the composition graph depend on time, network, random, secrets, or ambient filesystem state.
-- Existing draft IDs are normalized before production persistence; later renames require migrations.
+- Contract generator changes require fixture-corpus and deterministic-output review.
+- Draft IDs are normalized before production persistence. Once an earlier released or persisted grammar exists, a later rename requires an explicit migration and separate compatibility evidence; this ADR does not claim that path has been proved.
 - CI can reject decision drift before package code is released.
+- Deterministic composition, hermetic customer registration, and runtime reconciliation remain separate Gate 1 claims under ADR-0017.
 
 ## Alternatives considered
 
@@ -46,4 +43,4 @@ Rejected as the default because aliases hide drift and expand compatibility obli
 
 ## Validation
 
-Gate 0 validates schemas, fixtures, links, evidence coverage, and forbidden legacy symbols. Gate 1 validates hermetic generation, declared-versus-actual registration, and byte-identical resolved output.
+Gate 0 validates generated schemas and registries, valid and invalid fixtures, the current pre-v1 identity grammar, canonical registration phases, links, evidence coverage, forbidden legacy symbols, deterministic generation, and repository governance. It does not claim migration compatibility from a prior persisted identity grammar or runtime enforcement of the registration phases.

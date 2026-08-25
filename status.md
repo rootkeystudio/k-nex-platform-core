@@ -1,21 +1,21 @@
 # Project Status
 
 - **Updated:** 2026-08-25
-- **Phase:** Phase 0 — Contract Freeze and Repository Readiness
-- **Active task:** P0.7 — Close the gate and promote evidence
+- **Phase:** Phase 1 — Minimal Deterministic Payload Composition
+- **Active task:** P1.1 — Freeze the executable framework tuple and Gate 1 fixture shell
 - **State:** Ready to start
 
 ## Last completed
 
-Reviewed and accepted P0.6; active rulesets now enforce pull requests, one CODEOWNER approval, the `validate` check, stale-review dismissal, conversation resolution, and deletion/non-fast-forward restrictions for `main` and `v*` release tags. Added the repository-driven Codex master plan for Gates 0–7.
+Split the mixed-gate ADR scope: ADR-0014 now contains the fully proved Gate 0 governance decisions and is `executable-poc`; new ADR-0017 contains Gate 1 composition and runtime-reconciliation decisions and remains `design-only`. Clarified that Phase 0 evidence covers the current pre-v1 identity grammar, not migration compatibility. Phase 0 records `GO PHASE 1`.
 
 ## Validation
 
-PR #12 proved red-to-green enforcement: run `32889179416` failed with `SCHEMA_INVALID /schemaVersion`, runs `32889335963` and `32889482514` passed, direct and non-fast-forward pushes were rejected, rulesets `21473575` and `21474044` are active, and issue #2 is closed.
+Frozen install and `pnpm phase:0` pass on Node 24.19.0/pnpm 11.9.0; 25 tests pass, ADR evidence paths validate, and reproducibility digest is `bc6886e272a10d1129347163deaaf87004800fb4d6655f37e5ba873070bf94ee`.
 
 ## Next
 
-Execute P0.7 from `docs/implementation/codex-master-plan.md`: create the Phase 0 result, promote only supported evidence, run `pnpm phase:0`, and record the Phase 1 GO or REWORK decision.
+Execute P1.1 from `docs/implementation/codex-master-plan.md`.
 
 ## Blockers
 

@@ -207,7 +207,7 @@ remaining limitations
 explicit GO or REWORK decision
 ```
 
-Update `docs/adr/evidence-registry.json` only where the entire ADR decision has executable evidence. ADR-0014 is the expected Phase 0 promotion candidate. Runtime, Payload composition, source gateway, realtime, builder, theme, lifecycle, and production claims remain `design-only`.
+Update `docs/adr/evidence-registry.json` only where the entire ADR decision has executable evidence. Evidence maturity is atomic per ADR. If independently meaningful normative decisions belong to different gates, split the ADR before promotion; otherwise keep it at the lowest common evidence level. A phase may record task-level proof without promoting a broader ADR and must not require promotion of out-of-scope decisions. Promote Gate 0-scoped ADR-0014; keep Gate 1 ADR-0017 and runtime, Payload composition, source gateway, realtime, builder, theme, lifecycle, and production claims `design-only`.
 
 Update `status.md` to:
 
@@ -1586,7 +1586,7 @@ packed-package tests for release boundaries
 ```text
 status.md current and compact
 phase result records observed evidence only
-ADR maturity promoted only for fully proved decision scope
+ADR maturity promoted only for fully proved decision scope; independently meaningful cross-gate decisions split before promotion
 open limitations remain explicit
 all referenced paths and CI runs exist
 ```
