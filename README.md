@@ -77,7 +77,7 @@ Modules query through authenticated Payload request/application APIs such as `re
 | Kind | Examples |
 |---|---|
 | Module | CMS, Sales/CRM, visualization, dispatch, driver, inventory, budgeting |
-| Provider | WebSocket, Redis-backed realtime, object storage, email, queue, maps |
+| Provider | Socket.IO realtime, object storage, email, queue, maps |
 | Builder | Puck adapter |
 | Theme | Minimal, Neobrutalism, Glassmorphism |
 | Integration | CRM–logistics, inventory–budgeting, ERP connectors |
@@ -232,14 +232,14 @@ Ordinary counters, tables, and charts use authenticated invalidation/refetch:
 ```text
 Sales mutation commits
   → Sales invalidates topic sales.tasks or sales.opportunities
-  → realtime provider authorizes subscribed clients
+  → Socket.IO provider authorizes subscribed clients
   → affected source query becomes stale
-  → client refetches through authenticated source endpoint
+  → TanStack Query refetches through authenticated source endpoint
   → source result is revalidated against its output contract
   → component rerenders
 ```
 
-WebSocket messages normally do not carry full business records and are not the only source of truth.
+Realtime messages normally do not carry full business records and are not the only source of truth.
 
 Typed snapshot + stream contracts are reserved for genuine live projections such as vehicle positions, dispatch telemetry, or long-running operation progress.
 
@@ -261,6 +261,53 @@ Installing a new theme requires a package/build/deploy change. Switching among i
 
 Admin and public themes are separate.
 
+## Conservative implementation baseline
+
+The first implementation uses mature package families behind K-Nex-owned adapters:
+
+```text
+Runtime/framework
+  Node.js 24 LTS
+  exact Payload + supported Next.js/React tuple
+  @payloadcms/db-postgres
+
+Monorepo/releases
+  pnpm workspaces
+  Turborepo
+  Changesets
+
+Validation
+  Zod 4
+  generated JSON Schema
+  Ajv 8
+
+UI/data
+  TanStack Query 5 for server data
+  scoped Zustand 5 vanilla stores for ephemeral UI state
+  React Aria Components behind semantic primitives
+  React Hook Form
+  TanStack Table 8 initially + TanStack Virtual
+  Apache ECharts 6 behind visualization adapter
+
+Runtime operations
+  Socket.IO 4 behind realtime.gateway
+  Payload Jobs Queue
+  Pino
+  OpenTelemetry API
+
+Testing/tooling
+  Vitest
+  React Testing Library
+  Playwright
+  Testcontainers PostgreSQL
+  Commander + @inquirer/prompts + Execa + semver
+  dependency-cruiser + publint + Are the Types Wrong
+```
+
+Implementation-library types do not become K-Nex plugin or persisted document contracts. Customer applications pin exact tested versions. Newly stable major versions pass an explicit soak, compatibility, migration, accessibility, and rollback gate before adoption.
+
+TanStack Table v9 is evaluated behind the DataTable adapter but is not the first frozen baseline because its stable release is very recent relative to this decision.
+
 ## Architectural principles
 
 1. **Payload is the foundation.** K-Nex extends Payload rather than pretending to abstract it away.
@@ -276,26 +323,37 @@ Admin and public themes are separate.
 11. **Modules expose deliberate projections.** Raw Payload collections are not automatically builder data sources.
 12. **Generic components consume output contracts.** Counter/table/chart blocks do not import Sales, Logistics, or Restaurant implementations.
 13. **Table fields are stable source IDs.** Internal Payload paths do not become persisted builder contracts.
-14. **Realtime normally invalidates and refetches.** Live streams require explicit snapshot/resync contracts.
-15. **Builder/theme input is structured and validated.** No arbitrary JavaScript, SQL, Payload queries, package imports, secrets, unrestricted URLs, or global CSS.
-16. **Customer-specific logic begins locally.** Promote it after reuse proves the abstraction.
-17. **Disable, uninstall, and purge differ.** Package removal never implies automatic data deletion.
-18. **Customer repositories own final migrations.** Module schema intent is composed into customer-specific production evolution.
+14. **Implementation libraries stay behind adapters.** TanStack, Zustand, React Aria, ECharts, Socket.IO, and Puck do not define domain plugin contracts.
+15. **Realtime normally invalidates and refetches.** Live streams require explicit snapshot/resync contracts.
+16. **Builder/theme input is structured and validated.** No arbitrary JavaScript, SQL, Payload queries, package imports, secrets, unrestricted URLs, or global CSS.
+17. **Customer-specific logic begins locally.** Promote it after reuse proves the abstraction.
+18. **Disable, uninstall, and purge differ.** Package removal never implies automatic data deletion.
+19. **Customer repositories own final migrations.** Module schema intent is composed into customer-specific production evolution.
+20. **Dependency upgrades are controlled.** Customer versions are exact and major upgrades require evidence, not fashion.
 
 ## Initial technical direction
 
 ```text
+Node.js 24 LTS
 TypeScript
-pnpm workspaces
+pnpm workspaces + Turborepo + Changesets
 Next.js + Payload
 Payload Postgres adapter
 Docker Postgres for local development
+Zod + generated JSON Schema + Ajv
+React Aria semantic primitives
+TanStack Query + scoped Zustand
+TanStack Table adapter + ECharts adapter
+Socket.IO realtime provider
+Payload Jobs
+Pino + OpenTelemetry hooks
+Vitest + Playwright + Testcontainers
 Puck behind a K-Nex builder adapter
 private package registry
 Docker-compatible customer releases
 ```
 
-Payload and Puck remain provisional until the documented proof of concept passes its acceptance/rejection criteria.
+Payload and Puck remain provisional until the documented proof of concept passes its acceptance/rejection criteria. The other selected packages remain implementation details behind K-Nex contracts and are also subject to their documented POC gates.
 
 ## Documentation
 
@@ -314,6 +372,7 @@ Key documents:
 - [Payload database selection](./docs/23-database-adapters-and-runtime-providers.md)
 - [Plugin data sources and realtime invalidation](./docs/24-data-sources-state-and-binding-graph.md)
 - [Data-source output contracts](./docs/25-output-contracts.md)
+- [Technology and package baseline](./docs/26-technology-package-baseline.md)
 - [Decision register](./docs/21-decision-register.md)
 - [Architecture Decision Records](./docs/adr/README.md)
 
@@ -324,15 +383,17 @@ This repository currently contains architecture, research, and decision document
 The first vertical POC should prove:
 
 ```text
-one generated Payload/Postgres customer application
+one exact Node/Payload/Next/Postgres generated customer application
+Zod source schemas + generated JSON Schema + strict Ajv validation
 metric.scalar source feeding a Metric block
 table.records source feeding a selected-column DataTable
-category/time-series sources feeding charts
+category/time-series sources feeding ECharts-backed charts
 Payload authentication and field/record authorization
-exact source-schema + canonical-contract validation
-WebSocket invalidation and endpoint refetch
+actor-scoped TanStack Query cache and scoped Zustand filters
+Socket.IO invalidation and endpoint refetch
+React Aria semantic shell rendered by two themes
+Vitest/Playwright/Testcontainers and dependency-boundary checks
 a CMS page and workspace dashboard
-two themes
 two independent customer repositories and migrations
 ```
 
