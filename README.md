@@ -5,12 +5,12 @@ K-Nex is a modular application platform for repeatedly delivering independently 
 It combines:
 
 ```text
-versioned platform contracts
-+ versioned plugins
-+ database and infrastructure providers
+Payload as the application/backend foundation
++ versioned K-Nex platform contracts and plugins
 + a manifest-driven CLI
 + style-agnostic module UI
-+ typed data sources, UI state, and declarative bindings
++ plugin-owned authenticated data sources
++ realtime invalidation and selected live streams
 + visual CMS/workspace composition
 + installed theme packages and runtime theme profiles
 + customer-owned code, migrations, and infrastructure
@@ -27,7 +27,6 @@ Shared code is delivered as trusted, exact-version packages:
 @k-nex/core
 @k-nex/module-*
 @k-nex/provider-*
-@k-nex/database-*
 @k-nex/builder-*
 @k-nex/theme-*
 @k-nex/integration-*
@@ -44,14 +43,40 @@ k-nex CLI
 
 The customer repository owns final composition, brand assets, customer extensions, generated registries, database migrations, tests, deployment, and infrastructure.
 
+## Payload and database model
+
+K-Nex is intentionally built on Payload. It does not wrap Payload with a second database-provider or ORM abstraction.
+
+During scaffold generation:
+
+```text
+create-k-nex-app
+  → selects a Payload database adapter
+  → installs the selected @payloadcms/db-* package
+  → generates Payload database configuration
+  → optionally generates local Docker infrastructure
+```
+
+V1 supports:
+
+```text
+Payload Postgres adapter
+local Docker Postgres
+external/managed Postgres through DATABASE_URL
+```
+
+Hosted services such as Neon use the same Payload Postgres adapter and deployment-specific connection guidance. They are not separate K-Nex persistence plugins.
+
+Modules query through authenticated Payload request/application APIs such as `req.payload` and through their domain services. Every customer repository owns its final migration history.
+
 ## Plugin model
 
-**Plugin** is the umbrella installable concept:
+**Plugin** is the umbrella installable K-Nex concept:
 
 | Kind | Examples |
 |---|---|
-| Module | CMS, CRM, visualization, dispatch, driver, inventory, budgeting |
-| Provider | Postgres adapter, Neon target, WebSocket, Redis-backed realtime, S3, email |
+| Module | CMS, Sales/CRM, visualization, dispatch, driver, inventory, budgeting |
+| Provider | WebSocket, Redis-backed realtime, object storage, email, queue, maps |
 | Builder | Puck adapter |
 | Theme | Minimal, Neobrutalism, Glassmorphism |
 | Integration | CRM–logistics, inventory–budgeting, ERP connectors |
@@ -60,39 +85,13 @@ The customer repository owns final composition, brand assets, customer extension
 Dependencies can target stable plugin IDs or replaceable versioned capabilities such as:
 
 ```text
-database.primary
 realtime.gateway
 storage.objects
+email.delivery
 builder.engine
 ```
 
-## Database provider model
-
-Database integration uses the same plugin/capability system as every other infrastructure concern.
-
-K-Nex distinguishes:
-
-```text
-database adapter
-  Postgres/SQLite/another database family and framework integration
-
-database target
-  local Docker, external URL, Neon, or another hosting/connection profile
-```
-
-Current V1 decision:
-
-```text
-supported production adapter   Postgres only
-local default                  Postgres in Docker Compose
-external target                existing Postgres through DATABASE_URL
-Neon                           future Postgres target/profile
-SQLite                         experimental/demo only after capability tests
-```
-
-A future “Neon Postgres” CLI choice can install a Postgres adapter plus Neon target without duplicating the Postgres migration and module-compatibility model.
-
-Modules require database capabilities such as transactions or geospatial support rather than importing a concrete adapter package. Every customer repository still owns its final migration history.
+The primary Payload database adapter is a framework/scaffold choice, not a K-Nex provider capability.
 
 ## UI and builder model
 
@@ -102,11 +101,11 @@ Enabled modules can contribute:
 navigation
 fixed operational screens
 composable blocks
-data sources
+data-source descriptors and handlers
 UI state definitions
 runtime context definitions
 actions
-realtime bindings
+realtime invalidation metadata
 extension slots
 ```
 
@@ -115,43 +114,88 @@ Module UI is style-agnostic. Customer appearance is provided through semantic de
 The application shell remains fixed and permission-aware. Its navigation is generated from enabled modules. The editable canvas supports two initial profiles using one canonical K-Nex document model:
 
 - **CMS profile:** public content pages, SEO/localization, draft/preview/publish, public-safe blocks and data sources;
-- **Workspace profile:** dashboards, module overviews, reports, role/user layouts, authenticated data/actions, state, and realtime blocks.
+- **Workspace profile:** dashboards, module overviews, reports, role/user layouts, authenticated data/actions, filters/state, and realtime blocks.
 
 Puck is the provisional first editor engine behind `@k-nex/builder-puck`. Domain modules do not depend on Puck types.
 
-## Typed data, state, and bindings
+## Plugin-owned data sources
 
-Plugins can expose bounded, schema-validated data sources such as:
+Modules deliberately expose bounded server projections rather than automatically exposing their Payload collections.
 
-```text
-crm.opportunities.by-stage
-logistics.shipments.by-status
-restaurant.sales.by-category
-inventory.stock-value.by-warehouse
-budget.variance.metric
-```
-
-Generic style-agnostic components such as pie charts, bar charts, metrics, tables, and maps declare typed input ports. The builder lists only compatible sources from enabled plugins.
-
-A page can connect components without arbitrary code:
+A Sales module can register:
 
 ```text
-DateRangeFilter
-  → writes page.filters.date-range
-
-PieChart
-  → reads crm.opportunities.by-stage
-  → binds period to page.filters.date-range
-  → writes page.filters.selected-stage when a slice is selected
-
-OpportunityTable
-  → reads crm.opportunities.list
-  → binds period and selected stage to the same page state
+sales.total-opportunities
+sales.tasks
+sales.opportunities-by-stage
 ```
 
-Stored layouts contain registered IDs, versions, parameters, mappings, and bindings. They do not contain SQL, executable JavaScript, package imports, secrets, raw server functions, unrestricted URLs, or live result snapshots.
+A source owns:
 
-Data-source execution and action authorization remain server-side. Public CMS pages can bind only to explicitly public-safe sources/actions.
+```text
+stable ID and version
+plugin ownership
+display metadata
+allowed surfaces/audiences
+required permission
+input/output schemas
+fields and table capabilities
+pagination/sort/filter policy
+cache and realtime policy
+server handler using req.payload/domain services
+```
+
+The recommended transport is a standard K-Nex gateway dispatching to plugin-owned handlers:
+
+```text
+GET  /api/k-nex/data-sources
+POST /api/k-nex/data-sources/:sourceId/query
+```
+
+Workspace/admin sources require Payload authentication plus source permission, record policy, and field-level policy. Public pages use separate explicitly public-safe source IDs.
+
+## Counter and table example
+
+A page editor can add a Counter and bind it to:
+
+```text
+Sales → Total potential revenue
+source ID: sales.total-opportunities
+field: value
+```
+
+A DataTable can bind to:
+
+```text
+Sales → Tasks
+source ID: sales.tasks
+columns:
+  title
+  status
+  dueAt
+  assignee.name
+```
+
+The source descriptor declares which fields exist, their labels/types, and whether they are selectable, sortable, filterable, or permission-protected. The layout stores only selected source IDs, versions, parameters, and fields.
+
+It does not store SQL, Payload queries, arbitrary URLs, executable code, or live records.
+
+## Realtime behavior
+
+Ordinary counters, tables, and charts use authenticated invalidation/refetch:
+
+```text
+Sales mutation commits
+  → Sales invalidates topic sales.tasks or sales.opportunities
+  → realtime provider authorizes subscribed clients
+  → affected source query becomes stale
+  → client refetches through authenticated source endpoint
+  → component rerenders
+```
+
+WebSocket messages normally do not carry full business records and are not the only source of truth.
+
+Typed snapshot + stream contracts are reserved for genuine live projections such as vehicle positions, dispatch telemetry, or long-running operation progress.
 
 ## Theme model
 
@@ -159,56 +203,58 @@ A theme has two layers:
 
 ```text
 theme package
-  code, token schema, palettes, semantic primitives, variants, validation, migrations
+  code, token schema, palettes, semantic primitives,
+  variants, validation, structural CSS, migrations
 
 theme profile
-  selected installed theme, adjustable validated tokens, revisions, publication state
+  selected installed theme, adjustable validated tokens,
+  revisions, publication state
 ```
 
-Installing a new theme requires a package/build/deploy change. Switching among installed themes or adjusting palette/token values can happen at runtime from the customer database after validation and publication.
+Installing a new theme requires a package/build/deploy change. Switching among installed themes or adjusting palette/token values can happen at runtime after validation and publication.
 
 Admin and public themes are separate.
 
 ## Architectural principles
 
-1. **Core is small, stable, and domain-neutral.** It owns contracts, resolution, registries, cross-cutting infrastructure, and framework composition—not CRM, logistics, customer branding, or vertical policy.
-2. **Plugins are versioned packages.** Their manifests declare compatibility, capabilities, dependencies, surfaces, data ownership, and lifecycle semantics.
-3. **Customer applications are separate repositories.** Generate the shell; do not copy or patch core source.
-4. **Every customer is independently deployable.** Database, storage, secrets, migrations, backups, and release cadence are isolated.
-5. **Composition is declarative and reviewable.** `k-nex.app.json`, exact package versions, generated registries, and customer migrations define the product.
-6. **The CLI plans before it mutates.** Add/remove/upgrade/provider/theme/database operations produce explicit package, infrastructure, data, and UI impact.
-7. **Database adapters and targets are provider plugins.** V1 supports Postgres only; future adapters must earn compatibility through capability and migration tests.
-8. **Runtime data never chooses arbitrary executable packages.** Plugin, provider, builder, and theme imports are generated statically.
-9. **UI hiding is not authorization.** Server data sources, actions, commands, and realtime subscriptions enforce permission and record policy.
-10. **UI data and state are explicit contracts.** Data sources, state scopes, input/output ports, and bindings are typed, versioned, and validated.
-11. **Builder/theme input is structured and validated.** No arbitrary JavaScript, SQL, package imports, secrets, unrestricted server URLs, or global CSS.
-12. **Generic components consume data contracts, not domain implementations.** A chart can render any compatible plugin source without importing the plugin.
-13. **Customer-specific logic begins locally.** Promote it to a reusable module/integration after repeated need proves the abstraction.
-14. **Disable, uninstall, and purge are different operations.** Package removal never implies automatic data deletion.
-15. **Customer repositories own final migrations.** Plugins provide schema intent and helpers; the final composition owns production evolution.
+1. **Payload is the foundation.** K-Nex extends Payload rather than pretending to abstract it away.
+2. **Core is small, stable, and domain-neutral.** CRM, logistics, restaurant, customer branding, and vertical policy live in plugins/customer code.
+3. **Plugins are versioned packages.** Their manifests declare compatibility, dependencies, surfaces, contributions, lifecycle, and capabilities where substitution matters.
+4. **Customer applications are separate repositories.** Generate the shell; do not copy or patch platform core source.
+5. **Every customer is independently deployable.** Database, storage, secrets, migrations, backups, and release cadence are isolated.
+6. **Composition is declarative and reviewable.** Manifest, exact packages, generated registries, customer config, and migrations define the product.
+7. **The CLI plans before it mutates.** Package, framework, infrastructure, source, UI, theme, and migration impact is visible before apply.
+8. **Payload database selection happens at scaffold time.** V1 uses Postgres; K-Nex does not add a second DB provider abstraction.
+9. **Runtime data never selects arbitrary executable packages.** Imports are statically generated.
+10. **UI hiding is not authorization.** Data sources, actions, record policy, fields, and realtime subscriptions are enforced server-side.
+11. **Modules expose deliberate projections.** Raw Payload collections are not automatically builder data sources.
+12. **Generic components consume source contracts.** Counter/table/chart blocks do not import Sales, Logistics, or Restaurant implementations.
+13. **Realtime normally invalidates and refetches.** Live streams require explicit snapshot/resync contracts.
+14. **Builder/theme input is structured and validated.** No arbitrary JavaScript, SQL, Payload queries, package imports, secrets, unrestricted URLs, or global CSS.
+15. **Customer-specific logic begins locally.** Promote it after reuse proves the abstraction.
+16. **Disable, uninstall, and purge differ.** Package removal never implies automatic data deletion.
+17. **Customer repositories own final migrations.** Module schema intent is composed into customer-specific production evolution.
 
 ## Initial technical direction
-
-Current implementation hypotheses:
 
 ```text
 TypeScript
 pnpm workspaces
 Next.js + Payload
-Postgres through a K-Nex database provider
-local Docker Postgres target
+Payload Postgres adapter
+Docker Postgres for local development
 Puck behind a K-Nex builder adapter
 private package registry
 Docker-compatible customer releases
 ```
 
-Payload and Puck remain provisional until the proof of concept passes the acceptance and rejection criteria documented under [`docs/`](./docs/README.md).
+Payload and Puck remain provisional until the documented proof of concept passes its acceptance/rejection criteria.
 
 ## Documentation
 
 Start with the [documentation index](./docs/README.md).
 
-The most important current documents are:
+Key documents:
 
 - [Product vision](./docs/01-product-vision.md)
 - [System architecture](./docs/02-system-architecture.md)
@@ -218,21 +264,32 @@ The most important current documents are:
 - [UI composition runtime](./docs/16-ui-composition-runtime.md)
 - [Builder engine and profiles](./docs/17-builder-engine-and-profiles.md)
 - [Theme and design system](./docs/18-theme-and-design-system.md)
-- [Database adapters and runtime providers](./docs/23-database-adapters-and-runtime-providers.md)
-- [Data sources, UI state, and binding graph](./docs/24-data-sources-state-and-binding-graph.md)
+- [Payload database selection](./docs/23-database-adapters-and-runtime-providers.md)
+- [Plugin data sources and realtime invalidation](./docs/24-data-sources-state-and-binding-graph.md)
 - [Decision register](./docs/21-decision-register.md)
 - [Architecture Decision Records](./docs/adr/README.md)
 
 ## Repository status
 
-This repository currently contains architecture, research, and decision documentation. Implementation should begin only after the Phase 0 decisions in the decision register are resolved and the repository/package topology is selected.
+This repository currently contains architecture, research, and decision documentation.
 
-The first vertical POC should prove one cargo and one restaurant customer application, a Postgres provider, two themes, one CMS page, one workspace dashboard, and a generic chart/table connected to plugin-exposed data through shared page state.
+The first vertical POC should prove:
+
+```text
+one generated Payload/Postgres customer application
+one Sales scalar source feeding a Counter
+one Sales table source feeding a selectable-column DataTable
+Payload authentication and field/record authorization
+WebSocket invalidation and endpoint refetch
+a CMS page and workspace dashboard
+two themes
+two independent customer repositories and migrations
+```
 
 ## Working package names
 
-Examples use the conceptual package scope `@k-nex/*`. The final package scope depends on registry ownership and is still an open decision. The architecture uses stable plugin, capability, block, data-source, and state IDs so package location can change without changing persisted product identity.
+Examples use conceptual `@k-nex/*` package names. Final registry scope remains open. Persisted plugin, block, source, and state IDs remain independent from package location.
 
 ## License
 
-No license has been selected. Until one is added, the repository and its contents should be treated as proprietary.
+No license has been selected. Until one is added, the repository and contents should be treated as proprietary.
