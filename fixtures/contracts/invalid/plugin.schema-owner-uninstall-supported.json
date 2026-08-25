@@ -1,0 +1,21 @@
+{
+  "apiVersion": 1,
+  "id": "module.schema-owner",
+  "kind": "module",
+  "displayName": "Schema Owner",
+  "version": "1.0.0",
+  "package": "@k-nex/module-schema-owner",
+  "compatibility": {
+    "core": "1.0.0",
+    "payload": "3.0.0",
+    "node": "24.19.0",
+    "payloadDatabaseAdapters": ["postgres"]
+  },
+  "lifecycle": {
+    "ownsPayloadSchema": true,
+    "ownsPersistentData": true,
+    "disable": "supported",
+    "uninstall": "supported",
+    "purge": "supported"
+  }
+}

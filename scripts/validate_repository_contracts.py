@@ -68,6 +68,8 @@ def validate_driver_fixture(contracts: dict[str, Any], errors: list[str]) -> Non
 def excluded_from_legacy_scan(relative: Path) -> bool:
     if relative in LEGACY_SCAN_EXCLUSIONS:
         return True
+    if relative.parts[:3] == ("fixtures", "contracts", "invalid"):
+        return True
     return len(relative.parts) >= 2 and relative.parts[0] == "docs" and relative.parts[1] == "adr"
 
 

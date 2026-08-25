@@ -1,0 +1,24 @@
+{
+  "apiVersion": 1,
+  "id": "provider.invalid-capability",
+  "kind": "provider",
+  "displayName": "Invalid Capability",
+  "version": "1.0.0",
+  "package": "@k-nex/provider-invalid-capability",
+  "compatibility": {
+    "core": "1.0.0",
+    "payload": "3.0.0",
+    "node": "24.19.0",
+    "payloadDatabaseAdapters": ["postgres"]
+  },
+  "provides": [
+    { "capability": "realtime-gateway", "version": "1.0.0" }
+  ],
+  "lifecycle": {
+    "ownsPayloadSchema": false,
+    "ownsPersistentData": false,
+    "disable": "supported",
+    "uninstall": "supported",
+    "purge": "unsupported"
+  }
+}
