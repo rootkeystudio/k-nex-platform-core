@@ -1,520 +1,169 @@
-# Platform Core
+# Platform Package and Runtime Boundary
 
 ## Purpose
 
-The K-Nex platform core is the smallest stable, domain-neutral runtime shared by customer applications and first-party plugins. It makes independently developed plugins interoperable without containing customer presentation, concrete infrastructure providers, visual-editor implementations, or vertical business behavior.
+K-Nex needs a stable domain-neutral platform family, but “core” must not become one package containing every cross-cutting service and ambient dependency.
 
-Core should be conservative. A public core contract can affect the CLI, every plugin, every generated customer application, and every deployed customer release.
-
-```text
-customer manifest and generated registries
-                ↓
-resolved immutable plugin graph
-                ↓
-platform core registration/runtime services
-                ↓
-Payload/framework adapter and customer application
-```
-
-## Core responsibilities
-
-### Plugin graph runtime validation
-
-The CLI performs composition planning and generation, but the application must validate the same graph again at build/startup.
-
-Core must:
-
-- accept generated plugin declarations and customer extensions;
-- verify plugin IDs, package versions, compatibility, enabled state, capabilities, and registration order;
-- reject missing providers, conflicts, cycles, duplicate IDs, or stale generated artifacts;
-- expose one immutable resolved graph and release inventory;
-- prevent runtime package discovery or database-driven executable imports;
-- use the same resolver/contracts package as the CLI so plan-time and runtime semantics agree.
-
-Core does not run a package manager or mutate `k-nex.app.json`.
-
-### Registration lifecycle
-
-Core owns deterministic registration phases:
+## Physical boundaries
 
 ```text
-contracts
-providers
-schema
-behavior
-jobs
-ui
-admin
-finalize
+@k-nex/contracts
+  schemas, IDs, actors, permissions, service tokens,
+  events, jobs, errors, contributions, source/UI contracts
+
+@k-nex/composition
+  resolver, provider selection, ordering, collision ownership,
+  declared-versus-actual inventory, deterministic graph
+
+@k-nex/runtime
+  scoped services, actor/access integration, events/outbox,
+  jobs, audit, health/readiness, runtime inventory
+
+@k-nex/payload-adapter
+  Payload contributions, authentication/access adaptation,
+  jobs, versions, migrations, config generation
+
+@k-nex/testing
+  contract suites, fakes, clean Postgres fixtures,
+  failure-injection and compatibility fixtures
 ```
 
-It exposes phase-specific APIs and rejects contributions registered in an invalid phase.
+`@k-nex/core` may be a supported facade for common public APIs; it must not expose internal mutable registries or make all packages depend on one monolith.
 
-Core tracks ownership for every registered item:
+## Responsibilities
+
+### Contracts
+
+- canonical identity and manifest/application schemas;
+- actor, permission, event, job, source, action, block, error, health contracts;
+- no framework/engine implementation types.
+
+### Composition
+
+- normalized desired requests and exact package manifests;
+- formal capability/provider selection;
+- cycle/conflict/compatibility diagnostics;
+- canonical registration order;
+- immutable `k-nex.resolved.json`;
+- declared-versus-actual validation.
+
+### Runtime
+
+- phase lifecycle and freeze;
+- capability-scoped service contexts;
+- actor and authorization adapters;
+- event durability-class enforcement and outbox boundary;
+- jobs, audit, health, readiness, operational inventory;
+- no package-manager or runtime plugin discovery.
+
+### Payload adapter
+
+- owned collection/global/endpoint/job/admin contributions;
+- deliberate function composition;
+- duplicate slug/route/index checks;
+- request/auth/access/transaction propagation;
+- migration/type-generation integration;
+- no universal arbitrary deep merge.
+
+## Registration phases
+
+The only accepted sequence is defined in the machine-readable contract:
 
 ```text
-service/capability provider
-permission
-event
-job/workflow
-Payload collection/global/endpoint
-UI navigation/screen/block/action/data source
-health check
-runtime setting schema
+manifest → contracts → providers → schema → behavior → jobs
+→ data-handlers → ui → admin → validate → freeze
 ```
 
-This ownership is used for collision diagnostics, inventory, lifecycle checks, and security review.
+Each phase exposes only its own API. A plugin cannot register a handler before declaring its descriptor or introduce a dependency during execution.
 
-### Capability and service registry
+## Capability-scoped service context
 
-Core provides a typed service registry that binds versioned capabilities to implementations selected by the customer application.
+Composition computes the service view for each plugin.
 
 ```ts
-export const REALTIME_GATEWAY = serviceToken<RealtimeGateway>({
-  capability: 'realtime.gateway',
-  version: '1.0.0',
-})
-
-export interface RealtimeGateway {
-  publish<TMessage>(input: PublishRealtimeMessage<TMessage>): Promise<void>
+interface PluginRuntimeContext<TServices> {
+  readonly pluginId: PluginId
+  readonly services: TServices
+  readonly actorAdapter: ActorAdapter
+  readonly logger: StructuredLogger
 }
 ```
 
-A provider plugin registers the implementation. A consuming module resolves the token; it does not import the provider internals.
+`TServices` is derived from the plugin’s resolved direct/capability dependencies. Runtime token access uses the same allowlist. A broad `ServiceContainer` is an internal composition detail, never handed to arbitrary plugin/job code.
 
-Registry requirements:
+## Actor and authorization
 
-- version-compatible binding;
-- single/multiple provider cardinality;
-- deterministic initialization and disposal;
-- health/readiness integration;
-- test overrides through an explicit test container;
-- no hidden global mutable service locator outside platform context.
+Common actor context supports user, driver, service, public-session, and system-job identities. Permission possession is necessary but does not replace domain record policy.
 
-### Identity and actor context
-
-Core defines a common request/execution actor model adaptable from different authentication strategies:
-
-```ts
-export interface ActorContext {
-  id: string
-  type:
-    | 'user'
-    | 'driver'
-    | 'service'
-    | 'public-session'
-    | 'system-job'
-  permissions: ReadonlySet<string>
-  teamIds?: readonly string[]
-  branchIds?: readonly string[]
-  sessionId?: string
-  impersonatorId?: string
-  correlationId: string
-}
-```
-
-Core integrates Payload authentication for ordinary users but must not assume every actor is a Payload admin user. Driver, public tracking, service, and background-job actors can use narrower authentication adapters.
-
-### Permission registry and access helpers
-
-Core owns:
-
-- permission-definition registration;
-- duplicate/ownership detection;
-- actor permission lookup;
-- common deny-by-default helpers;
-- risk metadata for privileged actions;
-- role-composition inputs for customer applications;
-- access-decision diagnostics and audit hooks.
-
-Modules own domain record policy. Core does not know whether a user can read a specific shipment or budget; it provides context and enforcement hooks used consistently by Payload access, HTTP/actions, UI data sources, jobs, and realtime subscriptions.
-
-### Events
-
-Core defines the domain-event envelope, registration, publication contract, and adapter boundary.
-
-```ts
-export interface DomainEvent<TPayload = unknown> {
-  id: string
-  type: string
-  schemaVersion: number
-  occurredAt: string
-  applicationId: string
-  actor?: {
-    id: string
-    type: string
-  }
-  correlationId: string
-  causationId?: string
-  idempotencyKey?: string
-  payload: TPayload
-}
-```
-
-Core supports an initial in-process/after-commit adapter and leaves room for outbox or broker-backed providers. Domain modules never import Redis/Kafka/broker clients directly.
-
-### Jobs and workflows
-
-Core standardizes:
-
-- job/task/workflow IDs and ownership;
-- input schemas and schema versions;
-- logical queue names;
-- retry/backoff/timeout policy;
-- idempotency metadata;
-- actor/correlation/causation propagation;
-- schedule registration;
-- worker health and inventory.
-
-Payload Jobs Queue is the provisional default adapter. Core wraps it with K-Nex naming, ownership, tracing, and compatibility conventions.
-
-### Audit and observability
-
-Core defines common audit and observability contracts:
+The same domain policy is adapted to:
 
 ```text
-application ID and environment
-release/commit/image identity
-core/plugin/provider/builder/theme versions
-request/correlation/causation IDs
-actor and impersonation context
-resource/action/outcome
-job/event identifiers
-health/readiness status
+Payload access
+HTTP actions and data sources
+jobs when actor scope matters
+files/exports
+realtime subscriptions
 ```
 
-Core provides structured hooks; modules decide which domain actions require audit and what safe summaries are recorded.
+## Events and jobs
 
-Secret, credential, and unnecessary personal data must be redacted by default.
-
-### Health, readiness, and inventory
-
-Core aggregates checks from plugins and customer extensions:
+Runtime distinguishes:
 
 ```text
-liveness       process is running
-readiness      required DB/providers/config/migrations are usable
-health         degraded optional integrations and operational state
-inventory      exact resolved product composition
+ephemeral-hint
+reconstructible-invalidation
+durable-integration
+durable-workflow
 ```
 
-A plugin can be installed yet unconfigured. Readiness policy depends on whether its missing configuration is required for the deployed application.
+The latter two require transactional outbox or equivalent atomic durability. Jobs are schema-versioned, idempotent where effects can repeat, capability-scoped, cancellable/checkpointed where long-running, and observable.
 
-The authenticated operations inventory should expose non-secret information such as:
+Payload Jobs Queue is the initial implementation adapter, not a public plugin API.
+
+## Error convention
+
+External HTTP APIs use RFC 9457 Problem Details with stable K-Nex `type`, `code`, `correlationId`, and bounded validation issues. Domain/application errors remain typed internally. Production serialization never returns stack traces, SQL, policy predicates, secret/provider values, or unauthorized resource existence.
+
+## Health and inventory
 
 ```text
-application/release ID
-core and Payload versions
-plugin package versions and enabled state
-capability providers
-builder and theme packages
-migration revision
-failed/degraded checks
+liveness   process responds
+readiness  required config/providers/migration revision compatible
+health     degraded optional dependencies and backlog
+inventory  exact resolved and actual composition
 ```
 
-### Stable error and API conventions
+Startup verifies actual package/manifest integrity, resolved graph, actual contributions, environment names, and migration revision. An older artifact fails readiness against a newer incompatible schema.
 
-Core provides:
+## Customer extensions
 
-- typed domain/application/infrastructure error bases;
-- safe HTTP/action error serialization;
-- retryable versus terminal classification;
-- validation issue format;
-- correlation IDs;
-- pagination/cursor conventions;
-- no raw stack/provider secret leakage in production responses.
+`k-nex.config.ts` exports static registered extensions through the same ownership, collision, capability, and bundle rules. Generation fingerprints its transitive source. It cannot vary graph composition by network, time, random values, secrets, or ambient filesystem discovery.
 
-### Framework contribution composition
+## Relationship to UI
 
-Core mediates plugin contributions to Payload rather than exposing unrestricted shared mutation.
+Backend platform packages own registration and server handlers. Browser rendering remains in UI packages. Source descriptors/actions/blocks have serializable contract entrypoints; handlers and renderers are separate exports.
 
-```ts
-export interface PayloadContributionSet {
-  collections?: OwnedContribution<CollectionConfig>[]
-  globals?: OwnedContribution<GlobalConfig>[]
-  endpoints?: OwnedContribution<Endpoint>[]
-  plugins?: OwnedContribution<Plugin>[]
-  jobs?: PayloadJobsContribution
-  admin?: PayloadAdminContribution
-}
-```
+## Non-responsibilities
 
-Core/adapter responsibilities:
+The platform family does not own:
 
-- preserve owning plugin and source path metadata;
-- validate duplicate slugs, endpoints, indexes, and admin routes;
-- compose known function fields deliberately;
-- use deterministic ordering;
-- reject ambiguous merge behavior;
-- produce final immutable Payload config and diagnostics;
-- expose advanced escape hatches only through documented owned contribution APIs.
-
-Do not implement a universal untyped deep merge.
-
-### Customer extension registration
-
-Customer code participates through documented extension APIs and the same ownership/collision/security rules.
-
-```ts
-export interface KNeXCustomerExtension {
-  id: string
-  compatibility: {
-    core: string
-  }
-  register(context: ExtensionRegistrationContext): void | Promise<void>
-}
-```
-
-An extension can consume public module/capability contracts. It cannot replace core internals, patch package files, or introduce invisible registration.
-
-### Shared testing utilities
-
-Core/testing packages provide:
-
-- test platform creation;
-- fake clock/ID/transaction abstractions;
-- actor/request fixtures;
-- provider test doubles;
-- plugin contract suite;
-- collision/dependency fixtures;
-- clean Payload/Postgres boot fixture;
-- event/job idempotency helpers;
-- access-policy assertions;
-- generated inventory snapshots.
-
-## Relationship to CLI
-
-Core and CLI have different responsibilities but share contracts.
-
-### CLI owns
-
-```text
-catalog and package selection
-manifest editing
-package-manager operations
-plan/apply/filesystem generation
-static registry generation
-environment/Docker scaffolding
-source-level upgrade planning
-```
-
-### Core owns
-
-```text
-runtime/build validation of generated graph
-registration and service lifecycle
-framework composition
-actor/access/events/jobs/audit/health
-immutable runtime inventory
-```
-
-### Shared packages own
-
-```text
-plugin and capability schemas
-resolver algorithm/semantics
-diagnostics model
-generated-registry API version
-```
-
-The application must fail when generated files do not match supported runtime contracts, even if the CLI was not run correctly.
-
-## Relationship to UI runtime
-
-UI composition is a foundational platform subsystem but should not be implemented inside the backend core package.
-
-```text
-@k-nex/core          plugin/runtime/backend foundations
-@k-nex/ui-contracts engine-independent UI declarations
-@k-nex/ui-runtime   registry/layout/data/action rendering
-@k-nex/ui-shell     fixed application shell
-@k-nex/builder-*    optional editor providers
-@k-nex/theme-*      presentation providers
-```
-
-Core can register UI contribution ownership and expose actor/services to server data/action handlers, while browser/runtime rendering stays in UI packages.
-
-Core contains no final CSS, visual primitive implementation, customer logo, or builder-engine code.
-
-## Core non-responsibilities
-
-Core must not contain:
-
-- CRM, CMS, logistics, restaurant, inventory, budgeting, or other domain models;
-- a concrete Postgres/WebSocket/S3/email implementation when a provider contract is appropriate;
-- Puck or another visual-editor implementation;
-- customer themes, CSS, logos, fonts, palettes, or brand assets;
-- reusable business page blocks/renderers;
-- customer-specific terminology, role names, or IDs;
-- arbitrary runtime package installation;
+- Sales, logistics, restaurant, CMS content, or customer domain policy;
+- customer theme/CSS/assets;
+- Puck, ECharts, TanStack, Zustand, or Socket.IO types as public contracts;
+- one concrete provider when a capability contract is justified;
 - final customer migrations;
-- a central multi-customer SaaS tenancy/control plane;
-- all business logic inside generic hooks;
-- customer conditionals such as `if (applicationId === 'acme')`.
+- a shared multi-customer runtime/control plane;
+- automatic package install or destructive lifecycle behavior.
 
-## Suggested package layout
+## Required tests
 
-```text
-packages/
-├── contracts/
-│   ├── plugin.ts
-│   ├── capability.ts
-│   ├── dependency.ts
-│   ├── service.ts
-│   ├── actor.ts
-│   ├── permission.ts
-│   ├── event.ts
-│   ├── job.ts
-│   ├── audit.ts
-│   ├── health.ts
-│   ├── contribution.ts
-│   └── errors.ts
-├── resolver/
-│   ├── graph.ts
-│   ├── compatibility.ts
-│   ├── capabilities.ts
-│   ├── ordering.ts
-│   └── diagnostics.ts
-├── core/
-│   ├── platform/
-│   ├── registration/
-│   ├── services/
-│   ├── actors/
-│   ├── permissions/
-│   ├── events/
-│   ├── jobs/
-│   ├── audit/
-│   ├── health/
-│   └── inventory/
-├── payload-adapter/
-│   ├── contributions/
-│   ├── authentication/
-│   ├── jobs/
-│   ├── access/
-│   └── config/
-├── testing/
-│   ├── create-test-platform.ts
-│   ├── plugin-contract-suite.ts
-│   ├── provider-fakes/
-│   └── fixtures/
-└── cli/
-    └── consumes resolver/contracts but remains a separate package
-```
-
-Repository topology is still an open Phase 0 decision; package boundaries should remain valid whether these packages live in one monorepo or later split.
-
-## Draft application API
-
-Generated registries make the composition explicit without hand-maintaining every import.
-
-```ts
-import { createPlatform } from '@k-nex/core'
-import { generatedPlugins } from '../.k-nex/generated/plugin-registry'
-import { generatedProviders } from '../.k-nex/generated/provider-registry'
-import { generatedUi } from '../.k-nex/generated/ui-registry'
-import customerConfig from '../k-nex.config'
-
-export const platform = await createPlatform({
-  application: {
-    id: 'acme-cargo',
-    name: 'Acme Cargo',
-    environment: process.env.NODE_ENV,
-  },
-  generated: {
-    plugins: generatedPlugins,
-    providers: generatedProviders,
-    ui: generatedUi,
-  },
-  customer: customerConfig,
-})
-```
-
-Draft result:
-
-```ts
-export interface ResolvedPlatform {
-  graph: ResolvedPluginGraph
-  services: ServiceContainer
-  permissions: PermissionRegistry
-  events: EventBus
-  jobs: JobRegistry
-  audit: AuditRecorder
-  health: HealthRegistry
-  inventory: ReleaseInventory
-  payloadConfig: PayloadConfig
-  dispose(): Promise<void>
-}
-```
-
-## Initialization sequence
-
-```text
-1. Validate application identity/environment.
-2. Validate generated registry API and source inventory.
-3. Normalize and resolve plugin graph.
-4. Register contracts and ownership metadata.
-5. Bind capability/service providers.
-6. Register schema contributions.
-7. Register behavior, jobs, UI server handlers, and admin contributions.
-8. Compose/validate final Payload config.
-9. Validate environment/runtime settings and migrations.
-10. Freeze registries and release inventory.
-11. Start framework/runtime adapters.
-```
-
-Failure before finalization should not leave partially mutable global registration state.
-
-## Stability and versioning
-
-- Public core contracts follow semantic versioning.
-- Resolver/manifest/generated-registry APIs are versioned explicitly.
-- Breaking capability or contribution contracts require major-version evolution or new capability versions.
-- Experimental exports live under explicit experimental entry points and are not silently promoted.
-- Internal implementation paths are not public package exports.
-- Plugins declare compatible core/framework ranges.
-- Customer applications pin exact core/plugin versions.
-- Deprecations include replacement and migration guidance.
-
-## Security rules
-
-- The plugin graph is trusted code composition, not an untrusted sandbox.
-- Runtime data cannot introduce executable imports.
-- Server authorization is mandatory for data/actions/endpoints/jobs/realtime.
-- Registration ownership/collisions fail closed.
-- Secrets are resolved from environment/secret providers, not manifests or event/UI data.
-- Customer extensions are inventoried and tested like plugins.
-- Release inventory must match installed lockfile/artifact.
-
-See [Security and Trust Boundaries](./20-security-and-trust-boundaries.md).
-
-## Required core tests
-
-Every core release should prove:
-
-- valid graphs resolve deterministically in CLI and runtime;
-- missing/incompatible capabilities fail with actionable diagnostics;
-- duplicate plugin IDs/providers/permissions/events/jobs/routes/slugs/actions/blocks are rejected with both owners;
-- registration order does not depend on import accident;
-- customer extensions cannot silently overwrite shared contributions;
-- server-only dependencies do not leak through client/UI entry points;
-- final Payload config boots against clean Postgres;
-- event publication respects transaction/after-commit policy;
-- access decisions are reusable across API/UI/realtime adapters;
-- provider lifecycle initializes/disposes predictably;
-- generated inventory matches exact package/runtime versions;
-- a customer application can upgrade core independently of another fixture.
-
-## POC exit criteria
-
-Core is ready for the next phase when:
-
-```text
-manifest and generated registry
-  → shared resolver
-  → plugin/provider registration
-  → collision-safe Payload config
-  → clean Postgres boot
-  → immutable inventory
-```
-
-works for two different customer compositions without copied core source or customer-specific conditions in shared packages.
+- CLI and runtime resolve identical graph semantics.
+- deterministic graph/registries are byte-identical in clean runs.
+- undeclared contribution/capability access fails.
+- duplicate IDs/slugs/routes/providers identify both owners.
+- server-only code cannot enter browser exports.
+- scoped service contexts reject ambient access.
+- rollback emits no external event/invalidation.
+- durable event survives crash and duplicate processing.
+- clean and previous-release Postgres fixtures boot/migrate.
+- runtime inventory matches package integrity and actual registration.

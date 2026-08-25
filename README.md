@@ -1,130 +1,92 @@
 # K-Nex Platform Core
 
-K-Nex is a modular application platform for repeatedly delivering independently deployed, customer-specific CMS, CRM, operations, analytics, and vertical business products.
-
-It combines:
+K-Nex is a Payload-based application factory for delivering independently deployed, customer-specific CMS, CRM, operations, analytics, and vertical business products from reusable, versioned packages.
 
 ```text
-Payload as the application/backend foundation
-+ versioned K-Nex platform contracts and plugins
-+ a manifest-driven CLI
-+ style-agnostic module UI
+Payload + Postgres
++ K-Nex contracts, composition, runtime, and plugins
++ manifest-driven CLI
 + plugin-owned authenticated data sources
 + canonical and plugin-owned output contracts
-+ realtime invalidation and selected live streams
-+ visual CMS/workspace composition
-+ installed theme packages and runtime theme profiles
-+ customer-owned code, migrations, and infrastructure
-= an independently deployable customer product
++ fixed shell and visual CMS/workspace composition
++ installable themes with database-backed profiles
++ customer-owned extensions, migrations, and infrastructure
+= independently deployable customer product
 ```
 
-K-Nex is **not** initially designed as a shared multi-tenant SaaS. Every customer application has its own repository, database, storage boundary, secrets, deployment, migration history, visual language, and release cadence.
+K-Nex is not initially a shared multi-tenant SaaS. Each customer application owns a separate repository, database, storage boundary, secrets, deployment, migrations, themes, content, and release cadence.
 
-## Core product model
+## Strategic boundaries
 
-Shared code is delivered as trusted, exact-version packages:
+- **Payload is the strategic V1 application framework.** The POC tests whether the K-Nex composition model is sustainable on Payload; it does not pretend framework neutrality.
+- **The Payload Postgres adapter is selected at scaffold time.** K-Nex does not add another ORM or primary-database provider abstraction.
+- **Plugins are exact-version trusted packages.** Runtime data cannot download or select executable packages.
+- **Customer applications consume shared packages.** They do not copy or patch platform core source.
+- **Server authorization is authoritative.** UI visibility, builder metadata, cache entries, and realtime subscriptions never replace permission and record policy.
+- **Builder documents are declarative.** No arbitrary JavaScript, SQL, Payload query, package import, secret, unrestricted URL, or global CSS.
+- **Realtime normally invalidates and refetches.** Durable business facts use durable event semantics; WebSocket delivery is not the sole source of truth.
+
+## Canonical identity examples
 
 ```text
-@k-nex/core
-@k-nex/module-*
-@k-nex/provider-*
+module.sales
+module.logistics.core
+module.logistics.driver
+provider.realtime.socketio
+builder.puck
+theme.neobrutalism
+sales.tasks
+metric.scalar@1
+```
+
+Dots express namespace hierarchy. Package names remain deployment locations, for example `@k-nex/module-logistics-driver`.
+
+## Package families
+
+```text
+@k-nex/contracts
+@k-nex/composition
+@k-nex/runtime
+@k-nex/payload-adapter
+@k-nex/cli
+@k-nex/ui-contracts
+@k-nex/ui-runtime
+@k-nex/ui-shell
 @k-nex/builder-*
 @k-nex/theme-*
+@k-nex/module-*
+@k-nex/provider-*
 @k-nex/integration-*
 ```
 
-A customer repository is generated and maintained through:
+`@k-nex/core` may exist as a convenience facade, but the physical packages preserve dependency direction and prevent a monolithic ambient runtime.
+
+## Application composition
+
+A generated customer repository is governed by:
 
 ```text
-create-k-nex-app
-k-nex.app.json
-k-nex.config.ts
-k-nex CLI
+k-nex.app.json                 desired composition
+k-nex.config.ts                hermetic customer registrations
+package.json + pnpm-lock.yaml  installed bytes and integrity
+.k-nex/generated/              deterministic resolved graph and registries
+customer migrations            final schema/data evolution
+runtime records                content, layouts, theme profiles, settings
+signed release evidence        artifact provenance and deployment receipt
 ```
 
-The customer repository owns final composition, brand assets, customer extensions, generated registries, database migrations, tests, deployment, and infrastructure.
+The CLI creates and maintains this composition:
 
-## Payload and database model
-
-K-Nex is intentionally built on Payload. It does not wrap Payload with a second database-provider or ORM abstraction.
-
-During scaffold generation:
-
-```text
-create-k-nex-app
-  → selects a Payload database adapter
-  → installs the selected @payloadcms/db-* package
-  → generates Payload database configuration
-  → optionally generates local Docker infrastructure
+```bash
+pnpm create k-nex-app acme-cargo
+pnpm exec k-nex plan
+pnpm exec k-nex generate --check
+pnpm exec k-nex doctor --ci
 ```
 
-V1 supports:
+## Module data and visual composition
 
-```text
-Payload Postgres adapter
-local Docker Postgres
-external/managed Postgres through DATABASE_URL
-```
-
-Hosted services such as Neon use the same Payload Postgres adapter and deployment-specific connection guidance. They are not separate K-Nex persistence plugins.
-
-Modules query through authenticated Payload request/application APIs such as `req.payload` and through their domain services. Every customer repository owns its final migration history.
-
-## Plugin model
-
-**Plugin** is the umbrella installable K-Nex concept:
-
-| Kind | Examples |
-|---|---|
-| Module | CMS, Sales/CRM, visualization, dispatch, driver, inventory, budgeting |
-| Provider | Socket.IO realtime, object storage, email, queue, maps |
-| Builder | Puck adapter |
-| Theme | Minimal, Neobrutalism, Glassmorphism |
-| Integration | CRM–logistics, inventory–budgeting, ERP connectors |
-| Preset | Logistics, restaurant, corporate CMS+CRM recipes |
-
-Dependencies can target stable plugin IDs or replaceable versioned capabilities such as:
-
-```text
-realtime.gateway
-storage.objects
-email.delivery
-builder.engine
-```
-
-The primary Payload database adapter is a framework/scaffold choice, not a K-Nex provider capability.
-
-## UI and builder model
-
-Enabled modules can contribute:
-
-```text
-navigation
-fixed operational screens
-composable blocks
-data-source descriptors and handlers
-canonical or plugin-owned output contracts
-UI state definitions
-runtime context definitions
-actions
-realtime invalidation metadata
-extension slots
-```
-
-Module UI is style-agnostic. Customer appearance is provided through semantic design-system contracts, installed theme packages, runtime theme profiles, and deliberate customer overrides.
-
-The application shell remains fixed and permission-aware. Its navigation is generated from enabled modules. The editable canvas supports two initial profiles using one canonical K-Nex document model:
-
-- **CMS profile:** public content pages, SEO/localization, draft/preview/publish, public-safe blocks and data sources;
-- **Workspace profile:** dashboards, module overviews, reports, role/user layouts, authenticated data/actions, filters/state, and realtime blocks.
-
-Puck is the provisional first editor engine behind `@k-nex/builder-puck`. Domain modules do not depend on Puck types.
-
-## Plugin-owned data sources
-
-Modules deliberately expose bounded server projections rather than automatically exposing their Payload collections.
-
-A Sales module can register:
+A module deliberately exposes bounded sources:
 
 ```text
 sales.total-potential-revenue → metric.scalar@1
@@ -133,274 +95,59 @@ sales.opportunities-by-stage  → series.category@1
 sales.revenue-over-time       → series.time@1
 ```
 
-A source owns:
+Generic Metric, DataTable, and chart blocks consume output contracts rather than Sales implementation types. Source handlers use authenticated `req.payload` or domain services and enforce source, record, and field policy.
 
-```text
-stable ID and major version
-plugin ownership
-display metadata
-allowed surfaces/audiences
-required permission
-input schema
-one primary output contract
-exact source-specific output schema
-stable fields and table capabilities
-pagination/sort/filter policy
-cache and realtime policy
-server handler using req.payload/domain services
-```
+The same canonical document model supports two initial builder profiles:
 
-The recommended transport is a standard K-Nex gateway dispatching to plugin-owned handlers:
+- **CMS:** public-safe blocks/sources/actions, SEO/localization, draft/preview/publish, public theme.
+- **Workspace:** authenticated dashboards/reports, scoped layouts, page filters, actions, realtime invalidation, admin theme.
 
-```text
-GET  /api/k-nex/data-sources
-POST /api/k-nex/data-sources/:sourceId/query
-```
-
-Workspace/admin sources require Payload authentication plus source permission, record policy, and field-level policy. Public pages use separate explicitly public-safe source IDs.
-
-## Output contract model
-
-Generic components consume a small K-Nex-owned catalog:
-
-```text
-metric.scalar@1
-table.records@1
-series.category@1
-series.time@1
-options.list@1
-record.summary@1
-```
-
-Complex domain blocks can use namespaced plugin-owned contracts such as:
-
-```text
-sales.pipeline-board@1
-logistics.dispatch-board@1
-```
-
-Core rules:
-
-```text
-one source → one primary output projection
-source-specific output schema must validate against its contract
-table fields are stable opaque IDs, not nested Payload paths
-descriptors are fetched/cached separately from query results
-source/contract/package versions evolve independently
-canonical payloads have no unrestricted extension bag
-future transformations are registered/versioned adapters
-```
-
-## Metric, table, and chart example
-
-A page editor can add a Metric and bind the complete semantic result to:
-
-```text
-Sales → Total potential revenue
-source:   sales.total-potential-revenue@1
-contract: metric.scalar@1
-```
-
-A DataTable can bind to:
-
-```text
-Sales → Tasks
-source:   sales.tasks@1
-contract: table.records@1
-columns:
-  title
-  status
-  dueAt
-  assignee
-```
-
-The source descriptor declares stable fields, labels/types, nullability, permissions, sorting, filtering, and pagination. The layout stores selected stable field IDs—not `assignee.name` or another raw Payload object path.
-
-Charts bind to purpose-built server aggregates:
-
-```text
-PieChart  ← sales.opportunities-by-stage  → series.category@1
-LineChart ← sales.revenue-over-time       → series.time@1
-```
-
-The layout never stores SQL, Payload queries, arbitrary URLs, executable code, raw data snapshots, or visual group-by expressions.
-
-## Realtime behavior
-
-Ordinary counters, tables, and charts use authenticated invalidation/refetch:
-
-```text
-Sales mutation commits
-  → Sales invalidates topic sales.tasks or sales.opportunities
-  → Socket.IO provider authorizes subscribed clients
-  → affected source query becomes stale
-  → TanStack Query refetches through authenticated source endpoint
-  → source result is revalidated against its output contract
-  → component rerenders
-```
-
-Realtime messages normally do not carry full business records and are not the only source of truth.
-
-Typed snapshot + stream contracts are reserved for genuine live projections such as vehicle positions, dispatch telemetry, or long-running operation progress.
+Puck is the first engine candidate behind a narrow adapter. The editor engine, document runtime, and Payload document repository are separate boundaries.
 
 ## Theme model
 
-A theme has two layers:
-
 ```text
 theme package
-  code, token schema, palettes, semantic primitives,
-  variants, validation, structural CSS, migrations
+  executable token schema, palettes, recipes, structural styles, migrations
 
 theme profile
-  selected installed theme, adjustable validated tokens,
-  revisions, publication state
+  selected installed theme, validated adjustable values, revisions, publication
 ```
 
-Installing a new theme requires a package/build/deploy change. Switching among installed themes or adjusting palette/token values can happen at runtime after validation and publication.
+V1 uses a small semantic primitive ABI. Complex DataGrid, DatePicker, chart, map, rich-text, command, and drag-grid behavior lives in separate versioned adapters rather than being reimplemented by every theme.
 
-Admin and public themes are separate.
+## Contract governance
 
-## Conservative implementation baseline
-
-The first implementation uses mature package families behind K-Nex-owned adapters:
+Machine-readable contracts are normative:
 
 ```text
-Runtime/framework
-  Node.js 24 LTS
-  exact Payload + supported Next.js/React tuple
-  @payloadcms/db-postgres
-
-Monorepo/releases
-  pnpm workspaces
-  Turborepo
-  Changesets
-
-Validation
-  Zod 4
-  generated JSON Schema
-  Ajv 8
-
-UI/data
-  TanStack Query 5 for server data
-  scoped Zustand 5 vanilla stores for ephemeral UI state
-  React Aria Components behind semantic primitives
-  React Hook Form
-  TanStack Table 8 initially + TanStack Virtual
-  Apache ECharts 6 behind visualization adapter
-
-Runtime operations
-  Socket.IO 4 behind realtime.gateway
-  Payload Jobs Queue
-  Pino
-  OpenTelemetry API
-
-Testing/tooling
-  Vitest
-  React Testing Library
-  Playwright
-  Testcontainers PostgreSQL
-  Commander + @inquirer/prompts + Execa + semver
-  dependency-cruiser + publint + Are the Types Wrong
+contracts/architecture-contracts.v1.json
+schemas/plugin-manifest.v1.schema.json
+schemas/application-manifest.v1.schema.json
+fixtures/plugin-manifests/
 ```
 
-Implementation-library types do not become K-Nex plugin or persisted document contracts. Customer applications pin exact tested versions. Newly stable major versions pass an explicit soak, compatibility, migration, accessibility, and rollback gate before adoption.
+Run:
 
-TanStack Table v9 is evaluated behind the DataTable adapter but is not the first frozen baseline because its stable release is very recent relative to this decision.
-
-## Architectural principles
-
-1. **Payload is the foundation.** K-Nex extends Payload rather than pretending to abstract it away.
-2. **Core is small, stable, and domain-neutral.** CRM, logistics, restaurant, customer branding, and vertical policy live in plugins/customer code.
-3. **Plugins are versioned packages.** Their manifests declare compatibility, dependencies, surfaces, contributions, lifecycle, and capabilities where substitution matters.
-4. **Customer applications are separate repositories.** Generate the shell; do not copy or patch platform core source.
-5. **Every customer is independently deployable.** Database, storage, secrets, migrations, backups, and release cadence are isolated.
-6. **Composition is declarative and reviewable.** Manifest, exact packages, generated registries, customer config, and migrations define the product.
-7. **The CLI plans before it mutates.** Package, framework, infrastructure, source, UI, theme, and migration impact is visible before apply.
-8. **Payload database selection happens at scaffold time.** V1 uses Postgres; K-Nex does not add a second DB provider abstraction.
-9. **Runtime data never selects arbitrary executable packages.** Imports are statically generated.
-10. **UI hiding is not authorization.** Data sources, actions, record policy, fields, and realtime subscriptions are enforced server-side.
-11. **Modules expose deliberate projections.** Raw Payload collections are not automatically builder data sources.
-12. **Generic components consume output contracts.** Counter/table/chart blocks do not import Sales, Logistics, or Restaurant implementations.
-13. **Table fields are stable source IDs.** Internal Payload paths do not become persisted builder contracts.
-14. **Implementation libraries stay behind adapters.** TanStack, Zustand, React Aria, ECharts, Socket.IO, and Puck do not define domain plugin contracts.
-15. **Realtime normally invalidates and refetches.** Live streams require explicit snapshot/resync contracts.
-16. **Builder/theme input is structured and validated.** No arbitrary JavaScript, SQL, Payload queries, package imports, secrets, unrestricted URLs, or global CSS.
-17. **Customer-specific logic begins locally.** Promote it after reuse proves the abstraction.
-18. **Disable, uninstall, and purge differ.** Package removal never implies automatic data deletion.
-19. **Customer repositories own final migrations.** Module schema intent is composed into customer-specific production evolution.
-20. **Dependency upgrades are controlled.** Customer versions are exact and major upgrades require evidence, not fashion.
-
-## Initial technical direction
-
-```text
-Node.js 24 LTS
-TypeScript
-pnpm workspaces + Turborepo + Changesets
-Next.js + Payload
-Payload Postgres adapter
-Docker Postgres for local development
-Zod + generated JSON Schema + Ajv
-React Aria semantic primitives
-TanStack Query + scoped Zustand
-TanStack Table adapter + ECharts adapter
-Socket.IO realtime provider
-Payload Jobs
-Pino + OpenTelemetry hooks
-Vitest + Playwright + Testcontainers
-Puck behind a K-Nex builder adapter
-private package registry
-Docker-compatible customer releases
+```bash
+python3 scripts/validate_repository_contracts.py
 ```
 
-Payload and Puck remain provisional until the documented proof of concept passes its acceptance/rejection criteria. The other selected packages remain implementation details behind K-Nex contracts and are also subject to their documented POC gates.
+ADR decision status and evidence maturity are separate. The current repository is predominantly **design-only** until executable POC gates link test, migration, benchmark, failure-injection, and deployment evidence.
 
 ## Documentation
 
-Start with the [documentation index](./docs/README.md).
+Start with [the documentation index](./docs/README.md). Important additions from the architecture review:
 
-Key documents:
-
-- [Product vision](./docs/01-product-vision.md)
-- [System architecture](./docs/02-system-architecture.md)
-- [Plugin taxonomy and capabilities](./docs/13-plugin-taxonomy-and-capabilities.md)
-- [Application manifest](./docs/14-application-manifest.md)
-- [CLI and project generation](./docs/15-cli-and-project-generation.md)
-- [UI composition runtime](./docs/16-ui-composition-runtime.md)
-- [Builder engine and profiles](./docs/17-builder-engine-and-profiles.md)
-- [Theme and design system](./docs/18-theme-and-design-system.md)
-- [Payload database selection](./docs/23-database-adapters-and-runtime-providers.md)
-- [Plugin data sources and realtime invalidation](./docs/24-data-sources-state-and-binding-graph.md)
-- [Data-source output contracts](./docs/25-output-contracts.md)
-- [Technology and package baseline](./docs/26-technology-package-baseline.md)
-- [Decision register](./docs/21-decision-register.md)
-- [Architecture Decision Records](./docs/adr/README.md)
+- [Review disposition](./docs/27-architecture-review-remediation.md)
+- [Contract governance and determinism](./docs/28-contract-governance-and-determinism.md)
+- [Runtime security and reliability gates](./docs/29-runtime-security-reliability-and-quality-gates.md)
+- [Executable POC gates](./docs/30-executable-poc-gates.md)
 
 ## Repository status
 
-This repository currently contains architecture, research, and decision documentation.
-
-The first vertical POC should prove:
-
-```text
-one exact Node/Payload/Next/Postgres generated customer application
-Zod source schemas + generated JSON Schema + strict Ajv validation
-metric.scalar source feeding a Metric block
-table.records source feeding a selected-column DataTable
-category/time-series sources feeding ECharts-backed charts
-Payload authentication and field/record authorization
-actor-scoped TanStack Query cache and scoped Zustand filters
-Socket.IO invalidation and endpoint refetch
-React Aria semantic shell rendered by two themes
-Vitest/Playwright/Testcontainers and dependency-boundary checks
-a CMS page and workspace dashboard
-two independent customer repositories and migrations
-```
-
-## Working package names
-
-Examples use conceptual `@k-nex/*` package names. Final registry scope remains open. Persisted plugin, block, source, contract, and state IDs remain independent from package location.
+This repository contains architecture, schemas, fixtures, governance, and research plans. It is not yet a production platform implementation. Claims such as Payload/Puck acceptance, WCAG conformance, SLSA maturity, retained-schema uninstall support, or production readiness require linked evidence.
 
 ## License
 
-No license has been selected. Until one is added, the repository and contents should be treated as proprietary.
+No license has been selected. Until one is added, the repository and its contents should be treated as proprietary.
