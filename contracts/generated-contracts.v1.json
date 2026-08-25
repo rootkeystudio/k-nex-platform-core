@@ -1,0 +1,9 @@
+{
+  "artifacts": [
+    "contracts/architecture-contracts.v1.json",
+    "schemas/plugin-manifest.v1.schema.json",
+    "schemas/application-manifest.v1.schema.json"
+  ],
+  "generator": "@k-nex/architecture-contract-tools",
+  "version": 1
+}

@@ -1,88 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "schemaVersion": 1,
-  "identity": {
-    "pluginIdPattern": "^(module|provider|builder|theme|integration|preset)(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
-    "capabilityIdPattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
-    "resourceIdPattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
-    "outputContractIdPattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+@[1-9][0-9]*$",
-    "rules": [
-      "Dots express namespace hierarchy.",
-      "A hyphen is allowed only inside one semantic segment.",
-      "Package names are deployment locations and are not persisted identities.",
-      "A persisted ID rename requires an explicit data/document migration; runtime aliases are not a permanent compatibility mechanism."
-    ],
-    "canonicalExamples": {
-      "plugins": [
-        "module.sales",
-        "module.logistics.core",
-        "module.logistics.driver",
-        "module.logistics.live-tracking",
-        "provider.realtime.socketio",
-        "builder.puck",
-        "theme.neobrutalism"
-      ],
-      "capabilities": [
-        "realtime.gateway",
-        "storage.objects",
-        "builder.engine"
-      ],
-      "resources": [
-        "sales.tasks",
-        "sales.total-potential-revenue",
-        "logistics.shipment.assign",
-        "page.filters.date-range"
-      ]
-    }
-  },
-  "registration": {
-    "phases": [
-      "manifest",
-      "contracts",
-      "providers",
-      "schema",
-      "behavior",
-      "jobs",
-      "data-handlers",
-      "ui",
-      "admin",
-      "validate",
-      "freeze"
-    ],
-    "rules": {
-      "manifest": "Load and validate side-effect-free package metadata.",
-      "contracts": "Register IDs, schemas, permissions, events, capabilities, source descriptors, action descriptors, block descriptors, and service tokens.",
-      "providers": "Bind only resolved capability implementations.",
-      "schema": "Register owned Payload collections, globals, fields, indexes, and storage schema.",
-      "behavior": "Bind domain services, commands, policies, endpoints, and subscribers.",
-      "jobs": "Bind tasks, workflows, schedules, and durable event processors.",
-      "data-handlers": "Bind executable server handlers to previously declared data-source descriptors.",
-      "ui": "Bind browser-safe navigation, screens, renderers, state, and action clients.",
-      "admin": "Bind Payload admin and privileged system screens.",
-      "validate": "Compare declared and actual contributions, check collisions, dependencies, bundles, and readiness invariants.",
-      "freeze": "Produce immutable resolved inventory and reject later registration."
-    }
-  },
-  "outputContracts": [
-    "metric.scalar@1",
-    "table.records@1",
-    "series.category@1",
-    "series.time@1",
-    "options.list@1",
-    "record.summary@1"
-  ],
-  "lifecycle": {
-    "schemaOwningPluginV1": {
-      "reversibleOperations": ["disable", "re-enable"],
-      "destructiveOperations": ["purge"],
-      "uninstallWithRetainedSchema": "unsupported-until-executable-proof",
-      "archiveOrExport": "explicit-project-operation"
-    },
-    "schemaLessPluginV1": {
-      "uninstall": "allowed-after-dependency-and-reference-checks"
-    }
-  },
   "determinism": {
+    "buildAndDeploymentMetadata": "Produced separately as signed CI provenance and deployment receipts.",
     "committedArtifacts": [
       ".k-nex/generated/k-nex.resolved.json",
       ".k-nex/generated/plugin-registry.ts",
@@ -98,8 +17,7 @@
       "hostnames",
       "random identifiers",
       "secret values"
-    ],
-    "buildAndDeploymentMetadata": "Produced separately as signed CI provenance and deployment receipts."
+    ]
   },
   "forbiddenLegacySymbols": [
     "module.logistics-core",
@@ -113,5 +31,92 @@
     "@k-nex/database-postgres",
     "database.primary",
     "metric.money@1"
-  ]
+  ],
+  "identity": {
+    "canonicalExamples": {
+      "capabilities": [
+        "realtime.gateway",
+        "storage.objects",
+        "builder.engine"
+      ],
+      "plugins": [
+        "module.sales",
+        "module.logistics.core",
+        "module.logistics.driver",
+        "module.logistics.live-tracking",
+        "provider.realtime.socketio",
+        "builder.puck",
+        "theme.neobrutalism"
+      ],
+      "resources": [
+        "sales.tasks",
+        "sales.total-potential-revenue",
+        "logistics.shipment.assign",
+        "page.filters.date-range"
+      ]
+    },
+    "capabilityIdPattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+    "outputContractIdPattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+@[1-9][0-9]*$",
+    "pluginIdPattern": "^(module|provider|builder|theme|integration|preset)(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+    "resourceIdPattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+    "rules": [
+      "Dots express namespace hierarchy.",
+      "A hyphen is allowed only inside one semantic segment.",
+      "Package names are deployment locations and are not persisted identities.",
+      "A persisted ID rename requires an explicit data/document migration; runtime aliases are not a permanent compatibility mechanism."
+    ]
+  },
+  "lifecycle": {
+    "schemaLessPluginV1": {
+      "uninstall": "allowed-after-dependency-and-reference-checks"
+    },
+    "schemaOwningPluginV1": {
+      "archiveOrExport": "explicit-project-operation",
+      "destructiveOperations": [
+        "purge"
+      ],
+      "reversibleOperations": [
+        "disable",
+        "re-enable"
+      ],
+      "uninstallWithRetainedSchema": "unsupported-until-executable-proof"
+    }
+  },
+  "outputContracts": [
+    "metric.scalar@1",
+    "table.records@1",
+    "series.category@1",
+    "series.time@1",
+    "options.list@1",
+    "record.summary@1"
+  ],
+  "registration": {
+    "phases": [
+      "manifest",
+      "contracts",
+      "providers",
+      "schema",
+      "behavior",
+      "jobs",
+      "data-handlers",
+      "ui",
+      "admin",
+      "validate",
+      "freeze"
+    ],
+    "rules": {
+      "admin": "Bind Payload admin and privileged system screens.",
+      "behavior": "Bind domain services, commands, policies, endpoints, and subscribers.",
+      "contracts": "Register IDs, schemas, permissions, events, capabilities, source descriptors, action descriptors, block descriptors, and service tokens.",
+      "data-handlers": "Bind executable server handlers to previously declared data-source descriptors.",
+      "freeze": "Produce immutable resolved inventory and reject later registration.",
+      "jobs": "Bind tasks, workflows, schedules, and durable event processors.",
+      "manifest": "Load and validate side-effect-free package metadata.",
+      "providers": "Bind only resolved capability implementations.",
+      "schema": "Register owned Payload collections, globals, fields, indexes, and storage schema.",
+      "ui": "Bind browser-safe navigation, screens, renderers, state, and action clients.",
+      "validate": "Compare declared and actual contributions, check collisions, dependencies, bundles, and readiness invariants."
+    }
+  },
+  "schemaVersion": 1
 }
