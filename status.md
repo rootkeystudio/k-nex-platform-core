@@ -2,21 +2,21 @@
 
 - **Updated:** 2026-08-25
 - **Phase:** Phase 0 — Contract Freeze and Repository Readiness
-- **Active task:** P0.4 — Implement executable contract and documentation validation
-- **State:** Ready for re-review
+- **Active task:** P0.5 — Prove generation reproducibility
+- **State:** Ready to start
 
 ## Last completed
 
-Addressed the third P0.4 review: Windows drive-relative paths are rejected, repository references require regular non-symlink files, generated JSON keys are inspected structurally, required valid-fixture categories are enforced, and ADR evidence arrays are shape-checked.
+Reviewed and accepted P0.4; executable TypeScript validation now covers schemas, fixture inventories, legacy symbols, ADR evidence, Markdown links, generated-artifact inventories, cross-platform repository paths, regular-file boundaries, and structural forbidden-key checks.
 
 ## Validation
 
-The reviewer-requested pinned build, generation cleanliness, contract validation, twenty-two Vitest tests, documentation validation, and diff checks pass locally on Node 24.19.0 with pnpm 11.9.0. Full `pnpm phase:0` remains intentionally blocked at P0.5 reproducibility.
+PR #9 Architecture contracts run #25 passed on Node 24.19.0 with pnpm 11.9.0. CI executed contract validation and 22 Vitest tests. Full `pnpm phase:0` remains intentionally blocked at P0.5 reproducibility.
 
 ## Next
 
-Obtain re-review approval for PR #9 and merge only after the required CI check passes.
+Execute P0.5 exactly as defined in `docs/implementation/phase-0.md`.
 
 ## Blockers
 
-GitHub repository ruleset verification remains open in issue #2; it does not block P0.4 implementation.
+GitHub repository ruleset verification remains open in issue #2; it does not block P0.5 implementation.
