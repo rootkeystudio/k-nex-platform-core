@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -45,15 +45,16 @@ const artifacts = [
   }
 ] satisfies readonly Artifact[];
 
-async function generate(check: boolean): Promise<void> {
+export async function generate(root: string, check: boolean): Promise<void> {
   const stale: string[] = [];
   for (const { path: relativePath, value } of artifacts) {
     const content = canonicalJson(value);
-    const path = resolve(repositoryRoot, relativePath);
+    const path = resolve(root, relativePath);
     if (check) {
       const current = await readFile(path, "utf8").catch(() => "");
       if (current !== content) stale.push(relativePath);
     } else {
+      await mkdir(dirname(path), { recursive: true });
       await writeFile(path, content, "utf8");
     }
   }
@@ -62,6 +63,16 @@ async function generate(check: boolean): Promise<void> {
   console.log(check ? "Generated contract artifacts are current." : "Generated contract artifacts updated.");
 }
 
-const argument = process.argv[2];
-if (argument !== undefined && argument !== "--check") throw new Error(`Unknown argument: ${argument}`);
-await generate(argument === "--check");
+let check = false;
+let outputRoot = repositoryRoot;
+for (let index = 2; index < process.argv.length; index += 1) {
+  const argument = process.argv[index];
+  if (argument === "--check") check = true;
+  else if (argument === "--output-root") {
+    const value = process.argv[index + 1];
+    if (value === undefined) throw new Error("--output-root requires a path.");
+    outputRoot = resolve(value);
+    index += 1;
+  } else throw new Error(`Unknown argument: ${argument}`);
+}
+await generate(outputRoot, check);

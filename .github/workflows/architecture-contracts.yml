@@ -28,7 +28,11 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Verify generated tree is clean
+        run: pnpm contracts:generate && pnpm contracts:generated-clean
       - name: Validate architecture contracts
         run: pnpm contracts:validate
       - name: Test architecture contracts
         run: pnpm contracts:test
+      - name: Prove contract reproducibility
+        run: pnpm contracts:reproducibility

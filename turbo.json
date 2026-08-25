@@ -16,6 +16,13 @@
       ],
       "outputs": []
     },
+    "generated-clean": {
+      "dependsOn": [
+        "build"
+      ],
+      "cache": false,
+      "outputs": []
+    },
     "validate": {
       "dependsOn": [
         "build"
