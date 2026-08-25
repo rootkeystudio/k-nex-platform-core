@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-26
 - **Phase:** Phase 1 — Minimal Deterministic Payload Composition
-- **Active task:** P1.7 — Prove customer-owned migration and clean Postgres boot
+- **Active task:** P1.8 — Add one authenticated query and protected runtime inventory
 - **State:** Ready to start
 
 ## Last completed
 
-Added the accepted Gate 2A plan between data sources and realtime: explicit plugin agent tools, actor/delegation-filtered discovery, safe source/action execution, approval/idempotency/audit controls, and MCP as an interoperability adapter. Phase 1 implementation remains complete through P1.6.
+Generated and reviewed the customer-owned Gate 1 migration, wired production migrations with schema push disabled, added explicit predecessor/current revision readiness, and proved the complete migration matrix against digest-pinned PostgreSQL 17.6 through Testcontainers. The accepted Gate 2A planning update remains in the master plan.
 
 ## Validation
 
-The planning change must pass architecture-contract CI. Existing Phase 1 validation through P1.6 remains recorded in PR #14: package builds, composition and Payload-adapter tests, packed fixture integration, reproducibility, Phase 0 regression, generated-registry checks, and audit threshold pass.
+The real PostgreSQL acceptance test passes empty database migration and boot, already-current no-op boot, failed-migration rollback/non-readiness, and incompatible-revision readiness failure. Payload-adapter tests and the packed-fixture config test also pass.
 
 ## Next
 
-Implement P1.7 customer-owned migration generation/review and the real disposable Postgres boot/revision matrix.
+Implement P1.8's authenticated query and protected runtime inventory endpoint.
 
 ## Blockers
 

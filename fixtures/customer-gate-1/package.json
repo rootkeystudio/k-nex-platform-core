@@ -10,7 +10,8 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "test": "pnpm build && node --test tests/payload-config.test.mjs"
+    "test": "pnpm build && node --test tests/payload-config.test.mjs",
+    "test:postgres": "pnpm build && node --test tests/postgres-gate.test.mjs"
   },
   "dependencies": {
     "@k-nex/composition": "workspace:*",
@@ -26,7 +27,9 @@
     "react-dom": "19.2.8"
   },
   "devDependencies": {
+    "@testcontainers/postgresql": "12.1.0",
     "@types/node": "24.13.3",
+    "pg": "8.20.0",
     "typescript": "6.0.3"
   }
 }

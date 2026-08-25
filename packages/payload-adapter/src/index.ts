@@ -1,4 +1,5 @@
 import { postgresAdapter } from "@payloadcms/db-postgres";
+import type { MigrateDownArgs, MigrateUpArgs } from "@payloadcms/db-postgres";
 import type { RegistrationResult } from "@k-nex/composition";
 import type { CollectionConfig, Config } from "payload";
 
@@ -36,7 +37,14 @@ export interface ComposePayloadApplicationOptions {
   readonly baseConfig: Omit<Config, "collections" | "db">;
   readonly baseCollections?: readonly CollectionConfig[];
   readonly databaseUrl: string;
+  readonly migrations?: readonly CustomerPayloadMigration[];
   readonly registration: RegistrationResult;
+}
+
+export interface CustomerPayloadMigration {
+  readonly name: string;
+  readonly up: (args: MigrateUpArgs) => Promise<void>;
+  readonly down: (args: MigrateDownArgs) => Promise<void>;
 }
 
 type OwnedCollectionValue = Readonly<{
@@ -137,7 +145,11 @@ export function composePayloadApplication(options: ComposePayloadApplicationOpti
 
   const config: Config = {
     ...options.baseConfig,
-    db: postgresAdapter({ pool: { connectionString: options.databaseUrl } }),
+    db: postgresAdapter({
+      pool: { connectionString: options.databaseUrl },
+      prodMigrations: [...(options.migrations ?? [])],
+      push: false
+    }),
     collections
   };
 
