@@ -2,13 +2,16 @@
 
 ## Purpose
 
-Every customer repository has a declarative source of truth describing which K-Nex plugins are installed, which providers satisfy infrastructure capabilities, which builder and theme packages are available, and which project-generation choices were made.
+Every customer repository has a declarative source of truth describing:
 
-The manifest is designed for three audiences:
-
-- humans reviewing the product composition;
-- the `k-nex` CLI planning and applying changes;
-- CI validating that generated registries and installed packages match the declared application.
+- application identity and runtime expectations;
+- selected Payload framework options, including database adapter;
+- installed K-Nex plugins and exact requested versions;
+- selected replaceable providers such as realtime or storage;
+- builder profiles;
+- installed themes and defaults;
+- local development and deployment scaffold choices;
+- required environment variable names.
 
 The primary file is:
 
@@ -22,22 +25,22 @@ Customer-specific executable behavior lives separately in:
 k-nex.config.ts
 ```
 
-This split keeps routine package operations machine-editable without removing the ability to write custom TypeScript extensions.
+This split allows the CLI to safely edit routine composition while preserving typed customer code for real extensions.
 
 ## Sources of truth
 
-The customer repository has four complementary sources of truth:
-
 | Source | Owns |
 |---|---|
-| `k-nex.app.json` | desired K-Nex composition and non-secret build-time options |
-| `k-nex.config.ts` | customer-specific executable extensions and overrides |
-| `package.json` + `pnpm-lock.yaml` | exact package artifacts and full dependency graph |
+| `k-nex.app.json` | desired composition, Payload/scaffold choices, non-secret build options |
+| `k-nex.config.ts` | customer-specific executable extensions/overrides |
+| `package.json` + lockfile | exact installed artifacts and transitive graph |
+| `.k-nex/generated/*` | deterministic generated registries/inventory |
 | customer migrations | final deployed database evolution |
+| runtime database records | published pages/layouts/themes and validated runtime settings |
 
-Generated files are derived from these sources and must not be edited manually.
+Generated files are derived and must not be edited manually.
 
-## Complete example
+# Complete example
 
 ```json
 {
@@ -59,6 +62,16 @@ Generated files are derived from these sources and must not be edited manually.
     "deploymentMode": "container"
   },
 
+  "framework": {
+    "payload": {
+      "database": {
+        "adapter": "postgres",
+        "package": "@payloadcms/db-postgres",
+        "connectionEnvironmentVariable": "DATABASE_URL"
+      }
+    }
+  },
+
   "plugins": [
     {
       "id": "module.cms",
@@ -72,9 +85,15 @@ Generated files are derived from these sources and must not be edited manually.
       }
     },
     {
-      "id": "module.crm",
-      "package": "@k-nex/module-crm",
+      "id": "module.sales",
+      "package": "@k-nex/module-sales",
       "version": "1.4.2",
+      "enabled": true
+    },
+    {
+      "id": "module.visualization",
+      "package": "@k-nex/module-visualization",
+      "version": "1.0.0",
       "enabled": true
     },
     {
@@ -102,14 +121,6 @@ Generated files are derived from these sources and must not be edited manually.
   ],
 
   "providers": {
-    "database.primary": {
-      "plugin": "provider.database-postgres",
-      "package": "@k-nex/database-postgres",
-      "version": "1.0.0",
-      "options": {
-        "connectionEnvironmentVariable": "DATABASE_URL"
-      }
-    },
     "realtime.gateway": {
       "plugin": "provider.realtime-websocket-local",
       "package": "@k-nex/provider-websocket",
@@ -185,7 +196,8 @@ Generated files are derived from these sources and must not be edited manually.
 
   "development": {
     "database": {
-      "mode": "docker-postgres"
+      "mode": "docker-postgres",
+      "serviceName": "postgres"
     },
     "services": {
       "redis": false,
@@ -215,52 +227,120 @@ Generated files are derived from these sources and must not be edited manually.
 
 The manifest contains environment variable names, never secret values.
 
-## JSON schema
+# Payload framework configuration
 
-`@k-nex/cli` publishes a versioned JSON schema. Editors can provide validation and autocomplete through the `$schema` property.
+## Database adapter
 
-Schema responsibilities:
+The Payload database adapter is a framework/scaffold choice, not a K-Nex provider plugin.
+
+V1:
+
+```json
+{
+  "framework": {
+    "payload": {
+      "database": {
+        "adapter": "postgres",
+        "package": "@payloadcms/db-postgres",
+        "connectionEnvironmentVariable": "DATABASE_URL"
+      }
+    }
+  }
+}
+```
+
+The CLI installs the adapter package and generates the Payload `db` configuration.
+
+The manifest must not contain conceptual entries such as:
+
+```text
+provider.database-postgres
+@k-nex/database-postgres
+database.primary
+```
+
+K-Nex does not add a second primary-database provider abstraction above Payload.
+
+## Local versus external Postgres
+
+Local Docker:
+
+```json
+{
+  "development": {
+    "database": {
+      "mode": "docker-postgres",
+      "serviceName": "postgres"
+    }
+  }
+}
+```
+
+Existing/managed Postgres:
+
+```json
+{
+  "development": {
+    "database": {
+      "mode": "external"
+    }
+  }
+}
+```
+
+Neon or another hosted Postgres service uses the same Payload Postgres adapter and a `DATABASE_URL`. Future CLI recipes can add provider-specific deployment guidance without introducing a K-Nex persistence interface.
+
+# JSON schema
+
+`@k-nex/cli` publishes a versioned JSON schema for editor validation/autocomplete.
+
+Responsibilities:
 
 - validate top-level structure and `schemaVersion`;
-- validate plugin and provider identifiers;
-- validate common option types;
-- reject unknown keys by default where forward compatibility allows;
-- validate identifier format and duplicate entries;
-- ensure secret values are not embedded in known secret fields;
-- express discriminated unions for database and deployment modes.
+- validate application identity;
+- validate supported Payload framework choices;
+- validate plugin/provider/builder/theme identifiers;
+- validate exact requested versions;
+- reject duplicate IDs and unknown keys where appropriate;
+- validate common options;
+- prevent known secret values from being embedded;
+- validate local infrastructure/deployment discriminated unions;
+- validate environment variable names;
+- support deterministic normalization.
 
-Plugin-specific options cannot all be hard-coded into the root schema. The CLI loads the selected plugin's static option schema and performs a second validation pass.
+Plugin-specific options are validated through each selected plugin's static option schema after root manifest validation.
 
-## Declarative versus programmatic configuration
+# Declarative versus programmatic configuration
 
-### `k-nex.app.json`
+## `k-nex.app.json`
 
-Use the JSON manifest for:
+Use JSON for:
 
-- installed packages;
-- exact requested plugin versions;
-- enabled/disabled state;
-- plugin build-time options;
-- provider selection;
-- builder selection and profiles;
-- installed themes and defaults;
-- local infrastructure generation;
-- Docker and scaffold choices;
-- required environment variable names.
+- Payload database adapter selection;
+- local/external database scaffold mode;
+- installed plugin packages and exact versions;
+- plugin enabled state and build-time options;
+- replaceable provider selection;
+- builder selection/profiles;
+- installed themes/defaults;
+- Docker/local infrastructure generation;
+- required environment variable names;
+- generated-file policy.
 
-The CLI can safely add, remove, sort, normalize, and validate these values.
+The CLI can safely add, remove, normalize, sort, and validate this data.
 
-### `k-nex.config.ts`
+## `k-nex.config.ts`
 
-Use TypeScript for behavior that cannot be represented safely as data:
+Use TypeScript for:
 
-- customer-specific extensions;
-- custom domain policies;
-- custom commands or jobs;
-- custom UI blocks and screens;
-- custom data sources and actions;
-- integration adapters implemented inside the customer repository;
-- deliberate overrides at documented extension points.
+- customer-specific domain policies;
+- custom commands/jobs;
+- custom data-source handlers/descriptors;
+- custom actions;
+- custom UI blocks/screens;
+- integration adapters implemented in the customer repository;
+- deliberate renderer/primitive overrides;
+- explicit framework extension points.
 
 Example:
 
@@ -268,6 +348,7 @@ Example:
 import { defineCustomerConfig } from '@k-nex/core'
 import { acmePricingExtension } from './packages/customer-extensions/pricing'
 import { trackingPerformanceBlock } from './packages/customer-components/tracking-performance'
+import { customMarginSource } from './packages/customer-extensions/custom-margin-source'
 
 export default defineCustomerConfig({
   extensions: [
@@ -277,26 +358,27 @@ export default defineCustomerConfig({
   ],
   ui: {
     blocks: [trackingPerformanceBlock],
+    dataSources: [customMarginSource],
   },
 })
 ```
 
-The TypeScript config may consume public K-Nex/module contracts. It must not patch files inside installed packages.
+Customer code uses documented public contracts and must not patch installed package files.
 
-## Requested versus resolved composition
+# Requested versus resolved composition
 
-The manifest expresses the desired composition. The resolver produces an immutable resolved application graph containing:
+The manifest expresses desired composition. The resolver produces an immutable graph/inventory containing:
 
-- selected plugin packages and exact installed versions;
+- selected plugins and exact installed versions;
 - expanded preset results;
-- capability providers;
-- enabled optional integrations;
+- selected replaceable capability providers;
+- selected Payload framework adapter package;
 - registration order;
 - environment requirements;
-- routes, permissions, events, jobs, data ownership, and UI inventory;
-- compatibility and migration warnings.
+- routes, permissions, events, jobs, actions, sources, fields, UI blocks, themes;
+- compatibility/collision/migration warnings.
 
-Generated inventory example:
+Example build inventory:
 
 ```json
 {
@@ -305,11 +387,19 @@ Generated inventory example:
   "generatedAt": "2026-08-25T12:00:00.000Z",
   "coreVersion": "1.4.2",
   "payloadVersion": "3.x",
+  "framework": {
+    "payload": {
+      "databaseAdapter": {
+        "id": "postgres",
+        "package": "@payloadcms/db-postgres"
+      }
+    }
+  },
   "plugins": [
     {
-      "id": "module.logistics-driver",
-      "package": "@k-nex/module-driver",
-      "version": "1.3.0",
+      "id": "module.sales",
+      "package": "@k-nex/module-sales",
+      "version": "1.4.2",
       "state": "enabled"
     }
   ],
@@ -318,85 +408,89 @@ Generated inventory example:
       "version": "1.0.0",
       "provider": "provider.realtime-websocket-local"
     }
-  }
+  },
+  "dataSources": [
+    {
+      "id": "sales.total-opportunities",
+      "version": 1,
+      "plugin": "module.sales",
+      "outputContract": "metric.money@1"
+    },
+    {
+      "id": "sales.tasks",
+      "version": 1,
+      "plugin": "module.sales",
+      "outputContract": "table.records@1"
+    }
+  ]
 }
 ```
 
-This generated inventory is diagnostic and operational data. It is not a second editable manifest.
+This is generated diagnostic/operational data, not a second editable manifest.
 
-## Generated files
-
-The CLI writes deterministic files under:
+# Generated files
 
 ```text
 .k-nex/generated/
 ├── plugin-registry.ts
 ├── provider-registry.ts
 ├── ui-registry.ts
+├── data-source-registry.ts
+├── action-registry.ts
+├── state-registry.ts
 ├── theme-registry.ts
 ├── payload-contributions.ts
+├── payload-database.ts
 ├── environment-schema.ts
 └── build-manifest.json
 ```
 
-Current decision: generated registries and `build-manifest.json` are committed to the customer repository.
+Generated registries are committed in V1.
 
-Reasons:
-
-- pull requests show the exact runtime composition change;
-- security and architecture review can inspect imports before deployment;
-- local development does not depend on hidden generation side effects;
-- release metadata is reproducible from the repository state.
-
-CI runs:
+CI:
 
 ```bash
 k-nex generate --check
 ```
 
-and fails when committed generated files are stale.
-
-Generated files include a header:
+Generated headers:
 
 ```ts
 // Generated by @k-nex/cli. Do not edit.
 // Source: k-nex.app.json + k-nex.config.ts + pnpm-lock.yaml
 ```
 
-## Manifest normalization
+# Manifest normalization
 
-`k-nex sync` rewrites the manifest into canonical form:
+`k-nex sync` produces canonical formatting:
 
 - stable key order;
-- sorted plugin lists by ID;
+- plugin lists sorted by stable ID;
 - explicit versions;
-- normalized booleans and defaults;
-- removed deprecated aliases;
-- expanded preset output when requested;
+- normalized defaults;
+- deprecated aliases removed;
+- preset expansion where requested;
 - no secret material;
-- deterministic newline/formatting.
+- deterministic newline/formatting;
+- supported framework choices only.
 
-Canonical formatting prevents noisy diffs and makes composition changes reviewable.
-
-## Manual editing workflow
-
-Manual editing is supported and expected.
+# Manual editing workflow
 
 ```text
 1. Edit k-nex.app.json.
 2. Run k-nex plan.
-3. Review dependency/provider/package/migration changes.
+3. Review package/framework/provider/UI/source/infrastructure/migration impact.
 4. Run k-nex sync or k-nex apply.
 5. Review package.json, lockfile, generated files, and migrations.
 6. Run k-nex doctor and tests.
 7. Commit all resulting artifacts together.
 ```
 
-The CLI never assumes the JSON file is only machine-written.
+Manual editing is a supported first-class workflow.
 
-## Presets
+# Presets
 
-A preset is selected during creation or added later, but the resulting customer manifest should become explicit.
+A preset expands into explicit choices. Existing applications should not silently change when a preset package later changes.
 
 Input:
 
@@ -406,13 +500,13 @@ Input:
 }
 ```
 
-Resolved and persisted result:
+Resolved persisted output:
 
 ```json
 {
   "plugins": [
     { "id": "module.cms", "package": "@k-nex/module-cms", "version": "2.1.0" },
-    { "id": "module.crm", "package": "@k-nex/module-crm", "version": "1.4.2" },
+    { "id": "module.sales", "package": "@k-nex/module-sales", "version": "1.4.2" },
     { "id": "module.logistics-core", "package": "@k-nex/module-logistics-core", "version": "1.8.0" },
     { "id": "module.logistics-dispatch", "package": "@k-nex/module-dispatch", "version": "1.5.1" },
     { "id": "module.logistics-driver", "package": "@k-nex/module-driver", "version": "1.3.0" }
@@ -420,35 +514,30 @@ Resolved and persisted result:
 }
 ```
 
-This prevents the meaning of an existing application from changing when a preset package later adds a new recommendation.
-
-## Enabled state
-
-The manifest distinguishes package installation from plugin enablement.
+# Enabled state
 
 ```json
 {
-  "id": "module.crm",
-  "package": "@k-nex/module-crm",
+  "id": "module.sales",
+  "package": "@k-nex/module-sales",
   "version": "1.4.2",
   "enabled": false
 }
 ```
 
-An installed-but-disabled schema-owning plugin may still need its collections registered so historical data remains readable. The plugin manifest declares whether disablement is supported and what is gated:
+Disablement can gate:
 
-- navigation and UI blocks;
+- navigation/screens/blocks;
+- source discovery/execution;
 - public routes;
-- commands/actions;
-- jobs and schedules;
+- actions/commands;
+- jobs/schedules;
 - event subscribers;
-- write operations.
+- writes.
 
-Disablement does not remove tables or data.
+Disablement does not automatically remove Payload collections/tables/data. Schema-owning disable/uninstall behavior requires module-declared lifecycle support.
 
-## Environment and secrets
-
-The manifest references secrets by logical environment name only.
+# Environment and secrets
 
 Allowed:
 
@@ -466,69 +555,56 @@ Forbidden:
 }
 ```
 
-Secret values belong in:
+Secrets belong in ignored local environment files, CI/CD secret storage, deployment platform secrets, or dedicated secret managers.
 
-- `.env.local` for local development and never committed;
-- CI/CD encrypted secrets;
-- a deployment platform secret store;
-- a dedicated secret manager.
+The final framework/plugin graph generates the environment schema. `k-nex doctor` reports missing/malformed variables without printing values.
 
-`.env.example` contains names and safe placeholders.
+# Schema versioning
 
-The resolved plugin graph produces the final environment schema. `k-nex doctor` reports missing, unexpected, or malformed variables without printing secret values.
-
-## Schema versioning
-
-`schemaVersion` versions the K-Nex application manifest format, not the installed application.
-
-When the manifest schema changes:
+`schemaVersion` versions the manifest format, not the application database.
 
 ```bash
 k-nex manifest migrate
 ```
 
-performs a deterministic source transformation and presents the diff. A CLI major release must either support the previous manifest version or fail with a specific upgrade command.
+performs deterministic source transformation and presents a diff. Manifest migrations never execute Payload/database migrations.
 
-Manifest migrations never perform database migrations.
+# Validation invariants
 
-## Validation invariants
+A valid manifest requires:
 
-The application manifest is valid only when:
+- stable application ID;
+- supported Payload database adapter selection;
+- adapter package/version consistency with `package.json`/lockfile;
+- every K-Nex plugin ID mapped to one installed package;
+- exact requested versions resolved;
+- required capabilities satisfied by compatible providers;
+- selected themes installed for their surfaces;
+- builder present when required;
+- environment requirements derivable;
+- no committed secret values;
+- generated registries current;
+- plugin-specific option schemas valid;
+- disabled/uninstalled states compatible with dependents;
+- no duplicate route/permission/block/source/action/state IDs;
+- source output/field contracts valid.
 
-- application ID is stable and unique within operations inventory;
-- every plugin ID maps to exactly one installed package;
-- exact package versions agree with `package.json` and the lockfile;
-- required capabilities have compatible providers;
-- single-provider capabilities have one selected implementation;
-- selected themes are installed for the relevant surface;
-- the builder is installed when a selected module requires `builder.engine`;
-- environment requirements can be derived and validated;
-- no build-time secret value is embedded;
-- generated registries are current;
-- plugin-specific option schemas pass;
-- disabled/uninstalled states are compatible with dependent plugins.
+# Application identity stability
 
-## Application identity stability
+`application.id` appears in logs, traces, audits, release inventory, internal realtime metadata, storage prefixes where configured, backups, and operational inventory.
 
-`application.id` becomes part of:
+Renaming requires an explicit runbook/migration.
 
-- logs and traces;
-- audit records;
-- release inventory;
-- WebSocket/internal channel metadata;
-- storage prefixes where configured;
-- backup and operations metadata.
-
-It should not be casually renamed. A rename requires an explicit migration/runbook and does not change customer data ownership.
-
-## Non-goals
+# Non-goals
 
 The manifest is not:
 
-- a place to store arbitrary executable JavaScript;
 - a secret vault;
+- arbitrary executable JavaScript;
 - a runtime package marketplace;
 - a database migration history;
-- a replacement for `package.json` or `pnpm-lock.yaml`;
-- a shared SaaS tenant configuration file;
-- a promise that every option can change without rebuild/deployment.
+- a replacement for `package.json`/lockfile;
+- a raw Payload configuration dump;
+- a shared SaaS tenant file;
+- a promise that every setting changes without rebuild/deployment;
+- a place to store data-source results or arbitrary query definitions.
