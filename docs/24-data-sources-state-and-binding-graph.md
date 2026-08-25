@@ -2,74 +2,86 @@
 
 ## Purpose
 
-K-Nex modules can expose small, purpose-built, authenticated data endpoints that reusable UI components consume through the visual builder.
+K-Nex modules expose small, purpose-built, authenticated data sources that reusable UI components can consume through the visual builder.
 
 The intended experience is:
 
 ```text
-1. Install/enable the Sales module.
-2. Sales registers data sources such as:
-     sales.total-opportunities
+1. Enable the Sales module.
+2. Sales registers sources such as:
+     sales.total-potential-revenue
      sales.tasks
      sales.opportunities-by-stage
-3. Add a Counter block to a CMS/workspace page.
-4. Select Sales → Total opportunities as its data source.
-5. Add a Data Table block.
-6. Select Sales → Tasks and choose visible columns.
-7. When Sales data changes, the realtime layer invalidates affected queries.
-8. Connected components refetch and render current authorized data.
+     sales.revenue-over-time
+3. Add a Counter block and choose Sales → Total potential revenue.
+4. Add a DataTable block and choose Sales → Tasks.
+5. Select the visible task fields from the source descriptor.
+6. Add a PieChart and choose Sales → Opportunities by stage.
+7. Bind all three sources to shared page filters where allowed.
+8. When Sales data changes, realtime invalidates affected queries.
+9. Connected components refetch current authorized projections.
 ```
 
-K-Nex does not expose module databases, Payload collections, raw React stores, or unrestricted query builders to the page editor. A module deliberately defines each projection that can be consumed.
+K-Nex does not expose Payload collections, raw database access, internal React stores, unrestricted URLs, arbitrary query builders, or live result snapshots to the editor.
 
-## Accepted decision
+A plugin deliberately defines every projection that can be discovered and executed.
 
-> A K-Nex module owns and registers typed data-source handlers. The K-Nex runtime mounts them behind a standard authenticated execution API, validates inputs and outputs, enforces module permissions and record access, and exposes safe descriptors to the builder. Realtime notifications normally invalidate/refetch those sources rather than treating WebSocket messages as the authoritative state.
+## Accepted architecture
 
-## Conceptual architecture
+> A K-Nex module owns typed data-source descriptors and server handlers. K-Nex mounts them behind a standard authenticated gateway, validates inputs and outputs, enforces plugin permissions and record/field policy, exposes actor-filtered descriptors to the builder, and connects source invalidation to the realtime provider. Components bind to stable output contracts rather than module implementations.
+
+Related decisions:
+
+- [ADR-0010 — Typed data sources, UI state, and declarative bindings](./adr/0010-typed-data-source-state-binding-graph.md)
+- [ADR-0012 — Hybrid output contracts](./adr/0012-hybrid-output-contracts.md)
+- [Data-source output contracts](./25-output-contracts.md)
+
+# Conceptual architecture
 
 ```text
 Sales module
-  ├── collections/domain services
-  ├── permissions/access policy
-  ├── data-source descriptors
-  ├── data-source handlers using req.payload
-  └── invalidation rules/events
+  ├── Payload collections and domain/query services
+  ├── permissions and record policy
+  ├── source descriptors
+  ├── source handlers using req.payload
+  ├── source/field migrations
+  └── invalidation topics
           │
           ▼
 K-Nex data-source registry/runtime
   ├── authenticated discovery
-  ├── schema validation
-  ├── permission/record policy
-  ├── query execution
-  ├── cache/query-key metadata
-  ├── observability/audit
+  ├── standard query gateway
+  ├── source/input/output-contract validation
+  ├── permission and record/field policy
+  ├── bounded execution and observability
+  ├── actor-scoped query identity/cache
   └── realtime invalidation bridge
           │
           ▼
 Builder/runtime components
-  ├── Counter
-  ├── Metric
+  ├── Counter / Metric
   ├── DataTable
-  ├── PieChart
-  ├── BarChart
-  └── custom module/customer blocks
+  ├── PieChart / BarChart
+  ├── LineChart / AreaChart
+  ├── Select / Filter
+  └── domain/customer-specific blocks
 ```
 
-The module owns the data meaning and query implementation. K-Nex owns a consistent secure transport and binding contract.
+The module owns data meaning and query implementation. K-Nex owns consistent discovery, secure transport, contracts, bindings, and failure behavior.
 
 # Core terminology
 
 ## Data source
 
-A data source is a registered, versioned, server-executed query/projection owned by a plugin.
+A registered, versioned, server-executed query/projection owned by a plugin.
 
 Examples:
 
 ```text
-sales.total-opportunities
+sales.total-potential-revenue
 sales.tasks
 sales.opportunities-by-stage
+sales.revenue-over-time
 crm.contacts
 logistics.shipments-by-status
 inventory.low-stock-items
@@ -78,52 +90,54 @@ restaurant.sales-by-category
 
 A source is not:
 
-- a raw Payload collection exposed automatically;
-- an arbitrary REST/GraphQL URL stored in a layout;
-- SQL written by an editor;
-- a browser-side aggregation over unrestricted records;
-- a module's internal React state.
+- an automatically exposed Payload collection;
+- a raw REST/GraphQL URL stored in a page;
+- SQL or a Payload query written by an editor;
+- browser-side aggregation over unrestricted records;
+- a plugin's internal frontend state.
 
 ## Data-source descriptor
 
-Static/browser-safe metadata used by the registry and builder:
+Browser-safe metadata used for discovery and builder configuration:
 
 ```text
-stable ID and version
-plugin ownership
-display name/category/description
-allowed surfaces and audiences
-required permission
-input schema
-output contract/schema
-available fields and capabilities
+stable source ID and major version
+plugin ownership and display/category metadata
+surface and audience
+input fields and limits
+one primary output contract
+source-specific output schema identity/hash
+available table fields or series capabilities
 pagination/sort/filter policy
-cache/realtime policy
-sensitivity metadata
+cache and realtime policy
 ```
 
-The descriptor contains no secret and no server implementation.
+Descriptors contain no handler implementation or secrets. Discovery is filtered by actor, plugin state, surface, audience, and field policy.
 
 ## Data-source handler
 
-Server-only code that uses Payload and module services to produce an authorized projection.
+Server-only plugin code that receives validated input and authenticated Payload request context, then returns a purpose-built projection.
 
-The handler is owned by the module package and registered during application composition.
+## Output contract
 
-## Binding
+A versioned semantic result family understood by generic or domain-specific blocks.
 
-A serializable link from a component input to a registered source, runtime context, static value, or UI state.
-
-Example:
+Initial canonical catalog:
 
 ```text
-Counter.value
-  ← sales.total-opportunities.value
+metric.scalar@1
+table.records@1
+series.category@1
+series.time@1
+options.list@1
+record.summary@1
 ```
+
+Each source also has an exact source-specific output schema that must conform to the declared contract.
 
 ## UI state
 
-Page/session/user state used for filters and component coordination:
+Typed page/session/user coordination state used for filters and selections:
 
 ```text
 page.filters.date-range
@@ -131,11 +145,11 @@ page.filters.selected-stage
 workspace.selected-branch
 ```
 
-Module business data does not live in UI state. It is fetched from registered module data sources.
+Business data remains in authenticated sources. UI state does not become a mirror of module records.
 
 ## Runtime context
 
-Read-only values supplied by the application:
+Read-only values supplied by the application/runtime:
 
 ```text
 context.current-user
@@ -148,27 +162,46 @@ context.cms.preview-mode
 context.workspace.page-id
 ```
 
-# Source definition contract
+## Binding
 
-Conceptual TypeScript API:
+A serializable connection among registered static values, context, UI state, sources, component input/output ports, and actions.
+
+```text
+page date-range state
+  → sales.total-potential-revenue.dateRange
+
+sales.opportunities-by-stage
+  → PieChart.data
+
+PieChart.sliceSelected
+  → page.filters.selected-stage
+```
+
+Bindings contain stable IDs, versions, validated parameters, and safe mappings—not executable expressions.
+
+# Source definition
+
+## Scalar source
+
+Conceptual authoring API:
 
 ```ts
-export const totalOpportunitiesSource = defineDataSource({
-  id: 'sales.total-opportunities',
+export const totalPotentialRevenueSource = defineMetricSource({
+  id: 'sales.total-potential-revenue',
   version: 1,
   pluginId: 'module.sales',
 
   title: 'Total potential revenue',
-  description: 'Sum of potential revenue for opportunities visible to the current actor.',
+  description: 'Sum of potential revenue visible to the current actor.',
   category: 'Sales',
 
   surfaces: ['workspace'],
   audience: ['authenticated'],
-  permission: 'sales.opportunities.read',
+  permission: 'sales.opportunities.revenue.read',
 
-  input: totalOpportunitiesInputSchema,
-  output: scalarMoneyOutputSchema,
-  outputContract: 'metric.money@1',
+  input: totalPotentialRevenueInputSchema,
+  outputSchema: totalPotentialRevenueOutputSchema,
+  contract: contractRef('metric.scalar', 1),
 
   cache: {
     mode: 'actor-scoped',
@@ -190,10 +223,30 @@ export const totalOpportunitiesSource = defineDataSource({
 })
 ```
 
-A table source:
+Output:
+
+```json
+{
+  "value": {
+    "kind": "money",
+    "amount": "325000.00",
+    "currency": "TRY"
+  },
+  "comparison": {
+    "mode": "percentage",
+    "delta": 12.5,
+    "sentiment": "positive",
+    "baselineLabel": "Previous quarter"
+  }
+}
+```
+
+The source returns semantic raw values. The component/theme formats currency and locale.
+
+## Table source
 
 ```ts
-export const tasksSource = defineDataSource({
+export const tasksSource = defineTableSource({
   id: 'sales.tasks',
   version: 1,
   pluginId: 'module.sales',
@@ -206,42 +259,47 @@ export const tasksSource = defineDataSource({
   permission: 'sales.tasks.read',
 
   input: paginatedTasksInputSchema,
-  output: taskTableOutputSchema,
-  outputContract: 'table.records@1',
+  outputSchema: salesTaskTableOutputSchema,
+  contract: contractRef('table.records', 1),
 
   fields: [
-    field('title', {
+    tableField('title', {
       label: 'Task',
-      type: 'text',
+      valueType: 'text',
+      nullable: false,
       defaultVisible: true,
       sortable: true,
       filterable: true,
     }),
-    field('status', {
+    tableField('status', {
       label: 'Status',
-      type: 'enum',
-      options: taskStatusOptions,
+      valueType: 'text',
+      nullable: false,
       defaultVisible: true,
       sortable: true,
       filterable: true,
+      enumOptions: taskStatusOptions,
     }),
-    field('dueAt', {
+    tableField('dueAt', {
       label: 'Due date',
-      type: 'datetime',
+      valueType: 'datetime',
+      nullable: true,
       defaultVisible: true,
       sortable: true,
       filterable: true,
     }),
-    field('assignee.name', {
+    tableField('assignee', {
       label: 'Assignee',
-      type: 'text',
+      valueType: 'resource',
+      nullable: true,
       defaultVisible: true,
       sortable: false,
       filterable: false,
     }),
-    field('potentialRevenue', {
+    tableField('potentialRevenue', {
       label: 'Potential revenue',
-      type: 'money',
+      valueType: 'money',
+      nullable: true,
       defaultVisible: false,
       sortable: true,
       filterable: false,
@@ -250,9 +308,9 @@ export const tasksSource = defineDataSource({
   ],
 
   pagination: {
-    mode: 'page',
-    maximumPageSize: 100,
+    mode: 'cursor',
     defaultPageSize: 20,
+    maximumPageSize: 100,
   },
 
   realtime: {
@@ -261,22 +319,71 @@ export const tasksSource = defineDataSource({
   },
 
   execute: async ({ input, req, actor, services }) => {
-    return services.salesQueries.listTasks({
-      input,
-      req,
-      actor,
-    })
+    return services.salesQueries.listTasks({ input, req, actor })
   },
 })
 ```
 
-The exact API is provisional, but ownership, schema, authentication, output contract, and invalidation metadata are architectural requirements.
+Field IDs are stable opaque identifiers. They are not object paths.
 
-# Payload access
+Prefer:
 
-Handlers use the authenticated Payload request instance or module services that receive it.
+```text
+assignee
+potentialRevenue
+```
 
-Example:
+Avoid:
+
+```text
+assignee.name
+opportunity.financials.potentialRevenue
+```
+
+The internal Payload structure can change without changing builder field IDs.
+
+## Category-series source
+
+```ts
+export const opportunitiesByStageSource = defineCategorySeriesSource({
+  id: 'sales.opportunities-by-stage',
+  version: 1,
+  pluginId: 'module.sales',
+  contract: contractRef('series.category', 1),
+  permission: 'sales.opportunities.read',
+  input: opportunitiesByStageInputSchema,
+  outputSchema: opportunitiesByStageOutputSchema,
+  realtime: {
+    mode: 'invalidate',
+    topics: ['sales.opportunities'],
+  },
+  execute: ({ input, req, actor, services }) =>
+    services.salesQueries.opportunitiesByStage({ input, req, actor }),
+})
+```
+
+The plugin aggregates on the server. It does not send all opportunities to the browser and ask the PieChart to group/sum them.
+
+## Domain-specific source
+
+A complex domain block can use a plugin-owned contract:
+
+```ts
+export const pipelineBoardSource = defineDataSource({
+  id: 'sales.pipeline-board',
+  version: 1,
+  pluginId: 'module.sales',
+  contract: contractRef('sales.pipeline-board', 1),
+  outputSchema: pipelineBoardOutputSchema,
+  // ...
+})
+```
+
+This is the supported escape path when canonical contracts are insufficient. Canonical payloads do not receive an unrestricted extension bag.
+
+# Payload access and authorization
+
+Handlers use the authenticated request-scoped Payload instance or services that receive it.
 
 ```ts
 export async function listTasks({
@@ -292,7 +399,6 @@ export async function listTasks({
       input,
       actor: req.user,
     }),
-    page: input.page,
     limit: input.limit,
     sort: input.sort,
     depth: 1,
@@ -300,225 +406,259 @@ export async function listTasks({
     overrideAccess: false,
   })
 
-  return projectTaskTable(result)
+  return projectTaskTable(result, input.select)
 }
 ```
 
-Rules:
+Required rules:
 
-- pass the request when Payload access behavior depends on it;
-- ordinary UI data sources use `overrideAccess: false`;
-- permissions and record-level policies are enforced server-side;
-- handlers return purpose-built DTOs/projections;
-- browser code never receives a raw Payload instance or direct database access;
-- module business rules remain in services, not generic UI components.
+- pass request/transaction context where Payload access behavior depends on it;
+- ordinary workspace sources use `overrideAccess: false`;
+- source permission is checked separately from collection access where necessary;
+- record-level policy is applied server-side;
+- table field policy is applied server-side;
+- handlers return purpose-built DTOs, not unrestricted Payload documents;
+- input/result sizes are bounded;
+- browser code never receives a Payload instance or direct database access;
+- authoritative business rules remain in domain/application services.
+
+## Authorization chain
+
+For a workspace/admin source:
+
+```text
+valid Payload actor/session
++ source discovery/execution permission
++ record-level policy
++ selected field policy
++ surface/audience policy
+```
+
+The builder hiding a source or column is only UX. Manual requests are checked again at the gateway and handler boundary.
 
 # Endpoint model
 
 ## Logical ownership
 
-Every source belongs to a plugin and is implemented by that plugin. It is reasonable to describe this as the plugin's own endpoint.
+Every source belongs to and is implemented by a plugin. It is reasonable to call it a plugin-specific endpoint semantically.
 
-## Standard runtime mount
+## Standard gateway
 
-The recommended V1 transport is a uniform K-Nex gateway:
+Recommended V1 transport:
 
 ```text
 GET  /api/k-nex/data-sources
-POST /api/k-nex/data-sources/:sourceId/query
 GET  /api/k-nex/data-sources/:sourceId/descriptor
+POST /api/k-nex/data-sources/:sourceId/query
 ```
 
 The registry dispatches the request to the owning plugin handler.
 
-Example:
+The standard gateway centralizes:
 
-```http
-POST /api/k-nex/data-sources/sales.total-opportunities/query
-Content-Type: application/json
-Cookie: authenticated Payload session
-
-{
-  "dateRange": {
-    "preset": "this-quarter"
-  }
-}
-```
-
-Response:
-
-```json
-{
-  "source": "sales.total-opportunities",
-  "version": 1,
-  "data": {
-    "value": 325000,
-    "currency": "TRY"
-  },
-  "meta": {
-    "generatedAt": "2026-08-25T12:00:00.000Z"
-  }
-}
-```
-
-The standardized route gives K-Nex one place for:
-
-- Payload session authentication;
+- Payload session/token authentication;
 - actor construction;
-- permission checks;
-- input/output schema validation;
-- rate and cost limits;
-- request correlation;
-- caching policy;
-- audit/metrics/logging;
-- safe error normalization;
-- query-key computation;
-- source ownership diagnostics.
+- plugin/source/version lookup;
+- surface/audience and permission checks;
+- input validation;
+- source-specific and output-contract validation;
+- rate/cost/result-size limits;
+- query-key normalization;
+- safe errors and correlation;
+- metrics/logging/audit policy;
+- cache and realtime registration;
+- ownership diagnostics.
 
-A plugin may also register a dedicated domain endpoint where a non-builder client requires it, but builder bindings should use the source registry rather than arbitrary URLs.
+A plugin can additionally expose dedicated domain endpoints for external/mobile clients. Builder documents bind only to registered source IDs, not arbitrary URLs.
 
-## GET versus POST
+## POST for read execution
 
-Simple sources can eventually support GET. V1 can consistently use POST for execution because filters, pagination, sorting, and nested parameters can be structured and schema-validated without placing sensitive query state in URLs.
+V1 consistently uses POST for source execution because filters, selected fields, pagination, sorting, and nested parameters are structured and schema-validated.
 
-Source execution remains read-only even when transported with POST.
+The operation remains read-only even though its transport method is POST.
 
-# Authentication and authorization
+# Discovery and descriptors
 
-## Default policy
+`GET /api/k-nex/data-sources` returns only descriptors discoverable for the current actor and editing surface.
 
-Workspace, CMS-admin, system, and driver data sources require an authenticated actor appropriate to their surface.
-
-For an admin/workspace source:
-
-```text
-valid Payload admin/user session
-+ source permission
-+ record-level access policy
-+ field-level sensitivity policy
-```
-
-The builder palette only shows sources the current editor is allowed to discover. Execution checks authorization again. Hiding a source in the browser is never the security boundary.
-
-## Discovery policy
-
-`GET /api/k-nex/data-sources` returns only descriptors allowed for the current actor, surface, and editing profile.
-
-An editor may have permission to design a page using a source while the eventual viewer has narrower access. Publication/preview must therefore validate the target surface and audience separately.
-
-## Public sources
-
-Public CMS pages never reuse an internal workspace source merely because a component can bind to it.
-
-Explicit public sources use separate IDs and narrow projections:
-
-```text
-sales.public-featured-opportunities
-restaurant.public-menu
-logistics.public-tracking-status
-crm.public-lead-form-options
-```
-
-Public sources require their own:
-
-- anonymous/signed-session policy;
-- rate limits;
-- anti-abuse rules;
-- cache policy;
-- projection schema;
-- privacy review.
-
-## Field-level policy
-
-A user may be allowed to list tasks but not see revenue or another sensitive field.
-
-Field metadata can declare permissions. The runtime removes unauthorized fields from discovery and rejects layouts/bindings that request them.
-
-The server projection also omits them. Builder configuration is not trusted as the enforcement mechanism.
-
-# Output contracts
-
-Generic components need predictable data shapes.
-
-Initial contracts can include:
-
-```text
-metric.number@1
-metric.money@1
-metric.percentage@1
-list.records@1
-table.records@1
-series.category@1
-series.time@1
-series.multi-category@1
-geo.features@1
-```
-
-## Counter example
-
-Source output:
+A descriptor includes its primary contract and a deterministic actor-filtered descriptor hash.
 
 ```json
 {
-  "value": 325000,
-  "currency": "TRY"
+  "id": "sales.tasks",
+  "version": 1,
+  "pluginId": "module.sales",
+  "title": "Sales tasks",
+  "category": "Sales",
+  "surfaces": ["workspace"],
+  "audience": ["authenticated"],
+  "contract": {
+    "id": "table.records",
+    "version": 1
+  },
+  "descriptorHash": "sha256:...",
+  "fields": [
+    {
+      "id": "title",
+      "label": "Task",
+      "valueType": "text",
+      "nullable": false,
+      "defaultVisible": true,
+      "sortable": true,
+      "filterable": true
+    }
+  ],
+  "pagination": {
+    "mode": "cursor",
+    "defaultPageSize": 20,
+    "maximumPageSize": 100
+  }
 }
 ```
 
-Component binding:
+Descriptor and query data are separate:
+
+- builder metadata can be cached independently;
+- each pagination/refetch response does not repeat fields/options;
+- field discovery can differ by actor;
+- an additive descriptor change updates its hash without forcing a source-major migration.
+
+# Standard success envelope
 
 ```json
 {
-  "type": "core.counter",
-  "version": 1,
-  "props": {
-    "label": "Potential revenue"
+  "schemaVersion": 1,
+  "source": {
+    "id": "sales.tasks",
+    "version": 1
   },
-  "bindings": {
-    "value": {
-      "kind": "data-source",
-      "source": "sales.total-opportunities",
-      "sourceVersion": 1,
-      "select": "value"
-    },
-    "currency": {
-      "kind": "data-source",
-      "source": "sales.total-opportunities",
-      "sourceVersion": 1,
-      "select": "currency"
+  "contract": {
+    "id": "table.records",
+    "version": 1
+  },
+  "descriptorHash": "sha256:...",
+  "data": {
+    "rows": [],
+    "pageInfo": {
+      "mode": "cursor",
+      "hasNextPage": false
     }
   }
 }
 ```
 
-A runtime may execute one source once and satisfy both selections.
+The gateway validates:
 
-## Data table example
+```text
+handler result
+  → exact source output schema
+  → declared output contract
+  → selected/authorized field projection
+  → response envelope
+```
 
-Layout configuration:
+Invalid or undeclared output fails closed with `SOURCE_OUTPUT_INVALID`.
+
+Detailed canonical shapes and versioning rules live in [Data-source output contracts](./25-output-contracts.md).
+
+# Output-contract compatibility
+
+Generic components declare accepted contract ranges.
+
+```text
+Counter
+  accepts metric.scalar@^1
+
+DataTable
+  accepts table.records@^1
+
+PieChart
+  accepts series.category@^1
+  requires exactly one series
+
+BarChart
+  accepts series.category@^1
+
+LineChart
+  accepts series.time@^1
+```
+
+The builder source picker filters candidates by:
+
+- plugin installed/enabled state;
+- actor discovery permission;
+- current/target surface and audience;
+- contract ID/version compatibility;
+- descriptor/component constraints;
+- selected field availability;
+- source-version compatibility.
+
+Domain-specific blocks can accept namespaced plugin contracts or exact source families.
+
+# Builder bindings
+
+## Counter
 
 ```json
 {
+  "id": "potential-revenue-counter",
+  "type": "core.metric",
+  "version": 1,
+  "props": {
+    "label": "Potential revenue",
+    "showComparison": true
+  },
+  "bindings": {
+    "data": {
+      "kind": "data-source",
+      "source": {
+        "id": "sales.total-potential-revenue",
+        "version": 1
+      },
+      "expects": {
+        "contract": "metric.scalar",
+        "version": 1
+      },
+      "params": {
+        "dateRange": {
+          "kind": "state",
+          "state": "page.filters.date-range"
+        }
+      }
+    }
+  }
+}
+```
+
+The whole metric payload binds to one component input. The layout does not separately select `value` and `currency`; their semantic relationship remains intact.
+
+## DataTable
+
+```json
+{
+  "id": "open-sales-tasks",
   "type": "core.data-table",
   "version": 1,
   "props": {
     "title": "Open sales tasks",
+    "columns": ["title", "status", "dueAt", "assignee"],
     "pageSize": 20,
-    "columns": [
-      { "field": "title", "visible": true },
-      { "field": "status", "visible": true },
-      { "field": "dueAt", "visible": true },
-      { "field": "assignee.name", "visible": true }
-    ],
     "defaultSort": [
       { "field": "dueAt", "direction": "asc" }
     ]
   },
   "bindings": {
-    "rows": {
+    "data": {
       "kind": "data-source",
-      "source": "sales.tasks",
-      "sourceVersion": 1,
+      "source": {
+        "id": "sales.tasks",
+        "version": 1
+      },
+      "expects": {
+        "contract": "table.records",
+        "version": 1
+      },
+      "select": ["title", "status", "dueAt", "assignee"],
       "params": {
         "status": ["open", "in-progress"]
       }
@@ -527,11 +667,50 @@ Layout configuration:
 }
 ```
 
-The builder's column picker is generated from the source descriptor. It cannot request an arbitrary object path that the source did not declare.
+Rules:
 
-The table sends only allowlisted pagination, sorting, and filter input to the source handler.
+- selected columns are stable source field IDs;
+- source rejects unknown/forbidden fields;
+- runtime intersects optional selected columns with viewer permissions;
+- null means an authorized selected field has no value;
+- omitted means unselected or unauthorized;
+- sort/filter operators remain source-declared and server-validated.
 
-# Source parameters and UI state
+## Chart
+
+```json
+{
+  "id": "opportunities-by-stage",
+  "type": "visualization.pie-chart",
+  "version": 1,
+  "props": {
+    "title": "Opportunities by stage"
+  },
+  "bindings": {
+    "data": {
+      "kind": "data-source",
+      "source": {
+        "id": "sales.opportunities-by-stage",
+        "version": 1
+      },
+      "expects": {
+        "contract": "series.category",
+        "version": 1
+      },
+      "params": {
+        "dateRange": {
+          "kind": "state",
+          "state": "page.filters.date-range"
+        }
+      }
+    }
+  }
+}
+```
+
+V1 charts use server-projected canonical series. They do not group/sum arbitrary table records inside the browser.
+
+# UI state and source parameters
 
 Example page state:
 
@@ -545,94 +724,114 @@ Example page state:
       },
       "scope": "page",
       "persistence": "url"
+    },
+    "page.filters.selected-stage": {
+      "schema": "value.string@1",
+      "default": null,
+      "scope": "page",
+      "persistence": "none"
     }
   }
 }
 ```
 
-Date filter block:
-
-```json
-{
-  "id": "date-filter",
-  "type": "core.date-range-filter",
-  "bindings": {
-    "value": {
-      "kind": "state",
-      "state": "page.filters.date-range",
-      "mode": "two-way"
-    }
-  }
-}
-```
-
-Counter source parameter:
-
-```json
-{
-  "source": "sales.total-opportunities",
-  "params": {
-    "dateRange": {
-      "kind": "state",
-      "state": "page.filters.date-range"
-    }
-  }
-}
-```
-
-State coordinates filters and selections; it does not replace the source endpoint.
-
-# Builder source picker
-
-The source picker groups descriptors by plugin and category:
+A filter changes state; sources consume validated state as input; charts/tables render source results.
 
 ```text
-Sales
-  Total potential revenue
-  Tasks
-  Opportunities by stage
+DateRangeFilter
+  → page.filters.date-range
 
-CRM
-  Contacts
-  New leads
+Counter
+  → sales.total-potential-revenue(dateRange)
 
-Logistics
-  Shipments by status
-  Delayed shipments
+PieChart
+  → sales.opportunities-by-stage(dateRange)
+  → sliceSelected writes page.filters.selected-stage
+
+DataTable
+  → sales.tasks(dateRange, selectedStage)
 ```
 
-The picker filters candidates using:
+UI state coordinates interaction. It does not bypass source authorization or become the authoritative business state.
 
-- installed/enabled plugin state;
-- current builder profile/surface;
-- target audience;
-- editor discovery permission;
-- component input contract compatibility;
-- field-level authorization;
-- source version compatibility.
+# Public sources
 
-A Counter should not show `table.records@1` sources unless a safe scalar field selection is explicitly supported. A Pie Chart should prefer `series.category@1`. A Data Table should prefer `table.records@1` or an explicitly mappable record list.
+Public CMS pages cannot reuse internal workspace sources merely because a component supports the same output contract.
 
-# Realtime model
+Explicit public-safe sources use separate IDs and policies:
+
+```text
+restaurant.public-menu
+logistics.public-tracking-status
+sales.public-featured-services
+crm.public-lead-form-options
+```
+
+They require their own:
+
+- audience/surface declaration;
+- narrow output projection;
+- rate limits and abuse controls;
+- public cache policy;
+- privacy/consent review;
+- signed-session policy where relevant.
+
+An authenticated editor preview does not make an internal source safe to publish publicly.
+
+# Query identity and caching
+
+A validated source execution is identified by at least:
+
+```text
+source ID
+source major version
+canonical validated input
+selected field IDs
+surface
+actor/access scope
+```
+
+Conceptual key:
+
+```text
+sales.tasks@1
++ hash(canonicalInput)
++ hash(selectedFields)
++ actorAccessScope
+```
+
+Two blocks with equivalent source/input/selection should share one active query result. Cache entries never cross authorization boundaries.
+
+Safe V1 classifications:
+
+```text
+no-store
+actor-scoped
+role-scoped where record/field policy permits
+public explicit opt-in
+```
+
+Internal authenticated sources default to actor-scoped or no-store.
+
+# Realtime invalidation
 
 ## Principle
 
-The normal source of truth is the authenticated data-source endpoint. WebSocket messages notify clients that cached data is stale.
+The authenticated source endpoint remains authoritative. WebSocket normally says that a query may be stale.
 
 ```text
 module mutation commits
-  → module/domain event occurs
-  → affected source tags are invalidated
-  → authorized subscribed clients receive invalidation
-  → client refetches source through authenticated endpoint
+  → module event/invalidation topic
+  → provider authorizes notification
+  → matching query becomes stale
+  → client refetches authenticated source
+  → new response passes contract validation
   → component rerenders
 ```
 
-This keeps reconnection and missed-message recovery simple: refetch the authoritative projection.
+This supports missed-message recovery and permission changes: reconnect/refetch current authorized state.
 
 ## Source invalidation metadata
-
-A source declares topics/tags that affect it:
 
 ```ts
 realtime: {
@@ -644,7 +843,7 @@ realtime: {
 }
 ```
 
-After a task mutation:
+After a task mutation commits:
 
 ```ts
 await realtime.invalidate({
@@ -656,31 +855,7 @@ await realtime.invalidate({
 })
 ```
 
-The realtime service resolves which connected query subscriptions may be affected.
-
-## Client query identity
-
-A source execution is identified by:
-
-```text
-source ID
-source version
-validated parameters
-actor/access scope
-surface
-```
-
-Conceptual key:
-
-```text
-sales.tasks@1 + hash(params) + actor-scope
-```
-
-Actor scope must never be shared across authorization boundaries.
-
-## Invalidation message
-
-Conceptual WebSocket message:
+Conceptual client message:
 
 ```json
 {
@@ -691,106 +866,92 @@ Conceptual WebSocket message:
   "scope": {
     "branchId": "branch-1"
   },
-  "occurredAt": "2026-08-25T12:00:00.000Z"
+  "occurredAt": "2026-08-25T12:00:00Z"
 }
 ```
 
-The message normally does not contain task records. The client decides which matching active queries to refetch.
+The message normally carries no task rows.
 
-## Fine versus coarse invalidation
+## Coarse before fine
 
-V1 can begin with coarse source/topic invalidation:
+V1 can start with coarse source/topic invalidation:
 
 ```text
 sales.tasks changed
 ```
 
-It may later add safe scope metadata:
-
-```text
-branch
-authorized team
-record ID
-assignee
-organization
-```
-
-Overly granular invalidation must not leak the existence of unauthorized records.
+Add branch/team/assignee/record scopes only when authorization-safe and operationally useful. Fine metadata must not reveal unauthorized record existence.
 
 ## Stream mode
 
-Actual data streaming is reserved for sources that genuinely require incremental updates:
+Typed streams are reserved for genuine high-frequency/live projections:
 
 ```text
 vehicle positions
 live dispatch telemetry
-long-running import progress
-active device status
+import progress
+active device state
 ```
 
-A stream-capable source defines:
+A stream source defines:
 
-- authenticated initial snapshot endpoint;
-- typed message schema;
-- subscription authorization;
-- reducer/version semantics;
-- reconnect/resync behavior;
+- authenticated initial snapshot source;
+- typed message schema/version;
+- subscription policy;
+- reducer semantics;
+- reconnect/resync;
 - rate/backpressure limits.
 
-Generic task tables, counters, and ordinary charts should use invalidation/refetch first.
+It does not silently patch `table.records@1` or chart contracts with unversioned messages.
 
 # WebSocket security
 
-## Authentication
+Opening a socket does not grant topic access.
 
-The realtime connection must authenticate an actor using a supported Payload session/token flow. Opening a socket does not grant access to all module topics.
-
-## Subscription authorization
-
-Each source/topic subscription is checked against:
+Every subscription checks:
 
 ```text
-source descriptor audience/surface
+actor/session validity
+source/plugin enabled state
+surface/audience
 required permission
 record/scope policy
-current plugin state
-current actor/customer application
+current customer application
 ```
 
-A user who can read their own tasks cannot subscribe to all task changes globally.
+The provider must support session expiry, permission/role changes, plugin disablement, disconnect, and subscription reauthorization.
 
-## Reauthorization
+# Registered transformations
 
-Permissions, role assignment, session expiry, or plugin enablement can change after connection. The provider must support disconnect, subscription refresh, or reauthorization policy.
-
-## Browser trust
-
-A user can modify client code and manually request any source ID. The server must still reject unauthorized discovery, execution, fields, and realtime subscriptions.
-
-# Caching
-
-Source descriptors define cache classification:
+V1 uses purpose-built sources:
 
 ```text
-no-store
-actor-scoped
-role-scoped
-public
-short-lived
+sales.opportunities-by-stage
+  → series.category@1
 ```
 
-V1 safety rules:
+It does not let an editor bind raw opportunities to a chart and author `group by`, `sum`, JavaScript, or SQL.
 
-- internal authenticated sources default to actor-scoped or no-store;
-- cache keys include validated parameters and authorization scope;
-- field-level projections cannot share cache entries with broader projections;
-- public sources opt into public caching explicitly;
-- realtime invalidation is an optimization, not the only expiry mechanism;
-- sensitive results never enter static builder documents.
+The architecture reserves future registered/versioned adapters for repeated safe needs:
 
-# Error behavior
+```text
+adapter.table-fields-to-category-series@1
+```
 
-Standard source errors:
+A transformation adapter must be trusted code with:
+
+- declared input/output contract ranges;
+- schema-validated configuration;
+- cost/result limits;
+- deterministic behavior;
+- migration/versioning;
+- no arbitrary expressions, URLs, imports, joins, or browser aggregation.
+
+Adapters become explicit binding-graph nodes, not hidden object-path strings.
+
+# Error and component states
+
+Stable source error codes include:
 
 ```text
 SOURCE_NOT_FOUND
@@ -803,9 +964,11 @@ SOURCE_FIELD_FORBIDDEN
 SOURCE_RATE_LIMITED
 SOURCE_COST_LIMIT_EXCEEDED
 SOURCE_EXECUTION_FAILED
+CONTRACT_UNSUPPORTED
+DESCRIPTOR_STALE
 ```
 
-The user-facing component receives a safe state:
+Components map these to safe runtime states:
 
 ```text
 loading
@@ -816,219 +979,131 @@ error with retry
 stale/reconnecting
 ```
 
-Admin diagnostics can show source/plugin ownership and correlation ID without exposing secret/internal stack data.
+Admin diagnostics can show source/plugin ownership, expected/current versions, and correlation ID without stack traces or secrets.
 
-# Source lifecycle and versioning
+# Lifecycle and versioning
 
-A source has a stable ID and explicit contract version.
-
-```text
-sales.tasks@1
-sales.tasks@2
-```
-
-Compatible additive metadata changes can remain within one version. Breaking input/output/field semantics require a new version and migration strategy.
-
-Stored layouts record source ID/version and selected fields.
-
-When a source changes:
-
-- source migration can rename/remap parameters or fields;
-- deprecated fields remain readable for a transition period where feasible;
-- the CLI/doctor scans stored documents for incompatible references;
-- publication fails when required bindings cannot resolve;
-- runtime shows a safe unavailable state rather than crashing the whole page.
-
-# Plugin disable and removal
-
-If Sales is disabled:
-
-- its source descriptors are unavailable for new selection;
-- existing bindings are reported as unresolved/disabled;
-- execution returns `SOURCE_DISABLED`;
-- source subscriptions are removed;
-- layout data is retained;
-- the page remains renderable with a safe placeholder.
-
-Disabling or removing a plugin never silently rewrites customer layouts.
-
-# Generic visualization and table components
-
-Generic components should live outside domain plugins and consume contracts.
-
-Examples:
+Source, output contract, descriptor, and package versions are independent:
 
 ```text
-core.counter
-core.metric
-core.data-table
-visualization.pie-chart
-visualization.bar-chart
-visualization.line-chart
-visualization.area-chart
+@k-nex/module-sales@2.7.4
+sales.tasks@3
+table.records@1
+descriptor hash sha256:...
 ```
 
-A generic component does not import the Sales module. It knows only:
+Stored layouts persist source and contract major versions plus selected field IDs.
 
-- accepted output contracts;
-- selectable fields;
-- formatting options;
-- component events;
-- design-system primitives;
-- theme tokens.
+A source migration can:
 
-Domain-specific components can still bind directly to their module source when richer behavior is needed.
+- rename/remap parameters;
+- rename stable field IDs;
+- update source version;
+- split one projection into multiple sources;
+- change declared contract;
+- mark bindings for administrator review.
 
-# Server aggregation versus browser aggregation
+Additive optional fields can update descriptor hash without forcing source-major migration.
 
-Plugins should expose purpose-built aggregate sources:
+When a plugin/source is disabled or removed:
 
-```text
-sales.total-opportunities
-sales.opportunities-by-stage
-restaurant.sales-by-category
-```
+- it disappears from new discovery;
+- existing bindings remain stored and are reported;
+- execution returns a safe disabled/not-found error;
+- subscriptions are removed;
+- the page does not crash;
+- no layout is silently rewritten/deleted.
 
-Avoid sending all opportunities/orders to the browser merely to calculate a sum or group.
+# Source authoring rules
 
-Reasons:
+Create a source when:
 
-- minimizes sensitive data exposure;
-- preserves server authorization;
-- reduces transfer and rendering cost;
-- centralizes business calculation semantics;
-- enables database-side aggregation;
-- produces stable cache/invalidation contracts.
-
-V1 does not include an arbitrary visual SQL/query builder.
-
-# Source authoring guidelines
-
-A module author should create a source when:
-
-- a projection is useful to multiple blocks/screens;
-- a metric/aggregate has stable domain meaning;
-- a list needs bounded permission-aware pagination;
-- builder users need a safe configurable view;
-- realtime invalidation can be defined;
-- the source can be versioned independently of raw storage shape.
+- a projection is reusable across blocks/screens;
+- an aggregate has stable domain meaning;
+- a list needs bounded authorization-aware pagination;
+- the builder needs safe configurable fields;
+- invalidation can be defined;
+- the projection can evolve independently of raw storage.
 
 Avoid sources that:
 
-- return entire unrestricted documents;
+- return unrestricted Payload documents;
 - expose secret/internal fields;
-- duplicate a source without meaningful policy/contract difference;
 - have unbounded result size;
-- accept arbitrary field/query expressions;
-- bypass module services and access policy;
-- encode one customer's presentation choices.
+- accept arbitrary selection/query expressions;
+- duplicate another source without meaningful semantic/policy difference;
+- bypass module services/access policy;
+- encode one customer's visual design;
+- combine unrelated metric/table/chart outputs into one endpoint.
 
-# POC scenarios
+# POC requirements
 
-## Counter
+## Sources and blocks
 
-1. Sales registers `sales.total-opportunities`.
-2. Builder adds `core.counter`.
-3. Source picker shows the metric to an authorized admin.
-4. Counter binds to `value` and `currency`.
-5. Another role without revenue permission cannot discover or execute it.
-6. Opportunity update commits.
-7. Realtime invalidation arrives.
-8. Counter refetches and changes.
+```text
+sales.total-potential-revenue
+  → metric.scalar@1
+  → Counter/Metric
 
-## Task table
+sales.tasks
+  → table.records@1
+  → DataTable
 
-1. Sales registers `sales.tasks` with field metadata.
-2. Builder adds `core.data-table`.
-3. Editor chooses title, status, due date, and assignee columns.
-4. Table requests paginated rows with allowlisted sort/filter.
-5. Unauthorized revenue column is absent or rejected.
-6. Task mutation emits `sales.tasks` invalidation.
-7. Active table query refetches.
-8. Reconnection still recovers current rows through the endpoint.
+sales.opportunities-by-stage
+  → series.category@1
+  → PieChart/BarChart
 
-## Shared filters
+sales.revenue-over-time
+  → series.time@1
+  → LineChart
+```
 
-1. Page has date-range UI state.
-2. Counter and chart use it as source input.
-3. State change invalidates only affected query keys.
-4. Invalid input fails before handler execution.
+## Required proof
 
-## Security mutation
-
-1. User manually changes layout/network request to another source/field.
-2. Server denies execution.
-3. User manually subscribes to a forbidden realtime scope.
-4. Server denies subscription and sends no data-bearing message.
-
-# POC acceptance criteria
-
-1. A module registers at least one scalar and one paginated table source.
-2. The builder discovers compatible sources without hard-coded Sales imports.
-3. Source execution requires valid Payload authentication for workspace sources.
-4. Permission and record-level access are enforced server-side.
-5. DataTable columns come from declared metadata and selected columns persist in layout JSON.
-6. Sorting/filtering/pagination use allowlisted source input.
-7. Counter/chart/table bind through stable source IDs and versions.
-8. Opportunity/task mutations produce authorized source invalidation.
-9. Components refetch through the endpoint and recover after reconnect.
-10. Unauthorized source/field/subscription manipulation fails.
-11. A disabled source does not crash the page.
-12. Public pages cannot bind internal Sales sources.
-13. No arbitrary SQL, URL, JavaScript, Payload query, or secret is stored in the builder document.
+1. Builder discovery has no hard-coded Sales imports.
+2. Workspace execution requires a valid Payload actor.
+3. Permission, record policy, and field policy are server-enforced.
+4. Source input and output are schema-validated.
+5. Exact source output schema conforms to declared output contract.
+6. DataTable columns come from stable field descriptors, not nested Payload paths.
+7. Unauthorized fields are absent/rejected even after manual request mutation.
+8. Source and contract versions are persisted independently.
+9. Two equivalent block bindings reuse one active query.
+10. Opportunity/task mutation invalidates and refetches authorized queries.
+11. Reconnect recovers through endpoint refetch.
+12. Disabled/missing source does not crash the page.
+13. Public pages cannot bind internal Sales sources.
+14. Invalid/undeclared source output fails closed.
+15. At least one plugin-owned domain contract proves the hybrid model.
+16. No arbitrary SQL, URL, JavaScript, Payload query, secret, or live record snapshot is stored in the builder document.
 
 # Open implementation questions
 
-The architecture is accepted; these details require POC evidence:
+The architecture and output-contract package are accepted. POC still selects:
 
-- exact `defineDataSource` TypeScript API;
-- one generic query route versus generated per-source routes;
-- whether source descriptors are bundled, fetched, or both;
-- output contract library and field-schema representation;
-- actor-scoped cache implementation;
-- source query-key normalization;
-- fine-grained invalidation scope without metadata leakage;
-- client cache/query library;
-- subscription multiplexing protocol;
-- table field formatting and custom cell-renderer registry;
-- source preview with real, redacted, or fixture data;
-- source/version migration tooling;
-- SSR and hydration behavior for CMS/public sources.
-
-## Current recommendations
-
-```text
-transport
-  one standard authenticated K-Nex query gateway
-
-ownership
-  handler and descriptor remain plugin-owned
-
-authorization
-  Payload session + permission + record/field policy
-
-ordinary realtime
-  invalidation/refetch
-
-high-frequency realtime
-  explicit snapshot + typed stream contract
-
-tables
-  source-declared fields + allowlisted columns/sort/filter/pagination
-
-builder storage
-  source IDs, versions, parameters, selected fields, and bindings only
-```
+- exact source-authoring TypeScript API;
+- schema library and JSON-schema strategy;
+- descriptor bundled/fetched balance;
+- client query/cache implementation;
+- cursor/pagination helpers;
+- actor-scope key derivation;
+- fine invalidation scope;
+- source preview using real/redacted/fixture data;
+- cell renderer registry;
+- SSR/hydration policy;
+- production output-validation performance;
+- first registered transformation adapter, if real repeated need exists.
 
 # Non-goals
 
 V1 does not provide:
 
-- automatic exposure of every Payload collection;
-- arbitrary user-created backend queries;
-- SQL/GraphQL/REST URL entry in the builder;
-- unrestricted client-side joins/aggregation;
-- unauthenticated access to admin data sources;
-- WebSocket as the only authoritative data store;
-- raw module state sharing;
+- automatic Payload collection exposure;
+- arbitrary backend query creation;
+- visual SQL or unrestricted GraphQL/REST entry;
+- raw nested object-path selection;
+- unrestricted client joins/aggregation;
+- unauthenticated access to workspace/admin data;
+- WebSocket as the only source of truth;
+- opaque canonical extension payloads;
 - runtime installation of executable source packages.
