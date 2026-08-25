@@ -3,11 +3,11 @@ import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { canonicalJson } from "@k-nex/contracts";
 import { Ajv2020, type AnySchema } from "ajv/dist/2020.js";
 import addFormatsModule from "ajv-formats";
 import { describe, expect, it } from "vitest";
 
-import { canonicalJson } from "../src/canonical-json.js";
 import { validateFixtures } from "../src/fixture-validation.js";
 import {
   declaredFixtureSchema,

@@ -12,7 +12,9 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "test": "vitest run"
+    "test": "vitest run",
+    "generate:gate-1": "node dist/generate-gate-1-fixture.js",
+    "check:gate-1": "node dist/generate-gate-1-fixture.js --check"
   },
   "dependencies": {
     "@k-nex/contracts": "workspace:*",

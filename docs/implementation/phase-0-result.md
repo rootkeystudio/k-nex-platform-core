@@ -44,7 +44,7 @@ Direct versions are exact-pinned in [`package.json`](../../package.json), worksp
 
 ## Contract generation and reproducibility
 
-The typed source is [`packages/contracts/src`](../../packages/contracts/src). [`generate.ts`](../../packages/architecture-contract-tools/src/generate.ts) converts the Zod application and plugin schemas to JSON Schema draft 2020-12 and serializes them with [`canonical-json.ts`](../../packages/architecture-contract-tools/src/canonical-json.ts). Canonical output is UTF-8 JSON with recursively sorted object keys, two-space indentation, and one final newline.
+The typed source is [`packages/contracts/src`](../../packages/contracts/src). [`generate.ts`](../../packages/architecture-contract-tools/src/generate.ts) converts the Zod application and plugin schemas to JSON Schema draft 2020-12 and serializes them with [`canonical-json.ts`](../../packages/contracts/src/canonical-json.ts). Canonical output is UTF-8 JSON with recursively sorted object keys, two-space indentation, and one final newline.
 
 The committed inventory in [`contracts/generated-contracts.v1.json`](../../contracts/generated-contracts.v1.json) covers:
 

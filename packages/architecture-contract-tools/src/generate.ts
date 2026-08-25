@@ -2,10 +2,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { ApplicationManifestSchema, PluginManifestSchema, architectureRegistry } from "@k-nex/contracts";
+import { ApplicationManifestSchema, canonicalJson, PluginManifestSchema, architectureRegistry } from "@k-nex/contracts";
 import * as z from "zod";
-
-import { canonicalJson } from "./canonical-json.js";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 

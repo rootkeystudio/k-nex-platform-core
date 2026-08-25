@@ -2,10 +2,10 @@ import { existsSync, lstatSync } from "node:fs";
 import { access, readFile, readdir } from "node:fs/promises";
 import { dirname, extname, posix, relative, resolve, sep, win32 } from "node:path";
 
+import { canonicalJson } from "@k-nex/contracts";
 import { Ajv2020, type AnySchema, type ValidateFunction } from "ajv/dist/2020.js";
 import addFormatsModule from "ajv-formats";
 
-import { canonicalJson } from "./canonical-json.js";
 import { type FixtureInput, type FixtureSchema, validateFixtures } from "./fixture-validation.js";
 
 export type RepositoryDiagnosticCode =

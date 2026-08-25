@@ -1,0 +1,30 @@
+{
+  "application": {
+    "id": "customer-gate-1",
+    "manifestDigest": "sha256:a799585e4cc950890ead2ca6e7ca88f1fdd1bbfcc50aa09f2561748cd0b78733"
+  },
+  "capabilityProviders": [],
+  "customerConfigFingerprint": "sha256:b7bb1adc18f8ab6786a03cb3bbb14cbd4a5986795eb51c8f4f9c94dadcb9eecb",
+  "environment": {
+    "names": [
+      "DATABASE_URL"
+    ]
+  },
+  "framework": {
+    "core": "1.0.0",
+    "node": "24.19.0",
+    "payload": "3.88.0",
+    "payloadDatabaseAdapter": "postgres",
+    "pnpm": "11.9.0"
+  },
+  "plugins": [],
+  "registrationOrder": [],
+  "resolverVersion": "1.0.0",
+  "runtime": {
+    "deploymentMode": "container",
+    "node": "24.19.0",
+    "packageManager": "pnpm",
+    "packageManagerVersion": "11.9.0"
+  },
+  "schemaVersion": 1
+}
