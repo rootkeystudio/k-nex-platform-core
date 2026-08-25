@@ -15,7 +15,7 @@ Frozen install and `pnpm phase:0` pass on Node 24.19.0/pnpm 11.9.0; 25 tests pas
 
 ## Next
 
-After PR #13 is independently approved and merged, execute P1.1 from `docs/implementation/codex-master-plan.md`.
+Execute P1.1 from `docs/implementation/codex-master-plan.md`.
 
 ## Blockers
 
