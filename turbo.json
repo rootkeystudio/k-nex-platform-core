@@ -1,0 +1,33 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "tasks": {
+    "generate": {
+      "outputs": [
+        "contracts/**",
+        "schemas/**"
+      ]
+    },
+    "validate": {
+      "dependsOn": [
+        "generate"
+      ],
+      "outputs": []
+    },
+    "test": {
+      "dependsOn": [
+        "generate"
+      ],
+      "outputs": []
+    },
+    "reproducibility": {
+      "dependsOn": [
+        "generate"
+      ],
+      "cache": false,
+      "outputs": []
+    },
+    "docs:validate": {
+      "outputs": []
+    }
+  }
+}
