@@ -6,7 +6,7 @@ The documents are implementation-oriented: each major concept should eventually 
 
 ## Product in one sentence
 
-> K-Nex is a Payload-based, manifest-driven application factory that composes versioned backend/UI plugins, plugin-owned authenticated data sources, realtime capabilities, a visual CMS/workspace builder, and installable runtime-configurable themes into independently deployed customer products.
+> K-Nex is a Payload-based, manifest-driven application factory that composes versioned backend/UI plugins, plugin-owned authenticated data sources, canonical output contracts, realtime capabilities, a visual CMS/workspace builder, and installable runtime-configurable themes into independently deployed customer products.
 
 ## Reading paths
 
@@ -34,6 +34,7 @@ The documents are implementation-oriented: each major concept should eventually 
 3. [Builder engine and profiles](./17-builder-engine-and-profiles.md)
 4. [Theme and design system](./18-theme-and-design-system.md)
 5. [Plugin data sources, bindings, and realtime invalidation](./24-data-sources-state-and-binding-graph.md)
+6. [Data-source output contracts](./25-output-contracts.md)
 
 ### Payload data, backend, and operations
 
@@ -79,7 +80,8 @@ The documents are implementation-oriented: each major concept should eventually 
 | [21 — Decision register](./21-decision-register.md) | Accepted, provisional, open, superseded, and rejected decisions |
 | [22 — Glossary](./22-glossary.md) | Canonical terminology |
 | [23 — Payload database selection](./23-database-adapters-and-runtime-providers.md) | Scaffold-time Payload adapter selection, Postgres, environment, migrations |
-| [24 — Plugin data sources and bindings](./24-data-sources-state-and-binding-graph.md) | Authenticated source endpoints, counter/table/chart binding, fields, realtime invalidation |
+| [24 — Plugin data sources and bindings](./24-data-sources-state-and-binding-graph.md) | Authenticated source endpoints, bindings, stable fields, auth, realtime invalidation |
+| [25 — Data-source output contracts](./25-output-contracts.md) | Canonical/plugin-owned contracts, metric/table/series shapes, envelopes, versions, migrations |
 | [ADRs](./adr/README.md) | Consequential architecture decisions and rationale |
 | [References](./references.md) | Primary implementation-candidate references |
 
@@ -109,13 +111,21 @@ The documents are implementation-oriented: each major concept should eventually 
 | Theme surfaces | Separate admin and public themes |
 | Styling | Style-agnostic module UI + semantic primitives + themes + customer overrides |
 | Module data | Plugins expose deliberate authenticated data-source descriptors and handlers |
-| Source transport | Recommended standard K-Nex query gateway dispatching to plugin-owned handlers |
+| Source transport | Standard K-Nex query gateway dispatching to plugin-owned handlers |
 | Payload access | Handlers use authenticated `req.payload`/domain services and preserve access controls |
-| Generic components | Counter/table/chart blocks bind to source output contracts and declared fields |
-| Table customization | Source declares fields; builder stores selected visible columns/sort/filter defaults |
+| Contract model | Hybrid canonical K-Nex contracts plus namespaced plugin-owned contracts |
+| Source projection | One source exposes one primary output contract |
+| Initial contracts | `metric.scalar@1`, `table.records@1`, `series.category@1`, `series.time@1`, `options.list@1`, `record.summary@1` |
+| Contract conformance | Exact source schema must validate against declared output contract |
+| Table fields | Stable opaque source field IDs; no raw nested Payload paths |
+| Descriptor transport | Actor-filtered descriptors separate from query responses; deterministic descriptor hash |
+| Versioning | Source, output contract, descriptor hash, and package version evolve independently |
+| Transformations | V1 uses purpose-built sources; future transforms are registered/versioned adapters, not expressions |
+| Generic components | Counter/table/chart blocks bind by contract ID/version and descriptor constraints |
+| Table customization | Builder stores selected authorized field IDs and source-declared sort/filter defaults |
 | UI state | Filters/selections only; module business data remains in source endpoints |
 | Realtime | Authenticated WebSocket invalidation/refetch by default; typed streams only where needed |
-| Security | Source discovery, execution, fields, and subscriptions are server-authorized |
+| Security | Source discovery, execution, output, fields, and subscriptions are server-authorized |
 | Builder code policy | No arbitrary JS, SQL, Payload query, imports, secrets, unrestricted URL/CSS |
 | Runtime code install | Not allowed from admin panel |
 | Plugin states | Installed, enabled/disabled, configured, uninstalled, purged are distinct |
@@ -132,9 +142,9 @@ create-k-nex-app / k-nex CLI
         ├── validates k-nex.app.json
         ├── selects and installs Payload Postgres adapter
         ├── resolves K-Nex modules/providers/themes/builder
-        ├── generates static registries and Payload composition
+        ├── generates static plugin/UI/source/contract/theme registries
         ├── prepares Docker/environment/deployment files
-        └── reports migration, UI, source, theme, and security impact
+        └── reports migration, UI, source, contract, theme, and security impact
                 │
                 ▼
 customer application repository
@@ -143,6 +153,7 @@ customer application repository
         ├── fixed application shell
         ├── module routes/screens/blocks
         ├── plugin-owned authenticated data-source handlers
+        ├── canonical and plugin-owned output contracts
         ├── standard source gateway and realtime invalidation bridge
         ├── CMS/workspace builder profiles
         ├── installed theme packages and DB profiles
@@ -157,29 +168,32 @@ independent customer runtime
 
 ```text
 Sales module registers:
-  sales.total-opportunities
-  sales.tasks
+  sales.total-potential-revenue → metric.scalar@1
+  sales.tasks                   → table.records@1
+  sales.opportunities-by-stage  → series.category@1
 
-Builder adds Counter:
-  source = sales.total-opportunities
-  field  = value
+Builder adds Metric:
+  source = sales.total-potential-revenue
 
 Builder adds DataTable:
   source  = sales.tasks
-  columns = title, status, dueAt, assignee.name
+  columns = title, status, dueAt, assignee
+
+Builder adds PieChart:
+  source = sales.opportunities-by-stage
 
 Authenticated runtime:
-  executes plugin handler through K-Nex gateway
-  handler queries with req.payload
-  permission/record/field policy is enforced
+  executes plugin handlers through K-Nex gateway
+  validates exact source schema + canonical output contract
+  enforces permission/record/field policy
 
 Sales mutation commits:
-  realtime invalidates sales.tasks
-  active table refetches through authenticated endpoint
-  selected theme renders updated table
+  realtime invalidates affected source queries
+  active components refetch through authenticated endpoint
+  selected theme renders updated results
 ```
 
-The stored layout contains source IDs, versions, parameters, field selections, and bindings—not live records or executable query code.
+The stored layout contains source/contract IDs, major versions, validated parameters, selected stable field IDs, and bindings—not live records or executable query code.
 
 ## Documentation conventions
 
@@ -191,8 +205,10 @@ Stable persisted identities use product IDs rather than package paths:
 module.sales
 provider.realtime-websocket-local
 realtime.gateway
-sales.total-opportunities
+sales.total-potential-revenue
 sales.tasks
+metric.scalar@1
+table.records@1
 core.data-table
 page.filters.date-range
 ```
@@ -203,7 +219,9 @@ Important distinctions:
 - **module:** business/horizontal plugin such as Sales, CMS, or Dispatch;
 - **provider:** genuinely replaceable infrastructure capability such as realtime or storage;
 - **Payload database adapter:** framework dependency selected at scaffold time, not a K-Nex provider;
-- **data source:** plugin-owned authenticated query/projection contract;
+- **data source:** plugin-owned authenticated query/projection;
+- **output contract:** reusable versioned semantic result shape;
+- **source-specific output schema:** exact schema for one source implementing its declared contract;
 - **UI state:** typed filter/selection/coordination value, not module data;
 - **Payload plugin:** framework-level Payload config transformer that a K-Nex plugin may contribute internally.
 
@@ -220,12 +238,14 @@ Important distinctions:
 ```text
 manifest
   → Payload Postgres scaffold
-  → static module/UI/source/theme registries
+  → static module/UI/source/contract/theme registries
   → Payload boot and customer migration
   → fixed shell + Sales navigation
-  → sales.total-opportunities Counter
-  → sales.tasks DataTable with selectable columns
+  → metric.scalar Counter
+  → table.records DataTable with selected stable columns
+  → category/time-series charts
   → Payload-authenticated source execution
+  → source-specific + canonical output validation
   → WebSocket invalidation and refetch
   → one CMS page + one workspace dashboard
   → two installed themes
