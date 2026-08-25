@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Added repository-wide agent rules, mandatory compact status tracking, and a PR checklist requirement.
+Added repository-wide agent rules, compact status tracking, and PR enforcement; architecture-contract validation passed.
 
 ## Validation
 
-Architecture-contract CI pending for this change.
+Architecture contracts workflow run #6 passed.
 
 ## Next
 
