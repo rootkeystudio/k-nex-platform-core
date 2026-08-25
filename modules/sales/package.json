@@ -1,0 +1,30 @@
+{
+  "name": "@k-nex/module-sales",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./manifest": "./k-nex.plugin.json",
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "default": "./dist/server.js"
+    },
+    "./testing/task-fixture": "./testing/task-fixture.json"
+  },
+  "files": [
+    "dist/server.d.ts",
+    "dist/server.js",
+    "k-nex.plugin.json",
+    "testing"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node scripts/check-pack.mjs"
+  },
+  "devDependencies": {
+    "@k-nex/composition": "workspace:*",
+    "payload": "3.88.0",
+    "typescript": "6.0.3"
+  }
+}

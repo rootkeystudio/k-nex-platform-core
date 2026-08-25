@@ -1,0 +1,28 @@
+{
+  "name": "@k-nex/payload-adapter",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@k-nex/composition": "workspace:*",
+    "@payloadcms/db-postgres": "3.88.0",
+    "payload": "3.88.0"
+  },
+  "devDependencies": {
+    "@k-nex/contracts": "workspace:*",
+    "@k-nex/module-sales": "workspace:*",
+    "typescript": "6.0.3",
+    "vitest": "4.1.6"
+  }
+}

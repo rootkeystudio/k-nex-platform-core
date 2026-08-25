@@ -17,18 +17,30 @@ importers:
 
   fixtures/customer-gate-1:
     dependencies:
+      '@k-nex/composition':
+        specifier: workspace:*
+        version: link:../../packages/composition
+      '@k-nex/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@k-nex/module-sales':
+        specifier: file:packages/k-nex-module-sales-1.0.0.tgz
+        version: file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz
+      '@k-nex/payload-adapter':
+        specifier: workspace:*
+        version: link:../../packages/payload-adapter
       '@payloadcms/db-postgres':
         specifier: 3.88.0
         version: 3.88.0(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))
       '@payloadcms/next':
         specifier: 3.88.0
-        version: 3.88.0(@types/react@19.2.18)(graphql@16.14.2)(monaco-editor@0.56.0)(next@16.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)
+        version: 3.88.0(@types/react@19.2.18)(graphql@16.14.2)(monaco-editor@0.56.0)(next@16.3.1(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)
       graphql:
         specifier: 16.14.2
         version: 16.14.2
       next:
         specifier: 16.3.1
-        version: 16.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4)
+        version: 16.3.1(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4)
       payload:
         specifier: 3.88.0
         version: 3.88.0(graphql@16.14.2)(typescript@6.0.3)
@@ -38,6 +50,25 @@ importers:
       react-dom:
         specifier: 19.2.8
         version: 19.2.8(react@19.2.8)
+    devDependencies:
+      '@types/node':
+        specifier: 24.13.3
+        version: 24.13.3
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
+  modules/sales:
+    devDependencies:
+      '@k-nex/composition':
+        specifier: workspace:*
+        version: link:../../packages/composition
+      payload:
+        specifier: 3.88.0
+        version: 3.88.0(graphql@16.14.2)(typescript@6.0.3)
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
 
   packages/architecture-contract-tools:
     dependencies:
@@ -88,6 +119,31 @@ importers:
       zod:
         specifier: 4.4.3
         version: 4.4.3
+
+  packages/payload-adapter:
+    dependencies:
+      '@k-nex/composition':
+        specifier: workspace:*
+        version: link:../composition
+      '@payloadcms/db-postgres':
+        specifier: 3.88.0
+        version: 3.88.0(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))
+      payload:
+        specifier: 3.88.0
+        version: 3.88.0(graphql@16.14.2)(typescript@6.0.3)
+    devDependencies:
+      '@k-nex/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@k-nex/module-sales':
+        specifier: workspace:*
+        version: link:../../modules/sales
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: 4.1.6
+        version: 4.1.6(@types/node@24.13.3)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2)(sass@1.77.4)(tsx@4.22.4)(yaml@2.9.0))
 
 packages:
 
@@ -889,6 +945,10 @@ packages:
 
   '@jsdevtools/ono@7.1.3':
     resolution: {integrity: sha512-4JQNk+3mVzK3xh2rqd6RB4J46qUR19azEHBneZyTZM+c456qOrbbM/5xcR8huNCCcbVt7+UmizG6GuUvPvKUYg==}
+
+  '@k-nex/module-sales@file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz':
+    resolution: {integrity: sha512-PdZp6AmoVkrrbex46qPQOtumXSuSvvYg+Pm5oSGbBAy84KCGkS9ft5GZpTI/2JvGW1kQ5k3o8m2edJB2d73t6Q==, tarball: file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz}
+    version: 1.0.0
 
   '@monaco-editor/loader@1.7.0':
     resolution: {integrity: sha512-gIwR1HrJrrx+vfyOhYmCZ0/JcWqG5kbfG7+d3f/C1LXk2EvzAbHSg3MQ5lO2sMlo9izoAZ04shohfKLVT6crVA==}
@@ -2940,6 +3000,8 @@ snapshots:
 
   '@jsdevtools/ono@7.1.3': {}
 
+  '@k-nex/module-sales@file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz': {}
+
   '@monaco-editor/loader@1.7.0':
     dependencies:
       state-local: 1.0.7
@@ -3075,14 +3137,14 @@ snapshots:
     transitivePeerDependencies:
       - typescript
 
-  '@payloadcms/next@3.88.0(@types/react@19.2.18)(graphql@16.14.2)(monaco-editor@0.56.0)(next@16.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)':
+  '@payloadcms/next@3.88.0(@types/react@19.2.18)(graphql@16.14.2)(monaco-editor@0.56.0)(next@16.3.1(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)':
     dependencies:
       '@dnd-kit/core': 6.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@dnd-kit/modifiers': 9.0.0(@dnd-kit/core@6.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
       '@dnd-kit/sortable': 10.0.0(@dnd-kit/core@6.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
       '@payloadcms/graphql': 3.88.0(graphql@16.14.2)(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(typescript@6.0.3)
       '@payloadcms/translations': 3.88.0
-      '@payloadcms/ui': 3.88.0(@types/react@19.2.18)(monaco-editor@0.56.0)(next@16.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)
+      '@payloadcms/ui': 3.88.0(@types/react@19.2.18)(monaco-editor@0.56.0)(next@16.3.1(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)
       busboy: 1.6.0
       dequal: 2.0.3
       file-type: 21.3.4
@@ -3090,7 +3152,7 @@ snapshots:
       graphql-http: 1.23.0(graphql@16.14.2)
       graphql-playground-html: 1.6.30
       http-status: 2.1.0
-      next: 16.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4)
+      next: 16.3.1(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4)
       path-to-regexp: 6.3.0
       payload: 3.88.0(graphql@16.14.2)(typescript@6.0.3)
       qs-esm: 8.0.1
@@ -3108,7 +3170,7 @@ snapshots:
     dependencies:
       date-fns: 4.1.0
 
-  '@payloadcms/ui@3.88.0(@types/react@19.2.18)(monaco-editor@0.56.0)(next@16.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)':
+  '@payloadcms/ui@3.88.0(@types/react@19.2.18)(monaco-editor@0.56.0)(next@16.3.1(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)':
     dependencies:
       '@date-fns/tz': 1.2.0
       '@dnd-kit/core': 6.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -3123,7 +3185,7 @@ snapshots:
       date-fns: 4.1.0
       dequal: 2.0.3
       md5: 2.3.0
-      next: 16.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4)
+      next: 16.3.1(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4)
       object-to-formdata: 4.5.1
       payload: 3.88.0(graphql@16.14.2)(typescript@6.0.3)
       qs-esm: 8.0.1
@@ -3783,7 +3845,7 @@ snapshots:
 
   nanoid@3.3.18: {}
 
-  next@16.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4):
+  next@16.3.1(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4):
     dependencies:
       '@next/env': 16.3.1
       '@swc/helpers': 0.5.23
@@ -3803,7 +3865,7 @@ snapshots:
       '@next/swc-win32-arm64-msvc': 16.3.1
       '@next/swc-win32-x64-msvc': 16.3.1
       sass: 1.77.4
-      sharp: 0.35.3
+      sharp: 0.35.3(@types/node@24.13.3)
     transitivePeerDependencies:
       - '@babel/core'
       - '@types/node'
@@ -4115,7 +4177,7 @@ snapshots:
 
   semver@7.8.5: {}
 
-  sharp@0.35.3:
+  sharp@0.35.3(@types/node@24.13.3):
     dependencies:
       '@img/colour': 1.1.0
       detect-libc: 2.1.2
@@ -4146,6 +4208,7 @@ snapshots:
       '@img/sharp-win32-arm64': 0.35.3
       '@img/sharp-win32-ia32': 0.35.3
       '@img/sharp-win32-x64': 0.35.3
+      '@types/node': 24.13.3
     optional: true
 
   siginfo@2.0.0: {}

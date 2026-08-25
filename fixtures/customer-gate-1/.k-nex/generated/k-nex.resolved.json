@@ -1,13 +1,14 @@
 {
   "application": {
     "id": "customer-gate-1",
-    "manifestDigest": "sha256:a799585e4cc950890ead2ca6e7ca88f1fdd1bbfcc50aa09f2561748cd0b78733"
+    "manifestDigest": "sha256:2128b4193977f5d9287af5c5f168634b31448d23e422308b1c91ee310355e85f"
   },
   "capabilityProviders": [],
   "customerConfigFingerprint": "sha256:b7bb1adc18f8ab6786a03cb3bbb14cbd4a5986795eb51c8f4f9c94dadcb9eecb",
   "environment": {
     "names": [
-      "DATABASE_URL"
+      "DATABASE_URL",
+      "PAYLOAD_SECRET"
     ]
   },
   "framework": {
@@ -17,8 +18,36 @@
     "payloadDatabaseAdapter": "postgres",
     "pnpm": "11.9.0"
   },
-  "plugins": [],
-  "registrationOrder": [],
+  "plugins": [
+    {
+      "contributions": {
+        "schema": [
+          "sales.tasks.collection"
+        ]
+      },
+      "environment": {
+        "names": []
+      },
+      "id": "module.sales",
+      "integrity": "sha512-PdZp6AmoVkrrbex46qPQOtumXSuSvvYg+Pm5oSGbBAy84KCGkS9ft5GZpTI/2JvGW1kQ5k3o8m2edJB2d73t6Q==",
+      "kind": "module",
+      "lifecycle": {
+        "disable": "supported",
+        "ownsPayloadSchema": true,
+        "ownsPersistentData": true,
+        "purge": "supported",
+        "uninstall": "unsupported"
+      },
+      "manifestDigest": "sha256:1fde841e52008d3bbca83028d79049bc01e29ab1bfb6cf3ebbb06ce90325ad25",
+      "optional": [],
+      "package": "@k-nex/module-sales",
+      "required": [],
+      "version": "1.0.0"
+    }
+  ],
+  "registrationOrder": [
+    "module.sales"
+  ],
   "resolverVersion": "1.0.0",
   "runtime": {
     "deploymentMode": "container",

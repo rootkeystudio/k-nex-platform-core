@@ -178,19 +178,29 @@ function importerVersionMatches(value: unknown, requestedVersion: string): boole
   return value.startsWith(`${requestedVersion}(`) && value.endsWith(")") && value.length > requestedVersion.length + 2;
 }
 
+function isFileTarball(value: unknown): value is string {
+  if (typeof value !== "string" || !value.startsWith("file:") || !value.endsWith(".tgz") || value.includes("\\")) return false;
+  const path = value.slice("file:".length);
+  return path.length > 0 && !path.startsWith("/") && !path.split("/").some((segment) => segment === "" || segment === "." || segment === "..");
+}
+
 function packageIntegrity(lockfile: RecordValue, importer: RecordValue, request: PluginPackageRequest): string {
   const entries = dependencyEntries(importer, request.name);
-  if (entries.some((entry) => entry.specifier !== request.version)) {
+  const registrySpecifier = entries.every((entry) => entry.specifier === request.version);
+  const registryEntry = registrySpecifier && entries.every((entry) => importerVersionMatches(entry.version, request.version));
+  const firstEntry = entries[0];
+  const tarballEntry = firstEntry !== undefined && isFileTarball(firstEntry.specifier) && isFileTarball(firstEntry.version) && entries.every(
+    (entry) => entry.specifier === firstEntry.specifier && entry.version === firstEntry.version
+  );
+  if (!registryEntry && !tarballEntry) {
+    if (registrySpecifier) fail("PACKAGE_VERSION_MISMATCH", `Requested package ${request.name} does not resolve to its requested version.`);
     fail("LOCKFILE_SPECIFIER_NOT_EXACT", `Requested package ${request.name} does not declare its exact requested version.`);
-  }
-  if (entries.some((entry) => !importerVersionMatches(entry.version, request.version))) {
-    fail("PACKAGE_VERSION_MISMATCH", `Requested package ${request.name} does not resolve to its requested version.`);
   }
   const packages = lockfile.packages;
   if (!isRecord(packages)) {
     fail("LOCKFILE_INVALID", "The pnpm lockfile packages section must be a mapping.");
   }
-  const packageKey = `${request.name}@${request.version}`;
+  const packageKey = `${request.name}@${tarballEntry ? firstEntry.version : request.version}`;
   if (!hasOwn(packages, packageKey) || !isRecord(packages[packageKey])) {
     fail("LOCKFILE_ENTRY_MISSING", `The lockfile has no package record for ${request.name}.`);
   }

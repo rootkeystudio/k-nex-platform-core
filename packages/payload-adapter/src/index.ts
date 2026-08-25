@@ -1,0 +1,148 @@
+import { postgresAdapter } from "@payloadcms/db-postgres";
+import type { RegistrationResult } from "@k-nex/composition";
+import type { CollectionConfig, Config } from "payload";
+
+export type PayloadCompositionErrorCode =
+  | "INVALID_DATABASE_URL"
+  | "INVALID_SCHEMA_CONTRIBUTION"
+  | "DUPLICATE_COLLECTION_SLUG"
+  | "ROUTE_COLLISION"
+  | "INDEX_COLLISION";
+
+export class PayloadCompositionError extends Error {
+  readonly code: PayloadCompositionErrorCode;
+  readonly path: readonly string[];
+
+  constructor(code: PayloadCompositionErrorCode, message: string, path: readonly string[] = []) {
+    super(message);
+    this.name = "PayloadCompositionError";
+    this.code = code;
+    this.path = Object.freeze([...path]);
+  }
+}
+
+export interface CollectionOwnership {
+  readonly slug: string;
+  readonly pluginId: string;
+  readonly contributionId: string;
+}
+
+export interface ComposedPayloadApplication {
+  readonly config: Config;
+  readonly collectionOwnership: readonly CollectionOwnership[];
+}
+
+export interface ComposePayloadApplicationOptions {
+  readonly baseConfig: Omit<Config, "collections" | "db">;
+  readonly baseCollections?: readonly CollectionConfig[];
+  readonly databaseUrl: string;
+  readonly registration: RegistrationResult;
+}
+
+type OwnedCollectionValue = Readonly<{
+  readonly type: "payload.collection";
+  readonly collection: CollectionConfig;
+}>;
+
+function compare(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function fail(code: PayloadCompositionErrorCode, message: string, path: readonly string[] = []): never {
+  throw new PayloadCompositionError(code, message, path);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function ownedCollection(value: unknown): OwnedCollectionValue | undefined {
+  if (!isRecord(value) || value.type !== "payload.collection" || !isRecord(value.collection)) return undefined;
+  const collection = value.collection as Partial<CollectionConfig>;
+  if (typeof collection.slug !== "string" || !Array.isArray(collection.fields)) return undefined;
+  return value as unknown as OwnedCollectionValue;
+}
+
+function normalizedRoute(path: string): string {
+  const withLeadingSlash = path.startsWith("/") ? path : `/${path}`;
+  return withLeadingSlash.length > 1 ? withLeadingSlash.replace(/\/+$/, "") : withLeadingSlash;
+}
+
+function validateCollection(collection: CollectionConfig): void {
+  const routes = new Set<string>();
+  for (const endpoint of collection.endpoints === false ? [] : collection.endpoints ?? []) {
+    const key = `${endpoint.method}:${normalizedRoute(endpoint.path)}`;
+    if (routes.has(key)) fail("ROUTE_COLLISION", `Collection ${collection.slug} declares route ${key} more than once.`, [collection.slug, key]);
+    routes.add(key);
+  }
+
+  const indexes = new Set<string>();
+  for (const index of collection.indexes ?? []) {
+    const key = index.fields.join("\u0000");
+    if (new Set(index.fields).size !== index.fields.length || indexes.has(key)) {
+      fail("INDEX_COLLISION", `Collection ${collection.slug} declares a duplicate index.`, [collection.slug, ...index.fields]);
+    }
+    indexes.add(key);
+  }
+}
+
+function validateApplicationRoutes(config: Omit<Config, "collections" | "db">, collections: readonly CollectionConfig[]): void {
+  const routes = new Set<string>();
+  const add = (method: string, path: string): void => {
+    const key = `${method}:${normalizedRoute(path)}`;
+    if (routes.has(key)) fail("ROUTE_COLLISION", `Payload route ${key} is declared more than once.`, [key]);
+    routes.add(key);
+  };
+  for (const endpoint of config.endpoints ?? []) add(endpoint.method, endpoint.path);
+  for (const collection of collections) {
+    for (const endpoint of collection.endpoints === false ? [] : collection.endpoints ?? []) {
+      add(endpoint.method, `/${collection.slug}${normalizedRoute(endpoint.path)}`);
+    }
+  }
+}
+
+export function composePayloadApplication(options: ComposePayloadApplicationOptions): ComposedPayloadApplication {
+  if (typeof options.databaseUrl !== "string" || options.databaseUrl.trim().length === 0) {
+    fail("INVALID_DATABASE_URL", "A non-empty Postgres connection string is required.");
+  }
+
+  const collections: CollectionConfig[] = [...(options.baseCollections ?? [])];
+  const ownership: CollectionOwnership[] = [];
+  for (const contribution of options.registration.contributions.schema) {
+    const value = ownedCollection(contribution.value);
+    if (!value) {
+      fail(
+        "INVALID_SCHEMA_CONTRIBUTION",
+        `Schema contribution ${contribution.id} is not an owned Payload collection.`,
+        [contribution.pluginId, contribution.id]
+      );
+    }
+    collections.push(value.collection);
+    ownership.push({
+      slug: value.collection.slug,
+      pluginId: contribution.pluginId,
+      contributionId: contribution.id
+    });
+  }
+
+  const slugs = new Set<string>();
+  for (const collection of collections) {
+    if (slugs.has(collection.slug)) {
+      fail("DUPLICATE_COLLECTION_SLUG", `Payload collection slug ${collection.slug} is declared more than once.`, [collection.slug]);
+    }
+    slugs.add(collection.slug);
+    validateCollection(collection);
+  }
+  validateApplicationRoutes(options.baseConfig, collections);
+
+  const config: Config = {
+    ...options.baseConfig,
+    db: postgresAdapter({ pool: { connectionString: options.databaseUrl } }),
+    collections
+  };
+
+  return Object.freeze({
+    config,
+    collectionOwnership: Object.freeze([...ownership].sort((left, right) => compare(left.slug, right.slug)).map((entry) => Object.freeze(entry)))
+  });
+}

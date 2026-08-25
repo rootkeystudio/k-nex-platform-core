@@ -21,7 +21,14 @@
       }
     }
   },
-  "plugins": [],
+  "plugins": [
+    {
+      "id": "module.sales",
+      "package": "@k-nex/module-sales",
+      "version": "1.0.0",
+      "enabled": true
+    }
+  ],
   "providers": {},
   "builder": {
     "plugin": "builder.puck",
@@ -41,6 +48,6 @@
     "validateGeneratedFilesInCI": true
   },
   "environment": {
-    "required": ["DATABASE_URL"]
+    "required": ["DATABASE_URL", "PAYLOAD_SECRET"]
   }
 }

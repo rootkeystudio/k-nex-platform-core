@@ -5,6 +5,7 @@ import { dirname, resolve } from "node:path";
 import { ApplicationManifestSchema } from "@k-nex/contracts";
 
 import { resolvePluginGraph } from "./deterministic-resolver.js";
+import { loadInstalledPluginManifests } from "./installed-plugin-loader.js";
 import {
   fingerprintCustomerConfigSources,
   writeStaticArtifacts,
@@ -45,17 +46,29 @@ function run(check: boolean): void {
     pnpm: applicationManifest.runtime.packageManagerVersion,
     payloadDatabaseAdapter: "postgres"
   };
+  const packageRequests = [
+    ...applicationManifest.plugins.map(({ package: name, version }) => ({ name, version })),
+    ...Object.values(applicationManifest.providers).map(({ package: name, version }) => ({ name, version }))
+  ].sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
+    .filter((entry, index, entries) => index === 0 || entries[index - 1]?.name !== entry.name);
+  const installed = loadInstalledPluginManifests({
+    applicationRoot: root,
+    lockfilePath: resolve(root, "../..", "pnpm-lock.yaml"),
+    lockfileImporter: "fixtures/customer-gate-1",
+    packages: packageRequests,
+    framework
+  });
   const resolvedGraph = resolvePluginGraph({
     plugins: applicationManifest.plugins,
     providers: applicationManifest.providers,
-    installed: []
+    installed
   });
   const report = writeStaticArtifacts(
     root,
     {
       applicationManifest,
       resolvedGraph,
-      installed: [],
+      installed,
       framework,
       customerConfigFingerprint: fingerprintCustomerConfigSources([{ path: configPath, content: configContent }])
     },

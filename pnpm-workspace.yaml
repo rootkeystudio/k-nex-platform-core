@@ -1,5 +1,6 @@
 packages:
   - packages/*
+  - modules/*
   - fixtures/customer-gate-1
 
 allowBuilds:

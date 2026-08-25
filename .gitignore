@@ -16,6 +16,8 @@
 # production
 /build
 /packages/*/dist/
+/modules/*/dist/
+/fixtures/customer-gate-1/dist/
 
 # task cache
 /.turbo/

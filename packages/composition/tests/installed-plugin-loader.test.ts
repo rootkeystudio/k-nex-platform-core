@@ -37,6 +37,7 @@ type PackageFixture = {
   lockSpecifier?: string;
   lockResolvedVersion?: string;
   lockIntegrity?: string | null;
+  fileTarball?: boolean;
 };
 type ApplicationFixture = {
   applicationRoot: string;
@@ -99,8 +100,8 @@ async function makeApplication(fixtures: PackageFixture[]): Promise<ApplicationF
     lockLines.push(`    ${section}:`);
     for (const fixture of sectionFixtures) {
       const requestedVersion = fixture.requestedVersion ?? fixture.installedVersion ?? "1.0.0";
-      const lockSpecifier = fixture.lockSpecifier ?? requestedVersion;
-      const lockResolvedVersion = fixture.lockResolvedVersion ?? requestedVersion;
+      const lockSpecifier = fixture.lockSpecifier ?? (fixture.fileTarball ? `file:packages/${fixture.name.split("/").at(-1)}.tgz` : requestedVersion);
+      const lockResolvedVersion = fixture.lockResolvedVersion ?? (fixture.fileTarball ? `file:fixtures/app/packages/${fixture.name.split("/").at(-1)}.tgz` : requestedVersion);
       const lockIntegrity = fixture.lockIntegrity === undefined ? integrity : fixture.lockIntegrity;
       lockLines.push(`      ${yamlQuote(fixture.name)}:`, `        specifier: ${yamlQuote(lockSpecifier)}`, `        version: ${yamlQuote(lockResolvedVersion)}`);
       resolvedIntegrity.set(fixture.name, lockIntegrity ?? "");
@@ -142,7 +143,7 @@ async function makeApplication(fixtures: PackageFixture[]): Promise<ApplicationF
   for (const fixture of packageFixtures) {
     const installedVersion = fixture.installedVersion ?? "1.0.0";
     const requestedVersion = fixture.requestedVersion ?? installedVersion;
-    const lockResolvedVersion = fixture.lockResolvedVersion ?? requestedVersion;
+    const lockResolvedVersion = fixture.lockResolvedVersion ?? (fixture.fileTarball ? `file:fixtures/app/packages/${fixture.name.split("/").at(-1)}.tgz` : requestedVersion);
     const lockIntegrity = fixture.lockIntegrity === undefined ? integrity : fixture.lockIntegrity;
     lockLines.push(`  ${yamlQuote(`${fixture.name}@${lockResolvedVersion}`)}:`, "    resolution:");
     if (lockIntegrity !== null) lockLines.push(`      integrity: ${yamlQuote(lockIntegrity)}`);
@@ -269,6 +270,23 @@ describe("installed plugin manifest loader", () => {
 
   it("rejects an importer resolved version mismatch", async () => {
     await withApplication([{ name: "@k-nex/plugin-alpha", lockResolvedVersion: "2.0.0" }], (fixture) => expectLoadCode(fixture, "PACKAGE_VERSION_MISMATCH"));
+  });
+
+  it("accepts an exact file tarball locked by integrity", async () => {
+    await withApplication([{ name: "@k-nex/plugin-alpha", fileTarball: true }], async (fixture) => {
+      const result = loadInstalledPluginManifests(input(fixture));
+      expect(result).toHaveLength(1);
+      expect(result[0]?.package).toEqual({ name: "@k-nex/plugin-alpha", version: "1.0.0", integrity });
+    });
+  });
+
+  it("rejects file directories and unsafe tarball paths", async () => {
+    for (const lockSpecifier of ["file:packages/plugin-alpha", "file:../plugin-alpha.tgz"]) {
+      await withApplication(
+        [{ name: "@k-nex/plugin-alpha", fileTarball: true, lockSpecifier }],
+        (fixture) => expectLoadCode(fixture, "LOCKFILE_SPECIFIER_NOT_EXACT")
+      );
+    }
   });
 
   it("does not treat devDependencies as direct plugin dependencies", async () => {
