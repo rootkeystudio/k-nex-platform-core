@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { access, readFile, readdir } from "node:fs/promises";
-import { dirname, extname, relative, resolve, sep } from "node:path";
+import { dirname, extname, isAbsolute, relative, resolve, sep } from "node:path";
 
 import { Ajv2020, type AnySchema, type ValidateFunction } from "ajv/dist/2020.js";
 import addFormatsModule from "ajv-formats";
@@ -37,12 +37,7 @@ interface ExpectedDiagnostic {
   validator: string;
 }
 
-const generatedArtifacts = [
-  "contracts/architecture-contracts.v1.json",
-  "contracts/generated-contracts.v1.json",
-  "schemas/application-manifest.v1.schema.json",
-  "schemas/plugin-manifest.v1.schema.json"
-] as const;
+const generatedInventoryPath = "contracts/generated-contracts.v1.json";
 const scanExtensions = new Set([".json", ".md", ".ts", ".tsx", ".yaml", ".yml"]);
 
 function compare(left: string, right: string): number {
@@ -61,7 +56,8 @@ function diagnostic(
 }
 
 export function sortDiagnostics(diagnostics: readonly RepositoryDiagnostic[]): RepositoryDiagnostic[] {
-  return [...diagnostics].sort((left, right) =>
+  const unique = new Map(diagnostics.map((item) => [JSON.stringify(item), item]));
+  return [...unique.values()].sort((left, right) =>
     compare(left.sourcePath, right.sourcePath) || compare(left.code, right.code) || compare(left.path, right.path) || compare(left.message, right.message)
   );
 }
@@ -92,6 +88,67 @@ export function validateGeneratedDocument(sourcePath: string, content: string, v
     }
   }
   return diagnostics;
+}
+
+export function validateGeneratedInventory(
+  value: unknown,
+  artifactExists: (path: string) => boolean
+): { artifacts: string[]; diagnostics: RepositoryDiagnostic[] } {
+  const diagnostics: RepositoryDiagnostic[] = [];
+  const artifactsValue = value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as { artifacts?: unknown }).artifacts
+    : undefined;
+  if (!Array.isArray(artifactsValue)) {
+    return {
+      artifacts: [],
+      diagnostics: [diagnostic(generatedInventoryPath, "GENERATED_ARTIFACT_INVALID", "$/artifacts", "Generated artifact inventory must be an array.", "Regenerate the generated-contracts sidecar.", "generated-artifact")]
+    };
+  }
+
+  const artifacts: string[] = [];
+  const seen = new Set<string>();
+  for (const [index, value] of artifactsValue.entries()) {
+    const path = typeof value === "string" ? value : "";
+    const location = `$/artifacts/${index}`;
+    if (repositoryTarget("/repository", path) === undefined || path === generatedInventoryPath) {
+      diagnostics.push(diagnostic(generatedInventoryPath, "GENERATED_ARTIFACT_INVALID", location, `Unsafe generated artifact inventory entry: ${String(value)}`, "Use a normalized repository-relative artifact path.", "generated-artifact"));
+      continue;
+    }
+    if (seen.has(path)) {
+      diagnostics.push(diagnostic(generatedInventoryPath, "GENERATED_ARTIFACT_INVALID", location, `Duplicate generated artifact inventory entry: ${path}`, "Keep each generated artifact path exactly once.", "generated-artifact"));
+      continue;
+    }
+    seen.add(path);
+    artifacts.push(path);
+    if (!artifactExists(path)) diagnostics.push(diagnostic(generatedInventoryPath, "GENERATED_ARTIFACT_INVALID", location, `Inventoried generated artifact is missing: ${path}`, "Regenerate or restore the inventoried artifact.", "generated-artifact"));
+  }
+  return { artifacts, diagnostics };
+}
+
+export async function validateGeneratedArtifacts(root: string): Promise<RepositoryDiagnostic[]> {
+  const diagnostics: RepositoryDiagnostic[] = [];
+  const inventoryContent = await readFile(resolve(root, generatedInventoryPath), "utf8").catch((error: unknown) => {
+    diagnostics.push(diagnostic(generatedInventoryPath, "GENERATED_ARTIFACT_INVALID", "$", error instanceof Error ? error.message : "Generated inventory cannot be read.", "Regenerate the generated-contracts sidecar.", "generated-artifact"));
+    return undefined;
+  });
+  if (inventoryContent === undefined) return diagnostics;
+
+  const parsed = parseJsonDocument(generatedInventoryPath, inventoryContent);
+  diagnostics.push(...parsed.diagnostics);
+  if (parsed.value === undefined) return diagnostics;
+  diagnostics.push(...validateGeneratedDocument(generatedInventoryPath, inventoryContent, parsed.value));
+
+  const inventory = validateGeneratedInventory(parsed.value, (path) => repositoryFileExists(root, path));
+  diagnostics.push(...inventory.diagnostics);
+  for (const sourcePath of inventory.artifacts) {
+    const target = repositoryTarget(root, sourcePath);
+    if (target === undefined || !existsSync(target)) continue;
+    const content = await readFile(target, "utf8");
+    const artifact = parseJsonDocument(sourcePath, content);
+    diagnostics.push(...artifact.diagnostics);
+    if (artifact.value !== undefined) diagnostics.push(...validateGeneratedDocument(sourcePath, content, artifact.value));
+  }
+  return sortDiagnostics(diagnostics);
 }
 
 export function validateLegacyText(sourcePath: string, content: string, symbols: readonly string[]): RepositoryDiagnostic[] {
@@ -146,6 +203,22 @@ export function validateEvidenceRegistry(
   return diagnostics;
 }
 
+export function validateFixtureInventory(
+  discoveredPaths: readonly string[],
+  declaredPaths: readonly string[]
+): RepositoryDiagnostic[] {
+  const discovered = new Set(discoveredPaths);
+  const declared = new Set(declaredPaths);
+  const diagnostics: RepositoryDiagnostic[] = [];
+  for (const path of [...discovered].filter((item) => !declared.has(item)).sort(compare)) {
+    diagnostics.push(diagnostic(path, "EXPECTED_DIAGNOSTIC_MISMATCH", "$", "Invalid fixture has no expected diagnostic declaration.", "Add exactly one declaration to expected-diagnostics.json.", "fixture-expectation"));
+  }
+  for (const path of [...declared].filter((item) => !discovered.has(item)).sort(compare)) {
+    diagnostics.push(diagnostic("fixtures/contracts/expected-diagnostics.json", "EXPECTED_DIAGNOSTIC_MISMATCH", `$/entries/${path}`, `Expected diagnostic references an absent invalid fixture: ${path}`, "Remove the stale declaration or restore the fixture.", "fixture-expectation"));
+  }
+  return diagnostics;
+}
+
 async function walk(path: string): Promise<string[]> {
   const entries = await readdir(path, { withFileTypes: true }).catch(() => []);
   const paths: string[] = [];
@@ -159,6 +232,18 @@ async function walk(path: string): Promise<string[]> {
 
 function repositoryPath(root: string, path: string): string {
   return relative(root, path).split(sep).join("/");
+}
+
+function repositoryTarget(root: string, path: string): string | undefined {
+  if (path === "" || isAbsolute(path) || path.includes("\\")) return undefined;
+  const repositoryRoot = resolve(root);
+  const destination = resolve(repositoryRoot, path);
+  return destination.startsWith(`${repositoryRoot}${sep}`) && repositoryPath(repositoryRoot, destination) === path ? destination : undefined;
+}
+
+export function repositoryFileExists(root: string, path: string): boolean {
+  const destination = repositoryTarget(root, path);
+  return destination !== undefined && existsSync(destination);
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -186,7 +271,7 @@ function excludedFromLegacyScan(path: string): boolean {
 }
 
 export async function validateRepository(root: string): Promise<RepositoryDiagnostic[]> {
-  const diagnostics: RepositoryDiagnostic[] = [];
+  const diagnostics: RepositoryDiagnostic[] = [...await validateGeneratedArtifacts(root)];
   const registryValue = await loadJson(root, "contracts/architecture-contracts.v1.json", diagnostics);
   const pluginSchema = await loadJson(root, "schemas/plugin-manifest.v1.schema.json", diagnostics);
   const applicationSchema = await loadJson(root, "schemas/application-manifest.v1.schema.json", diagnostics);
@@ -225,7 +310,11 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
     diagnostic(item.fixturePath, item.code, item.path, `Valid fixture failed with ${item.code}.`, item.remediation, item.validator)
   ));
 
-  for (const sourcePath of Object.keys(expected).sort()) {
+  const invalidPaths = (await walk(resolve(root, "fixtures/contracts/invalid")))
+    .filter((path) => extname(path) === ".json")
+    .map((path) => repositoryPath(root, path));
+  diagnostics.push(...validateFixtureInventory(invalidPaths, Object.keys(expected)));
+  for (const sourcePath of invalidPaths.filter((path) => path in expected).sort(compare)) {
     const declaration = expected[sourcePath];
     const value = await loadJson(root, sourcePath, diagnostics);
     if (value === undefined || declaration === undefined) continue;
@@ -249,7 +338,7 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
   const evidencePath = "docs/adr/evidence-registry.json";
   const evidence = await loadJson(root, evidencePath, diagnostics);
   const adrFiles = (await walk(resolve(root, "docs/adr"))).filter((path) => /^\d{4}-.*\.md$/.test(repositoryPath(root, path).split("/").at(-1) ?? ""));
-  if (evidence !== undefined) diagnostics.push(...validateEvidenceRegistry(evidence, new Set(adrFiles.map((path) => repositoryPath(root, path).split("/").at(-1)?.slice(0, 4) ?? "")), (path) => requireExists(root, path)));
+  if (evidence !== undefined) diagnostics.push(...validateEvidenceRegistry(evidence, new Set(adrFiles.map((path) => repositoryPath(root, path).split("/").at(-1)?.slice(0, 4) ?? "")), (path) => repositoryFileExists(root, path)));
 
   for (const path of (await walk(resolve(root, "docs"))).filter((item) => extname(item) === ".md")) {
     const sourcePath = repositoryPath(root, path);
@@ -259,15 +348,6 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
     }));
   }
 
-  for (const sourcePath of generatedArtifacts) {
-    const content = await readFile(resolve(root, sourcePath), "utf8").catch((error: unknown) => {
-      diagnostics.push(diagnostic(sourcePath, "GENERATED_ARTIFACT_INVALID", "$", error instanceof Error ? error.message : "Generated artifact cannot be read.", "Regenerate the committed contract artifacts.", "generated-artifact"));
-      return undefined;
-    });
-    if (content === undefined) continue;
-    const parsed = parseJsonDocument(sourcePath, content);
-    if (parsed.value !== undefined) diagnostics.push(...validateGeneratedDocument(sourcePath, content, parsed.value));
-  }
   for (const path of await walk(resolve(root, ".k-nex/generated"))) {
     if (![".json", ".ts"].includes(extname(path))) continue;
     const sourcePath = repositoryPath(root, path);
@@ -277,10 +357,6 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
     }
   }
   return sortDiagnostics(diagnostics);
-}
-
-function requireExists(root: string, path: string): boolean {
-  return existsSync(resolve(root, path));
 }
 
 export function formatDiagnostics(diagnostics: readonly RepositoryDiagnostic[], format: "human" | "json"): string {

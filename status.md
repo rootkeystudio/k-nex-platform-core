@@ -3,19 +3,19 @@
 - **Updated:** 2026-08-25
 - **Phase:** Phase 0 — Contract Freeze and Repository Readiness
 - **Active task:** P0.4 — Implement executable contract and documentation validation
-- **State:** Ready for review
+- **State:** Ready for re-review
 
 ## Last completed
 
-Implemented the P0.4 TypeScript repository validator with deterministic human/JSON diagnostics for schemas, fixtures, legacy symbols, ADR evidence, Markdown links, and generated-artifact constraints while retaining the Python validator.
+Addressed the P0.4 review: generated artifacts now derive from the validated sidecar inventory, invalid fixtures are discovered from disk, and artifact/evidence paths are constrained to normalized repository-relative locations.
 
 ## Validation
 
-The pinned install, build, generation cleanliness, contract validation, eleven Vitest tests, documentation validation, JSON diagnostic output, and diff checks pass locally on Node 24.19.0 with pnpm 11.9.0. Full `pnpm phase:0` remains intentionally blocked at P0.5 reproducibility.
+The reviewer-requested install, build, generation cleanliness, contract validation, sixteen Vitest tests, documentation validation, and diff checks pass locally on Node 24.19.0 with pnpm 11.9.0. Full `pnpm phase:0` remains intentionally blocked at P0.5 reproducibility.
 
 ## Next
 
-Open the P0.4 pull request, obtain reviewer approval, and merge only after required CI checks pass.
+Obtain re-review approval for PR #9 and merge only after the required CI check passes.
 
 ## Blockers
 
