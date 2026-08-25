@@ -1,64 +1,46 @@
 # Architecture Decision Records
 
-Architecture Decision Records (ADRs) capture consequential decisions that shape multiple packages, customer applications, or operational processes.
+ADR decision status and evidence maturity are separate dimensions.
 
-## Status values
+## Decision status
 
 ```text
 proposed
 accepted
-deprecated
 superseded
 rejected
 ```
 
-## Records
+## Evidence maturity
 
-| ID | Decision | Status |
-|---|---|---|
-| [0001](./0001-independent-customer-applications.md) | Independently deployed customer applications | Accepted |
-| [0002](./0002-package-composition-not-core-forks.md) | Package composition instead of copied/forked core source | Accepted |
-| [0003](./0003-plugin-taxonomy-and-capabilities.md) | Unified plugin taxonomy and capability-based dependencies | Accepted |
-| [0004](./0004-manifest-driven-cli.md) | Manifest-driven CLI as application compiler | Accepted |
-| [0005](./0005-unified-builder-fixed-shell.md) | Unified builder contracts with fixed shell and editable canvas | Accepted |
-| [0006](./0006-theme-package-runtime-profile.md) | Theme package plus runtime theme profile | Accepted |
-| [0007](./0007-payload-and-puck-initial-candidates.md) | Payload and Puck as provisional initial implementation candidates | Proposed |
-| [0008](./0008-postgres-and-customer-owned-migrations.md) | Postgres default and customer-owned final migrations | Accepted |
-| [0009](./0009-database-adapter-and-target-plugins.md) | Database adapters and connection targets as provider plugins | Superseded by 0011 |
-| [0010](./0010-typed-data-source-state-binding-graph.md) | Typed data sources, UI state, and declarative binding graph | Accepted |
-| [0011](./0011-payload-database-adapter-selected-at-scaffold.md) | Select Payload database adapter at scaffold time | Accepted |
-| [0012](./0012-hybrid-output-contracts.md) | Hybrid canonical and plugin-owned output contracts | Accepted |
-| [0013](./0013-conservative-technology-package-baseline.md) | Conservative technology and package baseline | Accepted |
-
-## ADR template
-
-```md
-# ADR-NNNN: Decision title
-
-- Status: proposed | accepted | deprecated | superseded | rejected
-- Date: YYYY-MM-DD
-- Decision owners: names or team
-- Related: documents/issues/ADRs
-
-## Context
-
-What forces and constraints require a decision?
-
-## Decision
-
-What is the chosen direction?
-
-## Consequences
-
-What becomes easier, harder, required, or intentionally unsupported?
-
-## Alternatives considered
-
-What credible alternatives were considered and why were they not selected?
-
-## Validation or revisit trigger
-
-What evidence can confirm, invalidate, or require revisiting the decision?
+```text
+design-only          architecture direction, no executable proof
+executable-poc       linked fixtures/tests/failure evidence
+production-observed  linked deployed artifact and operational evidence
+superseded           no longer active
 ```
 
-The broader [decision register](../21-decision-register.md) contains smaller decisions and unresolved questions. Create a dedicated ADR when a decision has meaningful architectural consequences, significant alternatives, or a difficult reversal cost.
+Machine-readable evidence lives in [`evidence-registry.json`](./evidence-registry.json).
+
+## Records
+
+| ID | Decision | Status | Evidence |
+|---|---|---|---|
+| [0001](./0001-independent-customer-applications.md) | Independent customer applications | accepted | design-only |
+| [0002](./0002-package-composition-not-core-forks.md) | Package composition instead of copied core | accepted | design-only |
+| [0003](./0003-plugin-taxonomy-and-capabilities.md) | Plugin taxonomy and capabilities | accepted | design-only |
+| [0004](./0004-manifest-driven-cli.md) | Manifest-driven CLI | accepted | design-only |
+| [0005](./0005-unified-builder-fixed-shell.md) | Builder contracts and fixed shell | accepted | design-only |
+| [0006](./0006-theme-package-runtime-profile.md) | Theme package plus runtime profile | accepted | design-only |
+| [0007](./0007-payload-and-puck-initial-candidates.md) | Earlier Payload/Puck candidate framing | proposed | design-only |
+| [0008](./0008-postgres-and-customer-owned-migrations.md) | Postgres and customer migrations | accepted | design-only |
+| [0009](./0009-database-adapter-and-target-plugins.md) | Superseded persistence abstraction | superseded | superseded |
+| [0010](./0010-typed-data-source-state-binding-graph.md) | Typed sources/state/bindings | accepted | design-only |
+| [0011](./0011-payload-database-adapter-selected-at-scaffold.md) | Payload adapter selected at scaffold | accepted | design-only |
+| [0012](./0012-hybrid-output-contracts.md) | Hybrid output contracts | accepted | design-only |
+| [0013](./0013-conservative-technology-package-baseline.md) | Conservative package baseline | accepted | design-only |
+| [0014](./0014-contract-governance-and-evidence.md) | Machine-readable contract governance | accepted | design-only |
+| [0015](./0015-runtime-security-reliability-gates.md) | Runtime security/reliability gates | accepted | design-only |
+| [0016](./0016-payload-strategic-v1-framework.md) | Payload as strategic V1 framework | accepted | design-only |
+
+An accepted design-only ADR directs implementation but is not a production-readiness claim. Consequential changes update the decision register, evidence registry, machine-readable contracts, fixtures, and tests.
