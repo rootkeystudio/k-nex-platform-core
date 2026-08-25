@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc -b",
     "generate": "node dist/generate.js",
-    "validate": "node dist/generate.js --check && node dist/validate-generated.js",
+    "validate": "node dist/generate.js --check && node dist/validate-generated.js && node dist/validate.js",
     "test": "vitest run"
   },
   "dependencies": {
