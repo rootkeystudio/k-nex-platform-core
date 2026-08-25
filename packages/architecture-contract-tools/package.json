@@ -6,6 +6,8 @@
   "scripts": {
     "build": "tsc -b",
     "generate": "node dist/generate.js",
+    "generated-clean": "node dist/generated-clean.js",
+    "reproducibility": "node dist/reproducibility.js",
     "validate": "node dist/generate.js --check && node dist/validate-generated.js && node dist/validate.js",
     "test": "vitest run"
   },

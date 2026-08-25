@@ -3,20 +3,20 @@
 - **Updated:** 2026-08-25
 - **Phase:** Phase 0 — Contract Freeze and Repository Readiness
 - **Active task:** P0.5 — Prove generation reproducibility
-- **State:** Ready to start
+- **State:** Ready for review
 
 ## Last completed
 
-Reviewed and accepted P0.4; executable TypeScript validation now covers schemas, fixture inventories, legacy symbols, ADR evidence, Markdown links, generated-artifact inventories, cross-platform repository paths, regular-file boundaries, and structural forbidden-key checks.
+Implemented the P0.5 reproducibility experiment: isolated child processes run physically staged generator and dependency trees created in opposite file order, with different paths, TZ/locale, HOME/PWD, and sanitized markers, then compare the sidecar-owned output inventory byte-for-byte. Generation cleanliness is enforced by `pnpm phase:0` and CI.
 
 ## Validation
 
-PR #9 Architecture contracts run #25 passed on Node 24.19.0 with pnpm 11.9.0. CI executed contract validation and 22 Vitest tests. Full `pnpm phase:0` remains intentionally blocked at P0.5 reproducibility.
+Pinned install/build, post-generation repository cleanliness, contract validation, 25 Vitest tests, staged-workspace reproducibility, documentation validation, and the complete `pnpm phase:0` gate pass locally on Node 24.19.0 with pnpm 11.9.0. The reproducibility digest is `bc6886e272a10d1129347163deaaf87004800fb4d6655f37e5ba873070bf94ee`.
 
 ## Next
 
-Execute P0.5 exactly as defined in `docs/implementation/phase-0.md`.
+Open the P0.5 pull request, obtain reviewer approval, and merge only after required CI checks pass.
 
 ## Blockers
 
-GitHub repository ruleset verification remains open in issue #2; it does not block P0.5 implementation.
+GitHub repository ruleset verification remains open in issue #2 and must be completed during P0.6.
