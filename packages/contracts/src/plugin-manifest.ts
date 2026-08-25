@@ -1,6 +1,7 @@
 import * as z from "zod";
 
 import { CapabilityIdSchema, ExactSemverSchema, PluginIdSchema, ResourceIdSchema, pluginKinds } from "./identity.js";
+import { lifecycleOperationSupport, lifecyclePolicy } from "./lifecycle.js";
 import { uniqueArray } from "./schema-helpers.js";
 
 const packageNamePattern = "^@?[a-z0-9][a-z0-9._-]*(?:/[a-z0-9][a-z0-9._-]*)?$";
@@ -25,7 +26,7 @@ export const DependencySchema = z.union([
   })
 ]);
 
-const lifecycleOperations = z.enum(["supported", "unsupported"]);
+const lifecycleOperations = z.enum(lifecycleOperationSupport);
 const lifecycleShape = {
   ownsPersistentData: z.boolean(),
   disable: lifecycleOperations,
@@ -34,12 +35,12 @@ const lifecycleShape = {
 
 export const PluginLifecycleSchema = z.discriminatedUnion("ownsPayloadSchema", [
   z.strictObject({
-    ownsPayloadSchema: z.literal(true),
+    ownsPayloadSchema: z.literal(lifecyclePolicy.schemaOwningPluginV1.ownsPayloadSchema),
     ...lifecycleShape,
-    uninstall: z.literal("unsupported")
+    uninstall: z.literal(lifecyclePolicy.schemaOwningPluginV1.manifestUninstall)
   }),
   z.strictObject({
-    ownsPayloadSchema: z.literal(false),
+    ownsPayloadSchema: z.literal(lifecyclePolicy.schemaLessPluginV1.ownsPayloadSchema),
     ...lifecycleShape,
     uninstall: lifecycleOperations
   })

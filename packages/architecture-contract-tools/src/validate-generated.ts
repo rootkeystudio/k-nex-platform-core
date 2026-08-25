@@ -6,9 +6,22 @@ import { PluginManifestSchema } from "@k-nex/contracts";
 import { Ajv2020, type AnySchema } from "ajv/dist/2020.js";
 import addFormatsModule from "ajv-formats";
 
+import { canonicalJson } from "./canonical-json.js";
+
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 addFormatsModule.default(ajv);
+
+const circular: { self?: unknown } = {};
+circular.self = circular;
+for (const unsupported of [undefined, Number.NaN, 1n, new Date(0), { value: undefined }, circular]) {
+  try {
+    canonicalJson(unsupported);
+    throw new Error("Canonical JSON accepted an unsupported JavaScript value.");
+  } catch (error) {
+    if (!(error instanceof TypeError)) throw error;
+  }
+}
 
 async function load<T = unknown>(relativePath: string): Promise<T> {
   return JSON.parse(await readFile(resolve(repositoryRoot, relativePath), "utf8")) as T;

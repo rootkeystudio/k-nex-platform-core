@@ -7,7 +7,7 @@
 
 ## Last completed
 
-Added the Zod-authored contracts package and deterministic generator, regenerated the architecture registry and manifest schemas, and added strict Ajv compilation plus lifecycle/canonical-format checks.
+Resolved P0.2 review gaps by deriving plugin identity and lifecycle representations from shared typed policies, rejecting non-JSON-safe generator inputs, and deriving the sidecar inventory from one artifact list.
 
 ## Validation
 

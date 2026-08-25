@@ -1,4 +1,5 @@
 import { identityPatterns } from "./identity.js";
+import { lifecyclePolicy } from "./lifecycle.js";
 import { outputContracts } from "./output-contracts.js";
 import { registrationPhases, registrationRules } from "./registration-phases.js";
 
@@ -37,13 +38,13 @@ export const architectureRegistry = {
   outputContracts,
   lifecycle: {
     schemaOwningPluginV1: {
-      reversibleOperations: ["disable", "re-enable"],
-      destructiveOperations: ["purge"],
-      uninstallWithRetainedSchema: "unsupported-until-executable-proof",
-      archiveOrExport: "explicit-project-operation"
+      reversibleOperations: lifecyclePolicy.schemaOwningPluginV1.reversibleOperations,
+      destructiveOperations: lifecyclePolicy.schemaOwningPluginV1.destructiveOperations,
+      uninstallWithRetainedSchema: lifecyclePolicy.schemaOwningPluginV1.uninstallWithRetainedSchema,
+      archiveOrExport: lifecyclePolicy.schemaOwningPluginV1.archiveOrExport
     },
     schemaLessPluginV1: {
-      uninstall: "allowed-after-dependency-and-reference-checks"
+      uninstall: lifecyclePolicy.schemaLessPluginV1.uninstall
     }
   },
   determinism: {

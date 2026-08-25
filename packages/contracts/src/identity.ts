@@ -1,9 +1,10 @@
 import * as z from "zod";
 
 export const pluginKinds = ["module", "provider", "builder", "theme", "integration", "preset"] as const;
+const pluginKindPattern = pluginKinds.join("|");
 
 export const identityPatterns = {
-  plugin: "^(module|provider|builder|theme|integration|preset)(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+  plugin: `^(${pluginKindPattern})(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$`,
   capability: "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
   resource: "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
   outputContract: "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+@[1-9][0-9]*$"
