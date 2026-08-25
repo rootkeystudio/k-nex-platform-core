@@ -3,19 +3,19 @@
 - **Updated:** 2026-08-25
 - **Phase:** Phase 0 — Contract Freeze and Repository Readiness
 - **Active task:** P0.4 — Implement executable contract and documentation validation
-- **State:** Ready to start
+- **State:** Ready for review
 
 ## Last completed
 
-Reviewed and accepted P0.3; the repository now has four valid contract fixtures, nineteen isolated invalid fixtures, stable primary diagnostics, key-and-value legacy scanning, and ordering-independent fixture tests.
+Implemented the P0.4 TypeScript repository validator with deterministic human/JSON diagnostics for schemas, fixtures, legacy symbols, ADR evidence, Markdown links, and generated-artifact constraints while retaining the Python validator.
 
 ## Validation
 
-PR #8 Architecture contracts run #19 passed on Node 24.19.0 with pnpm 11.9.0. CI executed both contract validation and the Vitest fixture suite; all six fixture tests passed. Full `pnpm phase:0` remains intentionally blocked at P0.5 reproducibility.
+The pinned install, build, generation cleanliness, contract validation, eleven Vitest tests, documentation validation, JSON diagnostic output, and diff checks pass locally on Node 24.19.0 with pnpm 11.9.0. Full `pnpm phase:0` remains intentionally blocked at P0.5 reproducibility.
 
 ## Next
 
-Execute P0.4 exactly as defined in `docs/implementation/phase-0.md`.
+Open the P0.4 pull request, obtain reviewer approval, and merge only after required CI checks pass.
 
 ## Blockers
 
