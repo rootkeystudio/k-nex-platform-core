@@ -2,21 +2,19 @@
 
 ## Purpose
 
-This document is the authoritative summary of decisions made during the research phase and the remaining questions that must be resolved by proof of concept, implementation evidence, licensing review, or deployment constraints.
-
-Detailed contracts and rationale live in the linked architecture documents and ADRs. This register answers: **what is currently accepted, what is provisional, what remains open, and what has been rejected?**
+This document is the authoritative summary of accepted, provisional, open, superseded, and rejected K-Nex architecture decisions.
 
 Statuses:
 
 ```text
-accepted      current architecture; implementation should follow it
-provisional   preferred direction, but a named POC must confirm it
-open          no final implementation decision; options and trigger recorded
-rejected      considered and intentionally not selected
+accepted      implementation should follow this direction
+provisional   preferred direction requiring named POC evidence
+open          implementation detail or product question with a trigger
 superseded    replaced by a later decision
+rejected      intentionally not selected
 ```
 
-Accepted decisions can still change, but the change must update this register, affected documents, tests, and ideally an ADR.
+Accepted decisions can change, but the change must update this register, affected documents, tests, and where appropriate an ADR.
 
 # Accepted decisions
 
@@ -24,58 +22,37 @@ Accepted decisions can still change, but the change must update this register, a
 
 **Status:** accepted
 
-Each customer receives a separate repository, database, storage boundary, secret set, deployment, migration history, and release cadence.
+Each customer receives a separate repository, database, storage boundary, secrets, deployment, migration history, theme/configuration, and release cadence.
 
-Rationale:
-
-- matches the intended service/agency delivery model;
-- lowers cross-customer data-leak blast radius;
-- makes backup, restore, export, offboarding, and custom code easier;
-- allows customer-specific infrastructure and plugin versions;
-- avoids spending early effort on a central tenancy/control plane.
-
-Consequence: shared code is distributed through packages and reusable workflows rather than one shared runtime.
-
-## D-002 — Customer repositories consume packages; they do not copy or patch core source
+## D-002 — Customer repositories consume packages; they do not copy core source
 
 **Status:** accepted
 
-The customer shell is generated. Core and reusable plugins remain exact versioned dependencies.
+The generated customer shell owns final composition, assets, extensions, overrides, migrations, tests, and deployment. Core and reusable plugins remain exact-version dependencies.
 
-Customer differences remain visible as:
-
-```text
-application manifest
-exact package versions
-customer theme/assets
-builder documents
-runtime settings
-customer extensions/overrides
-customer-owned migrations and deployment
-```
-
-A customer repository can contain genuine customer extensions, but not an editable copy of platform core.
-
-## D-003 — Separate repository per customer, not long-lived customer branches
+## D-003 — Separate repository per customer
 
 **Status:** accepted
 
-This enables independent CI/CD, access, tags, issues, secrets, release history, dependency versions, archive/transfer, and customer-specific infrastructure while avoiding accidental cross-customer merges.
+Long-lived customer branches of one core repository are rejected. Separate repositories provide independent CI/CD, permissions, issues, versions, secrets, and transfer/archive behavior.
 
 ## D-004 — Payload is the initial application/backend foundation
 
 **Status:** provisional
 
-Payload is the leading foundation for authentication integration, admin, APIs, schema, access controls, jobs, migrations, versions/drafts, and plugin/config composition.
+Payload is the leading framework for:
 
-It remains provisional until the POC proves:
+```text
+authentication/admin integration
+collections/globals and APIs
+access controls
+jobs and migrations
+versions/drafts
+framework plugin/config composition
+request-scoped data access
+```
 
-- deterministic contribution composition and collision ownership;
-- database-provider composition;
-- customer-owned migration workflow;
-- CMS/workspace builder integration without deep framework forks;
-- realtime/runtime hosting constraints;
-- acceptable framework upgrade path.
+The POC must prove safe deterministic module composition, customer migrations, UI/builder integration, realtime hosting, and framework upgrades without deep forks.
 
 ## D-005 — Plugin is the umbrella installable concept
 
@@ -92,7 +69,7 @@ integration
 preset
 ```
 
-A K-Nex plugin is broader than a Payload plugin and carries side-effect-free static manifest metadata, compatibility, capabilities, lifecycle, data ownership, surfaces, environment requirements, migrations, and operational semantics.
+Examples of providers include realtime, object storage, email, queue, maps, and other genuinely replaceable infrastructure. Payload's primary database adapter is not a K-Nex provider plugin.
 
 ## D-006 — Dependencies use versioned capabilities where substitution matters
 
@@ -105,53 +82,47 @@ module.logistics-driver requires realtime.gateway@^1
 provider.realtime-websocket-local provides realtime.gateway@1
 ```
 
-Specific plugin-ID dependencies remain allowed when the dependency is a real domain module rather than a replaceable provider.
+Specific plugin-ID dependencies remain valid for real domain dependencies. Capability abstraction is not required merely to wrap functionality Payload already owns.
 
-Database, realtime, storage, queue, email, maps, and builder implementations should generally be consumed through capabilities.
-
-## D-007 — Plugin selection is build-time; runtime settings are database data
+## D-007 — Executable composition is build-time; runtime settings are database data
 
 **Status:** accepted
 
-Build-time/source-control concerns:
+Build-time/source-controlled:
 
 ```text
-install/remove package
-select database/realtime/storage/builder/theme packages
-schema-owning plugin composition
-routes/imports/infrastructure
+module/provider/builder/theme package installation
+Payload database adapter selection
+routes and generated registries
+schema-owning module composition
+Docker and infrastructure files
 ```
 
-Runtime concerns:
+Runtime/database-backed:
 
 ```text
-active installed theme
-palette/token values
-published layouts
-page/filter/user preferences
-CRM currency
-tracking retention
-feature settings that do not alter executable composition
+active installed theme and tokens
+published pages/layouts
+module settings that do not alter executable composition
+user preferences and allowed UI state
 ```
 
-The runtime admin panel does not install executable packages.
+The admin panel does not install executable packages or replace the Payload database adapter.
 
 ## D-008 — Declarative JSON manifest plus TypeScript extension config
 
 **Status:** accepted
 
 ```text
-k-nex.app.json   machine-editable desired composition
-k-nex.config.ts  executable customer-specific extension code
+k-nex.app.json   machine-editable desired composition and scaffold choices
+k-nex.config.ts  executable customer-specific extensions and overrides
 ```
 
-`package.json` and `pnpm-lock.yaml` remain authoritative for installed artifacts. Customer migrations remain authoritative for database evolution.
+`package.json`, the lockfile, generated registries, and customer migrations remain complementary sources of truth.
 
-## D-009 — CLI is an application compiler, not only a scaffolder
+## D-009 — CLI is an application compiler, not only a template copier
 
 **Status:** accepted
-
-The CLI creates projects and manages composition through plan/apply, dependency resolution, package installation, registry generation, diagnostics, upgrade planning, infrastructure generation, and migration checks.
 
 Names:
 
@@ -161,27 +132,17 @@ create-k-nex-app
 k-nex
 ```
 
-Avoid `create-knex-app` and `knex` executable/config names because of ecosystem collision.
+The CLI plans and applies package, manifest, generated-file, framework, environment, infrastructure, UI, and migration changes.
 
 ## D-010 — Generated registries are static and committed in V1
 
 **Status:** accepted for V1
 
-Generated plugin/provider/UI/data-source/state/action/theme registries and build inventory live under `.k-nex/generated/` and are committed. CI runs `k-nex generate --check`.
-
-Rationale:
-
-- composition diffs are reviewable;
-- no runtime package-name evaluation;
-- bundlers can statically discover imports;
-- deployments are reproducible;
-- security and operations can inventory exact capabilities.
+`.k-nex/generated/` contains deterministic plugin, provider, UI, source, action, state, theme, and framework composition artifacts. CI validates them with `k-nex generate --check`.
 
 ## D-011 — One UI composition contract, multiple explicit surfaces
 
 **Status:** accepted
-
-Plugins can contribute style-agnostic navigation, screens, blocks, data sources, state/context definitions, actions, and extension slots for explicit surfaces:
 
 ```text
 workspace
@@ -191,13 +152,13 @@ driver
 system
 ```
 
-Surface declaration never bypasses audience, permission, record, data-sensitivity, or publication policy.
+Navigation, screens, blocks, data sources, actions, contexts, and state declare allowed surfaces and audiences. Surface metadata never bypasses server authorization.
 
 ## D-012 — Fixed application shell, editable content canvas
 
 **Status:** accepted for V1
 
-Fixed/platform-controlled:
+Fixed:
 
 ```text
 sidebar host
@@ -205,51 +166,45 @@ top bar
 router
 authentication boundary
 notification/dialog hosts
-system/security screens
+security/system screens
 ```
 
 Composable:
 
 ```text
+CMS/public pages
 dashboards
 module overviews
 reports
 role workspaces
 personal dashboards
-CMS/public pages
 ```
 
-Operational transaction screens remain module-owned and can expose controlled extension slots; they are not fully rebuilt from arbitrary blocks in V1.
+Operational transaction screens remain module-owned with controlled extension slots.
 
 ## D-013 — Same builder architecture for CMS and workspace
 
 **Status:** accepted
 
-One canonical K-Nex block/layout/binding model is used with separate profiles:
+One canonical K-Nex block/layout/binding model supports different profiles:
 
 ```text
 CMS profile
-  public content, SEO, draft/preview/publish,
-  public-safe sources/actions/state and public theme
+  public content, SEO, locale, draft/preview/publish,
+  public-safe data/actions, public theme
 
 Workspace profile
-  authenticated data/actions, scoped layouts,
-  UI state, realtime, admin theme
+  authenticated module data/actions, role/user layouts,
+  realtime invalidation, admin theme
 ```
 
-The profiles do not share the same palette or security policy automatically.
-
-## D-014 — Puck is the first builder adapter, behind K-Nex contracts
+## D-014 — Puck is the first builder adapter behind K-Nex contracts
 
 **Status:** provisional
 
-`@k-nex/builder-puck` is the first implementation. Domain modules do not import Puck types.
+Domain plugins do not import Puck types. Craft.js is the fallback if Puck cannot support canonical round-trip, profile restrictions, fixed-shell integration, responsive dashboard layouts, accessibility, or typed source binding without deep forks.
 
-Fallback: Craft.js if Puck fails the documented POC/rejection criteria.
-
-Builder.io and GrapesJS can remain optional integrations for appropriate customer use cases but are not the mandatory K-Nex application editor.
-
-## D-015 — Builder documents cannot contain arbitrary code or unrestricted styling
+## D-015 — Builder documents contain only validated declarative data
 
 **Status:** accepted
 
@@ -257,558 +212,413 @@ Allowed:
 
 ```text
 registered IDs and versions
-validated serializable properties
+validated props
 source/state/context/action bindings
-safe field mappings
-layout/state defaults within policy
+selected source fields and columns
+safe layout data
 ```
 
 Forbidden:
 
 ```text
 arbitrary JavaScript/TypeScript
-SQL
-package/module imports
-secrets
+SQL or Payload queries
+package imports
+secret values
+unrestricted URLs
 raw server functions
-unrestricted CSS/global selectors
-unrestricted server-fetch URLs
+unrestricted global CSS
 live result snapshots
 ```
 
-## D-016 — Style-agnostic module UI uses semantic design-system contracts
+## D-016 — Module UI is style-agnostic and uses semantic design-system contracts
 
 **Status:** accepted
 
-Modules may include structural styling required for behavior, but not customer brand styling.
-
-Rendering layers:
-
 ```text
-headless/browser-safe logic
+headless/browser-safe behavior
 semantic domain component
-design-system primitive adapter
-runtime theme tokens
-customer code overrides
+design-system primitives
+theme tokens/recipes
+customer overrides
 ```
+
+Structural/accessibility styling is allowed; customer brand decisions are not embedded in reusable module UI.
 
 ## D-017 — Theme package plus runtime theme profile
 
 **Status:** accepted
 
-Theme package contains code, schema, palettes, primitives, component variants, structural CSS, validation, and migrations. It is installed at build time.
+Theme package: executable code, token schema, palettes, primitive/variant recipes, structural CSS, validation, migrations.
 
-Theme profile contains selected installed theme, adjustable tokens, variants, revision, and publication state. It is stored in the customer database.
-
-The panel can configure/activate installed themes but cannot download new theme packages.
+Theme profile: versioned database record selecting an installed theme and adjustable validated values.
 
 ## D-018 — Separate admin and public themes
 
 **Status:** accepted
 
-A customer may use a calm/dense admin theme and a highly expressive public theme.
+Admin and public surfaces may use different installed themes and profiles. Future driver/mobile/email/print surfaces require separate contracts.
 
-Initial theme surfaces:
-
-```text
-admin
-public
-```
-
-Future driver/mobile/email/print surfaces require separate contracts.
-
-## D-019 — Theme profiles are versioned collection records
+## D-019 — Theme profiles are versioned draft/published records
 
 **Status:** accepted for V1
 
-Use a versioned collection with draft/publish/rollback rather than one mutable global. Enforce exactly one published default profile per surface.
+Exactly one published default per theme surface. Preview, publish, rollback, and schema migration are audited.
 
 ## D-020 — Postgres is the only officially supported V1 database
 
 **Status:** accepted
 
 ```text
-production support      Postgres
-local default           Postgres in Docker Compose
-external target         Postgres URL through environment
-SQLite                   experimental/demo only after explicit opt-in
-other adapters           no K-Nex support claim until test matrix passes
+Payload adapter       Postgres
+local default         Docker Postgres
+external/managed      DATABASE_URL
+SQLite/other          unsupported until full compatibility work
 ```
-
-Using a different local database by default is rejected because dialect, migration, transaction, and concurrency differences can appear too late.
 
 ## D-021 — Customer application owns final migration history
 
 **Status:** accepted
 
-Plugins provide schema contributions, capability requirements, notes, readiness checks, and reusable data migration helpers. The customer repository owns final generated migrations and cross-plugin ordering.
-
-No production auto-push and no automatic destructive cleanup when a package is removed.
+Plugins provide schema contributions, notes, helpers, readiness checks, and fixtures. The final customer composition owns generated/authored migrations and production execution.
 
 ## D-022 — Disable, uninstall, and purge are distinct
 
 **Status:** accepted
 
 ```text
-disable
-  package/data retained; declared behavior gated
-
-uninstall
-  package removed; data and stored references retained unless explicitly migrated
-
-purge
-  destructive reviewed data/schema/reference deletion with backup/readiness
+disable    code/package retained; declared behavior gated; data retained
+uninstall  package removed where safe; data/references retained unless migrated
+purge      explicit destructive data/schema/reference deletion
 ```
 
-## D-023 — Domain services own business transactions; hooks are adapters
+Schema-owning plugin removal semantics remain subject to POC restrictions.
+
+## D-023 — Domain services own business transactions; Payload hooks are adapters
 
 **Status:** accepted
 
-Payload hooks can validate, maintain local invariants, enqueue jobs, or emit after-commit facts. Authoritative multi-step business behavior belongs in testable domain/application services and commands.
+Authoritative multi-step behavior lives in testable domain/application services. Hooks/endpoints adapt requests, maintain local invariants, enqueue work, or publish after-commit facts.
 
-## D-024 — WebSocket/realtime is a provider capability, not core domain logic
+## D-024 — WebSocket/realtime is a provider capability
+
+**Status:** accepted
+
+Domain plugins define message/topic authorization and invalidation meaning; the realtime provider owns transport. Authoritative state remains recoverable through authenticated APIs/data sources.
+
+Ordinary counters/tables/charts use invalidation and refetch. Typed streams are reserved for genuine live projections.
+
+## D-025 — Customer-specific behavior starts locally
 
 **Status:** accepted
 
-Driver requires `realtime.gateway`. Domain plugins define channel/message/authorization contracts. WebSocket remains transport; authoritative state remains recoverable through API/data sources.
+First unique requirement becomes a customer extension. Repeated requirements are compared and only stable shared behavior is promoted into reusable plugins.
 
-Ordinary dashboard sources should prefer realtime invalidation/refetch. Streams are reserved for genuine live projections such as maps.
+## D-026 — Database adapters and targets as K-Nex provider plugins
 
-## D-025 — Customer-specific behavior starts locally and is promoted after reuse is proven
+**Status:** superseded
+
+Superseded by D-028 and [ADR-0011](./adr/0011-payload-database-adapter-selected-at-scaffold.md).
+
+The previous `@k-nex/database-postgres` / `provider.database-postgres` abstraction is no longer part of the architecture.
+
+## D-027 — Plugins expose typed data sources and UI bindings
 
 **Status:** accepted
+
+Related: [ADR-0010](./adr/0010-typed-data-source-state-binding-graph.md) and [plugin data-source architecture](./24-data-sources-state-and-binding-graph.md).
+
+A module can register:
 
 ```text
-first customer need
-  → customer extension
-
-second similar need
-  → compare policy and extract stable common behavior
-
-remaining customer-specific differences
-  → stay local
-```
-
-## D-026 — Database adapters and connection targets are provider plugins
-
-**Status:** accepted
-
-Related: [ADR-0009](./adr/0009-database-adapter-and-target-plugins.md) and [database provider architecture](./23-database-adapters-and-runtime-providers.md).
-
-K-Nex distinguishes:
-
-```text
-database-adapter provider
-  database family/dialect, framework adapter, capabilities,
-  migration integration, health, contract tests
-
-database-target provider/profile
-  local/hosted/external connection, environment,
-  infrastructure generation, pooling/TLS/operational diagnostics
-```
-
-Initial adapter:
-
-```text
-provider.database-postgres
-@k-nex/database-postgres
-```
-
-A future Neon selection should reuse the Postgres adapter and add a Neon target/profile rather than duplicating Postgres module/migration compatibility.
-
-Exactly one enabled provider supplies singleton `database.primary` in V1. Specialized stores use separate capabilities.
-
-## D-027 — Plugins expose typed data sources and UI state through a declarative binding graph
-
-**Status:** accepted
-
-Related: [ADR-0010](./adr/0010-typed-data-source-state-binding-graph.md) and [binding architecture](./24-data-sources-state-and-binding-graph.md).
-
-Plugins can register:
-
-```text
-data-source definitions
+authenticated data-source descriptors and handlers
 runtime-context definitions
-UI state definitions
-block input/output ports
+page/session/user UI-state definitions
 registered actions
-versioned data contracts
-migrations
+block input/output contracts
+source/field/version migrations
+realtime invalidation metadata
 ```
 
-Builder documents connect these contracts with serializable bindings. Generic visualization components can consume compatible sources from CRM, logistics, restaurant, inventory, budget, or customer extensions.
-
-Core distinctions:
+Examples:
 
 ```text
-data source
-  authorized query/projection, normally server-executed
-
-UI state
-  typed coordination value with explicit scope/persistence
-
-runtime context
-  read-only application/session/route/editor value
-
-binding
-  validated connection among state/context/source/block/action contracts
+sales.total-opportunities
+sales.tasks
+sales.opportunities-by-stage
 ```
 
-V1 supports plugin-defined projections, page state, static/context/state source parameters, field mapping, event-to-state/action binding, and selected realtime behavior.
+Generic blocks such as counters, tables, and charts bind to these stable contracts. Plugins do not expose raw database access, raw internal React stores, arbitrary URLs, or browser query code.
 
-V1 rejects arbitrary query/code/expression execution and unbounded browser aggregation.
+## D-028 — Payload database adapter is selected during scaffold generation
+
+**Status:** accepted
+
+Related: [ADR-0011](./adr/0011-payload-database-adapter-selected-at-scaffold.md) and [database scaffold documentation](./23-database-adapters-and-runtime-providers.md).
+
+```text
+create-k-nex-app
+  → select Payload adapter
+  → install selected @payloadcms/db-* package
+  → generate Payload db configuration
+  → generate local Docker infrastructure when requested
+```
+
+V1 installs Payload's Postgres adapter. Neon and other hosted Postgres services are connection/deployment choices using the same adapter, not K-Nex persistence plugins.
+
+Modules query through `req.payload` and domain services while preserving Payload access and transaction context.
+
+## D-029 — Plugin data sources execute through a standard authenticated gateway
+
+**Status:** accepted direction; exact route API provisional
+
+Logical ownership and server handlers remain in the plugin. K-Nex provides a consistent execution/discovery transport for authentication, schemas, permission checks, rate/cost limits, logging, and errors.
+
+Recommended V1 shape:
+
+```text
+GET  /api/k-nex/data-sources
+POST /api/k-nex/data-sources/:sourceId/query
+```
+
+Workspace/admin sources require a valid Payload actor plus source permission, record policy, and field policy. Public sources use separate explicit IDs and policies.
+
+## D-030 — Realtime normally invalidates data-source queries
+
+**Status:** accepted
+
+After an authorized module mutation commits:
+
+```text
+module emits invalidation topic/scope
+  → realtime provider authorizes delivery
+  → connected query is marked stale
+  → client refetches source endpoint
+  → component rerenders
+```
+
+WebSocket messages normally do not carry full business records. Snapshot + typed stream is reserved for high-frequency live projections such as vehicle positions.
 
 # Provisional decisions requiring POC evidence
 
 ## P-001 — Canonical K-Nex document versus engine-native storage
 
-**Current recommendation:** K-Nex owns canonical `UiDocument`; Puck adapter translates to/from it.
+**Recommendation:** K-Nex owns canonical `UiDocument`; Puck translates to/from it.
 
-**Accept when:** fixtures remain stable across edit/save/render/migration and no domain plugin leaks Puck types.
-
-**Fallback:** versioned Puck metadata section or reconsider editor engine after documenting trade-offs.
+Accept when nested layouts, props, bindings, IDs, constraints, and migrations round-trip without loss and domain plugins leak no Puck types.
 
 ## P-002 — Layout inheritance implementation
 
-**Current recommendation:** immutable base revision plus explicit customer/role/user patch operations.
-
-POC options:
+Candidate V1 approach:
 
 ```text
-patch operations with rebase/conflict handling
-copy-on-write resolved snapshots with lineage
-hybrid snapshots for published layouts and patches for personal changes
+platform template
+customer/role published snapshots with lineage
+constrained user personalization patch
 ```
 
-V1 fallback: hybrid/snapshot approach. The requirement is scoped inheritance and safe fallback, not one storage algorithm.
+Compare against full patch and copy-on-write alternatives.
 
-## P-003 — Third-party Payload–Puck integration usage
+## P-003 — Existing Payload–Puck integration usage
 
-**Current recommendation:** use as spike/reference and possibly CMS accelerator; K-Nex contracts do not depend on it.
+Use as a spike/reference or CMS accelerator only. Decide whether to wrap, reuse patterns under license, implement direct integration, or reject.
 
-POC decides whether to wrap, reuse selected patterns/code under license, implement direct integration, or reject.
+## P-004 — Payload contribution composition
 
-## P-004 — Payload config contribution merger
+K-Nex owns deterministic phased composition and collision ownership. POC determines which framework fields/functions require explicit contribution contracts rather than generic merge.
 
-**Current recommendation:** K-Nex owns deterministic phased composition and collision checks.
+## P-005 — Disabled schema-owning plugin behavior
 
-POC must identify which fields/functions can be safely merged generically and which need explicit contribution APIs. Do not implement unsafe universal deep merge.
-
-## P-005 — Disabled schema-owning plugin boot behavior
-
-**Current recommendation:** retain enough schema registration for historical data while gating active behavior.
-
-POC patterns:
-
-```text
-installed-disabled package
-retention stub/schema snapshot
-archive/export before uninstall
-retain tables outside current framework config
-```
+POC must determine whether V1 supports only installed-disabled modules or also retained-data uninstall through schema stubs/archive strategies.
 
 ## P-006 — WebSocket hosting topology
 
-**Current recommendation:** local adapter in the application process for small single-instance deployments; Redis-backed provider for horizontal scaling.
+Validate local single-process and Redis-backed/multi-instance providers, connection draining, authorization refresh, and deployment constraints.
 
-POC must validate hosting constraints, connection draining, process separation, and deployment behavior.
+## P-007 — Event durability
 
-## P-007 — Event durability level
+POC can use measured after-commit behavior. External business integrations should move to transactional outbox or equivalent durability.
 
-POC may use measured after-commit behavior. First production recommendation for externally important facts is transactional outbox or equivalent.
+## P-008 — Committed generated registries
 
-## P-008 — Generated registries committed
+Measure churn and deterministic reliability after the POC.
 
-Current V1 decision: commit and validate freshness. Review after POC using measured merge churn and deterministic generation reliability.
+## P-009 — Payload Postgres scaffold and request context
 
-## P-009 — Exact database adapter/target contribution interface
+POC must prove:
 
-**Accepted direction:** adapter and target are provider plugins; Postgres only in V1.
+```text
+generated @payloadcms/db-postgres config
+Docker and external Postgres
+authenticated req.payload source handlers
+transaction commit/rollback
+customer-owned migrations
+no K-Nex database provider package
+```
 
-**POC decisions:**
+## P-010 — Data-source contracts, transport, and binding runtime
 
-- exact framework adapter TypeScript contribution;
-- target package versus CLI recipe boundary;
-- required Postgres extension metadata;
-- migration lock strategy;
-- worker/web pool configuration;
-- safe diagnostics.
+POC must select/validate:
 
-## P-010 — Binding graph serialization, runtime, and layout interaction
-
-**Accepted direction:** typed source/state/context/action/port contracts and declarative graph.
-
-**POC decisions:**
-
-- exact canonical JSON shape;
-- state store implementation;
-- patch/snapshot interaction;
-- source preview/sampling;
-- graph cost limits;
-- field mapping metadata;
-- realtime reducer/invalidation model;
-- server-render/hydration behavior.
-
-The fallback is narrower composable dashboards and module-owned operational screens, not arbitrary code in documents.
+```text
+exact defineDataSource API
+standard gateway route shape
+source descriptor delivery
+output contract library
+field and column metadata
+actor-scoped cache/query keys
+realtime invalidation scope
+source version migrations
+client query/cache implementation
+SSR/hydration policy
+```
 
 # Open decisions
 
-## O-001 — Repository topology for first-party plugins
+## O-001 — First-party repository topology
 
-Options:
-
-```text
-one platform/modules monorepo
-core monorepo plus vertical repositories
-repository per plugin
-```
-
-**Recommendation:** begin with one first-party monorepo for core/contracts/CLI/UI/database provider/early modules while preserving publishable package boundaries.
-
-Trigger: before implementation scaffold.
+**Recommendation:** one monorepo for core/contracts/CLI/UI/early plugins while contracts stabilize; split later only for ownership, permission, release, or build reasons.
 
 ## O-002 — Private package registry
 
-Options:
+**Recommendation:** GitHub Packages initially. Validate developer/CI/deployment auth, package visibility, provenance, retention, and scope ownership.
 
-```text
-GitHub Packages
-private npm organization
-self-hosted registry
-```
+## O-003 — Final package scope
 
-**Recommendation:** GitHub Packages initially. Validate developer/CI/deployment auth, visibility across customer repos, scope ownership, provenance, retention, and friction.
-
-Trigger: Phase 0 publish/install spike.
-
-## O-003 — Final npm/package scope
-
-Working scope: `@k-nex/*`.
-
-Trigger: registry ownership and naming setup. Persisted identities must not depend on package location.
+Working scope: `@k-nex/*`. Persisted IDs remain independent from package names.
 
 ## O-004 — License model
 
-Repository currently remains proprietary/no license selected.
+Proprietary/no license currently. Decide internal/customer access, open/source-available core, proprietary modules, redistribution, and third-party compatibility before external distribution.
 
-Questions include internal-only versus customer source access, open/source-available core, proprietary modules, redistribution, self-host terms, and third-party compatibility.
+## O-005 — Accessible semantic primitive foundation
 
-Trigger: before external distribution; legal review required.
+Candidates include Radix-based, React Aria-based, custom reviewed primitives, or another accessible headless foundation.
 
-## O-005 — Design-system primitive implementation
+## O-006 — Workspace grid/resizing implementation
 
-The semantic contract is accepted; concrete foundation remains open.
+Puck may require a controlled responsive grid primitive/library. Validate deterministic serialization, keyboard access, nesting, rendering, and migrations.
 
-Options:
+## O-007 — Theme profile ownership package
 
-```text
-custom primitives on accessible low-level libraries
-Radix-based adapter
-React Aria-based adapter
-another reviewed accessible headless system
-```
+Recommendation: contracts/resolution in UI runtime; Payload collection/editor in a standard installable theme-manager module.
 
-Criteria: accessibility, server/client behavior, styling neutrality, complex components, bundle size, maintenance, and theme flexibility.
-
-Trigger: UI runtime POC.
-
-## O-006 — Workspace grid/drag layout implementation
-
-Puck may need an additional controlled responsive grid primitive/library.
-
-Criteria: deterministic serialization, keyboard accessibility, nested layout, no arbitrary CSS, stable render, migrations.
-
-Trigger: realistic operations dashboard POC.
-
-## O-007 — Theme profile data ownership package
+## O-008 — CMS and workspace document storage
 
 Recommendation:
 
 ```text
-contracts/runtime resolution in ui-runtime
-Payload collection/editor UI in standard installable module.theme-manager
+CMS document with page revision/publication
+workspace layouts in separate versioned collection
+shared validation/renderer/migration services
 ```
-
-Trigger: package topology design.
-
-## O-008 — CMS and workspace layout storage collections
-
-Recommendation:
-
-```text
-CMS document embedded/related to page versions for atomic publication
-separate workspace layout collection for scoped inheritance
-shared validation/migration services
-```
-
-Trigger: Payload/Puck storage POC.
 
 ## O-009 — UI override granularity
 
-Recommendation: allow primitive and block-renderer overrides through typed contracts; route/screen overrides require explicit plugin extension points. Authorization remains server-owned.
+Recommendation: typed primitive and block-renderer overrides; full route/screen replacement only through explicit module extension points.
 
-Trigger: customer differentiation POC.
+## O-010 — Runtime configuration storage
 
-## O-010 — Runtime configuration storage API
-
-Options:
-
-```text
-central namespaced settings collection
-plugin-owned settings collection/global
-hybrid central metadata plus plugin-owned data
-```
-
-Recommendation: central registry/metadata and plugin-owned validated schemas/storage; avoid one untyped JSON dump.
-
-Trigger: theme manager plus first runtime-configurable domain plugin.
+Recommendation: central registry/metadata plus plugin-owned validated settings schemas/storage; avoid one untyped JSON dump.
 
 ## O-011 — GitHub repository creation from CLI
 
-V1 recommendation: initialize local Git only. Remote creation is a later optional authenticated command.
+V1 initializes local Git. Remote creation is a later optional authenticated command.
 
-Trigger: after local scaffold is stable.
+## O-012 — First deployment targets
 
-## O-012 — Deployment provider targets
-
-Docker artifact is the portable default. First production platform remains open.
-
-Criteria: Postgres/storage/Redis, WebSocket, workers, migration jobs, secrets, observability, cost/isolation, backup/restore.
-
-Trigger: first production customer.
+Docker image is portable default. Choose production platform when first customer constraints are known.
 
 ## O-013 — Driver frontend technology
 
-Options include responsive PWA and React Native/Expo. Decision depends on offline behavior, camera/signature, background location, push, and app-store requirements.
+PWA versus React Native/Expo depends on offline, camera/signature, background location, push, and app-store requirements.
 
-Trigger: logistics POC/customer requirements.
+## O-014 — High-frequency tracking storage
 
-## O-014 — High-frequency tracking storage providers
-
-Options:
-
-```text
-Postgres only
-Postgres + PostGIS
-Redis current + Postgres/PostGIS history
-specialized time-series/location store
-```
-
-Trigger: measured position rate, retention, query, and cost model.
+Options include Postgres/PostGIS, Redis current position plus history store, or specialized storage after measured load/retention requirements.
 
 ## O-015 — Analytics and telemetry
 
-No external K-Nex CLI/product telemetry by default. Customer application analytics remain optional providers/integrations with consent/privacy policy.
+No K-Nex external telemetry by default. Customer analytics remains optional with explicit privacy/consent policy.
 
-Trigger: explicit customer need.
+## O-016 — Hosted Postgres scaffold recipes
 
-## O-016 — Database target package shape
-
-Options:
-
-```text
-full provider package with runtime contribution
-CLI/catalog recipe package only
-adapter option preset
-hybrid package with generated infra and runtime diagnostics
-```
-
-Recommendation: start with local/external target behavior inside the Postgres provider/CLI, then extract a target plugin when the Neon spike demonstrates reusable boundaries.
-
-Trigger: first managed Postgres target spike.
+Neon/other hosted services may need pooling, TLS, preview, migration, and deployment guidance. Decide whether these remain CLI templates/docs or become optional integration packages only after a real target spike.
 
 ## O-017 — Generic visualization package boundary
 
-Options:
+Recommendation: shared dataset/metric contracts in UI contracts and optional `module.visualization` for counter/pie/bar/line/table blocks. Complex map/data-grid adapters may split later.
 
-```text
-module.visualization
-foundational UI package
-separate chart/table/map plugins
-```
+## O-018 — UI state store and persistence
 
-Recommendation: begin with `module.visualization` containing generic metric/pie/bar/line/table blocks and shared data contracts; keep complex map/data-grid adapters separately replaceable if needed.
-
-Trigger: binding POC package topology.
-
-## O-018 — UI state store and persistence adapters
-
-Open details:
-
-- custom small store versus existing headless library;
-- page/workspace/session/user-preference boundaries;
-- server persistence collection ownership;
-- URL synchronization;
-- batching/equality/cycle behavior;
-- SSR/hydration.
-
-Trigger: dynamic dashboard POC.
+Choose custom versus existing store, URL/session/user persistence, equality/batching, SSR/hydration, and cycle prevention during dynamic dashboard POC.
 
 ## O-019 — Safe transformation registry
 
-V1 decision: plugin-defined pre-aggregated sources plus field mapping; no generic visual query builder.
+V1 uses purpose-built plugin sources plus safe field selection. Add allowlisted server transformations only after repeated need; no arbitrary visual SQL/query builder.
 
-Open later design: allowlisted server-side transforms such as select, rename, filter, sort, limit, group, aggregate, and date bucket with cost/sensitivity/version policy.
+## O-020 — Per-source route versus standard gateway
 
-Trigger: repeated customer need not covered by plugin-defined sources.
+Recommendation: standard gateway with plugin-owned handlers. Revisit only if dedicated streaming, public caching, file delivery, or external-client semantics cannot fit cleanly.
 
 # Rejected approaches
 
-## R-001 — Shared database/tenant model as initial architecture
+## R-001 — Shared tenant database/runtime as the initial product
 
-Rejected because it is not required by the delivery model and adds tenancy/data-isolation/control-plane complexity.
+Rejected because it does not match the independently deployed customer delivery model.
 
-## R-002 — Long-lived customer branches of the core repository
+## R-002 — Long-lived customer branches
 
-Rejected because upgrades, CI, access, releases, and merge conflicts become customer-specific source divergence.
+Rejected due to upgrade, CI, access, release, and merge divergence.
 
-## R-003 — Copy/fork core source into every customer repository
+## R-003 — Copy/fork platform core into customer repositories
 
-Rejected because fixes and upgrades become manual merge work. Generate the shell; consume core as packages.
+Rejected. Generate the shell and consume packages.
 
-## R-004 — Make Twenty the platform core
+## R-004 — Twenty as platform core
 
-Rejected for current architecture because CRM is only one optional module while K-Nex must host CMS, builder, themes, logistics, restaurant, and other vertical capabilities with full customer UI ownership.
+Rejected because CRM is one optional capability among CMS, builder, themes, and vertical operations. Twenty remains a UX/reference/integration candidate.
 
-Twenty remains a useful CRM product/UX reference or isolated integration candidate.
+## R-005 — Builder.io as mandatory editor infrastructure
 
-## R-005 — Builder.io as mandatory core editor
+Rejected due to desired independent customer operation. It can remain optional where explicitly accepted.
 
-Rejected because the desired baseline is independently operated customer applications and data/editor infrastructure. It can be optional for customers accepting that service dependency.
+## R-006 — Arbitrary code/query/style input in builder documents
 
-## R-006 — Arbitrary CSS/JavaScript/query code in customer-facing builder profiles
+Rejected for security, supportability, migration, and deterministic rendering.
 
-Rejected for V1 due to security, supportability, migration, deterministic rendering, and design-system consistency.
+## R-007 — Runtime package installation from admin UI
 
-## R-007 — Runtime npm/package installation from the admin panel
+Rejected for supply-chain, deployment, migration, rollback, and executable-code risk.
 
-Rejected for V1 due to supply-chain, migration, deployment, rollback, and executable-code risks.
+## R-008 — Put all business concepts inside core
 
-## R-008 — Put CMS, CRM, database vendor, and every vertical concept inside core
+Rejected. Core remains cross-cutting and domain-neutral.
 
-Rejected. Core remains cross-cutting/domain-neutral; capabilities are plugins/providers.
+## R-009 — K-Nex database provider/ORM abstraction above Payload
 
-## R-009 — Duplicate one database adapter per hosted Postgres vendor
+Rejected and supersedes the previous database-provider proposal. Payload owns the primary database adapter and persistence APIs.
 
-Rejected as the default. Postgres dialect compatibility belongs to one adapter; hosting-specific connection/operations belong to targets unless genuine semantics differ.
+## R-010 — Automatically expose Payload collections as builder data sources
 
-## R-010 — Expose raw records and aggregate arbitrary analytics in the browser
+Rejected. Modules expose deliberate bounded projections with explicit permissions, fields, limits, and versioning.
 
-Rejected as the generic builder model because it over-fetches sensitive data, weakens authorization/caching boundaries, and duplicates business calculations. Plugins expose bounded server projections.
+## R-011 — Treat WebSocket messages as the only source of truth
 
-# Immediate decision sequence
+Rejected. Normal components refetch authenticated source endpoints; live streams include snapshot/resync behavior.
 
-Before coding begins, resolve/validate in this order:
+# Immediate decision and POC sequence
 
-1. O-001 repository topology.
-2. O-002 package registry and O-003 scope.
-3. P-009 minimal Postgres adapter contribution and local target spike.
-4. O-005 design-system primitive POC choice.
-5. P-004 Payload contribution composition spike.
-6. P-001/P-003 Puck canonical-document/storage spike.
-7. P-010 typed source/state/binding graph spike with generic chart/table.
-8. O-008 layout storage and O-018 state persistence shape.
-9. P-002 layout inheritance implementation.
-10. O-012 first deployment target only when the POC needs production constraints.
+1. Choose first-party monorepo topology.
+2. Prove private package publish/install and finalize scope.
+3. Generate a minimal Payload Postgres application.
+4. Prove explicit Payload module contribution composition.
+5. Implement actor/permission-aware module data-source registry and gateway.
+6. Implement one scalar source and one table source from a Sales stub.
+7. Add Counter and DataTable bindings, selected columns, pagination, sorting, and filters.
+8. Add authenticated WebSocket invalidation/refetch.
+9. Build fixed shell, semantic primitives, and two themes.
+10. Run Puck CMS/workspace canonical document POC.
+11. Test two independent customer repositories and migrations.
 
-Do not wait for every future vertical, managed database, analytics, or deployment decision before implementing the platform foundation. Open decisions have explicit triggers so they are resolved when evidence becomes available.
+Do not begin with full CRM, production dispatch optimization, broad database portability, visual SQL, or a plugin marketplace before these foundations are proven.
