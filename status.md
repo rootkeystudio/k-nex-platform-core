@@ -7,7 +7,7 @@
 
 ## Last completed
 
-Split the mixed-gate ADR scope: ADR-0014 now contains the fully proved Gate 0 governance decisions and is `executable-poc`; new ADR-0017 contains Gate 1 composition and runtime-reconciliation decisions and remains `design-only`. Phase 0 records `GO PHASE 1`.
+Split the mixed-gate ADR scope: ADR-0014 now contains the fully proved Gate 0 governance decisions and is `executable-poc`; new ADR-0017 contains Gate 1 composition and runtime-reconciliation decisions and remains `design-only`. Clarified that Phase 0 evidence covers the current pre-v1 identity grammar, not migration compatibility. Phase 0 records `GO PHASE 1`.
 
 ## Validation
 

@@ -212,17 +212,18 @@ production-observed
 superseded
 ```
 
-These dimensions are deliberately separate. An accepted design-only ADR directs the experiment; it is not a production-readiness claim. Public/persisted contracts cannot be marked executable or production-proven without linked fixtures, migrations, failure tests, and compatibility evidence.
+These dimensions are deliberately separate. An accepted design-only ADR directs the experiment; it is not a production-readiness claim. A public or persisted contract may reach `executable-poc` only when every normative decision in its ADR has linked executable fixtures and failure tests. Migration and compatibility evidence are additionally required when that ADR claims a migration or compatibility path, or when an earlier released/persisted contract version exists. `production-observed` requires linked deployed evidence. Pre-v1 validation of the current canonical identity grammar does not claim backward migration compatibility.
 
 ## Docs-as-code gate
 
 The repository validator checks:
 
-- canonical fixture and JSON syntax;
-- identity grammar and V1 lifecycle invariants;
-- forbidden legacy symbols in active documentation;
-- ADR evidence registry coverage;
+- generated Zod-authored schemas and registries are current and compile with Ajv;
+- canonical valid and invalid fixture inventories and expected diagnostics;
+- identity grammar, V1 lifecycle, and registration-phase invariants;
+- forbidden legacy symbols in active documentation and fixtures;
+- ADR evidence registry coverage and repository-contained evidence paths;
 - local documentation links;
-- nondeterministic keys in committed generated artifacts.
+- deterministic generated artifact constraints and reproducibility.
 
-Future implementation adds Zod-authored schemas, generated JSON Schema, Ajv parity tests, packed-package fixtures, and declared-versus-actual runtime inventory tests.
+Gate 1 adds resolved-graph, hermetic customer-config, packed-package, and declared-versus-actual runtime registration evidence.

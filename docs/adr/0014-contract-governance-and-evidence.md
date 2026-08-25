@@ -13,7 +13,7 @@ K-Nex persists plugin, capability, source, action, block, state, and output-cont
 ## Decision
 
 1. Machine-readable schemas, registries, fixtures, and validators are normative before prose snippets.
-2. Persisted IDs use the canonical hierarchical grammar in `contracts/architecture-contracts.v1.json`.
+2. K-Nex identifiers intended for persistence use the canonical hierarchical grammar in `contracts/architecture-contracts.v1.json`. Gate 0 proves the current pre-v1 grammar and rejection of drift; it does not claim migration compatibility from an earlier released grammar.
 3. Plugin and application manifests have one typed Zod authoring source, versioned generated JSON Schemas, and canonical fixtures.
 4. Registration uses one canonical phase enum with descriptor/handler/UI separation. Gate 0 freezes and validates the phase contract; runtime phase enforcement belongs to ADR-0017 and Gate 1.
 5. ADR decision status and evidence maturity are independent. Evidence is recorded in `docs/adr/evidence-registry.json`.
@@ -23,7 +23,7 @@ K-Nex persists plugin, capability, source, action, block, state, and output-cont
 
 - Documentation examples cannot invent alternate manifest fields or IDs.
 - Contract generator changes require fixture-corpus and deterministic-output review.
-- Existing draft IDs are normalized before production persistence; later renames require migrations.
+- Draft IDs are normalized before production persistence. Once an earlier released or persisted grammar exists, a later rename requires an explicit migration and separate compatibility evidence; this ADR does not claim that path has been proved.
 - CI can reject decision drift before package code is released.
 - Deterministic composition, hermetic customer registration, and runtime reconciliation remain separate Gate 1 claims under ADR-0017.
 
@@ -43,4 +43,4 @@ Rejected as the default because aliases hide drift and expand compatibility obli
 
 ## Validation
 
-Gate 0 validates generated schemas and registries, valid and invalid fixtures, canonical registration phases, links, evidence coverage, forbidden legacy symbols, deterministic generation, and repository governance. It does not claim runtime enforcement of the registration phases.
+Gate 0 validates generated schemas and registries, valid and invalid fixtures, the current pre-v1 identity grammar, canonical registration phases, links, evidence coverage, forbidden legacy symbols, deterministic generation, and repository governance. It does not claim migration compatibility from a prior persisted identity grammar or runtime enforcement of the registration phases.
