@@ -2,21 +2,32 @@
 
 ## Product role
 
-The K-Nex CLI is the primary application-composition interface. It creates customer repositories, edits the application manifest, resolves plugin dependencies, installs exact package versions, generates static registries, prepares local infrastructure, validates migrations, and reports the final product inventory.
+The K-Nex CLI creates and maintains independently deployable customer repositories.
 
-It is not only a template copier. It is a **product-line compiler** that transforms a declarative application specification into a reviewable, deployable customer repository.
+It is not only a template copier. It is a **product-line compiler** that transforms a declarative application specification into:
+
+```text
+Payload application scaffold
++ selected Payload database adapter
++ exact K-Nex plugin packages
++ generated static registries
++ customer composition root
++ local infrastructure files
++ environment schema
++ migration/test/deployment workflow
+```
 
 ## Package and command names
-
-Use names that do not collide with the existing `knex` SQL query-builder ecosystem.
 
 ```text
 create-k-nex-app      project creation package
 @k-nex/cli            ongoing project-management package
-k-nex                 CLI executable
+k-nex                 executable
 k-nex.app.json        declarative application manifest
 k-nex.config.ts       programmatic customer extensions
 ```
+
+Avoid `knex` command/config names because they collide with the existing SQL query-builder ecosystem.
 
 Examples:
 
@@ -26,20 +37,20 @@ pnpm dlx create-k-nex-app acme-cargo
 pnpm exec k-nex doctor
 ```
 
-## CLI principles
+# CLI principles
 
-1. **Plan before mutation.** Every material command can show its proposed package, manifest, generated-file, infrastructure, and migration changes.
-2. **Deterministic output.** The same input manifest, catalog, lockfile, and CLI version produce the same generated files.
-3. **No hidden runtime installation.** Packages are installed through repository changes and deployment, never from the production admin panel.
-4. **No secret leakage.** Secret values are accepted only through protected prompts or environment input and are never written to committed manifests or logs.
-5. **Safe interruption.** Filesystem changes are staged and applied only after validation succeeds.
-6. **Human-reviewable diffs.** Generated registries, package changes, and migration warnings are visible in pull requests.
-7. **Interactive and automated modes.** Every interactive choice has a non-interactive flag or manifest representation.
-8. **Shared resolver.** CLI and runtime/core validation use the same contracts and resolution algorithm.
+1. **Plan before mutation.** Material changes show package, framework, source, UI, environment, infrastructure, and migration impact.
+2. **Deterministic output.** Same manifest, catalog, lockfile, CLI version, and customer config produce the same generated artifacts.
+3. **Payload is explicit.** The CLI generates Payload configuration instead of hiding it behind a K-Nex database/runtime abstraction.
+4. **No hidden runtime installation.** Executable packages change through repository/deployment workflows, never the production panel.
+5. **No secret leakage.** Secret values never enter committed manifests, generated registries, or logs.
+6. **Safe interruption.** File changes are staged/validated before apply; failures restore tracked state where possible.
+7. **Reviewable diffs.** Composition, imports, source registries, adapter package, and migration requirements appear in source control.
+8. **Interactive and automated parity.** Every prompt has a flag/spec representation.
+9. **Shared contracts.** CLI and runtime use the same plugin/source/compatibility schemas.
+10. **No false database portability.** V1 selects Payload Postgres; changing database family is not presented as a plugin swap.
 
-## Project creation flow
-
-Example:
+# Project creation flow
 
 ```text
 $ pnpm create k-nex-app acme-cargo
@@ -55,16 +66,16 @@ $ pnpm create k-nex-app acme-cargo
   ○ Website only
   ○ Backend only
 
-◇ Select a starting preset
+◇ Starting preset
   ● Custom
   ○ Logistics
   ○ Restaurant
-  ○ Corporate CMS + CRM
+  ○ Corporate CMS + Sales
 
-◇ Select modules
+◇ Modules
   ◉ CMS
-  ◉ CRM
-  ◉ Visual builder
+  ◉ Sales/CRM
+  ◉ Visualization blocks
   ◉ Logistics core
   ◉ Dispatch
   ◉ Driver operations
@@ -73,11 +84,11 @@ $ pnpm create k-nex-app acme-cargo
 ◇ Builder engine
   ● Puck
 
-◇ Enable workspace customization?
-  ● Yes
-  ○ No
+◇ Builder profiles
+  ◉ CMS/public pages
+  ◉ Workspace dashboards/reports
 
-◇ Admin theme packages
+◇ Admin themes
   ◉ Minimal
   ◉ Neobrutalism
   ◯ Glassmorphism
@@ -85,26 +96,28 @@ $ pnpm create k-nex-app acme-cargo
 ◇ Default admin theme
   ● Minimal
 
-◇ Public theme packages
+◇ Public themes
   ◉ Neobrutalism
   ◉ Glassmorphism
 
 ◇ Default public theme
   ● Neobrutalism
 
-◇ Database for development
-  ● Local Postgres with Docker Compose
-  ○ External Postgres URL
-  ○ SQLite demo mode
+◇ Payload database adapter
+  ● Postgres
 
-◇ Object storage for development
+◇ Local database setup
+  ● Generate Docker Postgres
+  ○ Use existing DATABASE_URL
+
+◇ Object storage
   ● Local filesystem
   ○ MinIO with Docker Compose
   ○ External S3-compatible service
 
 ◇ Realtime provider
-  ● Local WebSocket adapter
-  ○ Redis-backed WebSocket adapter
+  ● Local WebSocket
+  ○ Redis-backed WebSocket
   ○ None
 
 ◇ Generate production Dockerfile?
@@ -120,49 +133,48 @@ $ pnpm create k-nex-app acme-cargo
   ○ No
 ```
 
-Result summary:
+V1 exposes only Postgres as a supported Payload adapter. Future experimental choices appear only after complete K-Nex compatibility work.
+
+## Result summary
 
 ```text
-✔ Loaded first-party plugin catalog
+✔ Loaded trusted plugin catalog
 ✔ Expanded selected preset
-✔ Resolved 14 requested plugins
-✔ Added 3 required capability providers
+✔ Resolved requested plugins and replaceable capabilities
+✔ Selected Payload database adapter: postgres
+✔ Added @payloadcms/db-postgres
 ✔ Validated core/Payload/Node compatibility
-✔ Generated k-nex.app.json
-✔ Generated static plugin, provider, UI, and theme registries
-✔ Generated local Docker Compose services
-✔ Generated .env.example and local .env.local
+✔ Generated k-nex.app.json and k-nex.config.ts
+✔ Generated Payload database/config composition
+✔ Generated plugin/provider/UI/source/action/state/theme registries
+✔ Generated Docker Postgres and selected local services
+✔ Generated .env.example and ignored .env.local
 ✔ Installed exact dependencies
 ✔ Generated Payload types
 ✔ Initialized Git repository
 
-Next steps:
+Next:
   cd acme-cargo
   pnpm dev:infra
   pnpm dev
 ```
 
-## Default project decisions
-
-Initial supported production profile:
+# Default project decisions
 
 ```text
 TypeScript
 pnpm workspace
 Next.js + Payload
-Postgres
-customer-specific repository
-customer-specific database
-customer-specific deployment
+Payload Postgres adapter
+local Docker Postgres by default
+separate customer repository/database/deployment
 exact package versions
-Dockerfile available by default
+production Dockerfile available
 ```
 
-SQLite is a fast demo/POC mode, not the default path for a product expected to run on Postgres. MongoDB is not an officially supported K-Nex V1 production profile even if the underlying framework can support it; adding it requires module compatibility testing.
+SQLite and other Payload adapters are not supported K-Nex V1 profiles.
 
-## Generated repository
-
-Default customer scaffold:
+# Generated repository
 
 ```text
 acme-cargo/
@@ -171,11 +183,11 @@ acme-cargo/
 │   │   ├── src/
 │   │   │   ├── app/
 │   │   │   ├── platform/
-│   │   │   ├── payload.config.ts
-│   │   │   └── extensions/
+│   │   │   ├── extensions/
+│   │   │   └── payload.config.ts
 │   │   └── package.json
 │   └── driver/
-│       └── optional customer driver application
+│       └── optional customer driver app
 ├── packages/
 │   ├── customer-components/
 │   ├── customer-extensions/
@@ -188,7 +200,11 @@ acme-cargo/
 │       ├── plugin-registry.ts
 │       ├── provider-registry.ts
 │       ├── ui-registry.ts
+│       ├── data-source-registry.ts
+│       ├── action-registry.ts
+│       ├── state-registry.ts
 │       ├── theme-registry.ts
+│       ├── payload-database.ts
 │       ├── payload-contributions.ts
 │       ├── environment-schema.ts
 │       └── build-manifest.json
@@ -204,11 +220,9 @@ acme-cargo/
 └── README.md
 ```
 
-A website-only or backend-only profile may omit unnecessary applications while preserving the same manifest and plugin model.
+# CLI architecture
 
-## Architecture
-
-Suggested CLI packages:
+Suggested packages:
 
 ```text
 packages/cli/
@@ -219,6 +233,7 @@ packages/cli/
 ├── filesystem/
 ├── templates/
 ├── generators/
+├── payload/
 ├── package-manager/
 ├── migrations/
 ├── prompts/
@@ -226,83 +241,111 @@ packages/cli/
 └── schemas/
 ```
 
-### Catalog loader
+## Catalog loader
 
-Reads the trusted first-party plugin catalog and selected package manifests. It does not execute plugin server code.
+Reads trusted first-party plugin metadata without executing plugin server code.
 
-### Resolver
+## Resolver
 
-Validates requested plugins, capabilities, conflicts, compatibility, provider cardinality, environment requirements, and registration order.
-
-### Planner
-
-Computes an explicit change plan:
+Validates:
 
 ```text
-manifest additions/removals/updates
-package additions/removals/updates
-generated registry changes
-local infrastructure changes
-environment variable changes
-schema/migration risk
-orphan UI blocks or stored data risk
+plugin dependencies
+replaceable capabilities
+conflicts and cycles
+core/Payload/Node compatibility
+provider cardinality
+surface/audience metadata
+environment requirements
+registration order
 ```
 
-### Filesystem transaction
+The resolver does not resolve a K-Nex `database.primary` provider. It validates the supported Payload adapter selected under `framework.payload.database`.
 
-Writes changes to a temporary staging directory or in-memory representation, validates the result, then atomically replaces target files where possible. If dependency installation or generation fails, the CLI restores the pre-command repository state and reports manual cleanup if any external process changed files.
+## Planner
 
-### Package-manager adapter
+Computes:
 
-V1 supports pnpm. The adapter is still explicit so package operations are testable and a future alternative does not infect resolver logic.
+```text
+manifest changes
+package/lockfile changes
+Payload adapter/config changes
+generated registry changes
+environment and Docker changes
+schema/migration impact
+source/action/UI inventory impact
+orphan layout/theme risk
+```
 
-### Generator
+## Filesystem transaction
 
-Produces static TypeScript registries and machine-readable release inventory from the resolved graph.
+Stages changes, validates generated composition, and applies files atomically where possible. Package-manager side effects are restored/reported if a later step fails.
 
-### Diagnostics
+## Package-manager adapter
 
-Formats errors with plugin ownership, capability ranges, affected files, suggested commands, and migration impact.
+V1 supports pnpm explicitly.
 
-## Command set
+## Payload generator
 
-### `k-nex init`
+Generates:
 
-Adopts an existing compatible project or initializes K-Nex metadata inside an empty repository.
+- selected database adapter import/config;
+- final Payload plugin/contribution composition;
+- type-generation scripts;
+- migration scripts;
+- framework-specific environment validation;
+- collision diagnostics.
+
+## Registry generator
+
+Generates static imports for:
+
+```text
+plugins/providers
+navigation/screens/blocks
+data-source descriptors and handlers
+actions/state/context definitions
+themes/builder adapters
+Payload contributions
+```
+
+## Diagnostics
+
+Errors identify stable ID, package owner, conflicting contribution, affected files/layouts, and suggested remediation.
+
+# Command set
+
+## `k-nex init`
+
+Initializes K-Nex metadata in an empty or conservatively adopted compatible Payload project.
 
 ```bash
 k-nex init
 ```
 
-It creates the manifest, config, generated directory, scripts, and baseline checks. Adoption of an existing Payload project must remain conservative and never overwrite application code without a diff and confirmation.
+Existing code is never overwritten without a plan/diff.
 
-### `k-nex plan`
-
-Shows what would change without writing files.
+## `k-nex plan`
 
 ```bash
 k-nex plan
-k-nex plan --add module.crm
+k-nex plan --add module.sales
 k-nex plan --remove module.inventory
 k-nex plan --format json
 ```
 
-The JSON form is suitable for CI, bots, or a future control utility.
+No writes.
 
-### `k-nex apply`
-
-Applies a previously described or currently computed plan.
+## `k-nex apply`
 
 ```bash
 k-nex apply
 k-nex apply --non-interactive
 ```
 
-Material dependency additions in interactive mode require confirmation. CI mode requires explicit flags and fails instead of asking questions.
+Applies a validated plan.
 
-### `k-nex add`
-
-Adds a plugin request and resolves transitive capability requirements.
+## `k-nex add`
 
 ```bash
 k-nex add module.logistics-driver
@@ -310,13 +353,13 @@ k-nex add @k-nex/module-driver@1.3.0
 k-nex add theme.neobrutalism --surface public
 ```
 
-Example plan:
+Example:
 
 ```text
 Requested:
   + module.logistics-driver@1.3.0
 
-Required additions:
+Required:
   + module.logistics-core@1.8.0
   + provider.realtime-websocket-local@1.2.1
 
@@ -324,57 +367,44 @@ Capabilities:
   logistics.domain@1.x → module.logistics-core
   realtime.gateway@1.x → provider.realtime-websocket-local
 
-Infrastructure impact:
-  WebSocket endpoint enabled
-  no Redis required for selected local adapter
+Payload/schema impact:
+  driver/device/task collections contributed
+  customer migration required
 
-Database impact:
-  new driver, device, task, and idempotency data
-  migration generation required
+UI/source impact:
+  driver routes/screens/sources registered
+  authenticated driver subscriptions enabled
 ```
 
-### `k-nex remove`
-
-Plans disable, uninstall, or purge semantics.
+## `k-nex remove`
 
 ```bash
-k-nex remove module.crm --mode disable
-k-nex remove module.crm --mode uninstall
-k-nex remove module.crm --mode purge
+k-nex remove module.sales --mode disable
+k-nex remove module.sales --mode uninstall
+k-nex remove module.sales --mode purge
 ```
 
-Purge requires:
+Purge requires dependency/layout/source/data scans, backup acknowledgement, explicit confirmation, and reviewed destructive migration.
 
-- explicit `--confirm-purge <plugin-id>`;
-- dependency and stored-layout analysis;
-- backup acknowledgement;
-- generated destructive migration review.
-
-### `k-nex enable` and `k-nex disable`
-
-Changes enabled state for plugins that declare safe disable semantics.
+## `k-nex enable` / `k-nex disable`
 
 ```bash
-k-nex disable module.crm
-k-nex enable module.crm
+k-nex disable module.sales
+k-nex enable module.sales
 ```
 
-A schema-owning plugin can remain registered for data compatibility while its UI, writes, schedules, subscribers, and public routes are gated.
+Disablement can gate navigation, sources, actions, jobs, subscribers, and writes while retaining schema/data where supported.
 
-### `k-nex sync`
-
-Reconciles manually edited `k-nex.app.json`, `package.json`, the lockfile, and generated registries.
+## `k-nex sync`
 
 ```bash
 k-nex sync
 k-nex sync --check
 ```
 
-`--check` performs no writes and is intended for CI.
+Reconciles manifest, package files, adapter dependency, and generated registries.
 
-### `k-nex generate`
-
-Generates registries and diagnostics without changing requested plugin composition.
+## `k-nex generate`
 
 ```bash
 k-nex generate
@@ -383,78 +413,83 @@ k-nex generate --check
 
 Generation includes:
 
-- plugin imports;
-- provider bindings;
-- Payload contribution composition;
-- UI/navigation/block registry;
-- theme registry;
-- environment schema;
-- release/build inventory.
+```text
+Payload database/config composition
+plugin/provider registries
+UI/navigation/block registry
+data-source/action/state/context registry
+theme/builder registry
+environment schema
+build inventory
+```
 
-### `k-nex doctor`
+## `k-nex doctor`
 
-Validates the full repository and local environment.
-
-Checks include:
+Checks:
 
 ```text
-manifest schema and canonical form
-package.json and lockfile agreement
+manifest schema/canonical form
+package and lockfile agreement
+selected Payload adapter package/config
 plugin/capability compatibility
-duplicate IDs, routes, permissions, jobs, events, blocks, and Payload slugs
+duplicate Payload slugs/routes/permissions/events/jobs/blocks/sources/actions/states
+source descriptor/handler and output contract validity
+source field permissions and table metadata
 missing environment variables
-provider infrastructure requirements
 stale generated files
 pending migration/schema differences
-orphan builder components
-invalid runtime theme profiles
-untrusted or deprecated packages
+orphan page/layout/source bindings
+invalid theme profiles
+realtime provider requirements
 known incompatible versions
 ```
 
-Output levels:
+Levels:
 
 ```text
-PASS     no action required
-INFO     diagnostic information
-WARN     supported but risky or migration-sensitive
-ERROR    build/deploy must stop
+PASS
+INFO
+WARN
+ERROR
 ```
 
-### `k-nex inspect`
-
-Displays the resolved application graph and inventory.
+## `k-nex inspect`
 
 ```bash
 k-nex inspect
 k-nex inspect capabilities
 k-nex inspect ui
-k-nex inspect module.logistics-driver
+k-nex inspect sources
+k-nex inspect source sales.tasks
+k-nex inspect module.sales
 ```
 
-### `k-nex upgrade`
+Source inspection can show:
 
-Plans package upgrades without applying them blindly.
+```text
+owner/version
+surface/audience
+permission
+input/output contract
+selectable fields
+pagination/sort/filter policy
+realtime topics
+stored layout references
+```
+
+## `k-nex upgrade`
 
 ```bash
 k-nex upgrade
-k-nex upgrade module.crm
+k-nex upgrade module.sales
 k-nex upgrade --security-only
 ```
 
-The plan shows:
+Shows related upgrades, Payload compatibility, source/block contract changes, migrations, and rollback limitations.
 
-- current and target versions;
-- core/Payload compatibility;
-- required related upgrades;
-- migration notes;
-- configuration changes;
-- infrastructure changes;
-- known rollback limitations.
+## `k-nex db`
 
-### `k-nex db`
-
-Coordinates framework migration commands and K-Nex checks.
+Wraps visible Payload/customer migration workflow:
 
 ```bash
 k-nex db diff
@@ -464,11 +499,9 @@ k-nex db status
 k-nex db validate-upgrade --from <fixture-or-backup>
 ```
 
-The CLI wraps rather than hides underlying migration artifacts. Generated customer migrations remain visible source files.
+The CLI does not hide or replace Payload migration artifacts.
 
-### `k-nex theme`
-
-Manages installed theme packages and runtime defaults.
+## `k-nex theme`
 
 ```bash
 k-nex theme add theme.neobrutalism
@@ -477,28 +510,23 @@ k-nex theme set theme.neobrutalism --surface public
 k-nex theme validate
 ```
 
-Installing/removing a theme package changes code and requires deployment. Changing the active profile among installed themes can also occur in the application panel at runtime.
+Package install/removal requires deploy; runtime profile activation can occur in the panel.
 
-### `k-nex manifest migrate`
+## `k-nex manifest migrate`
 
-Updates the source manifest format without changing application database state.
+Migrates manifest source format only, not application data.
 
-```bash
-k-nex manifest migrate
-```
-
-## Non-interactive creation
-
-Every interactive choice can be supplied explicitly:
+# Non-interactive creation
 
 ```bash
 pnpm create k-nex-app acme-cargo \
   --preset logistics \
-  --modules module.cms,module.crm,module.logistics-driver \
+  --modules module.cms,module.sales,module.visualization,module.logistics-driver \
   --builder builder.puck \
   --admin-theme theme.minimal \
   --public-theme theme.neobrutalism \
-  --database docker-postgres \
+  --payload-db postgres \
+  --database-mode docker-postgres \
   --storage minio \
   --realtime websocket-local \
   --dockerfile \
@@ -507,21 +535,21 @@ pnpm create k-nex-app acme-cargo \
   --non-interactive
 ```
 
-For repeatability, creation can also read a specification file:
+Or:
 
 ```bash
 pnpm create k-nex-app --from ./customer-spec.json
 ```
 
-The resulting repository always contains the normalized `k-nex.app.json`; the creation spec is not required at runtime.
+The normalized `k-nex.app.json` remains the repository source of truth.
 
-## Secret handling
+# Secret handling
 
-### External database URL
+## External database URL
 
-When the user selects an external database, the prompt is masked. The URL is written only to `.env.local` after verifying that the file is ignored by Git.
+A masked prompt writes only to ignored `.env.local` after confirming Git ignore coverage.
 
-The manifest receives:
+Manifest:
 
 ```json
 {
@@ -529,156 +557,120 @@ The manifest receives:
 }
 ```
 
-### Generated secrets
+## Generated local secrets
 
-The CLI can generate local-only random values such as `PAYLOAD_SECRET`. It must:
+The CLI may generate local-only `PAYLOAD_SECRET` values using a secure random source. It never prints full values after creation or places them in committed files.
 
-- use a cryptographically secure random source;
-- write only to ignored local environment files;
-- avoid printing the full value after creation;
-- place safe placeholders in `.env.example`;
-- never commit or transmit the value.
+## Logs
 
-### Logs
+Diagnostics redact registered secret variables and credential-like URLs.
 
-Diagnostics redact values matching registered secret variables and common credential URL patterns.
+# Docker generation
 
-## Docker generation
+## Development infrastructure
 
-The CLI asks two separate questions.
-
-### Development infrastructure
-
-Generate `docker-compose.yml` for selected local services:
+Generated according to selected modules/providers:
 
 ```text
 Postgres
 Redis when required
 MinIO when selected
-mail-catcher when selected
-optional observability services for advanced profiles
+mail catcher when selected
 ```
 
-### Production packaging
+## Production packaging
 
-Generate a production `Dockerfile` and process commands for:
+Optional Dockerfile/process definitions:
 
 ```text
 web
 worker
-optional realtime gateway when separated
+separate realtime process where selected
+migration command/job
 ```
 
-These decisions are independent. A project can use local Docker services while deploying the application without Docker, or use a production container with externally managed development infrastructure.
+Development Docker and production containers are independent choices.
 
-## Git behavior
+# Git behavior
 
-V1 can initialize a local Git repository and make an optional initial commit.
+V1 initializes local Git and can create an initial commit. Remote GitHub creation is a later authenticated optional command.
 
-```bash
-k-nex init --git
-```
+# Migration impact
 
-Creating a remote GitHub repository is not required for V1. It can be added later as an authenticated optional command so local project generation remains independent of one source-control provider.
-
-## Migration behavior during plugin changes
-
-After a composition change, the CLI classifies database impact:
+After composition changes:
 
 ```text
-none        no schema/data change
-additive    new tables/fields/indexes, normally safe after review
-transform   explicit data migration/helper required
-destructive drop or irreversible conversion; backup and confirmation required
-unknown     plugin did not provide sufficient metadata; block automation
+none
+additive
+transform
+destructive
+unknown
 ```
 
-The CLI may generate a schema migration draft but never claims it is safe without customer-application tests.
+The CLI never runs production migrations as a side effect of add/remove/sync/generate.
 
-## Stored UI and theme impact
+# Stored UI and source impact
 
-Before uninstalling a module or theme, the CLI or application readiness check identifies:
+Before disabling/removing/upgrading a plugin, readiness identifies:
 
-- stored layouts referencing module blocks;
-- pages requiring a renderer supplied by the plugin;
-- active theme profiles using the theme package;
-- role/user layouts inheriting affected components;
-- unpublished drafts as well as published content.
+```text
+stored pages/layouts using plugin blocks
+bindings using plugin data sources/actions/state
+selected fields removed or permission-changed
+active theme profiles
+role/user layout inheritance
+published and draft references
+```
 
-The default behavior is to preserve data and produce orphan diagnostics, not silently delete content.
+Data and documents are preserved by default with actionable orphan diagnostics.
 
-## Failure and rollback behavior
-
-Command execution stages:
+# Failure and rollback
 
 ```text
 1. load current state
 2. calculate plan
-3. stage manifest/package/generated changes
+3. stage manifest/package/framework/generated changes
 4. validate staged composition
-5. install/update packages in staged repository state
-6. generate registries
-7. run configured validation hooks
-8. atomically apply files where possible
-9. report required migration/testing steps
+5. install exact dependencies
+6. generate registries/Payload config
+7. run checks/tests configured for the command
+8. apply files atomically where possible
+9. report migration/deploy steps
 ```
 
-On failure before apply, the original repository is unchanged. On failure after an external package-manager operation, the CLI restores tracked files and reports any untracked cache/state requiring cleanup.
+# CLI compatibility
 
-The CLI should never run a production database migration as an incidental side effect of `add`, `remove`, `sync`, or `generate`.
+The CLI publishes supported manifest, core, Payload, Node, pnpm, and generated-code API ranges. `doctor` identifies incompatible generator versions and required manifest migrations.
 
-## CLI version compatibility
+# Telemetry
 
-The CLI publishes:
+No external K-Nex CLI telemetry by default. Future telemetry must be explicit opt-in and contain no customer composition, paths, secrets, or business data.
 
-- supported manifest schema versions;
-- supported core ranges;
-- supported Node and pnpm ranges;
-- generated-code API version.
+# Test strategy
 
-A generated header records the CLI version. `k-nex doctor` warns when the repository was generated by an incompatible version and provides a migration command.
+Fixture/golden tests cover:
 
-## Telemetry
-
-V1 should not send customer composition, repository paths, plugin choices, or command usage to an external service by default.
-
-Any future telemetry must be:
-
-- opt-in;
-- documented;
-- free of secrets and customer data;
-- disableable through environment and configuration;
-- unnecessary for core functionality.
-
-## Test strategy
-
-The CLI requires fixture-driven tests for:
-
-- every interactive answer path;
-- non-interactive equivalent output;
-- dependency additions and provider selection;
-- conflict and cycle failures;
-- exact manifest normalization;
-- generated-file determinism;
-- interruption/rollback behavior;
+- every interactive branch and non-interactive equivalent;
+- Payload Postgres adapter installation/config generation;
+- plugin/capability resolution and failure cases;
+- source/action/UI registry determinism;
+- duplicate source/field/contribution errors;
 - secret redaction;
+- filesystem rollback;
 - add/disable/uninstall/purge plans;
-- stale generated-file detection;
-- upgrade compatibility warnings;
-- Windows, macOS, and Linux path/process behavior where supported.
+- stale generated files;
+- migration warnings;
+- supported platform path/process behavior.
 
-Golden repositories can verify that a given creation specification produces an expected scaffold and resolved inventory.
-
-## V1 boundaries
+# V1 boundaries
 
 V1 does not:
 
-- install packages from the runtime admin panel;
-- discover arbitrary third-party marketplace packages;
-- create a production database automatically without explicit deployment configuration;
+- install packages from runtime admin UI;
+- discover arbitrary marketplace packages;
+- abstract Payload database APIs behind K-Nex providers;
+- support every Payload database adapter;
+- create production databases automatically without explicit deployment setup;
 - apply destructive migrations automatically;
-- generate complete business applications from natural language;
-- guarantee support for every Payload database adapter;
+- expose arbitrary user-created data queries;
 - create a shared multi-customer control plane.
-
-The CLI creates and maintains independently deployable customer repositories from trusted, versioned K-Nex packages.
