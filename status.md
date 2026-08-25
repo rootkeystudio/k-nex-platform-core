@@ -2,21 +2,21 @@
 
 - **Updated:** 2026-08-25
 - **Phase:** Phase 0 — Contract Freeze and Repository Readiness
-- **Active task:** P0.2 — Establish one typed contract-authoring source
-- **State:** Ready for review
+- **Active task:** P0.3 — Build the valid and invalid fixture corpus
+- **State:** Ready to start
 
 ## Last completed
 
-Resolved P0.2 review gaps by deriving plugin identity and lifecycle representations from shared typed policies, rejecting non-JSON-safe generator inputs, and deriving the sidecar inventory from one artifact list.
+Reviewed and accepted P0.2; plugin identities and lifecycle rules now derive from shared typed policies, generated artifacts are JSON-safe and deterministic, and the sidecar inventory derives from one artifact list.
 
 ## Validation
 
-`pnpm install --frozen-lockfile`, `pnpm build`, `pnpm contracts:generate`, `pnpm contracts:validate`, and `pnpm docs:validate` passed under Node 24.19.0; repeated generation was byte-identical and `pnpm audit` found no known vulnerabilities. `pnpm phase:0` stops at the intentionally pending P0.3 test gate.
+PR #7 Architecture contracts run #15 passed on Node 24.19.0 with pnpm 11.9.0. Review verified Zod/Ajv schema compilation, stale-output checks, shared invariant sources, JSON-safety rejection, and derived artifact inventory. Full `pnpm phase:0` remains intentionally blocked at P0.3.
 
 ## Next
 
-Review and merge P0.2, then execute P0.3 from the updated `main` branch.
+Execute P0.3 exactly as defined in `docs/implementation/phase-0.md`.
 
 ## Blockers
 
-GitHub repository ruleset verification remains open in issue #2; it does not block P0.2 review.
+GitHub repository ruleset verification remains open in issue #2; it does not block P0.3 implementation.
