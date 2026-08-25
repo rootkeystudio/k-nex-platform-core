@@ -27,6 +27,7 @@ rejected
 | [0009](./0009-database-adapter-and-target-plugins.md) | Database adapters and connection targets as provider plugins | Superseded by 0011 |
 | [0010](./0010-typed-data-source-state-binding-graph.md) | Typed data sources, UI state, and declarative binding graph | Accepted |
 | [0011](./0011-payload-database-adapter-selected-at-scaffold.md) | Select Payload database adapter at scaffold time | Accepted |
+| [0012](./0012-hybrid-output-contracts.md) | Hybrid canonical and plugin-owned output contracts | Accepted |
 
 ## ADR template
 
