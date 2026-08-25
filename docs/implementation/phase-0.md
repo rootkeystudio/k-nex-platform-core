@@ -316,11 +316,9 @@ minimal theme or builder manifest
 
 #### Minimum invalid fixtures
 
+The invalid corpus must include one fixture for each applicable entry in `forbiddenLegacySymbols` from `contracts/architecture-contracts.v1.json`, without repeating those deprecated symbols in active prose. It must also include:
+
 ```text
-legacy flattened plugin ID: module.logistics-driver
-legacy database provider: provider.database-postgres
-legacy package: @k-nex/database-postgres
-legacy output contract: metric.money@1
 missing required lifecycle object
 schema-owning plugin with uninstall=supported
 invalid package version that is not exact semver
