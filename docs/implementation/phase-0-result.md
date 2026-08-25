@@ -4,13 +4,13 @@
 - **Gate:** Gate 0
 - **Baseline:** `6776a1b212cb4b905dc48fb0ae682a975d03ef77`
 - **Verified `main`:** `560fd3b76c93303a16e4281e4a2516bd5c4f07b3`
-- **Decision:** **REWORK PHASE 0**
+- **Decision:** **GO PHASE 1**
 
 ## Scope proved
 
 Phase 0 proves that K-Nex architecture contracts have a pinned repository toolchain, one typed Zod authoring source, deterministic generated JSON artifacts, Ajv-backed valid and invalid fixtures, stable repository diagnostics, reproducibility checks, and enforced GitHub review policy.
 
-Phase 0 does **not** prove Payload boot, Postgres migrations, plugin resolution or runtime registration, authenticated queries, UI or builder behavior, realtime delivery, lifecycle operations, or deployment behavior.
+Phase 0 does **not** prove Payload boot, resolver execution, Postgres migrations, runtime registration, authenticated queries, UI or builder behavior, realtime delivery, lifecycle operations, or deployment behavior.
 
 ## Completed work
 
@@ -101,14 +101,12 @@ git status --porcelain --untracked-files=all
 
 The frozen install and `pnpm phase:0` pass on `main` at `560fd3b76c93303a16e4281e4a2516bd5c4f07b3`. The Phase 0 gate reports 25 passing Vitest tests and the reproducibility digest recorded above.
 
-## Remaining limitations and rework decision
+## Remaining limitations and decision
 
-[`ADR-0014`](../adr/0014-contract-governance-and-evidence.md) is not promoted from `design-only`. Phase 0 provides executable evidence for normative contract generation, canonical IDs, schemas, fixtures, registration phases, evidence-registry validation, and CI drift rejection. It does not implement these ADR-0014 decisions:
+[`ADR-0014`](../adr/0014-contract-governance-and-evidence.md) now contains only the independently meaningful Gate 0 governance decisions proven by the source, fixtures, tests, reproducibility checks, CI, and repository rules recorded above. Its evidence is promoted atomically to `executable-poc`.
 
-1. deterministic committed `.k-nex/generated/k-nex.resolved.json` generation;
-2. hermetic `k-nex.config.ts` execution and fingerprinting;
-3. declared-versus-actual runtime registration and capability-access rejection.
+[`ADR-0017`](../adr/0017-deterministic-composition-and-registration-reconciliation.md) owns deterministic `.k-nex/generated/k-nex.resolved.json` and static registry generation, hermetic and fingerprinted `k-nex.config.ts`, and declared-versus-actual runtime registration and capability-access rejection. It remains `design-only` until Gate 1 proves its complete decision scope.
 
-Those behaviors are assigned to Gate 1 by the ADR and the master plan. The master plan permits evidence promotion only when the entire ADR decision has executable evidence, while the Phase 0 definition of done requires ADR-0014 promotion before Gate 1. Promoting it now would overstate observed evidence; starting Phase 1 without it would violate the Phase 0 entry contract.
+The project-manager review accepted this pre-v1 ADR scope correction. No alias, compatibility path, partial evidence map, or duplicate evidence registry was introduced.
 
-**Decision: REWORK PHASE 0.** A project-manager architecture decision must either split the Gate 0 governance decisions from the Gate 1 composition decisions into separately tracked ADR evidence scopes, or revise the cross-gate promotion requirement. All completed P0.1–P0.6 implementation and governance evidence remains valid.
+**Decision: GO PHASE 1.** Phase 0's repository-contract and governance gate is complete. P1.1 may freeze the executable framework tuple and create the Gate 1 fixture shell without treating any ADR-0017 runtime or composition claim as already proven.
