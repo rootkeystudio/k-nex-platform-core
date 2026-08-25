@@ -3,20 +3,20 @@
 - **Updated:** 2026-08-25
 - **Phase:** Phase 0 — Contract Freeze and Repository Readiness
 - **Active task:** P0.6 — Enforce CI and repository governance
-- **State:** Ready for review
+- **State:** Blocked — GitHub plan decision required
 
 ## Last completed
 
-Completed the source-controlled P0.6 governance controls: CI runs the complete `pnpm phase:0` gate, implementation plans have explicit CODEOWNERS coverage, and the PR template requires migration notes and executable validation evidence.
+Reviewed and accepted the source-controlled P0.6 work: CI runs the complete `pnpm phase:0` gate, implementation plans have explicit CODEOWNERS coverage, and the PR template requires migration notes and executable evidence.
 
 ## Validation
 
-The source-controlled governance diff and complete `pnpm phase:0` gate pass locally on Node 24.19.0 with pnpm 11.9.0; CI evidence will be attached to the P0.6 PR.
+PR #11 Architecture contracts run #32 passed. Repository audit shows `main` is unprotected and required status-check enforcement is off; the rulesets endpoint requires GitHub Pro or public visibility.
 
 ## Next
 
-Review the P0.6 source controls, then complete issue #2 settings and intentional-failure verification before closing P0.6.
+Choose GitHub Pro while keeping the repository private, or make the repository public. Then configure the issue #2 rules, run the intentional-failure and direct-push checks, and resume P0.6 review.
 
 ## Blockers
 
-GitHub rejects ruleset/branch-protection APIs for this private repository with `403 Upgrade to GitHub Pro or make this repository public`; issue #2 cannot be completed until one option is chosen.
+Issue #2. P0.6, P0.7, and Phase 1 cannot close or start until repository protection is configured and verified.
