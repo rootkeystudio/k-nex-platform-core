@@ -15,8 +15,9 @@ The documents are implementation-oriented: each major concept should eventually 
 1. [Product vision and boundaries](./01-product-vision.md)
 2. [System architecture](./02-system-architecture.md)
 3. [Platform core](./03-platform-core.md)
-4. [Decision register](./21-decision-register.md)
-5. [Glossary](./22-glossary.md)
+4. [Technology and package baseline](./26-technology-package-baseline.md)
+5. [Decision register](./21-decision-register.md)
+6. [Glossary](./22-glossary.md)
 
 ### Plugin and customer application model
 
@@ -35,6 +36,7 @@ The documents are implementation-oriented: each major concept should eventually 
 4. [Theme and design system](./18-theme-and-design-system.md)
 5. [Plugin data sources, bindings, and realtime invalidation](./24-data-sources-state-and-binding-graph.md)
 6. [Data-source output contracts](./25-output-contracts.md)
+7. [Technology and package baseline](./26-technology-package-baseline.md)
 
 ### Payload data, backend, and operations
 
@@ -45,6 +47,7 @@ The documents are implementation-oriented: each major concept should eventually 
 5. [Permissions, events, actions, and jobs](./09-permissions-events-and-jobs.md)
 6. [Deployment and operations](./11-deployment-and-operations.md)
 7. [Security and trust boundaries](./20-security-and-trust-boundaries.md)
+8. [Technology and package baseline](./26-technology-package-baseline.md)
 
 ### Research and decisions
 
@@ -82,6 +85,7 @@ The documents are implementation-oriented: each major concept should eventually 
 | [23 — Payload database selection](./23-database-adapters-and-runtime-providers.md) | Scaffold-time Payload adapter selection, Postgres, environment, migrations |
 | [24 — Plugin data sources and bindings](./24-data-sources-state-and-binding-graph.md) | Authenticated source endpoints, bindings, stable fields, auth, realtime invalidation |
 | [25 — Data-source output contracts](./25-output-contracts.md) | Canonical/plugin-owned contracts, metric/table/series shapes, envelopes, versions, migrations |
+| [26 — Technology and package baseline](./26-technology-package-baseline.md) | Conservative runtime, validation, UI, data, realtime, testing, CLI, and package-tool choices |
 | [ADRs](./adr/README.md) | Consequential architecture decisions and rationale |
 | [References](./references.md) | Primary implementation-candidate references |
 
@@ -97,39 +101,60 @@ The documents are implementation-oriented: each major concept should eventually 
 | Composition source | `k-nex.app.json` plus `k-nex.config.ts` |
 | Project tooling | `create-k-nex-app` and `k-nex` plan/apply CLI |
 | Generated code | Static registries committed in V1 and checked in CI |
+| Runtime | Node.js 24 LTS with an exact tested release pinned |
+| Framework tuple | Exact Payload + Next.js + React versions from Payload-supported compatibility |
+| Workspace/release | pnpm workspaces + Turborepo + Changesets |
 | Backend foundation | Payload is the provisional first and intended framework foundation |
 | Database integration | Select/install Payload database adapter during scaffold; no K-Nex DB provider abstraction |
 | Production database | Payload Postgres adapter only in V1 |
 | Local database | Docker Postgres by default; external `DATABASE_URL` also supported |
 | Hosted Postgres | Neon/Supabase/RDS/etc. use the same Payload Postgres adapter and deployment guidance |
+| Schema authoring | Zod 4 is the first-party TypeScript/runtime source of truth |
+| Static JSON validation | JSON Schema generated from Zod and compiled with Ajv 8; no dual schema authoring |
 | UI shell | Fixed shell; module-generated permission-aware navigation |
 | Composable surfaces | CMS pages, dashboards, overviews, reports, scoped workspaces |
 | Operational screens | Module-owned with controlled extension slots in V1 |
 | Builder model | One canonical K-Nex document model; separate CMS/workspace profiles |
 | Builder engine | Puck provisional first adapter; Craft.js fallback if POC fails |
+| Accessible primitives | React Aria Components behind K-Nex semantic primitives; not React Spectrum styling |
 | Theme model | Installed theme package plus DB-backed validated draft/published profile |
 | Theme surfaces | Separate admin and public themes |
-| Styling | Style-agnostic module UI + semantic primitives + themes + customer overrides |
+| Styling | Style-agnostic module UI + semantic primitives + CSS variables/themes + customer overrides |
 | Module data | Plugins expose deliberate authenticated data-source descriptors and handlers |
 | Source transport | Standard K-Nex query gateway dispatching to plugin-owned handlers |
 | Payload access | Handlers use authenticated `req.payload`/domain services and preserve access controls |
+| Server data/cache | TanStack Query 5 behind K-Nex source client and actor-scoped query-key policy |
+| Ephemeral UI state | Scoped Zustand 5 vanilla stores; never Payload/business/server data |
+| Forms | React Hook Form with Zod resolver; server always revalidates |
 | Contract model | Hybrid canonical K-Nex contracts plus namespaced plugin-owned contracts |
 | Source projection | One source exposes one primary output contract |
 | Initial contracts | `metric.scalar@1`, `table.records@1`, `series.category@1`, `series.time@1`, `options.list@1`, `record.summary@1` |
 | Contract conformance | Exact source schema must validate against declared output contract |
 | Table fields | Stable opaque source field IDs; no raw nested Payload paths |
+| Data-table engine | TanStack Table 8 initially behind adapter; v9 requires soak/compatibility gate |
+| Virtualization | TanStack Virtual for measured large-list/table needs |
+| Visualization | Apache ECharts 6 behind K-Nex adapter; raw ECharts options never enter builder documents |
 | Descriptor transport | Actor-filtered descriptors separate from query responses; deterministic descriptor hash |
 | Versioning | Source, output contract, descriptor hash, and package version evolve independently |
 | Transformations | V1 uses purpose-built sources; future transforms are registered/versioned adapters, not expressions |
 | Generic components | Counter/table/chart blocks bind by contract ID/version and descriptor constraints |
 | Table customization | Builder stores selected authorized field IDs and source-declared sort/filter defaults |
 | UI state | Filters/selections only; module business data remains in source endpoints |
-| Realtime | Authenticated WebSocket invalidation/refetch by default; typed streams only where needed |
+| Realtime implementation | Socket.IO 4 is the first `realtime.gateway` provider behind K-Nex contracts |
+| Realtime consistency | Authenticated invalidation/refetch by default; typed snapshot/streams only where needed |
+| Jobs | Payload Jobs Queue first; external workflow/queue framework requires measured need |
+| Logging | Pino structured JSON logs; pretty formatting development-only |
+| Telemetry | OpenTelemetry API hooks for server traces/metrics; deployment selects SDK/exporter |
+| Tests | Vitest + Testing Library + Playwright + Testcontainers PostgreSQL |
+| CLI libraries | Commander + `@inquirer/prompts` + Execa + semver; native Node APIs elsewhere |
+| Architecture enforcement | dependency-cruiser import/cycle rules in CI |
+| Package correctness | publint + Are the Types Wrong + packed install fixtures |
 | Security | Source discovery, execution, output, fields, and subscriptions are server-authorized |
 | Builder code policy | No arbitrary JS, SQL, Payload query, imports, secrets, unrestricted URL/CSS |
 | Runtime code install | Not allowed from admin panel |
 | Plugin states | Installed, enabled/disabled, configured, uninstalled, purged are distinct |
 | Migrations | Final migration history belongs to each customer repository |
+| Upgrade policy | Exact customer versions; new majors require soak, compatibility, migration, and rollback proof |
 
 ## Architecture at a glance
 
@@ -139,8 +164,8 @@ trusted plugin catalog
         ▼
 create-k-nex-app / k-nex CLI
         │
-        ├── validates k-nex.app.json
-        ├── selects and installs Payload Postgres adapter
+        ├── validates k-nex.app.json with generated schema/Ajv
+        ├── selects exact Payload/Next/React/Postgres tuple
         ├── resolves K-Nex modules/providers/themes/builder
         ├── generates static plugin/UI/source/contract/theme registries
         ├── prepares Docker/environment/deployment files
@@ -149,12 +174,15 @@ create-k-nex-app / k-nex CLI
                 ▼
 customer application repository
         │
-        ├── Payload + Postgres configuration
-        ├── fixed application shell
+        ├── Node 24 + Payload + Next + Postgres
+        ├── fixed React Aria-based semantic shell
         ├── module routes/screens/blocks
         ├── plugin-owned authenticated data-source handlers
+        ├── Zod source/runtime schemas + generated JSON Schema
         ├── canonical and plugin-owned output contracts
-        ├── standard source gateway and realtime invalidation bridge
+        ├── TanStack Query source cache + scoped Zustand UI state
+        ├── TanStack Table and ECharts adapters
+        ├── Socket.IO realtime provider and invalidation bridge
         ├── CMS/workspace builder profiles
         ├── installed theme packages and DB profiles
         ├── customer extensions/overrides
@@ -184,16 +212,17 @@ Builder adds PieChart:
 
 Authenticated runtime:
   executes plugin handlers through K-Nex gateway
-  validates exact source schema + canonical output contract
+  validates exact Zod source schema + canonical output contract
   enforces permission/record/field policy
+  caches through actor-scoped TanStack Query keys
 
 Sales mutation commits:
-  realtime invalidates affected source queries
+  Socket.IO provider sends authorized invalidation
   active components refetch through authenticated endpoint
   selected theme renders updated results
 ```
 
-The stored layout contains source/contract IDs, major versions, validated parameters, selected stable field IDs, and bindings—not live records or executable query code.
+The stored layout contains source/contract IDs, major versions, validated parameters, selected stable field IDs, and bindings—not live records or executable query/library configuration.
 
 ## Documentation conventions
 
@@ -203,7 +232,7 @@ Stable persisted identities use product IDs rather than package paths:
 
 ```text
 module.sales
-provider.realtime-websocket-local
+provider.realtime.socketio
 realtime.gateway
 sales.total-potential-revenue
 sales.tasks
@@ -223,11 +252,12 @@ Important distinctions:
 - **output contract:** reusable versioned semantic result shape;
 - **source-specific output schema:** exact schema for one source implementing its declared contract;
 - **UI state:** typed filter/selection/coordination value, not module data;
+- **implementation adapter:** package hiding TanStack, ECharts, Socket.IO, Puck, or React Aria details behind K-Nex contracts;
 - **Payload plugin:** framework-level Payload config transformer that a K-Nex plugin may contribute internally.
 
 ## Decision discipline
 
-- Check the [decision register](./21-decision-register.md) and [ADRs](./adr/README.md) before treating a direction as final.
+- Check the [decision register](./21-decision-register.md), [technology baseline](./26-technology-package-baseline.md), and [ADRs](./adr/README.md) before treating a direction as final.
 - Accepted decisions should be implemented unless explicitly changed.
 - Provisional decisions require the named POC evidence.
 - Open decisions include a recommendation and trigger.
@@ -236,18 +266,21 @@ Important distinctions:
 ## Immediate next proof
 
 ```text
-manifest
-  → Payload Postgres scaffold
+exact Node/Payload/Next/React/Postgres scaffold
+  → pnpm/Turbo workspace and package checks
+  → Zod schemas + generated JSON Schema + Ajv validation
   → static module/UI/source/contract/theme registries
   → Payload boot and customer migration
-  → fixed shell + Sales navigation
+  → React Aria semantic shell + Sales navigation
   → metric.scalar Counter
-  → table.records DataTable with selected stable columns
-  → category/time-series charts
+  → table.records DataTable through TanStack Table adapter
+  → category/time-series charts through ECharts adapter
   → Payload-authenticated source execution
-  → source-specific + canonical output validation
-  → WebSocket invalidation and refetch
+  → actor-scoped TanStack Query cache
+  → scoped Zustand page filters
+  → Socket.IO invalidation and authoritative refetch
   → one CMS page + one workspace dashboard
   → two installed themes
+  → Vitest/Playwright/Testcontainers/dependency-boundary proof
   → two independent customer repositories
 ```
