@@ -2,204 +2,477 @@
 
 ## High-level model
 
-K-Nex separates reusable platform behavior from customer delivery.
+K-Nex separates reusable platform capabilities from customer-specific product delivery.
 
 ```text
-┌─────────────────────────────────────────────────────────────┐
-│ Shared package ecosystem                                    │
-│                                                             │
-│  @k-nex/core                                                │
-│  @k-nex/contracts                                           │
-│  @k-nex/module-cms                                          │
-│  @k-nex/module-crm                                          │
-│  @k-nex/module-websocket                                    │
-│  @k-nex/module-dispatch                                     │
-│  @k-nex/module-live-tracking                                │
-│  @k-nex/module-inventory                                    │
-│  ...                                                        │
-└───────────────────────────┬─────────────────────────────────┘
-                            │ exact package versions
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│ Customer application repository                             │
-│                                                             │
-│  module composition                                         │
-│  Payload configuration                                      │
-│  theme and CSS                                               │
-│  frontend and admin UI                                      │
-│  customer extensions                                        │
-│  generated migrations                                       │
-│  infrastructure                                              │
-└───────────────────────────┬─────────────────────────────────┘
-                            │ build and deploy
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│ Independent customer environment                            │
-│                                                             │
-│  application container                                      │
-│  worker container                                            │
-│  Postgres                                                    │
-│  object storage                                              │
-│  optional Redis / realtime infrastructure                    │
-│  customer-specific secrets and domain                        │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│ Trusted K-Nex package ecosystem                                  │
+│                                                                  │
+│  core/contracts/testing                                          │
+│  modules        CMS, CRM, logistics, restaurant, inventory       │
+│  providers      Postgres, realtime, storage, email               │
+│  builders       Puck adapter                                     │
+│  themes         Minimal, Neobrutalism, Glassmorphism             │
+│  integrations   CRM-logistics, inventory-budgeting, external API │
+│  presets        logistics, restaurant, corporate                 │
+└──────────────────────────────┬───────────────────────────────────┘
+                               │ trusted catalog + static manifests
+                               ▼
+┌──────────────────────────────────────────────────────────────────┐
+│ create-k-nex-app / k-nex CLI                                     │
+│                                                                  │
+│  validate application manifest                                   │
+│  resolve dependencies and capabilities                           │
+│  select providers                                                 │
+│  install exact package versions                                  │
+│  generate static registries                                      │
+│  prepare Docker/environment/infrastructure files                  │
+│  report schema, data, UI, theme, and security impact              │
+└──────────────────────────────┬───────────────────────────────────┘
+                               │ generated/reviewed repository
+                               ▼
+┌──────────────────────────────────────────────────────────────────┐
+│ Customer application repository                                  │
+│                                                                  │
+│  k-nex.app.json + k-nex.config.ts                                │
+│  Payload/backend composition                                     │
+│  fixed application shell                                         │
+│  module UI contributions                                         │
+│  CMS/workspace builder profiles                                  │
+│  installed theme packages + customer profiles                    │
+│  customer extensions and overrides                               │
+│  final migrations, tests, Docker, deployment                     │
+└──────────────────────────────┬───────────────────────────────────┘
+                               │ build immutable release
+                               ▼
+┌──────────────────────────────────────────────────────────────────┐
+│ Independent customer environment                                 │
+│                                                                  │
+│  application / worker / optional realtime processes              │
+│  customer Postgres                                               │
+│  customer storage                                                │
+│  optional Redis/specialized providers                            │
+│  customer secrets, domain, backups, monitoring                   │
+│  runtime CMS/layout/theme/plugin configuration                   │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-## Architectural layers
+## Architectural goals
+
+- Reuse tested backend and UI capability without copying platform source.
+- Preserve complete customer-level design and deployment independence.
+- Fail invalid compositions before framework boot or production migration.
+- Keep provider/engine implementations replaceable behind versioned contracts.
+- Make application composition inspectable in source control and release inventory.
+- Allow runtime content/layout/theme configuration without runtime executable package installation.
+- Keep security authorization server-owned across UI, APIs, jobs, and realtime.
+
+## Layers
 
 ### 1. Contracts layer
 
-Stable TypeScript interfaces and shared identifiers:
+Stable, low-dependency TypeScript and serializable contracts:
 
-- module manifest;
-- module dependency declarations;
-- permission definitions;
-- domain event envelopes;
-- job/task contracts;
-- service provider tokens;
-- migration metadata;
-- error and API result conventions.
+```text
+plugin manifests and plugin kinds
+capability definitions and service tokens
+dependency/compatibility declarations
+permission definitions and actor context
+event/job/action/data-source envelopes
+UI blocks/screens/navigation/layout documents
+theme token/primitive contracts
+framework contribution metadata
+errors and diagnostics
+```
 
-This layer should have very few runtime dependencies.
+This layer should not import Payload, Puck, customer code, or concrete provider implementations except in explicit adapter packages.
+
+Suggested packages:
+
+```text
+@k-nex/contracts
+@k-nex/ui-contracts
+@k-nex/ui-design-system-contracts
+```
 
 ### 2. Platform core
 
-The core implements cross-cutting backend behavior:
+The core implements domain-neutral cross-cutting behavior:
 
-- module discovery and validation;
-- service registry;
-- authentication integration;
+- application/plugin graph validation;
+- capability and typed service registry;
+- deterministic registration phases;
+- authentication/actor integration;
 - permission registry and access helpers;
-- event publication and subscription;
-- audit recording;
-- job and workflow registration;
-- health and readiness checks;
-- observability hooks;
-- shared testing utilities.
+- event/job/audit/health/observability foundations;
+- framework contribution composition;
+- immutable release/plugin inventory;
+- contract-test utilities.
 
-The core does not know what a shipment, menu item, opportunity, or webpage is.
+Core does not know what a shipment, contact, menu item, dashboard design, or customer theme is.
 
-### 3. Capability modules
+### 3. Plugin packages
 
-Each module implements a reusable business or infrastructure capability. Examples:
+All installable capabilities share one lifecycle/manifest model.
 
-- infrastructure: WebSocket, notifications, files, search;
-- horizontal business capabilities: CMS, CRM, forms, page builder;
-- vertical capabilities: logistics-core, dispatch, live tracking, restaurant-core, inventory;
-- application-facing APIs: driver API, public tracking API, QR menu API.
+#### Modules
 
-A module declares what it needs and what it provides.
+Business/horizontal behavior and optional UI contributions.
 
-### 4. Presets
+#### Providers
 
-A preset is a convenience composition, not a new runtime layer.
+Concrete infrastructure implementations behind capabilities.
 
-```ts
-logisticsPreset({
-  cms: true,
-  crm: true,
-  dispatch: true,
-  tracking: true,
-  driver: true,
-})
+#### Builders
+
+Visual editor adapters behind `builder.engine`.
+
+#### Themes
+
+Executable design-system packages with runtime profile schemas.
+
+#### Integrations
+
+Bridges between modules/providers or external services.
+
+#### Presets
+
+CLI recipes expanded into explicit selected plugins.
+
+See [Plugin taxonomy and capabilities](./13-plugin-taxonomy-and-capabilities.md).
+
+### 4. CLI/compiler layer
+
+`create-k-nex-app` and `k-nex` transform desired composition into a valid customer repository.
+
+Inputs:
+
+```text
+trusted catalog
+k-nex.app.json
+static plugin manifests
+package registry and lockfile
+k-nex.config.ts
+CLI flags/answers
 ```
 
-Presets must resolve to ordinary module declarations. A customer may override or compose modules manually.
+Outputs:
 
-### 5. Customer application
+```text
+package and lockfile changes
+static plugin/provider/UI/theme registries
+final Payload contribution imports
+environment schema and .env.example
+Docker/Docker Compose files
+build/release inventory
+migration and orphan diagnostics
+```
 
-The customer repository is the final composition root. It decides:
+The CLI and core share resolver contracts so CI/startup validation cannot disagree with project generation.
 
-- which packages and exact versions are installed;
-- module configuration;
-- role definitions;
-- customer-specific policies;
-- final Payload configuration;
-- application routes and UI;
-- theme and styling;
-- infrastructure adapters;
-- generated migration sequence.
+### 5. Customer application composition
 
-### 6. Runtime infrastructure
+The customer repository is the final product composition root.
 
-Each customer environment is isolated. The default topology is one application deployment and one database per customer. Workers, WebSocket gateways, Redis, or specialized storage are added only when selected modules require them.
+It owns:
+
+- exact plugin versions and enabled state;
+- provider/builder/theme package selection;
+- customer roles and policies;
+- customer extensions, integrations, blocks, and UI overrides;
+- public/application routes and optional driver/mobile apps;
+- brand assets/fonts and theme profiles;
+- final Payload configuration and migrations;
+- infrastructure and release process.
+
+It does not own copied/modified core source.
+
+### 6. Framework adapter layer
+
+Payload is the provisional first backend/application host.
+
+K-Nex adapters mediate:
+
+```text
+collection/global/field/index contributions
+endpoints and access policies
+jobs/workflows
+admin/system contributions
+version/draft storage
+migration/type generation integration
+```
+
+K-Nex must not rely on an unrestricted generic deep merge of arbitrary Payload config. Contribution types and registration phases should be explicit enough to detect collisions and compose functions safely.
+
+### 7. UI composition layer
+
+The UI system has distinct packages:
+
+```text
+ui-contracts       engine-independent definitions
+ui-runtime         registry, permissions, layout resolution, data/actions
+ui-shell           fixed sidebar/topbar/router/system hosts
+builder-puck       provisional editor engine adapter
+theme packages     semantic primitive/design implementations
+```
+
+Enabled modules contribute navigation, fixed screens, blocks, data sources, actions, realtime metadata, and extension slots.
+
+### 8. Runtime data/configuration layer
+
+Runtime customer database stores:
+
+```text
+business records
+CMS content and versions
+builder documents and layout revisions
+theme profiles and revisions
+plugin runtime settings
+jobs/audit/events/outbox as configured
+```
+
+Runtime data can select only installed/static registry IDs. It cannot import npm packages or execute arbitrary code.
+
+### 9. Runtime infrastructure
+
+Default V1 topology:
+
+```text
+web application
+worker
+Postgres
+object storage
+optional realtime/Redis/specialized stores
+```
+
+Every customer environment is isolated and independently released.
 
 ## Repository topology
 
-The architectural boundary is the **package**, not necessarily the Git repository.
+The architectural boundary is the package, not necessarily the Git repository.
 
-A practical initial layout for this repository is:
+Recommended initial implementation topology remains an open decision, with a current preference for a first-party monorepo while contracts stabilize:
 
 ```text
-k-nex-platform-core/
+k-nex-platform/
 ├── packages/
 │   ├── contracts/
 │   ├── core/
+│   ├── cli/
 │   ├── testing/
-│   └── tooling/
-├── docs/
-└── examples/
+│   ├── ui-contracts/
+│   ├── ui-runtime/
+│   ├── ui-shell/
+│   ├── builder-puck/
+│   └── theme-*/
+├── modules/
+│   ├── cms/
+│   ├── crm/
+│   ├── logistics-core/
+│   └── ...
+├── presets/
+├── examples/
+└── docs/
 ```
 
-Modules can live in dedicated repositories:
+Packages may later move to dedicated repositories without changing stable plugin IDs or package contracts.
+
+Customer repositories always remain separate:
 
 ```text
-k-nex-module-cms
-k-nex-module-crm
-k-nex-module-websocket
-k-nex-module-logistics
-k-nex-module-dispatch
+client-acme-cargo
+client-mamma-restaurant
 ```
-
-They can also later move into a modules monorepo while retaining the same published package names. “Separate GitHub package” does not require “separate Git repository”; registry and repository boundaries are independent decisions.
 
 ## Dependency direction
 
-Allowed dependency direction:
+Primary direction:
 
 ```text
-customer app
-    ↓
-presets and modules
-    ↓
-platform core
-    ↓
-contracts
+customer application
+        ↓
+presets / integrations / modules / providers / themes / builder
+        ↓
+platform and UI runtime contracts
+        ↓
+low-dependency contracts
 ```
 
-Vertical modules may depend on horizontal infrastructure modules through declared contracts. The core must never import a business module.
+Core never imports a business module. Domain modules do not import customer applications. Theme packages do not own authorization/business logic. Builder adapters do not own domain data policy.
 
-Forbidden examples:
+### Allowed collaboration
 
-- core importing CRM;
-- CRM importing a specific customer extension;
-- logistics-core importing customer UI;
-- a module reading another module's private database table directly;
-- customer identity checks inside shared packages.
+- public service/capability contract;
+- domain event;
+- registered UI data source/action;
+- documented extension slot;
+- dedicated integration plugin;
+- customer extension consuming public contracts.
+
+### Forbidden coupling
+
+- core importing CRM/logistics;
+- module reading another module's private table;
+- optional module imported through private source paths;
+- theme changing server authorization;
+- builder data naming a package import or server function;
+- customer identity checks inside shared packages;
+- runtime database value choosing an executable package path.
 
 ## Composition lifecycle
 
-A customer build follows this sequence:
+A customer application build follows:
 
-1. Load customer module declarations.
-2. Normalize module IDs and versions.
-3. Resolve required and optional dependencies.
-4. Reject missing, incompatible, duplicate, or conflicting modules.
-5. Register service providers.
-6. Compose Payload plugins and configuration.
-7. Register permissions, events, jobs, and health checks.
-8. Produce the final application configuration.
-9. Generate types and customer-specific migrations.
-10. Build and deploy the customer application.
+```text
+1. Read/validate k-nex.app.json.
+2. Load trusted catalog/static plugin manifests.
+3. Expand presets into explicit requests.
+4. Validate core/Payload/Node/database compatibility.
+5. Resolve required dependencies and capability providers.
+6. Detect conflicts, cycles, duplicate providers, and disabled dependency problems.
+7. Install/verify exact packages and lockfile.
+8. Import trusted plugin registration entry points.
+9. Register contracts/providers/schema/behavior/jobs/UI/admin in phases.
+10. Detect duplicate slugs, routes, permissions, events, jobs, actions, blocks, navigation IDs.
+11. Merge explicit Payload contributions.
+12. Build UI/theme/static registries and immutable inventory.
+13. Compose customer TypeScript extensions/overrides.
+14. Generate Payload types and customer-owned migration artifacts.
+15. Run clean/upgrade/security/UI/theme tests.
+16. Build and deploy one customer release.
+```
 
-## Default technical hypothesis
+The resolved graph is immutable during runtime.
 
-Payload is the leading application foundation because its configuration and plugin model can host reusable collections, fields, endpoints, hooks, jobs, and admin extensions. K-Nex remains an architecture above Payload rather than exposing raw Payload config mutation as the only module contract.
+## Build-time and runtime separation
 
-This abstraction leaves room to:
+### Build-time
 
-- validate dependencies before Payload config composition;
-- standardize permissions and events;
-- test modules independently;
-- keep domain logic in services rather than hooks;
-- replace individual infrastructure providers without rewriting domain modules.
+- package install/remove/version;
+- provider/builder/theme package availability;
+- schema and import changes;
+- generated registries;
+- customer code/overrides;
+- infrastructure topology.
+
+### Runtime
+
+- CMS content;
+- published workspace layouts;
+- active installed theme profile/tokens;
+- validated plugin settings/features that do not alter composition;
+- business data.
+
+This boundary prevents runtime configuration from becoming an unsafe code loader.
+
+## UI architecture
+
+```text
+resolved plugin graph
+       ↓
+UI contribution registry
+       ↓
+permission and surface filtering
+       ↓
+fixed shell + fixed operational screens + resolved layouts
+       ↓
+semantic design primitives
+       ↓
+selected installed theme + runtime profile
+```
+
+### Fixed shell
+
+Stable route/auth/system boundaries. Module menus fill known regions.
+
+### Operational screens
+
+Module-owned, transaction-focused, extension-slot aware.
+
+### Composable pages
+
+CMS, dashboards, overviews, reports, role/user workspaces through builder profiles.
+
+### Data/action boundary
+
+Builder layouts reference registered server data sources/actions; authorization and transactions remain on the server.
+
+## Theme architecture
+
+```text
+static generated theme registry
+       ↓
+selected published DB theme profile
+       ↓
+theme schema validation/migration
+       ↓
+CSS variables + semantic primitive adapter
+       ↓
+CMS/workspace render
+```
+
+Admin and public profiles are independent. A new theme requires deployment; adjusting an installed theme profile does not.
+
+## Data architecture
+
+Postgres is the supported V1 production/local default. Plugins own domain schema intent; customer applications own final migration history.
+
+High-volume/specialized domains can use provider contracts behind modules:
+
+```text
+current position store
+position history store
+search index
+object storage
+realtime backplane
+```
+
+Payload documents remain appropriate for business/control data; specialized storage should not be forced through ordinary CRUD when workload contradicts it.
+
+## Security architecture
+
+Security controls apply at:
+
+```text
+package/catalog trust
+CLI and source generation
+plugin registration/collisions
+authentication/actor context
+permissions and record policy
+UI data sources/actions
+builder/theme validation
+public projections
+WebSocket subscriptions
+jobs/events/files
+customer deployment/infrastructure
+```
+
+UI visibility is not authorization. See [Security and trust boundaries](./20-security-and-trust-boundaries.md).
+
+## Operational inventory without SaaS tenancy
+
+Each release exposes non-secret inventory:
+
+```text
+application ID
+commit/image digest
+core/framework versions
+plugin package versions and enabled state
+capability providers
+builder/theme packages
+migration revision
+```
+
+A separate private fleet repository/tool can aggregate this for security upgrades without joining customer runtime databases.
+
+## Primary architecture hypotheses to validate
+
+1. Payload can host deterministic plugin contributions without deep forks.
+2. Puck can implement the K-Nex canonical CMS/workspace builder model behind an adapter.
+3. Semantic module UI can render across significantly different theme packages.
+4. Manifest/CLI generation remains deterministic and reviewable.
+5. Customer-owned migrations work across independent plugin combinations.
+6. Disabled/uninstalled schema-owning plugins can preserve data safely.
+7. Local and distributed realtime providers satisfy one capability contract.
+
+These hypotheses have explicit POC acceptance/rejection criteria in [Research Plan](./12-research-plan-and-poc.md) and [Decision Register](./21-decision-register.md).
