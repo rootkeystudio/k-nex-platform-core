@@ -2,21 +2,21 @@
 
 - **Updated:** 2026-08-25
 - **Phase:** Phase 0 — Contract Freeze and Repository Readiness
-- **Active task:** P0.6 — Enforce CI and repository governance
-- **State:** Blocked — GitHub plan decision required
+- **Active task:** P0.7 — Close the gate and promote evidence
+- **State:** Ready to start
 
 ## Last completed
 
-Reviewed and accepted the source-controlled P0.6 work: CI runs the complete `pnpm phase:0` gate, implementation plans have explicit CODEOWNERS coverage, and the PR template requires migration notes and executable evidence.
+Reviewed and accepted P0.6; active rulesets now enforce pull requests, one CODEOWNER approval, the `validate` check, stale-review dismissal, conversation resolution, and deletion/non-fast-forward restrictions for `main` and `v*` release tags. Added the repository-driven Codex master plan for Gates 0–7.
 
 ## Validation
 
-PR #11 Architecture contracts run #32 passed. Repository audit shows `main` is unprotected and required status-check enforcement is off; the rulesets endpoint requires GitHub Pro or public visibility.
+PR #12 proved red-to-green enforcement: run `32889179416` failed with `SCHEMA_INVALID /schemaVersion`, runs `32889335963` and `32889482514` passed, direct and non-fast-forward pushes were rejected, rulesets `21473575` and `21474044` are active, and issue #2 is closed.
 
 ## Next
 
-Choose GitHub Pro while keeping the repository private, or make the repository public. Then configure the issue #2 rules, run the intentional-failure and direct-push checks, and resume P0.6 review.
+Execute P0.7 from `docs/implementation/codex-master-plan.md`: create the Phase 0 result, promote only supported evidence, run `pnpm phase:0`, and record the Phase 1 GO or REWORK decision.
 
 ## Blockers
 
-Issue #2. P0.6, P0.7, and Phase 1 cannot close or start until repository protection is configured and verified.
+None.
