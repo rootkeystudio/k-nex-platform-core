@@ -24,6 +24,8 @@ rejected
 | [0006](./0006-theme-package-runtime-profile.md) | Theme package plus runtime theme profile | Accepted |
 | [0007](./0007-payload-and-puck-initial-candidates.md) | Payload and Puck as provisional initial implementation candidates | Proposed |
 | [0008](./0008-postgres-and-customer-owned-migrations.md) | Postgres default and customer-owned final migrations | Accepted |
+| [0009](./0009-database-adapter-and-target-plugins.md) | Database adapters and connection targets as provider plugins | Accepted |
+| [0010](./0010-typed-data-source-state-binding-graph.md) | Typed data sources, UI state, and declarative binding graph | Accepted |
 
 ## ADR template
 
