@@ -11,7 +11,7 @@ Closed Gate 1 with the complete failure corpus, two-clean-root byte reproducibil
 
 ## Validation
 
-Frozen install, Phase 0 regression, the complete `pnpm gate:1` command, high/critical audit threshold, diff checks, and clean-checkout validation pass. Gate 1 static artifacts reproduce with `sha256=bfd08aefdd8f7808b702739508c898f19d82ef61028c8551b5ee0f77e242c5c4`.
+Frozen install, Phase 0 regression, the complete `pnpm gate:1` command, high/critical audit threshold, diff checks, and clean-checkout validation pass. Gate 1 static artifacts reproduce with `sha256=bfd08aefdd8f7808b702739508c898f19d82ef61028c8551b5ee0f77e242c5c4`; Sales package checks compare canonical tar bytes across gzip OS headers.
 
 ## Next
 
