@@ -6,282 +6,343 @@ See **UI action**. A registered, schema-validated request to perform behavior. B
 
 ## Application
 
-One independently deployed customer product composed from K-Nex packages, customer code, configuration, themes, data, and infrastructure.
+One independently deployed customer product composed from Payload, K-Nex packages, customer code, configuration, themes, data, and infrastructure.
 
 ## Application manifest
 
-`k-nex.app.json`, the declarative desired composition of a customer application. It lists plugins, providers, builder profiles, installed themes, database adapter/target selections, and project-generation options without secret values.
+`k-nex.app.json`, the declarative desired composition of a customer application. It lists application identity, Payload framework/scaffold choices, K-Nex plugins/providers, builder profiles, themes, and local/deployment options without secret values.
 
 ## Binding
 
-A serializable, schema-validated connection among registered contexts, UI state, data sources, block input/output ports, and actions.
+A serializable, schema-validated connection among registered runtime context, UI state, data sources, block ports, and actions.
 
 Examples:
 
 ```text
-page state → data-source parameter
-data-source result → chart input
-chart-selection event → page state
+page state → source parameter
+data-source field → Counter value
+data-source rows → DataTable
+chart selection → page state
 button event → registered action
 ```
 
-Bindings never contain arbitrary executable code, SQL, imports, or secrets.
+Bindings never contain arbitrary executable code, Payload queries, SQL, imports, secrets, or unrestricted URLs.
 
 ## Binding graph
 
-The resolved directed graph of state, context, data-source, block-port, and action nodes for one UI document. The runtime validates ownership, versions, schemas, surface/audience compatibility, permissions, required inputs, and cycles before execution/publication.
+The resolved directed graph of context/state/source/block/action nodes for one UI document. The runtime validates ownership, versions, schemas, surfaces, permissions, required inputs, and cycles.
 
 ## Build manifest
 
-A generated machine-readable inventory of the resolved application, including exact core/plugin versions, capability providers, database/provider composition, UI/data/state/theme inventory, and migration/release metadata. It is not edited manually.
+Generated machine-readable inventory of exact Payload/K-Nex versions, selected Payload adapter, plugins/providers, UI/source/action/state/theme inventory, and release/migration metadata.
 
 ## Builder
 
-A plugin that adapts a visual editing engine to K-Nex block, layout, binding, profile, validation, and publication contracts. The initial candidate is `builder.puck`.
+A plugin adapting a visual editor to K-Nex block/layout/binding/profile/publication contracts. Initial candidate: `builder.puck`.
 
 ## Builder profile
 
-A policy for using the builder engine on a specific surface. CMS and workspace profiles can use the same engine while exposing different palettes, audiences, data sources, state/context, actions, layout scopes, and publication workflows.
+Policy for using the builder on a surface. CMS and workspace profiles expose different palettes, audiences, sources, actions, state, themes, scopes, and publication workflows.
 
 ## Capability
 
-A versioned contract provided by a plugin and consumed by another plugin, such as `database.primary`, `database.transactions`, `realtime.gateway`, `storage.objects`, or `builder.engine`. Capabilities allow provider substitution without changing consumer code.
+A versioned contract provided/consumed by K-Nex plugins where implementation substitution matters, such as `realtime.gateway`, `storage.objects`, `email.delivery`, or `builder.engine`.
+
+Payload's primary database adapter is not a K-Nex capability.
 
 ## Catalog
 
-The trusted list of selectable K-Nex plugins and metadata presented by the CLI. V1 catalogs only first-party or explicitly reviewed private packages.
+Trusted list of selectable K-Nex packages presented by the CLI. V1 contains first-party or explicitly reviewed private packages.
 
 ## Composition root
 
-The customer application location where generated registries, declarative manifest, customer TypeScript config, and final framework configuration are combined into the runnable product.
-
-## Context
-
-See **Runtime context**. A registered read-only value supplied by the application runtime, such as current user, branch, locale, route parameter, or CMS preview mode.
+Customer application location where generated registries, manifest, customer TypeScript config, and final Payload configuration become the runnable product.
 
 ## Customer application
 
-See **Application**. Each customer application has a separate repository, database, deployment, storage, secrets, migrations, and release cadence.
+See **Application**. It has a separate repository, database, deployment, storage, secrets, migrations, and release cadence.
 
 ## Customer extension
 
-Executable code in a customer repository that implements a genuine customer-specific policy, integration, action, data source, state definition, UI block, or override through documented K-Nex/module extension points.
+Executable code in a customer repository implementing a real customer-specific policy, integration, source, action, block, or override through documented contracts.
 
 ## Customer shell
 
-The generated repository/application scaffold that owns customer presentation, composition, extensions, migrations, and infrastructure. It consumes core and plugins as packages rather than copying their source.
+Generated customer repository/application scaffold. It owns composition, presentation, extensions, migrations, and infrastructure while consuming shared packages.
 
 ## Data contract
 
-A stable, versioned schema describing a reusable data shape consumed by UI blocks or produced by data sources.
+Stable versioned schema describing a reusable source result/component input.
 
 Examples:
 
 ```text
-metric.scalar@1
-dataset.tabular@1
-dataset.category-series@1
-dataset.time-series@1
-geo.feature-collection@1
+metric.number@1
+metric.money@1
+table.records@1
+series.category@1
+series.time@1
+geo.features@1
 ```
 
-Generic components depend on data contracts rather than domain plugin implementations.
-
-## Database adapter plugin
-
-A provider plugin that integrates one database family/dialect with K-Nex and the selected framework. It owns runtime adapter composition, capability claims, migration integration, health checks, and adapter contract tests.
-
-Initial example:
-
-```text
-provider.database-postgres
-@k-nex/database-postgres
-```
-
-## Database target plugin
-
-A provider/profile plugin describing how a database adapter connects to and operates in a particular environment, such as local Docker Postgres, an external URL, or Neon. It can contribute environment schema, infrastructure generation, pooling/TLS guidance, migration connection policy, and diagnostics without redefining the database dialect.
-
-## Data-source definition
-
-Executable plugin code registering a stable source ID, version, input/output schema, output contract, permission/audience policy, limits, cache/sensitivity policy, realtime behavior, and resolver.
-
-## Data-source instance
-
-Serializable layout configuration referencing a registered data-source definition with validated parameters, mappings, and bindings. It contains no resolver function or live result records.
+Generic components depend on data contracts, not domain implementations.
 
 ## Data source
 
-A registered, schema-validated, permission-aware, normally server-executed query/projection exposed to UI blocks. Stored layouts reference data-source IDs and bounded parameters rather than raw SQL, unrestricted URLs, or copied live data.
+A plugin-owned, registered, schema-validated, permission-aware server query/projection exposed to UI blocks.
+
+Examples:
+
+```text
+sales.total-opportunities
+sales.tasks
+sales.opportunities-by-stage
+```
+
+Stored layouts reference source IDs, versions, parameters, and selected fields—not raw collection access, SQL, or live records.
+
+## Data-source descriptor
+
+Browser-safe/static metadata for a source:
+
+```text
+ID/version/owner
+title/category
+surfaces/audience
+permission
+input/output contract
+fields
+pagination/sort/filter rules
+cache/realtime policy
+```
+
+## Data-source handler
+
+Server-only plugin code implementing a source. It uses authenticated Payload request context and/or module domain services and returns a bounded projection.
+
+## Data-source gateway
+
+Recommended standard K-Nex transport that authenticates, validates, authorizes, observes, and dispatches source requests to plugin-owned handlers.
+
+Conceptual route:
+
+```text
+POST /api/k-nex/data-sources/:sourceId/query
+```
+
+## Data-source instance
+
+Serializable layout binding selecting one registered source with validated parameters, field selections, and mappings.
 
 ## Design-system adapter
 
-The implementation of semantic UI primitives—such as `Button`, `Card`, `Table`, `Chart`, and `Dialog`—provided by the selected theme/design package and customer overrides.
+Implementation of semantic primitives such as `Button`, `Card`, `DataTable`, `Chart`, and `Dialog`, supplied by the chosen theme/design layer and customer overrides.
 
 ## Disable
 
-Keep a plugin installed and preserve its data while gating declared UI, writes, routes, schedules, subscribers, or other behavior. Disable semantics must be explicitly supported by the plugin.
+Keep a plugin installed and its data/schema available while gating declared navigation, sources, actions, writes, jobs, routes, and subscribers.
 
 ## Domain event
 
-A versioned, past-tense fact published after a successful state change, such as `logistics.shipment.delivered`. Events are owned by the module that owns the fact.
+Versioned past-tense business fact published after successful state change, such as `sales.task.completed` or `logistics.shipment.delivered`.
 
 ## Domain service
 
-Authoritative backend behavior that enforces business rules, transactions, authorization context, and events. Payload hooks or HTTP handlers adapt requests into domain services rather than becoming the only location of business logic.
+Authoritative backend behavior enforcing business rules, transactions, actor context, and events. Payload hooks/endpoints adapt into services.
 
 ## Extension slot
 
-A documented place where a module or shell allows another plugin/customer application to add or replace behavior or UI without patching private implementation.
+Documented place where another plugin/customer app can add or replace behavior/UI without patching private implementation.
+
+## Field metadata
+
+Source-declared information describing an output field:
+
+```text
+path/ID
+label
+type
+selectability
+default visibility
+sort/filter capability
+formatting
+permission/sensitivity
+```
+
+Used by DataTable column pickers and generic visualizations.
 
 ## Field mapping
 
-Validated configuration that maps named fields from a registered data-source output into semantic component inputs such as chart key, label, value, series, or timestamp. V1 field mapping does not execute arbitrary expressions.
+Validated mapping from declared source fields to semantic component inputs such as `label`, `value`, `series`, or `timestamp`. It executes no arbitrary expression.
 
 ## Generated registry
 
-A deterministic TypeScript import/registration file produced by the CLI for plugins, providers, database adapters/targets, UI contributions, data sources, data contracts, state/context, actions, themes, and framework contributions. Generated registries contain static imports and are committed in V1.
+Deterministic static TypeScript import/registration file produced by the CLI for plugins, providers, Payload contributions, UI, sources, actions, state/context, themes, and builder adapters.
 
 ## Input port
 
-A typed dynamic input declared by a UI block, such as `data`, `dateRange`, `selectedBranch`, or `recordId`. A port declares which static/state/context/data contracts it accepts.
+Typed dynamic input declared by a block, such as `value`, `rows`, `data`, `dateRange`, or `recordId`.
+
+## Invalidation
+
+Realtime notification that one or more source query results may be stale. The client normally refetches the authenticated source endpoint.
 
 ## Integration plugin
 
-A reusable package that connects two or more capabilities/modules without forcing either module to import the other's private implementation.
+Reusable package connecting modules/capabilities without forcing private implementation imports.
 
 ## Layout
 
-A versioned structured document describing which registered blocks appear in allowed regions, their validated static properties, and their declarative bindings. Layouts never contain arbitrary executable code or live data snapshots.
+Versioned structured document describing registered blocks, props, regions, and declarative bindings. It contains no arbitrary executable code or result snapshots.
 
 ## Module
 
-A plugin that provides reusable horizontal or domain business capability, such as CMS, CRM, visualization, dispatch, inventory, or QR menu.
+Plugin providing reusable horizontal/domain behavior, such as CMS, Sales, Visualization, Dispatch, Inventory, or QR Menu.
 
 ## Operational screen
 
-A module-owned workflow screen whose interaction and transaction behavior remain controlled, such as a dispatch board or stock adjustment form. It may have extension slots but is not fully rebuilt by drag-and-drop in V1.
+Module-owned workflow screen such as dispatch board or stock adjustment. It may expose extension slots but is not fully arbitrary drag-and-drop in V1.
 
 ## Orphan binding
 
-A stored binding whose source, state, context, action, contract, or compatible port is unavailable, disabled, incompatible, or removed. Orphans are preserved and reported rather than silently deleted.
+Stored binding whose source/state/context/action/field/compatible port is unavailable or incompatible. Preserved and reported rather than silently deleted.
 
 ## Orphan block
 
-A stored layout block whose providing plugin/component is unavailable, disabled, incompatible, or removed. Orphans are preserved and reported; they do not automatically delete data or crash the whole page.
+Stored block whose plugin/component is unavailable or incompatible. It does not crash the whole page.
 
 ## Output port
 
-A typed event/value emitted by a UI block, such as `sliceSelected`, `rowSelected`, `filterChanged`, or `submitted`. It can be connected to an allowed state write or registered action.
+Typed event/value emitted by a block, such as `rowSelected`, `sliceSelected`, or `filterChanged`.
 
 ## Package
 
-A concrete versioned artifact installed from a package registry, such as `@k-nex/module-crm@1.4.2`. The package name/version is distinct from the stable plugin ID.
+Concrete versioned registry artifact such as `@k-nex/module-sales@1.4.2`. Distinct from stable plugin ID.
+
+## Payload database adapter
+
+Framework dependency selected during scaffold generation, such as `@payloadcms/db-postgres`. Payload owns adapter integration, persistence APIs, transactions, and migration integration.
+
+It is not a K-Nex provider plugin.
+
+## Payload request context
+
+Authenticated/request-scoped context passed to module handlers/services, commonly exposing `req.payload`, actor/session information, locale, transaction/access behavior, and request metadata.
 
 ## Platform core
 
-The smallest stable, domain-neutral backend layer that provides contracts, plugin/capability resolution, service/permission/event/job registries, audit/health foundations, framework/provider composition, and testing support.
+Small domain-neutral layer providing contracts, plugin/capability resolution, registries, permissions/events/jobs/audit foundations, Payload composition support, and testing utilities.
 
 ## Plugin
 
-The umbrella installable K-Nex concept. Kinds include module, provider, builder, theme, integration, and preset.
+Umbrella installable K-Nex concept. Kinds: module, provider, builder, theme, integration, preset.
 
 ## Plugin ID
 
-The stable product identity of a plugin, such as `module.crm`, `provider.database-postgres`, or `theme.neobrutalism`, independent of package repository or package-manager location.
+Stable product identity such as `module.sales`, `provider.realtime-websocket-local`, or `theme.neobrutalism`, independent of package location.
 
 ## Preset
 
-A CLI composition recipe such as logistics or restaurant. It expands into explicit plugin/provider/theme selections and does not hide the final customer composition.
+CLI composition recipe expanded into explicit framework/plugin/provider/theme choices.
 
 ## Provider
 
-A plugin that implements an infrastructure/runtime capability, such as a Postgres database adapter, Neon connection target, WebSocket realtime gateway, S3 storage, or email delivery.
+K-Nex plugin implementing a genuinely replaceable infrastructure/runtime capability such as realtime, object storage, email, queue, or maps.
+
+The Payload database adapter is not a K-Nex provider.
+
+## Public data source
+
+Explicitly anonymous/signed-session-safe source with narrow projection, rate limits, privacy/abuse policy, and public caching rules. Internal workspace sources are never public merely because a public block could technically bind to them.
 
 ## Publish
 
-Make a validated draft revision active for its intended scope, such as a CMS page, customer/role workspace layout, or theme profile. Publication is permission-protected and audited.
+Activate a validated draft revision for a CMS page, workspace layout, or theme profile. Permission-protected and audited.
 
 ## Purge
 
-Explicit destructive removal of plugin-owned data/schema/references after dependency, retention, backup, migration, and approval checks. Uninstall does not imply purge.
+Explicit destructive removal of plugin-owned data/schema/references after dependency, retention, backup, migration, and approval checks.
+
+## Query key
+
+Runtime identity for one source execution, generally including source ID/version, validated parameters, actor/access scope, and surface. Used for caching and invalidation.
 
 ## Resolved application graph
 
-The immutable result of validating requested plugins, capabilities, providers, compatibility, conflicts, ordering, environment requirements, and contribution collisions.
-
-## Resource selector
-
-A permission-aware configuration-time source used by builder fields to choose a stable domain resource ID, such as a CRM pipeline, restaurant branch, warehouse, fleet, or cost center.
+Immutable result of validating requested plugins, replaceable capabilities/providers, Payload compatibility, conflicts, ordering, environment requirements, and contribution collisions.
 
 ## Runtime configuration
 
-Validated customer database values controlling an already installed plugin without importing new code or changing schema composition, such as active theme tokens, source defaults, or tracking retention.
+Validated customer database values controlling installed code without importing packages or changing schema composition.
 
 ## Runtime context
 
-A registered, typed, read-only value supplied by the application/session/router/editor runtime, such as `context.current-branch`, `context.current-user.locale`, or `context.cms.preview-mode`.
+Registered typed read-only value supplied by application/session/router/editor, such as current branch, user, route parameter, locale, or preview mode.
 
 ## Semantic primitive
 
-A style-agnostic UI contract expressing intent, such as `Button`, `Heading`, `Metric`, `Chart`, or `DataGrid`, which a selected design-system/theme adapter implements visually.
+Style-agnostic UI contract expressing intent, such as `Button`, `Metric`, `DataTable`, or `Card`, implemented by a selected design/theme adapter.
 
-## Specialized store
+## Source field selection
 
-A provider-backed store used for a narrow workload—such as Redis current positions, PostGIS geospatial history, search, analytics, or object storage—without becoming another `database.primary` provider.
+Serializable list of declared fields chosen for a block, such as DataTable visible columns. It cannot select undeclared/private object paths.
 
 ## State definition
 
-A registered schema and policy for one UI state type, including stable ID/version, allowed scopes, default, persistence, surfaces, audience, and read/write rules.
+Registered schema/policy for UI coordination state: ID/version, scope, default, persistence, surface, audience, and write rules.
 
 ## State instance
 
-A layout/workspace-specific instance of a state definition, such as `page.date-range`, with an optional validated default and persistence override allowed by policy.
+Page/workspace-specific state such as `page.filters.date-range`.
+
+## Stream source
+
+Source with authenticated initial snapshot plus typed incremental realtime messages and reconnect/resync behavior. Reserved for true live projections.
 
 ## Style-agnostic
 
-Independent of customer brand and visual language. It does not mean literally zero CSS; components may contain structural/accessibility styling required to function.
+Independent from customer brand/visual language. Structural/accessibility CSS required for function is allowed.
 
 ## Surface
 
-An explicit user-facing context such as `workspace`, `cms`, `public`, `driver`, or `system`. Blocks, screens, actions, data sources, state/context, and bindings declare allowed surfaces/audiences.
+Explicit context such as `workspace`, `cms`, `public`, `driver`, or `system`.
 
 ## Theme package
 
-Installed executable code containing token schema, palettes, semantic primitive implementations, component variants, structural CSS, validation, and migrations.
+Installed executable presentation code containing token schema, palettes, semantic primitive recipes/overrides, structural CSS, validation, and migrations.
 
 ## Theme profile
 
-Versioned customer database data selecting an installed theme and its validated adjustable token values for a surface. Theme profiles have draft/published revisions.
+Versioned database record selecting an installed theme and adjustable validated values for a surface.
 
 ## UI action
 
-A registered client-to-server operation referenced by a block. The server handler owns authorization, input validation, business transaction, rate limits, idempotency, and audit behavior.
+Registered client-to-server operation whose server handler owns authorization, validation, transaction, rate limits, idempotency, and audit.
 
 ## UI block
 
-A stable, versioned, registered component capability that can appear in builder/layout documents. It declares surfaces, audience, static fields, input/output ports, permissions, renderer, and migrations.
+Stable versioned component capability usable in builder documents. Declares surfaces, audience, props, ports, permissions, renderer, and migrations.
 
 ## UI contribution
 
-The navigation, routes, screens, blocks, data sources, state/context definitions, actions, slots, and migrations exported by a plugin for the K-Nex UI registry.
+Plugin-exported navigation, routes, screens, blocks, sources, actions, state/context, slots, and migrations.
 
 ## UI runtime
 
-The editor-engine-independent layer that resolves enabled UI/data/state/action registries, permissions, binding graphs, layouts, themes, orphan behavior, source/action clients, and runtime rendering.
+Editor-independent layer resolving registries, permissions, bindings, layouts, themes, source/action clients, invalidation, and safe orphan behavior.
 
 ## UI state
 
-A typed coordination value with an explicit scope and persistence policy. It is distinct from database records, data-source results, and an unrestricted mutable global store.
+Typed filter/selection/coordination value with explicit scope/persistence. Distinct from business records and source results.
 
 ## Uninstall
 
-Remove a plugin package and active registration while normally retaining data and stored references until a separate explicit migration or purge process.
+Remove plugin package/active registration while retaining data/references unless explicitly migrated or purged.
 
 ## Visualization plugin
 
-A horizontal module that provides generic style-agnostic metric, chart, table, progress, status, or map blocks. It consumes shared data contracts and does not own domain query logic.
+Horizontal module providing generic Counter, Metric, chart, table, status, or map blocks that consume shared source contracts rather than domain query logic.
 
 ## Workspace
 
-The authenticated staff application surface containing modules such as CRM, dispatch, inventory, CMS management, dashboards, reports, and system settings.
+Authenticated staff surface containing modules, dashboards, reports, CMS management, and system settings.
