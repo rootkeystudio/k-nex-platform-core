@@ -28,6 +28,7 @@ rejected
 | [0010](./0010-typed-data-source-state-binding-graph.md) | Typed data sources, UI state, and declarative binding graph | Accepted |
 | [0011](./0011-payload-database-adapter-selected-at-scaffold.md) | Select Payload database adapter at scaffold time | Accepted |
 | [0012](./0012-hybrid-output-contracts.md) | Hybrid canonical and plugin-owned output contracts | Accepted |
+| [0013](./0013-conservative-technology-package-baseline.md) | Conservative technology and package baseline | Accepted |
 
 ## ADR template
 
