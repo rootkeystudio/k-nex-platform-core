@@ -10,6 +10,7 @@ Payload as the application/backend foundation
 + a manifest-driven CLI
 + style-agnostic module UI
 + plugin-owned authenticated data sources
++ canonical and plugin-owned output contracts
 + realtime invalidation and selected live streams
 + visual CMS/workspace composition
 + installed theme packages and runtime theme profiles
@@ -102,6 +103,7 @@ navigation
 fixed operational screens
 composable blocks
 data-source descriptors and handlers
+canonical or plugin-owned output contracts
 UI state definitions
 runtime context definitions
 actions
@@ -125,21 +127,24 @@ Modules deliberately expose bounded server projections rather than automatically
 A Sales module can register:
 
 ```text
-sales.total-opportunities
-sales.tasks
-sales.opportunities-by-stage
+sales.total-potential-revenue → metric.scalar@1
+sales.tasks                   → table.records@1
+sales.opportunities-by-stage  → series.category@1
+sales.revenue-over-time       → series.time@1
 ```
 
 A source owns:
 
 ```text
-stable ID and version
+stable ID and major version
 plugin ownership
 display metadata
 allowed surfaces/audiences
 required permission
-input/output schemas
-fields and table capabilities
+input schema
+one primary output contract
+exact source-specific output schema
+stable fields and table capabilities
 pagination/sort/filter policy
 cache and realtime policy
 server handler using req.payload/domain services
@@ -154,31 +159,71 @@ POST /api/k-nex/data-sources/:sourceId/query
 
 Workspace/admin sources require Payload authentication plus source permission, record policy, and field-level policy. Public pages use separate explicitly public-safe source IDs.
 
-## Counter and table example
+## Output contract model
 
-A page editor can add a Counter and bind it to:
+Generic components consume a small K-Nex-owned catalog:
+
+```text
+metric.scalar@1
+table.records@1
+series.category@1
+series.time@1
+options.list@1
+record.summary@1
+```
+
+Complex domain blocks can use namespaced plugin-owned contracts such as:
+
+```text
+sales.pipeline-board@1
+logistics.dispatch-board@1
+```
+
+Core rules:
+
+```text
+one source → one primary output projection
+source-specific output schema must validate against its contract
+table fields are stable opaque IDs, not nested Payload paths
+descriptors are fetched/cached separately from query results
+source/contract/package versions evolve independently
+canonical payloads have no unrestricted extension bag
+future transformations are registered/versioned adapters
+```
+
+## Metric, table, and chart example
+
+A page editor can add a Metric and bind the complete semantic result to:
 
 ```text
 Sales → Total potential revenue
-source ID: sales.total-opportunities
-field: value
+source:   sales.total-potential-revenue@1
+contract: metric.scalar@1
 ```
 
 A DataTable can bind to:
 
 ```text
 Sales → Tasks
-source ID: sales.tasks
+source:   sales.tasks@1
+contract: table.records@1
 columns:
   title
   status
   dueAt
-  assignee.name
+  assignee
 ```
 
-The source descriptor declares which fields exist, their labels/types, and whether they are selectable, sortable, filterable, or permission-protected. The layout stores only selected source IDs, versions, parameters, and fields.
+The source descriptor declares stable fields, labels/types, nullability, permissions, sorting, filtering, and pagination. The layout stores selected stable field IDs—not `assignee.name` or another raw Payload object path.
 
-It does not store SQL, Payload queries, arbitrary URLs, executable code, or live records.
+Charts bind to purpose-built server aggregates:
+
+```text
+PieChart  ← sales.opportunities-by-stage  → series.category@1
+LineChart ← sales.revenue-over-time       → series.time@1
+```
+
+The layout never stores SQL, Payload queries, arbitrary URLs, executable code, raw data snapshots, or visual group-by expressions.
 
 ## Realtime behavior
 
@@ -190,6 +235,7 @@ Sales mutation commits
   → realtime provider authorizes subscribed clients
   → affected source query becomes stale
   → client refetches through authenticated source endpoint
+  → source result is revalidated against its output contract
   → component rerenders
 ```
 
@@ -228,12 +274,13 @@ Admin and public themes are separate.
 9. **Runtime data never selects arbitrary executable packages.** Imports are statically generated.
 10. **UI hiding is not authorization.** Data sources, actions, record policy, fields, and realtime subscriptions are enforced server-side.
 11. **Modules expose deliberate projections.** Raw Payload collections are not automatically builder data sources.
-12. **Generic components consume source contracts.** Counter/table/chart blocks do not import Sales, Logistics, or Restaurant implementations.
-13. **Realtime normally invalidates and refetches.** Live streams require explicit snapshot/resync contracts.
-14. **Builder/theme input is structured and validated.** No arbitrary JavaScript, SQL, Payload queries, package imports, secrets, unrestricted URLs, or global CSS.
-15. **Customer-specific logic begins locally.** Promote it after reuse proves the abstraction.
-16. **Disable, uninstall, and purge differ.** Package removal never implies automatic data deletion.
-17. **Customer repositories own final migrations.** Module schema intent is composed into customer-specific production evolution.
+12. **Generic components consume output contracts.** Counter/table/chart blocks do not import Sales, Logistics, or Restaurant implementations.
+13. **Table fields are stable source IDs.** Internal Payload paths do not become persisted builder contracts.
+14. **Realtime normally invalidates and refetches.** Live streams require explicit snapshot/resync contracts.
+15. **Builder/theme input is structured and validated.** No arbitrary JavaScript, SQL, Payload queries, package imports, secrets, unrestricted URLs, or global CSS.
+16. **Customer-specific logic begins locally.** Promote it after reuse proves the abstraction.
+17. **Disable, uninstall, and purge differ.** Package removal never implies automatic data deletion.
+18. **Customer repositories own final migrations.** Module schema intent is composed into customer-specific production evolution.
 
 ## Initial technical direction
 
@@ -266,6 +313,7 @@ Key documents:
 - [Theme and design system](./docs/18-theme-and-design-system.md)
 - [Payload database selection](./docs/23-database-adapters-and-runtime-providers.md)
 - [Plugin data sources and realtime invalidation](./docs/24-data-sources-state-and-binding-graph.md)
+- [Data-source output contracts](./docs/25-output-contracts.md)
 - [Decision register](./docs/21-decision-register.md)
 - [Architecture Decision Records](./docs/adr/README.md)
 
@@ -277,9 +325,11 @@ The first vertical POC should prove:
 
 ```text
 one generated Payload/Postgres customer application
-one Sales scalar source feeding a Counter
-one Sales table source feeding a selectable-column DataTable
+metric.scalar source feeding a Metric block
+table.records source feeding a selected-column DataTable
+category/time-series sources feeding charts
 Payload authentication and field/record authorization
+exact source-schema + canonical-contract validation
 WebSocket invalidation and endpoint refetch
 a CMS page and workspace dashboard
 two themes
@@ -288,7 +338,7 @@ two independent customer repositories and migrations
 
 ## Working package names
 
-Examples use conceptual `@k-nex/*` package names. Final registry scope remains open. Persisted plugin, block, source, and state IDs remain independent from package location.
+Examples use conceptual `@k-nex/*` package names. Final registry scope remains open. Persisted plugin, block, source, contract, and state IDs remain independent from package location.
 
 ## License
 
