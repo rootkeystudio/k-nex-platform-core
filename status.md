@@ -3,20 +3,20 @@
 - **Updated:** 2026-08-25
 - **Phase:** Phase 0 — Contract Freeze and Repository Readiness
 - **Active task:** P0.6 — Enforce CI and repository governance
-- **State:** Blocked — GitHub plan decision required
+- **State:** Governance verification in progress
 
 ## Last completed
 
-Reviewed and accepted the source-controlled P0.6 work: CI runs the complete `pnpm phase:0` gate, implementation plans have explicit CODEOWNERS coverage, and the PR template requires migration notes and executable evidence.
+Configured active `main` and `v*` release-tag rulesets with no bypass actors. This commit intentionally invalidates a CODEOWNERS-controlled fixture to prove required CI blocks merging.
 
 ## Validation
 
-PR #11 Architecture contracts run #32 passed. Repository audit shows `main` is unprotected and required status-check enforcement is off; the rulesets endpoint requires GitHub Pro or public visibility.
+Settings exports: `main` ruleset `21473575`; release-tag ruleset `21474044`. Intentional failure and direct-push rejection evidence is being collected on the P0.6 verification PR.
 
 ## Next
 
-Choose GitHub Pro while keeping the repository private, or make the repository public. Then configure the issue #2 rules, run the intentional-failure and direct-push checks, and resume P0.6 review.
+Confirm the intentional CI failure and merge block, then restore the fixture in the same PR and confirm the gate becomes green.
 
 ## Blockers
 
-Issue #2. P0.6, P0.7, and Phase 1 cannot close or start until repository protection is configured and verified.
+None; P0.6 remains open until the temporary verification PR proves the red-to-green flow.
