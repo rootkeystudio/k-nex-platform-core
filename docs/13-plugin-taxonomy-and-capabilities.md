@@ -2,15 +2,17 @@
 
 ## Purpose
 
-K-Nex uses **plugin** as the umbrella term for every installable, versioned package that participates in application composition. A plugin can add business behavior, provide infrastructure, supply a visual editor, install a theme, connect two capabilities, or expand a preset.
+K-Nex uses **plugin** as the umbrella term for installable, versioned K-Nex packages participating in application composition.
 
-This common vocabulary allows the CLI, the application manifest, the dependency resolver, the generated runtime inventory, and the administration panel to describe the complete application with one model.
+A plugin may add business behavior, provide replaceable infrastructure, adapt a builder engine, install a theme, connect modules, or expand a preset.
 
-A plugin is not necessarily a Payload plugin. A K-Nex plugin may contribute one or more Payload plugins internally, but its K-Nex manifest also describes compatibility, dependencies, capabilities, surfaces, runtime requirements, migrations, and operational behavior.
+A K-Nex plugin is not necessarily a Payload plugin. It can internally contribute Payload collections, globals, endpoints, hooks, jobs, admin components, or Payload plugins while also declaring K-Nex-specific metadata.
 
-## Plugin kinds
+The Payload database adapter is not a K-Nex plugin. It is selected and configured separately by the scaffold under `framework.payload.database`.
 
-### Module
+# Plugin kinds
+
+## Module
 
 A module provides reusable business or horizontal application behavior.
 
@@ -18,11 +20,12 @@ Examples:
 
 ```text
 module.cms
-module.crm
+module.sales
 module.forms
+module.visualization
 module.logistics-core
-module.dispatch
-module.driver
+module.logistics-dispatch
+module.logistics-driver
 module.live-tracking
 module.restaurant-core
 module.qr-menu
@@ -32,50 +35,72 @@ module.budgeting
 
 A module can contribute:
 
-- Payload collections, globals, fields, indexes, endpoints, hooks, jobs, and access policies;
-- domain services and commands;
-- permissions;
-- events and event subscribers;
-- public or authenticated APIs;
-- UI navigation, screens, blocks, actions, and data sources;
-- migration helpers;
-- health checks;
-- typed server/client contracts.
+- Payload collections, globals, fields, indexes, endpoints, hooks, jobs, access controls;
+- domain/application services and commands;
+- permissions and record policies;
+- domain events/subscribers;
+- authenticated or explicitly public APIs;
+- data-source descriptors and server handlers;
+- UI navigation, screens, blocks, actions, state/context definitions;
+- realtime invalidation topics and stream definitions;
+- migration helpers/readiness checks;
+- typed client/server contracts;
+- health diagnostics.
 
-### Provider
+## Provider
 
-A provider implements an infrastructure capability behind a stable contract.
+A provider implements a genuinely replaceable infrastructure capability behind a stable K-Nex contract.
 
 Examples:
 
 ```text
-provider.database-postgres
 provider.realtime-websocket-local
 provider.realtime-websocket-redis
 provider.storage-local
 provider.storage-s3
 provider.email-smtp
+provider.email-resend
 provider.maps-mapbox
 provider.queue-payload
+provider.queue-redis
 ```
 
-Business modules depend on capabilities rather than importing provider implementations. For example, the driver module requires `realtime.gateway`; it does not require one specific WebSocket package.
+Example dependency:
 
-### Builder
+```text
+module.logistics-driver requires realtime.gateway@^1
+```
 
-A builder plugin adapts a visual editing engine to the K-Nex builder contract.
+The driver module does not import one concrete WebSocket provider.
 
-Initial example:
+### What is not a K-Nex provider
+
+Payload already owns the primary database adapter abstraction. Therefore these conceptual IDs/packages are rejected:
+
+```text
+provider.database-postgres
+provider.database-target-neon
+@k-nex/database-postgres
+database.primary
+```
+
+The scaffold installs a Payload adapter package such as `@payloadcms/db-postgres` directly.
+
+## Builder
+
+A builder plugin adapts a visual editing engine to canonical K-Nex block/layout/profile contracts.
+
+Initial candidate:
 
 ```text
 builder.puck
 ```
 
-The builder owns editor-engine integration, not business components or customer visual design. Domain modules export K-Nex UI block definitions. The builder adapter translates the resolved registry into the engine-specific configuration.
+Domain modules export K-Nex block/source/action definitions, never Puck types. The builder translates resolved registries into editor configuration.
 
-### Theme
+## Theme
 
-A theme plugin contains executable presentation code and a validated design-token schema.
+A theme plugin contains executable presentation code and validated design-token/variant schemas.
 
 Examples:
 
@@ -86,66 +111,64 @@ theme.glassmorphism
 theme.corporate
 ```
 
-The package is installed at build time. Its selected palette and adjustable token values are runtime data stored in the customer database.
+Theme package installation is build-time. Selected palette/token values are runtime database records.
 
-### Integration
+## Integration
 
-An integration connects capabilities without forcing either side to know the other's private implementation.
+An integration connects modules/capabilities without requiring either side to import the other's private implementation.
 
 Examples:
 
 ```text
-integration.crm-logistics
+integration.sales-logistics
 integration.inventory-budgeting
-integration.crm-mailchimp
+integration.sales-mailchimp
 integration.erp-acme-legacy
 ```
 
-A reusable integration remains a package. A truly customer-specific integration begins in the customer repository as an extension.
+Customer-specific integrations begin in the customer repository and are promoted only when reuse is proven.
 
-### Preset
+## Preset
 
-A preset is a named composition recipe used by the CLI. It is expanded before dependency resolution and does not create a special runtime layer.
+A preset is a CLI composition recipe, not a runtime layer.
 
 Examples:
 
 ```text
 preset.logistics
 preset.restaurant
-preset.corporate-cms-crm
+preset.corporate-cms-sales
 ```
 
-A preset may select modules, providers, builder profiles, themes, development infrastructure, and recommended initial options. The generated application still lists the resulting plugins explicitly in its manifest so that the composition is inspectable and editable.
+A preset may select modules, providers, builder profiles, themes, Payload scaffold options, and local infrastructure defaults. The resolved application persists explicit choices.
 
-## Identity
+# Identity
 
-Every plugin has three distinct identities:
+Every plugin has:
 
-1. **Plugin ID** — stable product identity, such as `module.driver`.
-2. **Package name** — registry location, such as `@k-nex/module-driver`.
-3. **Package version** — exact installed artifact, such as `1.3.0`.
+1. **Plugin ID** — stable product identity, e.g. `module.logistics.driver`.
+2. **Package name** — registry location, e.g. `@k-nex/module-driver`.
+3. **Package version** — installed artifact, e.g. `1.3.0`.
 
-The plugin ID must not change when a package moves between repositories or registries. A package must expose one primary plugin ID. A package containing several independently selectable plugins should normally be split.
+Persisted pages/layouts/audits/releases refer to stable IDs rather than package paths.
 
-IDs use lowercase dot-separated namespaces:
+ID examples:
 
 ```text
-module.crm
+module.sales
 module.logistics.dispatch
 provider.realtime.websocket-local
 builder.puck
 theme.neobrutalism
-integration.crm-logistics
+integration.sales-logistics
 preset.logistics
 ```
 
-Persisted data, builder documents, audit records, and release inventories refer to the stable plugin ID rather than a filesystem path.
+# Static manifest
 
-## Static manifest
+Dependency resolution must not execute plugin runtime code.
 
-Dependency resolution must not execute arbitrary package runtime code. Every trusted plugin publishes side-effect-free metadata in a machine-readable manifest.
-
-Suggested package declaration:
+Package declaration:
 
 ```json
 {
@@ -164,7 +187,7 @@ Suggested package declaration:
 }
 ```
 
-Example `k-nex.plugin.json`:
+Example manifest:
 
 ```json
 {
@@ -178,7 +201,8 @@ Example `k-nex.plugin.json`:
   "compatibility": {
     "core": ">=1.4.0 <2.0.0",
     "payload": ">=3.0.0 <4.0.0",
-    "node": ">=22.0.0"
+    "node": ">=22.0.0",
+    "payloadDatabaseAdapters": ["postgres"]
   },
   "provides": [
     {
@@ -189,13 +213,11 @@ Example `k-nex.plugin.json`:
   "requires": [
     {
       "capability": "logistics.domain",
-      "version": "^1.0.0",
-      "reason": "Driver tasks reference shipments, routes, stops, and assignments."
+      "version": "^1.0.0"
     },
     {
       "capability": "realtime.gateway",
-      "version": "^1.0.0",
-      "reason": "Assignment and task updates are delivered in real time."
+      "version": "^1.0.0"
     }
   ],
   "optional": [
@@ -208,7 +230,6 @@ Example `k-nex.plugin.json`:
       "version": "^1.0.0"
     }
   ],
-  "conflicts": [],
   "surfaces": ["workspace", "driver"],
   "environment": [
     {
@@ -220,24 +241,24 @@ Example `k-nex.plugin.json`:
   "data": {
     "ownsPersistentData": true,
     "supportsDisable": true,
-    "supportsUninstallPreservingData": true,
+    "supportsUninstallPreservingData": false,
     "supportsPurge": true
   }
 }
 ```
 
-The static manifest describes composition. Executable registration code is imported only after the graph has resolved and the package has passed trust and compatibility checks.
+The compatibility field can declare tested Payload database adapters without introducing database capability providers.
 
-## Capabilities
+# Capabilities
 
-A capability is a versioned contract supplied by one plugin and consumed by another.
+A capability is a versioned public contract supplied/consumed by plugins when implementation substitution matters.
 
 Examples:
 
 ```text
 cms.content
 cms.visual-pages
-crm.domain
+sales.domain
 logistics.domain
 logistics.dispatch
 logistics.driver
@@ -250,92 +271,96 @@ theme.runtime
 ui.workspace
 ```
 
-Capabilities solve two problems:
-
-- a consumer does not depend on a concrete provider package;
-- an implementation can be replaced without changing business module code.
-
-Example providers:
+Capabilities allow different implementations without changing consumers.
 
 ```ts
-// Local single-process implementation
-provides: [
-  capability('realtime.gateway', '1.0.0'),
-]
+// local single-process
+provides: [capability('realtime.gateway', '1.0.0')]
 
-// Redis-backed multi-instance implementation
+// Redis-backed multi-instance
 provides: [
   capability('realtime.gateway', '1.0.0'),
   capability('realtime.distributed', '1.0.0'),
 ]
 ```
 
-The driver module consumes the same `RealtimeGateway` service contract in either deployment.
+Capability versions describe public contract versions, not package versions.
 
-### Capability versioning
-
-Capability versions describe the public contract, not the package implementation version.
-
-A package can release `2.4.1` while still providing `realtime.gateway@1.2.0`. A breaking service-contract change increments the capability major version and requires consumers to update their accepted ranges.
-
-### Single and multiple providers
-
-Capabilities declare cardinality in the contracts catalog:
+## Cardinality
 
 ```ts
-export const realtimeGatewayCapability = defineCapability({
-  id: 'realtime.gateway',
-  cardinality: 'single',
-})
-
-export const notificationChannelCapability = defineCapability({
-  id: 'notifications.channel',
-  cardinality: 'multiple',
-})
+realtime.gateway      single
+notifications.channel multiple
 ```
 
-A single capability rejects multiple active providers unless an explicit selector chooses one. A multiple capability can aggregate several providers, such as email and push notification channels.
+Multiple providers for a single capability require explicit selection or fail resolution.
 
-## Dependencies
+# Dependencies
 
-### Required
+## Required
 
-The plugin cannot register or operate correctly without a matching plugin ID or capability provider. Missing or incompatible required dependencies stop `k-nex plan`, `k-nex generate`, CI, and application startup.
+Missing/incompatible required plugin/capability stops plan, generation, CI, and boot.
 
-### Optional
+## Optional
 
-The plugin works without the dependency but activates a documented integration when it is present. Optional behavior must use a stable public contract and must not import another package's private files.
+Activates a documented integration when present. Optional integrations use public contracts only.
 
-### Conflict
+## Conflict
 
-A conflict identifies combinations that cannot safely coexist. Conflicts may reference a plugin ID, a capability, or a version range.
+Identifies incompatible plugin/capability/version combinations.
 
-### Ordering
+## Ordering
 
-Dependency edges determine registration ordering. A module must not rely on incidental import order. Additional phase/order metadata is allowed only when there is no semantic dependency edge.
+Semantic dependency edges determine deterministic registration order.
 
-### Cycles
+## Cycles
 
-Required dependency cycles fail resolution. If two modules appear to require each other, extract a lower-level contract or create an integration plugin.
+Required cycles fail. Extract a lower contract or integration plugin.
 
-## Surfaces
-
-Plugins declare the user-facing surfaces they may contribute to:
+# Surfaces
 
 ```text
-workspace   authenticated staff application
-cms         content-management editing surface
-public      public website or public projection
-driver      driver application
-mobile      future native/mobile client contracts
-system      system settings and operations
+workspace
+cms
+public
+driver
+mobile
+system
 ```
 
-A surface declaration is not permission to expose data. Every screen, block, data source, and action still declares authorization and audience requirements.
+Surface declaration does not expose data automatically. Every screen/block/source/action still declares audience and authorization.
 
-## Package exports
+# Data-source contributions
 
-Recommended exports for a full module:
+A module can register deliberate authenticated projections.
+
+Examples:
+
+```text
+sales.total-opportunities
+sales.tasks
+sales.opportunities-by-stage
+```
+
+A source descriptor declares:
+
+```text
+ID/version/owner
+surface/audience
+permission
+input/output schema
+output contract
+selectable fields
+pagination/sort/filter policy
+cache classification
+realtime invalidation metadata
+```
+
+The server handler uses authenticated Payload request context/domain services. Sources are registered through the static source registry and executed behind the standard K-Nex gateway.
+
+Modules do not automatically expose all Payload collections.
+
+# Recommended package exports
 
 ```json
 {
@@ -351,183 +376,167 @@ Recommended exports for a full module:
 }
 ```
 
-Responsibilities:
-
 - `manifest`: static composition metadata;
-- `server`: registration and backend behavior;
-- `contracts`: stable types, events, service tokens, DTOs;
-- `client`: browser/mobile-safe typed client;
-- `ui`: style-agnostic UI contributions and headless logic;
-- `migrations`: reusable data helpers and readiness checks;
-- `testing`: fixtures and module contract suite.
+- `server`: Payload/module/backend registration, source handlers, services;
+- `contracts`: stable events, DTOs, service tokens, source contracts;
+- `client`: browser/mobile-safe clients;
+- `ui`: style-agnostic blocks/screens/headless logic/descriptors;
+- `migrations`: reusable helpers/readiness;
+- `testing`: fixtures/contract suites.
 
-Server-only dependencies must not leak into client or UI exports.
+Server dependencies must not leak into browser exports.
 
-## Plugin catalog
+# Plugin catalog
 
-The CLI presents plugins from a trusted catalog. The initial catalog contains only first-party K-Nex packages.
+V1 catalog contains first-party or explicitly reviewed private packages.
 
-Catalog entry:
+Entry:
 
 ```json
 {
-  "id": "module.crm",
+  "id": "module.sales",
   "kind": "module",
-  "package": "@k-nex/module-crm",
-  "displayName": "CRM",
-  "description": "Contacts, companies, opportunities, activities, and CRM services.",
+  "package": "@k-nex/module-sales",
+  "displayName": "Sales",
+  "description": "Contacts, companies, opportunities, tasks, activities, and sales data sources.",
   "tags": ["sales", "customer-management"],
   "recommendedVersion": "1.4.2",
   "compatibleCore": ">=1.4.0 <2.0.0",
-  "documentation": "docs/plugins/module-crm.md",
+  "compatiblePayload": ">=3.0.0 <4.0.0",
+  "supportedPayloadDatabases": ["postgres"],
   "trust": "first-party",
   "status": "stable"
 }
 ```
 
-Catalog metadata can also include:
+Catalog metadata may include screenshots, license, infrastructure, migration risk, deprecation, preset membership, source/block inventory, and operational complexity.
 
-- screenshots and preview data;
-- license and commercial restrictions;
-- required infrastructure;
-- supported databases;
-- migration risk;
-- deprecation/replacement information;
-- preset membership;
-- estimated operational complexity.
-
-The catalog recommends packages; the package's signed/released manifest remains authoritative for exact composition metadata.
-
-## Resolution algorithm
-
-The CLI and core use the same resolver implementation.
+# Resolution algorithm
 
 ```text
-1. Read and validate k-nex.app.json.
-2. Expand selected presets into explicit plugin requests.
-3. Read static manifests for requested packages.
-4. Normalize plugin IDs and versions.
-5. Validate core, Payload, Node, and database compatibility.
-6. Add explicitly accepted transitive requirements.
-7. Resolve required capabilities to selected providers.
-8. Detect missing requirements, duplicate single providers, and conflicts.
-9. Discover optional integrations.
-10. Detect cycles.
-11. Compute deterministic phase and registration order.
-12. Validate environment and infrastructure requirements.
-13. Validate UI IDs, routes, Payload slugs, permissions, jobs, and events.
-14. Produce an immutable resolved application graph.
-15. Generate registries, diagnostics, and release inventory.
+1. Validate k-nex.app.json.
+2. Validate selected Payload framework adapter/scaffold options.
+3. Expand presets into explicit plugin requests.
+4. Read static manifests without executing server code.
+5. Validate core/Payload/Node/selected-adapter compatibility.
+6. Normalize IDs/versions.
+7. Add explicitly accepted transitive requirements.
+8. Resolve required capabilities to providers.
+9. Detect missing requirements, conflicts, duplicate single providers, cycles.
+10. Discover optional integrations.
+11. Compute deterministic registration order.
+12. Validate environment/infrastructure requirements.
+13. Validate Payload slugs/routes and K-Nex permissions/events/jobs/blocks/sources/actions/state IDs.
+14. Produce immutable resolved application graph.
+15. Generate registries, Payload composition, diagnostics, and release inventory.
 ```
 
-The resolver must not silently add or replace production dependencies. Interactive CLI mode can propose a plan and request confirmation. Non-interactive mode fails unless all selections are explicit or accepted through flags.
+The resolver never silently installs production dependencies. Interactive mode proposes; non-interactive mode requires explicit selections/flags.
 
-## Registration phases
-
-After resolution, executable plugin code registers in deterministic phases:
+# Registration phases
 
 ```text
-1. contracts     capabilities, services, permissions, events, UI schemas
-2. providers     service implementations
-3. schema        collections, globals, fields, indexes
-4. behavior      commands, endpoints, access policies, subscribers
-5. jobs          tasks, workflows, schedules
-6. ui            navigation, screens, blocks, data sources, actions
-7. admin         Payload admin integration and system settings
-8. finalize      collision checks, inventory, immutable registry
+1. contracts     services, permissions, events, schemas, source contracts
+2. providers     realtime/storage/email/etc. implementations
+3. schema        Payload collections, globals, fields, indexes
+4. behavior      services, commands, endpoints, access/subscribers
+5. jobs          tasks/workflows/schedules
+6. data-sources  descriptors and authenticated handlers
+7. ui            navigation, screens, blocks, actions/state/context
+8. admin         Payload admin/system integration
+9. finalize      collision checks and immutable inventory
 ```
 
-No plugin can introduce a new undeclared dependency during registration.
+No undeclared dependency may appear during registration.
 
-## Configuration boundaries
+# Configuration boundaries
 
-Plugin configuration is split into two classes.
-
-### Build-time configuration
-
-Affects imports, schema, routes, registration, generated code, or infrastructure. Stored in `k-nex.app.json` and requires regenerate/build/deploy.
-
-Examples:
+## Framework/scaffold configuration
 
 ```text
-installing CRM
-selecting Postgres provider
-selecting Puck builder
-adding a new theme package
-enabling a collection-owning module
-choosing Redis-backed realtime provider
+Payload database adapter
+local Docker Postgres vs external URL
+Next.js/Payload project template
+Docker/process files
 ```
 
-### Runtime configuration
+Stored in manifest, generated into source, requires build/deploy.
 
-Changes behavior within an already installed plugin and is validated against a plugin-owned runtime schema. Stored in the database.
-
-Examples:
+## Plugin build-time configuration
 
 ```text
-default CRM currency
-tracking retention period
-active theme palette
+installing Sales
+selecting Puck
+adding theme package
+selecting Redis realtime provider
+enabling schema-owning module
+```
+
+## Runtime configuration
+
+```text
+default currency
+tracking retention
+active theme tokens
 low-stock threshold
-published workspace layout
-notification preferences
+published layout
+notification preference
 ```
 
-Runtime configuration must not cause arbitrary package imports or database schema mutation.
+Runtime values cannot import packages or mutate Payload schema.
 
-## Trust model
+# Trust model
 
-A K-Nex plugin executes inside the customer application process and is therefore trusted application code. The initial platform does not attempt to sandbox unknown marketplace packages.
+Plugins execute as trusted application code. V1 does not sandbox unknown marketplace packages.
 
-V1 rules:
+Rules:
 
-- only first-party or explicitly reviewed private packages are cataloged;
-- package installation occurs through CLI/repository changes, not from the runtime panel;
-- static manifest validation occurs before executable import;
-- package versions are exact and lockfile-controlled;
-- CI runs provenance, license, vulnerability, contract, and integration checks;
-- generated release inventory records every installed plugin and version.
+- first-party/reviewed packages only;
+- install through CLI/repository changes;
+- static manifest validation before executable import;
+- exact versions and lockfile;
+- provenance/license/vulnerability/contract/integration checks;
+- release inventory of every installed plugin/source/version.
 
-A future third-party marketplace requires a separate security and signing design.
+# Diagnostics
 
-## Diagnostics
-
-`k-nex inspect` and `k-nex doctor` should expose:
+`k-nex inspect` / `doctor` show:
 
 ```text
 Application: acme-cargo
 Core: 1.4.2
 Payload: 3.x
+Payload database adapter: postgres
 
-Resolved plugins:
+Plugins:
   module.cms@2.1.0
-  module.crm@1.4.2
-  module.logistics-core@1.8.0
+  module.sales@1.4.2
   module.logistics-driver@1.3.0
   provider.realtime-websocket-local@1.2.1
   builder.puck@0.1.0
   theme.minimal@1.0.0
-  theme.neobrutalism@1.0.0
+
+Data sources:
+  sales.total-opportunities@1 → metric.money@1
+  sales.tasks@1 → table.records@1
 
 Capabilities:
-  realtime.gateway@1.0.0
-    provided by provider.realtime-websocket-local
-    consumed by module.logistics-driver
-
-  builder.engine@1.0.0
-    provided by builder.puck
-    consumed by module.cms and ui.workspace-customization
+  realtime.gateway@1
+    provider: provider.realtime-websocket-local
+    consumer: module.logistics-driver
 ```
 
-Errors must name the owning plugins, the expected contract, the actual version, and a concrete remediation plan.
+Errors identify owners, expected/actual contracts, stored references, and remediation.
 
-## Boundary rules
+# Boundary rules
 
-- Core never imports a business plugin.
-- A plugin never imports a customer repository.
-- Optional integrations never use private module tables or paths.
-- A provider implements a contract but does not redefine domain policy.
-- A theme controls presentation but not authorization or business state.
-- A builder serializes validated documents but does not execute arbitrary user code.
-- A preset expands to explicit plugins and disappears from runtime behavior.
-- Removing a package never implies automatic data deletion.
+- Core never imports business plugins.
+- Plugins never import customer repositories.
+- Optional integrations use public contracts.
+- Providers do not redefine domain policy.
+- Themes do not control authorization/business state.
+- Builders serialize validated documents, not arbitrary code.
+- Data sources expose deliberate projections, not raw collection/database access.
+- Payload database selection is scaffold/framework configuration, not plugin resolution.
+- Presets expand to explicit choices.
+- Package removal never implies automatic data deletion.
