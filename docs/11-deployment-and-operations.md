@@ -2,123 +2,561 @@
 
 ## Deployment model
 
-K-Nex does not require a central SaaS control plane. Every customer application is built and operated independently.
-
-Default isolation:
+K-Nex does not require a central multi-customer SaaS control plane. Every customer application is generated, built, released, deployed, backed up, upgraded, and monitored independently.
 
 ```text
 customer repository
-  → customer container image
-  → customer application/worker deployment
-  → customer database
-  → customer object storage
-  → customer secrets
-  → customer domain
-  → customer backups and monitoring
+  → exact packages and committed lockfile
+  → generated plugin/provider/UI/theme registries
+  → customer-owned migrations
+  → immutable application image/artifact
+  → customer web/worker/realtime processes
+  → customer Postgres/storage/optional Redis
+  → customer domain/secrets/backups/monitoring
 ```
 
-Shared code exists only as released package dependencies and reusable CI/CD workflows.
+Shared code exists as released packages and versioned reusable CI/CD workflows. Runtime customer data is never pooled merely because deployments use the same hosting provider.
+
+## Customer resource boundary
+
+At minimum, production resources are logically isolated per customer:
+
+```text
+Postgres database and credentials
+object storage bucket/namespace and credentials
+application secrets and signing keys
+integration/provider credentials
+optional Redis/realtime namespace or instance
+job/outbox/audit storage
+public/admin domains and TLS
+backups and retention policy
+logs, metrics, traces, and alerts labeled by application
+```
+
+Physical managed clusters can be shared by the infrastructure provider, but the application treats each customer database/storage/security context as an independent ownership boundary.
+
+## Generated operations inputs
+
+`create-k-nex-app` and `k-nex` can generate or update:
+
+```text
+Dockerfile
+docker-compose.yml
+.env.example
+environment validation schema
+web/worker scripts
+provider/infrastructure requirements
+build/release inventory
+reusable GitHub Actions workflow calls
+```
+
+Generated files are starting points and source-controlled artifacts. Production credentials, provider account creation, DNS, TLS, and backup configuration remain deliberate deployment work.
+
+The CLI separates:
+
+### Local development infrastructure
+
+```text
+Postgres container
+optional Redis
+optional MinIO
+optional development mail service
+```
+
+### Production packaging
+
+```text
+application Dockerfile
+web/worker process commands
+migration command/job
+health/readiness endpoints
+```
+
+A project can use Docker locally without deploying containers, or deploy a container while using externally managed local services.
 
 ## Baseline runtime topology
 
-For a small customer:
+### Small CMS/workspace customer
 
 ```text
 reverse proxy / platform ingress
-          │
-          ▼
+            │
+            ▼
 Next.js + Payload application
-          │
-          ├── Postgres
-          └── object storage
+            │
+            ├── Postgres
+            └── object storage
 
-separate Payload job worker process
+background worker process
 ```
 
-When WebSocket/realtime is installed:
+The worker can run in the same image with a different command.
+
+### Customer with local realtime provider
 
 ```text
-reverse proxy / ingress
-     ├── HTTP application
-     └── WebSocket endpoint
-
-single instance
-     └── local realtime adapter
-
-multiple instances
-     └── Redis/distributed realtime adapter
+ingress / reverse proxy
+      ├── HTTP requests
+      └── WebSocket upgrade
+              │
+              ▼
+ single application instance
+      └── in-process connection registry
 ```
 
-When high-volume live tracking is installed, additional current-position and history storage may be introduced behind module provider contracts.
+Appropriate for small single-instance deployments and development. Process restart drops connections; clients reconnect and recover state through API.
 
-## Environment isolation
+### Customer with distributed realtime provider
 
-At minimum, production resources must be separate per customer:
+```text
+ingress
+  ├── application instance A
+  ├── application instance B
+  └── optional gateway instances
+              │
+              ▼
+       Redis/backplane provider
+```
 
-- database and database credentials;
-- object storage bucket or isolated namespace;
-- application secrets;
-- email/integration credentials;
-- WebSocket/realtime secrets;
-- domain and TLS configuration;
-- backups;
-- logs and alerts with customer/application labels.
+The `realtime.gateway` consumer modules do not change. The provider selection and deployment topology do.
 
-Staging should not reuse production credentials or silently read production data.
+### Customer with high-volume tracking
+
+```text
+web/application
+worker/tracking ingestion
+Postgres business data
+current-position provider
+position-history/PostGIS or specialized provider
+Redis/realtime backplane when required
+object storage
+```
+
+Complexity is added because a selected module/workload requires it, not preinstalled for every customer.
+
+## Process types
+
+Potential logical processes:
+
+```text
+web
+worker-default
+worker-notifications
+worker-integrations
+worker-imports
+worker-outbox
+worker-tracking-retention
+optional-realtime-gateway
+```
+
+Small deployments can combine logical queues in one worker. Package and queue contracts preserve the ability to split them later.
+
+Each process should expose/emit its release inventory and health status.
+
+## Environment configuration
+
+The resolved plugin graph generates the required environment schema.
+
+Examples:
+
+```text
+DATABASE_URL
+PAYLOAD_SECRET
+S3_ENDPOINT
+S3_BUCKET
+S3_ACCESS_KEY_ID
+S3_SECRET_ACCESS_KEY
+REDIS_URL
+DRIVER_TOKEN_SIGNING_KEY
+EMAIL_PROVIDER_API_KEY
+```
+
+Rules:
+
+- `k-nex.app.json` stores environment variable names, never secret values;
+- `.env.example` contains safe placeholders/descriptions;
+- `.env.local` is ignored and used only for local development;
+- production secrets come from deployment secret stores;
+- `k-nex doctor` validates presence/shape without printing values;
+- unused legacy secrets should be removed after provider/plugin replacement;
+- credentials are customer-scoped and independently rotatable.
 
 ## Build artifact
 
-A customer release should identify:
-
-- Git commit SHA;
-- container image digest;
-- core version;
-- module versions;
-- Payload version;
-- schema/migration revision;
-- frontend/driver app version where applicable;
-- deployment timestamp and environment.
-
-The application can expose non-sensitive inventory through an authenticated operations endpoint or startup log.
-
-## CI pipeline
-
-Suggested customer repository pipeline:
+A customer release should be immutable and identifiable by:
 
 ```text
-install exact dependencies
-  → validate environment schema
-  → validate module graph
-  → generate Payload types
-  → lint and typecheck
-  → unit/module integration tests
+application ID
+environment
+Git commit SHA
+container image digest or artifact checksum
+Node/pnpm/framework versions
+core package version
+plugin package versions and enabled state
+capability providers
+builder and theme packages
+application manifest schema version
+generated registry API version
+database migration revision
+CMS/layout/theme storage schema versions where relevant
+driver/mobile app version when deployed separately
+build timestamp and provenance
+```
+
+Generated `.k-nex/generated/build-manifest.json` supplies source inventory. Runtime startup can augment it with environment and actual migration/readiness status without including secrets.
+
+## Build and CI pipeline
+
+Suggested customer repository validation:
+
+```text
+checkout exact commit
+  → configure private package registry auth
+  → install frozen lockfile
+  → validate k-nex.app.json and package/lockfile agreement
+  → k-nex generate --check
+  → k-nex doctor --ci
+  → generate/check Payload types
+  → lint/typecheck
+  → unit and plugin contract tests
+  → access/action/data-source/realtime security tests
+  → UI builder/theme fixtures
   → clean-database migration test
-  → previous-version upgrade test
-  → build application
-  → build container
-  → container smoke test
-  → publish immutable image
+  → previous-release upgrade test
+  → build application and workers
+  → build immutable container/artifact
+  → container/process smoke tests
+  → publish artifact and release inventory
 ```
 
-Production deployment adds:
+No CI build should resolve floating customer package versions or silently rewrite the lockfile.
+
+## Deployment pipeline
+
+Typical production sequence:
 
 ```text
-verify backup/readiness
-  → run pre-deploy checks
-  → run migration job
-  → deploy application/workers
-  → health/readiness verification
-  → run smoke tests
-  → record release inventory
+1. Verify approved commit/artifact/inventory.
+2. Validate environment and provider readiness.
+3. Confirm backup/readiness policy for migration risk.
+4. Stop or coordinate conflicting workers when required.
+5. Run pre-deploy/migration readiness checks.
+6. Run customer-owned migration job.
+7. Deploy web/workers/providers in compatible order.
+8. Drain/reconnect realtime connections as needed.
+9. Verify liveness/readiness and migration revision.
+10. Run authenticated/public smoke tests.
+11. Verify CMS/layout/theme publication/render fixtures.
+12. Record deployed artifact/inventory/time/operator.
+13. Monitor error, queue, DB, realtime, and provider signals.
 ```
 
-Migration and application deployment ordering depends on backward compatibility. Expand/contract migrations should be used when old and new processes may overlap.
+Expand/contract deployment can require old and new application processes to overlap. Migration notes must state compatibility and ordering.
+
+## Migration execution
+
+Migrations are source-controlled customer artifacts. Production execution should be a dedicated job/process with appropriate credentials.
+
+Recommended separation where practical:
+
+```text
+application DB role
+  ordinary runtime reads/writes
+
+migration DB role
+  schema changes and elevated operations
+```
+
+Migration commands never run incidentally during `k-nex add`, package installation, application startup, or ordinary web requests.
+
+Before destructive migration:
+
+1. verify a recent restorable backup;
+2. record current artifact, package inventory, and migration revision;
+3. verify dependents/stored UI/theme/content references;
+4. state rollback/restore limitations;
+5. run readiness checks against production-sized data where possible;
+6. define worker/traffic coordination;
+7. obtain explicit approval.
+
+## Runtime data requiring backup
+
+Database backup includes more than business tables:
+
+```text
+CMS pages, drafts, versions, navigation, media metadata
+workspace customer/role/user layouts and revisions
+theme profiles and revisions
+plugin runtime settings
+permissions/roles/users
+jobs, workflows, outbox, idempotency records
+audit logs according to policy
+domain records
+```
+
+Object storage backup/versioning includes:
+
+```text
+public CMS media
+private documents
+proof of delivery assets
+customer brand assets where stored there
+exports/generated files according to policy
+```
+
+Specialized stores such as tracking history need their own backup/retention strategy or documented reproducibility/ephemeral classification.
+
+## Backup and restore
+
+Per customer, define:
+
+```text
+backup frequency
+retention and immutable/offsite policy
+encryption and access control
+recovery point objective (RPO)
+recovery time objective (RTO)
+restore credentials/destination
+object-storage consistency process
+specialized provider backup
+post-restore integrity checks
+```
+
+A backup is not considered valid until restore is tested.
+
+Post-restore checks can include:
+
+- migration revision matches expected application release;
+- plugin/runtime inventory compatible with data;
+- published CMS pages render;
+- active theme profiles resolve installed themes;
+- workspace layouts have no unexpected orphan blocks;
+- protected media access works;
+- jobs/outbox do not replay invalid external side effects;
+- authentication/session/signing behavior is safe after restore;
+- integrations are disabled or pointed at safe endpoints in test restore.
+
+## Rollback
+
+Different layers roll back independently:
+
+```text
+application artifact
+Postgres schema/data
+CMS page publication
+theme publication
+workspace layout publication
+provider/infrastructure configuration
+driver/mobile release
+```
+
+Safe patterns:
+
+- retain previous immutable artifact and lockfile;
+- use backward-compatible expand/contract schema;
+- retain prior published CMS/layout/theme revision;
+- disable a supported plugin/feature to halt behavior without deleting data;
+- take verified backup before irreversible transformation;
+- document when database restore is the only safe rollback;
+- do not assume rolling back code automatically rolls back migrated data.
+
+## Realtime deployment
+
+Operations must verify:
+
+```text
+WebSocket upgrade support
+proxy idle/read timeouts
+origin/TLS configuration
+sticky-session need for selected provider
+graceful drain and termination period
+client reconnect/backoff behavior
+Redis/backplane connectivity and namespace
+connection/message/subscription limits
+provider health and metrics
+```
+
+Rolling deployment flow:
+
+```text
+mark instance not ready for new connections
+  → stop accepting upgrades
+  → provide reconnect hint/close code where supported
+  → drain bounded existing connections
+  → terminate instance
+  → clients reconnect and refetch authoritative state
+```
+
+Realtime is never the only source of critical business truth.
+
+## Object storage
+
+Provider operations must define:
+
+- customer bucket/namespace isolation;
+- public versus private object policy;
+- signed URL behavior;
+- lifecycle/retention/versioning;
+- encryption;
+- upload size/content controls;
+- CDN/cache invalidation for public CMS media;
+- migration/export between storage providers;
+- backup consistency with database references.
+
+Storage provider replacement is a data migration, not only an environment-variable change.
+
+## Theme and builder operations
+
+### Theme package changes
+
+Installing/removing/upgrading a theme package requires:
+
+```text
+source/manifest/package change
+static registry regeneration
+profile compatibility/migration check
+build/deploy
+preview of migrated draft profiles
+explicit runtime publication
+```
+
+A package upgrade must not silently publish a changed visual profile.
+
+### Theme profile changes
+
+Palette/token/profile publication can occur at runtime among installed themes. It should create an audit/revision and invalidate relevant public/admin render caches.
+
+### Builder/component changes
+
+Before removing/upgrading a block provider:
+
+```text
+scan CMS drafts and published versions
+scan customer/role/user workspace layouts
+run component migrations
+report orphan references
+preview representative pages/dashboards
+```
+
+Runtime rendering should fail safely for unavailable components; deployment readiness should detect known unresolved references.
+
+## Plugin lifecycle operations
+
+### Add/upgrade
+
+Source-control plan, exact packages, generated registries, migrations, tests, artifact, deploy.
+
+### Disable
+
+Use only declared semantics. Data normally remains. Depending on contribution shape, disablement can require rebuild/deploy.
+
+### Uninstall
+
+Remove code/registration while retaining data only after verifying framework/schema boot behavior, dependencies, jobs, integrations, and UI references.
+
+### Purge
+
+Explicit destructive migration and retention/backup/approval process.
+
+The production admin panel does not install packages, run migrations, or purge data.
+
+## Health endpoints
+
+### Liveness
+
+Process event loop/runtime responds. It should not depend on every external provider.
+
+### Readiness
+
+Required dependencies are usable:
+
+```text
+configuration valid
+database connection/migration revision
+required storage/provider connectivity
+required plugin runtime settings
+no blocking schema/registry incompatibility
+worker/gateway-specific readiness
+```
+
+### Degraded health
+
+Optional integrations can be degraded without removing readiness when product behavior allows. Diagnostics identify owning plugin/provider and impact.
+
+Health endpoints exposed publicly should return minimal information; detailed inventory/diagnostics require authentication/operations access.
+
+## Observability
+
+Every signal should include useful dimensions:
+
+```text
+application_id
+environment
+release_sha/image_digest
+core_version
+plugin_id/provider_id when relevant
+request/correlation/job/event IDs
+process type
+migration revision
+```
+
+Minimum signals:
+
+### Web/application
+
+```text
+HTTP latency/error rate
+route/action/data-source failures
+authentication/authorization denials
+Payload/database query health
+public cache/render failures
+```
+
+### Jobs/events
+
+```text
+queue depth
+retry/failure/dead-letter count
+outbox age
+workflow progress
+idempotency conflict
+```
+
+### Builder/themes
+
+```text
+publication validation failures
+orphan block count
+component/theme migration status
+active theme/profile revision
+public render/cache failure
+```
+
+### Realtime
+
+```text
+connections/subscriptions
+auth/authorization denials
+publish latency/fan-out
+rate limits/drops/reconnects
+backplane health
+```
+
+### Data/infrastructure
+
+```text
+DB connections/locks/slow queries/storage growth
+object storage failures/growth
+backup freshness/restore test status
+specialized tracking retention/backlog
+certificate/domain expiry
+```
+
+Avoid logging secret or unnecessary customer/personal data.
 
 ## Reusable workflows
 
-Keep common CI logic in a dedicated workflow repository or shared workflow directory.
-
-Customer workflow example:
+Common CI/deploy logic can live in a dedicated repository:
 
 ```yaml
 jobs:
@@ -133,175 +571,169 @@ jobs:
     secrets: inherit
 ```
 
-Pin shared workflow versions. Do not reference an unversioned moving branch for production deployment.
+Rules:
 
-## Application and worker separation
+- pin version/tag or commit, not a moving branch;
+- customer repository retains environment approvals and deployment configuration;
+- shared workflow updates are reviewed/tested before adoption;
+- workflow inventory/version appears in release metadata where useful.
 
-Background jobs should be runnable in a separate process/container so expensive work does not block or destabilize the HTTP application.
+## Package registry operations
 
-Potential process types:
+The private registry decision is open, with GitHub Packages currently recommended for the initial spike.
 
-```text
-web
-worker-default
-worker-integrations
-worker-imports
-worker-tracking-retention
-```
+Operational requirements:
 
-Small deployments may combine logical queues into one worker while preserving the ability to split later.
+- developer authentication;
+- CI read/publish permissions;
+- deployment build-token permissions;
+- package visibility across private customer repositories;
+- protected release workflow;
+- exact package/version/provenance;
+- token rotation;
+- dependency-confusion protection for the selected scope;
+- package retention and incident response.
 
-## WebSocket deployment
+Customer runtime containers do not need package-registry credentials when dependencies are built into immutable artifacts.
 
-Operations must define:
+## Fleet inventory without runtime tenancy
 
-- sticky sessions, if required by the chosen adapter;
-- load-balancer WebSocket upgrade support;
-- connection drain behavior during deploy;
-- reconnect policy;
-- maximum connection and message limits;
-- distributed adapter health;
-- origin and authentication configuration;
-- metrics for active connections and failed handshakes.
-
-A rolling deployment should stop accepting new connections, provide reconnect hints where possible, drain existing connections for a bounded period, and then terminate.
-
-## Backups and restore
-
-Per customer, define:
-
-- database backup frequency and retention;
-- object storage versioning/backup policy;
-- encryption and access control;
-- recovery point objective;
-- recovery time objective;
-- restore destination and credential procedure;
-- post-restore integrity checks.
-
-Backups are not considered valid until a restore has been tested.
-
-Before a destructive migration:
-
-1. create/verify a recent backup;
-2. record currently deployed image and package inventory;
-3. confirm rollback limitations;
-4. run migration readiness checks;
-5. prevent conflicting background workers during the critical step if necessary.
-
-## Secrets
-
-- Never publish customer credentials inside shared module packages.
-- Validate required secrets from the resolved module graph.
-- A module declares secret requirements by logical name and purpose.
-- Customer deployment maps logical secrets to environment or secret-manager values.
-- Rotate secrets per customer without releasing shared code.
-- Separate application, database, storage, signing, and integration credentials.
-
-Example requirement:
-
-```ts
-websocketModule({
-  auth: {
-    tokenSigningKey: secret('WEBSOCKET_TOKEN_SIGNING_KEY'),
-  },
-})
-```
-
-## Observability
-
-Every log/trace/metric should carry useful dimensions:
-
-```text
-application_id
-customer_environment
-release_sha
-core_version
-module_versions or module_id
-request_id
-correlation_id
-job_id
-```
-
-Minimum operational signals:
-
-- HTTP latency/error rate;
-- database connection and query health;
-- queue depth, retry, and failure count;
-- WebSocket connections and publish failures;
-- storage upload failures;
-- migration status;
-- health/readiness failures;
-- integration/provider failures;
-- disk/data growth and backup freshness.
-
-Avoid putting sensitive customer data into logs by default.
-
-## Fleet inventory without a control plane
-
-A lightweight private operations repository can track customer deployments:
+A private operations repository or tool can track:
 
 ```yaml
 customers:
   - id: acme-cargo
     repository: rootkeystudio/client-acme-cargo
-    productionUrl: internal-reference
+    environment: production
+    releaseSha: abc123
+    imageDigest: sha256:...
     core: 1.4.2
-    modules:
-      logistics.core: 1.8.0
-      logistics.dispatch: 1.5.1
-      transport.websocket: 1.4.2
-      driver: 1.3.0
+    payload: 3.x
+    plugins:
+      module.logistics-core: 1.8.0
+      module.logistics-driver: 1.3.0
+    providers:
+      realtime.gateway: provider.realtime-websocket-local@1.2.1
+      database.primary: provider.database-postgres@1.0.0
+    builder: builder.puck@0.1.0
+    themes:
+      admin: theme.minimal@1.0.0
+      public: theme.neobrutalism@1.0.0
+    migrationRevision: 2026-08-25-01
 
   - id: mamma-restaurant
     repository: rootkeystudio/client-mamma-restaurant
+    environment: production
     core: 1.3.5
-    modules:
-      cms: 2.1.0
-      restaurant.core: 1.2.0
-      restaurant.qr-menu: 1.1.2
-      restaurant.inventory: 1.0.8
+    plugins:
+      module.cms: 2.1.0
+      module.restaurant-core: 1.2.0
+      module.restaurant-qr-menu: 1.1.2
 ```
 
-This is operational inventory, not runtime tenancy. It can later be generated automatically from release metadata.
+This is operational metadata, not a shared customer database or runtime entitlement service.
+
+Fleet inventory enables:
+
+- security-version impact analysis;
+- deprecated provider/theme identification;
+- automated upgrade pull requests;
+- pending migration/infrastructure tracking;
+- backup/restore freshness reporting;
+- customer release/support visibility.
 
 ## Security update workflow
 
-When a shared package has a security issue:
+1. Identify affected package/capability/version ranges.
+2. Query fleet inventory.
+3. Publish fixed package and migration/config notes.
+4. Generate/open customer-specific upgrade PRs.
+5. Run each customer's tests and migration plan.
+6. Prioritize/deploy independently.
+7. Verify new runtime/release inventory and monitoring.
+8. Rotate secrets/providers when compromise scope requires it.
 
-1. identify affected version ranges;
-2. query fleet inventory for affected customers;
-3. publish fixed package version and migration notes;
-4. open automated customer upgrade pull requests;
-5. prioritize and deploy customers independently;
-6. verify fixed inventory in each environment.
+Package-based reuse makes impact machine-readable without forcing simultaneous deployment.
 
-This is the main benefit of package-based reuse over copied core source.
+## Customer creation workflow
+
+```text
+run create-k-nex-app
+  → choose plugins/providers/builder/themes/database/Docker
+  → create local repository and manifest
+  → configure private registry and environment
+  → implement customer theme/assets/extensions/layouts
+  → generate/review migrations
+  → provision production resources/secrets/domain
+  → run CI and build artifact
+  → migrate/deploy/smoke test
+  → register fleet inventory and backup/monitoring
+```
+
+The generated scaffold is start-ready, not automatically production-secure.
 
 ## Customer offboarding
 
-An offboarding runbook should cover:
+Runbook:
 
-- final data export format;
-- credential revocation;
-- domain/DNS transfer where applicable;
-- retention and deletion obligations;
-- backup expiration;
-- repository/archive policy;
-- infrastructure teardown confirmation;
-- audit record of deletion.
+```text
+final data/media/layout/theme export
+customer acceptance/format documentation
+credential/token revocation
+domain/DNS transfer or shutdown
+integration/webhook disablement
+repository/archive/access policy
+retention and deletion schedule
+backup expiration/destruction
+infrastructure teardown confirmation
+audit record and fleet inventory update
+```
 
-Because resources are isolated, one customer's offboarding does not require filtering data from a shared database.
+Independent resources simplify offboarding because records do not need to be filtered from a shared tenant database.
+
+## Disaster recovery
+
+Document per customer:
+
+- infrastructure recreation from repository/IaC/manual runbook;
+- database and object-storage restore order;
+- matching application artifact/package inventory;
+- secret/key restoration or rotation;
+- DNS/TLS recovery;
+- specialized provider recovery;
+- job/outbox replay safety;
+- CMS/theme/layout validation;
+- business/security smoke tests.
+
+A restore against an incompatible package/schema/theme registry is not a valid recovery.
 
 ## Initial infrastructure recommendation
 
-Keep the first POC operationally simple:
+Keep the POC simple:
 
-- one Postgres database per customer;
-- one object-storage boundary per customer;
-- one web process and one worker process;
-- local WebSocket adapter for a single instance;
-- Redis only when multi-instance or queue/realtime requirements justify it;
-- immutable container releases;
-- reusable but version-pinned GitHub Actions workflows.
+```text
+one Postgres database per customer
+one object-storage boundary per customer
+one web and one worker process
+local realtime provider for cargo POC
+Redis only for provider replacement/scaling experiment
+immutable container releases
+version-pinned reusable workflows
+runtime release inventory
+```
 
-Add complexity only when a selected module or measured workload requires it.
+Add complexity only when a selected plugin or measured workload requires it.
+
+## Operational acceptance criteria
+
+- CLI-generated local Postgres/Docker scaffold starts reproducibly.
+- Customer applications build with frozen lockfiles and static registries.
+- Cargo and restaurant deploy independently.
+- Release inventory matches runtime/package/migration state.
+- Clean and previous-release migration tests run in CI.
+- Backup and restore are exercised for at least one POC.
+- Theme/layout/CMS revisions survive restore and render correctly.
+- Realtime clients reconnect safely during deployment.
+- Provider replacement reports and applies infrastructure changes without consumer module changes.
+- One customer upgrades while the other remains on its previous release.
+- Fleet inventory identifies an intentionally affected test package version.
