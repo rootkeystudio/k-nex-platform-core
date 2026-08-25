@@ -14,27 +14,26 @@ One independently deployed customer product composed from Payload, K-Nex package
 
 ## Binding
 
-A serializable, schema-validated connection among registered runtime context, UI state, data sources, block ports, and actions.
+A serializable, schema-validated connection among registered runtime context, UI state, data sources, block ports, registered adapters, and actions.
 
 Examples:
 
 ```text
 page state → source parameter
-data-source field → Counter value
-data-source rows → DataTable
+data-source result → component input
 chart selection → page state
 button event → registered action
 ```
 
-Bindings never contain arbitrary executable code, Payload queries, SQL, imports, secrets, or unrestricted URLs.
+Bindings never contain arbitrary executable code, Payload queries, SQL, imports, secrets, unrestricted URLs, or raw object-path expressions.
 
 ## Binding graph
 
-The resolved directed graph of context/state/source/block/action nodes for one UI document. The runtime validates ownership, versions, schemas, surfaces, permissions, required inputs, and cycles.
+The resolved directed graph of context/state/source/adapter/block/action nodes for one UI document. The runtime validates ownership, versions, schemas, surfaces, permissions, required inputs, and cycles.
 
 ## Build manifest
 
-Generated machine-readable inventory of exact Payload/K-Nex versions, selected Payload adapter, plugins/providers, UI/source/action/state/theme inventory, and release/migration metadata.
+Generated machine-readable inventory of exact Payload/K-Nex versions, selected Payload adapter, plugins/providers, UI/source/contract/action/state/theme inventory, and release/migration metadata.
 
 ## Builder
 
@@ -43,6 +42,23 @@ A plugin adapting a visual editor to K-Nex block/layout/binding/profile/publicat
 ## Builder profile
 
 Policy for using the builder on a surface. CMS and workspace profiles expose different palettes, audiences, sources, actions, state, themes, scopes, and publication workflows.
+
+## Canonical output contract
+
+K-Nex-owned versioned semantic result shape understood by generic components.
+
+Initial catalog:
+
+```text
+metric.scalar@1
+table.records@1
+series.category@1
+series.time@1
+options.list@1
+record.summary@1
+```
+
+A source-specific schema must validate against the declared canonical contract.
 
 ## Capability
 
@@ -54,9 +70,23 @@ Payload's primary database adapter is not a K-Nex capability.
 
 Trusted list of selectable K-Nex packages presented by the CLI. V1 contains first-party or explicitly reviewed private packages.
 
+## Category series
+
+Canonical category-based chart result `series.category@1`. It contains stable categories and one or more numeric series with measure metadata. Pie/BarChart components can impose stricter constraints than the shared contract.
+
 ## Composition root
 
 Customer application location where generated registries, manifest, customer TypeScript config, and final Payload configuration become the runnable product.
+
+## Contract conformance
+
+Requirement that a data-source result validate against both its exact source-specific output schema and its declared canonical or plugin-owned output contract.
+
+Metadata assertion alone does not create compatibility.
+
+## Contract version
+
+Major version of an output contract's shared semantic shape, independent from source version and npm package version.
 
 ## Customer application
 
@@ -64,28 +94,11 @@ See **Application**. It has a separate repository, database, deployment, storage
 
 ## Customer extension
 
-Executable code in a customer repository implementing a real customer-specific policy, integration, source, action, block, or override through documented contracts.
+Executable code in a customer repository implementing a real customer-specific policy, integration, source, output contract, action, block, or override through documented contracts.
 
 ## Customer shell
 
 Generated customer repository/application scaffold. It owns composition, presentation, extensions, migrations, and infrastructure while consuming shared packages.
-
-## Data contract
-
-Stable versioned schema describing a reusable source result/component input.
-
-Examples:
-
-```text
-metric.number@1
-metric.money@1
-table.records@1
-series.category@1
-series.time@1
-geo.features@1
-```
-
-Generic components depend on data contracts, not domain implementations.
 
 ## Data source
 
@@ -94,27 +107,36 @@ A plugin-owned, registered, schema-validated, permission-aware server query/proj
 Examples:
 
 ```text
-sales.total-opportunities
+sales.total-potential-revenue
 sales.tasks
 sales.opportunities-by-stage
 ```
 
-Stored layouts reference source IDs, versions, parameters, and selected fields—not raw collection access, SQL, or live records.
+Stored layouts reference source IDs, source/contract versions, parameters, and selected stable fields—not raw collection access, SQL, or live records.
 
 ## Data-source descriptor
 
-Browser-safe/static metadata for a source:
+Actor-filtered browser-safe metadata for a source:
 
 ```text
 ID/version/owner
 title/category
 surfaces/audience
-permission
-input/output contract
-fields
+input schema and limits
+primary output contract
+source-specific schema/hash
+stable fields
 pagination/sort/filter rules
 cache/realtime policy
 ```
+
+Descriptors are discovered separately from paginated/query result data.
+
+## Descriptor hash
+
+Deterministic hash of the actor-filtered source descriptor. It changes for nonbreaking discovery changes, such as a newly available field, without necessarily changing the source major version.
+
+Stored layouts do not use the descriptor hash as their persisted source version.
 
 ## Data-source handler
 
@@ -132,7 +154,7 @@ POST /api/k-nex/data-sources/:sourceId/query
 
 ## Data-source instance
 
-Serializable layout binding selecting one registered source with validated parameters, field selections, and mappings.
+Serializable layout binding selecting one registered source with validated parameters, selected stable field IDs, and expected output-contract identity/version.
 
 ## Design-system adapter
 
@@ -156,32 +178,46 @@ Documented place where another plugin/customer app can add or replace behavior/U
 
 ## Field metadata
 
-Source-declared information describing an output field:
+Source-declared information for a stable field ID:
 
 ```text
-path/ID
-label
-type
-selectability
+ID and label
+semantic value type
+nullability
 default visibility
 sort/filter capability
-formatting
+enum/options metadata
 permission/sensitivity
 ```
 
-Used by DataTable column pickers and generic visualizations.
+Field IDs are opaque stable identifiers, not nested Payload object paths.
 
-## Field mapping
+## Field selection
 
-Validated mapping from declared source fields to semantic component inputs such as `label`, `value`, `series`, or `timestamp`. It executes no arbitrary expression.
+Serializable allowlisted stable source field IDs selected for a component, such as DataTable visible columns.
+
+```text
+title
+status
+dueAt
+assignee
+```
+
+A field selection cannot request undeclared/private paths such as `assignee.passwordHash`.
 
 ## Generated registry
 
-Deterministic static TypeScript import/registration file produced by the CLI for plugins, providers, Payload contributions, UI, sources, actions, state/context, themes, and builder adapters.
+Deterministic static TypeScript import/registration file produced by the CLI for plugins, providers, Payload contributions, UI, sources, output contracts, actions, state/context, themes, and builder adapters.
+
+## Hybrid output-contract model
+
+Architecture in which generic components consume a small catalog of canonical K-Nex contracts while domain-specific components can consume namespaced plugin-owned contracts.
+
+Canonical payloads do not receive an unrestricted extension bag.
 
 ## Input port
 
-Typed dynamic input declared by a block, such as `value`, `rows`, `data`, `dateRange`, or `recordId`.
+Typed dynamic input declared by a block, such as `data`, `dateRange`, or `recordId`. A port declares accepted source/output-contract version ranges and optional constraints.
 
 ## Invalidation
 
@@ -195,21 +231,53 @@ Reusable package connecting modules/capabilities without forcing private impleme
 
 Versioned structured document describing registered blocks, props, regions, and declarative bindings. It contains no arbitrary executable code or result snapshots.
 
+## Measure descriptor
+
+Semantic metadata attached to chart series values, such as number, money/currency, percentage scale, duration unit, or another bounded numeric unit.
+
+## Metric scalar
+
+Canonical metric result `metric.scalar@1`. It carries one discriminated semantic value—such as number, decimal, money, percentage, duration, or text—plus optional comparison and `asOf` metadata.
+
 ## Module
 
 Plugin providing reusable horizontal/domain behavior, such as CMS, Sales, Visualization, Dispatch, Inventory, or QR Menu.
+
+## Null versus omitted
+
+For selected authorized fields, `null` means the value is known to be absent. An omitted field means it was unselected or unauthorized. Canonical table handling must not conflate these states.
+
+## One primary projection
+
+Rule that one data source declares exactly one business output contract. Separate metric, table, and chart sources can share underlying domain query services.
+
+Pagination/transport metadata does not count as a second business projection.
+
+## Opaque extension bag
+
+Unrestricted structure such as `extensions: Record<string, unknown>` added to a canonical payload. Rejected because it bypasses contract compatibility, security review, and migrations.
+
+Use a plugin-owned contract or another source instead.
 
 ## Operational screen
 
 Module-owned workflow screen such as dispatch board or stock adjustment. It may expose extension slots but is not fully arbitrary drag-and-drop in V1.
 
+## Options list
+
+Canonical choice result `options.list@1`, used for selects, filters, and resource pickers. Option keys are stable values; labels can be localized/presentational.
+
 ## Orphan binding
 
-Stored binding whose source/state/context/action/field/compatible port is unavailable or incompatible. Preserved and reported rather than silently deleted.
+Stored binding whose source/state/context/action/field/contract/compatible port is unavailable or incompatible. Preserved and reported rather than silently deleted.
 
 ## Orphan block
 
 Stored block whose plugin/component is unavailable or incompatible. It does not crash the whole page.
+
+## Output contract
+
+Versioned semantic result shape declared by a data source and accepted by component input ports. It can be canonical K-Nex-owned or namespaced/plugin-owned.
 
 ## Output port
 
@@ -217,7 +285,7 @@ Typed event/value emitted by a block, such as `rowSelected`, `sliceSelected`, or
 
 ## Package
 
-Concrete versioned registry artifact such as `@k-nex/module-sales@1.4.2`. Distinct from stable plugin ID.
+Concrete versioned registry artifact such as `@k-nex/module-sales@1.4.2`. Distinct from stable plugin/source/contract IDs.
 
 ## Payload database adapter
 
@@ -241,6 +309,19 @@ Umbrella installable K-Nex concept. Kinds: module, provider, builder, theme, int
 
 Stable product identity such as `module.sales`, `provider.realtime-websocket-local`, or `theme.neobrutalism`, independent of package location.
 
+## Plugin-owned output contract
+
+Namespaced semantic result shape defined by a plugin for a domain-specific component.
+
+Examples:
+
+```text
+sales.pipeline-board@1
+logistics.dispatch-board@1
+```
+
+Generic components do not automatically consume plugin-owned contracts.
+
 ## Preset
 
 CLI composition recipe expanded into explicit framework/plugin/provider/theme choices.
@@ -253,7 +334,7 @@ The Payload database adapter is not a K-Nex provider.
 
 ## Public data source
 
-Explicitly anonymous/signed-session-safe source with narrow projection, rate limits, privacy/abuse policy, and public caching rules. Internal workspace sources are never public merely because a public block could technically bind to them.
+Explicitly anonymous/signed-session-safe source with narrow projection, rate limits, privacy/abuse policy, and public caching rules. Internal workspace sources are never public merely because a public block supports the same output contract.
 
 ## Publish
 
@@ -265,7 +346,23 @@ Explicit destructive removal of plugin-owned data/schema/references after depend
 
 ## Query key
 
-Runtime identity for one source execution, generally including source ID/version, validated parameters, actor/access scope, and surface. Used for caching and invalidation.
+Runtime identity for one source execution, generally including source ID/version, canonical validated input, selected stable field IDs, actor/access scope, and surface. Used for caching and invalidation.
+
+## Record summary
+
+Canonical compact-record result `record.summary@1`, used by cards, headers, related-record panels, and selection previews.
+
+## Registered adapter
+
+Trusted, versioned, schema-aware transformation node that converts one accepted contract into another using bounded declarative configuration.
+
+Future example:
+
+```text
+adapter.table-fields-to-category-series@1
+```
+
+It is not arbitrary JavaScript, SQL, visual query code, or an unrestricted expression.
 
 ## Resolved application graph
 
@@ -279,13 +376,23 @@ Validated customer database values controlling installed code without importing 
 
 Registered typed read-only value supplied by application/session/router/editor, such as current branch, user, route parameter, locale, or preview mode.
 
+## Scalar value
+
+Discriminated semantic value used by canonical contracts, such as text, number, integer, decimal, boolean, date, datetime, money, percentage, duration, or resource reference.
+
+Formatting is applied by runtime locale/design-system/theme rather than returned as a customer-formatted string.
+
 ## Semantic primitive
 
 Style-agnostic UI contract expressing intent, such as `Button`, `Metric`, `DataTable`, or `Card`, implemented by a selected design/theme adapter.
 
-## Source field selection
+## Source major version
 
-Serializable list of declared fields chosen for a block, such as DataTable visible columns. It cannot select undeclared/private object paths.
+Persisted major version of one source's inputs, stable field IDs, semantics, and declared output contract. Independent from contract major version and npm package version.
+
+## Source-specific output schema
+
+Exact result schema for one source. It narrows/specializes the declared contract and must pass contract conformance validation.
 
 ## State definition
 
@@ -307,6 +414,10 @@ Independent from customer brand/visual language. Structural/accessibility CSS re
 
 Explicit context such as `workspace`, `cms`, `public`, `driver`, or `system`.
 
+## Table records
+
+Canonical tabular result `table.records@1`, containing stable row keys, optional resource references, values keyed by declared stable field IDs, and explicit pagination metadata.
+
 ## Theme package
 
 Installed executable presentation code containing token schema, palettes, semantic primitive recipes/overrides, structural CSS, validation, and migrations.
@@ -314,6 +425,14 @@ Installed executable presentation code containing token schema, palettes, semant
 ## Theme profile
 
 Versioned database record selecting an installed theme and adjustable validated values for a surface.
+
+## Time series
+
+Canonical time-indexed chart result `series.time@1`, containing timezone, interval, ordered timestamped points, and measure metadata.
+
+## Transport envelope
+
+Standard success wrapper around source data containing envelope schema version, source ID/version, output-contract ID/version, descriptor hash, and validated contract payload.
 
 ## UI action
 
@@ -325,11 +444,11 @@ Stable versioned component capability usable in builder documents. Declares surf
 
 ## UI contribution
 
-Plugin-exported navigation, routes, screens, blocks, sources, actions, state/context, slots, and migrations.
+Plugin-exported navigation, routes, screens, blocks, sources, output contracts, actions, state/context, slots, and migrations.
 
 ## UI runtime
 
-Editor-independent layer resolving registries, permissions, bindings, layouts, themes, source/action clients, invalidation, and safe orphan behavior.
+Editor-independent layer resolving registries, permissions, contracts, bindings, layouts, themes, source/action clients, invalidation, and safe orphan behavior.
 
 ## UI state
 
@@ -341,7 +460,7 @@ Remove plugin package/active registration while retaining data/references unless
 
 ## Visualization plugin
 
-Horizontal module providing generic Counter, Metric, chart, table, status, or map blocks that consume shared source contracts rather than domain query logic.
+Horizontal module providing generic Counter, Metric, chart, table, status, or map blocks that consume shared output contracts rather than domain query logic.
 
 ## Workspace
 
