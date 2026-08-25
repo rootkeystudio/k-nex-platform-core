@@ -8,13 +8,14 @@ The research phase must prove that K-Nex can generate independently deployed Pay
 Payload + Postgres
 K-Nex modules/providers/themes/builder
 plugin-owned authenticated data sources
+canonical and plugin-owned output contracts
 style-agnostic reusable UI blocks
 CMS/workspace visual composition
 secure realtime invalidation
 customer-owned migrations and deployment
 ```
 
-The goal is not to finish a production CRM, logistics suite, restaurant ERP, analytics platform, or visual query builder. The goal is to validate the architecture's riskiest assumptions through narrow vertical slices.
+The goal is not to finish a production CRM, logistics suite, restaurant ERP, analytics platform, visual query builder, or broad universal contract catalog. The goal is to validate the architecture's riskiest assumptions through narrow vertical slices.
 
 # Required POC repositories
 
@@ -42,45 +43,61 @@ Missing/incompatible module dependencies, duplicate replaceable providers, confl
 
 ## H-004 — Payload hosts module composition without deep forks
 
-Collections, globals, services, access, endpoints, jobs, sources, and admin contributions compose deterministically.
+Collections, globals, services, access, endpoints, jobs, sources, contracts, and admin contributions compose deterministically.
 
 ## H-005 — Modules expose deliberate authenticated data sources
 
 A Sales module exposes:
 
 ```text
-sales.total-opportunities
+sales.total-potential-revenue
 sales.tasks
 sales.opportunities-by-stage
+sales.revenue-over-time
 ```
 
 without exposing raw collections or database access.
 
-## H-006 — Generic components consume module sources
+## H-006 — Generic components consume canonical output contracts
 
-Counter, DataTable, PieChart, and BarChart bind to output contracts and field metadata without importing Sales implementation code.
+```text
+Counter/Metric   ← metric.scalar@1
+DataTable        ← table.records@1
+Pie/BarChart     ← series.category@1
+Line/AreaChart   ← series.time@1
+```
 
-## H-007 — Source authorization survives client manipulation
+Generic blocks do not import Sales implementation code.
 
-Payload session, permission, record policy, and field policy are enforced server-side for discovery, execution, and realtime subscription.
+## H-007 — Exact source schemas conform to declared contracts
 
-## H-008 — Realtime invalidation/refetch is reliable
+A source result passes both its source-specific schema and canonical/plugin-owned output contract. Declaring a contract ID without conformance fails.
+
+## H-008 — Stable source fields survive storage refactors
+
+DataTable fields use opaque stable IDs such as `assignee`, not nested Payload paths such as `assignee.name`. Builder documents remain valid when internal projections change without semantic field changes.
+
+## H-009 — Source authorization survives client manipulation
+
+Payload session, source permission, record policy, and field policy are enforced server-side for discovery, execution, output, and realtime subscription.
+
+## H-010 — Realtime invalidation/refetch is reliable
 
 After a committed mutation, authorized active source queries are invalidated and refetched. Missed messages/reconnect recover through the source endpoint.
 
-## H-009 — One UI contract supports CMS and workspace profiles
+## H-011 — One UI contract supports CMS and workspace profiles
 
 Same canonical block/layout/binding model supports public pages and authenticated dashboards with different palettes, security, and publication rules.
 
-## H-010 — Puck remains an adapter
+## H-012 — Puck remains an adapter
 
 Puck round-trips canonical K-Nex documents without leaking types into domain modules or requiring a deep fork.
 
-## H-011 — Style-agnostic module UI renders through different themes
+## H-013 — Style-agnostic module UI renders through different themes
 
 Same components render accessibly under Minimal, Neobrutalism, and one materially different public theme/profile.
 
-## H-012 — Customer-owned migrations remain manageable
+## H-014 — Customer-owned migrations remain manageable
 
 Two customer compositions have separate Payload migrations, lockfiles, releases, and upgrade paths.
 
@@ -109,23 +126,27 @@ Two customer compositions have separate Payload migrations, lockfiles, releases,
 ## Module composition
 
 - explicit contribution phases;
-- collision ownership for collection slugs, routes, permissions, events, jobs, sources, actions, blocks;
+- collision ownership for collection slugs, routes, permissions, events, jobs, sources, contracts, actions, blocks;
 - disabled schema-owning module behavior;
 - server/client export separation.
 
-## Data sources
+## Data sources and output contracts
 
-- exact `defineDataSource` API;
+- exact `defineDataSource` and contract-specific helper APIs;
 - descriptor/handler separation;
 - standard source gateway path/method;
 - Payload auth and record/field policy;
-- source output contract library;
-- field metadata for tables;
+- schema library and JSON-schema generation;
+- source-specific plus canonical output validation;
+- stable table field metadata;
 - pagination/sort/filter allowlists;
-- source versioning/migrations;
+- source/contract versioning and migrations;
+- actor-filtered descriptor hash;
 - discovery behavior by surface/audience/permission;
 - public versus internal source isolation;
-- cache/query-key policy.
+- actor-scoped cache/query-key policy;
+- plugin-owned contract registration;
+- production output-validation cost.
 
 ## Realtime
 
@@ -141,9 +162,10 @@ Two customer compositions have separate Payload migrations, lockfiles, releases,
 
 - fixed shell plus editable canvas;
 - semantic primitive foundation;
-- Counter/DataTable/chart source picker;
-- source field/column picker;
+- Metric/DataTable/chart source picker;
+- stable source field/column picker;
 - shared page filters/state;
+- contract/component constraints;
 - canonical document round-trip;
 - profile-specific palette/security;
 - missing/disabled source fallback;
@@ -160,6 +182,7 @@ Two customer compositions have separate Payload migrations, lockfiles, releases,
 ## Migrations and lifecycle
 
 - plugin addition and customer migration generation;
+- source/contract/field migrations;
 - disable/uninstall/purge boundaries;
 - stored layout/source reference scans;
 - clean and previous-release upgrades;
@@ -199,6 +222,19 @@ Payload
 
 There is no `@k-nex/database-postgres` package.
 
+Canonical output contracts initially live in `@k-nex/ui-contracts`:
+
+```text
+metric.scalar@1
+table.records@1
+series.category@1
+series.time@1
+options.list@1
+record.summary@1
+```
+
+The first POC implements the first four. The last two can follow after the counter/table/chart slice.
+
 # Sales source POC
 
 ## Minimal Sales data model
@@ -233,24 +269,33 @@ assignee
 relatedOpportunity
 ```
 
-## `sales.total-opportunities`
+## `sales.total-potential-revenue`
 
 Output contract:
 
 ```text
-metric.money@1
+metric.scalar@1
 ```
 
 Example:
 
 ```json
 {
-  "value": 325000,
-  "currency": "TRY"
+  "value": {
+    "kind": "money",
+    "amount": "325000.00",
+    "currency": "TRY"
+  },
+  "comparison": {
+    "mode": "percentage",
+    "delta": 12.5,
+    "sentiment": "positive",
+    "baselineLabel": "Previous quarter"
+  }
 }
 ```
 
-Inputs may include date range, stage IDs, owner, and branch context.
+Inputs can include date range, stage IDs, owner, and branch context.
 
 ## `sales.tasks`
 
@@ -260,16 +305,18 @@ Output contract:
 table.records@1
 ```
 
-Fields:
+Stable fields:
 
 ```text
 title             text      selectable/sortable/filterable
-status            enum      selectable/sortable/filterable
+status            text/enum selectable/sortable/filterable
 dueAt             datetime  selectable/sortable/filterable
-assignee.name     text      selectable
-opportunity.name  text      selectable
+assignee          resource  selectable
+opportunity       resource  selectable
 potentialRevenue  money     separately permission-protected when projected
 ```
+
+The source does not expose `assignee.name` or another nested Payload path as a builder field ID.
 
 Supports bounded pagination and allowlisted sorting/filtering.
 
@@ -281,7 +328,28 @@ Output contract:
 series.category@1
 ```
 
-Used by PieChart/BarChart.
+Used by PieChart/BarChart. Aggregation happens server-side.
+
+## `sales.revenue-over-time`
+
+Output contract:
+
+```text
+series.time@1
+```
+
+Used by LineChart/AreaChart. Bucketing, timezone, result bounds, and rounding are source-owned.
+
+## Plugin-owned contract proof
+
+Implement one small Sales-only domain block/source, for example:
+
+```text
+sales.pipeline-mini-board
+  → sales.pipeline-board@1
+```
+
+This proves the hybrid contract path without adding an opaque extension bag to canonical contracts.
 
 # Customer POC A — Acme Cargo
 
@@ -308,22 +376,24 @@ theme.neobrutalism (public)
 3. Admin creates opportunities and tasks.
 4. Admin opens workspace builder.
 5. Adds date-range filter.
-6. Adds Counter bound to `sales.total-opportunities`.
+6. Adds Metric bound to `sales.total-potential-revenue`.
 7. Adds PieChart bound to `sales.opportunities-by-stage`.
-8. Adds DataTable bound to `sales.tasks`.
-9. Selects title, status, due date, and assignee columns.
-10. Publishes role layout.
-11. Opportunity/task changes invalidate active queries.
-12. Counter/chart/table refetch and rerender.
+8. Adds LineChart bound to `sales.revenue-over-time`.
+9. Adds DataTable bound to `sales.tasks`.
+10. Selects `title`, `status`, `dueAt`, and `assignee` field IDs.
+11. Publishes role layout.
+12. Opportunity/task changes invalidate active queries.
+13. Metric/charts/table refetch, revalidate, and rerender.
 
 ## Security journey
 
 1. Sales manager sees revenue source/field.
 2. Staff role can see tasks but lacks revenue permission.
-3. Revenue source/field is absent from discovery.
+3. Revenue source/field is absent from actor-filtered discovery.
 4. Manual request is denied server-side.
 5. Manual WebSocket subscription to unauthorized scope is denied.
 6. Another branch's records remain inaccessible.
+7. Handler returning an undeclared field fails closed.
 
 ## CMS journey
 
@@ -364,7 +434,7 @@ theme.glassmorphism (public)
 3. Editor composes public page with shared and restaurant blocks.
 4. Cargo/Sales internal sources are unavailable.
 5. Public menu projection excludes costs/internal data.
-6. Same builder/runtime/theme contracts remain unchanged.
+6. Same builder/runtime/output-contract/theme foundations remain unchanged.
 
 # CLI scenarios
 
@@ -390,7 +460,7 @@ Expected:
 
 ```text
 package and schema additions
-Sales permissions/events/sources/blocks
+Sales permissions/events/sources/contracts/blocks
 customer migration required
 no database provider plugin
 ```
@@ -423,30 +493,53 @@ Manifest edit without generate makes CI fail.
 
 External `DATABASE_URL` is written only to ignored local file and redacted.
 
-# Data-source scenarios
+# Data-source and output-contract scenarios
 
-## Counter
+## Metric
 
 - authorized source discovery;
-- scalar output binding;
+- exact source schema plus `metric.scalar@1` validation;
+- semantic money formatting in UI;
 - loading/empty/error/forbidden states;
 - realtime invalidation/refetch.
 
 ## DataTable
 
-- source field metadata;
-- selected columns persisted;
+- actor-filtered stable field descriptors;
+- selected fields persisted;
 - allowlisted pagination/sort/filter;
 - field-level permission;
+- null versus omitted behavior;
 - task mutation invalidation;
 - reconnect recovery.
+
+## Category/time charts
+
+- source returns canonical server-aggregated series;
+- PieChart enforces one-series/nonnegative constraints;
+- LineChart validates ordered RFC-3339 points and bounded result size;
+- no browser group-by/sum or raw record fetch.
 
 ## Shared filters
 
 - date filter writes page state;
-- counter/chart/table bind source params to state;
+- metric/chart/table bind source params to state;
 - state changes create validated query keys;
 - invalid/cyclic bindings fail.
+
+## Contract conformance failure
+
+- source declares `table.records@1` but returns unknown top-level shape;
+- source returns undeclared table field;
+- source returns invalid scalar/currency/date;
+- runtime rejects with `SOURCE_OUTPUT_INVALID` and leaks no payload.
+
+## Descriptor/source versions
+
+- additive optional field changes descriptor hash only;
+- removing/renaming selected field requires source migration;
+- source can move from `sales.tasks@1` to `@2` while remaining on `table.records@1`;
+- contract major change is tested independently.
 
 ## Source disable/version migration
 
@@ -454,6 +547,10 @@ External `DATABASE_URL` is written only to ignored local file and redacted.
 - layout remains stored;
 - source field/version migration updates fixtures;
 - publication/readiness detects incompatible references.
+
+## Query sharing
+
+Two blocks using the same source, validated params, selected fields, surface, and actor scope reuse one active query result.
 
 # Deliberate failure tests
 
@@ -463,11 +560,17 @@ Attempt to add `provider.database-postgres` or `@k-nex/database-postgres`.
 
 Expected: manifest/contracts reject; scaffold uses `@payloadcms/db-postgres`.
 
-## Duplicate source
+## Duplicate source or contract
 
-Two plugins register `sales.tasks`.
+Two plugins register the same source ID or conflicting ownership of the same plugin-contract ID.
 
 Expected: generation fails naming both owners.
+
+## False contract declaration
+
+Source declares `metric.scalar@1` but its exact output schema/result is incompatible.
+
+Expected: registration/test or execution fails closed.
 
 ## Unauthorized source
 
@@ -477,9 +580,27 @@ Expected: forbidden, no leakage.
 
 ## Unauthorized field
 
-Actor requests protected revenue column.
+Actor requests protected revenue field.
 
 Expected: discovery omits and execution rejects/omits according to contract.
+
+## Raw nested field path
+
+Builder/request attempts `assignee.name` or another undeclared object path.
+
+Expected: descriptor/input validation fails.
+
+## Opaque extension payload
+
+Canonical result attempts unrestricted `extensions` data.
+
+Expected: canonical contract validation fails.
+
+## Multi-output source
+
+One source attempts unrelated table, metric, and chart outputs.
+
+Expected: source authoring/contract review rejects; split into separate projections.
 
 ## Unauthorized realtime subscription
 
@@ -505,9 +626,9 @@ Inject SQL, raw Payload where object, arbitrary URL, JS/import/secret.
 
 Expected: schema validation failure.
 
-## Unbounded table
+## Unbounded table/series
 
-Request unsupported page size/sort/filter.
+Request unsupported page size/sort/filter or excessive series points.
 
 Expected: input/cost limit failure.
 
@@ -535,14 +656,19 @@ Expected: endpoint refetch recovers current data.
 - clean/upgrade migrations pass;
 - transactions/access policies are testable.
 
-## Sources/UI
+## Sources and contracts
 
-- Counter binds scalar source;
-- DataTable binds task source and selected columns;
-- chart binds category-series source;
+- Metric binds `metric.scalar@1`;
+- DataTable binds `table.records@1` and stable selected fields;
+- Pie/BarChart binds `series.category@1`;
+- LineChart binds `series.time@1`;
 - generic blocks import no Sales implementation;
-- permission/field/pagination/sort/filter server enforcement;
-- missing/disabled/versioned sources fail safely.
+- exact source schema and declared contract both validate;
+- source/contract/package versions remain distinct;
+- actor-filtered descriptor hash works;
+- permission/field/pagination/sort/filter are server-enforced;
+- missing/disabled/versioned sources fail safely;
+- plugin-owned contract path works without opaque canonical extensions.
 
 ## Realtime
 
@@ -558,12 +684,12 @@ Expected: endpoint refetch recovers current data.
 - internal sources blocked from public publish;
 - same block renders across themes;
 - no executable query/code in documents;
-- canonical Puck round-trip.
+- canonical Puck round-trip preserves source/contract identity.
 
 ## Operations
 
 - Cargo upgrades independently of Restaurant;
-- package/source/theme/migration inventory visible;
+- package/source/contract/theme/migration inventory visible;
 - backup/restore proof;
 - no secrets in source/logs.
 
@@ -581,11 +707,19 @@ Expected: endpoint refetch recovers current data.
 
 - canonical document cannot round-trip;
 - fixed-shell/profile/source restrictions cannot be enforced;
-- source/field binding requires unstable deep fork;
+- source/field/contract binding requires unstable deep fork;
 - domain modules leak Puck types;
 - realistic layouts fail accessibility/performance.
 
-Fallback: Craft.js through same K-Nex contracts.
+Fallback: Craft.js through the same K-Nex contracts.
+
+## Narrow output-contract scope if
+
+- canonical contracts require many source-specific exceptions;
+- generic blocks cannot preserve domain semantics safely;
+- runtime validation/caching cost is unacceptable after measurement.
+
+The fallback is more module-owned/domain-specific blocks, not arbitrary JSON, raw Payload paths, or builder-authored code.
 
 # Research phases
 
@@ -623,15 +757,16 @@ domain service conventions
 clean/upgrade migrations
 ```
 
-## Phase 3 — Sales sources and generic components
+## Phase 3 — Output contracts, Sales sources, and generic components
 
 ```text
-defineDataSource
-standard authenticated source gateway
-Sales scalar/table/category sources
-source permissions/fields
-Counter/DataTable/PieChart
-query cache/invalidation abstraction
+metric.scalar/table.records/series.category/series.time schemas
+source-specific contract helpers and conformance tests
+defineDataSource and standard authenticated source gateway
+Sales metric/table/category/time sources
+actor-filtered descriptor hash and stable fields
+Metric/DataTable/PieChart/LineChart
+query sharing/cache identity
 ```
 
 ## Phase 4 — Shell, themes, builder profiles
@@ -643,7 +778,8 @@ Minimal/Neobrutalism themes
 canonical document
 Puck adapter
 CMS/workspace profiles
-source/column picker
+source/field picker
+plugin-owned contract proof
 ```
 
 ## Phase 5 — Realtime and driver
@@ -660,7 +796,7 @@ minimal driver client
 
 ```text
 disable/uninstall/purge
-source/block/theme migrations
+source/field/contract/block/theme migrations
 provider replacement
 reusable deployment
 release inventory
@@ -676,8 +812,9 @@ contracts/schemas
   → CLI + Payload Postgres scaffold
   → customer fixtures
   → Payload composition/access/migrations
+  → canonical output contracts
   → Sales + source gateway
-  → Counter/DataTable/chart bindings
+  → Metric/DataTable/chart bindings
   → realtime invalidation
   → shell/primitives/themes
   → canonical document/Puck profiles
@@ -691,11 +828,11 @@ Do not begin with full CRM, dispatch optimization, inventory accounting, budgeti
 
 - working platform and two customer repositories;
 - ADR updates;
-- measured Payload/Puck/source/realtime results;
-- plugin/source authoring guide;
+- measured Payload/Puck/source/contract/realtime results;
+- plugin/source/output-contract authoring guide;
 - theme/builder guide;
 - CLI/customer application guide;
 - compatibility/migration/security report;
 - deployment runbooks;
 - known limitations;
-- explicit go/no-go decisions for Payload, Puck, source gateway, committed registries, layout inheritance, and realtime topology.
+- explicit go/no-go decisions for Payload, Puck, source gateway, contract catalog, committed registries, layout inheritance, and realtime topology.
