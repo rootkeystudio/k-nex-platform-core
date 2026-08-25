@@ -1,0 +1,6 @@
+packages:
+  - packages/*
+
+engineStrict: true
+minimumReleaseAge: 10080
+strictPeerDependencies: true

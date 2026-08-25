@@ -1,0 +1,22 @@
+{
+  "name": "k-nex-platform-core",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@11.9.0",
+  "engines": {
+    "node": "24.19.0",
+    "pnpm": "11.9.0"
+  },
+  "scripts": {
+    "contracts:generate": "node -e \"console.error('P0.2 contract generation is not implemented yet'); process.exit(1)\"",
+    "contracts:validate": "python3 scripts/validate_repository_contracts.py",
+    "contracts:test": "node -e \"console.error('P0.3 contract tests are not implemented yet'); process.exit(1)\"",
+    "contracts:reproducibility": "node -e \"console.error('P0.5 reproducibility is not implemented yet'); process.exit(1)\"",
+    "docs:validate": "python3 scripts/validate_repository_contracts.py",
+    "phase:0": "pnpm contracts:generate && pnpm contracts:validate && pnpm contracts:test && pnpm contracts:reproducibility && pnpm docs:validate"
+  },
+  "devDependencies": {
+    "turbo": "2.10.10",
+    "typescript": "6.0.3"
+  }
+}
