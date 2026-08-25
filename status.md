@@ -2,21 +2,21 @@
 
 - **Updated:** 2026-08-25
 - **Phase:** Phase 0 — Contract Freeze and Repository Readiness
-- **Active task:** P0.1 — Bootstrap the pinned repository toolchain
-- **State:** Ready for review
+- **Active task:** P0.2 — Establish one typed contract-authoring source
+- **State:** Ready to start
 
 ## Last completed
 
-Pinned Node 24.19.0, pnpm 11.9.0, TypeScript 6.0.3, and Turbo 2.10.10; added the workspace, lockfile, task graph, root gate commands, and matching CI bootstrap.
+Reviewed and accepted P0.1; the pinned toolchain, workspace, lockfile, root gate commands, Turbo scaffold, and CI bootstrap are merged. Added reviewer-only merge and post-review status-transition rules.
 
 ## Validation
 
-`pnpm install --frozen-lockfile`, `pnpm exec tsc -b`, `pnpm contracts:validate`, and the PR #5 workflow passed under Node 24.19.0; `pnpm audit` found no known vulnerabilities. `pnpm phase:0` stops at the intentionally pending P0.2 generation gate.
+PR #5 Architecture contracts run #10 passed on Node 24.19.0 with pnpm 11.9.0. Review verified exact pins, frozen install, bounded scope, and per-commit `status.md` updates. Full `pnpm phase:0` remains intentionally blocked at P0.2.
 
 ## Next
 
-Review and merge P0.1, then execute P0.2 from the updated `main` branch.
+Execute P0.2 exactly as defined in `docs/implementation/phase-0.md`.
 
 ## Blockers
 
-GitHub repository ruleset verification remains open in issue #2; it does not block P0.1 review.
+GitHub repository ruleset verification remains open in issue #2; it does not block P0.2 implementation.
