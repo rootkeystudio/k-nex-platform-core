@@ -11,7 +11,7 @@ Pinned Node 24.19.0, pnpm 11.9.0, TypeScript 6.0.3, and Turbo 2.10.10; added the
 
 ## Validation
 
-`pnpm install --frozen-lockfile`, `pnpm exec tsc -b`, and `pnpm contracts:validate` passed under Node 24.19.0. `pnpm phase:0` stops at the intentionally pending P0.2 generation gate.
+`pnpm install --frozen-lockfile`, `pnpm exec tsc -b`, `pnpm contracts:validate`, and the PR #5 workflow passed under Node 24.19.0; `pnpm audit` found no known vulnerabilities. `pnpm phase:0` stops at the intentionally pending P0.2 generation gate.
 
 ## Next
 
