@@ -1,21 +1,21 @@
 # Project Status
 
-- **Updated:** 2026-08-25
+- **Updated:** 2026-08-26
 - **Phase:** Phase 1 — Minimal Deterministic Payload Composition
-- **Active task:** P1.1 — Freeze the executable framework tuple and Gate 1 fixture shell
-- **State:** Ready for review
+- **Active task:** P1.3 — Implement the minimal deterministic resolver
+- **State:** Ready to start
 
 ## Last completed
 
-Pinned the Gate 1 fixture to Payload/@payloadcms 3.88.0, Next 16.3.1, React/React DOM 19.2.8, and GraphQL 16.14.2. Added the schema-valid customer manifest and an intentionally failing `pnpm gate:1` placeholder without claiming application behavior.
+Added the side-effect-free installed plugin manifest loader. It reconciles exact direct pnpm lockfile identity and integrity with package exports, package metadata, the canonical manifest schema, and the supported framework tuple without importing plugin server code.
 
 ## Validation
 
-Frozen install passes with strict peers; the fixture and 25 Phase 0 tests pass; `gate:1` fails intentionally until P1.9. Audit reports no high/critical advisories; direct packages are MIT-licensed.
+Composition build and all 18 loader tests pass, including malformed metadata, identity drift, duplicate IDs, unsupported tuples, undeclared exports, missing integrity, and a server-execution trap. Frozen install and Phase 0 regression checks pass.
 
 ## Next
 
-Independently review P1.1; after PASS, advance `status.md` to P1.2 before merge.
+Implement P1.3 deterministic resolver semantics and its CLI-independent golden corpus.
 
 ## Blockers
 
