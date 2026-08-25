@@ -111,6 +111,10 @@ Durable integration/workflow requires transactional outbox. Reconstructible inva
 
 Postgres only in V1; customer owns final migrations.
 
+### D-041 — Explicit agent tools and safe execution gateway
+
+Plugins may explicitly expose selected registered sources/actions as typed agent tools. Discovery is actor/delegation-filtered, every invocation is reauthorized, writes require declared approval/idempotency, and runtime content cannot create tools. MCP is an interoperability adapter and cannot weaken K-Nex policy or become a persisted core contract.
+
 ## Accepted UI decisions
 
 ### D-026 — Fixed shell, composable canvas
@@ -173,11 +177,12 @@ NIST SSDF, OWASP ASVS/API Security and K-Nex test IDs map requirements to eviden
 
 ### D-040 — Independent falsifiable POC gates
 
-Contract, composition, source, realtime, builder, UI, lifecycle, second-customer proofs are separated.
+Contract, composition, source, agent-tool, realtime, builder, UI, lifecycle, and second-customer proofs are separated.
 
 ## Provisional implementation choices
 
 - Exact Payload/Next/React/Node/pnpm compatibility tuple.
+- MCP TypeScript SDK and transport choice after Gate 2A documentation/types/license review.
 - Puck acceptance after Gate 4.
 - Socket.IO memory/Redis adapters after Gate 3.
 - React Aria/TanStack/ECharts/Zustand implementations after their boundary/accessibility/performance gates.
@@ -189,6 +194,7 @@ Contract, composition, source, realtime, builder, UI, lifecycle, second-customer
 - final private package scope/registry;
 - external distribution/license model;
 - first production deployment platform;
+- AI model-provider and conversation-retention policy after Gate 2A;
 - driver PWA versus native client;
 - high-frequency tracking storage after workload model;
 - whether any schema-owning compatibility package is worth supporting after V1.
@@ -199,6 +205,9 @@ Contract, composition, source, realtime, builder, UI, lifecycle, second-customer
 - customer branches or copied core;
 - K-Nex ORM/database provider above Payload;
 - automatic raw collection exposure;
+- automatic exposure of all sources/actions/collections as AI tools;
+- direct model access to Payload, plugin services, or ambient service containers;
+- model/protocol SDK types as persisted K-Nex contracts;
 - arbitrary builder JavaScript/SQL/query/CSS/imports;
 - WebSocket as sole business truth;
 - permanent ID aliases instead of migration;

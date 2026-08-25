@@ -7,31 +7,43 @@ The architecture is validated through independent kill gates, not one small-plat
 ## Sequence
 
 ```text
-Gate 0  contract freeze and repository governance
-Gate 1  minimal deterministic Payload composition
-Gate 2  source authorization and output contracts
-Gate 3  outbox and realtime convergence
-Gate 4  builder engine kill-spike
-Gate 5  UI themes, accessibility, atomic publication
-Gate 6  lifecycle and migration safety
-Gate 7  second customer and fleet operations
+Gate 0   contract freeze and repository governance
+Gate 1   minimal deterministic Payload composition
+Gate 2   source authorization and output contracts
+Gate 2A  agent tool contracts and safe execution
+Gate 3   outbox and realtime convergence
+Gate 4   builder engine kill-spike
+Gate 5   UI themes, accessibility, atomic publication
+Gate 6   lifecycle and migration safety
+Gate 7   second customer and fleet operations
 ```
 
 Each gate has explicit exclusions so failure identifies the wrong assumption.
 
 ## First customer slice
 
-After Gates 0–3:
+After Gates 0–2:
 
 ```text
 Payload + Postgres
 module.sales
 one opportunity metric source
 one task table source
-one category/time aggregate source
 source/record/field authorization
-outbox + realtime invalidation/refetch
 ```
+
+Gate 2A adds only the model-independent agent-tool proof:
+
+```text
+one source-backed read tool
+one approved idempotent action-backed write tool
+actor/delegation-filtered discovery
+safe execution gateway and audit
+minimal MCP list/call adapter
+deterministic scripted client, not an LLM
+```
+
+Gate 3 then adds outbox, durable event processing, and realtime invalidation/refetch. Durable autonomous agent workflows are not claimed before Gate 3.
 
 After Gates 4–5 add one CMS page and one workspace dashboard, Minimal/Neobrutalism themes, and atomic publication.
 
@@ -78,8 +90,7 @@ Update `docs/adr/evidence-registry.json` only with real evidence. A document or 
 
 ## Immediate work
 
-- make Gate 0 validator pass;
-- configure PR-only main and required check/review in GitHub settings;
-- choose monorepo/package scope/private registry through a publish/install spike;
-- start Gate 1 with one customer, one module, one collection, one authenticated query, one migration;
+- execute Gate 1 from the active status and master plan;
+- keep Gate 2A design-only until Gate 2 passes;
+- do not select an LLM provider merely to prove the agent-tool control plane;
 - do not begin Puck/theme/realtime breadth until their predecessor gate exits.

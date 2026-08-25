@@ -45,5 +45,6 @@ Evidence maturity is atomic per ADR: the recorded level applies only when every 
 | [0015](./0015-runtime-security-reliability-gates.md) | Runtime security/reliability gates | accepted | design-only |
 | [0016](./0016-payload-strategic-v1-framework.md) | Payload as strategic V1 framework | accepted | design-only |
 | [0017](./0017-deterministic-composition-and-registration-reconciliation.md) | Deterministic composition and registration reconciliation | accepted | design-only |
+| [0018](./0018-agent-tool-contracts-and-safe-execution.md) | Agent tool contracts and safe execution gateway | accepted | design-only |
 
 An accepted design-only ADR directs implementation but is not a production-readiness claim. Consequential changes update the decision register, evidence registry, machine-readable contracts, fixtures, and tests.

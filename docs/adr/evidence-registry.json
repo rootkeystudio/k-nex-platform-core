@@ -36,6 +36,7 @@
     },
     "0015": { "level": "design-only", "evidence": ["docs/29-runtime-security-reliability-and-quality-gates.md"] },
     "0016": { "level": "design-only", "evidence": ["docs/adr/0016-payload-strategic-v1-framework.md"] },
-    "0017": { "level": "design-only", "evidence": [] }
+    "0017": { "level": "design-only", "evidence": [] },
+    "0018": { "level": "design-only", "evidence": [] }
   }
 }

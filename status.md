@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Added the exact packed Sales module, one owned `sales-tasks` collection, authenticated read policy, domain-neutral fixture, and a dedicated shallow Payload adapter using the official Postgres adapter. The customer fixture now loads the tarball through lock integrity, regenerates static registries, executes phased registration, and sanitizes the composed config through Payload's public `buildConfig` API.
+Added the accepted Gate 2A plan between data sources and realtime: explicit plugin agent tools, actor/delegation-filtered discovery, safe source/action execution, approval/idempotency/audit controls, and MCP as an interoperability adapter. Phase 1 implementation remains complete through P1.6.
 
 ## Validation
 
-Frozen install, all six package builds, 74 composition tests, 9 Payload-adapter tests, the packed-fixture integration test, reproducible package comparison, Phase 0 regression, generated-registry check, and high/critical audit threshold pass. Coverage includes collection ownership, authenticated access and request context, duplicate slug/route/index rejection, invalid deep-patch rejection, server-only package exports, and public Payload config sanitization.
+The planning change must pass architecture-contract CI. Existing Phase 1 validation through P1.6 remains recorded in PR #14: package builds, composition and Payload-adapter tests, packed fixture integration, reproducibility, Phase 0 regression, generated-registry checks, and audit threshold pass.
 
 ## Next
 

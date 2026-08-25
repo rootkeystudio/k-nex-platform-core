@@ -83,6 +83,65 @@ Exit:
 
 Kill/rework criterion: safe cache identity is not expressible or runtime validation/projection cost is unacceptable at representative sizes.
 
+## Gate 2A — Agent tool contracts and safe execution
+
+Gate 2A is intentionally placed between Gate 2 and Gate 3. It proves model-independent tool discovery and controlled synchronous execution over the authenticated source/action boundaries before durable workflows and realtime orchestration are introduced.
+
+Scope:
+
+```text
+explicit plugin agent-tool descriptors
+actor/delegation-filtered tool catalog
+one source-backed read tool
+one action-backed write tool
+execution-time authorization
+risk/effect metadata
+per-call approval for writes
+idempotency and duplicate suppression
+input/output schema validation
+budgets, timeout, rate, and audit
+minimal MCP tools/list and tools/call adapter
+deterministic scripted client
+```
+
+Explicitly excluded:
+
+```text
+LLM/provider selection
+prompt or conversation product
+arbitrary autonomous loops
+agent-created tools
+unattended destructive operations
+MCP resources/prompts/sampling/UI extensions
+durable asynchronous effects or realtime progress
+```
+
+Failure cases:
+
+```text
+cross-actor discovery or invocation
+direct tool ID/version/input manipulation
+forbidden source/action target
+approval replay or changed-argument substitution
+duplicate write invocation
+expired/revoked delegation
+output-schema violation or secret leakage
+runtime/CMS attempt to register a tool
+MCP annotation or token used to bypass policy
+```
+
+Exit:
+
+- only explicit static tools are discoverable;
+- discovery filtering and execution authorization both hold;
+- agent delegation cannot exceed principal authority;
+- the approved write is idempotent and replay-safe;
+- output is schema-valid, redacted, bounded, and audited;
+- a deterministic client completes read/approval/write flows without an LLM;
+- the MCP adapter maps list/call without leaking protocol types into K-Nex contracts or weakening policy.
+
+Kill/rework criterion: a tool can bypass source/action authorization, executable tools can be created by runtime content, write retries can duplicate effects, or safe execution requires model/protocol-specific types in core contracts.
+
 ## Gate 3 — Transactions, durable events, and realtime convergence
 
 Scope:

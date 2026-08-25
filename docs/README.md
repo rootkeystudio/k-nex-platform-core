@@ -1,6 +1,6 @@
 # K-Nex Architecture Documentation
 
-K-Nex is a Payload-based, manifest-driven application factory that composes trusted backend/UI plugins, authenticated data sources, output contracts, realtime capabilities, visual CMS/workspace composition, and runtime-configurable installed themes into independently deployed customer products.
+K-Nex is a Payload-based, manifest-driven application factory that composes trusted backend/UI plugins, authenticated data sources, output contracts, agent-tool capabilities, realtime infrastructure, visual CMS/workspace composition, and runtime-configurable installed themes into independently deployed customer products.
 
 ## Normative order
 
@@ -41,14 +41,15 @@ Run `python3 scripts/validate_repository_contracts.py` before merging architectu
 5. [Plugin data sources and bindings](./24-data-sources-state-and-binding-graph.md)
 6. [Data-source output contracts](./25-output-contracts.md)
 
-## Runtime, security, and operations
+## Runtime, agents, security, and operations
 
 1. [Permissions, events, actions, and jobs](./09-permissions-events-and-jobs.md)
-2. [Realtime capability](./05-websocket-and-realtime.md)
-3. [Security and trust boundaries](./20-security-and-trust-boundaries.md)
-4. [Deployment and operations](./11-deployment-and-operations.md)
-5. [Domain blueprints](./08-domain-blueprints.md)
-6. [Technology and package baseline](./26-technology-package-baseline.md)
+2. [Agent tools and AI control plane](./31-agent-tools-and-ai-control-plane.md)
+3. [Realtime capability](./05-websocket-and-realtime.md)
+4. [Security and trust boundaries](./20-security-and-trust-boundaries.md)
+5. [Deployment and operations](./11-deployment-and-operations.md)
+6. [Domain blueprints](./08-domain-blueprints.md)
+7. [Technology and package baseline](./26-technology-package-baseline.md)
 
 ## Review remediation and executable proof
 
@@ -64,7 +65,10 @@ Run `python3 scripts/validate_repository_contracts.py` before merging architectu
 
 ## Implementation plans
 
-1. [Phase 0 — Contract freeze and repository readiness](./implementation/phase-0.md)
+1. [Codex master execution plan](./implementation/codex-master-plan.md)
+2. [Phase 0 — Contract freeze and repository readiness](./implementation/phase-0.md)
+3. [Phase 2A — Agent tool contracts and safe execution](./implementation/phase-2a-agent-tools.md)
+4. [Gate 1–7 detailed task catalog](./implementation/phase-details-gates-1-7.md)
 
 Implementation plans are execution specifications. They translate architecture gates into bounded work packages, acceptance commands, evidence requirements, and agentic-coding constraints. A phase plan does not prove completion; completion is recorded separately in a phase result document.
 
@@ -76,11 +80,12 @@ Implementation plans are execution specifications. They translate architecture g
 | Framework | Payload is the strategic V1 application framework | design-only |
 | Database | Payload Postgres adapter; Docker Postgres locally or external `DATABASE_URL` | design-only |
 | Composition | Exact packages, canonical manifest, hermetic customer config, deterministic resolved graph | schemas/fixtures added; executable gate pending |
-| IDs | Hierarchical dot namespace, optional hyphen inside one segment | validator added |
+| IDs | Hierarchical dot namespace, optional hyphen inside one segment | executable-poc for current pre-v1 grammar |
 | Plugin lifecycle | Schema-owning V1 plugins support disable/re-enable and explicit purge; retained-schema uninstall is not promised | design-only |
-| Registration | `manifest → contracts → providers → schema → behavior → jobs → data-handlers → ui → admin → validate → freeze` | validator added |
+| Registration | `manifest → contracts → providers → schema → behavior → jobs → data-handlers → ui → admin → validate → freeze` | phase contract executable; runtime enforcement pending |
 | Data sources | Plugin-owned bounded projections behind authenticated standard gateway | design-only |
 | Output contracts | Hybrid canonical/plugin-owned contracts; one source has one primary projection | design-only |
+| Agent tools | Explicit source/action-backed tools, actor/delegation-filtered catalog, reauthorized execution gateway, MCP as adapter | design-only |
 | Realtime | Socket.IO provider candidate; invalidation/refetch; outbox for durable event classes | design-only |
 | Builder | Puck candidate behind engine adapter; runtime and storage remain separate | design-only |
 | Themes | Small primitive ABI plus versioned complex adapters; separate admin/public profiles | design-only |
@@ -97,6 +102,7 @@ provider.realtime.socketio
 builder.puck
 theme.neobrutalism
 sales.tasks
+sales.tools.create-task
 metric.scalar@1
 ```
 
@@ -105,14 +111,15 @@ Persisted IDs never use package paths. Package names may remain kebab-case.
 ## Immediate sequence
 
 ```text
-Gate 0  contract freeze and docs-as-code
-Gate 1  deterministic minimal Payload composition
-Gate 2  source authorization and output contracts
-Gate 3  outbox and realtime convergence
-Gate 4  builder kill-spike
-Gate 5  themes, accessibility, atomic publication
-Gate 6  lifecycle and migration safety
-Gate 7  second customer and verifiable fleet operations
+Gate 0   contract freeze and docs-as-code
+Gate 1   deterministic minimal Payload composition
+Gate 2   source authorization and output contracts
+Gate 2A  agent tool contracts and safe execution
+Gate 3   outbox and realtime convergence
+Gate 4   builder kill-spike
+Gate 5   themes, accessibility, atomic publication
+Gate 6   lifecycle and migration safety
+Gate 7   second customer and verifiable fleet operations
 ```
 
-Do not implement full CRM, logistics optimization, broad theme catalogs, marketplace work, or visual query languages before the relevant gate passes.
+Do not implement full CRM, autonomous AI workflows, logistics optimization, broad theme catalogs, marketplace work, or visual query languages before the relevant gate passes.
