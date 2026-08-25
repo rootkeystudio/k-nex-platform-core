@@ -10,6 +10,10 @@ Describe the problem and the chosen change.
 - [ ] Plugin manifest fixture/schema updated where relevant
 - [ ] ADR status and evidence registry updated only when supported by real evidence
 
+## Migration notes
+
+Describe the migration, rollback, removal, or supersession path. Write `None` when no persisted/public contract changes exist.
+
 ## Determinism and security
 
 - [ ] Generated artifacts remain deterministic
@@ -24,7 +28,8 @@ Describe the problem and the chosen change.
 
 ## Validation
 
-- [ ] `python3 scripts/validate_repository_contracts.py`
+- [ ] `pnpm phase:0`
 - [ ] Active phase acceptance commands were run
 - [ ] Relevant POC gate/fixture updated
-- [ ] Rollback, removal, or supersession path documented where relevant
+
+List CI run, test output, or other executable evidence references here.

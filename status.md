@@ -3,20 +3,20 @@
 - **Updated:** 2026-08-25
 - **Phase:** Phase 0 — Contract Freeze and Repository Readiness
 - **Active task:** P0.6 — Enforce CI and repository governance
-- **State:** Ready to start
+- **State:** Blocked — GitHub plan decision required
 
 ## Last completed
 
-Reviewed and accepted P0.5; contract generation now runs from two physically staged generator/dependency trees created in opposite file order under different paths and sanitized environments, compares the sidecar-owned outputs byte-for-byte, and enforces a clean generated tree.
+Reviewed and accepted the source-controlled P0.6 work: CI runs the complete `pnpm phase:0` gate, implementation plans have explicit CODEOWNERS coverage, and the PR template requires migration notes and executable evidence.
 
 ## Validation
 
-PR #10 Architecture contracts run #29 passed on Node 24.19.0 with pnpm 11.9.0. CI verified generated-tree cleanliness, contract validation, 25 Vitest tests, and staged-workspace reproducibility with digest `bc6886e272a10d1129347163deaaf87004800fb4d6655f37e5ba873070bf94ee`.
+PR #11 Architecture contracts run #32 passed. Repository audit shows `main` is unprotected and required status-check enforcement is off; the rulesets endpoint requires GitHub Pro or public visibility.
 
 ## Next
 
-Execute P0.6 exactly as defined in `docs/implementation/phase-0.md`.
+Choose GitHub Pro while keeping the repository private, or make the repository public. Then configure the issue #2 rules, run the intentional-failure and direct-push checks, and resume P0.6 review.
 
 ## Blockers
 
-GitHub repository ruleset verification in issue #2 is the remaining P0.6 governance work.
+Issue #2. P0.6, P0.7, and Phase 1 cannot close or start until repository protection is configured and verified.
