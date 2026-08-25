@@ -1,6 +1,6 @@
 {
   "$schema": "../../../schemas/application-manifest.v1.schema.json",
-  "schemaVersion": 2,
+  "schemaVersion": 1,
   "application": {
     "id": "acme-operations",
     "name": "Acme Operations",
