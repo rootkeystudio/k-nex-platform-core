@@ -5,4 +5,5 @@
 /schemas/ @rootkeystudio
 /fixtures/ @rootkeystudio
 /docs/adr/ @rootkeystudio
+/docs/implementation/ @rootkeystudio
 /.github/workflows/ @rootkeystudio
