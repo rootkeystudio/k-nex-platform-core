@@ -11,11 +11,11 @@ Verified active `main` and `v*` release-tag rulesets, automatic CODEOWNER review
 
 ## Validation
 
-PR #12 run `32889179416` failed on the intentional `SCHEMA_INVALID /schemaVersion` fixture while merge stayed blocked. Ruleset exports: `21473575` and `21474044`.
+PR #12 run `32889179416` failed on the intentional invalid fixture; restored-fixture run `32889335963` passed. Issue #2 records rulesets `21473575` and `21474044` plus push-rejection evidence.
 
 ## Next
 
-Review PR #12 after its restored fixture passes `validate`; then close issue #2 and proceed to P0.7.
+Independently review PR #12; after acceptance and merge, proceed to P0.7.
 
 ## Blockers
 
