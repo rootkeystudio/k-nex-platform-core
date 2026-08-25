@@ -16,6 +16,7 @@
     "0012": { "level": "design-only", "evidence": [] },
     "0013": { "level": "design-only", "evidence": [] },
     "0014": { "level": "design-only", "evidence": ["contracts/architecture-contracts.v1.json", "schemas/plugin-manifest.v1.schema.json"] },
-    "0015": { "level": "design-only", "evidence": ["docs/29-runtime-security-reliability-and-quality-gates.md"] }
+    "0015": { "level": "design-only", "evidence": ["docs/29-runtime-security-reliability-and-quality-gates.md"] },
+    "0016": { "level": "design-only", "evidence": ["docs/adr/0016-payload-strategic-v1-framework.md"] }
   }
 }
