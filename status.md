@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-26
 - **Phase:** Phase 1 — Minimal Deterministic Payload Composition
-- **Active task:** P1.3 — Implement the minimal deterministic resolver
+- **Active task:** P1.4 — Generate the resolved graph and static registries
 - **State:** Ready to start
 
 ## Last completed
 
-Added the side-effect-free installed plugin manifest loader. It reconciles exact direct pnpm lockfile identity and integrity with package exports, package metadata, the canonical manifest schema, and the supported framework tuple without importing plugin server code.
+Added resolver version 1.0.0 with exact request reconciliation, deterministic dependency and capability resolution, explicit provider selection, optional activation, conflict checks, prerelease gating, canonical ordering, and globally shortest required-cycle diagnostics.
 
 ## Validation
 
-Composition build and all 18 loader tests pass, including malformed metadata, identity drift, duplicate IDs, unsupported tuples, undeclared exports, missing integrity, and a server-execution trap. Frozen install and Phase 0 regression checks pass.
+Composition build and all 43 loader/resolver tests pass. The CLI-independent golden corpus covers success, identity/version drift, optional activation, conflicts, capability ambiguity/versioning, prerelease exclusion, invalid ranges, deterministic ordering, and canonical shortest cycles.
 
 ## Next
 
-Implement P1.3 deterministic resolver semantics and its CLI-independent golden corpus.
+Implement P1.4 deterministic resolved graph and static registry generation.
 
 ## Blockers
 
