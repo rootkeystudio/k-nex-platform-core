@@ -1,0 +1,53 @@
+{
+  "$schema": "../../schemas/plugin-manifest.v1.schema.json",
+  "apiVersion": 1,
+  "id": "module.logistics.driver",
+  "kind": "module",
+  "displayName": "Driver Operations",
+  "version": "1.0.0",
+  "package": "@k-nex/module-logistics-driver",
+  "compatibility": {
+    "core": ">=1.0.0 <2.0.0",
+    "payload": ">=3.0.0 <4.0.0",
+    "node": ">=24.0.0 <25.0.0",
+    "payloadDatabaseAdapters": ["postgres"]
+  },
+  "provides": [
+    { "capability": "logistics.driver", "version": "1.0.0" }
+  ],
+  "requires": [
+    { "plugin": "module.logistics.core", "version": "^1.0.0" },
+    { "capability": "realtime.gateway", "version": "^1.0.0" }
+  ],
+  "optional": [
+    { "plugin": "module.logistics.dispatch", "version": "^1.0.0" }
+  ],
+  "conflicts": [],
+  "surfaces": ["workspace", "driver"],
+  "environment": [
+    {
+      "name": "DRIVER_TOKEN_SIGNING_KEY",
+      "secret": true,
+      "requiredWhen": "enabled",
+      "description": "Signs short-lived driver authentication tokens."
+    }
+  ],
+  "lifecycle": {
+    "ownsPayloadSchema": true,
+    "ownsPersistentData": true,
+    "disable": "supported",
+    "uninstall": "unsupported",
+    "purge": "supported"
+  },
+  "contributions": {
+    "contracts": ["logistics.driver", "logistics.driver-task.changed"],
+    "schema": ["logistics.driver-task", "logistics.driver-device"],
+    "behavior": ["logistics.driver-task.accept"],
+    "jobs": [],
+    "dataSources": ["logistics.driver.tasks"],
+    "actions": ["logistics.driver-task.accept"],
+    "blocks": ["logistics.driver-task-summary"],
+    "navigation": ["logistics.driver.navigation"],
+    "admin": []
+  }
+}

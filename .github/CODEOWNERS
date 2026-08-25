@@ -1,0 +1,8 @@
+# Architecture and public contract changes require owner review.
+* @rootkeystudio
+
+/contracts/ @rootkeystudio
+/schemas/ @rootkeystudio
+/fixtures/ @rootkeystudio
+/docs/adr/ @rootkeystudio
+/.github/workflows/ @rootkeystudio

@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.k-nex.dev/plugin/v1.json",
+  "title": "K-Nex Plugin Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "id",
+    "kind",
+    "displayName",
+    "version",
+    "package",
+    "compatibility",
+    "lifecycle"
+  ],
+  "properties": {
+    "$schema": { "type": "string" },
+    "apiVersion": { "const": 1 },
+    "id": {
+      "type": "string",
+      "pattern": "^(module|provider|builder|theme|integration|preset)(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$"
+    },
+    "kind": {
+      "enum": ["module", "provider", "builder", "theme", "integration", "preset"]
+    },
+    "displayName": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "version": { "$ref": "#/$defs/exactSemver" },
+    "package": {
+      "type": "string",
+      "pattern": "^@?[a-z0-9][a-z0-9._-]*(?:/[a-z0-9][a-z0-9._-]*)?$"
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["core", "payload", "node", "payloadDatabaseAdapters"],
+      "properties": {
+        "core": { "type": "string", "minLength": 1 },
+        "payload": { "type": "string", "minLength": 1 },
+        "node": { "type": "string", "minLength": 1 },
+        "payloadDatabaseAdapters": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["postgres"] }
+        }
+      }
+    },
+    "provides": {
+      "type": "array",
+      "default": [],
+      "items": { "$ref": "#/$defs/capabilityProvision" }
+    },
+    "requires": {
+      "type": "array",
+      "default": [],
+      "items": { "$ref": "#/$defs/dependency" }
+    },
+    "optional": {
+      "type": "array",
+      "default": [],
+      "items": { "$ref": "#/$defs/dependency" }
+    },
+    "conflicts": {
+      "type": "array",
+      "default": [],
+      "items": { "$ref": "#/$defs/dependency" }
+    },
+    "surfaces": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "enum": ["workspace", "cms", "public", "driver", "mobile", "system"] }
+    },
+    "environment": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "secret", "requiredWhen"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+          "secret": { "type": "boolean" },
+          "requiredWhen": { "enum": ["installed", "enabled", "configured-feature"] },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ownsPayloadSchema", "ownsPersistentData", "disable", "uninstall", "purge"],
+      "properties": {
+        "ownsPayloadSchema": { "type": "boolean" },
+        "ownsPersistentData": { "type": "boolean" },
+        "disable": { "enum": ["supported", "unsupported"] },
+        "uninstall": { "enum": ["supported", "unsupported"] },
+        "purge": { "enum": ["supported", "unsupported"] }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "ownsPayloadSchema": { "const": true } },
+            "required": ["ownsPayloadSchema"]
+          },
+          "then": {
+            "properties": { "uninstall": { "const": "unsupported" } }
+          }
+        }
+      ]
+    },
+    "contributions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "contracts": { "$ref": "#/$defs/stringArray" },
+        "schema": { "$ref": "#/$defs/stringArray" },
+        "behavior": { "$ref": "#/$defs/stringArray" },
+        "jobs": { "$ref": "#/$defs/stringArray" },
+        "dataSources": { "$ref": "#/$defs/stringArray" },
+        "actions": { "$ref": "#/$defs/stringArray" },
+        "blocks": { "$ref": "#/$defs/stringArray" },
+        "navigation": { "$ref": "#/$defs/stringArray" },
+        "admin": { "$ref": "#/$defs/stringArray" }
+      }
+    }
+  },
+  "$defs": {
+    "exactSemver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    },
+    "capabilityId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$"
+    },
+    "pluginId": {
+      "type": "string",
+      "pattern": "^(module|provider|builder|theme|integration|preset)(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$"
+    },
+    "capabilityProvision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability", "version"],
+      "properties": {
+        "capability": { "$ref": "#/$defs/capabilityId" },
+        "version": { "$ref": "#/$defs/exactSemver" }
+      }
+    },
+    "dependency": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["plugin", "version"],
+          "properties": {
+            "plugin": { "$ref": "#/$defs/pluginId" },
+            "version": { "type": "string", "minLength": 1 },
+            "reason": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["capability", "version"],
+          "properties": {
+            "capability": { "$ref": "#/$defs/capabilityId" },
+            "version": { "type": "string", "minLength": 1 },
+            "reason": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "stringArray": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$"
+      }
+    }
+  }
+}
