@@ -62,6 +62,12 @@ Run `python3 scripts/validate_repository_contracts.py` before merging architectu
 8. [Glossary](./22-glossary.md)
 9. [External references](./references.md)
 
+## Implementation plans
+
+1. [Phase 0 — Contract freeze and repository readiness](./implementation/phase-0.md)
+
+Implementation plans are execution specifications. They translate architecture gates into bounded work packages, acceptance commands, evidence requirements, and agentic-coding constraints. A phase plan does not prove completion; completion is recorded separately in a phase result document.
+
 ## Current accepted direction
 
 | Area | Direction | Evidence |
