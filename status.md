@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-26
 - **Phase:** Phase 1 — Minimal Deterministic Payload Composition
-- **Active task:** P1.5 — Implement phased registration and declared-versus-actual inventory
+- **Active task:** P1.6 — Compose the minimal Payload application
 - **State:** Ready to start
 
 ## Last completed
 
-Added hermetic customer-config fingerprinting and deterministic generation/checking for the five committed Gate 1 artifacts. The generator reconciles the application manifest, exact installed manifests, resolver output, integrity data, framework tuple, normalized contributions, lifecycle metadata, and environment-variable names without importing plugin server code.
+Added the canonical phase-major registration runtime with dependency-first plugin execution, phase-specific APIs, immutable declaration snapshots, scoped capability access, resolved-provider binding, descriptor/handler separation, exact declared-versus-actual inventory reconciliation, and a real freeze boundary.
 
 ## Validation
 
-Repository build, 59 composition tests, 25 architecture-contract tests, contract validation, and two-root artifact byte comparison pass. The contract-generation digest remains `bc6886e272a10d1129347163deaaf87004800fb4d6655f37e5ba873070bf94ee`; generated fixture check mode reports current artifacts.
+Repository build and all 72 composition tests pass. The P1.5 corpus covers canonical phase and plugin order, restricted phase APIs, immutable declaration allowlists, scoped services, wrong-phase and late registration, undeclared contributions and capability access, duplicate IDs, missing bindings, provider/graph drift, and manifest/actual inventory mismatch.
 
 ## Next
 
-Implement P1.5 phased registration, scoped phase APIs, freeze enforcement, and declared-versus-actual inventory reconciliation.
+Implement P1.6 through the dedicated Payload adapter with one owned Sales collection and authenticated read policy.
 
 ## Blockers
 
