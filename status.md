@@ -3,20 +3,20 @@
 - **Updated:** 2026-08-25
 - **Phase:** Phase 0 — Contract Freeze and Repository Readiness
 - **Active task:** P0.7 — Close the gate and promote evidence
-- **State:** Ready to start
+- **State:** Ready for review
 
 ## Last completed
 
-Reviewed and accepted P0.6; active rulesets now enforce pull requests, one CODEOWNER approval, the `validate` check, stale-review dismissal, conversation resolution, and deletion/non-fast-forward restrictions for `main` and `v*` release tags. Added the repository-driven Codex master plan for Gates 0–7.
+Audited all Phase 0 evidence and created the closeout result with a `REWORK PHASE 0` decision. ADR-0014 remains `design-only` because its Gate 1 resolver, hermetic config, and runtime-inventory decisions lack executable evidence.
 
 ## Validation
 
-PR #12 proved red-to-green enforcement: run `32889179416` failed with `SCHEMA_INVALID /schemaVersion`, runs `32889335963` and `32889482514` passed, direct and non-fast-forward pushes were rejected, rulesets `21473575` and `21474044` are active, and issue #2 is closed.
+Frozen install and `pnpm phase:0` pass on Node 24.19.0/pnpm 11.9.0; 25 tests pass and reproducibility digest is `bc6886e272a10d1129347163deaaf87004800fb4d6655f37e5ba873070bf94ee`.
 
 ## Next
 
-Execute P0.7 from `docs/implementation/codex-master-plan.md`: create the Phase 0 result, promote only supported evidence, run `pnpm phase:0`, and record the Phase 1 GO or REWORK decision.
+Review the Phase 0 result and decide whether to split ADR-0014 evidence scope or revise the cross-gate promotion requirement; do not start Phase 1 before that decision.
 
 ## Blockers
 
-None.
+ADR-0014 includes Gate 1-only decisions, but Phase 0 requires whole-ADR executable promotion before Gate 1 may start.
