@@ -2,854 +2,700 @@
 
 ## Objective
 
-The research phase must prove that K-Nex can transform a declarative customer specification into an independently deployed product that combines reusable backend logic, replaceable infrastructure providers, style-agnostic module UI, typed data/state bindings, a shared CMS/workspace builder architecture, and runtime-configurable installed themes—without creating dependency, migration, security, or upgrade chaos.
-
-The goal is not to build complete CRM, logistics, restaurant, inventory, budgeting, analytics, or production tracking products. The goal is to validate the architecture's riskiest assumptions with thin, measurable vertical slices.
-
-## Required POC products
-
-Build at least:
+The research phase must prove that K-Nex can generate independently deployed Payload applications from a declarative specification and compose:
 
 ```text
-k-nex platform/packages POC
+Payload + Postgres
+K-Nex modules/providers/themes/builder
+plugin-owned authenticated data sources
+style-agnostic reusable UI blocks
+CMS/workspace visual composition
+secure realtime invalidation
+customer-owned migrations and deployment
+```
+
+The goal is not to finish a production CRM, logistics suite, restaurant ERP, analytics platform, or visual query builder. The goal is to validate the architecture's riskiest assumptions through narrow vertical slices.
+
+# Required POC repositories
+
+```text
+k-nex platform monorepo/POC
 client-acme-cargo-poc
 client-mamma-restaurant-poc
 ```
 
-Both customer repositories must be generated through the CLI from explicit specifications, not hand-copied from the platform source.
+Customer repositories must be generated through the CLI and consume released/workspace packages. They must not copy platform core source.
 
-## Core hypotheses
+# Core hypotheses
 
-### H-001 — Manifest-driven generation is deterministic
+## H-001 — Manifest-driven generation is deterministic
 
-Given the same:
+Same manifest, catalog, CLI version, customer config, and lockfile constraints produce the same scaffold and generated registries.
 
-```text
-k-nex.app.json
-catalog/static manifests
-CLI version
-package registry state
-lockfile constraints
-customer TypeScript config
-```
+## H-002 — Payload Postgres scaffold is sufficient
 
-the CLI produces the same package graph, generated registries, build inventory, database/provider composition, UI/data/state registry, and environment schema.
+K-Nex does not need a database provider abstraction. The generator installs/configures `@payloadcms/db-postgres`; modules use authenticated Payload APIs/request context; Docker and external Postgres work without module changes.
 
-### H-002 — Plugin/capability graph is safe and understandable
+## H-003 — Plugin/capability graph is understandable
 
-Missing dependencies, incompatible versions, duplicate singleton providers, conflicts, cycles, and contribution collisions fail before Payload boot with actionable ownership/remediation messages.
+Missing/incompatible module dependencies, duplicate replaceable providers, conflicts, cycles, and contribution collisions fail before application boot with owner/remediation details.
 
-### H-003 — Payload can host the platform without deep forks
+## H-004 — Payload hosts module composition without deep forks
 
-K-Nex can compose collections, endpoints, jobs, permissions, admin/system contributions, database provider wiring, and migrations from plugins while keeping domain logic testable outside hooks.
+Collections, globals, services, access, endpoints, jobs, sources, and admin contributions compose deterministically.
 
-### H-004 — Database adapters and targets fit the provider model
+## H-005 — Modules expose deliberate authenticated data sources
 
-The selected `database.primary` adapter and local/hosted target can be resolved from the manifest, generated statically, validated by capabilities, and used by modules without direct provider imports.
-
-The first proof uses:
+A Sales module exposes:
 
 ```text
-provider.database-postgres
-local Docker Postgres target
-external Postgres URL target
+sales.total-opportunities
+sales.tasks
+sales.opportunities-by-stage
 ```
 
-A module requiring transactions must resolve successfully with Postgres, while a deliberately incomplete experimental adapter must fail before boot.
+without exposing raw collections or database access.
 
-### H-005 — One canonical UI contract can support CMS and workspace profiles
+## H-006 — Generic components consume module sources
 
-The same block/layout/runtime architecture can power public page creation and authenticated dashboard/overview composition while enforcing different policies.
+Counter, DataTable, PieChart, and BarChart bind to output contracts and field metadata without importing Sales implementation code.
 
-### H-006 — Puck can be an adapter rather than a leaked dependency
+## H-007 — Source authorization survives client manipulation
 
-Puck can edit/round-trip canonical K-Nex documents without domain modules importing Puck types or requiring a deep engine fork.
+Payload session, permission, record policy, and field policy are enforced server-side for discovery, execution, and realtime subscription.
 
-### H-007 — Style-agnostic module UI can render across different themes
+## H-008 — Realtime invalidation/refetch is reliable
 
-The same reusable module block/screen can render correctly and accessibly under at least Minimal, Neobrutalism, and one materially different theme/profile.
+After a committed mutation, authorized active source queries are invalidated and refetched. Missed messages/reconnect recover through the source endpoint.
 
-### H-008 — Theme package/profile split works
+## H-009 — One UI contract supports CMS and workspace profiles
 
-New theme code requires build/deploy; palette/token/profile changes among installed themes can preview/publish/rollback from database revisions without document mutation.
+Same canonical block/layout/binding model supports public pages and authenticated dashboards with different palettes, security, and publication rules.
 
-### H-009 — Plugin-exposed data sources and state can drive generic components
+## H-010 — Puck remains an adapter
 
-CRM/logistics/restaurant plugins can expose typed data sources, the visualization plugin can expose generic chart/table blocks, and the builder can connect them through typed parameters and page state without domain imports or arbitrary code.
+Puck round-trips canonical K-Nex documents without leaking types into domain modules or requiring a deep fork.
 
-Required proof:
+## H-011 — Style-agnostic module UI renders through different themes
 
-```text
-DateRangeFilter writes page state
-  → Pie/Bar chart source input reads state
-  → chart selection writes another state
-  → table source reads both states
-```
+Same components render accessibly under Minimal, Neobrutalism, and one materially different public theme/profile.
 
-### H-010 — Customer-owned migrations remain manageable
+## H-012 — Customer-owned migrations remain manageable
 
-Plugins can publish schema/data/UI/theme/source/state helpers while customer repositories own final clean/upgrade migrations and independent release history.
+Two customer compositions have separate Payload migrations, lockfiles, releases, and upgrade paths.
 
-### H-011 — Realtime provider substitution works
+# Key research questions
 
-Driver consumes `realtime.gateway`; local and distributed-provider experiments can satisfy the contract without changing driver domain code. Data sources can use the same capability for invalidation or selected stream projections.
+## Packaging and CLI
 
-### H-012 — Security boundaries survive client manipulation
+- first-party monorepo topology;
+- GitHub Packages/private registry auth;
+- final npm scope;
+- static manifest reading without runtime execution;
+- deterministic generated registries;
+- interactive/non-interactive parity;
+- plan/apply rollback;
+- secret-safe environment generation.
 
-UI visibility, builder palette, source picker, state/binding metadata, or client request changes cannot bypass server action/data-source/record/realtime policy.
+## Payload scaffold
 
-## Key research questions
+- exact Payload/Next project template;
+- generated Postgres adapter code;
+- Docker Postgres startup and external URL operation;
+- request/transaction context propagation;
+- type generation and migration commands;
+- framework upgrade boundaries.
 
-## Platform and packaging
+## Module composition
 
-- Should first-party core/UI/CLI/early modules live in one monorepo? Current recommendation: yes during contract stabilization.
-- Does GitHub Packages provide acceptable local/CI/deployment authentication?
-- Which final package scope is available and appropriate?
-- Can static plugin manifests be read without executing package code?
-- Can exact package versions and capability contract versions coexist clearly?
-- Can generated registries be committed without harmful churn?
-- Should database target packages contain runtime code, CLI recipes, catalog metadata, or a combination?
+- explicit contribution phases;
+- collision ownership for collection slugs, routes, permissions, events, jobs, sources, actions, blocks;
+- disabled schema-owning module behavior;
+- server/client export separation.
 
-## CLI
+## Data sources
 
-- Can interactive and non-interactive creation produce byte-equivalent normalized output?
-- Can plan/apply stage/rollback filesystem and package changes safely?
-- Can manual JSON edits reconcile through `k-nex sync`?
-- Can secret prompts avoid committed/logged exposure?
-- Can add/disable/uninstall/purge plans correctly report data/layout/theme/source/state impact?
-- Can `doctor` detect stale generated output and real framework collisions?
-- Can database adapter and target changes show honest migration/deployment impact?
-
-## Database providers
-
-- Can the Postgres framework adapter be registered only through generated provider composition?
-- Which capabilities should Postgres claim in V1?
-- Can modules declare transaction/index/constraint requirements without importing the provider?
-- Can local Docker and external Postgres targets share one adapter and module code?
-- What environment/pooling/health metadata belongs to the target versus adapter?
-- How should migration locks and required Postgres extensions be represented?
-- Can an experimental SQLite/fake adapter be rejected when required capabilities are absent?
-- Can provider diagnostics remain useful while redacting every secret?
-
-## Payload composition
-
-- Which contribution types can be merged safely?
-- Which function/config fields require explicit adapters rather than generic merge?
-- Can ownership diagnostics identify both plugins in a slug/route/capability collision?
-- Can disabled/uninstalled schema-owning modules preserve data safely?
-- Can two customer compositions generate correct distinct Payload types/migrations?
-- Can transaction context flow through domain services, outbox writes, jobs, and UI actions consistently?
-
-## UI runtime
-
-- Which semantic primitive foundation best supports style neutrality and accessibility?
-- Can navigation, screens, blocks, data sources, state, context, actions, and slots resolve from enabled plugins deterministically?
-- Can server/client bundles avoid server-only dependency leakage?
-- Can missing blocks or sources fail safely without crashing a page?
-- Can one module block render under multiple themes without custom conditionals?
-- Can generic visualization blocks consume multiple domain source contracts?
-
-## Data sources, state, and bindings
-
-- What initial shared output contracts are sufficient: scalar, tabular, category series, time series, geo, record list?
-- Can builder source discovery filter by installed plugin, surface, audience, permission, contract, and deprecation state?
-- Can source input forms be generated safely from schemas?
-- Can field mapping remain useful without introducing arbitrary expressions?
-- Which state scopes/persistence policies are needed in V1?
-- Can graph validation reject schema mismatches, public/private edges, and cycles deterministically?
-- Can source caching include every authorization-relevant dimension?
-- Can preview use live, redacted, or fixture data without privilege escalation?
-- Should realtime use invalidation by default and streams only for genuine live projections?
-- How should source/state/block version migrations interact?
-
-## Builder
-
-- Can Puck round-trip a K-Nex-owned canonical document?
-- Can fixed shell and editable canvas coexist cleanly?
-- Can CMS/workspace profiles expose different palettes, sources, actions, state, and policies?
-- Can arbitrary JS/CSS/SQL/imports/URLs be impossible through the stored schema?
-- Can customer/role/user layout scopes work with patch, snapshot, or hybrid inheritance?
-- Can component/source/state migrations cover drafts, published pages, role/user layouts, and revisions?
-- Does the existing Payload–Puck integration fit storage/publication needs, or should K-Nex implement its own adapter?
-
-## Themes
-
-- Can semantic primitive adapters be swapped without changing module block data?
-- Can token schemas generate safe CSS variables consistently on server/client?
-- Can accessibility validation prevent obviously invalid profiles?
-- Can profile migration create draft rather than silently publishing visual change?
-- Can editor chrome remain stable while previewing extreme public themes?
-- Can charts/maps/tables use semantic theme roles without domain-specific CSS?
+- exact `defineDataSource` API;
+- descriptor/handler separation;
+- standard source gateway path/method;
+- Payload auth and record/field policy;
+- source output contract library;
+- field metadata for tables;
+- pagination/sort/filter allowlists;
+- source versioning/migrations;
+- discovery behavior by surface/audience/permission;
+- public versus internal source isolation;
+- cache/query-key policy.
 
 ## Realtime
 
-- Can driver require `realtime.gateway` capability and fail clearly when absent?
-- Can domain modules register typed channel policy without transport imports?
-- Can local adapter run in the selected application process/deployment?
-- What changes for Redis-backed/multi-instance mode?
-- Are after-commit invalidation messages enough for POC, and where is outbox required?
-- Can source invalidation and live stream reducers remain provider-independent?
+- authenticated socket handshake;
+- per-source/topic/scope subscription authorization;
+- invalidation message format;
+- query-key matching;
+- reconnect and permission refresh;
+- local versus Redis-backed provider;
+- when snapshot + typed stream is required.
+
+## UI and builder
+
+- fixed shell plus editable canvas;
+- semantic primitive foundation;
+- Counter/DataTable/chart source picker;
+- source field/column picker;
+- shared page filters/state;
+- canonical document round-trip;
+- profile-specific palette/security;
+- missing/disabled source fallback;
+- layout inheritance/storage.
+
+## Themes
+
+- safe server/client token generation;
+- primitive recipes/overrides;
+- draft/preview/publish/rollback;
+- accessibility validation;
+- schema migrations without auto-publish.
 
 ## Migrations and lifecycle
 
-- Can plugin install generate customer-owned migration safely?
-- What does disabled schema-owning module mean in Payload?
-- How can uninstall retain data without framework boot issues?
-- Can purge detect module dependents and stored block/source/state references?
-- Can UI/theme/source/state migrations preview and roll back independently from code deployment?
-- Can database target changes avoid false schema migrations while dialect changes demand explicit data migration planning?
+- plugin addition and customer migration generation;
+- disable/uninstall/purge boundaries;
+- stored layout/source reference scans;
+- clean and previous-release upgrades;
+- independent customer rollout.
 
-## Security
+# POC package scope
 
-- Can public CMS blocks be guaranteed to use public projections/actions only?
-- Can direct UI action/data-source calls enforce permission and record scope?
-- Can source parameters, field mappings, state values, and event bindings resist injection?
-- Can binding graphs prevent arbitrary imports, handlers, URLs, SQL, and code?
-- Can builder/theme data resist script/style/import injection?
-- Can CLI redact secrets and prevent path/shell injection?
-- Can release inventory identify vulnerable package versions across customers?
-
-## POC package scope
-
-Minimum reusable packages/plugins:
+Minimum packages:
 
 ```text
 @k-nex/contracts
 @k-nex/core
 @k-nex/cli
-
-@k-nex/database-postgres
-
 @k-nex/ui-contracts
 @k-nex/ui-runtime
 @k-nex/ui-shell
 @k-nex/ui-design-system-contracts
-@k-nex/ui-data-sources
-@k-nex/ui-state
-@k-nex/ui-bindings
 @k-nex/builder-puck
-
 @k-nex/theme-minimal
 @k-nex/theme-neobrutalism
-@k-nex/theme-glassmorphism-or-contrast-theme
-
-@k-nex/module-visualization
 @k-nex/module-cms
-@k-nex/module-crm-thin
+@k-nex/module-sales
+@k-nex/module-visualization
 @k-nex/module-logistics-core
 @k-nex/module-driver
 @k-nex/module-restaurant-core
 @k-nex/module-qr-menu
-
 @k-nex/provider-websocket
 ```
 
-CRM remains a thin source/block provider for the POC. Full dispatch, inventory accounting, budgeting, and production GPS history remain architecture stubs until the platform works.
-
-## Customer POC A — Acme Cargo
-
-### Requested composition
+Framework dependency:
 
 ```text
+Payload
+@payloadcms/db-postgres
+```
+
+There is no `@k-nex/database-postgres` package.
+
+# Sales source POC
+
+## Minimal Sales data model
+
+```text
+Companies
+Contacts
+Opportunities
+SalesTasks
+```
+
+Opportunity fields:
+
+```text
+name
+stage
+potentialRevenue
+currency
+owner
+company
+expectedCloseAt
+status
+```
+
+Task fields:
+
+```text
+title
+status
+dueAt
+assignee
+relatedOpportunity
+```
+
+## `sales.total-opportunities`
+
+Output contract:
+
+```text
+metric.money@1
+```
+
+Example:
+
+```json
+{
+  "value": 325000,
+  "currency": "TRY"
+}
+```
+
+Inputs may include date range, stage IDs, owner, and branch context.
+
+## `sales.tasks`
+
+Output contract:
+
+```text
+table.records@1
+```
+
+Fields:
+
+```text
+title             text      selectable/sortable/filterable
+status            enum      selectable/sortable/filterable
+dueAt             datetime  selectable/sortable/filterable
+assignee.name     text      selectable
+opportunity.name  text      selectable
+potentialRevenue  money     separately permission-protected when projected
+```
+
+Supports bounded pagination and allowlisted sorting/filtering.
+
+## `sales.opportunities-by-stage`
+
+Output contract:
+
+```text
+series.category@1
+```
+
+Used by PieChart/BarChart.
+
+# Customer POC A — Acme Cargo
+
+## Composition
+
+```text
+Payload + Postgres
 module.cms
-module.crm-thin
+module.sales
 module.visualization
 module.logistics-core
-module.logistics-driver
-provider.database-postgres
+module.driver
 provider.realtime-websocket-local
 builder.puck
-CMS and workspace builder profiles
+CMS + workspace profiles
 theme.minimal (admin)
 theme.neobrutalism (public)
 ```
 
-### Customer-specific work
+## Workspace journey
 
-- brand assets and approved fonts;
-- public cargo layout and theme token profile;
-- one customer block/renderer override;
-- one local domain extension such as shipment number policy;
-- minimal driver frontend;
-- dispatcher/admin role definitions.
+1. Admin logs in.
+2. Module navigation appears in fixed shell.
+3. Admin creates opportunities and tasks.
+4. Admin opens workspace builder.
+5. Adds date-range filter.
+6. Adds Counter bound to `sales.total-opportunities`.
+7. Adds PieChart bound to `sales.opportunities-by-stage`.
+8. Adds DataTable bound to `sales.tasks`.
+9. Selects title, status, due date, and assignee columns.
+10. Publishes role layout.
+11. Opportunity/task changes invalidate active queries.
+12. Counter/chart/table refetch and rerender.
 
-### CMS journey
+## Security journey
 
-1. Editor creates a cargo landing page.
-2. Adds shared content blocks and module-provided public tracking form.
-3. Tracking block uses an explicitly public projection/action.
-4. Previews using Neobrutalism public theme draft.
-5. Publishes page and theme profile.
-6. Public page exposes no authenticated logistics/CRM source.
-7. Switches palette/token values without redeploying.
+1. Sales manager sees revenue source/field.
+2. Staff role can see tasks but lacks revenue permission.
+3. Revenue source/field is absent from discovery.
+4. Manual request is denied server-side.
+5. Manual WebSocket subscription to unauthorized scope is denied.
+6. Another branch's records remain inaccessible.
 
-### Workspace data-binding journey
+## CMS journey
 
-1. Admin opens module-generated navigation in fixed shell.
-2. Customer admin adds a date-range filter, shipment-status bar chart, CRM pipeline pie chart, delayed-shipment table, and live-fleet map.
-3. Date-range filter writes `page.filters.date-range`.
-4. Chart sources bind their period inputs to that state and branch input to `context.current-branch`.
-5. Selecting a shipment-status bar writes `page.filters.shipment-status`.
-6. Shipment table source consumes both state values.
-7. Live map uses initial snapshot plus realtime stream/invalidation.
-8. Customer admin locks one required operations block.
-9. Dispatcher role receives a published role layout.
-10. Individual dispatcher reorders/hides only allowed personal blocks.
-11. Same blocks render under Minimal admin theme.
+1. Editor composes cargo landing page.
+2. Adds public content blocks and explicit public tracking form/source.
+3. Internal Sales sources do not appear.
+4. Draft preview requires editor authentication.
+5. Public publish uses Neobrutalism theme.
 
-### Realtime journey
+## Realtime/driver journey
 
-1. Admin creates and assigns a minimal shipment/task.
-2. Transaction commits and records event.
-3. Driver projection updates.
-4. Realtime gateway sends task invalidation/update to authorized driver.
-5. Driver fetches authoritative task data.
-6. Another driver cannot subscribe/fetch it.
-7. Reconnect recovers current state even if a message was missed.
-8. Dashboard source invalidates/refetches without embedding transport logic in chart/table blocks.
+1. Assignment/task commits.
+2. Authorized driver receives invalidation/update.
+3. Driver fetches authoritative projection.
+4. Another driver cannot subscribe/fetch.
+5. Reconnect recovers current state.
 
-## Customer POC B — Mamma Restaurant
+# Customer POC B — Mamma Restaurant
 
-### Requested composition
+## Composition
 
 ```text
+Payload + Postgres
 module.cms
-module.visualization
 module.restaurant-core
-module.restaurant-qr-menu
-provider.database-postgres
+module.qr-menu
+module.visualization
 builder.puck
-CMS and workspace builder profiles
+CMS profile
 theme.minimal (admin)
-theme.glassmorphism or another materially different public theme
+theme.glassmorphism (public)
 ```
 
-### Customer-specific work
-
-- restaurant brand assets/fonts;
-- public theme profile;
-- customer-specific hero/story block;
-- local menu availability extension.
-
-### CMS journey
+## Journey
 
 1. Admin creates dishes/categories/branches.
-2. Editor composes public page with shared content and restaurant module blocks.
-3. Cargo-only components and internal sources do not appear.
-4. Branch selector writes approved public page state.
-5. Public menu source binds branch and locale context.
-6. Draft preview is authorization-protected.
-7. QR menu/public page publishes with restaurant theme.
-8. Internal cost/stock data is absent from public projection.
+2. Restaurant module exposes explicit public menu source.
+3. Editor composes public page with shared and restaurant blocks.
+4. Cargo/Sales internal sources are unavailable.
+5. Public menu projection excludes costs/internal data.
+6. Same builder/runtime/theme contracts remain unchanged.
 
-### Workspace data-binding journey
+# CLI scenarios
 
-1. Admin composes restaurant overview using the same visualization package as Cargo.
-2. Date-range and branch filters drive `restaurant.sales.by-category`.
-3. Generic pie chart renders restaurant data with Minimal admin theme.
-4. A thin inventory/low-stock stub source drives a generic table.
-5. Source mappings and state are stored as IDs/configuration, not records or code.
-6. Same builder/runtime packages remain unchanged from Cargo.
-
-## Cross-customer proof
-
-- Core/platform package fix upgrades Cargo only.
-- Restaurant remains on previous package versions and keeps running.
-- Both repositories have separate lockfiles/migrations/build inventories/databases.
-- Same visualization block renders different plugin data under different visual systems.
-- Customer extension in one repository does not appear in the other.
-- No copied platform source exists in either customer repository.
-- Both use Postgres through generated provider composition.
-- Their layouts expose only sources from their enabled plugins.
-
-## CLI POC scenarios
-
-### Interactive creation
+## Interactive creation
 
 ```bash
 pnpm create k-nex-app client-acme-cargo-poc
 ```
 
-Verify prompt selections generate expected manifest, packages, database target, Docker services, environment schema, registries, and infrastructure.
+Verify Payload Postgres adapter package/config and selected K-Nex packages.
 
-### Non-interactive creation
+## Non-interactive creation
 
-Generate the same application from flags/spec file and compare normalized output.
+Generate equivalent app from flags/spec and compare normalized output.
 
-### Add plugin
+## Add Sales
+
+```bash
+k-nex add module.sales
+```
+
+Expected:
+
+```text
+package and schema additions
+Sales permissions/events/sources/blocks
+customer migration required
+no database provider plugin
+```
+
+## Add driver
 
 ```bash
 k-nex add module.logistics-driver
 ```
 
-Expected: resolver proposes logistics core and realtime provider, environment requirements, schema/UI/source/state impact.
+Expected: logistics core and realtime provider proposed.
 
-### Database selection
-
-```bash
-k-nex database set provider.database-postgres
-k-nex database target local-docker-postgres
-```
-
-Expected: generated adapter registry, Docker Compose service, `.env.example`, health/readiness, and migration scripts.
-
-### Database target replacement
+## Realtime provider replacement
 
 ```text
-local Docker Postgres
-  → external Postgres URL
+websocket-local → websocket-redis
 ```
 
-Expected: module code and schema unchanged; CLI reports environment/deployment/backup impact and redacts URL.
+Driver/domain code unchanged; infrastructure impact reported.
 
-### Realtime provider replacement
+## Disable/remove/purge
+
+Different package/schema/source/layout behavior; purge refuses without readiness/backup/confirmation.
+
+## Stale generation
+
+Manifest edit without generate makes CI fail.
+
+## Secret safety
+
+External `DATABASE_URL` is written only to ignored local file and redacted.
+
+# Data-source scenarios
+
+## Counter
+
+- authorized source discovery;
+- scalar output binding;
+- loading/empty/error/forbidden states;
+- realtime invalidation/refetch.
+
+## DataTable
+
+- source field metadata;
+- selected columns persisted;
+- allowlisted pagination/sort/filter;
+- field-level permission;
+- task mutation invalidation;
+- reconnect recovery.
+
+## Shared filters
+
+- date filter writes page state;
+- counter/chart/table bind source params to state;
+- state changes create validated query keys;
+- invalid/cyclic bindings fail.
+
+## Source disable/version migration
+
+- disabled source gives safe unavailable state;
+- layout remains stored;
+- source field/version migration updates fixtures;
+- publication/readiness detects incompatible references.
+
+# Deliberate failure tests
+
+## Database abstraction regression
+
+Attempt to add `provider.database-postgres` or `@k-nex/database-postgres`.
+
+Expected: manifest/contracts reject; scaffold uses `@payloadcms/db-postgres`.
+
+## Duplicate source
+
+Two plugins register `sales.tasks`.
+
+Expected: generation fails naming both owners.
+
+## Unauthorized source
+
+Actor requests revenue source without permission.
+
+Expected: forbidden, no leakage.
+
+## Unauthorized field
+
+Actor requests protected revenue column.
+
+Expected: discovery omits and execution rejects/omits according to contract.
+
+## Unauthorized realtime subscription
+
+Actor subscribes to another branch/user scope.
+
+Expected: denial and no data-bearing event.
+
+## Transaction rollback
+
+Mutation fails after preparing invalidation/event.
+
+Expected: no external invalidation/event before commit.
+
+## Public/private boundary
+
+Public CMS document binds `sales.tasks`.
+
+Expected: builder/publication validation and server denial.
+
+## Arbitrary query/code
+
+Inject SQL, raw Payload where object, arbitrary URL, JS/import/secret.
+
+Expected: schema validation failure.
+
+## Unbounded table
+
+Request unsupported page size/sort/filter.
+
+Expected: input/cost limit failure.
+
+## Missed WebSocket message
+
+Disconnect during mutation, reconnect.
+
+Expected: endpoint refetch recovers current data.
+
+# Acceptance criteria
+
+## Architecture/packaging
+
+- separate customer repositories consume packages;
+- no copied core;
+- no K-Nex database provider package;
+- deterministic Payload Postgres scaffold;
+- versions/registries match lockfile.
+
+## Backend
+
+- final Payload config boots;
+- authenticated source handlers use `req.payload`/domain services;
+- collisions identify owners;
+- clean/upgrade migrations pass;
+- transactions/access policies are testable.
+
+## Sources/UI
+
+- Counter binds scalar source;
+- DataTable binds task source and selected columns;
+- chart binds category-series source;
+- generic blocks import no Sales implementation;
+- permission/field/pagination/sort/filter server enforcement;
+- missing/disabled/versioned sources fail safely.
+
+## Realtime
+
+- invalidation only after commit;
+- authorization-scoped delivery;
+- authenticated endpoint refetch;
+- reconnect recovery;
+- streams not required for ordinary widgets.
+
+## Builder/themes
+
+- fixed shell and profile restrictions;
+- internal sources blocked from public publish;
+- same block renders across themes;
+- no executable query/code in documents;
+- canonical Puck round-trip.
+
+## Operations
+
+- Cargo upgrades independently of Restaurant;
+- package/source/theme/migration inventory visible;
+- backup/restore proof;
+- no secrets in source/logs.
+
+# Rejection criteria
+
+## Reject Payload if
+
+- deterministic composition requires deep fork;
+- authenticated source handlers cannot preserve access/transactions;
+- migrations/types are unreliable;
+- required topology is unreasonable;
+- upgrades impose unacceptable coupling.
+
+## Reject Puck if
+
+- canonical document cannot round-trip;
+- fixed-shell/profile/source restrictions cannot be enforced;
+- source/field binding requires unstable deep fork;
+- domain modules leak Puck types;
+- realistic layouts fail accessibility/performance.
+
+Fallback: Craft.js through same K-Nex contracts.
+
+# Research phases
+
+## Phase 0 — Tooling/package spike
 
 ```text
-provider.realtime-websocket-local
-  → provider.realtime-websocket-redis
+monorepo decision
+registry/scope proof
+pnpm/Changesets/test conventions
+minimal CI
+hello-world publish/install
 ```
 
-Expected: driver/source code unchanged; CLI reports Redis/infrastructure/deployment impact.
-
-### Disable/uninstall/purge
-
-Verify each has different package/data/UI/source/state behavior and purge refuses without explicit confirmation/readiness.
-
-### Stale generated files
-
-Manually edit manifest without generation. CI `k-nex generate --check` must fail.
-
-### Secret safety
-
-External database URL/local secret prompt must write only ignored local environment file and remain redacted from output.
-
-## Database POC scenarios
-
-### Generated adapter boot
-
-Remove hard-coded database adapter import. Application must boot only through `.k-nex/generated/provider-registry.ts`.
-
-### Capability requirement
-
-Inventory/transaction fixture requires `database.transactions`. Postgres resolves it.
-
-### Incompatible adapter
-
-Install a fake/experimental adapter that provides `database.primary` but not transactions.
-
-Expected: resolver rejects dependent module before install/generation/boot.
-
-### Target portability
-
-Run same customer application against local Docker Postgres and external Postgres fixture without module changes.
-
-### Health and migration state
-
-`k-nex doctor` distinguishes missing URL, unreachable DB, pending migration, and ready state without exposing credentials.
-
-### Customer-owned migration
-
-Generate distinct final migrations for Cargo and Restaurant. Upgrade one while leaving the other on the previous version.
-
-## Builder and binding POC scenarios
-
-### Fixed shell
-
-Editor appears inside stable sidebar/topbar; only content canvas is editable.
-
-### Profile separation
-
-Workspace-only block/source cannot appear on public CMS page. Public block cannot bind authenticated source.
-
-### Engine independence
-
-Domain module exports no Puck types. Canonical fixture round-trips edit/save/render.
-
-### Source discovery
-
-Select a generic pie/bar chart. Source picker lists compatible enabled-plugin sources only.
-
-### Shared page state
-
-Date-range block writes typed page state. Chart and table source inputs bind to it and re-execute deterministically.
-
-### Component event binding
-
-Chart selection writes selected-stage/status state. Table source consumes the state.
-
-### Mapping
-
-Map a tabular source's key/label/value fields to a generic chart. Invalid fields fail validation/publication.
-
-### Missing component/source
-
-Remove/disable plugin that provides a stored block or source. Whole page must not crash; readiness/publication reports orphan.
-
-### Component/source/state migration
-
-Upgrade property, source input/output, and state schemas; migrate CMS drafts/published content and workspace layout fixtures.
-
-### Layout scope
-
-Prove at least customer → role → user resolution. Compare patch/snapshot/hybrid complexity and select V1 storage strategy.
-
-### Security mutation
-
-Modify browser document/action/source/state/binding metadata manually. Server/runtime must reject forbidden access or invalid graph.
-
-### Cycle detection
-
-Create direct and indirect state/source cycles. Publication/generation must fail deterministically.
-
-## Theme POC scenarios
-
-- Same CMS document under Neobrutalism and Glassmorphism/Minimal.
-- Same workspace/chart block under two admin theme packages.
-- Adjust allowed palette/radius/shadow/typography/chart semantic tokens in DB and preview.
-- Reject malicious/invalid token values.
-- Publish/rollback theme revision.
-- Upgrade theme schema and create migrated draft without auto-publishing.
-- Prevent uninstall of active theme.
-
-## Deliberate failure tests
-
-### Missing capability
-
-Driver installed without realtime provider or transaction module installed without compatible database provider.
-
-Expected: plan/generate/startup fails with capability range and suggested providers.
-
-### Duplicate provider
-
-Two active singleton providers for `realtime.gateway` or `database.primary`.
-
-Expected: resolution fails before registration.
-
-### Database target mismatch
-
-Postgres target selected with a non-Postgres adapter.
-
-Expected: plan/generation failure with both plugin owners and dialect mismatch.
-
-### Duplicate framework/UI contribution
-
-Two plugins register same collection slug, route, permission, action, block, data-source, state, context, or contract ID.
-
-Expected: error names both owners and contribution type.
-
-### Incompatible versions
-
-Driver/source/block requires capability/core/contract range not provided.
-
-Expected: clear installed/required versions and remediation.
-
-### Unauthorized realtime subscription
-
-Driver B subscribes to Driver A channel.
-
-Expected: denial/security metric, no data.
-
-### Unauthorized data source
-
-User manually calls an internal source hidden from their UI.
-
-Expected: server denial; no cached or partial data.
-
-### Transaction rollback
-
-Prepare event then fail assignment transaction.
-
-Expected: no externally processed event, source invalidation, or realtime message.
-
-### Public/private boundary
-
-CMS block attempts workspace data source/action/state/context.
-
-Expected: builder validation/publication failure and server denial.
-
-### Binding schema mismatch
-
-Connect time-series source to incompatible input or invalid field mapping.
-
-Expected: publication/runtime-plan rejection with source/block versions.
-
-### Binding cycle
-
-Create state → source → automatic state write loop.
-
-Expected: deterministic graph rejection.
-
-### Arbitrary code/style input
-
-Inject JS/import/SQL/global CSS/unsafe URL into builder/theme/source/binding payload.
-
-Expected: schema validation failure and safe audit/error behavior.
-
-### Orphan block/source/state
-
-Uninstall/disable plugin used in stored CMS/workspace documents.
-
-Expected: orphan report; no automatic document deletion; safe fallback.
-
-### Theme removal
-
-Attempt to uninstall active public theme.
-
-Expected: operation refused until replacement published.
-
-### Destructive purge
-
-Purge module with dependent plugin/stored blocks/sources/states and no backup acknowledgment.
-
-Expected: operation refused.
-
-## Acceptance criteria
-
-### Architecture and packaging
-
-- Separate customer repositories consume packages; no core source copy.
-- Static plugin manifests and capabilities resolve deterministically.
-- Exact versions and generated inventory match lockfile.
-- Core never imports business modules.
-- First-party registry authentication works locally and in CI.
-
-### CLI
-
-- Interactive/non-interactive generation succeeds.
-- Plan/apply and rollback behavior is test-covered.
-- Manual manifest edits reconcile deterministically.
-- Generated plugin/provider/UI/data/state/theme registries are current and reviewable.
-- Secrets are redacted and never committed.
-
-### Database provider
-
-- Postgres adapter and target are selected through manifest/resolver.
-- Application contains no unrelated hard-coded database composition path.
-- Local Docker and external Postgres targets work with same module code.
-- Capability mismatch and duplicate primary provider fail early.
-- Health/readiness and migration diagnostics do not leak credentials.
-- Customer repositories own distinct final migrations.
-
-### Payload/backend
-
-- Final config boots from plugin contributions.
-- Collision checks work.
-- Types/migrations differ correctly by customer composition.
-- Business commands/events/jobs/access remain testable outside UI/hooks.
-
-### UI, data, and builder
-
-- Fixed shell and module navigation work.
-- CMS/workspace profiles share canonical contracts but enforce different policies.
-- Module blocks are style-agnostic and engine-independent.
-- Generic chart/table select compatible domain data sources.
-- Page state coordinates at least three components.
-- Source execution remains server-authorized and bounded.
-- Public/private bindings are rejected.
-- Binding cycles and schema mismatches are detected.
-- Customer/role/user layout scope is demonstrated.
-- Component/source/state migration and orphan behavior work.
-- Builder data contains no arbitrary executable content or live result snapshots.
-
-### Themes
-
-- Installed packages and DB profiles are separate.
-- Admin/public themes are independent.
-- Same document/block/chart renders across themes.
-- Draft/publish/rollback/schema migration works.
-- Invalid/unsafe values cannot publish.
-
-### Security
-
-- Server actions/data sources/record policy cannot be bypassed through UI manipulation.
-- Public projections remain narrow.
-- WebSocket authorization works.
-- Cache/realtime behavior cannot cross actor/public boundaries.
-- Transaction rollback emits no external fact.
-- Package/runtime install boundary is enforced.
-
-### Migrations and operations
-
-- Fresh and previous-release upgrade tests pass per customer.
-- One customer upgrades independently.
-- Disable/uninstall/purge behaviors are distinguishable.
-- Stored block/source/state references are inventoried before removal.
-- Release inventory and backup/restore proof exist.
-
-## Rejection criteria
-
-### Reject Payload as long-term base if
-
-- deterministic safe contribution/provider composition requires deep framework fork;
-- migration/type generation cannot be made reliable per customer;
-- framework upgrades force unacceptable module/customer source coupling;
-- required runtime processes cannot be deployed reasonably.
-
-### Reject Puck as first builder if
-
-- canonical document cannot round-trip without loss;
-- fixed shell/profile/source/state restrictions cannot be enforced;
-- realistic workspace layout requires deep/unstable engine fork;
-- domain modules must leak Puck types;
-- accessibility/performance cannot reach acceptable POC level;
-- preview cannot use production runtime/theme/data-source renderer.
-
-Fallback: evaluate Craft.js through the same K-Nex contracts.
-
-### Reject the generic binding layer for broad V1 use if
-
-- realistic dashboards require pervasive unsafe escape hatches;
-- graph validation/migration is less reliable than module-owned screens;
-- source authorization/caching cannot remain understandable;
-- editor UX cannot explain data/state provenance;
-- performance becomes unpredictable despite limits.
-
-Fallback: retain typed sources/actions/state for module-owned screens and restrict visual composition to simpler dashboards. Arbitrary code in documents is not the fallback.
-
-## Research phases
-
-## Phase 0 — Decisions and package/tooling spike
-
-Deliverables:
-
-- repository topology decision;
-- GitHub Packages/private registry proof;
-- final working package scope;
-- pnpm/Changesets/build/test conventions;
-- ADR/decision register maintained;
-- minimal CI;
-- publish/install hello-world core and plugin.
-
-Exit: two empty customer fixtures install one shared released package.
-
-## Phase 1 — Manifest, CLI, and graph
-
-Deliverables:
-
-- application/plugin JSON schemas;
-- trusted catalog;
-- resolver for plugin IDs, capabilities, conflicts, cycles, compatibility, and singleton providers;
-- `create-k-nex-app` minimal scaffold;
-- `k-nex plan/sync/generate/doctor`;
-- static generated registry/inventory;
-- failure fixtures.
-
-Exit: two different manifests generate deterministic repositories and invalid graphs fail clearly.
-
-## Phase 2 — Database provider, Payload composition, and migrations
-
-Deliverables:
-
-- Postgres provider contribution contract;
-- local Docker and external Postgres targets;
-- explicit Payload contribution contracts;
-- phased registration/collision ownership;
-- actor/permission/service foundations;
-- generated environment/health/readiness;
-- type generation;
-- clean/upgrade migration fixture.
-
-Exit: two distinct customer configs boot and migrate through generated Postgres provider composition.
-
-## Phase 3 — UI contracts, shell, themes, data/state foundations
-
-Deliverables:
-
-- semantic primitive contract and selected foundation;
-- UI contribution registry;
-- data-contract/data-source/state/context/action contracts;
-- binding graph validator/runtime skeleton;
-- fixed shell/navigation;
-- Minimal and Neobrutalism theme packages;
-- versioned theme profiles/preview/publication;
-- one style-agnostic module block and one generic visualization block.
-
-Exit: same block renders in two themes, permission-filtered navigation works, and a static compatible source renders through a generic chart.
-
-## Phase 4 — Builder adapter, profiles, and dynamic bindings
-
-Deliverables:
-
-- canonical K-Nex UI document;
-- Puck adapter spike;
-- CMS and workspace profiles;
-- source picker and parameter editor;
-- page state and event-to-state binding;
-- chart/table shared filter scenario;
-- public/private publication validation;
-- draft/preview/publish;
-- layout scope experiment;
-- component/source/state migration/orphan validation;
-- third-party Payload–Puck integration decision.
-
-Exit: Cargo CMS page/workspace dashboard and Restaurant CMS/workspace overview work from shared builder/data/state contracts.
-
-## Phase 5 — Events, jobs, realtime, driver slice
-
-Deliverables:
-
-- event/job wrappers;
-- after-commit/outbox experiment;
-- local realtime provider;
-- typed channel authorization;
-- source invalidation/stream experiment;
-- driver dependency proof and minimal driver client.
-
-Exit: secure cargo assignment/driver journey and live dashboard update work.
-
-## Phase 6 — Lifecycle and operations proof
-
-Deliverables:
-
-- add/disable/uninstall/purge plans;
-- database/realtime target/provider replacement experiments;
-- theme/block/source/state/profile upgrade migration;
-- reusable deployment workflow;
-- release/fleet inventory;
-- backup/restore exercise.
-
-Exit: upgrade Cargo only, preserve Restaurant, and document go/no-go decisions.
-
-## Implementation order
+## Phase 1 — Manifest, CLI, graph, Payload scaffold
 
 ```text
-contracts and schemas
-  → static plugin manifest/catalog
-  → capability/singleton resolver
-  → CLI plan/generate/doctor
-  → customer scaffold
-  → Postgres provider + local target
-  → Payload contribution adapter
-  → permission/service/event/job foundations
-  → UI/data/state/action contracts
-  → binding graph validation/runtime
-  → fixed shell and semantic primitives
-  → two themes
-  → visualization blocks
-  → canonical document and Puck adapter
-  → CMS profile and public sources
-  → workspace profile and shared filter/chart/table graph
-  → logistics/driver/realtime thin slice
-  → restaurant/QR thin slice
-  → lifecycle/migration/operations proof
+schemas/catalog/resolver
+create-k-nex-app
+plan/sync/generate/doctor
+Payload Postgres generator
+Docker Postgres scaffold
+static registries/inventory
+failure fixtures
 ```
 
-Do not begin with full CRM, dispatch optimization, inventory accounting, budgeting, production GPS history, arbitrary query builder, or a broad plugin marketplace.
+Exit: two manifests generate bootable independent Payload/Postgres repos.
 
-## Research output
+## Phase 2 — Payload composition, access, migrations
 
-At the end of the POC, produce:
+```text
+contribution phases
+collision diagnostics
+actor/permission foundations
+domain service conventions
+clean/upgrade migrations
+```
+
+## Phase 3 — Sales sources and generic components
+
+```text
+defineDataSource
+standard authenticated source gateway
+Sales scalar/table/category sources
+source permissions/fields
+Counter/DataTable/PieChart
+query cache/invalidation abstraction
+```
+
+## Phase 4 — Shell, themes, builder profiles
+
+```text
+semantic primitives
+fixed shell/navigation
+Minimal/Neobrutalism themes
+canonical document
+Puck adapter
+CMS/workspace profiles
+source/column picker
+```
+
+## Phase 5 — Realtime and driver
+
+```text
+local realtime provider
+authenticated subscriptions
+post-commit invalidation
+Redis experiment
+minimal driver client
+```
+
+## Phase 6 — Lifecycle/operations
+
+```text
+disable/uninstall/purge
+source/block/theme migrations
+provider replacement
+reusable deployment
+release inventory
+backup/restore
+independent upgrade
+```
+
+# Implementation order
+
+```text
+contracts/schemas
+  → catalog/resolver
+  → CLI + Payload Postgres scaffold
+  → customer fixtures
+  → Payload composition/access/migrations
+  → Sales + source gateway
+  → Counter/DataTable/chart bindings
+  → realtime invalidation
+  → shell/primitives/themes
+  → canonical document/Puck profiles
+  → logistics driver and restaurant slices
+  → lifecycle/operations
+```
+
+Do not begin with full CRM, dispatch optimization, inventory accounting, budgeting, production GPS history, visual SQL, broad database portability, or marketplace work.
+
+# Research output
 
 - working platform and two customer repositories;
-- accepted/rejected/superseded ADR updates;
-- measured Payload/Puck/database-provider/binding-runtime results;
-- module/plugin authoring guide;
-- database adapter/target authoring guide;
-- data-source/state/action/binding authoring guide;
-- theme authoring guide;
-- builder block/profile guide;
-- customer application and CLI guide;
-- compatibility/migration report;
-- deployment/security runbooks;
-- known limitations and rejected approaches;
-- explicit go/no-go decisions for Payload, Puck, committed registries, layout inheritance model, database provider contract, binding graph scope, and package topology.
+- ADR updates;
+- measured Payload/Puck/source/realtime results;
+- plugin/source authoring guide;
+- theme/builder guide;
+- CLI/customer application guide;
+- compatibility/migration/security report;
+- deployment runbooks;
+- known limitations;
+- explicit go/no-go decisions for Payload, Puck, source gateway, committed registries, layout inheritance, and realtime topology.
