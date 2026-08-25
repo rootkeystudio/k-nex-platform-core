@@ -3,19 +3,19 @@
 - **Updated:** 2026-08-25
 - **Phase:** Phase 1 — Minimal Deterministic Payload Composition
 - **Active task:** P1.1 — Freeze the executable framework tuple and Gate 1 fixture shell
-- **State:** Ready to start
+- **State:** Ready for review
 
 ## Last completed
 
-Split the mixed-gate ADR scope: ADR-0014 now contains the fully proved Gate 0 governance decisions and is `executable-poc`; new ADR-0017 contains Gate 1 composition and runtime-reconciliation decisions and remains `design-only`. Clarified that Phase 0 evidence covers the current pre-v1 identity grammar, not migration compatibility. Phase 0 records `GO PHASE 1`.
+Pinned the Gate 1 fixture to Payload/@payloadcms 3.88.0, Next 16.3.1, React/React DOM 19.2.8, and GraphQL 16.14.2. Added the schema-valid customer manifest and an intentionally failing `pnpm gate:1` placeholder without claiming application behavior.
 
 ## Validation
 
-Frozen install and `pnpm phase:0` pass on Node 24.19.0/pnpm 11.9.0; 25 tests pass, ADR evidence paths validate, and reproducibility digest is `bc6886e272a10d1129347163deaaf87004800fb4d6655f37e5ba873070bf94ee`.
+Frozen install passes with strict peers; the fixture and 25 Phase 0 tests pass; `gate:1` fails intentionally until P1.9. Audit reports no high/critical advisories; direct packages are MIT-licensed.
 
 ## Next
 
-Execute P1.1 from `docs/implementation/codex-master-plan.md`.
+Independently review P1.1; after PASS, advance `status.md` to P1.2 before merge.
 
 ## Blockers
 

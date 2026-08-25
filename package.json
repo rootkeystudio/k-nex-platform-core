@@ -15,6 +15,7 @@
     "contracts:test": "turbo run test",
     "contracts:reproducibility": "turbo run reproducibility",
     "docs:validate": "python3 scripts/validate_repository_contracts.py",
+    "gate:1": "node scripts/gate-1-placeholder.mjs",
     "phase:0": "pnpm contracts:generate && pnpm contracts:generated-clean && pnpm contracts:validate && pnpm contracts:test && pnpm contracts:reproducibility && pnpm docs:validate"
   },
   "devDependencies": {
