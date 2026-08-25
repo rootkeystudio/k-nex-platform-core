@@ -1,0 +1,10 @@
+{
+  "apiVersion": 1,
+  "id": "theme.legacy-01",
+  "kind": "theme",
+  "displayName": "module.logistics-core",
+  "version": "1.0.0",
+  "package": "@k-nex/theme-legacy-01",
+  "compatibility": { "core": "1.0.0", "payload": "3.0.0", "node": "24.19.0", "payloadDatabaseAdapters": ["postgres"] },
+  "lifecycle": { "ownsPayloadSchema": false, "ownsPersistentData": false, "disable": "supported", "uninstall": "supported", "purge": "unsupported" }
+}

@@ -1,0 +1,14 @@
+{
+  "apiVersion": 1,
+  "id": "theme.missing-lifecycle",
+  "kind": "theme",
+  "displayName": "Missing Lifecycle",
+  "version": "1.0.0",
+  "package": "@k-nex/theme-missing-lifecycle",
+  "compatibility": {
+    "core": "1.0.0",
+    "payload": "3.0.0",
+    "node": "24.19.0",
+    "payloadDatabaseAdapters": ["postgres"]
+  }
+}

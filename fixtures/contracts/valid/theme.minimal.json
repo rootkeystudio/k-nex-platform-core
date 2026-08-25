@@ -1,0 +1,22 @@
+{
+  "$schema": "../../../schemas/plugin-manifest.v1.schema.json",
+  "apiVersion": 1,
+  "id": "theme.minimal",
+  "kind": "theme",
+  "displayName": "Minimal Theme",
+  "version": "1.0.0",
+  "package": "@k-nex/theme-minimal",
+  "compatibility": {
+    "core": ">=1.0.0 <2.0.0",
+    "payload": ">=3.0.0 <4.0.0",
+    "node": ">=24.0.0 <25.0.0",
+    "payloadDatabaseAdapters": ["postgres"]
+  },
+  "lifecycle": {
+    "ownsPayloadSchema": false,
+    "ownsPersistentData": false,
+    "disable": "supported",
+    "uninstall": "supported",
+    "purge": "unsupported"
+  }
+}

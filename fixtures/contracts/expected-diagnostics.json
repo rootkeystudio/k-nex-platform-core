@@ -1,0 +1,53 @@
+{
+  "fixtures/contracts/invalid/application.duplicate-plugin-ids.json": {
+    "schema": "application",
+    "validator": "repository-semantic",
+    "code": "DUPLICATE_PLUGIN_ID"
+  },
+  "fixtures/contracts/invalid/application.provider-key-mismatch.json": {
+    "schema": "application",
+    "validator": "repository-semantic",
+    "code": "PROVIDER_SELECTION_INVALID"
+  },
+  "fixtures/contracts/invalid/application.unsupported-payload-adapter.json": {
+    "schema": "application",
+    "validator": "json-schema",
+    "code": "SCHEMA_INVALID"
+  },
+  "fixtures/contracts/invalid/legacy-01.json": { "schema": "plugin", "validator": "repository-semantic", "code": "LEGACY_SYMBOL_FORBIDDEN" },
+  "fixtures/contracts/invalid/legacy-02.json": { "schema": "plugin", "validator": "repository-semantic", "code": "LEGACY_SYMBOL_FORBIDDEN" },
+  "fixtures/contracts/invalid/legacy-03.json": { "schema": "plugin", "validator": "repository-semantic", "code": "LEGACY_SYMBOL_FORBIDDEN" },
+  "fixtures/contracts/invalid/legacy-04.json": { "schema": "plugin", "validator": "repository-semantic", "code": "LEGACY_SYMBOL_FORBIDDEN" },
+  "fixtures/contracts/invalid/legacy-05.json": { "schema": "plugin", "validator": "repository-semantic", "code": "LEGACY_SYMBOL_FORBIDDEN" },
+  "fixtures/contracts/invalid/legacy-06.json": { "schema": "plugin", "validator": "repository-semantic", "code": "LEGACY_SYMBOL_FORBIDDEN" },
+  "fixtures/contracts/invalid/legacy-07.json": { "schema": "plugin", "validator": "repository-semantic", "code": "LEGACY_SYMBOL_FORBIDDEN" },
+  "fixtures/contracts/invalid/legacy-08.json": { "schema": "plugin", "validator": "repository-semantic", "code": "LEGACY_SYMBOL_FORBIDDEN" },
+  "fixtures/contracts/invalid/legacy-09.json": { "schema": "plugin", "validator": "repository-semantic", "code": "LEGACY_SYMBOL_FORBIDDEN" },
+  "fixtures/contracts/invalid/legacy-10.json": { "schema": "application", "validator": "repository-semantic", "code": "LEGACY_SYMBOL_FORBIDDEN" },
+  "fixtures/contracts/invalid/legacy-11.json": { "schema": "plugin", "validator": "repository-semantic", "code": "LEGACY_SYMBOL_FORBIDDEN" },
+  "fixtures/contracts/invalid/plugin.invalid-capability-identity.json": {
+    "schema": "plugin",
+    "validator": "repository-semantic",
+    "code": "IDENTITY_INVALID"
+  },
+  "fixtures/contracts/invalid/plugin.missing-lifecycle.json": {
+    "schema": "plugin",
+    "validator": "json-schema",
+    "code": "SCHEMA_INVALID"
+  },
+  "fixtures/contracts/invalid/plugin.non-exact-version.json": {
+    "schema": "plugin",
+    "validator": "json-schema",
+    "code": "SCHEMA_INVALID"
+  },
+  "fixtures/contracts/invalid/plugin.schema-owner-uninstall-supported.json": {
+    "schema": "plugin",
+    "validator": "repository-semantic",
+    "code": "LIFECYCLE_UNSUPPORTED"
+  },
+  "fixtures/contracts/invalid/plugin.unknown-top-level-key.json": {
+    "schema": "plugin",
+    "validator": "json-schema",
+    "code": "SCHEMA_INVALID"
+  }
+}

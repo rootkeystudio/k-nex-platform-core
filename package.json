@@ -11,7 +11,7 @@
     "build": "turbo run build",
     "contracts:generate": "turbo run generate",
     "contracts:validate": "turbo run validate && python3 scripts/validate_repository_contracts.py",
-    "contracts:test": "node -e \"console.error('P0.3 contract tests are not implemented yet'); process.exit(1)\"",
+    "contracts:test": "turbo run test",
     "contracts:reproducibility": "node -e \"console.error('P0.5 reproducibility is not implemented yet'); process.exit(1)\"",
     "docs:validate": "python3 scripts/validate_repository_contracts.py",
     "phase:0": "pnpm contracts:generate && pnpm contracts:validate && pnpm contracts:test && pnpm contracts:reproducibility && pnpm docs:validate"

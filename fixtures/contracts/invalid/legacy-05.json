@@ -1,0 +1,10 @@
+{
+  "apiVersion": 1,
+  "id": "theme.legacy-05",
+  "kind": "theme",
+  "displayName": "provider.realtime-websocket-local",
+  "version": "1.0.0",
+  "package": "@k-nex/theme-legacy-05",
+  "compatibility": { "core": "1.0.0", "payload": "3.0.0", "node": "24.19.0", "payloadDatabaseAdapters": ["postgres"] },
+  "lifecycle": { "ownsPayloadSchema": false, "ownsPersistentData": false, "disable": "supported", "uninstall": "supported", "purge": "unsupported" }
+}
