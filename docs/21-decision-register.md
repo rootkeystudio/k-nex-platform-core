@@ -79,7 +79,7 @@ Example:
 
 ```text
 module.logistics-driver requires realtime.gateway@^1
-provider.realtime-websocket-local provides realtime.gateway@1
+provider.realtime.socketio provides realtime.gateway@1
 ```
 
 Specific plugin-ID dependencies remain valid for real domain dependencies. Capability abstraction is not required merely to wrap functionality Payload already owns.
@@ -300,13 +300,20 @@ Schema-owning plugin removal semantics remain subject to POC restrictions.
 
 Authoritative multi-step behavior lives in testable domain/application services. Hooks/endpoints adapt requests, maintain local invariants, enqueue work, or publish after-commit facts.
 
-## D-024 — WebSocket/realtime is a provider capability
+## D-024 — Realtime is a provider capability; Socket.IO is the first implementation
 
 **Status:** accepted
 
 Domain plugins define message/topic authorization and invalidation meaning; the realtime provider owns transport. Authoritative state remains recoverable through authenticated APIs/data sources.
 
-Ordinary counters/tables/charts use invalidation and refetch. Typed streams are reserved for genuine live projections.
+The first implementation is Socket.IO 4 behind:
+
+```text
+provider.realtime.socketio
+realtime.gateway@1
+```
+
+Ordinary counters/tables/charts use invalidation and refetch. Typed streams are reserved for genuine live projections. Socket.IO types do not enter module public APIs or stored documents.
 
 ## D-025 — Customer-specific behavior starts locally
 
@@ -397,7 +404,7 @@ module emits invalidation topic/scope
   → component rerenders
 ```
 
-WebSocket messages normally do not carry full business records. Snapshot + typed stream is reserved for high-frequency live projections such as vehicle positions.
+Realtime messages normally do not carry full business records. Snapshot + typed stream is reserved for high-frequency live projections such as vehicle positions.
 
 ## D-031 — Data sources use hybrid output contracts and one primary projection
 
@@ -433,6 +440,49 @@ future transforms are registered/versioned adapters
 
 The first POC must implement metric, table, category-series, and time-series contracts. `options.list@1` and `record.summary@1` are accepted catalog members and can follow after the first slice.
 
+## D-032 — Conservative technology and package baseline
+
+**Status:** accepted
+
+Related: [ADR-0013](./adr/0013-conservative-technology-package-baseline.md) and [technology baseline](./26-technology-package-baseline.md).
+
+The first implementation uses mature package families behind K-Nex-owned adapters:
+
+```text
+Node.js 24 LTS
+Payload + exact supported Next.js/React tuple
+pnpm workspaces + Turborepo + Changesets
+Zod 4 + generated JSON Schema + Ajv 8
+TanStack Query 5
+scoped Zustand 5 vanilla stores
+React Aria Components
+React Hook Form
+TanStack Table 8 initially + TanStack Virtual
+Apache ECharts 6
+Socket.IO 4
+Payload Jobs Queue
+Pino + OpenTelemetry API
+Vitest + Testing Library + Playwright + Testcontainers
+Commander + @inquirer/prompts + Execa + semver
+dependency-cruiser + publint + Are the Types Wrong
+```
+
+Critical boundaries:
+
+```text
+Payload remains database/framework owner
+Zod is schema authoring source; Ajv validates generated static JSON Schema
+TanStack Query owns remote source state
+Zustand owns ephemeral page/workspace state only
+React Aria provides semantics; K-Nex themes own appearance
+TanStack/ECharts/Socket.IO/Puck types do not enter domain plugin public contracts
+ECharts options and Socket.IO messages are not persisted user-authored configuration
+customer apps pin exact tested dependency versions
+new majors require soak/compatibility/migration/rollback proof
+```
+
+TanStack Table v9 is evaluated behind the adapter but is not the first frozen baseline because its stable release is very recent relative to this decision.
+
 # Provisional decisions requiring POC evidence
 
 ## P-001 — Canonical K-Nex document versus engine-native storage
@@ -465,9 +515,19 @@ K-Nex owns deterministic phased composition and collision ownership. POC determi
 
 POC must determine whether V1 supports only installed-disabled modules or also retained-data uninstall through schema stubs/archive strategies.
 
-## P-006 — WebSocket hosting topology
+## P-006 — Socket.IO hosting topology
 
-Validate local single-process and Redis-backed/multi-instance providers, connection draining, authorization refresh, and deployment constraints.
+Validate:
+
+```text
+single-instance in-memory adapter
+Payload session/token handshake
+authorized source/topic subscriptions
+Redis 7 sharded adapter + ioredis for multi-instance mode
+connection draining and reauthorization
+reconnect/refetch when recovery is unavailable or incomplete
+high-frequency workload threshold for a future raw WebSocket provider
+```
 
 ## P-007 — Event durability
 
@@ -492,16 +552,15 @@ no K-Nex database provider package
 
 ## P-010 — Data-source transport and runtime implementation
 
-The source/output-contract architecture is accepted. POC must select/validate:
+The source/output-contract architecture and baseline package families are accepted. POC must finalize:
 
 ```text
 exact defineDataSource/contract helper APIs
 standard gateway route shape
 descriptor bundled/fetched balance
-schema library and JSON-schema strategy
-actor-scoped cache/query keys
-client query/cache implementation
-realtime invalidation scope
+Zod-to-JSON-Schema restrictions and Ajv compile strategy
+actor-scoped TanStack Query key factory
+Socket.IO invalidation scope and subscription protocol
 source/field migration tooling
 SSR/hydration policy
 production output-validation cost
@@ -527,11 +586,13 @@ Proprietary/no license currently. Decide internal/customer access, open/source-a
 
 ## O-005 — Accessible semantic primitive foundation
 
-Candidates include Radix-based, React Aria-based, custom reviewed primitives, or another accessible headless foundation.
+**Status:** superseded by D-032.
+
+React Aria Components is the accepted implementation foundation behind K-Nex semantic primitives. React Spectrum styling is not selected. The POC still determines exact primitive coverage and advanced DataTable composition.
 
 ## O-006 — Workspace grid/resizing implementation
 
-Puck may require a controlled responsive grid primitive/library. Validate deterministic serialization, keyboard access, nesting, rendering, and migrations.
+Puck may require a controlled responsive grid primitive/library. Validate deterministic serialization, keyboard access, nesting, rendering, and migrations. No grid package is accepted until the realistic dashboard POC passes.
 
 ## O-007 — Theme profile ownership package
 
@@ -573,7 +634,7 @@ Options include Postgres/PostGIS, Redis current position plus history store, or 
 
 ## O-015 — Analytics and telemetry
 
-No K-Nex external telemetry by default. Customer analytics remains optional with explicit privacy/consent policy.
+No K-Nex external telemetry by default. Customer analytics remains optional with explicit privacy/consent policy. OpenTelemetry server trace/metric hooks do not imply product analytics.
 
 ## O-016 — Hosted Postgres scaffold recipes
 
@@ -581,11 +642,22 @@ Neon/other hosted services may need pooling, TLS, preview, migration, and deploy
 
 ## O-017 — Generic visualization package boundary
 
-Recommendation: canonical metric/table/series contracts in `@k-nex/ui-contracts`; optional `module.visualization` for counter/pie/bar/line/table blocks. Complex map/data-grid adapters may split later.
+Canonical metric/table/series contracts live in `@k-nex/ui-contracts`. Apache ECharts is the accepted first rendering engine behind an internal adapter. The remaining open question is whether Counter/DataTable/basic charts ship in one `module.visualization` package or smaller foundational UI packages.
 
-## O-018 — UI state store and persistence
+## O-018 — UI state persistence details
 
-Choose custom versus existing store, URL/session/user persistence, equality/batching, SSR/hydration, and cycle prevention during dynamic dashboard POC.
+Zustand 5 vanilla scoped stores are selected for ephemeral UI coordination. POC must finalize:
+
+```text
+URL/session/user-preference adapters
+batching/equality policy
+SSR initialization and hydration
+cycle prevention
+store lifetime/reset behavior
+published layout defaults versus personal state
+```
+
+Business/source data remains outside Zustand.
 
 ## O-019 — First registered transformation adapter
 
@@ -645,7 +717,7 @@ Rejected and supersedes the previous database-provider proposal. Payload owns th
 
 Rejected. Modules expose deliberate bounded projections with explicit permissions, fields, limits, and versioning.
 
-## R-011 — Treat WebSocket messages as the only source of truth
+## R-011 — Treat realtime messages as the only source of truth
 
 Rejected. Normal components refetch authenticated source endpoints; live streams include snapshot/resync behavior.
 
@@ -653,20 +725,30 @@ Rejected. Normal components refetch authenticated source endpoints; live streams
 
 Rejected because component compatibility, field authorization, migrations, cache identity, and builder UX become fragile. Use canonical/plugin-owned contracts, stable field IDs, and one source per primary projection.
 
+## R-013 — Let implementation libraries define K-Nex contracts
+
+Rejected. TanStack Query/Table, Zustand, React Aria, ECharts, Socket.IO, Puck, Pino, and other selected packages stay behind K-Nex-owned adapters and service contracts.
+
+## R-014 — Adopt every new stable major immediately
+
+Rejected because customer applications have independent deployment/migration histories. Major versions require soak, compatibility fixtures, measured benefit, and rollback planning.
+
 # Immediate decision and POC sequence
 
 1. Choose first-party monorepo topology.
 2. Prove private package publish/install and finalize scope.
-3. Generate a minimal Payload Postgres application.
-4. Prove explicit Payload module contribution composition.
-5. Implement actor/permission-aware source registry and standard gateway.
-6. Implement canonical `metric.scalar@1` and `table.records@1` source helpers.
-7. Implement `series.category@1` and `series.time@1` helpers and generic charts.
-8. Prove exact source schema + canonical contract validation.
-9. Add Counter/DataTable/Chart bindings, stable fields, filters, pagination, and query sharing.
-10. Add authenticated WebSocket invalidation/refetch.
-11. Build fixed shell, semantic primitives, and two themes.
-12. Run Puck CMS/workspace canonical document POC.
-13. Test two independent customer repositories and migrations.
+3. Pin Node 24, pnpm, Payload/Next/React/Postgres compatibility tuple.
+4. Generate a minimal Payload Postgres application.
+5. Implement Zod contract schemas, generated JSON Schema, and strict compiled Ajv validation.
+6. Prove explicit Payload module contribution composition and dependency-cruiser boundaries.
+7. Implement actor/permission-aware source registry and standard gateway.
+8. Implement canonical `metric.scalar@1` and `table.records@1` source helpers.
+9. Implement `series.category@1` and `series.time@1` helpers and ECharts adapter.
+10. Add TanStack Query source client, scoped Zustand filters, and TanStack Table v8 DataTable adapter.
+11. Add Socket.IO authenticated invalidation/refetch in single-instance and Redis-backed modes.
+12. Build React Aria semantic shell/primitives and two themes.
+13. Run Puck CMS/workspace canonical document POC.
+14. Run Vitest, Playwright, Testcontainers, package-publication, and deliberate boundary failures.
+15. Test two independent customer repositories and migrations.
 
-Do not begin with full CRM, production dispatch optimization, broad database portability, visual SQL, or a plugin marketplace before these foundations are proven.
+Do not begin with full CRM, production dispatch optimization, broad database portability, visual SQL, a plugin marketplace, or newly stable major-version churn before these foundations are proven.
