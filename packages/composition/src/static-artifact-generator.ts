@@ -46,6 +46,16 @@ export type CustomerConfigSource = Readonly<{
   readonly content: string | Uint8Array;
 }>;
 
+const forbiddenCustomerConfigInputs = [
+  /\bprocess\s*\.\s*env\b/,
+  /\bDate\s*\.\s*now\s*\(/,
+  /\bnew\s+Date\s*\(/,
+  /\bMath\s*\.\s*random\s*\(/,
+  /\bcrypto\s*\.\s*randomUUID\s*\(/,
+  /\bfetch\s*\(/,
+  /\bimport\s*\(/
+] as const;
+
 export class StaticArtifactGenerationError extends Error {
   readonly code: "INVALID_INPUT" | "GRAPH_MISMATCH";
 
@@ -99,6 +109,10 @@ export function fingerprintCustomerConfigSources(sources: readonly CustomerConfi
     paths.add(source.path);
     if (typeof source.content !== "string" && !(source.content instanceof Uint8Array)) {
       invalidInput("Customer config source content must be text or bytes.");
+    }
+    // ponytail: Gate 1 never executes config; reject direct ambient inputs until the CLI owns a full sandbox.
+    if (typeof source.content === "string" && forbiddenCustomerConfigInputs.some((pattern) => pattern.test(source.content))) {
+      invalidInput(`Customer config source ${source.path} contains a non-hermetic input.`);
     }
     hash.update(Buffer.from(source.path, "utf8"));
     hash.update(Buffer.of(0));

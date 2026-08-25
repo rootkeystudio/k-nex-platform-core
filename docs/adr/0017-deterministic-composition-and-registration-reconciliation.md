@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-08-25
 - Decision owners: K-Nex platform maintainers
-- Evidence: design-only
+- Evidence: executable-poc; see [Phase 1 result](../implementation/phase-1-result.md)
 - Related: [ADR-0014](./0014-contract-governance-and-evidence.md), [Contract governance](../28-contract-governance-and-determinism.md), [POC gates](../30-executable-poc-gates.md)
 
 ## Context
@@ -43,4 +43,4 @@ Rejected because their executable validation belongs to Gate 1, while ADR-0014 h
 
 ## Validation
 
-Gate 1 must prove byte-identical resolved graphs and registries in two clean roots, hermetic config fingerprinting, canonical resolver output, restricted phase execution, and declared-versus-actual inventory and capability-access rejection. Evidence remains `design-only` until the complete Gate 1 scope passes.
+Gate 1 proves byte-identical resolved graphs and registries in two clean roots, hermetic config fingerprinting, canonical resolver output, restricted phase execution, and declared-versus-actual inventory and capability-access rejection. The complete evidence and remaining boundaries are recorded in the Phase 1 result.

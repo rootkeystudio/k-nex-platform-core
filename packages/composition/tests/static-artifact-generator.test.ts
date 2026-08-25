@@ -383,6 +383,21 @@ describe("static artifact generator", () => {
   });
 
   it.each([
+    "process.env.FEATURE",
+    "Date.now()",
+    "new Date()",
+    "Math.random()",
+    "crypto.randomUUID()",
+    "fetch('https://example.test')",
+    "import(dynamicPackage)"
+  ])("rejects non-hermetic customer config input %s", (expression) => {
+    expect(() => fingerprintCustomerConfigSources([{
+      path: "k-nex.config.ts",
+      content: `export default ${expression};\n`
+    }])).toThrowError(/non-hermetic input/);
+  });
+
+  it.each([
     ["graph package", (value: any) => { value.resolvedGraph.plugins[0].package = "@k-nex/wrong"; }],
     ["graph version", (value: any) => { value.resolvedGraph.plugins[0].version = "2.0.0"; }],
     ["graph integrity", (value: any) => { value.resolvedGraph.plugins[0].integrity = "sha512-drift"; }],
