@@ -9,6 +9,7 @@ import {
 
 import resolvedJson from "../.k-nex/generated/k-nex.resolved.json" with { type: "json" };
 import { runtimeRegistration } from "../.k-nex/generated/runtime-registration.js";
+import { createGate1RuntimeInventory, createRuntimeInventoryEndpoint } from "./runtime-inventory.js";
 
 export interface CreateGate1ApplicationOptions {
   readonly databaseUrl: string;
@@ -44,8 +45,12 @@ export function createGate1Application(options: CreateGate1ApplicationOptions): 
     }],
     registrations: [runtimeRegistration["module.sales"].salesRegistration]
   });
+  const inventory = createGate1RuntimeInventory(registration);
   return composePayloadApplication({
-    baseConfig: { secret: options.payloadSecret },
+    baseConfig: {
+      secret: options.payloadSecret,
+      endpoints: [createRuntimeInventoryEndpoint(inventory)]
+    },
     databaseUrl: options.databaseUrl,
     migrations: options.migrations,
     registration

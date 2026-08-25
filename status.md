@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-26
 - **Phase:** Phase 1 — Minimal Deterministic Payload Composition
-- **Active task:** P1.8 — Add one authenticated query and protected runtime inventory
+- **Active task:** P1.9 — Gate 1 failure corpus, reproducibility, and closeout
 - **State:** Ready to start
 
 ## Last completed
 
-Generated and reviewed the customer-owned Gate 1 migration, wired production migrations with schema push disabled, added explicit predecessor/current revision readiness, and proved the complete migration matrix against digest-pinned PostgreSQL 17.6 through Testcontainers. The accepted Gate 2A planning update remains in the master plan.
+Authenticated a fixture actor through Payload's supported JWT request path, enforced collection access with `overrideAccess: false`, and added a protected non-secret runtime inventory binding the application, source artifact, exact resolved graph bytes, framework/plugin versions, expected/actual contributions, and migration revision.
 
 ## Validation
 
-The real PostgreSQL acceptance test passes empty database migration and boot, already-current no-op boot, failed-migration rollback/non-readiness, and incompatible-revision readiness failure. Payload-adapter tests and the packed-fixture config test also pass.
+The digest-pinned PostgreSQL acceptance test now also passes authenticated query, unauthenticated query denial, protected inventory denial, authenticated inventory response, exact graph-digest comparison, contribution reconciliation, and secret/token/connection-string absence checks.
 
 ## Next
 
-Implement P1.8's authenticated query and protected runtime inventory endpoint.
+Implement P1.9's failure corpus, reproducibility proof, closeout artifact, and full Gate 1 command.
 
 ## Blockers
 

@@ -81,6 +81,12 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
     const current = await query(connectionString, "select count(*)::int as count from payload_migrations");
     assert.equal(current.rows[0].count, 1);
 
+    const authenticated = await runFixtureProcess("tests/authenticated-runtime.mjs", connectionString, {
+      BOOT_KEY: "gate1-authenticated-runtime"
+    });
+    assert.equal(authenticated.code, 0, `${authenticated.stdout}\n${authenticated.stderr}`);
+    assert.match(authenticated.stdout, /^P1_8_PASS$/m);
+
     await query(connectionString, "update k_nex_migration_revision set revision = 0 where id = 1");
     const incompatible = await runFixtureProcess("tests/boot-once.mjs", connectionString, {
       BOOT_KEY: "gate1-incompatible-revision",
