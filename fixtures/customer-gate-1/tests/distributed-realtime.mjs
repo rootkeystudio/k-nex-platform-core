@@ -47,12 +47,27 @@ const httpServer = createServer();
 const gateway = createSocketIoMemoryGateway({
   httpServer,
   topics: createRealtimeTopicRegistry([topic]),
-  authenticate: async ({ actor }) => actor === "owner-1" ? { id: actor, type: "user" } : null
+  security: {
+    acknowledgementTimeoutMs: 1_000,
+    allowedOrigins: ["https://customer.example.test"],
+    allowedTransports: ["websocket"],
+    maxBufferedMessagesPerConnection: 8,
+    maxConnections: 100,
+    maxRequestBytes: 16_384,
+    maxSubscriptionRequestsPerMinute: 60,
+    maxSubscriptionsPerConnection: 16
+  },
+  authenticate: async ({ actor }) => actor === "owner-1" ? { id: actor, type: "user" } : null,
+  isActorActive: async () => true
 });
 await new Promise((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
 const address = httpServer.address();
 assert.ok(address && typeof address === "object");
-const client = connect(`http://127.0.0.1:${address.port}`, { auth: { actor: "owner-1" }, transports: ["websocket"] });
+const client = connect(`http://127.0.0.1:${address.port}`, {
+  auth: { actor: "owner-1" },
+  transports: ["websocket"],
+  extraHeaders: { origin: "https://customer.example.test" }
+});
 await new Promise((resolve, reject) => {
   client.once("connect", resolve);
   client.once("connect_error", reject);
@@ -61,7 +76,10 @@ await new Promise((resolve, reject) => {
 try {
   assert.match(await runWorker(), /^P3_6_WORKER_COMMIT_PASS$/m);
   await client.emitWithAck("k-nex:subscribe", { topicId: "sales.tasks", params: { ownerId: "owner-1" } });
-  const received = new Promise((resolve) => client.once("k-nex:event", resolve));
+  const received = new Promise((resolve) => client.once("k-nex:event", (message, acknowledge) => {
+    acknowledge();
+    resolve(message);
+  }));
   const relay = createOutboxRealtimeRelay({
     gateway,
     project: (event) => event.id === "p3-6-worker-event"
