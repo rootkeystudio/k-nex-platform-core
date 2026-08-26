@@ -45,14 +45,14 @@ function snapshotRevision(value: unknown): UiDocumentRevision {
   const record = value as Record<string, unknown>;
   assertJsonValue(record.document);
   const issues = Array.isArray(record.validationIssues) && record.validationIssues.every((item) => typeof item === "string") ? record.validationIssues : [];
-  if (![record.id, record.revisionId, record.documentId].every((item) => typeof item === "string") || !Number.isSafeInteger(record.revisionNumber) || (record.revisionNumber as number) < 1) {
+  if (!(["string", "number"] as const).includes(typeof record.id as "string" | "number") || ![record.revisionId, record.documentId].every((item) => typeof item === "string") || !Number.isSafeInteger(record.revisionNumber) || (record.revisionNumber as number) < 1) {
     throw new TypeError("Payload returned an invalid UI document revision identity.");
   }
   if (!(["draft", "published", "archived"] as const).includes(record.state as UiDocumentRevisionState) || !(["pending", "valid", "invalid"] as const).includes(record.validationStatus as UiDocumentValidationStatus)) {
     throw new TypeError("Payload returned an invalid UI document revision state.");
   }
   return Object.freeze({
-    id: record.id as string,
+    id: String(record.id),
     revisionId: record.revisionId as string,
     documentId: record.documentId as string,
     revisionNumber: record.revisionNumber as number,
@@ -171,3 +171,5 @@ export const uiDocumentRevisionsCollection = Object.freeze({
     { name: "publishedAt", type: "date", index: true }
   ]
 });
+
+export * from "./cms-publication.js";
