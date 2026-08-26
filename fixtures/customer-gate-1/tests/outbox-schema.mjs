@@ -46,7 +46,7 @@ let sequence = 0;
 
 async function insert(overrides = {}) {
   const row = { ...baseRow, ...overrides };
-  const columns = [...envelopeColumns, "status", "attempt_count", "claimed_at", "lease_expires_at", "checkpoint", "processed_at", "dead_lettered_at"]
+  const columns = [...envelopeColumns, "status", "attempt_count", "claimed_at", "lease_expires_at", "claim_token", "checkpoint", "processed_at", "dead_lettered_at"]
     .filter((column) => row[column] !== undefined);
   const values = columns.map((column) => row[column]);
   const placeholders = columns.map((_, index) => `$${index + 1}`);
@@ -88,13 +88,14 @@ try {
     "id", "event_id", "event_type", "schema_version", "message_class", "occurred_at", "application_id", "plugin_id",
     "actor_id", "actor_type", "impersonator_id", "correlation_id", "causation_id", "idempotency_key", "payload",
     "status", "attempt_count", "available_at", "claimed_at", "lease_expires_at", "checkpoint", "last_error_code",
-    "dead_lettered_at", "processed_at", "retention_until", "updated_at", "created_at"
+    "dead_lettered_at", "processed_at", "retention_until", "updated_at", "created_at", "claim_token"
   ]);
   const column = (name) => columns.rows.find((entry) => entry.column_name === name);
   assert.equal(column("id").data_type, "bigint");
   assert.equal(column("event_id").character_maximum_length, 128);
   assert.equal(column("event_type").character_maximum_length, 128);
   assert.equal(column("actor_type").character_maximum_length, 64);
+  assert.equal(column("claim_token").character_maximum_length, 64);
   assert.equal(column("payload").data_type, "jsonb");
   for (const required of ["event_id", "event_type", "schema_version", "message_class", "occurred_at", "application_id", "plugin_id", "correlation_id", "payload", "status", "attempt_count", "available_at", "retention_until", "updated_at", "created_at"]) {
     assert.equal(column(required).is_nullable, "NO", `${required} is required`);
@@ -153,6 +154,7 @@ try {
   assert.equal(defaults.rows[0].retention_until.toISOString(), "2026-08-27T12:00:00.000Z");
   assert.equal(defaults.rows[0].claimed_at, null);
   assert.equal(defaults.rows[0].lease_expires_at, null);
+  assert.equal(defaults.rows[0].claim_token, null);
 
   await rejected("duplicate event_id", { event_id: "event-default" });
   await rejected("durable-only message class", { message_class: "ephemeral-hint" });
@@ -166,7 +168,13 @@ try {
   await rejected("delivered timestamp coherence", { status: "delivered" });
   await rejected("processing requires lease", { status: "processing", claimed_at: "2026-08-26T12:01:00.000Z" });
   await rejected("processing requires claim", { status: "processing", lease_expires_at: "2026-08-26T12:02:00.000Z" });
+  await rejected("processing requires claim token", {
+    status: "processing",
+    claimed_at: "2026-08-26T12:01:00.000Z",
+    lease_expires_at: "2026-08-26T12:02:00.000Z"
+  });
   await rejected("pending cannot have claim", { status: "pending", claimed_at: "2026-08-26T12:01:00.000Z", lease_expires_at: "2026-08-26T12:02:00.000Z" });
+  await rejected("pending cannot have claim token", { status: "pending", claim_token: "stale-claim" });
   await rejected("checkpoint JSON object", { checkpoint: "[]" });
 
   await rejected("scoped idempotency uniqueness", { event_id: "event-duplicate-idempotency", idempotency_key: "idempotency-default" });

@@ -170,9 +170,9 @@ assert.deepEqual(inventory.plugins, [{
   }
 }]);
 assert.deepEqual(inventory.migrationRevision, {
-  migrationName: "20260826_000004_event_outbox",
-  predecessor: 3,
-  current: 4
+  migrationName: "20260826_000005_outbox_processor",
+  predecessor: 4,
+  current: 5
 });
 const serializedInventory = JSON.stringify(inventory);
 for (const forbidden of [process.env.DATABASE_URL, process.env.PAYLOAD_SECRET, login.token, password, "gate1@example.test"]) {

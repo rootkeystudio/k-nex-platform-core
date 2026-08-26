@@ -110,7 +110,7 @@ function inspectPayload(value: unknown, context: PayloadValidationContext): void
   }
 }
 
-const EventPayloadSchema = z.record(z.string(), z.unknown()).superRefine(inspectPayload);
+export const EventPayloadSchema = z.record(z.string(), z.unknown()).superRefine(inspectPayload);
 
 export const DurableEventActorSchema = z.strictObject({
   id: EventIdSchema,

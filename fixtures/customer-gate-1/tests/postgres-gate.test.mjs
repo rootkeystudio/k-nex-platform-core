@@ -64,10 +64,12 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
         to_regclass('public.sales_tasks')::text as sales_tasks,
         to_regclass('public.payload_mcp_api_keys')::text as payload_mcp_api_keys,
         to_regclass('public.k_nex_outbox')::text as k_nex_outbox,
+        to_regclass('public.sales_event_effects')::text as sales_event_effects,
         (select count(*)::int from payload_migrations where name = '20260826_000001_gate1') as migration_count,
         (select count(*)::int from payload_migrations where name = '20260826_000002_sales_sources') as sales_migration_count,
         (select count(*)::int from payload_migrations where name = '20260826_000003_payload_mcp') as mcp_migration_count,
         (select count(*)::int from payload_migrations where name = '20260826_000004_event_outbox') as outbox_migration_count,
+        (select count(*)::int from payload_migrations where name = '20260826_000005_outbox_processor') as outbox_processor_migration_count,
         (select predecessor_revision from k_nex_migration_revision where id = 1) as predecessor_revision,
         (select revision from k_nex_migration_revision where id = 1) as revision
     `);
@@ -75,12 +77,14 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
       sales_tasks: "sales_tasks",
       payload_mcp_api_keys: "payload_mcp_api_keys",
       k_nex_outbox: "k_nex_outbox",
+      sales_event_effects: "sales_event_effects",
       migration_count: 1,
       sales_migration_count: 1,
       mcp_migration_count: 1,
       outbox_migration_count: 1,
-      predecessor_revision: 3,
-      revision: 4
+      outbox_processor_migration_count: 1,
+      predecessor_revision: 4,
+      revision: 5
     }]);
 
     const outboxSchema = await runFixtureProcess("tests/outbox-schema.mjs", connectionString);
@@ -106,7 +110,7 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
     assert.equal(currentBoot.code, 0, `${currentBoot.stdout}\n${currentBoot.stderr}`);
     assert.match(currentBoot.stdout, /^READY$/m);
     const current = await query(connectionString, "select count(*)::int as count from payload_migrations");
-    assert.equal(current.rows[0].count, 4);
+    assert.equal(current.rows[0].count, 5);
 
     const authenticated = await runFixtureProcess("tests/authenticated-runtime.mjs", connectionString, {
       BOOT_KEY: "gate1-authenticated-runtime"
@@ -119,6 +123,12 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
     });
     assert.equal(mcpLifecycle.code, 0, `${mcpLifecycle.stdout}\n${mcpLifecycle.stderr}`);
     assert.match(mcpLifecycle.stdout, /^P2A_MCP_LIFECYCLE_PASS$/m);
+
+    const outboxProcessing = await runFixtureProcess("tests/outbox-processing.mjs", connectionString, {
+      BOOT_KEY: "gate3-3-outbox-processing"
+    });
+    assert.equal(outboxProcessing.code, 0, `${outboxProcessing.stdout}\n${outboxProcessing.stderr}`);
+    assert.match(outboxProcessing.stdout, /^P3_3_OUTBOX_PROCESSING_PASS$/m);
 
     const p32Cases = [
       {
