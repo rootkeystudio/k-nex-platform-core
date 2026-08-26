@@ -1,0 +1,27 @@
+{
+  "name": "@k-nex/realtime-socketio",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@k-nex/contracts": "workspace:*",
+    "@k-nex/runtime": "workspace:*",
+    "socket.io": "4.8.3"
+  },
+  "devDependencies": {
+    "socket.io-client": "4.8.3",
+    "typescript": "6.0.3",
+    "vitest": "4.1.6"
+  }
+}
