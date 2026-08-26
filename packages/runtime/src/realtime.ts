@@ -9,7 +9,9 @@ export interface RealtimeActor {
 
 export interface RealtimeSubscriptionContext<TParams extends Readonly<Record<string, unknown>>> {
   readonly actor: RealtimeActor;
+  readonly deadlineAt: number;
   readonly params: TParams;
+  readonly signal: AbortSignal;
 }
 
 export interface RealtimeTopicDefinition<

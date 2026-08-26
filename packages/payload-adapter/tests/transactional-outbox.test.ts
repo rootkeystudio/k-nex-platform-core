@@ -99,6 +99,16 @@ describe("writeTransactionalOutboxEvent", () => {
       event,
       retentionUntil: "2026-08-26T12:00:00.000+00:00"
     })).rejects.toThrow(/strictly after/);
+    for (const invalidEventTimestamp of ["2026-08-26T12:00:00Z", "2026-08-26T12:00:00.000001Z"]) {
+      await expect(writeTransactionalOutboxEvent({
+        req,
+        event: { ...event, occurredAt: invalidEventTimestamp },
+        retentionUntil: "2026-08-27T12:00:00.000Z"
+      })).rejects.toThrow();
+    }
+    for (const invalidRetentionTimestamp of ["2026-08-27T12:00:00Z", "2026-08-27T12:00:00.000001Z"]) {
+      await expect(writeTransactionalOutboxEvent({ req, event, retentionUntil: invalidRetentionTimestamp })).rejects.toThrow();
+    }
     expect(execute).not.toHaveBeenCalled();
     expect(drizzleExecute).not.toHaveBeenCalled();
   });

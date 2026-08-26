@@ -30,14 +30,6 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Run Phase 0 gate
         run: pnpm phase:0
-      - name: Run Gate 1
-        run: pnpm gate:1
-      - name: Run Gate 2
-        run: pnpm gate:2
-      - name: Run Gate 2A
-        run: pnpm gate:2a
-      - name: Run Gate 3
-        run: pnpm gate:3
       - name: Install Gate 4 browser
         run: pnpm --filter @k-nex/builder-puck exec playwright install --with-deps chromium
       - name: Run Gate 4

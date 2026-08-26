@@ -134,7 +134,8 @@ async function deadLetterExhaustedClaim(payload: Payload, maxAttempts: number): 
         "status" = 'pending'
         OR ("status" = 'processing' AND "lease_expires_at" <= now())
       )
-      ORDER BY CASE WHEN "status" = 'pending' THEN 0 ELSE 1 END, "lease_expires_at", "id"
+      -- FIFO by eligibility time: an expired lease is delayed only by rows that became eligible no later than it did.
+      ORDER BY CASE WHEN "status" = 'pending' THEN "available_at" ELSE "lease_expires_at" END, "id"
       FOR UPDATE SKIP LOCKED
       LIMIT 1
     )
@@ -161,7 +162,8 @@ async function claim(payload: Payload, leaseMs: number, maxAttempts: number): Pr
         ("status" = 'pending' AND "available_at" <= now())
         OR ("status" = 'processing' AND "lease_expires_at" <= now())
       )
-      ORDER BY CASE WHEN "status" = 'pending' THEN 0 ELSE 1 END, "available_at", "id"
+      -- FIFO by eligibility time prevents a stream of newly due work from starving expired leases.
+      ORDER BY CASE WHEN "status" = 'pending' THEN "available_at" ELSE "lease_expires_at" END, "id"
       FOR UPDATE SKIP LOCKED
       LIMIT 1
     )

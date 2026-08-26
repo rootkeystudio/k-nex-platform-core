@@ -2,6 +2,7 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
   createDataSourceQueryIdentity,
+  DataSourceBindingResultSchema,
   dataSourceBindingStates,
   type DataSourceBindingResult
 } from "../src/index.js";
@@ -38,6 +39,20 @@ describe("P2.8 headless data-source bindings", () => {
 
     expect(results.map(({ state }) => state)).toEqual(dataSourceBindingStates);
     expectTypeOf(results).toEqualTypeOf<DataSourceBindingResult<number>[]>();
+  });
+
+  it("strictly validates result envelopes and state-specific problem status", () => {
+    expect(DataSourceBindingResultSchema.parse({ state: "rate-limited", problem: { code: "RATE_LIMITED", status: 429 }, retryAfterMs: 1000 })).toEqual({
+      state: "rate-limited", problem: { code: "RATE_LIMITED", status: 429 }, retryAfterMs: 1000
+    });
+    for (const invalid of [
+      { state: "success", data: 1, secret: "leak" },
+      { state: "forbidden", problem: { code: "FORBIDDEN", status: 403, stack: "private" } },
+      { state: "forbidden", problem: { code: "FORBIDDEN", status: 500 } },
+      { state: "rate-limited", problem: { code: "RATE_LIMITED", status: 503 } },
+      { state: "error", problem: { code: "unsafe-code", status: 500 } },
+      { state: "idle", data: null }
+    ]) expect(DataSourceBindingResultSchema.safeParse(invalid).success).toBe(false);
   });
 
   it("produces the same digest identity across object key order", async () => {

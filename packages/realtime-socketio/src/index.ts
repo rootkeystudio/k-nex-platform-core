@@ -40,8 +40,13 @@ export interface SocketIoMemoryGatewayOptions {
   readonly httpServer: HttpServer;
   readonly security: SocketIoMemorySecurityOptions;
   readonly topics: RealtimeTopicRegistry;
-  authenticate(credentials: Readonly<Record<string, unknown>>): Promise<SocketIoAuthenticatedSession | null>;
-  isSessionActive(session: SocketIoAuthenticatedSession): Promise<boolean>;
+  authenticate(credentials: Readonly<Record<string, unknown>>, context: RealtimeAuthorizationDeadline): Promise<SocketIoAuthenticatedSession | null>;
+  isSessionActive(session: SocketIoAuthenticatedSession, context: RealtimeAuthorizationDeadline): Promise<boolean>;
+}
+
+export interface RealtimeAuthorizationDeadline {
+  readonly deadlineAt: number;
+  readonly signal: AbortSignal;
 }
 
 export interface SocketIoAuthenticatedSession {
@@ -81,6 +86,7 @@ interface Subscription {
 }
 
 interface Session {
+  readonly abort: AbortController;
   readonly actor: RealtimeActor;
   readonly identity: SocketIoAuthenticatedSession;
   mutation: Promise<void>;
@@ -177,6 +183,38 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
   let flushScheduled = false;
   const sessions = new Map<string, Session>();
   const publications = new Map<string, Publication>();
+  const activeAuthorizations = new Set<AbortController>();
+  let closing = false;
+  type DeadlineOutcome<T> = { readonly status: "fulfilled"; readonly value: T } | { readonly status: "failed" | "timed-out" | "aborted" };
+  const withDeadline = async <T>(
+    timeoutMs: number,
+    invoke: (context: RealtimeAuthorizationDeadline) => T | Promise<T>,
+    parentSignal?: AbortSignal
+  ): Promise<DeadlineOutcome<T>> => {
+    const controller = new AbortController();
+    activeAuthorizations.add(controller);
+    const deadlineAt = Date.now() + timeoutMs;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let timedOut = false;
+    const cancelled = new Promise<DeadlineOutcome<T>>((resolve) => {
+      controller.signal.addEventListener("abort", () => resolve({ status: timedOut ? "timed-out" : "aborted" }), { once: true });
+      timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeoutMs);
+    });
+    const abort = (): void => controller.abort();
+    parentSignal?.addEventListener("abort", abort, { once: true });
+    if (closing || parentSignal?.aborted) controller.abort();
+    const operation = Promise.resolve()
+      .then(() => invoke(Object.freeze({ deadlineAt, signal: controller.signal })))
+      .then<DeadlineOutcome<T>, DeadlineOutcome<T>>((value) => ({ status: "fulfilled", value }), () => ({ status: "failed" }));
+    const outcome = await Promise.race([operation, cancelled]);
+    if (timer) clearTimeout(timer);
+    parentSignal?.removeEventListener("abort", abort);
+    activeAuthorizations.delete(controller);
+    return outcome;
+  };
   const io = new Server(options.httpServer, {
     serveClient: false,
     transports: [...limits.allowedTransports],
@@ -193,9 +231,8 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
       return;
     }
     connectionSlots += 1;
-    let authenticationSettled = false;
     let released = false;
-    let transportClosed = false;
+    const transportAbort = new AbortController();
     const release = (): void => {
       if (released) return;
       released = true;
@@ -203,32 +240,24 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
     };
     socket.data["kNexReleaseConnectionSlot"] = release;
     socket.conn.once("close", () => {
-      transportClosed = true;
-      if (authenticationSettled) release();
+      transportAbort.abort();
+      release();
     });
-    const authentication = Promise.resolve()
-      .then(() => options.authenticate(Object.freeze({ ...socket.handshake.auth })))
-      .then((value) => authenticatedSession(value), () => null);
-    const timeout = Symbol("authentication-timeout");
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const outcome = await Promise.race([
-      authentication,
-      new Promise<typeof timeout>((resolve) => { timer = setTimeout(() => resolve(timeout), limits.authenticationTimeoutMs); })
-    ]);
-    if (outcome === timeout) {
+    const authentication = await withDeadline(
+      limits.authenticationTimeoutMs,
+      (context) => options.authenticate(Object.freeze({ ...socket.handshake.auth }), context),
+      transportAbort.signal
+    );
+    if (authentication.status !== "fulfilled") {
+      release();
       counters.authenticationDenied += 1;
       next(new Error("AUTHENTICATION_REQUIRED"));
-      void authentication.then(() => {
-        authenticationSettled = true;
-        release();
-      });
       return;
     }
-    if (timer) clearTimeout(timer);
-    authenticationSettled = true;
-    if (!outcome || transportClosed) {
-      counters.authenticationDenied += 1;
+    const outcome = authenticatedSession(authentication.value);
+    if (!outcome || transportAbort.signal.aborted) {
       release();
+      counters.authenticationDenied += 1;
       next(new Error("AUTHENTICATION_REQUIRED"));
       return;
     }
@@ -263,13 +292,9 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
 
   io.on("connection", (socket) => {
     connections += 1;
-    socket.once("disconnect", () => {
-      connections = Math.max(0, connections - 1);
-      (socket.data["kNexReleaseConnectionSlot"] as (() => void) | undefined)?.();
-      sessions.delete(socket.id);
-    });
     const identity = socket.data["kNexSession"] as SocketIoAuthenticatedSession;
     const session: Session = {
+      abort: new AbortController(),
       actor: identity.actor,
       identity,
       mutation: Promise.resolve(),
@@ -278,6 +303,12 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
       subscriptions: new Map()
     };
     sessions.set(socket.id, session);
+    socket.once("disconnect", () => {
+      session.abort.abort();
+      connections = Math.max(0, connections - 1);
+      (socket.data["kNexReleaseConnectionSlot"] as (() => void) | undefined)?.();
+      sessions.delete(socket.id);
+    });
     let requestCount = 0;
     let requestWindowStartedAt = Date.now();
     const consumeRequest = (value: unknown): SubscriptionResult | null => {
@@ -325,7 +356,12 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
           acknowledge(Object.freeze({ ok: false, code: "LIMIT_EXCEEDED" }));
           return;
         }
-        if (!await topic.authorize({ actor: session.actor, params })) {
+        const authorization = await withDeadline(
+          limits.revalidationTimeoutMs,
+          (context) => topic.authorize({ actor: session.actor, params, ...context }),
+          session.abort.signal
+        );
+        if (authorization.status !== "fulfilled" || !authorization.value) {
           counters.subscriptionDenied += 1;
           acknowledge(Object.freeze({ ok: false, code: "FORBIDDEN" }));
           return;
@@ -375,7 +411,13 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
     const operation = (async (): Promise<void> => {
       let active = false;
       try {
-        active = await options.isSessionActive(session.identity);
+        const validation = await withDeadline(
+          limits.revalidationTimeoutMs,
+          (context) => options.isSessionActive(session.identity, context),
+          session.abort.signal
+        );
+        if (validation.status === "timed-out") counters.revalidationTimeouts += 1;
+        active = validation.status === "fulfilled" && validation.value;
       } catch {
         active = false;
       }
@@ -388,7 +430,13 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
         for (const [roomId, subscription] of session.subscriptions) {
           let allowed = false;
           try {
-            allowed = await subscription.topic.authorize({ actor: session.actor, params: subscription.params });
+            const authorization = await withDeadline(
+              limits.revalidationTimeoutMs,
+              (context) => subscription.topic.authorize({ actor: session.actor, params: subscription.params, ...context }),
+              session.abort.signal
+            );
+            if (authorization.status === "timed-out") counters.revalidationTimeouts += 1;
+            allowed = authorization.status === "fulfilled" && authorization.value;
           } catch {
             allowed = false;
           }
@@ -480,6 +528,8 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
     revalidate,
     close(): Promise<void> {
       clearInterval(revalidationTimer);
+      closing = true;
+      for (const controller of activeAuthorizations) controller.abort();
       return new Promise((resolve) => io.close(() => resolve()));
     }
   });

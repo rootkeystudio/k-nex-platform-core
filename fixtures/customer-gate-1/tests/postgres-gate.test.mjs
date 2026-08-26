@@ -204,9 +204,17 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
       select
         (select count(*)::int from sales_tasks where title = $1) as task_count,
         (select count(*)::int from k_nex_outbox where event_id = $2) as outbox_count,
-        (select count(*)::int from k_nex_outbox where event_id = $2 and status = 'pending') as pending_count
+        (select count(*)::int from k_nex_outbox where event_id = $2 and status = 'pending') as pending_count,
+        (select occurred_at from k_nex_outbox where event_id = $2) as occurred_at,
+        (select retention_until from k_nex_outbox where event_id = $2) as retention_until
     `, [p32Cases[0].title, p32Cases[0].eventId]);
-    assert.deepEqual(committedState.rows, [{ task_count: 1, outbox_count: 1, pending_count: 1 }]);
+    assert.deepEqual({ ...committedState.rows[0], occurred_at: committedState.rows[0].occurred_at.toISOString(), retention_until: committedState.rows[0].retention_until.toISOString() }, {
+      task_count: 1,
+      outbox_count: 1,
+      pending_count: 1,
+      occurred_at: "2026-08-26T12:00:00.123Z",
+      retention_until: "2026-08-27T12:00:00.456Z"
+    });
 
     const rollbackProcess = await runFixtureProcess("tests/transaction-atomicity.mjs", connectionString, {
       MODE: "rollback",

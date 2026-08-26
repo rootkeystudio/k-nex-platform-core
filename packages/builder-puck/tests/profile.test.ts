@@ -40,14 +40,12 @@ const cms: PuckBuilderProfile = {
   id: "cms",
   blocks: [{ id: "content.text", version: 1 }],
   sources: [{ id: "sales.public-task-summary", version: 1 }],
-  actions: [{ id: "content.public-signup", version: 1 }],
   publication: "draft-preview-publish"
 };
 const workspace: PuckBuilderProfile = {
   id: "workspace",
   blocks: [{ id: "content.text", version: 1 }, { id: "sales.workspace-task-table", version: 1 }],
   sources: [{ id: "sales.tasks", version: 1 }],
-  actions: [{ id: "sales.workspace-task-create", version: 1 }],
   publication: "save-layout"
 };
 
@@ -62,8 +60,35 @@ describe("profile-specific Puck policy", () => {
     expect(cmsProfile?.allowsSource("sales.public-task-summary", 1)).toBe(true);
     expect(workspaceProfile?.allowsSource("sales.tasks", 1)).toBe(true);
     expect(workspaceProfile?.allowsSource("sales.public-task-summary", 1)).toBe(false);
-    expect(cmsProfile?.allowsAction("sales.workspace-task-create", 1)).toBe(false);
-    expect(workspaceProfile?.allowsAction("sales.workspace-task-create", 1)).toBe(true);
+  });
+
+  it("deeply snapshots profile constraints and source descriptors", () => {
+    const constraints = { editableFields: ["text"], allowedChildren: ["content.text"] };
+    const mutableSource = source("sales.mutable", "authenticated", ["workspace"]);
+    const registry = createPuckBuilderProfileRegistry({
+      blocks: [workspaceBlock],
+      sources: [mutableSource],
+      profiles: [{ ...workspace, blocks: [{ id: workspaceBlock.definition.id, version: 1, constraints }], sources: [{ id: mutableSource.id, version: 1 }] }]
+    });
+    constraints.editableFields.push("forged");
+    mutableSource.outputFields?.push({ ...mutableSource.outputFields[0]!, id: "forged" });
+    const resolved = registry.resolve("workspace")!;
+    const snapshot = resolved.policy.blocks[0]!.constraints!;
+    expect(snapshot.editableFields).toEqual(["text"]);
+    expect(Object.isFrozen(snapshot.editableFields)).toBe(true);
+    expect(Object.isFrozen(snapshot.allowedChildren)).toBe(true);
+    expect(() => (snapshot.editableFields as string[]).push("forged")).toThrow();
+    expect(Object.keys(resolved.adapter.config.components)).toEqual(["sales.workspace-task-table__v1"]);
+    expect(() => resolved.validateDocument({
+      id: "workspace.snapshot", version: 1, schemaVersion: 1, profile: "workspace",
+      regions: { main: [{
+        id: "text-1", type: workspaceBlock.definition.id, version: 1, props: { text: "Safe" },
+        bindings: { source: {
+          source: { id: mutableSource.id, version: 1 }, input: {}, structuralCompatibilityHash: mutableSource.structuralCompatibilityHash,
+          selectedFields: ["forged"]
+        } }
+      }] }
+    })).toThrow(/SOURCE_FIELD_UNAVAILABLE/);
   });
 
   it("rejects unknown blocks, duplicates, and crossed publication rules", () => {
@@ -134,6 +159,38 @@ describe("profile-specific Puck policy", () => {
     const data = profile.adapter.toPuckData(document);
     const component = profile.adapter.config.components["sales.workspace-task-table__v1"] as { render: (props: Record<string, unknown>) => unknown };
     expect(component.render(data.content[0]!.props)).not.toBe("Unavailable: MISSING_SOURCE");
+  });
+
+  it("fails closed on a loose source-result envelope in Puck preview", () => {
+    const descriptor = sources[1];
+    const registry = createPuckBuilderProfileRegistry({
+      blocks: [workspaceBlock],
+      sources: [descriptor],
+      profiles: [{ ...workspace, blocks: [{ id: workspaceBlock.definition.id, version: 1 }] }],
+      preview: { workspace: {
+        surface: "workspace",
+        actor: { authenticated: true, permissions: new Set([descriptor.permission, descriptor.outputFields![0]!.permission]) },
+        sourceResults: { tasks: {
+          state: "success",
+          data: { fields: ["title"], rows: [], page: { number: 1, pageSize: 20, hasNext: false } },
+          secret: "must-not-reach-renderer"
+        } as never }
+      } }
+    });
+    const profile = registry.resolve("workspace")!;
+    const document = {
+      id: "workspace.strict-preview", version: 1, schemaVersion: 1, profile: "workspace",
+      regions: { main: [{
+        id: "tasks", type: workspaceBlock.definition.id, version: 1, props: { text: "Tasks" },
+        bindings: { source: {
+          source: { id: descriptor.id, version: descriptor.version }, input: {},
+          structuralCompatibilityHash: descriptor.structuralCompatibilityHash, selectedFields: ["title"]
+        } }
+      }] }
+    };
+    const data = profile.adapter.toPuckData(document);
+    const component = profile.adapter.config.components["sales.workspace-task-table__v1"] as { render: (props: Record<string, unknown>) => unknown };
+    expect(component.render(data.content[0]!.props)).toBe("Unavailable: SOURCE_RESULT_INVALID");
   });
 
   it("enforces trusted field and movement constraints on edits", () => {
@@ -217,7 +274,6 @@ describe("profile-specific Puck policy", () => {
         id: "workspace",
         blocks: [{ id: workspaceBlock.definition.id, version: workspaceBlock.definition.version }],
         sources: [{ id: salesTasksDescriptor.id, version: salesTasksDescriptor.version }],
-        actions: [],
         publication: "save-layout"
       }]
     }).resolve("workspace");

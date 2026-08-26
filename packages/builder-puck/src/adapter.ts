@@ -84,6 +84,13 @@ function cloneJson<T>(value: T): T {
   return structuredClone(value);
 }
 
+function deepFreeze<T>(value: T, seen = new Set<object>()): T {
+  if (typeof value !== "object" || value === null || seen.has(value)) return value;
+  seen.add(value);
+  for (const child of Object.values(value)) deepFreeze(child, seen);
+  return Object.freeze(value);
+}
+
 function fieldValueIsValid(field: PuckBridgeField, value: unknown): boolean {
   if (field.kind === "text" || field.kind === "textarea") return typeof value === "string";
   if (field.kind === "number") return typeof value === "number" && Number.isFinite(value);
@@ -350,9 +357,9 @@ export function createPuckBuilderAdapter(input: { readonly blocks: readonly Puck
     assertBridge(candidate);
     const bridge: PuckBlockBridge = Object.freeze({
       ...candidate,
-      fields: Object.freeze(candidate.fields.map((field) => Object.freeze(cloneJson(field)))),
-      defaultProps: Object.freeze(cloneJson(candidate.defaultProps)),
-      ...(candidate.constraints === undefined ? {} : { constraints: Object.freeze(cloneJson(candidate.constraints)) })
+      fields: deepFreeze(candidate.fields.map((field) => cloneJson(field))),
+      defaultProps: deepFreeze(cloneJson(candidate.defaultProps)),
+      ...(candidate.constraints === undefined ? {} : { constraints: deepFreeze(cloneJson(candidate.constraints)) })
     });
     const key = bridgeKey(bridge.definition.id, bridge.definition.version);
     if (bridges.has(key)) throw new TypeError(`Duplicate Puck block bridge: ${bridge.definition.id}@${bridge.definition.version}.`);

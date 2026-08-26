@@ -14,7 +14,7 @@ const baseEnvelope = {
   type: "sales.task.created",
   schemaVersion: 1,
   messageClass: "durable-integration",
-  occurredAt: "2026-08-26T12:00:00+00:00",
+  occurredAt: "2026-08-26T12:00:00.000+00:00",
   applicationId: "customer-one",
   pluginId: "module.sales",
   actor: { id: "user-1", type: "user" },
@@ -104,6 +104,19 @@ describe("durable event envelope v1", () => {
     }).success).toBe(false);
   });
 
+  it("requires canonical millisecond timestamp precision", () => {
+    for (const occurredAt of [
+      "2026-08-26T12:00:00Z",
+      "2026-08-26T12:00:00.0Z",
+      "2026-08-26T12:00:00.00Z",
+      "2026-08-26T12:00:00.0000Z",
+      "2026-08-26T12:00:00.000001+00:00"
+    ]) expect(DurableEventEnvelopeSchema.safeParse({ ...baseEnvelope, occurredAt }).success).toBe(false);
+    for (const occurredAt of ["2026-08-26T12:00:00.000Z", "2026-08-26T12:00:00.999-04:00"]) {
+      expect(DurableEventEnvelopeSchema.safeParse({ ...baseEnvelope, occurredAt }).success).toBe(true);
+    }
+  });
+
   it("rejects circular, non-plain, non-finite, and too-deep payloads", () => {
     const circular: Record<string, unknown> = { name: "task" };
     circular.self = circular;
@@ -123,11 +136,17 @@ describe("durable event envelope v1", () => {
     const oversized = { data: "x".repeat(EVENT_PAYLOAD_MAX_BYTES) };
     expect(DurableEventEnvelopeSchema.safeParse({ ...baseEnvelope, payload: oversized }).success).toBe(false);
 
-    for (const key of ["Authorization", "cookie", "pass-word", "-password-", "SECRET", "💣secret💣", "to.ken", "_token_", "api_key", "credential", "private-note"]) {
+    for (const key of [
+      "Authorization", "cookie", "pass-word", "-password-", "SECRET", "💣secret💣", "to.ken", "_token_", "api_key", "credential", "private-note",
+      "accessToken", "access_token", "access-token", "refreshToken", "clientSecret", "sessionToken", "apiKeyValue"
+    ]) {
       expect(DurableEventEnvelopeSchema.safeParse({
         ...baseEnvelope,
         payload: { outer: [{ nested: { [key]: "do-not-store" } }] }
       }).success).toBe(false);
+    }
+    for (const key of ["tokenCount", "token-count", "token_count", "secretary", "monkey"]) {
+      expect(DurableEventEnvelopeSchema.safeParse({ ...baseEnvelope, payload: { [key]: 1 } }).success).toBe(true);
     }
   });
 

@@ -76,6 +76,13 @@ const surfaces = new Set<UiRuntimeSurface>(["workspace", "cms", "public"]);
 const profiles = new Set<UiDocumentProfile>(uiDocumentProfiles);
 const keyOf = (id: string, version: number): string => `${id}@${version}`;
 
+function deepFreeze<T>(value: T, seen = new Set<object>()): T {
+  if (typeof value !== "object" || value === null || seen.has(value)) return value;
+  seen.add(value);
+  for (const child of Object.values(value)) deepFreeze(child, seen);
+  return Object.freeze(value);
+}
+
 function assertUniqueStrings(values: readonly string[], label: string): void {
   if (values.length === 0 || new Set(values).size !== values.length) throw new TypeError(`${label} must be nonempty and unique.`);
 }
@@ -186,7 +193,7 @@ export function createUiRuntimeRegistry(input: {
   for (const candidate of input.sources) {
     const parsed = DataSourceDescriptorSchema.safeParse(candidate);
     if (!parsed.success) throw new TypeError("UI runtime source descriptors must satisfy the canonical contract.");
-    const descriptor = Object.freeze(structuredClone(parsed.data));
+    const descriptor = deepFreeze(structuredClone(parsed.data));
     const key = keyOf(descriptor.id, descriptor.version);
     if (sourceMap.has(key)) throw new TypeError(`Duplicate UI source descriptor: ${key}.`);
     const catalogEntry = sourceCatalog.get(key);

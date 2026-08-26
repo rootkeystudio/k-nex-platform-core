@@ -123,4 +123,69 @@ describe("UI document runtime", () => {
     expect(result).toMatchObject({ status: "fallback", reason: "RENDER_FAILED" });
     expect(JSON.stringify(result)).not.toContain("private renderer detail");
   });
+
+  it("isolates renderer actor authority and deeply freezes registered descriptors", () => {
+    const callerPermissions = new Set<string>();
+    const mutator = block({
+      id: "content.mutator",
+      render: ({ actor: rendererActor }) => {
+        (rendererActor.permissions as Set<string>).add("content.protected.read");
+        return "mutated";
+      }
+    });
+    const protectedBlock = block({ id: "content.protected", permission: "content.protected.read" });
+    const descriptor = source();
+    const registry = createUiRuntimeRegistry({ blocks: [mutator, protectedBlock], sources: [descriptor] });
+    const runtime = createUiDocumentRuntime(registry);
+    const result = runtime.render({
+      document: {
+        ...document(),
+        regions: { main: [
+          { id: "mutator-1", type: "content.mutator", version: 1, props: { title: "first" } },
+          { id: "protected-1", type: "content.protected", version: 1, props: { title: "second" } }
+        ] }
+      },
+      surface: "workspace",
+      actor: { authenticated: true, permissions: callerPermissions }
+    });
+    if (!result.success) throw new Error("Expected successful document evaluation.");
+    expect(result.regions.main).toMatchObject([{ reason: "RENDER_FAILED" }, { reason: "PERMISSION_DENIED" }]);
+    expect(callerPermissions.has("content.protected.read")).toBe(false);
+
+    const snapshot = registry.resolveSource(descriptor.id, descriptor.version)!;
+    expect(Object.isFrozen(snapshot.outputFields)).toBe(true);
+    expect(Object.isFrozen(snapshot.outputFields?.[0])).toBe(true);
+    expect(() => (snapshot.outputFields as DataSourceDescriptor["outputFields"] & unknown[]).push({})).toThrow();
+    expect(descriptor.outputFields).toHaveLength(1);
+  });
+
+  it("rejects loose result envelopes and gives renderers only immutable normalized data", () => {
+    const observed: unknown[] = [];
+    const dataBlock = block({
+      sourcePolicy: { required: true, contracts: [{ id: "table.records", version: 1 }], requiredFields: ["title"] },
+      render: ({ sourceResult }) => {
+        observed.push(sourceResult);
+        if (sourceResult?.state === "success") (sourceResult.data as { fields: string[] }).fields.push("private-note");
+        return "rendered";
+      }
+    });
+    const descriptor = source();
+    const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [dataBlock], sources: [descriptor] }));
+    const bound = document({ bindings: { source: {
+      source: { id: descriptor.id, version: descriptor.version }, input: {}, structuralCompatibilityHash: descriptor.structuralCompatibilityHash, selectedFields: ["title"]
+    } } });
+    const table = { fields: ["title"], rows: [], page: { number: 1, pageSize: 20, hasNext: false } };
+    const render = (result: unknown) => firstNode(runtime.render({
+      document: bound, surface: "workspace", actor: actor(["sales.tasks.read", "sales.tasks.title.read"]), sourceResults: { "card-1": result as never }
+    }));
+
+    expect(render({ state: "success", data: table, secret: "leak" })).toMatchObject({ reason: "SOURCE_RESULT_INVALID" });
+    expect(render({ state: "error", problem: { code: "FAILED", status: 500, stack: "private" } })).toMatchObject({ reason: "SOURCE_RESULT_INVALID" });
+    expect(render({ state: "forbidden", problem: { code: "FORBIDDEN", status: 500 } })).toMatchObject({ reason: "SOURCE_RESULT_INVALID" });
+    expect(render({ state: "success", data: table })).toMatchObject({ reason: "RENDER_FAILED" });
+    expect(observed).toHaveLength(1);
+    expect(Object.isFrozen(observed[0])).toBe(true);
+    expect(Object.isFrozen((observed[0] as { data: { fields: unknown } }).data.fields)).toBe(true);
+    expect(table.fields).toEqual(["title"]);
+  });
 });

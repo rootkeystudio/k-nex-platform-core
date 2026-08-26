@@ -3,7 +3,7 @@
   "correlationId": "correlation-1",
   "id": "event-1",
   "messageClass": "ephemeral-hint",
-  "occurredAt": "2026-08-26T12:00:00+00:00",
+  "occurredAt": "2026-08-26T12:00:00.000+00:00",
   "payload": {
     "taskId": "task-1"
   },

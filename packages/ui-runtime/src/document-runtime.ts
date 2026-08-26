@@ -1,5 +1,6 @@
 import {
   MetricScalarSchema,
+  DataSourceBindingResultSchema,
   dataSourceTableProjectionIsValid,
   resolveDataSourceFieldSelection,
   TableRecordsSchema,
@@ -176,31 +177,52 @@ function tableProjectionMatchesAuthority(
   return selection.success && dataSourceTableProjectionIsValid(descriptor, selection.selectedFields, table);
 }
 
-function sourceResultIsValid(
+function deepFreeze<T>(value: T, seen = new Set<object>()): T {
+  if (typeof value !== "object" || value === null || seen.has(value)) return value;
+  seen.add(value);
+  for (const child of Object.values(value)) deepFreeze(child, seen);
+  return Object.freeze(value);
+}
+
+function readonlySet<T>(values: Iterable<T>): ReadonlySet<T> {
+  const set = new Set(values);
+  let view: ReadonlySet<T>;
+  view = Object.freeze({
+    get size() { return set.size; },
+    has: (value: T) => set.has(value),
+    entries: () => set.entries(),
+    keys: () => set.keys(),
+    values: () => set.values(),
+    forEach: (callback: (value: T, value2: T, set: ReadonlySet<T>) => void, thisArg?: unknown) => {
+      set.forEach((value) => callback.call(thisArg, value, value, view));
+    },
+    [Symbol.iterator]: () => set[Symbol.iterator](),
+    [Symbol.toStringTag]: "Set"
+  });
+  return view;
+}
+
+function snapshotActor(actor: UiRuntimeActor): UiRuntimeActor {
+  return Object.freeze({ authenticated: actor.authenticated === true, permissions: readonlySet(actor.permissions) });
+}
+
+function normalizeSourceResult(
   descriptor: DataSourceDescriptor,
   node: UiNode,
   actor: UiRuntimeActor,
   result: unknown
-): result is DataSourceBindingResult<unknown> {
-  if (result === null || typeof result !== "object" || Array.isArray(result) || !("state" in result)) return false;
-  const value = result as Record<string, unknown>;
-  if (value.state === "idle" || value.state === "loading" || value.state === "empty") return true;
+): DataSourceBindingResult<unknown> | undefined {
+  const envelope = DataSourceBindingResultSchema.safeParse(result);
+  if (!envelope.success) return undefined;
+  const value = envelope.data;
   if (value.state === "success" || value.state === "stale" || value.state === "refetching") {
     const schema = descriptor.primaryContract.id === "metric.scalar" ? MetricScalarSchema : TableRecordsSchema;
     const parsed = schema.safeParse(value.data);
-    if (!parsed.success) return false;
-    return descriptor.primaryContract.id !== "table.records" || tableProjectionMatchesAuthority(descriptor, node, actor, parsed.data as never);
+    if (!parsed.success) return undefined;
+    if (descriptor.primaryContract.id === "table.records" && !tableProjectionMatchesAuthority(descriptor, node, actor, parsed.data as never)) return undefined;
+    return deepFreeze({ ...value, data: structuredClone(parsed.data) }) as DataSourceBindingResult<unknown>;
   }
-  if (value.state === "forbidden" || value.state === "insufficient-permission" || value.state === "invalid-contract" ||
-      value.state === "rate-limited" || value.state === "error") {
-    const problem = value.problem;
-    if (problem === null || typeof problem !== "object" || Array.isArray(problem)) return false;
-    const status = (problem as Record<string, unknown>).status;
-    const code = (problem as Record<string, unknown>).code;
-    if (![403, 429, 500, 502, 503, 504].includes(status as number) || typeof code !== "string" || !/^[A-Z][A-Z0-9_]{0,63}$/.test(code)) return false;
-    return value.retryAfterMs === undefined || value.state === "rate-limited" && Number.isSafeInteger(value.retryAfterMs) && (value.retryAfterMs as number) >= 0;
-  }
-  return false;
+  return deepFreeze(structuredClone(value)) as DataSourceBindingResult<unknown>;
 }
 
 function sourceBindingReason(
@@ -314,8 +336,9 @@ function renderNode(
   let sourceResult: DataSourceBindingResult<unknown> | undefined;
   if (node.bindings?.source !== undefined) {
     source = registry.resolveSource(node.bindings.source.source.id, node.bindings.source.source.version);
-    sourceResult = sourceResults[node.id] ?? { state: "idle" };
-    if (source === undefined || !sourceResultIsValid(source, node, actor, sourceResult)) return nodeResult(node, children, "SOURCE_RESULT_INVALID");
+    const candidate = sourceResults[node.id] ?? { state: "idle" };
+    sourceResult = source === undefined ? undefined : normalizeSourceResult(source, node, actor, candidate);
+    if (source === undefined || sourceResult === undefined) return nodeResult(node, children, "SOURCE_RESULT_INVALID");
   }
 
   try {
@@ -349,11 +372,12 @@ export function createUiDocumentRuntime(registry: UiRuntimeRegistry): UiDocument
       }
 
       if (!profileAllowsSurface(document.profile, input.surface)) return { success: false, code: "PROFILE_SURFACE_DENIED", remediation: "FIX_BLOCK_CONFIGURATION" };
-      if (input.surface !== "public" && !input.actor.authenticated) return { success: false, code: "AUTHENTICATION_REQUIRED", remediation: "REQUEST_ACCESS" };
+      const actor = snapshotActor(input.actor);
+      if (input.surface !== "public" && !actor.authenticated) return { success: false, code: "AUTHENTICATION_REQUIRED", remediation: "REQUEST_ACCESS" };
 
       const regions: Record<string, readonly UiRuntimeNodeResult[]> = {};
       for (const [region, nodes] of Object.entries(document.regions)) {
-        regions[region] = nodes.map((node) => renderNode(node, document, input.surface, input.actor, registry, input.sourceResults ?? {}));
+        regions[region] = nodes.map((node) => renderNode(node, document, input.surface, actor, registry, input.sourceResults ?? {}));
       }
       return { success: true, regions };
     }

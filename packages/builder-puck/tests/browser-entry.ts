@@ -106,7 +106,6 @@ const profile = createPuckBuilderProfileRegistry({
     id: "workspace",
     blocks: bridges.map(({ definition }) => ({ id: definition.id, version: definition.version })),
     sources: [{ id: source.id, version: source.version }],
-    actions: [],
     publication: "save-layout"
   }],
   preview: { workspace: { surface: "workspace", actor, sourceResults } }

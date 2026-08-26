@@ -34,7 +34,11 @@ function jsonSchema(schema: z.core.$ZodType): unknown {
 
 function secretFieldPattern(): string {
   const separator = "[^A-Za-z0-9]*";
-  const words = ["authorization", "cookie", "password", "secret", "token", "apikey", "credential", "privatenote"];
+  const words = [
+    "authorization", "cookie", "password", "secret", "token", "apikey", "credential", "privatenote",
+    "accesstoken", "refreshtoken", "sessiontoken", "idtoken", "authtoken", "bearertoken",
+    "clientsecret", "apisecret", "secretkey", "privatekey", "apikeyvalue"
+  ];
   return `^(?:${words.map((word) => [...word].map((letter) => `[${letter.toLowerCase()}${letter.toUpperCase()}]`).join(separator)).join("|")})$`;
 }
 

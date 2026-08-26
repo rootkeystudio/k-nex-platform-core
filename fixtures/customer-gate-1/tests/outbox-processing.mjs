@@ -121,6 +121,23 @@ try {
   assert.equal((await state("p3-3-lease")).attempt_count, 2);
   assert.equal(await effectCount("p3-3-lease"), 1, "lease recovery must not duplicate the subscriber effect");
 
+  await seed("p3-3-expired-fair", "task-expired-fair");
+  await client.query(`
+    UPDATE k_nex_outbox
+    SET status = 'processing', attempt_count = 1, claimed_at = now() - interval '2 seconds',
+        lease_expires_at = now() - interval '1 second', claim_token = 'abandoned-claim'
+    WHERE event_id = 'p3-3-expired-fair'
+  `);
+  for (let index = 0; index < 3; index += 1) {
+    await seed(`p3-3-arrival-${index}`, `task-arrival-${index}`, new Date(Date.now() - 100));
+  }
+  const fairRecovery = await processNextPayloadOutboxEvent({ payload, subscriber, leaseMs: 20 });
+  assert.deepEqual(fairRecovery, { eventId: "p3-3-expired-fair", status: "delivered" });
+  assert.equal((await state("p3-3-expired-fair")).attempt_count, 2);
+  for (let index = 0; index < 3; index += 1) {
+    assert.equal((await state(`p3-3-arrival-${index}`)).status, "pending");
+  }
+
   await seed("p3-3-poison", "task-poison");
   for (const expected of ["retry-scheduled", "retry-scheduled", "dead-lettered"]) {
     const outcome = await processNextPayloadOutboxEvent({ payload, subscriber, backoffMs: 1, maxAttempts: 3 });
@@ -152,9 +169,9 @@ try {
   await seed("p3-3-future", "task-future", new Date(Date.now() + 60_000));
   const health = await readPayloadOutboxHealth(payload);
   assert.deepEqual(health, {
-    pending: 1,
+    pending: 4,
     processing: 0,
-    delivered: 5,
+    delivered: 6,
     deadLetter: 2,
     expiredLeases: 0,
     oldestPendingAt: health.oldestPendingAt

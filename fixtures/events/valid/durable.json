@@ -9,7 +9,7 @@
   "id": "event-1",
   "idempotencyKey": "task-create-1",
   "messageClass": "durable-integration",
-  "occurredAt": "2026-08-26T12:00:00+00:00",
+  "occurredAt": "2026-08-26T12:00:00.000+00:00",
   "payload": {
     "status": "open",
     "taskId": "task-1"

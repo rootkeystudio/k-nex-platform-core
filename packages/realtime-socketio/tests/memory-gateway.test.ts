@@ -9,7 +9,9 @@ import { createSocketIoMemoryGateway, type SocketIoMemoryGateway } from "../src/
 
 const topic = defineRealtimeTopic({
   id: "sales.tasks",
-  authorize: ({ actor, params }) => topicAllowed && actor.id === params.ownerId,
+  authorize: ({ actor, params, signal }) => params.ownerId === "hang"
+    ? new Promise<boolean>(() => undefined)
+    : !signal.aborted && topicAllowed && actor.id === params.ownerId,
   parseEvent(value) {
     if (typeof value !== "object" || value === null || !("revision" in value) || !Number.isSafeInteger(value.revision)) throw new TypeError();
     return value as { revision: number };
@@ -284,18 +286,23 @@ describe("Socket.IO memory realtime gateway", () => {
     expect(gateway.health()).toMatchObject({ connections: 1, pendingConnections: 0 });
   });
 
-  it("retains authentication slots after middleware disconnect and timeout until work settles", async () => {
+  it("cancels timed-out authentication and immediately recovers connection capacity", async () => {
     httpServer = createServer();
-    const authenticationResolvers: Array<() => void> = [];
     let authenticateCalls = 0;
+    let abandonedSignal: AbortSignal | undefined;
+    let abandonedDeadline = 0;
     gateway = createSocketIoMemoryGateway({
       httpServer,
       topics: createRealtimeTopicRegistry([topic]),
       security: { ...security, authenticationTimeoutMs: 20, maxConnections: 1 },
-      authenticate: async () => {
+      authenticate: async ({ actor }, context) => {
         authenticateCalls += 1;
-        await new Promise<void>((resolve) => authenticationResolvers.push(resolve));
-        return { actor: { id: "owner-1", type: "user" }, id: "owner-1" };
+        if (authenticateCalls === 1) {
+          abandonedSignal = context.signal;
+          abandonedDeadline = context.deadlineAt;
+          await new Promise<void>(() => undefined);
+        }
+        return { actor: { id: String(actor), type: "user" }, id: String(actor) };
       },
       isSessionActive: async () => true
     });
@@ -308,32 +315,23 @@ describe("Socket.IO memory realtime gateway", () => {
       reconnection: false
     });
 
-    const disconnected = open();
-    await expect.poll(() => authenticateCalls).toBe(1);
-    disconnected.disconnect();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(gateway.health()).toMatchObject({ connections: 0, pendingConnections: 1 });
-    const deniedDuringDisconnect = open();
-    const deniedDuringDisconnectOutcome = new Promise((resolve) => deniedDuringDisconnect.once("connect_error", resolve));
-    await deniedDuringDisconnectOutcome;
-    expect(authenticateCalls).toBe(1);
-    authenticationResolvers[0]?.();
-    await expect.poll(() => gateway?.health().pendingConnections).toBe(0);
-
     const timedOut = open();
     const timedOutOutcome = new Promise((resolve) => timedOut.once("connect_error", resolve));
-    await expect.poll(() => authenticateCalls).toBe(2);
+    await expect.poll(() => authenticateCalls).toBe(1);
     await timedOutOutcome;
-    expect(gateway.health()).toMatchObject({ connections: 0, pendingConnections: 1 });
-    const deniedDuringTimeout = open();
-    const deniedDuringTimeoutOutcome = new Promise((resolve) => deniedDuringTimeout.once("connect_error", resolve));
-    await deniedDuringTimeoutOutcome;
+    expect(abandonedDeadline).toBeGreaterThan(0);
+    expect(abandonedSignal?.aborted).toBe(true);
+    expect(gateway.health()).toMatchObject({ connections: 0, pendingConnections: 0 });
+
+    const recovered = open();
+    await new Promise((resolve, reject) => {
+      recovered.once("connect", resolve);
+      recovered.once("connect_error", reject);
+    });
     expect(authenticateCalls).toBe(2);
-    authenticationResolvers[1]?.();
-    await expect.poll(() => gateway?.health().pendingConnections).toBe(0);
-    deniedDuringDisconnect.disconnect();
+    expect(gateway.health()).toMatchObject({ connections: 1, pendingConnections: 0 });
+    client = recovered;
     timedOut.disconnect();
-    deniedDuringTimeout.disconnect();
   });
 
   it("serializes concurrent subscription mutations before enforcing the per-connection limit", async () => {
@@ -345,6 +343,15 @@ describe("Socket.IO memory realtime gateway", () => {
     expect(results.filter(({ ok }) => ok)).toHaveLength(1);
     expect(results.filter(({ ok }) => !ok)).toEqual([{ ok: false, code: "LIMIT_EXCEEDED" }]);
     expect(active.gateway.health()).toMatchObject({ subscriptions: 1, subscriptionDenied: 1 });
+  });
+
+  it("cancels hanging topic authorization without wedging the mutation queue", async () => {
+    const active = await harness();
+    const hanging = active.client.emitWithAck("k-nex:subscribe", { topicId: "sales.tasks", params: { ownerId: "hang" } });
+    const following = active.client.emitWithAck("k-nex:subscribe", { topicId: "sales.tasks", params: { ownerId: "owner-1" } });
+    await expect(hanging).resolves.toEqual({ ok: false, code: "FORBIDDEN" });
+    await expect(following).resolves.toEqual({ ok: true });
+    expect(active.gateway.health()).toMatchObject({ connections: 1, subscriptions: 1, subscriptionDenied: 1 });
   });
 
   it("automatically revalidates and removes revoked topic permission", async () => {

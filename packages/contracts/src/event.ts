@@ -38,7 +38,18 @@ const secretFieldNames = new Set([
   "token",
   "apikey",
   "credential",
-  "privatenote"
+  "privatenote",
+  "accesstoken",
+  "refreshtoken",
+  "sessiontoken",
+  "idtoken",
+  "authtoken",
+  "bearertoken",
+  "clientsecret",
+  "apisecret",
+  "secretkey",
+  "privatekey",
+  "apikeyvalue"
 ]);
 
 const boundedIdSchema = (maximum: number) => z.string().min(1).max(maximum).regex(controlFreeIdentifierPattern);
@@ -48,7 +59,10 @@ const EventTypeSchema = ResourceIdSchema.min(1).max(EVENT_ID_MAX_LENGTH);
 const ApplicationIdSchema = z.string().min(1).max(APPLICATION_ID_MAX_LENGTH).regex(applicationIdPattern);
 const EventPluginIdSchema = PluginIdSchema.max(PLUGIN_ID_MAX_LENGTH);
 const ActorTypeSchema = boundedIdSchema(ACTOR_TYPE_MAX_LENGTH);
-const EventTimestampSchema = z.iso.datetime({ offset: true }).max(64);
+export const MillisecondTimestampSchema = z.iso.datetime({ offset: true })
+  .regex(/\.\d{3}(?:Z|[+-]\d{2}:\d{2})$/, "Timestamp must use canonical millisecond precision.")
+  .max(64);
+export const EventTimestampSchema = MillisecondTimestampSchema;
 const EventSchemaVersionSchema = z.number().finite().int().min(1).max(SCHEMA_VERSION_MAX);
 
 type PayloadValidationContext = Pick<z.RefinementCtx, "addIssue">;

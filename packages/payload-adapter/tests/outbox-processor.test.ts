@@ -57,6 +57,7 @@ describe("Payload outbox processor", () => {
     expect(claim).toContain(`"status" = 'processing'`);
     expect(claim).toContain("lease_expires_at");
     expect(claim).toContain("claim_token");
+    expect(claim).toContain(`CASE WHEN "status" = 'pending' THEN "available_at" ELSE "lease_expires_at" END`);
   });
 
   it("delivers with a least-privileged actor, idempotency key, and durable checkpoint", async () => {

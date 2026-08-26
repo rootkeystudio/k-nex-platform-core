@@ -124,20 +124,43 @@ export async function createDataSourceQueryIdentity(value: unknown): Promise<Dat
   return freezeJson(identity);
 }
 
-export interface DataSourceBindingProblem {
-  readonly code: string;
-  readonly status: 403 | 429 | 500 | 502 | 503 | 504;
-}
+const bindingProblemCodeSchema = z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/);
+const bindingProblem = <TStatus extends z.ZodType>(status: TStatus) => z.strictObject({
+  code: bindingProblemCodeSchema,
+  status
+});
 
+export const DataSourceBindingProblemSchema = bindingProblem(z.union([
+  z.literal(403), z.literal(429), z.literal(500), z.literal(502), z.literal(503), z.literal(504)
+]));
+
+const resultDataSchema = z.unknown();
+
+/** Strict transport envelope; payload contracts are validated separately by the consuming source descriptor. */
+export const DataSourceBindingResultSchema = z.discriminatedUnion("state", [
+  z.strictObject({ state: z.literal("idle") }),
+  z.strictObject({ state: z.literal("loading") }),
+  z.strictObject({ state: z.literal("success"), data: resultDataSchema }),
+  z.strictObject({ state: z.literal("empty") }),
+  z.strictObject({ state: z.literal("forbidden"), problem: bindingProblem(z.literal(403)) }),
+  z.strictObject({ state: z.literal("insufficient-permission"), problem: bindingProblem(z.literal(403)) }),
+  z.strictObject({ state: z.literal("invalid-contract"), problem: bindingProblem(z.union([z.literal(500), z.literal(502)])) }),
+  z.strictObject({ state: z.literal("rate-limited"), problem: bindingProblem(z.literal(429)), retryAfterMs: z.number().int().nonnegative().safe().optional() }),
+  z.strictObject({ state: z.literal("error"), problem: bindingProblem(z.union([z.literal(500), z.literal(502), z.literal(503), z.literal(504)])) }),
+  z.strictObject({ state: z.literal("stale"), data: resultDataSchema }),
+  z.strictObject({ state: z.literal("refetching"), data: resultDataSchema })
+]);
+
+export type DataSourceBindingProblem = z.output<typeof DataSourceBindingProblemSchema>;
 export type DataSourceBindingResult<T> =
   | { readonly state: "idle" }
   | { readonly state: "loading" }
   | { readonly state: "success"; readonly data: T }
   | { readonly state: "empty" }
-  | { readonly state: "forbidden"; readonly problem: DataSourceBindingProblem }
-  | { readonly state: "insufficient-permission"; readonly problem: DataSourceBindingProblem }
-  | { readonly state: "invalid-contract"; readonly problem: DataSourceBindingProblem }
-  | { readonly state: "rate-limited"; readonly problem: DataSourceBindingProblem; readonly retryAfterMs?: number }
-  | { readonly state: "error"; readonly problem: DataSourceBindingProblem }
+  | { readonly state: "forbidden"; readonly problem: { readonly code: string; readonly status: 403 } }
+  | { readonly state: "insufficient-permission"; readonly problem: { readonly code: string; readonly status: 403 } }
+  | { readonly state: "invalid-contract"; readonly problem: { readonly code: string; readonly status: 500 | 502 } }
+  | { readonly state: "rate-limited"; readonly problem: { readonly code: string; readonly status: 429 }; readonly retryAfterMs?: number }
+  | { readonly state: "error"; readonly problem: { readonly code: string; readonly status: 500 | 502 | 503 | 504 } }
   | { readonly state: "stale"; readonly data: T }
   | { readonly state: "refetching"; readonly data: T };

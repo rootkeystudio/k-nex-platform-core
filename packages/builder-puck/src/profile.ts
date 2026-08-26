@@ -16,7 +16,6 @@ export interface PuckBuilderProfile {
   readonly id: UiDocumentProfile;
   readonly blocks: readonly PuckProfileBlockResource[];
   readonly sources: readonly PuckProfileResource[];
-  readonly actions: readonly PuckProfileResource[];
   readonly publication: "draft-preview-publish" | "save-layout";
 }
 
@@ -26,7 +25,6 @@ export interface ResolvedPuckBuilderProfile {
   validateDocument(value: unknown): UiDocument;
   validateChange(previous: unknown, next: unknown): UiDocument;
   allowsSource(id: string, version: number): boolean;
-  allowsAction(id: string, version: number): boolean;
 }
 
 export interface PuckBuilderProfileRegistry {
@@ -37,6 +35,13 @@ export type PuckProfilePreviewContext = Omit<PuckPreviewContext, "sources">;
 
 const profiles = new Set<UiDocumentProfile>(uiDocumentProfiles);
 const keyOf = ({ id, version }: PuckProfileResource): string => `${id}@${version}`;
+
+function deepFreeze<T>(value: T, seen = new Set<object>()): T {
+  if (typeof value !== "object" || value === null || seen.has(value)) return value;
+  seen.add(value);
+  for (const child of Object.values(value)) deepFreeze(child, seen);
+  return Object.freeze(value);
+}
 
 function assertResources(resources: readonly PuckProfileResource[], label: string): void {
   const keys = resources.map(keyOf);
@@ -51,10 +56,9 @@ function copyProfile(profile: PuckBuilderProfile): PuckBuilderProfile {
     ...profile,
     blocks: Object.freeze(profile.blocks.map((resource) => Object.freeze({
       ...resource,
-      ...(resource.constraints === undefined ? {} : { constraints: Object.freeze(structuredClone(resource.constraints)) })
+      ...(resource.constraints === undefined ? {} : { constraints: deepFreeze(structuredClone(resource.constraints)) })
     }))),
-    sources: Object.freeze(profile.sources.map((resource) => Object.freeze({ ...resource }))),
-    actions: Object.freeze(profile.actions.map((resource) => Object.freeze({ ...resource })))
+    sources: Object.freeze(profile.sources.map((resource) => Object.freeze({ ...resource })))
   });
 }
 
@@ -216,7 +220,7 @@ export function createPuckBuilderProfileRegistry(input: {
     if (!parsed.success) throw new TypeError("Puck profile sources must satisfy the canonical descriptor contract.");
     const key = keyOf(parsed.data);
     if (sourceMap.has(key)) throw new TypeError("Puck profile sources must be unique.");
-    sourceMap.set(key, Object.freeze(structuredClone(parsed.data)));
+    sourceMap.set(key, deepFreeze(structuredClone(parsed.data)));
   }
   const resolved = new Map<UiDocumentProfile, ResolvedPuckBuilderProfile>();
 
@@ -224,7 +228,6 @@ export function createPuckBuilderProfileRegistry(input: {
     if (!profiles.has(candidate.id) || resolved.has(candidate.id)) throw new TypeError("Puck builder profile IDs must be recognized and unique.");
     assertResources(candidate.blocks, "Puck profile blocks");
     assertResources(candidate.sources, "Puck profile sources");
-    assertResources(candidate.actions, "Puck profile actions");
     for (const block of candidate.blocks) {
       if (block.constraints !== undefined && !UiLayoutConstraintsSchema.safeParse(block.constraints).success) {
         throw new TypeError("Puck profile block constraints must satisfy the canonical contract.");
@@ -236,7 +239,7 @@ export function createPuckBuilderProfileRegistry(input: {
       const bridge = bridgeMap.get(keyOf(resource));
       if (bridge === undefined) throw new TypeError(`Puck profile references an unknown block: ${keyOf(resource)}.`);
       const constraints = combineConstraints(bridge.constraints, resource.constraints);
-      return constraints === undefined ? bridge : Object.freeze({ ...bridge, constraints: Object.freeze(structuredClone(constraints)) });
+      return constraints === undefined ? bridge : Object.freeze({ ...bridge, constraints: deepFreeze(structuredClone(constraints)) });
     });
     for (const bridge of selectedBridges) {
       if (!bridge.definition.profiles.includes(candidate.id)) {
@@ -258,7 +261,6 @@ export function createPuckBuilderProfileRegistry(input: {
     const policy = copyProfile(candidate);
     const blockDefinitions = new Map(selectedBridges.map((bridge) => [keyOf(bridge.definition), bridge]));
     const sourceKeys = new Set(policy.sources.map(keyOf));
-    const actionKeys = new Set(policy.actions.map(keyOf));
     const selectedSources = policy.sources.map((resource) => sourceMap.get(keyOf(resource))!);
     const expectedSurface = policy.id === "cms" ? "public" : "workspace";
     const configuredPreview = input.preview?.[policy.id];
@@ -309,8 +311,7 @@ export function createPuckBuilderProfileRegistry(input: {
         assertAuthorizedChange(prior, current, blockDefinitions, canvasRegion);
         return current;
       },
-      allowsSource: (id: string, version: number) => sourceKeys.has(`${id}@${version}`),
-      allowsAction: (id: string, version: number) => actionKeys.has(`${id}@${version}`)
+      allowsSource: (id: string, version: number) => sourceKeys.has(`${id}@${version}`)
     }));
   }
 

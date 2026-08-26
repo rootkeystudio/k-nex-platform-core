@@ -8,7 +8,7 @@
 
 ## Scope proved
 
-Phase 4 proves that Puck can edit a minimal canonical K-Nex UI document through a narrow adapter without owning persistence, publication, runtime rendering, profile policy, or the fixed application shell. The same editor engine supports CMS and workspace profiles with distinct block, source, action, surface, audience, and publication authority.
+Phase 4 proves that Puck can edit a minimal canonical K-Nex UI document through a narrow adapter without owning persistence, publication, runtime rendering, profile policy, or the fixed application shell. The same editor engine supports CMS and workspace profiles with distinct block, source, surface, audience, and publication authority.
 
 The production UI runtime remains editor-independent. It validates canonical documents, migrations, blocks, bindings, selected fields, structural hashes, source results, permissions, and surfaces before producing safe render or fallback results. Puck and React are absent from the production runtime package boundary.
 
@@ -30,7 +30,7 @@ Review corrections were delivered in `6c130e3`, `cd59941`, `1b9a5ba`, `be6faa3`,
 
 ## Canonical document and adapter proof
 
-The versioned `UiDocument` contract persists profiles, regions, nodes, block identity, validated JSON props, typed bindings, layout tokens and constraints, and namespaced engine metadata. It rejects duplicate identities, arbitrary executable values, unrestricted or obfuscated URLs, unsafe or Unicode-obscured keys, secret-bearing structures, arbitrary style objects, and non-namespaced engine metadata. Migration dispatch is deterministic and refuses unknown or failed versions.
+The versioned `UiDocument` contract persists profiles, regions, nodes, block identity, validated JSON props, source bindings, layout tokens and constraints, and namespaced engine metadata. Unsupported state, context, and action authority is deliberately absent from v1. It rejects duplicate identities, arbitrary executable values, unrestricted or obfuscated URLs, unsafe or Unicode-obscured keys, secret-bearing structures, arbitrary style objects, and non-namespaced engine metadata. Migration dispatch is deterministic and refuses unknown or failed versions.
 
 The Puck adapter maps one configured canonical region to Puck content and retains only minimal namespaced bridge metadata. Round-trip tests preserve document semantics and untouched canonical fields. Profile validation treats all editor data as untrusted: document identity, bindings, layouts, engine metadata, protected props, inserted defaults, movement/deletion rules, child constraints, and every non-canvas region remain server-authoritative. The raw publish-capable host is not exported from the public editor entry; publication is reachable only through the fixed-shell host and revalidates the canonical change and runtime readiness.
 
@@ -38,7 +38,7 @@ The Puck adapter maps one configured canonical region to Puck content and retain
 
 CMS accepts only public-audience blocks and sources that explicitly support the public surface. Workspace uses its separate allowlists and authenticated surface. Authenticated preview cannot promote a workspace source into public authority. A shared field-selection and table-projection authority preserves the Phase 2 gateway rules for required fields, permission-filtered optional fields, selected-field coverage, result ordering, nullable omissions, and semantic cell kinds.
 
-The same browser presenter and UI runtime execute inside preview and outside the editor. Missing plugins, block versions, sources, selected fields, structural hashes, permissions, and migrations produce bounded fallback/readiness results while retaining canonical content for remediation rather than silently deleting it.
+The same browser presenter and UI runtime execute inside preview and outside the editor. Renderers receive a private non-mutable permission view, recursively immutable descriptor snapshots, and only strict, state/status-consistent, normalized source-result envelopes. Caller-owned actor/results remain detached, and one renderer cannot expand authority or mutate policy for another. Puck bridge/profile constraints and source metadata use the same recursive snapshot boundary. Missing plugins, block versions, sources, selected fields, structural hashes, permissions, migrations, and loose result envelopes produce bounded fallback/readiness results while retaining canonical content for remediation rather than silently deleting it.
 
 ## Bundle and accessibility proof
 
@@ -51,12 +51,20 @@ Native labelled controls provide keyboard selection, field editing, same-contain
 On exact Node.js `24.19.0` and pnpm `11.9.0`:
 
 ```bash
+pnpm install --frozen-lockfile
 pnpm phase:0
+pnpm gate:1
+pnpm gate:2
+pnpm gate:2a
+pnpm gate:3
+pnpm exec playwright install chromium
 pnpm gate:4
+pnpm audit --audit-level high
 git diff --check
+git status --porcelain --untracked-files=all
 ```
 
-`pnpm gate:4` chains the Gate 2A and Gate 3 prerequisites, including the real customer PostgreSQL fixture, then runs 104 contract tests, 152 runtime tests, 23 UI-runtime tests, 27 builder tests, package/bundle boundary checks, a real Chromium accessibility journey, and 23 focused proofs that each require exactly one named passing test. Contract generation remains reproducible at SHA-256 `fce4d521cd4b9eee361b4eb475e7afd7bb61c34a838b7805a81266ef7e6b0e1b`.
+`pnpm gate:4` chains the Gate 2A and Gate 3 prerequisites, including the real customer PostgreSQL fixture, package/bundle boundary checks, and the real Chromium accessibility journey. The required workflow now runs only Phase 0 and this non-duplicated Gate 4 chain. Contract generation is reproducible at SHA-256 `a2f97ad2c8433e1ffec46644310abea11fb02b1ac8edef3bb3820a8afdda91a2`.
 
 ## Explicitly not proved
 
@@ -71,4 +79,4 @@ No Gate 4 kill criterion fired. Lossless round-trip, fixed-shell policy, public/
 
 ## Whole-phase review
 
-Independent Sol/high reviews were run over the complete Phase 4 diff after each correction cycle. Findings covering persisted-input filtering, runtime/publication authority, profile/source parity, insertion and movement constraints, non-canvas preservation, keyboard state, and closeout accuracy were corrected and the full gate rerun. The final fresh review of `6706911..b0c45f1` plus this closeout candidate returned **PASS** with no remaining substantive implementation, evidence, or workflow issue.
+Independent reviews were run over the complete Phase 4 diff after each correction cycle. The designated project-manager review anchored to `54ad518` then identified cross-phase CI, event, outbox, realtime, immutable-authority, result-envelope, and unsupported-contract blockers. This correction series addresses every listed blocker, regenerates the provider archive and schemas, updates the lock integrity, and leaves PR #17 open for the required green check and review confirmation.

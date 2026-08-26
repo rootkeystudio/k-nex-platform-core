@@ -44,15 +44,13 @@ const validDocument = {
         version: 2,
         props: { title: "Open tasks" },
         bindings: {
-          source: sourceBinding,
-          context: { id: "context.current-user", version: 1 }
+          source: sourceBinding
         },
         children: [{
           id: "task-table-caption-1",
           type: "content.text",
           version: 1,
-          props: { text: "Visible tasks respect the current actor." },
-          bindings: { state: { id: "page.filters", version: 1 } }
+          props: { text: "Visible tasks respect the current actor." }
         }]
       }
     ]
@@ -136,6 +134,14 @@ describe("P4.1 canonical UI documents", () => {
       ...validDocument,
       regions: { main: [{ ...node, bindings: { source: { source: { id: "sales.total-potential-revenue", version: 1 }, input: {}, structuralCompatibilityHash: `sha256:${"a".repeat(64)}` } } }] }
     }).success).toBe(true);
+    expect(parse({
+      ...validDocument,
+      regions: { main: [{ ...node, bindings: { context: { id: "context.current-user", version: 1 } } }] }
+    }).success).toBe(false);
+    expect(parse({
+      ...validDocument,
+      regions: { main: [{ ...node, bindings: { state: { id: "page.filters", version: 1 } } }] }
+    }).success).toBe(false);
   });
 
   it("requires a lowercase SHA-256 source compatibility hash", () => {

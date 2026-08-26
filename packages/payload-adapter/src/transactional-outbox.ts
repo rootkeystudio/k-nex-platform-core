@@ -1,36 +1,12 @@
 import { sql } from "@payloadcms/db-postgres";
 import type { PostgresAdapter } from "@payloadcms/db-postgres";
-import { DurableEventEnvelopeSchema, type DurableEventEnvelope } from "@k-nex/contracts";
+import { DurableEventEnvelopeSchema, MillisecondTimestampSchema, type DurableEventEnvelope } from "@k-nex/contracts";
 import type { PayloadRequest } from "payload";
-import { z } from "zod/v4";
-
-const RetentionTimestampSchema = z.iso.datetime({ offset: true }).max(64);
-const timestampPattern = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(?::(\d{2}))?(?:\.(\d+))?(Z|[+-]\d{2}:\d{2})$/;
-
-type InstantParts = {
-  readonly wholeMilliseconds: bigint;
-  readonly fraction: string;
-};
 
 export interface WriteTransactionalOutboxEventArgs {
   readonly req: PayloadRequest;
   readonly event: DurableEventEnvelope;
   readonly retentionUntil: string;
-}
-
-function instantParts(timestamp: string): InstantParts {
-  const match = timestampPattern.exec(timestamp);
-  if (!match) throw new Error("Transactional outbox timestamps must be ISO instants with an offset.");
-
-  const wholeMilliseconds = Date.parse(`${match[1]}:${match[2] ?? "00"}.000${match[4]}`);
-  if (!Number.isFinite(wholeMilliseconds)) throw new Error("Transactional outbox timestamp is not a valid instant.");
-  return { wholeMilliseconds: BigInt(wholeMilliseconds), fraction: match[3] ?? "" };
-}
-
-function isAfter(later: InstantParts, earlier: InstantParts): boolean {
-  if (later.wholeMilliseconds !== earlier.wholeMilliseconds) return later.wholeMilliseconds > earlier.wholeMilliseconds;
-  const width = Math.max(later.fraction.length, earlier.fraction.length);
-  return BigInt(later.fraction.padEnd(width, "0") || "0") > BigInt(earlier.fraction.padEnd(width, "0") || "0");
 }
 
 async function activeTransactionDb(req: PayloadRequest): Promise<NonNullable<PostgresAdapter["sessions"]>[string]["db"]> {
@@ -53,8 +29,8 @@ export async function writeTransactionalOutboxEvent({
   retentionUntil
 }: WriteTransactionalOutboxEventArgs): Promise<void> {
   const parsedEvent = DurableEventEnvelopeSchema.parse(event);
-  const parsedRetentionUntil = RetentionTimestampSchema.parse(retentionUntil);
-  if (!isAfter(instantParts(parsedRetentionUntil), instantParts(parsedEvent.occurredAt))) {
+  const parsedRetentionUntil = MillisecondTimestampSchema.parse(retentionUntil);
+  if (Date.parse(parsedRetentionUntil) <= Date.parse(parsedEvent.occurredAt)) {
     throw new Error("Transactional outbox retentionUntil must be strictly after event.occurredAt.");
   }
 

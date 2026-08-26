@@ -192,11 +192,24 @@ secretEvent.payload = { nested: [{ "private-note": "must never enter an event" }
 if (DurableEventEnvelopeSchema.safeParse(secretEvent).success || validateEvent(secretEvent)) {
   throw new Error("Secret-bearing event payload must fail both Zod and generated JSON Schema validation.");
 }
-for (const key of ["-password-", "_token_", "💣secret💣"]) {
+for (const key of ["-password-", "_token_", "💣secret💣", "accessToken", "access_token", "access-token", "refreshToken", "clientSecret", "sessionToken", "apiKeyValue"]) {
   const separatedSecretEvent = structuredClone(validEvent) as { payload: Record<string, unknown> };
   separatedSecretEvent.payload = { [key]: "must never enter an event" };
   if (DurableEventEnvelopeSchema.safeParse(separatedSecretEvent).success || validateEvent(separatedSecretEvent)) {
     throw new Error(`Secret-bearing event key ${key} must fail both Zod and generated JSON Schema validation.`);
+  }
+}
+for (const key of ["tokenCount", "token-count", "token_count"]) {
+  const safeMetadataEvent = structuredClone(validEvent) as { payload: Record<string, unknown> };
+  safeMetadataEvent.payload = { [key]: 1 };
+  if (!DurableEventEnvelopeSchema.safeParse(safeMetadataEvent).success || !validateEvent(safeMetadataEvent)) {
+    throw new Error(`Safe event metadata key ${key} must pass both Zod and generated JSON Schema validation.`);
+  }
+}
+for (const occurredAt of ["2026-08-26T12:00:00Z", "2026-08-26T12:00:00.000001Z"]) {
+  const subMillisecondEvent = { ...(validEvent as Record<string, unknown>), occurredAt };
+  if (DurableEventEnvelopeSchema.safeParse(subMillisecondEvent).success || validateEvent(subMillisecondEvent)) {
+    throw new Error(`Non-millisecond event timestamp ${occurredAt} must fail both Zod and generated JSON Schema validation.`);
   }
 }
 const oversizedEvent = structuredClone(validEvent) as { payload: Record<string, unknown> };

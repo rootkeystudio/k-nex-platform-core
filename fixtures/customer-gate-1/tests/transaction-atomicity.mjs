@@ -140,7 +140,7 @@ try {
   assert.equal(task.title, selectedCase.title);
   assert.equal(await req.transactionID, transactionID);
 
-  const occurredAt = new Date().toISOString();
+  const occurredAt = "2026-08-26T12:00:00.123Z";
   await writeTransactionalOutboxEvent({
     req,
     event: {
@@ -156,7 +156,7 @@ try {
       idempotencyKey: selectedCase.eventId,
       payload: { taskId: String(task.id), title: task.title }
     },
-    retentionUntil: new Date(Date.now() + 24 * 60 * 60 * 1_000).toISOString()
+    retentionUntil: "2026-08-27T12:00:00.456Z"
   });
   assert.equal(await req.transactionID, transactionID);
 

@@ -82,19 +82,8 @@ export const UiSourceBindingSchema = z.strictObject({
   selectedFields: uniqueArray(TableFieldIdSchema).max(dataSourcePlatformCeilings.selectedFields).optional()
 });
 
-export const UiBindingReferenceSchema = z.strictObject({
-  id: boundedResourceIdSchema,
-  version: positiveVersionSchema
-});
-
 export const UiNodeBindingsSchema = z.strictObject({
-  source: UiSourceBindingSchema.optional(),
-  state: UiBindingReferenceSchema.optional(),
-  context: UiBindingReferenceSchema.optional()
-}).superRefine((bindings, context) => {
-  if (bindings.source === undefined && bindings.state === undefined && bindings.context === undefined) {
-    context.addIssue({ code: "custom", message: "A binding map must contain a source, state, or context binding." });
-  }
+  source: UiSourceBindingSchema
 });
 
 export const UiLayoutConstraintsSchema = z.strictObject({
@@ -367,6 +356,5 @@ export type UiLayoutTokens = z.output<typeof UiLayoutTokensSchema>;
 export type UiLayout = z.output<typeof UiLayoutSchema>;
 export type UiNodeBindings = z.output<typeof UiNodeBindingsSchema>;
 export type UiSourceBinding = z.output<typeof UiSourceBindingSchema>;
-export type UiBindingReference = z.output<typeof UiBindingReferenceSchema>;
 export type UiNode = z.output<typeof UiNodeSchema>;
 export type UiDocument = z.output<typeof UiDocumentSchema>;

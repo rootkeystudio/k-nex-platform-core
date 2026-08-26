@@ -5,10 +5,6 @@
     "main": [
       {
         "bindings": {
-          "context": {
-            "id": "context.current-user",
-            "version": 1
-          },
           "source": {
             "input": {
               "status": "open"
