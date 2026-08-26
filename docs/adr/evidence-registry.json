@@ -55,7 +55,30 @@
         "scripts/prove-gate-1-reproducibility.mjs"
       ]
     },
-    "0018": { "level": "design-only", "evidence": [] },
-    "0019": { "level": "design-only", "evidence": [] }
+    "0018": {
+      "level": "executable-poc",
+      "evidence": [
+        ".github/workflows/architecture-contracts.yml",
+        "docs/implementation/phase-2a-result.md",
+        "packages/contracts/src/agent-tool.ts",
+        "packages/contracts/tests/agent-tool.test.ts",
+        "packages/payload-adapter/src/mcp-adapter.ts",
+        "packages/payload-adapter/tests/mcp-adapter.test.ts",
+        "packages/payload-adapter/tests/mcp-sales-proof.test.ts",
+        "packages/runtime/src/tool-catalog.ts",
+        "packages/runtime/src/tool-gateway.ts",
+        "packages/runtime/tests/tool-catalog.test.ts",
+        "packages/runtime/tests/tool-gateway.test.ts",
+        "scripts/gate-2a.mjs"
+      ]
+    },
+    "0019": {
+      "level": "design-only",
+      "evidence": [
+        "docs/implementation/p2a-7-payload-mcp-evaluation.md",
+        "packages/payload-adapter/src/mcp-adapter.ts",
+        "packages/payload-adapter/tests/mcp-adapter.test.ts"
+      ]
+    }
   }
 }

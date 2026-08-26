@@ -34,3 +34,5 @@ jobs:
         run: pnpm gate:1
       - name: Run Gate 2
         run: pnpm gate:2
+      - name: Run Gate 2A
+        run: pnpm gate:2a

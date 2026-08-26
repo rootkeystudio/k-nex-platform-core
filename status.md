@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-26
 - **Phase:** Phase 2A — Agent Tool Contracts and Safe Execution
-- **Active task:** P2A.9 — Attack, Gate 2A closeout, and Phase 3 authorization
-- **State:** Ready to implement
+- **Active task:** Gate 2A phase review
+- **State:** Awaiting fresh Sol/high review
 
 ## Last completed
 
-Added explicit Sales read/write tool descriptors, the registered `sales.task.create` action, and a model-independent deterministic client. The proof authenticates and lists, reads, conceals a forbidden tool, prepares and binds exact approvals, creates one task, returns a stable safe-envelope replay for the same idempotency key, rejects changed-input reuse, records redacted audit metadata, and repeats discovery/call through the official Payload MCP adapter. The customer migration owns the MCP API-key table, per-tool toggles, expiry, unique digest index, Payload relations, and revision 3.
+Completed P2A.9 with a single Gate 2A command, CI wiring, the required attack mapping, direct invalid/foreign-audience and output-schema probes, bounded catalog/gateway benchmarks, the phase result, and atomic ADR-0018 promotion to `executable-poc`. ADR-0019 remains `design-only` while recording the bounded Payload MCP candidate evidence.
 
 ## Validation
 
-Strict peer checking, the full workspace build, 115 runtime tests, 22 Payload-adapter tests, 8 Sales tests, the packed-module reproducibility check, the customer config test, and the real-PostgreSQL migration/boot gate pass.
+On Node.js 24.19.0 and pnpm 11.9.0: frozen install, `pnpm phase:0`, `pnpm gate:1`, `pnpm gate:2`, and `pnpm gate:2a` pass. Gate 2A includes 74 contract tests, 115 runtime tests, 22 Payload-adapter tests, 8 Sales tests, packed-module reproducibility, the real-PostgreSQL migration/boot proof, all 15 required attack categories, and p95 benchmark enforcement. `pnpm audit --audit-level high` passes with only 2 low and 3 moderate findings; `git diff --check` passes.
 
 ## Next
 
-Run the Gate 2A attack corpus and benchmark, add `pnpm gate:2a` and the phase closeout result, then obtain a fresh Sol/high phase review and fix until PASS.
+Obtain a fresh Sol/high review of the complete Phase 2A range, fix findings until PASS, record the approval, then begin Phase 3 task P3.1.
 
 ## Blockers
 
