@@ -340,6 +340,58 @@
     }
   },
   {
+    "name": "explicit provider selects compatible optional capability version",
+    "installed": [
+      {
+        "id": "module.optional-consumer",
+        "package": "@k-nex/optional-consumer",
+        "version": "1.0.0",
+        "optional": [{ "capability": "storage.records", "version": "^2.0.0" }]
+      },
+      {
+        "id": "module.provider-a",
+        "package": "@k-nex/provider-a",
+        "version": "1.0.0",
+        "provides": [
+          { "capability": "storage.records", "version": "1.0.0" },
+          { "capability": "storage.records", "version": "2.0.0" }
+        ]
+      }
+    ],
+    "plugins": [{ "id": "module.optional-consumer", "package": "@k-nex/optional-consumer", "version": "1.0.0" }],
+    "providers": {
+      "storage.records": { "plugin": "module.provider-a", "package": "@k-nex/provider-a", "version": "1.0.0" }
+    },
+    "expected": {
+      "ok": true,
+      "output": {
+        "resolverVersion": "1.0.0",
+        "plugins": [
+          {
+            "id": "module.optional-consumer",
+            "kind": "module",
+            "package": "@k-nex/optional-consumer",
+            "version": "1.0.0",
+            "integrity": "sha512-QGstbmV4L29wdGlvbmFsLWNvbnN1bWVyQDEuMC4w",
+            "required": [],
+            "optional": ["module.provider-a"]
+          },
+          {
+            "id": "module.provider-a",
+            "kind": "module",
+            "package": "@k-nex/provider-a",
+            "version": "1.0.0",
+            "integrity": "sha512-QGstbmV4L3Byb3ZpZGVyLWFAMS4wLjA=",
+            "required": [],
+            "optional": []
+          }
+        ],
+        "capabilityProviders": [{ "capability": "storage.records", "plugin": "module.provider-a", "version": "2.0.0" }],
+        "registrationOrder": ["module.optional-consumer", "module.provider-a"]
+      }
+    }
+  },
+  {
     "name": "selected capability version gates optional consumers",
     "installed": [
       {

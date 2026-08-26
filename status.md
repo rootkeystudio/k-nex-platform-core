@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Closed the grouped review blockers: required CI now runs Gate 1, backend-only manifests omit the optional builder, the release tuple is authoritative, runtime registration lives in `@k-nex/runtime`, service access requires a compatible resolved consumer grant, and ADR-0017 no longer overstates customer-config evidence.
+Closed the final resolver review blocker: an explicit multi-version provider now selects the first deterministic version compatible with an optional consumer, while an entirely incompatible optional dependency retains the existing explicit provider binding without granting a consumer edge.
 
 ## Validation
 
-Frozen install, committed-tree `pnpm phase:0`, full `pnpm gate:1` with real PostgreSQL, high/critical audit threshold, generated/artifact reproducibility, and diff/clean-tree checks pass. Gate 1 artifacts reproduce with `sha256=40b3922a73faf3b0afddcded350d76604f511463e463ab8e1b76ce75a2b8f261`; required remote CI remains the final PR-head check.
+Frozen install, the 74-test composition suite, committed-tree `pnpm phase:0`, full `pnpm gate:1` with real PostgreSQL, high/critical audit threshold, reproducibility, diff, and clean-tree checks pass. Required remote CI remains the final head check.
 
 ## Next
 
-Obtain independent PASS and merge PR #14. Then begin P2.1; evaluate official Payload plugins only in their assigned gates.
+Validate and merge PR #14, then continue the stacked Phase 2 branch at P2.5.
 
 ## Blockers
 

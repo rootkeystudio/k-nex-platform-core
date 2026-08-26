@@ -455,7 +455,11 @@ function resolveOptionalCapabilities(
           [capability, explicit.entry.id]
         );
       }
-      const selection = { plugin: explicit.entry.id, version: versions[0]! };
+      const version =
+        versions.find((candidate) =>
+          requirementsForCapability.some((requirement) => satisfies(candidate, requirement.range))
+        ) ?? versions[0]!;
+      const selection = { plugin: explicit.entry.id, version };
       selections.set(capability, selection);
       addCompatibleEdges(selection);
       continue;
