@@ -1,4 +1,5 @@
-import { executeRegistration, type ResolvedPluginGraph } from "@k-nex/composition";
+import type { ResolvedPluginGraph } from "@k-nex/composition";
+import { executeRegistration } from "@k-nex/runtime";
 import { PluginManifestSchema } from "@k-nex/contracts";
 import manifestJson from "@k-nex/module-sales/manifest" with { type: "json" };
 import {

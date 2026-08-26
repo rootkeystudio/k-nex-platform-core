@@ -1,21 +1,21 @@
 # Project Status
 
 - **Updated:** 2026-08-26
-- **Phase:** Phase 2 — Authenticated Data Sources and Output Contracts
-- **Active task:** P2.1 — Implement canonical Metric and Table contract schemas
-- **State:** Awaiting Phase 1 grouped review and merge
+- **Phase:** Phase 1 — Minimal Deterministic Payload Composition
+- **Active task:** Grouped Gate 1 review rework
+- **State:** Ready for review
 
 ## Last completed
 
-Closed Gate 1 with reproducible composition, real PostgreSQL migration/auth/inventory evidence, and ADR-0017 promotion. Added the future Gate 2A agent-tool plan and the official Payload plugin adoption matrix; these planning changes do not expand the active Phase 1 implementation scope.
+Closed the grouped review blockers: required CI now runs Gate 1, backend-only manifests omit the optional builder, the release tuple is authoritative, runtime registration lives in `@k-nex/runtime`, service access requires a compatible resolved consumer grant, and ADR-0017 no longer overstates customer-config evidence.
 
 ## Validation
 
-Frozen install, Phase 0 regression, complete `pnpm gate:1`, high/critical audit threshold, diff checks, and clean-checkout validation pass. Gate 1 static artifacts reproduce with `sha256=bfd08aefdd8f7808b702739508c898f19d82ef61028c8551b5ee0f77e242c5c4`; the new documentation must pass the required architecture-contract CI on the final PR head.
+Frozen install, committed-tree `pnpm phase:0`, full `pnpm gate:1` with real PostgreSQL, high/critical audit threshold, generated/artifact reproducibility, and diff/clean-tree checks pass. Gate 1 artifacts reproduce with `sha256=40b3922a73faf3b0afddcded350d76604f511463e463ab8e1b76ce75a2b8f261`; required remote CI remains the final PR-head check.
 
 ## Next
 
-Complete the grouped review and merge of PR #14. Then begin P2.1; evaluate official Payload plugins only in their assigned gates from `docs/32-payload-official-plugin-adoption-plan.md`.
+Obtain independent PASS and merge PR #14. Then begin P2.1; evaluate official Payload plugins only in their assigned gates.
 
 ## Blockers
 

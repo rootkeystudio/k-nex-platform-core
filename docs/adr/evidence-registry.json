@@ -39,18 +39,19 @@
     "0017": {
       "level": "executable-poc",
       "evidence": [
+        ".github/workflows/architecture-contracts.yml",
         "docs/implementation/phase-1-result.md",
         "fixtures/customer-gate-1/.k-nex/generated/k-nex.resolved.json",
         "fixtures/customer-gate-1/tests/authenticated-runtime.mjs",
         "fixtures/customer-gate-1/tests/postgres-gate.test.mjs",
         "packages/composition/src/deterministic-resolver.ts",
         "packages/composition/src/installed-plugin-loader.ts",
-        "packages/composition/src/registration-runtime.ts",
         "packages/composition/src/static-artifact-generator.ts",
         "packages/composition/tests/deterministic-resolver.test.ts",
         "packages/composition/tests/installed-plugin-loader.test.ts",
-        "packages/composition/tests/registration-runtime.test.ts",
         "packages/composition/tests/static-artifact-generator.test.ts",
+        "packages/runtime/src/registration-runtime.ts",
+        "packages/runtime/tests/registration-runtime.test.ts",
         "scripts/prove-gate-1-reproducibility.mjs"
       ]
     },

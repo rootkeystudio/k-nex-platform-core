@@ -41,10 +41,10 @@ The fixture loads only package exports declared in the exact lockfile entry, ver
 Two independent clean staged roots install the frozen lockfile, rebuild the generator, remove committed generated output, regenerate it, and compare every artifact byte. The verified tree digest is:
 
 ```text
-sha256=bfd08aefdd8f7808b702739508c898f19d82ef61028c8551b5ee0f77e242c5c4
+sha256=40b3922a73faf3b0afddcded350d76604f511463e463ab8e1b76ce75a2b8f261
 ```
 
-Customer config source is fingerprinted without execution. Direct environment, clock, random, network, and dynamic-import inputs are rejected for the Gate 1 surface.
+The single customer config file is treated as an inert artifact and fingerprinted without execution. The Gate 1 scanner rejects its bounded direct environment, clock, random, network, and dynamic-import corpus. Transitive imports, static evaluation, and config-driven graph contributions are not discovered or proved; that broader customer-config compiler boundary remains design-only in ADR-0004.
 
 ## Registration and Payload proof
 
@@ -95,7 +95,7 @@ It proves:
 | wrong-phase registration | registration runtime `WRONG_PHASE` test |
 | duplicate collection/contribution | Payload adapter and registration runtime collision tests |
 | stale generated registry | static artifact check-mode stale/missing test and fixture check command |
-| non-deterministic config input | hermetic customer-config rejection corpus |
+| bounded direct config input violations | inert direct-file customer-config rejection corpus |
 | failed/incorrect migration revision | real Postgres rollback and incompatible-revision paths |
 | unauthenticated query | real Payload request path returning `403` |
 
@@ -112,7 +112,7 @@ git diff --check
 git status --porcelain --untracked-files=all
 ```
 
-`pnpm gate:1` builds all six packages, runs the contract and Gate 1 failure suites, verifies the committed registries, proves two-root byte reproducibility, and runs the real PostgreSQL migration/auth/inventory fixture. The high/critical audit threshold passes; the lockfile currently reports two low and three moderate advisories.
+`pnpm gate:1` builds all seven packages, runs the contract and Gate 1 failure suites, verifies the committed registries, proves two-root byte reproducibility, and runs the real PostgreSQL migration/auth/inventory fixture. The high/critical audit threshold passes; the lockfile currently reports two low and three moderate advisories.
 
 ## Kill/rework assessment and decision
 

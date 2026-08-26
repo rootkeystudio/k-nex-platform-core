@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type { RegistrationResult } from "@k-nex/composition";
+import type { RegistrationResult } from "@k-nex/runtime";
 import { canonicalJson } from "@k-nex/contracts";
 import type { Endpoint } from "payload";
 

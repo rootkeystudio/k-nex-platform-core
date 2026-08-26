@@ -2,7 +2,7 @@ import { readFileSync, realpathSync } from "node:fs";
 import { createRequire, findPackageJSON } from "node:module";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
-import { ExactSemverSchema, PluginManifestSchema, type PluginManifest } from "@k-nex/contracts";
+import { ExactSemverSchema, PluginManifestSchema, supportedFrameworkTuple, type PluginFrameworkTuple, type PluginManifest } from "@k-nex/contracts";
 import * as semver from "semver";
 import { parse as parseYaml } from "yaml";
 
@@ -14,12 +14,7 @@ export interface PluginPackageRequest {
   readonly version: string;
 }
 
-export interface FrameworkTuple {
-  readonly core: string;
-  readonly payload: string;
-  readonly node: string;
-  readonly payloadDatabaseAdapter: "postgres";
-}
+export type FrameworkTuple = PluginFrameworkTuple;
 
 export interface LoadInstalledPluginManifestsOptions {
   readonly applicationRoot: string;
@@ -112,6 +107,9 @@ function validateOptions(options: LoadInstalledPluginManifestsOptions): void {
   const framework = options.framework;
   if (!isExactSemver(framework.core) || !isExactSemver(framework.payload) || !isExactSemver(framework.node) || framework.payloadDatabaseAdapter !== "postgres") {
     fail(framework.payloadDatabaseAdapter === "postgres" ? "INVALID_FRAMEWORK_VERSION" : "UNSUPPORTED_FRAMEWORK", "The framework tuple must use exact core, Payload, Node, and postgres adapter values.");
+  }
+  if (framework.core !== supportedFrameworkTuple.core || framework.payload !== supportedFrameworkTuple.payload || framework.node !== supportedFrameworkTuple.node) {
+    fail("UNSUPPORTED_FRAMEWORK", "The requested framework tuple is not supported by this K-Nex release.");
   }
   const names = new Set<string>();
   for (const requested of options.packages) {

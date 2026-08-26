@@ -23,7 +23,7 @@
     "test": "node scripts/check-pack.mjs"
   },
   "devDependencies": {
-    "@k-nex/composition": "workspace:*",
+    "@k-nex/runtime": "workspace:*",
     "payload": "3.88.0",
     "typescript": "6.0.3"
   }

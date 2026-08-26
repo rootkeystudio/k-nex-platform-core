@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
-import { ApplicationManifestSchema } from "@k-nex/contracts";
+import { ApplicationManifestSchema, supportedFrameworkTuple } from "@k-nex/contracts";
 
 import { resolvePluginGraph } from "./deterministic-resolver.js";
 import { loadInstalledPluginManifests } from "./installed-plugin-loader.js";
@@ -40,11 +40,11 @@ function run(check: boolean): void {
   }
 
   const framework: StaticArtifactFrameworkTuple = {
-    core: "1.0.0",
-    payload: "3.88.0",
+    core: supportedFrameworkTuple.core,
+    payload: supportedFrameworkTuple.payload,
     node: applicationManifest.runtime.node,
     pnpm: applicationManifest.runtime.packageManagerVersion,
-    payloadDatabaseAdapter: "postgres"
+    payloadDatabaseAdapter: supportedFrameworkTuple.payloadDatabaseAdapter
   };
   const packageRequests = [
     ...applicationManifest.plugins.map(({ package: name, version }) => ({ name, version })),

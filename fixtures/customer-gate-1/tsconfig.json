@@ -23,6 +23,9 @@
       "path": "../../packages/composition"
     },
     {
+      "path": "../../packages/runtime"
+    },
+    {
       "path": "../../packages/payload-adapter"
     }
   ]

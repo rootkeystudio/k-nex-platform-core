@@ -1,6 +1,6 @@
 import { postgresAdapter } from "@payloadcms/db-postgres";
 import type { MigrateDownArgs, MigrateUpArgs } from "@payloadcms/db-postgres";
-import type { RegistrationResult } from "@k-nex/composition";
+import type { RegistrationResult } from "@k-nex/runtime";
 import type { CollectionConfig, Config } from "payload";
 
 export type PayloadCompositionErrorCode =

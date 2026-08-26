@@ -8,7 +8,6 @@
     { "id": "provider.realtime.socketio", "package": "@k-nex/provider-realtime-socketio", "version": "1.0.0", "enabled": false }
   ],
   "providers": {},
-  "builder": { "plugin": "builder.puck", "package": "@k-nex/builder-puck", "version": "1.0.0", "profiles": {} },
   "themes": {},
   "development": { "database": { "mode": "external" } },
   "build": { "dockerfile": false, "commitGeneratedRegistries": true, "validateGeneratedFilesInCI": true },

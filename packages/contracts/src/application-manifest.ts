@@ -1,5 +1,6 @@
 import * as z from "zod";
 
+import { supportedFrameworkTuple } from "./framework-tuple.js";
 import { CapabilityIdSchema, ExactSemverSchema, PluginIdSchema } from "./identity.js";
 import { OpenObjectSchema, uniqueArray } from "./schema-helpers.js";
 
@@ -29,9 +30,9 @@ export const ApplicationManifestSchema = z.strictObject({
     locales: uniqueArray(z.string()).optional()
   }),
   runtime: z.strictObject({
-    node: z.string().regex(/^24\.[0-9]+\.[0-9]+$/),
+    node: z.literal(supportedFrameworkTuple.node),
     packageManager: z.literal("pnpm"),
-    packageManagerVersion: z.string().regex(/^[0-9]+\.[0-9]+\.[0-9]+$/),
+    packageManagerVersion: z.literal(supportedFrameworkTuple.pnpm),
     deploymentMode: z.enum(["container", "platform-native"])
   }),
   framework: z.strictObject({
@@ -50,7 +51,7 @@ export const ApplicationManifestSchema = z.strictObject({
     package: z.string(),
     version: ExactSemverSchema,
     profiles: OpenObjectSchema
-  }),
+  }).optional(),
   themes: OpenObjectSchema,
   development: z.looseObject({
     database: z.union([

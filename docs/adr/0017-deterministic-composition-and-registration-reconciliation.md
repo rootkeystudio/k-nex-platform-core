@@ -4,25 +4,25 @@
 - Date: 2026-08-25
 - Decision owners: K-Nex platform maintainers
 - Evidence: executable-poc; see [Phase 1 result](../implementation/phase-1-result.md)
-- Related: [ADR-0014](./0014-contract-governance-and-evidence.md), [Contract governance](../28-contract-governance-and-determinism.md), [POC gates](../30-executable-poc-gates.md)
+- Related: [ADR-0004](./0004-manifest-driven-cli.md), [ADR-0014](./0014-contract-governance-and-evidence.md), [Contract governance](../28-contract-governance-and-determinism.md), [POC gates](../30-executable-poc-gates.md)
 
 ## Context
 
-Static package manifests and customer registrations must produce one explainable composition graph before application boot. Executable registration can otherwise drift from declared contributions, and ambient inputs can make committed artifacts irreproducible.
+Static package manifests must produce one explainable composition graph before application boot. Executable registration can otherwise drift from declared contributions, and untracked generator inputs can make committed artifacts irreproducible.
 
 These claims are independently falsifiable in Gate 1 and are separate from Gate 0's contract-governance evidence.
 
 ## Decision
 
 1. The resolver emits a deterministic committed `.k-nex/generated/k-nex.resolved.json` and static registries without timestamps, host data, random values, secrets, or environment values.
-2. `k-nex.config.ts` is a hermetic static registration module. Its transitive source is fingerprinted, and graph composition cannot depend on network access, current time, randomness, secrets, or ambient filesystem discovery.
+2. Gate 1 treats `k-nex.config.ts` only as an inert, direct-file source artifact: it fingerprints the file bytes without executing the module or using it to contribute to the graph. The full executable, transitive customer-config compiler boundary remains the design-only decision in ADR-0004.
 3. Runtime registration is compared with static declarations. Undeclared contributions, undeclared capability access, wrong-phase registration, and registration after freeze fail.
 4. Deterministic inputs include the normalized application manifest, exact installed package manifests and integrity, resolver version, and customer-config fingerprint.
 5. Runtime data may configure installed code but cannot select imports, packages, or graph membership.
 
 ## Consequences
 
-- Customer extensions retain TypeScript flexibility inside a composition-hermetic boundary.
+- Gate 1 does not yet prove executable customer extensions or transitive source discovery.
 - Generator and resolver changes require golden failure cases and byte-identical output review.
 - The application fails before readiness when executable registration disagrees with the declared inventory.
 - Capability-scoped services replace ambient or universal plugin access.
@@ -43,4 +43,4 @@ Rejected because their executable validation belongs to Gate 1, while ADR-0014 h
 
 ## Validation
 
-Gate 1 proves byte-identical resolved graphs and registries in two clean roots, hermetic config fingerprinting, canonical resolver output, restricted phase execution, and declared-versus-actual inventory and capability-access rejection. The complete evidence and remaining boundaries are recorded in the Phase 1 result.
+Gate 1 proves byte-identical resolved graphs and registries in two clean roots, direct config-file fingerprinting without execution, canonical resolver output, restricted phase execution, and declared-versus-actual inventory and capability-access rejection. It does not prove transitive customer-config discovery or execution. The complete evidence and remaining boundaries are recorded in the Phase 1 result.

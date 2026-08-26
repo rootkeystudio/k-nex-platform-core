@@ -1,8 +1,8 @@
 import type { PluginManifest, RegistrationPhase } from "@k-nex/contracts";
 import { registrationPhases } from "@k-nex/contracts";
+import * as semver from "semver";
 
-import type { ResolvedPluginGraph } from "./deterministic-resolver.js";
-import type { InstalledPluginManifest } from "./installed-plugin-loader.js";
+import type { InstalledPluginManifest, ResolvedPluginGraph } from "@k-nex/composition";
 
 export const contributionKinds = [
   "contracts",
@@ -128,6 +128,17 @@ function declaredCapabilities(manifest: PluginManifest): ReadonlySet<string> {
     .map((dependency) => dependency.capability));
 }
 
+function declaredCapabilityRanges(manifest: PluginManifest): ReadonlyMap<string, readonly string[]> {
+  const ranges = new Map<string, string[]>();
+  for (const dependency of [...manifest.requires, ...manifest.optional]) {
+    if (!("capability" in dependency)) continue;
+    const values = ranges.get(dependency.capability) ?? [];
+    values.push(dependency.version);
+    ranges.set(dependency.capability, values);
+  }
+  return ranges;
+}
+
 function providedCapabilities(manifest: PluginManifest): ReadonlyMap<string, ReadonlySet<string>> {
   const provided = new Map<string, Set<string>>();
   for (const provision of manifest.provides) {
@@ -196,6 +207,8 @@ export function executeRegistration(options: ExecuteRegistrationOptions): Regist
   const services = new Map<string, unknown>();
   const declarations = new Map([...manifests].map(([id, manifest]) => [id, declaredContributions(manifest)]));
   const allowedCapabilities = new Map([...manifests].map(([id, manifest]) => [id, declaredCapabilities(manifest)]));
+  const capabilityRanges = new Map([...manifests].map(([id, manifest]) => [id, declaredCapabilityRanges(manifest)]));
+  const graphNodes = new Map(options.graph.plugins.map((node) => [node.id, node]));
   const provided = new Map([...manifests].map(([id, manifest]) => [id, providedCapabilities(manifest)]));
   const selectedProviders = new Map<string, (typeof options.graph.capabilityProviders)[number]>();
   for (const selection of options.graph.capabilityProviders) {
@@ -230,7 +243,13 @@ export function executeRegistration(options: ExecuteRegistrationOptions): Regist
         fail("UNDECLARED_CAPABILITY_ACCESS", `Plugin ${pluginId} did not declare capability ${capability}.`, [pluginId, capability]);
       }
       const selection = selectedProviders.get(capability);
-      if (!selection || !services.has(capability)) {
+      const node = graphNodes.get(pluginId);
+      const hasResolvedGrant = selection !== undefined &&
+        [...(node?.required ?? []), ...(node?.optional ?? [])].includes(selection.plugin) &&
+        (capabilityRanges.get(pluginId)?.get(capability) ?? []).some((range) =>
+          semver.satisfies(selection.version, range, { loose: false, includePrerelease: false })
+        );
+      if (!selection || !hasResolvedGrant || !services.has(capability)) {
         fail("CAPABILITY_UNAVAILABLE", `Capability ${capability} is not bound for plugin ${pluginId}.`, [pluginId, capability]);
       }
       capabilityAccess.get(pluginId)?.add(capability);

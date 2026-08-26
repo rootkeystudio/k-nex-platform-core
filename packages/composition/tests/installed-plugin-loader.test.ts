@@ -2,15 +2,16 @@ import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { supportedFrameworkTuple } from "@k-nex/contracts";
 import { describe, expect, it } from "vitest";
 
 import { loadInstalledPluginManifests, PluginManifestLoadError } from "../src/installed-plugin-loader.js";
 
 const framework = {
-  core: "1.0.0",
-  payload: "3.88.0",
-  node: "24.19.0",
-  payloadDatabaseAdapter: "postgres"
+  core: supportedFrameworkTuple.core,
+  payload: supportedFrameworkTuple.payload,
+  node: supportedFrameworkTuple.node,
+  payloadDatabaseAdapter: supportedFrameworkTuple.payloadDatabaseAdapter
 };
 
 const compatibility = {
@@ -254,6 +255,31 @@ describe("installed plugin manifest loader", () => {
     { label: "database adapter", framework: { ...framework, payloadDatabaseAdapter: "sqlite" } }
   ])("rejects unsupported $label tuple", async ({ manifest, framework: requestedFramework }) => {
     await withApplication([{ name: "@k-nex/plugin-alpha", manifest }], (fixture) => expectLoadCode(fixture, "UNSUPPORTED_FRAMEWORK", { framework: requestedFramework ?? framework }));
+  });
+
+  it.each([
+    { label: "core", framework: { ...framework, core: "2.0.0" } },
+    { label: "Payload", framework: { ...framework, payload: "4.0.0" } },
+    { label: "Node", framework: { ...framework, node: "25.0.0" } }
+  ])("rejects an unsupported $label tuple before inspecting an empty package set", async ({ framework: requestedFramework }) => {
+    await withApplication([], (fixture) => expectLoadCode(fixture, "UNSUPPORTED_FRAMEWORK", { framework: requestedFramework }));
+  });
+
+  it("rejects an unsupported tuple even when a plugin declares broad compatibility ranges", async () => {
+    await withApplication(
+      [{
+        name: "@k-nex/plugin-alpha",
+        manifest: {
+          compatibility: {
+            core: ">=0.0.0",
+            payload: ">=0.0.0",
+            node: ">=0.0.0",
+            payloadDatabaseAdapters: ["postgres"]
+          }
+        }
+      }],
+      (fixture) => expectLoadCode(fixture, "UNSUPPORTED_FRAMEWORK", { framework: { ...framework, payload: "4.0.0" } })
+    );
   });
 
   it("requires an exported manifest and ignores an undeclared file that merely has the canonical filename", async () => {

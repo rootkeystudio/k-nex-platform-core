@@ -30,12 +30,6 @@
     }
   ],
   "providers": {},
-  "builder": {
-    "plugin": "builder.puck",
-    "package": "@k-nex/builder-puck",
-    "version": "1.0.0",
-    "profiles": {}
-  },
   "themes": {},
   "development": {
     "database": {

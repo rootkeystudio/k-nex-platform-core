@@ -58,12 +58,6 @@ const applicationManifest = {
       version: "1.0.0"
     }
   },
-  builder: {
-    plugin: "builder.puck" as const,
-    package: "@k-nex/builder-puck",
-    version: "1.0.0",
-    profiles: {}
-  },
   themes: {},
   development: { database: { mode: "external" as const } },
   build: { dockerfile: true, commitGeneratedRegistries: true, validateGeneratedFilesInCI: true },
@@ -412,6 +406,17 @@ describe("static artifact generator", () => {
     const value = structuredClone(input()) as any;
     mutate(value);
     expect(() => generateStaticArtifacts(value)).toThrow();
+  });
+
+  it("rejects an unsupported builder selection instead of silently dropping it", () => {
+    const value = structuredClone(input()) as any;
+    value.applicationManifest.builder = {
+      plugin: "builder.puck",
+      package: "@k-nex/builder-puck",
+      version: "1.0.0",
+      profiles: {}
+    };
+    expect(() => generateStaticArtifacts(value)).toThrow(/Builder composition is not supported/);
   });
 
   it("does not mutate any input object", () => {

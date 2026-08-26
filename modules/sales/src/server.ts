@@ -1,4 +1,4 @@
-import type { PluginRegistration } from "@k-nex/composition";
+import type { PluginRegistration } from "@k-nex/runtime";
 import type { CollectionConfig } from "payload";
 
 export const salesTasksCollection: CollectionConfig = {

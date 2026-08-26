@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { executeRegistration, type RegistrationResult } from "@k-nex/composition";
+import { executeRegistration, type RegistrationResult } from "@k-nex/runtime";
 import { PluginManifestSchema } from "@k-nex/contracts";
 import { salesRegistration, salesTasksCollection } from "@k-nex/module-sales/server";
 import { buildConfig, type CollectionConfig } from "payload";

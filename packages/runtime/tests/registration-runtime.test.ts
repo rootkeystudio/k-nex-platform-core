@@ -2,8 +2,7 @@ import type { PluginManifest } from "@k-nex/contracts";
 import { registrationPhases } from "@k-nex/contracts";
 import { describe, expect, it } from "vitest";
 
-import type { ResolvedPluginGraph } from "../src/deterministic-resolver.js";
-import type { InstalledPluginManifest } from "../src/installed-plugin-loader.js";
+import type { InstalledPluginManifest, ResolvedPluginGraph } from "@k-nex/composition";
 import {
   executeRegistration,
   RegistrationError,
@@ -287,6 +286,25 @@ describe("phased registration runtime", () => {
       providerRegistration(),
       completeConsumer((services) => services.get("storage.records"))
     ], [providerManifest(), manifest]), "UNDECLARED_CAPABILITY_ACCESS");
+  });
+
+  it("rejects access for an optional capability without a compatible resolved grant", () => {
+    const manifest = consumerManifest({
+      requires: [],
+      optional: [{ capability: "storage.records", version: "^2.0.0" }]
+    });
+    const baseGraph = graph();
+    const resolvedGraph = {
+      ...baseGraph,
+      plugins: baseGraph.plugins.map((node) => node.id === "module.consumer"
+        ? { ...node, required: [], optional: [] }
+        : node)
+    };
+
+    expectCode(() => run([
+      providerRegistration(),
+      completeConsumer((services) => services.get("storage.records"))
+    ], [providerManifest(), manifest], resolvedGraph), "CAPABILITY_UNAVAILABLE");
   });
 
   it("rejects duplicate contribution IDs across plugins", () => {

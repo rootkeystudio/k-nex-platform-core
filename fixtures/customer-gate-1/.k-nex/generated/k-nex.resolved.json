@@ -1,7 +1,7 @@
 {
   "application": {
     "id": "customer-gate-1",
-    "manifestDigest": "sha256:2128b4193977f5d9287af5c5f168634b31448d23e422308b1c91ee310355e85f"
+    "manifestDigest": "sha256:b1e42e7864c2500e4ee7e34f7d773695c3b39659e7b5ce7b9b4576a57784b50b"
   },
   "capabilityProviders": [],
   "customerConfigFingerprint": "sha256:b7bb1adc18f8ab6786a03cb3bbb14cbd4a5986795eb51c8f4f9c94dadcb9eecb",
@@ -29,7 +29,7 @@
         "names": []
       },
       "id": "module.sales",
-      "integrity": "sha512-PdZp6AmoVkrrbex46qPQOtumXSuSvvYg+Pm5oSGbBAy84KCGkS9ft5GZpTI/2JvGW1kQ5k3o8m2edJB2d73t6Q==",
+      "integrity": "sha512-SUkRiIHM6qSpV13vp700UcF6CTOgK331VcOqYCjQzlbXdgw7umzknLan79JcvGD7NlYutOFaoyXf1ZvnxGbAOw==",
       "kind": "module",
       "lifecycle": {
         "disable": "supported",

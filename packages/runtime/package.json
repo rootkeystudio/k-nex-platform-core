@@ -1,5 +1,5 @@
 {
-  "name": "@k-nex/payload-adapter",
+  "name": "@k-nex/runtime",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -15,13 +15,12 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@k-nex/runtime": "workspace:*",
-    "@payloadcms/db-postgres": "3.88.0",
-    "payload": "3.88.0"
+    "@k-nex/composition": "workspace:*",
+    "@k-nex/contracts": "workspace:*",
+    "semver": "7.8.5"
   },
   "devDependencies": {
-    "@k-nex/contracts": "workspace:*",
-    "@k-nex/module-sales": "workspace:*",
+    "@types/semver": "7.8.0",
     "typescript": "6.0.3",
     "vitest": "4.1.6"
   }

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
-import { canonicalJson, exactSemverPattern, type ApplicationManifest, type PluginManifest } from "@k-nex/contracts";
+import { canonicalJson, supportedFrameworkTuple, type ApplicationManifest, type PluginManifest, type SupportedFrameworkTuple } from "@k-nex/contracts";
 import * as semver from "semver";
 
 import { resolvePluginGraph, type ResolvedPluginGraph, type ResolvedPluginNode } from "./deterministic-resolver.js";
@@ -19,13 +19,7 @@ const generatedArtifactPathValues = [
 export const generatedArtifactPaths = Object.freeze(generatedArtifactPathValues);
 export type GeneratedArtifactPath = (typeof generatedArtifactPathValues)[number];
 
-export type StaticArtifactFrameworkTuple = Readonly<{
-  readonly core: string;
-  readonly payload: string;
-  readonly node: string;
-  readonly pnpm: string;
-  readonly payloadDatabaseAdapter: "postgres";
-}>;
+export type StaticArtifactFrameworkTuple = SupportedFrameworkTuple;
 
 export interface StaticArtifactGenerationInput {
   readonly applicationManifest: ApplicationManifest;
@@ -189,11 +183,8 @@ function normalizeGraph(graph: ResolvedPluginGraph): ResolvedPluginGraph {
 }
 
 function validateFramework(framework: StaticArtifactFrameworkTuple): void {
-  if (!framework || framework.payloadDatabaseAdapter !== "postgres") {
-    invalidInput("The framework tuple must select the postgres Payload database adapter.");
-  }
-  for (const value of [framework.core, framework.payload, framework.node, framework.pnpm]) {
-    if (typeof value !== "string" || !new RegExp(exactSemverPattern).test(value)) invalidInput("The framework tuple must contain exact version strings.");
+  if (!framework || framework.core !== supportedFrameworkTuple.core || framework.payload !== supportedFrameworkTuple.payload || framework.node !== supportedFrameworkTuple.node || framework.pnpm !== supportedFrameworkTuple.pnpm || framework.payloadDatabaseAdapter !== supportedFrameworkTuple.payloadDatabaseAdapter) {
+    invalidInput("The framework tuple is not supported by this K-Nex release.");
   }
 }
 
@@ -342,6 +333,7 @@ function generateEnvironmentSchema(names: readonly string[]): string {
 
 export function generateStaticArtifacts(input: StaticArtifactGenerationInput): ReadonlyMap<GeneratedArtifactPath, string> {
   if (!input || !input.applicationManifest || !input.resolvedGraph) invalidInput("Static artifact generation input is incomplete.");
+  if (input.applicationManifest.builder !== undefined) invalidInput("Builder composition is not supported by the Gate 1 static artifact generator.");
   validateRuntime(input);
   validateFramework(input.framework);
   validateFingerprint(input.customerConfigFingerprint);

@@ -5,7 +5,6 @@
   "framework": { "payload": { "database": { "adapter": "sqlite", "package": "@payloadcms/db-postgres", "connectionEnvironmentVariable": "DATABASE_URL" } } },
   "plugins": [],
   "providers": {},
-  "builder": { "plugin": "builder.puck", "package": "@k-nex/builder-puck", "version": "1.0.0", "profiles": {} },
   "themes": {},
   "development": { "database": { "mode": "external" } },
   "build": { "dockerfile": false, "commitGeneratedRegistries": true, "validateGeneratedFilesInCI": true },

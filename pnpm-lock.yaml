@@ -29,6 +29,9 @@ importers:
       '@k-nex/payload-adapter':
         specifier: workspace:*
         version: link:../../packages/payload-adapter
+      '@k-nex/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
       '@payloadcms/db-postgres':
         specifier: 3.88.0
         version: 3.88.0(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))
@@ -66,9 +69,9 @@ importers:
 
   modules/sales:
     devDependencies:
-      '@k-nex/composition':
+      '@k-nex/runtime':
         specifier: workspace:*
-        version: link:../../packages/composition
+        version: link:../../packages/runtime
       payload:
         specifier: 3.88.0
         version: 3.88.0(graphql@16.14.2)(typescript@6.0.3)
@@ -128,9 +131,9 @@ importers:
 
   packages/payload-adapter:
     dependencies:
-      '@k-nex/composition':
+      '@k-nex/runtime':
         specifier: workspace:*
-        version: link:../composition
+        version: link:../runtime
       '@payloadcms/db-postgres':
         specifier: 3.88.0
         version: 3.88.0(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))
@@ -144,6 +147,28 @@ importers:
       '@k-nex/module-sales':
         specifier: workspace:*
         version: link:../../modules/sales
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: 4.1.6
+        version: 4.1.6(@types/node@24.13.3)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2)(sass@1.77.4)(tsx@4.22.4)(yaml@2.9.0))
+
+  packages/runtime:
+    dependencies:
+      '@k-nex/composition':
+        specifier: workspace:*
+        version: link:../composition
+      '@k-nex/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      semver:
+        specifier: 7.8.5
+        version: 7.8.5
+    devDependencies:
+      '@types/semver':
+        specifier: 7.8.0
+        version: 7.8.0
       typescript:
         specifier: 6.0.3
         version: 6.0.3
@@ -977,7 +1002,7 @@ packages:
     resolution: {integrity: sha512-4JQNk+3mVzK3xh2rqd6RB4J46qUR19azEHBneZyTZM+c456qOrbbM/5xcR8huNCCcbVt7+UmizG6GuUvPvKUYg==}
 
   '@k-nex/module-sales@file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz':
-    resolution: {integrity: sha512-PdZp6AmoVkrrbex46qPQOtumXSuSvvYg+Pm5oSGbBAy84KCGkS9ft5GZpTI/2JvGW1kQ5k3o8m2edJB2d73t6Q==, tarball: file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz}
+    resolution: {integrity: sha512-SUkRiIHM6qSpV13vp700UcF6CTOgK331VcOqYCjQzlbXdgw7umzknLan79JcvGD7NlYutOFaoyXf1ZvnxGbAOw==, tarball: file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz}
     version: 1.0.0
 
   '@kwsites/file-exists@1.1.1':

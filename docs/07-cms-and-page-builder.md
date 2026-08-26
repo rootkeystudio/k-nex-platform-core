@@ -82,7 +82,7 @@ package:   @k-nex/builder-puck
 
 The domain/CMS modules do not import Puck types. The adapter maps K-Nex UI field/block/layout contracts to Puck.
 
-The selected builder is declared in `k-nex.app.json`:
+Applications that enable visual editing declare the selected builder in `k-nex.app.json`. Backend-only and pre-builder applications omit this optional field:
 
 ```json
 {
