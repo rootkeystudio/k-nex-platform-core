@@ -14,4 +14,7 @@ allowBuilds:
 
 engineStrict: true
 minimumReleaseAge: 10080
+peerDependencyRules:
+  allowedVersions:
+    "@modelcontextprotocol/sdk": "1.26.0 || 1.30.0"
 strictPeerDependencies: true

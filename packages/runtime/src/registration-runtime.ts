@@ -1,6 +1,8 @@
-import type { PluginManifest, RegistrationPhase } from "@k-nex/contracts";
-import { registrationPhases } from "@k-nex/contracts";
+import type { AgentToolDescriptor, DataSourceDefinition, PluginManifest, RegistrationPhase } from "@k-nex/contracts";
+import { AgentToolDescriptorSchema, assertDataSourceDefinition, registrationPhases } from "@k-nex/contracts";
 import * as semver from "semver";
+import { actionToolCompatible, assertActionDefinition, type ActionDefinition, type ActionHandler } from "./action.js";
+import { dataSourceToolCompatible, type DataSourceHandler } from "./data-source-gateway.js";
 
 import type { InstalledPluginManifest, ResolvedPluginGraph } from "@k-nex/composition";
 
@@ -11,6 +13,7 @@ export const contributionKinds = [
   "jobs",
   "dataSources",
   "actions",
+  "tools",
   "blocks",
   "navigation",
   "admin"
@@ -28,6 +31,7 @@ export type RegistrationErrorCode =
   | "PROVIDER_MISMATCH"
   | "DUPLICATE_CONTRIBUTION"
   | "DUPLICATE_BINDING"
+  | "INVALID_CONTRIBUTION"
   | "FROZEN"
   | "INVENTORY_MISMATCH";
 
@@ -53,7 +57,10 @@ interface PhaseContext {
 }
 
 export interface ContractsRegistrationContext extends PhaseContext {
-  register(kind: "contracts" | "dataSources" | "actions" | "blocks", id: string, value: unknown): void;
+  register(kind: "dataSources", id: string, value: DataSourceDefinition): void;
+  register(kind: "actions", id: string, value: ActionDefinition): void;
+  register(kind: "tools", id: string, value: AgentToolDescriptor): void;
+  register(kind: "contracts" | "blocks", id: string, value: unknown): void;
 }
 
 export interface ProvidersRegistrationContext extends PhaseContext {
@@ -65,7 +72,8 @@ export interface SingleKindRegistrationContext extends PhaseContext {
 }
 
 export interface DataHandlersRegistrationContext extends PhaseContext {
-  bind(kind: "dataSources" | "actions", id: string, handler: unknown): void;
+  bind(kind: "dataSources", id: string, handler: DataSourceHandler): void;
+  bind(kind: "actions", id: string, handler: ActionHandler): void;
 }
 
 export interface UiRegistrationContext extends PhaseContext {
@@ -186,6 +194,17 @@ function freezeEntries(entries: readonly RegisteredContribution[]): readonly Reg
   return Object.freeze(entries.map((entry) => Object.freeze({ ...entry })));
 }
 
+function frozenClone<T>(value: T): T {
+  const clone = structuredClone(value);
+  const freeze = (child: unknown): void => {
+    if (typeof child !== "object" || child === null || Object.isFrozen(child)) return;
+    for (const value of Object.values(child)) freeze(value);
+    Object.freeze(child);
+  };
+  freeze(clone);
+  return clone;
+}
+
 export function executeRegistration(options: ExecuteRegistrationOptions): RegistrationResult {
   const manifests = activeManifests(options.graph, options.installed);
   const plans = new Map<string, PluginRegistration>();
@@ -268,6 +287,48 @@ export function executeRegistration(options: ExecuteRegistrationOptions): Regist
     if (!declarations.get(pluginId)?.get(kind)?.has(id)) {
       fail("UNDECLARED_CONTRIBUTION", `Plugin ${pluginId} did not declare ${kind} contribution ${id}.`, [pluginId, kind, id]);
     }
+    if (kind === "dataSources") {
+      let definition: DataSourceDefinition;
+      try {
+        assertDataSourceDefinition(value);
+        definition = value;
+      } catch {
+        fail("INVALID_CONTRIBUTION", `Data-source contribution ${id} must be a valid definition.`, [pluginId, kind, id]);
+      }
+      if (definition.descriptor.id !== id) {
+        fail("INVALID_CONTRIBUTION", `Data-source descriptor ID must match contribution ID ${id}.`, [pluginId, kind, id]);
+      }
+      if (definition.descriptor.ownerPluginId !== pluginId) {
+        fail("INVALID_CONTRIBUTION", `Data-source descriptor owner must match plugin ${pluginId}.`, [pluginId, kind, id]);
+      }
+    }
+    if (kind === "actions") {
+      let definition: ActionDefinition;
+      try {
+        assertActionDefinition(value);
+        definition = value;
+      } catch {
+        fail("INVALID_CONTRIBUTION", `Action contribution ${id} must be a valid definition.`, [pluginId, kind, id]);
+      }
+      if (definition.descriptor.id !== id || definition.descriptor.ownerPluginId !== pluginId) {
+        fail("INVALID_CONTRIBUTION", `Action descriptor identity must match ${pluginId}:${id}.`, [pluginId, kind, id]);
+      }
+      value = Object.freeze({ ...definition, descriptor: frozenClone(definition.descriptor) });
+    }
+    if (kind === "tools") {
+      const parsed = AgentToolDescriptorSchema.safeParse(value);
+      if (!parsed.success) {
+        fail("INVALID_CONTRIBUTION", `Tool contribution ${id} must be a valid descriptor.`, [pluginId, kind, id]);
+      }
+      const descriptor: AgentToolDescriptor = parsed.data;
+      if (descriptor.id !== id) {
+        fail("INVALID_CONTRIBUTION", `Tool descriptor ID must match contribution ID ${id}.`, [pluginId, kind, id]);
+      }
+      if (descriptor.ownerPluginId !== pluginId || !manifests.has(descriptor.ownerPluginId)) {
+        fail("INVALID_CONTRIBUTION", `Tool descriptor owner must match installed plugin ${pluginId}.`, [pluginId, kind, id]);
+      }
+      value = frozenClone(descriptor);
+    }
     const owner = contributionOwners.get(id);
     if (owner) fail("DUPLICATE_CONTRIBUTION", `Contribution ${id} is already registered by ${owner}.`, [id, owner, pluginId]);
     contributionOwners.set(id, pluginId);
@@ -282,6 +343,9 @@ export function executeRegistration(options: ExecuteRegistrationOptions): Regist
     value: unknown
   ): void => {
     assertPhase(expectedPhase, pluginId);
+    if ((kind === "dataSources" || kind === "actions") && typeof value !== "function") {
+      fail("INVALID_CONTRIBUTION", `${kind === "dataSources" ? "Data-source" : "Action"} binding ${id} must be a handler function.`, [pluginId, kind, id]);
+    }
     if (!actual.get(pluginId)?.get(kind)?.has(id)) {
       fail("UNDECLARED_CONTRIBUTION", `Plugin ${pluginId} cannot bind undeclared ${kind} contribution ${id}.`, [pluginId, kind, id]);
     }
@@ -359,6 +423,24 @@ export function executeRegistration(options: ExecuteRegistrationOptions): Regist
     for (const kind of ["dataSources", "actions", "blocks"] as const) {
       for (const id of declared.get(kind) ?? []) {
         if (!bindings.get(kind)?.has(id)) mismatches.push(`${pluginId}:${kind}:${id}:binding`);
+      }
+    }
+  }
+  for (const [pluginId, byKind] of actual) {
+    for (const [toolId, value] of byKind.get("tools") ?? []) {
+      const descriptor = value as AgentToolDescriptor;
+      const targetKind = descriptor.invocation.kind === "source" ? "dataSources" : "actions";
+      const targetId = descriptor.invocation.kind === "source" ? descriptor.invocation.source.id : descriptor.invocation.action.id;
+      const targetOwner = contributionOwners.get(targetId);
+      const targetContribution = targetOwner === undefined ? undefined : actual.get(targetOwner)?.get(targetKind)?.get(targetId);
+      const hasOwnedBinding = targetOwner === pluginId && bindings.get(targetKind)?.get(targetId)?.pluginId === pluginId;
+      const compatible = descriptor.invocation.kind === "source"
+        ? targetContribution !== undefined &&
+          dataSourceToolCompatible(descriptor, (targetContribution as DataSourceDefinition).descriptor)
+        : targetContribution !== undefined &&
+          actionToolCompatible(descriptor, (targetContribution as ActionDefinition).descriptor);
+      if (!hasOwnedBinding || !compatible) {
+        mismatches.push(`${pluginId}:tools:${toolId}:binding`);
       }
     }
   }

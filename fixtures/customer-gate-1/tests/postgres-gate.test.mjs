@@ -62,16 +62,35 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
     const migrated = await query(connectionString, `
       select
         to_regclass('public.sales_tasks')::text as sales_tasks,
+        to_regclass('public.payload_mcp_api_keys')::text as payload_mcp_api_keys,
         (select count(*)::int from payload_migrations where name = '20260826_000001_gate1') as migration_count,
+        (select count(*)::int from payload_migrations where name = '20260826_000002_sales_sources') as sales_migration_count,
+        (select count(*)::int from payload_migrations where name = '20260826_000003_payload_mcp') as mcp_migration_count,
         (select predecessor_revision from k_nex_migration_revision where id = 1) as predecessor_revision,
         (select revision from k_nex_migration_revision where id = 1) as revision
     `);
     assert.deepEqual(migrated.rows, [{
       sales_tasks: "sales_tasks",
+      payload_mcp_api_keys: "payload_mcp_api_keys",
       migration_count: 1,
-      predecessor_revision: 0,
-      revision: 1
+      sales_migration_count: 1,
+      mcp_migration_count: 1,
+      predecessor_revision: 2,
+      revision: 3
     }]);
+
+    const keyOwner = await query(connectionString, `
+      insert into users (email) values ('mcp-key-owner@example.test') returning id
+    `);
+    await query(connectionString, `
+      insert into payload_mcp_api_keys (user_id, expires_at, api_key_index)
+      values (${Number(keyOwner.rows[0].id)}, now() + interval '1 day', 'deletion-proof-key')
+    `);
+    await query(connectionString, `delete from users where id = ${Number(keyOwner.rows[0].id)}`);
+    const deletedKeys = await query(connectionString, `
+      select count(*)::int as count from payload_mcp_api_keys where api_key_index = 'deletion-proof-key'
+    `);
+    assert.equal(deletedKeys.rows[0].count, 0, "deleting a user must cascade to owned MCP API keys");
 
     const currentBoot = await runFixtureProcess("tests/boot-once.mjs", connectionString, {
       BOOT_KEY: "gate1-already-current"
@@ -79,13 +98,19 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
     assert.equal(currentBoot.code, 0, `${currentBoot.stdout}\n${currentBoot.stderr}`);
     assert.match(currentBoot.stdout, /^READY$/m);
     const current = await query(connectionString, "select count(*)::int as count from payload_migrations");
-    assert.equal(current.rows[0].count, 1);
+    assert.equal(current.rows[0].count, 3);
 
     const authenticated = await runFixtureProcess("tests/authenticated-runtime.mjs", connectionString, {
       BOOT_KEY: "gate1-authenticated-runtime"
     });
     assert.equal(authenticated.code, 0, `${authenticated.stdout}\n${authenticated.stderr}`);
     assert.match(authenticated.stdout, /^P1_8_PASS$/m);
+
+    const mcpLifecycle = await runFixtureProcess("tests/mcp-lifecycle.mjs", connectionString, {
+      BOOT_KEY: "gate2a-mcp-lifecycle"
+    });
+    assert.equal(mcpLifecycle.code, 0, `${mcpLifecycle.stdout}\n${mcpLifecycle.stderr}`);
+    assert.match(mcpLifecycle.stdout, /^P2A_MCP_LIFECYCLE_PASS$/m);
 
     await query(connectionString, "update k_nex_migration_revision set revision = 0 where id = 1");
     const incompatible = await runFixtureProcess("tests/boot-once.mjs", connectionString, {

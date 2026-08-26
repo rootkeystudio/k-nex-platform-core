@@ -2,7 +2,16 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { ApplicationManifestSchema, canonicalJson, PluginManifestSchema, architectureRegistry } from "@k-nex/contracts";
+import {
+  ActionDescriptorSchema,
+  AgentToolDescriptorSchema,
+  ApplicationManifestSchema,
+  canonicalJson,
+  MetricScalarSchema,
+  PluginManifestSchema,
+  TableRecordsSchema,
+  architectureRegistry
+} from "@k-nex/contracts";
 import * as z from "zod";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -27,15 +36,25 @@ interface Artifact {
 
 const primaryArtifacts = [
   { path: "contracts/architecture-contracts.v1.json", value: architectureRegistry },
+  { path: "schemas/action.v1.schema.json", value: jsonSchema(ActionDescriptorSchema) },
+  { path: "schemas/agent-tool.v1.schema.json", value: jsonSchema(AgentToolDescriptorSchema) },
   { path: "schemas/plugin-manifest.v1.schema.json", value: jsonSchema(PluginManifestSchema) },
-  { path: "schemas/application-manifest.v1.schema.json", value: jsonSchema(ApplicationManifestSchema) }
+  { path: "schemas/application-manifest.v1.schema.json", value: jsonSchema(ApplicationManifestSchema) },
+  { path: "schemas/metric-scalar.v1.schema.json", value: jsonSchema(MetricScalarSchema) },
+  { path: "schemas/table-records.v1.schema.json", value: jsonSchema(TableRecordsSchema) }
 ] satisfies readonly Artifact[];
+
+const outputContractSchemas = [
+  { id: "metric.scalar@1", schema: "schemas/metric-scalar.v1.schema.json" },
+  { id: "table.records@1", schema: "schemas/table-records.v1.schema.json" }
+] as const;
 
 const artifacts = [
   ...primaryArtifacts,
   {
     path: "contracts/generated-contracts.v1.json",
     value: {
+      outputContracts: outputContractSchemas,
       generator: "@k-nex/architecture-contract-tools",
       version: 1,
       artifacts: primaryArtifacts.map(({ path }) => path)

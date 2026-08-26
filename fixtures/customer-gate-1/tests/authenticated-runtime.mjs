@@ -10,21 +10,24 @@ const key = process.env.BOOT_KEY;
 const password = "gate1-authenticated-query-password";
 const payload = await bootGate1Application({ key });
 
-await payload.create({
-  collection: "users",
-  data: { email: "gate1@example.test", password }
+for (const email of ["gate1@example.test", "gate1-peer@example.test", "done@example.test", "no-note@example.test", "required-denied@example.test"]) {
+  await payload.create({ collection: "users", data: { email, password } });
+}
+const openTask = await payload.create({
+  collection: "sales-tasks",
+  data: { title: "Authenticated Gate 1 query", status: "open", potentialRevenue: "100", privateNote: "open-secret" }
 });
 await payload.create({
   collection: "sales-tasks",
-  data: { title: "Authenticated Gate 1 query", status: "open" }
+  data: { title: "Done actor query", status: "done", potentialRevenue: "25", privateNote: "done-secret" }
 });
 
-const login = await payload.login({
-  collection: "users",
-  data: { email: "gate1@example.test", password },
-  overrideAccess: false
-});
+const loginAs = (email) => payload.login({ collection: "users", data: { email, password }, overrideAccess: false });
+const login = await loginAs("gate1@example.test");
+const peerLogin = await loginAs("gate1-peer@example.test");
 assert.ok(login.token);
+assert.ok(peerLogin.token);
+assert.notEqual(login.user.id, peerLogin.user.id);
 
 const authenticatedRequest = await createPayloadRequest({
   config: payload.config,
@@ -40,8 +43,83 @@ const query = await payload.find({
   overrideAccess: false,
   req: authenticatedRequest
 });
-assert.equal(query.docs.length, 1);
-assert.equal(query.docs[0].title, "Authenticated Gate 1 query");
+assert.equal(query.docs.length, 2);
+assert.equal(query.docs.some((document) => document.title === "Authenticated Gate 1 query"), true);
+
+const dataSourceEndpoint = payload.config.endpoints.find(({ path }) => path === "/k-nex/data-source-query");
+assert.ok(dataSourceEndpoint);
+const sourceBody = {
+  sourceId: "sales.tasks",
+  surface: "workspace",
+  input: {},
+  query: { page: { number: 1, size: 25 }, filters: [], sort: [] },
+  selectedFields: ["title", "status", "potential-revenue", "private-note"]
+};
+const sourceRequest = async (token, body = sourceBody) => createPayloadRequest({
+  config: payload.config,
+  payloadInstanceCacheKey: key,
+  request: new Request("http://localhost/api/k-nex/data-source-query", {
+    method: "POST",
+    headers: { authorization: `JWT ${token}`, "content-type": "application/json" },
+    body: JSON.stringify(body)
+  })
+});
+const callSource = async (token, body) => dataSourceEndpoint.handler(await sourceRequest(token, body));
+
+const openResponse = await callSource(login.token);
+assert.equal(openResponse.status, 200);
+const openResult = await openResponse.json();
+assert.deepEqual(openResult.data.fields, sourceBody.selectedFields);
+assert.deepEqual(openResult.data.rows.map((row) => row.values.title.value), ["Authenticated Gate 1 query"]);
+
+const forgedScopeResponse = await callSource(login.token, {
+  ...sourceBody,
+  query: {
+    ...sourceBody.query,
+    recordScope: { kind: "sales.tasks", where: { status: { equals: "done" } } }
+  }
+});
+assert.equal(forgedScopeResponse.status, 400);
+assert.equal((await forgedScopeResponse.json()).code, "INVALID_QUERY_CONTROLS");
+
+const updatedOpenTask = await payload.update({
+  collection: "sales-tasks",
+  id: openTask.id,
+  data: { title: "Mutated by authorized direct write" },
+  user: login.user,
+  overrideAccess: false
+});
+assert.equal(updatedOpenTask.title, "Mutated by authorized direct write");
+
+const peerResponse = await callSource(peerLogin.token);
+assert.equal(peerResponse.status, 200);
+const peerResult = await peerResponse.json();
+assert.deepEqual(peerResult.data.fields, openResult.data.fields);
+assert.deepEqual(peerResult.data.rows.map((row) => row.values.title.value), ["Mutated by authorized direct write"]);
+assert.deepEqual(peerResult.data.rows.map((row) => row.values.status.value), ["open"]);
+
+const unknownResponse = await callSource(login.token, { ...sourceBody, sourceId: "sales.tasks.other" });
+assert.equal(unknownResponse.status, 404);
+assert.equal((await unknownResponse.json()).code, "SOURCE_NOT_FOUND");
+
+const deniedLogin = await loginAs("required-denied@example.test");
+const deniedResponse = await callSource(deniedLogin.token, { ...sourceBody, selectedFields: sourceBody.selectedFields.slice(0, 3) });
+assert.equal(deniedResponse.status, 403);
+assert.equal((await deniedResponse.json()).code, "INSUFFICIENT_FIELD_PERMISSION");
+
+const noNoteLogin = await loginAs("no-note@example.test");
+const noNoteResponse = await callSource(noNoteLogin.token);
+assert.equal(noNoteResponse.status, 200);
+const noNoteResult = await noNoteResponse.json();
+assert.deepEqual(noNoteResult.data.fields, sourceBody.selectedFields.slice(0, 3));
+assert.equal("private-note" in noNoteResult.data.rows[0].values, false);
+
+const doneLogin = await loginAs("done@example.test");
+const doneResponse = await callSource(doneLogin.token);
+assert.equal(doneResponse.status, 200);
+const doneResult = await doneResponse.json();
+assert.deepEqual(doneResult.data.rows.map((row) => row.values.title.value), ["Done actor query"]);
+assert.notDeepEqual(doneResult.data.rows, openResult.data.rows);
 
 const unauthenticatedRequest = await createPayloadRequest({
   config: payload.config,
@@ -78,13 +156,23 @@ assert.deepEqual(inventory.plugins, [{
   package: "@k-nex/module-sales",
   version: "1.0.0",
   integrity: inventory.plugins[0].integrity,
-  expectedContributions: { schema: ["sales.tasks.collection"] },
-  actualContributions: { schema: ["sales.tasks.collection"] }
+  expectedContributions: {
+    actions: ["sales.task.create"],
+    schema: ["sales.tasks.collection"],
+    dataSources: ["sales.tasks", "sales.total-potential-revenue"],
+    tools: ["sales.tools.create-task", "sales.tools.search-tasks"]
+  },
+  actualContributions: {
+    actions: ["sales.task.create"],
+    schema: ["sales.tasks.collection"],
+    dataSources: ["sales.tasks", "sales.total-potential-revenue"],
+    tools: ["sales.tools.create-task", "sales.tools.search-tasks"]
+  }
 }]);
 assert.deepEqual(inventory.migrationRevision, {
-  migrationName: "20260826_000001_gate1",
-  predecessor: 0,
-  current: 1
+  migrationName: "20260826_000003_payload_mcp",
+  predecessor: 2,
+  current: 3
 });
 const serializedInventory = JSON.stringify(inventory);
 for (const forbidden of [process.env.DATABASE_URL, process.env.PAYLOAD_SECRET, login.token, password, "gate1@example.test"]) {

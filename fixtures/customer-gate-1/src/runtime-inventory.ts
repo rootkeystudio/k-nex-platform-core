@@ -36,7 +36,7 @@ export function createRuntimeInventoryEndpoint(inventory: ReturnType<typeof crea
     method: "get",
     handler: async (req) => {
       const headers = { "cache-control": "private, no-store" };
-      if (!req.user) return Response.json({ error: "unauthorized" }, { status: 401, headers });
+      if (req.user?.collection !== "users") return Response.json({ error: "unauthorized" }, { status: 401, headers });
       return Response.json(inventory, { headers });
     }
   };

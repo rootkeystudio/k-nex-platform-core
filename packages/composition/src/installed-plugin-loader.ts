@@ -176,10 +176,16 @@ function importerVersionMatches(value: unknown, requestedVersion: string): boole
   return value.startsWith(`${requestedVersion}(`) && value.endsWith(")") && value.length > requestedVersion.length + 2;
 }
 
-function isFileTarball(value: unknown): value is string {
-  if (typeof value !== "string" || !value.startsWith("file:") || !value.endsWith(".tgz") || value.includes("\\")) return false;
-  const path = value.slice("file:".length);
-  return path.length > 0 && !path.startsWith("/") && !path.split("/").some((segment) => segment === "" || segment === "." || segment === "..");
+function fileTarball(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const peerSuffix = value.indexOf("(");
+  const tarball = peerSuffix === -1 ? value : value.slice(0, peerSuffix);
+  if (peerSuffix !== -1 && (!value.endsWith(")") || peerSuffix === value.length - 1)) return undefined;
+  if (!tarball.startsWith("file:") || !tarball.endsWith(".tgz") || tarball.includes("\\")) return undefined;
+  const path = tarball.slice("file:".length);
+  return path.length > 0 && !path.startsWith("/") && !path.split("/").some((segment) => segment === "" || segment === "." || segment === "..")
+    ? tarball
+    : undefined;
 }
 
 function packageIntegrity(lockfile: RecordValue, importer: RecordValue, request: PluginPackageRequest): string {
@@ -187,8 +193,10 @@ function packageIntegrity(lockfile: RecordValue, importer: RecordValue, request:
   const registrySpecifier = entries.every((entry) => entry.specifier === request.version);
   const registryEntry = registrySpecifier && entries.every((entry) => importerVersionMatches(entry.version, request.version));
   const firstEntry = entries[0];
-  const tarballEntry = firstEntry !== undefined && isFileTarball(firstEntry.specifier) && isFileTarball(firstEntry.version) && entries.every(
-    (entry) => entry.specifier === firstEntry.specifier && entry.version === firstEntry.version
+  const tarballSpecifier = fileTarball(firstEntry?.specifier);
+  const tarballVersion = fileTarball(firstEntry?.version);
+  const tarballEntry = tarballSpecifier !== undefined && tarballVersion !== undefined && entries.every(
+    (entry) => fileTarball(entry.specifier) === tarballSpecifier && fileTarball(entry.version) === tarballVersion
   );
   if (!registryEntry && !tarballEntry) {
     if (registrySpecifier) fail("PACKAGE_VERSION_MISMATCH", `Requested package ${request.name} does not resolve to its requested version.`);
@@ -198,7 +206,7 @@ function packageIntegrity(lockfile: RecordValue, importer: RecordValue, request:
   if (!isRecord(packages)) {
     fail("LOCKFILE_INVALID", "The pnpm lockfile packages section must be a mapping.");
   }
-  const packageKey = `${request.name}@${tarballEntry ? firstEntry.version : request.version}`;
+  const packageKey = `${request.name}@${tarballEntry ? tarballVersion : request.version}`;
   if (!hasOwn(packages, packageKey) || !isRecord(packages[packageKey])) {
     fail("LOCKFILE_ENTRY_MISSING", `The lockfile has no package record for ${request.name}.`);
   }

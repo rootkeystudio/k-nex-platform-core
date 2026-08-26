@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-08-26
 - Decision owners: K-Nex platform maintainers
-- Evidence: design-only
+- Evidence: executable-poc
 - Related: [Agent tools and AI control plane](../31-agent-tools-and-ai-control-plane.md), [Phase 2A plan](../implementation/phase-2a-agent-tools.md), [Executable gates](../30-executable-poc-gates.md)
 
 ## Context
@@ -78,4 +78,4 @@ audit and error safety
 minimal MCP list/call mapping without policy weakening
 ```
 
-Evidence remains `design-only` until the complete Gate 2A scope passes and `docs/implementation/phase-2a-result.md` links executable fixtures, failure tests, and CI evidence.
+Gate 2A passed the complete scope above. The linked result records executable fixtures, failure tests, adapter evidence, attack coverage, and bounded performance measurements: [`docs/implementation/phase-2a-result.md`](../implementation/phase-2a-result.md).

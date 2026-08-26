@@ -1,9 +1,9 @@
 import type { Payload } from "payload";
 
 export const gate1MigrationRevision = Object.freeze({
-  migrationName: "20260826_000001_gate1",
-  predecessor: 0,
-  current: 1
+  migrationName: "20260826_000003_payload_mcp",
+  predecessor: 2,
+  current: 3
 });
 
 export class MigrationRevisionError extends Error {

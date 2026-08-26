@@ -1,14 +1,16 @@
-import type { PluginManifest } from "@k-nex/contracts";
-import { registrationPhases } from "@k-nex/contracts";
+import type { AgentToolDescriptor, DataSourceDefinition, PluginManifest } from "@k-nex/contracts";
+import { DataSourceDescriptorSchema, registrationPhases } from "@k-nex/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { InstalledPluginManifest, ResolvedPluginGraph } from "@k-nex/composition";
 import {
   executeRegistration,
   RegistrationError,
+  type DataSourceHandler,
   type PluginRegistration,
   type SingleKindRegistrationContext
 } from "../src/registration-runtime.js";
+import type { ActionDefinition, ActionHandler } from "../src/action.js";
 
 const compatibility = {
   core: ">=1.0.0 <2.0.0",
@@ -16,6 +18,105 @@ const compatibility = {
   node: ">=24.0.0 <25.0.0",
   payloadDatabaseAdapters: ["postgres" as const]
 };
+
+function dataSourceDefinition(id: string, ownerPluginId = "module.consumer"): DataSourceDefinition {
+  return {
+    descriptor: {
+      id,
+      version: 1,
+      ownerPluginId,
+      primaryContract: { id: "metric.scalar", version: 1 },
+      sourceSchema: { id: `${id}.schema`, version: 1 },
+      audience: "authenticated",
+      surfaces: ["workspace"],
+      permission: "consumer.read",
+      structuralCompatibilityHash: `sha256:${"0".repeat(64)}`,
+      presentationMetadataRevision: 1,
+      title: "Consumer source",
+      inputFields: [],
+      limits: {
+        maxSelectedFields: 1,
+        maxPageSize: 100,
+        maxFilters: 0,
+        maxSorts: 0,
+        maxBodyBytes: 1024,
+        maxResultBytes: 1024,
+        maxDepth: 1,
+        timeoutMs: 1000,
+        maxConcurrency: 1,
+        ratePerMinute: 1,
+        burst: 1,
+        costClass: "low",
+        maxCost: 1
+      },
+      cacheClass: "actor"
+    },
+    inputSchema: DataSourceDescriptorSchema,
+    outputSchema: DataSourceDescriptorSchema
+  };
+}
+
+function actionDefinition(id = "consumer.action", ownerPluginId = "module.consumer"): ActionDefinition {
+  return {
+    descriptor: {
+      id,
+      version: 1,
+      ownerPluginId,
+      inputSchema: {
+        type: "object",
+        properties: { value: { type: "string", maxLength: 128 } },
+        required: ["value"],
+        additionalProperties: false
+      },
+      outputSchema: {
+        type: "object",
+        properties: { accepted: { type: "boolean" } },
+        required: ["accepted"],
+        additionalProperties: false
+      },
+      permission: "consumer.write",
+      policy: "consumer.domain",
+      effect: "write",
+      idempotency: "required",
+      dryRun: false
+    },
+    inputSchema: { safeParse: (value) => ({ success: true, data: value }) },
+    outputSchema: { safeParse: (value) => ({ success: true, data: value }) }
+  };
+}
+
+function actionTool(inputSchema = actionDefinition().descriptor.inputSchema): AgentToolDescriptor {
+  const action = actionDefinition().descriptor;
+  return {
+    id: "consumer.tools.action",
+    version: 1,
+    ownerPluginId: "module.consumer",
+    title: "Consumer action",
+    description: "Runs the registered consumer action.",
+    inputSchema,
+    outputSchema: action.outputSchema,
+    invocation: { kind: "action", action: { id: action.id, version: action.version } },
+    audience: "authenticated",
+    surfaces: ["workspace"],
+    permission: action.permission,
+    policy: action.policy,
+    effect: "write",
+    risk: "medium",
+    approval: "per-call",
+    idempotency: "required",
+    dryRun: false,
+    limits: {
+      timeoutMs: 1000,
+      maxConcurrency: 1,
+      ratePerMinute: 10,
+      burst: 2,
+      costClass: "low",
+      maxCost: 1
+    },
+    redaction: { inputPaths: [], outputPaths: [] },
+    audit: { category: "consumer.action" }
+  };
+}
 
 function providerManifest(contributions: PluginManifest["contributions"] = undefined): PluginManifest {
   return {
@@ -115,13 +216,18 @@ function graph(): ResolvedPluginGraph {
   };
 }
 
-function completeConsumer(onBehavior?: (services: { get<T = unknown>(capability: string): T }) => void): PluginRegistration {
+function completeConsumer(
+  onBehavior?: (services: { get<T = unknown>(capability: string): T }) => void,
+  sourceDefinition: DataSourceDefinition = dataSourceDefinition("consumer.source"),
+  sourceHandler: DataSourceHandler = () => undefined,
+  actionHandler: ActionHandler = () => ({ accepted: true })
+): PluginRegistration {
   return {
     pluginId: "module.consumer",
     contracts(context) {
       context.register("contracts", "consumer.contract", {});
-      context.register("dataSources", "consumer.source", {});
-      context.register("actions", "consumer.action", {});
+      context.register("dataSources", "consumer.source", sourceDefinition);
+      context.register("actions", "consumer.action", actionDefinition());
       context.register("blocks", "consumer.block", {});
     },
     schema: (context) => context.register("consumer.schema", { slug: "consumer" }),
@@ -131,8 +237,8 @@ function completeConsumer(onBehavior?: (services: { get<T = unknown>(capability:
     },
     jobs: (context) => context.register("consumer.job", () => undefined),
     dataHandlers(context) {
-      context.bind("dataSources", "consumer.source", () => undefined);
-      context.bind("actions", "consumer.action", () => undefined);
+      context.bind("dataSources", "consumer.source", sourceHandler);
+      context.bind("actions", "consumer.action", actionHandler);
     },
     ui(context) {
       context.bindBlock("consumer.block", {});
@@ -239,6 +345,142 @@ describe("phased registration runtime", () => {
     });
     expect(Object.isFrozen(result)).toBe(true);
     expect(Object.isFrozen(result.inventory)).toBe(true);
+  });
+
+  it("accepts a valid data-source definition and server handler binding", () => {
+    const definition = dataSourceDefinition("consumer.source");
+    const handler: DataSourceHandler = ({ input, selectedFields, signal }) => ({ input, selectedFields, signal });
+    const result = run([providerRegistration(), completeConsumer(undefined, definition, handler)]);
+
+    expect(result.contributions.dataSources).toEqual([{ pluginId: "module.consumer", id: "consumer.source", value: definition }]);
+    expect(result.bindings.dataSources).toEqual([{ pluginId: "module.consumer", id: "consumer.source", value: handler }]);
+  });
+
+  it("rejects invalid data-source definitions", () => {
+    const consumer = completeConsumer();
+    expectCode(() => run([providerRegistration(), {
+      ...consumer,
+      contracts(context) {
+        context.register("dataSources", "consumer.source", {} as never);
+      }
+    }]), "INVALID_CONTRIBUTION");
+  });
+
+  it("rejects data-source descriptor IDs that differ from contribution IDs", () => {
+    expectCode(() => run([providerRegistration(), completeConsumer(undefined, dataSourceDefinition("consumer.other"))]), "INVALID_CONTRIBUTION");
+  });
+
+  it("rejects data-source descriptors owned by another plugin", () => {
+    expectCode(() => run([providerRegistration(), completeConsumer(undefined, dataSourceDefinition("consumer.source", "provider.storage"))]), "INVALID_CONTRIBUTION");
+  });
+
+  it("rejects non-function data-source bindings", () => {
+    const consumer = completeConsumer();
+    expectCode(() => run([providerRegistration(), {
+      ...consumer,
+      dataHandlers(context) {
+        context.bind("dataSources", "consumer.source", {} as never);
+      }
+    }]), "INVALID_CONTRIBUTION");
+  });
+
+  it("requires a trusted server action handler binding", () => {
+    const action: ActionHandler = () => ({ accepted: true });
+    const result = run([providerRegistration(), completeConsumer(undefined, dataSourceDefinition("consumer.source"), undefined, action)]);
+
+    expect(result.bindings.actions).toEqual([{ pluginId: "module.consumer", id: "consumer.action", value: action }]);
+    expectCode(() => run([providerRegistration(), completeConsumer(
+      undefined,
+      dataSourceDefinition("consumer.source"),
+      undefined,
+      {} as ActionHandler
+    )]), "INVALID_CONTRIBUTION");
+  });
+
+  it("rejects invalid action definitions and mismatched descriptor ownership", () => {
+    const consumer = completeConsumer();
+    expectCode(() => run([providerRegistration(), {
+      ...consumer,
+      contracts(context) {
+        context.register("actions", "consumer.action", {} as ActionDefinition);
+      }
+    }]), "INVALID_CONTRIBUTION");
+    expectCode(() => run([providerRegistration(), {
+      ...consumer,
+      contracts(context) {
+        context.register("actions", "consumer.action", actionDefinition("consumer.action", "provider.storage"));
+      }
+    }]), "INVALID_CONTRIBUTION");
+  });
+
+  it("requires exact schema-compatible action tool bindings", () => {
+    const manifest = consumerManifest({
+      contributions: { ...consumerManifest().contributions, tools: ["consumer.tools.action"] }
+    });
+    const plan = (tool: AgentToolDescriptor): PluginRegistration => {
+      const consumer = completeConsumer();
+      return {
+        ...consumer,
+        contracts(context) {
+          consumer.contracts?.(context);
+          context.register("tools", tool.id, tool);
+        }
+      };
+    };
+    expect(() => run([providerRegistration(), plan(actionTool())], [providerManifest(), manifest])).not.toThrow();
+    const incompatible = actionTool({
+      type: "object",
+      properties: { different: { type: "string" } },
+      required: ["different"],
+      additionalProperties: false
+    });
+    expectCode(
+      () => run([providerRegistration(), plan(incompatible)], [providerManifest(), manifest]),
+      "INVENTORY_MISMATCH"
+    );
+    expectCode(
+      () => run([providerRegistration(), plan({ ...actionTool(), permission: "consumer.understated" })], [providerManifest(), manifest]),
+      "INVENTORY_MISMATCH"
+    );
+    expectCode(
+      () => run([providerRegistration(), plan({ ...actionTool(), policy: "consumer.understated" })], [providerManifest(), manifest]),
+      "INVENTORY_MISMATCH"
+    );
+  });
+
+  it("rejects a source tool whose output contract does not match the registered source", () => {
+    const base = consumerManifest();
+    const manifest = consumerManifest({
+      contributions: { ...base.contributions, tools: ["consumer.tools.source"] }
+    });
+    const sourceTool = (outputContract: AgentToolDescriptor["outputContract"]): AgentToolDescriptor => ({
+      ...actionTool(),
+      id: "consumer.tools.source",
+      outputSchema: undefined,
+      outputContract,
+      invocation: { kind: "source", source: { id: "consumer.source", version: 1 } },
+      permission: "consumer.read",
+      policy: "consumer.read",
+      effect: "read-only",
+      approval: "none",
+      idempotency: "not-applicable"
+    });
+    const plan = (tool: AgentToolDescriptor): PluginRegistration => {
+      const consumer = completeConsumer();
+      return {
+        ...consumer,
+        contracts(context) {
+          consumer.contracts?.(context);
+          context.register("tools", tool.id, tool);
+        }
+      };
+    };
+
+    expectCode(
+      () => run([providerRegistration(), plan(sourceTool("table.records@1"))], [providerManifest(), manifest]),
+      "INVENTORY_MISMATCH"
+    );
+    expect(() => run([providerRegistration(), plan(sourceTool("metric.scalar@1"))], [providerManifest(), manifest])).not.toThrow();
   });
 
   it("rejects registration through an API retained from the wrong phase", () => {

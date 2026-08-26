@@ -1,0 +1,400 @@
+{
+  "$defs": {
+    "__schema0": {
+      "items": {
+        "$ref": "#/$defs/__schema1"
+      },
+      "maxItems": 64,
+      "minItems": 1,
+      "type": "array"
+    },
+    "__schema1": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+      "type": "string"
+    },
+    "__schema10": {
+      "additionalProperties": false,
+      "properties": {
+        "hasNext": {
+          "type": "boolean"
+        },
+        "number": {
+          "maximum": 1000000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "pageSize": {
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "number",
+        "pageSize",
+        "hasNext"
+      ],
+      "type": "object"
+    },
+    "__schema2": {
+      "items": {
+        "$ref": "#/$defs/__schema3"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "__schema3": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "values": {
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema4"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/__schema1"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "key",
+        "values"
+      ],
+      "type": "object"
+    },
+    "__schema4": {
+      "anyOf": [
+        {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "text",
+                  "type": "string"
+                },
+                "value": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "value"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "integer",
+                  "type": "string"
+                },
+                "value": {
+                  "maximum": 9007199254740991,
+                  "minimum": -9007199254740991,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "kind",
+                "value"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "number",
+                  "type": "string"
+                },
+                "value": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "kind",
+                "value"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "decimal",
+                  "type": "string"
+                },
+                "rounding": {
+                  "$ref": "#/$defs/__schema7"
+                },
+                "scale": {
+                  "$ref": "#/$defs/__schema6"
+                },
+                "unit": {
+                  "maxLength": 32,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z][A-Za-z0-9._-]*$",
+                  "type": "string"
+                },
+                "value": {
+                  "$ref": "#/$defs/__schema5"
+                }
+              },
+              "required": [
+                "kind",
+                "value",
+                "scale"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "currency": {
+                  "pattern": "^[A-Z]{3}$",
+                  "type": "string"
+                },
+                "kind": {
+                  "const": "money",
+                  "type": "string"
+                },
+                "rounding": {
+                  "$ref": "#/$defs/__schema7"
+                },
+                "scale": {
+                  "$ref": "#/$defs/__schema6"
+                },
+                "value": {
+                  "$ref": "#/$defs/__schema5"
+                }
+              },
+              "required": [
+                "kind",
+                "value",
+                "currency",
+                "scale"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "datetime",
+                  "type": "string"
+                },
+                "value": {
+                  "format": "date-time",
+                  "maxLength": 64,
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "value"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "date",
+                  "type": "string"
+                },
+                "value": {
+                  "format": "date",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "value"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "boolean",
+                  "type": "string"
+                },
+                "value": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "kind",
+                "value"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "status",
+                  "type": "string"
+                },
+                "value": {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "value"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "enum",
+                  "type": "string"
+                },
+                "value": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "value"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "kind": {
+                  "const": "resource",
+                  "type": "string"
+                },
+                "label": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "resourceType": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)*$",
+                  "type": "string"
+                },
+                "route": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "params": {
+                      "additionalProperties": {
+                        "$ref": "#/$defs/__schema9"
+                      },
+                      "propertyNames": {
+                        "$ref": "#/$defs/__schema8"
+                      },
+                      "type": "object"
+                    },
+                    "routeId": {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "routeId",
+                    "params"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "kind",
+                "resourceType",
+                "id",
+                "label",
+                "route"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "__schema5": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+      "type": "string"
+    },
+    "__schema6": {
+      "maximum": 18,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "__schema7": {
+      "enum": [
+        "half-up",
+        "half-even",
+        "toward-zero",
+        "away-from-zero"
+      ],
+      "type": "string"
+    },
+    "__schema8": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[A-Za-z][A-Za-z0-9]*$",
+      "type": "string"
+    },
+    "__schema9": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "fields": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "page": {
+      "$ref": "#/$defs/__schema10"
+    },
+    "rows": {
+      "$ref": "#/$defs/__schema2"
+    }
+  },
+  "required": [
+    "fields",
+    "rows",
+    "page"
+  ],
+  "type": "object"
+}

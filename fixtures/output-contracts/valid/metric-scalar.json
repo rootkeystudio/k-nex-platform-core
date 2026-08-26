@@ -1,0 +1,17 @@
+{
+  "comparison": {
+    "sentiment": "positive",
+    "value": {
+      "currency": "USD",
+      "kind": "money",
+      "scale": 2,
+      "value": "12.50"
+    }
+  },
+  "value": {
+    "currency": "USD",
+    "kind": "money",
+    "scale": 2,
+    "value": "100.00"
+  }
+}

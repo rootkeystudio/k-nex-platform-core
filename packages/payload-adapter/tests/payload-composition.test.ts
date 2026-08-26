@@ -88,10 +88,12 @@ describe("Payload application composition", () => {
     expect(access).toBeTypeOf("function");
     const context = { correlationId: "gate-1-request" };
     const anonymousRequest = { user: null, context };
-    const actorRequest = { user: { id: "actor-1" }, context };
+    const actorRequest = { user: { id: "actor-1", collection: "users" }, context };
+    const mcpKeyRequest = { user: { id: "key-1", collection: "payload-mcp-api-keys" }, context };
 
     await expect(Promise.resolve(access?.({ req: anonymousRequest } as never))).resolves.toBe(false);
     await expect(Promise.resolve(access?.({ req: actorRequest } as never))).resolves.toBe(true);
+    await expect(Promise.resolve(access?.({ req: mcpKeyRequest } as never))).resolves.toBe(false);
     expect(anonymousRequest.context).toBe(context);
     expect(actorRequest.context).toBe(context);
   });

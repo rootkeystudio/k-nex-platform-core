@@ -2,7 +2,14 @@ import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { canonicalJson, PluginManifestSchema } from "@k-nex/contracts";
+import {
+  ActionDescriptorSchema,
+  AgentToolDescriptorSchema,
+  canonicalJson,
+  MetricScalarSchema,
+  PluginManifestSchema,
+  TableRecordsSchema
+} from "@k-nex/contracts";
 import { Ajv2020, type AnySchema } from "ajv/dist/2020.js";
 import addFormatsModule from "ajv-formats";
 
@@ -25,6 +32,14 @@ async function load<T = unknown>(relativePath: string): Promise<T> {
   return JSON.parse(await readFile(resolve(repositoryRoot, relativePath), "utf8")) as T;
 }
 
+async function loadCanonical<T = unknown>(relativePath: string): Promise<T> {
+  const content = await readFile(resolve(repositoryRoot, relativePath), "utf8");
+  if (!content.endsWith("\n") || content.endsWith("\n\n") || content.includes("\r")) throw new Error(`${relativePath} must use LF and one final newline.`);
+  const value = JSON.parse(content) as T;
+  assertCanonical(value, relativePath);
+  return value;
+}
+
 function assertCanonical(value: unknown, path: string): void {
   if (Array.isArray(value)) {
     value.forEach((item, index) => assertCanonical(item, `${path}[${index}]`));
@@ -41,18 +56,51 @@ function assertCanonical(value: unknown, path: string): void {
 for (const relativePath of [
   "contracts/architecture-contracts.v1.json",
   "contracts/generated-contracts.v1.json",
+  "schemas/action.v1.schema.json",
+  "schemas/agent-tool.v1.schema.json",
   "schemas/plugin-manifest.v1.schema.json",
-  "schemas/application-manifest.v1.schema.json"
+  "schemas/application-manifest.v1.schema.json",
+  "schemas/metric-scalar.v1.schema.json",
+  "schemas/table-records.v1.schema.json",
+  "fixtures/actions/valid/complete.json",
+  "fixtures/actions/invalid/non-canonical-id.json",
+  "fixtures/agent-tools/valid/read.json",
+  "fixtures/agent-tools/invalid/executable-handler.json",
+  "fixtures/output-contracts/valid/metric-scalar.json",
+  "fixtures/output-contracts/valid/table-records.json",
+  "fixtures/output-contracts/invalid/metric-scalar.json",
+  "fixtures/output-contracts/invalid/table-records.json"
 ]) {
-  const content = await readFile(resolve(repositoryRoot, relativePath), "utf8");
-  if (!content.endsWith("\n") || content.endsWith("\n\n") || content.includes("\r")) throw new Error(`${relativePath} must use LF and one final newline.`);
-  assertCanonical(JSON.parse(content), relativePath);
+  await loadCanonical(relativePath);
 }
 
 const pluginSchema = await load<AnySchema>("schemas/plugin-manifest.v1.schema.json");
+const actionSchema = await load<AnySchema>("schemas/action.v1.schema.json");
+const agentToolSchema = await load<AnySchema>("schemas/agent-tool.v1.schema.json");
 const applicationSchema = await load<AnySchema>("schemas/application-manifest.v1.schema.json");
+const metricSchema = await load<AnySchema>("schemas/metric-scalar.v1.schema.json");
+const tableSchema = await load<AnySchema>("schemas/table-records.v1.schema.json");
 const validatePlugin = ajv.compile(pluginSchema);
+const validateAction = ajv.compile(actionSchema);
+const validateAgentTool = ajv.compile(agentToolSchema);
 ajv.compile(applicationSchema);
+const validateMetric = ajv.compile(metricSchema);
+const validateTable = ajv.compile(tableSchema);
+
+const generatedContracts = await load<{
+  artifacts: string[];
+  outputContracts: Array<{ id: string; schema: string }>;
+}>("contracts/generated-contracts.v1.json");
+const outputContractSchemas = [
+  { id: "metric.scalar@1", schema: "schemas/metric-scalar.v1.schema.json" },
+  { id: "table.records@1", schema: "schemas/table-records.v1.schema.json" }
+];
+if (JSON.stringify(generatedContracts.outputContracts) !== JSON.stringify(outputContractSchemas)) {
+  throw new Error("Generated output-contract registry entries are stale or out of order.");
+}
+for (const { schema } of outputContractSchemas) {
+  if (!generatedContracts.artifacts.includes(schema)) throw new Error(`Generated artifact inventory is missing ${schema}.`);
+}
 
 const driver = await load("fixtures/plugin-manifests/module.logistics.driver.json");
 if (!PluginManifestSchema.safeParse(driver).success) throw new Error("Valid driver fixture failed the Zod authoring schema.");
@@ -63,4 +111,40 @@ invalidLifecycle.lifecycle.uninstall = "supported";
 if (PluginManifestSchema.safeParse(invalidLifecycle).success) throw new Error("Zod authoring schema accepted retained-schema uninstall for a schema-owning V1 plugin.");
 if (validatePlugin(invalidLifecycle)) throw new Error("Generated schema accepted retained-schema uninstall for a schema-owning V1 plugin.");
 
-console.log("Generated schemas compile with Ajv and preserve the V1 lifecycle invariant.");
+const validAgentTool = await load("fixtures/agent-tools/valid/read.json");
+if (!AgentToolDescriptorSchema.safeParse(validAgentTool).success || !validateAgentTool(validAgentTool)) {
+  throw new Error(`Valid agent-tool fixture failed its authoring or generated schema: ${ajv.errorsText(validateAgentTool.errors)}`);
+}
+const invalidAgentTool = await load("fixtures/agent-tools/invalid/executable-handler.json");
+if (AgentToolDescriptorSchema.safeParse(invalidAgentTool).success || validateAgentTool(invalidAgentTool)) {
+  throw new Error("Executable agent-tool fixture must fail both authoring and generated schemas.");
+}
+
+const validAction = await load("fixtures/actions/valid/complete.json");
+if (!ActionDescriptorSchema.safeParse(validAction).success || !validateAction(validAction)) {
+  throw new Error(`Valid action fixture failed its authoring or generated schema: ${ajv.errorsText(validateAction.errors)}`);
+}
+const invalidAction = await load("fixtures/actions/invalid/non-canonical-id.json");
+if (ActionDescriptorSchema.safeParse(invalidAction).success || validateAction(invalidAction)) {
+  throw new Error("Action fixture with a non-canonical ID must fail both authoring and generated schemas.");
+}
+
+const outputContractFixtures = [
+  { path: "fixtures/output-contracts/valid/metric-scalar.json", schema: MetricScalarSchema, validate: validateMetric, valid: true },
+  { path: "fixtures/output-contracts/valid/table-records.json", schema: TableRecordsSchema, validate: validateTable, valid: true },
+  { path: "fixtures/output-contracts/invalid/metric-scalar.json", schema: MetricScalarSchema, validate: validateMetric, valid: false },
+  { path: "fixtures/output-contracts/invalid/table-records.json", schema: TableRecordsSchema, validate: validateTable, valid: false }
+] as const;
+for (const fixture of outputContractFixtures) {
+  const value = await load(fixture.path);
+  const zodValid = fixture.schema.safeParse(value).success;
+  const jsonSchemaValid = fixture.validate(value);
+  if (fixture.valid && (!zodValid || !jsonSchemaValid)) {
+    throw new Error(`Valid ${fixture.path} must pass both Zod and generated JSON Schema validation.`);
+  }
+  if (!fixture.valid && (zodValid || jsonSchemaValid)) {
+    throw new Error(`Structurally invalid ${fixture.path} must fail both Zod and generated JSON Schema validation.`);
+  }
+}
+
+console.log("Generated schemas compile with Ajv and preserve contract and lifecycle invariants.");

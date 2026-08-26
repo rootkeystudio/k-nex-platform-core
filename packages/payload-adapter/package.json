@@ -17,11 +17,15 @@
   "dependencies": {
     "@k-nex/runtime": "workspace:*",
     "@payloadcms/db-postgres": "3.88.0",
-    "payload": "3.88.0"
+    "@payloadcms/plugin-mcp": "3.88.0",
+    "payload": "3.88.0",
+    "zod": "3.25.76"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
     "@k-nex/contracts": "workspace:*",
     "@k-nex/module-sales": "workspace:*",
+    "esbuild": "0.28.2",
     "typescript": "6.0.3",
     "vitest": "4.1.6"
   }

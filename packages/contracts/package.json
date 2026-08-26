@@ -11,9 +11,13 @@
     }
   },
   "scripts": {
-    "build": "tsc -b"
+    "build": "tsc -b",
+    "test": "vitest run"
   },
   "dependencies": {
     "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "vitest": "4.1.6"
   }
 }

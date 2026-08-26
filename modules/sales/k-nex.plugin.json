@@ -30,6 +30,17 @@
   "contributions": {
     "schema": [
       "sales.tasks.collection"
+    ],
+    "dataSources": [
+      "sales.tasks",
+      "sales.total-potential-revenue"
+    ],
+    "actions": [
+      "sales.task.create"
+    ],
+    "tools": [
+      "sales.tools.search-tasks",
+      "sales.tools.create-task"
     ]
   }
 }

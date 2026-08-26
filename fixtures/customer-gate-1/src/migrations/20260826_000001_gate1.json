@@ -26,6 +26,18 @@
           "notNull": true,
           "default": "'open'"
         },
+        "potential_revenue": {
+          "name": "potential_revenue",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "private_note": {
+          "name": "private_note",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
         "updated_at": {
           "name": "updated_at",
           "type": "timestamp(3) with time zone",

@@ -7,14 +7,18 @@ test("loads the packed Sales module through generated registries and composes pu
   const fixture = await import("../dist/src/payload.config.js");
   const config = await fixture.default;
   const collection = config.collections.find(({ slug }) => slug === "sales-tasks");
+  const mcpKeys = config.collections.find(({ slug }) => slug === "payload-mcp-api-keys");
 
   assert.equal(config.db.name, "postgres");
   assert.ok(collection);
+  assert.ok(mcpKeys);
+  assert.ok(config.endpoints.some(({ method, path }) => method === "post" && path === "/mcp"));
   assert.deepEqual(fixture.composedApplication.collectionOwnership, [{
     slug: "sales-tasks",
     pluginId: "module.sales",
     contributionId: "sales.tasks.collection"
   }]);
   assert.equal(await collection.access.read({ req: { user: null, context: {} } }), false);
-  assert.equal(await collection.access.read({ req: { user: { id: "actor-1" }, context: {} } }), true);
+  assert.equal(await collection.access.read({ req: { user: { id: "actor-1", collection: "users" }, context: {} } }), true);
+  assert.equal(await collection.access.read({ req: { user: { id: "key-1", collection: "payload-mcp-api-keys" }, context: {} } }), false);
 });

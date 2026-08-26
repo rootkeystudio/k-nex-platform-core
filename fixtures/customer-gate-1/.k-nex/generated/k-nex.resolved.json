@@ -21,15 +21,26 @@
   "plugins": [
     {
       "contributions": {
+        "actions": [
+          "sales.task.create"
+        ],
+        "dataSources": [
+          "sales.tasks",
+          "sales.total-potential-revenue"
+        ],
         "schema": [
           "sales.tasks.collection"
+        ],
+        "tools": [
+          "sales.tools.create-task",
+          "sales.tools.search-tasks"
         ]
       },
       "environment": {
         "names": []
       },
       "id": "module.sales",
-      "integrity": "sha512-SUkRiIHM6qSpV13vp700UcF6CTOgK331VcOqYCjQzlbXdgw7umzknLan79JcvGD7NlYutOFaoyXf1ZvnxGbAOw==",
+      "integrity": "sha512-Vsh8V4MJsNMwkon+Am16cJgzowxwufi06tS4c5l5ZFZh+F3php+/jz6us9yU/bFKcWEmpwzca+WxL++lAfalhw==",
       "kind": "module",
       "lifecycle": {
         "disable": "supported",
@@ -38,7 +49,7 @@
         "purge": "supported",
         "uninstall": "unsupported"
       },
-      "manifestDigest": "sha256:1fde841e52008d3bbca83028d79049bc01e29ab1bfb6cf3ebbb06ce90325ad25",
+      "manifestDigest": "sha256:5bcf0e182bb614d464a47c93a69a9f9caaec37f5b00f6a2aba5238dd87076864",
       "optional": [],
       "package": "@k-nex/module-sales",
       "required": [],
