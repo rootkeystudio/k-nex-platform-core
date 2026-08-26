@@ -153,7 +153,7 @@ try {
   });
   assert.ok(health.oldestPendingAt);
 
-  process.stdout.write("P3_3_OUTBOX_PROCESSING_PASS\n");
+  process.stdout.write("P3_3_OUTBOX_PROCESSING_PASS\nP3_9_DUPLICATE_OUTBOX_PASS\n");
 } finally {
   await client.end();
   void payload.destroy();

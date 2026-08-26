@@ -241,4 +241,24 @@ describe("Socket.IO memory realtime gateway", () => {
     await disconnected;
     expect(active.gateway.health()).toMatchObject({ connections: 0, slowConsumerDisconnects: 1 });
   });
+
+  it("allows an authorized client to reconnect and resubscribe after a stop-before-start rollout", async () => {
+    const active = await harness();
+    active.client.disconnect();
+    active.client.connect();
+    await new Promise((resolve, reject) => {
+      active.client.once("connect", resolve);
+      active.client.once("connect_error", reject);
+    });
+    await expect(active.client.emitWithAck("k-nex:subscribe", {
+      topicId: "sales.tasks",
+      params: { ownerId: "owner-1" }
+    })).resolves.toEqual({ ok: true });
+    const received = new Promise((resolve) => active.client.once("k-nex:event", (message, acknowledge) => {
+      acknowledge();
+      resolve(message);
+    }));
+    await active.gateway.publish("sales.tasks", { ownerId: "owner-1" }, { revision: 8 });
+    await expect(received).resolves.toEqual({ topicId: "sales.tasks", event: { revision: 8 } });
+  });
 });

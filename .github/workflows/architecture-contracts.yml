@@ -36,3 +36,5 @@ jobs:
         run: pnpm gate:2
       - name: Run Gate 2A
         run: pnpm gate:2a
+      - name: Run Gate 3
+        run: pnpm gate:3

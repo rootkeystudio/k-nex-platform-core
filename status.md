@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-26
 - **Phase:** Phase 3 — Transactions, Durable Events, and Realtime Convergence
-- **Active task:** P3.9 — Failure injection and Gate 3 closeout
-- **State:** Active
+- **Active task:** Phase 3 whole-phase review
+- **State:** Review pending
 
 ## Last completed
 
-Completed P3.8. Hardened the Socket.IO provider with strict origin and transport allowlists, bounded connections/subscriptions/request rate/request and message bytes, authorized typed topics, coalesced invalidations, acknowledgement-buffer slow-consumer disconnects, actor and topic-permission revalidation, and counter-only health metrics that expose no actor or room identity.
+Completed P3.9. Gate 3 now injects commit/crash, rollback, duplicate delivery, worker-to-web invalidation, lost messages, rolling reconnect, permission revocation, slow consumers, and backplane outage/recovery. The Phase 3 result artifact is recorded; phase closure awaits the required independent Sol/high review.
 
 ## Validation
 
-On Node.js 24.19.0 and pnpm 11.9.0: frozen install, Phase 0, Gate 1, Socket.IO provider and customer fixture builds, 13 real client/server security/backpressure tests, the real-PostgreSQL relay gate, and `git diff --check` pass.
+On Node.js 24.19.0 and pnpm 11.9.0: `pnpm gate:3` passes, including workspace builds, 84 contract tests, 147 runtime tests, 40 Payload-adapter tests, eight Sales tests and package reproducibility, the real-PostgreSQL customer gate, 14 real Socket.IO client/server tests, Gate 2A proofs/benchmarks, and eight focused Gate 3 proofs. `git diff --check` passes.
 
 ## Next
 
-Execute P3.9 failure injection across commit crash, duplicate delivery, relay loss/retry, reconnect, revocation, slow consumers, and rolling topology; add `pnpm gate:3`, produce the Phase 3 result artifact, and close only after the full gate and fresh Sol/high review pass.
+Run a fresh Sol/high whole-phase review from baseline `ba25289`; fix every finding, rerun Gate 3, obtain PASS, then close Phase 3 and activate P4.1.
 
 ## Blockers
 

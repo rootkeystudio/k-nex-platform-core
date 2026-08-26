@@ -82,7 +82,7 @@ try {
   }));
   const relay = createOutboxRealtimeRelay({
     gateway,
-    project: (event) => event.id === "p3-6-worker-event"
+    project: (event) => event.id === "p3-6-worker-event" || event.id === "p3-9-backplane-event"
       ? { topicId: "sales.tasks", params: { ownerId: event.payload.ownerId }, event: { revision: event.payload.revision } }
       : null
   });
@@ -92,14 +92,47 @@ try {
   );
   assert.deepEqual(await received, { topicId: "sales.tasks", event: { revision: 6 } });
 
+  const unavailableRelay = createOutboxRealtimeRelay({
+    gateway: { publish: async () => { throw new Error("private backplane failure"); } },
+    project: (event) => ({
+      topicId: "sales.tasks",
+      params: { ownerId: event.payload.ownerId },
+      event: { revision: event.payload.revision }
+    })
+  });
+  assert.deepEqual(
+    await processNextPayloadOutboxEvent({ payload, subscriber: unavailableRelay, backoffMs: 5 }),
+    { eventId: "p3-9-backplane-event", status: "retry-scheduled" }
+  );
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const recovered = new Promise((resolve) => client.once("k-nex:event", (message, acknowledge) => {
+    acknowledge();
+    resolve(message);
+  }));
+  assert.deepEqual(
+    await processNextPayloadOutboxEvent({ payload, subscriber: relay, backoffMs: 5 }),
+    { eventId: "p3-9-backplane-event", status: "delivered" }
+  );
+  assert.deepEqual(await recovered, { topicId: "sales.tasks", event: { revision: 7 } });
+
   const database = new pg.Client({ connectionString });
   await database.connect();
   const state = await database.query(`
     SELECT status, attempt_count, checkpoint FROM k_nex_outbox WHERE event_id = 'p3-6-worker-event'
   `);
+  const recoveryState = await database.query(`
+    SELECT status, attempt_count, checkpoint, last_error_code
+    FROM k_nex_outbox WHERE event_id = 'p3-9-backplane-event'
+  `);
   await database.end();
   assert.deepEqual(state.rows, [{ status: "delivered", attempt_count: 1, checkpoint: { realtimePublished: true } }]);
-  process.stdout.write("P3_6_DISTRIBUTED_REALTIME_PASS\n");
+  assert.deepEqual(recoveryState.rows, [{
+    status: "delivered",
+    attempt_count: 2,
+    checkpoint: { realtimePublished: true },
+    last_error_code: null
+  }]);
+  process.stdout.write("P3_6_DISTRIBUTED_REALTIME_PASS\nP3_9_BACKPLANE_RECOVERY_PASS\n");
 } finally {
   client.disconnect();
   void gateway.close();
