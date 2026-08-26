@@ -24,7 +24,7 @@ The proof does not introduce the visual builder, arbitrary aggregation/grouping,
 | P2.6 — safe cache classifications | `a788e6a` |
 | P2.7 — Sales proof sources | `2ca9555` |
 | P2.8 — headless result states and query identity | `aca238f` |
-| P2.9 — attack, benchmark, and closeout | this closeout commit |
+| P2.9 — attack, benchmark, and closeout | `38d48d5`, `13a549a`, `c49c635` |
 
 ## Contracts and staged gateway
 
@@ -132,3 +132,7 @@ No Gate 2 kill/rework criterion fired:
 - source authors declare bounded operations and single output contracts without arbitrary user queries or raw collection exposure.
 
 **Decision: GO PHASE 2A.** Phase 2 is technically complete. Phase 2A may begin with P2A.1 after the required full-phase Sol/high review passes.
+
+## Phase review
+
+The final fresh Sol/high review returned **PASS** after two correction rounds. It confirmed that CI enforces Gate 2; the authenticated Payload vertical proof covers actor-cache isolation and forged-scope rejection; exact source and canonical validation, authorization, budgets, redaction, caching, and representative benchmarks satisfy the Gate 2 decision.
