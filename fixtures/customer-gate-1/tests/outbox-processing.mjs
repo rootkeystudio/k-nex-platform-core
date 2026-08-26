@@ -137,6 +137,12 @@ try {
   for (let index = 0; index < 3; index += 1) {
     assert.equal((await state(`p3-3-arrival-${index}`)).status, "pending");
   }
+  for (let index = 0; index < 3; index += 1) {
+    assert.deepEqual(
+      await processNextPayloadOutboxEvent({ payload, subscriber }),
+      { eventId: `p3-3-arrival-${index}`, status: "delivered" }
+    );
+  }
 
   await seed("p3-3-poison", "task-poison");
   for (const expected of ["retry-scheduled", "retry-scheduled", "dead-lettered"]) {
@@ -169,9 +175,9 @@ try {
   await seed("p3-3-future", "task-future", new Date(Date.now() + 60_000));
   const health = await readPayloadOutboxHealth(payload);
   assert.deepEqual(health, {
-    pending: 4,
+    pending: 1,
     processing: 0,
-    delivered: 6,
+    delivered: 9,
     deadLetter: 2,
     expiredLeases: 0,
     oldestPendingAt: health.oldestPendingAt
