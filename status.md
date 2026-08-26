@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-27
 - **Phase:** Phase 5 — UI Runtime, Themes, and Atomic CMS Publication
-- **Active task:** P5.7 — Implement deterministic workspace layout resolution
+- **Active task:** P5.8 — Accessibility and visual acceptance
 - **State:** Ready to start
 
 ## Last completed
 
-Implemented P5.6 atomic CMS publication on real PostgreSQL: localized page/SEO metadata and a validated UI document publish as one immutable revision pair, failed writes roll back, pair lookup and pair rollback preserve lineage, and invalidation observes only committed pairs.
+Implemented P5.7 deterministic workspace layout resolution: explicit user/group/permission assignments are ranked by priority, specificity, and stable ID; explanations preserve every matched policy; immutable snapshots accept only allowlisted move/hide/resize/prop patches; failures retain the last valid document.
 
 ## Validation
 
-Storage build and 3 repository tests pass. The real Payload/PostgreSQL fixture proves successful pairing, transaction rollback after a page revision write, exact locale/theme/SEO authority, published lookup, rollback as new page/document/pair revisions, and post-commit-only invalidation.
+UI runtime build and all 28 tests pass, including multiple simultaneous groups/permissions, deterministic ties, active intervals, immutable personalization, denied patches, and last-valid fallback after patch or migration failure.
 
 ## Next
 
-Execute P5.7 deterministic, explainable multi-assignment workspace layout resolution with constrained personalization and last-valid fallback.
+Execute P5.8 WCAG-oriented keyboard, focus, target-size, semantic, reduced-motion, forced-colors, screen-reader smoke, two-theme, and customer-override acceptance.
 
 ## Blockers
 
