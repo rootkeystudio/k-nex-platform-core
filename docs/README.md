@@ -26,11 +26,12 @@ Run `python3 scripts/validate_repository_contracts.py` before merging architectu
 ## Composition and lifecycle
 
 1. [Plugin taxonomy and capabilities](./13-plugin-taxonomy-and-capabilities.md)
-2. [Application manifest](./14-application-manifest.md)
-3. [CLI and project generation](./15-cli-and-project-generation.md)
-4. [Plugin lifecycle](./19-plugin-lifecycle-and-package-management.md)
-5. [Data, migrations, and versioning](./10-data-migrations-and-versioning.md)
-6. [Payload database selection](./23-database-adapters-and-runtime-providers.md)
+2. [Official Payload plugin adoption plan](./32-payload-official-plugin-adoption-plan.md)
+3. [Application manifest](./14-application-manifest.md)
+4. [CLI and project generation](./15-cli-and-project-generation.md)
+5. [Plugin lifecycle](./19-plugin-lifecycle-and-package-management.md)
+6. [Data, migrations, and versioning](./10-data-migrations-and-versioning.md)
+7. [Payload database selection](./23-database-adapters-and-runtime-providers.md)
 
 ## UI, builder, themes, and dynamic data
 
@@ -79,10 +80,11 @@ Implementation plans are execution specifications. They translate architecture g
 | Product | Separate customer repositories, databases, deployments, and release cadences | design-only |
 | Framework | Payload is the strategic V1 application framework | design-only |
 | Database | Payload Postgres adapter; Docker Postgres locally or external `DATABASE_URL` | design-only |
-| Composition | Exact packages, canonical manifest, hermetic customer config, deterministic resolved graph | schemas/fixtures added; executable gate pending |
+| Composition | Exact packages, canonical manifest, hermetic customer config, deterministic resolved graph | executable-poc after Gate 1 |
 | IDs | Hierarchical dot namespace, optional hyphen inside one segment | executable-poc for current pre-v1 grammar |
+| Official Payload plugins | Gate-scoped bounded adapters; no automatic catalog install or contract ownership | design-only |
 | Plugin lifecycle | Schema-owning V1 plugins support disable/re-enable and explicit purge; retained-schema uninstall is not promised | design-only |
-| Registration | `manifest → contracts → providers → schema → behavior → jobs → data-handlers → ui → admin → validate → freeze` | phase contract executable; runtime enforcement pending |
+| Registration | `manifest → contracts → providers → schema → behavior → jobs → data-handlers → ui → admin → validate → freeze` | executable-poc after Gate 1 |
 | Data sources | Plugin-owned bounded projections behind authenticated standard gateway | design-only |
 | Output contracts | Hybrid canonical/plugin-owned contracts; one source has one primary projection | design-only |
 | Agent tools | Explicit source/action-backed tools, actor/delegation-filtered catalog, reauthorized execution gateway, MCP as adapter | design-only |
@@ -122,4 +124,4 @@ Gate 6   lifecycle and migration safety
 Gate 7   second customer and verifiable fleet operations
 ```
 
-Do not implement full CRM, autonomous AI workflows, logistics optimization, broad theme catalogs, marketplace work, or visual query languages before the relevant gate passes.
+Official Payload plugin candidates are evaluated only in their assigned gates. Do not implement full CRM, autonomous AI workflows, logistics optimization, broad theme catalogs, marketplace work, or visual query languages before the relevant gate passes.

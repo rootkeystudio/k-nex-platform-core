@@ -5,6 +5,7 @@
 - **Entry:** Phase 2 result records `GO PHASE 2A`
 - **Next phase:** Phase 3 — transactions, durable events, and realtime convergence
 - **Architecture:** [`docs/31-agent-tools-and-ai-control-plane.md`](../31-agent-tools-and-ai-control-plane.md)
+- **Payload plugin policy:** [`docs/32-payload-official-plugin-adoption-plan.md`](../32-payload-official-plugin-adoption-plan.md)
 - **ADR:** [`ADR-0018`](../adr/0018-agent-tool-contracts-and-safe-execution.md)
 
 ## 1. Objective
@@ -20,7 +21,7 @@ explicit plugin tool descriptors
 + schema-validated execution gateway
 + idempotent writes and audit
 + model-independent reference client
-+ minimal MCP adapter
++ Payload MCP interoperability adapter
 = safe agent-tool foundation
 ```
 
@@ -66,7 +67,7 @@ idempotency and duplicate suppression
 input/output schema validation
 budgets, timeout, rate, and concurrency
 redacted audit and observability
-minimal MCP tools/list and tools/call adapter
+official Payload MCP tools/list and tools/call adapter
 deterministic scripted agent-client fixture
 ```
 
@@ -80,6 +81,7 @@ vector database or RAG framework
 arbitrary autonomous loops
 agent-created tool definitions
 runtime plugin installation
+raw Payload collection/global CRUD over MCP
 MCP resources/prompts/sampling/UI extensions
 public MCP marketplace
 unattended destructive operations
@@ -90,16 +92,16 @@ Socket.IO/realtime progress
 
 ## 5. Architectural rules
 
-1. Tool exposure is explicit; no source, action, endpoint, or collection is automatically exposed.
+1. Tool exposure is explicit; no source, action, endpoint, collection, or global is automatically exposed.
 2. Tool handlers reuse existing sources/actions/application services. Business logic is not duplicated in the agent layer.
 3. Static trusted package/customer code defines tools. Database and CMS content cannot create executable tool metadata.
 4. Discovery is filtered but never replaces execution-time authorization.
 5. Agent delegation can only reduce the principal's authority.
 6. Write tools require idempotency and the declared approval policy.
 7. Tool output is structured untrusted data, not instructions.
-8. Model-provider and MCP implementation types remain behind adapters.
+8. Model-provider, MCP, and Payload MCP implementation types remain behind adapters.
 9. The reference proof uses a deterministic client; no LLM result is a gate assertion.
-10. External protocol adapters cannot weaken K-Nex policy.
+10. External protocol adapters and API-key toggles cannot weaken K-Nex policy.
 
 ## 6. Target package direction
 
@@ -112,8 +114,8 @@ packages/contracts/
 packages/runtime/
   tool catalog and execution ports/adapters
 
-packages/agent-tools-mcp/
-  minimal MCP mapping after internal gateway passes
+packages/agent-tools-payload-mcp/
+  Payload MCP mapping, auth bridge, generated custom tool handlers
 
 modules/sales/
   one read tool and one write tool
@@ -361,42 +363,60 @@ maximum calls per agent run
 
 Record redacted tool/principal/session/delegation/approval/idempotency/outcome metadata. Do not store secrets or unrestricted prompts/results.
 
-### P2A.7 — Implement the minimal MCP interoperability adapter
+### P2A.7 — Evaluate and adapt the official Payload MCP plugin
 
 #### Goal
 
-Prove external interoperable discovery/calling without making MCP the K-Nex internal contract.
+Use `@payloadcms/plugin-mcp` as the first interoperability candidate, while keeping the K-Nex catalog and execution gateway authoritative.
 
-#### Mapping
-
-```text
-catalog → tools/list
-execution gateway → tools/call
-input/output schemas → MCP schemas
-safe structured result → structuredContent/content
-effect metadata → annotations as hints only
-```
-
-#### Security requirements
-
-- Use a pinned official/community-maintained TypeScript MCP SDK only after checking current official documentation, types, maintenance, and license; otherwise implement only the small protocol surface required by the proof.
-- Remote HTTP authorization follows the current MCP authorization specification where used.
-- Reject token passthrough; validate audience and scopes.
-- Use least-privilege scopes and the same K-Nex delegation/authorization.
-- MCP annotations never authorize a call.
-- No `stdio` production mode or spawned local server is required by this gate.
-
-#### Excluded MCP features
+#### Required configuration
 
 ```text
-resources
-prompts
-sampling
-elicitation
-UI extensions
-general task execution
-registry publication
+collections: {}
+globals: {}
+mcp.tools: generated K-Nex custom tools only
+overrideAuth: K-Nex principal/delegation bridge
+overrideApiKeyCollection: K-Nex access, retention, and migration policy
+onEvent: transport telemetry only
+maxDuration: bounded by K-Nex tool ceilings
 ```
+
+Every generated custom handler performs only:
+
+```text
+PayloadRequest → authenticated K-Nex request context
+exact tool ID/version → K-Nex tool gateway execute
+safe K-Nex result → MCP structured result
+```
+
+Module authors do not write arbitrary Payload MCP handlers and do not receive direct ambient `req.payload` access from the agent-tool contract.
+
+#### Acceptance
+
+- Exact plugin version is pinned and compatible with the active Payload/Next/React/Node tuple.
+- Built-in collection/global `find/create/update/delete` tools are absent.
+- `tools/list` contains only current actor/delegation-filtered K-Nex tools.
+- `tools/call` reauthorizes and enforces K-Nex approval, idempotency, budgets, output validation, redaction, and audit.
+- Payload API-key permissions can only narrow authority and cannot create tools or expand the principal.
+- API-key collection, endpoint, admin UI, and schema contributions appear in declared-versus-actual inventory and customer migrations.
+- Plugin `onEvent` is not used as authoritative domain audit.
+- No Payload MCP/MCP SDK types enter K-Nex persisted/public contracts.
+- Internal `module.ai-assistant` can bypass MCP transport and call the K-Nex gateway directly.
+
+#### Fallback / kill criteria
+
+Reject this adapter and evaluate a pinned direct MCP SDK or minimal custom transport only when:
+
+```text
+automatic CRUD cannot be fully disabled
+actor/delegation-filtered tools/list cannot be produced
+custom handlers cannot be forced through the K-Nex gateway
+authentication requires token passthrough or broad bearer authority
+output validation/redaction can be bypassed
+plugin lifecycle/schema creates unacceptable coupling
+```
+
+Do not use `npx -y` runtime downloads as a production client strategy.
 
 ### P2A.8 — Add Sales proof tools and deterministic agent client
 
@@ -432,6 +452,7 @@ verify one logical task/result
 attempt changed-input replay
 verify denial
 audit and redact result
+repeat list/call through Payload MCP adapter
 ```
 
 No LLM is part of this test. Later AI modules must pass the same gateway contract suite.
@@ -448,7 +469,7 @@ docs/implementation/phase-2a-result.md
 #### Required tests
 
 ```text
-automatic source/action/collection exposure is impossible
+automatic source/action/collection/global exposure is impossible
 cross-actor catalog and invocation isolation
 direct tool-ID/version/input manipulation
 forbidden target source/action
@@ -459,7 +480,8 @@ expired/revoked delegation
 budget/rate/timeout enforcement
 secret/log/error redaction
 runtime/CMS attempt to register or alter a tool
-MCP annotations cannot bypass policy
+Payload MCP API-key toggle cannot expand authority
+MCP metadata cannot bypass policy
 invalid/foreign-audience token rejection when remote auth is exercised
 tool result text treated as untrusted data
 ```
@@ -476,7 +498,7 @@ git diff --check
 git status --porcelain --untracked-files=all
 ```
 
-The result records exact protocol/SDK versions if MCP is used, fixtures, failure evidence, performance/budget measurements, known limitations, and one of:
+The result records the exact Payload MCP and transitive protocol versions, contribution inventory, fixtures, failure evidence, performance/budget measurements, known limitations, and one of:
 
 ```text
 GO PHASE 3
@@ -492,7 +514,7 @@ Return `REWORK Phase 2A` when:
 - executable tools can be created or modified by runtime/database/untrusted content;
 - agent calls cannot be bound to a principal, delegation, approval, and audit record;
 - duplicate write calls can duplicate effects;
-- protocol/model SDK types leak into K-Nex public or persisted contracts;
+- Payload MCP, protocol, or model SDK types leak into K-Nex public/persisted contracts;
 - safe structured input/output cannot be expressed without arbitrary code or URLs;
 - model-specific behavior is required to prove the core tool layer;
 - external protocol authentication requires token passthrough or broad wildcard authority.
@@ -503,10 +525,10 @@ Return `REWORK Phase 2A` when:
 
 ```text
 proved internal catalog/gateway behavior
-proved MCP adapter behavior, if any
+proved Payload MCP adapter behavior
 not-yet-proved durable/asynchronous behavior
 not-yet-proved AI model/orchestrator behavior
 not-yet-proved production authorization/deployment behavior
 ```
 
-Promote ADR-0018 only when its entire normative scope has executable evidence. Phase 3 ADRs remain design-only.
+Promote ADR-0018 only when its entire normative scope has executable evidence. Record the Payload MCP adoption or rejection under ADR-0019 without promoting unrelated official plugin candidates. Phase 3 ADRs remain design-only.

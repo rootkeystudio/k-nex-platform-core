@@ -54,6 +54,7 @@
         "scripts/prove-gate-1-reproducibility.mjs"
       ]
     },
-    "0018": { "level": "design-only", "evidence": [] }
+    "0018": { "level": "design-only", "evidence": [] },
+    "0019": { "level": "design-only", "evidence": [] }
   }
 }

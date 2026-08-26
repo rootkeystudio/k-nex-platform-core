@@ -5,6 +5,7 @@
 - **Execution authority:** `status.md` selects the only task that may be implemented
 - **Architecture authority:** generated contracts, accepted ADRs, and architecture documents
 - **Gate definitions:** [`../30-executable-poc-gates.md`](../30-executable-poc-gates.md)
+- **Official Payload plugin plan:** [`../32-payload-official-plugin-adoption-plan.md`](../32-payload-official-plugin-adoption-plan.md)
 - **Detailed Phase 0 plan:** [`phase-0.md`](./phase-0.md)
 - **Detailed Gate 1–7 task catalog:** [`phase-details-gates-1-7.md`](./phase-details-gates-1-7.md)
 - **Detailed Phase 2A plan:** [`phase-2a-agent-tools.md`](./phase-2a-agent-tools.md)
@@ -19,7 +20,7 @@ Resolve conflicts in this order:
 
 1. machine-readable contracts and generated schemas;
 2. accepted ADRs and evidence registry;
-3. architecture documents;
+3. architecture documents, including the official Payload plugin adoption plan;
 4. this master plan;
 5. linked detailed task plan;
 6. PR descriptions and implementation notes.
@@ -31,10 +32,10 @@ The phase order in this file is authoritative. The Gate 1–7 task catalog was p
 ```text
 Fetch the latest main branch. Read AGENTS.md, status.md, and
 `docs/implementation/codex-master-plan.md`. Find the exact active task ID,
-then read its linked detailed plan. Execute only that task, follow its scope,
-acceptance commands, and stop conditions, update status.md in the same
-implementation commit, open a pull request, and stop without merging or
-enabling auto-merge.
+then read its linked detailed plan and any gate-assigned Payload plugin
+adoption notes. Execute only that task, follow its scope, acceptance commands,
+and stop conditions, update status.md in the same implementation commit,
+open a pull request, and stop without merging or enabling auto-merge.
 ```
 
 ## 3. Mandatory execution protocol
@@ -48,7 +49,8 @@ Codex must:
 3. read `status.md`;
 4. find the exact active task ID in the phase/task index below;
 5. read the linked detailed plan and relevant ADRs;
-6. implement only that bounded task.
+6. when the phase has assigned official Payload plugin candidates, read `docs/32-payload-official-plugin-adoption-plan.md`;
+7. implement only that bounded task.
 
 If the task is absent, ambiguous, already complete, or blocked, Codex stops and reports the inconsistency. It does not infer a nearby task.
 
@@ -86,6 +88,10 @@ Codex must never:
 - convert a kill criterion into a workaround without project-manager approval.
 
 The reviewer returns `PASS`, `REWORK`, `BLOCKED`, or `REJECT`. On PASS, the reviewer advances `status.md` to the post-merge task state, waits for final CI, and merges.
+
+### Official Payload plugin boundary
+
+Codex does not install the official plugin catalog preemptively. A candidate is considered only in its assigned gate and must be exact-pinned, inventoried, migrated, attacked, and kept behind K-Nex adapters. A candidate may implement only the subset allowed by `docs/32-payload-official-plugin-adoption-plan.md`.
 
 ## 4. Authoritative phase order
 
@@ -185,6 +191,8 @@ Gate outcome must authorize Phase 2A, not Phase 3 directly.
 
 Architecture: [`../31-agent-tools-and-ai-control-plane.md`](../31-agent-tools-and-ai-control-plane.md)
 
+Payload plugin policy: [`../32-payload-official-plugin-adoption-plan.md`](../32-payload-official-plugin-adoption-plan.md)
+
 Detailed plan: [`phase-2a-agent-tools.md`](./phase-2a-agent-tools.md)
 
 ADR: [`ADR-0018`](../adr/0018-agent-tool-contracts-and-safe-execution.md)
@@ -196,10 +204,12 @@ P2A.3  minimal registered actions and source/action bindings
 P2A.4  staged tool execution gateway
 P2A.5  delegation, approval, and replay protection
 P2A.6  write idempotency, budgets, and audit
-P2A.7  minimal MCP interoperability adapter
+P2A.7  official Payload MCP adapter evaluation and fallback
 P2A.8  Sales proof tools and deterministic agent client
 P2A.9  attack, close Gate 2A, and authorize Phase 3
 ```
+
+P2A.7 evaluates `@payloadcms/plugin-mcp` first, with collection/global CRUD disabled and all custom tools forced through the K-Nex gateway. A direct MCP SDK or custom transport is a fallback only after documented kill criteria.
 
 Gate 2A proves a model-independent tool control plane. It does not select an LLM provider, implement autonomous loops, or claim durable asynchronous workflows. Gate outcome: `GO PHASE 3`, `REWORK AGENT TOOL CONTRACT`, or `REJECT GENERIC AGENT TOOL EXPOSURE`.
 
@@ -219,7 +229,7 @@ P3.8  subscription security and backpressure
 P3.9  failure injection and Gate 3 closeout
 ```
 
-Phase 3 may extend Gate 2A tools with durable asynchronous workflows and realtime progress only after outbox and convergence pass.
+Phase 3 may extend Gate 2A tools with durable asynchronous workflows and realtime progress only after outbox and convergence pass. Stripe/payment webhook integrations remain deferred until Gate 3 durability and Gate 6 lifecycle evidence exist.
 
 ### Phase 4 — Builder Engine Kill-Spike
 
@@ -253,6 +263,8 @@ P5.8  accessibility and visual acceptance
 P5.9  Gate 5 closeout
 ```
 
+Phase 5 reads the official Payload plugin plan. Preferred CMS candidates are SEO, Nested Docs, and Redirects; Form Builder and Search are conditional. Gate 5 adopts only the smallest subset needed for its proof and records each candidate as accepted, conditional, deferred, or rejected. Plugin-private types do not enter the canonical CMS/document contract.
+
 ### Phase 6 — Lifecycle, Migrations, and Upgrade Safety
 
 Detailed task definitions: [`phase-details-gates-1-7.md`](./phase-details-gates-1-7.md).
@@ -268,6 +280,8 @@ P6.7  source, block, theme, and document migrations
 P6.8  previous-release, overlap, restore, and rollback fixtures
 P6.9  Gate 6 closeout
 ```
+
+P6.5 evaluates `@payloadcms/plugin-import-export` as a bounded admin transfer/archive accelerator. It does not replace backups, schema migrations, legal retention, or lifecycle planning. Imports/exports require explicit field access, size/cost limits, job readiness, versioning, storage policy, and restore evidence.
 
 ### Phase 7 — Second Customer and Verifiable Fleet Operations
 
@@ -285,6 +299,8 @@ P7.8   security patch propagation
 P7.9   restore, previous-release, and operational proof
 P7.10  Gate 7 closeout
 ```
+
+Phase 7 may evaluate the official Sentry plugin as an optional deployment adapter while Pino/OpenTelemetry remain the K-Nex contracts. Payload Multi-Tenant is not used for customer isolation. Stripe and Ecommerce remain post-Gate 7 vertical candidates unless a separately approved bounded spike is added after their prerequisite gates.
 
 ## 6. Cross-phase quality gates
 
@@ -306,21 +322,35 @@ server-side authorization
 least-privileged capability-scoped services
 bounded inputs and resource use
 safe errors and logs
-no secret in events, tools, inventory, or evidence
+no secret in events, tools, inventory, exports, or evidence
 public/authenticated authority separated by identity
 agent catalogs actor/delegation-filtered and invocation reauthorized
-protocol/model annotations never grant authority
+protocol/model/plugin annotations never grant authority
+official plugin automatic surfaces disabled unless explicitly proved
 ```
 
 ### Package boundaries
 
 ```text
-contracts do not import framework, editor, model-provider, or protocol SDKs
+contracts do not import framework, editor, model-provider, protocol, or official-plugin implementation types
 browser exports do not import server code
 modules do not import customer code
 core/composition do not import business modules
 runtime data does not select imports/packages or create executable tools
 third-party types remain behind adapters
+```
+
+### Official plugin adoption
+
+```text
+exact package and Payload tuple
+current official documentation/license review
+contribution inventory and customer migration
+access/failure/bundle/lifecycle tests
+no plugin-private public contract
+no automatic catalog-wide installation
+candidate removal instead of pre-v1 compatibility shims
+phase result records explicit adoption/rejection
 ```
 
 ### Testing
@@ -353,6 +383,7 @@ Codex stops and opens a decision request when:
 - an accepted invariant cannot be implemented with approved dependencies without weakening it;
 - a public or persisted contract must change outside the active task;
 - a new dependency family or provider abstraction is required;
+- an official Payload plugin requires K-Nex to adopt its private contract or weakens an accepted boundary;
 - a phase kill criterion is observed;
 - official package behavior/types contradict the plan;
 - a required test needs secrets, production data, or unsupported external access;
@@ -375,4 +406,4 @@ Do not merge a knowingly temporary stopgap while waiting for a decision.
 
 This plan proves or rejects platform foundations; it does not pre-approve a full product backlog.
 
-Only after Gate 7 may the project manager create the production roadmap for full CRM/CMS/logistics/restaurant products, AI assistant productization, marketplace/distribution, and the v1.0 support policy. Those plans must use evidence from Gates 1–7 and Gate 2A.
+Only after Gate 7 may the project manager create the production roadmap for full CRM/CMS/logistics/restaurant products, AI assistant productization, Stripe/e-commerce verticals, optional intra-customer multi-tenancy, marketplace/distribution, and the v1.0 support policy. Those plans must use evidence from Gates 1–7 and Gate 2A.
