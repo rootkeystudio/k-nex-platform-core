@@ -277,10 +277,11 @@ export class ToolExecutionGateway {
       }
       await this.stages.audit.beforeDispatch(context);
       dispatchStarted = true;
-      const handlerResult = this.stages.dispatcher.dispatch(context);
       const handlerLease = lease;
       lease = undefined;
-      const handlerSettled = Promise.resolve(handlerResult).finally(() => handlerLease.release());
+      const handlerSettled = Promise.resolve()
+        .then(() => this.stages.dispatcher.dispatch(context))
+        .finally(() => handlerLease.release());
       const reconciliation = handlerSettled.then(
         async (dispatched): Promise<{ readonly ok: true; readonly body: ToolSuccessEnvelope } | { readonly ok: false; readonly error: unknown }> => {
           try {

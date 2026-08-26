@@ -695,7 +695,10 @@ export const salesTaskCreateHandler: ActionHandler<CreateTaskInput, CreateTaskOu
 export const salesTasksCollection: CollectionConfig = {
   slug: "sales-tasks",
   access: {
-    read: ({ req }) => Boolean(req.user)
+    create: ({ req }) => req.user?.collection === "users",
+    delete: ({ req }) => req.user?.collection === "users",
+    read: ({ req }) => req.user?.collection === "users",
+    update: ({ req }) => req.user?.collection === "users"
   },
   fields: [
     { name: "title", type: "text", required: true },

@@ -10,6 +10,7 @@ import {
   type ToolGatewayStages
 } from "../src/tool-gateway.js";
 import { InMemoryToolApprovalEvaluator } from "../src/tool-approval.js";
+import { InMemoryToolIdempotencyCoordinator } from "../src/tool-idempotency.js";
 
 const descriptor: AgentToolDescriptor = {
   id: "sales.tools.search",
@@ -32,6 +33,16 @@ const descriptor: AgentToolDescriptor = {
   limits: { timeoutMs: 1000, maxConcurrency: 1, ratePerMinute: 10, burst: 2, costClass: "low", maxCost: 1 },
   redaction: { inputPaths: [], outputPaths: [] },
   audit: { category: "sales.tasks" }
+};
+
+const writeDescriptor: AgentToolDescriptor = {
+  ...descriptor,
+  id: "sales.tools.create",
+  title: "Create",
+  invocation: { kind: "action", action: { id: "sales.tasks.create", version: 1 } },
+  effect: "write",
+  approval: "per-call",
+  idempotency: "required"
 };
 
 const request = (): ToolGatewayRequest => ({
@@ -146,14 +157,39 @@ describe("P2A.4 tool execution gateway", () => {
     expect(trace).not.toContain("dispatcher");
   });
 
-  it("does not release an idempotency claim after dispatch may have produced an effect", async () => {
-    let failedClaims = 0;
+  it("retains an idempotency claim after dispatch may have produced an effect", async () => {
+    const failures: unknown[] = [];
     const { gateway } = harness({
-      idempotency: { claim: () => ({ context: {}, complete: () => undefined, fail: () => { failedClaims += 1; } }) },
+      idempotency: { claim: () => ({ context: {}, complete: () => undefined, fail: (options) => { failures.push(options); } }) },
       dispatcher: { dispatch: () => { throw new Error("uncertain action outcome"); } }
     });
     await expect(gateway.execute(request())).resolves.toMatchObject({ ok: false, status: 500 });
-    expect(failedClaims).toBe(0);
+    expect(failures).toEqual([{ retain: true }]);
+  });
+
+  it("bounds a real idempotency claim after a synchronous dispatcher failure", async () => {
+    let now = 1_000;
+    const coordinator = new InMemoryToolIdempotencyCoordinator({ now: () => now }, { retentionMs: 10 });
+    const writeRequest = {
+      ...request(),
+      tool: { id: writeDescriptor.id, version: writeDescriptor.version },
+      idempotencyKey: "sync-failure"
+    };
+    const stages = harness({
+      catalog: { lookup: () => writeDescriptor },
+      delegation: { evaluate: () => ({ principalId: "user-1", applicationId: "app-1" }) },
+      idempotency: coordinator,
+      dispatcher: { dispatch: () => { throw new Error("synchronous action failure"); } }
+    });
+
+    await expect(stages.gateway.execute(writeRequest)).resolves.toMatchObject({ ok: false, status: 500 });
+    await expect(stages.gateway.execute(writeRequest)).resolves.toMatchObject({
+      ok: false,
+      status: 409,
+      body: { code: "IDEMPOTENCY_IN_PROGRESS" }
+    });
+    now = 1_010;
+    await expect(stages.gateway.execute(writeRequest)).resolves.toMatchObject({ ok: false, status: 500 });
   });
 
   it("enforces timeout against a non-cooperative dispatcher without releasing uncertain idempotency", async () => {
@@ -170,7 +206,7 @@ describe("P2A.4 tool execution gateway", () => {
     expect(failCount).toBe(0);
     expect(releaseCount).toBe(0);
     finish?.();
-    await Promise.resolve();
+    for (let attempt = 0; attempt < 10 && releaseCount === 0; attempt += 1) await Promise.resolve();
     expect(releaseCount).toBe(1);
   });
 

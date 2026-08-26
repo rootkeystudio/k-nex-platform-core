@@ -1,3 +1,5 @@
+import { createHmac } from "node:crypto";
+
 import { mcpPlugin, type MCPAccessSettings, type MCPPluginConfig } from "@payloadcms/plugin-mcp";
 import {
   APIError,
@@ -217,6 +219,36 @@ function assertUnexpiredApiKey(settings: MCPAccessSettings): void {
   if (!validApiKeyLifetime(key.expiresAt, key.createdAt, Date.now())) throw new UnauthorizedError();
 }
 
+async function resolveApiKeyWithInternalRead(request: PayloadRequest, userCollection: string): Promise<MCPAccessSettings> {
+  const authorization = request.headers.get("authorization");
+  if (authorization === null || !authorization.startsWith("Bearer ")) throw new UnauthorizedError();
+  const apiKey = authorization.slice("Bearer ".length).trim();
+  if (apiKey.length < 1 || apiKey.length > 512) throw new UnauthorizedError();
+  const apiKeyIndex = createHmac("sha256", request.payload.secret).update(apiKey).digest("hex");
+  const result = await request.payload.find({
+    collection: "payload-mcp-api-keys",
+    depth: 1,
+    limit: 1,
+    overrideAccess: true,
+    pagination: false,
+    where: { apiKeyIndex: { equals: apiKeyIndex } }
+  });
+  const document = result.docs[0];
+  if (!isRecord(document)) throw new UnauthorizedError();
+  const relatedUser = document.user;
+  const userId = isRecord(relatedUser) && "id" in relatedUser ? relatedUser.id : relatedUser;
+  if (typeof userId !== "string" && typeof userId !== "number") throw new UnauthorizedError();
+  return {
+    ...document,
+    user: {
+      ...(isRecord(relatedUser) ? relatedUser : {}),
+      id: userId,
+      collection: userCollection,
+      _strategy: "mcp-api-key"
+    }
+  } as unknown as MCPAccessSettings;
+}
+
 function intersectToolAccess(
   defaults: MCPAccessSettings,
   visible: ReadonlySet<string>,
@@ -320,7 +352,13 @@ export function createPayloadMcpPluginConfig(options: PayloadMcpAdapterOptions):
       }))
     },
     overrideAuth: async (request, getDefaultMcpAccessSettings) => {
-      const defaults = await getDefaultMcpAccessSettings();
+      let defaults: MCPAccessSettings;
+      try {
+        defaults = await getDefaultMcpAccessSettings();
+      } catch (error) {
+        if (!(error instanceof UnauthorizedError)) throw error;
+        defaults = await resolveApiKeyWithInternalRead(request, userCollection);
+      }
       assertUnexpiredApiKey(defaults);
       const context = await options.context.resolve(request, defaults.user);
       const visible = await visibleToolNames(options, context);

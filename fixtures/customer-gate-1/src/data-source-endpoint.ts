@@ -76,7 +76,8 @@ function queryGateway(registration: RegistrationResult): DataSourceGateway {
   return new DataSourceGateway({
     authenticator: new PayloadRequestAuthenticator({
       actor(request) {
-        if (request.user === null || request.user === undefined || request.user.id === null || request.user.id === undefined) {
+        if (request.user === null || request.user === undefined || request.user.collection !== "users" ||
+          request.user.id === null || request.user.id === undefined) {
           throw new DataSourceGatewayError("INVALID_ACTOR_CONTEXT", 401, "Authentication context is invalid.");
         }
         const actorId = String(request.user.id);

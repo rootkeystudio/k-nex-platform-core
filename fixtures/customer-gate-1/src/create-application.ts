@@ -1,9 +1,11 @@
 import type { ResolvedPluginGraph } from "@k-nex/composition";
-import { executeRegistration } from "@k-nex/runtime";
-import { PluginManifestSchema } from "@k-nex/contracts";
+import { executeRegistration, ToolCatalog } from "@k-nex/runtime";
+import { PluginManifestSchema, type AgentToolDescriptor } from "@k-nex/contracts";
 import manifestJson from "@k-nex/module-sales/manifest" with { type: "json" };
+import type { CollectionConfig } from "payload";
 import {
   composePayloadApplication,
+  createPayloadMcpPlugin,
   type ComposedPayloadApplication,
   type CustomerPayloadMigration
 } from "@k-nex/payload-adapter";
@@ -18,6 +20,12 @@ export interface CreateGate1ApplicationOptions {
   readonly migrations: readonly CustomerPayloadMigration[];
   readonly payloadSecret: string;
 }
+
+const usersCollection: CollectionConfig = {
+  slug: "users",
+  auth: true,
+  fields: []
+};
 
 export function createGate1Application(options: CreateGate1ApplicationOptions): ComposedPayloadApplication {
   if (resolvedJson.resolverVersion !== "1.0.0") throw new Error("Unsupported resolved graph version.");
@@ -48,11 +56,40 @@ export function createGate1Application(options: CreateGate1ApplicationOptions): 
     registrations: [runtimeRegistration["module.sales"].salesRegistration]
   });
   const inventory = createGate1RuntimeInventory(registration);
+  const tools = registration.contributions.tools.map(({ value }) => value as AgentToolDescriptor);
+  const catalog = new ToolCatalog(registration, { isVisible: () => true });
+  const mcp = createPayloadMcpPlugin({
+    tools,
+    catalog,
+    gateway: { execute: async () => { throw new Error("The fixture MCP lifecycle proof does not invoke tools."); } },
+    context: {
+      resolve: (_request, user) => {
+        if (typeof user !== "object" || user === null || !("id" in user) ||
+          (typeof user.id !== "string" && typeof user.id !== "number")) {
+          throw new TypeError("MCP actor is invalid.");
+        }
+        const id = String(user.id);
+        return {
+          actor: {
+            principal: { kind: "user", id },
+            effectiveActor: { kind: "user", id }
+          },
+          delegation: { kind: "fixture-mcp-lifecycle" },
+          authorizationContext: { kind: "fixture-mcp-lifecycle" },
+          surface: "workspace",
+          features: []
+        };
+      }
+    },
+    surface: "workspace"
+  });
   return composePayloadApplication({
     baseConfig: {
       secret: options.payloadSecret,
+      plugins: [mcp],
       endpoints: [createRuntimeInventoryEndpoint(inventory), createDataSourceQueryEndpoint(registration)]
     },
+    baseCollections: [usersCollection],
     databaseUrl: options.databaseUrl,
     migrations: options.migrations,
     registration

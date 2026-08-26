@@ -138,6 +138,13 @@ const focusedProofs = [
     attacks: ["duplicate-write-idempotency-conflict"]
   },
   {
+    id: "gateway-synchronous-dispatch-failure",
+    packageName: "@k-nex/runtime",
+    file: "tests/tool-gateway.test.ts",
+    testName: "bounds a real idempotency claim after a synchronous dispatcher failure",
+    attacks: ["duplicate-write-idempotency-conflict"]
+  },
+  {
     id: "budget-concurrency",
     packageName: "@k-nex/runtime",
     file: "tests/tool-budget.test.ts",
