@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import { canonicalJson, type UiDocument } from "@k-nex/contracts";
-import { createUiDocumentRuntime, createUiRuntimeRegistry, type UiBlockDefinition } from "@k-nex/ui-runtime";
+import {
+  createStaticTextBlockDefinition,
+  createUiDocumentRuntime,
+  createUiRuntimeRegistry,
+  presentUiRuntimeResult,
+  type UiBlockDefinition
+} from "@k-nex/ui-runtime";
 import { createPuckBuilderAdapter, type PuckBlockBridge } from "../src/index.js";
 
 const definition = (id: string): UiBlockDefinition => ({
@@ -74,14 +80,36 @@ describe("Puck builder adapter", () => {
     expect(canonicalJson(adapter.fromPuckData(adapter.toPuckData(edited)))).toBe(canonicalJson(edited));
   });
 
-  it("uses the exact browser-safe runtime definition inside and outside Puck", () => {
-    const adapter = createPuckBuilderAdapter({ blocks: [text], preview: { surface: "public", actor: { authenticated: false, permissions: new Set() } } });
+  it("uses the full runtime policy and shared browser presenter inside and outside Puck", () => {
+    const actualText = { ...text, definition: createStaticTextBlockDefinition(), defaultProps: { text: "New text" } };
+    const adapter = createPuckBuilderAdapter({ blocks: [actualText], preview: { surface: "public", actor: { authenticated: false, permissions: new Set() } } });
     const data = adapter.toPuckData({ ...fixture, regions: { main: [fixture.regions.main[0].children?.[0]!] } });
     const component = adapter.config.components["content.text__v1"] as { render: (props: Record<string, unknown>) => unknown };
     const editorOutput = component.render(data.content[0]!.props);
-    const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [text.definition], sources: [] }));
+    const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [actualText.definition], sources: [] }));
     const production = runtime.render({ document: adapter.fromPuckData(data), surface: "public", actor: { authenticated: false, permissions: new Set() } });
-    expect(production).toMatchObject({ success: true, regions: { main: [{ status: "rendered", output: editorOutput }] } });
+    expect(editorOutput).toBe("Hello");
+    expect(presentUiRuntimeResult(production)).toBe(editorOutput);
+
+    const protectedDefinition = {
+      ...actualText.definition,
+      id: "sales.secure-text",
+      profiles: ["workspace"] as const,
+      surfaces: ["workspace"] as const,
+      audience: "authenticated" as const,
+      permission: "sales.secure.read"
+    };
+    const protectedBridge = { ...actualText, definition: protectedDefinition };
+    const protectedAdapter = createPuckBuilderAdapter({
+      blocks: [protectedBridge],
+      preview: { surface: "workspace", actor: { authenticated: true, permissions: new Set() } }
+    });
+    const protectedData = protectedAdapter.toPuckData({
+      id: "workspace.secure", version: 1, schemaVersion: 1, profile: "workspace",
+      regions: { main: [{ id: "secure-1", type: "sales.secure-text", version: 1, props: { text: "Private" } }] }
+    });
+    const protectedComponent = protectedAdapter.config.components["sales.secure-text__v1"] as { render: (props: Record<string, unknown>) => unknown };
+    expect(protectedComponent.render(protectedData.content[0]!.props)).toBe("Unavailable: PERMISSION_DENIED");
   });
 
   it("round-trips a document without the configured canvas region", () => {

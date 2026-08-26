@@ -5,11 +5,20 @@ import {
   assertJsonValue,
   canonicalJson,
   type JsonValue,
+  type DataSourceBindingResult,
+  type DataSourceDescriptor,
   type UiDocument,
   type UiNode
 } from "@k-nex/contracts";
 import type { ComponentData, Config, Data, Field } from "@puckeditor/core";
-import type { UiBlockDefinition, UiRuntimeActor, UiRuntimeSurface } from "@k-nex/ui-runtime";
+import {
+  createUiDocumentRuntime,
+  createUiRuntimeRegistry,
+  presentUiRuntimeResult,
+  type UiBlockDefinition,
+  type UiRuntimeActor,
+  type UiRuntimeSurface
+} from "@k-nex/ui-runtime";
 
 const canonicalNodeKey = "__kNexNode";
 const childSlotKey = "__kNexChildren";
@@ -31,6 +40,8 @@ export interface PuckBlockBridge {
 export interface PuckPreviewContext {
   readonly surface: UiRuntimeSurface;
   readonly actor: UiRuntimeActor;
+  readonly sources?: readonly DataSourceDescriptor[];
+  readonly sourceResults?: Readonly<Record<string, DataSourceBindingResult<unknown>>>;
 }
 
 export interface PuckBuilderAdapter {
@@ -47,6 +58,7 @@ interface StoredNode {
   readonly layout?: UiNode["layout"];
   readonly engineMetadata?: UiNode["engineMetadata"];
   readonly childrenPresent: boolean;
+  readonly profile: UiDocument["profile"];
 }
 
 interface StoredDocument {
@@ -116,7 +128,7 @@ function puckField(field: PuckBridgeField): Field {
   return { type: field.kind, label: field.label };
 }
 
-function storedNode(node: UiNode): StoredNode {
+function storedNode(node: UiNode, profile: UiDocument["profile"]): StoredNode {
   return {
     type: node.type,
     version: node.version,
@@ -124,28 +136,30 @@ function storedNode(node: UiNode): StoredNode {
     ...(node.bindings === undefined ? {} : { bindings: cloneJson(node.bindings) }),
     ...(node.layout === undefined ? {} : { layout: cloneJson(node.layout) }),
     ...(node.engineMetadata === undefined ? {} : { engineMetadata: cloneJson(node.engineMetadata) }),
-    childrenPresent: node.children !== undefined
+    childrenPresent: node.children !== undefined,
+    profile
   };
 }
 
-function toComponent(node: UiNode, bridges: ReadonlyMap<string, PuckBlockBridge>): ComponentData {
+function toComponent(node: UiNode, profile: UiDocument["profile"], bridges: ReadonlyMap<string, PuckBlockBridge>): ComponentData {
   const key = bridgeKey(node.type, node.version);
   const bridge = bridges.get(key);
   if (bridge === undefined) throw new TypeError(`No Puck bridge is registered for ${node.type}@${node.version}.`);
   if (bridge.definition.propsSchema.safeParse(node.props).success !== true) {
     throw new TypeError(`Canonical props are invalid for ${node.type}@${node.version}.`);
   }
-  const props: Record<string, unknown> = { id: node.id, [canonicalNodeKey]: storedNode(node) };
+  const props: Record<string, unknown> = { id: node.id, [canonicalNodeKey]: storedNode(node, profile) };
   for (const field of bridge.fields) {
     props[fieldKey(field.prop)] = cloneJson(node.props[field.prop] ?? bridge.defaultProps[field.prop] ?? null);
   }
-  if (bridge.allowChildren) props[childSlotKey] = (node.children ?? []).map((child) => toComponent(child, bridges));
+  if (bridge.allowChildren) props[childSlotKey] = (node.children ?? []).map((child) => toComponent(child, profile, bridges));
   else if ((node.children?.length ?? 0) > 0) throw new TypeError(`Puck bridge ${node.type}@${node.version} does not allow children.`);
   return { type: key, props } as ComponentData;
 }
 
 function parseStoredNode(value: unknown): StoredNode {
-  if (!isRecord(value) || !ResourceIdSchema.safeParse(value.type).success || !Number.isSafeInteger(value.version) || !isRecord(value.props) || typeof value.childrenPresent !== "boolean") {
+  if (!isRecord(value) || !ResourceIdSchema.safeParse(value.type).success || !Number.isSafeInteger(value.version) || !isRecord(value.props) ||
+      typeof value.childrenPresent !== "boolean" || (value.profile !== "cms" && value.profile !== "workspace")) {
     throw new TypeError("Puck component metadata is invalid.");
   }
   assertJsonValue(value);
@@ -210,13 +224,21 @@ function parseStoredDocument(value: unknown): StoredDocument {
 function createConfig(bridges: ReadonlyMap<string, PuckBlockBridge>, preview?: PuckPreviewContext): Config {
   const components: Record<string, unknown> = {};
   const componentNames = [...bridges.keys()];
+  const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({
+    blocks: [...bridges.values()].map(({ definition }) => definition),
+    sources: preview?.sources ?? []
+  }));
   for (const [key, bridge] of bridges) {
     const fields: Record<string, Field> = {};
     for (const field of bridge.fields) fields[fieldKey(field.prop)] = puckField(field);
     if (bridge.allowChildren) fields[childSlotKey] = { type: "slot", allow: componentNames };
     const defaultProps: Record<string, unknown> = {};
     for (const field of bridge.fields) defaultProps[fieldKey(field.prop)] = cloneJson(bridge.defaultProps[field.prop] ?? null);
-    defaultProps[canonicalNodeKey] = storedNode({ id: "new-block", type: bridge.definition.id, version: bridge.definition.version, props: bridge.defaultProps });
+    const defaultProfile = preview?.surface === "workspace" ? "workspace" : preview?.surface === "cms" || preview?.surface === "public"
+      ? "cms"
+      : bridge.definition.profiles[0];
+    if (defaultProfile === undefined) throw new TypeError("Puck bridge requires a supported document profile.");
+    defaultProps[canonicalNodeKey] = storedNode({ id: "new-block", type: bridge.definition.id, version: bridge.definition.version, props: bridge.defaultProps }, defaultProfile);
     if (bridge.allowChildren) defaultProps[childSlotKey] = [];
     components[key] = {
       label: bridge.label,
@@ -226,15 +248,26 @@ function createConfig(bridges: ReadonlyMap<string, PuckBlockBridge>, preview?: P
         const metadata = parseStoredNode(props[canonicalNodeKey]);
         const canonicalProps: Record<string, JsonValue> = cloneJson(metadata.props) as Record<string, JsonValue>;
         for (const field of bridge.fields) canonicalProps[field.prop] = props[fieldKey(field.prop)] as JsonValue;
-        const parsed = bridge.definition.propsSchema.safeParse(canonicalProps);
-        if (parsed.success !== true) throw new TypeError(`Puck preview props are invalid for ${bridge.definition.id}@${bridge.definition.version}.`);
-        const surface = preview?.surface ?? bridge.definition.surfaces[0];
-        if (surface === undefined) throw new TypeError("Puck preview requires a supported runtime surface.");
-        const actor = preview?.actor ?? {
-          authenticated: bridge.definition.audience === "authenticated",
-          permissions: new Set(bridge.definition.permission === undefined ? [] : [bridge.definition.permission])
+        const node: UiNode = {
+          id: String(props.id),
+          type: metadata.type,
+          version: metadata.version,
+          props: canonicalProps,
+          ...(metadata.bindings === undefined ? {} : { bindings: metadata.bindings }),
+          ...(metadata.layout === undefined ? {} : { layout: metadata.layout }),
+          ...(metadata.engineMetadata === undefined ? {} : { engineMetadata: metadata.engineMetadata })
         };
-        return bridge.definition.render({ node: { ...metadata, id: String(props.id), props: canonicalProps }, props: parsed.data, surface, actor });
+        const surface = preview?.surface ?? (metadata.profile === "cms" ? "cms" : "workspace");
+        const actor = preview?.actor ?? { authenticated: surface !== "public", permissions: new Set<string>() };
+        const result = runtime.render({
+          document: { id: "builder.preview", version: 1, schemaVersion: 1, profile: metadata.profile, regions: { main: [node] } },
+          surface,
+          actor,
+          ...(preview?.sourceResults === undefined ? {} : { sourceResults: preview.sourceResults })
+        });
+        const presented = presentUiRuntimeResult(result);
+        const slot = bridge.allowChildren ? props[childSlotKey] : undefined;
+        return typeof slot === "function" ? [presented, slot()] : presented;
       }
     };
   }
@@ -273,7 +306,7 @@ export function createPuckBuilderAdapter(input: { readonly blocks: readonly Puck
       };
       return {
         root: { props: { [documentKey]: metadata } },
-        content: (parsed.regions[canvasRegion] ?? []).map((node) => toComponent(node, bridges))
+        content: (parsed.regions[canvasRegion] ?? []).map((node) => toComponent(node, parsed.profile, bridges))
       } as Data;
     },
     fromPuckData(value: unknown): UiDocument {

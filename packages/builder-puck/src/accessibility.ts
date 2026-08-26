@@ -7,6 +7,8 @@ const controlStyle: CSSProperties = {
   outline: "2px solid currentColor",
   outlineOffset: 2
 };
+const childSlotKey = "__kNexChildren";
+const rootZone = "root:default-zone";
 
 export interface AccessiblePuckControlsProps {
   readonly state: AppState;
@@ -16,17 +18,15 @@ export interface AccessiblePuckControlsProps {
 export function createKeyboardReorderActions(input: {
   readonly content: readonly ComponentData[];
   readonly index: number;
+  readonly zone?: string;
   readonly direction: "earlier" | "later";
 }): readonly PuckAction[] | undefined {
   const destinationIndex = input.index + (input.direction === "earlier" ? -1 : 1);
   if (input.index < 0 || input.index >= input.content.length || destinationIndex < 0 || destinationIndex >= input.content.length) return undefined;
-  const content = [...input.content];
-  const [selected] = content.splice(input.index, 1);
-  if (selected === undefined) return undefined;
-  content.splice(destinationIndex, 0, selected);
+  const zone = input.zone ?? rootZone;
   return [
-    { type: "setData", data: { content }, recordHistory: true },
-    { type: "setUi", ui: { itemSelector: { index: destinationIndex } } }
+    { type: "move", sourceIndex: input.index, sourceZone: zone, destinationIndex, destinationZone: zone },
+    { type: "setUi", ui: { itemSelector: { index: destinationIndex, zone } } }
   ];
 }
 
@@ -34,14 +34,34 @@ function blockName(block: ComponentData, index: number): string {
   return `${block.type} ${index + 1}`;
 }
 
+interface BlockLocation {
+  readonly block: ComponentData;
+  readonly content: readonly ComponentData[];
+  readonly index: number;
+  readonly zone: string;
+  readonly depth: number;
+}
+
+function blockLocations(content: readonly ComponentData[], zone = rootZone, depth = 0): readonly BlockLocation[] {
+  return content.flatMap((block, index) => {
+    const location: BlockLocation = { block, content, index, zone, depth };
+    const children = block.props[childSlotKey];
+    return Array.isArray(children)
+      ? [location, ...blockLocations(children as ComponentData[], `${String(block.props.id)}:${childSlotKey}`, depth + 1)]
+      : [location];
+  });
+}
+
 /** Native controls provide a keyboard and screen-reader path independent of drag-and-drop. */
 export function AccessiblePuckControls({ state, dispatch }: AccessiblePuckControlsProps): ReactElement {
-  const content = state.data.content;
+  const locations = blockLocations(state.data.content);
   const selector = state.ui.itemSelector;
-  const selectedIndex = selector !== null && (selector?.zone === undefined || selector.zone === "root:default-zone") ? selector.index : -1;
-  const selected = content[selectedIndex];
+  const selectedZone = selector?.zone ?? rootZone;
+  const selectedLocationIndex = selector === null ? -1 : locations.findIndex(({ zone, index }) => zone === selectedZone && index === selector.index);
+  const selected = locations[selectedLocationIndex];
   const move = (direction: "earlier" | "later") => {
-    const actions = createKeyboardReorderActions({ content, index: selectedIndex, direction });
+    if (selected === undefined) return;
+    const actions = createKeyboardReorderActions({ content: selected.content, index: selected.index, zone: selected.zone, direction });
     if (actions !== undefined) for (const action of actions) dispatch(action);
   };
 
@@ -51,36 +71,38 @@ export function AccessiblePuckControls({ state, dispatch }: AccessiblePuckContro
       createElement("select", {
         key: "select",
         "aria-describedby": "k-nex-builder-position",
-        value: selectedIndex < 0 ? "" : String(selectedIndex),
+        value: selectedLocationIndex < 0 ? "" : String(selectedLocationIndex),
         style: controlStyle,
         onChange: (event: { currentTarget: { value: string } }) => {
           const value = event.currentTarget.value;
           const index = Number(value);
-          dispatch({ type: "setUi", ui: { itemSelector: value !== "" && Number.isSafeInteger(index) ? { index } : null } });
+          const location = value !== "" && Number.isSafeInteger(index) ? locations[index] : undefined;
+          dispatch({ type: "setUi", ui: { itemSelector: location === undefined ? null : { index: location.index, zone: location.zone } } });
         }
       }, [
         createElement("option", { key: "none", value: "" }, "Choose a block"),
-        ...content.map((block, index) => createElement("option", { key: block.props.id, value: String(index) }, blockName(block, index)))
+        ...locations.map((location, index) => createElement("option", { key: location.block.props.id, value: String(index) },
+          `${"Nested ".repeat(location.depth)}${blockName(location.block, location.index)}`))
       ])
     ]),
     createElement("button", {
       key: "earlier",
       type: "button",
-      "aria-label": selected === undefined ? "Move selected block earlier" : `Move ${blockName(selected, selectedIndex)} earlier`,
-      disabled: createKeyboardReorderActions({ content, index: selectedIndex, direction: "earlier" }) === undefined,
+      "aria-label": selected === undefined ? "Move selected block earlier" : `Move ${blockName(selected.block, selected.index)} earlier`,
+      disabled: selected === undefined || createKeyboardReorderActions({ content: selected.content, index: selected.index, zone: selected.zone, direction: "earlier" }) === undefined,
       style: controlStyle,
       onClick: () => move("earlier")
     }, "Move earlier"),
     createElement("button", {
       key: "later",
       type: "button",
-      "aria-label": selected === undefined ? "Move selected block later" : `Move ${blockName(selected, selectedIndex)} later`,
-      disabled: createKeyboardReorderActions({ content, index: selectedIndex, direction: "later" }) === undefined,
+      "aria-label": selected === undefined ? "Move selected block later" : `Move ${blockName(selected.block, selected.index)} later`,
+      disabled: selected === undefined || createKeyboardReorderActions({ content: selected.content, index: selected.index, zone: selected.zone, direction: "later" }) === undefined,
       style: controlStyle,
       onClick: () => move("later")
     }, "Move later"),
     createElement("span", { key: "status", id: "k-nex-builder-position", role: "status", "aria-live": "polite" },
-      selected === undefined ? "No canvas block selected" : `${blockName(selected, selectedIndex)}, position ${selectedIndex + 1} of ${content.length}`)
+      selected === undefined ? "No canvas block selected" : `${blockName(selected.block, selected.index)}, position ${selected.index + 1} of ${selected.content.length}`)
   ]);
 }
 

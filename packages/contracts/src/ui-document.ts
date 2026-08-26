@@ -202,7 +202,21 @@ const unsafeExactKeys = new Set([
 
 function isUnsafePersistedKey(key: string): boolean {
   const normalized = key.replace(/[^a-z0-9]/gi, "").toLowerCase();
-  return unsafeExactKeys.has(normalized) || ["password", "secret", "apikey", "credential", "privatenote"].some((part) => normalized.includes(part));
+  const secretBearing = [
+    "password",
+    "secret",
+    "apikey",
+    "credential",
+    "privatenote",
+    "oauth",
+    "bearer",
+    "sessionkey",
+    "accesskey",
+    "privatekey",
+    "signingkey"
+  ].some((part) => normalized.includes(part));
+  const tokenBearing = normalized !== "tokens" && (normalized.startsWith("token") || normalized.endsWith("token"));
+  return unsafeExactKeys.has(normalized) || secretBearing || tokenBearing;
 }
 
 function inspectJsonTree(value: unknown, path: readonly (string | number)[], context: z.RefinementCtx, depth: number, ancestors: Set<object>): void {
@@ -210,7 +224,8 @@ function inspectJsonTree(value: unknown, path: readonly (string | number)[], con
     if (value.length > uiDocumentPlatformCeilings.stringLength) {
       context.addIssue({ code: "custom", path: [...path], message: `Strings may not exceed ${uiDocumentPlatformCeilings.stringLength} characters.` });
     }
-    if (/^(?:(?:https?|ftp|file|data|javascript):|\/\/)/i.test(value.trim())) {
+    const trimmed = value.trim();
+    if (!/^sha256:[a-f0-9]{64}$/.test(trimmed) && /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(trimmed)) {
       context.addIssue({ code: "custom", path: [...path], message: "Unrestricted URL-like strings are forbidden in persisted UI documents." });
     }
     return;

@@ -247,6 +247,18 @@ describe("P4.1 canonical UI documents", () => {
       ...validDocument,
       regions: { main: [{ ...validDocument.regions.main[0], props: { apiSecretValue: "hidden" } }] }
     }).success).toBe(false);
+    for (const unsafeProps of [
+      { accessToken: "hidden" },
+      { refreshToken: "hidden" },
+      { oauthGrant: "hidden" },
+      { endpoint: "wss://example.test/socket" },
+      { endpoint: "custom+transport://example.test/resource" }
+    ]) {
+      expect(parse({
+        ...validDocument,
+        regions: { main: [{ ...validDocument.regions.main[0], props: unsafeProps }] }
+      }).success).toBe(false);
+    }
     expect(parse({
       ...validDocument,
       regions: { main: [{ ...validDocument.regions.main[0], engineMetadata: { "builder.visual": { url: "unsafe" } } }] }

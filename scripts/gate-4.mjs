@@ -11,7 +11,7 @@ if (process.versions.node !== "24.19.0") {
 
 const proofs = [
   ["canonical-round-trip", "@k-nex/builder-puck", "tests/adapter.test.ts", "round-trips canonical documents without semantic loss"],
-  ["shared-renderer", "@k-nex/builder-puck", "tests/adapter.test.ts", "uses the exact browser-safe runtime definition inside and outside Puck"],
+  ["shared-renderer", "@k-nex/builder-puck", "tests/adapter.test.ts", "uses the full runtime policy and shared browser presenter inside and outside Puck"],
   ["fixed-shell", "@k-nex/builder-puck", "tests/fixed-shell-host.test.ts", "keeps security and platform regions outside the editor canvas"],
   ["profile-authority", "@k-nex/builder-puck", "tests/profile.test.ts", "uses one engine with distinct palettes and authority allowlists"],
   ["static-public-block", "@k-nex/ui-runtime", "tests/spike-blocks.test.ts", "renders one shared static block on the public CMS surface"],
@@ -21,6 +21,7 @@ const proofs = [
   ["editor-independent-runtime", "@k-nex/ui-runtime", "tests/document-runtime.test.ts", "renders validated props outside an editor and preserves node order"],
   ["keyboard-selection", "@k-nex/builder-puck", "tests/accessibility.test.ts", "selects a block through a labelled native control so its fields can be edited by keyboard"],
   ["non-drag-reorder", "@k-nex/builder-puck", "tests/accessibility.test.ts", "provides named native buttons as a non-drag reorder alternative"],
+  ["nested-keyboard-reorder", "@k-nex/builder-puck", "tests/accessibility.test.ts", "enumerates and moves blocks inside canonical child slots"],
   ["screen-reader-status", "@k-nex/builder-puck", "tests/accessibility.test.ts", "exposes selected position through a polite status and bounds reorder actions"]
 ];
 
