@@ -1,7 +1,8 @@
 import { Children, isValidElement, type ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
-import { PuckFixedShellHost, createPuckBuilderProfileRegistry, type PuckBlockBridge } from "../src/index.js";
+import { createPuckBuilderProfileRegistry, type PuckBlockBridge } from "../src/index.js";
+import { PuckFixedShellHost } from "../src/editor.js";
 
 const block: PuckBlockBridge = {
   id: "content.text",

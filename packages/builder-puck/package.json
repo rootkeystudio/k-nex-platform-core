@@ -8,11 +8,15 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./editor": {
+      "types": "./dist/editor.d.ts",
+      "default": "./dist/editor.js"
     }
   },
   "scripts": {
     "build": "tsc -b",
-    "test": "vitest run"
+    "test": "vitest run && node scripts/check-boundaries.mjs"
   },
   "dependencies": {
     "@k-nex/contracts": "workspace:*",

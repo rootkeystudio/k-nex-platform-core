@@ -1,7 +1,8 @@
 import { isValidElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { PuckEditorHost, createPuckBuilderAdapter, type PuckBlockBridge } from "../src/index.js";
+import { createPuckBuilderAdapter, type PuckBlockBridge } from "../src/index.js";
+import { PuckEditorHost } from "../src/editor.js";
 
 const bridge: PuckBlockBridge = {
   id: "content.text",
