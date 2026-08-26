@@ -49,7 +49,7 @@ describe("UI runtime registry", () => {
 
   it("rejects invalid audience, profile, and public-surface combinations", () => {
     expect(() => createUiRuntimeRegistry({ blocks: [{ ...block, surfaces: ["public"] }], sources: [] })).toThrow(/Only public/);
-    expect(() => createUiRuntimeRegistry({ blocks: [{ ...block, audience: "public", profiles: ["workspace"], surfaces: ["public"] }], sources: [] })).toThrow(/CMS profile/);
+    expect(() => createUiRuntimeRegistry({ blocks: [{ ...block, audience: "public", profiles: ["workspace"], surfaces: ["workspace", "public"] }], sources: [] })).not.toThrow();
     expect(() => createUiRuntimeRegistry({ blocks: [{ ...block, audience: "internal" as never }], sources: [] })).toThrow(/audience/);
   });
 

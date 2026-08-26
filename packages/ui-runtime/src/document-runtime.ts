@@ -1,7 +1,10 @@
 import {
+  MetricScalarSchema,
+  TableRecordsSchema,
   migrateUiDocumentToCurrent,
   UiDocumentMigrationError,
   type DataSourceDescriptor,
+  type DataSourceBindingResult,
   type UiDocument,
   type UiDocumentMigrationErrorCode,
   type UiNode
@@ -31,6 +34,7 @@ export const uiRuntimeFallbackReasons = [
   "SOURCE_PERMISSION_DENIED",
   "SOURCE_FIELD_UNAVAILABLE",
   "SOURCE_FIELD_PERMISSION_DENIED",
+  "SOURCE_RESULT_INVALID",
   "RENDER_FAILED"
 ] as const;
 
@@ -78,6 +82,7 @@ export interface UiDocumentRuntimeInput {
   readonly document: unknown;
   readonly surface: UiRuntimeSurface;
   readonly actor: UiRuntimeActor;
+  readonly sourceResults?: Readonly<Record<string, DataSourceBindingResult<unknown>>>;
 }
 
 export interface UiDocumentRuntime {
@@ -138,6 +143,26 @@ function sourceInputIsCompatible(descriptor: DataSourceDescriptor, input: unknow
   return true;
 }
 
+function sourceResultIsValid(descriptor: DataSourceDescriptor, result: unknown): result is DataSourceBindingResult<unknown> {
+  if (result === null || typeof result !== "object" || Array.isArray(result) || !("state" in result)) return false;
+  const value = result as Record<string, unknown>;
+  if (value.state === "idle" || value.state === "loading" || value.state === "empty") return true;
+  if (value.state === "success" || value.state === "stale" || value.state === "refetching") {
+    const schema = descriptor.primaryContract.id === "metric.scalar" ? MetricScalarSchema : TableRecordsSchema;
+    return schema.safeParse(value.data).success;
+  }
+  if (value.state === "forbidden" || value.state === "insufficient-permission" || value.state === "invalid-contract" ||
+      value.state === "rate-limited" || value.state === "error") {
+    const problem = value.problem;
+    if (problem === null || typeof problem !== "object" || Array.isArray(problem)) return false;
+    const status = (problem as Record<string, unknown>).status;
+    const code = (problem as Record<string, unknown>).code;
+    if (![403, 429, 500, 502, 503, 504].includes(status as number) || typeof code !== "string" || !/^[A-Z][A-Z0-9_]{0,63}$/.test(code)) return false;
+    return value.retryAfterMs === undefined || value.state === "rate-limited" && Number.isSafeInteger(value.retryAfterMs) && (value.retryAfterMs as number) >= 0;
+  }
+  return false;
+}
+
 function sourceBindingReason(
   definition: UiBlockDefinition,
   node: UiNode,
@@ -186,9 +211,10 @@ function renderNode(
   document: UiDocument,
   surface: UiRuntimeSurface,
   actor: UiRuntimeActor,
-  registry: UiRuntimeRegistry
+  registry: UiRuntimeRegistry,
+  sourceResults: Readonly<Record<string, DataSourceBindingResult<unknown>>>
 ): UiRuntimeNodeResult {
-  const children = (node.children ?? []).map((child) => renderNode(child, document, surface, actor, registry));
+  const children = (node.children ?? []).map((child) => renderNode(child, document, surface, actor, registry, sourceResults));
   const definition = registry.resolveBlock(node.type, node.version);
   if (definition === undefined) return nodeResult(node, children, "MISSING_BLOCK");
   if (!definition.profiles.includes(document.profile)) return nodeResult(node, children, "PROFILE_DENIED");
@@ -209,12 +235,22 @@ function renderNode(
   if (sourceReason !== undefined) return nodeResult(node, children, sourceReason);
 
   let source: DataSourceDescriptor | undefined;
+  let sourceResult: DataSourceBindingResult<unknown> | undefined;
   if (node.bindings?.source !== undefined) {
     source = registry.resolveSource(node.bindings.source.source.id, node.bindings.source.source.version);
+    sourceResult = sourceResults[node.id] ?? { state: "idle" };
+    if (source === undefined || !sourceResultIsValid(source, sourceResult)) return nodeResult(node, children, "SOURCE_RESULT_INVALID");
   }
 
   try {
-    const output = definition.render({ node, props: parsedProps.data, surface, actor, ...(source === undefined ? {} : { source }) });
+    const output = definition.render({
+      node,
+      props: parsedProps.data,
+      surface,
+      actor,
+      ...(source === undefined ? {} : { source }),
+      ...(sourceResult === undefined ? {} : { sourceResult })
+    });
     return { status: "rendered", ...nodeResultMetadata(node), output, children };
   } catch {
     return nodeResult(node, children, "RENDER_FAILED");
@@ -240,7 +276,7 @@ export function createUiDocumentRuntime(registry: UiRuntimeRegistry): UiDocument
 
       const regions: Record<string, readonly UiRuntimeNodeResult[]> = {};
       for (const [region, nodes] of Object.entries(document.regions)) {
-        regions[region] = nodes.map((node) => renderNode(node, document, input.surface, input.actor, registry));
+        regions[region] = nodes.map((node) => renderNode(node, document, input.surface, input.actor, registry, input.sourceResults ?? {}));
       }
       return { success: true, regions };
     }

@@ -11,17 +11,17 @@ const staticBlock: PuckBlockBridge = {
   defaultProps: { text: "" },
   render: ({ props }) => props.text
 };
-const workspaceBlock: PuckBlockBridge = { ...staticBlock, id: "sales.task-table", label: "Task table" };
+const workspaceBlock: PuckBlockBridge = { ...staticBlock, id: "sales.workspace-task-table", label: "Task table" };
 const cms: PuckBuilderProfile = {
   id: "cms",
   blocks: [{ id: "content.text", version: 1 }],
-  sources: [{ id: "content.public-summary", version: 1 }],
+  sources: [{ id: "sales.public-task-summary", version: 1 }],
   actions: [{ id: "content.public-signup", version: 1 }],
   publication: "draft-preview-publish"
 };
 const workspace: PuckBuilderProfile = {
   id: "workspace",
-  blocks: [{ id: "content.text", version: 1 }, { id: "sales.task-table", version: 1 }],
+  blocks: [{ id: "content.text", version: 1 }, { id: "sales.workspace-task-table", version: 1 }],
   sources: [{ id: "sales.tasks", version: 1 }],
   actions: [{ id: "sales.workspace-task-create", version: 1 }],
   publication: "save-layout"
@@ -33,9 +33,11 @@ describe("profile-specific Puck policy", () => {
     const cmsProfile = registry.resolve("cms");
     const workspaceProfile = registry.resolve("workspace");
     expect(Object.keys(cmsProfile?.adapter.config.components ?? {})).toEqual(["content.text__v1"]);
-    expect(Object.keys(workspaceProfile?.adapter.config.components ?? {})).toEqual(["content.text__v1", "sales.task-table__v1"]);
+    expect(Object.keys(workspaceProfile?.adapter.config.components ?? {})).toEqual(["content.text__v1", "sales.workspace-task-table__v1"]);
     expect(cmsProfile?.allowsSource("sales.tasks", 1)).toBe(false);
+    expect(cmsProfile?.allowsSource("sales.public-task-summary", 1)).toBe(true);
     expect(workspaceProfile?.allowsSource("sales.tasks", 1)).toBe(true);
+    expect(workspaceProfile?.allowsSource("sales.public-task-summary", 1)).toBe(false);
     expect(cmsProfile?.allowsAction("sales.workspace-task-create", 1)).toBe(false);
     expect(workspaceProfile?.allowsAction("sales.workspace-task-create", 1)).toBe(true);
   });

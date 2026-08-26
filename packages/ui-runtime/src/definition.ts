@@ -5,6 +5,7 @@ import {
   TableFieldIdSchema,
   uiDocumentProfiles,
   type DataSourceDescriptor,
+  type DataSourceBindingResult,
   type DataSourcePrimaryContract,
   type RuntimeSchema,
   type TableFieldId,
@@ -31,6 +32,7 @@ export interface UiBlockRenderInput {
   readonly surface: UiRuntimeSurface;
   readonly actor: UiRuntimeActor;
   readonly source?: DataSourceDescriptor;
+  readonly sourceResult?: DataSourceBindingResult<unknown>;
 }
 
 export type UiBlockRenderer<TResult = unknown> = (input: UiBlockRenderInput) => TResult;
@@ -76,9 +78,6 @@ function assertBlockDefinition(definition: UiBlockDefinition): void {
   }
   const hasPublicSurface = definition.surfaces.includes("public");
   if ((definition.audience === "public") !== hasPublicSurface) throw new TypeError("Only public UI blocks may use the public surface.");
-  if (definition.audience === "public" && definition.profiles.some((profile) => profile !== "cms")) {
-    throw new TypeError("Public UI blocks are limited to the CMS profile.");
-  }
   if (definition.permission !== undefined && !ResourceIdSchema.safeParse(definition.permission).success) {
     throw new TypeError("UI block permission must be a canonical resource ID.");
   }
