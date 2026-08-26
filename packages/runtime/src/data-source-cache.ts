@@ -29,6 +29,7 @@ interface CacheEntry {
 }
 
 const contextKeys = new Set(["permissionFingerprint", "locale", "timezone", "publicationRevision", "featureRevision"]);
+const maxCacheKeyBytes = 1_048_576;
 
 function cacheError(): DataSourceGatewayError {
   return new DataSourceGatewayError("INVALID_CACHE_CONTEXT", 500, "Data-source cache context is invalid.");
@@ -60,6 +61,15 @@ function frozenClone<T>(value: T): T {
   return clone;
 }
 
+function utf8ByteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
+}
+
+async function sha256(value: string): Promise<string> {
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 export class InMemoryDataSourceCachePolicy implements CachePolicyEvaluator {
   private readonly entries = new Map<string, CacheEntry>();
   private readonly ttlMs: number;
@@ -75,8 +85,8 @@ export class InMemoryDataSourceCachePolicy implements CachePolicyEvaluator {
     }
   }
 
-  lookup(context: DataSourceExecutionContext): DataSourceSuccessEnvelope | undefined {
-    const key = this.key(context);
+  async lookup(context: DataSourceExecutionContext): Promise<DataSourceSuccessEnvelope | undefined> {
+    const key = await this.key(context);
     if (key === undefined) return undefined;
     const entry = this.entries.get(key);
     if (entry === undefined) return undefined;
@@ -87,15 +97,15 @@ export class InMemoryDataSourceCachePolicy implements CachePolicyEvaluator {
     return frozenClone(entry.envelope);
   }
 
-  store(context: DataSourceExecutionContext, envelope: DataSourceSuccessEnvelope): void {
-    const key = this.key(context);
+  async store(context: DataSourceExecutionContext, envelope: DataSourceSuccessEnvelope): Promise<void> {
+    const key = await this.key(context);
     if (key === undefined) return;
     this.entries.delete(key);
     while (this.entries.size >= this.maxEntries) this.entries.delete(this.entries.keys().next().value as string);
     this.entries.set(key, { expiresAt: this.now() + this.ttlMs, envelope: frozenClone(envelope) });
   }
 
-  private key(context: DataSourceExecutionContext): string | undefined {
+  private async key(context: DataSourceExecutionContext): Promise<string | undefined> {
     const descriptor = context.source.definition.descriptor;
     if (descriptor.cacheClass === "no-store") return undefined;
     if (!isDataSourceActorContext(context.authenticated.actor)) throw cacheError();
@@ -109,7 +119,7 @@ export class InMemoryDataSourceCachePolicy implements CachePolicyEvaluator {
     }
 
     try {
-      return canonicalJson({
+      const canonical = canonicalJson({
         source: {
           id: descriptor.id,
           version: descriptor.version,
@@ -129,6 +139,8 @@ export class InMemoryDataSourceCachePolicy implements CachePolicyEvaluator {
             ? null
             : actor
       });
+      if (utf8ByteLength(canonical) > maxCacheKeyBytes) throw cacheError();
+      return `sha256:${await sha256(canonical)}`;
     } catch {
       throw cacheError();
     }

@@ -95,81 +95,86 @@ const envelope: DataSourceSuccessEnvelope = {
 };
 
 describe("P2.6 safe cache classifications", () => {
-  it("never stores no-store sources", () => {
+  it("never stores no-store sources", async () => {
     const cache = new InMemoryDataSourceCachePolicy();
     const request = context("no-store");
-    cache.store(request, envelope);
-    expect(cache.lookup(request)).toBeUndefined();
+    await cache.store(request, envelope);
+    await expect(cache.lookup(request)).resolves.toBeUndefined();
   });
 
-  it("isolates actor entries and shares authorization-context entries only on the full stable fingerprint", () => {
+  it("isolates actor entries and shares authorization-context entries only on the full stable fingerprint", async () => {
     const cache = new InMemoryDataSourceCachePolicy();
     const firstActor = context("actor", actor("user-1"));
-    cache.store(firstActor, envelope);
-    expect(cache.lookup(firstActor)).toEqual(envelope);
-    expect(cache.lookup(context("actor", actor("user-2")))).toBeUndefined();
+    await cache.store(firstActor, envelope);
+    await expect(cache.lookup(firstActor)).resolves.toEqual(envelope);
+    await expect(cache.lookup(context("actor", actor("user-2")))).resolves.toBeUndefined();
 
     const shared = context("authorization-context", actor("user-1"));
-    cache.store(shared, envelope);
-    expect(cache.lookup(context("authorization-context", actor("user-2")))).toEqual(envelope);
-    expect(cache.lookup(context("authorization-context", actor("user-2"), "policy:r2:membership:m1"))).toBeUndefined();
+    await cache.store(shared, envelope);
+    await expect(cache.lookup(context("authorization-context", actor("user-2")))).resolves.toEqual(envelope);
+    await expect(cache.lookup(context("authorization-context", actor("user-2"), "policy:r2:membership:m1"))).resolves.toBeUndefined();
   });
 
-  it("keys authorization-sensitive query and presentation dimensions", () => {
+  it("keys authorization-sensitive query and presentation dimensions", async () => {
     const cache = new InMemoryDataSourceCachePolicy();
     const original = context("authorization-context");
-    cache.store(original, envelope);
-    expect(cache.lookup({ ...original, query: { ...original.query, recordScope: { tenant: "two" } } })).toBeUndefined();
-    expect(cache.lookup({ ...original, query: { ...original.query, selectedFields: ["amount"] } })).toBeUndefined();
-    expect(cache.lookup({
+    await cache.store(original, envelope);
+    const keys = [...(cache as unknown as { entries: Map<string, unknown> }).entries.keys()];
+    expect(keys).toHaveLength(1);
+    expect(keys[0]).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(keys[0]).not.toContain("sales.total-revenue");
+    expect(keys[0]).not.toContain("tenant");
+    await expect(cache.lookup({ ...original, query: { ...original.query, recordScope: { tenant: "two" } } })).resolves.toBeUndefined();
+    await expect(cache.lookup({ ...original, query: { ...original.query, selectedFields: ["amount"] } })).resolves.toBeUndefined();
+    await expect(cache.lookup({
       ...original,
       authenticated: {
         ...original.authenticated,
         authorizationContext: { ...(original.authenticated.authorizationContext as object), locale: "tr-TR" }
       }
-    })).toBeUndefined();
+    })).resolves.toBeUndefined();
   });
 
-  it("permits public sharing only for public sources, surfaces, and actors without impersonation", () => {
+  it("permits public sharing only for public sources, surfaces, and actors without impersonation", async () => {
     const cache = new InMemoryDataSourceCachePolicy();
     const publicActor: DataSourceActorContext = {
       principal: { kind: "public-session", id: "session-1" },
       effectiveActor: { kind: "public-session", id: "session-1" }
     };
     const first = context("public", publicActor);
-    cache.store(first, envelope);
-    expect(cache.lookup(context("public", { ...publicActor, principal: { kind: "public-session", id: "session-2" }, effectiveActor: { kind: "public-session", id: "session-2" } }))).toEqual(envelope);
-    expect(() => cache.lookup({ ...first, surface: "workspace" })).toThrowError(DataSourceGatewayError);
-    expect(() => cache.lookup({ ...first, authenticated: { ...first.authenticated, actor: actor("user-1") } })).toThrowError(DataSourceGatewayError);
+    await cache.store(first, envelope);
+    await expect(cache.lookup(context("public", { ...publicActor, principal: { kind: "public-session", id: "session-2" }, effectiveActor: { kind: "public-session", id: "session-2" } }))).resolves.toEqual(envelope);
+    await expect(cache.lookup({ ...first, surface: "workspace" })).rejects.toThrowError(DataSourceGatewayError);
+    await expect(cache.lookup({ ...first, authenticated: { ...first.authenticated, actor: actor("user-1") } })).rejects.toThrowError(DataSourceGatewayError);
   });
 
-  it("rejects role-only or untracked authorization context", () => {
+  it("rejects role-only or untracked authorization context", async () => {
     const cache = new InMemoryDataSourceCachePolicy();
     const request = context("actor");
-    expect(() => cache.lookup({ ...request, authenticated: { ...request.authenticated, authorizationContext: { role: "admin" } } })).toThrowError(DataSourceGatewayError);
-    expect(() => cache.lookup({
+    await expect(cache.lookup({ ...request, authenticated: { ...request.authenticated, authorizationContext: { role: "admin" } } })).rejects.toThrowError(DataSourceGatewayError);
+    await expect(cache.lookup({
       ...request,
       authenticated: {
         ...request.authenticated,
         authorizationContext: { permissionFingerprint: "r1", untrackedSemanticState: "unsafe" }
       }
-    })).toThrowError(DataSourceGatewayError);
+    })).rejects.toThrowError(DataSourceGatewayError);
   });
 
-  it("expires, evicts, and returns mutation-isolated frozen values", () => {
+  it("expires, evicts, and returns mutation-isolated frozen values", async () => {
     let now = 10;
     const cache = new InMemoryDataSourceCachePolicy({ ttlMs: 5, maxEntries: 1, now: () => now });
     const first = context("actor", actor("user-1"));
-    cache.store(first, envelope);
-    const hit = cache.lookup(first);
+    await cache.store(first, envelope);
+    const hit = await cache.lookup(first);
     expect(hit).toEqual(envelope);
     expect(Object.isFrozen(hit?.data)).toBe(true);
 
     const second = context("actor", actor("user-2"));
-    cache.store(second, envelope);
-    expect(cache.lookup(first)).toBeUndefined();
-    expect(cache.lookup(second)).toEqual(envelope);
+    await cache.store(second, envelope);
+    await expect(cache.lookup(first)).resolves.toBeUndefined();
+    await expect(cache.lookup(second)).resolves.toEqual(envelope);
     now = 15;
-    expect(cache.lookup(second)).toBeUndefined();
+    await expect(cache.lookup(second)).resolves.toBeUndefined();
   });
 });

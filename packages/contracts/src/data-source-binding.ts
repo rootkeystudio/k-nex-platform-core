@@ -75,9 +75,9 @@ export type DataSourceQueryIdentityInput = z.input<typeof DataSourceQueryIdentit
 export type DataSourceQueryIdentityDimensions = z.output<typeof DataSourceQueryIdentityInputSchema>;
 
 /**
- * A validated identity plus its canonical, browser-safe deduplication key.
- * The key intentionally remains canonical JSON instead of exposing a hash
- * implementation or a cache-library key type to consumers.
+ * A validated identity plus its browser-safe deduplication key.
+ * The key is a digest so sensitive input and authorization material are not
+ * retained in client query-key strings.
  */
 export type DataSourceQueryIdentity = DataSourceQueryIdentityDimensions & {
   readonly key: string;
@@ -96,20 +96,26 @@ function utf8ByteLength(value: string): number {
   return new TextEncoder().encode(value).byteLength;
 }
 
+async function sha256(value: string): Promise<string> {
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 /**
  * Validates untrusted identity dimensions and returns an immutable canonical
  * identity. A malformed or oversized identity fails before it can be used for
  * client deduplication or cache lookup.
  */
-export function createDataSourceQueryIdentity(value: unknown): DataSourceQueryIdentity {
+export async function createDataSourceQueryIdentity(value: unknown): Promise<DataSourceQueryIdentity> {
   const parsed = DataSourceQueryIdentityInputSchema.safeParse(value);
   if (!parsed.success) throw new TypeError("Data-source query identity is invalid.");
 
   const dimensions = structuredClone(parsed.data);
-  const key = canonicalJson(dimensions);
-  if (utf8ByteLength(key) > DATA_SOURCE_QUERY_IDENTITY_MAX_BYTES) {
+  const canonical = canonicalJson(dimensions);
+  if (utf8ByteLength(canonical) > DATA_SOURCE_QUERY_IDENTITY_MAX_BYTES) {
     throw new RangeError("Data-source query identity exceeds the platform size limit.");
   }
+  const key = `sha256:${await sha256(canonical)}`;
 
   const identity = {
     ...dimensions,

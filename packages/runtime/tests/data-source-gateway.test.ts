@@ -332,6 +332,27 @@ describe("P2.3 staged data-source gateway", () => {
     expect(() => contract.validate(definition.descriptor, { value: { kind: "integer", value: 1 }, extensions: {} })).toThrowError(DataSourceGatewayError);
   });
 
+  it("fails closed for an unknown source and normalizes malformed problem metadata", async () => {
+    let dispatched = false;
+    const stages = recordingStages([]);
+    stages.catalog.lookup = () => undefined;
+    stages.dispatcher.dispatch = () => { dispatched = true; return metricValue; };
+    const missing = await new DataSourceGateway(stages).query(request);
+    expect(missing.ok).toBe(false);
+    expect(dispatched).toBe(false);
+    if (!missing.ok) expect(missing.body.code).toBe("SOURCE_NOT_FOUND");
+
+    const malformed = new SafeProblemDetailsSerializer().serialize(
+      new DataSourceGatewayError("invalid code", 200, "x".repeat(200), "y".repeat(700)),
+      "c".repeat(200)
+    );
+    expect(malformed.code).toBe("INTERNAL_ERROR");
+    expect(malformed.status).toBe(500);
+    expect(malformed.title).toHaveLength(120);
+    expect(malformed.detail).toHaveLength(512);
+    expect(malformed.correlationId).toHaveLength(128);
+  });
+
   it("allows only redacted data into cache, success observation, and response", async () => {
     const secret = "unauthorized-secret";
     const seen: unknown[] = [];

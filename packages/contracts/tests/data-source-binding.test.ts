@@ -40,9 +40,9 @@ describe("P2.8 headless data-source bindings", () => {
     expectTypeOf(results).toEqualTypeOf<DataSourceBindingResult<number>[]>();
   });
 
-  it("produces the same canonical identity across object key order", () => {
-    const first = createDataSourceQueryIdentity(baseIdentity);
-    const reordered = createDataSourceQueryIdentity({
+  it("produces the same digest identity across object key order", async () => {
+    const first = await createDataSourceQueryIdentity(baseIdentity);
+    const reordered = await createDataSourceQueryIdentity({
       authorizationBoundary: baseIdentity.authorizationBoundary,
       publicationRevision: baseIdentity.publicationRevision,
       timezone: baseIdentity.timezone,
@@ -53,10 +53,13 @@ describe("P2.8 headless data-source bindings", () => {
       source: baseIdentity.source
     });
     expect(reordered.key).toBe(first.key);
+    expect(first.key).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(first.key).not.toContain("sales.tasks");
+    expect(first.key).not.toContain("2026-08-01");
   });
 
-  it("keeps ordered projections and every semantic dimension identity-significant", () => {
-    const original = createDataSourceQueryIdentity(baseIdentity).key;
+  it("keeps ordered projections and every semantic dimension identity-significant", async () => {
+    const original = (await createDataSourceQueryIdentity(baseIdentity)).key;
     for (const changed of [
       { ...baseIdentity, source: { ...baseIdentity.source, version: 2 } },
       { ...baseIdentity, input: { window: { from: "2026-08-02", to: "2026-08-31" } } },
@@ -67,22 +70,24 @@ describe("P2.8 headless data-source bindings", () => {
       { ...baseIdentity, publicationRevision: "published:r5" },
       { ...baseIdentity, authorizationBoundary: { kind: "actor", actorFingerprint: fingerprint("b") } }
     ]) {
-      expect(createDataSourceQueryIdentity(changed).key).not.toBe(original);
+      expect((await createDataSourceQueryIdentity(changed)).key).not.toBe(original);
     }
   });
 
-  it("supports actor, authorization-context, public, and actor-isolated no-store boundaries", () => {
+  it("supports actor, authorization-context, public, and actor-isolated no-store boundaries", async () => {
     for (const authorizationBoundary of [
       { kind: "actor", actorFingerprint: fingerprint("a") },
       { kind: "authorization-context", fingerprint: fingerprint("b") },
       { kind: "public", revision: "public:r3" },
       { kind: "no-store", actorFingerprint: fingerprint("c") }
     ] as const) {
-      expect(() => createDataSourceQueryIdentity({ ...baseIdentity, authorizationBoundary })).not.toThrow();
+      await expect(createDataSourceQueryIdentity({ ...baseIdentity, authorizationBoundary })).resolves.toMatchObject({
+        key: expect.stringMatching(/^sha256:[0-9a-f]{64}$/)
+      });
     }
   });
 
-  it("rejects role-only, duplicate, unknown, non-JSON, and oversized identities", () => {
+  it("rejects role-only, duplicate, unknown, non-JSON, and oversized identities", async () => {
     for (const invalid of [
       { ...baseIdentity, authorizationBoundary: { kind: "authorization-context", fingerprint: "role:admin" } },
       { ...baseIdentity, authorizationBoundary: { kind: "role", name: "admin" } },
@@ -90,14 +95,14 @@ describe("P2.8 headless data-source bindings", () => {
       { ...baseIdentity, extra: true },
       { ...baseIdentity, input: { invalid: Number.NaN } }
     ]) {
-      expect(() => createDataSourceQueryIdentity(invalid)).toThrow(TypeError);
+      await expect(createDataSourceQueryIdentity(invalid)).rejects.toThrow(TypeError);
     }
-    expect(() => createDataSourceQueryIdentity({ ...baseIdentity, input: "x".repeat(1_048_576) })).toThrow(RangeError);
+    await expect(createDataSourceQueryIdentity({ ...baseIdentity, input: "x".repeat(1_048_576) })).rejects.toThrow(RangeError);
   });
 
-  it("clones and deeply freezes identity dimensions without freezing caller data", () => {
+  it("clones and deeply freezes identity dimensions without freezing caller data", async () => {
     const input = { nested: { value: 1 } };
-    const identity = createDataSourceQueryIdentity({ ...baseIdentity, input });
+    const identity = await createDataSourceQueryIdentity({ ...baseIdentity, input });
     input.nested.value = 2;
 
     expect(identity.input).toEqual({ nested: { value: 1 } });
