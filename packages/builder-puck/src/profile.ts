@@ -84,17 +84,17 @@ function effectiveConstraints(bridge: PuckBlockBridge, node: UiNode): UiLayoutCo
 
 interface NodeLocation {
   readonly node: UiNode;
-  readonly parentId: string | undefined;
-  readonly index: number;
+  readonly position: string;
 }
 
 function nodeLocations(document: UiDocument): ReadonlyMap<string, NodeLocation> {
   const locations = new Map<string, NodeLocation>();
-  const visit = (node: UiNode, parentId: string | undefined, index: number): void => {
-    locations.set(node.id, { node, parentId, index });
-    node.children?.forEach((child, childIndex) => visit(child, node.id, childIndex));
+  const visit = (node: UiNode, path: readonly (string | number)[], index: number): void => {
+    const position = [...path, index];
+    locations.set(node.id, { node, position: canonicalJson(position) });
+    node.children?.forEach((child, childIndex) => visit(child, [...position, node.id, "children"], childIndex));
   };
-  Object.values(document.regions).forEach((nodes) => nodes.forEach((node, index) => visit(node, undefined, index)));
+  Object.entries(document.regions).forEach(([region, nodes]) => nodes.forEach((node, index) => visit(node, ["region", region], index)));
   return locations;
 }
 
@@ -133,7 +133,7 @@ function assertAuthorizedChange(previous: UiDocument, next: UiDocument, blockDef
         canonicalJson(current.node.engineMetadata ?? null) !== canonicalJson(prior.node.engineMetadata ?? null)) {
       throw new TypeError(`Block ${id} protected metadata cannot be edited.`);
     }
-    if ((constraints?.locked || constraints?.canMove === false) && (current.parentId !== prior.parentId || current.index !== prior.index)) {
+    if ((constraints?.locked || constraints?.canMove === false) && current.position !== prior.position) {
       throw new TypeError(`Block ${id} cannot be moved.`);
     }
     const changedProps = new Set([...Object.keys(prior.node.props), ...Object.keys(current.node.props)]
@@ -141,6 +141,21 @@ function assertAuthorizedChange(previous: UiDocument, next: UiDocument, blockDef
         canonicalJson(prior.node.props[prop] ?? null) !== canonicalJson(current.node.props[prop] ?? null)));
     const editable = constraints?.locked ? [] : constraints?.editableFields ?? bridge.fields.map(({ prop }) => prop);
     if ([...changedProps].some((prop) => !editable.includes(prop))) throw new TypeError(`Block ${id} contains a forbidden field edit.`);
+  }
+  for (const [id, current] of after) {
+    if (before.has(id)) continue;
+    const bridge = blockDefinitions.get(`${current.node.type}@${current.node.version}`)!;
+    const editable = bridge.constraints?.locked ? [] : bridge.constraints?.editableFields ?? bridge.fields.map(({ prop }) => prop);
+    const declared = new Set(bridge.fields.map(({ prop }) => prop));
+    if (current.node.bindings !== undefined || current.node.layout !== undefined || current.node.engineMetadata !== undefined ||
+        Object.keys(current.node.props).some((prop) => !declared.has(prop))) {
+      throw new TypeError(`Inserted block ${id} contains protected configuration.`);
+    }
+    for (const field of bridge.fields) {
+      if (!editable.includes(field.prop) && canonicalJson(current.node.props[field.prop] ?? null) !== canonicalJson(bridge.defaultProps[field.prop] ?? null)) {
+        throw new TypeError(`Inserted block ${id} contains a forbidden field value.`);
+      }
+    }
   }
   assertStructuralConstraints(next, blockDefinitions);
 }
@@ -213,6 +228,10 @@ export function createPuckBuilderProfileRegistry(input: {
       if (!bridge.definition.profiles.includes(candidate.id)) {
         throw new TypeError(`Puck ${candidate.id} profile cannot allow block ${bridge.definition.id}@${bridge.definition.version}.`);
       }
+      const compatible = candidate.id === "cms"
+        ? bridge.definition.audience === "public" && bridge.definition.surfaces.includes("public")
+        : bridge.definition.surfaces.includes("workspace");
+      if (!compatible) throw new TypeError(`Puck ${candidate.id} profile cannot allow block ${bridge.definition.id}@${bridge.definition.version} on its publication surface.`);
     }
     for (const resource of candidate.sources) {
       const source = sourceMap.get(keyOf(resource));

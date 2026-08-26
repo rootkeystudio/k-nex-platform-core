@@ -200,5 +200,9 @@ describe("P2.4 data-source authorization", () => {
       page: value.page
     });
     expect(() => redactor.redact(context, { ...value, fields: ["assignee", "private-note"] })).toThrowError(DataSourceGatewayError);
+    expect(() => redactor.redact(context, {
+      ...value,
+      rows: [{ key: "task-1", values: { title: { kind: "status", value: "wrong-kind" }, assignee: null } }]
+    })).toThrowError(DataSourceGatewayError);
   });
 });

@@ -1,7 +1,7 @@
 import * as z from "zod";
 
 import { PluginIdSchema, ResourceIdSchema } from "./identity.js";
-import { TableFieldIdSchema } from "./table-records.js";
+import { TableFieldIdSchema, type TableRecords } from "./table-records.js";
 
 const namespacedIdSchema = ResourceIdSchema.min(1).max(128);
 const permissionIdSchema = namespacedIdSchema;
@@ -218,6 +218,26 @@ export function resolveDataSourceFieldSelection(
   return selectedFields.length === 0
     ? { success: false, reason: "NO_ALLOWED_FIELDS" }
     : { success: true, selectedFields: Object.freeze(selectedFields) };
+}
+
+/** Descriptor-aware table projection validation shared by gateway redaction and UI consumption. */
+export function dataSourceTableProjectionIsValid(
+  descriptor: DataSourceDescriptor,
+  selectedFields: readonly string[],
+  table: TableRecords,
+  allowAdditionalFields = false
+): boolean {
+  if (descriptor.primaryContract.id !== "table.records") return false;
+  const fields = new Map((descriptor.outputFields ?? []).map((field) => [field.id, field]));
+  const returned = new Set(table.fields);
+  if (table.fields.some((fieldId) => !fields.has(fieldId)) || selectedFields.some((fieldId) => !returned.has(fieldId))) return false;
+  if (!allowAdditionalFields && (table.fields.length !== selectedFields.length || table.fields.some((fieldId) => !selectedFields.includes(fieldId)))) return false;
+  return table.rows.every((row) => Object.entries(row.values).every(([fieldId, cell]) => {
+    const field = fields.get(fieldId);
+    if (field === undefined || !returned.has(fieldId)) return false;
+    if (cell === null) return field.nullable;
+    return cell.kind === field.kind;
+  }));
 }
 
 export type RuntimeSchemaResult<T> =

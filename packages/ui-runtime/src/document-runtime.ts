@@ -1,11 +1,13 @@
 import {
   MetricScalarSchema,
+  dataSourceTableProjectionIsValid,
   resolveDataSourceFieldSelection,
   TableRecordsSchema,
   migrateUiDocumentToCurrent,
   UiDocumentMigrationError,
   type DataSourceDescriptor,
   type DataSourceBindingResult,
+  type TableRecords,
   type UiDocument,
   type UiDocumentMigrationErrorCode,
   type UiNode
@@ -164,27 +166,14 @@ function tableProjectionMatchesAuthority(
   descriptor: DataSourceDescriptor,
   node: UiNode,
   actor: UiRuntimeActor,
-  table: { readonly fields: readonly string[]; readonly rows: readonly { readonly values: Readonly<Record<string, unknown>> }[] }
+  table: TableRecords
 ): boolean {
   const descriptorFields = new Map((descriptor.outputFields ?? []).map((field) => [field.id, field]));
   const allowedFields = new Set([...descriptorFields.values()]
     .filter((field) => descriptor.audience === "public" || hasPermission(actor, field.permission))
     .map(({ id }) => id));
   const selection = resolveDataSourceFieldSelection(descriptor, node.bindings?.source?.selectedFields ?? [], allowedFields);
-  if (!selection.success || table.fields.length !== selection.selectedFields.length ||
-      table.fields.some((field, index) => field !== selection.selectedFields[index])) return false;
-  return table.rows.every(({ values }) => {
-    const valueFields = Object.keys(values);
-    if (valueFields.some((field) => !table.fields.includes(field))) return false;
-    return table.fields.every((fieldId) => {
-      const field = descriptorFields.get(fieldId);
-      if (field === undefined) return false;
-      if (!Object.hasOwn(values, fieldId)) return field.nullable || field.binding === "optional";
-      const cell = values[fieldId];
-      if (cell === null) return field.nullable;
-      return typeof cell === "object" && !Array.isArray(cell) && (cell as Record<string, unknown>).kind === field.kind;
-    });
-  });
+  return selection.success && dataSourceTableProjectionIsValid(descriptor, selection.selectedFields, table);
 }
 
 function sourceResultIsValid(

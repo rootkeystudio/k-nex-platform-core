@@ -1,4 +1,4 @@
-import { resolveDataSourceFieldSelection, TableRecordsSchema, type DataSourceDescriptor } from "@k-nex/contracts";
+import { dataSourceTableProjectionIsValid, resolveDataSourceFieldSelection, TableRecordsSchema, type DataSourceDescriptor } from "@k-nex/contracts";
 
 import {
   DataSourceGatewayError,
@@ -140,8 +140,7 @@ export class TableProjectionRedactor implements ProjectionRedactor {
     const parsed = TableRecordsSchema.safeParse(value);
     if (!parsed.success) throw new DataSourceGatewayError("INVALID_OUTPUT_CONTRACT", 500, "Data source violated its output contract.");
     const permitted = new Set(context.query.selectedFields);
-    const returned = new Set(parsed.data.fields);
-    if (context.query.selectedFields.some((fieldId) => !returned.has(fieldId))) {
+    if (!dataSourceTableProjectionIsValid(context.source.definition.descriptor, context.query.selectedFields, parsed.data, true)) {
       throw new DataSourceGatewayError("INVALID_SOURCE_OUTPUT", 500, "Data source omitted an authorized field.");
     }
     return {

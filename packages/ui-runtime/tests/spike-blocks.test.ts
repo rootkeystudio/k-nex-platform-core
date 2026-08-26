@@ -102,6 +102,20 @@ describe("P4.5 proof blocks", () => {
     expect(result).toMatchObject({ success: true, regions: { main: [{ status: "rendered" }] } });
   });
 
+  it("accepts gateway-valid field reordering and omitted applicable cells", () => {
+    const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [createWorkspaceTaskTableBlockDefinition()], sources: [salesTasksDescriptor] }));
+    const reordered = {
+      ...workspaceDocument,
+      regions: { main: [{
+        ...workspaceDocument.regions.main[0],
+        bindings: { source: { ...workspaceDocument.regions.main[0].bindings.source, selectedFields: ["status", "title", "potential-revenue"] } }
+      }] }
+    };
+    const sparse = { ...table, rows: [{ key: "task-1", values: {} }] };
+    const result = runtime.render({ document: reordered, surface: "workspace", actor: authenticatedActor, sourceResults: { "tasks-1": { state: "success", data: sparse } } });
+    expect(result).toMatchObject({ success: true, regions: { main: [{ status: "rendered" }] } });
+  });
+
   it("does not turn the workspace source into publishable authority during authenticated CMS preview", () => {
     const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [createWorkspaceTaskTableBlockDefinition()], sources: [salesTasksDescriptor] }));
     const cmsDocument = { ...workspaceDocument, id: "cms.sales", profile: "cms" };

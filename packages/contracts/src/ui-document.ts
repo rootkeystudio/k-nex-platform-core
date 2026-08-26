@@ -212,7 +212,7 @@ function isStructuralLayoutTokens(path: readonly (string | number)[], key: strin
 }
 
 function isUnsafePersistedKey(key: string, path: readonly (string | number)[]): boolean {
-  const normalized = key.replace(/[^a-z0-9]/gi, "").toLowerCase();
+  const normalized = key.normalize("NFKC").replace(/[^a-z0-9]/gi, "").toLowerCase();
   if (isStructuralLayoutTokens(path, normalized)) return false;
   const secretBearing = [
     "password",
@@ -278,6 +278,9 @@ function inspectJsonTree(value: unknown, path: readonly (string | number)[], con
       context.addIssue({ code: "custom", path: [...path], message: `Objects may not contain more than ${uiDocumentPlatformCeilings.jsonObjectKeys} keys.` });
     }
     for (const key of keys) {
+      if (/[^\x20-\x7e]/.test(key)) {
+        context.addIssue({ code: "custom", path: [...path, key], message: "Persisted keys must use printable ASCII characters." });
+      }
       if (isUnsafePersistedKey(key, path)) {
         context.addIssue({ code: "custom", path: [...path, key], message: `Persisted key ${key} is not allowed.` });
       }

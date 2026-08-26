@@ -2,7 +2,8 @@ import { isValidElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { createPuckBuilderAdapter, type PuckBlockBridge } from "../src/index.js";
-import { PuckEditorHost } from "../src/editor.js";
+import { PuckEditorHost } from "../src/editor-host.js";
+import * as publicEditor from "../src/editor.js";
 
 const bridge: PuckBlockBridge = {
   definition: {
@@ -23,6 +24,9 @@ const document = {
 };
 
 describe("Puck editor host", () => {
+  it("does not export the raw publish-capable host outside the fixed-shell authority", () => {
+    expect(publicEditor).not.toHaveProperty("PuckEditorHost");
+  });
   it("mounts Puck with adapter data and converts change callbacks back to canonical documents", () => {
     const adapter = createPuckBuilderAdapter({ blocks: [bridge] });
     const onChange = vi.fn();

@@ -72,6 +72,13 @@ describe("profile-specific Puck policy", () => {
     expect(() => createPuckBuilderProfileRegistry({ blocks: [staticBlock], sources, profiles: [{ ...cms, publication: "save-layout" }] })).toThrow(/publication/);
     expect(() => createPuckBuilderProfileRegistry({ blocks: [staticBlock], sources, profiles: [{ ...workspace, blocks: [{ id: "content.text", version: 1 }], publication: "draft-preview-publish" }] })).toThrow(/publication/);
     expect(() => createPuckBuilderProfileRegistry({ blocks: [staticBlock], sources, profiles: [{ ...cms, sources: [{ id: "sales.tasks", version: 1 }] }] })).toThrow(/cannot allow source/);
+    const authenticatedCmsBlock = {
+      ...staticBlock,
+      definition: { ...staticBlock.definition, id: "content.private", profiles: ["cms"] as const, surfaces: ["cms"] as const, audience: "authenticated" as const }
+    };
+    expect(() => createPuckBuilderProfileRegistry({
+      blocks: [authenticatedCmsBlock], sources: [], profiles: [{ ...cms, blocks: [{ id: "content.private", version: 1 }], sources: [] }]
+    })).toThrow(/publication surface/);
   });
 
   it("rejects documents from another profile and sources outside the profile allowlist", () => {
@@ -145,6 +152,45 @@ describe("profile-specific Puck policy", () => {
     expect(() => constrained.validateChange(original, { ...original, regions: { main: [{ ...first, props: { text: "Changed" } }, second] } })).toThrow(/forbidden field edit/);
     expect(() => constrained.validateChange(original, { ...original, regions: { main: [second, first] } })).toThrow(/cannot be moved/);
     expect(() => constrained.validateChange(original, { ...original, regions: { main: [second] } })).toThrow(/cannot be deleted/);
+  });
+
+  it("rejects protected insertion values and region or ancestor movement of immovable nodes", () => {
+    const constrained = createPuckBuilderProfileRegistry({
+      blocks: [staticBlock], sources: [], profiles: [{
+        ...cms, sources: [], blocks: [{ id: "content.text", version: 1, constraints: { canMove: false, editableFields: ["text"] } }]
+      }]
+    }).resolve("cms");
+    if (constrained === undefined) throw new Error("Expected constrained CMS profile.");
+    const immovable = { id: "text-1", type: "content.text", version: 1, props: { text: "First" } };
+    const original = { id: "cms.constraints", version: 1, schemaVersion: 1, profile: "cms", regions: { main: [immovable], sidebar: [] } };
+    expect(() => constrained.validateChange(original, { ...original, regions: { main: [], sidebar: [immovable] } })).toThrow(/cannot be moved/);
+    expect(() => constrained.validateChange(original, {
+      ...original,
+      regions: { main: [immovable, { id: "inserted", type: "content.text", version: 1, props: { text: "Allowed", mode: "forbidden" } }], sidebar: [] }
+    })).toThrow(/protected configuration/);
+    expect(() => constrained.validateChange(original, {
+      ...original,
+      regions: { main: [immovable, { id: "inserted", type: "content.text", version: 1, props: { text: "Allowed" }, engineMetadata: { "builder.visual": { zone: "forged" } } }], sidebar: [] }
+    })).toThrow(/protected configuration/);
+
+    const container: PuckBlockBridge = {
+      ...staticBlock,
+      definition: { ...staticBlock.definition, id: "content.container" },
+      allowChildren: true
+    };
+    const nestedProfile = createPuckBuilderProfileRegistry({
+      blocks: [staticBlock, container], sources: [], profiles: [{
+        ...cms, sources: [], blocks: [
+          { id: "content.text", version: 1, constraints: { canMove: false } },
+          { id: "content.container", version: 1 }
+        ]
+      }]
+    }).resolve("cms");
+    if (nestedProfile === undefined) throw new Error("Expected nested CMS profile.");
+    const sibling = { id: "sibling", type: "content.text", version: 1, props: { text: "Sibling" } };
+    const parent = { id: "parent", type: "content.container", version: 1, props: { text: "Parent" }, children: [immovable] };
+    const nestedOriginal = { ...original, regions: { main: [sibling, parent], sidebar: [] } };
+    expect(() => nestedProfile.validateChange(nestedOriginal, { ...nestedOriginal, regions: { main: [parent, sibling], sidebar: [] } })).toThrow(/cannot be moved/);
   });
 
   it("matches the real Phase 2 required-field selection rules before publication", () => {

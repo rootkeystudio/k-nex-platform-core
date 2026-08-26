@@ -148,6 +148,33 @@ function puckField(field: PuckBridgeField): Field {
   return { type: field.kind, label: field.label };
 }
 
+function puckFields(bridge: PuckBlockBridge, componentNames: readonly string[], nodeConstraints?: UiLayoutConstraints): Record<string, Field> {
+  const fields = Object.fromEntries(editableFields(bridge, nodeConstraints).map((field) => [fieldKey(field.prop), puckField(field)]));
+  if (bridge.allowChildren) {
+    const allowedChildren = bridge.constraints?.allowedChildren === undefined
+      ? nodeConstraints?.allowedChildren
+      : nodeConstraints?.allowedChildren === undefined
+        ? bridge.constraints.allowedChildren
+        : bridge.constraints.allowedChildren.filter((id) => nodeConstraints.allowedChildren!.includes(id));
+    fields[childSlotKey] = {
+      type: "slot",
+      allow: allowedChildren === undefined ? [...componentNames] : componentNames.filter((name) => allowedChildren.some((id) => name.startsWith(`${id}__v`)))
+    };
+  }
+  return fields;
+}
+
+function nodeCanInsert(bridge: PuckBlockBridge, nodeConstraints?: UiLayoutConstraints): boolean {
+  const constraints = bridge.constraints;
+  const allowedChildren = constraints?.allowedChildren === undefined
+    ? nodeConstraints?.allowedChildren
+    : nodeConstraints?.allowedChildren === undefined
+      ? constraints.allowedChildren
+      : constraints.allowedChildren.filter((id) => nodeConstraints.allowedChildren!.includes(id));
+  return bridge.allowChildren && constraints?.locked !== true && nodeConstraints?.locked !== true &&
+    constraints?.maxChildren !== 0 && nodeConstraints?.maxChildren !== 0 && allowedChildren?.length !== 0;
+}
+
 function storedNode(node: UiNode, profile: UiDocument["profile"]): StoredNode {
   return {
     type: node.type,
@@ -253,9 +280,7 @@ function createConfig(bridges: ReadonlyMap<string, PuckBlockBridge>, preview?: P
     sources: preview?.sources ?? []
   }));
   for (const [key, bridge] of bridges) {
-    const fields: Record<string, Field> = {};
-    for (const field of editableFields(bridge)) fields[fieldKey(field.prop)] = puckField(field);
-    if (bridge.allowChildren) fields[childSlotKey] = { type: "slot", allow: componentNames };
+    const fields = puckFields(bridge, componentNames);
     const defaultProps: Record<string, unknown> = {};
     for (const field of editableFields(bridge)) defaultProps[fieldKey(field.prop)] = cloneJson(bridge.defaultProps[field.prop] ?? null);
     const defaultProfile = preview?.surface === "workspace" ? "workspace" : preview?.surface === "cms" || preview?.surface === "public"
@@ -273,7 +298,8 @@ function createConfig(bridges: ReadonlyMap<string, PuckBlockBridge>, preview?: P
         drag: nodeCanMove(bridge),
         delete: bridge.constraints?.locked !== true && bridge.constraints?.canDelete !== false,
         duplicate: bridge.constraints?.locked !== true,
-        edit: editableFields(bridge).length > 0
+        edit: editableFields(bridge).length > 0,
+        insert: nodeCanInsert(bridge)
       },
       resolvePermissions: (data: { readonly props?: Record<string, unknown> }) => {
         const metadata = parseStoredNode(data.props?.[canonicalNodeKey]);
@@ -282,12 +308,13 @@ function createConfig(bridges: ReadonlyMap<string, PuckBlockBridge>, preview?: P
           drag: nodeCanMove(bridge, constraints),
           delete: bridge.constraints?.locked !== true && bridge.constraints?.canDelete !== false && constraints?.locked !== true && constraints?.canDelete !== false,
           duplicate: bridge.constraints?.locked !== true && constraints?.locked !== true,
-          edit: editableFields(bridge, constraints).length > 0
+          edit: editableFields(bridge, constraints).length > 0,
+          insert: nodeCanInsert(bridge, constraints)
         };
       },
       resolveFields: (data: { readonly props?: Record<string, unknown> }) => {
         const metadata = parseStoredNode(data.props?.[canonicalNodeKey]);
-        return Object.fromEntries(editableFields(bridge, metadata.layout?.constraints).map((field) => [fieldKey(field.prop), puckField(field)]));
+        return puckFields(bridge, componentNames, metadata.layout?.constraints);
       },
       render: (props: Record<string, unknown>) => {
         const metadata = parseStoredNode(props[canonicalNodeKey]);
