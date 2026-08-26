@@ -106,6 +106,29 @@ describe("Payload MCP adapter", () => {
     expect(config.mcp?.handlerOptions?.disableSse).toBe(true);
   });
 
+  it("intersects enum membership with string and numeric constraints", () => {
+    const constrainedTool = {
+      ...readTool,
+      inputSchema: {
+        type: "object",
+        properties: {
+          status: { type: "string", enum: ["open", "done"], minLength: 1, maxLength: 4 },
+          rank: { type: "integer", enum: [1, 2], minimum: 1, maximum: 2 }
+        },
+        required: ["status", "rank"],
+        additionalProperties: false
+      }
+    } satisfies AgentToolDescriptor;
+    const tool = createPayloadMcpPluginConfig(options({ tools: [constrainedTool] })).mcp?.tools?.[0];
+
+    expect(tool?.parameters.status?.safeParse("open").success).toBe(true);
+    expect(tool?.parameters.status?.safeParse("").success).toBe(false);
+    expect(tool?.parameters.status?.safeParse("other").success).toBe(false);
+    expect(tool?.parameters.rank?.safeParse(1).success).toBe(true);
+    expect(tool?.parameters.rank?.safeParse(1.5).success).toBe(false);
+    expect(tool?.parameters.rank?.safeParse(3).success).toBe(false);
+  });
+
   it("intersects API-key capability toggles with actor/delegation-filtered catalog visibility", async () => {
     const setup = options();
     const config = createPayloadMcpPluginConfig(setup);

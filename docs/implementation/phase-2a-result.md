@@ -38,7 +38,7 @@ principal → agent client/session → delegation → catalog lookup → input
 → source/action dispatch → output validation → redaction → completion audit → safe envelope
 ```
 
-Delegation binds the exact principal, client, application, tool/version, effects, resource scope, expiry, revision, and parent authority. It can only reduce authority. Per-call approvals bind the exact principal/session/tool/version/canonical input digest and are expiring, issuer-authorized, and single-use.
+Delegation binds the exact principal, client, application, tool/version, effects, resource scope, expiry, revision, and parent authority. It can only reduce authority. Per-call approvals bind the exact principal/session/tool/version/canonical input digest and are expiring, issuer-authorized, single-use, and purged after expiry so the bounded proof store recovers capacity without weakening replay protection.
 
 Writes require bounded idempotency keys scoped by application, principal, tool/version, and canonical input. Same-input retries return the frozen first safe envelope without redispatch; changed-input reuse conflicts. Late successful handlers are validated, redacted, audited, and reconciled into the original claim; irreconcilable late failures retain bounded uncertain-state duplicate suppression. The Sales vertical proof creates one logical task across the first call and replay.
 
@@ -79,7 +79,7 @@ sales.tools.create-task  → sales.task.create action (write)
 
 The create tool requires per-call approval and idempotency, redacts its private-note input path, and dispatches through the registered action. The action uses Payload Local API once with `overrideAccess: false`, the effective actor user, depth zero, and the existing request context. Its strict output exposes only task ID, title, and status.
 
-The scripted flow composes the bound delegation evaluator, delegated catalog policy, registration-backed target resolution/policy/input/output/dispatch/redaction stages, and the Phase 2 data-source gateway. Source targets never expose raw handlers to the tool dispatcher; a bounded mapping can reach them only through the data-source gateway. It authenticates, lists, reads, attempts a concealed forbidden tool, prepares approval, approves exact arguments, executes one write, repeats with the same key, rejects changed-input reuse, and checks safe audit. It then drives actor A and actor B through the official Payload plugin endpoint with real JSON-RPC `tools/list`/`tools/call`, proving actor-filtered registration and denial. Gateway failures use MCP `isError`; successful object data uses `structuredContent`.
+The scripted flow composes the bound delegation evaluator, delegated catalog policy, registration-backed target resolution/policy/input/output/dispatch/redaction stages, and the Phase 2 data-source gateway. Source targets never expose raw handlers to the tool dispatcher; a bounded mapping can reach them only through the data-source gateway. It authenticates, lists, reads, attempts a concealed forbidden tool, prepares approval, approves exact arguments, executes one write, repeats with the same key, rejects changed-input reuse, and checks safe audit. It then drives actor A and actor B through the official Payload plugin endpoint with distinct bearer keys and real JSON-RPC `tools/list`/`tools/call`. The proof asserts the plugin's exact HMAC `apiKeyIndex` lookups and resolves identities only from those digests, proving actor-filtered registration and denial. Gateway failures use MCP `isError`; successful object data uses `structuredContent`. Adapter schemas preserve base string/number/array constraints while intersecting enum membership.
 
 ## Attack evidence
 
@@ -107,8 +107,8 @@ Runner: Apple M1 Max, arm64, 64 GiB RAM, macOS 26.6, Node.js 24.19.0, one warm l
 
 | Path | Dataset | Iterations | Representative p95 | Accepted p95 ceiling |
 |---|---:|---:|---:|---:|
-| actor-filtered catalog list | 100 explicit descriptors | 100 | 2.388 ms | 250 ms |
-| bounded read gateway pipeline | one validated read call | 200 | 0.009 ms | 250 ms |
+| actor-filtered catalog list | 100 explicit descriptors | 100 | 2.365 ms | 250 ms |
+| bounded read gateway pipeline | one validated read call | 200 | 0.007 ms | 250 ms |
 
 These characterize bounded local catalog/gateway overhead and detect order-of-magnitude regressions. They are not production throughput, concurrency, network, database, model, or capacity claims.
 

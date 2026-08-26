@@ -98,10 +98,6 @@ function jsonSchemaToZod(schema: AgentToolJsonSchema): z.ZodTypeAny {
     result = z.null();
   }
 
-  if (schema.enum !== undefined) {
-    const values = schema.enum.map((value) => z.literal(value));
-    result = values.length === 0 ? z.never() : values.length === 1 ? values[0]! : z.union(values as unknown as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]);
-  }
   if (schema.description !== undefined) result = result.describe(schema.description);
   if (schema.type === "string") {
     if (schema.minLength !== undefined) result = (result as z.ZodString).min(schema.minLength);
@@ -114,6 +110,13 @@ function jsonSchemaToZod(schema: AgentToolJsonSchema): z.ZodTypeAny {
   if (schema.type === "array") {
     if (schema.minItems !== undefined) result = (result as z.ZodArray<z.ZodTypeAny>).min(schema.minItems);
     if (schema.maxItems !== undefined) result = (result as z.ZodArray<z.ZodTypeAny>).max(schema.maxItems);
+  }
+  if (schema.enum !== undefined) {
+    const allowed = schema.enum;
+    result = result.refine(
+      (value) => allowed.some((candidate) => Object.is(candidate, value)),
+      { message: "Value must match an allowed enum value." }
+    );
   }
   return result;
 }

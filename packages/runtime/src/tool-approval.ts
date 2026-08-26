@@ -93,6 +93,12 @@ export class InMemoryToolApprovalEvaluator implements ToolApprovalEvaluator {
     private readonly issuer: ToolApprovalIssuer
   ) {}
 
+  private purgeExpired(now: number): void {
+    for (const [id, record] of this.records) {
+      if (!record.consuming && record.expiresAtEpochMs <= now) this.records.delete(id);
+    }
+  }
+
   async prepare(context: ToolExecutionContext): Promise<unknown> {
     if (context.descriptor.approval === "none") return Object.freeze({ status: "not-required" });
     const subject = binding(this.bindings, context);
@@ -113,6 +119,7 @@ export class InMemoryToolApprovalEvaluator implements ToolApprovalEvaluator {
       submission.expiresAtEpochMs - now > toolApprovalLimits.maxLifetimeMs) {
       throw approvalError("APPROVAL_INVALID", "Approval is invalid.");
     }
+    this.purgeExpired(now);
     if (this.records.has(submission.id) || this.pending.has(submission.id) ||
       this.records.size + this.pending.size >= toolApprovalLimits.maxRecords) {
       throw approvalError("APPROVAL_DENIED", "Approval was denied.");
@@ -142,11 +149,12 @@ export class InMemoryToolApprovalEvaluator implements ToolApprovalEvaluator {
 
   async evaluate(context: ToolExecutionContext): Promise<unknown> {
     if (context.descriptor.approval === "none") return Object.freeze({ status: "not-required" });
-    const subject = binding(this.bindings, context);
-    const record = subject.approvalId === undefined ? undefined : this.records.get(subject.approvalId);
     const now = this.clock.now();
     if (!Number.isSafeInteger(now)) throw approvalError("APPROVAL_CONTEXT_INVALID", "Approval context is invalid.");
-    if (record === undefined || record.used || record.consuming || record.expiresAtEpochMs <= now ||
+    this.purgeExpired(now);
+    const subject = binding(this.bindings, context);
+    const record = subject.approvalId === undefined ? undefined : this.records.get(subject.approvalId);
+    if (record === undefined || record.used || record.consuming ||
       record.toolId !== context.descriptor.id || record.toolVersion !== context.descriptor.version ||
       record.principalId !== subject.principalId || record.agentSessionId !== subject.agentSessionId) {
       throw approvalError("APPROVAL_REQUIRED", "A valid per-call approval is required.");

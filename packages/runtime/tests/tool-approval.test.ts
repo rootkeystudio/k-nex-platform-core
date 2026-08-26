@@ -2,7 +2,7 @@ import type { AgentToolDescriptor } from "@k-nex/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { ToolExecutionContext } from "../src/tool-gateway.js";
-import { InMemoryToolApprovalEvaluator } from "../src/tool-approval.js";
+import { InMemoryToolApprovalEvaluator, toolApprovalLimits } from "../src/tool-approval.js";
 
 const descriptor: AgentToolDescriptor = {
   id: "sales.tools.create-task",
@@ -114,6 +114,34 @@ describe("P2A.5 per-call approvals", () => {
     await expect(evaluator.submit(context(), { id: "concurrent", decision: "approve", expiresAtEpochMs: 2_000 })).rejects.toMatchObject({ code: "APPROVAL_DENIED" });
     release?.();
     await expect(first).resolves.toMatchObject({ status: "approved", id: "concurrent" });
+  });
+
+  it("purges expired records before enforcing the bounded record capacity", { timeout: 30_000 }, async () => {
+    let now = 1_000;
+    const evaluator = new InMemoryToolApprovalEvaluator(
+      { now: () => now },
+      { resolve: () => ({ principalId: "user-1", agentSessionId: "session-1" }) },
+      { authorize: () => true }
+    );
+    for (let index = 0; index < toolApprovalLimits.maxRecords; index += 1) {
+      await evaluator.submit(context(), {
+        id: `capacity-${index}`,
+        decision: "approve",
+        expiresAtEpochMs: 2_000
+      });
+    }
+    await expect(evaluator.submit(context(), {
+      id: "capacity-full",
+      decision: "approve",
+      expiresAtEpochMs: 2_000
+    })).rejects.toMatchObject({ code: "APPROVAL_DENIED" });
+
+    now = 2_000;
+    await expect(evaluator.submit(context(), {
+      id: "capacity-recovered",
+      decision: "approve",
+      expiresAtEpochMs: 3_000
+    })).resolves.toMatchObject({ status: "approved", id: "capacity-recovered" });
   });
 
   it("does not require approval for a read-only none policy", async () => {

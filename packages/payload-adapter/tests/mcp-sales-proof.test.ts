@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -402,34 +403,59 @@ describe("P2A.8 Sales tool proof", () => {
       }))
     };
 
-    async function protocolCall(actorId: string, method: string, params: Record<string, unknown> = {}) {
-      const apiKeyDocument = {
-        user: { id: actorId, collection: "users" },
+    const protocolSecret = "mcp-sales-proof-secret";
+    const ownerApiKey = "owner-protocol-key";
+    const foreignApiKey = "foreign-protocol-key";
+    const digest = (apiKey: string) => createHmac("sha256", protocolSecret).update(apiKey).digest("hex");
+    const apiKeyDocuments = new Map([
+      [digest(ownerApiKey), {
+        user: { id: "user-1", collection: "users" },
         expiresAt: new Date(Date.now() + 60_000).toISOString(),
         "payload-mcp-tool": {
           kNexSalesToolsSearchTasksV1: true,
           kNexSalesToolsCreateTaskV1: true
         }
-      };
+      }],
+      [digest(foreignApiKey), {
+        user: { id: "user-2", collection: "users" },
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        "payload-mcp-tool": {
+          kNexSalesToolsSearchTasksV1: true,
+          kNexSalesToolsCreateTaskV1: true
+        }
+      }]
+    ]);
+    const observedApiKeyDigests: string[] = [];
+    let protocolCallId = 0;
+
+    async function protocolCall(apiKey: string, method: string, params: Record<string, unknown> = {}) {
       const protocolPayload = {
         config: protocolConfig,
         db: { defaultIDType: "number" },
-        secret: "mcp-sales-proof-secret",
+        secret: protocolSecret,
         logger: { info() {}, error() {} },
-        find: async (options: { collection?: string }) => options.collection === "payload-mcp-api-keys"
-          ? { docs: [apiKeyDocument] }
-          : { docs: tasks, page: 1, totalPages: 1, hasNextPage: false },
+        find: async (options: { collection?: string; where?: { apiKeyIndex?: { equals?: unknown } } }) => {
+          if (options.collection !== "payload-mcp-api-keys") {
+            return { docs: tasks, page: 1, totalPages: 1, hasNextPage: false };
+          }
+          const requestedDigest = options.where?.apiKeyIndex?.equals;
+          if (typeof requestedDigest !== "string") throw new Error("MCP API-key lookup did not use apiKeyIndex.");
+          expect(options.where).toEqual({ apiKeyIndex: { equals: requestedDigest } });
+          observedApiKeyDigests.push(requestedDigest);
+          const document = apiKeyDocuments.get(requestedDigest);
+          return { docs: document === undefined ? [] : [document] };
+        },
         create: payloadRequest.payload.create
       };
       const response = await endpoint!.handler({
         url: "http://localhost/api/mcp",
         method: "POST",
         headers: new Headers({
-          authorization: "Bearer protocol-proof-key",
+          authorization: `Bearer ${apiKey}`,
           accept: "application/json, text/event-stream",
           "content-type": "application/json"
         }),
-        body: JSON.stringify({ jsonrpc: "2.0", id: `${actorId}-${method}`, method, params }),
+        body: JSON.stringify({ jsonrpc: "2.0", id: ++protocolCallId, method, params }),
         payload: protocolPayload,
         i18n: {}
       } as never);
@@ -438,28 +464,38 @@ describe("P2A.8 Sales tool proof", () => {
         ? text
         : text.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
       if (data === undefined) throw new Error(`MCP protocol response was not JSON: ${text}`);
-      return JSON.parse(data) as { result?: { tools?: Array<{ name: string }>; content?: Array<{ text: string }>; isError?: boolean }; error?: unknown };
+      return JSON.parse(data) as {
+        result?: { tools?: Array<{ name: string }>; content?: Array<{ text: string }>; isError?: boolean };
+        error?: { code: number; message: string };
+      };
     }
 
-    const listedForOwner = await protocolCall("user-1", "tools/list");
+    const listedForOwner = await protocolCall(ownerApiKey, "tools/list");
     expect(listedForOwner.result?.tools?.map(({ name }) => name)).toEqual([
       "k-nex-sales-tools-search-tasks-v1",
       "k-nex-sales-tools-create-task-v1"
     ]);
-    const calledForOwner = await protocolCall("user-1", "tools/call", {
+    const calledForOwner = await protocolCall(ownerApiKey, "tools/call", {
       name: "k-nex-sales-tools-search-tasks-v1",
       arguments: { title: "Seed" }
     });
     expect(calledForOwner.result?.isError).toBeUndefined();
     expect(JSON.parse(calledForOwner.result!.content![0]!.text)).toMatchObject({ provenance: "k-nex-tool" });
 
-    const listedForForeignActor = await protocolCall("user-2", "tools/list");
-    expect(listedForForeignActor.error).toBeDefined();
+    const listedForForeignActor = await protocolCall(foreignApiKey, "tools/list");
+    expect(listedForForeignActor.error).toEqual({ code: -32601, message: "Method not found" });
     expect(listedForForeignActor.result?.tools).toBeUndefined();
-    const calledForForeignActor = await protocolCall("user-2", "tools/call", {
+    const calledForForeignActor = await protocolCall(foreignApiKey, "tools/call", {
       name: "k-nex-sales-tools-search-tasks-v1",
       arguments: { title: "Seed" }
     });
-    expect(calledForForeignActor.error).toBeDefined();
+    expect(calledForForeignActor.error).toEqual({ code: -32601, message: "Method not found" });
+    expect(calledForForeignActor.result).toBeUndefined();
+    expect(observedApiKeyDigests).toEqual([
+      digest(ownerApiKey),
+      digest(ownerApiKey),
+      digest(foreignApiKey),
+      digest(foreignApiKey)
+    ]);
   });
 });
