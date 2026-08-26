@@ -1,5 +1,12 @@
 import { mcpPlugin, type MCPAccessSettings, type MCPPluginConfig } from "@payloadcms/plugin-mcp";
-import { UnauthorizedError, type CollectionConfig, type PayloadRequest, type Plugin } from "payload";
+import {
+  APIError,
+  UnauthorizedError,
+  type CollectionBeforeValidateHook,
+  type CollectionConfig,
+  type PayloadRequest,
+  type Plugin
+} from "payload";
 import { z } from "zod";
 
 import {
@@ -154,6 +161,14 @@ function durationSeconds(value: number | undefined): number {
   return value;
 }
 
+function validApiKeyLifetime(expiresAt: unknown, issuedAt: unknown, now: number): boolean {
+  if (typeof expiresAt !== "string" || (typeof issuedAt !== "string" && typeof issuedAt !== "number")) return false;
+  const expiry = Date.parse(expiresAt);
+  const issuance = typeof issuedAt === "number" ? issuedAt : Date.parse(issuedAt);
+  return Number.isFinite(expiry) && Number.isFinite(issuance) && issuance <= now && expiry > now &&
+    expiry - issuance <= apiKeyLifetimeMilliseconds;
+}
+
 function protectApiKeyCollection(collection: CollectionConfig, userCollection: string): CollectionConfig {
   const existing = collection.access ?? {};
   const operations = ["create", "read", "update", "delete", "unlock"] as const;
@@ -165,9 +180,23 @@ function protectApiKeyCollection(collection: CollectionConfig, userCollection: s
     if (typeof check === "function") return check(args as never);
     return check === true;
   }])) as CollectionConfig["access"];
+  const enforceLifetime: CollectionBeforeValidateHook = ({ data, operation, originalDoc }) => {
+    const next = isRecord(data) ? data : {};
+    const previous = isRecord(originalDoc) ? originalDoc : {};
+    const expiresAt = next.expiresAt ?? previous.expiresAt;
+    const issuedAt = operation === "create" ? Date.now() : previous.createdAt;
+    if (!validApiKeyLifetime(expiresAt, issuedAt, Date.now())) {
+      throw new APIError("MCP API-key lifetime is invalid.", 400);
+    }
+    return data;
+  };
   return {
     ...collection,
     access,
+    hooks: {
+      ...(collection.hooks ?? {}),
+      beforeValidate: [...(collection.hooks?.beforeValidate ?? []), enforceLifetime]
+    },
     indexes: [...(collection.indexes ?? []), { fields: ["apiKeyIndex"], unique: true }],
     fields: [
       ...(collection.fields ?? []),
@@ -184,12 +213,8 @@ function protectApiKeyCollection(collection: CollectionConfig, userCollection: s
 }
 
 function assertUnexpiredApiKey(settings: MCPAccessSettings): void {
-  const expiresAt = (settings as MCPAccessSettings & { readonly expiresAt?: unknown }).expiresAt;
-  if (typeof expiresAt !== "string") throw new UnauthorizedError();
-  const expiry = Date.parse(expiresAt);
-  if (!Number.isFinite(expiry) || expiry <= Date.now() || expiry > Date.now() + apiKeyLifetimeMilliseconds) {
-    throw new UnauthorizedError();
-  }
+  const key = settings as MCPAccessSettings & { readonly createdAt?: unknown; readonly expiresAt?: unknown };
+  if (!validApiKeyLifetime(key.expiresAt, key.createdAt, Date.now())) throw new UnauthorizedError();
 }
 
 function intersectToolAccess(

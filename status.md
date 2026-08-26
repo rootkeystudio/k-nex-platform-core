@@ -7,7 +7,7 @@
 
 ## Last completed
 
-Addressed all three Sol/high review rounds: approval consumption and submission are concurrency-safe, and expired records are purged before the bounded store enforces capacity; source/action compatibility is exact; source tools can dispatch only through the Phase 2 data-source gateway; non-cooperative handler timeouts reconcile late successes and bound uncertain failures; authoritative audit fails closed; reusable registration-backed stages own target resolution, policy, validation, dispatch, and redaction; MCP returns protocol-native results; enum membership safely intersects base schema constraints; the Sales proof binds distinct actor keys through the official plugin's exact HMAC lookup and JSON-RPC endpoint; API-key ownership has a tested deletion cascade; and Gate 2A selects exact executable attack proofs.
+Addressed the fresh whole-phase Sol/high review: API-key maximum lifetime is now anchored to immutable creation time and enforced on create, update, and authentication, including a dormant-overlong-key regression. Earlier review corrections remain covered: approval consumption/submission/capacity recovery, exact source/action compatibility, data-source gateway-only dispatch, late timeout reconciliation, authoritative audit, registration-backed stages, protocol-native MCP results, enum/constraint intersection, HMAC-bound actor isolation, API-key ownership deletion cascade, and exact Gate 2A attack selection.
 
 ## Validation
 
@@ -15,7 +15,7 @@ On Node.js 24.19.0 and pnpm 11.9.0: frozen install, `pnpm phase:0`, `pnpm gate:1
 
 ## Next
 
-Commit and push the third-round corrections, then obtain a fresh Sol/high review. Fix until PASS, record the approval, and begin Phase 3 task P3.1.
+Commit and push the lifetime correction, then obtain a fresh Sol/high review. Fix until PASS, record the approval, and begin Phase 3 task P3.1.
 
 ## Blockers
 

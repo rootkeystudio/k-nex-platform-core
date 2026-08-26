@@ -62,7 +62,7 @@ The frozen interoperability tuple is:
 
 The exact plugin has an internal peer-metadata mismatch: `mcp-handler@1.1.0` declares SDK `1.26.0` while the plugin pins SDK `1.30.0`. The workspace permits only those two versions for that peer and retains strict peer checking; build, adapter, protocol, and integration tests are authoritative.
 
-The adapter supplies empty collection/global maps, no experimental tools, and only generated K-Nex custom tools. `overrideAuth` intersects the current actor/delegation catalog with API-key toggles, so keys can narrow but never add authority. Every handler maps an exact tool ID/version back into the K-Nex gateway and does not expose ambient `req.payload` to module contracts. `onEvent` is telemetry-only and handler duration is bounded.
+The adapter supplies empty collection/global maps, no experimental tools, and only generated K-Nex custom tools. `overrideAuth` intersects the current actor/delegation catalog with API-key toggles, so keys can narrow but never add authority. API-key expiry is validated on create, update, and authentication against the immutable Payload `createdAt` timestamp, preventing an initially dormant overlong key from becoming valid later. Every handler maps an exact tool ID/version back into the K-Nex gateway and does not expose ambient `req.payload` to module contracts. `onEvent` is telemetry-only and handler duration is bounded.
 
 Declared-versus-actual inventory covers `payload-mcp-api-keys`, `GET/POST /api/mcp`, the MCP admin group, per-tool fields, and the expiry migration field. Customer migration `20260826_000003_payload_mcp` owns the collection, relation columns, 30-day expiry, unique key-digest index, capability toggles, user-deletion cascade, and revision `2 → 3`. The real PostgreSQL boot and API-key lifecycle gate passes. Full evaluation and kill-criteria evidence are in [`p2a-7-payload-mcp-evaluation.md`](./p2a-7-payload-mcp-evaluation.md).
 
@@ -107,8 +107,8 @@ Runner: Apple M1 Max, arm64, 64 GiB RAM, macOS 26.6, Node.js 24.19.0, one warm l
 
 | Path | Dataset | Iterations | Representative p95 | Accepted p95 ceiling |
 |---|---:|---:|---:|---:|
-| actor-filtered catalog list | 100 explicit descriptors | 100 | 2.365 ms | 250 ms |
-| bounded read gateway pipeline | one validated read call | 200 | 0.007 ms | 250 ms |
+| actor-filtered catalog list | 100 explicit descriptors | 100 | 2.314 ms | 250 ms |
+| bounded read gateway pipeline | one validated read call | 200 | 0.009 ms | 250 ms |
 
 These characterize bounded local catalog/gateway overhead and detect order-of-magnitude regressions. They are not production throughput, concurrency, network, database, model, or capacity claims.
 

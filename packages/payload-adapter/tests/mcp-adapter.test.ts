@@ -55,6 +55,10 @@ function futureExpiry(): string {
   return new Date(Date.now() + 24 * 60 * 60 * 1_000).toISOString();
 }
 
+function recentIssuance(): string {
+  return new Date(Date.now() - 1_000).toISOString();
+}
+
 function request(): { headers: Headers } {
   return { headers: new Headers() };
 }
@@ -134,6 +138,7 @@ describe("Payload MCP adapter", () => {
     const config = createPayloadMcpPluginConfig(setup);
     const defaults = {
       user: { id: "actor-1", collection: "users" },
+      createdAt: recentIssuance(),
       expiresAt: futureExpiry(),
       "payload-mcp-tool": { kNexSalesToolsSearchV1: true, kNexSalesToolsUpdateV1: true }
     } as never;
@@ -224,7 +229,7 @@ describe("Payload MCP adapter", () => {
 
   it("fails closed for an API key that has not enabled the visible K-Nex tool", async () => {
     const config = createPayloadMcpPluginConfig(options());
-    const defaults = { user: { id: "actor-1", collection: "users" }, expiresAt: futureExpiry(), "payload-mcp-tool": { kNexSalesToolsSearchV1: false } } as never;
+    const defaults = { user: { id: "actor-1", collection: "users" }, createdAt: recentIssuance(), expiresAt: futureExpiry(), "payload-mcp-tool": { kNexSalesToolsSearchV1: false } } as never;
     const settings = await config.overrideAuth!(request() as never, async () => defaults);
     expect(settings["payload-mcp-tool"]).toEqual({ kNexSalesToolsSearchV1: false, kNexSalesToolsUpdateV1: false });
   });
@@ -240,18 +245,33 @@ describe("Payload MCP adapter", () => {
     expect(await collection.access?.create?.({ req: { user: { id: "member-1", collection: "members" } } } as never)).toBe(true);
     expect(collection.indexes).toContainEqual({ fields: ["apiKeyIndex"], unique: true });
     expect(collection.fields).toEqual(expect.arrayContaining([expect.objectContaining({ name: "expiresAt", required: true, index: true })]));
+    const enforceLifetime = collection.hooks?.beforeValidate?.at(-1);
+    await expect(Promise.resolve().then(() => enforceLifetime!({
+      operation: "create",
+      data: { expiresAt: new Date(Date.now() + 31 * 24 * 60 * 60 * 1_000).toISOString() }
+    } as never))).rejects.toThrow(/lifetime/);
+    await expect(Promise.resolve().then(() => enforceLifetime!({
+      operation: "update",
+      data: { expiresAt: futureExpiry() },
+      originalDoc: { createdAt: new Date(Date.now() - 365 * 24 * 60 * 60 * 1_000).toISOString() }
+    } as never))).rejects.toThrow(/lifetime/);
   });
 
   it("rejects expired, missing, and overlong API-key lifetimes", async () => {
     const config = createPayloadMcpPluginConfig(options());
-    const resolve = (expiresAt?: string) => config.overrideAuth!(request() as never, async () => ({
+    const resolve = (expiresAt?: string, createdAt = recentIssuance()) => config.overrideAuth!(request() as never, async () => ({
       user: { id: "actor-1", collection: "users" },
+      createdAt,
       ...(expiresAt === undefined ? {} : { expiresAt }),
       "payload-mcp-tool": { kNexSalesToolsSearchV1: true }
     }) as never);
     await expect(resolve()).rejects.toThrow();
     await expect(resolve(new Date(Date.now() - 1_000).toISOString())).rejects.toThrow();
     await expect(resolve(new Date(Date.now() + 31 * 24 * 60 * 60 * 1_000).toISOString())).rejects.toThrow();
+    await expect(resolve(
+      new Date(Date.now() + 20 * 24 * 60 * 60 * 1_000).toISOString(),
+      new Date(Date.now() - 365 * 24 * 60 * 60 * 1_000).toISOString()
+    )).rejects.toThrow();
   });
 
   it("bounds duration and isolates telemetry failures", () => {
