@@ -1,0 +1,23 @@
+{
+  "id": "cms.unsafe-metadata",
+  "profile": "cms",
+  "regions": {
+    "main": [
+      {
+        "engineMetadata": {
+          "visual": {
+            "zone": "main"
+          }
+        },
+        "id": "metadata-block-1",
+        "props": {
+          "heading": "Metadata"
+        },
+        "type": "content.card",
+        "version": 1
+      }
+    ]
+  },
+  "schemaVersion": 1,
+  "version": 1
+}

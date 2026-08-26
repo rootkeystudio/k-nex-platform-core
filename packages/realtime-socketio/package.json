@@ -1,0 +1,41 @@
+{
+  "name": "@k-nex/provider-realtime-socketio",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "!dist/tsconfig.tsbuildinfo",
+    "k-nex.plugin.json"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./manifest": "./k-nex.plugin.json",
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "default": "./dist/server.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run && node scripts/check-pack.mjs"
+  },
+  "dependencies": {
+    "socket.io": "4.8.3"
+  },
+  "peerDependencies": {
+    "@k-nex/contracts": "0.0.0",
+    "@k-nex/runtime": "0.0.0"
+  },
+  "devDependencies": {
+    "@k-nex/contracts": "workspace:*",
+    "@k-nex/runtime": "workspace:*",
+    "socket.io-client": "4.8.3",
+    "typescript": "6.0.3",
+    "vitest": "4.1.6"
+  }
+}

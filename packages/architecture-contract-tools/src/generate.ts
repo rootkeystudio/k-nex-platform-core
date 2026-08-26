@@ -7,9 +7,12 @@ import {
   AgentToolDescriptorSchema,
   ApplicationManifestSchema,
   canonicalJson,
+  DurableEventEnvelopeSchema,
+  EVENT_PAYLOAD_MAX_BYTES,
   MetricScalarSchema,
   PluginManifestSchema,
   TableRecordsSchema,
+  UiDocumentSchema,
   architectureRegistry
 } from "@k-nex/contracts";
 import * as z from "zod";
@@ -29,6 +32,90 @@ function jsonSchema(schema: z.core.$ZodType): unknown {
   return { ...generated };
 }
 
+function secretFieldPattern(): string {
+  const separator = "[^A-Za-z0-9]*";
+  const words = [
+    "authorization", "cookie", "password", "secret", "token", "apikey", "credential", "privatenote",
+    "accesstoken", "refreshtoken", "sessiontoken", "idtoken", "authtoken", "bearertoken",
+    "clientsecret", "apisecret", "secretkey", "privatekey", "apikeyvalue"
+  ];
+  return `^(?:${words.map((word) => [...word].map((letter) => `[${letter.toLowerCase()}${letter.toUpperCase()}]`).join(separator)).join("|")})$`;
+}
+
+function safeEventPayloadValue(depth: number): Record<string, unknown> {
+  const primitive = [{ type: "null" }, { type: "boolean" }, { type: "number" }, { type: "string" }];
+  const propertyNames = { not: { pattern: secretFieldPattern() } };
+  if (depth === 8) {
+    return { anyOf: [...primitive, { type: "array", maxItems: 0 }, { type: "object", maxProperties: 0, propertyNames }] };
+  }
+  return {
+    anyOf: [
+      ...primitive,
+      { type: "array", items: { $ref: `#/$defs/__kNexEventPayloadDepth${depth + 1}` } },
+      { type: "object", propertyNames, additionalProperties: { $ref: `#/$defs/__kNexEventPayloadDepth${depth + 1}` } }
+    ]
+  };
+}
+
+function eventJsonSchema(): unknown {
+  const generated = jsonSchema(DurableEventEnvelopeSchema) as Record<string, any>;
+  const definitions = generated.$defs as Record<string, unknown>;
+  const payloadReference = generated.properties.payload.$ref as string;
+  const payloadDefinition = payloadReference.slice("#/$defs/".length);
+  definitions[payloadDefinition] = {
+    type: "object",
+    kNexMaxCanonicalBytes: EVENT_PAYLOAD_MAX_BYTES,
+    kNexNoSecretFields: true,
+    propertyNames: { not: { pattern: secretFieldPattern() } },
+    additionalProperties: { $ref: "#/$defs/__kNexEventPayloadDepth1" }
+  };
+  for (let depth = 1; depth <= 8; depth += 1) definitions[`__kNexEventPayloadDepth${depth}`] = safeEventPayloadValue(depth);
+  return generated;
+}
+
+function applicationJsonSchema(): unknown {
+  const generated = jsonSchema(ApplicationManifestSchema) as Record<string, any>;
+  const definitions = generated.$defs as Record<string, Record<string, any>>;
+  const runtimeReference = generated.properties.runtime.$ref as string;
+  const runtime = definitions[runtimeReference.slice("#/$defs/".length)];
+  const topology = runtime?.properties?.realtime as Record<string, any> | undefined;
+  if (!topology) throw new TypeError("Generated application schema is missing realtime topology.");
+  topology.allOf = [
+    { not: { properties: { adapter: { const: "distributed" } }, required: ["adapter"] } },
+    { properties: { webInstances: { const: 1 }, realtimeGateway: { const: "embedded" }, rollingDeployment: { const: "stop-before-start" } } },
+    { not: { properties: { worker: { const: "separate" }, workerInvalidationPath: { const: "direct" } }, required: ["worker", "workerInvalidationPath"] } }
+  ];
+  generated.allOf = [
+    {
+      if: {
+        properties: {
+          providers: {
+            properties: { "realtime.gateway": {} },
+            required: ["realtime.gateway"],
+            type: "object"
+          }
+        },
+        required: ["providers"],
+        type: "object"
+      },
+      then: {
+        properties: {
+          runtime: { properties: { realtime: {} }, required: ["realtime"], type: "object" }
+        },
+        required: ["runtime"],
+        type: "object"
+      }
+    }
+  ];
+  return generated;
+}
+
+function uiDocumentJsonSchema(): unknown {
+  const generated = jsonSchema(UiDocumentSchema) as Record<string, unknown>;
+  generated.kNexUiDocumentInvariants = true;
+  return generated;
+}
+
 interface Artifact {
   path: string;
   value: unknown;
@@ -39,9 +126,11 @@ const primaryArtifacts = [
   { path: "schemas/action.v1.schema.json", value: jsonSchema(ActionDescriptorSchema) },
   { path: "schemas/agent-tool.v1.schema.json", value: jsonSchema(AgentToolDescriptorSchema) },
   { path: "schemas/plugin-manifest.v1.schema.json", value: jsonSchema(PluginManifestSchema) },
-  { path: "schemas/application-manifest.v1.schema.json", value: jsonSchema(ApplicationManifestSchema) },
+  { path: "schemas/application-manifest.v1.schema.json", value: applicationJsonSchema() },
+  { path: "schemas/event.v1.schema.json", value: eventJsonSchema() },
   { path: "schemas/metric-scalar.v1.schema.json", value: jsonSchema(MetricScalarSchema) },
-  { path: "schemas/table-records.v1.schema.json", value: jsonSchema(TableRecordsSchema) }
+  { path: "schemas/table-records.v1.schema.json", value: jsonSchema(TableRecordsSchema) },
+  { path: "schemas/ui-document.v1.schema.json", value: uiDocumentJsonSchema() }
 ] satisfies readonly Artifact[];
 
 const outputContractSchemas = [

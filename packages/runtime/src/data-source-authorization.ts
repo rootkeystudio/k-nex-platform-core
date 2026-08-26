@@ -1,4 +1,4 @@
-import { TableRecordsSchema, type DataSourceDescriptor } from "@k-nex/contracts";
+import { dataSourceTableProjectionIsValid, resolveDataSourceFieldSelection, TableRecordsSchema, type DataSourceDescriptor } from "@k-nex/contracts";
 
 import {
   DataSourceGatewayError,
@@ -119,30 +119,18 @@ export class PolicyAuthorizationEvaluator implements AuthorizationEvaluator {
     });
     if (!decision.sourceAllowed) throw new DataSourceGatewayError("SOURCE_FORBIDDEN", 403, "Data source access is forbidden.");
 
-    if (new Set(request.selectedFields).size !== request.selectedFields.length) {
-      throw new DataSourceGatewayError("INVALID_FIELD_SELECTION", 400, "Selected fields are invalid.");
-    }
-    if (descriptor.primaryContract.id === "metric.scalar") {
-      if (request.selectedFields.length > 0) throw new DataSourceGatewayError("INVALID_FIELD_SELECTION", 400, "Metric sources do not accept field selection.");
-      return { selectedFields: Object.freeze([]), recordScope: decision.recordScope };
-    }
-
     const fields = new Map((descriptor.outputFields ?? []).map((field) => [field.id, field]));
-    if (request.selectedFields.some((fieldId) => !fields.has(fieldId))) {
-      throw new DataSourceGatewayError("INVALID_FIELD_SELECTION", 400, "Selected fields are invalid.");
-    }
-    const requested = new Set(request.selectedFields);
     const allowed = new Set(decision.allowedFields.filter((fieldId) => fields.has(fieldId)));
-    for (const field of fields.values()) {
-      if (field.binding === "required" && (!requested.has(field.id) || !allowed.has(field.id))) {
-        throw new DataSourceGatewayError("INSUFFICIENT_FIELD_PERMISSION", 403, "A required field is unavailable.");
-      }
+    const selection = resolveDataSourceFieldSelection(descriptor, request.selectedFields, allowed);
+    if (!selection.success) {
+      const insufficient = selection.reason === "REQUIRED_FIELD_NOT_REQUESTED" || selection.reason === "REQUIRED_FIELD_NOT_ALLOWED" || selection.reason === "NO_ALLOWED_FIELDS";
+      throw new DataSourceGatewayError(
+        insufficient ? "INSUFFICIENT_FIELD_PERMISSION" : "INVALID_FIELD_SELECTION",
+        insufficient ? 403 : 400,
+        insufficient ? "A required or selected field is unavailable." : "Selected fields are invalid."
+      );
     }
-    const selectedFields = request.selectedFields.filter((fieldId) => allowed.has(fieldId));
-    if (selectedFields.length === 0) {
-      throw new DataSourceGatewayError("INSUFFICIENT_FIELD_PERMISSION", 403, "No permitted fields are available.");
-    }
-    return { selectedFields: Object.freeze(selectedFields), recordScope: decision.recordScope };
+    return { selectedFields: selection.selectedFields, recordScope: decision.recordScope };
   }
 }
 
@@ -152,8 +140,7 @@ export class TableProjectionRedactor implements ProjectionRedactor {
     const parsed = TableRecordsSchema.safeParse(value);
     if (!parsed.success) throw new DataSourceGatewayError("INVALID_OUTPUT_CONTRACT", 500, "Data source violated its output contract.");
     const permitted = new Set(context.query.selectedFields);
-    const returned = new Set(parsed.data.fields);
-    if (context.query.selectedFields.some((fieldId) => !returned.has(fieldId))) {
+    if (!dataSourceTableProjectionIsValid(context.source.definition.descriptor, context.query.selectedFields, parsed.data, true)) {
       throw new DataSourceGatewayError("INVALID_SOURCE_OUTPUT", 500, "Data source omitted an authorized field.");
     }
     return {

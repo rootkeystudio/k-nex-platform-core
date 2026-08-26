@@ -5,8 +5,10 @@
     "schemas/agent-tool.v1.schema.json",
     "schemas/plugin-manifest.v1.schema.json",
     "schemas/application-manifest.v1.schema.json",
+    "schemas/event.v1.schema.json",
     "schemas/metric-scalar.v1.schema.json",
-    "schemas/table-records.v1.schema.json"
+    "schemas/table-records.v1.schema.json",
+    "schemas/ui-document.v1.schema.json"
   ],
   "generator": "@k-nex/architecture-contract-tools",
   "outputContracts": [

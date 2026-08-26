@@ -5,10 +5,14 @@ import { fileURLToPath } from "node:url";
 import {
   ActionDescriptorSchema,
   AgentToolDescriptorSchema,
+  ApplicationManifestSchema,
   canonicalJson,
+  DurableEventEnvelopeSchema,
+  isEventSecretFieldName,
   MetricScalarSchema,
   PluginManifestSchema,
-  TableRecordsSchema
+  TableRecordsSchema,
+  UiDocumentSchema
 } from "@k-nex/contracts";
 import { Ajv2020, type AnySchema } from "ajv/dist/2020.js";
 import addFormatsModule from "ajv-formats";
@@ -16,6 +20,35 @@ import addFormatsModule from "ajv-formats";
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 addFormatsModule.default(ajv);
+ajv.addKeyword({
+  keyword: "kNexMaxCanonicalBytes",
+  type: "object",
+  schemaType: "number",
+  errors: false,
+  validate: (maximum: number, data: unknown) => new TextEncoder().encode(canonicalJson(data)).byteLength <= maximum
+});
+ajv.addKeyword({
+  keyword: "kNexNoSecretFields",
+  type: "object",
+  schemaType: "boolean",
+  errors: false,
+  validate: (enabled: boolean, data: unknown) => {
+    if (!enabled) return true;
+    const visit = (value: unknown): boolean => {
+      if (Array.isArray(value)) return value.every(visit);
+      if (value === null || typeof value !== "object") return true;
+      return Object.entries(value).every(([key, child]) => !isEventSecretFieldName(key) && visit(child));
+    };
+    return visit(data);
+  }
+});
+ajv.addKeyword({
+  keyword: "kNexUiDocumentInvariants",
+  type: "object",
+  schemaType: "boolean",
+  errors: false,
+  validate: (enabled: boolean, data: unknown) => !enabled || UiDocumentSchema.safeParse(data).success
+});
 
 const circular: { self?: unknown } = {};
 circular.self = circular;
@@ -60,16 +93,26 @@ for (const relativePath of [
   "schemas/agent-tool.v1.schema.json",
   "schemas/plugin-manifest.v1.schema.json",
   "schemas/application-manifest.v1.schema.json",
+  "schemas/event.v1.schema.json",
   "schemas/metric-scalar.v1.schema.json",
   "schemas/table-records.v1.schema.json",
+  "schemas/ui-document.v1.schema.json",
   "fixtures/actions/valid/complete.json",
   "fixtures/actions/invalid/non-canonical-id.json",
   "fixtures/agent-tools/valid/read.json",
   "fixtures/agent-tools/invalid/executable-handler.json",
+  "fixtures/events/valid/durable.json",
+  "fixtures/events/invalid/realtime-class.json",
   "fixtures/output-contracts/valid/metric-scalar.json",
   "fixtures/output-contracts/valid/table-records.json",
   "fixtures/output-contracts/invalid/metric-scalar.json",
-  "fixtures/output-contracts/invalid/table-records.json"
+  "fixtures/output-contracts/invalid/table-records.json",
+  "fixtures/ui-documents/valid/cms.v1.json",
+  "fixtures/ui-documents/valid/workspace.v1.json",
+  "fixtures/ui-documents/invalid/duplicate-node-id.json",
+  "fixtures/ui-documents/invalid/non-namespaced-engine-metadata.json",
+  "fixtures/ui-documents/invalid/unrestricted-url.json",
+  "fixtures/ui-documents/invalid/unsafe-script.json"
 ]) {
   await loadCanonical(relativePath);
 }
@@ -78,14 +121,18 @@ const pluginSchema = await load<AnySchema>("schemas/plugin-manifest.v1.schema.js
 const actionSchema = await load<AnySchema>("schemas/action.v1.schema.json");
 const agentToolSchema = await load<AnySchema>("schemas/agent-tool.v1.schema.json");
 const applicationSchema = await load<AnySchema>("schemas/application-manifest.v1.schema.json");
+const eventSchema = await load<AnySchema>("schemas/event.v1.schema.json");
 const metricSchema = await load<AnySchema>("schemas/metric-scalar.v1.schema.json");
 const tableSchema = await load<AnySchema>("schemas/table-records.v1.schema.json");
+const uiDocumentSchema = await load<AnySchema>("schemas/ui-document.v1.schema.json");
 const validatePlugin = ajv.compile(pluginSchema);
 const validateAction = ajv.compile(actionSchema);
 const validateAgentTool = ajv.compile(agentToolSchema);
-ajv.compile(applicationSchema);
+const validateApplication = ajv.compile(applicationSchema);
+const validateEvent = ajv.compile(eventSchema);
 const validateMetric = ajv.compile(metricSchema);
 const validateTable = ajv.compile(tableSchema);
+const validateUiDocument = ajv.compile(uiDocumentSchema);
 
 const generatedContracts = await load<{
   artifacts: string[];
@@ -100,6 +147,9 @@ if (JSON.stringify(generatedContracts.outputContracts) !== JSON.stringify(output
 }
 for (const { schema } of outputContractSchemas) {
   if (!generatedContracts.artifacts.includes(schema)) throw new Error(`Generated artifact inventory is missing ${schema}.`);
+}
+if (!generatedContracts.artifacts.includes("schemas/ui-document.v1.schema.json")) {
+  throw new Error("Generated artifact inventory is missing schemas/ui-document.v1.schema.json.");
 }
 
 const driver = await load("fixtures/plugin-manifests/module.logistics.driver.json");
@@ -129,6 +179,63 @@ if (ActionDescriptorSchema.safeParse(invalidAction).success || validateAction(in
   throw new Error("Action fixture with a non-canonical ID must fail both authoring and generated schemas.");
 }
 
+const validEvent = await load("fixtures/events/valid/durable.json");
+if (!DurableEventEnvelopeSchema.safeParse(validEvent).success || !validateEvent(validEvent)) {
+  throw new Error(`Valid durable-event fixture failed its authoring or generated schema: ${ajv.errorsText(validateEvent.errors)}`);
+}
+const invalidEvent = await load("fixtures/events/invalid/realtime-class.json");
+if (DurableEventEnvelopeSchema.safeParse(invalidEvent).success || validateEvent(invalidEvent)) {
+  throw new Error("Realtime-class fixture must fail both durable-event authoring and generated schemas.");
+}
+const secretEvent = structuredClone(validEvent) as { payload: Record<string, unknown> };
+secretEvent.payload = { nested: [{ "private-note": "must never enter an event" }] };
+if (DurableEventEnvelopeSchema.safeParse(secretEvent).success || validateEvent(secretEvent)) {
+  throw new Error("Secret-bearing event payload must fail both Zod and generated JSON Schema validation.");
+}
+for (const key of [
+  "-password-", "_token_", "💣secret💣", "accessToken", "access_token", "access-token", "refreshToken", "clientSecret", "sessionToken", "apiKeyValue",
+  "credentials", "passwordHash", "authorizationHeader", "accessTokenValue", "refreshTokenValue", "clientSecretValue", "apiKeySecret"
+]) {
+  const separatedSecretEvent = structuredClone(validEvent) as { payload: Record<string, unknown> };
+  separatedSecretEvent.payload = { [key]: "must never enter an event" };
+  if (DurableEventEnvelopeSchema.safeParse(separatedSecretEvent).success || validateEvent(separatedSecretEvent)) {
+    throw new Error(`Secret-bearing event key ${key} must fail both Zod and generated JSON Schema validation.`);
+  }
+}
+for (const key of ["tokenCount", "token-count", "token_count", "tokenBudget", "token-budget", "token_budget", "secretaryName"]) {
+  const safeMetadataEvent = structuredClone(validEvent) as { payload: Record<string, unknown> };
+  safeMetadataEvent.payload = { [key]: 1 };
+  if (!DurableEventEnvelopeSchema.safeParse(safeMetadataEvent).success || !validateEvent(safeMetadataEvent)) {
+    throw new Error(`Safe event metadata key ${key} must pass both Zod and generated JSON Schema validation.`);
+  }
+}
+for (const occurredAt of ["2026-08-26T12:00:00Z", "2026-08-26T12:00:00.000001Z", "2026-08-26T08:00:00.000-04:00", "2026-08-26T12:00:00.000+00:00"]) {
+  const subMillisecondEvent = { ...(validEvent as Record<string, unknown>), occurredAt };
+  if (DurableEventEnvelopeSchema.safeParse(subMillisecondEvent).success || validateEvent(subMillisecondEvent)) {
+    throw new Error(`Non-millisecond event timestamp ${occurredAt} must fail both Zod and generated JSON Schema validation.`);
+  }
+}
+const oversizedEvent = structuredClone(validEvent) as { payload: Record<string, unknown> };
+oversizedEvent.payload = { data: "x".repeat(16_384) };
+if (DurableEventEnvelopeSchema.safeParse(oversizedEvent).success || validateEvent(oversizedEvent)) {
+  throw new Error("Oversized event payload must fail both Zod and generated JSON Schema validation.");
+}
+
+const validApplication = await load<Record<string, any>>("fixtures/customer-gate-1/k-nex.app.json");
+if (!ApplicationManifestSchema.safeParse(validApplication).success || !validateApplication(validApplication)) {
+  throw new Error(`Valid customer application must pass both Zod and generated JSON Schema validation: ${ajv.errorsText(validateApplication.errors)}`);
+}
+const incompatibleTopology = structuredClone(validApplication);
+incompatibleTopology.runtime.realtime.webInstances = 2;
+if (ApplicationManifestSchema.safeParse(incompatibleTopology).success || validateApplication(incompatibleTopology)) {
+  throw new Error("Incompatible memory topology must fail both Zod and generated JSON Schema validation.");
+}
+const missingTopology = structuredClone(validApplication);
+delete missingTopology.runtime.realtime;
+if (ApplicationManifestSchema.safeParse(missingTopology).success || validateApplication(missingTopology)) {
+  throw new Error("Selecting realtime.gateway without runtime.realtime must fail both Zod and generated JSON Schema validation.");
+}
+
 const outputContractFixtures = [
   { path: "fixtures/output-contracts/valid/metric-scalar.json", schema: MetricScalarSchema, validate: validateMetric, valid: true },
   { path: "fixtures/output-contracts/valid/table-records.json", schema: TableRecordsSchema, validate: validateTable, valid: true },
@@ -141,6 +248,27 @@ for (const fixture of outputContractFixtures) {
   const jsonSchemaValid = fixture.validate(value);
   if (fixture.valid && (!zodValid || !jsonSchemaValid)) {
     throw new Error(`Valid ${fixture.path} must pass both Zod and generated JSON Schema validation.`);
+  }
+  if (!fixture.valid && (zodValid || jsonSchemaValid)) {
+    throw new Error(`Structurally invalid ${fixture.path} must fail both Zod and generated JSON Schema validation.`);
+  }
+}
+
+const uiDocumentFixtures = [
+  { path: "fixtures/ui-documents/valid/cms.v1.json", valid: true },
+  { path: "fixtures/ui-documents/valid/workspace.v1.json", valid: true },
+  { path: "fixtures/ui-documents/invalid/duplicate-node-id.json", valid: false },
+  { path: "fixtures/ui-documents/invalid/non-namespaced-engine-metadata.json", valid: false },
+  { path: "fixtures/ui-documents/invalid/secret-uri-bypasses.json", valid: false },
+  { path: "fixtures/ui-documents/invalid/unrestricted-url.json", valid: false },
+  { path: "fixtures/ui-documents/invalid/unsafe-script.json", valid: false }
+] as const;
+for (const fixture of uiDocumentFixtures) {
+  const value = await load(fixture.path);
+  const zodValid = UiDocumentSchema.safeParse(value).success;
+  const jsonSchemaValid = validateUiDocument(value);
+  if (fixture.valid && (!zodValid || !jsonSchemaValid)) {
+    throw new Error(`Valid ${fixture.path} must pass both Zod and generated JSON Schema validation: ${ajv.errorsText(validateUiDocument.errors)}`);
   }
   if (!fixture.valid && (zodValid || jsonSchemaValid)) {
     throw new Error(`Structurally invalid ${fixture.path} must fail both Zod and generated JSON Schema validation.`);

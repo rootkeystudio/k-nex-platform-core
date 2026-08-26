@@ -19,6 +19,7 @@
     "@k-nex/contracts": "workspace:*",
     "@k-nex/module-sales": "file:packages/k-nex-module-sales-1.0.0.tgz",
     "@k-nex/payload-adapter": "workspace:*",
+    "@k-nex/provider-realtime-socketio": "file:packages/k-nex-provider-realtime-socketio-1.0.0.tgz",
     "@payloadcms/db-postgres": "3.88.0",
     "@payloadcms/next": "3.88.0",
     "graphql": "16.14.2",
@@ -31,6 +32,7 @@
     "@testcontainers/postgresql": "12.1.0",
     "@types/node": "24.13.3",
     "pg": "8.20.0",
+    "socket.io-client": "4.8.3",
     "typescript": "6.0.3"
   }
 }

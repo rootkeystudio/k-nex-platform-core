@@ -1,0 +1,26 @@
+{
+  "id": "cms.duplicate-node",
+  "profile": "cms",
+  "regions": {
+    "main": [
+      {
+        "id": "card-1",
+        "props": {
+          "heading": "First"
+        },
+        "type": "content.card",
+        "version": 1
+      },
+      {
+        "id": "card-1",
+        "props": {
+          "heading": "Second"
+        },
+        "type": "content.card",
+        "version": 1
+      }
+    ]
+  },
+  "schemaVersion": 1,
+  "version": 1
+}

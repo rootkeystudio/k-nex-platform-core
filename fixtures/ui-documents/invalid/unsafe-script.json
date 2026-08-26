@@ -1,0 +1,18 @@
+{
+  "id": "cms.unsafe-script",
+  "profile": "cms",
+  "regions": {
+    "main": [
+      {
+        "id": "script-block-1",
+        "props": {
+          "script": "return alert(1)"
+        },
+        "type": "content.code",
+        "version": 1
+      }
+    ]
+  },
+  "schemaVersion": 1,
+  "version": 1
+}
