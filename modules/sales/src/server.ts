@@ -80,6 +80,9 @@ const salesTaskFieldStorage = {
 } as const;
 
 const salesTaskFieldIds = new Set(Object.keys(salesTaskFieldStorage));
+const salesRequiredTaskFieldIds = new Set(
+  salesTaskFields?.filter((field) => field.binding === "required").map((field) => field.id) ?? []
+);
 const decimalPattern = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/;
 
 interface SalesPayloadRequest {
@@ -256,8 +259,10 @@ function formatAmount(amount: DecimalAmount): string {
   if (amount.units === 0n) return "0";
   const negative = amount.units < 0n;
   const digits = (negative ? -amount.units : amount.units).toString().padStart(amount.scale + 1, "0");
-  const split = amount.scale === 0 ? digits : `${digits.slice(0, -amount.scale)}.${digits.slice(-amount.scale)}`;
-  return `${negative ? "-" : ""}${split.replace(/\.?0+$/, "")}`;
+  if (amount.scale === 0) return `${negative ? "-" : ""}${digits}`;
+  const integer = digits.slice(0, -amount.scale);
+  const fraction = digits.slice(-amount.scale).replace(/0+$/, "");
+  return `${negative ? "-" : ""}${integer}${fraction.length === 0 ? "" : `.${fraction}`}`;
 }
 
 function moneyCell(value: unknown): Record<string, unknown> | null {
@@ -372,16 +377,74 @@ export const salesTasksDescriptor: DataSourceDescriptor = {
   cacheClass: "actor"
 };
 
+function invalidOutput(message: string) {
+  return { success: false as const, error: new Error(message) };
+}
+
+const salesTotalPotentialRevenueOutputSchema = {
+  safeParse(value: unknown) {
+    const parsed = MetricScalarSchema.safeParse(value);
+    if (!parsed.success) return parsed;
+    if (Object.keys(parsed.data).join("\u0000") !== "value") return invalidOutput("Sales revenue metrics cannot include comparisons.");
+    const metricValue = parsed.data.value;
+    if (metricValue.kind !== "money" || metricValue.currency !== "USD") {
+      return invalidOutput("Sales revenue metrics must be USD money values.");
+    }
+    if (Object.keys(metricValue).some((key) => key === "rounding")) {
+      return invalidOutput("Sales revenue metrics must use the source money shape.");
+    }
+    return parsed;
+  }
+};
+
+function exactTaskCell(fieldId: string, cell: unknown): boolean {
+  const field = salesTaskFields?.find((candidate) => candidate.id === fieldId);
+  if (field === undefined) return false;
+  if (cell === null) return field.nullable;
+  if (!isRecord(cell) || cell.kind !== field.kind) return false;
+  const expectedKeys = field.kind === "money"
+    ? ["kind", "value", "currency", "scale"]
+    : ["kind", "value"];
+  if (Object.keys(cell).join("\u0000") !== expectedKeys.join("\u0000")) return false;
+  if (!field.nullable && cell.value === null) return false;
+  if (fieldId === "potential-revenue" && cell.currency !== "USD") return false;
+  if (fieldId === "status" && cell.value !== "open" && cell.value !== "done") return false;
+  return true;
+}
+
+const salesTasksOutputSchema = {
+  safeParse(value: unknown) {
+    const parsed = TableRecordsSchema.safeParse(value);
+    if (!parsed.success) return parsed;
+    const { fields, rows } = parsed.data;
+    if (fields.some((fieldId) => !salesTaskFieldIds.has(fieldId)) || [...salesRequiredTaskFieldIds].some((fieldId) => !fields.includes(fieldId))) {
+      return invalidOutput("Sales task output fields do not match the source descriptor.");
+    }
+    for (const row of rows) {
+      const valueKeys = Object.keys(row.values);
+      if (valueKeys.join("\u0000") !== fields.join("\u0000")) {
+        return invalidOutput("Sales task rows must contain the selected fields in source order.");
+      }
+      for (const fieldId of fields) {
+        if (!exactTaskCell(fieldId, row.values[fieldId])) {
+          return invalidOutput("Sales task row cells do not match the source descriptor.");
+        }
+      }
+    }
+    return parsed;
+  }
+};
+
 export const salesTotalPotentialRevenueDefinition: DataSourceDefinition = {
   descriptor: salesTotalPotentialRevenueDescriptor,
   inputSchema: zodEmptyObject(),
-  outputSchema: MetricScalarSchema
+  outputSchema: salesTotalPotentialRevenueOutputSchema
 };
 
 export const salesTasksDefinition: DataSourceDefinition = {
   descriptor: salesTasksDescriptor,
   inputSchema: zodEmptyObject(),
-  outputSchema: TableRecordsSchema
+  outputSchema: salesTasksOutputSchema
 };
 
 function zodEmptyObject() {

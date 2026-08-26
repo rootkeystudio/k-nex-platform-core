@@ -65,6 +65,10 @@ The revenue metric aggregates canonical money values server-side in bounded page
 
 The packed module declares the host contracts runtime as an exact peer. Gate 1's lockfile identity loader accepts pnpm's peer-qualified file-tarball resolution while retaining exact integrity verification. A second customer-owned migration adds the proof fields and advances readiness evidence from predecessor/current `1/2`; the full real-Postgres Gate 1 still passes.
 
+The customer fixture also exposes one authenticated `POST /k-nex/data-source-query` vertical proof. It builds its catalog from the frozen declared-and-bound registration result, authenticates the Payload request, derives a server-owned Sales policy scope, and reuses the standard audience, authorization, budget, dispatch, exact source schema, canonical output, redaction, actor-cache, observation, and problem-detail stages. The real-PostgreSQL test proves open/done record-scope separation, required-field denial, optional-field omission, unknown-source rejection, and cross-actor cache isolation.
+
+Sales source schemas are stricter than their canonical contract families: the metric admits only the source's USD money shape, while the table admits only declared field IDs, required fields, exact per-field cell kinds/nullability, USD revenue, and known Sales statuses. Decimal aggregation tests cover integer trailing zeros, negative values, and mixed scales.
+
 ## Attack corpus
 
 | Required attack/evidence | Executable proof |

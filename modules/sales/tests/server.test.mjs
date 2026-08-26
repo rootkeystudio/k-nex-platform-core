@@ -89,6 +89,87 @@ test("the revenue source aggregates canonical money values on the server", async
   assert.deepEqual(calls[0].select, { id: true, potentialRevenue: true });
 });
 
+test("the revenue source preserves integer zeros and exact mixed-scale negatives", async () => {
+  const result = await salesTotalPotentialRevenueHandler(handlerContext({
+    query: { filters: [], sort: [] },
+    selectedFields: [],
+    request: {
+      payload: {
+        find: async () => ({
+          docs: [
+            { id: "a", potentialRevenue: "10" },
+            { id: "b", potentialRevenue: "20" },
+            { id: "c", potentialRevenue: "100" },
+            { id: "d", potentialRevenue: "1.20" },
+            { id: "e", potentialRevenue: "-2.005" },
+            { id: "f", potentialRevenue: "-0.5" }
+          ],
+          page: 1,
+          totalPages: 1,
+          hasNextPage: false
+        })
+      }
+    }
+  }));
+  assert.deepEqual(result, { value: { kind: "money", value: "128.695", currency: "USD", scale: 3 } });
+});
+
+test("Sales output schemas enforce source-specific money and task shapes", () => {
+  const validMetric = { value: { kind: "money", value: "20", currency: "USD", scale: 2 } };
+  assert.equal(salesTotalPotentialRevenueDefinition.outputSchema.safeParse(validMetric).success, true);
+  assert.equal(salesTotalPotentialRevenueDefinition.outputSchema.safeParse({ value: { ...validMetric.value, currency: "EUR" } }).success, false);
+  assert.equal(salesTotalPotentialRevenueDefinition.outputSchema.safeParse({ value: { kind: "decimal", value: "20", scale: 2 } }).success, false);
+  assert.equal(salesTotalPotentialRevenueDefinition.outputSchema.safeParse({ ...validMetric, comparison: { value: validMetric.value, sentiment: "neutral" } }).success, false);
+
+  const validTable = {
+    fields: ["title", "status", "potential-revenue"],
+    rows: [{
+      key: "task-1",
+      values: {
+        title: { kind: "text", value: "Follow-up" },
+        status: { kind: "status", value: "open" },
+        "potential-revenue": { kind: "money", value: "12.3", currency: "USD", scale: 2 }
+      }
+    }],
+    page: { number: 1, pageSize: 25, hasNext: false }
+  };
+  assert.equal(salesTasksDefinition.outputSchema.safeParse(validTable).success, true);
+  assert.equal(salesTasksDefinition.outputSchema.safeParse({
+    ...validTable,
+    fields: ["title", "status", "potential-revenue", "private-note"],
+    rows: [{
+      ...validTable.rows[0],
+      values: { ...validTable.rows[0].values, "potential-revenue": null, "private-note": null }
+    }]
+  }).success, true);
+  assert.equal(salesTasksDefinition.outputSchema.safeParse({ ...validTable, fields: ["title", "status"] }).success, false);
+  assert.equal(salesTasksDefinition.outputSchema.safeParse({ ...validTable, fields: ["title", "status", "unknown"] }).success, false);
+  assert.equal(salesTasksDefinition.outputSchema.safeParse({
+    ...validTable,
+    rows: [{ ...validTable.rows[0], values: { ...validTable.rows[0].values, status: { kind: "text", value: "open" } } }]
+  }).success, false);
+  assert.equal(salesTasksDefinition.outputSchema.safeParse({
+    ...validTable,
+    rows: [{ ...validTable.rows[0], values: { ...validTable.rows[0].values, status: { kind: "status", value: "paused" } } }]
+  }).success, false);
+  assert.equal(salesTasksDefinition.outputSchema.safeParse({
+    ...validTable,
+    rows: [{ ...validTable.rows[0], values: { ...validTable.rows[0].values, "potential-revenue": { kind: "money", value: "12.3", currency: "EUR", scale: 2 } } }]
+  }).success, false);
+  assert.equal(salesTasksDefinition.outputSchema.safeParse({
+    ...validTable,
+    rows: [{ ...validTable.rows[0], values: { title: null, status: validTable.rows[0].values.status, "potential-revenue": validTable.rows[0].values["potential-revenue"] } }]
+  }).success, false);
+  assert.equal(salesTasksDefinition.outputSchema.safeParse({
+    ...validTable,
+    rows: [{ ...validTable.rows[0], values: { title: validTable.rows[0].values.title, status: validTable.rows[0].values.status } }]
+  }).success, false);
+  assert.equal(salesTasksDefinition.outputSchema.safeParse({
+    ...validTable,
+    rows: [{ ...validTable.rows[0], values: { status: validTable.rows[0].values.status, title: validTable.rows[0].values.title, "potential-revenue": validTable.rows[0].values["potential-revenue"] } }]
+  }).success, false);
+});
+
 test("the task source applies bounded projection, allowlisted operations, and pagination", async () => {
   let call;
   const result = await salesTasksHandler(handlerContext({

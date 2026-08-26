@@ -10,20 +10,20 @@ const key = process.env.BOOT_KEY;
 const password = "gate1-authenticated-query-password";
 const payload = await bootGate1Application({ key });
 
+for (const email of ["gate1@example.test", "done@example.test", "no-note@example.test", "required-denied@example.test"]) {
+  await payload.create({ collection: "users", data: { email, password } });
+}
 await payload.create({
-  collection: "users",
-  data: { email: "gate1@example.test", password }
+  collection: "sales-tasks",
+  data: { title: "Authenticated Gate 1 query", status: "open", potentialRevenue: "100", privateNote: "open-secret" }
 });
 await payload.create({
   collection: "sales-tasks",
-  data: { title: "Authenticated Gate 1 query", status: "open" }
+  data: { title: "Done actor query", status: "done", potentialRevenue: "25", privateNote: "done-secret" }
 });
 
-const login = await payload.login({
-  collection: "users",
-  data: { email: "gate1@example.test", password },
-  overrideAccess: false
-});
+const loginAs = (email) => payload.login({ collection: "users", data: { email, password }, overrideAccess: false });
+const login = await loginAs("gate1@example.test");
 assert.ok(login.token);
 
 const authenticatedRequest = await createPayloadRequest({
@@ -40,8 +40,57 @@ const query = await payload.find({
   overrideAccess: false,
   req: authenticatedRequest
 });
-assert.equal(query.docs.length, 1);
-assert.equal(query.docs[0].title, "Authenticated Gate 1 query");
+assert.equal(query.docs.length, 2);
+assert.equal(query.docs.some((document) => document.title === "Authenticated Gate 1 query"), true);
+
+const dataSourceEndpoint = payload.config.endpoints.find(({ path }) => path === "/k-nex/data-source-query");
+assert.ok(dataSourceEndpoint);
+const sourceBody = {
+  sourceId: "sales.tasks",
+  surface: "workspace",
+  input: {},
+  query: { page: { number: 1, size: 25 }, filters: [], sort: [] },
+  selectedFields: ["title", "status", "potential-revenue", "private-note"]
+};
+const sourceRequest = async (token, body = sourceBody) => createPayloadRequest({
+  config: payload.config,
+  payloadInstanceCacheKey: key,
+  request: new Request("http://localhost/api/k-nex/data-source-query", {
+    method: "POST",
+    headers: { authorization: `JWT ${token}`, "content-type": "application/json" },
+    body: JSON.stringify(body)
+  })
+});
+const callSource = async (token, body) => dataSourceEndpoint.handler(await sourceRequest(token, body));
+
+const openResponse = await callSource(login.token);
+assert.equal(openResponse.status, 200);
+const openResult = await openResponse.json();
+assert.deepEqual(openResult.data.fields, sourceBody.selectedFields);
+assert.deepEqual(openResult.data.rows.map((row) => row.values.title.value), ["Authenticated Gate 1 query"]);
+
+const unknownResponse = await callSource(login.token, { ...sourceBody, sourceId: "sales.tasks.other" });
+assert.equal(unknownResponse.status, 404);
+assert.equal((await unknownResponse.json()).code, "SOURCE_NOT_FOUND");
+
+const deniedLogin = await loginAs("required-denied@example.test");
+const deniedResponse = await callSource(deniedLogin.token, { ...sourceBody, selectedFields: sourceBody.selectedFields.slice(0, 3) });
+assert.equal(deniedResponse.status, 403);
+assert.equal((await deniedResponse.json()).code, "INSUFFICIENT_FIELD_PERMISSION");
+
+const noNoteLogin = await loginAs("no-note@example.test");
+const noNoteResponse = await callSource(noNoteLogin.token);
+assert.equal(noNoteResponse.status, 200);
+const noNoteResult = await noNoteResponse.json();
+assert.deepEqual(noNoteResult.data.fields, sourceBody.selectedFields.slice(0, 3));
+assert.equal("private-note" in noNoteResult.data.rows[0].values, false);
+
+const doneLogin = await loginAs("done@example.test");
+const doneResponse = await callSource(doneLogin.token);
+assert.equal(doneResponse.status, 200);
+const doneResult = await doneResponse.json();
+assert.deepEqual(doneResult.data.rows.map((row) => row.values.title.value), ["Done actor query"]);
+assert.notDeepEqual(doneResult.data.rows, openResult.data.rows);
 
 const unauthenticatedRequest = await createPayloadRequest({
   config: payload.config,

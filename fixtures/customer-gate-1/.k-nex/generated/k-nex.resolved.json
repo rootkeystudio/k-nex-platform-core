@@ -33,7 +33,7 @@
         "names": []
       },
       "id": "module.sales",
-      "integrity": "sha512-WNOUkZe2OcxG25+Ab7SdnCBfUXGm200HK+w/Dms7CcvQ2qs25SUXKUoipQv7D+aUphcZ8/LWeTeTFfSbnqMukg==",
+      "integrity": "sha512-7QNLJKJDHh6bDyRzDPd8eIbnxD3+yyVtapWmCh4q/2nCh/yTStWqSJXaaIC3Qp5tG0/2pZeWpclKnLEcJ+CLVg==",
       "kind": "module",
       "lifecycle": {
         "disable": "supported",
