@@ -7,7 +7,7 @@
 
 ## Last completed
 
-The eighth fresh Sol/high review returned **PASS** for the complete Phase 4 range and corrected closeout candidate. Phase 4 records **ACCEPT PUCK** and remains ready for PR review. Correction cycles covered persisted-input filtering, publication authority, source parity, edit constraints, non-canvas preservation, controlled keyboard state, and closeout accuracy.
+Phase 4 records **ACCEPT PUCK** after the eighth fresh Sol/high review returned **PASS**. PR #17 is open and ready for designated project-manager review; its required GitHub `validate` check has not been scheduled for the current head.
 
 ## Validation
 
@@ -15,8 +15,8 @@ On exact Node.js 24.19.0 and pnpm 11.9.0, full `pnpm phase:0` and `pnpm gate:4` 
 
 ## Next
 
-Await designated project-manager review and merge of Phase 4 PR #17. P5.1 begins only after that merge.
+Await the required `validate` check plus designated project-manager review and merge of Phase 4 PR #17. P5.1 begins only after that merge.
 
 ## Blockers
 
-None.
+GitHub has created no Actions run or check status for PR #17 even though Actions and the active workflow are enabled; the `main` ruleset therefore blocks merge on required check `validate`.
