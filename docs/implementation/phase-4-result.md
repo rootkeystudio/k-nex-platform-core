@@ -64,7 +64,7 @@ git diff --check
 git status --porcelain --untracked-files=all
 ```
 
-`pnpm gate:4` chains the Gate 2A and Gate 3 prerequisites, including the real customer PostgreSQL fixture, package/bundle boundary checks, and the real Chromium accessibility journey. The required workflow now runs only Phase 0 and this non-duplicated Gate 4 chain. Contract generation is reproducible at SHA-256 `a2f97ad2c8433e1ffec46644310abea11fb02b1ac8edef3bb3820a8afdda91a2`.
+`pnpm gate:4` chains the Gate 2A and Gate 3 prerequisites, including the real customer PostgreSQL fixture, package/bundle boundary checks, and the real Chromium accessibility journey. The required workflow now runs only Phase 0 and this non-duplicated Gate 4 chain. Contract generation is reproducible at SHA-256 `4b420ac0fbac80e5b9d9530e9be1a37de73db303a026faf8b391d129eed8e7f2`.
 
 The first clean correction CI run additionally proved that TypeScript's incremental `dist/tsconfig.tsbuildinfo` cache is machine-specific and must not be distributed. The provider package allowlist now explicitly excludes that cache, the committed archive contains only runtime declarations, JavaScript, source maps, manifest, and package metadata, and the synchronized provider integrity is `sha512-1AcAhPuIPKRi2JCft6dJPiLcN9as1r69/FXvYcKHDy6l3yFslwALsb2uvPxa6+e5UTYazv0Nr2SyDVJYwaCugw==`.
 

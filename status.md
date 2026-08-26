@@ -11,7 +11,7 @@ All eight blockers from the designated project-manager review anchored to `54ad5
 
 ## Validation
 
-The correction-local build, generated AJV parity validation, contracts, payload adapter, realtime provider, UI runtime, builder tests, bundle boundaries, deterministic provider packing, lockfile resolution, isolated outbox fairness regression, and root Playwright acceptance tooling pass on exact Node.js 24.19.0 and pnpm 11.9.0. Contract generation is reproducible at SHA-256 `a2f97ad2c8433e1ffec46644310abea11fb02b1ac8edef3bb3820a8afdda91a2`. Final acceptance uses the complete project-manager command list on the exact pushed head; results are attached to PR #17 without merging it. The first correction CI run provided the additional clean-machine package-cache exclusion regression and is superseded by the final-head run.
+The correction-local build, generated AJV parity validation, contracts, payload adapter, realtime provider, UI runtime, builder tests, bundle boundaries, deterministic provider packing, lockfile resolution, isolated outbox fairness regression, and root Playwright acceptance tooling pass on exact Node.js 24.19.0 and pnpm 11.9.0. Contract generation is reproducible at SHA-256 `4b420ac0fbac80e5b9d9530e9be1a37de73db303a026faf8b391d129eed8e7f2`. Final acceptance uses the complete project-manager command list on the exact pushed head; results are attached to PR #17 without merging it. The first correction CI run provided the additional clean-machine package-cache exclusion regression and is superseded by the final-head run.
 
 ## Next
 
