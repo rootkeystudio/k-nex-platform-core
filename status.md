@@ -15,7 +15,7 @@ On exact Node.js 24.19.0 and pnpm 11.9.0, full `pnpm phase:0` and `pnpm gate:4` 
 
 ## Next
 
-Commit and push the reviewed Phase 4 result, then open its pull request without merging or auto-merge. P5.1 begins only after Phase 4 review and merge.
+Await designated project-manager review and merge of Phase 4 PR #17. P5.1 begins only after that merge.
 
 ## Blockers
 
