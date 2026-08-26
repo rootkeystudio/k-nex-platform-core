@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-26
 - **Phase:** Phase 2 — Authenticated Data Sources and Output Contracts
-- **Active task:** P2.2 — Define source descriptor and handler registration APIs
+- **Active task:** P2.3 — Build the staged data-source gateway pipeline
 - **State:** In progress
 
 ## Last completed
 
-Implemented strict typed `metric.scalar@1` and `table.records@1` Zod contracts, semantic fixtures/tests, deterministic Draft 2020-12 schemas, and Zod/Ajv validation parity.
+Added strict source descriptors, independent source/schema/contract identity, bounded field and policy metadata, executable schema definitions, and typed declare-before-bind server handlers.
 
 ## Validation
 
-Frozen install, contracts build, 26 Metric/Table semantic tests, deterministic generation, generated-schema validation, Ajv compilation, and repository contract validation pass.
+Contracts and composition builds pass with 34 contract tests and 87 composition tests, including source identity, public/internal policy, unsafe metadata, ownership, descriptor/handler mismatch, and action-binding regression coverage.
 
 ## Next
 
-Complete P2.2 with the minimal descriptor/contracts and server handler-registration surface required by the two Sales proof sources.
+Complete P2.3 with the independently tested staged gateway in the documented secure order.
 
 ## Blockers
 

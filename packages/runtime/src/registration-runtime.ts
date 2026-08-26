@@ -1,5 +1,5 @@
-import type { PluginManifest, RegistrationPhase } from "@k-nex/contracts";
-import { registrationPhases } from "@k-nex/contracts";
+import type { DataSourceDefinition, PluginManifest, RegistrationPhase } from "@k-nex/contracts";
+import { assertDataSourceDefinition, registrationPhases } from "@k-nex/contracts";
 import * as semver from "semver";
 
 import type { InstalledPluginManifest, ResolvedPluginGraph } from "@k-nex/composition";
@@ -19,6 +19,17 @@ export const contributionKinds = [
 export type ContributionKind = (typeof contributionKinds)[number];
 export type BoundContributionKind = "dataSources" | "actions" | "blocks";
 
+/** Server-only request passed to a registered authenticated data-source handler. */
+export interface DataSourceHandlerRequest {
+  readonly actor: unknown;
+  readonly request: unknown;
+  readonly input: unknown;
+  readonly selectedFields: readonly string[];
+  readonly signal: AbortSignal;
+}
+
+export type DataSourceHandler = (request: DataSourceHandlerRequest) => unknown | Promise<unknown>;
+
 export type RegistrationErrorCode =
   | "GRAPH_MISMATCH"
   | "WRONG_PHASE"
@@ -28,6 +39,7 @@ export type RegistrationErrorCode =
   | "PROVIDER_MISMATCH"
   | "DUPLICATE_CONTRIBUTION"
   | "DUPLICATE_BINDING"
+  | "INVALID_CONTRIBUTION"
   | "FROZEN"
   | "INVENTORY_MISMATCH";
 
@@ -53,7 +65,8 @@ interface PhaseContext {
 }
 
 export interface ContractsRegistrationContext extends PhaseContext {
-  register(kind: "contracts" | "dataSources" | "actions" | "blocks", id: string, value: unknown): void;
+  register(kind: "dataSources", id: string, value: DataSourceDefinition): void;
+  register(kind: "contracts" | "actions" | "blocks", id: string, value: unknown): void;
 }
 
 export interface ProvidersRegistrationContext extends PhaseContext {
@@ -65,7 +78,8 @@ export interface SingleKindRegistrationContext extends PhaseContext {
 }
 
 export interface DataHandlersRegistrationContext extends PhaseContext {
-  bind(kind: "dataSources" | "actions", id: string, handler: unknown): void;
+  bind(kind: "dataSources", id: string, handler: DataSourceHandler): void;
+  bind(kind: "actions", id: string, handler: unknown): void;
 }
 
 export interface UiRegistrationContext extends PhaseContext {
@@ -268,6 +282,21 @@ export function executeRegistration(options: ExecuteRegistrationOptions): Regist
     if (!declarations.get(pluginId)?.get(kind)?.has(id)) {
       fail("UNDECLARED_CONTRIBUTION", `Plugin ${pluginId} did not declare ${kind} contribution ${id}.`, [pluginId, kind, id]);
     }
+    if (kind === "dataSources") {
+      let definition: DataSourceDefinition;
+      try {
+        assertDataSourceDefinition(value);
+        definition = value;
+      } catch {
+        fail("INVALID_CONTRIBUTION", `Data-source contribution ${id} must be a valid definition.`, [pluginId, kind, id]);
+      }
+      if (definition.descriptor.id !== id) {
+        fail("INVALID_CONTRIBUTION", `Data-source descriptor ID must match contribution ID ${id}.`, [pluginId, kind, id]);
+      }
+      if (definition.descriptor.ownerPluginId !== pluginId) {
+        fail("INVALID_CONTRIBUTION", `Data-source descriptor owner must match plugin ${pluginId}.`, [pluginId, kind, id]);
+      }
+    }
     const owner = contributionOwners.get(id);
     if (owner) fail("DUPLICATE_CONTRIBUTION", `Contribution ${id} is already registered by ${owner}.`, [id, owner, pluginId]);
     contributionOwners.set(id, pluginId);
@@ -282,6 +311,9 @@ export function executeRegistration(options: ExecuteRegistrationOptions): Regist
     value: unknown
   ): void => {
     assertPhase(expectedPhase, pluginId);
+    if (kind === "dataSources" && typeof value !== "function") {
+      fail("INVALID_CONTRIBUTION", `Data-source binding ${id} must be a handler function.`, [pluginId, kind, id]);
+    }
     if (!actual.get(pluginId)?.get(kind)?.has(id)) {
       fail("UNDECLARED_CONTRIBUTION", `Plugin ${pluginId} cannot bind undeclared ${kind} contribution ${id}.`, [pluginId, kind, id]);
     }

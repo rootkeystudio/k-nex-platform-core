@@ -1,11 +1,12 @@
-import type { PluginManifest } from "@k-nex/contracts";
-import { registrationPhases } from "@k-nex/contracts";
+import type { DataSourceDefinition, PluginManifest } from "@k-nex/contracts";
+import { DataSourceDescriptorSchema, registrationPhases } from "@k-nex/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { InstalledPluginManifest, ResolvedPluginGraph } from "@k-nex/composition";
 import {
   executeRegistration,
   RegistrationError,
+  type DataSourceHandler,
   type PluginRegistration,
   type SingleKindRegistrationContext
 } from "../src/registration-runtime.js";
@@ -16,6 +17,39 @@ const compatibility = {
   node: ">=24.0.0 <25.0.0",
   payloadDatabaseAdapters: ["postgres" as const]
 };
+
+function dataSourceDefinition(id: string, ownerPluginId = "module.consumer"): DataSourceDefinition {
+  return {
+    descriptor: {
+      id,
+      version: 1,
+      ownerPluginId,
+      primaryContract: { id: "metric.scalar", version: 1 },
+      sourceSchema: { id: `${id}.schema`, version: 1 },
+      audience: "authenticated",
+      surfaces: ["workspace"],
+      permission: "consumer.read",
+      structuralCompatibilityHash: `sha256:${"0".repeat(64)}`,
+      presentationMetadataRevision: 1,
+      title: "Consumer source",
+      inputFields: [],
+      limits: {
+        maxSelectedFields: 1,
+        maxPageSize: 100,
+        maxFilters: 0,
+        maxSorts: 0,
+        maxBodyBytes: 1024,
+        maxResultBytes: 1024,
+        timeoutMs: 1000,
+        maxConcurrency: 1,
+        maxCost: 1
+      },
+      cacheClass: "actor"
+    },
+    inputSchema: DataSourceDescriptorSchema,
+    outputSchema: DataSourceDescriptorSchema
+  };
+}
 
 function providerManifest(contributions: PluginManifest["contributions"] = undefined): PluginManifest {
   return {
@@ -115,12 +149,17 @@ function graph(): ResolvedPluginGraph {
   };
 }
 
-function completeConsumer(onBehavior?: (services: { get<T = unknown>(capability: string): T }) => void): PluginRegistration {
+function completeConsumer(
+  onBehavior?: (services: { get<T = unknown>(capability: string): T }) => void,
+  sourceDefinition: DataSourceDefinition = dataSourceDefinition("consumer.source"),
+  sourceHandler: DataSourceHandler = () => undefined,
+  actionHandler: unknown = () => undefined
+): PluginRegistration {
   return {
     pluginId: "module.consumer",
     contracts(context) {
       context.register("contracts", "consumer.contract", {});
-      context.register("dataSources", "consumer.source", {});
+      context.register("dataSources", "consumer.source", sourceDefinition);
       context.register("actions", "consumer.action", {});
       context.register("blocks", "consumer.block", {});
     },
@@ -131,8 +170,8 @@ function completeConsumer(onBehavior?: (services: { get<T = unknown>(capability:
     },
     jobs: (context) => context.register("consumer.job", () => undefined),
     dataHandlers(context) {
-      context.bind("dataSources", "consumer.source", () => undefined);
-      context.bind("actions", "consumer.action", () => undefined);
+      context.bind("dataSources", "consumer.source", sourceHandler);
+      context.bind("actions", "consumer.action", actionHandler);
     },
     ui(context) {
       context.bindBlock("consumer.block", {});
@@ -239,6 +278,50 @@ describe("phased registration runtime", () => {
     });
     expect(Object.isFrozen(result)).toBe(true);
     expect(Object.isFrozen(result.inventory)).toBe(true);
+  });
+
+  it("accepts a valid data-source definition and server handler binding", () => {
+    const definition = dataSourceDefinition("consumer.source");
+    const handler: DataSourceHandler = ({ input, selectedFields, signal }) => ({ input, selectedFields, signal });
+    const result = run([providerRegistration(), completeConsumer(undefined, definition, handler)]);
+
+    expect(result.contributions.dataSources).toEqual([{ pluginId: "module.consumer", id: "consumer.source", value: definition }]);
+    expect(result.bindings.dataSources).toEqual([{ pluginId: "module.consumer", id: "consumer.source", value: handler }]);
+  });
+
+  it("rejects invalid data-source definitions", () => {
+    const consumer = completeConsumer();
+    expectCode(() => run([providerRegistration(), {
+      ...consumer,
+      contracts(context) {
+        context.register("dataSources", "consumer.source", {} as never);
+      }
+    }]), "INVALID_CONTRIBUTION");
+  });
+
+  it("rejects data-source descriptor IDs that differ from contribution IDs", () => {
+    expectCode(() => run([providerRegistration(), completeConsumer(undefined, dataSourceDefinition("consumer.other"))]), "INVALID_CONTRIBUTION");
+  });
+
+  it("rejects data-source descriptors owned by another plugin", () => {
+    expectCode(() => run([providerRegistration(), completeConsumer(undefined, dataSourceDefinition("consumer.source", "provider.storage"))]), "INVALID_CONTRIBUTION");
+  });
+
+  it("rejects non-function data-source bindings", () => {
+    const consumer = completeConsumer();
+    expectCode(() => run([providerRegistration(), {
+      ...consumer,
+      dataHandlers(context) {
+        context.bind("dataSources", "consumer.source", {} as never);
+      }
+    }]), "INVALID_CONTRIBUTION");
+  });
+
+  it("keeps action binding values unconstrained", () => {
+    const action = { execute: "consumer.action" };
+    const result = run([providerRegistration(), completeConsumer(undefined, dataSourceDefinition("consumer.source"), undefined, action)]);
+
+    expect(result.bindings.actions).toEqual([{ pluginId: "module.consumer", id: "consumer.action", value: action }]);
   });
 
   it("rejects registration through an API retained from the wrong phase", () => {
