@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-26
 - **Phase:** Phase 4 — Builder Engine Kill-Spike
-- **Active task:** P4.4 — fixed shell and profile-specific palettes
+- **Active task:** P4.5 — one static and one authenticated data block
 - **State:** Active
 
 ## Last completed
 
-P4.3 added the isolated `@k-nex/builder-puck` adapter on current `@puckeditor/core` 0.23.0. Canonical documents map to Puck data/config through engine-neutral field definitions and a controlled child slot; untouched props, bindings, layout, namespaced metadata, nested nodes, and non-canvas regions survive round-trip. Existing edits and palette insertions serialize back to canonical V1 data, malformed editor data fails closed, and the package owns the only Puck editor host. No Puck import appears outside the adapter package.
+P4.4 proved the fixed-shell and profile-policy boundary. Authentication, routing, sidebar, top bar, system screens, and global dialogs are structural siblings outside the editor canvas. CMS and workspace resolve separate block palettes, source/action allowlists, and publication rules over the same Puck engine; profile identity and recursive source allowlists are enforced on both load and serialization, not only hidden in editor UI.
 
 ## Validation
 
-On Node.js 24.19.0 and pnpm 11.9.0: `pnpm phase:0` passes with 104 contract, 10 UI-runtime, eight builder-Puck, 152 core-runtime, 75 composition, 41 Payload-adapter, 22 realtime-provider, eight Sales, 25 architecture-tool, and customer composition tests. Contract generation remains reproducible at SHA-256 `fce4d521cd4b9eee361b4eb475e7afd7bb61c34a838b7805a81266ef7e6b0e1b`; the boundary audit finds no Puck import outside `packages/builder-puck`.
+On Node.js 24.19.0 and pnpm 11.9.0: the builder-Puck build and all 12 focused adapter/profile/fixed-shell tests pass. The prior full `pnpm phase:0` passed with the current Puck dependency and all repository suites; contract generation remains reproducible at SHA-256 `fce4d521cd4b9eee361b4eb475e7afd7bb61c34a838b7805a81266ef7e6b0e1b`, and no Puck import exists outside `packages/builder-puck`.
 
 ## Next
 
-Execute P4.4 — fixed shell and profile-specific palettes — in documented Phase 4 order.
+Execute P4.5 — one static and one authenticated data block — in documented Phase 4 order.
 
 ## Blockers
 
