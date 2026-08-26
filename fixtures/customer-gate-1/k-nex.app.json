@@ -14,9 +14,9 @@
     "realtime": {
       "adapter": "memory",
       "webInstances": 1,
-      "worker": "embedded",
+      "worker": "separate",
+      "workerInvalidationPath": "postgres-outbox-relay",
       "realtimeGateway": "embedded",
-      "invalidationPublishers": ["web"],
       "rollingDeployment": "stop-before-start"
     }
   },

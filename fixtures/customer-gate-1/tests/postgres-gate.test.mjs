@@ -130,6 +130,12 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
     assert.equal(outboxProcessing.code, 0, `${outboxProcessing.stdout}\n${outboxProcessing.stderr}`);
     assert.match(outboxProcessing.stdout, /^P3_3_OUTBOX_PROCESSING_PASS$/m);
 
+    const distributedRealtime = await runFixtureProcess("tests/distributed-realtime.mjs", connectionString, {
+      BOOT_KEY: "gate3-6-distributed-realtime"
+    });
+    assert.equal(distributedRealtime.code, 0, `${distributedRealtime.stdout}\n${distributedRealtime.stderr}`);
+    assert.match(distributedRealtime.stdout, /^P3_6_DISTRIBUTED_REALTIME_PASS$/m);
+
     const p32Cases = [
       {
         mode: "commit",

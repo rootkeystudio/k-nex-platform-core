@@ -9,20 +9,12 @@
     },
     "__schema10": {
       "enum": [
-        "web",
-        "worker",
-        "realtime-gateway"
-      ],
-      "type": "string"
-    },
-    "__schema11": {
-      "enum": [
         "stop-before-start",
         "overlap"
       ],
       "type": "string"
     },
-    "__schema12": {
+    "__schema11": {
       "additionalProperties": false,
       "properties": {
         "payload": {
@@ -63,7 +55,7 @@
       ],
       "type": "object"
     },
-    "__schema13": {
+    "__schema12": {
       "items": {
         "additionalProperties": false,
         "properties": {
@@ -71,16 +63,16 @@
             "type": "boolean"
           },
           "id": {
-            "$ref": "#/$defs/__schema14"
+            "$ref": "#/$defs/__schema13"
           },
           "options": {
-            "$ref": "#/$defs/__schema16"
+            "$ref": "#/$defs/__schema15"
           },
           "package": {
             "type": "string"
           },
           "version": {
-            "$ref": "#/$defs/__schema15"
+            "$ref": "#/$defs/__schema14"
           }
         },
         "required": [
@@ -93,34 +85,34 @@
       },
       "type": "array"
     },
-    "__schema14": {
+    "__schema13": {
       "pattern": "^(module|provider|builder|theme|integration|preset)(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
       "type": "string"
     },
-    "__schema15": {
+    "__schema14": {
       "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$",
       "type": "string"
     },
-    "__schema16": {
+    "__schema15": {
       "additionalProperties": {},
       "properties": {},
       "type": "object"
     },
-    "__schema17": {
+    "__schema16": {
       "additionalProperties": {
         "additionalProperties": false,
         "properties": {
           "options": {
-            "$ref": "#/$defs/__schema16"
+            "$ref": "#/$defs/__schema15"
           },
           "package": {
             "type": "string"
           },
           "plugin": {
-            "$ref": "#/$defs/__schema14"
+            "$ref": "#/$defs/__schema13"
           },
           "version": {
-            "$ref": "#/$defs/__schema15"
+            "$ref": "#/$defs/__schema14"
           }
         },
         "required": [
@@ -136,7 +128,7 @@
       },
       "type": "object"
     },
-    "__schema18": {
+    "__schema17": {
       "additionalProperties": false,
       "properties": {
         "package": {
@@ -147,10 +139,10 @@
           "type": "string"
         },
         "profiles": {
-          "$ref": "#/$defs/__schema16"
+          "$ref": "#/$defs/__schema15"
         },
         "version": {
-          "$ref": "#/$defs/__schema15"
+          "$ref": "#/$defs/__schema14"
         }
       },
       "required": [
@@ -161,7 +153,7 @@
       ],
       "type": "object"
     },
-    "__schema19": {
+    "__schema18": {
       "additionalProperties": {},
       "properties": {
         "database": {
@@ -202,6 +194,28 @@
       },
       "required": [
         "database"
+      ],
+      "type": "object"
+    },
+    "__schema19": {
+      "additionalProperties": false,
+      "properties": {
+        "commitGeneratedRegistries": {
+          "const": true,
+          "type": "boolean"
+        },
+        "dockerfile": {
+          "type": "boolean"
+        },
+        "validateGeneratedFilesInCI": {
+          "const": true,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "dockerfile",
+        "commitGeneratedRegistries",
+        "validateGeneratedFilesInCI"
       ],
       "type": "object"
     },
@@ -247,31 +261,9 @@
     "__schema20": {
       "additionalProperties": false,
       "properties": {
-        "commitGeneratedRegistries": {
-          "const": true,
-          "type": "boolean"
-        },
-        "dockerfile": {
-          "type": "boolean"
-        },
-        "validateGeneratedFilesInCI": {
-          "const": true,
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "dockerfile",
-        "commitGeneratedRegistries",
-        "validateGeneratedFilesInCI"
-      ],
-      "type": "object"
-    },
-    "__schema21": {
-      "additionalProperties": false,
-      "properties": {
         "required": {
           "items": {
-            "$ref": "#/$defs/__schema22"
+            "$ref": "#/$defs/__schema21"
           },
           "type": "array",
           "uniqueItems": true
@@ -282,7 +274,7 @@
       ],
       "type": "object"
     },
-    "__schema22": {
+    "__schema21": {
       "pattern": "^[A-Z][A-Z0-9_]*$",
       "type": "string"
     },
@@ -317,28 +309,28 @@
             "adapter": {
               "$ref": "#/$defs/__schema5"
             },
-            "invalidationPublishers": {
+            "realtimeGateway": {
               "$ref": "#/$defs/__schema9"
             },
-            "realtimeGateway": {
-              "$ref": "#/$defs/__schema8"
-            },
             "rollingDeployment": {
-              "$ref": "#/$defs/__schema11"
+              "$ref": "#/$defs/__schema10"
             },
             "webInstances": {
               "$ref": "#/$defs/__schema6"
             },
             "worker": {
               "$ref": "#/$defs/__schema7"
+            },
+            "workerInvalidationPath": {
+              "$ref": "#/$defs/__schema8"
             }
           },
           "required": [
             "adapter",
             "webInstances",
             "worker",
+            "workerInvalidationPath",
             "realtimeGateway",
-            "invalidationPublishers",
             "rollingDeployment"
           ],
           "type": "object"
@@ -373,18 +365,18 @@
     },
     "__schema8": {
       "enum": [
-        "embedded",
-        "separate"
+        "none",
+        "direct",
+        "postgres-outbox-relay"
       ],
       "type": "string"
     },
     "__schema9": {
-      "items": {
-        "$ref": "#/$defs/__schema10"
-      },
-      "minItems": 1,
-      "type": "array",
-      "uniqueItems": true
+      "enum": [
+        "embedded",
+        "separate"
+      ],
+      "type": "string"
     }
   },
   "$id": "https://schemas.k-nex.dev/application/v1.json",
@@ -398,25 +390,25 @@
       "$ref": "#/$defs/__schema2"
     },
     "build": {
-      "$ref": "#/$defs/__schema20"
-    },
-    "builder": {
-      "$ref": "#/$defs/__schema18"
-    },
-    "development": {
       "$ref": "#/$defs/__schema19"
     },
+    "builder": {
+      "$ref": "#/$defs/__schema17"
+    },
+    "development": {
+      "$ref": "#/$defs/__schema18"
+    },
     "environment": {
-      "$ref": "#/$defs/__schema21"
+      "$ref": "#/$defs/__schema20"
     },
     "framework": {
-      "$ref": "#/$defs/__schema12"
+      "$ref": "#/$defs/__schema11"
     },
     "plugins": {
-      "$ref": "#/$defs/__schema13"
+      "$ref": "#/$defs/__schema12"
     },
     "providers": {
-      "$ref": "#/$defs/__schema17"
+      "$ref": "#/$defs/__schema16"
     },
     "runtime": {
       "$ref": "#/$defs/__schema4"
@@ -425,7 +417,7 @@
       "$ref": "#/$defs/__schema1"
     },
     "themes": {
-      "$ref": "#/$defs/__schema16"
+      "$ref": "#/$defs/__schema15"
     }
   },
   "required": [

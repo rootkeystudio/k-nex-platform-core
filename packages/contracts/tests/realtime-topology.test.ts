@@ -6,8 +6,8 @@ const memory = {
   adapter: "memory",
   webInstances: 1,
   worker: "embedded",
+  workerInvalidationPath: "direct",
   realtimeGateway: "embedded",
-  invalidationPublishers: ["web"],
   rollingDeployment: "stop-before-start"
 } as const;
 
@@ -21,7 +21,7 @@ describe("realtime deployment topology contract", () => {
       ...memory,
       webInstances: 2,
       worker: "separate",
-      invalidationPublishers: ["worker"],
+      workerInvalidationPath: "direct",
       rollingDeployment: "overlap"
     });
     expect(parsed.success).toBe(false);

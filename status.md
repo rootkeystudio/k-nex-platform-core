@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-26
 - **Phase:** Phase 3 — Transactions, Durable Events, and Realtime Convergence
-- **Active task:** P3.6 — Distributed publication path
+- **Active task:** P3.7 — Source revisions and convergence
 - **State:** Active
 
 ## Last completed
 
-Completed P3.5. Added a canonical realtime process-topology contract shared by manifest/config validation and `k-nex doctor`. Memory mode now fails with publication-path-specific diagnostics and remedies for multiple web instances, a separate publishing worker, a separate realtime gateway, or overlapping rolling revisions; compatible single-owner memory and distributed split topologies pass.
+Completed P3.6 using the accepted PostgreSQL outbox relay option. The deployment contract explicitly records a separate worker using `postgres-outbox-relay`; a real worker process commits an event, the socket-owning web process consumes and checkpoints it through only `realtime.gateway`, and an authorized Socket.IO client receives the projected revision. Failed gateway publication remains uncheckpointed for retry.
 
 ## Validation
 
-On Node.js 24.19.0 and pnpm 11.9.0: frozen install, Phase 0, Gate 1, contracts and runtime builds, 84 contract tests, 137 runtime tests, valid customer-fixture doctor output, regenerated canonical schemas/static artifacts, and `git diff --check` pass.
+On Node.js 24.19.0 and pnpm 11.9.0: frozen install, Phase 0, Gate 1, contracts/runtime/payload-adapter/customer builds, 84 contract tests, 138 runtime tests, 40 payload-adapter tests, relay-aware doctor output, the real-PostgreSQL worker-to-web-to-Socket.IO proof, and `git diff --check` pass.
 
 ## Next
 
-Implement P3.6 using the simplest accepted distributed publication adapter, then prove worker-to-web delivery, adapter outage behavior, reconnect/recovery, and honest degraded health without exposing provider types through the gateway contract.
+Implement P3.7 source/snapshot revisions and client convergence: authoritative initial fetch, newer-revision invalidation, reconnect uncertainty refetch, focus and bounded freshness revalidation, and permission/subscription reauthorization.
 
 ## Blockers
 

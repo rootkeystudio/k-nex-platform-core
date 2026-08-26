@@ -1,13 +1,11 @@
 import * as z from "zod";
 
-import { uniqueArray } from "./schema-helpers.js";
-
 export const RealtimeProcessTopologyShapeSchema = z.strictObject({
   adapter: z.enum(["memory", "distributed"]),
   webInstances: z.number().int().min(1).max(1_024),
   worker: z.enum(["embedded", "separate"]),
+  workerInvalidationPath: z.enum(["none", "direct", "postgres-outbox-relay"]),
   realtimeGateway: z.enum(["embedded", "separate"]),
-  invalidationPublishers: uniqueArray(z.enum(["web", "worker", "realtime-gateway"])).min(1),
   rollingDeployment: z.enum(["stop-before-start", "overlap"])
 });
 
@@ -37,7 +35,7 @@ export function inspectRealtimeTopology(topology: RealtimeProcessTopology): read
     if (topology.webInstances > 1) {
       add("MEMORY_MULTIPLE_WEB_INSTANCES", `${topology.webInstances} web instances -> process-local socket rooms`, "set webInstances to 1");
     }
-    if (topology.worker === "separate" && topology.invalidationPublishers.includes("worker")) {
+    if (topology.worker === "separate" && topology.workerInvalidationPath === "direct") {
       add("MEMORY_SEPARATE_WORKER_PUBLISHER", "separate worker -> direct invalidation -> web-owned socket rooms", "embed the worker publication path in the socket-owning web process");
     }
     if (topology.realtimeGateway === "separate") {

@@ -6,6 +6,7 @@ import type { CollectionConfig, Config } from "payload";
 export * from "./data-source-authenticator.js";
 export * from "./mcp-adapter.js";
 export * from "./outbox-processor.js";
+export * from "./outbox-realtime-relay.js";
 export * from "./transactional-outbox.js";
 
 export type PayloadCompositionErrorCode =

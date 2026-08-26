@@ -1,7 +1,7 @@
 {
   "application": {
     "id": "customer-gate-1",
-    "manifestDigest": "sha256:5364b7bf5aceb8761f98e2719c8e3ae28f6020d70b2b0d10934dcc45ea1b1a62"
+    "manifestDigest": "sha256:53948bab6b722cb9d9302cde2052d2455f8942bdd5b401580f0c9e140145a139"
   },
   "capabilityProviders": [],
   "customerConfigFingerprint": "sha256:b7bb1adc18f8ab6786a03cb3bbb14cbd4a5986795eb51c8f4f9c94dadcb9eecb",
@@ -67,13 +67,11 @@
     "packageManagerVersion": "11.9.0",
     "realtime": {
       "adapter": "memory",
-      "invalidationPublishers": [
-        "web"
-      ],
       "realtimeGateway": "embedded",
       "rollingDeployment": "stop-before-start",
       "webInstances": 1,
-      "worker": "embedded"
+      "worker": "separate",
+      "workerInvalidationPath": "postgres-outbox-relay"
     }
   },
   "schemaVersion": 1
