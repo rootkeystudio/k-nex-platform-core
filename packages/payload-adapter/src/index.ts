@@ -4,6 +4,7 @@ import type { RegistrationResult } from "@k-nex/runtime";
 import type { CollectionConfig, Config } from "payload";
 
 export * from "./data-source-authenticator.js";
+export * from "./mcp-adapter.js";
 
 export type PayloadCompositionErrorCode =
   | "INVALID_DATABASE_URL"
