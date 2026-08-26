@@ -12,6 +12,7 @@ import {
   MetricScalarSchema,
   PluginManifestSchema,
   TableRecordsSchema,
+  UiDocumentSchema,
   architectureRegistry
 } from "@k-nex/contracts";
 import * as z from "zod";
@@ -105,6 +106,12 @@ function applicationJsonSchema(): unknown {
   return generated;
 }
 
+function uiDocumentJsonSchema(): unknown {
+  const generated = jsonSchema(UiDocumentSchema) as Record<string, unknown>;
+  generated.kNexUiDocumentInvariants = true;
+  return generated;
+}
+
 interface Artifact {
   path: string;
   value: unknown;
@@ -118,7 +125,8 @@ const primaryArtifacts = [
   { path: "schemas/application-manifest.v1.schema.json", value: applicationJsonSchema() },
   { path: "schemas/event.v1.schema.json", value: eventJsonSchema() },
   { path: "schemas/metric-scalar.v1.schema.json", value: jsonSchema(MetricScalarSchema) },
-  { path: "schemas/table-records.v1.schema.json", value: jsonSchema(TableRecordsSchema) }
+  { path: "schemas/table-records.v1.schema.json", value: jsonSchema(TableRecordsSchema) },
+  { path: "schemas/ui-document.v1.schema.json", value: uiDocumentJsonSchema() }
 ] satisfies readonly Artifact[];
 
 const outputContractSchemas = [

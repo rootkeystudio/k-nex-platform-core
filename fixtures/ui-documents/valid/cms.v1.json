@@ -1,0 +1,30 @@
+{
+  "id": "cms.home",
+  "profile": "cms",
+  "regions": {
+    "main": [
+      {
+        "engineMetadata": {
+          "builder.visual": {
+            "zone": "main"
+          }
+        },
+        "id": "hero-1",
+        "layout": {
+          "tokens": {
+            "radius": "shape.rounded",
+            "spacing": "space.large"
+          }
+        },
+        "props": {
+          "body": "Track every delivery.",
+          "heading": "Operations at a glance"
+        },
+        "type": "content.hero",
+        "version": 1
+      }
+    ]
+  },
+  "schemaVersion": 1,
+  "version": 1
+}

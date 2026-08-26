@@ -11,7 +11,8 @@ import {
   isEventSecretFieldName,
   MetricScalarSchema,
   PluginManifestSchema,
-  TableRecordsSchema
+  TableRecordsSchema,
+  UiDocumentSchema
 } from "@k-nex/contracts";
 import { Ajv2020, type AnySchema } from "ajv/dist/2020.js";
 import addFormatsModule from "ajv-formats";
@@ -40,6 +41,13 @@ ajv.addKeyword({
     };
     return visit(data);
   }
+});
+ajv.addKeyword({
+  keyword: "kNexUiDocumentInvariants",
+  type: "object",
+  schemaType: "boolean",
+  errors: false,
+  validate: (enabled: boolean, data: unknown) => !enabled || UiDocumentSchema.safeParse(data).success
 });
 
 const circular: { self?: unknown } = {};
@@ -88,6 +96,7 @@ for (const relativePath of [
   "schemas/event.v1.schema.json",
   "schemas/metric-scalar.v1.schema.json",
   "schemas/table-records.v1.schema.json",
+  "schemas/ui-document.v1.schema.json",
   "fixtures/actions/valid/complete.json",
   "fixtures/actions/invalid/non-canonical-id.json",
   "fixtures/agent-tools/valid/read.json",
@@ -97,7 +106,13 @@ for (const relativePath of [
   "fixtures/output-contracts/valid/metric-scalar.json",
   "fixtures/output-contracts/valid/table-records.json",
   "fixtures/output-contracts/invalid/metric-scalar.json",
-  "fixtures/output-contracts/invalid/table-records.json"
+  "fixtures/output-contracts/invalid/table-records.json",
+  "fixtures/ui-documents/valid/cms.v1.json",
+  "fixtures/ui-documents/valid/workspace.v1.json",
+  "fixtures/ui-documents/invalid/duplicate-node-id.json",
+  "fixtures/ui-documents/invalid/non-namespaced-engine-metadata.json",
+  "fixtures/ui-documents/invalid/unrestricted-url.json",
+  "fixtures/ui-documents/invalid/unsafe-script.json"
 ]) {
   await loadCanonical(relativePath);
 }
@@ -109,6 +124,7 @@ const applicationSchema = await load<AnySchema>("schemas/application-manifest.v1
 const eventSchema = await load<AnySchema>("schemas/event.v1.schema.json");
 const metricSchema = await load<AnySchema>("schemas/metric-scalar.v1.schema.json");
 const tableSchema = await load<AnySchema>("schemas/table-records.v1.schema.json");
+const uiDocumentSchema = await load<AnySchema>("schemas/ui-document.v1.schema.json");
 const validatePlugin = ajv.compile(pluginSchema);
 const validateAction = ajv.compile(actionSchema);
 const validateAgentTool = ajv.compile(agentToolSchema);
@@ -116,6 +132,7 @@ const validateApplication = ajv.compile(applicationSchema);
 const validateEvent = ajv.compile(eventSchema);
 const validateMetric = ajv.compile(metricSchema);
 const validateTable = ajv.compile(tableSchema);
+const validateUiDocument = ajv.compile(uiDocumentSchema);
 
 const generatedContracts = await load<{
   artifacts: string[];
@@ -130,6 +147,9 @@ if (JSON.stringify(generatedContracts.outputContracts) !== JSON.stringify(output
 }
 for (const { schema } of outputContractSchemas) {
   if (!generatedContracts.artifacts.includes(schema)) throw new Error(`Generated artifact inventory is missing ${schema}.`);
+}
+if (!generatedContracts.artifacts.includes("schemas/ui-document.v1.schema.json")) {
+  throw new Error("Generated artifact inventory is missing schemas/ui-document.v1.schema.json.");
 }
 
 const driver = await load("fixtures/plugin-manifests/module.logistics.driver.json");
@@ -212,6 +232,26 @@ for (const fixture of outputContractFixtures) {
   const jsonSchemaValid = fixture.validate(value);
   if (fixture.valid && (!zodValid || !jsonSchemaValid)) {
     throw new Error(`Valid ${fixture.path} must pass both Zod and generated JSON Schema validation.`);
+  }
+  if (!fixture.valid && (zodValid || jsonSchemaValid)) {
+    throw new Error(`Structurally invalid ${fixture.path} must fail both Zod and generated JSON Schema validation.`);
+  }
+}
+
+const uiDocumentFixtures = [
+  { path: "fixtures/ui-documents/valid/cms.v1.json", valid: true },
+  { path: "fixtures/ui-documents/valid/workspace.v1.json", valid: true },
+  { path: "fixtures/ui-documents/invalid/duplicate-node-id.json", valid: false },
+  { path: "fixtures/ui-documents/invalid/non-namespaced-engine-metadata.json", valid: false },
+  { path: "fixtures/ui-documents/invalid/unrestricted-url.json", valid: false },
+  { path: "fixtures/ui-documents/invalid/unsafe-script.json", valid: false }
+] as const;
+for (const fixture of uiDocumentFixtures) {
+  const value = await load(fixture.path);
+  const zodValid = UiDocumentSchema.safeParse(value).success;
+  const jsonSchemaValid = validateUiDocument(value);
+  if (fixture.valid && (!zodValid || !jsonSchemaValid)) {
+    throw new Error(`Valid ${fixture.path} must pass both Zod and generated JSON Schema validation: ${ajv.errorsText(validateUiDocument.errors)}`);
   }
   if (!fixture.valid && (zodValid || jsonSchemaValid)) {
     throw new Error(`Structurally invalid ${fixture.path} must fail both Zod and generated JSON Schema validation.`);

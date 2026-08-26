@@ -1,0 +1,19 @@
+{
+  "id": "cms.unsafe-url",
+  "profile": "cms",
+  "regions": {
+    "main": [
+      {
+        "id": "link-block-1",
+        "props": {
+          "label": "External link",
+          "url": "https://example.test"
+        },
+        "type": "content.link",
+        "version": 1
+      }
+    ]
+  },
+  "schemaVersion": 1,
+  "version": 1
+}

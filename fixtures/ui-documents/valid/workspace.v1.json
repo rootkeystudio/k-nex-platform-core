@@ -1,0 +1,52 @@
+{
+  "id": "workspace.dashboard",
+  "profile": "workspace",
+  "regions": {
+    "main": [
+      {
+        "bindings": {
+          "context": {
+            "id": "context.current-user",
+            "version": 1
+          },
+          "source": {
+            "input": {
+              "status": "open"
+            },
+            "selectedFields": [
+              "status",
+              "title"
+            ],
+            "source": {
+              "id": "sales.tasks",
+              "version": 1
+            }
+          }
+        },
+        "children": [
+          {
+            "id": "task-table-caption-1",
+            "props": {
+              "text": "Visible tasks respect the current actor."
+            },
+            "type": "content.text",
+            "version": 1
+          }
+        ],
+        "id": "task-table-1",
+        "layout": {
+          "constraints": {
+            "canMove": true
+          }
+        },
+        "props": {
+          "title": "Open tasks"
+        },
+        "type": "sales.task-table",
+        "version": 2
+      }
+    ]
+  },
+  "schemaVersion": 1,
+  "version": 1
+}

@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-26
 - **Phase:** Phase 4 — Builder Engine Kill-Spike
-- **Active task:** P4.1 — minimal canonical document schema
+- **Active task:** P4.2 — minimal UiDocumentRuntime
 - **State:** Active
 
 ## Last completed
 
-Phase 3 completed with Gate 3 and a fresh independent Sol/high whole-phase PASS at `6e1f7f2`. All substantive findings across the review cycles were resolved, including lifecycle/resource bounds, session-specific revocation, convergence races and watermark preservation, schema parity, canonical provider packaging, and real PostgreSQL outage recovery. The earlier PR-only finding is superseded by the user-directed direct-commit workflow.
+P4.1 froze the editor-independent canonical UI document contract: bounded regions and recursive nodes, versioned blocks and bindings, stable selected fields, constrained layout tokens, namespaced engine metadata, deterministic current-version migration, canonical valid/invalid fixtures, and generated JSON Schema parity through the repository's strict Ajv validation path. Puck types, executable/script/SQL/package-path fields, secrets, unrestricted URL fields, and arbitrary style fields are excluded.
 
 ## Validation
 
-On Node.js 24.19.0 and pnpm 11.9.0: clean-state `pnpm phase:0` and `pnpm gate:3` pass with 85 contract, 152 runtime, 41 Payload-adapter, eight Sales, and 22 real Socket.IO client/server tests plus provider pack equivalence; Gate 2A proofs/benchmarks; seven focused Gate 3 proofs; and the real-PostgreSQL customer gate with Docker-level database pause/unpause. The final fresh Sol/high whole-phase review passed with no blocking findings.
+On Node.js 24.19.0 and pnpm 11.9.0: `pnpm --filter @k-nex/contracts build` and all 103 contract tests pass; `pnpm contracts:generate`, `pnpm contracts:validate`, and `pnpm contracts:reproducibility` pass with generated-schema/Zod parity and reproducible SHA-256 `d28e15b82a6ad3a7bd63ba6c22c3a77905a9f9a421a9bedf643b755d64381ee6`. Pre-commit `pnpm phase:0` reached the expected generated-clean guard because the new generated UI schema was not yet committed; rerun it from the committed clean state.
 
 ## Next
 
-Execute P4.1 — minimal canonical document schema — in documented Phase 4 order.
+Execute P4.2 — minimal `UiDocumentRuntime` — in documented Phase 4 order.
 
 ## Blockers
 
