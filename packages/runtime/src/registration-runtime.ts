@@ -1,6 +1,7 @@
 import type { DataSourceDefinition, PluginManifest, RegistrationPhase } from "@k-nex/contracts";
 import { assertDataSourceDefinition, registrationPhases } from "@k-nex/contracts";
 import * as semver from "semver";
+import type { DataSourceHandler } from "./data-source-gateway.js";
 
 import type { InstalledPluginManifest, ResolvedPluginGraph } from "@k-nex/composition";
 
@@ -18,17 +19,6 @@ export const contributionKinds = [
 
 export type ContributionKind = (typeof contributionKinds)[number];
 export type BoundContributionKind = "dataSources" | "actions" | "blocks";
-
-/** Server-only request passed to a registered authenticated data-source handler. */
-export interface DataSourceHandlerRequest {
-  readonly actor: unknown;
-  readonly request: unknown;
-  readonly input: unknown;
-  readonly selectedFields: readonly string[];
-  readonly signal: AbortSignal;
-}
-
-export type DataSourceHandler = (request: DataSourceHandlerRequest) => unknown | Promise<unknown>;
 
 export type RegistrationErrorCode =
   | "GRAPH_MISMATCH"
