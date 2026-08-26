@@ -1,6 +1,7 @@
 import type { AgentToolDescriptor, DataSourceDefinition, PluginManifest, RegistrationPhase } from "@k-nex/contracts";
 import { AgentToolDescriptorSchema, assertDataSourceDefinition, registrationPhases } from "@k-nex/contracts";
 import * as semver from "semver";
+import { actionToolCompatible, assertActionDefinition, type ActionDefinition, type ActionHandler } from "./action.js";
 import type { DataSourceHandler } from "./data-source-gateway.js";
 
 import type { InstalledPluginManifest, ResolvedPluginGraph } from "@k-nex/composition";
@@ -57,8 +58,9 @@ interface PhaseContext {
 
 export interface ContractsRegistrationContext extends PhaseContext {
   register(kind: "dataSources", id: string, value: DataSourceDefinition): void;
+  register(kind: "actions", id: string, value: ActionDefinition): void;
   register(kind: "tools", id: string, value: AgentToolDescriptor): void;
-  register(kind: "contracts" | "actions" | "blocks", id: string, value: unknown): void;
+  register(kind: "contracts" | "blocks", id: string, value: unknown): void;
 }
 
 export interface ProvidersRegistrationContext extends PhaseContext {
@@ -71,7 +73,7 @@ export interface SingleKindRegistrationContext extends PhaseContext {
 
 export interface DataHandlersRegistrationContext extends PhaseContext {
   bind(kind: "dataSources", id: string, handler: DataSourceHandler): void;
-  bind(kind: "actions", id: string, handler: unknown): void;
+  bind(kind: "actions", id: string, handler: ActionHandler): void;
 }
 
 export interface UiRegistrationContext extends PhaseContext {
@@ -300,6 +302,19 @@ export function executeRegistration(options: ExecuteRegistrationOptions): Regist
         fail("INVALID_CONTRIBUTION", `Data-source descriptor owner must match plugin ${pluginId}.`, [pluginId, kind, id]);
       }
     }
+    if (kind === "actions") {
+      let definition: ActionDefinition;
+      try {
+        assertActionDefinition(value);
+        definition = value;
+      } catch {
+        fail("INVALID_CONTRIBUTION", `Action contribution ${id} must be a valid definition.`, [pluginId, kind, id]);
+      }
+      if (definition.descriptor.id !== id || definition.descriptor.ownerPluginId !== pluginId) {
+        fail("INVALID_CONTRIBUTION", `Action descriptor identity must match ${pluginId}:${id}.`, [pluginId, kind, id]);
+      }
+      value = Object.freeze({ ...definition, descriptor: frozenClone(definition.descriptor) });
+    }
     if (kind === "tools") {
       const parsed = AgentToolDescriptorSchema.safeParse(value);
       if (!parsed.success) {
@@ -328,8 +343,8 @@ export function executeRegistration(options: ExecuteRegistrationOptions): Regist
     value: unknown
   ): void => {
     assertPhase(expectedPhase, pluginId);
-    if (kind === "dataSources" && typeof value !== "function") {
-      fail("INVALID_CONTRIBUTION", `Data-source binding ${id} must be a handler function.`, [pluginId, kind, id]);
+    if ((kind === "dataSources" || kind === "actions") && typeof value !== "function") {
+      fail("INVALID_CONTRIBUTION", `${kind === "dataSources" ? "Data-source" : "Action"} binding ${id} must be a handler function.`, [pluginId, kind, id]);
     }
     if (!actual.get(pluginId)?.get(kind)?.has(id)) {
       fail("UNDECLARED_CONTRIBUTION", `Plugin ${pluginId} cannot bind undeclared ${kind} contribution ${id}.`, [pluginId, kind, id]);
@@ -419,8 +434,12 @@ export function executeRegistration(options: ExecuteRegistrationOptions): Regist
       const targetOwner = contributionOwners.get(targetId);
       const targetContribution = targetOwner === undefined ? undefined : actual.get(targetOwner)?.get(targetKind)?.get(targetId);
       const hasOwnedBinding = targetOwner === pluginId && bindings.get(targetKind)?.get(targetId)?.pluginId === pluginId;
-      if (!hasOwnedBinding || (descriptor.invocation.kind === "source" &&
-        (targetContribution === undefined || (targetContribution as DataSourceDefinition).descriptor.version !== descriptor.invocation.source.version))) {
+      const compatible = descriptor.invocation.kind === "source"
+        ? targetContribution !== undefined &&
+          (targetContribution as DataSourceDefinition).descriptor.version === descriptor.invocation.source.version
+        : targetContribution !== undefined &&
+          actionToolCompatible(descriptor, (targetContribution as ActionDefinition).descriptor);
+      if (!hasOwnedBinding || !compatible) {
         mismatches.push(`${pluginId}:tools:${toolId}:binding`);
       }
     }

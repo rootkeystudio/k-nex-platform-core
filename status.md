@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-26
 - **Phase:** Phase 2A — Agent Tool Contracts and Safe Execution
-- **Active task:** P2A.3 — Minimal registered actions and source/action bindings
+- **Active task:** P2A.4 — Staged tool execution gateway
 - **State:** Ready to implement
 
 ## Last completed
 
-Implemented the static actor-filtered tool catalog from resolved registration inventory. It validates and freezes trusted descriptors, requires same-plugin source/action targets, filters by actor, delegation-aware policy, surface, and features, paginates only the visible set with opaque cursors, returns an actor-visible structural revision, hides unknown/forbidden versions, and exposes a synchronous invalidation hook without runtime scanning or database loading. Static composition now preserves declared tool contributions.
+Implemented the minimal registered-action boundary: bounded serializable descriptors, executable input/output schema definitions, typed trusted server handlers, and exact same-plugin tool bindings. Action-backed tools must match the target version, input/output representation, permission, effect, and idempotency contract; dry-run claims cannot exceed action support. Source tools remain bound to one exact registered Phase 2 source version.
 
 ## Validation
 
-`pnpm build` and the full Phase 0 gate pass. Generated artifacts remain clean and reproducible (`sha256:2f0ba88ce06d0fcdf90f8c2d553bae8cf85efe887c39ac2bb15725942c933042`); schemas compile under strict Ajv; repository contracts validate; runtime has 74 passing tests and composition has 75 passing tests.
+Focused builds and suites pass: 74 contracts tests and 76 runtime tests. The generated action schema compiles under strict Ajv, valid/invalid action fixtures agree with the authoring schema, generated artifacts are current, and repository contracts validate.
 
 ## Next
 
-Implement P2A.3: minimal registered action descriptors and exact source/action bindings so every tool delegates to one existing platform operation.
+Implement P2A.4: the ordered authenticated tool execution gateway, delegating only through the registered source/action paths.
 
 ## Blockers
 

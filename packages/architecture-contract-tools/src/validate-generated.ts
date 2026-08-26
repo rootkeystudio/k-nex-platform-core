@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  ActionDescriptorSchema,
   AgentToolDescriptorSchema,
   canonicalJson,
   MetricScalarSchema,
@@ -55,11 +56,14 @@ function assertCanonical(value: unknown, path: string): void {
 for (const relativePath of [
   "contracts/architecture-contracts.v1.json",
   "contracts/generated-contracts.v1.json",
+  "schemas/action.v1.schema.json",
   "schemas/agent-tool.v1.schema.json",
   "schemas/plugin-manifest.v1.schema.json",
   "schemas/application-manifest.v1.schema.json",
   "schemas/metric-scalar.v1.schema.json",
   "schemas/table-records.v1.schema.json",
+  "fixtures/actions/valid/complete.json",
+  "fixtures/actions/invalid/non-canonical-id.json",
   "fixtures/agent-tools/valid/read.json",
   "fixtures/agent-tools/invalid/executable-handler.json",
   "fixtures/output-contracts/valid/metric-scalar.json",
@@ -71,11 +75,13 @@ for (const relativePath of [
 }
 
 const pluginSchema = await load<AnySchema>("schemas/plugin-manifest.v1.schema.json");
+const actionSchema = await load<AnySchema>("schemas/action.v1.schema.json");
 const agentToolSchema = await load<AnySchema>("schemas/agent-tool.v1.schema.json");
 const applicationSchema = await load<AnySchema>("schemas/application-manifest.v1.schema.json");
 const metricSchema = await load<AnySchema>("schemas/metric-scalar.v1.schema.json");
 const tableSchema = await load<AnySchema>("schemas/table-records.v1.schema.json");
 const validatePlugin = ajv.compile(pluginSchema);
+const validateAction = ajv.compile(actionSchema);
 const validateAgentTool = ajv.compile(agentToolSchema);
 ajv.compile(applicationSchema);
 const validateMetric = ajv.compile(metricSchema);
@@ -112,6 +118,15 @@ if (!AgentToolDescriptorSchema.safeParse(validAgentTool).success || !validateAge
 const invalidAgentTool = await load("fixtures/agent-tools/invalid/executable-handler.json");
 if (AgentToolDescriptorSchema.safeParse(invalidAgentTool).success || validateAgentTool(invalidAgentTool)) {
   throw new Error("Executable agent-tool fixture must fail both authoring and generated schemas.");
+}
+
+const validAction = await load("fixtures/actions/valid/complete.json");
+if (!ActionDescriptorSchema.safeParse(validAction).success || !validateAction(validAction)) {
+  throw new Error(`Valid action fixture failed its authoring or generated schema: ${ajv.errorsText(validateAction.errors)}`);
+}
+const invalidAction = await load("fixtures/actions/invalid/non-canonical-id.json");
+if (ActionDescriptorSchema.safeParse(invalidAction).success || validateAction(invalidAction)) {
+  throw new Error("Action fixture with a non-canonical ID must fail both authoring and generated schemas.");
 }
 
 const outputContractFixtures = [

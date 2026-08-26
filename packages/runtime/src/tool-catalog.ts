@@ -8,6 +8,7 @@ import {
 } from "@k-nex/contracts";
 
 import { isDataSourceActorContext, type DataSourceActorContext } from "./data-source-authorization.js";
+import { actionToolCompatible, type ActionDefinition } from "./action.js";
 import type { RegistrationResult } from "./registration-runtime.js";
 
 export const toolCatalogLimits = Object.freeze({
@@ -151,8 +152,9 @@ function targetBinding(registration: RegistrationResult, descriptor: AgentToolDe
   const contribution = registration.contributions[kind]?.find((entry) => entry.id === id);
   const binding = registration.bindings[kind]?.find((entry) => entry.id === id);
   if (contribution?.pluginId !== descriptor.ownerPluginId || binding?.pluginId !== descriptor.ownerPluginId) return false;
-  return descriptor.invocation.kind !== "source" ||
-    (contribution.value as DataSourceDefinition).descriptor.version === descriptor.invocation.source.version;
+  return descriptor.invocation.kind === "source"
+    ? (contribution.value as DataSourceDefinition).descriptor.version === descriptor.invocation.source.version
+    : actionToolCompatible(descriptor, (contribution.value as ActionDefinition).descriptor);
 }
 
 export class ToolCatalog {

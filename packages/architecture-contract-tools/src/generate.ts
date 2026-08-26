@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  ActionDescriptorSchema,
   AgentToolDescriptorSchema,
   ApplicationManifestSchema,
   canonicalJson,
@@ -35,6 +36,7 @@ interface Artifact {
 
 const primaryArtifacts = [
   { path: "contracts/architecture-contracts.v1.json", value: architectureRegistry },
+  { path: "schemas/action.v1.schema.json", value: jsonSchema(ActionDescriptorSchema) },
   { path: "schemas/agent-tool.v1.schema.json", value: jsonSchema(AgentToolDescriptorSchema) },
   { path: "schemas/plugin-manifest.v1.schema.json", value: jsonSchema(PluginManifestSchema) },
   { path: "schemas/application-manifest.v1.schema.json", value: jsonSchema(ApplicationManifestSchema) },

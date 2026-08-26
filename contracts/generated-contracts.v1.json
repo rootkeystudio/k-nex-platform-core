@@ -1,6 +1,7 @@
 {
   "artifacts": [
     "contracts/architecture-contracts.v1.json",
+    "schemas/action.v1.schema.json",
     "schemas/agent-tool.v1.schema.json",
     "schemas/plugin-manifest.v1.schema.json",
     "schemas/application-manifest.v1.schema.json",

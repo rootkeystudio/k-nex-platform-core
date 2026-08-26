@@ -1,0 +1,36 @@
+{
+  "dryRun": true,
+  "effect": "write",
+  "id": "sales.task.complete",
+  "idempotency": "required",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "taskId": {
+        "maxLength": 64,
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "taskId"
+    ],
+    "type": "object"
+  },
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "accepted": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "accepted"
+    ],
+    "type": "object"
+  },
+  "ownerPluginId": "module.sales",
+  "permission": "sales.tasks.write",
+  "policy": "sales.tasks.domain",
+  "version": 1
+}
