@@ -24,7 +24,11 @@ The proof adopts `@payloadcms/plugin-mcp@3.88.0` only as a bounded transport ada
 | P2A.6 — write idempotency, budgets, and audit | `c05ebb5` |
 | P2A.7 — official Payload MCP adapter evaluation | `f7e473b` |
 | P2A.8 — Sales proof tools and deterministic client | `e2e62a3` |
-| P2A.9 — attack corpus, benchmark, and closeout | this closeout commit |
+| P2A.9 — attack corpus, benchmark, and closeout | `902bc63` |
+
+## Phase review
+
+The final independent whole-phase review used Sol/high reasoning over the complete Phase 2A diff from baseline `831ee4b` through `a273f75`. After its disabled-credential finding was fixed with master-toggle enforcement plus unit and real-PostgreSQL rejection evidence, the fresh rereview returned **PASS**. Phase 2A is closed without a pull request or merge workflow, as directed; delivery remains the direct commits recorded above and their coherent review-fix successors.
 
 ## Internal catalog and gateway proof
 

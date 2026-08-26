@@ -1,13 +1,13 @@
 # Project Status
 
 - **Updated:** 2026-08-26
-- **Phase:** Phase 2A — Agent Tool Contracts and Safe Execution
-- **Active task:** Gate 2A phase review
-- **State:** Awaiting fresh Sol/high review
+- **Phase:** Phase 3 — Transactions, Durable Events, and Realtime Convergence
+- **Active task:** P3.1 — Event classes and transactional outbox schema
+- **State:** Active
 
 ## Last completed
 
-Addressed the latest whole-phase Sol/high findings: MCP authentication now requires Payload's `enableAPIKey` master toggle in addition to digest and lifetime checks. Unit coverage rejects a malformed disabled row that retains its digest, while the real PostgreSQL fixture disables a previously authenticated key through `payload.update` and proves the same bearer key receives 401. Earlier review corrections remain covered.
+Closed Phase 2A at `a273f75`. The fresh whole-phase Sol/high rereview returned `PASS` after the MCP authentication boundary was hardened to require Payload's `enableAPIKey` master toggle and covered by unit and real-PostgreSQL disable proofs. Gate decision: `GO PHASE 3`.
 
 ## Validation
 
@@ -15,7 +15,7 @@ On Node.js 24.19.0 and pnpm 11.9.0: frozen install, `pnpm phase:0`, `pnpm gate:1
 
 ## Next
 
-Obtain a fresh Sol/high review. Fix until PASS, record the approval, and begin Phase 3 task P3.1.
+Implement P3.1 in documented order: define the four event classes, versioned safe event envelopes, correlation/causation and actor metadata, idempotency, attempt/checkpoint/dead-letter state, retention, and the transactional outbox schema required by durable classes.
 
 ## Blockers
 
