@@ -108,13 +108,6 @@ function security(value: SocketIoMemorySecurityOptions): SocketIoMemorySecurityO
   });
 }
 
-function withTimeout<T>(operation: Promise<T>, milliseconds: number): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("Realtime authentication timed out.")), milliseconds);
-    operation.then(resolve, reject).finally(() => clearTimeout(timer));
-  });
-}
-
 function room(topicId: string, params: Readonly<Record<string, unknown>>): string {
   return `k-nex:${createHash("sha256").update(topicId).update("\0").update(canonicalJson(params)).digest("base64url")}`;
 }
@@ -176,23 +169,47 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
       return;
     }
     connectionSlots += 1;
-    let slotRetained = false;
-    try {
-      const authenticatedActor = actor(await withTimeout(
-        Promise.resolve().then(() => options.authenticate(Object.freeze({ ...socket.handshake.auth }))),
-        limits.authenticationTimeoutMs
-      ));
-      if (!authenticatedActor) throw new Error("Realtime authentication failed.");
-      socket.data["kNexActor"] = authenticatedActor;
-      socket.data["kNexConnectionSlot"] = true;
-      slotRetained = true;
-      next();
-    } catch {
+    let authenticationSettled = false;
+    let released = false;
+    let transportClosed = false;
+    const release = (): void => {
+      if (released) return;
+      released = true;
+      connectionSlots = Math.max(0, connectionSlots - 1);
+    };
+    socket.data["kNexReleaseConnectionSlot"] = release;
+    socket.conn.once("close", () => {
+      transportClosed = true;
+      if (authenticationSettled) release();
+    });
+    const authentication = Promise.resolve()
+      .then(() => options.authenticate(Object.freeze({ ...socket.handshake.auth })))
+      .then((value) => actor(value), () => null);
+    const timeout = Symbol("authentication-timeout");
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const outcome = await Promise.race([
+      authentication,
+      new Promise<typeof timeout>((resolve) => { timer = setTimeout(() => resolve(timeout), limits.authenticationTimeoutMs); })
+    ]);
+    if (outcome === timeout) {
       counters.authenticationDenied += 1;
       next(new Error("AUTHENTICATION_REQUIRED"));
-    } finally {
-      if (!slotRetained) connectionSlots = Math.max(0, connectionSlots - 1);
+      void authentication.then(() => {
+        authenticationSettled = true;
+        release();
+      });
+      return;
     }
+    if (timer) clearTimeout(timer);
+    authenticationSettled = true;
+    if (!outcome || transportClosed) {
+      counters.authenticationDenied += 1;
+      release();
+      next(new Error("AUTHENTICATION_REQUIRED"));
+      return;
+    }
+    socket.data["kNexActor"] = outcome;
+    next();
   });
 
   const flush = (): void => {
@@ -224,10 +241,7 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
     connections += 1;
     socket.once("disconnect", () => {
       connections = Math.max(0, connections - 1);
-      if (socket.data["kNexConnectionSlot"] === true) {
-        socket.data["kNexConnectionSlot"] = false;
-        connectionSlots = Math.max(0, connectionSlots - 1);
-      }
+      (socket.data["kNexReleaseConnectionSlot"] as (() => void) | undefined)?.();
       sessions.delete(socket.id);
     });
     const authenticatedActor = socket.data["kNexActor"] as RealtimeActor;
@@ -371,7 +385,7 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
       const topic = options.topics.get(topicId);
       if (!topic) throw new Error(`Realtime topic ${topicId} is not registered.`);
       const params = parse(topic, paramsValue);
-      const event = topic.parseEvent(input.message);
+      const event = JSON.parse(canonicalJson(topic.parseEvent(input.message))) as unknown;
       const message = Object.freeze({
         correlationId: input.correlationId,
         event,

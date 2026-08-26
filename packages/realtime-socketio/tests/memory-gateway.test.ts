@@ -267,6 +267,58 @@ describe("Socket.IO memory realtime gateway", () => {
     expect(gateway.health()).toMatchObject({ connections: 1, pendingConnections: 0 });
   });
 
+  it("retains authentication slots after middleware disconnect and timeout until work settles", async () => {
+    httpServer = createServer();
+    const authenticationResolvers: Array<() => void> = [];
+    let authenticateCalls = 0;
+    gateway = createSocketIoMemoryGateway({
+      httpServer,
+      topics: createRealtimeTopicRegistry([topic]),
+      security: { ...security, authenticationTimeoutMs: 20, maxConnections: 1 },
+      authenticate: async () => {
+        authenticateCalls += 1;
+        await new Promise<void>((resolve) => authenticationResolvers.push(resolve));
+        return { id: "owner-1", type: "user" };
+      },
+      isActorActive: async () => true
+    });
+    await new Promise((resolve) => httpServer?.listen(0, "127.0.0.1", resolve));
+    const port = (httpServer.address() as AddressInfo).port;
+    const open = () => connect(`http://127.0.0.1:${port}`, {
+      auth: { actor: "owner-1" },
+      transports: ["websocket"],
+      extraHeaders: { origin: "https://app.example.test" },
+      reconnection: false
+    });
+
+    const disconnected = open();
+    await expect.poll(() => authenticateCalls).toBe(1);
+    disconnected.disconnect();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(gateway.health()).toMatchObject({ connections: 0, pendingConnections: 1 });
+    const deniedDuringDisconnect = open();
+    const deniedDuringDisconnectOutcome = new Promise((resolve) => deniedDuringDisconnect.once("connect_error", resolve));
+    await deniedDuringDisconnectOutcome;
+    expect(authenticateCalls).toBe(1);
+    authenticationResolvers[0]?.();
+    await expect.poll(() => gateway?.health().pendingConnections).toBe(0);
+
+    const timedOut = open();
+    const timedOutOutcome = new Promise((resolve) => timedOut.once("connect_error", resolve));
+    await expect.poll(() => authenticateCalls).toBe(2);
+    await timedOutOutcome;
+    expect(gateway.health()).toMatchObject({ connections: 0, pendingConnections: 1 });
+    const deniedDuringTimeout = open();
+    const deniedDuringTimeoutOutcome = new Promise((resolve) => deniedDuringTimeout.once("connect_error", resolve));
+    await deniedDuringTimeoutOutcome;
+    expect(authenticateCalls).toBe(2);
+    authenticationResolvers[1]?.();
+    await expect.poll(() => gateway?.health().pendingConnections).toBe(0);
+    deniedDuringDisconnect.disconnect();
+    timedOut.disconnect();
+    deniedDuringTimeout.disconnect();
+  });
+
   it("serializes concurrent subscription mutations before enforcing the per-connection limit", async () => {
     const active = await harness("owner-1", { maxSubscriptionsPerConnection: 1 });
     const results = await Promise.all([
@@ -301,6 +353,21 @@ describe("Socket.IO memory realtime gateway", () => {
       message: { revision: 1, padding: "x".repeat(200) }
     })).rejects.toThrow(/maxRequestBytes/);
     expect(active.gateway.health()).toMatchObject({ oversized: 1, published: 0 });
+  });
+
+  it("snapshots publication data before size validation and queued delivery", async () => {
+    const active = await harness("owner-1", { maxRequestBytes: 200 });
+    await active.client.emitWithAck("k-nex:subscribe", { topicId: "sales.tasks", params: { ownerId: "owner-1" } });
+    const received = new Promise((resolve) => active.client.once("k-nex:event", (message, acknowledge) => {
+      acknowledge();
+      resolve(message);
+    }));
+    const mutable: { revision: number; padding?: string } = { revision: 9 };
+    const publishing = active.gateway.publish({ ...publication(9), message: mutable });
+    mutable.padding = "x".repeat(10_000);
+    await publishing;
+    await expect(received).resolves.toEqual(delivered(9));
+    expect(active.gateway.health()).toMatchObject({ oversized: 0, published: 1 });
   });
 
   it("removes subscriptions when topic permission is revoked", async () => {

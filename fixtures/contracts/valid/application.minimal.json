@@ -10,7 +10,15 @@
     "node": "24.19.0",
     "packageManager": "pnpm",
     "packageManagerVersion": "11.9.0",
-    "deploymentMode": "container"
+    "deploymentMode": "container",
+    "realtime": {
+      "adapter": "memory",
+      "realtimeGateway": "embedded",
+      "rollingDeployment": "stop-before-start",
+      "webInstances": 1,
+      "worker": "embedded",
+      "workerInvalidationPath": "direct"
+    }
   },
   "framework": {
     "payload": {

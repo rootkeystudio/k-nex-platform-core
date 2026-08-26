@@ -79,6 +79,28 @@ function applicationJsonSchema(): unknown {
     { properties: { webInstances: { const: 1 }, realtimeGateway: { const: "embedded" }, rollingDeployment: { const: "stop-before-start" } } },
     { not: { properties: { worker: { const: "separate" }, workerInvalidationPath: { const: "direct" } }, required: ["worker", "workerInvalidationPath"] } }
   ];
+  generated.allOf = [
+    {
+      if: {
+        properties: {
+          providers: {
+            properties: { "realtime.gateway": {} },
+            required: ["realtime.gateway"],
+            type: "object"
+          }
+        },
+        required: ["providers"],
+        type: "object"
+      },
+      then: {
+        properties: {
+          runtime: { properties: { realtime: {} }, required: ["realtime"], type: "object" }
+        },
+        required: ["runtime"],
+        type: "object"
+      }
+    }
+  ];
   return generated;
 }
 

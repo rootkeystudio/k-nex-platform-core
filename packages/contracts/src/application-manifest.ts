@@ -20,7 +20,7 @@ export const ProviderRequestSchema = z.strictObject({
   options: OpenObjectSchema.optional()
 });
 
-export const ApplicationManifestSchema = z.strictObject({
+const ApplicationManifestShapeSchema = z.strictObject({
   "$schema": z.string().optional(),
   schemaVersion: z.literal(1),
   application: z.strictObject({
@@ -72,6 +72,16 @@ export const ApplicationManifestSchema = z.strictObject({
   environment: z.strictObject({
     required: uniqueArray(z.string().regex(/^[A-Z][A-Z0-9_]*$/))
   })
+});
+
+export const ApplicationManifestSchema = ApplicationManifestShapeSchema.superRefine((manifest, context) => {
+  if (manifest.providers["realtime.gateway"] && manifest.runtime.realtime === undefined) {
+    context.addIssue({
+      code: "custom",
+      message: "Selecting realtime.gateway requires explicit runtime.realtime topology.",
+      path: ["runtime", "realtime"]
+    });
+  }
 }).meta({
   $id: "https://schemas.k-nex.dev/application/v1.json",
   title: "K-Nex Application Manifest v1"

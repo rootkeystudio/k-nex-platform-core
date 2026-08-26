@@ -171,6 +171,11 @@ incompatibleTopology.runtime.realtime.webInstances = 2;
 if (ApplicationManifestSchema.safeParse(incompatibleTopology).success || validateApplication(incompatibleTopology)) {
   throw new Error("Incompatible memory topology must fail both Zod and generated JSON Schema validation.");
 }
+const missingTopology = structuredClone(validApplication);
+delete missingTopology.runtime.realtime;
+if (ApplicationManifestSchema.safeParse(missingTopology).success || validateApplication(missingTopology)) {
+  throw new Error("Selecting realtime.gateway without runtime.realtime must fail both Zod and generated JSON Schema validation.");
+}
 
 const outputContractFixtures = [
   { path: "fixtures/output-contracts/valid/metric-scalar.json", schema: MetricScalarSchema, validate: validateMetric, valid: true },
