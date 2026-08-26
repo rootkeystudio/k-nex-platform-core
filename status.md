@@ -7,7 +7,7 @@
 
 ## Last completed
 
-Addressed the latest whole-phase Sol/high findings: the real PostgreSQL fixture now installs the official MCP plugin and proves actual Payload key create/update, valid `/mcp` discovery, dormant-overlong authentication rejection, and ordinary API-key bypass denial; all K-Nex/Sales boundaries require the configured `users` collection; and synchronous dispatcher throws reconcile into bounded uncertain idempotency instead of permanent pending claims. Earlier review corrections remain covered.
+Addressed the latest whole-phase Sol/high findings: the real PostgreSQL fixture now proves that Payload's official create hooks persist a valid UUID-shaped MCP credential digest, a normal Payload update preserves it, and the untouched credential authenticates through `/mcp`; direct SQL remains limited to the deliberately malformed legacy-row attack fixture. Earlier review corrections remain covered.
 
 ## Validation
 
@@ -15,7 +15,7 @@ On Node.js 24.19.0 and pnpm 11.9.0: frozen install, `pnpm phase:0`, `pnpm gate:1
 
 ## Next
 
-Commit and push the latest corrections, then obtain a fresh Sol/high review. Fix until PASS, record the approval, and begin Phase 3 task P3.1.
+Obtain a fresh Sol/high review. Fix until PASS, record the approval, and begin Phase 3 task P3.1.
 
 ## Blockers
 

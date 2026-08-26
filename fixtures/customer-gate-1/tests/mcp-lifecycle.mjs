@@ -13,7 +13,7 @@ const owner = await payload.create({
   data: { email: "mcp-lifecycle@example.test", password: "mcp-lifecycle-password" }
 });
 const actor = { ...owner, collection: "users" };
-const validSecret = "gate-2a-valid-mcp-key";
+const validSecret = "f4ba11f7-8f49-40dd-8c4f-4bda4d5ec948";
 
 try {
   await assert.rejects(payload.create({
@@ -41,6 +41,15 @@ try {
   });
   assert.equal(validKey.user.id ?? validKey.user, owner.id);
 
+  const validDigest = createHmac("sha256", payload.secret).update(validSecret).digest("hex");
+  const createdKey = await payload.find({
+    collection: "payload-mcp-api-keys",
+    overrideAccess: true,
+    pagination: false,
+    where: { apiKeyIndex: { equals: validDigest } }
+  });
+  assert.equal(createdKey.docs.length, 1);
+
   await assert.rejects(payload.update({
     collection: "payload-mcp-api-keys",
     id: validKey.id,
@@ -49,25 +58,14 @@ try {
     user: actor
   }), (error) => error?.status === 400);
 
-  const validDigest = createHmac("sha256", payload.secret).update(validSecret).digest("hex");
-  const validKeyClient = new pg.Client({ connectionString: process.env.DATABASE_URL });
-  await validKeyClient.connect();
-  try {
-    const updated = await validKeyClient.query({
-      text: "update payload_mcp_api_keys set enable_a_p_i_key = true, api_key_index = $1 where id = $2",
-      values: [validDigest, validKey.id]
-    });
-    assert.equal(updated.rowCount, 1);
-  } finally {
-    await validKeyClient.end();
-  }
-  const indexedKey = await payload.find({
+  const updatedKey = await payload.update({
     collection: "payload-mcp-api-keys",
-    overrideAccess: true,
-    pagination: false,
-    where: { apiKeyIndex: { equals: validDigest } }
+    id: validKey.id,
+    data: { label: "valid-lifecycle-updated" },
+    overrideAccess: false,
+    user: actor
   });
-  assert.equal(indexedKey.docs.length, 1);
+  assert.equal(updatedKey.label, "valid-lifecycle-updated");
 
   const mcpEndpoint = payload.config.endpoints.find(({ method, path }) => method === "post" && path === "/mcp");
   assert.ok(mcpEndpoint);
