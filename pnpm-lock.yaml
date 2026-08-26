@@ -228,6 +228,9 @@ importers:
         specifier: workspace:*
         version: link:../contracts
     devDependencies:
+      '@k-nex/theme-minimal':
+        specifier: workspace:*
+        version: link:../theme-minimal
       '@payloadcms/db-postgres':
         specifier: 3.88.0
         version: 3.88.0(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))
@@ -352,6 +355,9 @@ importers:
       '@k-nex/theme-minimal':
         specifier: workspace:*
         version: link:../theme-minimal
+      '@k-nex/ui-runtime':
+        specifier: workspace:*
+        version: link:../ui-runtime
       '@types/node':
         specifier: 24.13.3
         version: 24.13.3
@@ -361,6 +367,12 @@ importers:
       '@types/react-dom':
         specifier: 19.2.4
         version: 19.2.4(@types/react@19.2.18)
+      esbuild:
+        specifier: 0.28.2
+        version: 0.28.2
+      playwright:
+        specifier: 1.61.0
+        version: 1.61.0
       react:
         specifier: 19.2.8
         version: 19.2.8

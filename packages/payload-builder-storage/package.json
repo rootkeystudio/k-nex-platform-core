@@ -19,6 +19,7 @@
     "@k-nex/contracts": "workspace:*"
   },
   "devDependencies": {
+    "@k-nex/theme-minimal": "workspace:*",
     "@payloadcms/db-postgres": "3.88.0",
     "@testcontainers/postgresql": "12.1.0",
     "graphql": "16.14.2",

@@ -10,9 +10,9 @@
 
 One canonical UI document renders through one semantic primitive ABI under materially different Minimal and Neobrutalism themes without document mutation or forked interaction behavior. Published theme profiles are strict, revisioned data and cannot introduce arbitrary CSS, code, URLs, secrets, class names, or uninstalled packages.
 
-Payload stores UI drafts and immutable published revisions with validation, lineage, indexes, lookup, and rollback. A real PostgreSQL fixture publishes localized CMS page metadata, canonical SEO fields, theme authority, and its UI document as one revision pair in one Payload transaction. A validation failure after the page write rolls the transaction back; lookup returns only published pairs; rollback creates new page, document, and pair revisions; invalidation runs only after the pair is independently visible as committed.
+Payload stores server-only UI drafts and immutable published revisions with validation, unique ordering keys, lineage, lookup, and rollback. One strict persisted schema bounds canonical locale, IDs, paths, title, description, canonical path, robots, document, and theme references at draft/publish/rollback boundaries. A real PostgreSQL fixture resolves an installed published `ThemeProfile`, publishes page and document as one pair, serializes parallel publish/rollback attempts through unique sequence constraints and bounded transaction retries, and preserves one ordered lineage. Failed writes roll back. Post-commit invalidation retries use a unique operation ID, recover the already committed pair, and never republish.
 
-Workspace layouts resolve explicit user, group, and permission assignments by priority, selector specificity, then stable assignment ID. The result explains selected and superseded policies. Published layouts remain immutable, user patches are allowlisted by operation/node/property, and a conflict, denied patch, missing revision, or migration failure retains the last valid resolved snapshot.
+Workspace layouts resolve explicit user, group, and permission assignments by priority, selector specificity, then stable assignment ID. The result explains selected and superseded policies. Published layouts remain immutable, user patches are allowlisted by operation/node/property, and a conflict, denied patch, missing revision, or migration failure retains the last valid resolved snapshot. Move-before behavior is exact for forward, backward, end, self/no-op, and nested sibling operations.
 
 ## Completed tasks
 
@@ -30,7 +30,7 @@ Workspace layouts resolve explicit user, group, and permission assignments by pr
 
 ## Accessibility and visual proof
 
-Real Chromium journeys cover keyboard activation and focus, unobscured visible focus, named non-drag alternatives, 44-by-44 targets, semantic names/roles/states, reduced motion, forced colors, and ARIA-tree screen-reader smoke. The same journey passes under both themes and a customer override. Screenshot SHA-256 digests are distinct for all three variants. The supplemental manual CLI/snapshot/visual evidence is recorded in [`phase-5-accessibility-smoke.md`](./phase-5-accessibility-smoke.md).
+The real Chromium journey bundles React and renders the canonical CMS document through `createUiDocumentRuntime`, `KNeXDesignSystemProvider`, and the React Aria-backed K-Nex primitives. It covers keyboard activation, focus visibility, dialog containment/restoration, named non-drag alternatives, 44-by-44 targets, ARIA-tree smoke, reduced motion, and forced colors. Minimal, Neobrutalism, and the customer override coexist in one page with distinct digests; exact profile scoping prevents bleed before and after live theme switching. Supplemental visual inspection is recorded in [`phase-5-accessibility-smoke.md`](./phase-5-accessibility-smoke.md).
 
 ## Payload plugin decisions
 
@@ -56,6 +56,10 @@ git status --porcelain --untracked-files=all
 ```
 
 `pnpm gate:5` is the required CI path. It preserves Gate 0–4 evidence, executes all Phase 5 unit/contract checks through the shared phase build, then runs the semantic primitive browser journey, Minimal hydration proof, real PostgreSQL atomic-publication fixture, theme/customer-override accessibility journey, and focused Gate 5 boundary assertions.
+
+## Project-manager correction evidence
+
+The blocking review anchored to `e991534` produced seven corrections: exact layout movement, exact profile CSS scoping, server-only UI revision access, serialized and idempotent publication completion, rollback revalidation with authoritative published-theme lookup, actual primitive/theme/runtime browser integration, and one strict bounded CMS metadata schema. Each correction has a focused regression and is included in the single Gate 5 path.
 
 ## Kill/rework assessment
 

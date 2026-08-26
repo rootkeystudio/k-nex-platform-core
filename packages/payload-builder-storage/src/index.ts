@@ -98,6 +98,7 @@ export function createPayloadUiDocumentRepository(options: UiDocumentRepositoryO
       const latest = await findLatest(input.documentId, undefined, input.req);
       return create({
         revisionId: options.createRevisionId(),
+        sequenceKey: `${input.documentId}:${(latest?.revisionNumber ?? 0) + 1}`,
         documentId: input.documentId,
         revisionNumber: (latest?.revisionNumber ?? 0) + 1,
         state: "draft",
@@ -113,10 +114,13 @@ export function createPayloadUiDocumentRepository(options: UiDocumentRepositoryO
       const validation = validate(draft.document);
       if (!validation.success || validation.document === undefined) throw new TypeError(`UI document publication validation failed: ${(validation.issues ?? ["INVALID"]).join(",")}.`);
       const current = await findLatest(draft.documentId, "published", req);
+      const latest = await findLatest(draft.documentId, undefined, req);
+      const revisionNumber = Math.max(draft.revisionNumber, current?.revisionNumber ?? 0, latest?.revisionNumber ?? 0) + 1;
       return create({
         revisionId: options.createRevisionId(),
+        sequenceKey: `${draft.documentId}:${revisionNumber}`,
         documentId: draft.documentId,
-        revisionNumber: Math.max(draft.revisionNumber, current?.revisionNumber ?? 0) + 1,
+        revisionNumber,
         state: "published",
         document: structuredClone(validation.document),
         validationStatus: "valid",
@@ -133,16 +137,21 @@ export function createPayloadUiDocumentRepository(options: UiDocumentRepositoryO
       return Object.freeze(result.docs.map(snapshotRevision));
     },
     async rollback(documentId: string, targetRevisionId: string, req?: unknown): Promise<UiDocumentRevision> {
-      const result = await options.payload.find({ collection: UI_DOCUMENT_REVISIONS_SLUG, where: { and: [{ documentId: { equals: documentId } }, { revisionId: { equals: targetRevisionId } }, { state: { equals: "published" } }] }, limit: 1, depth: 0, overrideAccess: true });
+      const result = await options.payload.find({ collection: UI_DOCUMENT_REVISIONS_SLUG, where: { and: [{ documentId: { equals: documentId } }, { revisionId: { equals: targetRevisionId } }, { state: { equals: "published" } }] }, limit: 1, depth: 0, overrideAccess: true, ...(req === undefined ? {} : { req }) });
       const target = result.docs[0] === undefined ? undefined : snapshotRevision(result.docs[0]);
       if (target === undefined) throw new TypeError("Rollback target is not a published revision of this document.");
+      const validation = validate(target.document);
+      if (!validation.success || validation.document === undefined) throw new TypeError(`UI document rollback validation failed: ${(validation.issues ?? ["INVALID"]).join(",")}.`);
       const current = await findLatest(documentId, "published", req);
+      const latest = await findLatest(documentId, undefined, req);
+      const revisionNumber = Math.max(current?.revisionNumber ?? 0, target.revisionNumber, latest?.revisionNumber ?? 0) + 1;
       return create({
         revisionId: options.createRevisionId(),
+        sequenceKey: `${documentId}:${revisionNumber}`,
         documentId,
-        revisionNumber: (current?.revisionNumber ?? target.revisionNumber) + 1,
+        revisionNumber,
         state: "published",
-        document: structuredClone(target.document),
+        document: structuredClone(validation.document),
         validationStatus: "valid",
         validationIssues: [],
         publishedAt: options.now(),
@@ -156,10 +165,11 @@ export function createPayloadUiDocumentRepository(options: UiDocumentRepositoryO
 export const uiDocumentRevisionsCollection = Object.freeze({
   slug: UI_DOCUMENT_REVISIONS_SLUG,
   admin: { useAsTitle: "revisionId", defaultColumns: ["documentId", "revisionNumber", "state", "validationStatus"] },
-  access: { read: ({ req }: { req: { user?: unknown } }) => req.user != null, create: () => false, update: () => false, delete: () => false },
+  access: { read: () => false, create: () => false, update: () => false, delete: () => false },
   versions: false,
   fields: [
     { name: "revisionId", type: "text", required: true, unique: true, index: true },
+    { name: "sequenceKey", type: "text", required: true, unique: true, index: true },
     { name: "documentId", type: "text", required: true, index: true },
     { name: "revisionNumber", type: "number", required: true, index: true, min: 1 },
     { name: "state", type: "select", required: true, index: true, options: ["draft", "published", "archived"] },

@@ -5,6 +5,7 @@ import {
   defineThemePackage,
   reactAriaPrimitives,
   semanticPrimitiveNames,
+  themeRootSelector,
   type ThemeTokenValues
 } from "@k-nex/ui-design-system-contracts";
 
@@ -36,14 +37,14 @@ const defaults: Readonly<Record<(typeof tokenKeys)[number], ThemeProfileTokenVal
 };
 
 const structuralCss = `
-[data-k-nex-theme-profile]{background:var(--k-nex-public-color-background);color:var(--k-nex-public-color-foreground);font-weight:600}
-[data-k-nex-primitive="stack"]{display:flex;flex-direction:column;gap:calc(var(--k-nex-public-spacing-content)*1px)}
-[data-k-nex-primitive="inline"]{display:flex;align-items:center;gap:calc(var(--k-nex-public-spacing-content)*1px)}
-[data-k-nex-primitive="card"]{border:3px solid var(--k-nex-public-color-border);border-radius:0;box-shadow:var(--k-nex-public-shadow-card);padding:calc(var(--k-nex-public-spacing-content)*1px)}
-[data-k-nex-primitive="button"],[data-k-nex-primitive="icon-button"]{min-width:44px;min-height:44px;border:3px solid var(--k-nex-public-color-border);border-radius:0;background:var(--k-nex-public-color-accent);box-shadow:4px 4px 0 var(--k-nex-public-color-border);font-weight:800;text-transform:uppercase;transition-duration:calc(var(--k-nex-public-motion-duration)*1ms)}
-:where([data-k-nex-primitive="button"],[data-k-nex-primitive="icon-button"])[data-focus-visible]{outline:4px solid var(--k-nex-public-color-foreground);outline-offset:3px}
-@media (prefers-reduced-motion:reduce){[data-k-nex-theme-profile] *{transition-duration:0ms!important;animation-duration:0ms!important}}
-@media (forced-colors:active){[data-k-nex-primitive="button"],[data-k-nex-primitive="card"]{border-color:CanvasText;box-shadow:none}}
+${themeRootSelector}{background:var(--k-nex-public-color-background);color:var(--k-nex-public-color-foreground);font-weight:600}
+${themeRootSelector} [data-k-nex-primitive="stack"]{display:flex;flex-direction:column;gap:calc(var(--k-nex-public-spacing-content)*1px)}
+${themeRootSelector} [data-k-nex-primitive="inline"]{display:flex;align-items:center;gap:calc(var(--k-nex-public-spacing-content)*1px)}
+${themeRootSelector} [data-k-nex-primitive="card"]{border:3px solid var(--k-nex-public-color-border);border-radius:0;box-shadow:var(--k-nex-public-shadow-card);padding:calc(var(--k-nex-public-spacing-content)*1px)}
+${themeRootSelector} [data-k-nex-primitive="button"],${themeRootSelector} [data-k-nex-primitive="icon-button"],${themeRootSelector} [data-k-nex-primitive="dialog-trigger"]{min-width:44px;min-height:44px;border:3px solid var(--k-nex-public-color-border);border-radius:0;background:var(--k-nex-public-color-accent);box-shadow:4px 4px 0 var(--k-nex-public-color-border);font-weight:800;text-transform:uppercase;transition-duration:calc(var(--k-nex-public-motion-duration)*1ms)}
+${themeRootSelector} :where([data-k-nex-primitive="button"],[data-k-nex-primitive="icon-button"],[data-k-nex-primitive="dialog-trigger"])[data-focus-visible]{outline:4px solid var(--k-nex-public-color-foreground);outline-offset:3px}
+@media (prefers-reduced-motion:reduce){${themeRootSelector} *{transition-duration:0ms!important;animation-duration:0ms!important}}
+@media (forced-colors:active){${themeRootSelector} [data-k-nex-primitive="button"],${themeRootSelector} [data-k-nex-primitive="dialog-trigger"],${themeRootSelector} [data-k-nex-primitive="card"]{border-color:CanvasText;box-shadow:none}}
 `;
 
 export const neobrutalismThemePackage = defineThemePackage({

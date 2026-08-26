@@ -3,6 +3,7 @@ export * from "./architecture-registry.js";
 export * from "./action.js";
 export * from "./agent-tool.js";
 export * from "./canonical-json.js";
+export * from "./cms-page-metadata.js";
 export * from "./data-source-binding.js";
 export * from "./framework-tuple.js";
 export * from "./data-source.js";

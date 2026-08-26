@@ -57,9 +57,22 @@ describe("Payload UiDocumentRepository", () => {
     await expect(repository.rollback("cms.other", "ui-revision.unknown")).rejects.toThrow(/target/);
   });
 
+  it("revalidates historical content under current policy before rollback", async () => {
+    const fake = storage();
+    let revision = 0;
+    let allowed = true;
+    const repository = createPayloadUiDocumentRepository({ payload: fake.port, createRevisionId: () => `ui-revision.${++revision}`, now: () => "2026-08-27T00:00:00.000Z", validateForPublication: (value) => allowed ? { success: true, document: value as never } : { success: false, issues: ["CURRENT_POLICY_DENIED"] } });
+    const draft = await repository.saveDraft({ documentId: "cms.home", document: document(1), validationStatus: "valid" });
+    const published = await repository.publishDraft(draft.id);
+    allowed = false;
+    await expect(repository.rollback("cms.home", published.revisionId)).rejects.toThrow(/CURRENT_POLICY_DENIED/);
+  });
+
   it("declares the bounded Payload collection indexes and denies direct mutation", () => {
     const fields = new Map((uiDocumentRevisionsCollection.fields as any[]).map((field) => [field.name, field]));
-    for (const name of ["revisionId", "documentId", "revisionNumber", "state", "validationStatus", "previousRevisionId", "rollbackOfRevisionId", "publishedAt"]) expect(fields.get(name)?.index).toBe(true);
+    for (const name of ["revisionId", "sequenceKey", "documentId", "revisionNumber", "state", "validationStatus", "previousRevisionId", "rollbackOfRevisionId", "publishedAt"]) expect(fields.get(name)?.index).toBe(true);
+    expect(uiDocumentRevisionsCollection.access.read({ req: {} } as never)).toBe(false);
+    expect(uiDocumentRevisionsCollection.access.read({ req: { user: { id: "ordinary-user" } } } as never)).toBe(false);
     expect(uiDocumentRevisionsCollection.access.create()).toBe(false);
     expect(uiDocumentRevisionsCollection.access.update()).toBe(false);
     expect(uiDocumentRevisionsCollection.access.delete()).toBe(false);

@@ -11,6 +11,7 @@ import { semanticPrimitiveNames, type SemanticPrimitives } from "./types.js";
 import { createSemanticPrimitives } from "./provider.js";
 
 export type ThemeTokenValues = Readonly<Record<string, ThemeProfileTokenValue>>;
+export const themeRootSelector = ":--k-nex-theme-root" as const;
 
 export interface ThemePalette {
   readonly id: string;
@@ -62,6 +63,9 @@ function snapshotThemePackage(input: ThemePackage): ThemePackage {
   if (!ExactSemverSchema.safeParse(input.version).success) throw new TypeError("Theme package version must be exact semver.");
   if (input.surfaces.length === 0 || new Set(input.surfaces).size !== input.surfaces.length) throw new TypeError("Theme package surfaces must be non-empty and unique.");
   if (/(@import|url\s*\(|https?:\/\/|javascript:)/i.test(input.structuralCss)) throw new TypeError("Theme structural CSS cannot import or load remote content.");
+  const selectors = [...input.structuralCss.matchAll(/([^{}]+)\{/g)].map((match) => match[1]!.trim()).filter((selector) => !selector.startsWith("@"));
+  const unscoped = selectors.filter((selector) => !selector.includes(themeRootSelector));
+  if (selectors.length === 0 || unscoped.length > 0) throw new TypeError(`Every theme structural CSS selector must include ${themeRootSelector}; unscoped: ${unscoped.join(" | ") || "none"}.`);
   const parse = input.tokenSchema.safeParse.bind(input.tokenSchema);
   const tokenSchema: RuntimeSchema<ThemeTokenValues> = Object.freeze({ safeParse: (value: unknown) => parse(value) });
   const defaults = cloneValues(input.defaults);
@@ -150,7 +154,7 @@ export function createThemePresentation(resolved: ResolvedThemeProfile): ThemePr
     surface: resolved.profile.surface,
     mode: resolved.profile.mode,
     cssVariables,
-    cssText: `${selector}{${declarations}}${resolved.package.structuralCss}`,
+    cssText: `${selector}{${declarations}}${resolved.package.structuralCss.replaceAll(themeRootSelector, selector)}`,
     primitives: createSemanticPrimitives(resolved.package.primitiveOverrides)
   });
 }

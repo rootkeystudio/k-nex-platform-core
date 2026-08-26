@@ -57,7 +57,9 @@ try {
   assert(await dialog.evaluate((element) => element.contains(document.activeElement)), "Dialog did not contain keyboard focus.");
   await page.keyboard.press("Escape");
   await dialog.waitFor({ state: "hidden" });
-  assert(await dialogTrigger.evaluate((element) => document.activeElement === element), "Dialog did not restore trigger focus.");
+  const dialogTriggerHandle = await dialogTrigger.elementHandle();
+  assert(dialogTriggerHandle !== null, "Dialog trigger disappeared before focus restoration.");
+  await page.waitForFunction((element) => document.activeElement === element, dialogTriggerHandle);
 
   const tooltipTrigger = page.getByRole("button", { name: "More information" });
   await tooltipTrigger.focus();

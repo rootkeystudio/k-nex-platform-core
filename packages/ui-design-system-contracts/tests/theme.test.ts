@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createThemeRegistry, defineThemePackage, type ThemeTokenValues } from "../src/index.js";
+import { createThemePresentation, createThemeRegistry, defineThemePackage, themeRootSelector, type ThemeTokenValues } from "../src/index.js";
 
 function tokenSchema() {
   return {
@@ -23,7 +23,7 @@ function themePackage() {
     defaults: { "color.accent": "#2457ff", "spacing.content": 16 },
     palettes: [{ id: "default", values: {} }],
     recipes: { Button: ["primary", "quiet"] },
-    structuralCss: "[data-k-nex-primitive=stack]{display:flex}",
+    structuralCss: `${themeRootSelector} [data-k-nex-primitive=stack]{display:flex}`,
     migrations: []
   };
 }
@@ -66,5 +66,12 @@ describe("theme package and profile registry", () => {
     expect(() => defineThemePackage({ ...themePackage(), structuralCss: "@import url(https://example.com/x.css)" })).toThrow(/remote/);
     expect(() => defineThemePackage({ ...themePackage(), defaults: {} })).toThrow(/defaults/);
     expect(() => defineThemePackage({ ...themePackage(), recipes: { DataGrid: ["dense"] } as never })).toThrow(/Unknown/);
+    expect(() => defineThemePackage({ ...themePackage(), structuralCss: "[data-k-nex-primitive=stack]{display:flex}" })).toThrow(/selector/);
+  });
+
+  it("replaces every structural root with the exact profile revision selector", () => {
+    const presentation = createThemePresentation(createThemeRegistry([themePackage()]).resolveProfile(profile));
+    expect(presentation.cssText).not.toContain(themeRootSelector);
+    expect(presentation.cssText).toContain('[data-k-nex-theme-profile="theme-revision.public-1"] [data-k-nex-primitive=stack]');
   });
 });

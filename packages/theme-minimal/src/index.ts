@@ -5,6 +5,7 @@ import {
   defineThemePackage,
   reactAriaPrimitives,
   semanticPrimitiveNames,
+  themeRootSelector,
   type ThemeTokenValues
 } from "@k-nex/ui-design-system-contracts";
 
@@ -37,14 +38,14 @@ const defaults: Readonly<Record<(typeof tokenKeys)[number], ThemeProfileTokenVal
 };
 
 const structuralCss = `
-[data-k-nex-theme-profile]{background:var(--k-nex-public-color-background);color:var(--k-nex-public-color-foreground)}
-[data-k-nex-primitive="stack"]{display:flex;flex-direction:column;gap:calc(var(--k-nex-public-spacing-content)*1px)}
-[data-k-nex-primitive="inline"]{display:flex;align-items:center;gap:calc(var(--k-nex-public-spacing-content)*1px)}
-[data-k-nex-primitive="card"]{border:1px solid var(--k-nex-public-color-border);border-radius:calc(var(--k-nex-public-radius-control)*1px);box-shadow:var(--k-nex-public-shadow-card);padding:calc(var(--k-nex-public-spacing-content)*1px)}
-[data-k-nex-primitive="button"],[data-k-nex-primitive="icon-button"]{min-width:44px;min-height:44px;border:1px solid var(--k-nex-public-color-border);border-radius:calc(var(--k-nex-public-radius-control)*1px);transition-duration:calc(var(--k-nex-public-motion-duration)*1ms)}
-:where([data-k-nex-primitive="button"],[data-k-nex-primitive="icon-button"])[data-focus-visible]{outline:3px solid var(--k-nex-public-color-accent);outline-offset:2px}
-@media (prefers-reduced-motion:reduce){[data-k-nex-theme-profile] *{transition-duration:0ms!important;animation-duration:0ms!important}}
-@media (forced-colors:active){[data-k-nex-primitive="button"],[data-k-nex-primitive="card"]{border-color:CanvasText}}
+${themeRootSelector}{background:var(--k-nex-public-color-background);color:var(--k-nex-public-color-foreground)}
+${themeRootSelector} [data-k-nex-primitive="stack"]{display:flex;flex-direction:column;gap:calc(var(--k-nex-public-spacing-content)*1px)}
+${themeRootSelector} [data-k-nex-primitive="inline"]{display:flex;align-items:center;gap:calc(var(--k-nex-public-spacing-content)*1px)}
+${themeRootSelector} [data-k-nex-primitive="card"]{border:1px solid var(--k-nex-public-color-border);border-radius:calc(var(--k-nex-public-radius-control)*1px);box-shadow:var(--k-nex-public-shadow-card);padding:calc(var(--k-nex-public-spacing-content)*1px)}
+${themeRootSelector} [data-k-nex-primitive="button"],${themeRootSelector} [data-k-nex-primitive="icon-button"],${themeRootSelector} [data-k-nex-primitive="dialog-trigger"]{min-width:44px;min-height:44px;border:1px solid var(--k-nex-public-color-border);border-radius:calc(var(--k-nex-public-radius-control)*1px);transition-duration:calc(var(--k-nex-public-motion-duration)*1ms)}
+${themeRootSelector} :where([data-k-nex-primitive="button"],[data-k-nex-primitive="icon-button"],[data-k-nex-primitive="dialog-trigger"])[data-focus-visible]{outline:3px solid var(--k-nex-public-color-accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){${themeRootSelector} *{transition-duration:0ms!important;animation-duration:0ms!important}}
+@media (forced-colors:active){${themeRootSelector} [data-k-nex-primitive="button"],${themeRootSelector} [data-k-nex-primitive="dialog-trigger"],${themeRootSelector} [data-k-nex-primitive="card"]{border-color:CanvasText}}
 `;
 
 export const minimalThemePackage = defineThemePackage({
