@@ -3,20 +3,20 @@
 - **Updated:** 2026-08-27
 - **Phase:** Phase 5 — UI Runtime, Themes, and Atomic CMS Publication
 - **Active task:** P5.9 — Gate 5 closeout
-- **State:** Ready for review
+- **State:** Rework in progress
 
 ## Last completed
 
-Completed all Phase 5 tasks P5.1–P5.9 and recorded `GO Phase 6` in `docs/implementation/phase-5-result.md`.
+Corrected P5.7 move-before semantics for forward, backward, end-of-list, self/no-op, and nested sibling layout personalization.
 
 ## Validation
 
-`pnpm gate:5` is the single Phase 5 CI path: it preserves Gate 0–4, runs all Phase 5 package checks, semantic primitive and hydration browser proofs, real PostgreSQL atomic publication, accessibility/visual/customer override acceptance, and focused closeout assertions.
+Focused UI runtime regressions cover every project-manager movement case while preserving immutable snapshot behavior.
 
 ## Next
 
-Review and merge the Phase 5 pull request, then begin P6.1 lifecycle state and planning model.
+Resolve the remaining Gate 5 review blockers, refresh closeout evidence, and rerun `pnpm gate:5` on the correction head.
 
 ## Blockers
 
-None.
+Project-manager REWORK review anchored to `e991534` remains open.

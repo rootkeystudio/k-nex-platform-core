@@ -89,10 +89,11 @@ function applyPatches(snapshot: PublishedLayoutSnapshot, patches: readonly Layou
       location.nodes.splice(location.index, 1);
     } else if (patch.kind === "move") {
       if (!allowed.movableNodeIds.includes(patch.nodeId)) throw new TypeError(`Node cannot be moved: ${patch.nodeId}.`);
+      if (patch.beforeNodeId === patch.nodeId) continue;
+      location.nodes.splice(location.index, 1);
       const before = patch.beforeNodeId === undefined ? location.nodes.length : location.nodes.findIndex((candidate) => candidate.id === patch.beforeNodeId);
       if (before < 0) throw new TypeError(`Move target does not exist in the same region: ${patch.beforeNodeId}.`);
-      location.nodes.splice(location.index, 1);
-      location.nodes.splice(Math.min(before, location.nodes.length), 0, node);
+      location.nodes.splice(before, 0, node);
     } else if (patch.kind === "resize") {
       if (!allowed.resizableNodeIds.includes(patch.nodeId) || !/^size\.[a-z][a-z0-9-]*$/.test(patch.widthToken)) throw new TypeError(`Node resize is not allowed: ${patch.nodeId}.`);
       node.layout ??= {};
