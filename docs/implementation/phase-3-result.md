@@ -4,7 +4,7 @@
 - **Gate:** Gate 3
 - **Baseline:** `ba25289`
 - **Delivery:** direct coherent commits; no pull request
-- **Decision:** **PENDING WHOLE-PHASE REVIEW**
+- **Decision:** **GO PHASE 4**
 
 ## Scope proved
 
@@ -24,7 +24,7 @@ The Socket.IO candidate is implemented only in its honestly supported memory top
 | P3.6 — distributed publication path | `1ee51cd` |
 | P3.7 — source revisions and convergence | `945e248` |
 | P3.8 — subscription security and backpressure | `2f3f0b3` |
-| P3.9 — failure injection and Gate 3 closeout | this closeout commit |
+| P3.9 — failure injection and Gate 3 closeout | `5c74578` |
 
 ## Durable event proof
 
@@ -82,4 +82,8 @@ Generated event JSON Schema uses the registered `kNexMaxCanonicalBytes` AJV keyw
 
 No Gate 3 kill criterion fired in the executable gate: committed durable intent survives process exit, topology and durability contracts reject unsupported paths, bounded revalidation converges after message loss, and revocation constrains or terminates existing subscriptions.
 
-The final `GO PHASE 4` decision remains withheld until a fresh independent Sol/high review of the whole Phase 3 diff passes.
+## Whole-phase review
+
+Independent Sol/high reviews were run over the complete Phase 3 diff after each correction cycle. Findings covering contract classification, provider selection, topology enforcement, authentication accounting, publication immutability and bounds, revalidation, source convergence, schema parity, real failure injection, session identity, and package reproducibility were corrected and re-gated. The final fresh review of `ba25289..6e1f7f2` returned **PASS** with no blocking findings after independently confirming Phase 0, Gate 3, exact-session revocation, watermark preservation, canonical provider packing/installability, generated-schema parity, and PostgreSQL durability/outage evidence.
+
+Phase 3 is closed. Phase 4 begins at P4.1 under the user-directed direct-commit workflow; no pull request is required.

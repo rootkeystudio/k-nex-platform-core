@@ -1,21 +1,21 @@
 # Project Status
 
 - **Updated:** 2026-08-26
-- **Phase:** Phase 3 — Transactions, Durable Events, and Realtime Convergence
-- **Active task:** Phase 3 review fixes and fresh whole-phase rereview
+- **Phase:** Phase 4 — Builder Engine Kill-Spike
+- **Active task:** P4.1 — minimal canonical document schema
 - **State:** Active
 
 ## Last completed
 
-Addressed the substantive findings from seven Sol/high whole-phase reviews: classified realtime envelopes, canonical provider selection/registration and reproducible packing, fail-closed and mandatory realtime topology, bounded pending and established authentication slots (including disconnected and timed-out middleware work), immutable and globally bounded publication buffering, login-session-specific fail-closed revalidation, cancellable and retryable source convergence with late-result and watermark preservation, replacement-process rollout recovery, exact generated-schema canonical-byte and secret-field parity, reduced-ceiling dead lettering, and an actual PostgreSQL relay outage/recovery injection. The first reviewer’s PR-only finding is superseded by the user-directed direct-commit workflow.
+Phase 3 completed with Gate 3 and a fresh independent Sol/high whole-phase PASS at `6e1f7f2`. All substantive findings across the review cycles were resolved, including lifecycle/resource bounds, session-specific revocation, convergence races and watermark preservation, schema parity, canonical provider packaging, and real PostgreSQL outage recovery. The earlier PR-only finding is superseded by the user-directed direct-commit workflow.
 
 ## Validation
 
-On Node.js 24.19.0 and pnpm 11.9.0: the prior clean-state `pnpm phase:0` and current `pnpm gate:3` pass with 85 contract, 152 runtime, 41 Payload-adapter, eight Sales, and 22 real Socket.IO client/server tests plus provider pack equivalence; Gate 2A proofs/benchmarks; seven focused Gate 3 proofs; and the real-PostgreSQL customer gate with Docker-level database pause/unpause. Generated contract validation passes with normalized nested-secret, depth, mandatory-topology, and canonical-byte Zod/AJV parity.
+On Node.js 24.19.0 and pnpm 11.9.0: clean-state `pnpm phase:0` and `pnpm gate:3` pass with 85 contract, 152 runtime, 41 Payload-adapter, eight Sales, and 22 real Socket.IO client/server tests plus provider pack equivalence; Gate 2A proofs/benchmarks; seven focused Gate 3 proofs; and the real-PostgreSQL customer gate with Docker-level database pause/unpause. The final fresh Sol/high whole-phase review passed with no blocking findings.
 
 ## Next
 
-Commit and push the seventh review fixes, rerun Phase 0 from the clean commit, then obtain a fresh Sol/high whole-phase PASS before closing Phase 3 and activating P4.1.
+Execute P4.1 — minimal canonical document schema — in documented Phase 4 order.
 
 ## Blockers
 
