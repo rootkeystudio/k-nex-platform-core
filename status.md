@@ -7,7 +7,7 @@
 
 ## Last completed
 
-All eight blockers from the designated project-manager review anchored to `54ad518` are addressed in the correction candidate: frozen-install integrity and non-duplicated CI, compound event-secret classification, fair expired-lease recovery, millisecond event persistence, cancellable realtime authorization, immutable UI authority, strict normalized source-result envelopes, and removal of unsupported state/context/action surfaces. PR #17 remains open.
+All eight blockers from the designated project-manager review anchored to `54ad518` are addressed in the correction candidate: frozen-install integrity and non-duplicated CI, compound event-secret classification, fair expired-lease recovery, millisecond event persistence, cancellable realtime authorization, immutable UI authority, strict normalized source-result envelopes, and removal of unsupported state/context/action surfaces. The rebuilt provider integrity is also synchronized into the customer lockfile and generated resolved registry. PR #17 remains open.
 
 ## Validation
 
