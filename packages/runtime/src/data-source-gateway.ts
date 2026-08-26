@@ -6,6 +6,7 @@ export interface DataSourceHandlerRequest {
   readonly request: unknown;
   readonly input: unknown;
   readonly selectedFields: readonly string[];
+  readonly recordScope: unknown;
   readonly signal: AbortSignal;
 }
 
@@ -34,6 +35,7 @@ export interface AuthenticatedDataSourceRequest {
 
 export interface AuthorizedDataSourceQuery {
   readonly selectedFields: readonly string[];
+  readonly recordScope: unknown;
 }
 
 export interface BudgetedDataSourceQuery {
@@ -178,6 +180,7 @@ export class RegisteredHandlerDispatcher implements HandlerDispatcher {
       request: context.authenticated.request,
       input: context.query.input,
       selectedFields: context.query.selectedFields,
+      recordScope: context.query.recordScope,
       signal: context.signal
     });
   }
@@ -235,7 +238,11 @@ export class DataSourceGateway {
       const budgeted = await this.stages.budget.evaluate(source, request, authenticated, authorized);
       const parsedInput = source.definition.inputSchema.safeParse(budgeted.input);
       if (!parsedInput.success) throw new DataSourceGatewayError("INVALID_QUERY_INPUT", 400, "Data-source input is invalid.");
-      const query: ExecutableDataSourceQuery = { input: parsedInput.data, selectedFields: authorized.selectedFields };
+      const query: ExecutableDataSourceQuery = {
+        input: parsedInput.data,
+        selectedFields: authorized.selectedFields,
+        recordScope: authorized.recordScope
+      };
       const context: DataSourceExecutionContext = {
         correlationId,
         source,

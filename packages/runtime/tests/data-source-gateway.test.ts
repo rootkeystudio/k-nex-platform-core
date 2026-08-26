@@ -99,7 +99,7 @@ function recordingStages(trace: string[], failAt?: StageName): DataSourceGateway
     authorization: {
       authorize() {
         step("authorize");
-        return { selectedFields: ["authorized"] };
+        return { selectedFields: ["authorized"], recordScope: { tenantId: "tenant-1" } };
       }
     },
     budget: {
@@ -192,7 +192,12 @@ describe("P2.3 staged data-source gateway", () => {
 
     const result = await new DataSourceGateway(stages).query(request);
     expect(result.ok).toBe(true);
-    expect(received).toMatchObject({ input: {}, selectedFields: ["authorized"], signal: abort.signal });
+    expect(received).toMatchObject({
+      input: {},
+      selectedFields: ["authorized"],
+      recordScope: { tenantId: "tenant-1" },
+      signal: abort.signal
+    });
     expect(received).not.toMatchObject({ input: request.input, selectedFields: request.selectedFields });
   });
 

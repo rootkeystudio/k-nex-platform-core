@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-26
 - **Phase:** Phase 2 — Authenticated Data Sources and Output Contracts
-- **Active task:** P2.4 — Implement source, record, and field authorization
+- **Active task:** P2.5 — Add bounded query semantics and abuse budgets
 - **State:** In progress
 
 ## Last completed
 
-Added `@k-nex/runtime` with the secure staged source gateway, validated handler input, source/canonical output validation, defensive redaction, cache/observation ordering, and safe RFC 9457 failures.
+Added Payload request authentication adaptation, principal/effective actor and impersonation context, audience guards, module policy decisions, pre-query record scopes, required/optional field authorization, and defensive table redaction.
 
 ## Validation
 
-Runtime and composition builds pass with 18 gateway tests and 87 composition tests. Stage order, every failure boundary, authorized projection preservation, schema validation, cache/log redaction, safe errors, and observation isolation pass.
+Runtime and Payload adapter builds pass with 25 authorization/gateway tests and 13 Payload adapter tests. Source, surface, actor, record-scope, field manipulation, required/optional behavior, impersonation, redaction, and request-secret isolation pass.
 
 ## Next
 
-Complete P2.4 with authenticated source, record, and field policy plus required/optional field behavior.
+Complete P2.5 with bounded inputs, pagination/filter/sort semantics, cancellation, concurrency, rate, and cost enforcement.
 
 ## Blockers
 
