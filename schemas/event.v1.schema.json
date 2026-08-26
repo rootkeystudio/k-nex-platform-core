@@ -277,6 +277,7 @@
         "$ref": "#/$defs/__kNexEventPayloadDepth1"
       },
       "kNexMaxCanonicalBytes": 16384,
+      "kNexNoSecretFields": true,
       "propertyNames": {
         "not": {
           "pattern": "^(?:[aA][^A-Za-z0-9]*[uU][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[hH][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[zZ][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[nN]|[cC][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[eE]|[pP][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[sS][^A-Za-z0-9]*[sS][^A-Za-z0-9]*[wW][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[dD]|[sS][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[cC][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[tT]|[tT][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN]|[aA][^A-Za-z0-9]*[pP][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[yY]|[cC][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[dD][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[lL]|[pP][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[vV][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[eE])$"

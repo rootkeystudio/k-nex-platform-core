@@ -123,7 +123,7 @@ describe("durable event envelope v1", () => {
     const oversized = { data: "x".repeat(EVENT_PAYLOAD_MAX_BYTES) };
     expect(DurableEventEnvelopeSchema.safeParse({ ...baseEnvelope, payload: oversized }).success).toBe(false);
 
-    for (const key of ["Authorization", "cookie", "pass-word", "SECRET", "to.ken", "api_key", "credential", "private-note"]) {
+    for (const key of ["Authorization", "cookie", "pass-word", "-password-", "SECRET", "💣secret💣", "to.ken", "_token_", "api_key", "credential", "private-note"]) {
       expect(DurableEventEnvelopeSchema.safeParse({
         ...baseEnvelope,
         payload: { outer: [{ nested: { [key]: "do-not-store" } }] }

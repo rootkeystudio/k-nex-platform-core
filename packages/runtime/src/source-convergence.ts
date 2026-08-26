@@ -20,9 +20,10 @@ export interface SourceConvergenceState<T> {
 }
 
 export interface SourceConvergenceDependencies<T> {
-  authorize(): boolean | Promise<boolean>;
-  fetch(reason: SourceConvergenceReason): Promise<AuthoritativeSourceSnapshot<T>>;
+  authorize(signal: AbortSignal): boolean | Promise<boolean>;
+  fetch(reason: SourceConvergenceReason, signal: AbortSignal): Promise<AuthoritativeSourceSnapshot<T>>;
   readonly freshness: SourceFreshnessClass;
+  readonly refreshTimeoutMs?: number;
   readonly surface: "workspace" | "other";
   now?(): number;
   readonly signals?: SourceConvergenceSignals;
@@ -41,6 +42,7 @@ function revision(value: number): number {
 
 export class SourceConvergenceController<T> {
   private readonly clock: () => number;
+  private readonly refreshTimeoutMs: number;
   private stateValue: SourceConvergenceState<T> = Object.freeze({ data: null, lastValidatedAt: null, revision: null, status: "idle" });
   private refreshPromise: Promise<SourceConvergenceState<T>> | undefined;
   private minimumRevision = 0;
@@ -50,6 +52,10 @@ export class SourceConvergenceController<T> {
   constructor(private readonly dependencies: SourceConvergenceDependencies<T>) {
     this.clock = dependencies.now ?? Date.now;
     if (!(dependencies.freshness in sourceFreshnessIntervalsMs)) throw new TypeError("Unknown source freshness class.");
+    this.refreshTimeoutMs = dependencies.refreshTimeoutMs ?? 10_000;
+    if (!Number.isSafeInteger(this.refreshTimeoutMs) || this.refreshTimeoutMs < 1 || this.refreshTimeoutMs > 60_000) {
+      throw new RangeError("refreshTimeoutMs must be an integer between 1 and 60000.");
+    }
   }
 
   get state(): SourceConvergenceState<T> {
@@ -110,25 +116,40 @@ export class SourceConvergenceController<T> {
 
   private refresh(reason: SourceConvergenceReason): Promise<SourceConvergenceState<T>> {
     if (this.refreshPromise) return this.refreshPromise;
-    this.refreshPromise = this.runRefresh(reason).finally(() => { this.refreshPromise = undefined; });
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    const timeout = new Promise<SourceConvergenceState<T>>((resolve) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        this.minimumRevision = 0;
+        this.stateValue = Object.freeze({ data: null, lastValidatedAt: this.clock(), revision: null, status: "error" });
+        resolve(this.stateValue);
+      }, this.refreshTimeoutMs);
+      (timer as unknown as { unref?(): void }).unref?.();
+    });
+    const refresh = Promise.race([this.runRefresh(reason, controller.signal), timeout]).finally(() => clearTimeout(timer));
+    this.refreshPromise = refresh.finally(() => { this.refreshPromise = undefined; });
     return this.refreshPromise;
   }
 
-  private async runRefresh(reason: SourceConvergenceReason): Promise<SourceConvergenceState<T>> {
+  private async runRefresh(reason: SourceConvergenceReason, signal: AbortSignal): Promise<SourceConvergenceState<T>> {
     let authorized: boolean;
     try {
-      authorized = await this.dependencies.authorize();
+      authorized = await this.dependencies.authorize(signal);
     } catch {
+      if (signal.aborted) return this.stateValue;
       this.stateValue = Object.freeze({ data: null, lastValidatedAt: this.clock(), revision: null, status: "error" });
       return this.stateValue;
     }
+    if (signal.aborted) return this.stateValue;
     if (!authorized) {
       this.minimumRevision = 0;
       this.stateValue = Object.freeze({ data: null, lastValidatedAt: this.clock(), revision: null, status: "forbidden" });
       return this.stateValue;
     }
     try {
-      const snapshot = await this.dependencies.fetch(reason);
+      const snapshot = await this.dependencies.fetch(reason, signal);
+      if (signal.aborted) return this.stateValue;
       const snapshotRevision = revision(snapshot.revision);
       if (this.stateValue.revision !== null && snapshotRevision < this.stateValue.revision) {
         this.stateValue = Object.freeze({ ...this.stateValue, status: "error" });

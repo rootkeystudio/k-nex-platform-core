@@ -8,6 +8,7 @@ import {
   ApplicationManifestSchema,
   canonicalJson,
   DurableEventEnvelopeSchema,
+  isEventSecretFieldName,
   MetricScalarSchema,
   PluginManifestSchema,
   TableRecordsSchema
@@ -24,6 +25,21 @@ ajv.addKeyword({
   schemaType: "number",
   errors: false,
   validate: (maximum: number, data: unknown) => new TextEncoder().encode(canonicalJson(data)).byteLength <= maximum
+});
+ajv.addKeyword({
+  keyword: "kNexNoSecretFields",
+  type: "object",
+  schemaType: "boolean",
+  errors: false,
+  validate: (enabled: boolean, data: unknown) => {
+    if (!enabled) return true;
+    const visit = (value: unknown): boolean => {
+      if (Array.isArray(value)) return value.every(visit);
+      if (value === null || typeof value !== "object") return true;
+      return Object.entries(value).every(([key, child]) => !isEventSecretFieldName(key) && visit(child));
+    };
+    return visit(data);
+  }
 });
 
 const circular: { self?: unknown } = {};
@@ -155,6 +171,13 @@ const secretEvent = structuredClone(validEvent) as { payload: Record<string, unk
 secretEvent.payload = { nested: [{ "private-note": "must never enter an event" }] };
 if (DurableEventEnvelopeSchema.safeParse(secretEvent).success || validateEvent(secretEvent)) {
   throw new Error("Secret-bearing event payload must fail both Zod and generated JSON Schema validation.");
+}
+for (const key of ["-password-", "_token_", "💣secret💣"]) {
+  const separatedSecretEvent = structuredClone(validEvent) as { payload: Record<string, unknown> };
+  separatedSecretEvent.payload = { [key]: "must never enter an event" };
+  if (DurableEventEnvelopeSchema.safeParse(separatedSecretEvent).success || validateEvent(separatedSecretEvent)) {
+    throw new Error(`Secret-bearing event key ${key} must fail both Zod and generated JSON Schema validation.`);
+  }
 }
 const oversizedEvent = structuredClone(validEvent) as { payload: Record<string, unknown> };
 oversizedEvent.payload = { data: "x".repeat(16_384) };

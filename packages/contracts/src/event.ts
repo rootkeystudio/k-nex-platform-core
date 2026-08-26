@@ -57,6 +57,10 @@ function normalizedFieldName(key: string): string {
   return key.replace(/[^a-z0-9]/gi, "").toLowerCase();
 }
 
+export function isEventSecretFieldName(key: string): boolean {
+  return secretFieldNames.has(normalizedFieldName(key));
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   const prototype = Object.getPrototypeOf(value);
@@ -90,7 +94,7 @@ function inspectPayload(value: unknown, context: PayloadValidationContext): void
     }
     if (current === null || typeof current !== "object") return;
     for (const [key, child] of Object.entries(current)) {
-      if (secretField === undefined && secretFieldNames.has(normalizedFieldName(key))) secretField = key;
+      if (secretField === undefined && isEventSecretFieldName(key)) secretField = key;
       visit(child, depth + 1);
     }
   };

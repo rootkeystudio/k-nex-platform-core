@@ -40,7 +40,7 @@ describe("source revision convergence", () => {
     await test.controller.initialize();
     test.snapshot({ data: "authoritative second", revision: 2 });
     await expect(test.controller.handleInvalidation(2)).resolves.toMatchObject({ status: "ready", revision: 2, data: "authoritative second" });
-    expect(test.fetch).toHaveBeenLastCalledWith("invalidation");
+    expect(test.fetch).toHaveBeenLastCalledWith("invalidation", expect.any(AbortSignal));
     expect(test.authorize).toHaveBeenCalledTimes(2);
   });
 
@@ -96,7 +96,7 @@ describe("source revision convergence", () => {
     await test.controller.initialize();
     test.snapshot({ data: "after reconnect", revision: 5 });
     await test.controller.handleReconnect();
-    expect(test.fetch).toHaveBeenLastCalledWith("reconnect");
+    expect(test.fetch).toHaveBeenLastCalledWith("reconnect", expect.any(AbortSignal));
     expect(test.authorize).toHaveBeenCalledTimes(2);
     expect(test.controller.state).toMatchObject({ status: "ready", revision: 5 });
   });
@@ -106,7 +106,7 @@ describe("source revision convergence", () => {
     await workspace.controller.initialize();
     workspace.advance(sourceFreshnessIntervalsMs.live);
     await workspace.controller.handleWindowFocus();
-    expect(workspace.fetch).toHaveBeenLastCalledWith("focus");
+    expect(workspace.fetch).toHaveBeenLastCalledWith("focus", expect.any(AbortSignal));
 
     const other = harness({ surface: "other" });
     await other.controller.initialize();
@@ -148,5 +148,59 @@ describe("source revision convergence", () => {
     await controller.initialize();
     await controller.handleReconnect();
     expect(controller.state).toMatchObject({ status: "error", data: null, revision: null });
+  });
+
+  it("clears private data on authorization timeout and retries after recovery", async () => {
+    vi.useFakeTimers();
+    let hang = false;
+    const authorize = vi.fn((signal: AbortSignal) => {
+      if (!hang) return Promise.resolve(true);
+      return new Promise<boolean>((_, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }));
+    });
+    const controller = new SourceConvergenceController({
+      authorize,
+      fetch: async () => ({ data: "private", revision: 1 }),
+      freshness: "standard",
+      refreshTimeoutMs: 10,
+      surface: "workspace"
+    });
+    await controller.initialize();
+    hang = true;
+    const timedOut = controller.handleReconnect();
+    await vi.advanceTimersByTimeAsync(10);
+    await expect(timedOut).resolves.toMatchObject({ status: "error", data: null, revision: null });
+    hang = false;
+    await expect(controller.handleReconnect()).resolves.toMatchObject({ status: "ready", data: "private", revision: 1 });
+    expect(authorize).toHaveBeenCalledTimes(3);
+  });
+
+  it("bounds a hanging fetch, ignores its late result, and permits retry", async () => {
+    vi.useFakeTimers();
+    let hang = false;
+    let release: (() => void) | undefined;
+    const fetch = vi.fn(async (_reason: string, signal: AbortSignal) => {
+      if (hang) await new Promise<void>((resolve) => {
+        release = resolve;
+        signal.addEventListener("abort", resolve, { once: true });
+      });
+      return { data: hang ? "late private" : "current private", revision: hang ? 2 : 3 };
+    });
+    const controller = new SourceConvergenceController({
+      authorize: async () => true,
+      fetch,
+      freshness: "standard",
+      refreshTimeoutMs: 10,
+      surface: "workspace"
+    });
+    await controller.initialize();
+    hang = true;
+    const timedOut = controller.handleReconnect();
+    await vi.advanceTimersByTimeAsync(10);
+    await expect(timedOut).resolves.toMatchObject({ status: "error", data: null, revision: null });
+    release?.();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(controller.state.data).toBeNull();
+    hang = false;
+    await expect(controller.handleReconnect()).resolves.toMatchObject({ status: "ready", data: "current private", revision: 3 });
   });
 });

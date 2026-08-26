@@ -60,6 +60,7 @@ function eventJsonSchema(): unknown {
   definitions[payloadDefinition] = {
     type: "object",
     kNexMaxCanonicalBytes: EVENT_PAYLOAD_MAX_BYTES,
+    kNexNoSecretFields: true,
     propertyNames: { not: { pattern: secretFieldPattern() } },
     additionalProperties: { $ref: "#/$defs/__kNexEventPayloadDepth1" }
   };

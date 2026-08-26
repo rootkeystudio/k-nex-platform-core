@@ -395,7 +395,7 @@ describe("Socket.IO memory realtime gateway", () => {
     expect(active.gateway.health()).toMatchObject({ subscriptions: 0, subscriptionDenied: 1 });
   });
 
-  it("coalesces hanging revalidation per session without blocking peers or shutdown", async () => {
+  it("fails closed on hanging revalidation without blocking peers or shutdown", async () => {
     httpServer = createServer();
     const checks = new Map<string, number>();
     gateway = createSocketIoMemoryGateway({
@@ -426,8 +426,7 @@ describe("Socket.IO memory realtime gateway", () => {
     await new Promise((resolve) => setTimeout(resolve, 35));
     expect(checks.get("stuck")).toBe(1);
     expect(checks.get("revoked")).toBe(1);
-    expect(gateway.health().connections).toBe(1);
-    expect(gateway.health().revalidationCoalesced).toBeGreaterThanOrEqual(1);
+    expect(gateway.health().connections).toBe(0);
     expect(gateway.health().revalidationTimeouts).toBeGreaterThanOrEqual(1);
     await expect(Promise.race([
       gateway.close(),

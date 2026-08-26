@@ -394,9 +394,11 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
     });
     return operation;
   };
-  const waitForRevalidation = (operation: Promise<void>): Promise<void> => new Promise((resolve) => {
+  const waitForRevalidation = (session: Session, operation: Promise<void>): Promise<void> => new Promise((resolve) => {
     const timer = setTimeout(() => {
       counters.revalidationTimeouts += 1;
+      counters.authenticationDenied += 1;
+      session.socket.disconnect(true);
       resolve();
     }, limits.revalidationTimeoutMs);
     operation.finally(() => {
@@ -410,7 +412,7 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
       counters.revalidationCoalesced += 1;
       return revalidation;
     }
-    const operation = Promise.all([...sessions.values()].map((session) => waitForRevalidation(revalidateSession(session)))).then(() => undefined);
+    const operation = Promise.all([...sessions.values()].map((session) => waitForRevalidation(session, revalidateSession(session)))).then(() => undefined);
     revalidation = operation;
     void operation.finally(() => {
       if (revalidation === operation) revalidation = undefined;
