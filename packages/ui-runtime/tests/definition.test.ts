@@ -60,4 +60,17 @@ describe("UI runtime registry", () => {
     expect(() => createUiRuntimeRegistry({ blocks: [{ ...block, sourcePolicy: { required: true, contracts: [{ id: "metric.scalar", version: 1 }], requiredFields: ["title"] } }], sources: [] })).toThrow(/table.records/);
     expect(() => createUiRuntimeRegistry({ blocks: [{ ...block, sourcePolicy: { required: true, contracts: [{ id: "table.records", version: 1 }], requiredFields: ["title", "title"] } }], sources: [] })).toThrow(/canonical and unique/);
   });
+
+  it("validates ownership catalog identities and source ownership", () => {
+    expect(() => createUiRuntimeRegistry({ blocks: [], sources: [], blockCatalog: [
+      { id: "content.card", version: 1, ownerPluginId: "invalid" }
+    ] })).toThrow(/canonical identities/);
+    expect(() => createUiRuntimeRegistry({ blocks: [], sources: [], blockCatalog: [
+      { id: "content.card", version: 1, ownerPluginId: "module.content" },
+      { id: "content.card", version: 1, ownerPluginId: "module.content" }
+    ] })).toThrow(/unique/);
+    expect(() => createUiRuntimeRegistry({ blocks: [], sources: [source], sourceCatalog: [
+      { id: "sales.tasks", version: 1, ownerPluginId: "module.other" }
+    ] })).toThrow(/owner does not match/);
+  });
 });

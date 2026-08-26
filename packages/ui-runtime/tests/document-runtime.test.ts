@@ -70,9 +70,9 @@ describe("UI document runtime", () => {
 
   it("fails closed for migration, profile/surface, and authentication", () => {
     const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [block()], sources: [] }));
-    expect(runtime.render({ document: {}, surface: "workspace", actor: actor() })).toEqual({ success: false, code: "DOCUMENT_MIGRATION_FAILED", migrationCode: "MISSING_SCHEMA_VERSION" });
-    expect(runtime.render({ document: document(), surface: "public", actor: actor() })).toEqual({ success: false, code: "PROFILE_SURFACE_DENIED" });
-    expect(runtime.render({ document: document(), surface: "workspace", actor: { authenticated: false, permissions: new Set() } })).toEqual({ success: false, code: "AUTHENTICATION_REQUIRED" });
+    expect(runtime.render({ document: {}, surface: "workspace", actor: actor() })).toEqual({ success: false, code: "DOCUMENT_MIGRATION_FAILED", migrationCode: "MISSING_SCHEMA_VERSION", remediation: "MIGRATE_DOCUMENT" });
+    expect(runtime.render({ document: document(), surface: "public", actor: actor() })).toEqual({ success: false, code: "PROFILE_SURFACE_DENIED", remediation: "FIX_BLOCK_CONFIGURATION" });
+    expect(runtime.render({ document: document(), surface: "workspace", actor: { authenticated: false, permissions: new Set() } })).toEqual({ success: false, code: "AUTHENTICATION_REQUIRED", remediation: "REQUEST_ACCESS" });
   });
 
   it("returns stable fallbacks without invoking an invalid or forbidden block", () => {

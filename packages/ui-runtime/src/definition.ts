@@ -1,6 +1,7 @@
 import {
   DataSourceDescriptorSchema,
   DataSourcePrimaryContractSchema,
+  PluginIdSchema,
   ResourceIdSchema,
   TableFieldIdSchema,
   uiDocumentProfiles,
@@ -54,6 +55,21 @@ export interface UiRuntimeRegistry {
   readonly sources: readonly DataSourceDescriptor[];
   resolveBlock(id: string, version: number): UiBlockDefinition | undefined;
   resolveSource(id: string, version: number): DataSourceDescriptor | undefined;
+  inspectBlock(id: string, version: number): UiRuntimeCatalogInspection;
+  inspectSource(id: string, version: number): UiRuntimeCatalogInspection;
+}
+
+export interface UiRuntimeCatalogEntry {
+  readonly id: string;
+  readonly version: number;
+  readonly ownerPluginId: string;
+}
+
+export interface UiRuntimeCatalogInspection {
+  readonly known: boolean;
+  readonly exact: boolean;
+  readonly ownerPluginId?: string;
+  readonly availableVersions: readonly number[];
 }
 
 const surfaces = new Set<UiRuntimeSurface>(["workspace", "cms", "public"]);
@@ -116,12 +132,49 @@ function copyBlock(definition: UiBlockDefinition): UiBlockDefinition {
   });
 }
 
+function catalogMap(entries: readonly UiRuntimeCatalogEntry[], label: string): Map<string, UiRuntimeCatalogEntry> {
+  const result = new Map<string, UiRuntimeCatalogEntry>();
+  for (const entry of entries) {
+    if (!ResourceIdSchema.safeParse(entry.id).success || !Number.isSafeInteger(entry.version) || entry.version < 1 || !PluginIdSchema.safeParse(entry.ownerPluginId).success) {
+      throw new TypeError(`${label} catalog entries must use canonical identities.`);
+    }
+    const key = keyOf(entry.id, entry.version);
+    if (result.has(key)) throw new TypeError(`${label} catalog entries must be unique.`);
+    result.set(key, Object.freeze({ ...entry }));
+  }
+  return result;
+}
+
+function inspectCatalog(
+  catalog: ReadonlyMap<string, UiRuntimeCatalogEntry>,
+  available: readonly { readonly id: string; readonly version: number }[],
+  id: string,
+  version: number
+): UiRuntimeCatalogInspection {
+  const exactEntry = catalog.get(keyOf(id, version));
+  const availableVersions = available.filter((entry) => entry.id === id).map((entry) => entry.version).sort((left, right) => left - right);
+  const knownEntries = [...catalog.values()].filter((entry) => entry.id === id);
+  const knownVersions = knownEntries.map((entry) => entry.version);
+  const owners = new Set(knownEntries.map((entry) => entry.ownerPluginId));
+  const ownerPluginId = exactEntry?.ownerPluginId ?? (owners.size === 1 ? knownEntries[0]?.ownerPluginId : undefined);
+  return Object.freeze({
+    known: exactEntry !== undefined || knownVersions.length > 0 || availableVersions.length > 0,
+    exact: exactEntry !== undefined,
+    ...(ownerPluginId === undefined ? {} : { ownerPluginId }),
+    availableVersions: Object.freeze(availableVersions)
+  });
+}
+
 export function createUiRuntimeRegistry(input: {
   readonly blocks: readonly UiBlockDefinition[];
   readonly sources: readonly DataSourceDescriptor[];
+  readonly blockCatalog?: readonly UiRuntimeCatalogEntry[];
+  readonly sourceCatalog?: readonly UiRuntimeCatalogEntry[];
 }): UiRuntimeRegistry {
   const blockMap = new Map<string, UiBlockDefinition>();
   const sourceMap = new Map<string, DataSourceDescriptor>();
+  const blockCatalog = catalogMap(input.blockCatalog ?? [], "UI block");
+  const sourceCatalog = catalogMap(input.sourceCatalog ?? [], "UI source");
 
   for (const candidate of input.blocks) {
     assertBlockDefinition(candidate);
@@ -136,6 +189,10 @@ export function createUiRuntimeRegistry(input: {
     const descriptor = Object.freeze(structuredClone(parsed.data));
     const key = keyOf(descriptor.id, descriptor.version);
     if (sourceMap.has(key)) throw new TypeError(`Duplicate UI source descriptor: ${key}.`);
+    const catalogEntry = sourceCatalog.get(key);
+    if (catalogEntry !== undefined && catalogEntry.ownerPluginId !== descriptor.ownerPluginId) {
+      throw new TypeError(`UI source catalog owner does not match ${key}.`);
+    }
     sourceMap.set(key, descriptor);
   }
 
@@ -145,6 +202,8 @@ export function createUiRuntimeRegistry(input: {
     blocks,
     sources,
     resolveBlock: (id: string, version: number) => blockMap.get(keyOf(id, version)),
-    resolveSource: (id: string, version: number) => sourceMap.get(keyOf(id, version))
+    resolveSource: (id: string, version: number) => sourceMap.get(keyOf(id, version)),
+    inspectBlock: (id: string, version: number) => inspectCatalog(blockCatalog, blocks, id, version),
+    inspectSource: (id: string, version: number) => inspectCatalog(sourceCatalog, sources, id, version)
   });
 }

@@ -19,6 +19,8 @@ import type {
 
 export const uiRuntimeFallbackReasons = [
   "MISSING_BLOCK",
+  "MISSING_BLOCK_VERSION",
+  "MISSING_PLUGIN",
   "PROFILE_DENIED",
   "SURFACE_DENIED",
   "AUDIENCE_DENIED",
@@ -40,6 +42,17 @@ export const uiRuntimeFallbackReasons = [
 
 export type UiRuntimeFallbackReason = (typeof uiRuntimeFallbackReasons)[number];
 
+export type UiRuntimeRemediation =
+  | "INSTALL_OR_ENABLE_PLUGIN"
+  | "INSTALL_COMPATIBLE_BLOCK_VERSION"
+  | "REGISTER_BLOCK"
+  | "RESTORE_SOURCE"
+  | "UPDATE_SOURCE_BINDING"
+  | "MIGRATE_DOCUMENT"
+  | "REQUEST_ACCESS"
+  | "FIX_BLOCK_CONFIGURATION"
+  | "RETRY_OR_REPAIR_RENDERER";
+
 export interface UiRuntimeRenderedNode {
   readonly status: "rendered";
   readonly nodeId: string;
@@ -55,6 +68,8 @@ export interface UiRuntimeFallbackNode {
   readonly blockId: string;
   readonly blockVersion: number;
   readonly reason: UiRuntimeFallbackReason;
+  readonly ownerPluginId?: string;
+  readonly remediation: UiRuntimeRemediation;
   readonly children: readonly UiRuntimeNodeResult[];
 }
 
@@ -74,6 +89,7 @@ export interface UiDocumentRuntimeFailure {
   readonly success: false;
   readonly code: UiDocumentRuntimeFailureCode;
   readonly migrationCode?: UiDocumentMigrationErrorCode;
+  readonly remediation: UiRuntimeRemediation;
 }
 
 export type UiDocumentRuntimeResult = UiDocumentRuntimeSuccess | UiDocumentRuntimeFailure;
@@ -201,9 +217,29 @@ function nodeResultMetadata(node: UiNode): Pick<UiRuntimeRenderedNode, "nodeId" 
 function nodeResult(
   node: UiNode,
   children: readonly UiRuntimeNodeResult[],
-  reason: UiRuntimeFallbackReason
+  reason: UiRuntimeFallbackReason,
+  diagnostic: { readonly ownerPluginId?: string; readonly remediation?: UiRuntimeRemediation } = {}
 ): UiRuntimeFallbackNode {
-  return { status: "fallback", ...nodeResultMetadata(node), reason, children };
+  return {
+    status: "fallback",
+    ...nodeResultMetadata(node),
+    reason,
+    remediation: diagnostic.remediation ?? remediationFor(reason),
+    ...(diagnostic.ownerPluginId === undefined ? {} : { ownerPluginId: diagnostic.ownerPluginId }),
+    children
+  };
+}
+
+function remediationFor(reason: UiRuntimeFallbackReason): UiRuntimeRemediation {
+  if (reason === "MISSING_PLUGIN") return "INSTALL_OR_ENABLE_PLUGIN";
+  if (reason === "MISSING_BLOCK_VERSION") return "INSTALL_COMPATIBLE_BLOCK_VERSION";
+  if (reason === "MISSING_BLOCK") return "REGISTER_BLOCK";
+  if (reason === "MISSING_SOURCE") return "RESTORE_SOURCE";
+  if (reason === "SOURCE_STRUCTURAL_HASH_MISMATCH") return "MIGRATE_DOCUMENT";
+  if (reason.startsWith("SOURCE_") || reason === "SOURCE_BINDING_REQUIRED") return "UPDATE_SOURCE_BINDING";
+  if (reason === "PERMISSION_DENIED" || reason === "AUDIENCE_DENIED") return "REQUEST_ACCESS";
+  if (reason === "RENDER_FAILED") return "RETRY_OR_REPAIR_RENDERER";
+  return "FIX_BLOCK_CONFIGURATION";
 }
 
 function renderNode(
@@ -216,7 +252,11 @@ function renderNode(
 ): UiRuntimeNodeResult {
   const children = (node.children ?? []).map((child) => renderNode(child, document, surface, actor, registry, sourceResults));
   const definition = registry.resolveBlock(node.type, node.version);
-  if (definition === undefined) return nodeResult(node, children, "MISSING_BLOCK");
+  if (definition === undefined) {
+    const inspection = registry.inspectBlock(node.type, node.version);
+    const reason = inspection.exact ? "MISSING_PLUGIN" : inspection.known ? "MISSING_BLOCK_VERSION" : "MISSING_BLOCK";
+    return nodeResult(node, children, reason, inspection.ownerPluginId === undefined ? {} : { ownerPluginId: inspection.ownerPluginId });
+  }
   if (!definition.profiles.includes(document.profile)) return nodeResult(node, children, "PROFILE_DENIED");
   if (!definition.surfaces.includes(surface)) return nodeResult(node, children, "SURFACE_DENIED");
   if (definition.audience === "authenticated" && !actor.authenticated) return nodeResult(node, children, "AUDIENCE_DENIED");
@@ -232,7 +272,13 @@ function renderNode(
   }
 
   const sourceReason = sourceBindingReason(definition, node, surface, actor, registry);
-  if (sourceReason !== undefined) return nodeResult(node, children, sourceReason);
+  if (sourceReason !== undefined) {
+    const reference = node.bindings?.source?.source;
+    const descriptor = reference === undefined ? undefined : registry.resolveSource(reference.id, reference.version);
+    const inspection = reference === undefined ? undefined : registry.inspectSource(reference.id, reference.version);
+    const ownerPluginId = descriptor?.ownerPluginId ?? inspection?.ownerPluginId;
+    return nodeResult(node, children, sourceReason, ownerPluginId === undefined ? {} : { ownerPluginId });
+  }
 
   let source: DataSourceDescriptor | undefined;
   let sourceResult: DataSourceBindingResult<unknown> | undefined;
@@ -267,12 +313,13 @@ export function createUiDocumentRuntime(registry: UiRuntimeRegistry): UiDocument
         return {
           success: false,
           code: "DOCUMENT_MIGRATION_FAILED",
+          remediation: "MIGRATE_DOCUMENT",
           ...(error instanceof UiDocumentMigrationError ? { migrationCode: error.code } : {})
         };
       }
 
-      if (!profileAllowsSurface(document.profile, input.surface)) return { success: false, code: "PROFILE_SURFACE_DENIED" };
-      if (input.surface !== "public" && !input.actor.authenticated) return { success: false, code: "AUTHENTICATION_REQUIRED" };
+      if (!profileAllowsSurface(document.profile, input.surface)) return { success: false, code: "PROFILE_SURFACE_DENIED", remediation: "FIX_BLOCK_CONFIGURATION" };
+      if (input.surface !== "public" && !input.actor.authenticated) return { success: false, code: "AUTHENTICATION_REQUIRED", remediation: "REQUEST_ACCESS" };
 
       const regions: Record<string, readonly UiRuntimeNodeResult[]> = {};
       for (const [region, nodes] of Object.entries(document.regions)) {
@@ -281,4 +328,38 @@ export function createUiDocumentRuntime(registry: UiRuntimeRegistry): UiDocument
       return { success: true, regions };
     }
   };
+}
+
+export interface UiDocumentReadinessIssue {
+  readonly code: UiRuntimeFallbackReason | UiDocumentRuntimeFailureCode;
+  readonly nodeId?: string;
+  readonly blockId?: string;
+  readonly blockVersion?: number;
+  readonly ownerPluginId?: string;
+  readonly remediation: UiRuntimeRemediation;
+}
+
+export interface UiDocumentReadinessReport {
+  readonly ready: boolean;
+  readonly issues: readonly UiDocumentReadinessIssue[];
+}
+
+export function inspectUiDocumentReadiness(result: UiDocumentRuntimeResult): UiDocumentReadinessReport {
+  if (!result.success) return Object.freeze({ ready: false, issues: Object.freeze([{ code: result.code, remediation: result.remediation }]) });
+  const issues: UiDocumentReadinessIssue[] = [];
+  const visit = (node: UiRuntimeNodeResult): void => {
+    if (node.status === "fallback") {
+      issues.push({
+        code: node.reason,
+        nodeId: node.nodeId,
+        blockId: node.blockId,
+        blockVersion: node.blockVersion,
+        ...(node.ownerPluginId === undefined ? {} : { ownerPluginId: node.ownerPluginId }),
+        remediation: node.remediation
+      });
+    }
+    node.children.forEach(visit);
+  };
+  Object.values(result.regions).forEach((nodes) => nodes.forEach(visit));
+  return Object.freeze({ ready: issues.length === 0, issues: Object.freeze(issues) });
 }
