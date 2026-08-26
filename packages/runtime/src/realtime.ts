@@ -1,4 +1,4 @@
-import { ResourceIdSchema } from "@k-nex/contracts";
+import { RealtimeEventClassSchema, ResourceIdSchema, type RealtimeEventClass } from "@k-nex/contracts";
 
 export const REALTIME_GATEWAY_CAPABILITY = "realtime.gateway";
 
@@ -28,9 +28,44 @@ export interface RealtimeTopicRegistry {
 }
 
 export interface RealtimeGateway {
-  readonly mode: "memory";
-  readonly topology: "single-process";
-  publish(topicId: string, params: unknown, event: unknown): Promise<void>;
+  publish(input: RealtimePublishInput): Promise<RealtimePublishResult>;
+}
+
+export interface RealtimeChannelRef {
+  readonly params: unknown;
+  readonly topicId: string;
+}
+
+export interface RealtimePublishInput {
+  readonly channel: RealtimeChannelRef;
+  readonly correlationId: string;
+  readonly message: unknown;
+  readonly messageClass: RealtimeEventClass;
+}
+
+export interface RealtimePublishResult {
+  readonly accepted: true;
+}
+
+export function parseRealtimePublishInput(input: RealtimePublishInput): RealtimePublishInput {
+  if (typeof input !== "object" || input === null || Object.keys(input).sort().join("\0") !== "channel\0correlationId\0message\0messageClass") {
+    throw new TypeError("Realtime publication must use the classified gateway envelope.");
+  }
+  if (typeof input.channel !== "object" || input.channel === null ||
+    Object.keys(input.channel).sort().join("\0") !== "params\0topicId" || typeof input.channel.topicId !== "string") {
+    throw new TypeError("Realtime publication channel is invalid.");
+  }
+  ResourceIdSchema.parse(input.channel.topicId);
+  RealtimeEventClassSchema.parse(input.messageClass);
+  if (typeof input.correlationId !== "string" || input.correlationId.length < 1 || input.correlationId.length > 128 || /[\u0000-\u001F\u007F-\u009F]/u.test(input.correlationId)) {
+    throw new TypeError("Realtime publication correlationId is invalid.");
+  }
+  return Object.freeze({
+    channel: Object.freeze({ topicId: input.channel.topicId, params: input.channel.params }),
+    correlationId: input.correlationId,
+    message: input.message,
+    messageClass: input.messageClass
+  });
 }
 
 export function defineRealtimeTopic<

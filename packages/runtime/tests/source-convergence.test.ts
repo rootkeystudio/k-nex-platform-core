@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SourceConvergenceController, sourceFreshnessIntervalsMs } from "../src/source-convergence.js";
 
@@ -26,6 +26,7 @@ function harness(options: { authorized?: boolean; freshness?: "live" | "standard
 }
 
 describe("source revision convergence", () => {
+  afterEach(() => vi.useRealTimers());
   it("starts with an authorized authoritative fetch and ignores old invalidations", async () => {
     const test = harness();
     await expect(test.controller.initialize()).resolves.toMatchObject({ status: "ready", revision: 1, data: "first" });
@@ -61,6 +62,33 @@ describe("source revision convergence", () => {
     expect(test.fetch).toHaveBeenCalledTimes(1);
     test.advance(1);
     await expect(test.controller.handlePeriodicTick()).resolves.toMatchObject({ revision: 4, data: "changed without hint" });
+  });
+
+  it("schedules bounded revalidation and wires reconnect signals during its executable lifecycle", async () => {
+    vi.useFakeTimers();
+    let snapshot = { data: "initial", revision: 1 };
+    let reconnect = () => undefined;
+    const controller = new SourceConvergenceController({
+      authorize: async () => true,
+      fetch: async () => snapshot,
+      freshness: "live",
+      now: Date.now,
+      signals: {
+        onInvalidation: () => () => undefined,
+        onReconnect(listener) { reconnect = listener; return () => { reconnect = () => undefined; }; },
+        onWindowFocus: () => () => undefined
+      },
+      surface: "workspace"
+    });
+    await controller.start();
+    snapshot = { data: "changed without hint", revision: 2 };
+    await vi.advanceTimersByTimeAsync(sourceFreshnessIntervalsMs.live);
+    expect(controller.state).toMatchObject({ data: "changed without hint", revision: 2, status: "ready" });
+    snapshot = { data: "after reconnect", revision: 3 };
+    reconnect();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(controller.state).toMatchObject({ data: "after reconnect", revision: 3, status: "ready" });
+    controller.stop();
   });
 
   it("reauthorizes and refetches whenever reconnect makes resume uncertain", async () => {

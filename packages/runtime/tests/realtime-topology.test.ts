@@ -30,15 +30,20 @@ describe("realtime topology doctor", () => {
     expect(() => assertRealtimeTopologyCompatible(topology)).toThrow(RealtimeTopologyError);
   });
 
-  it("accepts distributed mode for split and rolling process topologies", () => {
-    expect(doctorRealtimeTopology({
+  it("rejects distributed mode until an executable distributed provider is installed", () => {
+    const topology = {
       adapter: "distributed",
       webInstances: 3,
       worker: "separate",
       workerInvalidationPath: "direct",
       realtimeGateway: "separate",
       rollingDeployment: "overlap"
-    })).toMatchObject({ ok: true, issues: [] });
+    } as const;
+    expect(doctorRealtimeTopology(topology)).toMatchObject({
+      ok: false,
+      issues: [expect.objectContaining({ code: "DISTRIBUTED_ADAPTER_UNAVAILABLE" })]
+    });
+    expect(() => assertRealtimeTopologyCompatible(topology)).toThrow(RealtimeTopologyError);
   });
 
   it("accepts a separate worker when PostgreSQL relays invalidations to the socket owner", () => {

@@ -130,8 +130,11 @@ async function deadLetterExhaustedClaim(payload: Payload, maxAttempts: number): 
   const exhausted = rows(await adapter(payload).drizzle.execute(sql`
     WITH candidate AS (
       SELECT "id" FROM "k_nex_outbox"
-      WHERE "status" = 'processing' AND "lease_expires_at" <= now() AND "attempt_count" >= ${maxAttempts}
-      ORDER BY "lease_expires_at", "id"
+      WHERE "attempt_count" >= ${maxAttempts} AND (
+        "status" = 'pending'
+        OR ("status" = 'processing' AND "lease_expires_at" <= now())
+      )
+      ORDER BY CASE WHEN "status" = 'pending' THEN 0 ELSE 1 END, "lease_expires_at", "id"
       FOR UPDATE SKIP LOCKED
       LIMIT 1
     )

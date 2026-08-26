@@ -305,6 +305,49 @@
         },
         "realtime": {
           "additionalProperties": false,
+          "allOf": [
+            {
+              "not": {
+                "properties": {
+                  "adapter": {
+                    "const": "distributed"
+                  }
+                },
+                "required": [
+                  "adapter"
+                ]
+              }
+            },
+            {
+              "properties": {
+                "realtimeGateway": {
+                  "const": "embedded"
+                },
+                "rollingDeployment": {
+                  "const": "stop-before-start"
+                },
+                "webInstances": {
+                  "const": 1
+                }
+              }
+            },
+            {
+              "not": {
+                "properties": {
+                  "worker": {
+                    "const": "separate"
+                  },
+                  "workerInvalidationPath": {
+                    "const": "direct"
+                  }
+                },
+                "required": [
+                  "worker",
+                  "workerInvalidationPath"
+                ]
+              }
+            }
+          ],
           "properties": {
             "adapter": {
               "$ref": "#/$defs/__schema5"

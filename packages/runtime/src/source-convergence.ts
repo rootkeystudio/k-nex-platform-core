@@ -25,6 +25,13 @@ export interface SourceConvergenceDependencies<T> {
   readonly freshness: SourceFreshnessClass;
   readonly surface: "workspace" | "other";
   now?(): number;
+  readonly signals?: SourceConvergenceSignals;
+}
+
+export interface SourceConvergenceSignals {
+  onInvalidation(listener: (revision: number) => void): () => void;
+  onReconnect(listener: () => void): () => void;
+  onWindowFocus(listener: () => void): () => void;
 }
 
 function revision(value: number): number {
@@ -37,6 +44,8 @@ export class SourceConvergenceController<T> {
   private stateValue: SourceConvergenceState<T> = Object.freeze({ data: null, lastValidatedAt: null, revision: null, status: "idle" });
   private refreshPromise: Promise<SourceConvergenceState<T>> | undefined;
   private minimumRevision = 0;
+  private periodicTimer: ReturnType<typeof setInterval> | undefined;
+  private signalCleanup: readonly (() => void)[] = [];
 
   constructor(private readonly dependencies: SourceConvergenceDependencies<T>) {
     this.clock = dependencies.now ?? Date.now;
@@ -49,6 +58,27 @@ export class SourceConvergenceController<T> {
 
   initialize(): Promise<SourceConvergenceState<T>> {
     return this.refresh("initial");
+  }
+
+  async start(): Promise<SourceConvergenceState<T>> {
+    if (this.periodicTimer) return this.stateValue;
+    const interval = sourceFreshnessIntervalsMs[this.dependencies.freshness];
+    this.periodicTimer = setInterval(() => { void this.handlePeriodicTick(); }, interval);
+    (this.periodicTimer as unknown as { unref?(): void }).unref?.();
+    const signals = this.dependencies.signals;
+    this.signalCleanup = signals ? Object.freeze([
+      signals.onInvalidation((nextRevision) => { void this.handleInvalidation(nextRevision); }),
+      signals.onReconnect(() => { void this.handleReconnect(); }),
+      signals.onWindowFocus(() => { void this.handleWindowFocus(); })
+    ]) : [];
+    return this.initialize();
+  }
+
+  stop(): void {
+    if (this.periodicTimer) clearInterval(this.periodicTimer);
+    this.periodicTimer = undefined;
+    for (const cleanup of this.signalCleanup) cleanup();
+    this.signalCleanup = [];
   }
 
   async handleInvalidation(nextRevision: number): Promise<SourceConvergenceState<T>> {

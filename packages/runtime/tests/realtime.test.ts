@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createRealtimeTopicRegistry, defineRealtimeTopic } from "../src/realtime.js";
+import { createRealtimeTopicRegistry, defineRealtimeTopic, parseRealtimePublishInput } from "../src/realtime.js";
 
 const topic = () => defineRealtimeTopic({
   id: "sales.tasks",
@@ -33,5 +33,17 @@ describe("realtime topic registration", () => {
   it("rejects invalid and duplicate topic identities", () => {
     expect(() => defineRealtimeTopic({ ...topic(), id: "raw room" })).toThrow();
     expect(() => createRealtimeTopicRegistry([topic(), topic()])).toThrow(/already registered/);
+  });
+
+  it("accepts only classified realtime envelopes and rejects durable publication", () => {
+    const input = {
+      channel: { topicId: "sales.tasks", params: { ownerId: "owner-1" } },
+      correlationId: "correlation-1",
+      message: { revision: 2 },
+      messageClass: "reconstructible-invalidation"
+    } as const;
+    expect(parseRealtimePublishInput(input)).toEqual(input);
+    expect(() => parseRealtimePublishInput({ ...input, messageClass: "durable-workflow" } as never)).toThrow();
+    expect(() => parseRealtimePublishInput({ ...input, extra: true } as never)).toThrow();
   });
 });

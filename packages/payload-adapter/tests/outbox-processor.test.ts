@@ -153,6 +153,22 @@ describe("Payload outbox processor", () => {
     expect(execute).toHaveBeenCalledOnce();
   });
 
+  it("dead-letters pending work stranded by a reduced attempt ceiling", async () => {
+    const execute = vi.fn().mockResolvedValueOnce({ rows: [{ event_id: "event-1" }] });
+    const subscriber = vi.fn();
+
+    await expect(processNextPayloadOutboxEvent({
+      payload: payload(execute),
+      maxAttempts: 2,
+      subscriber
+    })).resolves.toEqual({ eventId: "event-1", status: "dead-lettered" });
+
+    expect(subscriber).not.toHaveBeenCalled();
+    const statement = sqlText(execute.mock.calls[0]?.[0]);
+    expect(statement).toContain(`"status" = 'pending'`);
+    expect(statement).toContain(`"attempt_count" >=`);
+  });
+
   it("reports backlog, expired leases, and dead letters", async () => {
     const execute = vi.fn().mockResolvedValueOnce({ rows: [{
       pending: 2,

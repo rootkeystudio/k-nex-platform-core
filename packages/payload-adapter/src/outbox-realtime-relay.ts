@@ -4,7 +4,7 @@ import type { RealtimeGateway } from "@k-nex/runtime";
 import type { OutboxSubscriber } from "./outbox-processor.js";
 
 export interface RealtimeRelayProjection {
-  readonly event: unknown;
+  readonly message: unknown;
   readonly params: unknown;
   readonly topicId: string;
 }
@@ -20,7 +20,12 @@ export function createOutboxRealtimeRelay(options: OutboxRealtimeRelayOptions): 
     if (checkpoint?.realtimePublished === true) return;
     const projection = options.project(event);
     if (!projection) return;
-    await options.gateway.publish(projection.topicId, projection.params, projection.event);
+    await options.gateway.publish({
+      channel: { topicId: projection.topicId, params: projection.params },
+      correlationId: event.correlationId,
+      message: projection.message,
+      messageClass: "reconstructible-invalidation"
+    });
     await saveCheckpoint({ realtimePublished: true });
   };
 }

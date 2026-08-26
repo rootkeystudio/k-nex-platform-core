@@ -168,6 +168,13 @@ assert.deepEqual(inventory.plugins, [{
     dataSources: ["sales.tasks", "sales.total-potential-revenue"],
     tools: ["sales.tools.create-task", "sales.tools.search-tasks"]
   }
+}, {
+  id: "provider.realtime.socketio",
+  package: "@k-nex/provider-realtime-socketio",
+  version: "1.0.0",
+  integrity: inventory.plugins[1].integrity,
+  expectedContributions: {},
+  actualContributions: {}
 }]);
 assert.deepEqual(inventory.migrationRevision, {
   migrationName: "20260826_000005_outbox_processor",

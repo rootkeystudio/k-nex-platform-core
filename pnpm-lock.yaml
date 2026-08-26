@@ -29,9 +29,9 @@ importers:
       '@k-nex/payload-adapter':
         specifier: workspace:*
         version: link:../../packages/payload-adapter
-      '@k-nex/realtime-socketio':
-        specifier: workspace:*
-        version: link:../../packages/realtime-socketio
+      '@k-nex/provider-realtime-socketio':
+        specifier: file:packages/k-nex-provider-realtime-socketio-1.0.0.tgz
+        version: file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz
       '@k-nex/runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
@@ -1059,6 +1059,10 @@ packages:
     version: 1.0.0
     peerDependencies:
       '@k-nex/contracts': 0.0.0
+
+  '@k-nex/provider-realtime-socketio@file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz':
+    resolution: {integrity: sha512-GyJlWXNHEzo0tvmFrhjv2eokuLLI+iZhm8kccE1MNU6RbPOdmuolWCViowHKBmN0uR4KAvkFwaI4lVainxVfYw==, tarball: file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz}
+    version: 1.0.0
 
   '@kwsites/file-exists@1.1.1':
     resolution: {integrity: sha512-m9/5YGR18lIwxSFDwfE3oA7bWuq9kdau6ugN4H2rJeyhFQZcG9AgSHkQtSD15a8WvTgfz9aikZMrKPHvbpqFiw==}
@@ -4056,6 +4060,16 @@ snapshots:
   '@k-nex/module-sales@file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz(@k-nex/contracts@packages+contracts)':
     dependencies:
       '@k-nex/contracts': link:packages/contracts
+
+  '@k-nex/provider-realtime-socketio@file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz':
+    dependencies:
+      '@k-nex/contracts': link:packages/contracts
+      '@k-nex/runtime': link:packages/runtime
+      socket.io: 4.8.3
+    transitivePeerDependencies:
+      - bufferutil
+      - supports-color
+      - utf-8-validate
 
   '@kwsites/file-exists@1.1.1':
     dependencies:

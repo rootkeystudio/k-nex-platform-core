@@ -1,13 +1,22 @@
 {
-  "name": "@k-nex/realtime-socketio",
-  "version": "0.0.0",
+  "name": "@k-nex/provider-realtime-socketio",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "sideEffects": false,
+  "files": [
+    "dist",
+    "k-nex.plugin.json"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./manifest": "./k-nex.plugin.json",
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "default": "./dist/server.js"
     }
   },
   "scripts": {

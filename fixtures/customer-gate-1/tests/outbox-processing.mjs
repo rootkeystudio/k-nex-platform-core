@@ -141,13 +141,21 @@ try {
   );
   assert.equal(leaked.rows[0].count, 0);
 
+  await seed("p3-3-reduced-attempts", "task-reduced-attempts");
+  await client.query("UPDATE k_nex_outbox SET attempt_count = 5 WHERE event_id = 'p3-3-reduced-attempts'");
+  assert.deepEqual(
+    await processNextPayloadOutboxEvent({ payload, subscriber, maxAttempts: 3 }),
+    { eventId: "p3-3-reduced-attempts", status: "dead-lettered" }
+  );
+  assert.equal((await state("p3-3-reduced-attempts")).status, "dead-letter");
+
   await seed("p3-3-future", "task-future", new Date(Date.now() + 60_000));
   const health = await readPayloadOutboxHealth(payload);
   assert.deepEqual(health, {
     pending: 1,
     processing: 0,
     delivered: 5,
-    deadLetter: 1,
+    deadLetter: 2,
     expiredLeases: 0,
     oldestPendingAt: health.oldestPendingAt
   });

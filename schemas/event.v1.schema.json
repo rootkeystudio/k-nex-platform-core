@@ -1,5 +1,265 @@
 {
   "$defs": {
+    "__kNexEventPayloadDepth1": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/__kNexEventPayloadDepth2"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/__kNexEventPayloadDepth2"
+          },
+          "propertyNames": {
+            "not": {
+              "pattern": "^(?:[aA][^A-Za-z0-9]*[uU][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[hH][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[zZ][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[nN]|[cC][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[eE]|[pP][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[sS][^A-Za-z0-9]*[sS][^A-Za-z0-9]*[wW][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[dD]|[sS][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[cC][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[tT]|[tT][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN]|[aA][^A-Za-z0-9]*[pP][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[yY]|[cC][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[dD][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[lL]|[pP][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[vV][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[eE])$"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "__kNexEventPayloadDepth2": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/__kNexEventPayloadDepth3"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/__kNexEventPayloadDepth3"
+          },
+          "propertyNames": {
+            "not": {
+              "pattern": "^(?:[aA][^A-Za-z0-9]*[uU][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[hH][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[zZ][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[nN]|[cC][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[eE]|[pP][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[sS][^A-Za-z0-9]*[sS][^A-Za-z0-9]*[wW][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[dD]|[sS][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[cC][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[tT]|[tT][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN]|[aA][^A-Za-z0-9]*[pP][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[yY]|[cC][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[dD][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[lL]|[pP][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[vV][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[eE])$"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "__kNexEventPayloadDepth3": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/__kNexEventPayloadDepth4"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/__kNexEventPayloadDepth4"
+          },
+          "propertyNames": {
+            "not": {
+              "pattern": "^(?:[aA][^A-Za-z0-9]*[uU][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[hH][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[zZ][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[nN]|[cC][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[eE]|[pP][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[sS][^A-Za-z0-9]*[sS][^A-Za-z0-9]*[wW][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[dD]|[sS][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[cC][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[tT]|[tT][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN]|[aA][^A-Za-z0-9]*[pP][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[yY]|[cC][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[dD][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[lL]|[pP][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[vV][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[eE])$"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "__kNexEventPayloadDepth4": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/__kNexEventPayloadDepth5"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/__kNexEventPayloadDepth5"
+          },
+          "propertyNames": {
+            "not": {
+              "pattern": "^(?:[aA][^A-Za-z0-9]*[uU][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[hH][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[zZ][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[nN]|[cC][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[eE]|[pP][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[sS][^A-Za-z0-9]*[sS][^A-Za-z0-9]*[wW][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[dD]|[sS][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[cC][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[tT]|[tT][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN]|[aA][^A-Za-z0-9]*[pP][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[yY]|[cC][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[dD][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[lL]|[pP][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[vV][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[eE])$"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "__kNexEventPayloadDepth5": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/__kNexEventPayloadDepth6"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/__kNexEventPayloadDepth6"
+          },
+          "propertyNames": {
+            "not": {
+              "pattern": "^(?:[aA][^A-Za-z0-9]*[uU][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[hH][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[zZ][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[nN]|[cC][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[eE]|[pP][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[sS][^A-Za-z0-9]*[sS][^A-Za-z0-9]*[wW][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[dD]|[sS][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[cC][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[tT]|[tT][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN]|[aA][^A-Za-z0-9]*[pP][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[yY]|[cC][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[dD][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[lL]|[pP][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[vV][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[eE])$"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "__kNexEventPayloadDepth6": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/__kNexEventPayloadDepth7"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/__kNexEventPayloadDepth7"
+          },
+          "propertyNames": {
+            "not": {
+              "pattern": "^(?:[aA][^A-Za-z0-9]*[uU][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[hH][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[zZ][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[nN]|[cC][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[eE]|[pP][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[sS][^A-Za-z0-9]*[sS][^A-Za-z0-9]*[wW][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[dD]|[sS][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[cC][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[tT]|[tT][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN]|[aA][^A-Za-z0-9]*[pP][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[yY]|[cC][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[dD][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[lL]|[pP][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[vV][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[eE])$"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "__kNexEventPayloadDepth7": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/__kNexEventPayloadDepth8"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/__kNexEventPayloadDepth8"
+          },
+          "propertyNames": {
+            "not": {
+              "pattern": "^(?:[aA][^A-Za-z0-9]*[uU][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[hH][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[zZ][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[nN]|[cC][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[eE]|[pP][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[sS][^A-Za-z0-9]*[sS][^A-Za-z0-9]*[wW][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[dD]|[sS][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[cC][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[tT]|[tT][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN]|[aA][^A-Za-z0-9]*[pP][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[yY]|[cC][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[dD][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[lL]|[pP][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[vV][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[eE])$"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "__kNexEventPayloadDepth8": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "maxItems": 0,
+          "type": "array"
+        },
+        {
+          "maxProperties": 0,
+          "propertyNames": {
+            "not": {
+              "pattern": "^(?:[aA][^A-Za-z0-9]*[uU][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[hH][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[zZ][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[nN]|[cC][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[eE]|[pP][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[sS][^A-Za-z0-9]*[sS][^A-Za-z0-9]*[wW][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[dD]|[sS][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[cC][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[tT]|[tT][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN]|[aA][^A-Za-z0-9]*[pP][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[yY]|[cC][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[dD][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[lL]|[pP][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[vV][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[eE])$"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
     "__schema0": {
       "maxLength": 128,
       "minLength": 1,
@@ -14,10 +274,12 @@
     },
     "__schema10": {
       "additionalProperties": {
-        "$ref": "#/$defs/__schema12"
+        "$ref": "#/$defs/__kNexEventPayloadDepth1"
       },
       "propertyNames": {
-        "$ref": "#/$defs/__schema11"
+        "not": {
+          "pattern": "^(?:[aA][^A-Za-z0-9]*[uU][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[hH][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[zZ][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[nN]|[cC][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[eE]|[pP][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[sS][^A-Za-z0-9]*[sS][^A-Za-z0-9]*[wW][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[dD]|[sS][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[cC][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[tT]|[tT][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN]|[aA][^A-Za-z0-9]*[pP][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[kK][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[yY]|[cC][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[dD][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[lL]|[pP][^A-Za-z0-9]*[rR][^A-Za-z0-9]*[iI][^A-Za-z0-9]*[vV][^A-Za-z0-9]*[aA][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[eE][^A-Za-z0-9]*[nN][^A-Za-z0-9]*[oO][^A-Za-z0-9]*[tT][^A-Za-z0-9]*[eE])$"
+        }
       },
       "type": "object"
     },

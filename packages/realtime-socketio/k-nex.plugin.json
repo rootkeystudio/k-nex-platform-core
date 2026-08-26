@@ -1,0 +1,25 @@
+{
+  "$schema": "../../schemas/plugin-manifest.v1.schema.json",
+  "apiVersion": 1,
+  "id": "provider.realtime.socketio",
+  "kind": "provider",
+  "displayName": "Socket.IO Realtime Provider",
+  "version": "1.0.0",
+  "package": "@k-nex/provider-realtime-socketio",
+  "compatibility": {
+    "core": ">=1.0.0 <2.0.0",
+    "payload": ">=3.0.0 <4.0.0",
+    "node": ">=24.0.0 <25.0.0",
+    "payloadDatabaseAdapters": ["postgres"]
+  },
+  "provides": [
+    { "capability": "realtime.gateway", "version": "1.0.0" }
+  ],
+  "lifecycle": {
+    "ownsPayloadSchema": false,
+    "ownsPersistentData": false,
+    "disable": "supported",
+    "uninstall": "supported",
+    "purge": "unsupported"
+  }
+}

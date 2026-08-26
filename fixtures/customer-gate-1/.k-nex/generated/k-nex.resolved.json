@@ -1,9 +1,15 @@
 {
   "application": {
     "id": "customer-gate-1",
-    "manifestDigest": "sha256:53948bab6b722cb9d9302cde2052d2455f8942bdd5b401580f0c9e140145a139"
+    "manifestDigest": "sha256:474447597887192457f6eb22c3e512e3a27294a060798fae58b9f9e6e53a3f2f"
   },
-  "capabilityProviders": [],
+  "capabilityProviders": [
+    {
+      "capability": "realtime.gateway",
+      "plugin": "provider.realtime.socketio",
+      "version": "1.0.0"
+    }
+  ],
   "customerConfigFingerprint": "sha256:b7bb1adc18f8ab6786a03cb3bbb14cbd4a5986795eb51c8f4f9c94dadcb9eecb",
   "environment": {
     "names": [
@@ -54,10 +60,32 @@
       "package": "@k-nex/module-sales",
       "required": [],
       "version": "1.0.0"
+    },
+    {
+      "contributions": {},
+      "environment": {
+        "names": []
+      },
+      "id": "provider.realtime.socketio",
+      "integrity": "sha512-GyJlWXNHEzo0tvmFrhjv2eokuLLI+iZhm8kccE1MNU6RbPOdmuolWCViowHKBmN0uR4KAvkFwaI4lVainxVfYw==",
+      "kind": "provider",
+      "lifecycle": {
+        "disable": "supported",
+        "ownsPayloadSchema": false,
+        "ownsPersistentData": false,
+        "purge": "unsupported",
+        "uninstall": "supported"
+      },
+      "manifestDigest": "sha256:2c5704e41c38ae969bbd91ae1c43f18ae1ae1eedb5de2cce6fcf15e8aa549bf7",
+      "optional": [],
+      "package": "@k-nex/provider-realtime-socketio",
+      "required": [],
+      "version": "1.0.0"
     }
   ],
   "registrationOrder": [
-    "module.sales"
+    "module.sales",
+    "provider.realtime.socketio"
   ],
   "resolverVersion": "1.0.0",
   "runtime": {

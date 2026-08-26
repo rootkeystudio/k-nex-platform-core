@@ -35,9 +35,21 @@
       "package": "@k-nex/module-sales",
       "version": "1.0.0",
       "enabled": true
+    },
+    {
+      "id": "provider.realtime.socketio",
+      "package": "@k-nex/provider-realtime-socketio",
+      "version": "1.0.0",
+      "enabled": true
     }
   ],
-  "providers": {},
+  "providers": {
+    "realtime.gateway": {
+      "plugin": "provider.realtime.socketio",
+      "package": "@k-nex/provider-realtime-socketio",
+      "version": "1.0.0"
+    }
+  },
   "themes": {},
   "development": {
     "database": {

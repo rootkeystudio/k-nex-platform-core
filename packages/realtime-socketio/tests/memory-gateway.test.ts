@@ -30,14 +30,34 @@ let topicAllowed = true;
 
 const security = {
   acknowledgementTimeoutMs: 20,
+  authenticationTimeoutMs: 20,
   allowedOrigins: ["https://app.example.test"],
   allowedTransports: ["websocket"],
   maxBufferedMessagesPerConnection: 2,
   maxConnections: 10,
   maxRequestBytes: 1_024,
   maxSubscriptionRequestsPerMinute: 20,
-  maxSubscriptionsPerConnection: 2
+  maxSubscriptionsPerConnection: 2,
+  revalidationIntervalMs: 60_000
 } as const;
+
+function publication(revision: number) {
+  return {
+    channel: { topicId: "sales.tasks", params: { ownerId: "owner-1" } },
+    correlationId: `correlation-${revision}`,
+    message: { revision },
+    messageClass: "reconstructible-invalidation" as const
+  };
+}
+
+function delivered(revision: number) {
+  return {
+    correlationId: `correlation-${revision}`,
+    event: { revision },
+    messageClass: "reconstructible-invalidation",
+    topicId: "sales.tasks"
+  };
+}
 
 afterEach(async () => {
   client?.disconnect();
@@ -85,8 +105,8 @@ describe("Socket.IO memory realtime gateway", () => {
       acknowledge();
       resolve(message);
     }));
-    await active.gateway.publish("sales.tasks", { ownerId: "owner-1" }, { revision: 2 });
-    await expect(received).resolves.toEqual({ topicId: "sales.tasks", event: { revision: 2 } });
+    await active.gateway.publish(publication(2));
+    await expect(received).resolves.toEqual(delivered(2));
     expect(active.gateway.mode).toBe("memory");
     expect(active.gateway.topology).toBe("single-process");
   });
@@ -113,11 +133,8 @@ describe("Socket.IO memory realtime gateway", () => {
   });
 
   it("fails closed when authentication does not produce a valid actor", async () => {
-    const active = await harness(null);
-    await expect(active.client.emitWithAck("k-nex:subscribe", {
-      topicId: "sales.tasks",
-      params: { ownerId: "owner-1" }
-    })).resolves.toEqual({ ok: false, code: "AUTHENTICATION_REQUIRED" });
+    await expect(harness(null)).rejects.toThrow(/AUTHENTICATION_REQUIRED/);
+    expect(gateway?.health()).toMatchObject({ authenticationDenied: 1, connections: 0 });
   });
 
   it("leaves a registered topic without accepting a raw room string", async () => {
@@ -128,7 +145,7 @@ describe("Socket.IO memory realtime gateway", () => {
 
     let delivered = false;
     active.client.once("k-nex:event", (_message, acknowledge) => { acknowledge(); delivered = true; });
-    await active.gateway.publish("sales.tasks", subscription.params, { revision: 3 });
+    await active.gateway.publish(publication(3));
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(delivered).toBe(false);
   });
@@ -141,10 +158,10 @@ describe("Socket.IO memory realtime gateway", () => {
       resolve(message);
     }));
     await Promise.all([
-      active.gateway.publish("sales.tasks", { ownerId: "owner-1" }, { revision: 4 }),
-      active.gateway.publish("sales.tasks", { ownerId: "owner-1" }, { revision: 5 })
+      active.gateway.publish(publication(4)),
+      active.gateway.publish(publication(5))
     ]);
-    await expect(received).resolves.toEqual({ topicId: "sales.tasks", event: { revision: 5 } });
+    await expect(received).resolves.toEqual(delivered(5));
     expect(active.gateway.health()).toMatchObject({ connections: 1, subscriptions: 1, coalesced: 1, published: 1 });
     expect(JSON.stringify(active.gateway.health())).not.toContain("owner-1");
   });
@@ -212,11 +229,38 @@ describe("Socket.IO memory realtime gateway", () => {
     expect(active.gateway.health()).toMatchObject({ connections: 1, connectionDenied: 1, subscriptions: 1, subscriptionDenied: 1 });
   });
 
+  it("serializes concurrent subscription mutations before enforcing the per-connection limit", async () => {
+    const active = await harness("owner-1", { maxSubscriptionsPerConnection: 1 });
+    const results = await Promise.all([
+      active.client.emitWithAck("k-nex:subscribe", { topicId: "sales.tasks", params: { ownerId: "owner-1" } }),
+      active.client.emitWithAck("k-nex:subscribe", { topicId: "sales.revenue", params: { ownerId: "owner-1" } })
+    ]);
+    expect(results.filter(({ ok }) => ok)).toHaveLength(1);
+    expect(results.filter(({ ok }) => !ok)).toEqual([{ ok: false, code: "LIMIT_EXCEEDED" }]);
+    expect(active.gateway.health()).toMatchObject({ subscriptions: 1, subscriptionDenied: 1 });
+  });
+
+  it("automatically revalidates and removes revoked topic permission", async () => {
+    const active = await harness("owner-1", { revalidationIntervalMs: 5 });
+    await active.client.emitWithAck("k-nex:subscribe", { topicId: "sales.tasks", params: { ownerId: "owner-1" } });
+    topicAllowed = false;
+    await expect.poll(() => active.gateway.health().subscriptions).toBe(0);
+    expect(active.client.connected).toBe(true);
+  });
+
+  it("rejects durable classes at the ephemeral realtime boundary", async () => {
+    const active = await harness();
+    await expect(active.gateway.publish({
+      ...publication(1),
+      messageClass: "durable-workflow"
+    } as never)).rejects.toThrow();
+  });
+
   it("rejects oversized publications", async () => {
     const active = await harness("owner-1", { maxRequestBytes: 100 });
-    await expect(active.gateway.publish("sales.tasks", { ownerId: "owner-1" }, {
-      revision: 1,
-      padding: "x".repeat(200)
+    await expect(active.gateway.publish({
+      ...publication(1),
+      message: { revision: 1, padding: "x".repeat(200) }
     })).rejects.toThrow(/maxRequestBytes/);
     expect(active.gateway.health()).toMatchObject({ oversized: 1, published: 0 });
   });
@@ -234,31 +278,33 @@ describe("Socket.IO memory realtime gateway", () => {
     const active = await harness("owner-1", { maxBufferedMessagesPerConnection: 1, acknowledgementTimeoutMs: 100 });
     await active.client.emitWithAck("k-nex:subscribe", { topicId: "sales.tasks", params: { ownerId: "owner-1" } });
     active.client.on("k-nex:event", () => undefined);
-    await active.gateway.publish("sales.tasks", { ownerId: "owner-1" }, { revision: 1 });
+    await active.gateway.publish(publication(1));
     await new Promise((resolve) => setTimeout(resolve, 0));
     const disconnected = new Promise((resolve) => active.client.once("disconnect", resolve));
-    await active.gateway.publish("sales.tasks", { ownerId: "owner-1" }, { revision: 2 });
+    await active.gateway.publish(publication(2));
     await disconnected;
     expect(active.gateway.health()).toMatchObject({ connections: 0, slowConsumerDisconnects: 1 });
   });
 
   it("allows an authorized client to reconnect and resubscribe after a stop-before-start rollout", async () => {
     const active = await harness();
-    active.client.disconnect();
-    active.client.connect();
-    await new Promise((resolve, reject) => {
-      active.client.once("connect", resolve);
-      active.client.once("connect_error", reject);
-    });
-    await expect(active.client.emitWithAck("k-nex:subscribe", {
+    const disconnected = new Promise((resolve) => active.client.once("disconnect", resolve));
+    await active.gateway.close();
+    await disconnected;
+    if (httpServer?.listening) await new Promise((resolve) => httpServer?.close(() => resolve(undefined)));
+    gateway = undefined;
+    httpServer = undefined;
+    client = undefined;
+    const replacement = await harness();
+    await expect(replacement.client.emitWithAck("k-nex:subscribe", {
       topicId: "sales.tasks",
       params: { ownerId: "owner-1" }
     })).resolves.toEqual({ ok: true });
-    const received = new Promise((resolve) => active.client.once("k-nex:event", (message, acknowledge) => {
+    const received = new Promise((resolve) => replacement.client.once("k-nex:event", (message, acknowledge) => {
       acknowledge();
       resolve(message);
     }));
-    await active.gateway.publish("sales.tasks", { ownerId: "owner-1" }, { revision: 8 });
-    await expect(received).resolves.toEqual({ topicId: "sales.tasks", event: { revision: 8 } });
+    await replacement.gateway.publish(publication(8));
+    await expect(received).resolves.toEqual(delivered(8));
   });
 });

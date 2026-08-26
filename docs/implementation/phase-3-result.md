@@ -10,7 +10,7 @@
 
 Phase 3 proves that correctness-relevant event intent is committed atomically with authoritative PostgreSQL state, processed through a leased and idempotent transactional outbox, relayed from a separate worker to web-owned realtime connections, and eventually converges after message loss or reconnect. Realtime clients subscribe only to typed, authorized topics through a provider-neutral gateway.
 
-The Socket.IO candidate is implemented only in its honestly supported memory topology: one socket-owning web process, stop-before-start deployment, and direct publication or PostgreSQL outbox relay into that owner. Configuration and `k-nex doctor` reject incompatible multi-web, separate-direct-worker, separate-gateway, or overlapping-rollout paths unless a distributed adapter is selected.
+The Socket.IO candidate is implemented only in its honestly supported memory topology: one socket-owning web process, stop-before-start deployment, and direct publication or PostgreSQL outbox relay into that owner. Configuration and `k-nex doctor` reject incompatible multi-web, separate-direct-worker, separate-gateway, overlapping-rollout, and unimplemented distributed-adapter selections.
 
 ## Completed tasks
 
@@ -34,11 +34,11 @@ The outbox processor uses `FOR UPDATE SKIP LOCKED`, expiring leases, unique clai
 
 ## Realtime and convergence proof
 
-Core contracts expose typed topic definitions and a provider-neutral `RealtimeGateway`; Socket.IO types remain inside `@k-nex/realtime-socketio`. The memory provider derives internal rooms from validated topic parameters, authenticates connections, authorizes subscriptions, revalidates sessions and topic permissions, and exposes counter-only health data. Exact origin/transport allowlists and bounds cover connection count, subscriptions, request rate/bytes, publication bytes, acknowledgement buffers, coalescing, and slow-consumer disconnects.
+Core contracts expose typed topic definitions and a provider-neutral, classified `RealtimeGateway`; it accepts only `ephemeral-hint` or `reconstructible-invalidation` envelopes with correlation identity. Durable classes cannot enter this API. Socket.IO types remain inside the selected `provider.realtime.socketio` / `@k-nex/provider-realtime-socketio` package. The customer manifest selects that provider and the registration runtime binds its `realtime.gateway@1.0.0` capability. The memory provider derives internal rooms from validated topic parameters, bounds authentication time, rejects failed handshakes, serializes subscription mutation, automatically revalidates sessions and topic permissions, and exposes counter-only health data. Exact origin/transport allowlists and bounds cover connection count, subscriptions, request rate/bytes, publication bytes, acknowledgement buffers, coalescing, and slow-consumer disconnects.
 
-A separate fixture worker commits outbox events without importing the Socket.IO provider. The web process claims those events and publishes via the neutral relay. Publication checkpoints only after success; a simulated private backplane failure schedules a retry without checkpointing, and recovery delivers the same event before marking it complete.
+A separate fixture worker commits outbox events without importing the Socket.IO provider. The web process claims those events and publishes via the neutral relay. Publication checkpoints only after success. Gate 3 pauses the actual Testcontainers PostgreSQL process while the recovered relay is starting, time-bounds and terminates that unavailable attempt, then unpauses the same database and proves the pending event and its empty checkpoint survive before recovery delivers and completes it.
 
-Source clients treat realtime revisions only as hints. They perform authoritative authorization and fetch on initialization, newer hints, reconnect, focus, and bounded periodic ticks. A lost hint converges on the periodic path; lagging snapshots remain stale; revision regression cannot overwrite newer data; revocation or authorization failure clears cached private data.
+Source clients treat realtime revisions only as hints. Their executable lifecycle attaches invalidation, reconnect, and focus signals and schedules its own bounded periodic revalidation. It performs authoritative authorization and fetch on initialization, newer hints, reconnect, focus, and periodic ticks. A lost hint converges automatically; lagging snapshots remain stale; revision regression cannot overwrite newer data; revocation or authorization failure clears cached private data.
 
 ## Failure-injection evidence
 
@@ -49,16 +49,17 @@ Source clients treat realtime revisions only as hints. They perform authoritativ
 | duplicate outbox delivery | retry and expired-lease replacement invoke the subscriber twice but persist one idempotent effect |
 | worker-to-web invalidation | separate worker commits; web relay publishes; real Socket.IO client acknowledges |
 | lost Pub/Sub message | bounded periodic authoritative revalidation converges without receiving a hint |
-| socket reconnect during rolling deployment | stop-before-start topology plus reconnect, reauthorization, resubscription, and delivery proof |
+| socket reconnect during rolling deployment | old server/gateway is closed, a replacement owner starts, and the client reauthenticates, resubscribes, and receives delivery |
 | permission revocation during subscription | topic revocation removes the subscription; actor revocation disconnects the session |
 | slow consumer | acknowledgement buffer exhaustion disconnects the client |
-| backplane unavailable/recovered | failed publication leaves no checkpoint, schedules retry, then recovered publication delivers and completes attempt two |
+| backplane unavailable/recovered | actual PostgreSQL container is paused, the relay process is bounded and terminated, then the same database is unpaused and the still-pending uncheckpointed event is delivered |
 
 ## Commands executed
 
 On exact Node.js `24.19.0` and pnpm `11.9.0`:
 
 ```bash
+pnpm phase:0
 pnpm gate:3
 git diff --check
 ```
@@ -67,7 +68,7 @@ git diff --check
 
 ## Explicitly not proved
 
-- The shipped Socket.IO provider is memory-only; selecting `distributed` is a topology contract, not an implemented distributed adapter.
+- The shipped Socket.IO provider is memory-only; `distributed` is rejected until an executable distributed provider/backplane is installed and validated.
 - Production multi-node backplane capacity, availability, and operations remain unqualified.
 - Realtime messages are invalidation hints, not a durable source of record or full business-record transport.
 - The processor proves bounded direct PostgreSQL leasing; it does not claim Payload Jobs compatibility for the rejected ownership contract.

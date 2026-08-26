@@ -12,6 +12,7 @@ export const RealtimeProcessTopologyShapeSchema = z.strictObject({
 export type RealtimeProcessTopology = z.infer<typeof RealtimeProcessTopologyShapeSchema>;
 
 export type RealtimeTopologyIssueCode =
+  | "DISTRIBUTED_ADAPTER_UNAVAILABLE"
   | "MEMORY_MULTIPLE_WEB_INSTANCES"
   | "MEMORY_SEPARATE_WORKER_PUBLISHER"
   | "MEMORY_SEPARATE_GATEWAY"
@@ -31,7 +32,13 @@ export function inspectRealtimeTopology(topology: RealtimeProcessTopology): read
     issues.push(Object.freeze({ code, publicationPath, remedies: Object.freeze([remedy, distributedRemedy]) }));
   };
 
-  if (topology.adapter === "memory") {
+  if (topology.adapter === "distributed") {
+    issues.push(Object.freeze({
+      code: "DISTRIBUTED_ADAPTER_UNAVAILABLE",
+      publicationPath: "distributed realtime adapter -> no installed executable provider/backplane",
+      remedies: Object.freeze(["select the implemented memory adapter with a compatible topology", "install and validate a distributed provider before selecting distributed mode"])
+    }));
+  } else {
     if (topology.webInstances > 1) {
       add("MEMORY_MULTIPLE_WEB_INSTANCES", `${topology.webInstances} web instances -> process-local socket rooms`, "set webInstances to 1");
     }

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
@@ -19,7 +19,7 @@ async function query(connectionString, text, values = []) {
   }
 }
 
-function runFixtureProcess(script, connectionString, environment = {}) {
+function runFixtureProcess(script, connectionString, environment = {}, timeoutMs) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [script], {
       cwd: fixtureDirectory,
@@ -37,8 +37,24 @@ function runFixtureProcess(script, connectionString, environment = {}) {
     child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
     child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
     child.on("error", reject);
-    child.on("close", (code) => resolve({ code, stderr, stdout }));
+    const timer = timeoutMs === undefined ? undefined : setTimeout(() => child.kill("SIGKILL"), timeoutMs);
+    child.on("close", (code) => {
+      if (timer) clearTimeout(timer);
+      resolve({ code, stderr, stdout });
+    });
   });
+}
+
+async function waitForPostgres(connectionString) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    try {
+      await query(connectionString, "select 1");
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
+  throw new Error("PostgreSQL did not recover after the injected outage.");
 }
 
 test("proves customer-owned migrations and revision-aware Postgres boot", { timeout: 180_000 }, async () => {
@@ -46,6 +62,7 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
     .withDatabase("gate1")
     .withStartupTimeout(120_000)
     .start();
+  let databaseStopped = false;
 
   try {
     const connectionString = container.getConnectionUri();
@@ -132,11 +149,32 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
     assert.match(outboxProcessing.stdout, /^P3_9_DUPLICATE_OUTBOX_PASS$/m);
 
     const distributedRealtime = await runFixtureProcess("tests/distributed-realtime.mjs", connectionString, {
-      BOOT_KEY: "gate3-6-distributed-realtime"
+      BOOT_KEY: "gate3-6-distributed-realtime",
+      MODE: "initial"
     });
     assert.equal(distributedRealtime.code, 0, `${distributedRealtime.stdout}\n${distributedRealtime.stderr}`);
     assert.match(distributedRealtime.stdout, /^P3_6_DISTRIBUTED_REALTIME_PASS$/m);
-    assert.match(distributedRealtime.stdout, /^P3_9_BACKPLANE_RECOVERY_PASS$/m);
+
+    execFileSync("docker", ["pause", container.getId()], { stdio: "ignore" });
+    databaseStopped = true;
+    const unavailableUrl = new URL(connectionString);
+    unavailableUrl.searchParams.set("connect_timeout", "2");
+    const unavailableRelay = await runFixtureProcess("tests/distributed-realtime.mjs", unavailableUrl.toString(), {
+      BOOT_KEY: "gate3-9-backplane-unavailable",
+      MODE: "recovered"
+    }, 2_000);
+    assert.notEqual(unavailableRelay.code, 0, `${unavailableRelay.stdout}\n${unavailableRelay.stderr}`);
+    assert.doesNotMatch(unavailableRelay.stdout, /^P3_9_BACKPLANE_RECOVERY_PASS$/m);
+
+    execFileSync("docker", ["unpause", container.getId()], { stdio: "ignore" });
+    databaseStopped = false;
+    await waitForPostgres(connectionString);
+    const recoveredRelay = await runFixtureProcess("tests/distributed-realtime.mjs", connectionString, {
+      BOOT_KEY: "gate3-9-backplane-recovered",
+      MODE: "recovered"
+    });
+    assert.equal(recoveredRelay.code, 0, `${recoveredRelay.stdout}\n${recoveredRelay.stderr}`);
+    assert.match(recoveredRelay.stdout, /^P3_9_BACKPLANE_RECOVERY_PASS$/m);
 
     const p32Cases = [
       {
@@ -220,6 +258,7 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
     `);
     assert.deepEqual(rolledBack.rows, [{ marker: null, migration_table: null }]);
   } finally {
+    if (databaseStopped) execFileSync("docker", ["unpause", container.getId()], { stdio: "ignore" });
     await container.stop();
   }
 });

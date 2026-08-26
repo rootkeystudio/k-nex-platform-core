@@ -2,7 +2,15 @@ import { createHash } from "node:crypto";
 import type { Server as HttpServer } from "node:http";
 
 import { canonicalJson, DurableEventActorSchema } from "@k-nex/contracts";
-import type { RealtimeActor, RealtimeGateway, RealtimeTopicDefinition, RealtimeTopicRegistry } from "@k-nex/runtime";
+import {
+  parseRealtimePublishInput,
+  type RealtimeActor,
+  type RealtimeGateway,
+  type RealtimePublishInput,
+  type RealtimePublishResult,
+  type RealtimeTopicDefinition,
+  type RealtimeTopicRegistry
+} from "@k-nex/runtime";
 import { Server, type Socket } from "socket.io";
 
 const SUBSCRIBE = "k-nex:subscribe";
@@ -15,6 +23,7 @@ type SubscriptionResult =
 
 export interface SocketIoMemorySecurityOptions {
   readonly acknowledgementTimeoutMs: number;
+  readonly authenticationTimeoutMs: number;
   readonly allowedOrigins: readonly string[];
   readonly allowedTransports: readonly ("polling" | "websocket")[];
   readonly maxBufferedMessagesPerConnection: number;
@@ -22,6 +31,7 @@ export interface SocketIoMemorySecurityOptions {
   readonly maxRequestBytes: number;
   readonly maxSubscriptionRequestsPerMinute: number;
   readonly maxSubscriptionsPerConnection: number;
+  readonly revalidationIntervalMs: number;
 }
 
 export interface SocketIoMemoryGatewayOptions {
@@ -46,6 +56,8 @@ export interface SocketIoMemoryGatewayHealth {
 }
 
 export interface SocketIoMemoryGateway extends RealtimeGateway {
+  readonly mode: "memory";
+  readonly topology: "single-process";
   close(): Promise<void>;
   health(): SocketIoMemoryGatewayHealth;
   revalidate(): Promise<void>;
@@ -58,13 +70,14 @@ interface Subscription {
 
 interface Session {
   readonly actor: RealtimeActor;
+  mutation: Promise<void>;
   pendingAcknowledgements: number;
   readonly socket: Socket;
   readonly subscriptions: Map<string, Subscription>;
 }
 
 interface Publication {
-  readonly message: Readonly<{ event: unknown; topicId: string }>;
+  readonly message: Readonly<{ correlationId: string; event: unknown; messageClass: string; topicId: string }>;
   readonly room: string;
 }
 
@@ -82,13 +95,22 @@ function security(value: SocketIoMemorySecurityOptions): SocketIoMemorySecurityO
   }
   return Object.freeze({
     acknowledgementTimeoutMs: positiveInteger(value.acknowledgementTimeoutMs, "acknowledgementTimeoutMs", 60_000),
+    authenticationTimeoutMs: positiveInteger(value.authenticationTimeoutMs, "authenticationTimeoutMs", 60_000),
     allowedOrigins: Object.freeze(origins),
     allowedTransports: Object.freeze(transports),
     maxBufferedMessagesPerConnection: positiveInteger(value.maxBufferedMessagesPerConnection, "maxBufferedMessagesPerConnection", 10_000),
     maxConnections: positiveInteger(value.maxConnections, "maxConnections"),
     maxRequestBytes: positiveInteger(value.maxRequestBytes, "maxRequestBytes", 1_000_000),
     maxSubscriptionRequestsPerMinute: positiveInteger(value.maxSubscriptionRequestsPerMinute, "maxSubscriptionRequestsPerMinute", 100_000),
-    maxSubscriptionsPerConnection: positiveInteger(value.maxSubscriptionsPerConnection, "maxSubscriptionsPerConnection", 10_000)
+    maxSubscriptionsPerConnection: positiveInteger(value.maxSubscriptionsPerConnection, "maxSubscriptionsPerConnection", 10_000),
+    revalidationIntervalMs: positiveInteger(value.revalidationIntervalMs, "revalidationIntervalMs", 3_600_000)
+  });
+}
+
+function withTimeout<T>(operation: Promise<T>, milliseconds: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Realtime authentication timed out.")), milliseconds);
+    operation.then(resolve, reject).finally(() => clearTimeout(timer));
   });
 }
 
@@ -145,6 +167,21 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
     }
   });
 
+  io.use(async (socket, next) => {
+    try {
+      const authenticatedActor = actor(await withTimeout(
+        Promise.resolve().then(() => options.authenticate(Object.freeze({ ...socket.handshake.auth }))),
+        limits.authenticationTimeoutMs
+      ));
+      if (!authenticatedActor) throw new Error("Realtime authentication failed.");
+      socket.data["kNexActor"] = authenticatedActor;
+      next();
+    } catch {
+      counters.authenticationDenied += 1;
+      next(new Error("AUTHENTICATION_REQUIRED"));
+    }
+  });
+
   const flush = (): void => {
     flushScheduled = false;
     const pending = [...publications.values()];
@@ -181,25 +218,17 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
       socket.disconnect(true);
       return;
     }
+    const authenticatedActor = socket.data["kNexActor"] as RealtimeActor;
+    const session: Session = {
+      actor: authenticatedActor,
+      mutation: Promise.resolve(),
+      pendingAcknowledgements: 0,
+      socket,
+      subscriptions: new Map()
+    };
+    sessions.set(socket.id, session);
     let requestCount = 0;
     let requestWindowStartedAt = Date.now();
-    const authenticatedSession = Promise.resolve()
-      .then(() => options.authenticate(Object.freeze({ ...socket.handshake.auth })))
-      .then(actor)
-      .then((authenticatedActor): Session | null => {
-        if (!authenticatedActor) {
-          counters.authenticationDenied += 1;
-          return null;
-        }
-        const session = { actor: authenticatedActor, pendingAcknowledgements: 0, socket, subscriptions: new Map() };
-        sessions.set(socket.id, session);
-        return session;
-      })
-      .catch(() => {
-        counters.authenticationDenied += 1;
-        return null;
-      });
-
     const consumeRequest = (value: unknown): SubscriptionResult | null => {
       const now = Date.now();
       if (now - requestWindowStartedAt >= 60_000) {
@@ -222,19 +251,15 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
       return null;
     };
 
-    socket.on(SUBSCRIBE, async (value: unknown, acknowledge: (result: SubscriptionResult) => void) => {
+    socket.on(SUBSCRIBE, (value: unknown, acknowledge: (result: SubscriptionResult) => void) => {
       if (typeof acknowledge !== "function") return;
       const rejected = consumeRequest(value);
       if (rejected) {
         acknowledge(rejected);
         return;
       }
-      const session = await authenticatedSession;
-      if (!session) {
-        acknowledge(Object.freeze({ ok: false, code: "AUTHENTICATION_REQUIRED" }));
-        return;
-      }
-      try {
+      session.mutation = session.mutation.then(async () => {
+        try {
         const subscription = request(value);
         const topic = options.topics.get(subscription.topicId);
         if (!topic) {
@@ -257,25 +282,22 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
         await socket.join(roomId);
         session.subscriptions.set(roomId, { topic, params });
         acknowledge(Object.freeze({ ok: true }));
-      } catch {
-        counters.subscriptionDenied += 1;
-        acknowledge(Object.freeze({ ok: false, code: "INVALID_SUBSCRIPTION" }));
-      }
+        } catch {
+          counters.subscriptionDenied += 1;
+          acknowledge(Object.freeze({ ok: false, code: "INVALID_SUBSCRIPTION" }));
+        }
+      });
     });
 
-    socket.on(UNSUBSCRIBE, async (value: unknown, acknowledge: (result: SubscriptionResult) => void) => {
+    socket.on(UNSUBSCRIBE, (value: unknown, acknowledge: (result: SubscriptionResult) => void) => {
       if (typeof acknowledge !== "function") return;
       const rejected = consumeRequest(value);
       if (rejected) {
         acknowledge(rejected);
         return;
       }
-      const session = await authenticatedSession;
-      if (!session) {
-        acknowledge(Object.freeze({ ok: false, code: "AUTHENTICATION_REQUIRED" }));
-        return;
-      }
-      try {
+      session.mutation = session.mutation.then(async () => {
+        try {
         const subscription = request(value);
         const topic = options.topics.get(subscription.topicId);
         if (!topic) {
@@ -286,54 +308,28 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
         await socket.leave(roomId);
         session.subscriptions.delete(roomId);
         acknowledge(Object.freeze({ ok: true }));
-      } catch {
-        acknowledge(Object.freeze({ ok: false, code: "INVALID_SUBSCRIPTION" }));
-      }
+        } catch {
+          acknowledge(Object.freeze({ ok: false, code: "INVALID_SUBSCRIPTION" }));
+        }
+      });
     });
 
   });
 
-  return Object.freeze({
-    mode: "memory" as const,
-    topology: "single-process" as const,
-    async publish(topicId: string, paramsValue: unknown, eventValue: unknown): Promise<void> {
-      const topic = options.topics.get(topicId);
-      if (!topic) throw new Error(`Realtime topic ${topicId} is not registered.`);
-      const params = parse(topic, paramsValue);
-      const event = topic.parseEvent(eventValue);
-      const message = Object.freeze({ topicId, event });
-      if (byteLength(message) > limits.maxRequestBytes) {
-        counters.oversized += 1;
-        throw new RangeError("Realtime message exceeds maxRequestBytes.");
+  const revalidate = async (): Promise<void> => {
+    for (const session of [...sessions.values()]) {
+      let active = false;
+      try {
+        active = await options.isActorActive(session.actor);
+      } catch {
+        active = false;
       }
-      const roomId = room(topic.id, params);
-      if (publications.has(roomId)) counters.coalesced += 1;
-      publications.set(roomId, { room: roomId, message });
-      if (!flushScheduled) {
-        flushScheduled = true;
-        queueMicrotask(flush);
+      if (!active) {
+        counters.authenticationDenied += 1;
+        session.socket.disconnect(true);
+        continue;
       }
-    },
-    health(): SocketIoMemoryGatewayHealth {
-      return Object.freeze({
-        ...counters,
-        connections,
-        subscriptions: [...sessions.values()].reduce((total, session) => total + session.subscriptions.size, 0)
-      });
-    },
-    async revalidate(): Promise<void> {
-      for (const session of [...sessions.values()]) {
-        let active = false;
-        try {
-          active = await options.isActorActive(session.actor);
-        } catch {
-          active = false;
-        }
-        if (!active) {
-          counters.authenticationDenied += 1;
-          session.socket.disconnect(true);
-          continue;
-        }
+      session.mutation = session.mutation.then(async () => {
         for (const [roomId, subscription] of session.subscriptions) {
           let allowed = false;
           try {
@@ -347,9 +343,52 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
             session.subscriptions.delete(roomId);
           }
         }
+      });
+      await session.mutation;
+    }
+  };
+  const revalidationTimer = setInterval(() => { void revalidate(); }, limits.revalidationIntervalMs);
+  revalidationTimer.unref();
+
+  return Object.freeze({
+    mode: "memory" as const,
+    topology: "single-process" as const,
+    async publish(inputValue: RealtimePublishInput): Promise<RealtimePublishResult> {
+      const input = parseRealtimePublishInput(inputValue);
+      const { params: paramsValue, topicId } = input.channel;
+      const topic = options.topics.get(topicId);
+      if (!topic) throw new Error(`Realtime topic ${topicId} is not registered.`);
+      const params = parse(topic, paramsValue);
+      const event = topic.parseEvent(input.message);
+      const message = Object.freeze({
+        correlationId: input.correlationId,
+        event,
+        messageClass: input.messageClass,
+        topicId
+      });
+      if (byteLength(message) > limits.maxRequestBytes) {
+        counters.oversized += 1;
+        throw new RangeError("Realtime message exceeds maxRequestBytes.");
       }
+      const roomId = room(topic.id, params);
+      if (publications.has(roomId)) counters.coalesced += 1;
+      publications.set(roomId, { room: roomId, message });
+      if (!flushScheduled) {
+        flushScheduled = true;
+        queueMicrotask(flush);
+      }
+      return Object.freeze({ accepted: true });
     },
+    health(): SocketIoMemoryGatewayHealth {
+      return Object.freeze({
+        ...counters,
+        connections,
+        subscriptions: [...sessions.values()].reduce((total, session) => total + session.subscriptions.size, 0)
+      });
+    },
+    revalidate,
     close(): Promise<void> {
+      clearInterval(revalidationTimer);
       return new Promise((resolve) => io.close(() => resolve()));
     }
   });

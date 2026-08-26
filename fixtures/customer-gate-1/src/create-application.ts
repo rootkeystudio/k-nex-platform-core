@@ -2,6 +2,7 @@ import type { ResolvedPluginGraph } from "@k-nex/composition";
 import { executeRegistration, ToolCatalog } from "@k-nex/runtime";
 import { PluginManifestSchema, type AgentToolDescriptor } from "@k-nex/contracts";
 import manifestJson from "@k-nex/module-sales/manifest" with { type: "json" };
+import providerManifestJson from "@k-nex/provider-realtime-socketio/manifest" with { type: "json" };
 import type { CollectionConfig } from "payload";
 import {
   composePayloadApplication,
@@ -30,8 +31,10 @@ const usersCollection: CollectionConfig = {
 export function createGate1Application(options: CreateGate1ApplicationOptions): ComposedPayloadApplication {
   if (resolvedJson.resolverVersion !== "1.0.0") throw new Error("Unsupported resolved graph version.");
   const manifest = PluginManifestSchema.parse(manifestJson);
+  const providerManifest = PluginManifestSchema.parse(providerManifestJson);
   const plugin = resolvedJson.plugins.find(({ id }) => id === manifest.id);
-  if (!plugin) throw new Error("The Sales plugin is missing from the resolved graph.");
+  const providerPlugin = resolvedJson.plugins.find(({ id }) => id === providerManifest.id);
+  if (!plugin || !providerPlugin) throw new Error("The Sales module or selected realtime provider is missing from the resolved graph.");
 
   const graph: ResolvedPluginGraph = {
     resolverVersion: resolvedJson.resolverVersion,
@@ -49,11 +52,14 @@ export function createGate1Application(options: CreateGate1ApplicationOptions): 
   };
   const registration = executeRegistration({
     graph,
-    installed: [{
-      package: { name: plugin.package, version: plugin.version, integrity: plugin.integrity },
-      manifest
-    }],
-    registrations: [runtimeRegistration["module.sales"].salesRegistration]
+    installed: [
+      { package: { name: plugin.package, version: plugin.version, integrity: plugin.integrity }, manifest },
+      { package: { name: providerPlugin.package, version: providerPlugin.version, integrity: providerPlugin.integrity }, manifest: providerManifest }
+    ],
+    registrations: [
+      runtimeRegistration["module.sales"].salesRegistration,
+      runtimeRegistration["provider.realtime.socketio"].socketIoRealtimeProviderRegistration
+    ]
   });
   const inventory = createGate1RuntimeInventory(registration);
   const tools = registration.contributions.tools.map(({ value }) => value as AgentToolDescriptor);

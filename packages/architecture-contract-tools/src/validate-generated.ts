@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   ActionDescriptorSchema,
   AgentToolDescriptorSchema,
+  ApplicationManifestSchema,
   canonicalJson,
   DurableEventEnvelopeSchema,
   MetricScalarSchema,
@@ -88,7 +89,7 @@ const tableSchema = await load<AnySchema>("schemas/table-records.v1.schema.json"
 const validatePlugin = ajv.compile(pluginSchema);
 const validateAction = ajv.compile(actionSchema);
 const validateAgentTool = ajv.compile(agentToolSchema);
-ajv.compile(applicationSchema);
+const validateApplication = ajv.compile(applicationSchema);
 const validateEvent = ajv.compile(eventSchema);
 const validateMetric = ajv.compile(metricSchema);
 const validateTable = ajv.compile(tableSchema);
@@ -142,6 +143,21 @@ if (!DurableEventEnvelopeSchema.safeParse(validEvent).success || !validateEvent(
 const invalidEvent = await load("fixtures/events/invalid/realtime-class.json");
 if (DurableEventEnvelopeSchema.safeParse(invalidEvent).success || validateEvent(invalidEvent)) {
   throw new Error("Realtime-class fixture must fail both durable-event authoring and generated schemas.");
+}
+const secretEvent = structuredClone(validEvent) as { payload: Record<string, unknown> };
+secretEvent.payload = { nested: [{ "private-note": "must never enter an event" }] };
+if (DurableEventEnvelopeSchema.safeParse(secretEvent).success || validateEvent(secretEvent)) {
+  throw new Error("Secret-bearing event payload must fail both Zod and generated JSON Schema validation.");
+}
+
+const validApplication = await load<Record<string, any>>("fixtures/customer-gate-1/k-nex.app.json");
+if (!ApplicationManifestSchema.safeParse(validApplication).success || !validateApplication(validApplication)) {
+  throw new Error(`Valid customer application must pass both Zod and generated JSON Schema validation: ${ajv.errorsText(validateApplication.errors)}`);
+}
+const incompatibleTopology = structuredClone(validApplication);
+incompatibleTopology.runtime.realtime.webInstances = 2;
+if (ApplicationManifestSchema.safeParse(incompatibleTopology).success || validateApplication(incompatibleTopology)) {
+  throw new Error("Incompatible memory topology must fail both Zod and generated JSON Schema validation.");
 }
 
 const outputContractFixtures = [

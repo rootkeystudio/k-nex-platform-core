@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 
 import { createOutboxRealtimeRelay, processNextPayloadOutboxEvent } from "@k-nex/payload-adapter";
-import { createSocketIoMemoryGateway } from "@k-nex/realtime-socketio";
+import { socketIoRealtimeProvider } from "@k-nex/provider-realtime-socketio/server";
 import { createRealtimeTopicRegistry, defineRealtimeTopic } from "@k-nex/runtime";
 import pg from "pg";
 import { io as connect } from "socket.io-client";
@@ -12,7 +12,9 @@ import { bootGate1Application } from "../dist/src/boot.js";
 
 const connectionString = process.env.DATABASE_URL;
 const bootKey = process.env.BOOT_KEY;
+const mode = process.env.MODE ?? "initial";
 if (!connectionString || !bootKey) throw new Error("DATABASE_URL and BOOT_KEY are required.");
+if (mode !== "initial" && mode !== "recovered") throw new Error("MODE must be initial or recovered.");
 
 function runWorker() {
   return new Promise((resolve, reject) => {
@@ -44,18 +46,20 @@ const topic = defineRealtimeTopic({
 
 const payload = await bootGate1Application({ key: bootKey });
 const httpServer = createServer();
-const gateway = createSocketIoMemoryGateway({
+const gateway = socketIoRealtimeProvider.create({
   httpServer,
   topics: createRealtimeTopicRegistry([topic]),
   security: {
     acknowledgementTimeoutMs: 1_000,
+    authenticationTimeoutMs: 1_000,
     allowedOrigins: ["https://customer.example.test"],
     allowedTransports: ["websocket"],
     maxBufferedMessagesPerConnection: 8,
     maxConnections: 100,
     maxRequestBytes: 16_384,
     maxSubscriptionRequestsPerMinute: 60,
-    maxSubscriptionsPerConnection: 16
+    maxSubscriptionsPerConnection: 16,
+    revalidationIntervalMs: 60_000
   },
   authenticate: async ({ actor }) => actor === "owner-1" ? { id: actor, type: "user" } : null,
   isActorActive: async () => true
@@ -74,7 +78,7 @@ await new Promise((resolve, reject) => {
 });
 
 try {
-  assert.match(await runWorker(), /^P3_6_WORKER_COMMIT_PASS$/m);
+  if (mode === "initial") assert.match(await runWorker(), /^P3_6_WORKER_COMMIT_PASS$/m);
   await client.emitWithAck("k-nex:subscribe", { topicId: "sales.tasks", params: { ownerId: "owner-1" } });
   const received = new Promise((resolve) => client.once("k-nex:event", (message, acknowledge) => {
     acknowledge();
@@ -83,56 +87,43 @@ try {
   const relay = createOutboxRealtimeRelay({
     gateway,
     project: (event) => event.id === "p3-6-worker-event" || event.id === "p3-9-backplane-event"
-      ? { topicId: "sales.tasks", params: { ownerId: event.payload.ownerId }, event: { revision: event.payload.revision } }
+      ? { topicId: "sales.tasks", params: { ownerId: event.payload.ownerId }, message: { revision: event.payload.revision } }
       : null
   });
-  assert.deepEqual(
-    await processNextPayloadOutboxEvent({ payload, subscriber: relay }),
-    { eventId: "p3-6-worker-event", status: "delivered" }
-  );
-  assert.deepEqual(await received, { topicId: "sales.tasks", event: { revision: 6 } });
-
-  const unavailableRelay = createOutboxRealtimeRelay({
-    gateway: { publish: async () => { throw new Error("private backplane failure"); } },
-    project: (event) => ({
-      topicId: "sales.tasks",
-      params: { ownerId: event.payload.ownerId },
-      event: { revision: event.payload.revision }
-    })
+  const expected = mode === "initial"
+    ? { id: "p3-6-worker-event", correlationId: "p3-6-worker-correlation", revision: 6 }
+    : { id: "p3-9-backplane-event", correlationId: "p3-9-backplane-correlation", revision: 7 };
+  assert.deepEqual(await processNextPayloadOutboxEvent({ payload, subscriber: relay }), {
+    eventId: expected.id,
+    status: "delivered"
   });
-  assert.deepEqual(
-    await processNextPayloadOutboxEvent({ payload, subscriber: unavailableRelay, backoffMs: 5 }),
-    { eventId: "p3-9-backplane-event", status: "retry-scheduled" }
-  );
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  const recovered = new Promise((resolve) => client.once("k-nex:event", (message, acknowledge) => {
-    acknowledge();
-    resolve(message);
-  }));
-  assert.deepEqual(
-    await processNextPayloadOutboxEvent({ payload, subscriber: relay, backoffMs: 5 }),
-    { eventId: "p3-9-backplane-event", status: "delivered" }
-  );
-  assert.deepEqual(await recovered, { topicId: "sales.tasks", event: { revision: 7 } });
+  assert.deepEqual(await received, {
+    correlationId: expected.correlationId,
+    topicId: "sales.tasks",
+    messageClass: "reconstructible-invalidation",
+    event: { revision: expected.revision }
+  });
 
   const database = new pg.Client({ connectionString });
   await database.connect();
   const state = await database.query(`
     SELECT status, attempt_count, checkpoint FROM k_nex_outbox WHERE event_id = 'p3-6-worker-event'
   `);
-  const recoveryState = await database.query(`
-    SELECT status, attempt_count, checkpoint, last_error_code
-    FROM k_nex_outbox WHERE event_id = 'p3-9-backplane-event'
-  `);
+  const recoveryState = await database.query("SELECT status, attempt_count, checkpoint, last_error_code FROM k_nex_outbox WHERE event_id = 'p3-9-backplane-event'");
   await database.end();
   assert.deepEqual(state.rows, [{ status: "delivered", attempt_count: 1, checkpoint: { realtimePublished: true } }]);
-  assert.deepEqual(recoveryState.rows, [{
+  assert.deepEqual(recoveryState.rows, mode === "initial" ? [{
+    status: "pending",
+    attempt_count: 0,
+    checkpoint: null,
+    last_error_code: null
+  }] : [{
     status: "delivered",
-    attempt_count: 2,
+    attempt_count: 1,
     checkpoint: { realtimePublished: true },
     last_error_code: null
   }]);
-  process.stdout.write("P3_6_DISTRIBUTED_REALTIME_PASS\nP3_9_BACKPLANE_RECOVERY_PASS\n");
+  process.stdout.write(mode === "initial" ? "P3_6_DISTRIBUTED_REALTIME_PASS\n" : "P3_9_BACKPLANE_RECOVERY_PASS\n");
 } finally {
   client.disconnect();
   void gateway.close();

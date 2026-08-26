@@ -20,12 +20,17 @@ describe("outbox realtime relay", () => {
     const saveCheckpoint = vi.fn().mockResolvedValue(undefined);
     const relay = createOutboxRealtimeRelay({
       gateway: { publish },
-      project: (input) => ({ topicId: "sales.tasks", params: { ownerId: input.payload.ownerId }, event: { revision: input.payload.revision } })
+      project: (input) => ({ topicId: "sales.tasks", params: { ownerId: input.payload.ownerId }, message: { revision: input.payload.revision } })
     });
 
     await relay({ actor: { kind: "system", id: "outbox.processor" }, checkpoint: null, event, idempotencyKey: event.id, saveCheckpoint });
 
-    expect(publish).toHaveBeenCalledWith("sales.tasks", { ownerId: "owner-1" }, { revision: 2 });
+    expect(publish).toHaveBeenCalledWith({
+      channel: { topicId: "sales.tasks", params: { ownerId: "owner-1" } },
+      correlationId: "correlation-1",
+      message: { revision: 2 },
+      messageClass: "reconstructible-invalidation"
+    });
     expect(saveCheckpoint).toHaveBeenCalledWith({ realtimePublished: true });
     expect(publish.mock.invocationCallOrder[0]).toBeLessThan(saveCheckpoint.mock.invocationCallOrder[0] ?? 0);
   });
@@ -35,7 +40,7 @@ describe("outbox realtime relay", () => {
     const saveCheckpoint = vi.fn();
     const relay = createOutboxRealtimeRelay({
       gateway: { publish },
-      project: () => ({ topicId: "sales.tasks", params: {}, event: {} })
+      project: () => ({ topicId: "sales.tasks", params: {}, message: {} })
     });
 
     await expect(relay({ actor: { kind: "system", id: "outbox.processor" }, checkpoint: null, event, idempotencyKey: event.id, saveCheckpoint })).rejects.toThrow();
