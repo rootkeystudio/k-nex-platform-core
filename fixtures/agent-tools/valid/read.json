@@ -1,0 +1,55 @@
+{
+  "approval": "none",
+  "audience": "authenticated",
+  "audit": {
+    "category": "sales.task.search"
+  },
+  "description": "Search tasks visible to the current actor.",
+  "dryRun": false,
+  "effect": "read-only",
+  "id": "sales.tools.search-tasks",
+  "idempotency": "not-applicable",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "title": {
+        "maxLength": 120,
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "title"
+    ],
+    "type": "object"
+  },
+  "invocation": {
+    "kind": "source",
+    "source": {
+      "id": "sales.tasks",
+      "version": 1
+    }
+  },
+  "limits": {
+    "burst": 10,
+    "costClass": "low",
+    "maxConcurrency": 4,
+    "maxCost": 10,
+    "ratePerMinute": 120,
+    "timeoutMs": 5000
+  },
+  "outputContract": "table.records@1",
+  "ownerPluginId": "module.sales",
+  "permission": "sales.tasks.read",
+  "policy": "sales.tasks.agent-read",
+  "redaction": {
+    "inputPaths": [],
+    "outputPaths": []
+  },
+  "risk": "low",
+  "surfaces": [
+    "workspace"
+  ],
+  "title": "Search tasks",
+  "version": 1
+}

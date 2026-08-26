@@ -81,6 +81,7 @@ export const PluginManifestSchema = z.strictObject({
     jobs: contributionArraySchema.optional(),
     dataSources: contributionArraySchema.optional(),
     actions: contributionArraySchema.optional(),
+    tools: contributionArraySchema.optional(),
     blocks: contributionArraySchema.optional(),
     navigation: contributionArraySchema.optional(),
     admin: contributionArraySchema.optional()

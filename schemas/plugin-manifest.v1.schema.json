@@ -234,6 +234,9 @@
         },
         "schema": {
           "$ref": "#/$defs/__schema23"
+        },
+        "tools": {
+          "$ref": "#/$defs/__schema23"
         }
       },
       "type": "object"

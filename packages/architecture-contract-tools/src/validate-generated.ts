@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  AgentToolDescriptorSchema,
   canonicalJson,
   MetricScalarSchema,
   PluginManifestSchema,
@@ -54,10 +55,13 @@ function assertCanonical(value: unknown, path: string): void {
 for (const relativePath of [
   "contracts/architecture-contracts.v1.json",
   "contracts/generated-contracts.v1.json",
+  "schemas/agent-tool.v1.schema.json",
   "schemas/plugin-manifest.v1.schema.json",
   "schemas/application-manifest.v1.schema.json",
   "schemas/metric-scalar.v1.schema.json",
   "schemas/table-records.v1.schema.json",
+  "fixtures/agent-tools/valid/read.json",
+  "fixtures/agent-tools/invalid/executable-handler.json",
   "fixtures/output-contracts/valid/metric-scalar.json",
   "fixtures/output-contracts/valid/table-records.json",
   "fixtures/output-contracts/invalid/metric-scalar.json",
@@ -67,10 +71,12 @@ for (const relativePath of [
 }
 
 const pluginSchema = await load<AnySchema>("schemas/plugin-manifest.v1.schema.json");
+const agentToolSchema = await load<AnySchema>("schemas/agent-tool.v1.schema.json");
 const applicationSchema = await load<AnySchema>("schemas/application-manifest.v1.schema.json");
 const metricSchema = await load<AnySchema>("schemas/metric-scalar.v1.schema.json");
 const tableSchema = await load<AnySchema>("schemas/table-records.v1.schema.json");
 const validatePlugin = ajv.compile(pluginSchema);
+const validateAgentTool = ajv.compile(agentToolSchema);
 ajv.compile(applicationSchema);
 const validateMetric = ajv.compile(metricSchema);
 const validateTable = ajv.compile(tableSchema);
@@ -98,6 +104,15 @@ const invalidLifecycle = structuredClone(driver) as { lifecycle: { uninstall: st
 invalidLifecycle.lifecycle.uninstall = "supported";
 if (PluginManifestSchema.safeParse(invalidLifecycle).success) throw new Error("Zod authoring schema accepted retained-schema uninstall for a schema-owning V1 plugin.");
 if (validatePlugin(invalidLifecycle)) throw new Error("Generated schema accepted retained-schema uninstall for a schema-owning V1 plugin.");
+
+const validAgentTool = await load("fixtures/agent-tools/valid/read.json");
+if (!AgentToolDescriptorSchema.safeParse(validAgentTool).success || !validateAgentTool(validAgentTool)) {
+  throw new Error(`Valid agent-tool fixture failed its authoring or generated schema: ${ajv.errorsText(validateAgentTool.errors)}`);
+}
+const invalidAgentTool = await load("fixtures/agent-tools/invalid/executable-handler.json");
+if (AgentToolDescriptorSchema.safeParse(invalidAgentTool).success || validateAgentTool(invalidAgentTool)) {
+  throw new Error("Executable agent-tool fixture must fail both authoring and generated schemas.");
+}
 
 const outputContractFixtures = [
   { path: "fixtures/output-contracts/valid/metric-scalar.json", schema: MetricScalarSchema, validate: validateMetric, valid: true },
