@@ -1,0 +1,47 @@
+{
+  "$schema": "../../schemas/application-manifest.v1.schema.json",
+  "schemaVersion": 1,
+  "application": {
+    "id": "customer-gate-1",
+    "name": "Customer Gate 1",
+    "type": "customer-platform"
+  },
+  "runtime": {
+    "node": "24.19.0",
+    "packageManager": "pnpm",
+    "packageManagerVersion": "11.9.0",
+    "deploymentMode": "container"
+  },
+  "framework": {
+    "payload": {
+      "database": {
+        "adapter": "postgres",
+        "package": "@payloadcms/db-postgres",
+        "connectionEnvironmentVariable": "DATABASE_URL"
+      }
+    }
+  },
+  "plugins": [
+    {
+      "id": "module.sales",
+      "package": "@k-nex/module-sales",
+      "version": "1.0.0",
+      "enabled": true
+    }
+  ],
+  "providers": {},
+  "themes": {},
+  "development": {
+    "database": {
+      "mode": "external"
+    }
+  },
+  "build": {
+    "dockerfile": false,
+    "commitGeneratedRegistries": true,
+    "validateGeneratedFilesInCI": true
+  },
+  "environment": {
+    "required": ["DATABASE_URL", "PAYLOAD_SECRET"]
+  }
+}

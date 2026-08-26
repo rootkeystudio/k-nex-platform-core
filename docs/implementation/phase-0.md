@@ -124,13 +124,13 @@ packages/
       plugin-manifest.ts
       application-manifest.ts
       architecture-registry.ts
+      canonical-json.ts
       index.ts
 
   architecture-contract-tools/
     package.json
     tsconfig.json
     src/
-      canonical-json.ts
       generate.ts
       validate.ts
       validate-docs.ts

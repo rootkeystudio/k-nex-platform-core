@@ -1,0 +1,29 @@
+{
+  "name": "@k-nex/composition",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "generate:gate-1": "node dist/generate-gate-1-fixture.js",
+    "check:gate-1": "node dist/generate-gate-1-fixture.js --check"
+  },
+  "dependencies": {
+    "@k-nex/contracts": "workspace:*",
+    "semver": "7.8.5",
+    "yaml": "2.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "@types/semver": "7.8.0",
+    "vitest": "4.1.6"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "@k-nex/runtime",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@k-nex/composition": "workspace:*",
+    "@k-nex/contracts": "workspace:*",
+    "semver": "7.8.5"
+  },
+  "devDependencies": {
+    "@types/semver": "7.8.0",
+    "typescript": "6.0.3",
+    "vitest": "4.1.6"
+  }
+}

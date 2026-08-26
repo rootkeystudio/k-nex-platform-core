@@ -111,6 +111,14 @@ Durable integration/workflow requires transactional outbox. Reconstructible inva
 
 Postgres only in V1; customer owns final migrations.
 
+### D-041 — Explicit agent tools and safe execution gateway
+
+Plugins may explicitly expose selected registered sources/actions as typed agent tools. Discovery is actor/delegation-filtered, every invocation is reauthorized, writes require declared approval/idempotency, and runtime content cannot create tools. MCP is an interoperability adapter and cannot weaken K-Nex policy or become a persisted core contract.
+
+### D-042 — Official Payload plugins are bounded adapters
+
+Prefer official Payload plugins when they materially reduce implementation and maintenance work, but keep their types, schema, routes, domain assumptions, and lifecycle behind K-Nex/Payload adapters. Adoption is exact-pinned and gate-specific; no official plugin becomes a baseline dependency before executable evidence. `@payloadcms/plugin-mcp` is the first MCP adapter candidate, CMS accelerator candidates are evaluated in Phase 5, Import/Export in Phase 6, and Multi-Tenant is not customer isolation.
+
 ## Accepted UI decisions
 
 ### D-026 — Fixed shell, composable canvas
@@ -173,11 +181,16 @@ NIST SSDF, OWASP ASVS/API Security and K-Nex test IDs map requirements to eviden
 
 ### D-040 — Independent falsifiable POC gates
 
-Contract, composition, source, realtime, builder, UI, lifecycle, second-customer proofs are separated.
+Contract, composition, source, agent-tool, realtime, builder, UI, lifecycle, and second-customer proofs are separated.
 
 ## Provisional implementation choices
 
 - Exact Payload/Next/React/Node/pnpm compatibility tuple.
+- `@payloadcms/plugin-mcp` as the first Gate 2A protocol adapter candidate; direct MCP SDK/custom transport only on documented kill criteria.
+- Payload SEO, Nested Docs, and Redirects as preferred Phase 5 candidates; Form Builder and Search as conditional Phase 5 candidates.
+- Payload Import/Export as a preferred Phase 6 accelerator, not a backup or schema-migration replacement.
+- Payload Sentry as an optional Phase 7 deployment adapter while Pino/OpenTelemetry remain platform contracts.
+- Payload Stripe and Ecommerce only as deferred explicit vertical accelerators.
 - Puck acceptance after Gate 4.
 - Socket.IO memory/Redis adapters after Gate 3.
 - React Aria/TanStack/ECharts/Zustand implementations after their boundary/accessibility/performance gates.
@@ -189,6 +202,8 @@ Contract, composition, source, realtime, builder, UI, lifecycle, second-customer
 - final private package scope/registry;
 - external distribution/license model;
 - first production deployment platform;
+- AI model-provider and conversation-retention policy after Gate 2A;
+- whether any customer needs intra-customer tenant segmentation after Gate 7;
 - driver PWA versus native client;
 - high-frequency tracking storage after workload model;
 - whether any schema-owning compatibility package is worth supporting after V1.
@@ -196,9 +211,15 @@ Contract, composition, source, realtime, builder, UI, lifecycle, second-customer
 ## Rejected approaches
 
 - initial shared tenant runtime/database;
+- Payload Multi-Tenant as a replacement for customer-level physical isolation;
 - customer branches or copied core;
 - K-Nex ORM/database provider above Payload;
+- installing the complete Payload official plugin catalog by default;
+- Payload plugin-private types/schema as persisted K-Nex contracts;
 - automatic raw collection exposure;
+- automatic exposure of all sources/actions/collections as AI tools;
+- direct model access to Payload, plugin services, or ambient service containers;
+- model/protocol SDK types as persisted K-Nex contracts;
 - arbitrary builder JavaScript/SQL/query/CSS/imports;
 - WebSocket as sole business truth;
 - permanent ID aliases instead of migration;

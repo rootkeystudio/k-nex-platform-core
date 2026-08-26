@@ -1,5 +1,16 @@
 packages:
   - packages/*
+  - modules/*
+  - fixtures/customer-gate-1
+
+allowBuilds:
+  "cpu-features@0.0.10": false
+  "esbuild@0.18.20": true
+  "esbuild@0.25.12": true
+  "esbuild@0.28.2": true
+  "protobufjs@7.6.5": false
+  "sharp@0.35.3": true
+  "ssh2@1.17.0": false
 
 engineStrict: true
 minimumReleaseAge: 10080

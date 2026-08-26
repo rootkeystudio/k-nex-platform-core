@@ -11,7 +11,7 @@ application identity and runtime tuple
 Payload Postgres adapter and local/external setup
 exact K-Nex plugin requests
 a selected provider for each replaceable single capability
-builder profiles and installed themes
+optional builder profiles and installed themes
 Docker/local infrastructure generation
 environment variable names
 ```
@@ -30,9 +30,9 @@ environment variable names
     "locales": ["tr", "en"]
   },
   "runtime": {
-    "node": "24.0.0",
+    "node": "24.19.0",
     "packageManager": "pnpm",
-    "packageManagerVersion": "10.0.0",
+    "packageManagerVersion": "11.9.0",
     "deploymentMode": "container"
   },
   "framework": {
@@ -78,15 +78,6 @@ environment variable names
       "options": { "adapter": "memory" }
     }
   },
-  "builder": {
-    "plugin": "builder.puck",
-    "package": "@k-nex/builder-puck",
-    "version": "1.0.0",
-    "profiles": {
-      "cms": { "enabled": true },
-      "workspace": { "enabled": true }
-    }
-  },
   "themes": {
     "admin": { "installed": ["theme.minimal"], "default": "theme.minimal" },
     "public": { "installed": ["theme.neobrutalism"], "default": "theme.neobrutalism" }
@@ -106,6 +97,8 @@ environment variable names
 ```
 
 Production values never appear in this file.
+
+`builder` is optional. Backend-only and pre-builder applications omit it entirely; when present, it is an executable composition request and must resolve to an installed builder package.
 
 ## Source-of-truth matrix
 
@@ -127,7 +120,7 @@ Every edge is checked; there is no silent winner.
 
 Environment names can be declared. Environment values configure already-resolved handlers at runtime.
 
-The generator fingerprints all transitive customer config source and performs a second clean generation in CI.
+The target application compiler fingerprints all transitive customer config source and performs a second clean generation in CI. Gate 1 proves only an inert direct-file fingerprint without config execution or transitive import discovery; the broader compiler boundary remains design-only in ADR-0004.
 
 ## Deterministic resolved graph
 

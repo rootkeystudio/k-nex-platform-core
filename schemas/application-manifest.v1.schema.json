@@ -201,7 +201,7 @@
           "type": "string"
         },
         "node": {
-          "pattern": "^24\\.[0-9]+\\.[0-9]+$",
+          "const": "24.19.0",
           "type": "string"
         },
         "packageManager": {
@@ -209,7 +209,7 @@
           "type": "string"
         },
         "packageManagerVersion": {
-          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+          "const": "11.9.0",
           "type": "string"
         }
       },
@@ -354,7 +354,6 @@
     "framework",
     "plugins",
     "providers",
-    "builder",
     "themes",
     "development",
     "build",

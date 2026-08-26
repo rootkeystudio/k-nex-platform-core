@@ -36,7 +36,6 @@ async function runtimeFiles(): Promise<StageFile[]> {
   const zodRoot = dirname(runtimeRequire.resolve("zod/package.json"));
   return [
     { content: Buffer.from('{"private":true,"type":"module"}\n'), path: "generator/package.json" },
-    { content: await readFile(resolve(toolsRoot, "dist/canonical-json.js")), path: "generator/canonical-json.js" },
     { content: await readFile(resolve(toolsRoot, "dist/generate.js")), path: "generator/generate.js" },
     { content: await readFile(resolve(contractsRoot, "package.json")), path: "node_modules/@k-nex/contracts/package.json" },
     ...await directoryFiles(resolve(contractsRoot, "dist"), "node_modules/@k-nex/contracts/dist"),

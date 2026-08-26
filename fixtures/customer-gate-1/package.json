@@ -1,0 +1,36 @@
+{
+  "name": "@k-nex/customer-gate-1",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.9.0",
+  "engines": {
+    "node": "24.19.0",
+    "pnpm": "11.9.0"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "pnpm build && node --test tests/payload-config.test.mjs",
+    "test:postgres": "pnpm build && node --test tests/postgres-gate.test.mjs"
+  },
+  "dependencies": {
+    "@k-nex/composition": "workspace:*",
+    "@k-nex/runtime": "workspace:*",
+    "@k-nex/contracts": "workspace:*",
+    "@k-nex/module-sales": "file:packages/k-nex-module-sales-1.0.0.tgz",
+    "@k-nex/payload-adapter": "workspace:*",
+    "@payloadcms/db-postgres": "3.88.0",
+    "@payloadcms/next": "3.88.0",
+    "graphql": "16.14.2",
+    "next": "16.3.1",
+    "payload": "3.88.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@testcontainers/postgresql": "12.1.0",
+    "@types/node": "24.13.3",
+    "pg": "8.20.0",
+    "typescript": "6.0.3"
+  }
+}

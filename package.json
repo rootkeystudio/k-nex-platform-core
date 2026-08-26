@@ -15,6 +15,7 @@
     "contracts:test": "turbo run test",
     "contracts:reproducibility": "turbo run reproducibility",
     "docs:validate": "python3 scripts/validate_repository_contracts.py",
+    "gate:1": "pnpm build && pnpm contracts:test && pnpm --filter @k-nex/composition check:gate-1 && node scripts/prove-gate-1-reproducibility.mjs && pnpm --filter @k-nex/customer-gate-1 test:postgres",
     "phase:0": "pnpm contracts:generate && pnpm contracts:generated-clean && pnpm contracts:validate && pnpm contracts:test && pnpm contracts:reproducibility && pnpm docs:validate"
   },
   "devDependencies": {

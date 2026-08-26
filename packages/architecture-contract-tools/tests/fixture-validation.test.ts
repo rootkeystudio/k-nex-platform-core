@@ -33,10 +33,11 @@ const validators = {
 const validPaths = [
   "fixtures/plugin-manifests/module.logistics.driver.json",
   "fixtures/contracts/valid/application.minimal.json",
+  "fixtures/customer-gate-1/k-nex.app.json",
   "fixtures/contracts/valid/provider.realtime.socketio.json",
   "fixtures/contracts/valid/theme.minimal.json"
 ];
-const validFixtures = await Promise.all(validPaths.map((path) => fixture(path, path.includes("application.") ? "application" : "plugin")));
+const validFixtures = await Promise.all(validPaths.map((path) => fixture(path, path.includes("application.") || path.endsWith("/k-nex.app.json") ? "application" : "plugin")));
 const pluginCapabilities = new Map<string, ReadonlySet<string>>();
 for (const item of validFixtures.filter(({ schema }) => schema === "plugin")) {
   const manifest = item.value as { id: string; provides?: Array<{ capability: string }> };

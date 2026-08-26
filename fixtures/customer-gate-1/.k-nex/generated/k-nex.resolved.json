@@ -1,0 +1,59 @@
+{
+  "application": {
+    "id": "customer-gate-1",
+    "manifestDigest": "sha256:b1e42e7864c2500e4ee7e34f7d773695c3b39659e7b5ce7b9b4576a57784b50b"
+  },
+  "capabilityProviders": [],
+  "customerConfigFingerprint": "sha256:b7bb1adc18f8ab6786a03cb3bbb14cbd4a5986795eb51c8f4f9c94dadcb9eecb",
+  "environment": {
+    "names": [
+      "DATABASE_URL",
+      "PAYLOAD_SECRET"
+    ]
+  },
+  "framework": {
+    "core": "1.0.0",
+    "node": "24.19.0",
+    "payload": "3.88.0",
+    "payloadDatabaseAdapter": "postgres",
+    "pnpm": "11.9.0"
+  },
+  "plugins": [
+    {
+      "contributions": {
+        "schema": [
+          "sales.tasks.collection"
+        ]
+      },
+      "environment": {
+        "names": []
+      },
+      "id": "module.sales",
+      "integrity": "sha512-SUkRiIHM6qSpV13vp700UcF6CTOgK331VcOqYCjQzlbXdgw7umzknLan79JcvGD7NlYutOFaoyXf1ZvnxGbAOw==",
+      "kind": "module",
+      "lifecycle": {
+        "disable": "supported",
+        "ownsPayloadSchema": true,
+        "ownsPersistentData": true,
+        "purge": "supported",
+        "uninstall": "unsupported"
+      },
+      "manifestDigest": "sha256:1fde841e52008d3bbca83028d79049bc01e29ab1bfb6cf3ebbb06ce90325ad25",
+      "optional": [],
+      "package": "@k-nex/module-sales",
+      "required": [],
+      "version": "1.0.0"
+    }
+  ],
+  "registrationOrder": [
+    "module.sales"
+  ],
+  "resolverVersion": "1.0.0",
+  "runtime": {
+    "deploymentMode": "container",
+    "node": "24.19.0",
+    "packageManager": "pnpm",
+    "packageManagerVersion": "11.9.0"
+  },
+  "schemaVersion": 1
+}
