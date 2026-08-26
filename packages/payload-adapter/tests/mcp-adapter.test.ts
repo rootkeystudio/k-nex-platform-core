@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { UnauthorizedError } from "payload";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -139,6 +140,7 @@ describe("Payload MCP adapter", () => {
     const defaults = {
       user: { id: "actor-1", collection: "users" },
       createdAt: recentIssuance(),
+      enableAPIKey: true,
       expiresAt: futureExpiry(),
       "payload-mcp-tool": { kNexSalesToolsSearchV1: true, kNexSalesToolsUpdateV1: true }
     } as never;
@@ -229,7 +231,7 @@ describe("Payload MCP adapter", () => {
 
   it("fails closed for an API key that has not enabled the visible K-Nex tool", async () => {
     const config = createPayloadMcpPluginConfig(options());
-    const defaults = { user: { id: "actor-1", collection: "users" }, createdAt: recentIssuance(), expiresAt: futureExpiry(), "payload-mcp-tool": { kNexSalesToolsSearchV1: false } } as never;
+    const defaults = { user: { id: "actor-1", collection: "users" }, createdAt: recentIssuance(), enableAPIKey: true, expiresAt: futureExpiry(), "payload-mcp-tool": { kNexSalesToolsSearchV1: false } } as never;
     const settings = await config.overrideAuth!(request() as never, async () => defaults);
     expect(settings["payload-mcp-tool"]).toEqual({ kNexSalesToolsSearchV1: false, kNexSalesToolsUpdateV1: false });
   });
@@ -262,6 +264,7 @@ describe("Payload MCP adapter", () => {
     const resolve = (expiresAt?: string, createdAt = recentIssuance()) => config.overrideAuth!(request() as never, async () => ({
       user: { id: "actor-1", collection: "users" },
       createdAt,
+      enableAPIKey: true,
       ...(expiresAt === undefined ? {} : { expiresAt }),
       "payload-mcp-tool": { kNexSalesToolsSearchV1: true }
     }) as never);
@@ -272,6 +275,28 @@ describe("Payload MCP adapter", () => {
       new Date(Date.now() + 20 * 24 * 60 * 60 * 1_000).toISOString(),
       new Date(Date.now() - 365 * 24 * 60 * 60 * 1_000).toISOString()
     )).rejects.toThrow();
+  });
+
+  it("rejects a disabled API key returned by the internal digest fallback", async () => {
+    const config = createPayloadMcpPluginConfig(options());
+    const disabledRequest = {
+      headers: new Headers({ authorization: "Bearer disabled-key" }),
+      payload: {
+        secret: "fixture-secret",
+        find: vi.fn(async () => ({
+          docs: [{
+            user: { id: "actor-1", collection: "users" },
+            createdAt: recentIssuance(),
+            enableAPIKey: false,
+            expiresAt: futureExpiry(),
+            "payload-mcp-tool": { kNexSalesToolsSearchV1: true }
+          }]
+        }))
+      }
+    };
+    await expect(config.overrideAuth!(disabledRequest as never, async () => {
+      throw new UnauthorizedError();
+    })).rejects.toBeInstanceOf(UnauthorizedError);
   });
 
   it("bounds duration and isolates telemetry failures", () => {

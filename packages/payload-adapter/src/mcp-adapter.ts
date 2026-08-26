@@ -214,9 +214,15 @@ function protectApiKeyCollection(collection: CollectionConfig, userCollection: s
   } as CollectionConfig;
 }
 
-function assertUnexpiredApiKey(settings: MCPAccessSettings): void {
-  const key = settings as MCPAccessSettings & { readonly createdAt?: unknown; readonly expiresAt?: unknown };
-  if (!validApiKeyLifetime(key.expiresAt, key.createdAt, Date.now())) throw new UnauthorizedError();
+function assertUsableApiKey(settings: MCPAccessSettings): void {
+  const key = settings as MCPAccessSettings & {
+    readonly createdAt?: unknown;
+    readonly enableAPIKey?: unknown;
+    readonly expiresAt?: unknown;
+  };
+  if (key.enableAPIKey !== true || !validApiKeyLifetime(key.expiresAt, key.createdAt, Date.now())) {
+    throw new UnauthorizedError();
+  }
 }
 
 async function resolveApiKeyWithInternalRead(request: PayloadRequest, userCollection: string): Promise<MCPAccessSettings> {
@@ -359,7 +365,7 @@ export function createPayloadMcpPluginConfig(options: PayloadMcpAdapterOptions):
         if (!(error instanceof UnauthorizedError)) throw error;
         defaults = await resolveApiKeyWithInternalRead(request, userCollection);
       }
-      assertUnexpiredApiKey(defaults);
+      assertUsableApiKey(defaults);
       const context = await options.context.resolve(request, defaults.user);
       const visible = await visibleToolNames(options, context);
       return safeAccessSettings(defaults, intersectToolAccess(defaults, visible, descriptors));

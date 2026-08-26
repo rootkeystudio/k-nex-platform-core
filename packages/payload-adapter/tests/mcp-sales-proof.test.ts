@@ -373,6 +373,7 @@ describe("P2A.8 Sales tool proof", () => {
     const defaults = {
       user: { id: "user-1", collection: "users" },
       createdAt: new Date(Date.now() - 1_000).toISOString(),
+      enableAPIKey: true,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
       "payload-mcp-tool": {
         kNexSalesToolsSearchTasksV1: true,
@@ -412,6 +413,7 @@ describe("P2A.8 Sales tool proof", () => {
       [digest(ownerApiKey), {
         user: { id: "user-1", collection: "users" },
         createdAt: new Date(Date.now() - 1_000).toISOString(),
+        enableAPIKey: true,
         expiresAt: new Date(Date.now() + 60_000).toISOString(),
         "payload-mcp-tool": {
           kNexSalesToolsSearchTasksV1: true,
@@ -421,6 +423,7 @@ describe("P2A.8 Sales tool proof", () => {
       [digest(foreignApiKey), {
         user: { id: "user-2", collection: "users" },
         createdAt: new Date(Date.now() - 1_000).toISOString(),
+        enableAPIKey: true,
         expiresAt: new Date(Date.now() + 60_000).toISOString(),
         "payload-mcp-tool": {
           kNexSalesToolsSearchTasksV1: true,

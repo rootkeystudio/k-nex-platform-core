@@ -133,6 +133,16 @@ try {
   assert.equal(sourceDenied.status, 403);
   assert.equal((await sourceDenied.json()).code, "SOURCE_AUDIENCE_FORBIDDEN");
 
+  const disabledKey = await payload.update({
+    collection: "payload-mcp-api-keys",
+    id: validKey.id,
+    data: { enableAPIKey: false },
+    overrideAccess: false,
+    user: actor
+  });
+  assert.equal(disabledKey.enableAPIKey, false);
+  await assert.rejects(mcpEndpoint.handler(await mcpRequest(validSecret)), (error) => error?.status === 401);
+
   const dormantSecret = "gate-2a-dormant-overlong-key";
   const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
   await client.connect();
