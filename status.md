@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-26
 - **Phase:** Phase 3 — Transactions, Durable Events, and Realtime Convergence
-- **Active task:** P3.2 — Transaction atomicity and rollback silence
+- **Active task:** P3.3 — Idempotent outbox processing
 - **State:** Active
 
 ## Last completed
 
-Completed P3.1. Added the four event durability classes, a generated strict durable-event envelope with bounded secret-safe JSON payloads, and a customer-owned PostgreSQL outbox schema with durable-only constraints, scoped idempotency, claim/dead-letter/checkpoint state, explicit retention, and real schema/index rejection evidence.
+Completed P3.2. Added a fail-closed Payload/Postgres outbox writer that requires the active transaction session and proved with real PostgreSQL that authoritative state and durable intent commit together, roll back without visibility or HTTP publication, and survive an immediate post-commit process crash as pending work.
 
 ## Validation
 
-On Node.js 24.19.0 and pnpm 11.9.0: 82 contract tests, generated-schema validation, customer fixture build, and the real-PostgreSQL migration/outbox schema gate pass. Frozen install, documentation validation, and `git diff --check` pass.
+On Node.js 24.19.0 and pnpm 11.9.0: frozen install, Phase 0, Gate 1, 30 payload-adapter tests, customer fixture build, the real-PostgreSQL atomicity/crash gate, and `git diff --check` pass.
 
 ## Next
 
-Implement P3.2 with real PostgreSQL and Payload transaction behavior: commit must persist authoritative state plus outbox intent, rollback must expose neither, commit-then-crash must retain intent, and no external network effect may occur inside the transaction.
+Implement P3.3 idempotent outbox processing using Payload Jobs Queue first unless measured evidence rejects it. Prove claim/lease, retry/backoff, duplicate-safe subscriber effects, poison/dead-letter handling, checkpointing, and observable backlog/failure under least-privileged capability-scoped context.
 
 ## Blockers
 

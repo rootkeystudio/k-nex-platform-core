@@ -9,11 +9,11 @@ import pg from "pg";
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
 const fixtureDirectory = fileURLToPath(new URL("..", import.meta.url));
 
-async function query(connectionString, text) {
+async function query(connectionString, text, values = []) {
   const client = new pg.Client({ connectionString });
   await client.connect();
   try {
-    return await client.query(text);
+    return await client.query(text, values);
   } finally {
     await client.end();
   }
@@ -119,6 +119,66 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
     });
     assert.equal(mcpLifecycle.code, 0, `${mcpLifecycle.stdout}\n${mcpLifecycle.stderr}`);
     assert.match(mcpLifecycle.stdout, /^P2A_MCP_LIFECYCLE_PASS$/m);
+
+    const p32Cases = [
+      {
+        mode: "commit",
+        title: "P3.2 committed sales task",
+        eventId: "p3-2-event-commit"
+      },
+      {
+        mode: "rollback",
+        title: "P3.2 rolled back sales task",
+        eventId: "p3-2-event-rollback"
+      },
+      {
+        mode: "crash",
+        title: "P3.2 crash-survivor sales task",
+        eventId: "p3-2-event-crash"
+      }
+    ];
+
+    const committed = await runFixtureProcess("tests/transaction-atomicity.mjs", connectionString, {
+      MODE: "commit",
+      BOOT_KEY: "gate3-2-commit"
+    });
+    assert.equal(committed.code, 0, `${committed.stdout}\n${committed.stderr}`);
+    assert.match(committed.stdout, /^P3_2_COMMIT_PASS$/m);
+    const committedState = await query(connectionString, `
+      select
+        (select count(*)::int from sales_tasks where title = $1) as task_count,
+        (select count(*)::int from k_nex_outbox where event_id = $2) as outbox_count,
+        (select count(*)::int from k_nex_outbox where event_id = $2 and status = 'pending') as pending_count
+    `, [p32Cases[0].title, p32Cases[0].eventId]);
+    assert.deepEqual(committedState.rows, [{ task_count: 1, outbox_count: 1, pending_count: 1 }]);
+
+    const rollbackProcess = await runFixtureProcess("tests/transaction-atomicity.mjs", connectionString, {
+      MODE: "rollback",
+      BOOT_KEY: "gate3-2-rollback"
+    });
+    assert.equal(rollbackProcess.code, 0, `${rollbackProcess.stdout}\n${rollbackProcess.stderr}`);
+    assert.match(rollbackProcess.stdout, /^P3_2_ROLLBACK_PASS$/m);
+    const rolledBackState = await query(connectionString, `
+      select
+        (select count(*)::int from sales_tasks where title = $1) as task_count,
+        (select count(*)::int from k_nex_outbox where event_id = $2) as outbox_count,
+        (select count(*)::int from k_nex_outbox where event_id = $2 and status = 'pending') as pending_count
+    `, [p32Cases[1].title, p32Cases[1].eventId]);
+    assert.deepEqual(rolledBackState.rows, [{ task_count: 0, outbox_count: 0, pending_count: 0 }]);
+
+    const crashed = await runFixtureProcess("tests/transaction-atomicity.mjs", connectionString, {
+      MODE: "crash",
+      BOOT_KEY: "gate3-2-crash"
+    });
+    assert.equal(crashed.code, 73, `${crashed.stdout}\n${crashed.stderr}`);
+    assert.match(crashed.stdout, /^P3_2_CRASH_COMMITTED$/m);
+    const crashState = await query(connectionString, `
+      select
+        (select count(*)::int from sales_tasks where title = $1) as task_count,
+        (select count(*)::int from k_nex_outbox where event_id = $2) as outbox_count,
+        (select count(*)::int from k_nex_outbox where event_id = $2 and status = 'pending') as pending_count
+    `, [p32Cases[2].title, p32Cases[2].eventId]);
+    assert.deepEqual(crashState.rows, [{ task_count: 1, outbox_count: 1, pending_count: 1 }]);
 
     await query(connectionString, "update k_nex_migration_revision set revision = 0 where id = 1");
     const incompatible = await runFixtureProcess("tests/boot-once.mjs", connectionString, {

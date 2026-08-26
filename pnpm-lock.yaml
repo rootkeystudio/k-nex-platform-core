@@ -138,6 +138,9 @@ importers:
 
   packages/payload-adapter:
     dependencies:
+      '@k-nex/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@k-nex/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -154,9 +157,6 @@ importers:
         specifier: 3.25.76
         version: 3.25.76
     devDependencies:
-      '@k-nex/contracts':
-        specifier: workspace:*
-        version: link:../contracts
       '@k-nex/module-sales':
         specifier: workspace:*
         version: link:../../modules/sales
