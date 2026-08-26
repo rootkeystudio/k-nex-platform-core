@@ -2,6 +2,7 @@ import { Puck, type Data } from "@puckeditor/core";
 import { createElement, type ReactElement } from "react";
 
 import type { PuckBuilderAdapter } from "./adapter.js";
+import { renderAccessiblePuckHeader } from "./accessibility.js";
 import type { UiDocument } from "@k-nex/contracts";
 
 export interface PuckEditorHostProps {
@@ -17,6 +18,7 @@ export function PuckEditorHost({ adapter, document, onChange, onPublish }: PuckE
   return createElement(Puck, {
     config: adapter.config,
     data,
+    renderHeader: renderAccessiblePuckHeader,
     ...(onChange === undefined ? {} : { onChange: (next: Data) => onChange(adapter.fromPuckData(next)) }),
     ...(onPublish === undefined ? {} : { onPublish: (next: Data) => onPublish(adapter.fromPuckData(next)) })
   });

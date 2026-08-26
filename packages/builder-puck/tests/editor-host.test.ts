@@ -28,6 +28,7 @@ describe("Puck editor host", () => {
     const element = PuckEditorHost({ adapter, document, onChange });
     expect(isValidElement(element)).toBe(true);
     const props = element.props as { data: unknown; onChange: (data: unknown) => void };
+    expect(element.props.renderHeader).toBeTypeOf("function");
     props.onChange(props.data);
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ id: "cms.home", profile: "cms" }));
   });
