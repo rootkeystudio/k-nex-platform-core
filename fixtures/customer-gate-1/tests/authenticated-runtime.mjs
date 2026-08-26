@@ -10,10 +10,10 @@ const key = process.env.BOOT_KEY;
 const password = "gate1-authenticated-query-password";
 const payload = await bootGate1Application({ key });
 
-for (const email of ["gate1@example.test", "done@example.test", "no-note@example.test", "required-denied@example.test"]) {
+for (const email of ["gate1@example.test", "gate1-peer@example.test", "done@example.test", "no-note@example.test", "required-denied@example.test"]) {
   await payload.create({ collection: "users", data: { email, password } });
 }
-await payload.create({
+const openTask = await payload.create({
   collection: "sales-tasks",
   data: { title: "Authenticated Gate 1 query", status: "open", potentialRevenue: "100", privateNote: "open-secret" }
 });
@@ -24,7 +24,10 @@ await payload.create({
 
 const loginAs = (email) => payload.login({ collection: "users", data: { email, password }, overrideAccess: false });
 const login = await loginAs("gate1@example.test");
+const peerLogin = await loginAs("gate1-peer@example.test");
 assert.ok(login.token);
+assert.ok(peerLogin.token);
+assert.notEqual(login.user.id, peerLogin.user.id);
 
 const authenticatedRequest = await createPayloadRequest({
   config: payload.config,
@@ -68,6 +71,32 @@ assert.equal(openResponse.status, 200);
 const openResult = await openResponse.json();
 assert.deepEqual(openResult.data.fields, sourceBody.selectedFields);
 assert.deepEqual(openResult.data.rows.map((row) => row.values.title.value), ["Authenticated Gate 1 query"]);
+
+const forgedScopeResponse = await callSource(login.token, {
+  ...sourceBody,
+  query: {
+    ...sourceBody.query,
+    recordScope: { kind: "sales.tasks", where: { status: { equals: "done" } } }
+  }
+});
+assert.equal(forgedScopeResponse.status, 400);
+assert.equal((await forgedScopeResponse.json()).code, "INVALID_QUERY_CONTROLS");
+
+const updatedOpenTask = await payload.update({
+  collection: "sales-tasks",
+  id: openTask.id,
+  data: { title: "Mutated by authorized direct write" },
+  user: login.user,
+  overrideAccess: false
+});
+assert.equal(updatedOpenTask.title, "Mutated by authorized direct write");
+
+const peerResponse = await callSource(peerLogin.token);
+assert.equal(peerResponse.status, 200);
+const peerResult = await peerResponse.json();
+assert.deepEqual(peerResult.data.fields, openResult.data.fields);
+assert.deepEqual(peerResult.data.rows.map((row) => row.values.title.value), ["Mutated by authorized direct write"]);
+assert.deepEqual(peerResult.data.rows.map((row) => row.values.status.value), ["open"]);
 
 const unknownResponse = await callSource(login.token, { ...sourceBody, sourceId: "sales.tasks.other" });
 assert.equal(unknownResponse.status, 404);
