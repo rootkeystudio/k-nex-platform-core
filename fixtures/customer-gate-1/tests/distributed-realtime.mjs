@@ -63,8 +63,8 @@ const gateway = socketIoRealtimeProvider.create({
     revalidationIntervalMs: 60_000,
     revalidationTimeoutMs: 1_000
   },
-  authenticate: async ({ actor }) => actor === "owner-1" ? { id: actor, type: "user" } : null,
-  isActorActive: async () => true
+  authenticate: async ({ actor }) => actor === "owner-1" ? { actor: { id: actor, type: "user" }, id: "gate-session-1" } : null,
+  isSessionActive: async () => true
 });
 await new Promise((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
 const address = httpServer.address();

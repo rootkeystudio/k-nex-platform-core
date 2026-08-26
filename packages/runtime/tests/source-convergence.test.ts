@@ -174,6 +174,32 @@ describe("source revision convergence", () => {
     expect(authorize).toHaveBeenCalledTimes(3);
   });
 
+  it("preserves the newest invalidation watermark across timeout and recovery", async () => {
+    vi.useFakeTimers();
+    let hang = false;
+    let snapshot = { data: "initial", revision: 1 };
+    const controller = new SourceConvergenceController({
+      authorize: async () => true,
+      fetch: async (_reason, signal) => {
+        if (hang) await new Promise<void>((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+        return snapshot;
+      },
+      freshness: "standard",
+      refreshTimeoutMs: 10,
+      surface: "workspace"
+    });
+    await controller.initialize();
+    hang = true;
+    const timedOut = controller.handleInvalidation(10);
+    await vi.advanceTimersByTimeAsync(10);
+    await expect(timedOut).resolves.toMatchObject({ status: "error", data: null, revision: null });
+    hang = false;
+    snapshot = { data: "lagging", revision: 9 };
+    await expect(controller.handleReconnect()).resolves.toMatchObject({ status: "stale", data: "lagging", revision: 9 });
+    snapshot = { data: "caught up", revision: 10 };
+    await expect(controller.handleReconnect()).resolves.toMatchObject({ status: "ready", data: "caught up", revision: 10 });
+  });
+
   it("bounds a hanging fetch and ignores its late rejection after a successful retry", async () => {
     vi.useFakeTimers();
     let hang = false;

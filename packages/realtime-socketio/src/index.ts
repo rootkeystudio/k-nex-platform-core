@@ -40,8 +40,13 @@ export interface SocketIoMemoryGatewayOptions {
   readonly httpServer: HttpServer;
   readonly security: SocketIoMemorySecurityOptions;
   readonly topics: RealtimeTopicRegistry;
-  authenticate(credentials: Readonly<Record<string, unknown>>): Promise<RealtimeActor | null>;
-  isActorActive(actor: RealtimeActor): Promise<boolean>;
+  authenticate(credentials: Readonly<Record<string, unknown>>): Promise<SocketIoAuthenticatedSession | null>;
+  isSessionActive(session: SocketIoAuthenticatedSession): Promise<boolean>;
+}
+
+export interface SocketIoAuthenticatedSession {
+  readonly actor: RealtimeActor;
+  readonly id: string;
 }
 
 export interface SocketIoMemoryGatewayHealth {
@@ -77,6 +82,7 @@ interface Subscription {
 
 interface Session {
   readonly actor: RealtimeActor;
+  readonly identity: SocketIoAuthenticatedSession;
   mutation: Promise<void>;
   pendingAcknowledgements: number;
   revalidation?: Promise<void>;
@@ -141,6 +147,12 @@ function actor(value: RealtimeActor | null): RealtimeActor | null {
   return parsed.success ? Object.freeze({ id: parsed.data.id, type: parsed.data.type }) : null;
 }
 
+function authenticatedSession(value: SocketIoAuthenticatedSession | null): SocketIoAuthenticatedSession | null {
+  if (!value || typeof value.id !== "string" || value.id.length < 1 || value.id.length > 256 || /[\u0000-\u001F\u007F-\u009F]/.test(value.id)) return null;
+  const authenticatedActor = actor(value.actor);
+  return authenticatedActor ? Object.freeze({ actor: authenticatedActor, id: value.id }) : null;
+}
+
 function byteLength(value: unknown): number {
   return new TextEncoder().encode(canonicalJson(value)).byteLength;
 }
@@ -196,7 +208,7 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
     });
     const authentication = Promise.resolve()
       .then(() => options.authenticate(Object.freeze({ ...socket.handshake.auth })))
-      .then((value) => actor(value), () => null);
+      .then((value) => authenticatedSession(value), () => null);
     const timeout = Symbol("authentication-timeout");
     let timer: ReturnType<typeof setTimeout> | undefined;
     const outcome = await Promise.race([
@@ -220,7 +232,7 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
       next(new Error("AUTHENTICATION_REQUIRED"));
       return;
     }
-    socket.data["kNexActor"] = outcome;
+    socket.data["kNexSession"] = outcome;
     next();
   });
 
@@ -256,9 +268,10 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
       (socket.data["kNexReleaseConnectionSlot"] as (() => void) | undefined)?.();
       sessions.delete(socket.id);
     });
-    const authenticatedActor = socket.data["kNexActor"] as RealtimeActor;
+    const identity = socket.data["kNexSession"] as SocketIoAuthenticatedSession;
     const session: Session = {
-      actor: authenticatedActor,
+      actor: identity.actor,
+      identity,
       mutation: Promise.resolve(),
       pendingAcknowledgements: 0,
       socket,
@@ -362,7 +375,7 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
     const operation = (async (): Promise<void> => {
       let active = false;
       try {
-        active = await options.isActorActive(session.actor);
+        active = await options.isSessionActive(session.identity);
       } catch {
         active = false;
       }

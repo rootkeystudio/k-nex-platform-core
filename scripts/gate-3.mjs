@@ -12,7 +12,7 @@ if (process.versions.node !== "24.19.0") {
 const proofs = [
   ["lost-pubsub-and-reconnect-lifecycle", "@k-nex/runtime", "tests/source-convergence.test.ts", "schedules bounded revalidation and wires reconnect signals during its executable lifecycle"],
   ["permission-revocation", "@k-nex/provider-realtime-socketio", "tests/memory-gateway.test.ts", "removes subscriptions when topic permission is revoked"],
-  ["session-revocation", "@k-nex/provider-realtime-socketio", "tests/memory-gateway.test.ts", "disconnects revoked sessions during revalidation"],
+  ["session-revocation", "@k-nex/provider-realtime-socketio", "tests/memory-gateway.test.ts", "disconnects only the revoked login session for an active actor"],
   ["slow-consumer", "@k-nex/provider-realtime-socketio", "tests/memory-gateway.test.ts", "disconnects a slow consumer when its acknowledgement buffer is full"],
   ["rolling-reconnect", "@k-nex/provider-realtime-socketio", "tests/memory-gateway.test.ts", "allows an authorized client to reconnect and resubscribe after a stop-before-start rollout"],
   ["rolling-topology", "@k-nex/runtime", "tests/realtime-topology.test.ts", "rejects rolling overlap with path-specific remedies"],

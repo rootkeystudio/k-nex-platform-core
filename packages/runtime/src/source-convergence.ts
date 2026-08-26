@@ -121,7 +121,6 @@ export class SourceConvergenceController<T> {
     const timeout = new Promise<SourceConvergenceState<T>>((resolve) => {
       timer = setTimeout(() => {
         controller.abort();
-        this.minimumRevision = 0;
         this.stateValue = Object.freeze({ data: null, lastValidatedAt: this.clock(), revision: null, status: "error" });
         resolve(this.stateValue);
       }, this.refreshTimeoutMs);

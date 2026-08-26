@@ -31,7 +31,7 @@ importers:
         version: link:../../packages/payload-adapter
       '@k-nex/provider-realtime-socketio':
         specifier: file:packages/k-nex-provider-realtime-socketio-1.0.0.tgz
-        version: file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz
+        version: file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz(@k-nex/contracts@packages+contracts)(@k-nex/runtime@packages+runtime)
       '@k-nex/runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
@@ -181,16 +181,16 @@ importers:
 
   packages/realtime-socketio:
     dependencies:
+      socket.io:
+        specifier: 4.8.3
+        version: 4.8.3
+    devDependencies:
       '@k-nex/contracts':
         specifier: workspace:*
         version: link:../contracts
       '@k-nex/runtime':
         specifier: workspace:*
         version: link:../runtime
-      socket.io:
-        specifier: 4.8.3
-        version: 4.8.3
-    devDependencies:
       socket.io-client:
         specifier: 4.8.3
         version: 4.8.3
@@ -1061,8 +1061,11 @@ packages:
       '@k-nex/contracts': 0.0.0
 
   '@k-nex/provider-realtime-socketio@file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz':
-    resolution: {integrity: sha512-GJXRBX3xxBOsS708BE/rnI/D3bHBBI6jQMlIBEjmquHcJ4egS15DBSvYFZP1RNll7klwfI4fLOV3bv204jgQTA==, tarball: file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz}
+    resolution: {integrity: sha512-J0sBu2oo37Ck3r4y9dJEA0di2TWAX5Qfw96dXjkX/hdrJQGc850HPDXnc4El8iQ0Jfj9QDozlOhpP6JDPl1X0A==, tarball: file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz}
     version: 1.0.0
+    peerDependencies:
+      '@k-nex/contracts': 0.0.0
+      '@k-nex/runtime': 0.0.0
 
   '@kwsites/file-exists@1.1.1':
     resolution: {integrity: sha512-m9/5YGR18lIwxSFDwfE3oA7bWuq9kdau6ugN4H2rJeyhFQZcG9AgSHkQtSD15a8WvTgfz9aikZMrKPHvbpqFiw==}
@@ -4061,7 +4064,7 @@ snapshots:
     dependencies:
       '@k-nex/contracts': link:packages/contracts
 
-  '@k-nex/provider-realtime-socketio@file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz':
+  '@k-nex/provider-realtime-socketio@file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz(@k-nex/contracts@packages+contracts)(@k-nex/runtime@packages+runtime)':
     dependencies:
       '@k-nex/contracts': link:packages/contracts
       '@k-nex/runtime': link:packages/runtime

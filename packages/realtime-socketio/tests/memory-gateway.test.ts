@@ -25,7 +25,7 @@ const revenueTopic = defineRealtimeTopic({ ...topic, id: "sales.revenue" });
 let gateway: SocketIoMemoryGateway | undefined;
 let httpServer: HttpServer | undefined;
 let client: Socket | undefined;
-let actorActive = true;
+const revokedSessions = new Set<string>();
 let topicAllowed = true;
 
 const security = {
@@ -68,7 +68,7 @@ afterEach(async () => {
   gateway = undefined;
   httpServer = undefined;
   client = undefined;
-  actorActive = true;
+  revokedSessions.clear();
   topicAllowed = true;
 });
 
@@ -78,13 +78,15 @@ async function harness(actorId: unknown = "owner-1", securityOverrides = {}, ori
     httpServer,
     topics: createRealtimeTopicRegistry([topic, revenueTopic]),
     security: { ...security, ...securityOverrides },
-    authenticate: async ({ actor }) => typeof actor === "string" ? { id: actor, type: "user" } : null,
-    isActorActive: async () => actorActive
+    authenticate: async ({ actor, session }) => typeof actor === "string" && typeof session === "string"
+      ? { actor: { id: actor, type: "user" }, id: `server:${session}` }
+      : null,
+    isSessionActive: async ({ id }) => !revokedSessions.has(id)
   });
   await new Promise((resolve) => httpServer?.listen(0, "127.0.0.1", resolve));
   const port = (httpServer.address() as AddressInfo).port;
   client = connect(`http://127.0.0.1:${port}`, {
-    auth: { actor: actorId },
+    auth: { actor: actorId, session: "session-1" },
     transports: ["websocket"],
     extraHeaders: { origin }
   });
@@ -181,13 +183,26 @@ describe("Socket.IO memory realtime gateway", () => {
     expect(active.gateway.health()).toMatchObject({ oversized: 1, rateLimited: 1 });
   });
 
-  it("disconnects revoked sessions during revalidation", async () => {
+  it("disconnects only the revoked login session for an active actor", async () => {
     const active = await harness();
-    actorActive = false;
+    const port = (httpServer?.address() as AddressInfo).port;
+    const sibling = connect(`http://127.0.0.1:${port}`, {
+      auth: { actor: "owner-1", session: "session-2" },
+      transports: ["websocket"],
+      extraHeaders: { origin: "https://app.example.test" },
+      reconnection: false
+    });
+    await new Promise((resolve, reject) => {
+      sibling.once("connect", resolve);
+      sibling.once("connect_error", reject);
+    });
+    revokedSessions.add("server:session-1");
     const disconnected = new Promise((resolve) => active.client.once("disconnect", resolve));
     await active.gateway.revalidate();
     await disconnected;
-    expect(active.gateway.health()).toMatchObject({ connections: 0, authenticationDenied: 1 });
+    expect(sibling.connected).toBe(true);
+    expect(active.gateway.health()).toMatchObject({ connections: 1, authenticationDenied: 1 });
+    sibling.disconnect();
   });
 
   it("rejects disallowed origins before a Socket.IO session is established", async () => {
@@ -243,9 +258,9 @@ describe("Socket.IO memory realtime gateway", () => {
       authenticate: async ({ actor }) => {
         authenticateCalls += 1;
         await barrier;
-        return typeof actor === "string" ? { id: actor, type: "user" } : null;
+        return typeof actor === "string" ? { actor: { id: actor, type: "user" }, id: actor } : null;
       },
-      isActorActive: async () => true
+      isSessionActive: async () => true
     });
     await new Promise((resolve) => httpServer?.listen(0, "127.0.0.1", resolve));
     const port = (httpServer.address() as AddressInfo).port;
@@ -280,9 +295,9 @@ describe("Socket.IO memory realtime gateway", () => {
       authenticate: async () => {
         authenticateCalls += 1;
         await new Promise<void>((resolve) => authenticationResolvers.push(resolve));
-        return { id: "owner-1", type: "user" };
+        return { actor: { id: "owner-1", type: "user" }, id: "owner-1" };
       },
-      isActorActive: async () => true
+      isSessionActive: async () => true
     });
     await new Promise((resolve) => httpServer?.listen(0, "127.0.0.1", resolve));
     const port = (httpServer.address() as AddressInfo).port;
@@ -402,8 +417,8 @@ describe("Socket.IO memory realtime gateway", () => {
       httpServer,
       topics: createRealtimeTopicRegistry([topic]),
       security: { ...security, revalidationIntervalMs: 5, revalidationTimeoutMs: 10 },
-      authenticate: async ({ actor }) => typeof actor === "string" ? { id: actor, type: "user" } : null,
-      isActorActive: async ({ id }) => {
+      authenticate: async ({ actor }) => typeof actor === "string" ? { actor: { id: actor, type: "user" }, id: actor } : null,
+      isSessionActive: async ({ id }) => {
         checks.set(id, (checks.get(id) ?? 0) + 1);
         if (id === "stuck") await new Promise(() => undefined);
         return false;
