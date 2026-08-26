@@ -40,9 +40,9 @@ principal → agent client/session → delegation → catalog lookup → input
 
 Delegation binds the exact principal, client, application, tool/version, effects, resource scope, expiry, revision, and parent authority. It can only reduce authority. Per-call approvals bind the exact principal/session/tool/version/canonical input digest and are expiring, issuer-authorized, and single-use.
 
-Writes require bounded idempotency keys scoped by application, principal, tool/version, and canonical input. Same-input retries return the frozen first safe envelope without redispatch; changed-input reuse conflicts; pending or uncertain post-dispatch outcomes remain blocked. The Sales vertical proof creates one logical task across the first call and replay.
+Writes require bounded idempotency keys scoped by application, principal, tool/version, and canonical input. Same-input retries return the frozen first safe envelope without redispatch; changed-input reuse conflicts. Late successful handlers are validated, redacted, audited, and reconciled into the original claim; irreconcilable late failures retain bounded uncertain-state duplicate suppression. The Sales vertical proof creates one logical task across the first call and replay.
 
-Budgets cover JSON bytes/depth, enforced timeout/cancellation even for non-cooperative handlers, principal/tool concurrency, rate/burst, cost, calls per run, and catalog/page bounds. A timed-out write retains its uncertain idempotency claim until the handler settles. Audit fails closed before dispatch, then records bounded identities, references, digests, and outcomes without raw prompts, inputs, results, credentials, private notes, or key values. Result text is marked `structured-untrusted-content`.
+Budgets cover JSON bytes/depth, enforced timeout/cancellation even for non-cooperative handlers, principal/tool concurrency, rate/burst, cost, calls per run, and catalog/page bounds. Audit fails closed before dispatch, then records bounded identities, references, digests, and outcomes without raw prompts, inputs, results, credentials, private notes, or key values. Result text is marked `structured-untrusted-content`.
 
 ## Payload MCP adapter proof
 
@@ -79,14 +79,14 @@ sales.tools.create-task  → sales.task.create action (write)
 
 The create tool requires per-call approval and idempotency, redacts its private-note input path, and dispatches through the registered action. The action uses Payload Local API once with `overrideAccess: false`, the effective actor user, depth zero, and the existing request context. Its strict output exposes only task ID, title, and status.
 
-The scripted flow composes the bound delegation evaluator, delegated catalog policy, registration-backed target resolution/policy/input/output/dispatch/redaction stages, and the Phase 2 data-source gateway. It authenticates, lists, reads, attempts a concealed forbidden tool, prepares approval, approves exact arguments, executes one write, repeats with the same key, rejects changed-input reuse, checks safe audit, and repeats discovery/read through an actual MCP `tools/list`/`tools/call` protocol path. Gateway failures use MCP `isError`; successful object data uses `structuredContent`.
+The scripted flow composes the bound delegation evaluator, delegated catalog policy, registration-backed target resolution/policy/input/output/dispatch/redaction stages, and the Phase 2 data-source gateway. Source targets never expose raw handlers to the tool dispatcher; a bounded mapping can reach them only through the data-source gateway. It authenticates, lists, reads, attempts a concealed forbidden tool, prepares approval, approves exact arguments, executes one write, repeats with the same key, rejects changed-input reuse, and checks safe audit. It then drives actor A and actor B through the official Payload plugin endpoint with real JSON-RPC `tools/list`/`tools/call`, proving actor-filtered registration and denial. Gateway failures use MCP `isError`; successful object data uses `structuredContent`.
 
 ## Attack evidence
 
 | Required attack | Executable evidence |
 |---|---|
 | automatic source/action/collection/global exposure | explicit manifest/registration reconciliation and empty Payload collection/global maps |
-| cross-actor catalog and invocation isolation | catalog audience/policy/delegation tests and gateway reauthorization |
+| cross-actor catalog and invocation isolation | actor A/B official MCP endpoint list/call proof plus gateway reauthorization |
 | direct tool ID/version/input manipulation | strict descriptor fixtures, lookup identity, and input validation tests |
 | forbidden target source/action | registration owned-binding checks and concealed unknown-tool response |
 | output violation and undeclared field | action/source output schemas, gateway validation, malformed replay rejection |
@@ -107,8 +107,8 @@ Runner: Apple M1 Max, arm64, 64 GiB RAM, macOS 26.6, Node.js 24.19.0, one warm l
 
 | Path | Dataset | Iterations | Representative p95 | Accepted p95 ceiling |
 |---|---:|---:|---:|---:|
-| actor-filtered catalog list | 100 explicit descriptors | 100 | 2.337 ms | 250 ms |
-| bounded read gateway pipeline | one validated read call | 200 | 0.007 ms | 250 ms |
+| actor-filtered catalog list | 100 explicit descriptors | 100 | 2.388 ms | 250 ms |
+| bounded read gateway pipeline | one validated read call | 200 | 0.009 ms | 250 ms |
 
 These characterize bounded local catalog/gateway overhead and detect order-of-magnitude regressions. They are not production throughput, concurrency, network, database, model, or capacity claims.
 

@@ -448,6 +448,41 @@ describe("phased registration runtime", () => {
     );
   });
 
+  it("rejects a source tool whose output contract does not match the registered source", () => {
+    const base = consumerManifest();
+    const manifest = consumerManifest({
+      contributions: { ...base.contributions, tools: ["consumer.tools.source"] }
+    });
+    const sourceTool = (outputContract: AgentToolDescriptor["outputContract"]): AgentToolDescriptor => ({
+      ...actionTool(),
+      id: "consumer.tools.source",
+      outputSchema: undefined,
+      outputContract,
+      invocation: { kind: "source", source: { id: "consumer.source", version: 1 } },
+      permission: "consumer.read",
+      policy: "consumer.read",
+      effect: "read-only",
+      approval: "none",
+      idempotency: "not-applicable"
+    });
+    const plan = (tool: AgentToolDescriptor): PluginRegistration => {
+      const consumer = completeConsumer();
+      return {
+        ...consumer,
+        contracts(context) {
+          consumer.contracts?.(context);
+          context.register("tools", tool.id, tool);
+        }
+      };
+    };
+
+    expectCode(
+      () => run([providerRegistration(), plan(sourceTool("table.records@1"))], [providerManifest(), manifest]),
+      "INVENTORY_MISMATCH"
+    );
+    expect(() => run([providerRegistration(), plan(sourceTool("metric.scalar@1"))], [providerManifest(), manifest])).not.toThrow();
+  });
+
   it("rejects registration through an API retained from the wrong phase", () => {
     let contracts: Parameters<NonNullable<PluginRegistration["contracts"]>>[0] | undefined;
     const consumer = completeConsumer();

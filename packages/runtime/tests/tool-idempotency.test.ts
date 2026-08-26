@@ -163,6 +163,16 @@ describe("P2A.6 in-memory tool idempotency", () => {
     await expect(coordinator.claim(context())).rejects.toMatchObject({ code: "IDEMPOTENCY_IN_PROGRESS" });
   });
 
+  it("retains an uncertain late outcome for bounded duplicate suppression", async () => {
+    let now = 1_000;
+    const coordinator = new InMemoryToolIdempotencyCoordinator({ now: () => now }, { retentionMs: 100 });
+    const claim = await coordinator.claim(context());
+    await claim.fail({ retain: true });
+    await expect(coordinator.claim(context())).rejects.toMatchObject({ code: "IDEMPOTENCY_IN_PROGRESS" });
+    now = 1_100;
+    await expect(coordinator.claim(context())).resolves.toMatchObject({ context: { status: "claimed" } });
+  });
+
   it("expires only completed records using the injected clock and enforces the record bound", async () => {
     let now = 1_000;
     const coordinator = new InMemoryToolIdempotencyCoordinator({ now: () => now }, { retentionMs: 100, maxRecords: 1 });

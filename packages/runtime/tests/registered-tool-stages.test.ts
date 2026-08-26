@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   executeRegistration,
   RegisteredToolAuthorization,
+  RegisteredToolDataSourceDispatcher,
   RegisteredToolDispatcher,
   RegisteredToolInputValidator,
   RegisteredToolOutputValidator,
@@ -162,5 +163,35 @@ describe("registered tool stages", () => {
     expect(seen).toHaveLength(1);
     const redacted = new RegisteredToolRedactor().redact(context(), { ok: true, secret: "x", nested: { token: "y", keep: true } });
     expect(redacted).toEqual({ ok: true, nested: { keep: true } });
+  });
+
+  it("maps source tools through a bounded data-source gateway without exposing a handler", async () => {
+    const target = {
+      kind: "source" as const,
+      definition: { descriptor: { id: "fixture.source", version: 1 } }
+    } as never;
+    let seen: unknown;
+    const dispatcher = new RegisteredToolDataSourceDispatcher(
+      {
+        query(request) {
+          seen = request;
+          return {
+            ok: true,
+            status: 200,
+            body: {
+              schemaVersion: 1,
+              source: { id: "fixture.source", version: 1 },
+              contract: { id: "metric.scalar", version: 1 },
+              structuralCompatibilityHash: `sha256:${"0".repeat(64)}`,
+              data: { value: 1 }
+            }
+          };
+        }
+      },
+      { map: () => ({ input: {}, query: { filters: [] }, selectedFields: ["title"] }) }
+    );
+    await expect(dispatcher.dispatch(context(), target)).resolves.toEqual({ value: 1 });
+    expect(seen).toMatchObject({ sourceId: "fixture.source", input: {}, query: { filters: [] }, selectedFields: ["title"] });
+    expect(target).not.toHaveProperty("handler");
   });
 });

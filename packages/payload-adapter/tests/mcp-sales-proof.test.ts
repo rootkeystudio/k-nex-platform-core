@@ -15,6 +15,7 @@ import {
   PolicyAuthorizationEvaluator,
   RegisteredHandlerDispatcher,
   RegisteredToolAuthorization,
+  RegisteredToolDataSourceDispatcher,
   RegisteredToolDispatcher,
   RegisteredToolInputValidator,
   RegisteredToolOutputValidator,
@@ -47,7 +48,7 @@ import {
 } from "@k-nex/module-sales/server";
 import { describe, expect, it } from "vitest";
 
-import { createPayloadMcpPluginConfig } from "../src/mcp-adapter.js";
+import { createPayloadMcpPlugin, createPayloadMcpPluginConfig } from "../src/mcp-adapter.js";
 import { PayloadRequestAuthenticator } from "../src/data-source-authenticator.js";
 
 const manifest = PluginManifestSchema.parse(JSON.parse(readFileSync(
@@ -80,7 +81,7 @@ function registration() {
 }
 
 describe("P2A.8 Sales tool proof", () => {
-  it("runs one logical approved write, stable replay, conflict, audit, and the same read through MCP", async () => {
+  it("runs one logical approved write and enforces actor-filtered MCP list/call", async () => {
     const resolved = registration();
     const actor = {
       principal: { kind: "user" as const, id: "user-1" },
@@ -229,26 +230,20 @@ describe("P2A.8 Sales tool proof", () => {
         return Object.freeze({ resourceScope: delegation.resourceScope });
       }
     });
-    const registeredDispatcher = new RegisteredToolDispatcher(targetResolver, {
-      dispatch: async (context, target) => {
-        const response = await dataSourceGateway.query({
-          correlationId: context.request.correlationId,
-          rawRequest: payloadRequest,
-          sourceId: target.definition.descriptor.id,
-          surface: context.request.surface,
+    const registeredDispatcher = new RegisteredToolDispatcher(
+      targetResolver,
+      new RegisteredToolDataSourceDispatcher(dataSourceGateway, {
+        map: (context) => ({
           input: {},
           query: {
             page: { number: 1, size: 25 },
             filters: [{ field: "title", operator: "contains", value: (context.input as { title: string }).title }],
             sort: []
           },
-          selectedFields: ["title", "status", "potential-revenue"],
-          signal: context.signal
-        });
-        if (!response.ok) throw new ToolGatewayError(response.body.code, response.status, "Sales data-source query failed.", response.body.detail);
-        return response.body.data;
-      }
-    });
+          selectedFields: ["title", "status", "potential-revenue"]
+        })
+      })
+    );
     const stages: ToolGatewayStages = {
       principal: {
         authenticate: (request) => {
@@ -365,13 +360,14 @@ describe("P2A.8 Sales tool proof", () => {
     });
     expect(invalidRead).toMatchObject({ ok: false, status: 400, body: { code: "TOOL_INPUT_INVALID" } });
 
-    const adapter = createPayloadMcpPluginConfig({
+    const adapterOptions = {
       tools: [salesSearchTasksDescriptor, salesCreateTaskToolDescriptor],
       catalog,
       gateway,
-      context: { resolve: (request) => ({ ...catalogContext, actor: salesActor(request) }) },
-      surface: "workspace"
-    });
+      context: { resolve: (_request: unknown, user: unknown) => ({ ...catalogContext, actor: salesActor({ user }) }) },
+      surface: "workspace" as const
+    };
+    const adapter = createPayloadMcpPluginConfig(adapterOptions);
     const payloadMcpRequest = { ...payloadRequest, headers: new Headers({ "x-correlation-id": "mcp-sales-read" }) };
     const defaults = {
       user: { id: "user-1", collection: "users" },
@@ -388,10 +384,82 @@ describe("P2A.8 Sales tool proof", () => {
     expect(JSON.parse(mcpRead.content[0]!.text)).toMatchObject({ provenance: "k-nex-tool", trust: "structured-untrusted-content" });
     expect(mcpRead.content[0]!.text).not.toContain("seed-secret");
 
-    const foreignMcpRequest = { ...payloadMcpRequest, user: { id: "user-2", collection: "users" } };
-    const foreignAccess = await adapter.overrideAuth!(foreignMcpRequest as never, async () => defaults);
-    expect(Object.values(foreignAccess["payload-mcp-tool"] ?? {})).toEqual([false, false]);
-    const foreignRead = await readHandler!({ title: "Seed" }, foreignMcpRequest as never, undefined);
-    expect(JSON.parse(foreignRead.content[0]!.text)).toMatchObject({ code: "TOOL_NOT_FOUND" });
+    const applied = await createPayloadMcpPlugin(adapterOptions)({
+      secret: "mcp-sales-proof-secret",
+      collections: [],
+      globals: []
+    } as never);
+    const endpoint = applied.endpoints?.find(({ method, path }) => method === "post" && path === "/mcp");
+    expect(endpoint?.handler).toBeTypeOf("function");
+    const protocolConfig = {
+      ...applied,
+      admin: { ...applied.admin, timezones: { supportedTimezones: [] } },
+      collections: (applied.collections ?? []).map((collection) => ({
+        ...collection,
+        flattenedFields: [],
+        joins: {},
+        polymorphicJoins: []
+      }))
+    };
+
+    async function protocolCall(actorId: string, method: string, params: Record<string, unknown> = {}) {
+      const apiKeyDocument = {
+        user: { id: actorId, collection: "users" },
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        "payload-mcp-tool": {
+          kNexSalesToolsSearchTasksV1: true,
+          kNexSalesToolsCreateTaskV1: true
+        }
+      };
+      const protocolPayload = {
+        config: protocolConfig,
+        db: { defaultIDType: "number" },
+        secret: "mcp-sales-proof-secret",
+        logger: { info() {}, error() {} },
+        find: async (options: { collection?: string }) => options.collection === "payload-mcp-api-keys"
+          ? { docs: [apiKeyDocument] }
+          : { docs: tasks, page: 1, totalPages: 1, hasNextPage: false },
+        create: payloadRequest.payload.create
+      };
+      const response = await endpoint!.handler({
+        url: "http://localhost/api/mcp",
+        method: "POST",
+        headers: new Headers({
+          authorization: "Bearer protocol-proof-key",
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json"
+        }),
+        body: JSON.stringify({ jsonrpc: "2.0", id: `${actorId}-${method}`, method, params }),
+        payload: protocolPayload,
+        i18n: {}
+      } as never);
+      const text = await response.text();
+      const data = text.startsWith("{")
+        ? text
+        : text.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
+      if (data === undefined) throw new Error(`MCP protocol response was not JSON: ${text}`);
+      return JSON.parse(data) as { result?: { tools?: Array<{ name: string }>; content?: Array<{ text: string }>; isError?: boolean }; error?: unknown };
+    }
+
+    const listedForOwner = await protocolCall("user-1", "tools/list");
+    expect(listedForOwner.result?.tools?.map(({ name }) => name)).toEqual([
+      "k-nex-sales-tools-search-tasks-v1",
+      "k-nex-sales-tools-create-task-v1"
+    ]);
+    const calledForOwner = await protocolCall("user-1", "tools/call", {
+      name: "k-nex-sales-tools-search-tasks-v1",
+      arguments: { title: "Seed" }
+    });
+    expect(calledForOwner.result?.isError).toBeUndefined();
+    expect(JSON.parse(calledForOwner.result!.content![0]!.text)).toMatchObject({ provenance: "k-nex-tool" });
+
+    const listedForForeignActor = await protocolCall("user-2", "tools/list");
+    expect(listedForForeignActor.error).toBeDefined();
+    expect(listedForForeignActor.result?.tools).toBeUndefined();
+    const calledForForeignActor = await protocolCall("user-2", "tools/call", {
+      name: "k-nex-sales-tools-search-tasks-v1",
+      arguments: { title: "Seed" }
+    });
+    expect(calledForForeignActor.error).toBeDefined();
   });
 });

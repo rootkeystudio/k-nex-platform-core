@@ -5,6 +5,7 @@ import {
   SafeToolProblemSerializer,
   ToolExecutionGateway,
   ToolGatewayError,
+  type ToolSuccessEnvelope,
   type ToolGatewayRequest,
   type ToolGatewayStages
 } from "../src/tool-gateway.js";
@@ -171,6 +172,72 @@ describe("P2A.4 tool execution gateway", () => {
     finish?.();
     await Promise.resolve();
     expect(releaseCount).toBe(1);
+  });
+
+  it("reconciles a late success through validation, redaction, and idempotency completion", async () => {
+    const budgetAbort = new AbortController();
+    let finish: ((value: unknown) => void) | undefined;
+    let started: (() => void) | undefined;
+    const startedPromise = new Promise<void>((resolve) => { started = resolve; });
+    let completed: ToolSuccessEnvelope | undefined;
+    let completeLate: (() => void) | undefined;
+    const completedPromise = new Promise<void>((resolve) => { completeLate = resolve; });
+    const stages = harness({
+      budget: { evaluate: () => ({ context: {}, signal: budgetAbort.signal, release: () => undefined }) },
+      idempotency: {
+        claim: () => ({
+          context: {},
+          complete: (value: unknown) => { completed = value as ToolSuccessEnvelope; completeLate?.(); },
+          fail: () => undefined
+        })
+      },
+      dispatcher: {
+        dispatch: () => new Promise((resolve) => {
+          finish = resolve;
+          started?.();
+        })
+      },
+      output: { validate: (_tool, value) => ({ secret: (value as { secret: string }).secret }) },
+      redactor: { redact: (_context, value) => ({ safe: (value as { secret: string }).secret }) }
+    });
+    const pending = stages.gateway.execute(request());
+    await startedPromise;
+    budgetAbort.abort();
+    await expect(pending).resolves.toMatchObject({ ok: false, status: 504, body: { code: "TOOL_TIMEOUT" } });
+    finish?.({ secret: "late-value" });
+    await completedPromise;
+    expect(completed).toMatchObject({ data: { safe: "late-value" } });
+  });
+
+  it("settles a late handler failure without an unhandled rejection", async () => {
+    const budgetAbort = new AbortController();
+    let rejectLate: ((error: unknown) => void) | undefined;
+    let started: (() => void) | undefined;
+    const startedPromise = new Promise<void>((resolve) => { started = resolve; });
+    let failed = 0;
+    const stages = harness({
+      budget: { evaluate: () => ({ context: {}, signal: budgetAbort.signal, release: () => undefined }) },
+      idempotency: {
+        claim: () => ({
+          context: {},
+          complete: () => undefined,
+          fail: () => { failed += 1; }
+        })
+      },
+      dispatcher: {
+        dispatch: () => new Promise((_resolve, reject) => {
+          rejectLate = reject;
+          started?.();
+        })
+      }
+    });
+    const pending = stages.gateway.execute(request());
+    await startedPromise;
+    budgetAbort.abort();
+    await expect(pending).resolves.toMatchObject({ ok: false, status: 504, body: { code: "TOOL_TIMEOUT" } });
+    rejectLate?.(new Error("late failure"));
+    for (let attempt = 0; attempt < 10 && failed === 0; attempt += 1) await Promise.resolve();
+    expect(failed).toBe(1);
   });
 
   it("fails closed before dispatch when authoritative audit is unavailable", async () => {

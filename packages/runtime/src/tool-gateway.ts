@@ -46,7 +46,7 @@ export interface ToolIdempotencyClaim {
   readonly context: unknown;
   readonly replay?: unknown;
   complete(result: unknown): void | Promise<void>;
-  fail(): void | Promise<void>;
+  fail(options?: { readonly retain?: boolean }): void | Promise<void>;
 }
 
 export interface PrincipalAuthenticator {
@@ -260,14 +260,15 @@ export class ToolExecutionGateway {
       const approval = await this.stages.approval.evaluate(authorized.context);
       let context: ToolExecutionContext = Object.freeze({ ...authorized.context, approval });
       executionContext = context;
-      claim = await this.stages.idempotency.claim(context);
-      context = Object.freeze({ ...context, idempotency: claim.context });
+      const activeClaim = await this.stages.idempotency.claim(context);
+      claim = activeClaim;
+      context = Object.freeze({ ...context, idempotency: activeClaim.context });
       executionContext = context;
       if (context.signal.aborted || request.signal.aborted) {
         throw abortedError(request.signal);
       }
-      if (claim.replay !== undefined) {
-        const body = replayEnvelope(claim.replay, context.descriptor);
+      if (activeClaim.replay !== undefined) {
+        const body = replayEnvelope(activeClaim.replay, context.descriptor);
         await this.stages.audit.success(context, body);
         return { ok: true, status: 200, body };
       }
@@ -280,20 +281,44 @@ export class ToolExecutionGateway {
       const handlerLease = lease;
       lease = undefined;
       const handlerSettled = Promise.resolve(handlerResult).finally(() => handlerLease.release());
-      const dispatched = await dispatchWithSignal(handlerSettled, context.signal, request.signal);
-      const validated = this.stages.output.validate(context.descriptor, dispatched);
-      const data = await this.stages.redactor.redact(context, validated);
-      const body: ToolSuccessEnvelope = Object.freeze({
-        schemaVersion: 1,
-        correlationId: correlationId(request),
-        tool: Object.freeze({ id: context.descriptor.id, version: context.descriptor.version }),
-        provenance: "k-nex-tool",
-        trust: "structured-untrusted-content",
-        data
-      });
-      await claim.complete(body);
-      await this.stages.audit.success(context, body);
-      return { ok: true, status: 200, body };
+      const reconciliation = handlerSettled.then(
+        async (dispatched): Promise<{ readonly ok: true; readonly body: ToolSuccessEnvelope } | { readonly ok: false; readonly error: unknown }> => {
+          try {
+            const validated = this.stages.output.validate(context.descriptor, dispatched);
+            const data = await this.stages.redactor.redact(context, validated);
+            const body: ToolSuccessEnvelope = Object.freeze({
+              schemaVersion: 1,
+              correlationId: correlationId(request),
+              tool: Object.freeze({ id: context.descriptor.id, version: context.descriptor.version }),
+              provenance: "k-nex-tool",
+              trust: "structured-untrusted-content",
+              data
+            });
+            await activeClaim.complete(body);
+            await this.stages.audit.success(context, body);
+            return { ok: true, body };
+          } catch (error) {
+            try {
+              await activeClaim.fail({ retain: true });
+            } catch {
+              // A late idempotency transition cannot replace the safe outcome.
+            }
+            return { ok: false, error };
+          }
+        },
+        async (error): Promise<{ readonly ok: false; readonly error: unknown }> => {
+          try {
+            await activeClaim.fail({ retain: true });
+          } catch {
+            // A late idempotency transition cannot replace the safe outcome.
+          }
+          return { ok: false, error };
+        }
+      );
+      await dispatchWithSignal(handlerSettled, context.signal, request.signal);
+      const result = await reconciliation;
+      if (!result.ok) throw result.error;
+      return { ok: true, status: 200, body: result.body };
     } catch (cause) {
       const error = normalizedError(cause);
       try {

@@ -61,13 +61,6 @@ const focusedProofs = [
     attacks: ["direct-identity-input-manipulation"]
   },
   {
-    id: "delegation-subject",
-    packageName: "@k-nex/runtime",
-    file: "tests/tool-delegation.test.ts",
-    testName: "binds the exact subject/application and only reduces tool/effect scope",
-    attacks: ["cross-actor-isolation"]
-  },
-  {
     id: "registration-target",
     packageName: "@k-nex/runtime",
     file: "tests/tool-catalog.test.ts",
@@ -232,8 +225,9 @@ const focusedProofs = [
     id: "sales-mcp-security",
     packageName: "@k-nex/payload-adapter",
     file: "tests/mcp-sales-proof.test.ts",
-    testName: "runs one logical approved write, stable replay, conflict, audit, and the same read through MCP",
+    testName: "runs one logical approved write and enforces actor-filtered MCP list/call",
     attacks: [
+      "cross-actor-isolation",
       "forbidden-target",
       "duplicate-write-idempotency-conflict",
       "secret-log-error-redaction",

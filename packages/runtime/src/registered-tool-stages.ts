@@ -12,7 +12,7 @@ import {
   type ActionHandler,
   type ActionHandlerRequest
 } from "./action.js";
-import type { DataSourceHandler } from "./data-source-gateway.js";
+import { dataSourceToolCompatible, type DataSourceGatewayRequest, type DataSourceGatewayResponse } from "./data-source-gateway.js";
 import type { RegistrationResult } from "./registration-runtime.js";
 import {
   ToolGatewayError,
@@ -25,7 +25,7 @@ import {
 } from "./tool-gateway.js";
 
 export type RegisteredToolTarget =
-  | { readonly kind: "source"; readonly definition: DataSourceDefinition; readonly handler: DataSourceHandler }
+  | { readonly kind: "source"; readonly definition: DataSourceDefinition }
   | { readonly kind: "action"; readonly definition: ActionDefinition; readonly handler: ActionHandler };
 
 function invalid(code: string, message: string): never {
@@ -60,10 +60,10 @@ export class RegisteredToolTargetResolver {
     if (kind === "source") {
       const definition = contribution?.value as DataSourceDefinition | undefined;
       if (definition?.descriptor.id !== id || definition.descriptor.ownerPluginId !== descriptor.ownerPluginId ||
-        definition.descriptor.version !== version || typeof binding?.value !== "function") {
+        !dataSourceToolCompatible(descriptor, definition.descriptor) || typeof binding?.value !== "function") {
         throw new ToolGatewayError("TOOL_TARGET_FORBIDDEN", 403, "Tool target access is forbidden.");
       }
-      return { kind, definition, handler: binding.value as DataSourceHandler };
+      return { kind, definition };
     }
     const definition = contribution?.value as ActionDefinition | undefined;
     if (definition === undefined || definition.descriptor.id !== id || definition.descriptor.ownerPluginId !== descriptor.ownerPluginId ||
@@ -164,6 +164,40 @@ export class RegisteredToolAuthorization implements ToolAuthorizationEvaluator {
 
 export interface RegisteredToolSourceDispatcher {
   dispatch(context: ToolExecutionContext, target: Extract<RegisteredToolTarget, { kind: "source" }>): unknown | Promise<unknown>;
+}
+
+export type RegisteredToolSourceQuery = Pick<DataSourceGatewayRequest, "input" | "query" | "selectedFields">;
+
+export interface RegisteredToolDataSourceGateway {
+  query(request: DataSourceGatewayRequest): DataSourceGatewayResponse | Promise<DataSourceGatewayResponse>;
+}
+
+export interface RegisteredToolSourceQueryMapper {
+  map(
+    context: ToolExecutionContext,
+    target: Extract<RegisteredToolTarget, { kind: "source" }>
+  ): RegisteredToolSourceQuery;
+}
+
+export class RegisteredToolDataSourceDispatcher implements RegisteredToolSourceDispatcher {
+  constructor(
+    private readonly gateway: RegisteredToolDataSourceGateway,
+    private readonly mapper: RegisteredToolSourceQueryMapper
+  ) {}
+
+  async dispatch(context: ToolExecutionContext, target: Extract<RegisteredToolTarget, { kind: "source" }>): Promise<unknown> {
+    const query = this.mapper.map(context, target);
+    const response = await this.gateway.query({
+      correlationId: context.request.correlationId,
+      rawRequest: context.request.rawRequest,
+      sourceId: target.definition.descriptor.id,
+      surface: context.request.surface,
+      ...query,
+      signal: context.signal
+    });
+    if (!response.ok) throw new ToolGatewayError(response.body.code, response.status, "Data-source query failed.", response.body.detail);
+    return response.body.data;
+  }
 }
 
 export class RegisteredToolDispatcher implements SourceActionDispatcher {

@@ -99,7 +99,7 @@ interface IdempotencyEntry {
   readonly toolVersion: number;
   readonly idempotencyKey: string;
   readonly inputDigest: string;
-  state: "pending" | "completed";
+  state: "pending" | "completed" | "uncertain";
   expiresAt: number;
   result?: unknown;
 }
@@ -181,7 +181,7 @@ export class InMemoryToolIdempotencyCoordinator implements ToolIdempotencyCoordi
       if (existing.inputDigest !== digest) {
         throw new ToolIdempotencyConflictError();
       }
-      if (existing.state === "pending") throw new ToolIdempotencyInProgressError(existing.reference);
+      if (existing.state !== "completed") throw new ToolIdempotencyInProgressError(existing.reference);
       return replayClaim(existing);
     }
     if (this.entries.size >= this.maxRecords) {
@@ -220,17 +220,25 @@ export class InMemoryToolIdempotencyCoordinator implements ToolIdempotencyCoordi
         entry.state = "completed";
         entry.expiresAt = expiresAt;
       },
-      fail: (): void => {
+      fail: (options: { readonly retain?: boolean } | undefined): void => {
         if (settled) return;
         settled = true;
-        if (this.entries.get(storageKey) === entry && entry.state === "pending") this.entries.delete(storageKey);
+        if (this.entries.get(storageKey) !== entry || entry.state !== "pending") return;
+        if (options?.retain === true) {
+          const expiresAt = clockNow(this.clock) + this.retentionMs;
+          if (!Number.isSafeInteger(expiresAt)) idempotencyError("IDEMPOTENCY_CLOCK_INVALID", 500, "The idempotency clock is invalid.");
+          entry.state = "uncertain";
+          entry.expiresAt = expiresAt;
+          return;
+        }
+        this.entries.delete(storageKey);
       }
     });
   }
 
   private purge(now: number): void {
     for (const [key, entry] of this.entries) {
-      if (entry.state === "completed" && entry.expiresAt <= now) this.entries.delete(key);
+      if (entry.state !== "pending" && entry.expiresAt <= now) this.entries.delete(key);
     }
   }
 }

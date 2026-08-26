@@ -1,5 +1,16 @@
-import type { DataSourceDefinition, DataSourceDescriptor, DataSourceQueryControls, DataSourceSurface } from "@k-nex/contracts";
+import type {
+  AgentToolDescriptor,
+  DataSourceDefinition,
+  DataSourceDescriptor,
+  DataSourceQueryControls,
+  DataSourceSurface
+} from "@k-nex/contracts";
 import { MetricScalarSchema, TableRecordsSchema } from "@k-nex/contracts";
+
+export function dataSourceToolCompatible(tool: AgentToolDescriptor, source: DataSourceDescriptor): boolean {
+  if (tool.invocation.kind !== "source" || tool.invocation.source.version !== source.version) return false;
+  return tool.outputContract === undefined || tool.outputContract === `${source.primaryContract.id}@${source.primaryContract.version}`;
+}
 
 export interface DataSourceHandlerRequest {
   readonly actor: unknown;

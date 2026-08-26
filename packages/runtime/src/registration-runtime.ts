@@ -2,7 +2,7 @@ import type { AgentToolDescriptor, DataSourceDefinition, PluginManifest, Registr
 import { AgentToolDescriptorSchema, assertDataSourceDefinition, registrationPhases } from "@k-nex/contracts";
 import * as semver from "semver";
 import { actionToolCompatible, assertActionDefinition, type ActionDefinition, type ActionHandler } from "./action.js";
-import type { DataSourceHandler } from "./data-source-gateway.js";
+import { dataSourceToolCompatible, type DataSourceHandler } from "./data-source-gateway.js";
 
 import type { InstalledPluginManifest, ResolvedPluginGraph } from "@k-nex/composition";
 
@@ -436,7 +436,7 @@ export function executeRegistration(options: ExecuteRegistrationOptions): Regist
       const hasOwnedBinding = targetOwner === pluginId && bindings.get(targetKind)?.get(targetId)?.pluginId === pluginId;
       const compatible = descriptor.invocation.kind === "source"
         ? targetContribution !== undefined &&
-          (targetContribution as DataSourceDefinition).descriptor.version === descriptor.invocation.source.version
+          dataSourceToolCompatible(descriptor, (targetContribution as DataSourceDefinition).descriptor)
         : targetContribution !== undefined &&
           actionToolCompatible(descriptor, (targetContribution as ActionDefinition).descriptor);
       if (!hasOwnedBinding || !compatible) {
