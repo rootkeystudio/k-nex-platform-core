@@ -56,10 +56,12 @@ const gateway = socketIoRealtimeProvider.create({
     allowedTransports: ["websocket"],
     maxBufferedMessagesPerConnection: 8,
     maxConnections: 100,
+    maxPendingPublications: 1_000,
     maxRequestBytes: 16_384,
     maxSubscriptionRequestsPerMinute: 60,
     maxSubscriptionsPerConnection: 16,
-    revalidationIntervalMs: 60_000
+    revalidationIntervalMs: 60_000,
+    revalidationTimeoutMs: 1_000
   },
   authenticate: async ({ actor }) => actor === "owner-1" ? { id: actor, type: "user" } : null,
   isActorActive: async () => true

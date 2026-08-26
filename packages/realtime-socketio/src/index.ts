@@ -28,10 +28,12 @@ export interface SocketIoMemorySecurityOptions {
   readonly allowedTransports: readonly ("polling" | "websocket")[];
   readonly maxBufferedMessagesPerConnection: number;
   readonly maxConnections: number;
+  readonly maxPendingPublications: number;
   readonly maxRequestBytes: number;
   readonly maxSubscriptionRequestsPerMinute: number;
   readonly maxSubscriptionsPerConnection: number;
   readonly revalidationIntervalMs: number;
+  readonly revalidationTimeoutMs: number;
 }
 
 export interface SocketIoMemoryGatewayOptions {
@@ -49,11 +51,15 @@ export interface SocketIoMemoryGatewayHealth {
   readonly connectionDenied: number;
   readonly oversized: number;
   readonly pendingConnections: number;
+  readonly pendingPublications: number;
+  readonly publicationDenied: number;
   readonly published: number;
   readonly rateLimited: number;
   readonly slowConsumerDisconnects: number;
   readonly subscriptionDenied: number;
   readonly subscriptions: number;
+  readonly revalidationCoalesced: number;
+  readonly revalidationTimeouts: number;
 }
 
 export interface SocketIoMemoryGateway extends RealtimeGateway {
@@ -73,6 +79,7 @@ interface Session {
   readonly actor: RealtimeActor;
   mutation: Promise<void>;
   pendingAcknowledgements: number;
+  revalidation?: Promise<void>;
   readonly socket: Socket;
   readonly subscriptions: Map<string, Subscription>;
 }
@@ -101,10 +108,12 @@ function security(value: SocketIoMemorySecurityOptions): SocketIoMemorySecurityO
     allowedTransports: Object.freeze(transports),
     maxBufferedMessagesPerConnection: positiveInteger(value.maxBufferedMessagesPerConnection, "maxBufferedMessagesPerConnection", 10_000),
     maxConnections: positiveInteger(value.maxConnections, "maxConnections"),
+    maxPendingPublications: positiveInteger(value.maxPendingPublications, "maxPendingPublications", 100_000),
     maxRequestBytes: positiveInteger(value.maxRequestBytes, "maxRequestBytes", 1_000_000),
     maxSubscriptionRequestsPerMinute: positiveInteger(value.maxSubscriptionRequestsPerMinute, "maxSubscriptionRequestsPerMinute", 100_000),
     maxSubscriptionsPerConnection: positiveInteger(value.maxSubscriptionsPerConnection, "maxSubscriptionsPerConnection", 10_000),
-    revalidationIntervalMs: positiveInteger(value.revalidationIntervalMs, "revalidationIntervalMs", 3_600_000)
+    revalidationIntervalMs: positiveInteger(value.revalidationIntervalMs, "revalidationIntervalMs", 3_600_000),
+    revalidationTimeoutMs: positiveInteger(value.revalidationTimeoutMs, "revalidationTimeoutMs", 60_000)
   });
 }
 
@@ -143,10 +152,13 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
     coalesced: 0,
     connectionDenied: 0,
     oversized: 0,
+    publicationDenied: 0,
     published: 0,
     rateLimited: 0,
     slowConsumerDisconnects: 0,
-    subscriptionDenied: 0
+    subscriptionDenied: 0,
+    revalidationCoalesced: 0,
+    revalidationTimeouts: 0
   };
   let connections = 0;
   let connectionSlots = 0;
@@ -342,8 +354,12 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
 
   });
 
-  const revalidate = async (): Promise<void> => {
-    for (const session of [...sessions.values()]) {
+  const revalidateSession = (session: Session): Promise<void> => {
+    if (session.revalidation) {
+      counters.revalidationCoalesced += 1;
+      return session.revalidation;
+    }
+    const operation = (async (): Promise<void> => {
       let active = false;
       try {
         active = await options.isActorActive(session.actor);
@@ -353,7 +369,7 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
       if (!active) {
         counters.authenticationDenied += 1;
         session.socket.disconnect(true);
-        continue;
+        return;
       }
       session.mutation = session.mutation.then(async () => {
         for (const [roomId, subscription] of session.subscriptions) {
@@ -371,7 +387,35 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
         }
       });
       await session.mutation;
+    })().catch(() => undefined);
+    session.revalidation = operation;
+    void operation.finally(() => {
+      if (session.revalidation === operation) delete session.revalidation;
+    });
+    return operation;
+  };
+  const waitForRevalidation = (operation: Promise<void>): Promise<void> => new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      counters.revalidationTimeouts += 1;
+      resolve();
+    }, limits.revalidationTimeoutMs);
+    operation.finally(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+  let revalidation: Promise<void> | undefined;
+  const revalidate = (): Promise<void> => {
+    if (revalidation) {
+      counters.revalidationCoalesced += 1;
+      return revalidation;
     }
+    const operation = Promise.all([...sessions.values()].map((session) => waitForRevalidation(revalidateSession(session)))).then(() => undefined);
+    revalidation = operation;
+    void operation.finally(() => {
+      if (revalidation === operation) revalidation = undefined;
+    });
+    return operation;
   };
   const revalidationTimer = setInterval(() => { void revalidate(); }, limits.revalidationIntervalMs);
   revalidationTimer.unref();
@@ -398,6 +442,10 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
       }
       const roomId = room(topic.id, params);
       if (publications.has(roomId)) counters.coalesced += 1;
+      else if (publications.size >= limits.maxPendingPublications) {
+        counters.publicationDenied += 1;
+        throw new RangeError("Realtime pending publication limit exceeded.");
+      }
       publications.set(roomId, { room: roomId, message });
       if (!flushScheduled) {
         flushScheduled = true;
@@ -410,6 +458,7 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
         ...counters,
         connections,
         pendingConnections: Math.max(0, connectionSlots - connections),
+        pendingPublications: publications.size,
         subscriptions: [...sessions.values()].reduce((total, session) => total + session.subscriptions.size, 0)
       });
     },

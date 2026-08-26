@@ -35,10 +35,12 @@ const security = {
   allowedTransports: ["websocket"],
   maxBufferedMessagesPerConnection: 2,
   maxConnections: 10,
+  maxPendingPublications: 10,
   maxRequestBytes: 1_024,
   maxSubscriptionRequestsPerMinute: 20,
   maxSubscriptionsPerConnection: 2,
-  revalidationIntervalMs: 60_000
+  revalidationIntervalMs: 60_000,
+  revalidationTimeoutMs: 20
 } as const;
 
 function publication(revision: number) {
@@ -370,6 +372,20 @@ describe("Socket.IO memory realtime gateway", () => {
     expect(active.gateway.health()).toMatchObject({ oversized: 0, published: 1 });
   });
 
+  it("bounds distinct pending publications before the microtask flush", async () => {
+    const active = await harness("owner-1", { maxPendingPublications: 2 });
+    const publishing = [1, 2, 3].map((revision) => active.gateway.publish({
+      ...publication(revision),
+      channel: { topicId: "sales.tasks", params: { ownerId: `owner-${revision}` } }
+    }));
+    expect(active.gateway.health()).toMatchObject({ pendingPublications: 2, publicationDenied: 1 });
+    const outcomes = await Promise.allSettled(publishing);
+    expect(outcomes.filter(({ status }) => status === "fulfilled")).toHaveLength(2);
+    expect(outcomes.filter(({ status }) => status === "rejected")).toHaveLength(1);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(active.gateway.health()).toMatchObject({ pendingPublications: 0, publicationDenied: 1 });
+  });
+
   it("removes subscriptions when topic permission is revoked", async () => {
     const active = await harness();
     await active.client.emitWithAck("k-nex:subscribe", { topicId: "sales.tasks", params: { ownerId: "owner-1" } });
@@ -377,6 +393,48 @@ describe("Socket.IO memory realtime gateway", () => {
     await active.gateway.revalidate();
     expect(active.client.connected).toBe(true);
     expect(active.gateway.health()).toMatchObject({ subscriptions: 0, subscriptionDenied: 1 });
+  });
+
+  it("coalesces hanging revalidation per session without blocking peers or shutdown", async () => {
+    httpServer = createServer();
+    const checks = new Map<string, number>();
+    gateway = createSocketIoMemoryGateway({
+      httpServer,
+      topics: createRealtimeTopicRegistry([topic]),
+      security: { ...security, revalidationIntervalMs: 5, revalidationTimeoutMs: 10 },
+      authenticate: async ({ actor }) => typeof actor === "string" ? { id: actor, type: "user" } : null,
+      isActorActive: async ({ id }) => {
+        checks.set(id, (checks.get(id) ?? 0) + 1);
+        if (id === "stuck") await new Promise(() => undefined);
+        return false;
+      }
+    });
+    await new Promise((resolve) => httpServer?.listen(0, "127.0.0.1", resolve));
+    const port = (httpServer.address() as AddressInfo).port;
+    const open = (actor: string) => connect(`http://127.0.0.1:${port}`, {
+      auth: { actor }, transports: ["websocket"], extraHeaders: { origin: "https://app.example.test" }, reconnection: false
+    });
+    const stuck = open("stuck");
+    client = open("revoked");
+    await Promise.all([stuck, client].map((socket) => new Promise((resolve, reject) => {
+      socket.once("connect", resolve);
+      socket.once("connect_error", reject);
+    })));
+    const revoked = new Promise((resolve) => client?.once("disconnect", resolve));
+    await gateway.revalidate();
+    await revoked;
+    await new Promise((resolve) => setTimeout(resolve, 35));
+    expect(checks.get("stuck")).toBe(1);
+    expect(checks.get("revoked")).toBe(1);
+    expect(gateway.health().connections).toBe(1);
+    expect(gateway.health().revalidationCoalesced).toBeGreaterThanOrEqual(1);
+    expect(gateway.health().revalidationTimeouts).toBeGreaterThanOrEqual(1);
+    await expect(Promise.race([
+      gateway.close(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("close timed out")), 100))
+    ])).resolves.toBeUndefined();
+    gateway = undefined;
+    stuck.disconnect();
   });
 
   it("disconnects a slow consumer when its acknowledgement buffer is full", async () => {
