@@ -59,7 +59,7 @@ git diff --check
 git status --porcelain --untracked-files=all
 ```
 
-`pnpm gate:through-4` is the single required CI orchestration path. It runs Phase 0 shared build/tests once, the real customer PostgreSQL fixture once, every focused Gate 1–4 proof once, and the real Chromium accessibility journey, while preserving the historical gate commands for independent use. Contract-generation and Gate 1 static-artifact digests are recorded separately after exact-head and synthetic-merge verification so the two evidence domains cannot be conflated.
+`pnpm gate:through-4` is the single required CI orchestration path. It runs Phase 0 shared build/tests once, the real customer PostgreSQL fixture once, every focused Gate 1–4 proof once, and the real Chromium accessibility journey, while preserving the historical gate commands for independent use. Exact-head and synthetic-merge proofs agree in both evidence domains: contract generation is SHA-256 `154b991c02dfaf480dc96c95ef4d21bb50cca9403626db533032c736b8bb15e0`, while the Gate 1 static artifact set is SHA-256 `4b420ac0fbac80e5b9d9530e9be1a37de73db303a026faf8b391d129eed8e7f2`. They are intentionally reported separately.
 
 The first clean correction CI run additionally proved that TypeScript's incremental `dist/tsconfig.tsbuildinfo` cache is machine-specific and must not be distributed. The provider package allowlist now explicitly excludes that cache, the committed archive contains only runtime declarations, JavaScript, source maps, manifest, and package metadata, and the synchronized provider integrity is `sha512-1AcAhPuIPKRi2JCft6dJPiLcN9as1r69/FXvYcKHDy6l3yFslwALsb2uvPxa6+e5UTYazv0Nr2SyDVJYwaCugw==`.
 
