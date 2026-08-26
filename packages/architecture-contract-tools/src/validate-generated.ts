@@ -18,6 +18,13 @@ import addFormatsModule from "ajv-formats";
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 addFormatsModule.default(ajv);
+ajv.addKeyword({
+  keyword: "kNexMaxCanonicalBytes",
+  type: "object",
+  schemaType: "number",
+  errors: false,
+  validate: (maximum: number, data: unknown) => new TextEncoder().encode(canonicalJson(data)).byteLength <= maximum
+});
 
 const circular: { self?: unknown } = {};
 circular.self = circular;
@@ -148,6 +155,11 @@ const secretEvent = structuredClone(validEvent) as { payload: Record<string, unk
 secretEvent.payload = { nested: [{ "private-note": "must never enter an event" }] };
 if (DurableEventEnvelopeSchema.safeParse(secretEvent).success || validateEvent(secretEvent)) {
   throw new Error("Secret-bearing event payload must fail both Zod and generated JSON Schema validation.");
+}
+const oversizedEvent = structuredClone(validEvent) as { payload: Record<string, unknown> };
+oversizedEvent.payload = { data: "x".repeat(16_384) };
+if (DurableEventEnvelopeSchema.safeParse(oversizedEvent).success || validateEvent(oversizedEvent)) {
+  throw new Error("Oversized event payload must fail both Zod and generated JSON Schema validation.");
 }
 
 const validApplication = await load<Record<string, any>>("fixtures/customer-gate-1/k-nex.app.json");

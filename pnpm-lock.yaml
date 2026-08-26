@@ -1061,7 +1061,7 @@ packages:
       '@k-nex/contracts': 0.0.0
 
   '@k-nex/provider-realtime-socketio@file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz':
-    resolution: {integrity: sha512-GyJlWXNHEzo0tvmFrhjv2eokuLLI+iZhm8kccE1MNU6RbPOdmuolWCViowHKBmN0uR4KAvkFwaI4lVainxVfYw==, tarball: file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz}
+    resolution: {integrity: sha512-iBRgkVSWvgfZIS0MBxNZZo9MMwVZuVrMJxZPdKHtkihMrF7dRyGXq4jn19dmTUCbPn4TyCbPWWY5HRp2uMSRBw==, tarball: file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz}
     version: 1.0.0
 
   '@kwsites/file-exists@1.1.1':

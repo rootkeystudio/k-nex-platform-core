@@ -8,6 +8,7 @@ import {
   ApplicationManifestSchema,
   canonicalJson,
   DurableEventEnvelopeSchema,
+  EVENT_PAYLOAD_MAX_BYTES,
   MetricScalarSchema,
   PluginManifestSchema,
   TableRecordsSchema,
@@ -58,6 +59,7 @@ function eventJsonSchema(): unknown {
   const payloadDefinition = payloadReference.slice("#/$defs/".length);
   definitions[payloadDefinition] = {
     type: "object",
+    kNexMaxCanonicalBytes: EVENT_PAYLOAD_MAX_BYTES,
     propertyNames: { not: { pattern: secretFieldPattern() } },
     additionalProperties: { $ref: "#/$defs/__kNexEventPayloadDepth1" }
   };

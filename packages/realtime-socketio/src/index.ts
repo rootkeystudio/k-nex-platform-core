@@ -48,6 +48,7 @@ export interface SocketIoMemoryGatewayHealth {
   readonly connections: number;
   readonly connectionDenied: number;
   readonly oversized: number;
+  readonly pendingConnections: number;
   readonly published: number;
   readonly rateLimited: number;
   readonly slowConsumerDisconnects: number;
@@ -155,6 +156,7 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
     subscriptionDenied: 0
   };
   let connections = 0;
+  let connectionSlots = 0;
   let flushScheduled = false;
   const sessions = new Map<string, Session>();
   const publications = new Map<string, Publication>();
@@ -168,6 +170,13 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
   });
 
   io.use(async (socket, next) => {
+    if (connectionSlots >= limits.maxConnections) {
+      counters.connectionDenied += 1;
+      next(new Error("CONNECTION_LIMIT_EXCEEDED"));
+      return;
+    }
+    connectionSlots += 1;
+    let slotRetained = false;
     try {
       const authenticatedActor = actor(await withTimeout(
         Promise.resolve().then(() => options.authenticate(Object.freeze({ ...socket.handshake.auth }))),
@@ -175,10 +184,14 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
       ));
       if (!authenticatedActor) throw new Error("Realtime authentication failed.");
       socket.data["kNexActor"] = authenticatedActor;
+      socket.data["kNexConnectionSlot"] = true;
+      slotRetained = true;
       next();
     } catch {
       counters.authenticationDenied += 1;
       next(new Error("AUTHENTICATION_REQUIRED"));
+    } finally {
+      if (!slotRetained) connectionSlots = Math.max(0, connectionSlots - 1);
     }
   });
 
@@ -211,13 +224,12 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
     connections += 1;
     socket.once("disconnect", () => {
       connections = Math.max(0, connections - 1);
+      if (socket.data["kNexConnectionSlot"] === true) {
+        socket.data["kNexConnectionSlot"] = false;
+        connectionSlots = Math.max(0, connectionSlots - 1);
+      }
       sessions.delete(socket.id);
     });
-    if (connections > limits.maxConnections) {
-      counters.connectionDenied += 1;
-      socket.disconnect(true);
-      return;
-    }
     const authenticatedActor = socket.data["kNexActor"] as RealtimeActor;
     const session: Session = {
       actor: authenticatedActor,
@@ -383,6 +395,7 @@ export function createSocketIoMemoryGateway(options: SocketIoMemoryGatewayOption
       return Object.freeze({
         ...counters,
         connections,
+        pendingConnections: Math.max(0, connectionSlots - connections),
         subscriptions: [...sessions.values()].reduce((total, session) => total + session.subscriptions.size, 0)
       });
     },

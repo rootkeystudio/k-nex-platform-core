@@ -229,6 +229,44 @@ describe("Socket.IO memory realtime gateway", () => {
     expect(active.gateway.health()).toMatchObject({ connections: 1, connectionDenied: 1, subscriptions: 1, subscriptionDenied: 1 });
   });
 
+  it("bounds pending authentication work before invoking the authenticator", async () => {
+    httpServer = createServer();
+    let authenticateCalls = 0;
+    let releaseAuthentication = () => undefined;
+    const barrier = new Promise<void>((resolve) => { releaseAuthentication = resolve; });
+    gateway = createSocketIoMemoryGateway({
+      httpServer,
+      topics: createRealtimeTopicRegistry([topic, revenueTopic]),
+      security: { ...security, authenticationTimeoutMs: 1_000, maxConnections: 1 },
+      authenticate: async ({ actor }) => {
+        authenticateCalls += 1;
+        await barrier;
+        return typeof actor === "string" ? { id: actor, type: "user" } : null;
+      },
+      isActorActive: async () => true
+    });
+    await new Promise((resolve) => httpServer?.listen(0, "127.0.0.1", resolve));
+    const port = (httpServer.address() as AddressInfo).port;
+    const clients = Array.from({ length: 5 }, () => connect(`http://127.0.0.1:${port}`, {
+      auth: { actor: "owner-1" },
+      transports: ["websocket"],
+      extraHeaders: { origin: "https://app.example.test" },
+      reconnection: false
+    }));
+    const outcomes = clients.map((pendingClient) => new Promise<"connected" | "denied">((resolve) => {
+      pendingClient.once("connect", () => resolve("connected"));
+      pendingClient.once("connect_error", () => resolve("denied"));
+    }));
+    await expect.poll(() => gateway?.health()).toMatchObject({ connectionDenied: 4, connections: 0, pendingConnections: 1 });
+    expect(authenticateCalls).toBe(1);
+    releaseAuthentication();
+    const results = await Promise.all(outcomes);
+    expect(results.filter((result) => result === "connected")).toHaveLength(1);
+    client = clients[results.indexOf("connected")];
+    clients.forEach((pendingClient, index) => { if (index !== results.indexOf("connected")) pendingClient.disconnect(); });
+    expect(gateway.health()).toMatchObject({ connections: 1, pendingConnections: 0 });
+  });
+
   it("serializes concurrent subscription mutations before enforcing the per-connection limit", async () => {
     const active = await harness("owner-1", { maxSubscriptionsPerConnection: 1 });
     const results = await Promise.all([
