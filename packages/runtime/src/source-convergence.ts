@@ -1,0 +1,121 @@
+export const sourceFreshnessIntervalsMs = Object.freeze({
+  live: 15_000,
+  standard: 60_000,
+  background: 300_000
+});
+
+export type SourceFreshnessClass = keyof typeof sourceFreshnessIntervalsMs;
+export type SourceConvergenceReason = "initial" | "invalidation" | "reconnect" | "focus" | "periodic";
+
+export interface AuthoritativeSourceSnapshot<T> {
+  readonly data: T;
+  readonly revision: number;
+}
+
+export interface SourceConvergenceState<T> {
+  readonly data: T | null;
+  readonly lastValidatedAt: number | null;
+  readonly revision: number | null;
+  readonly status: "error" | "forbidden" | "idle" | "ready" | "stale";
+}
+
+export interface SourceConvergenceDependencies<T> {
+  authorize(): boolean | Promise<boolean>;
+  fetch(reason: SourceConvergenceReason): Promise<AuthoritativeSourceSnapshot<T>>;
+  readonly freshness: SourceFreshnessClass;
+  readonly surface: "workspace" | "other";
+  now?(): number;
+}
+
+function revision(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 0) throw new RangeError("Source revision must be a nonnegative safe integer.");
+  return value;
+}
+
+export class SourceConvergenceController<T> {
+  private readonly clock: () => number;
+  private stateValue: SourceConvergenceState<T> = Object.freeze({ data: null, lastValidatedAt: null, revision: null, status: "idle" });
+  private refreshPromise: Promise<SourceConvergenceState<T>> | undefined;
+  private minimumRevision = 0;
+
+  constructor(private readonly dependencies: SourceConvergenceDependencies<T>) {
+    this.clock = dependencies.now ?? Date.now;
+    if (!(dependencies.freshness in sourceFreshnessIntervalsMs)) throw new TypeError("Unknown source freshness class.");
+  }
+
+  get state(): SourceConvergenceState<T> {
+    return this.stateValue;
+  }
+
+  initialize(): Promise<SourceConvergenceState<T>> {
+    return this.refresh("initial");
+  }
+
+  async handleInvalidation(nextRevision: number): Promise<SourceConvergenceState<T>> {
+    const parsed = revision(nextRevision);
+    if (this.stateValue.revision !== null && parsed <= this.stateValue.revision) return this.stateValue;
+    this.minimumRevision = Math.max(this.minimumRevision, parsed);
+    this.stateValue = Object.freeze({ ...this.stateValue, status: "stale" });
+    return this.refresh("invalidation");
+  }
+
+  handleReconnect(): Promise<SourceConvergenceState<T>> {
+    this.stateValue = Object.freeze({ ...this.stateValue, status: "stale" });
+    return this.refresh("reconnect");
+  }
+
+  handleWindowFocus(): Promise<SourceConvergenceState<T>> {
+    if (this.dependencies.surface !== "workspace" || this.age() < sourceFreshnessIntervalsMs.live) return Promise.resolve(this.stateValue);
+    return this.refresh("focus");
+  }
+
+  handlePeriodicTick(): Promise<SourceConvergenceState<T>> {
+    if (this.age() < sourceFreshnessIntervalsMs[this.dependencies.freshness]) return Promise.resolve(this.stateValue);
+    return this.refresh("periodic");
+  }
+
+  private age(): number {
+    return this.stateValue.lastValidatedAt === null ? Number.POSITIVE_INFINITY : Math.max(0, this.clock() - this.stateValue.lastValidatedAt);
+  }
+
+  private refresh(reason: SourceConvergenceReason): Promise<SourceConvergenceState<T>> {
+    if (this.refreshPromise) return this.refreshPromise;
+    this.refreshPromise = this.runRefresh(reason).finally(() => { this.refreshPromise = undefined; });
+    return this.refreshPromise;
+  }
+
+  private async runRefresh(reason: SourceConvergenceReason): Promise<SourceConvergenceState<T>> {
+    let authorized: boolean;
+    try {
+      authorized = await this.dependencies.authorize();
+    } catch {
+      this.stateValue = Object.freeze({ data: null, lastValidatedAt: this.clock(), revision: null, status: "error" });
+      return this.stateValue;
+    }
+    if (!authorized) {
+      this.minimumRevision = 0;
+      this.stateValue = Object.freeze({ data: null, lastValidatedAt: this.clock(), revision: null, status: "forbidden" });
+      return this.stateValue;
+    }
+    try {
+      const snapshot = await this.dependencies.fetch(reason);
+      const snapshotRevision = revision(snapshot.revision);
+      if (this.stateValue.revision !== null && snapshotRevision < this.stateValue.revision) {
+        this.stateValue = Object.freeze({ ...this.stateValue, status: "error" });
+        return this.stateValue;
+      }
+      const status = snapshotRevision < this.minimumRevision ? "stale" : "ready";
+      if (status === "ready") this.minimumRevision = 0;
+      this.stateValue = Object.freeze({
+        data: snapshot.data,
+        lastValidatedAt: this.clock(),
+        revision: snapshotRevision,
+        status
+      });
+      return this.stateValue;
+    } catch {
+      this.stateValue = Object.freeze({ ...this.stateValue, status: "error" });
+      return this.stateValue;
+    }
+  }
+}
