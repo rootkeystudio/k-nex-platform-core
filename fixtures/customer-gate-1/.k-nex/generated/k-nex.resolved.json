@@ -67,7 +67,7 @@
         "names": []
       },
       "id": "provider.realtime.socketio",
-      "integrity": "sha512-F477UnmN8NGwwjZPsXMWowFMr50h8yqOcKko3RY1JWTAlbfu0j6BtPIBmoyUXOENMl0ZGZh7a/XlhdllWBejeQ==",
+      "integrity": "sha512-1AcAhPuIPKRi2JCft6dJPiLcN9as1r69/FXvYcKHDy6l3yFslwALsb2uvPxa6+e5UTYazv0Nr2SyDVJYwaCugw==",
       "kind": "provider",
       "lifecycle": {
         "disable": "supported",

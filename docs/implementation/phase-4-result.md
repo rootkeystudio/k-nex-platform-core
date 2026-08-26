@@ -66,6 +66,8 @@ git status --porcelain --untracked-files=all
 
 `pnpm gate:4` chains the Gate 2A and Gate 3 prerequisites, including the real customer PostgreSQL fixture, package/bundle boundary checks, and the real Chromium accessibility journey. The required workflow now runs only Phase 0 and this non-duplicated Gate 4 chain. Contract generation is reproducible at SHA-256 `a2f97ad2c8433e1ffec46644310abea11fb02b1ac8edef3bb3820a8afdda91a2`.
 
+The first clean correction CI run additionally proved that TypeScript's incremental `dist/tsconfig.tsbuildinfo` cache is machine-specific and must not be distributed. The provider package allowlist now explicitly excludes that cache, the committed archive contains only runtime declarations, JavaScript, source maps, manifest, and package metadata, and the synchronized provider integrity is `sha512-1AcAhPuIPKRi2JCft6dJPiLcN9as1r69/FXvYcKHDy6l3yFslwALsb2uvPxa6+e5UTYazv0Nr2SyDVJYwaCugw==`.
+
 ## Explicitly not proved
 
 - This is the deliberately minimal kill-spike, not a broad CMS or workspace component catalog.
@@ -79,4 +81,4 @@ No Gate 4 kill criterion fired. Lossless round-trip, fixed-shell policy, public/
 
 ## Whole-phase review
 
-Independent reviews were run over the complete Phase 4 diff after each correction cycle. The designated project-manager review anchored to `54ad518` then identified cross-phase CI, event, outbox, realtime, immutable-authority, result-envelope, and unsupported-contract blockers. This correction series addresses every listed blocker, regenerates the provider archive and schemas, updates the lock integrity, and leaves PR #17 open for the required green check and review confirmation.
+Independent reviews were run over the complete Phase 4 diff after each correction cycle. The designated project-manager review anchored to `54ad518` then identified cross-phase CI, event, outbox, realtime, immutable-authority, result-envelope, and unsupported-contract blockers. This correction series addresses every listed blocker, regenerates the provider archive and schemas, updates the lock integrity, removes the clean-machine package-cache variance discovered by CI, and leaves PR #17 open for the required green check and review confirmation.

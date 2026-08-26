@@ -6,6 +6,7 @@
   "sideEffects": false,
   "files": [
     "dist",
+    "!dist/tsconfig.tsbuildinfo",
     "k-nex.plugin.json"
   ],
   "exports": {
