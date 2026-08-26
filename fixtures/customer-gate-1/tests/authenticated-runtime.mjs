@@ -78,13 +78,19 @@ assert.deepEqual(inventory.plugins, [{
   package: "@k-nex/module-sales",
   version: "1.0.0",
   integrity: inventory.plugins[0].integrity,
-  expectedContributions: { schema: ["sales.tasks.collection"] },
-  actualContributions: { schema: ["sales.tasks.collection"] }
+  expectedContributions: {
+    schema: ["sales.tasks.collection"],
+    dataSources: ["sales.tasks", "sales.total-potential-revenue"]
+  },
+  actualContributions: {
+    schema: ["sales.tasks.collection"],
+    dataSources: ["sales.tasks", "sales.total-potential-revenue"]
+  }
 }]);
 assert.deepEqual(inventory.migrationRevision, {
-  migrationName: "20260826_000001_gate1",
-  predecessor: 0,
-  current: 1
+  migrationName: "20260826_000002_sales_sources",
+  predecessor: 1,
+  current: 2
 });
 const serializedInventory = JSON.stringify(inventory);
 for (const forbidden of [process.env.DATABASE_URL, process.env.PAYLOAD_SECRET, login.token, password, "gate1@example.test"]) {

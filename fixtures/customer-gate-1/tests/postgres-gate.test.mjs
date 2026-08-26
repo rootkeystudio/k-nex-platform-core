@@ -63,14 +63,16 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
       select
         to_regclass('public.sales_tasks')::text as sales_tasks,
         (select count(*)::int from payload_migrations where name = '20260826_000001_gate1') as migration_count,
+        (select count(*)::int from payload_migrations where name = '20260826_000002_sales_sources') as sales_migration_count,
         (select predecessor_revision from k_nex_migration_revision where id = 1) as predecessor_revision,
         (select revision from k_nex_migration_revision where id = 1) as revision
     `);
     assert.deepEqual(migrated.rows, [{
       sales_tasks: "sales_tasks",
       migration_count: 1,
-      predecessor_revision: 0,
-      revision: 1
+      sales_migration_count: 1,
+      predecessor_revision: 1,
+      revision: 2
     }]);
 
     const currentBoot = await runFixtureProcess("tests/boot-once.mjs", connectionString, {
@@ -79,7 +81,7 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
     assert.equal(currentBoot.code, 0, `${currentBoot.stdout}\n${currentBoot.stderr}`);
     assert.match(currentBoot.stdout, /^READY$/m);
     const current = await query(connectionString, "select count(*)::int as count from payload_migrations");
-    assert.equal(current.rows[0].count, 1);
+    assert.equal(current.rows[0].count, 2);
 
     const authenticated = await runFixtureProcess("tests/authenticated-runtime.mjs", connectionString, {
       BOOT_KEY: "gate1-authenticated-runtime"

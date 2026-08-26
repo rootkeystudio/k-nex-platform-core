@@ -146,7 +146,8 @@ async function makeApplication(fixtures: PackageFixture[]): Promise<ApplicationF
     const requestedVersion = fixture.requestedVersion ?? installedVersion;
     const lockResolvedVersion = fixture.lockResolvedVersion ?? (fixture.fileTarball ? `file:fixtures/app/packages/${fixture.name.split("/").at(-1)}.tgz` : requestedVersion);
     const lockIntegrity = fixture.lockIntegrity === undefined ? integrity : fixture.lockIntegrity;
-    lockLines.push(`  ${yamlQuote(`${fixture.name}@${lockResolvedVersion}`)}:`, "    resolution:");
+    const packageVersion = fixture.fileTarball ? lockResolvedVersion.replace(/\(.*\)$/, "") : lockResolvedVersion;
+    lockLines.push(`  ${yamlQuote(`${fixture.name}@${packageVersion}`)}:`, "    resolution:");
     if (lockIntegrity !== null) lockLines.push(`      integrity: ${yamlQuote(lockIntegrity)}`);
   }
   await writeFile(lockfilePath, `${lockLines.join("\n")}\n`);
@@ -303,6 +304,17 @@ describe("installed plugin manifest loader", () => {
       const result = loadInstalledPluginManifests(input(fixture));
       expect(result).toHaveLength(1);
       expect(result[0]?.package).toEqual({ name: "@k-nex/plugin-alpha", version: "1.0.0", integrity });
+    });
+  });
+
+  it("accepts pnpm peer-qualified file tarball resolutions", async () => {
+    await withApplication([{
+      name: "@k-nex/plugin-alpha",
+      fileTarball: true,
+      lockResolvedVersion: "file:fixtures/app/packages/plugin-alpha.tgz(@k-nex/contracts@0.0.0)"
+    }], async (fixture) => {
+      const result = loadInstalledPluginManifests(input(fixture));
+      expect(result[0]?.package.integrity).toBe(integrity);
     });
   });
 
