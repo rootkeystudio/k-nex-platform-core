@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-26
 - **Phase:** Phase 2A — Agent Tool Contracts and Safe Execution
-- **Active task:** P2A.4 — Staged tool execution gateway
+- **Active task:** P2A.5 — Delegation, approval, and replay protection
 - **State:** Ready to implement
 
 ## Last completed
 
-Implemented the minimal registered-action boundary: bounded serializable descriptors, executable input/output schema definitions, typed trusted server handlers, and exact same-plugin tool bindings. Action-backed tools must match the target version, input/output representation, permission, effect, and idempotency contract; dry-run claims cannot exceed action support. Source tools remain bound to one exact registered Phase 2 source version.
+Implemented the ordered tool execution gateway as injected runtime ports: principal and agent-client authentication, delegation, exact catalog lookup, input validation, reauthorization, risk budget, approval, idempotency, source/action dispatch, output validation, redaction, audit, and safe problem serialization. Execute returns a stable provenance-labelled envelope; prepare and approval submission re-run the authority pipeline without exposing or invoking handlers.
 
 ## Validation
 
-Focused builds and suites pass: 74 contracts tests and 76 runtime tests. The generated action schema compiles under strict Ajv, valid/invalid action fixtures agree with the authoring schema, generated artifacts are current, and repository contracts validate.
+The full workspace build passes, along with 81 runtime tests covering exact stage order, denial short-circuiting, safe error normalization, approval preparation/submission, replay results, handler isolation, and lease release.
 
 ## Next
 
-Implement P2A.4: the ordered authenticated tool execution gateway, delegating only through the registered source/action paths.
+Implement P2A.5: concrete delegation, approval, and replay-protection policies bound to exact principals, clients, sessions, tool versions, and normalized inputs.
 
 ## Blockers
 
