@@ -3,6 +3,7 @@ import * as z from "zod";
 import { supportedFrameworkTuple } from "./framework-tuple.js";
 import { CapabilityIdSchema, ExactSemverSchema, PluginIdSchema } from "./identity.js";
 import { OpenObjectSchema, uniqueArray } from "./schema-helpers.js";
+import { RealtimeProcessTopologySchema } from "./realtime-topology.js";
 
 export const PluginRequestSchema = z.strictObject({
   id: PluginIdSchema,
@@ -33,7 +34,8 @@ export const ApplicationManifestSchema = z.strictObject({
     node: z.literal(supportedFrameworkTuple.node),
     packageManager: z.literal("pnpm"),
     packageManagerVersion: z.literal(supportedFrameworkTuple.pnpm),
-    deploymentMode: z.enum(["container", "platform-native"])
+    deploymentMode: z.enum(["container", "platform-native"]),
+    realtime: RealtimeProcessTopologySchema.optional()
   }),
   framework: z.strictObject({
     payload: z.strictObject({

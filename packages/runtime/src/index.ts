@@ -14,3 +14,4 @@ export * from "./data-source-cache.js";
 export * from "./data-source-gateway.js";
 export * from "./registered-tool-stages.js";
 export * from "./realtime.js";
+export * from "./realtime-topology.js";
