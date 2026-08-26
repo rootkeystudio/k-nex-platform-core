@@ -1,7 +1,7 @@
 import { Children, isValidElement, type ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { AccessiblePuckControls, createKeyboardReorderAction } from "../src/accessibility.js";
+import { AccessiblePuckControls, createKeyboardReorderActions } from "../src/accessibility.js";
 
 const content = [
   { type: "content.text__v1", props: { id: "alpha" } },
@@ -12,7 +12,7 @@ function controls(dispatch = vi.fn()) {
   return {
     dispatch,
     element: AccessiblePuckControls({
-      state: { data: { root: { props: {} }, content }, ui: { itemSelector: { index: 1, zone: "root" } } } as never,
+      state: { data: { root: { props: {} }, content }, ui: { itemSelector: { index: 1 } } } as never,
       dispatch
     })
   };
@@ -30,7 +30,7 @@ describe("accessible Puck operation", () => {
     expect(select.type).toBe("select");
     expect(select.props.style).toMatchObject({ minWidth: 44, minHeight: 44, outlineOffset: 2 });
     select.props.onChange({ currentTarget: { value: "0" } });
-    expect(dispatch).toHaveBeenCalledWith({ type: "setUi", ui: { itemSelector: { index: 0, zone: "root" } } });
+    expect(dispatch).toHaveBeenCalledWith({ type: "setUi", ui: { itemSelector: { index: 0 } } });
   });
 
   it("provides named native buttons as a non-drag reorder alternative", () => {
@@ -43,13 +43,8 @@ describe("accessible Puck operation", () => {
     expect(buttons[0].props.disabled).toBe(false);
     expect(buttons[1].props.disabled).toBe(true);
     buttons[0].props.onClick();
-    expect(dispatch).toHaveBeenCalledWith({
-      type: "reorder",
-      sourceIndex: 1,
-      destinationIndex: 0,
-      destinationZone: "root",
-      recordHistory: true
-    });
+    expect(dispatch).toHaveBeenNthCalledWith(1, { type: "setData", data: { content: [content[1], content[0]] }, recordHistory: true });
+    expect(dispatch).toHaveBeenNthCalledWith(2, { type: "setUi", ui: { itemSelector: { index: 0 } } });
   });
 
   it("exposes selected position through a polite status and bounds reorder actions", () => {
@@ -57,7 +52,7 @@ describe("accessible Puck operation", () => {
     const status = Children.toArray(element.props.children).at(-1) as ReactElement;
     expect(status.props).toMatchObject({ role: "status", "aria-live": "polite" });
     expect(status.props.children).toBe("content.text__v1 2, position 2 of 2");
-    expect(createKeyboardReorderAction({ index: 0, zone: "root", count: 2, direction: "earlier" })).toBeUndefined();
-    expect(createKeyboardReorderAction({ index: 0, zone: "root", count: 2, direction: "later" })).toMatchObject({ destinationIndex: 1 });
+    expect(createKeyboardReorderActions({ content, index: 0, direction: "earlier" })).toBeUndefined();
+    expect(createKeyboardReorderActions({ content, index: 0, direction: "later" })?.[0]).toMatchObject({ type: "setData" });
   });
 });

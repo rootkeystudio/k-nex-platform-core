@@ -13,21 +13,21 @@ export interface AccessiblePuckControlsProps {
   readonly dispatch: (action: PuckAction) => void;
 }
 
-export function createKeyboardReorderAction(input: {
+export function createKeyboardReorderActions(input: {
+  readonly content: readonly ComponentData[];
   readonly index: number;
-  readonly zone: string;
-  readonly count: number;
   readonly direction: "earlier" | "later";
-}): PuckAction | undefined {
+}): readonly PuckAction[] | undefined {
   const destinationIndex = input.index + (input.direction === "earlier" ? -1 : 1);
-  if (input.index < 0 || input.index >= input.count || destinationIndex < 0 || destinationIndex >= input.count) return undefined;
-  return {
-    type: "reorder",
-    sourceIndex: input.index,
-    destinationIndex,
-    destinationZone: input.zone,
-    recordHistory: true
-  };
+  if (input.index < 0 || input.index >= input.content.length || destinationIndex < 0 || destinationIndex >= input.content.length) return undefined;
+  const content = [...input.content];
+  const [selected] = content.splice(input.index, 1);
+  if (selected === undefined) return undefined;
+  content.splice(destinationIndex, 0, selected);
+  return [
+    { type: "setData", data: { content }, recordHistory: true },
+    { type: "setUi", ui: { itemSelector: { index: destinationIndex } } }
+  ];
 }
 
 function blockName(block: ComponentData, index: number): string {
@@ -38,11 +38,11 @@ function blockName(block: ComponentData, index: number): string {
 export function AccessiblePuckControls({ state, dispatch }: AccessiblePuckControlsProps): ReactElement {
   const content = state.data.content;
   const selector = state.ui.itemSelector;
-  const selectedIndex = selector?.zone === "root" ? selector.index : -1;
+  const selectedIndex = selector !== null && (selector?.zone === undefined || selector.zone === "root:default-zone") ? selector.index : -1;
   const selected = content[selectedIndex];
   const move = (direction: "earlier" | "later") => {
-    const action = createKeyboardReorderAction({ index: selectedIndex, zone: "root", count: content.length, direction });
-    if (action !== undefined) dispatch(action);
+    const actions = createKeyboardReorderActions({ content, index: selectedIndex, direction });
+    if (actions !== undefined) for (const action of actions) dispatch(action);
   };
 
   return createElement("section", { "aria-label": "Canvas block keyboard controls", "data-k-nex-accessible-builder-controls": true }, [
@@ -54,8 +54,9 @@ export function AccessiblePuckControls({ state, dispatch }: AccessiblePuckContro
         value: selectedIndex < 0 ? "" : String(selectedIndex),
         style: controlStyle,
         onChange: (event: { currentTarget: { value: string } }) => {
-          const index = Number(event.currentTarget.value);
-          dispatch({ type: "setUi", ui: { itemSelector: Number.isSafeInteger(index) ? { index, zone: "root" } : null } });
+          const value = event.currentTarget.value;
+          const index = Number(value);
+          dispatch({ type: "setUi", ui: { itemSelector: value !== "" && Number.isSafeInteger(index) ? { index } : null } });
         }
       }, [
         createElement("option", { key: "none", value: "" }, "Choose a block"),
@@ -66,7 +67,7 @@ export function AccessiblePuckControls({ state, dispatch }: AccessiblePuckContro
       key: "earlier",
       type: "button",
       "aria-label": selected === undefined ? "Move selected block earlier" : `Move ${blockName(selected, selectedIndex)} earlier`,
-      disabled: createKeyboardReorderAction({ index: selectedIndex, zone: "root", count: content.length, direction: "earlier" }) === undefined,
+      disabled: createKeyboardReorderActions({ content, index: selectedIndex, direction: "earlier" }) === undefined,
       style: controlStyle,
       onClick: () => move("earlier")
     }, "Move earlier"),
@@ -74,7 +75,7 @@ export function AccessiblePuckControls({ state, dispatch }: AccessiblePuckContro
       key: "later",
       type: "button",
       "aria-label": selected === undefined ? "Move selected block later" : `Move ${blockName(selected, selectedIndex)} later`,
-      disabled: createKeyboardReorderAction({ index: selectedIndex, zone: "root", count: content.length, direction: "later" }) === undefined,
+      disabled: createKeyboardReorderActions({ content, index: selectedIndex, direction: "later" }) === undefined,
       style: controlStyle,
       onClick: () => move("later")
     }, "Move later"),

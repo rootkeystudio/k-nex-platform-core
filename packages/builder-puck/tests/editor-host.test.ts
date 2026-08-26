@@ -5,13 +5,14 @@ import { createPuckBuilderAdapter, type PuckBlockBridge } from "../src/index.js"
 import { PuckEditorHost } from "../src/editor.js";
 
 const bridge: PuckBlockBridge = {
-  id: "content.text",
-  version: 1,
+  definition: {
+    id: "content.text", version: 1, profiles: ["cms", "workspace"], surfaces: ["cms", "public", "workspace"], audience: "public",
+    propsSchema: { safeParse: (value: unknown) => ({ success: true as const, data: value }) }, render: ({ props }) => props
+  },
   label: "Text",
   fields: [{ prop: "text", label: "Text", kind: "text" }],
   allowChildren: false,
-  defaultProps: { text: "" },
-  render: ({ props }) => props.text
+  defaultProps: { text: "" }
 };
 const document = {
   id: "cms.home",

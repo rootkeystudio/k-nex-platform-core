@@ -11,6 +11,7 @@ if (process.versions.node !== "24.19.0") {
 
 const proofs = [
   ["canonical-round-trip", "@k-nex/builder-puck", "tests/adapter.test.ts", "round-trips canonical documents without semantic loss"],
+  ["shared-renderer", "@k-nex/builder-puck", "tests/adapter.test.ts", "uses the exact browser-safe runtime definition inside and outside Puck"],
   ["fixed-shell", "@k-nex/builder-puck", "tests/fixed-shell-host.test.ts", "keeps security and platform regions outside the editor canvas"],
   ["profile-authority", "@k-nex/builder-puck", "tests/profile.test.ts", "uses one engine with distinct palettes and authority allowlists"],
   ["static-public-block", "@k-nex/ui-runtime", "tests/spike-blocks.test.ts", "renders one shared static block on the public CMS surface"],
@@ -57,6 +58,7 @@ function runProof([id, packageName, file, testName]) {
 console.log(JSON.stringify({
   gate: "Gate 4",
   boundaryProof: "@k-nex/builder-puck scripts/check-boundaries.mjs",
+  browserProof: "@k-nex/builder-puck scripts/browser-accessibility.mjs",
   focusedProofs: proofs.map(runProof)
 }, null, 2));
 console.log("GATE_4_PASS");

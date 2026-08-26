@@ -7,15 +7,15 @@
 
 ## Last completed
 
-P4.9 added `pnpm gate:4`, nesting every prior gate and requiring the complete UI runtime/builder suites, bundle-boundary proof, and exactly one focused passing test for each Gate 4 exit criterion. CI now runs Gate 4 after Gate 3.
+The first full-phase Sol/high review returned REWORK and all findings were corrected. Profile validation now resolves trusted source descriptors and enforces block/source allowlists plus block prop schemas across every region. The adapter preserves absent, null, and empty optional shapes, uses the exact browser-safe runtime definition for editor preview, and rejects invalid props on load/save. Keyboard operations now use public Puck state actions, while a real Chromium journey proves selection, editing, non-drag reorder, focus, target size, semantics, and canonical updates. Persisted secret-like keys and unrestricted URL-like values fail closed.
 
 ## Validation
 
-On exact Node.js 24.19.0 and pnpm 11.9.0, full `pnpm gate:4` passes: all prior gates, the real PostgreSQL fixture, all 19 UI-runtime tests, all 15 builder tests, the executable bundle-boundary proof, and 11 focused Gate 4 exit proofs. The prior full `pnpm phase:0` passes with reproducible contract SHA-256 `fce4d521cd4b9eee361b4eb475e7afd7bb61c34a838b7805a81266ef7e6b0e1b`.
+On exact Node.js 24.19.0 and pnpm 11.9.0, full `pnpm phase:0` and corrected `pnpm gate:4` pass: all prior gates, the real PostgreSQL fixture, 19 UI-runtime tests, 17 builder tests, bundle/runtime boundaries, the real Chromium accessibility journey, and 12 focused Gate 4 proofs. Contract generation remains reproducible at SHA-256 `fce4d521cd4b9eee361b4eb475e7afd7bb61c34a838b7805a81266ef7e6b0e1b`.
 
 ## Next
 
-Run the full Gate 4 command, obtain a fresh Sol/high review of the complete Phase 4 diff, correct any findings, and publish the phase closeout decision.
+Obtain a fresh Sol/high re-review of the corrected complete Phase 4 diff, then publish the phase closeout decision.
 
 ## Blockers
 

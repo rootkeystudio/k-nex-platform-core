@@ -1,25 +1,32 @@
 import { describe, expect, it } from "vitest";
 
 import { canonicalJson, type UiDocument } from "@k-nex/contracts";
+import { createUiDocumentRuntime, createUiRuntimeRegistry, type UiBlockDefinition } from "@k-nex/ui-runtime";
 import { createPuckBuilderAdapter, type PuckBlockBridge } from "../src/index.js";
 
-const card: PuckBlockBridge = {
-  id: "content.card",
+const definition = (id: string): UiBlockDefinition => ({
+  id,
   version: 1,
+  profiles: ["cms", "workspace"],
+  surfaces: ["cms", "public", "workspace"],
+  audience: "public",
+  propsSchema: { safeParse: (value: unknown) => ({ success: true as const, data: value }) },
+  render: ({ props }) => props
+});
+
+const card: PuckBlockBridge = {
+  definition: definition("content.card"),
   label: "Card",
   fields: [{ prop: "title", label: "Title", kind: "text" }],
   allowChildren: true,
   defaultProps: { title: "New card" },
-  render: ({ props }) => props.title
 };
 const text: PuckBlockBridge = {
-  id: "content.text",
-  version: 1,
+  definition: definition("content.text"),
   label: "Text",
   fields: [{ prop: "text", label: "Text", kind: "textarea" }],
   allowChildren: false,
   defaultProps: { text: "" },
-  render: ({ props }) => props.text
 };
 const fixture: UiDocument = {
   id: "cms.home",
@@ -48,6 +55,16 @@ describe("Puck builder adapter", () => {
     expect(JSON.stringify(fixture)).not.toContain("__kNex");
   });
 
+  it("preserves absent, null, and empty optional shapes until the user edits them", () => {
+    const adapter = createPuckBuilderAdapter({ blocks: [card] });
+    const shapes = [
+      { id: "card-absent", type: "content.card", version: 1, props: {} },
+      { id: "card-null", type: "content.card", version: 1, props: { title: null }, children: [] }
+    ];
+    const document = { ...fixture, regions: { main: shapes } };
+    expect(canonicalJson(adapter.fromPuckData(adapter.toPuckData(document)))).toBe(canonicalJson(document));
+  });
+
   it("applies an editor field change and survives serialize/reload", () => {
     const adapter = createPuckBuilderAdapter({ blocks: [card, text] });
     const puckData = structuredClone(adapter.toPuckData(fixture)) as { content: Array<{ props: Record<string, unknown> }> };
@@ -55,6 +72,16 @@ describe("Puck builder adapter", () => {
     const edited = adapter.fromPuckData(puckData);
     expect(edited.regions.main[0].props).toEqual({ title: "Edited", untouched: { enabled: true } });
     expect(canonicalJson(adapter.fromPuckData(adapter.toPuckData(edited)))).toBe(canonicalJson(edited));
+  });
+
+  it("uses the exact browser-safe runtime definition inside and outside Puck", () => {
+    const adapter = createPuckBuilderAdapter({ blocks: [text], preview: { surface: "public", actor: { authenticated: false, permissions: new Set() } } });
+    const data = adapter.toPuckData({ ...fixture, regions: { main: [fixture.regions.main[0].children?.[0]!] } });
+    const component = adapter.config.components["content.text__v1"] as { render: (props: Record<string, unknown>) => unknown };
+    const editorOutput = component.render(data.content[0]!.props);
+    const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [text.definition], sources: [] }));
+    const production = runtime.render({ document: adapter.fromPuckData(data), surface: "public", actor: { authenticated: false, permissions: new Set() } });
+    expect(production).toMatchObject({ success: true, regions: { main: [{ status: "rendered", output: editorOutput }] } });
   });
 
   it("round-trips a document without the configured canvas region", () => {

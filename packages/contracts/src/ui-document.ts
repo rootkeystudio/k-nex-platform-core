@@ -201,13 +201,17 @@ const unsafeExactKeys = new Set([
 ]);
 
 function isUnsafePersistedKey(key: string): boolean {
-  return unsafeExactKeys.has(key.replace(/[^a-z0-9]/gi, "").toLowerCase());
+  const normalized = key.replace(/[^a-z0-9]/gi, "").toLowerCase();
+  return unsafeExactKeys.has(normalized) || ["password", "secret", "apikey", "credential", "privatenote"].some((part) => normalized.includes(part));
 }
 
 function inspectJsonTree(value: unknown, path: readonly (string | number)[], context: z.RefinementCtx, depth: number, ancestors: Set<object>): void {
   if (typeof value === "string") {
     if (value.length > uiDocumentPlatformCeilings.stringLength) {
       context.addIssue({ code: "custom", path: [...path], message: `Strings may not exceed ${uiDocumentPlatformCeilings.stringLength} characters.` });
+    }
+    if (/^(?:(?:https?|ftp|file|data|javascript):|\/\/)/i.test(value.trim())) {
+      context.addIssue({ code: "custom", path: [...path], message: "Unrestricted URL-like strings are forbidden in persisted UI documents." });
     }
     return;
   }

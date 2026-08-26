@@ -5,19 +5,20 @@ import { createPuckBuilderProfileRegistry, type PuckBlockBridge } from "../src/i
 import { PuckFixedShellHost } from "../src/editor.js";
 
 const block: PuckBlockBridge = {
-  id: "content.text",
-  version: 1,
+  definition: {
+    id: "content.text", version: 1, profiles: ["cms", "workspace"], surfaces: ["cms", "public", "workspace"], audience: "public",
+    propsSchema: { safeParse: (value: unknown) => ({ success: true as const, data: value }) }, render: ({ props }) => props
+  },
   label: "Text",
   fields: [{ prop: "text", label: "Text", kind: "text" }],
   allowChildren: false,
-  defaultProps: { text: "" },
-  render: ({ props }) => props.text
+  defaultProps: { text: "" }
 };
 
 describe("fixed builder shell", () => {
   it("keeps security and platform regions outside the editor canvas", () => {
     const profile = createPuckBuilderProfileRegistry({
-      blocks: [block],
+      blocks: [block], sources: [],
       profiles: [{ id: "cms", blocks: [{ id: "content.text", version: 1 }], sources: [], actions: [], publication: "draft-preview-publish" }]
     }).resolve("cms");
     if (profile === undefined) throw new Error("Expected CMS profile.");

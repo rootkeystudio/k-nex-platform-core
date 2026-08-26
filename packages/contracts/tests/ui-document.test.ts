@@ -241,6 +241,14 @@ describe("P4.1 canonical UI documents", () => {
     }).success).toBe(false);
     expect(parse({
       ...validDocument,
+      regions: { main: [{ ...validDocument.regions.main[0], props: { endpoint: "http://169.254.169.254/latest/meta-data" } }] }
+    }).success).toBe(false);
+    expect(parse({
+      ...validDocument,
+      regions: { main: [{ ...validDocument.regions.main[0], props: { apiSecretValue: "hidden" } }] }
+    }).success).toBe(false);
+    expect(parse({
+      ...validDocument,
       regions: { main: [{ ...validDocument.regions.main[0], engineMetadata: { "builder.visual": { url: "unsafe" } } }] }
     }).success).toBe(false);
     expect(parse({

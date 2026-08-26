@@ -9,6 +9,7 @@ import {
   type UiNode
 } from "@k-nex/contracts";
 import type { ComponentData, Config, Data, Field } from "@puckeditor/core";
+import type { UiBlockDefinition, UiRuntimeActor, UiRuntimeSurface } from "@k-nex/ui-runtime";
 
 const canonicalNodeKey = "__kNexNode";
 const childSlotKey = "__kNexChildren";
@@ -20,13 +21,16 @@ export type PuckBridgeField =
   | { readonly prop: string; readonly label: string; readonly kind: "select"; readonly options: readonly { readonly label: string; readonly value: JsonValue }[] };
 
 export interface PuckBlockBridge {
-  readonly id: string;
-  readonly version: number;
+  readonly definition: UiBlockDefinition;
   readonly label: string;
   readonly fields: readonly PuckBridgeField[];
   readonly allowChildren: boolean;
   readonly defaultProps: Readonly<Record<string, JsonValue>>;
-  readonly render: (input: { readonly props: Readonly<Record<string, JsonValue>>; readonly children?: unknown }) => unknown;
+}
+
+export interface PuckPreviewContext {
+  readonly surface: UiRuntimeSurface;
+  readonly actor: UiRuntimeActor;
 }
 
 export interface PuckBuilderAdapter {
@@ -42,6 +46,7 @@ interface StoredNode {
   readonly bindings?: UiNode["bindings"];
   readonly layout?: UiNode["layout"];
   readonly engineMetadata?: UiNode["engineMetadata"];
+  readonly childrenPresent: boolean;
 }
 
 interface StoredDocument {
@@ -71,10 +76,11 @@ function fieldValueIsValid(field: PuckBridgeField, value: unknown): boolean {
 }
 
 function assertBridge(bridge: PuckBlockBridge): void {
-  if (!ResourceIdSchema.safeParse(bridge.id).success || !Number.isSafeInteger(bridge.version) || bridge.version < 1) {
+  if (!ResourceIdSchema.safeParse(bridge.definition?.id).success || !Number.isSafeInteger(bridge.definition?.version) || bridge.definition.version < 1) {
     throw new TypeError("Puck block bridges require a canonical block ID and positive version.");
   }
-  if (typeof bridge.label !== "string" || bridge.label.length === 0 || bridge.label.length > 120 || typeof bridge.render !== "function") {
+  if (typeof bridge.label !== "string" || bridge.label.length === 0 || bridge.label.length > 120 ||
+      typeof bridge.definition.propsSchema?.safeParse !== "function" || typeof bridge.definition.render !== "function") {
     throw new TypeError("Puck block bridges require a bounded label and renderer.");
   }
   if (typeof bridge.allowChildren !== "boolean" || !Array.isArray(bridge.fields)) throw new TypeError("Puck block bridge fields are invalid.");
@@ -99,6 +105,9 @@ function assertBridge(bridge: PuckBlockBridge): void {
       bridge.fields.some((field) => !Object.hasOwn(bridge.defaultProps, field.prop) || !fieldValueIsValid(field, bridge.defaultProps[field.prop]))) {
     throw new TypeError("Puck bridge defaults must provide valid values for every declared field.");
   }
+  if (bridge.definition.propsSchema.safeParse(bridge.defaultProps).success !== true) {
+    throw new TypeError("Puck bridge defaults must satisfy the shared runtime prop schema.");
+  }
 }
 
 function puckField(field: PuckBridgeField): Field {
@@ -114,7 +123,8 @@ function storedNode(node: UiNode): StoredNode {
     props: cloneJson(node.props),
     ...(node.bindings === undefined ? {} : { bindings: cloneJson(node.bindings) }),
     ...(node.layout === undefined ? {} : { layout: cloneJson(node.layout) }),
-    ...(node.engineMetadata === undefined ? {} : { engineMetadata: cloneJson(node.engineMetadata) })
+    ...(node.engineMetadata === undefined ? {} : { engineMetadata: cloneJson(node.engineMetadata) }),
+    childrenPresent: node.children !== undefined
   };
 }
 
@@ -122,6 +132,9 @@ function toComponent(node: UiNode, bridges: ReadonlyMap<string, PuckBlockBridge>
   const key = bridgeKey(node.type, node.version);
   const bridge = bridges.get(key);
   if (bridge === undefined) throw new TypeError(`No Puck bridge is registered for ${node.type}@${node.version}.`);
+  if (bridge.definition.propsSchema.safeParse(node.props).success !== true) {
+    throw new TypeError(`Canonical props are invalid for ${node.type}@${node.version}.`);
+  }
   const props: Record<string, unknown> = { id: node.id, [canonicalNodeKey]: storedNode(node) };
   for (const field of bridge.fields) {
     props[fieldKey(field.prop)] = cloneJson(node.props[field.prop] ?? bridge.defaultProps[field.prop] ?? null);
@@ -132,7 +145,7 @@ function toComponent(node: UiNode, bridges: ReadonlyMap<string, PuckBlockBridge>
 }
 
 function parseStoredNode(value: unknown): StoredNode {
-  if (!isRecord(value) || !ResourceIdSchema.safeParse(value.type).success || !Number.isSafeInteger(value.version) || !isRecord(value.props)) {
+  if (!isRecord(value) || !ResourceIdSchema.safeParse(value.type).success || !Number.isSafeInteger(value.version) || !isRecord(value.props) || typeof value.childrenPresent !== "boolean") {
     throw new TypeError("Puck component metadata is invalid.");
   }
   assertJsonValue(value);
@@ -146,7 +159,7 @@ function fromComponent(value: unknown, bridges: ReadonlyMap<string, PuckBlockBri
   const bridge = bridges.get(value.type);
   if (bridge === undefined) throw new TypeError(`Unknown Puck component type: ${value.type}.`);
   const metadata = parseStoredNode(value.props[canonicalNodeKey]);
-  if (metadata.type !== bridge.id || metadata.version !== bridge.version) throw new TypeError("Puck component identity does not match canonical metadata.");
+  if (metadata.type !== bridge.definition.id || metadata.version !== bridge.definition.version) throw new TypeError("Puck component identity does not match canonical metadata.");
 
   const props = cloneJson(metadata.props) as Record<string, JsonValue>;
   for (const field of bridge.fields) {
@@ -154,23 +167,34 @@ function fromComponent(value: unknown, bridges: ReadonlyMap<string, PuckBlockBri
     if (edited === undefined) throw new TypeError(`Puck component field is missing: ${field.prop}.`);
     assertJsonValue(edited);
     if (!fieldValueIsValid(field, edited)) throw new TypeError(`Puck component field has an invalid value: ${field.prop}.`);
-    props[field.prop] = cloneJson(edited as JsonValue);
+    const hadCanonicalValue = Object.hasOwn(metadata.props, field.prop);
+    const canonicalValue = metadata.props[field.prop];
+    const originalEditorValue = hadCanonicalValue && fieldValueIsValid(field, canonicalValue)
+      ? canonicalValue
+      : bridge.defaultProps[field.prop];
+    if (hadCanonicalValue && fieldValueIsValid(field, canonicalValue) || canonicalJson(edited) !== canonicalJson(originalEditorValue)) {
+      props[field.prop] = cloneJson(edited as JsonValue);
+    }
   }
   const childrenValue = value.props[childSlotKey];
   if (bridge.allowChildren && !Array.isArray(childrenValue)) throw new TypeError("Puck child slot data is missing.");
   if (!bridge.allowChildren && childrenValue !== undefined) throw new TypeError("Puck child slot data is forbidden for this block.");
   const children = bridge.allowChildren ? (childrenValue as unknown[]).map((child) => fromComponent(child, bridges)) : [];
 
-  return {
+  const node = {
     id: value.props.id,
     type: metadata.type,
     version: metadata.version,
     props,
     ...(metadata.bindings === undefined ? {} : { bindings: metadata.bindings }),
     ...(metadata.layout === undefined ? {} : { layout: metadata.layout }),
-    ...(children.length === 0 ? {} : { children }),
+    ...(metadata.childrenPresent || children.length > 0 ? { children } : {}),
     ...(metadata.engineMetadata === undefined ? {} : { engineMetadata: metadata.engineMetadata })
   };
+  if (bridge.definition.propsSchema.safeParse(node.props).success !== true) {
+    throw new TypeError(`Edited props are invalid for ${metadata.type}@${metadata.version}.`);
+  }
+  return node;
 }
 
 function parseStoredDocument(value: unknown): StoredDocument {
@@ -183,7 +207,7 @@ function parseStoredDocument(value: unknown): StoredDocument {
   return cloneJson(value) as unknown as StoredDocument;
 }
 
-function createConfig(bridges: ReadonlyMap<string, PuckBlockBridge>): Config {
+function createConfig(bridges: ReadonlyMap<string, PuckBlockBridge>, preview?: PuckPreviewContext): Config {
   const components: Record<string, unknown> = {};
   const componentNames = [...bridges.keys()];
   for (const [key, bridge] of bridges) {
@@ -192,7 +216,7 @@ function createConfig(bridges: ReadonlyMap<string, PuckBlockBridge>): Config {
     if (bridge.allowChildren) fields[childSlotKey] = { type: "slot", allow: componentNames };
     const defaultProps: Record<string, unknown> = {};
     for (const field of bridge.fields) defaultProps[fieldKey(field.prop)] = cloneJson(bridge.defaultProps[field.prop] ?? null);
-    defaultProps[canonicalNodeKey] = storedNode({ id: "new-block", type: bridge.id, version: bridge.version, props: bridge.defaultProps });
+    defaultProps[canonicalNodeKey] = storedNode({ id: "new-block", type: bridge.definition.id, version: bridge.definition.version, props: bridge.defaultProps });
     if (bridge.allowChildren) defaultProps[childSlotKey] = [];
     components[key] = {
       label: bridge.label,
@@ -202,14 +226,22 @@ function createConfig(bridges: ReadonlyMap<string, PuckBlockBridge>): Config {
         const metadata = parseStoredNode(props[canonicalNodeKey]);
         const canonicalProps: Record<string, JsonValue> = cloneJson(metadata.props) as Record<string, JsonValue>;
         for (const field of bridge.fields) canonicalProps[field.prop] = props[fieldKey(field.prop)] as JsonValue;
-        return bridge.render({ props: canonicalProps, ...(bridge.allowChildren ? { children: props[childSlotKey] } : {}) });
+        const parsed = bridge.definition.propsSchema.safeParse(canonicalProps);
+        if (parsed.success !== true) throw new TypeError(`Puck preview props are invalid for ${bridge.definition.id}@${bridge.definition.version}.`);
+        const surface = preview?.surface ?? bridge.definition.surfaces[0];
+        if (surface === undefined) throw new TypeError("Puck preview requires a supported runtime surface.");
+        const actor = preview?.actor ?? {
+          authenticated: bridge.definition.audience === "authenticated",
+          permissions: new Set(bridge.definition.permission === undefined ? [] : [bridge.definition.permission])
+        };
+        return bridge.definition.render({ node: { ...metadata, id: String(props.id), props: canonicalProps }, props: parsed.data, surface, actor });
       }
     };
   }
   return { components } as Config;
 }
 
-export function createPuckBuilderAdapter(input: { readonly blocks: readonly PuckBlockBridge[]; readonly canvasRegion?: string }): PuckBuilderAdapter {
+export function createPuckBuilderAdapter(input: { readonly blocks: readonly PuckBlockBridge[]; readonly canvasRegion?: string; readonly preview?: PuckPreviewContext }): PuckBuilderAdapter {
   const bridges = new Map<string, PuckBlockBridge>();
   for (const candidate of input.blocks) {
     assertBridge(candidate);
@@ -218,15 +250,15 @@ export function createPuckBuilderAdapter(input: { readonly blocks: readonly Puck
       fields: Object.freeze(candidate.fields.map((field) => Object.freeze(cloneJson(field)))),
       defaultProps: Object.freeze(cloneJson(candidate.defaultProps))
     });
-    const key = bridgeKey(bridge.id, bridge.version);
-    if (bridges.has(key)) throw new TypeError(`Duplicate Puck block bridge: ${bridge.id}@${bridge.version}.`);
+    const key = bridgeKey(bridge.definition.id, bridge.definition.version);
+    if (bridges.has(key)) throw new TypeError(`Duplicate Puck block bridge: ${bridge.definition.id}@${bridge.definition.version}.`);
     bridges.set(key, bridge);
   }
   const canvasRegion = input.canvasRegion ?? "main";
   if (!TableFieldIdSchema.safeParse(canvasRegion).success) throw new TypeError("Puck canvas region must be a canonical field ID.");
 
   return Object.freeze({
-    config: createConfig(bridges),
+    config: createConfig(bridges, input.preview),
     toPuckData(value: unknown): Data {
       const parsed = UiDocumentSchema.parse(value);
       const preservedRegions = Object.fromEntries(Object.entries(parsed.regions).filter(([region]) => region !== canvasRegion));
