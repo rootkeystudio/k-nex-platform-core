@@ -7,6 +7,7 @@ import {
   AgentToolDescriptorSchema,
   ApplicationManifestSchema,
   canonicalJson,
+  DurableEventEnvelopeSchema,
   MetricScalarSchema,
   PluginManifestSchema,
   TableRecordsSchema,
@@ -40,6 +41,7 @@ const primaryArtifacts = [
   { path: "schemas/agent-tool.v1.schema.json", value: jsonSchema(AgentToolDescriptorSchema) },
   { path: "schemas/plugin-manifest.v1.schema.json", value: jsonSchema(PluginManifestSchema) },
   { path: "schemas/application-manifest.v1.schema.json", value: jsonSchema(ApplicationManifestSchema) },
+  { path: "schemas/event.v1.schema.json", value: jsonSchema(DurableEventEnvelopeSchema) },
   { path: "schemas/metric-scalar.v1.schema.json", value: jsonSchema(MetricScalarSchema) },
   { path: "schemas/table-records.v1.schema.json", value: jsonSchema(TableRecordsSchema) }
 ] satisfies readonly Artifact[];

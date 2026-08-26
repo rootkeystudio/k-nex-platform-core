@@ -5,7 +5,7 @@ import { canonicalJson } from "@k-nex/contracts";
 import type { Endpoint } from "payload";
 
 import resolvedJson from "../.k-nex/generated/k-nex.resolved.json" with { type: "json" };
-import { gate1MigrationRevision } from "./migration-revision.js";
+import { applicationMigrationRevision } from "./migration-revision.js";
 
 export function createGate1RuntimeInventory(registration: RegistrationResult) {
   return {
@@ -26,7 +26,7 @@ export function createGate1RuntimeInventory(registration: RegistrationResult) {
       expectedContributions: structuredClone(contributions),
       actualContributions: structuredClone(registration.inventory.find((entry) => entry.id === id)?.contributions ?? {})
     })),
-    migrationRevision: { ...gate1MigrationRevision }
+    migrationRevision: { ...applicationMigrationRevision }
   } as const;
 }
 

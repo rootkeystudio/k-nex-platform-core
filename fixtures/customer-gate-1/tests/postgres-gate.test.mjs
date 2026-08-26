@@ -63,21 +63,29 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
       select
         to_regclass('public.sales_tasks')::text as sales_tasks,
         to_regclass('public.payload_mcp_api_keys')::text as payload_mcp_api_keys,
+        to_regclass('public.k_nex_outbox')::text as k_nex_outbox,
         (select count(*)::int from payload_migrations where name = '20260826_000001_gate1') as migration_count,
         (select count(*)::int from payload_migrations where name = '20260826_000002_sales_sources') as sales_migration_count,
         (select count(*)::int from payload_migrations where name = '20260826_000003_payload_mcp') as mcp_migration_count,
+        (select count(*)::int from payload_migrations where name = '20260826_000004_event_outbox') as outbox_migration_count,
         (select predecessor_revision from k_nex_migration_revision where id = 1) as predecessor_revision,
         (select revision from k_nex_migration_revision where id = 1) as revision
     `);
     assert.deepEqual(migrated.rows, [{
       sales_tasks: "sales_tasks",
       payload_mcp_api_keys: "payload_mcp_api_keys",
+      k_nex_outbox: "k_nex_outbox",
       migration_count: 1,
       sales_migration_count: 1,
       mcp_migration_count: 1,
-      predecessor_revision: 2,
-      revision: 3
+      outbox_migration_count: 1,
+      predecessor_revision: 3,
+      revision: 4
     }]);
+
+    const outboxSchema = await runFixtureProcess("tests/outbox-schema.mjs", connectionString);
+    assert.equal(outboxSchema.code, 0, `${outboxSchema.stdout}\n${outboxSchema.stderr}`);
+    assert.match(outboxSchema.stdout, /^P3_1_OUTBOX_SCHEMA_PASS$/m);
 
     const keyOwner = await query(connectionString, `
       insert into users (email) values ('mcp-key-owner@example.test') returning id
@@ -98,7 +106,7 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
     assert.equal(currentBoot.code, 0, `${currentBoot.stdout}\n${currentBoot.stderr}`);
     assert.match(currentBoot.stdout, /^READY$/m);
     const current = await query(connectionString, "select count(*)::int as count from payload_migrations");
-    assert.equal(current.rows[0].count, 3);
+    assert.equal(current.rows[0].count, 4);
 
     const authenticated = await runFixtureProcess("tests/authenticated-runtime.mjs", connectionString, {
       BOOT_KEY: "gate1-authenticated-runtime"

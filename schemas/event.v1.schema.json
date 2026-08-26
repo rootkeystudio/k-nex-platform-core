@@ -1,0 +1,140 @@
+{
+  "$defs": {
+    "__schema0": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^(?!\\s*$)[^\\u0000-\\u001F\\u007F-\\u009F]+$",
+      "type": "string"
+    },
+    "__schema1": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    },
+    "__schema10": {
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema12"
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/__schema11"
+      },
+      "type": "object"
+    },
+    "__schema11": {
+      "type": "string"
+    },
+    "__schema12": {},
+    "__schema2": {
+      "maximum": 1000000,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "__schema3": {
+      "enum": [
+        "durable-integration",
+        "durable-workflow"
+      ],
+      "type": "string"
+    },
+    "__schema4": {
+      "format": "date-time",
+      "maxLength": 64,
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+      "type": "string"
+    },
+    "__schema5": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+      "type": "string"
+    },
+    "__schema6": {
+      "maxLength": 128,
+      "pattern": "^(module|provider|builder|theme|integration|preset)(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    },
+    "__schema7": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/__schema0"
+        },
+        "impersonatorId": {
+          "$ref": "#/$defs/__schema0"
+        },
+        "type": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^(?!\\s*$)[^\\u0000-\\u001F\\u007F-\\u009F]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "type": "object"
+    },
+    "__schema8": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "__schema9": {
+      "$ref": "#/$defs/__schema0"
+    }
+  },
+  "$id": "https://schemas.k-nex.dev/event/v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "actor": {
+      "$ref": "#/$defs/__schema7"
+    },
+    "applicationId": {
+      "$ref": "#/$defs/__schema5"
+    },
+    "causationId": {
+      "$ref": "#/$defs/__schema8"
+    },
+    "correlationId": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "id": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "idempotencyKey": {
+      "$ref": "#/$defs/__schema9"
+    },
+    "messageClass": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "occurredAt": {
+      "$ref": "#/$defs/__schema4"
+    },
+    "payload": {
+      "$ref": "#/$defs/__schema10"
+    },
+    "pluginId": {
+      "$ref": "#/$defs/__schema6"
+    },
+    "schemaVersion": {
+      "$ref": "#/$defs/__schema2"
+    },
+    "type": {
+      "$ref": "#/$defs/__schema1"
+    }
+  },
+  "required": [
+    "id",
+    "type",
+    "schemaVersion",
+    "messageClass",
+    "occurredAt",
+    "applicationId",
+    "pluginId",
+    "correlationId",
+    "payload"
+  ],
+  "title": "K-Nex durable event envelope v1",
+  "type": "object"
+}

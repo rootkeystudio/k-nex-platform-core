@@ -1,0 +1,20 @@
+{
+  "actor": {
+    "id": "user-1",
+    "type": "user"
+  },
+  "applicationId": "customer-one",
+  "causationId": "event-0",
+  "correlationId": "correlation-1",
+  "id": "event-1",
+  "idempotencyKey": "task-create-1",
+  "messageClass": "durable-integration",
+  "occurredAt": "2026-08-26T12:00:00+00:00",
+  "payload": {
+    "status": "open",
+    "taskId": "task-1"
+  },
+  "pluginId": "module.sales",
+  "schemaVersion": 1,
+  "type": "sales.task.created"
+}

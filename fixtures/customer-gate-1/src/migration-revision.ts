@@ -1,9 +1,9 @@
 import type { Payload } from "payload";
 
-export const gate1MigrationRevision = Object.freeze({
-  migrationName: "20260826_000003_payload_mcp",
-  predecessor: 2,
-  current: 3
+export const applicationMigrationRevision = Object.freeze({
+  migrationName: "20260826_000004_event_outbox",
+  predecessor: 3,
+  current: 4
 });
 
 export class MigrationRevisionError extends Error {
@@ -16,7 +16,7 @@ export class MigrationRevisionError extends Error {
   }
 }
 
-export async function assertGate1MigrationRevision(payload: Payload): Promise<void> {
+export async function assertApplicationMigrationRevision(payload: Payload): Promise<void> {
   let rows: Array<{ predecessor_revision: number; revision: number }>;
   try {
     const result = await payload.db.pool.query<{ predecessor_revision: number; revision: number }>(
@@ -24,14 +24,14 @@ export async function assertGate1MigrationRevision(payload: Payload): Promise<vo
     );
     rows = result.rows;
   } catch {
-    throw new MigrationRevisionError("MISSING_REVISION", "The Gate 1 migration revision is unavailable.");
+    throw new MigrationRevisionError("MISSING_REVISION", "The application migration revision is unavailable.");
   }
   const revision = rows[0];
   if (
     rows.length !== 1 ||
-    revision?.predecessor_revision !== gate1MigrationRevision.predecessor ||
-    revision.revision !== gate1MigrationRevision.current
+    revision?.predecessor_revision !== applicationMigrationRevision.predecessor ||
+    revision.revision !== applicationMigrationRevision.current
   ) {
-    throw new MigrationRevisionError("INCOMPATIBLE_REVISION", "The Gate 1 migration revision is incompatible.");
+    throw new MigrationRevisionError("INCOMPATIBLE_REVISION", "The application migration revision is incompatible.");
   }
 }
