@@ -423,7 +423,7 @@ describe("Socket.IO memory realtime gateway", () => {
     gateway = createSocketIoMemoryGateway({
       httpServer,
       topics: createRealtimeTopicRegistry([topic]),
-      security: { ...security, revalidationIntervalMs: 5, revalidationTimeoutMs: 10 },
+      security: { ...security, revalidationIntervalMs: 60_000, revalidationTimeoutMs: 10 },
       authenticate: async ({ actor }) => typeof actor === "string" ? { actor: { id: actor, type: "user" }, id: actor } : null,
       isSessionActive: async ({ id }) => {
         checks.set(id, (checks.get(id) ?? 0) + 1);
@@ -437,15 +437,17 @@ describe("Socket.IO memory realtime gateway", () => {
       auth: { actor }, transports: ["websocket"], extraHeaders: { origin: "https://app.example.test" }, reconnection: false
     });
     const stuck = open("stuck");
-    client = open("revoked");
-    await Promise.all([stuck, client].map((socket) => new Promise((resolve, reject) => {
+    const revoked = open("revoked");
+    client = revoked;
+    await Promise.all([stuck, revoked].map((socket) => new Promise((resolve, reject) => {
       socket.once("connect", resolve);
       socket.once("connect_error", reject);
     })));
-    const revoked = new Promise((resolve) => client?.once("disconnect", resolve));
+    const disconnected = [stuck, revoked].map((socket) => new Promise<void>((resolve) => {
+      socket.once("disconnect", () => resolve());
+    }));
     await gateway.revalidate();
-    await revoked;
-    await new Promise((resolve) => setTimeout(resolve, 35));
+    await Promise.all(disconnected);
     expect(checks.get("stuck")).toBe(1);
     expect(checks.get("revoked")).toBe(1);
     expect(gateway.health().connections).toBe(0);
