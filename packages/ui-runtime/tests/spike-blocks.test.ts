@@ -75,6 +75,20 @@ describe("P4.5 proof blocks", () => {
     expect(result).toMatchObject({ success: true, regions: { main: [{ status: "fallback", reason: "SOURCE_RESULT_INVALID" }] } });
   });
 
+  it("rejects undeclared or unauthorized fields reintroduced by a source result", () => {
+    const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [createWorkspaceTaskTableBlockDefinition()], sources: [salesTasksDescriptor] }));
+    const leaked = {
+      ...table,
+      fields: ["title", "status", "private-note"],
+      rows: [{
+        ...table.rows[0],
+        values: { ...table.rows[0].values, "private-note": { kind: "text", value: "sensitive" } }
+      }]
+    };
+    const result = runtime.render({ document: workspaceDocument, surface: "workspace", actor: authenticatedActor, sourceResults: { "tasks-1": { state: "success", data: leaked } } });
+    expect(result).toMatchObject({ success: true, regions: { main: [{ status: "fallback", reason: "SOURCE_RESULT_INVALID" }] } });
+  });
+
   it("does not turn the workspace source into publishable authority during authenticated CMS preview", () => {
     const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [createWorkspaceTaskTableBlockDefinition()], sources: [salesTasksDescriptor] }));
     const cmsDocument = { ...workspaceDocument, id: "cms.sales", profile: "cms" };

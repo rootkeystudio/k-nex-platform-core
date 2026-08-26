@@ -37,8 +37,8 @@ describe("accessible Puck operation", () => {
     const { element, dispatch } = controls();
     const buttons = Children.toArray(element.props.children).filter((child) => isValidElement(child) && child.type === "button") as ReactElement[];
     expect(buttons.map((button) => button.props["aria-label"])).toEqual([
-      "Move content.text__v1 2 earlier",
-      "Move content.text__v1 2 later"
+      "Move content.text__v1 beta, item 2 earlier",
+      "Move content.text__v1 beta, item 2 later"
     ]);
     expect(buttons[0].props.disabled).toBe(false);
     expect(buttons[1].props.disabled).toBe(true);
@@ -51,7 +51,7 @@ describe("accessible Puck operation", () => {
     const { element } = controls();
     const status = Children.toArray(element.props.children).at(-1) as ReactElement;
     expect(status.props).toMatchObject({ role: "status", "aria-live": "polite" });
-    expect(status.props.children).toBe("content.text__v1 2, position 2 of 2");
+    expect(status.props.children).toBe("content.text__v1 beta, item 2, position 2 of 2");
     expect(createKeyboardReorderActions({ content, index: 0, direction: "earlier" })).toBeUndefined();
     expect(createKeyboardReorderActions({ content, index: 0, direction: "later" })?.[0]).toMatchObject({ type: "move" });
   });
@@ -69,6 +69,12 @@ describe("accessible Puck operation", () => {
     const children = Children.toArray(element.props.children) as ReactElement[];
     const select = Children.toArray(children[0].props.children)[1] as ReactElement;
     expect(Children.toArray(select.props.children)).toHaveLength(4);
+    expect(Children.toArray(select.props.children).map((option) => (option as ReactElement).props.children)).toEqual([
+      "Choose a block",
+      "content.card__v1 card, item 1",
+      "Nested content.text__v1 alpha, item 1",
+      "Nested content.text__v1 beta, item 2"
+    ]);
     const buttons = children.filter((child) => isValidElement(child) && child.type === "button") as ReactElement[];
     buttons[0].props.onClick();
     expect(dispatch).toHaveBeenNthCalledWith(1, {

@@ -1,6 +1,7 @@
 import { DataSourceDescriptorSchema, ResourceIdSchema, UiDocumentSchema, uiDocumentProfiles, type DataSourceDescriptor, type UiDocument, type UiDocumentProfile, type UiNode } from "@k-nex/contracts";
+import { createUiDocumentRuntime, createUiRuntimeRegistry, inspectUiDocumentReadiness } from "@k-nex/ui-runtime";
 
-import { createPuckBuilderAdapter, type PuckBlockBridge, type PuckBuilderAdapter } from "./adapter.js";
+import { createPuckBuilderAdapter, type PuckBlockBridge, type PuckBuilderAdapter, type PuckPreviewContext } from "./adapter.js";
 
 export interface PuckProfileResource {
   readonly id: string;
@@ -26,6 +27,8 @@ export interface ResolvedPuckBuilderProfile {
 export interface PuckBuilderProfileRegistry {
   resolve(profile: UiDocumentProfile): ResolvedPuckBuilderProfile | undefined;
 }
+
+export type PuckProfilePreviewContext = Omit<PuckPreviewContext, "sources">;
 
 const profiles = new Set<UiDocumentProfile>(uiDocumentProfiles);
 const keyOf = ({ id, version }: PuckProfileResource): string => `${id}@${version}`;
@@ -78,6 +81,7 @@ export function createPuckBuilderProfileRegistry(input: {
   readonly sources: readonly DataSourceDescriptor[];
   readonly profiles: readonly PuckBuilderProfile[];
   readonly canvasRegion?: string;
+  readonly preview?: Partial<Record<UiDocumentProfile, PuckProfilePreviewContext>>;
 }): PuckBuilderProfileRegistry {
   const bridgeMap = new Map(input.blocks.map((bridge) => [`${bridge.definition.id}@${bridge.definition.version}`, bridge]));
   if (bridgeMap.size !== input.blocks.length) throw new TypeError("Puck block bridges must be unique before profile resolution.");
@@ -120,7 +124,41 @@ export function createPuckBuilderProfileRegistry(input: {
     const blockDefinitions = new Map(selectedBridges.map((bridge) => [keyOf(bridge.definition), bridge]));
     const sourceKeys = new Set(policy.sources.map(keyOf));
     const actionKeys = new Set(policy.actions.map(keyOf));
-    const baseAdapter = createPuckBuilderAdapter({ blocks: selectedBridges, ...(input.canvasRegion === undefined ? {} : { canvasRegion: input.canvasRegion }) });
+    const selectedSources = policy.sources.map((resource) => sourceMap.get(keyOf(resource))!);
+    const expectedSurface = policy.id === "cms" ? "public" : "workspace";
+    const configuredPreview = input.preview?.[policy.id];
+    if (configuredPreview !== undefined && configuredPreview.surface !== expectedSurface) {
+      throw new TypeError(`Puck ${policy.id} preview must use the ${expectedSurface} surface.`);
+    }
+    const preview: PuckPreviewContext = configuredPreview === undefined
+      ? { surface: expectedSurface, actor: { authenticated: true, permissions: new Set() }, sources: selectedSources }
+      : { ...configuredPreview, sources: selectedSources };
+    const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({
+      blocks: selectedBridges.map(({ definition }) => definition),
+      sources: selectedSources
+    }));
+    const publicationPermissions = new Set<string>([
+      ...selectedBridges.flatMap(({ definition }) => definition.permission === undefined ? [] : [definition.permission]),
+      ...selectedSources.flatMap((source) => [source.permission, ...(source.outputFields ?? []).map(({ permission }) => permission)])
+    ]);
+    const validatePublication = (value: unknown): UiDocument => {
+      const document = assertDocumentPolicy(value, policy, blockDefinitions, sourceKeys);
+      const result = runtime.render({
+        document,
+        surface: policy.id === "cms" ? "public" : "workspace",
+        actor: policy.id === "cms"
+          ? { authenticated: false, permissions: new Set() }
+          : { authenticated: true, permissions: publicationPermissions }
+      });
+      const readiness = inspectUiDocumentReadiness(result);
+      if (!readiness.ready) throw new TypeError(`Puck ${policy.id} publication is not runtime-ready: ${readiness.issues.map(({ code }) => code).join(", ")}.`);
+      return document;
+    };
+    const baseAdapter = createPuckBuilderAdapter({
+      blocks: selectedBridges,
+      preview,
+      ...(input.canvasRegion === undefined ? {} : { canvasRegion: input.canvasRegion })
+    });
     const adapter: PuckBuilderAdapter = Object.freeze({
       config: baseAdapter.config,
       toPuckData: (document: unknown) => baseAdapter.toPuckData(assertDocumentPolicy(document, policy, blockDefinitions, sourceKeys)),
@@ -129,7 +167,7 @@ export function createPuckBuilderProfileRegistry(input: {
     resolved.set(policy.id, Object.freeze({
       policy,
       adapter,
-      validateDocument: (value: unknown) => assertDocumentPolicy(value, policy, blockDefinitions, sourceKeys),
+      validateDocument: validatePublication,
       allowsSource: (id: string, version: number) => sourceKeys.has(`${id}@${version}`),
       allowsAction: (id: string, version: number) => actionKeys.has(`${id}@${version}`)
     }));

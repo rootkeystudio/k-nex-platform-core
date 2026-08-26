@@ -1,4 +1,5 @@
 import { createElement, type ReactElement, type ReactNode } from "react";
+import type { UiDocument } from "@k-nex/contracts";
 
 import { PuckEditorHost, type PuckEditorHostProps } from "./editor-host.js";
 import type { ResolvedPuckBuilderProfile } from "./profile.js";
@@ -37,7 +38,7 @@ export function PuckFixedShellHost({
         adapter: profile.adapter,
         document,
         ...(onChange === undefined ? {} : { onChange }),
-        ...(onPublish === undefined ? {} : { onPublish })
+        ...(onPublish === undefined ? {} : { onPublish: (next: UiDocument) => onPublish(profile.validateDocument(next)) })
       })),
     createElement("div", { key: "dialogs", "data-k-nex-shell-global-dialogs": true }, globalDialogs)
   ]);

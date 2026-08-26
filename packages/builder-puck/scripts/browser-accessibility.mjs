@@ -33,7 +33,12 @@ try {
   const page = await browser.newPage();
   await page.goto(`http://127.0.0.1:${address.port}`);
   const controls = page.getByRole("region", { name: "Canvas block keyboard controls" });
+  const canvasFrameSelector = '[data-k-nex-builder-canvas="workspace"] iframe';
+  assert.equal(await page.locator(canvasFrameSelector).count(), 1, "Expected one Puck preview iframe inside the fixed shell canvas.");
+  const canvasFrame = page.frameLocator(canvasFrameSelector);
   const selector = controls.getByRole("combobox", { name: "Selected canvas block" });
+  assert.equal(await controls.getByRole("option", { name: "Nested content.text__v1 second, item 2" }).count(), 1);
+  assert.equal(await controls.getByRole("option", { name: "Nested content.text__v1 fourth, item 2" }).count(), 1);
   const tabTo = async (locator, label) => {
     for (let attempt = 0; attempt < 120; attempt += 1) {
       await page.keyboard.press("Tab");
@@ -42,10 +47,10 @@ try {
     throw new Error(`Keyboard focus did not reach ${label}.`);
   };
   await tabTo(selector, "the block selector");
-  await page.keyboard.type("Nested content.text__v1 2");
+  await page.keyboard.type("Nested content.text__v1 second, item 2");
   assert.equal(await selector.inputValue(), "3", "Keyboard selection did not reach the second nested block.");
 
-  const earlier = controls.getByRole("button", { name: /Move content\.text__v1 2 earlier/ });
+  const earlier = controls.getByRole("button", { name: /Move content\.text__v1 second, item 2 earlier/ });
   await page.keyboard.press("Tab");
   const box = await earlier.boundingBox();
   assert(box !== null && box.width >= 44 && box.height >= 44, "Move target must be at least 44 by 44 CSS pixels.");
@@ -70,10 +75,13 @@ try {
   await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
   await page.keyboard.type("Edited by keyboard");
   await page.waitForFunction(() => window.__kNexDocument?.regions?.main?.[1]?.children?.[0]?.props?.text === "Edited by keyboard");
+  await canvasFrame.getByText("Edited by keyboard", { exact: true }).waitFor();
   assert.match(await controls.getByRole("status").innerText(), /position 1 of 2/);
-  await page.getByRole("region", { name: "Production runtime" }).getByText(/Open tasks \(success, 1 rows\)/).waitFor();
-  await page.getByText("Open tasks (success, 1 rows)").last().waitFor();
-  await page.getByText("Group").last().waitFor();
+  const production = page.getByRole("region", { name: "Production runtime" });
+  await production.getByText(/Open tasks \(success, 1 rows\)/).waitFor();
+  assert.match(await production.innerText(), /Group\s+First\s+Second\s+Group two\s+Third\s+Fourth/, "Production presentation dropped nested runtime content.");
+  await canvasFrame.getByText("Open tasks (success, 1 rows)", { exact: true }).waitFor();
+  await canvasFrame.getByText("Group").first().waitFor();
   console.log("Builder browser accessibility journey passed.");
 } finally {
   await browser?.close();

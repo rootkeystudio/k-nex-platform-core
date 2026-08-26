@@ -12,10 +12,17 @@ describe("shared browser presentation", () => {
         blockId: "sales.workspace-task-table",
         blockVersion: 1,
         output: { kind: "data-table", title: "Open tasks", state: "success", table: { rows: [{}] } },
-        children: []
+        children: [{
+          status: "rendered",
+          nodeId: "caption",
+          blockId: "content.text",
+          blockVersion: 1,
+          output: { kind: "text", text: "Nested caption" },
+          children: []
+        }]
       }] }
     };
-    expect(presentUiRuntimeResult(rendered)).toBe("Open tasks (success, 1 rows)");
+    expect(presentUiRuntimeResult(rendered)).toBe("Open tasks (success, 1 rows)\nNested caption");
     expect(presentUiRuntimeResult({ success: false, code: "AUTHENTICATION_REQUIRED", remediation: "REQUEST_ACCESS" }))
       .toBe("Unavailable: AUTHENTICATION_REQUIRED");
     expect(presentUiRuntimeResult({

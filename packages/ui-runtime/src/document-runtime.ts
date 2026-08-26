@@ -159,13 +159,45 @@ function sourceInputIsCompatible(descriptor: DataSourceDescriptor, input: unknow
   return true;
 }
 
-function sourceResultIsValid(descriptor: DataSourceDescriptor, result: unknown): result is DataSourceBindingResult<unknown> {
+function tableProjectionMatchesAuthority(
+  descriptor: DataSourceDescriptor,
+  node: UiNode,
+  actor: UiRuntimeActor,
+  table: { readonly fields: readonly string[]; readonly rows: readonly { readonly values: Readonly<Record<string, unknown>> }[] }
+): boolean {
+  const selectedFields = node.bindings?.source?.selectedFields ?? [];
+  if (table.fields.length !== selectedFields.length || table.fields.some((field) => !selectedFields.includes(field))) return false;
+  const descriptorFields = new Map((descriptor.outputFields ?? []).map((field) => [field.id, field]));
+  for (const fieldId of table.fields) {
+    const field = descriptorFields.get(fieldId);
+    if (field === undefined || descriptor.audience !== "public" && !hasPermission(actor, field.permission)) return false;
+  }
+  return table.rows.every(({ values }) => {
+    const valueFields = Object.keys(values);
+    if (valueFields.length !== table.fields.length || valueFields.some((field) => !table.fields.includes(field))) return false;
+    return table.fields.every((fieldId) => {
+      const field = descriptorFields.get(fieldId);
+      const cell = values[fieldId];
+      if (field === undefined || cell === null) return field?.nullable === true;
+      return typeof cell === "object" && !Array.isArray(cell) && (cell as Record<string, unknown>).kind === field.kind;
+    });
+  });
+}
+
+function sourceResultIsValid(
+  descriptor: DataSourceDescriptor,
+  node: UiNode,
+  actor: UiRuntimeActor,
+  result: unknown
+): result is DataSourceBindingResult<unknown> {
   if (result === null || typeof result !== "object" || Array.isArray(result) || !("state" in result)) return false;
   const value = result as Record<string, unknown>;
   if (value.state === "idle" || value.state === "loading" || value.state === "empty") return true;
   if (value.state === "success" || value.state === "stale" || value.state === "refetching") {
     const schema = descriptor.primaryContract.id === "metric.scalar" ? MetricScalarSchema : TableRecordsSchema;
-    return schema.safeParse(value.data).success;
+    const parsed = schema.safeParse(value.data);
+    if (!parsed.success) return false;
+    return descriptor.primaryContract.id !== "table.records" || tableProjectionMatchesAuthority(descriptor, node, actor, parsed.data as never);
   }
   if (value.state === "forbidden" || value.state === "insufficient-permission" || value.state === "invalid-contract" ||
       value.state === "rate-limited" || value.state === "error") {
@@ -285,7 +317,7 @@ function renderNode(
   if (node.bindings?.source !== undefined) {
     source = registry.resolveSource(node.bindings.source.source.id, node.bindings.source.source.version);
     sourceResult = sourceResults[node.id] ?? { state: "idle" };
-    if (source === undefined || !sourceResultIsValid(source, sourceResult)) return nodeResult(node, children, "SOURCE_RESULT_INVALID");
+    if (source === undefined || !sourceResultIsValid(source, node, actor, sourceResult)) return nodeResult(node, children, "SOURCE_RESULT_INVALID");
   }
 
   try {

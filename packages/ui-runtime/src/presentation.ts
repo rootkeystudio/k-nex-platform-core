@@ -16,7 +16,8 @@ function presentOutput(output: unknown): string {
 
 /** Browser-safe presentation shared by production surfaces and editor preview. */
 export function presentUiRuntimeNode(node: UiRuntimeNodeResult): string {
-  return node.status === "fallback" ? `Unavailable: ${node.reason}` : presentOutput(node.output);
+  const current = node.status === "fallback" ? `Unavailable: ${node.reason}` : presentOutput(node.output);
+  return [current, ...node.children.map(presentUiRuntimeNode)].join("\n");
 }
 
 export function presentUiRuntimeResult(result: UiDocumentRuntimeResult, region = "main"): string {

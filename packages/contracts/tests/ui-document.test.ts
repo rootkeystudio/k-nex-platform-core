@@ -249,10 +249,16 @@ describe("P4.1 canonical UI documents", () => {
     }).success).toBe(false);
     for (const unsafeProps of [
       { accessToken: "hidden" },
+      { accessTokens: "hidden" },
       { refreshToken: "hidden" },
+      { authHeader: "hidden" },
+      { authenticationTokenValue: "hidden" },
       { oauthGrant: "hidden" },
       { endpoint: "wss://example.test/socket" },
-      { endpoint: "custom+transport://example.test/resource" }
+      { endpoint: "custom+transport://example.test/resource" },
+      { endpoint: "\u0000https://example.test/private" },
+      { endpoint: "\u200bhttps://example.test/private" },
+      { endpoint: "\\https://example.test/private" }
     ]) {
       expect(parse({
         ...validDocument,

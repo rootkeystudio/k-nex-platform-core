@@ -243,6 +243,7 @@ const uiDocumentFixtures = [
   { path: "fixtures/ui-documents/valid/workspace.v1.json", valid: true },
   { path: "fixtures/ui-documents/invalid/duplicate-node-id.json", valid: false },
   { path: "fixtures/ui-documents/invalid/non-namespaced-engine-metadata.json", valid: false },
+  { path: "fixtures/ui-documents/invalid/secret-uri-bypasses.json", valid: false },
   { path: "fixtures/ui-documents/invalid/unrestricted-url.json", valid: false },
   { path: "fixtures/ui-documents/invalid/unsafe-script.json", valid: false }
 ] as const;

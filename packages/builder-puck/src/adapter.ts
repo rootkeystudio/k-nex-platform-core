@@ -265,9 +265,7 @@ function createConfig(bridges: ReadonlyMap<string, PuckBlockBridge>, preview?: P
           actor,
           ...(preview?.sourceResults === undefined ? {} : { sourceResults: preview.sourceResults })
         });
-        const presented = presentUiRuntimeResult(result);
-        const slot = bridge.allowChildren ? props[childSlotKey] : undefined;
-        return typeof slot === "function" ? [presented, slot()] : presented;
+        return presentUiRuntimeResult(result);
       }
     };
   }

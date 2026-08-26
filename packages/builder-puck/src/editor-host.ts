@@ -1,5 +1,5 @@
-import { Puck, type Data } from "@puckeditor/core";
-import { createElement, type ReactElement } from "react";
+import { Puck, type Config, type Data } from "@puckeditor/core";
+import { createElement, Fragment, type ReactElement, type ReactNode } from "react";
 
 import type { PuckBuilderAdapter } from "./adapter.js";
 import { renderAccessiblePuckHeader } from "./accessibility.js";
@@ -12,11 +12,37 @@ export interface PuckEditorHostProps {
   readonly onPublish?: (document: UiDocument) => void;
 }
 
+const editorConfigs = new WeakMap<object, Config>();
+
+function editorConfig(config: Config): Config {
+  const cached = editorConfigs.get(config);
+  if (cached !== undefined) return cached;
+  const components = Object.fromEntries(Object.entries(config.components).map(([id, candidate]) => {
+    const component = candidate as unknown as {
+      readonly fields?: Readonly<Record<string, { readonly type?: string }>>;
+      readonly render: (props: Record<string, unknown>) => ReactNode;
+    };
+    return [id, {
+      ...candidate,
+      render: (props: Record<string, unknown>) => createElement(Fragment, null, [
+        component.render(props),
+        ...Object.entries(component.fields ?? {}).flatMap(([field, definition]) => {
+          const slot = props[field];
+          return definition.type === "slot" && typeof slot === "function" ? [(slot as () => ReactNode)()] : [];
+        })
+      ])
+    }];
+  }));
+  const enhanced = { ...config, components } as Config;
+  editorConfigs.set(config, enhanced);
+  return enhanced;
+}
+
 /** The only package-level host that mounts Puck against canonical documents. */
 export function PuckEditorHost({ adapter, document, onChange, onPublish }: PuckEditorHostProps): ReactElement {
   const data = adapter.toPuckData(document);
   return createElement(Puck, {
-    config: adapter.config,
+    config: editorConfig(adapter.config),
     data,
     renderHeader: renderAccessiblePuckHeader,
     ...(onChange === undefined ? {} : { onChange: (next: Data) => onChange(adapter.fromPuckData(next)) }),

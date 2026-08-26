@@ -15,7 +15,14 @@ const staticBlock: PuckBlockBridge = {
 };
 const workspaceBlock: PuckBlockBridge = {
   ...staticBlock,
-  definition: { ...staticBlock.definition, id: "sales.workspace-task-table", profiles: ["workspace"], surfaces: ["workspace"], audience: "authenticated" },
+  definition: {
+    ...staticBlock.definition,
+    id: "sales.workspace-task-table",
+    profiles: ["workspace"],
+    surfaces: ["workspace"],
+    audience: "authenticated",
+    sourcePolicy: { required: true, contracts: [{ id: "table.records", version: 1 }], requiredFields: ["title"] }
+  },
   label: "Task table"
 };
 const source = (id: string, audience: "public" | "authenticated", surfaces: DataSourceDescriptor["surfaces"]): DataSourceDescriptor => ({
@@ -82,5 +89,42 @@ describe("profile-specific Puck policy", () => {
       id: "cms.hidden", version: 1, schemaVersion: 1, profile: "cms",
       regions: { main: [], sidebar: [{ id: "tasks-1", type: "sales.workspace-task-table", version: 1, props: { text: "Hidden" } }] }
     })).toThrow(/forbids block/);
+  });
+
+  it("threads preview authority through the resolved profile and rejects publication-incompatible bindings", () => {
+    const registry = createPuckBuilderProfileRegistry({
+      blocks: [staticBlock, workspaceBlock],
+      sources,
+      profiles: [workspace],
+      preview: { workspace: {
+        surface: "workspace",
+        actor: { authenticated: true, permissions: new Set(["sales.tasks.read"]) },
+        sourceResults: { tasks: { state: "idle" } }
+      } }
+    });
+    const profile = registry.resolve("workspace");
+    if (profile === undefined) throw new Error("Expected workspace profile.");
+    const document = {
+      id: "workspace.tasks", version: 1, schemaVersion: 1, profile: "workspace",
+      regions: { main: [{
+        id: "tasks", type: "sales.workspace-task-table", version: 1, props: { text: "Tasks" },
+        bindings: { source: {
+          source: { id: "sales.tasks", version: 1 }, input: {}, structuralCompatibilityHash: sources[1].structuralCompatibilityHash,
+          selectedFields: ["title"]
+        } }
+      }] }
+    };
+    expect(profile.validateDocument(document)).toEqual(document);
+    expect(() => profile.validateDocument({
+      ...document,
+      regions: { main: [{
+        ...document.regions.main[0],
+        bindings: { source: { ...document.regions.main[0].bindings.source, structuralCompatibilityHash: `sha256:${"0".repeat(64)}` } }
+      }] }
+    })).toThrow(/SOURCE_STRUCTURAL_HASH_MISMATCH/);
+
+    const data = profile.adapter.toPuckData(document);
+    const component = profile.adapter.config.components["sales.workspace-task-table__v1"] as { render: (props: Record<string, unknown>) => unknown };
+    expect(component.render(data.content[0]!.props)).not.toBe("Unavailable: MISSING_SOURCE");
   });
 });

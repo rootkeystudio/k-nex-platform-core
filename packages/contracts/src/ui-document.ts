@@ -200,8 +200,13 @@ const unsafeExactKeys = new Set([
   "css"
 ]);
 
-function isUnsafePersistedKey(key: string): boolean {
+function isStructuralLayoutTokens(path: readonly (string | number)[], key: string): boolean {
+  return key === "tokens" && path.at(-1) === "layout" && !path.includes("props") && !path.includes("engineMetadata");
+}
+
+function isUnsafePersistedKey(key: string, path: readonly (string | number)[]): boolean {
   const normalized = key.replace(/[^a-z0-9]/gi, "").toLowerCase();
+  if (isStructuralLayoutTokens(path, normalized)) return false;
   const secretBearing = [
     "password",
     "secret",
@@ -215,8 +220,9 @@ function isUnsafePersistedKey(key: string): boolean {
     "privatekey",
     "signingkey"
   ].some((part) => normalized.includes(part));
-  const tokenBearing = normalized !== "tokens" && (normalized.startsWith("token") || normalized.endsWith("token"));
-  return unsafeExactKeys.has(normalized) || secretBearing || tokenBearing;
+  const tokenBearing = normalized.includes("token");
+  const authBearing = /^(?:auth|authentication|authorization)(?:data|header|key|value|config|credential)/.test(normalized);
+  return unsafeExactKeys.has(normalized) || secretBearing || tokenBearing || authBearing;
 }
 
 function inspectJsonTree(value: unknown, path: readonly (string | number)[], context: z.RefinementCtx, depth: number, ancestors: Set<object>): void {
@@ -225,8 +231,14 @@ function inspectJsonTree(value: unknown, path: readonly (string | number)[], con
       context.addIssue({ code: "custom", path: [...path], message: `Strings may not exceed ${uiDocumentPlatformCeilings.stringLength} characters.` });
     }
     const trimmed = value.trim();
+    if (/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(value)) {
+      context.addIssue({ code: "custom", path: [...path], message: "Control and format characters are forbidden in persisted UI strings." });
+    }
     if (!/^sha256:[a-f0-9]{64}$/.test(trimmed) && /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(trimmed)) {
       context.addIssue({ code: "custom", path: [...path], message: "Unrestricted URL-like strings are forbidden in persisted UI documents." });
+    }
+    if (/^\\+(?:[a-z][a-z0-9+.-]*:|[\\/])/i.test(trimmed)) {
+      context.addIssue({ code: "custom", path: [...path], message: "Backslash-obscured URL-like strings are forbidden in persisted UI documents." });
     }
     return;
   }
@@ -257,7 +269,7 @@ function inspectJsonTree(value: unknown, path: readonly (string | number)[], con
       context.addIssue({ code: "custom", path: [...path], message: `Objects may not contain more than ${uiDocumentPlatformCeilings.jsonObjectKeys} keys.` });
     }
     for (const key of keys) {
-      if (isUnsafePersistedKey(key)) {
+      if (isUnsafePersistedKey(key, path)) {
         context.addIssue({ code: "custom", path: [...path, key], message: `Persisted key ${key} is not allowed.` });
       }
       inspectJsonTree((value as Record<string, unknown>)[key], [...path, key], context, depth + 1, ancestors);

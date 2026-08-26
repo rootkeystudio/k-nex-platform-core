@@ -48,4 +48,25 @@ describe("fixed builder shell", () => {
     expect(JSON.stringify(canvas?.props)).not.toContain("system");
     expect(JSON.stringify(canvas?.props)).not.toContain("dialogs");
   });
+
+  it("validates the canonical document through profile readiness before publishing", () => {
+    const profile = createPuckBuilderProfileRegistry({
+      blocks: [block], sources: [],
+      profiles: [{ id: "cms", blocks: [{ id: "content.text", version: 1 }], sources: [], actions: [], publication: "draft-preview-publish" }]
+    }).resolve("cms");
+    if (profile === undefined) throw new Error("Expected CMS profile.");
+    const published: unknown[] = [];
+    const shell = PuckFixedShellHost({
+      profile,
+      document: { id: "cms.home", version: 1, schemaVersion: 1, profile: "cms", regions: { main: [] } },
+      authentication: null, router: null, sidebar: null, topBar: null, systemScreens: null, globalDialogs: null,
+      onPublish: (document) => published.push(document)
+    });
+    const children = Children.toArray(shell.props.children) as ReactElement[];
+    const canvas = children.find((child) => isValidElement(child) && child.props["data-k-nex-builder-canvas"] === "cms") as ReactElement;
+    const editor = canvas.props.children as ReactElement;
+    const document = { id: "cms.home", version: 1, schemaVersion: 1, profile: "cms", regions: { main: [] } };
+    editor.props.onPublish(document);
+    expect(published).toEqual([document]);
+  });
 });

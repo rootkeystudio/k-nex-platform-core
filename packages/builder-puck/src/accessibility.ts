@@ -31,7 +31,7 @@ export function createKeyboardReorderActions(input: {
 }
 
 function blockName(block: ComponentData, index: number): string {
-  return `${block.type} ${index + 1}`;
+  return `${block.type} ${String(block.props.id)}, item ${index + 1}`;
 }
 
 interface BlockLocation {
