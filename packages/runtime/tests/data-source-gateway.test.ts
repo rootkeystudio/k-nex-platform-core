@@ -80,7 +80,8 @@ type StageName =
   | "output-contract"
   | "redact"
   | "result-budget"
-  | "cache";
+  | "cache-lookup"
+  | "cache-store";
 
 function recordingStages(trace: string[], failAt?: StageName): DataSourceGatewayStages {
   const step = (name: StageName): void => {
@@ -125,7 +126,10 @@ function recordingStages(trace: string[], failAt?: StageName): DataSourceGateway
     sourceSchema: { validate(_definition, value) { step("source-schema"); return value; } },
     outputContract: { validate(_descriptor, value) { step("output-contract"); return value; } },
     redactor: { redact(_context, value) { step("redact"); return value; } },
-    cache: { apply() { step("cache"); } },
+    cache: {
+      lookup() { step("cache-lookup"); return undefined; },
+      store() { step("cache-store"); }
+    },
     observability: {
       success() { trace.push("observe-success"); },
       failure() { trace.push("observe-failure"); }
@@ -151,12 +155,13 @@ describe("P2.3 staged data-source gateway", () => {
       "surface",
       "authorize",
       "budget",
+      "cache-lookup",
       "dispatch",
       "source-schema",
       "output-contract",
       "redact",
       "result-budget",
-      "cache",
+      "cache-store",
       "observe-success"
     ]);
     if (result.ok) {
@@ -181,7 +186,8 @@ describe("P2.3 staged data-source gateway", () => {
     "output-contract",
     "redact",
     "result-budget",
-    "cache"
+    "cache-lookup",
+    "cache-store"
   ])("short-circuits safely when %s fails", async (failedStage) => {
     const trace: string[] = [];
     const result = await new DataSourceGateway(recordingStages(trace, failedStage)).query(request);
@@ -214,6 +220,31 @@ describe("P2.3 staged data-source gateway", () => {
       signal: abort.signal
     });
     expect(received).not.toMatchObject({ input: request.input, selectedFields: request.selectedFields });
+  });
+
+  it("returns cache hits before dispatch and releases the query lease", async () => {
+    let dispatched = false;
+    let releases = 0;
+    const stages = recordingStages([]);
+    stages.budget.evaluate = (_source, gatewayRequest) => ({
+      input: {},
+      controls: { filters: [], sort: [] },
+      signal: gatewayRequest.signal,
+      lease: { release: () => { releases += 1; } }
+    });
+    stages.cache.lookup = () => ({
+      schemaVersion: 1,
+      source: { id: definition.descriptor.id, version: definition.descriptor.version },
+      contract: definition.descriptor.primaryContract,
+      structuralCompatibilityHash: definition.descriptor.structuralCompatibilityHash,
+      data: metricValue
+    });
+    stages.dispatcher.dispatch = () => { dispatched = true; return metricValue; };
+
+    const result = await new DataSourceGateway(stages).query(request);
+    expect(result.ok).toBe(true);
+    expect(dispatched).toBe(false);
+    expect(releases).toBe(1);
   });
 
   it("rejects invalid input and cannot let budgets expand authorized fields", async () => {
@@ -312,7 +343,7 @@ describe("P2.3 staged data-source gateway", () => {
       const { title } = value as { title: string };
       return { title };
     };
-    stages.cache.apply = (_context, envelope) => { seen.push(envelope); };
+    stages.cache.store = (_context, envelope) => { seen.push(envelope); };
     stages.observability.success = (_context, envelope) => { seen.push(envelope); };
 
     const result = await new DataSourceGateway(stages).query(request);
@@ -354,7 +385,7 @@ describe("P2.3 staged data-source gateway", () => {
   it("never lets the cache stage replace the validated envelope", async () => {
     let cached: DataSourceSuccessEnvelope | undefined;
     const stages = recordingStages([]);
-    stages.cache.apply = (_context, envelope) => { cached = envelope; };
+    stages.cache.store = (_context, envelope) => { cached = envelope; };
     const result = await new DataSourceGateway(stages).query(request);
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.body).toBe(cached);

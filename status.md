@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-26
 - **Phase:** Phase 2 — Authenticated Data Sources and Output Contracts
-- **Active task:** P2.6 — Implement safe cache classifications
+- **Active task:** P2.7 — Implement the Sales proof sources
 - **State:** In progress
 
 ## Last completed
 
-Implemented strict page/filter/sort query controls, hard platform/source ceilings, field/operator allowlists, body/depth/page/result-byte and cost enforcement, per-effective-actor/source concurrency and token-bucket limits, deep-frozen handler controls, cancellation/timeout racing, and fail-closed lease ownership until handlers settle.
+Implemented no-store, actor, authorization-context, and public cache policies with bounded in-memory TTL/eviction, mutation-isolated values, pre-dispatch lookup, post-redaction storage, and canonical keys covering actor/policy boundaries, query shape, field projection, surface, locale/timezone, and publication/feature revisions.
 
 ## Validation
 
-Full build and `pnpm phase:0` pass. Contracts have 45 tests, runtime has 57 tests, and the Payload adapter has 13 tests covering invalid syntax, batching denial, ceilings, allowlists, actor/source isolation, burst/refill, cost classes, cancellation, ignored-signal timeouts, lease cleanup, and redacted result-size enforcement.
+Full build and `pnpm phase:0` pass. Runtime has 65 tests covering cache hit short-circuiting, no-store behavior, actor and authorization-context isolation, public-cache restrictions, invalid identity rejection, TTL/eviction, and frozen clone isolation.
 
 ## Next
 
-Complete P2.6 with no-store, actor, authorization-context, and public cache policies plus complete identity-safe cache keys.
+Complete P2.7 with the bounded Sales metric and table proof sources.
 
 ## Blockers
 

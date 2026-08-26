@@ -133,7 +133,8 @@ export interface ProjectionRedactor {
 }
 
 export interface CachePolicyEvaluator {
-  apply(context: DataSourceExecutionContext, envelope: DataSourceSuccessEnvelope): void | Promise<void>;
+  lookup(context: DataSourceExecutionContext): DataSourceSuccessEnvelope | undefined | Promise<DataSourceSuccessEnvelope | undefined>;
+  store(context: DataSourceExecutionContext, envelope: DataSourceSuccessEnvelope): void | Promise<void>;
 }
 
 export interface GatewayErrorObservation {
@@ -293,6 +294,15 @@ export class DataSourceGateway {
         signal: budgeted.signal
       };
       if (context.signal.aborted) throw abortedError(request.signal);
+      const cached = await this.stages.cache.lookup(context);
+      if (cached !== undefined) {
+        try {
+          await this.stages.observability.success(context, cached);
+        } catch {
+          // Observability cannot change an already validated response.
+        }
+        return { ok: true, status: 200, body: cached };
+      }
       const handlerResult = this.stages.dispatcher.dispatch(context);
       const handlerLease = lease;
       lease = undefined;
@@ -310,7 +320,7 @@ export class DataSourceGateway {
         structuralCompatibilityHash: descriptor.structuralCompatibilityHash,
         data
       };
-      await this.stages.cache.apply(context, envelope);
+      await this.stages.cache.store(context, envelope);
       try {
         await this.stages.observability.success(context, envelope);
       } catch {
