@@ -3,6 +3,7 @@ export * from "./architecture-registry.js";
 export * from "./canonical-json.js";
 export * from "./framework-tuple.js";
 export * from "./data-source.js";
+export * from "./data-source-query.js";
 export * from "./identity.js";
 export * from "./lifecycle.js";
 export * from "./metric-scalar.js";

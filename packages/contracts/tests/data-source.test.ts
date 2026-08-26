@@ -16,8 +16,12 @@ const limits = {
   maxSorts: 2,
   maxBodyBytes: 16_384,
   maxResultBytes: 262_144,
+  maxDepth: 4,
   timeoutMs: 2_000,
   maxConcurrency: 4,
+  ratePerMinute: 120,
+  burst: 20,
+  costClass: "low",
   maxCost: 100
 } as const;
 
@@ -96,7 +100,17 @@ describe("P2.2 data-source contracts", () => {
   });
 
   it("enforces platform ceilings and known contract majors", () => {
-    expect(DataSourceDescriptorSchema.safeParse({ ...tableDescriptor, limits: { ...limits, maxPageSize: 101 } }).success).toBe(false);
+    for (const raised of [
+      { maxPageSize: 101 },
+      { maxDepth: 9 },
+      { maxConcurrency: 65 },
+      { ratePerMinute: 601 },
+      { burst: 61 },
+      { maxCost: 1_001 }
+    ]) {
+      expect(DataSourceDescriptorSchema.safeParse({ ...tableDescriptor, limits: { ...limits, ...raised } }).success).toBe(false);
+    }
+    expect(DataSourceDescriptorSchema.safeParse({ ...tableDescriptor, limits: { ...limits, costClass: "unbounded" } }).success).toBe(false);
     expect(DataSourceDescriptorSchema.safeParse({ ...metricDescriptor, primaryContract: { id: "metric.scalar", version: 2 } }).success).toBe(false);
   });
 

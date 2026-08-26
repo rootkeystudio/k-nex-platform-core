@@ -41,8 +41,12 @@ const descriptor = {
     maxSorts: 1,
     maxBodyBytes: 4_096,
     maxResultBytes: 65_536,
+    maxDepth: 4,
     timeoutMs: 1_000,
     maxConcurrency: 2,
+    ratePerMinute: 60,
+    burst: 10,
+    costClass: "low",
     maxCost: 10
   },
   cacheClass: "actor"
@@ -71,6 +75,7 @@ const baseRequest: DataSourceGatewayRequest = {
   sourceId: descriptor.id,
   surface: "workspace",
   input: {},
+  query: { page: { number: 1, size: 25 }, filters: [], sort: [] },
   selectedFields: ["title", "assignee"],
   signal: new AbortController().signal
 };
@@ -169,7 +174,12 @@ describe("P2.4 data-source authorization", () => {
       source,
       surface: "workspace" as const,
       authenticated,
-      query: { input: {}, selectedFields: ["title", "assignee"], recordScope: {} },
+      query: {
+        input: {},
+        controls: { page: { number: 1, size: 25 }, filters: [], sort: [] },
+        selectedFields: ["title", "assignee"],
+        recordScope: {}
+      },
       signal: baseRequest.signal
     };
     const value = {

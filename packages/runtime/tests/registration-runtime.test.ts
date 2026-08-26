@@ -40,8 +40,12 @@ function dataSourceDefinition(id: string, ownerPluginId = "module.consumer"): Da
         maxSorts: 0,
         maxBodyBytes: 1024,
         maxResultBytes: 1024,
+        maxDepth: 1,
         timeoutMs: 1000,
         maxConcurrency: 1,
+        ratePerMinute: 1,
+        burst: 1,
+        costClass: "low",
         maxCost: 1
       },
       cacheClass: "actor"

@@ -1,10 +1,11 @@
-import type { DataSourceDefinition, DataSourceDescriptor, DataSourceSurface } from "@k-nex/contracts";
+import type { DataSourceDefinition, DataSourceDescriptor, DataSourceQueryControls, DataSourceSurface } from "@k-nex/contracts";
 import { MetricScalarSchema, TableRecordsSchema } from "@k-nex/contracts";
 
 export interface DataSourceHandlerRequest {
   readonly actor: unknown;
   readonly request: unknown;
   readonly input: unknown;
+  readonly query: DataSourceQueryControls;
   readonly selectedFields: readonly string[];
   readonly recordScope: unknown;
   readonly signal: AbortSignal;
@@ -23,6 +24,7 @@ export interface DataSourceGatewayRequest {
   readonly sourceId: string;
   readonly surface: DataSourceSurface;
   readonly input: unknown;
+  readonly query: unknown;
   readonly selectedFields: readonly string[];
   readonly signal: AbortSignal;
 }
@@ -40,9 +42,19 @@ export interface AuthorizedDataSourceQuery {
 
 export interface BudgetedDataSourceQuery {
   readonly input: unknown;
+  readonly controls: DataSourceQueryControls;
+  readonly signal: AbortSignal;
+  readonly lease: QueryBudgetLease;
 }
 
-export interface ExecutableDataSourceQuery extends AuthorizedDataSourceQuery, BudgetedDataSourceQuery {}
+export interface QueryBudgetLease {
+  release(): void;
+}
+
+export interface ExecutableDataSourceQuery extends AuthorizedDataSourceQuery {
+  readonly input: unknown;
+  readonly controls: DataSourceQueryControls;
+}
 
 export interface DataSourceExecutionContext {
   readonly correlationId: string;
@@ -101,6 +113,7 @@ export interface QueryBudgetEvaluator {
     authenticated: AuthenticatedDataSourceRequest,
     authorized: AuthorizedDataSourceQuery
   ): BudgetedDataSourceQuery | Promise<BudgetedDataSourceQuery>;
+  assertResult(source: RegisteredDataSource, value: unknown): void;
 }
 
 export interface HandlerDispatcher {
@@ -179,6 +192,7 @@ export class RegisteredHandlerDispatcher implements HandlerDispatcher {
       actor: context.authenticated.actor,
       request: context.authenticated.request,
       input: context.query.input,
+      query: context.query.controls,
       selectedFields: context.query.selectedFields,
       recordScope: context.query.recordScope,
       signal: context.signal
@@ -224,11 +238,36 @@ function normalizedError(error: unknown): DataSourceGatewayError {
     : new DataSourceGatewayError("INTERNAL_ERROR", 500, "Data-source request failed.");
 }
 
+function abortedError(callerSignal: AbortSignal): DataSourceGatewayError {
+  return callerSignal.aborted
+    ? new DataSourceGatewayError("QUERY_CANCELLED", 499, "The query was cancelled.")
+    : new DataSourceGatewayError("QUERY_TIMEOUT", 504, "The data-source query timed out.");
+}
+
+async function dispatchWithSignal(
+  dispatched: Promise<unknown>,
+  signal: AbortSignal,
+  callerSignal: AbortSignal
+): Promise<unknown> {
+  if (signal.aborted) throw abortedError(callerSignal);
+  let rejectAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_, reject) => {
+    rejectAbort = () => reject(abortedError(callerSignal));
+    signal.addEventListener("abort", rejectAbort, { once: true });
+  });
+  try {
+    return await Promise.race([dispatched, aborted]);
+  } finally {
+    if (rejectAbort) signal.removeEventListener("abort", rejectAbort);
+  }
+}
+
 export class DataSourceGateway {
   constructor(private readonly stages: DataSourceGatewayStages) {}
 
   async query(request: DataSourceGatewayRequest): Promise<DataSourceGatewayResponse> {
     const correlationId = bounded(request.correlationId, "unavailable", 128);
+    let lease: QueryBudgetLease | undefined;
     try {
       const authenticated = await this.stages.authenticator.authenticate(request);
       const source = await this.stages.catalog.lookup(request.sourceId);
@@ -236,10 +275,12 @@ export class DataSourceGateway {
       await this.stages.surfaceAudience.assertAllowed(source, request.surface, authenticated);
       const authorized = await this.stages.authorization.authorize(source, request, authenticated);
       const budgeted = await this.stages.budget.evaluate(source, request, authenticated, authorized);
+      lease = budgeted.lease;
       const parsedInput = source.definition.inputSchema.safeParse(budgeted.input);
       if (!parsedInput.success) throw new DataSourceGatewayError("INVALID_QUERY_INPUT", 400, "Data-source input is invalid.");
       const query: ExecutableDataSourceQuery = {
         input: parsedInput.data,
+        controls: budgeted.controls,
         selectedFields: authorized.selectedFields,
         recordScope: authorized.recordScope
       };
@@ -249,12 +290,18 @@ export class DataSourceGateway {
         surface: request.surface,
         authenticated,
         query,
-        signal: request.signal
+        signal: budgeted.signal
       };
-      const dispatched = await this.stages.dispatcher.dispatch(context);
+      if (context.signal.aborted) throw abortedError(request.signal);
+      const handlerResult = this.stages.dispatcher.dispatch(context);
+      const handlerLease = lease;
+      lease = undefined;
+      const handlerSettled = Promise.resolve(handlerResult).finally(() => handlerLease?.release());
+      const dispatched = await dispatchWithSignal(handlerSettled, context.signal, request.signal);
       const sourceValid = this.stages.sourceSchema.validate(source.definition, dispatched);
       const contractValid = this.stages.outputContract.validate(source.definition.descriptor, sourceValid);
       const data = await this.stages.redactor.redact(context, contractValid);
+      this.stages.budget.assertResult(source, data);
       const descriptor = source.definition.descriptor;
       const envelope: DataSourceSuccessEnvelope = {
         schemaVersion: 1,
@@ -279,6 +326,8 @@ export class DataSourceGateway {
       }
       const body = this.stages.problemDetails.serialize(error, correlationId);
       return { ok: false, status: body.status, body };
+    } finally {
+      lease?.release();
     }
   }
 }

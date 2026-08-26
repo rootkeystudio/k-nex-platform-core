@@ -1,0 +1,41 @@
+import { describe, expect, it } from "vitest";
+
+import { DataSourceQueryControlsSchema } from "../src/data-source-query.js";
+
+describe("data-source query controls", () => {
+  it("parses bounded page, filter, and sort controls", () => {
+    expect(DataSourceQueryControlsSchema.parse({
+      page: { number: 2, size: 25 },
+      filters: [
+        { field: "status", operator: "in", value: ["open", "blocked"] },
+        { field: "closed-at", operator: "is-null" }
+      ],
+      sort: [{ field: "created-at", direction: "desc" }]
+    })).toEqual({
+      page: { number: 2, size: 25 },
+      filters: [
+        { field: "status", operator: "in", value: ["open", "blocked"] },
+        { field: "closed-at", operator: "is-null" }
+      ],
+      sort: [{ field: "created-at", direction: "desc" }]
+    });
+  });
+
+  it("defaults omitted filter and sort collections", () => {
+    expect(DataSourceQueryControlsSchema.parse({})).toEqual({ filters: [], sort: [] });
+  });
+
+  it.each([
+    { filters: [{ field: "status", operator: "eq" }] },
+    { filters: [{ field: "status", operator: "is-null", value: null }] },
+    { filters: [{ field: "status", operator: "eq", value: { raw: true } }] },
+    { page: { number: 0, size: 10 } },
+    { page: { number: 1, size: 101 } },
+    { sort: [{ field: "status", direction: "sideways" }] },
+    { batch: [{ page: { number: 1, size: 10 } }] },
+    { queries: [] },
+    { path: "payload.collections.sales" }
+  ])("rejects invalid or undeclared query syntax %#", (value) => {
+    expect(DataSourceQueryControlsSchema.safeParse(value).success).toBe(false);
+  });
+});

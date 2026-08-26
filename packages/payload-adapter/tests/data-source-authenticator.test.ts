@@ -35,6 +35,7 @@ const gatewayRequest = {
   sourceId: "sales.tasks",
   surface: "workspace" as const,
   input: {},
+  query: { page: { number: 1, size: 25 }, filters: [], sort: [] },
   selectedFields: ["title"],
   signal: new AbortController().signal
 };

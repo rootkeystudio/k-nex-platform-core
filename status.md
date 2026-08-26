@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-26
 - **Phase:** Phase 2 — Authenticated Data Sources and Output Contracts
-- **Active task:** P2.5 — Add bounded query semantics and abuse budgets
+- **Active task:** P2.6 — Implement safe cache classifications
 - **State:** In progress
 
 ## Last completed
 
-Added Payload request authentication adaptation, principal/effective actor and impersonation context, audience guards, module policy decisions, pre-query record scopes, required/optional field authorization, and defensive table redaction.
+Implemented strict page/filter/sort query controls, hard platform/source ceilings, field/operator allowlists, body/depth/page/result-byte and cost enforcement, per-effective-actor/source concurrency and token-bucket limits, deep-frozen handler controls, cancellation/timeout racing, and fail-closed lease ownership until handlers settle.
 
 ## Validation
 
-Runtime and Payload adapter builds pass with 25 authorization/gateway tests and 13 Payload adapter tests. Source, surface, actor, record-scope, field manipulation, required/optional behavior, impersonation, redaction, and request-secret isolation pass.
+Full build and `pnpm phase:0` pass. Contracts have 45 tests, runtime has 57 tests, and the Payload adapter has 13 tests covering invalid syntax, batching denial, ceilings, allowlists, actor/source isolation, burst/refill, cost classes, cancellation, ignored-signal timeouts, lease cleanup, and redacted result-size enforcement.
 
 ## Next
 
-Complete P2.5 with bounded inputs, pagination/filter/sort semantics, cancellation, concurrency, rate, and cost enforcement.
+Complete P2.6 with no-store, actor, authorization-context, and public cache policies plus complete identity-safe cache keys.
 
 ## Blockers
 

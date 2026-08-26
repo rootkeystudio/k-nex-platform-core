@@ -43,8 +43,12 @@ const definition: DataSourceDefinition = {
       maxSorts: 0,
       maxBodyBytes: 1_024,
       maxResultBytes: 4_096,
+      maxDepth: 4,
       timeoutMs: 1_000,
       maxConcurrency: 2,
+      ratePerMinute: 60,
+      burst: 10,
+      costClass: "low",
       maxCost: 10
     },
     cacheClass: "actor"
@@ -60,6 +64,7 @@ const request = {
   sourceId: definition.descriptor.id,
   surface: "workspace" as const,
   input: { unsafe: true },
+  query: {},
   selectedFields: ["secret"],
   signal: abort.signal
 };
@@ -74,6 +79,7 @@ type StageName =
   | "source-schema"
   | "output-contract"
   | "redact"
+  | "result-budget"
   | "cache";
 
 function recordingStages(trace: string[], failAt?: StageName): DataSourceGatewayStages {
@@ -103,11 +109,17 @@ function recordingStages(trace: string[], failAt?: StageName): DataSourceGateway
       }
     },
     budget: {
-      evaluate(_source, _request, _authenticated, authorized) {
+      evaluate(_source, gatewayRequest, _authenticated, authorized) {
         step("budget");
         expect(authorized.selectedFields).toEqual(["authorized"]);
-        return { input: {} };
-      }
+        return {
+          input: {},
+          controls: { filters: [], sort: [] },
+          signal: gatewayRequest.signal,
+          lease: { release() {} }
+        };
+      },
+      assertResult() { step("result-budget"); }
     },
     dispatcher: { dispatch() { step("dispatch"); return metricValue; } },
     sourceSchema: { validate(_definition, value) { step("source-schema"); return value; } },
@@ -143,6 +155,7 @@ describe("P2.3 staged data-source gateway", () => {
       "source-schema",
       "output-contract",
       "redact",
+      "result-budget",
       "cache",
       "observe-success"
     ]);
@@ -167,6 +180,7 @@ describe("P2.3 staged data-source gateway", () => {
     "source-schema",
     "output-contract",
     "redact",
+    "result-budget",
     "cache"
   ])("short-circuits safely when %s fails", async (failedStage) => {
     const trace: string[] = [];
@@ -194,6 +208,7 @@ describe("P2.3 staged data-source gateway", () => {
     expect(result.ok).toBe(true);
     expect(received).toMatchObject({
       input: {},
+      query: { filters: [], sort: [] },
       selectedFields: ["authorized"],
       recordScope: { tenantId: "tenant-1" },
       signal: abort.signal
@@ -204,7 +219,12 @@ describe("P2.3 staged data-source gateway", () => {
   it("rejects invalid input and cannot let budgets expand authorized fields", async () => {
     let dispatched = false;
     const invalidStages = recordingStages([]);
-    invalidStages.budget.evaluate = () => ({ input: { undeclared: true } });
+    invalidStages.budget.evaluate = (_source, gatewayRequest) => ({
+      input: { undeclared: true },
+      controls: { filters: [], sort: [] },
+      signal: gatewayRequest.signal,
+      lease: { release() {} }
+    });
     invalidStages.dispatcher.dispatch = () => { dispatched = true; return metricValue; };
     const invalid = await new DataSourceGateway(invalidStages).query(request);
     expect(invalid.ok).toBe(false);
@@ -213,10 +233,62 @@ describe("P2.3 staged data-source gateway", () => {
 
     let selectedFields: readonly string[] = [];
     const expandedStages = recordingStages([]);
-    expandedStages.budget.evaluate = () => ({ input: {}, selectedFields: ["secret"] } as never);
+    expandedStages.budget.evaluate = (_source, gatewayRequest) => ({
+      input: {},
+      controls: { filters: [], sort: [] },
+      signal: gatewayRequest.signal,
+      lease: { release() {} },
+      selectedFields: ["secret"]
+    } as never);
     expandedStages.dispatcher.dispatch = (context) => { selectedFields = context.query.selectedFields; return metricValue; };
     expect((await new DataSourceGateway(expandedStages).query(request)).ok).toBe(true);
     expect(selectedFields).toEqual(["authorized"]);
+  });
+
+  it("enforces timeout/cancellation even when handlers ignore signals and releases leases", async () => {
+    let releases = 0;
+    const timeoutStages = recordingStages([]);
+    timeoutStages.budget.evaluate = () => ({
+      input: {},
+      controls: { filters: [], sort: [] },
+      signal: AbortSignal.timeout(1),
+      lease: { release: () => { releases += 1; } }
+    });
+    let finishTimedOut: (() => void) | undefined;
+    timeoutStages.dispatcher.dispatch = () => new Promise<void>((resolve) => { finishTimedOut = resolve; });
+    const timeout = await new DataSourceGateway(timeoutStages).query(request);
+    expect(timeout.ok).toBe(false);
+    if (!timeout.ok) expect(timeout.body.code).toBe("QUERY_TIMEOUT");
+    expect(releases).toBe(0);
+    finishTimedOut?.();
+    await Promise.resolve();
+    expect(releases).toBe(1);
+
+    const caller = new AbortController();
+    const cancelledStages = recordingStages([]);
+    cancelledStages.budget.evaluate = () => ({
+      input: {},
+      controls: { filters: [], sort: [] },
+      signal: caller.signal,
+      lease: { release: () => { releases += 1; } }
+    });
+    let finishCancelled: (() => void) | undefined;
+    let markStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    cancelledStages.dispatcher.dispatch = () => new Promise<void>((resolve) => {
+      finishCancelled = resolve;
+      markStarted?.();
+    });
+    const pending = new DataSourceGateway(cancelledStages).query({ ...request, signal: caller.signal });
+    await started;
+    caller.abort();
+    const cancelled = await pending;
+    expect(cancelled.ok).toBe(false);
+    if (!cancelled.ok) expect(cancelled.body.code).toBe("QUERY_CANCELLED");
+    expect(releases).toBe(1);
+    finishCancelled?.();
+    await Promise.resolve();
+    expect(releases).toBe(2);
   });
 
   it("validates the exact source schema before the canonical contract", () => {

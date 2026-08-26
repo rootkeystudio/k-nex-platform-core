@@ -10,6 +10,21 @@ const positiveVersionSchema = z.number().finite().int().min(1).max(1_000_000);
 export const dataSourceSurfaces = ["workspace", "cms", "public", "driver", "mobile", "system"] as const;
 export const dataSourceAudiences = ["public", "authenticated", "internal"] as const;
 export const dataSourceCacheClasses = ["no-store", "actor", "authorization-context", "public"] as const;
+export const dataSourceCostClasses = ["low", "medium", "high"] as const;
+export const dataSourcePlatformCeilings = Object.freeze({
+  selectedFields: 64,
+  pageSize: 100,
+  filters: 32,
+  sorts: 16,
+  bodyBytes: 1_048_576,
+  resultBytes: 4_194_304,
+  depth: 8,
+  timeoutMs: 30_000,
+  concurrency: 64,
+  ratePerMinute: 600,
+  burst: 60,
+  cost: 1_000
+} as const);
 export const dataSourceInputKinds = ["string", "integer", "number", "boolean", "date", "datetime", "enum"] as const;
 export const dataSourceOutputKinds = [
   "text",
@@ -84,15 +99,19 @@ export const DataSourceOutputFieldSchema = z.strictObject({
 });
 
 export const DataSourceLimitsSchema = z.strictObject({
-  maxSelectedFields: z.number().finite().int().min(1).max(64),
-  maxPageSize: z.number().finite().int().min(1).max(100),
-  maxFilters: z.number().finite().int().min(0).max(32),
-  maxSorts: z.number().finite().int().min(0).max(16),
-  maxBodyBytes: z.number().finite().int().min(1).max(1_048_576),
-  maxResultBytes: z.number().finite().int().min(1).max(4_194_304),
-  timeoutMs: z.number().finite().int().min(1).max(30_000),
-  maxConcurrency: z.number().finite().int().min(1).max(64),
-  maxCost: z.number().finite().int().min(1).max(1_000)
+  maxSelectedFields: z.number().finite().int().min(1).max(dataSourcePlatformCeilings.selectedFields),
+  maxPageSize: z.number().finite().int().min(1).max(dataSourcePlatformCeilings.pageSize),
+  maxFilters: z.number().finite().int().min(0).max(dataSourcePlatformCeilings.filters),
+  maxSorts: z.number().finite().int().min(0).max(dataSourcePlatformCeilings.sorts),
+  maxBodyBytes: z.number().finite().int().min(1).max(dataSourcePlatformCeilings.bodyBytes),
+  maxResultBytes: z.number().finite().int().min(1).max(dataSourcePlatformCeilings.resultBytes),
+  maxDepth: z.number().finite().int().min(1).max(dataSourcePlatformCeilings.depth),
+  timeoutMs: z.number().finite().int().min(1).max(dataSourcePlatformCeilings.timeoutMs),
+  maxConcurrency: z.number().finite().int().min(1).max(dataSourcePlatformCeilings.concurrency),
+  ratePerMinute: z.number().finite().int().min(1).max(dataSourcePlatformCeilings.ratePerMinute),
+  burst: z.number().finite().int().min(1).max(dataSourcePlatformCeilings.burst),
+  costClass: z.enum(dataSourceCostClasses),
+  maxCost: z.number().finite().int().min(1).max(dataSourcePlatformCeilings.cost)
 });
 
 export const DataSourceDescriptorSchema = z.strictObject({
@@ -159,6 +178,7 @@ export type DataSourceFilterOperator = (typeof dataSourceFilterOperators)[number
 export type DataSourceSurface = (typeof dataSourceSurfaces)[number];
 export type DataSourceAudience = (typeof dataSourceAudiences)[number];
 export type DataSourceCacheClass = (typeof dataSourceCacheClasses)[number];
+export type DataSourceCostClass = (typeof dataSourceCostClasses)[number];
 
 export type RuntimeSchemaResult<T> =
   | { readonly success: true; readonly data: T }
