@@ -120,4 +120,14 @@ describe("P2A.4 tool execution gateway", () => {
     expect(response).toMatchObject({ ok: true, body: { data: "replayed" } });
     expect(trace).not.toContain("dispatcher");
   });
+
+  it("does not release an idempotency claim after dispatch may have produced an effect", async () => {
+    let failedClaims = 0;
+    const { gateway } = harness({
+      idempotency: { claim: () => ({ context: {}, complete: () => undefined, fail: () => { failedClaims += 1; } }) },
+      dispatcher: { dispatch: () => { throw new Error("uncertain action outcome"); } }
+    });
+    await expect(gateway.execute(request())).resolves.toMatchObject({ ok: false, status: 500 });
+    expect(failedClaims).toBe(0);
+  });
 });

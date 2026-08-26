@@ -10,6 +10,7 @@ import {
 import {
   ToolCatalog,
   ToolCatalogError,
+  toolCatalogLimits,
   type ToolCatalogPolicyRequest,
   type ToolCatalogRequest
 } from "../src/tool-catalog.js";
@@ -201,6 +202,18 @@ describe("P2A.2 tool catalog", () => {
     await expect(catalog.list(request({ actor: {} as ToolCatalogRequest["actor"] }))).rejects.toMatchObject({ code: "INVALID_ACTOR_CONTEXT" });
     await expect(catalog.list(request({ features: ["duplicate", "duplicate"] }))).rejects.toBeInstanceOf(ToolCatalogError);
     await expect(catalog.list({ ...request(), limit: 101 })).rejects.toMatchObject({ code: "INVALID_REQUEST" });
+  });
+
+  it("rejects an oversized resolved catalog before processing descriptors", () => {
+    const resolved = registration();
+    const oversized = {
+      ...resolved,
+      contributions: {
+        ...resolved.contributions,
+        tools: Array.from({ length: toolCatalogLimits.maxCatalogSize + 1 }, () => resolved.contributions.tools[0]!)
+      }
+    };
+    expect(() => new ToolCatalog(oversized, { isVisible: () => true })).toThrowError(expect.objectContaining({ code: "CATALOG_LIMIT_EXCEEDED" }));
   });
 
   it("rejects malformed, undeclared, duplicate, and unbound tool registrations", () => {

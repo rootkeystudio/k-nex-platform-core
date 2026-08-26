@@ -111,7 +111,7 @@ export interface ToolProjectionRedactor {
 
 export interface ToolAuditDecorator {
   success(context: ToolExecutionContext, result: ToolSuccessEnvelope): void | Promise<void>;
-  failure(request: ToolGatewayRequest, error: ToolGatewayError): void | Promise<void>;
+  failure(request: ToolGatewayRequest, error: ToolGatewayError, context?: ToolExecutionContext): void | Promise<void>;
 }
 
 export interface ToolProblemSerializer {
@@ -210,19 +210,28 @@ export class ToolExecutionGateway {
   async execute(request: ToolGatewayRequest): Promise<ToolGatewayResponse> {
     let lease: ToolBudgetLease | undefined;
     let claim: ToolIdempotencyClaim | undefined;
+    let executionContext: ToolExecutionContext | undefined;
+    let dispatchStarted = false;
     try {
       const authorized = await this.authorize(request);
       lease = authorized.lease;
+      executionContext = authorized.context;
       const approval = await this.stages.approval.evaluate(authorized.context);
       let context: ToolExecutionContext = Object.freeze({ ...authorized.context, approval });
+      executionContext = context;
       claim = await this.stages.idempotency.claim(context);
       context = Object.freeze({ ...context, idempotency: claim.context });
+      executionContext = context;
       if (context.signal.aborted || request.signal.aborted) {
         throw new ToolGatewayError("TOOL_CANCELLED", 499, "The tool request was cancelled.");
       }
-      const dispatched = claim.replay === undefined
-        ? await this.stages.dispatcher.dispatch(context)
-        : claim.replay;
+      let dispatched: unknown;
+      if (claim.replay === undefined) {
+        dispatchStarted = true;
+        dispatched = await this.stages.dispatcher.dispatch(context);
+      } else {
+        dispatched = claim.replay;
+      }
       const validated = this.stages.output.validate(context.descriptor, dispatched);
       const data = await this.stages.redactor.redact(context, validated);
       const body: ToolSuccessEnvelope = Object.freeze({
@@ -243,12 +252,12 @@ export class ToolExecutionGateway {
     } catch (cause) {
       const error = normalizedError(cause);
       try {
-        await claim?.fail();
+        if (!dispatchStarted) await claim?.fail();
       } catch {
         // Idempotency cleanup cannot replace the safe failure.
       }
       try {
-        await this.stages.audit.failure(request, error);
+        await this.stages.audit.failure(request, error, executionContext);
       } catch {
         // Audit transport failure cannot replace the safe failure.
       }
@@ -261,9 +270,11 @@ export class ToolExecutionGateway {
 
   async prepare(request: ToolGatewayRequest): Promise<ToolPreparationResponse> {
     let lease: ToolBudgetLease | undefined;
+    let executionContext: ToolExecutionContext | undefined;
     try {
       const authorized = await this.authorize(request);
       lease = authorized.lease;
+      executionContext = authorized.context;
       if (authorized.context.signal.aborted || request.signal.aborted) {
         throw new ToolGatewayError("TOOL_CANCELLED", 499, "The tool request was cancelled.");
       }
@@ -271,7 +282,7 @@ export class ToolExecutionGateway {
     } catch (cause) {
       const error = normalizedError(cause);
       try {
-        await this.stages.audit.failure(request, error);
+        await this.stages.audit.failure(request, error, executionContext);
       } catch {
         // Audit transport failure cannot replace the safe failure.
       }
@@ -284,9 +295,11 @@ export class ToolExecutionGateway {
 
   async submitApproval(request: ToolGatewayRequest, approval: unknown): Promise<ToolPreparationResponse> {
     let lease: ToolBudgetLease | undefined;
+    let executionContext: ToolExecutionContext | undefined;
     try {
       const authorized = await this.authorize(request);
       lease = authorized.lease;
+      executionContext = authorized.context;
       if (authorized.context.signal.aborted || request.signal.aborted) {
         throw new ToolGatewayError("TOOL_CANCELLED", 499, "The tool request was cancelled.");
       }
@@ -294,7 +307,7 @@ export class ToolExecutionGateway {
     } catch (cause) {
       const error = normalizedError(cause);
       try {
-        await this.stages.audit.failure(request, error);
+        await this.stages.audit.failure(request, error, executionContext);
       } catch {
         // Audit transport failure cannot replace the safe failure.
       }

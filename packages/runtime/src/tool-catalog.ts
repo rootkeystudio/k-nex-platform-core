@@ -15,7 +15,8 @@ export const toolCatalogLimits = Object.freeze({
   maxPageSize: 100,
   maxFeatures: 64,
   maxFeatureLength: 128,
-  maxCursorLength: 128
+  maxCursorLength: 128,
+  maxCatalogSize: 1_000
 } as const);
 
 export type ToolCatalogErrorCode =
@@ -25,7 +26,8 @@ export type ToolCatalogErrorCode =
   | "INVALID_TOOL"
   | "TOOL_OWNER_UNAVAILABLE"
   | "DUPLICATE_TOOL"
-  | "TOOL_BINDING_MISSING";
+  | "TOOL_BINDING_MISSING"
+  | "CATALOG_LIMIT_EXCEEDED";
 
 export class ToolCatalogError extends Error {
   readonly code: ToolCatalogErrorCode;
@@ -168,6 +170,9 @@ export class ToolCatalog {
     const installedOwners = new Set(registration.inventory.map((plugin) => plugin.id));
     const seen = new Set<string>();
     const values = registration.contributions.tools ?? [];
+    if (values.length > toolCatalogLimits.maxCatalogSize) {
+      throw new ToolCatalogError("CATALOG_LIMIT_EXCEEDED", "Tool catalog exceeds the bounded size.");
+    }
     const tools = values.map((entry) => {
       const parsed = AgentToolDescriptorSchema.safeParse(entry.value);
       if (!parsed.success || parsed.data.id !== entry.id || parsed.data.ownerPluginId !== entry.pluginId) {
