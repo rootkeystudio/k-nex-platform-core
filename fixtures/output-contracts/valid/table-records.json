@@ -1,0 +1,41 @@
+{
+  "fields": [
+    "title",
+    "amount",
+    "owner"
+  ],
+  "page": {
+    "hasNext": false,
+    "number": 1,
+    "pageSize": 25
+  },
+  "rows": [
+    {
+      "key": "task-1",
+      "values": {
+        "amount": {
+          "currency": "USD",
+          "kind": "money",
+          "scale": 2,
+          "value": "12.50"
+        },
+        "owner": {
+          "id": "user-1",
+          "kind": "resource",
+          "label": "Ali",
+          "resourceType": "user",
+          "route": {
+            "params": {
+              "userId": "user-1"
+            },
+            "routeId": "system.users.detail"
+          }
+        },
+        "title": {
+          "kind": "text",
+          "value": "Task"
+        }
+      }
+    }
+  ]
+}

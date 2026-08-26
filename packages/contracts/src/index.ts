@@ -4,6 +4,8 @@ export * from "./canonical-json.js";
 export * from "./framework-tuple.js";
 export * from "./identity.js";
 export * from "./lifecycle.js";
+export * from "./metric-scalar.js";
 export * from "./output-contracts.js";
 export * from "./plugin-manifest.js";
 export * from "./registration-phases.js";
+export * from "./table-records.js";
