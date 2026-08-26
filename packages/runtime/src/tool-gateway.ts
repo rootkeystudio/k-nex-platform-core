@@ -204,6 +204,22 @@ function correlationId(request: ToolGatewayRequest): string {
   return bounded(request.correlationId, "unavailable", 128);
 }
 
+function replayEnvelope(value: unknown, descriptor: AgentToolDescriptor): ToolSuccessEnvelope {
+  if (typeof value !== "object" || value === null || Array.isArray(value) ||
+    Object.keys(value).sort().join("\u0000") !== "correlationId\u0000data\u0000provenance\u0000schemaVersion\u0000tool\u0000trust") {
+    throw new ToolGatewayError("IDEMPOTENCY_RESULT_INVALID", 500, "The idempotent result is invalid.");
+  }
+  const envelope = value as Partial<ToolSuccessEnvelope>;
+  if (envelope.schemaVersion !== 1 || envelope.provenance !== "k-nex-tool" ||
+    envelope.trust !== "structured-untrusted-content" || typeof envelope.correlationId !== "string" ||
+    envelope.correlationId.length < 1 || envelope.correlationId.length > 128 ||
+    typeof envelope.tool !== "object" || envelope.tool === null ||
+    envelope.tool.id !== descriptor.id || envelope.tool.version !== descriptor.version) {
+    throw new ToolGatewayError("IDEMPOTENCY_RESULT_INVALID", 500, "The idempotent result is invalid.");
+  }
+  return value as ToolSuccessEnvelope;
+}
+
 export class ToolExecutionGateway {
   constructor(private readonly stages: ToolGatewayStages) {}
 
@@ -225,13 +241,17 @@ export class ToolExecutionGateway {
       if (context.signal.aborted || request.signal.aborted) {
         throw new ToolGatewayError("TOOL_CANCELLED", 499, "The tool request was cancelled.");
       }
-      let dispatched: unknown;
-      if (claim.replay === undefined) {
-        dispatchStarted = true;
-        dispatched = await this.stages.dispatcher.dispatch(context);
-      } else {
-        dispatched = claim.replay;
+      if (claim.replay !== undefined) {
+        const body = replayEnvelope(claim.replay, context.descriptor);
+        try {
+          await this.stages.audit.success(context, body);
+        } catch {
+          // Audit transport failure cannot corrupt an already validated replay.
+        }
+        return { ok: true, status: 200, body };
       }
+      dispatchStarted = true;
+      const dispatched = await this.stages.dispatcher.dispatch(context);
       const validated = this.stages.output.validate(context.descriptor, dispatched);
       const data = await this.stages.redactor.redact(context, validated);
       const body: ToolSuccessEnvelope = Object.freeze({

@@ -7,6 +7,7 @@ export * from "./tool-approval.js";
 export * from "./tool-idempotency.js";
 export * from "./tool-budget.js";
 export * from "./tool-audit.js";
+export * from "./scripted-tool-client.js";
 export * from "./data-source-authorization.js";
 export * from "./data-source-budget.js";
 export * from "./data-source-cache.js";

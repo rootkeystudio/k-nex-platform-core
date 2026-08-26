@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-26
 - **Phase:** Phase 2A — Agent Tool Contracts and Safe Execution
-- **Active task:** P2A.8 — Sales proof tools and deterministic agent client
+- **Active task:** P2A.9 — Attack, Gate 2A closeout, and Phase 3 authorization
 - **State:** Ready to implement
 
 ## Last completed
 
-Adopted exact-pinned `@payloadcms/plugin-mcp@3.88.0` as a bounded transport adapter. Payload collection/global and experimental tools remain disabled; actor/delegation-filtered K-Nex descriptors are intersected with API-key toggles; every call re-enters the K-Nex gateway. The adapter bounds duration, isolates telemetry, enforces a 30-day API-key expiry and owner-only management, and exposes an executable collection/endpoint/admin/migration inventory without leaking MCP types into K-Nex contracts.
+Added explicit Sales read/write tool descriptors, the registered `sales.task.create` action, and a model-independent deterministic client. The proof authenticates and lists, reads, conceals a forbidden tool, prepares and binds exact approvals, creates one task, returns a stable safe-envelope replay for the same idempotency key, rejects changed-input reuse, records redacted audit metadata, and repeats discovery/call through the official Payload MCP adapter. The customer migration owns the MCP API-key table, per-tool toggles, expiry, unique digest index, Payload relations, and revision 3.
 
 ## Validation
 
-Strict peer checking, the full workspace build, and all 21 Payload-adapter tests pass. Tests cover absent built-in CRUD, actor/delegation and API-key intersection, catalog pagination, gateway re-entry, safe envelopes, duration/telemetry bounds, owner-only and expiring API keys, and declared-versus-actual plugin contributions.
+Strict peer checking, the full workspace build, 115 runtime tests, 22 Payload-adapter tests, 8 Sales tests, the packed-module reproducibility check, the customer config test, and the real-PostgreSQL migration/boot gate pass.
 
 ## Next
 
-Add the Sales read/write proof tools and deterministic agent client, then integrate the adapter inventory and API-key schema into the customer-owned migration proof.
+Run the Gate 2A attack corpus and benchmark, add `pnpm gate:2a` and the phase closeout result, then obtain a fresh Sol/high phase review and fix until PASS.
 
 ## Blockers
 

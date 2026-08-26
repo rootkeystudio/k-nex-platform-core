@@ -114,10 +114,32 @@ describe("P2A.4 tool execution gateway", () => {
 
   it("uses an idempotent replay result without exposing or calling registered handlers", async () => {
     const { gateway, trace } = harness({
-      idempotency: { claim: () => ({ context: {}, replay: "replayed", complete: () => undefined, fail: () => undefined }) }
+      idempotency: { claim: () => ({
+        context: {},
+        replay: {
+          schemaVersion: 1,
+          correlationId: "original-correlation",
+          tool: { id: descriptor.id, version: descriptor.version },
+          provenance: "k-nex-tool",
+          trust: "structured-untrusted-content",
+          data: "replayed"
+        },
+        complete: () => undefined,
+        fail: () => undefined
+      }) }
     });
     const response = await gateway.execute(request());
-    expect(response).toMatchObject({ ok: true, body: { data: "replayed" } });
+    expect(response).toMatchObject({ ok: true, body: { correlationId: "original-correlation", data: "replayed" } });
+    expect(trace).not.toContain("dispatcher");
+    expect(trace).not.toContain("output");
+    expect(trace).not.toContain("redactor");
+  });
+
+  it("rejects a malformed idempotency replay without dispatching", async () => {
+    const { gateway, trace } = harness({
+      idempotency: { claim: () => ({ context: {}, replay: { secret: "not-an-envelope" }, complete: () => undefined, fail: () => undefined }) }
+    });
+    await expect(gateway.execute(request())).resolves.toMatchObject({ ok: false, status: 500, body: { code: "IDEMPOTENCY_RESULT_INVALID" } });
     expect(trace).not.toContain("dispatcher");
   });
 

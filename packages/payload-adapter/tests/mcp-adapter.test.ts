@@ -153,6 +153,7 @@ describe("Payload MCP adapter", () => {
     });
     expect(await collection.access?.create?.({ req: { user: null } } as never)).toBe(false);
     expect(await collection.access?.create?.({ req: { user: { id: "member-1", collection: "members" } } } as never)).toBe(true);
+    expect(collection.indexes).toContainEqual({ fields: ["apiKeyIndex"], unique: true });
     expect(collection.fields).toEqual(expect.arrayContaining([expect.objectContaining({ name: "expiresAt", required: true, index: true })]));
   });
 

@@ -2,10 +2,15 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 
-import { canonicalJson, DataSourceDescriptorSchema } from "@k-nex/contracts";
+import { ActionDescriptorSchema, AgentToolDescriptorSchema, canonicalJson, DataSourceDescriptorSchema } from "@k-nex/contracts";
 
 import {
   salesRegistration,
+  salesCreateTaskToolDescriptor,
+  salesSearchTasksDescriptor,
+  salesTaskCreateDefinition,
+  salesTaskCreateDescriptor,
+  salesTaskCreateHandler,
   salesTasksDefinition,
   salesTasksDescriptor,
   salesTasksHandler,
@@ -55,10 +60,58 @@ test("Sales registers two single-output data sources with valid descriptors", ()
 
   const contributions = [];
   const bindings = [];
-  salesRegistration.contracts?.({ pluginId: "module.sales", services: { get: () => undefined }, register: (_kind, id) => contributions.push(id) });
-  salesRegistration.dataHandlers?.({ pluginId: "module.sales", services: { get: () => undefined }, bind: (_kind, id) => bindings.push(id) });
-  assert.deepEqual(contributions.sort(), ["sales.tasks", "sales.total-potential-revenue"]);
-  assert.deepEqual(bindings.sort(), ["sales.tasks", "sales.total-potential-revenue"]);
+  salesRegistration.contracts?.({ pluginId: "module.sales", services: { get: () => undefined }, register: (kind, id) => contributions.push([kind, id]) });
+  salesRegistration.dataHandlers?.({ pluginId: "module.sales", services: { get: () => undefined }, bind: (kind, id) => bindings.push([kind, id]) });
+  assert.deepEqual(contributions.filter(([kind]) => kind === "dataSources").map(([, id]) => id).sort(), ["sales.tasks", "sales.total-potential-revenue"]);
+  assert.deepEqual(contributions.filter(([kind]) => kind === "actions").map(([, id]) => id), ["sales.task.create"]);
+  assert.deepEqual(contributions.filter(([kind]) => kind === "tools").map(([, id]) => id).sort(), ["sales.tools.create-task", "sales.tools.search-tasks"]);
+  assert.deepEqual(bindings.filter(([kind]) => kind === "dataSources").map(([, id]) => id).sort(), ["sales.tasks", "sales.total-potential-revenue"]);
+  assert.deepEqual(bindings.filter(([kind]) => kind === "actions").map(([, id]) => id), ["sales.task.create"]);
+});
+
+test("Sales registers source/action-backed tools with strict write policy", () => {
+  assert.equal(AgentToolDescriptorSchema.safeParse(salesSearchTasksDescriptor).success, true);
+  assert.equal(AgentToolDescriptorSchema.safeParse(salesCreateTaskToolDescriptor).success, true);
+  assert.equal(ActionDescriptorSchema.safeParse(salesTaskCreateDescriptor).success, true);
+  assert.deepEqual(salesSearchTasksDescriptor.invocation, { kind: "source", source: { id: "sales.tasks", version: 1 } });
+  assert.deepEqual(salesCreateTaskToolDescriptor.invocation, { kind: "action", action: { id: "sales.task.create", version: 1 } });
+  assert.equal(salesCreateTaskToolDescriptor.approval, "per-call");
+  assert.equal(salesCreateTaskToolDescriptor.idempotency, "required");
+  assert.equal(salesSearchTasksDescriptor.dryRun, false);
+  assert.deepEqual(salesCreateTaskToolDescriptor.inputSchema, salesTaskCreateDescriptor.inputSchema);
+  assert.deepEqual(salesCreateTaskToolDescriptor.outputSchema, salesTaskCreateDescriptor.outputSchema);
+  assert.equal(salesTaskCreateDefinition.descriptor.id, "sales.task.create");
+});
+
+test("the Sales create action uses Payload Local API exactly once under the actor context", async () => {
+  const calls = [];
+  const request = {
+    payload: {
+      find: async () => ({ docs: [], hasNextPage: false }),
+      create: async (options) => {
+        calls.push(options);
+        return { id: "task-7", title: options.data.title, status: options.data.status ?? "open" };
+      }
+    },
+    locale: "en-US",
+    transactionID: "tx-7"
+  };
+  const result = await salesTaskCreateHandler({
+    actor: { principal: { kind: "user", id: "user-1" }, effectiveActor: { kind: "user", id: "user-1" } },
+    request,
+    authorizationContext: { permissionFingerprint: "sales:open:full" },
+    input: { title: "Call customer", status: "open", potentialRevenue: "12.50", privateNote: "follow-up" },
+    idempotencyKey: "create-task-1",
+    signal: new AbortController().signal
+  });
+  assert.deepEqual(result, { id: "task-7", title: "Call customer", status: "open" });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].collection, "sales-tasks");
+  assert.equal(calls[0].overrideAccess, false);
+  assert.equal(calls[0].depth, 0);
+  assert.deepEqual(calls[0].user, { id: "user-1", collection: "users" });
+  assert.equal(calls[0].req, request);
+  assert.deepEqual(calls[0].data, { title: "Call customer", status: "open", potentialRevenue: "12.50", privateNote: "follow-up" });
 });
 
 test("the revenue source aggregates canonical money values on the server", async () => {

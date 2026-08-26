@@ -157,18 +157,22 @@ assert.deepEqual(inventory.plugins, [{
   version: "1.0.0",
   integrity: inventory.plugins[0].integrity,
   expectedContributions: {
+    actions: ["sales.task.create"],
     schema: ["sales.tasks.collection"],
-    dataSources: ["sales.tasks", "sales.total-potential-revenue"]
+    dataSources: ["sales.tasks", "sales.total-potential-revenue"],
+    tools: ["sales.tools.create-task", "sales.tools.search-tasks"]
   },
   actualContributions: {
+    actions: ["sales.task.create"],
     schema: ["sales.tasks.collection"],
-    dataSources: ["sales.tasks", "sales.total-potential-revenue"]
+    dataSources: ["sales.tasks", "sales.total-potential-revenue"],
+    tools: ["sales.tools.create-task", "sales.tools.search-tasks"]
   }
 }]);
 assert.deepEqual(inventory.migrationRevision, {
-  migrationName: "20260826_000002_sales_sources",
-  predecessor: 1,
-  current: 2
+  migrationName: "20260826_000003_payload_mcp",
+  predecessor: 2,
+  current: 3
 });
 const serializedInventory = JSON.stringify(inventory);
 for (const forbidden of [process.env.DATABASE_URL, process.env.PAYLOAD_SECRET, login.token, password, "gate1@example.test"]) {

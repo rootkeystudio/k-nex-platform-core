@@ -29,7 +29,7 @@ Plugin `onEvent` is transport telemetry only. Its handler duration is bounded by
 | tool schemas | generated from K-Nex descriptor input schemas | adapter-only; no persisted MCP types |
 | domain execution | none | K-Nex gateway |
 
-The adapter inventory is asserted against the sanitized Payload configuration. Customer repositories must include the API-key collection in generated migrations; disabling the transport does not remove its schema contribution.
+The adapter inventory is asserted against the sanitized Payload configuration. The customer proof owns `20260826_000003_payload_mcp`, including the API-key collection, per-tool capability columns, 30-day expiry field, unique API-key digest index, Payload relationship contributions, and revision evidence. Disabling the transport does not remove its schema contribution.
 
 ## Kill-criteria result
 

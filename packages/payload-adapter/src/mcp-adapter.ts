@@ -165,6 +165,7 @@ function protectApiKeyCollection(collection: CollectionConfig, userCollection: s
   return {
     ...collection,
     access,
+    indexes: [...(collection.indexes ?? []), { fields: ["apiKeyIndex"], unique: true }],
     fields: [
       ...(collection.fields ?? []),
       {

@@ -1,11 +1,20 @@
 import {
   MetricScalarSchema,
   TableRecordsSchema,
+  type AgentToolDescriptor,
+  type AgentToolJsonSchema,
+  type RuntimeSchema,
   type DataSourceDefinition,
   type DataSourceDescriptor,
   type DataSourceQueryControls
 } from "@k-nex/contracts";
-import type { DataSourceHandler, DataSourceHandlerRequest, PluginRegistration } from "@k-nex/runtime";
+import type {
+  ActionDefinition,
+  ActionHandler,
+  DataSourceHandler,
+  DataSourceHandlerRequest,
+  PluginRegistration
+} from "@k-nex/runtime";
 import type { CollectionConfig } from "payload";
 
 const salesSourceLimits = Object.freeze({
@@ -88,6 +97,7 @@ const decimalPattern = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/;
 interface SalesPayloadRequest {
   readonly payload: {
     find(options: SalesFindOptions): Promise<SalesFindResult>;
+    create(options: SalesCreateOptions): Promise<SalesCreatedTask>;
   };
   readonly locale?: string;
   readonly transactionID?: number | string;
@@ -121,6 +131,39 @@ interface SalesTaskDocument {
   readonly status?: unknown;
   readonly potentialRevenue?: unknown;
   readonly privateNote?: unknown;
+}
+
+interface SalesCreateOptions {
+  readonly collection: "sales-tasks";
+  readonly data: {
+    readonly title: string;
+    readonly status?: "open" | "done";
+    readonly potentialRevenue?: string;
+    readonly privateNote?: string;
+  };
+  readonly depth: 0;
+  readonly overrideAccess: false;
+  readonly user?: { readonly id: string; readonly collection: "users" };
+  readonly req: SalesPayloadRequest;
+}
+
+interface SalesCreatedTask {
+  readonly id?: string | number;
+  readonly title?: unknown;
+  readonly status?: unknown;
+}
+
+interface CreateTaskInput {
+  readonly title: string;
+  readonly status?: "open" | "done";
+  readonly potentialRevenue?: string;
+  readonly privateNote?: string;
+}
+
+interface CreateTaskOutput {
+  readonly id: string;
+  readonly title: string;
+  readonly status: "open" | "done";
 }
 
 interface SalesTaskScope {
@@ -460,6 +503,195 @@ function zodEmptyObject() {
 export const salesTotalPotentialRevenueHandler: DataSourceHandler = totalPotentialRevenue;
 export const salesTasksHandler: DataSourceHandler = tasksTable;
 
+const salesSearchTasksInputSchema: AgentToolDescriptor["inputSchema"] = {
+  type: "object",
+  properties: {
+    title: { type: "string", minLength: 1, maxLength: 120 }
+  },
+  required: ["title"],
+  additionalProperties: false
+};
+
+const salesCreateTaskInputSchema: AgentToolDescriptor["inputSchema"] = {
+  type: "object",
+  properties: {
+    title: { type: "string", minLength: 1, maxLength: 256 },
+    status: { type: "string", enum: ["open", "done"] },
+    potentialRevenue: { type: "string", minLength: 1, maxLength: 64 },
+    privateNote: { type: "string", minLength: 1, maxLength: 4_096 }
+  },
+  required: ["title"],
+  additionalProperties: false
+};
+
+const salesCreateTaskOutputSchema: AgentToolJsonSchema = {
+  type: "object",
+  properties: {
+    id: { type: "string", minLength: 1, maxLength: 128 },
+    title: { type: "string", minLength: 1, maxLength: 256 },
+    status: { type: "string", enum: ["open", "done"] }
+  },
+  required: ["id", "title", "status"],
+  additionalProperties: false
+};
+
+const salesToolLimits = Object.freeze({
+  timeoutMs: 5_000,
+  maxConcurrency: 4,
+  ratePerMinute: 120,
+  burst: 10,
+  costClass: "low" as const,
+  maxCost: 10
+});
+
+const salesCreateTaskInputRuntimeSchema: RuntimeSchema<CreateTaskInput> = {
+  safeParse(value: unknown) {
+    if (!isRecord(value) || Object.keys(value).some((key) => !["title", "status", "potentialRevenue", "privateNote"].includes(key))) {
+      return invalidOutput("Sales task input must be a closed object.");
+    }
+    if (typeof value.title !== "string" || value.title.length < 1 || value.title.length > 256) {
+      return invalidOutput("Sales task titles must be non-empty text up to 256 characters.");
+    }
+    if (value.status !== undefined && value.status !== "open" && value.status !== "done") {
+      return invalidOutput("Sales task status must be open or done.");
+    }
+    if (value.potentialRevenue !== undefined && (typeof value.potentialRevenue !== "string" || value.potentialRevenue.length < 1 || value.potentialRevenue.length > 64)) {
+      return invalidOutput("Sales task revenue must be a bounded decimal string.");
+    }
+    if (value.privateNote !== undefined && (typeof value.privateNote !== "string" || value.privateNote.length < 1 || value.privateNote.length > 4_096)) {
+      return invalidOutput("Sales task private notes must be bounded non-empty text.");
+    }
+    if (value.potentialRevenue !== undefined) {
+      try {
+        parseAmount(value.potentialRevenue);
+      } catch {
+        return invalidOutput("Sales task revenue must be a canonical decimal.");
+      }
+    }
+    return {
+      success: true as const,
+      data: {
+        title: value.title,
+        ...(value.status === undefined ? {} : { status: value.status }),
+        ...(value.potentialRevenue === undefined ? {} : { potentialRevenue: value.potentialRevenue }),
+        ...(value.privateNote === undefined ? {} : { privateNote: value.privateNote })
+      }
+    };
+  }
+};
+
+const salesCreateTaskOutputRuntimeSchema: RuntimeSchema<CreateTaskOutput> = {
+  safeParse(value: unknown) {
+    if (!isRecord(value) || Object.keys(value).sort().join("\u0000") !== "id\u0000status\u0000title") {
+      return invalidOutput("Sales task action output has an invalid shape.");
+    }
+    if (typeof value.id !== "string" || value.id.length === 0 || value.id.length > 128) {
+      return invalidOutput("Sales task action output requires a stable ID.");
+    }
+    if (typeof value.title !== "string" || value.title.length === 0 || value.title.length > 256) {
+      return invalidOutput("Sales task action output requires a task title.");
+    }
+    if (value.status !== "open" && value.status !== "done") {
+      return invalidOutput("Sales task action output requires a valid status.");
+    }
+    return { success: true as const, data: value as unknown as CreateTaskOutput };
+  }
+};
+
+export const salesTaskCreateDescriptor = {
+  id: "sales.task.create",
+  version: 1,
+  ownerPluginId: "module.sales",
+  inputSchema: salesCreateTaskInputSchema,
+  outputSchema: salesCreateTaskOutputSchema,
+  permission: "sales.tasks.write",
+  policy: "sales.tasks.domain",
+  effect: "write" as const,
+  idempotency: "required" as const,
+  dryRun: false
+} as const;
+
+export const salesTaskCreateDefinition: ActionDefinition<CreateTaskInput, CreateTaskOutput> = {
+  descriptor: salesTaskCreateDescriptor,
+  inputSchema: salesCreateTaskInputRuntimeSchema,
+  outputSchema: salesCreateTaskOutputRuntimeSchema
+};
+
+export const salesSearchTasksDescriptor: AgentToolDescriptor = {
+  id: "sales.tools.search-tasks",
+  version: 1,
+  ownerPluginId: "module.sales",
+  title: "Search tasks",
+  description: "Search tasks visible to the current actor.",
+  inputSchema: salesSearchTasksInputSchema,
+  outputContract: "table.records@1",
+  invocation: { kind: "source", source: { id: salesTasksDescriptor.id, version: salesTasksDescriptor.version } },
+  audience: "authenticated",
+  surfaces: ["workspace"],
+  permission: "sales.tasks.read",
+  policy: "sales.tasks.agent-read",
+  effect: "read-only",
+  risk: "low",
+  approval: "none",
+  idempotency: "not-applicable",
+  dryRun: false,
+  limits: salesToolLimits,
+  redaction: { inputPaths: [], outputPaths: [] },
+  audit: { category: "sales.task.search" }
+};
+
+export const salesCreateTaskToolDescriptor: AgentToolDescriptor = {
+  id: "sales.tools.create-task",
+  version: 1,
+  ownerPluginId: "module.sales",
+  title: "Create a Sales task",
+  description: "Create exactly one Sales task for the current actor.",
+  inputSchema: salesTaskCreateDescriptor.inputSchema,
+  outputSchema: salesTaskCreateDescriptor.outputSchema,
+  invocation: { kind: "action", action: { id: salesTaskCreateDescriptor.id, version: salesTaskCreateDescriptor.version } },
+  audience: "authenticated",
+  surfaces: ["workspace"],
+  permission: salesTaskCreateDescriptor.permission,
+  policy: salesTaskCreateDescriptor.policy,
+  effect: "write",
+  risk: "medium",
+  approval: "per-call",
+  idempotency: "required",
+  dryRun: salesTaskCreateDescriptor.dryRun,
+  limits: salesToolLimits,
+  redaction: { inputPaths: ["/privateNote"], outputPaths: [] },
+  audit: { category: "sales.task.create", resourcePath: "/id" }
+};
+
+function createTaskRequest(value: unknown): SalesPayloadRequest {
+  const request = salesRequest(value);
+  if (typeof request.payload.create !== "function") throw new Error("The Sales action requires a capability-scoped Payload request.");
+  return request;
+}
+
+export const salesTaskCreateHandler: ActionHandler<CreateTaskInput, CreateTaskOutput> = async ({ actor, request, input, signal }) => {
+  if (signal.aborted) throw signal.reason;
+  const parsed = salesCreateTaskInputRuntimeSchema.safeParse(input);
+  if (!parsed.success) throw parsed.error;
+  const payloadRequest = createTaskRequest(request);
+  const user = payloadUser(actor);
+  const created = await payloadRequest.payload.create({
+    collection: "sales-tasks",
+    data: parsed.data,
+    depth: 0,
+    overrideAccess: false,
+    ...(user === undefined ? {} : { user }),
+    req: payloadRequest
+  });
+  if (signal.aborted) throw signal.reason;
+  if (created.id === undefined || created.id === null || typeof created.title !== "string" ||
+    created.title.length < 1 || created.title.length > 256 ||
+    created.status !== "open" && created.status !== "done") {
+    throw new Error("Sales task creation returned an invalid task.");
+  }
+  return { id: String(created.id), title: created.title, status: created.status };
+};
+
 export const salesTasksCollection: CollectionConfig = {
   slug: "sales-tasks",
   access: {
@@ -488,6 +720,9 @@ export const salesRegistration: PluginRegistration = {
   contracts: (context) => {
     context.register("dataSources", salesTotalPotentialRevenueDescriptor.id, salesTotalPotentialRevenueDefinition);
     context.register("dataSources", salesTasksDescriptor.id, salesTasksDefinition);
+    context.register("actions", salesTaskCreateDescriptor.id, salesTaskCreateDefinition);
+    context.register("tools", salesSearchTasksDescriptor.id, salesSearchTasksDescriptor);
+    context.register("tools", salesCreateTaskToolDescriptor.id, salesCreateTaskToolDescriptor);
   },
   schema: (context) => context.register("sales.tasks.collection", {
     type: "payload.collection",
@@ -496,5 +731,6 @@ export const salesRegistration: PluginRegistration = {
   dataHandlers: (context) => {
     context.bind("dataSources", salesTotalPotentialRevenueDescriptor.id, salesTotalPotentialRevenueHandler);
     context.bind("dataSources", salesTasksDescriptor.id, salesTasksHandler);
+    context.bind("actions", salesTaskCreateDescriptor.id, salesTaskCreateHandler as ActionHandler);
   }
 };
