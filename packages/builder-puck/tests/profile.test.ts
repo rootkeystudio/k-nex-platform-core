@@ -163,7 +163,7 @@ describe("profile-specific Puck policy", () => {
     if (constrained === undefined) throw new Error("Expected constrained CMS profile.");
     const immovable = { id: "text-1", type: "content.text", version: 1, props: { text: "First" } };
     const original = { id: "cms.constraints", version: 1, schemaVersion: 1, profile: "cms", regions: { main: [immovable], sidebar: [] } };
-    expect(() => constrained.validateChange(original, { ...original, regions: { main: [], sidebar: [immovable] } })).toThrow(/cannot be moved/);
+    expect(() => constrained.validateChange(original, { ...original, regions: { main: [], sidebar: [immovable] } })).toThrow(/non-canvas region sidebar/);
     expect(() => constrained.validateChange(original, {
       ...original,
       regions: { main: [immovable, { id: "inserted", type: "content.text", version: 1, props: { text: "Allowed", mode: "forbidden" } }], sidebar: [] }
@@ -191,6 +191,22 @@ describe("profile-specific Puck policy", () => {
     const parent = { id: "parent", type: "content.container", version: 1, props: { text: "Parent" }, children: [immovable] };
     const nestedOriginal = { ...original, regions: { main: [sibling, parent], sidebar: [] } };
     expect(() => nestedProfile.validateChange(nestedOriginal, { ...nestedOriginal, regions: { main: [parent, sibling], sidebar: [] } })).toThrow(/cannot be moved/);
+  });
+
+  it("preserves every region outside the configured Puck canvas exactly", () => {
+    const profile = createPuckBuilderProfileRegistry({ blocks: [staticBlock], sources: [], profiles: [{ ...cms, sources: [] }] }).resolve("cms");
+    if (profile === undefined) throw new Error("Expected CMS profile.");
+    const original = {
+      id: "cms.regions", version: 1, schemaVersion: 1, profile: "cms",
+      regions: {
+        main: [{ id: "main", type: "content.text", version: 1, props: { text: "Editable" } }],
+        sidebar: [{ id: "side", type: "content.text", version: 1, props: { text: "Preserved" } }]
+      }
+    };
+    const data = structuredClone(profile.adapter.toPuckData(original)) as any;
+    data.root.props.__kNexDocument.preservedRegions.sidebar[0].props.text = "Tampered";
+    expect(() => profile.validateChange(original, profile.adapter.fromPuckData(data))).toThrow(/non-canvas region sidebar/);
+    expect(() => profile.validateChange(original, { ...original, regions: { ...original.regions, footer: [] } })).toThrow(/non-canvas region footer/);
   });
 
   it("matches the real Phase 2 required-field selection rules before publication", () => {

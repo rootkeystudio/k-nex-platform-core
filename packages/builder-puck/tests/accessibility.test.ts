@@ -100,16 +100,9 @@ describe("accessible Puck operation", () => {
       dispatch
     });
     const children = Children.toArray(element.props.children) as ReactElement[];
-    const destinationLabel = children.find((child) => child.type === "label" && Children.toArray(child.props.children)[0] &&
-      (Children.toArray(child.props.children)[0] as ReactElement).props.children === "Destination container") as ReactElement;
-    const destination = Children.toArray(destinationLabel.props.children)[1] as ReactElement;
-    destination.props.onChange({ currentTarget: { value: "right:__kNexChildren" } });
-    const moveButton = children.find((child) => child.type === "button" && child.props.children === "Move to container") as ReactElement;
-    moveButton.props.onClick();
-    expect(dispatch).toHaveBeenNthCalledWith(1, {
-      type: "move", sourceIndex: 0, sourceZone: "left:__kNexChildren", destinationIndex: 0, destinationZone: "right:__kNexChildren"
-    });
+    expect(children.some((child) => typeof child.type === "function" && child.props.containers?.length === 3)).toBe(true);
     expect(createKeyboardMoveActions({ content: nested[0]!.props.__kNexChildren, index: 0, sourceZone: "left:__kNexChildren", destinationZone: "left:__kNexChildren", destinationContent: [], destinationIndex: 0 })).toBeUndefined();
+    expect(createKeyboardMoveActions({ content: nested[0]!.props.__kNexChildren, index: 0, sourceZone: "left:__kNexChildren", destinationZone: "right:__kNexChildren", destinationContent: [content[1]!], destinationIndex: 2 })).toBeUndefined();
   });
 
   it("does not expose reorder actions for a trusted immovable component", () => {

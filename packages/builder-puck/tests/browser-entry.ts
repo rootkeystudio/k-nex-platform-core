@@ -92,8 +92,7 @@ const uiDocument = {
     version: 1,
     props: { text: "Group two" },
     children: [
-      { id: "third", type: "content.text", version: 1, props: { text: "Third" } },
-      { id: "fourth", type: "content.text", version: 1, props: { text: "Fourth" } }
+      { id: "third", type: "content.text", version: 1, props: { text: "Third" } }
     ]
   }] }
 } as const;

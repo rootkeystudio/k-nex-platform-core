@@ -38,7 +38,7 @@ try {
   const canvasFrame = page.frameLocator(canvasFrameSelector);
   const selector = controls.getByRole("combobox", { name: "Selected canvas block" });
   assert.equal(await controls.getByRole("option", { name: "Nested content.text__v1 second, item 2" }).count(), 1);
-  assert.equal(await controls.getByRole("option", { name: "Nested content.text__v1 fourth, item 2" }).count(), 1);
+  assert.equal(await controls.getByRole("option", { name: "Nested content.text__v1 third, item 1" }).count(), 1);
   const tabTo = async (locator, label) => {
     for (let attempt = 0; attempt < 120; attempt += 1) {
       await page.keyboard.press("Tab");
@@ -64,6 +64,11 @@ try {
   await page.keyboard.press("Enter");
   await page.waitForFunction(() => window.__kNexDocument?.regions?.main?.[1]?.children?.[0]?.id === "second");
 
+  const destination = controls.getByRole("combobox", { name: "Destination container" });
+  await tabTo(destination, "the destination container selector");
+  await page.keyboard.type("content.text__v1 group-two, item 3 child container");
+  assert.equal(await destination.inputValue(), "group-two:__kNexChildren", "Keyboard destination selection did not reach the sibling container.");
+
   const field = page.getByRole("textbox", { name: "Text" }).last();
   await tabTo(field, "the selected block field");
   assert(await field.evaluate((element) => document.activeElement === element), "Keyboard focus did not reach the selected block field.");
@@ -77,23 +82,20 @@ try {
   await page.waitForFunction(() => window.__kNexDocument?.regions?.main?.[1]?.children?.[0]?.props?.text === "Edited by keyboard");
   await canvasFrame.getByText("Edited by keyboard", { exact: true }).waitFor();
   assert.match(await controls.getByRole("status").innerText(), /position 1 of 2/);
+  assert.equal(await destination.inputValue(), "group-two:__kNexChildren", "A Puck rerender desynchronized the controlled destination container.");
 
-  const destination = controls.getByRole("combobox", { name: "Destination container" });
-  await tabTo(destination, "the destination container selector");
-  await page.keyboard.type("content.text__v1 group-two, item 3 child container");
-  assert.equal(await destination.inputValue(), "group-two:__kNexChildren", "Keyboard destination selection did not reach the sibling container.");
   const destinationPosition = controls.getByRole("spinbutton", { name: "Destination position" });
   await tabTo(destinationPosition, "the destination position");
   await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
-  await page.keyboard.type("3");
+  await page.keyboard.type("2");
   const moveContainer = controls.getByRole("button", { name: /Move content\.text__v1 second, item 1 to destination container/ });
   await tabTo(moveContainer, "the destination move control");
   await page.keyboard.press("Enter");
-  await page.waitForFunction(() => window.__kNexDocument?.regions?.main?.[2]?.children?.[2]?.id === "second");
+  await page.waitForFunction(() => window.__kNexDocument?.regions?.main?.[2]?.children?.[1]?.id === "second");
   await canvasFrame.getByText("Edited by keyboard", { exact: true }).waitFor();
   const production = page.getByRole("region", { name: "Production runtime" });
   await production.getByText(/Open tasks \(success, 1 rows\)/).waitFor();
-  assert.match(await production.innerText(), /Group\s+First\s+Second\s+Group two\s+Third\s+Fourth/, "Production presentation dropped nested runtime content.");
+  assert.match(await production.innerText(), /Group\s+First\s+Second\s+Group two\s+Third/, "Production presentation dropped nested runtime content.");
   await canvasFrame.getByText("Open tasks (success, 1 rows)", { exact: true }).waitFor();
   await canvasFrame.getByText("Group").first().waitFor();
   console.log("Builder browser accessibility journey passed.");

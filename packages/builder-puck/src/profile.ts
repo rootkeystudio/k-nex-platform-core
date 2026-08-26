@@ -113,9 +113,22 @@ function assertStructuralConstraints(document: UiDocument, blockDefinitions: Rea
   Object.values(document.regions).forEach((nodes) => nodes.forEach(visit));
 }
 
-function assertAuthorizedChange(previous: UiDocument, next: UiDocument, blockDefinitions: ReadonlyMap<string, PuckBlockBridge>): void {
+function assertAuthorizedChange(
+  previous: UiDocument,
+  next: UiDocument,
+  blockDefinitions: ReadonlyMap<string, PuckBlockBridge>,
+  canvasRegion: string
+): void {
   if (previous.id !== next.id || previous.version !== next.version || previous.profile !== next.profile || previous.schemaVersion !== next.schemaVersion) {
     throw new TypeError("Puck edits cannot replace canonical document identity.");
+  }
+  const regions = new Set([...Object.keys(previous.regions), ...Object.keys(next.regions)]);
+  for (const region of regions) {
+    if (region === canvasRegion) continue;
+    if (Object.hasOwn(previous.regions, region) !== Object.hasOwn(next.regions, region) ||
+        canonicalJson(previous.regions[region] ?? []) !== canonicalJson(next.regions[region] ?? [])) {
+      throw new TypeError(`Puck edits cannot change non-canvas region ${region}.`);
+    }
   }
   const before = nodeLocations(previous);
   const after = nodeLocations(next);
@@ -194,6 +207,7 @@ export function createPuckBuilderProfileRegistry(input: {
   readonly canvasRegion?: string;
   readonly preview?: Partial<Record<UiDocumentProfile, PuckProfilePreviewContext>>;
 }): PuckBuilderProfileRegistry {
+  const canvasRegion = input.canvasRegion ?? "main";
   const bridgeMap = new Map(input.blocks.map((bridge) => [`${bridge.definition.id}@${bridge.definition.version}`, bridge]));
   if (bridgeMap.size !== input.blocks.length) throw new TypeError("Puck block bridges must be unique before profile resolution.");
   const sourceMap = new Map<string, DataSourceDescriptor>();
@@ -292,7 +306,7 @@ export function createPuckBuilderProfileRegistry(input: {
       validateChange: (previous: unknown, next: unknown) => {
         const prior = assertDocumentPolicy(previous, policy, blockDefinitions, sourceKeys);
         const current = assertDocumentPolicy(next, policy, blockDefinitions, sourceKeys);
-        assertAuthorizedChange(prior, current, blockDefinitions);
+        assertAuthorizedChange(prior, current, blockDefinitions, canvasRegion);
         return current;
       },
       allowsSource: (id: string, version: number) => sourceKeys.has(`${id}@${version}`),

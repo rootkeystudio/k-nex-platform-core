@@ -18,6 +18,7 @@ const proofs = [
   ["phase-2-selection-parity", "@k-nex/builder-puck", "tests/profile.test.ts", "matches the real Phase 2 required-field selection rules before publication"],
   ["trusted-edit-constraints", "@k-nex/builder-puck", "tests/profile.test.ts", "enforces trusted field and movement constraints on edits"],
   ["trusted-insertion-and-location", "@k-nex/builder-puck", "tests/profile.test.ts", "rejects protected insertion values and region or ancestor movement of immovable nodes"],
+  ["non-canvas-region-authority", "@k-nex/builder-puck", "tests/profile.test.ts", "preserves every region outside the configured Puck canvas exactly"],
   ["fixed-shell-publication-authority", "@k-nex/builder-puck", "tests/editor-host.test.ts", "does not export the raw publish-capable host outside the fixed-shell authority"],
   ["static-public-block", "@k-nex/ui-runtime", "tests/spike-blocks.test.ts", "renders one shared static block on the public CMS surface"],
   ["authenticated-block", "@k-nex/ui-runtime", "tests/spike-blocks.test.ts", "renders the authenticated workspace table from the Phase 2 sales.tasks projection"],
