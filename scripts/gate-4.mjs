@@ -15,15 +15,19 @@ const proofs = [
   ["fixed-shell", "@k-nex/builder-puck", "tests/fixed-shell-host.test.ts", "keeps security and platform regions outside the editor canvas"],
   ["profile-authority", "@k-nex/builder-puck", "tests/profile.test.ts", "uses one engine with distinct palettes and authority allowlists"],
   ["profile-publication-readiness", "@k-nex/builder-puck", "tests/profile.test.ts", "threads preview authority through the resolved profile and rejects publication-incompatible bindings"],
+  ["phase-2-selection-parity", "@k-nex/builder-puck", "tests/profile.test.ts", "matches the real Phase 2 required-field selection rules before publication"],
+  ["trusted-edit-constraints", "@k-nex/builder-puck", "tests/profile.test.ts", "enforces trusted field and movement constraints on edits"],
   ["static-public-block", "@k-nex/ui-runtime", "tests/spike-blocks.test.ts", "renders one shared static block on the public CMS surface"],
   ["authenticated-block", "@k-nex/ui-runtime", "tests/spike-blocks.test.ts", "renders the authenticated workspace table from the Phase 2 sales.tasks projection"],
   ["source-result-authority", "@k-nex/ui-runtime", "tests/spike-blocks.test.ts", "rejects undeclared or unauthorized fields reintroduced by a source result"],
+  ["optional-source-omission", "@k-nex/ui-runtime", "tests/spike-blocks.test.ts", "accepts omitted nullable cells and drops a denied optional selection exactly like the Phase 2 gateway"],
   ["public-internal-separation", "@k-nex/ui-runtime", "tests/spike-blocks.test.ts", "does not turn the workspace source into publishable authority during authenticated CMS preview"],
   ["safe-fallback", "@k-nex/ui-runtime", "tests/fallback-readiness.test.ts", "identifies a missing plugin while preserving its node and rendered children"],
   ["editor-independent-runtime", "@k-nex/ui-runtime", "tests/document-runtime.test.ts", "renders validated props outside an editor and preserves node order"],
   ["keyboard-selection", "@k-nex/builder-puck", "tests/accessibility.test.ts", "selects a block through a labelled native control so its fields can be edited by keyboard"],
   ["non-drag-reorder", "@k-nex/builder-puck", "tests/accessibility.test.ts", "provides named native buttons as a non-drag reorder alternative"],
   ["nested-keyboard-reorder", "@k-nex/builder-puck", "tests/accessibility.test.ts", "enumerates and moves blocks inside canonical child slots"],
+  ["cross-container-keyboard-move", "@k-nex/builder-puck", "tests/accessibility.test.ts", "moves an unlocked child between sibling containers without drag"],
   ["screen-reader-status", "@k-nex/builder-puck", "tests/accessibility.test.ts", "exposes selected position through a polite status and bounds reorder actions"]
 ];
 

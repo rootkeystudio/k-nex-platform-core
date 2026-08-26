@@ -10,10 +10,10 @@ import {
 
 const authenticatedActor = {
   authenticated: true,
-  permissions: new Set(["sales.tasks.read", "sales.tasks.title.read", "sales.tasks.status.read"])
+  permissions: new Set(["sales.tasks.read", "sales.tasks.title.read", "sales.tasks.status.read", "sales.tasks.revenue.read"])
 };
 const table = {
-  fields: ["title", "status"],
+  fields: ["title", "status", "potential-revenue"],
   rows: [{
     key: "task-1",
     values: {
@@ -38,7 +38,7 @@ const workspaceDocument = {
         source: { id: "sales.tasks", version: 1 },
         input: {},
         structuralCompatibilityHash: salesTasksDescriptor.structuralCompatibilityHash,
-        selectedFields: ["title", "status"]
+        selectedFields: ["title", "status", "potential-revenue"]
       } }
     }]
   }
@@ -87,6 +87,19 @@ describe("P4.5 proof blocks", () => {
     };
     const result = runtime.render({ document: workspaceDocument, surface: "workspace", actor: authenticatedActor, sourceResults: { "tasks-1": { state: "success", data: leaked } } });
     expect(result).toMatchObject({ success: true, regions: { main: [{ status: "fallback", reason: "SOURCE_RESULT_INVALID" }] } });
+  });
+
+  it("accepts omitted nullable cells and drops a denied optional selection exactly like the Phase 2 gateway", () => {
+    const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [createWorkspaceTaskTableBlockDefinition()], sources: [salesTasksDescriptor] }));
+    const withDeniedOptional = {
+      ...workspaceDocument,
+      regions: { main: [{
+        ...workspaceDocument.regions.main[0],
+        bindings: { source: { ...workspaceDocument.regions.main[0].bindings.source, selectedFields: ["title", "status", "potential-revenue", "private-note"] } }
+      }] }
+    };
+    const result = runtime.render({ document: withDeniedOptional, surface: "workspace", actor: authenticatedActor, sourceResults: { "tasks-1": { state: "success", data: table } } });
+    expect(result).toMatchObject({ success: true, regions: { main: [{ status: "rendered" }] } });
   });
 
   it("does not turn the workspace source into publishable authority during authenticated CMS preview", () => {

@@ -77,6 +77,20 @@ try {
   await page.waitForFunction(() => window.__kNexDocument?.regions?.main?.[1]?.children?.[0]?.props?.text === "Edited by keyboard");
   await canvasFrame.getByText("Edited by keyboard", { exact: true }).waitFor();
   assert.match(await controls.getByRole("status").innerText(), /position 1 of 2/);
+
+  const destination = controls.getByRole("combobox", { name: "Destination container" });
+  await tabTo(destination, "the destination container selector");
+  await page.keyboard.type("content.text__v1 group-two, item 3 child container");
+  assert.equal(await destination.inputValue(), "group-two:__kNexChildren", "Keyboard destination selection did not reach the sibling container.");
+  const destinationPosition = controls.getByRole("spinbutton", { name: "Destination position" });
+  await tabTo(destinationPosition, "the destination position");
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
+  await page.keyboard.type("3");
+  const moveContainer = controls.getByRole("button", { name: /Move content\.text__v1 second, item 1 to destination container/ });
+  await tabTo(moveContainer, "the destination move control");
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => window.__kNexDocument?.regions?.main?.[2]?.children?.[2]?.id === "second");
+  await canvasFrame.getByText("Edited by keyboard", { exact: true }).waitFor();
   const production = page.getByRole("region", { name: "Production runtime" });
   await production.getByText(/Open tasks \(success, 1 rows\)/).waitFor();
   assert.match(await production.innerText(), /Group\s+First\s+Second\s+Group two\s+Third\s+Fourth/, "Production presentation dropped nested runtime content.");

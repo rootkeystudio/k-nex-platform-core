@@ -1,4 +1,4 @@
-import { DataSourceDescriptorSchema, ResourceIdSchema, UiDocumentSchema, uiDocumentProfiles, type DataSourceDescriptor, type UiDocument, type UiDocumentProfile, type UiNode } from "@k-nex/contracts";
+import { canonicalJson, DataSourceDescriptorSchema, ResourceIdSchema, UiDocumentSchema, UiLayoutConstraintsSchema, uiDocumentProfiles, type DataSourceDescriptor, type UiDocument, type UiDocumentProfile, type UiLayoutConstraints, type UiNode } from "@k-nex/contracts";
 import { createUiDocumentRuntime, createUiRuntimeRegistry, inspectUiDocumentReadiness } from "@k-nex/ui-runtime";
 
 import { createPuckBuilderAdapter, type PuckBlockBridge, type PuckBuilderAdapter, type PuckPreviewContext } from "./adapter.js";
@@ -8,9 +8,13 @@ export interface PuckProfileResource {
   readonly version: number;
 }
 
+export interface PuckProfileBlockResource extends PuckProfileResource {
+  readonly constraints?: UiLayoutConstraints;
+}
+
 export interface PuckBuilderProfile {
   readonly id: UiDocumentProfile;
-  readonly blocks: readonly PuckProfileResource[];
+  readonly blocks: readonly PuckProfileBlockResource[];
   readonly sources: readonly PuckProfileResource[];
   readonly actions: readonly PuckProfileResource[];
   readonly publication: "draft-preview-publish" | "save-layout";
@@ -20,6 +24,7 @@ export interface ResolvedPuckBuilderProfile {
   readonly policy: PuckBuilderProfile;
   readonly adapter: PuckBuilderAdapter;
   validateDocument(value: unknown): UiDocument;
+  validateChange(previous: unknown, next: unknown): UiDocument;
   allowsSource(id: string, version: number): boolean;
   allowsAction(id: string, version: number): boolean;
 }
@@ -44,10 +49,100 @@ function assertResources(resources: readonly PuckProfileResource[], label: strin
 function copyProfile(profile: PuckBuilderProfile): PuckBuilderProfile {
   return Object.freeze({
     ...profile,
-    blocks: Object.freeze(profile.blocks.map((resource) => Object.freeze({ ...resource }))),
+    blocks: Object.freeze(profile.blocks.map((resource) => Object.freeze({
+      ...resource,
+      ...(resource.constraints === undefined ? {} : { constraints: Object.freeze(structuredClone(resource.constraints)) })
+    }))),
     sources: Object.freeze(profile.sources.map((resource) => Object.freeze({ ...resource }))),
     actions: Object.freeze(profile.actions.map((resource) => Object.freeze({ ...resource })))
   });
+}
+
+function combineConstraints(left?: UiLayoutConstraints, right?: UiLayoutConstraints): UiLayoutConstraints | undefined {
+  if (left === undefined) return right;
+  if (right === undefined) return left;
+  const intersect = (a?: readonly string[], b?: readonly string[]) => a === undefined ? b === undefined ? undefined : [...b] : b === undefined ? [...a] : a.filter((value) => b.includes(value));
+  const editableFields = intersect(left.editableFields, right.editableFields);
+  const allowedChildren = intersect(left.allowedChildren, right.allowedChildren);
+  const minChildren = left.minChildren === undefined ? right.minChildren : right.minChildren === undefined ? left.minChildren : Math.max(left.minChildren, right.minChildren);
+  const maxChildren = left.maxChildren === undefined ? right.maxChildren : right.maxChildren === undefined ? left.maxChildren : Math.min(left.maxChildren, right.maxChildren);
+  return {
+    locked: left.locked === true || right.locked === true,
+    canDelete: left.canDelete !== false && right.canDelete !== false,
+    canMove: left.canMove !== false && right.canMove !== false,
+    canResize: left.canResize !== false && right.canResize !== false,
+    ...(editableFields === undefined ? {} : { editableFields }),
+    ...(allowedChildren === undefined ? {} : { allowedChildren }),
+    ...(minChildren === undefined ? {} : { minChildren }),
+    ...(maxChildren === undefined ? {} : { maxChildren })
+  };
+}
+
+function effectiveConstraints(bridge: PuckBlockBridge, node: UiNode): UiLayoutConstraints | undefined {
+  return combineConstraints(bridge.constraints, node.layout?.constraints);
+}
+
+interface NodeLocation {
+  readonly node: UiNode;
+  readonly parentId: string | undefined;
+  readonly index: number;
+}
+
+function nodeLocations(document: UiDocument): ReadonlyMap<string, NodeLocation> {
+  const locations = new Map<string, NodeLocation>();
+  const visit = (node: UiNode, parentId: string | undefined, index: number): void => {
+    locations.set(node.id, { node, parentId, index });
+    node.children?.forEach((child, childIndex) => visit(child, node.id, childIndex));
+  };
+  Object.values(document.regions).forEach((nodes) => nodes.forEach((node, index) => visit(node, undefined, index)));
+  return locations;
+}
+
+function assertStructuralConstraints(document: UiDocument, blockDefinitions: ReadonlyMap<string, PuckBlockBridge>): void {
+  const visit = (node: UiNode): void => {
+    const bridge = blockDefinitions.get(`${node.type}@${node.version}`)!;
+    const constraints = effectiveConstraints(bridge, node);
+    const children = node.children ?? [];
+    if (constraints?.minChildren !== undefined && children.length < constraints.minChildren) throw new TypeError(`Block ${node.id} has too few children.`);
+    if (constraints?.maxChildren !== undefined && children.length > constraints.maxChildren) throw new TypeError(`Block ${node.id} has too many children.`);
+    if (constraints?.allowedChildren !== undefined && children.some((child) => !constraints.allowedChildren!.includes(child.type))) {
+      throw new TypeError(`Block ${node.id} contains a forbidden child.`);
+    }
+    children.forEach(visit);
+  };
+  Object.values(document.regions).forEach((nodes) => nodes.forEach(visit));
+}
+
+function assertAuthorizedChange(previous: UiDocument, next: UiDocument, blockDefinitions: ReadonlyMap<string, PuckBlockBridge>): void {
+  if (previous.id !== next.id || previous.version !== next.version || previous.profile !== next.profile || previous.schemaVersion !== next.schemaVersion) {
+    throw new TypeError("Puck edits cannot replace canonical document identity.");
+  }
+  const before = nodeLocations(previous);
+  const after = nodeLocations(next);
+  for (const [id, prior] of before) {
+    const bridge = blockDefinitions.get(`${prior.node.type}@${prior.node.version}`)!;
+    const constraints = effectiveConstraints(bridge, prior.node);
+    const current = after.get(id);
+    if (current === undefined) {
+      if (constraints?.locked || constraints?.canDelete === false) throw new TypeError(`Block ${id} cannot be deleted.`);
+      continue;
+    }
+    if (current.node.type !== prior.node.type || current.node.version !== prior.node.version) throw new TypeError(`Block ${id} identity cannot be edited.`);
+    if (canonicalJson(current.node.bindings ?? null) !== canonicalJson(prior.node.bindings ?? null) ||
+        canonicalJson(current.node.layout ?? null) !== canonicalJson(prior.node.layout ?? null) ||
+        canonicalJson(current.node.engineMetadata ?? null) !== canonicalJson(prior.node.engineMetadata ?? null)) {
+      throw new TypeError(`Block ${id} protected metadata cannot be edited.`);
+    }
+    if ((constraints?.locked || constraints?.canMove === false) && (current.parentId !== prior.parentId || current.index !== prior.index)) {
+      throw new TypeError(`Block ${id} cannot be moved.`);
+    }
+    const changedProps = new Set([...Object.keys(prior.node.props), ...Object.keys(current.node.props)]
+      .filter((prop) => Object.hasOwn(prior.node.props, prop) !== Object.hasOwn(current.node.props, prop) ||
+        canonicalJson(prior.node.props[prop] ?? null) !== canonicalJson(current.node.props[prop] ?? null)));
+    const editable = constraints?.locked ? [] : constraints?.editableFields ?? bridge.fields.map(({ prop }) => prop);
+    if ([...changedProps].some((prop) => !editable.includes(prop))) throw new TypeError(`Block ${id} contains a forbidden field edit.`);
+  }
+  assertStructuralConstraints(next, blockDefinitions);
 }
 
 function assertDocumentPolicy(
@@ -73,6 +168,7 @@ function assertDocumentPolicy(
     node.children?.forEach(visit);
   };
   Object.values(document.regions).forEach((nodes) => nodes.forEach(visit));
+  assertStructuralConstraints(document, blockDefinitions);
   return document;
 }
 
@@ -100,12 +196,18 @@ export function createPuckBuilderProfileRegistry(input: {
     assertResources(candidate.blocks, "Puck profile blocks");
     assertResources(candidate.sources, "Puck profile sources");
     assertResources(candidate.actions, "Puck profile actions");
+    for (const block of candidate.blocks) {
+      if (block.constraints !== undefined && !UiLayoutConstraintsSchema.safeParse(block.constraints).success) {
+        throw new TypeError("Puck profile block constraints must satisfy the canonical contract.");
+      }
+    }
     const expectedPublication = candidate.id === "cms" ? "draft-preview-publish" : "save-layout";
     if (candidate.publication !== expectedPublication) throw new TypeError(`Puck ${candidate.id} publication policy is invalid.`);
     const selectedBridges = candidate.blocks.map((resource) => {
       const bridge = bridgeMap.get(keyOf(resource));
       if (bridge === undefined) throw new TypeError(`Puck profile references an unknown block: ${keyOf(resource)}.`);
-      return bridge;
+      const constraints = combineConstraints(bridge.constraints, resource.constraints);
+      return constraints === undefined ? bridge : Object.freeze({ ...bridge, constraints: Object.freeze(structuredClone(constraints)) });
     });
     for (const bridge of selectedBridges) {
       if (!bridge.definition.profiles.includes(candidate.id)) {
@@ -168,6 +270,12 @@ export function createPuckBuilderProfileRegistry(input: {
       policy,
       adapter,
       validateDocument: validatePublication,
+      validateChange: (previous: unknown, next: unknown) => {
+        const prior = assertDocumentPolicy(previous, policy, blockDefinitions, sourceKeys);
+        const current = assertDocumentPolicy(next, policy, blockDefinitions, sourceKeys);
+        assertAuthorizedChange(prior, current, blockDefinitions);
+        return current;
+      },
       allowsSource: (id: string, version: number) => sourceKeys.has(`${id}@${version}`),
       allowsAction: (id: string, version: number) => actionKeys.has(`${id}@${version}`)
     }));

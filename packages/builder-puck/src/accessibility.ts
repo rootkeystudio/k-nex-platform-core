@@ -8,6 +8,7 @@ const controlStyle: CSSProperties = {
   outlineOffset: 2
 };
 const childSlotKey = "__kNexChildren";
+const canMoveKey = "__kNexCanMove";
 const rootZone = "root:default-zone";
 
 export interface AccessiblePuckControlsProps {
@@ -21,12 +22,29 @@ export function createKeyboardReorderActions(input: {
   readonly zone?: string;
   readonly direction: "earlier" | "later";
 }): readonly PuckAction[] | undefined {
+  if (input.content[input.index]?.props[canMoveKey] === false) return undefined;
   const destinationIndex = input.index + (input.direction === "earlier" ? -1 : 1);
   if (input.index < 0 || input.index >= input.content.length || destinationIndex < 0 || destinationIndex >= input.content.length) return undefined;
   const zone = input.zone ?? rootZone;
   return [
     { type: "move", sourceIndex: input.index, sourceZone: zone, destinationIndex, destinationZone: zone },
     { type: "setUi", ui: { itemSelector: { index: destinationIndex, zone } } }
+  ];
+}
+
+export function createKeyboardMoveActions(input: {
+  readonly content: readonly ComponentData[];
+  readonly index: number;
+  readonly sourceZone: string;
+  readonly destinationZone: string;
+  readonly destinationContent: readonly ComponentData[];
+  readonly destinationIndex: number;
+}): readonly PuckAction[] | undefined {
+  if (input.sourceZone === input.destinationZone || input.content[input.index]?.props[canMoveKey] === false ||
+      input.index < 0 || input.index >= input.content.length || input.destinationIndex < 0 || input.destinationIndex > input.destinationContent.length) return undefined;
+  return [
+    { type: "move", sourceIndex: input.index, sourceZone: input.sourceZone, destinationIndex: input.destinationIndex, destinationZone: input.destinationZone },
+    { type: "setUi", ui: { itemSelector: { index: input.destinationIndex, zone: input.destinationZone } } }
   ];
 }
 
@@ -42,6 +60,12 @@ interface BlockLocation {
   readonly depth: number;
 }
 
+interface ContainerLocation {
+  readonly zone: string;
+  readonly label: string;
+  readonly content: readonly ComponentData[];
+}
+
 function blockLocations(content: readonly ComponentData[], zone = rootZone, depth = 0): readonly BlockLocation[] {
   return content.flatMap((block, index) => {
     const location: BlockLocation = { block, content, index, zone, depth };
@@ -52,6 +76,20 @@ function blockLocations(content: readonly ComponentData[], zone = rootZone, dept
   });
 }
 
+function containerLocations(content: readonly ComponentData[]): readonly ContainerLocation[] {
+  const containers: ContainerLocation[] = [{ zone: rootZone, label: "Canvas root", content }];
+  const visit = (blocks: readonly ComponentData[]): void => {
+    for (const [index, block] of blocks.entries()) {
+      const children = block.props[childSlotKey];
+      if (!Array.isArray(children)) continue;
+      containers.push({ zone: `${String(block.props.id)}:${childSlotKey}`, label: `${blockName(block, index)} child container`, content: children as ComponentData[] });
+      visit(children as ComponentData[]);
+    }
+  };
+  visit(content);
+  return containers;
+}
+
 /** Native controls provide a keyboard and screen-reader path independent of drag-and-drop. */
 export function AccessiblePuckControls({ state, dispatch }: AccessiblePuckControlsProps): ReactElement {
   const locations = blockLocations(state.data.content);
@@ -59,6 +97,9 @@ export function AccessiblePuckControls({ state, dispatch }: AccessiblePuckContro
   const selectedZone = selector?.zone ?? rootZone;
   const selectedLocationIndex = selector === null ? -1 : locations.findIndex(({ zone, index }) => zone === selectedZone && index === selector.index);
   const selected = locations[selectedLocationIndex];
+  const containers = containerLocations(state.data.content);
+  let destinationZone = selected?.zone ?? rootZone;
+  let destinationIndex = containers.find(({ zone }) => zone === destinationZone)?.content.length ?? 0;
   const move = (direction: "earlier" | "later") => {
     if (selected === undefined) return;
     const actions = createKeyboardReorderActions({ content: selected.content, index: selected.index, zone: selected.zone, direction });
@@ -101,6 +142,54 @@ export function AccessiblePuckControls({ state, dispatch }: AccessiblePuckContro
       style: controlStyle,
       onClick: () => move("later")
     }, "Move later"),
+    createElement("label", { key: "destination" }, [
+      createElement("span", { key: "label" }, "Destination container"),
+      createElement("select", {
+        key: "select",
+        defaultValue: destinationZone,
+        style: controlStyle,
+        onChange: (event: { currentTarget: { value: string } }) => {
+          destinationZone = event.currentTarget.value;
+          destinationIndex = containers.find(({ zone }) => zone === destinationZone)?.content.length ?? 0;
+        }
+      }, containers.map((container) => createElement("option", { key: container.zone, value: container.zone }, container.label)))
+    ]),
+    createElement("label", { key: "destination-position" }, [
+      createElement("span", { key: "label" }, "Destination position"),
+      createElement("input", {
+        key: "input",
+        type: "number",
+        min: 1,
+        defaultValue: destinationIndex + 1,
+        style: controlStyle,
+        onChange: (event: { currentTarget: { valueAsNumber: number } }) => {
+          destinationIndex = Math.max(0, event.currentTarget.valueAsNumber - 1);
+        }
+      })
+    ]),
+    createElement("button", {
+      key: "move-container",
+      type: "button",
+      "aria-label": selected === undefined ? "Move selected block to destination container" : `Move ${blockName(selected.block, selected.index)} to destination container`,
+      disabled: selected === undefined || selected.block.props[canMoveKey] === false || containers.length < 2,
+      style: controlStyle,
+      onClick: () => {
+        if (selected === undefined) return;
+        const destination = containers.find(({ zone }) => zone === destinationZone);
+        if (destination === undefined) return;
+        const descendantZones = new Set(containerLocations([selected.block]).map(({ zone }) => zone).filter((zone) => zone !== rootZone));
+        if (descendantZones.has(destinationZone)) return;
+        const actions = createKeyboardMoveActions({
+          content: selected.content,
+          index: selected.index,
+          sourceZone: selected.zone,
+          destinationZone,
+          destinationContent: destination.content,
+          destinationIndex
+        });
+        if (actions !== undefined) for (const action of actions) dispatch(action);
+      }
+    }, "Move to container"),
     createElement("span", { key: "status", id: "k-nex-builder-position", role: "status", "aria-live": "polite" },
       selected === undefined ? "No canvas block selected" : `${blockName(selected.block, selected.index)}, position ${selected.index + 1} of ${selected.content.length}`)
   ]);

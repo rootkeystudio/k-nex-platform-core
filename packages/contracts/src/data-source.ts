@@ -180,6 +180,46 @@ export type DataSourceAudience = (typeof dataSourceAudiences)[number];
 export type DataSourceCacheClass = (typeof dataSourceCacheClasses)[number];
 export type DataSourceCostClass = (typeof dataSourceCostClasses)[number];
 
+export type DataSourceFieldSelectionFailure =
+  | "DUPLICATE_FIELDS"
+  | "FIELD_LIMIT_EXCEEDED"
+  | "METRIC_FIELDS_FORBIDDEN"
+  | "UNKNOWN_FIELD"
+  | "REQUIRED_FIELD_NOT_REQUESTED"
+  | "REQUIRED_FIELD_NOT_ALLOWED"
+  | "NO_ALLOWED_FIELDS";
+
+export type DataSourceFieldSelectionResult =
+  | { readonly success: true; readonly selectedFields: readonly string[] }
+  | { readonly success: false; readonly reason: DataSourceFieldSelectionFailure };
+
+/** Shared descriptor-level projection rules used by gateways and UI readiness checks. */
+export function resolveDataSourceFieldSelection(
+  descriptor: DataSourceDescriptor,
+  requestedFields: readonly string[],
+  allowedFields: ReadonlySet<string>
+): DataSourceFieldSelectionResult {
+  if (new Set(requestedFields).size !== requestedFields.length) return { success: false, reason: "DUPLICATE_FIELDS" };
+  if (requestedFields.length > descriptor.limits.maxSelectedFields) return { success: false, reason: "FIELD_LIMIT_EXCEEDED" };
+  if (descriptor.primaryContract.id === "metric.scalar") {
+    return requestedFields.length === 0
+      ? { success: true, selectedFields: Object.freeze([]) }
+      : { success: false, reason: "METRIC_FIELDS_FORBIDDEN" };
+  }
+
+  const fields = new Map((descriptor.outputFields ?? []).map((field) => [field.id, field]));
+  if (requestedFields.some((fieldId) => !fields.has(fieldId))) return { success: false, reason: "UNKNOWN_FIELD" };
+  const requested = new Set(requestedFields);
+  for (const field of fields.values()) {
+    if (field.binding === "required" && !requested.has(field.id)) return { success: false, reason: "REQUIRED_FIELD_NOT_REQUESTED" };
+    if (field.binding === "required" && !allowedFields.has(field.id)) return { success: false, reason: "REQUIRED_FIELD_NOT_ALLOWED" };
+  }
+  const selectedFields = requestedFields.filter((fieldId) => allowedFields.has(fieldId));
+  return selectedFields.length === 0
+    ? { success: false, reason: "NO_ALLOWED_FIELDS" }
+    : { success: true, selectedFields: Object.freeze(selectedFields) };
+}
+
 export type RuntimeSchemaResult<T> =
   | { readonly success: true; readonly data: T }
   | { readonly success: false; readonly error: unknown };

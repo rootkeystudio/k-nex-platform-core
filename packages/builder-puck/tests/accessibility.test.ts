@@ -1,7 +1,7 @@
 import { Children, isValidElement, type ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { AccessiblePuckControls, createKeyboardReorderActions } from "../src/accessibility.js";
+import { AccessiblePuckControls, createKeyboardMoveActions, createKeyboardReorderActions } from "../src/accessibility.js";
 
 const content = [
   { type: "content.text__v1", props: { id: "alpha" } },
@@ -36,7 +36,7 @@ describe("accessible Puck operation", () => {
   it("provides named native buttons as a non-drag reorder alternative", () => {
     const { element, dispatch } = controls();
     const buttons = Children.toArray(element.props.children).filter((child) => isValidElement(child) && child.type === "button") as ReactElement[];
-    expect(buttons.map((button) => button.props["aria-label"])).toEqual([
+    expect(buttons.slice(0, 2).map((button) => button.props["aria-label"])).toEqual([
       "Move content.text__v1 beta, item 2 earlier",
       "Move content.text__v1 beta, item 2 later"
     ]);
@@ -84,5 +84,37 @@ describe("accessible Puck operation", () => {
       destinationIndex: 0,
       destinationZone: "card:__kNexChildren"
     });
+  });
+
+  it("moves an unlocked child between sibling containers without drag", () => {
+    const nested = [{
+      type: "content.card__v1",
+      props: { id: "left", __kNexChildren: [{ ...content[0], props: { ...content[0]!.props, __kNexCanMove: true } }] }
+    }, {
+      type: "content.card__v1",
+      props: { id: "right", __kNexChildren: [] }
+    }];
+    const dispatch = vi.fn();
+    const element = AccessiblePuckControls({
+      state: { data: { root: { props: {} }, content: nested }, ui: { itemSelector: { index: 0, zone: "left:__kNexChildren" } } } as never,
+      dispatch
+    });
+    const children = Children.toArray(element.props.children) as ReactElement[];
+    const destinationLabel = children.find((child) => child.type === "label" && Children.toArray(child.props.children)[0] &&
+      (Children.toArray(child.props.children)[0] as ReactElement).props.children === "Destination container") as ReactElement;
+    const destination = Children.toArray(destinationLabel.props.children)[1] as ReactElement;
+    destination.props.onChange({ currentTarget: { value: "right:__kNexChildren" } });
+    const moveButton = children.find((child) => child.type === "button" && child.props.children === "Move to container") as ReactElement;
+    moveButton.props.onClick();
+    expect(dispatch).toHaveBeenNthCalledWith(1, {
+      type: "move", sourceIndex: 0, sourceZone: "left:__kNexChildren", destinationIndex: 0, destinationZone: "right:__kNexChildren"
+    });
+    expect(createKeyboardMoveActions({ content: nested[0]!.props.__kNexChildren, index: 0, sourceZone: "left:__kNexChildren", destinationZone: "left:__kNexChildren", destinationContent: [], destinationIndex: 0 })).toBeUndefined();
+  });
+
+  it("does not expose reorder actions for a trusted immovable component", () => {
+    const immovable = [{ ...content[0], props: { ...content[0]!.props, __kNexCanMove: false } }, content[1]!];
+    expect(createKeyboardReorderActions({ content: immovable, index: 0, direction: "later" })).toBeUndefined();
+    expect(createKeyboardMoveActions({ content: immovable, index: 0, sourceZone: "root:default-zone", destinationZone: "other:__kNexChildren", destinationContent: [], destinationIndex: 0 })).toBeUndefined();
   });
 });

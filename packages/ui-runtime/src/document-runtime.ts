@@ -1,5 +1,6 @@
 import {
   MetricScalarSchema,
+  resolveDataSourceFieldSelection,
   TableRecordsSchema,
   migrateUiDocumentToCurrent,
   UiDocumentMigrationError,
@@ -165,20 +166,22 @@ function tableProjectionMatchesAuthority(
   actor: UiRuntimeActor,
   table: { readonly fields: readonly string[]; readonly rows: readonly { readonly values: Readonly<Record<string, unknown>> }[] }
 ): boolean {
-  const selectedFields = node.bindings?.source?.selectedFields ?? [];
-  if (table.fields.length !== selectedFields.length || table.fields.some((field) => !selectedFields.includes(field))) return false;
   const descriptorFields = new Map((descriptor.outputFields ?? []).map((field) => [field.id, field]));
-  for (const fieldId of table.fields) {
-    const field = descriptorFields.get(fieldId);
-    if (field === undefined || descriptor.audience !== "public" && !hasPermission(actor, field.permission)) return false;
-  }
+  const allowedFields = new Set([...descriptorFields.values()]
+    .filter((field) => descriptor.audience === "public" || hasPermission(actor, field.permission))
+    .map(({ id }) => id));
+  const selection = resolveDataSourceFieldSelection(descriptor, node.bindings?.source?.selectedFields ?? [], allowedFields);
+  if (!selection.success || table.fields.length !== selection.selectedFields.length ||
+      table.fields.some((field, index) => field !== selection.selectedFields[index])) return false;
   return table.rows.every(({ values }) => {
     const valueFields = Object.keys(values);
-    if (valueFields.length !== table.fields.length || valueFields.some((field) => !table.fields.includes(field))) return false;
+    if (valueFields.some((field) => !table.fields.includes(field))) return false;
     return table.fields.every((fieldId) => {
       const field = descriptorFields.get(fieldId);
+      if (field === undefined) return false;
+      if (!Object.hasOwn(values, fieldId)) return field.nullable || field.binding === "optional";
       const cell = values[fieldId];
-      if (field === undefined || cell === null) return field?.nullable === true;
+      if (cell === null) return field.nullable;
       return typeof cell === "object" && !Array.isArray(cell) && (cell as Record<string, unknown>).kind === field.kind;
     });
   });
@@ -234,11 +237,17 @@ function sourceBindingReason(
 
   const selectedFields = binding.selectedFields ?? [];
   const fields = new Map((descriptor.outputFields ?? []).map((field) => [field.id, field]));
-  if (selectedFields.some((fieldId) => !fields.has(fieldId))) return "SOURCE_FIELD_UNAVAILABLE";
-  if (policy.requiredFields.some((fieldId) => !selectedFields.includes(fieldId))) return "SOURCE_FIELD_UNAVAILABLE";
-  if (descriptor.audience !== "public" && selectedFields.some((fieldId) => !hasPermission(actor, fields.get(fieldId)?.permission ?? ""))) {
-    return "SOURCE_FIELD_PERMISSION_DENIED";
+  const allowedFields = new Set([...fields.values()]
+    .filter((field) => descriptor.audience === "public" || hasPermission(actor, field.permission))
+    .map(({ id }) => id));
+  const selection = resolveDataSourceFieldSelection(descriptor, selectedFields, allowedFields);
+  if (!selection.success) {
+    return selection.reason === "REQUIRED_FIELD_NOT_ALLOWED" || selection.reason === "NO_ALLOWED_FIELDS"
+      ? "SOURCE_FIELD_PERMISSION_DENIED"
+      : "SOURCE_FIELD_UNAVAILABLE";
   }
+  if (policy.requiredFields.some((fieldId) => !selectedFields.includes(fieldId))) return "SOURCE_FIELD_UNAVAILABLE";
+  if (policy.requiredFields.some((fieldId) => !selection.selectedFields.includes(fieldId))) return "SOURCE_FIELD_PERMISSION_DENIED";
   return undefined;
 }
 

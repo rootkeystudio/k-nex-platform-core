@@ -171,8 +171,10 @@ export const UiDocumentNodeSchema = UiNodeSchema;
 
 const unsafeExactKeys = new Set([
   "authorization",
+  "authorizations",
   "auth",
   "cookie",
+  "cookies",
   "password",
   "secret",
   "token",
@@ -201,7 +203,12 @@ const unsafeExactKeys = new Set([
 ]);
 
 function isStructuralLayoutTokens(path: readonly (string | number)[], key: string): boolean {
-  return key === "tokens" && path.at(-1) === "layout" && !path.includes("props") && !path.includes("engineMetadata");
+  if (key !== "tokens" || path.length < 4 || path[0] !== "regions" || typeof path[1] !== "string" ||
+      typeof path[2] !== "number" || path.at(-1) !== "layout") return false;
+  for (let index = 3; index < path.length - 1; index += 2) {
+    if (path[index] !== "children" || typeof path[index + 1] !== "number") return false;
+  }
+  return (path.length - 4) % 2 === 0;
 }
 
 function isUnsafePersistedKey(key: string, path: readonly (string | number)[]): boolean {
@@ -216,6 +223,7 @@ function isUnsafePersistedKey(key: string, path: readonly (string | number)[]): 
     "oauth",
     "bearer",
     "sessionkey",
+    "sessionid",
     "accesskey",
     "privatekey",
     "signingkey"
@@ -231,13 +239,14 @@ function inspectJsonTree(value: unknown, path: readonly (string | number)[], con
       context.addIssue({ code: "custom", path: [...path], message: `Strings may not exceed ${uiDocumentPlatformCeilings.stringLength} characters.` });
     }
     const trimmed = value.trim();
-    if (/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(value)) {
+    if (/[\p{Cc}\p{Cf}]/u.test(value)) {
       context.addIssue({ code: "custom", path: [...path], message: "Control and format characters are forbidden in persisted UI strings." });
     }
-    if (!/^sha256:[a-f0-9]{64}$/.test(trimmed) && /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(trimmed)) {
+    const slashNormalized = trimmed.replaceAll("\\", "/");
+    if (!/^sha256:[a-f0-9]{64}$/.test(trimmed) && /^(?:[a-z][a-z0-9+.-]*:|\/{2,})/i.test(slashNormalized)) {
       context.addIssue({ code: "custom", path: [...path], message: "Unrestricted URL-like strings are forbidden in persisted UI documents." });
     }
-    if (/^\\+(?:[a-z][a-z0-9+.-]*:|[\\/])/i.test(trimmed)) {
+    if (/^\\+[a-z][a-z0-9+.-]*:/i.test(trimmed)) {
       context.addIssue({ code: "custom", path: [...path], message: "Backslash-obscured URL-like strings are forbidden in persisted UI documents." });
     }
     return;

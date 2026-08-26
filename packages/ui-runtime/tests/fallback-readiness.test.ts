@@ -9,12 +9,12 @@ import {
   inspectUiDocumentReadiness
 } from "../src/index.js";
 
-const actor = { authenticated: true, permissions: new Set(["sales.tasks.read", "sales.tasks.title.read", "sales.tasks.status.read"]) };
+const actor = { authenticated: true, permissions: new Set(["sales.tasks.read", "sales.tasks.title.read", "sales.tasks.status.read", "sales.tasks.revenue.read"]) };
 const sourceBinding = {
   source: { id: "sales.tasks", version: 1 },
   input: {},
   structuralCompatibilityHash: salesTasksDescriptor.structuralCompatibilityHash,
-  selectedFields: ["title", "status"]
+  selectedFields: ["title", "status", "potential-revenue"]
 };
 const workspaceDocument = (node: Record<string, unknown>) => ({
   id: "workspace.fallback",
@@ -95,7 +95,7 @@ describe("P4.6 safe fallback and readiness", () => {
     });
 
     const selectedFieldRuntime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [definition], sources: [salesTasksDescriptor] }));
-    const missingStatus = { ...sourceBinding, selectedFields: ["title"] };
+    const missingStatus = { ...sourceBinding, selectedFields: ["title", "potential-revenue"] };
     expect(first(selectedFieldRuntime.render({ document: workspaceDocument(taskNode(missingStatus)), surface: "workspace", actor }))).toMatchObject({
       reason: "SOURCE_FIELD_UNAVAILABLE",
       ownerPluginId: "module.sales",

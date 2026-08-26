@@ -38,13 +38,13 @@ const source: DataSourceDescriptor = {
   cacheClass: "actor"
 };
 const table = {
-  fields: ["title", "status"],
+  fields: ["title", "status", "potential-revenue"],
   rows: [{ key: "task-1", values: { title: { kind: "text", value: "Call customer" }, status: { kind: "status", value: "open" } } }],
   page: { number: 1, pageSize: 20, hasNext: false }
 } as const;
 const actor = {
   authenticated: true,
-  permissions: new Set(["sales.tasks.read", "sales.tasks.title.read", "sales.tasks.status.read"])
+  permissions: new Set(["sales.tasks.read", "sales.tasks.title.read", "sales.tasks.status.read", "sales.tasks.revenue.read"])
 };
 const textDefinition = createStaticTextBlockDefinition();
 const tableDefinition = createWorkspaceTaskTableBlockDefinition();
@@ -75,7 +75,7 @@ const uiDocument = {
       source: { id: source.id, version: source.version },
       input: {},
       structuralCompatibilityHash: source.structuralCompatibilityHash,
-      selectedFields: ["title", "status"]
+      selectedFields: ["title", "status", "potential-revenue"]
     } }
   }, {
     id: "group",

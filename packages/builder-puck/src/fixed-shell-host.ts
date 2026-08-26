@@ -37,8 +37,8 @@ export function PuckFixedShellHost({
       createElement(PuckEditorHost, {
         adapter: profile.adapter,
         document,
-        ...(onChange === undefined ? {} : { onChange }),
-        ...(onPublish === undefined ? {} : { onPublish: (next: UiDocument) => onPublish(profile.validateDocument(next)) })
+        ...(onChange === undefined ? {} : { onChange: (next: UiDocument) => onChange(profile.validateChange(document, next)) }),
+        ...(onPublish === undefined ? {} : { onPublish: (next: UiDocument) => onPublish(profile.validateDocument(profile.validateChange(document, next))) })
       })),
     createElement("div", { key: "dialogs", "data-k-nex-shell-global-dialogs": true }, globalDialogs)
   ]);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DataSourceDescriptor } from "@k-nex/contracts";
+import { salesTasksDescriptor } from "../../../modules/sales/src/server.js";
 
 import { createPuckBuilderProfileRegistry, type PuckBlockBridge, type PuckBuilderProfile } from "../src/index.js";
 
@@ -126,5 +127,50 @@ describe("profile-specific Puck policy", () => {
     const data = profile.adapter.toPuckData(document);
     const component = profile.adapter.config.components["sales.workspace-task-table__v1"] as { render: (props: Record<string, unknown>) => unknown };
     expect(component.render(data.content[0]!.props)).not.toBe("Unavailable: MISSING_SOURCE");
+  });
+
+  it("enforces trusted field and movement constraints on edits", () => {
+    const constrained = createPuckBuilderProfileRegistry({
+      blocks: [staticBlock], sources: [], profiles: [{
+        ...cms,
+        sources: [],
+        blocks: [{ id: "content.text", version: 1, constraints: { canMove: false, canDelete: false, editableFields: [] } }]
+      }]
+    }).resolve("cms");
+    if (constrained === undefined) throw new Error("Expected constrained CMS profile.");
+    const first = { id: "text-1", type: "content.text", version: 1, props: { text: "First" } };
+    const second = { id: "text-2", type: "content.text", version: 1, props: { text: "Second" } };
+    const original = { id: "cms.locked", version: 1, schemaVersion: 1, profile: "cms", regions: { main: [first, second] } };
+    expect((constrained.adapter.config.components["content.text__v1"] as { fields: unknown }).fields).toEqual({});
+    expect(() => constrained.validateChange(original, { ...original, regions: { main: [{ ...first, props: { text: "Changed" } }, second] } })).toThrow(/forbidden field edit/);
+    expect(() => constrained.validateChange(original, { ...original, regions: { main: [second, first] } })).toThrow(/cannot be moved/);
+    expect(() => constrained.validateChange(original, { ...original, regions: { main: [second] } })).toThrow(/cannot be deleted/);
+  });
+
+  it("matches the real Phase 2 required-field selection rules before publication", () => {
+    const profile = createPuckBuilderProfileRegistry({
+      blocks: [workspaceBlock],
+      sources: [salesTasksDescriptor],
+      profiles: [{
+        id: "workspace",
+        blocks: [{ id: workspaceBlock.definition.id, version: workspaceBlock.definition.version }],
+        sources: [{ id: salesTasksDescriptor.id, version: salesTasksDescriptor.version }],
+        actions: [],
+        publication: "save-layout"
+      }]
+    }).resolve("workspace");
+    if (profile === undefined) throw new Error("Expected workspace profile.");
+    const bound = (selectedFields: readonly string[]) => ({
+      id: "workspace.real-source", version: 1, schemaVersion: 1, profile: "workspace",
+      regions: { main: [{
+        id: "tasks", type: workspaceBlock.definition.id, version: workspaceBlock.definition.version, props: { text: "Tasks" },
+        bindings: { source: {
+          source: { id: salesTasksDescriptor.id, version: salesTasksDescriptor.version }, input: {},
+          structuralCompatibilityHash: salesTasksDescriptor.structuralCompatibilityHash, selectedFields
+        } }
+      }] }
+    });
+    expect(() => profile.validateDocument(bound(["title", "status"]))).toThrow(/SOURCE_FIELD_UNAVAILABLE/);
+    expect(profile.validateDocument(bound(["title", "status", "potential-revenue"]))).toMatchObject({ id: "workspace.real-source" });
   });
 });

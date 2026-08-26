@@ -2,12 +2,14 @@ import {
   ResourceIdSchema,
   TableFieldIdSchema,
   UiDocumentSchema,
+  UiLayoutConstraintsSchema,
   assertJsonValue,
   canonicalJson,
   type JsonValue,
   type DataSourceBindingResult,
   type DataSourceDescriptor,
   type UiDocument,
+  type UiLayoutConstraints,
   type UiNode
 } from "@k-nex/contracts";
 import type { ComponentData, Config, Data, Field } from "@puckeditor/core";
@@ -24,6 +26,7 @@ const canonicalNodeKey = "__kNexNode";
 const childSlotKey = "__kNexChildren";
 const documentKey = "__kNexDocument";
 const fieldPrefix = "__kNexField:";
+const canMoveKey = "__kNexCanMove";
 
 export type PuckBridgeField =
   | { readonly prop: string; readonly label: string; readonly kind: "text" | "textarea" | "number" | "boolean" }
@@ -35,6 +38,7 @@ export interface PuckBlockBridge {
   readonly fields: readonly PuckBridgeField[];
   readonly allowChildren: boolean;
   readonly defaultProps: Readonly<Record<string, JsonValue>>;
+  readonly constraints?: UiLayoutConstraints;
 }
 
 export interface PuckPreviewContext {
@@ -87,6 +91,19 @@ function fieldValueIsValid(field: PuckBridgeField, value: unknown): boolean {
   return "options" in field && field.options.some((option) => canonicalJson(option.value) === canonicalJson(value));
 }
 
+function editableFields(bridge: PuckBlockBridge, nodeConstraints?: UiLayoutConstraints): readonly PuckBridgeField[] {
+  if (bridge.constraints?.locked || nodeConstraints?.locked) return [];
+  const trusted = bridge.constraints?.editableFields;
+  const persisted = nodeConstraints?.editableFields;
+  return bridge.fields.filter(({ prop }) =>
+    (trusted === undefined || trusted.includes(prop)) && (persisted === undefined || persisted.includes(prop)));
+}
+
+function nodeCanMove(bridge: PuckBlockBridge, nodeConstraints?: UiLayoutConstraints): boolean {
+  return bridge.constraints?.locked !== true && bridge.constraints?.canMove !== false &&
+    nodeConstraints?.locked !== true && nodeConstraints?.canMove !== false;
+}
+
 function assertBridge(bridge: PuckBlockBridge): void {
   if (!ResourceIdSchema.safeParse(bridge.definition?.id).success || !Number.isSafeInteger(bridge.definition?.version) || bridge.definition.version < 1) {
     throw new TypeError("Puck block bridges require a canonical block ID and positive version.");
@@ -120,6 +137,9 @@ function assertBridge(bridge: PuckBlockBridge): void {
   if (bridge.definition.propsSchema.safeParse(bridge.defaultProps).success !== true) {
     throw new TypeError("Puck bridge defaults must satisfy the shared runtime prop schema.");
   }
+  if (bridge.constraints !== undefined && !UiLayoutConstraintsSchema.safeParse(bridge.constraints).success) {
+    throw new TypeError("Puck bridge constraints must satisfy the canonical layout constraint contract.");
+  }
 }
 
 function puckField(field: PuckBridgeField): Field {
@@ -148,8 +168,12 @@ function toComponent(node: UiNode, profile: UiDocument["profile"], bridges: Read
   if (bridge.definition.propsSchema.safeParse(node.props).success !== true) {
     throw new TypeError(`Canonical props are invalid for ${node.type}@${node.version}.`);
   }
-  const props: Record<string, unknown> = { id: node.id, [canonicalNodeKey]: storedNode(node, profile) };
-  for (const field of bridge.fields) {
+  const props: Record<string, unknown> = {
+    id: node.id,
+    [canonicalNodeKey]: storedNode(node, profile),
+    [canMoveKey]: nodeCanMove(bridge, node.layout?.constraints)
+  };
+  for (const field of editableFields(bridge, node.layout?.constraints)) {
     props[fieldKey(field.prop)] = cloneJson(node.props[field.prop] ?? bridge.defaultProps[field.prop] ?? null);
   }
   if (bridge.allowChildren) props[childSlotKey] = (node.children ?? []).map((child) => toComponent(child, profile, bridges));
@@ -176,7 +200,7 @@ function fromComponent(value: unknown, bridges: ReadonlyMap<string, PuckBlockBri
   if (metadata.type !== bridge.definition.id || metadata.version !== bridge.definition.version) throw new TypeError("Puck component identity does not match canonical metadata.");
 
   const props = cloneJson(metadata.props) as Record<string, JsonValue>;
-  for (const field of bridge.fields) {
+  for (const field of editableFields(bridge, metadata.layout?.constraints)) {
     const edited = value.props[fieldKey(field.prop)];
     if (edited === undefined) throw new TypeError(`Puck component field is missing: ${field.prop}.`);
     assertJsonValue(edited);
@@ -230,24 +254,45 @@ function createConfig(bridges: ReadonlyMap<string, PuckBlockBridge>, preview?: P
   }));
   for (const [key, bridge] of bridges) {
     const fields: Record<string, Field> = {};
-    for (const field of bridge.fields) fields[fieldKey(field.prop)] = puckField(field);
+    for (const field of editableFields(bridge)) fields[fieldKey(field.prop)] = puckField(field);
     if (bridge.allowChildren) fields[childSlotKey] = { type: "slot", allow: componentNames };
     const defaultProps: Record<string, unknown> = {};
-    for (const field of bridge.fields) defaultProps[fieldKey(field.prop)] = cloneJson(bridge.defaultProps[field.prop] ?? null);
+    for (const field of editableFields(bridge)) defaultProps[fieldKey(field.prop)] = cloneJson(bridge.defaultProps[field.prop] ?? null);
     const defaultProfile = preview?.surface === "workspace" ? "workspace" : preview?.surface === "cms" || preview?.surface === "public"
       ? "cms"
       : bridge.definition.profiles[0];
     if (defaultProfile === undefined) throw new TypeError("Puck bridge requires a supported document profile.");
     defaultProps[canonicalNodeKey] = storedNode({ id: "new-block", type: bridge.definition.id, version: bridge.definition.version, props: bridge.defaultProps }, defaultProfile);
+    defaultProps[canMoveKey] = nodeCanMove(bridge);
     if (bridge.allowChildren) defaultProps[childSlotKey] = [];
     components[key] = {
       label: bridge.label,
       fields,
       defaultProps,
+      permissions: {
+        drag: nodeCanMove(bridge),
+        delete: bridge.constraints?.locked !== true && bridge.constraints?.canDelete !== false,
+        duplicate: bridge.constraints?.locked !== true,
+        edit: editableFields(bridge).length > 0
+      },
+      resolvePermissions: (data: { readonly props?: Record<string, unknown> }) => {
+        const metadata = parseStoredNode(data.props?.[canonicalNodeKey]);
+        const constraints = metadata.layout?.constraints;
+        return {
+          drag: nodeCanMove(bridge, constraints),
+          delete: bridge.constraints?.locked !== true && bridge.constraints?.canDelete !== false && constraints?.locked !== true && constraints?.canDelete !== false,
+          duplicate: bridge.constraints?.locked !== true && constraints?.locked !== true,
+          edit: editableFields(bridge, constraints).length > 0
+        };
+      },
+      resolveFields: (data: { readonly props?: Record<string, unknown> }) => {
+        const metadata = parseStoredNode(data.props?.[canonicalNodeKey]);
+        return Object.fromEntries(editableFields(bridge, metadata.layout?.constraints).map((field) => [fieldKey(field.prop), puckField(field)]));
+      },
       render: (props: Record<string, unknown>) => {
         const metadata = parseStoredNode(props[canonicalNodeKey]);
         const canonicalProps: Record<string, JsonValue> = cloneJson(metadata.props) as Record<string, JsonValue>;
-        for (const field of bridge.fields) canonicalProps[field.prop] = props[fieldKey(field.prop)] as JsonValue;
+        for (const field of editableFields(bridge, metadata.layout?.constraints)) canonicalProps[field.prop] = props[fieldKey(field.prop)] as JsonValue;
         const node: UiNode = {
           id: String(props.id),
           type: metadata.type,
@@ -279,7 +324,8 @@ export function createPuckBuilderAdapter(input: { readonly blocks: readonly Puck
     const bridge: PuckBlockBridge = Object.freeze({
       ...candidate,
       fields: Object.freeze(candidate.fields.map((field) => Object.freeze(cloneJson(field)))),
-      defaultProps: Object.freeze(cloneJson(candidate.defaultProps))
+      defaultProps: Object.freeze(cloneJson(candidate.defaultProps)),
+      ...(candidate.constraints === undefined ? {} : { constraints: Object.freeze(cloneJson(candidate.constraints)) })
     });
     const key = bridgeKey(bridge.definition.id, bridge.definition.version);
     if (bridges.has(key)) throw new TypeError(`Duplicate Puck block bridge: ${bridge.definition.id}@${bridge.definition.version}.`);

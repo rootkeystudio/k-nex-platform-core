@@ -253,18 +253,33 @@ describe("P4.1 canonical UI documents", () => {
       { refreshToken: "hidden" },
       { authHeader: "hidden" },
       { authenticationTokenValue: "hidden" },
+      { cookies: "hidden" },
+      { authorizations: "hidden" },
+      { sessionIds: "hidden" },
       { oauthGrant: "hidden" },
       { endpoint: "wss://example.test/socket" },
       { endpoint: "custom+transport://example.test/resource" },
       { endpoint: "\u0000https://example.test/private" },
       { endpoint: "\u200bhttps://example.test/private" },
-      { endpoint: "\\https://example.test/private" }
+      { endpoint: "\u00adhttps://example.test/private" },
+      { endpoint: "\u061chttps://example.test/private" },
+      { endpoint: "\u180ehttps://example.test/private" },
+      { endpoint: "\\https://example.test/private" },
+      { endpoint: "/\\\\evil.example/x" }
     ]) {
       expect(parse({
         ...validDocument,
         regions: { main: [{ ...validDocument.regions.main[0], props: unsafeProps }] }
       }).success).toBe(false);
     }
+    expect(parse({
+      ...validDocument,
+      regions: { props: [{ ...validDocument.regions.main[0], layout: { tokens: { spacing: "space.large" } } }] }
+    }).success).toBe(true);
+    expect(parse({
+      ...validDocument,
+      regions: { main: [{ ...validDocument.regions.main[0], props: { children: [{ layout: { tokens: "hidden" } }] } }] }
+    }).success).toBe(false);
     expect(parse({
       ...validDocument,
       regions: { main: [{ ...validDocument.regions.main[0], engineMetadata: { "builder.visual": { url: "unsafe" } } }] }
