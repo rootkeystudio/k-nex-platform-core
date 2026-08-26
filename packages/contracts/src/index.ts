@@ -1,6 +1,7 @@
 export * from "./application-manifest.js";
 export * from "./architecture-registry.js";
 export * from "./canonical-json.js";
+export * from "./data-source-binding.js";
 export * from "./framework-tuple.js";
 export * from "./data-source.js";
 export * from "./data-source-query.js";

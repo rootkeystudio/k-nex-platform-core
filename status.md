@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-26
 - **Phase:** Phase 2 — Authenticated Data Sources and Output Contracts
-- **Active task:** P2.8 — Add headless binding states and query identity
+- **Active task:** P2.9 — Benchmark, attack, and close Gate 2
 - **State:** In progress
 
 ## Last completed
 
-Implemented and registered the bounded `sales.total-potential-revenue` metric and paginated `sales.tasks` table sources with server-side aggregation, stable structural hashes, exact field permissions, a required sensitive revenue field, optional private notes, allowlisted query operations, scoped Payload access, and cancellation-aware limits. Added the customer-owned schema migration and peer-qualified packed-module resolution needed by the proof fixture.
+Added a library-neutral exhaustive headless binding result union for idle/loading/success/empty/authorization/contract/rate/error/stale/refetching states and strict immutable client query identity. Canonical identity covers source/version, validated JSON input, ordered fields, surface, semantic locale/timezone, publication revision, and SHA-256 actor/policy or explicit public authorization boundaries; role-only boundaries fail closed.
 
 ## Validation
 
-Focused Sales source/build/package tests pass, the generated packed fixture is reproducible, and full `pnpm phase:0` plus the real-Postgres `pnpm gate:1` pass with migration revision 2.
+Full build and `pnpm phase:0` pass. Contracts have 51 tests covering every documented state, strict identity rejection, canonical stability, dimension isolation, ordered-field significance, authorization-boundary variants, oversize rejection, and caller-safe deep freezing.
 
 ## Next
 
-Complete P2.8 with headless binding result states and stable client query identity.
+Complete P2.9 with the attack corpus, realistic benchmarks, Gate 2 command, and Phase 2 closeout artifact.
 
 ## Blockers
 
