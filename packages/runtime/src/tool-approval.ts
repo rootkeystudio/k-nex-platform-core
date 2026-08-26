@@ -41,6 +41,7 @@ interface ApprovalRecord {
   readonly agentSessionId: string;
   readonly expiresAtEpochMs: number;
   used: boolean;
+  consuming: boolean;
 }
 
 function approvalError(code: string, message: string): ToolGatewayError {
@@ -84,6 +85,7 @@ function binding(resolver: ToolApprovalBindingResolver, context: ToolExecutionCo
 
 export class InMemoryToolApprovalEvaluator implements ToolApprovalEvaluator {
   private readonly records = new Map<string, ApprovalRecord>();
+  private readonly pending = new Set<string>();
 
   constructor(
     private readonly clock: ToolApprovalClock,
@@ -111,21 +113,30 @@ export class InMemoryToolApprovalEvaluator implements ToolApprovalEvaluator {
       submission.expiresAtEpochMs - now > toolApprovalLimits.maxLifetimeMs) {
       throw approvalError("APPROVAL_INVALID", "Approval is invalid.");
     }
-    if (this.records.has(submission.id) || this.records.size >= toolApprovalLimits.maxRecords ||
-      await this.issuer.authorize(context, submission) !== true) {
+    if (this.records.has(submission.id) || this.pending.has(submission.id) ||
+      this.records.size + this.pending.size >= toolApprovalLimits.maxRecords) {
       throw approvalError("APPROVAL_DENIED", "Approval was denied.");
     }
-    const subject = binding(this.bindings, context);
-    this.records.set(submission.id, {
-      id: submission.id,
-      toolId: context.descriptor.id,
-      toolVersion: context.descriptor.version,
-      inputDigest: await inputDigest(context.input),
-      principalId: subject.principalId,
-      agentSessionId: subject.agentSessionId,
-      expiresAtEpochMs: submission.expiresAtEpochMs,
-      used: false
-    });
+    this.pending.add(submission.id);
+    try {
+      if (await this.issuer.authorize(context, submission) !== true) {
+        throw approvalError("APPROVAL_DENIED", "Approval was denied.");
+      }
+      const subject = binding(this.bindings, context);
+      this.records.set(submission.id, {
+        id: submission.id,
+        toolId: context.descriptor.id,
+        toolVersion: context.descriptor.version,
+        inputDigest: await inputDigest(context.input),
+        principalId: subject.principalId,
+        agentSessionId: subject.agentSessionId,
+        expiresAtEpochMs: submission.expiresAtEpochMs,
+        used: false,
+        consuming: false
+      });
+    } finally {
+      this.pending.delete(submission.id);
+    }
     return Object.freeze({ status: "approved", id: submission.id, expiresAtEpochMs: submission.expiresAtEpochMs });
   }
 
@@ -135,13 +146,20 @@ export class InMemoryToolApprovalEvaluator implements ToolApprovalEvaluator {
     const record = subject.approvalId === undefined ? undefined : this.records.get(subject.approvalId);
     const now = this.clock.now();
     if (!Number.isSafeInteger(now)) throw approvalError("APPROVAL_CONTEXT_INVALID", "Approval context is invalid.");
-    if (record === undefined || record.used || record.expiresAtEpochMs <= now ||
+    if (record === undefined || record.used || record.consuming || record.expiresAtEpochMs <= now ||
       record.toolId !== context.descriptor.id || record.toolVersion !== context.descriptor.version ||
-      record.principalId !== subject.principalId || record.agentSessionId !== subject.agentSessionId ||
-      record.inputDigest !== await inputDigest(context.input)) {
+      record.principalId !== subject.principalId || record.agentSessionId !== subject.agentSessionId) {
       throw approvalError("APPROVAL_REQUIRED", "A valid per-call approval is required.");
     }
-    record.used = true;
-    return Object.freeze({ status: "approved", id: record.id });
+    record.consuming = true;
+    try {
+      if (record.inputDigest !== await inputDigest(context.input)) {
+        throw approvalError("APPROVAL_REQUIRED", "A valid per-call approval is required.");
+      }
+      record.used = true;
+      return Object.freeze({ status: "approved", id: record.id });
+    } finally {
+      if (!record.used) record.consuming = false;
+    }
   }
 }

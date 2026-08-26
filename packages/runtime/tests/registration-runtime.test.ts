@@ -442,6 +442,10 @@ describe("phased registration runtime", () => {
       () => run([providerRegistration(), plan({ ...actionTool(), permission: "consumer.understated" })], [providerManifest(), manifest]),
       "INVENTORY_MISMATCH"
     );
+    expectCode(
+      () => run([providerRegistration(), plan({ ...actionTool(), policy: "consumer.understated" })], [providerManifest(), manifest]),
+      "INVENTORY_MISMATCH"
+    );
   });
 
   it("rejects registration through an API retained from the wrong phase", () => {

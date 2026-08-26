@@ -1,18 +1,39 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { PluginManifestSchema, type AgentToolDescriptor } from "@k-nex/contracts";
+import { PluginManifestSchema, type AgentToolDescriptor, type DataSourceDefinition } from "@k-nex/contracts";
 import {
+  BoundedQueryBudgetEvaluator,
   BoundedToolRiskBudgetEvaluator,
+  CanonicalOutputContractValidator,
+  DataSourceGateway,
+  DefinitionSourceSchemaValidator,
+  DescriptorSurfaceAudienceGuard,
+  InMemoryDataSourceCachePolicy,
   InMemoryToolApprovalEvaluator,
   InMemoryToolIdempotencyCoordinator,
+  PolicyAuthorizationEvaluator,
+  RegisteredHandlerDispatcher,
+  RegisteredToolAuthorization,
+  RegisteredToolDispatcher,
+  RegisteredToolInputValidator,
+  RegisteredToolOutputValidator,
+  RegisteredToolRedactor,
+  RegisteredToolTargetResolver,
   SafeToolAuditDecorator,
   SafeToolProblemSerializer,
+  SafeProblemDetailsSerializer,
   ScriptedSalesToolClient,
+  TableProjectionRedactor,
   ToolCatalog,
-  ToolExecutionGateway,
+  BoundToolDelegationEvaluator,
+  DelegatedToolCatalogPolicy,
   ToolGatewayError,
+  ToolExecutionGateway,
   executeRegistration,
+  type DataSourceHandler,
+  type DataSourcePolicyService,
+  type RegisteredDataSource,
   type ScriptedToolRequestDetails,
   type ToolExecutionContext,
   type ToolGatewayRequest,
@@ -22,12 +43,12 @@ import {
   salesCreateTaskToolDescriptor,
   salesRegistration,
   salesSearchTasksDescriptor,
-  salesTaskCreateDefinition,
   salesTasksDefinition
 } from "@k-nex/module-sales/server";
 import { describe, expect, it } from "vitest";
 
 import { createPayloadMcpPluginConfig } from "../src/mcp-adapter.js";
+import { PayloadRequestAuthenticator } from "../src/data-source-authenticator.js";
 
 const manifest = PluginManifestSchema.parse(JSON.parse(readFileSync(
   resolve(import.meta.dirname, "../../../modules/sales/k-nex.plugin.json"),
@@ -58,11 +79,6 @@ function registration() {
   });
 }
 
-function parsed<T>(result: { success: true; data: T } | { success: false; error: unknown }): T {
-  if (!result.success) throw new ToolGatewayError("TOOL_CONTRACT_INVALID", 500, "Tool contract validation failed.");
-  return result.data;
-}
-
 describe("P2A.8 Sales tool proof", () => {
   it("runs one logical approved write, stable replay, conflict, audit, and the same read through MCP", async () => {
     const resolved = registration();
@@ -70,17 +86,10 @@ describe("P2A.8 Sales tool proof", () => {
       principal: { kind: "user" as const, id: "user-1" },
       effectiveActor: { kind: "user" as const, id: "user-1" }
     };
-    const catalogContext = {
-      actor,
-      delegation: { id: "delegation-1", principalId: "user-1", applicationId: "app-1" },
-      authorizationContext: { revision: "sales-policy-1" },
-      surface: "workspace" as const,
-      features: [] as const
-    };
-    const catalog = new ToolCatalog(resolved, { isVisible: () => true });
     const tasks = [{ id: "task-1", title: "Seed follow-up", status: "open", potentialRevenue: "10.00", privateNote: "seed-secret" }];
     let creates = 0;
     const payloadRequest = {
+      user: { id: "user-1", collection: "users" },
       payload: {
         find: async () => ({ docs: tasks, page: 1, totalPages: 1, hasNextPage: false }),
         create: async (options: { data: { title: string; status?: "open" | "done" } }) => {
@@ -93,8 +102,64 @@ describe("P2A.8 Sales tool proof", () => {
       locale: "en-US",
       transactionID: "tx-tool-proof"
     };
-    const audits: unknown[] = [];
+    const salesActor = (request: { readonly user?: unknown }) => {
+      const user = request.user;
+      if (user === null || typeof user !== "object" || !("id" in user) || typeof user.id !== "string") {
+        throw new Error("Sales proof request has no actor.");
+      }
+      return { principal: { kind: "user" as const, id: user.id }, effectiveActor: { kind: "user" as const, id: user.id } };
+    };
     const clock = { now: () => 1_000 };
+    const delegationEvaluator = new BoundToolDelegationEvaluator(
+      {
+        resolve: () => ({
+          id: "delegation-1",
+          principalId: "user-1",
+          agentClientId: "deterministic-client",
+          applicationId: "app-1",
+          allowedTools: [
+            { id: salesSearchTasksDescriptor.id, version: salesSearchTasksDescriptor.version },
+            { id: salesCreateTaskToolDescriptor.id, version: salesCreateTaskToolDescriptor.version }
+          ],
+          allowedEffects: ["read-only", "write"],
+          expiresAtEpochMs: 2_000,
+          revocationRevision: 1,
+          resourceScope: { kind: "sales.tasks", id: "team-1" }
+        } as const)
+      },
+      { resolve: () => ({ principalId: "user-1", agentClientId: "deterministic-client", applicationId: "app-1" }) },
+      clock,
+      { revision: () => 1 },
+      { allows: () => true }
+    );
+    const evaluatedDelegation = await delegationEvaluator.evaluate(
+      {
+        correlationId: "catalog",
+        rawRequest: payloadRequest,
+        tool: { id: salesSearchTasksDescriptor.id, version: salesSearchTasksDescriptor.version },
+        surface: "workspace",
+        features: [],
+        input: { title: "Seed" },
+        signal: new AbortController().signal
+      },
+      { actor, request: payloadRequest, authorizationContext: { permissionFingerprint: "sales:open:full" } },
+      { client: { id: "deterministic-client" }, session: { id: "session-1" } }
+    );
+    const authorizationContext = { permissionFingerprint: "sales:open:full" };
+    const catalogContext = {
+      actor,
+      delegation: evaluatedDelegation,
+      authorizationContext,
+      surface: "workspace" as const,
+      features: [] as const
+    };
+    const catalog = new ToolCatalog(resolved, new DelegatedToolCatalogPolicy({
+      isVisible: ({ actor: visibleActor, authorizationContext: visibleContext, descriptor }) =>
+        visibleActor.effectiveActor.id === "user-1" &&
+        (visibleContext as { permissionFingerprint?: unknown }).permissionFingerprint === "sales:open:full" &&
+        descriptor.ownerPluginId === manifest.id
+    }));
+    const audits: unknown[] = [];
     const approval = new InMemoryToolApprovalEvaluator(
       clock,
       {
@@ -111,9 +176,97 @@ describe("P2A.8 Sales tool proof", () => {
     const budget = new BoundedToolRiskBudgetEvaluator(clock, {
       resolve: () => ({ principalId: "user-1", agentRunId: "run-1" })
     });
+    const sourceDefinitions = new Map(
+      resolved.contributions.dataSources.map(({ id, value }) => [id, value as DataSourceDefinition])
+    );
+    const sourceHandlers = new Map(
+      resolved.bindings.dataSources.map(({ id, value }) => [id, value as DataSourceHandler])
+    );
+    const sourceCatalog = {
+      lookup: (sourceId: string): RegisteredDataSource | undefined => {
+        const definition = sourceDefinitions.get(sourceId);
+        const handler = sourceHandlers.get(sourceId);
+        return definition === undefined || handler === undefined ? undefined : { definition, handler };
+      }
+    };
+    const salesPolicy: DataSourcePolicyService = {
+      authorize: ({ authorizationContext, descriptor }) => {
+        const permissionFingerprint = (authorizationContext as { permissionFingerprint?: unknown }).permissionFingerprint;
+        return {
+          sourceAllowed: permissionFingerprint === "sales:open:full" && descriptor.id === salesTasksDefinition.descriptor.id,
+          recordScope: { kind: "sales.tasks", where: { status: { equals: "open" } } },
+          allowedFields: descriptor.primaryContract.id === "table.records"
+            ? ["title", "status", "potential-revenue"]
+            : []
+        };
+      }
+    };
+    const dataSourceGateway = new DataSourceGateway({
+      authenticator: new PayloadRequestAuthenticator({
+        actor: salesActor,
+        authorizationContext: () => ({ permissionFingerprint: "sales:open:full" })
+      }),
+      catalog: sourceCatalog,
+      surfaceAudience: new DescriptorSurfaceAudienceGuard(),
+      authorization: new PolicyAuthorizationEvaluator(salesPolicy),
+      budget: new BoundedQueryBudgetEvaluator({ now: clock.now }),
+      dispatcher: new RegisteredHandlerDispatcher(),
+      sourceSchema: new DefinitionSourceSchemaValidator(),
+      outputContract: new CanonicalOutputContractValidator(),
+      redactor: new TableProjectionRedactor(),
+      cache: new InMemoryDataSourceCachePolicy({ now: clock.now }),
+      observability: { success() {}, failure() {} },
+      problemDetails: new SafeProblemDetailsSerializer()
+    });
+    const targetResolver = new RegisteredToolTargetResolver(resolved);
+    const registeredAuthorization = new RegisteredToolAuthorization(targetResolver, {
+      authorize: ({ context, target }) => {
+        const delegation = context.delegation as { resourceScope?: { kind: string; id: string } };
+        if (target.definition.descriptor.ownerPluginId !== context.descriptor.ownerPluginId ||
+          delegation.resourceScope?.kind !== "sales.tasks" || delegation.resourceScope.id !== "team-1") {
+          throw new ToolGatewayError("TOOL_TARGET_FORBIDDEN", 403, "Tool target access is forbidden.");
+        }
+        return Object.freeze({ resourceScope: delegation.resourceScope });
+      }
+    });
+    const registeredDispatcher = new RegisteredToolDispatcher(targetResolver, {
+      dispatch: async (context, target) => {
+        const response = await dataSourceGateway.query({
+          correlationId: context.request.correlationId,
+          rawRequest: payloadRequest,
+          sourceId: target.definition.descriptor.id,
+          surface: context.request.surface,
+          input: {},
+          query: {
+            page: { number: 1, size: 25 },
+            filters: [{ field: "title", operator: "contains", value: (context.input as { title: string }).title }],
+            sort: []
+          },
+          selectedFields: ["title", "status", "potential-revenue"],
+          signal: context.signal
+        });
+        if (!response.ok) throw new ToolGatewayError(response.body.code, response.status, "Sales data-source query failed.", response.body.detail);
+        return response.body.data;
+      }
+    });
     const stages: ToolGatewayStages = {
       principal: {
-        authenticate: () => ({ actor, request: payloadRequest, authorizationContext: catalogContext.authorizationContext })
+        authenticate: (request) => {
+          const authenticated = new PayloadRequestAuthenticator({
+            actor: salesActor,
+            authorizationContext: () => catalogContext.authorizationContext
+          }).authenticate({
+            correlationId: request.correlationId,
+            rawRequest: request.rawRequest,
+            sourceId: "sales.tasks",
+            surface: request.surface,
+            input: {},
+            query: { filters: [], sort: [] },
+            selectedFields: [],
+            signal: request.signal
+          });
+          return authenticated;
+        }
       },
       agentClient: {
         authenticate: (request) => ({
@@ -126,7 +279,7 @@ describe("P2A.8 Sales tool proof", () => {
           }
         })
       },
-      delegation: { evaluate: () => catalogContext.delegation },
+      delegation: { evaluate: (request, principal, client) => delegationEvaluator.evaluate(request, principal, client) },
       catalog: {
         lookup: (id, version, context) => catalog.lookup(id, version, {
           actor: context.principal.actor as typeof actor,
@@ -136,56 +289,14 @@ describe("P2A.8 Sales tool proof", () => {
           features: context.features
         })
       },
-      input: {
-        validate: (descriptor, input) => {
-          if (descriptor.id === salesCreateTaskToolDescriptor.id) return parsed(salesTaskCreateDefinition.inputSchema.safeParse(input));
-          if (descriptor.id === salesSearchTasksDescriptor.id && typeof input === "object" && input !== null &&
-            Object.keys(input).join("\u0000") === "query" && typeof (input as { query?: unknown }).query === "string") return input;
-          throw new ToolGatewayError("TOOL_INPUT_INVALID", 400, "Tool input is invalid.");
-        }
-      },
-      authorization: { authorize: () => ({ scope: "sales.tasks" }) },
+      input: new RegisteredToolInputValidator(targetResolver),
+      authorization: registeredAuthorization,
       budget,
       approval,
       idempotency: new InMemoryToolIdempotencyCoordinator(clock),
-      dispatcher: {
-        dispatch: async (context) => {
-          if (context.descriptor.id === salesCreateTaskToolDescriptor.id) {
-            const handler = resolved.bindings.actions.find(({ id }) => id === "sales.task.create")?.value;
-            if (typeof handler !== "function") throw new Error("Sales action binding is missing.");
-            return handler({
-              actor: context.principal.actor,
-              request: context.principal.request,
-              authorizationContext: context.principal.authorizationContext,
-              input: context.input,
-              idempotencyKey: context.request.idempotencyKey,
-              signal: context.signal
-            });
-          }
-          const handler = resolved.bindings.dataSources.find(({ id }) => id === "sales.tasks")?.value;
-          if (typeof handler !== "function") throw new Error("Sales source binding is missing.");
-          return handler({
-            actor: context.principal.actor,
-            request: context.principal.request,
-            authorizationContext: context.principal.authorizationContext,
-            input: {},
-            query: {
-              page: { number: 1, size: 25 },
-              filters: [{ field: "title", operator: "contains", value: (context.input as { query: string }).query }],
-              sort: []
-            },
-            selectedFields: ["title", "status", "potential-revenue"],
-            recordScope: { kind: "sales.tasks" },
-            signal: context.signal
-          });
-        }
-      },
-      output: {
-        validate: (descriptor, output) => descriptor.id === salesCreateTaskToolDescriptor.id
-          ? parsed(salesTaskCreateDefinition.outputSchema.safeParse(output))
-          : parsed(salesTasksDefinition.outputSchema.safeParse(output))
-      },
-      redactor: { redact: (_context, output) => output },
+      dispatcher: registeredDispatcher,
+      output: new RegisteredToolOutputValidator(targetResolver),
+      redactor: new RegisteredToolRedactor(),
       audit: new SafeToolAuditDecorator(
         clock,
         {
@@ -206,7 +317,7 @@ describe("P2A.8 Sales tool proof", () => {
     const gateway = new ToolExecutionGateway(stages);
     const request = (details: ScriptedToolRequestDetails): ToolGatewayRequest => ({
       correlationId: details.correlationId,
-      rawRequest: details,
+      rawRequest: { ...payloadRequest, approvalId: details.approvalId },
       tool: details.tool,
       surface: details.context.surface,
       features: details.context.features,
@@ -222,7 +333,7 @@ describe("P2A.8 Sales tool proof", () => {
     });
     const proof = await client.run({
       readTool: salesSearchTasksDescriptor,
-      readInput: { query: "Seed" },
+      readInput: { title: "Seed" },
       forbiddenTool: { id: "sales.tools.forbidden", version: 1 },
       forbiddenInput: {},
       writeTool: salesCreateTaskToolDescriptor,
@@ -234,6 +345,7 @@ describe("P2A.8 Sales tool proof", () => {
 
     expect(proof.catalog.tools.map(({ id }) => id)).toEqual(["sales.tools.create-task", "sales.tools.search-tasks"]);
     expect(proof.read).toMatchObject({ ok: true, body: { trust: "structured-untrusted-content" } });
+    expect(JSON.stringify(proof.read)).not.toContain("seed-secret");
     expect(proof.forbidden).toMatchObject({ ok: false, status: 404, body: { code: "TOOL_NOT_FOUND" } });
     expect(proof.prepared).toMatchObject({ ok: true, body: { status: "required" } });
     expect(proof.write).toMatchObject({ ok: true, body: { data: { id: "task-2", title: "Approved follow-up", status: "open" } } });
@@ -242,15 +354,25 @@ describe("P2A.8 Sales tool proof", () => {
     expect(creates).toBe(1);
     expect(tasks).toHaveLength(2);
     expect(JSON.stringify(audits)).not.toContain("never-audit-this");
+    const invalidRead = await gateway.execute({
+      correlationId: "invalid-read",
+      rawRequest: payloadRequest,
+      tool: { id: salesSearchTasksDescriptor.id, version: salesSearchTasksDescriptor.version },
+      surface: "workspace",
+      features: [],
+      input: { title: "x".repeat(121) },
+      signal: new AbortController().signal
+    });
+    expect(invalidRead).toMatchObject({ ok: false, status: 400, body: { code: "TOOL_INPUT_INVALID" } });
 
     const adapter = createPayloadMcpPluginConfig({
       tools: [salesSearchTasksDescriptor, salesCreateTaskToolDescriptor],
       catalog,
       gateway,
-      context: { resolve: () => catalogContext },
+      context: { resolve: (request) => ({ ...catalogContext, actor: salesActor(request) }) },
       surface: "workspace"
     });
-    const payloadMcpRequest = { headers: new Headers({ "x-correlation-id": "mcp-sales-read" }) };
+    const payloadMcpRequest = { ...payloadRequest, headers: new Headers({ "x-correlation-id": "mcp-sales-read" }) };
     const defaults = {
       user: { id: "user-1", collection: "users" },
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -262,7 +384,14 @@ describe("P2A.8 Sales tool proof", () => {
     const access = await adapter.overrideAuth!(payloadMcpRequest as never, async () => defaults);
     expect(Object.values(access["payload-mcp-tool"] ?? {})).toEqual([true, true]);
     const readHandler = adapter.mcp?.tools?.find(({ name }) => name.includes("search-tasks"))?.handler;
-    const mcpRead = await readHandler!({ query: "Seed" }, payloadMcpRequest as never, undefined);
+    const mcpRead = await readHandler!({ title: "Seed" }, payloadMcpRequest as never, undefined);
     expect(JSON.parse(mcpRead.content[0]!.text)).toMatchObject({ provenance: "k-nex-tool", trust: "structured-untrusted-content" });
+    expect(mcpRead.content[0]!.text).not.toContain("seed-secret");
+
+    const foreignMcpRequest = { ...payloadMcpRequest, user: { id: "user-2", collection: "users" } };
+    const foreignAccess = await adapter.overrideAuth!(foreignMcpRequest as never, async () => defaults);
+    expect(Object.values(foreignAccess["payload-mcp-tool"] ?? {})).toEqual([false, false]);
+    const foreignRead = await readHandler!({ title: "Seed" }, foreignMcpRequest as never, undefined);
+    expect(JSON.parse(foreignRead.content[0]!.text)).toMatchObject({ code: "TOOL_NOT_FOUND" });
   });
 });

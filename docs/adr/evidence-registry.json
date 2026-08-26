@@ -67,8 +67,10 @@
         "packages/payload-adapter/tests/mcp-sales-proof.test.ts",
         "packages/runtime/src/tool-catalog.ts",
         "packages/runtime/src/tool-gateway.ts",
+        "packages/runtime/src/registered-tool-stages.ts",
         "packages/runtime/tests/tool-catalog.test.ts",
         "packages/runtime/tests/tool-gateway.test.ts",
+        "packages/runtime/tests/registered-tool-stages.test.ts",
         "scripts/gate-2a.mjs"
       ]
     },

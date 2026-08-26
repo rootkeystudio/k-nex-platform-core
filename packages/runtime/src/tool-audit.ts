@@ -37,7 +37,7 @@ export interface ToolAuditRecord {
   readonly idempotencyReference?: string;
   readonly inputDigest?: string;
   readonly hasIdempotencyKey: boolean;
-  readonly outcome: "success" | "failure";
+  readonly outcome: "attempt" | "success" | "failure";
   readonly code: string;
 }
 
@@ -60,6 +60,10 @@ export class SafeToolAuditDecorator implements ToolAuditDecorator {
     private readonly identities: ToolAuditIdentityResolver,
     private readonly sink: ToolAuditSink
   ) {}
+
+  beforeDispatch(context: ToolExecutionContext): void | Promise<void> {
+    return this.write(context.request, "attempt", "DISPATCH_ATTEMPT", context);
+  }
 
   success(context: ToolExecutionContext, _result: ToolSuccessEnvelope): void | Promise<void> {
     return this.write(context.request, "success", "OK", context);

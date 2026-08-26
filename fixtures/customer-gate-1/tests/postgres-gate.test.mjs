@@ -79,6 +79,19 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
       revision: 3
     }]);
 
+    const keyOwner = await query(connectionString, `
+      insert into users (email) values ('mcp-key-owner@example.test') returning id
+    `);
+    await query(connectionString, `
+      insert into payload_mcp_api_keys (user_id, expires_at, api_key_index)
+      values (${Number(keyOwner.rows[0].id)}, now() + interval '1 day', 'deletion-proof-key')
+    `);
+    await query(connectionString, `delete from users where id = ${Number(keyOwner.rows[0].id)}`);
+    const deletedKeys = await query(connectionString, `
+      select count(*)::int as count from payload_mcp_api_keys where api_key_index = 'deletion-proof-key'
+    `);
+    assert.equal(deletedKeys.rows[0].count, 0, "deleting a user must cascade to owned MCP API keys");
+
     const currentBoot = await runFixtureProcess("tests/boot-once.mjs", connectionString, {
       BOOT_KEY: "gate1-already-current"
     });

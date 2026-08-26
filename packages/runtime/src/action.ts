@@ -50,6 +50,7 @@ export function actionToolCompatible(tool: AgentToolDescriptor, action: ActionDe
   if (canonicalJson(tool.outputSchema ?? null) !== canonicalJson(action.outputSchema ?? null)) return false;
   if ((tool.outputContract ?? null) !== (action.outputContract ?? null)) return false;
   if (tool.permission !== action.permission) return false;
+  if (tool.policy !== action.policy) return false;
   if (tool.effect !== action.effect || tool.idempotency !== action.idempotency) return false;
   return tool.dryRun === false || action.dryRun;
 }

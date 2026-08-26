@@ -22,6 +22,7 @@
     "zod": "3.25.76"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
     "@k-nex/contracts": "workspace:*",
     "@k-nex/module-sales": "workspace:*",
     "esbuild": "0.28.2",

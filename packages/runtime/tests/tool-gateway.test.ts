@@ -8,6 +8,7 @@ import {
   type ToolGatewayRequest,
   type ToolGatewayStages
 } from "../src/tool-gateway.js";
+import { InMemoryToolApprovalEvaluator } from "../src/tool-approval.js";
 
 const descriptor: AgentToolDescriptor = {
   id: "sales.tools.search",
@@ -63,6 +64,7 @@ function harness(overrides: Partial<ToolGatewayStages> = {}) {
     output: { validate: (_tool, value) => step("output", value) },
     redactor: { redact: (_context, value) => step("redactor", value) },
     audit: {
+      beforeDispatch: () => step("audit-before-dispatch", undefined),
       success: () => step("audit", undefined),
       failure: () => step("audit-failure", undefined)
     },
@@ -83,7 +85,7 @@ describe("P2A.4 tool execution gateway", () => {
     });
     expect(trace).toEqual([
       "principal", "agent-client", "delegation", "catalog", "input", "authorization", "budget",
-      "approval", "idempotency", "dispatcher", "output", "redactor", "audit", "release"
+      "approval", "idempotency", "audit-before-dispatch", "dispatcher", "release", "output", "redactor", "audit"
     ]);
   });
 
@@ -151,5 +153,96 @@ describe("P2A.4 tool execution gateway", () => {
     });
     await expect(gateway.execute(request())).resolves.toMatchObject({ ok: false, status: 500 });
     expect(failedClaims).toBe(0);
+  });
+
+  it("enforces timeout against a non-cooperative dispatcher without releasing uncertain idempotency", async () => {
+    let releaseCount = 0;
+    let failCount = 0;
+    let finish: (() => void) | undefined;
+    const timeoutStages = harness({
+      budget: { evaluate: () => ({ context: {}, signal: AbortSignal.timeout(1), release: () => { releaseCount += 1; } }) },
+      idempotency: { claim: () => ({ context: {}, complete: () => undefined, fail: () => { failCount += 1; } }) },
+      dispatcher: { dispatch: () => new Promise<void>((resolve) => { finish = resolve; }) }
+    });
+    const response = await timeoutStages.gateway.execute(request());
+    expect(response).toMatchObject({ ok: false, status: 504, body: { code: "TOOL_TIMEOUT" } });
+    expect(failCount).toBe(0);
+    expect(releaseCount).toBe(0);
+    finish?.();
+    await Promise.resolve();
+    expect(releaseCount).toBe(1);
+  });
+
+  it("fails closed before dispatch when authoritative audit is unavailable", async () => {
+    let dispatched = false;
+    let auditAttempts = 0;
+    const stages = harness({
+      audit: {
+        beforeDispatch: () => { auditAttempts += 1; throw new Error("audit sink offline"); },
+        success: () => undefined,
+        failure: () => undefined
+      },
+      dispatcher: { dispatch: () => { dispatched = true; return "raw"; } }
+    });
+    const response = await stages.gateway.execute(request());
+    expect(response).toMatchObject({ ok: false, status: 500, body: { code: "INTERNAL_ERROR" } });
+    expect(auditAttempts).toBe(1);
+    expect(dispatched).toBe(false);
+  });
+
+  it("fails closed when the completion audit sink fails", async () => {
+    let dispatched = false;
+    const stages = harness({
+      dispatcher: { dispatch: () => { dispatched = true; return "raw"; } },
+      audit: {
+        beforeDispatch: () => undefined,
+        success: () => { throw new Error("audit sink offline"); },
+        failure: () => undefined
+      }
+    });
+    const response = await stages.gateway.execute(request());
+    expect(response).toMatchObject({ ok: false, status: 500, body: { code: "INTERNAL_ERROR" } });
+    expect(dispatched).toBe(true);
+  });
+
+  it("allows one concurrent gateway call to consume a single approval", async () => {
+    const writeDescriptor: AgentToolDescriptor = {
+      ...descriptor,
+      invocation: { kind: "action", action: { id: "sales.task.create", version: 1 } },
+      effect: "write",
+      approval: "per-call",
+      idempotency: "required"
+    };
+    let dispatched = 0;
+    const approval = new InMemoryToolApprovalEvaluator(
+      { now: () => 1_000 },
+      { resolve: (context) => ({
+        principalId: "user-1",
+        agentSessionId: "session-1",
+        approvalId: (context.request.rawRequest as { approvalId?: string }).approvalId
+      }) },
+      { authorize: () => true }
+    );
+    const requestWithApproval = (approvalId?: string): ToolGatewayRequest => ({
+      ...request(),
+      rawRequest: approvalId === undefined ? {} : { approvalId }
+    });
+    const stages = harness({
+      catalog: { lookup: () => writeDescriptor },
+      approval,
+      dispatcher: { dispatch: () => { dispatched += 1; return "raw"; } }
+    });
+    await expect(stages.gateway.submitApproval(request(), {
+      id: "approval-concurrent",
+      decision: "approve",
+      expiresAtEpochMs: 2_000
+    })).resolves.toMatchObject({ ok: true, body: { status: "approved" } });
+    const responses = await Promise.all([
+      stages.gateway.execute(requestWithApproval("approval-concurrent")),
+      stages.gateway.execute(requestWithApproval("approval-concurrent"))
+    ]);
+    expect(responses.filter((response) => response.ok)).toHaveLength(1);
+    expect(responses.filter((response) => !response.ok).map((response) => response.body.code)).toEqual(["APPROVAL_REQUIRED"]);
+    expect(dispatched).toBe(1);
   });
 });

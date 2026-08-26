@@ -244,8 +244,16 @@ function gatewayRequest(request: PayloadRequest, descriptor: AgentToolDescriptor
   };
 }
 
-function mcpResponse(response: ToolGatewayResponse): { content: [{ type: "text"; text: string }] } {
-  return { content: [{ type: "text", text: safeJson(response.body) }] };
+function mcpResponse(response: ToolGatewayResponse): {
+  content: [{ type: "text"; text: string }];
+  isError?: true;
+  structuredContent?: Record<string, unknown>;
+} {
+  if (!response.ok) return { content: [{ type: "text", text: safeJson(response.body) }], isError: true };
+  return {
+    content: [{ type: "text", text: safeJson(response.body) }],
+    ...(isRecord(response.body.data) ? { structuredContent: response.body.data } : {})
+  };
 }
 
 export function createPayloadMcpPluginConfig(options: PayloadMcpAdapterOptions): MCPPluginConfig {

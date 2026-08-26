@@ -102,6 +102,20 @@ describe("P2A.5 per-call approvals", () => {
     await expect(evaluator.submit(context(), { id: "duplicate", decision: "approve", expiresAtEpochMs: 2_000 })).rejects.toMatchObject({ code: "APPROVAL_DENIED" });
   });
 
+  it("reserves an approval ID across concurrent submissions", async () => {
+    let release: (() => void) | undefined;
+    const issuerReady = new Promise<void>((resolve) => { release = resolve; });
+    const evaluator = new InMemoryToolApprovalEvaluator(
+      { now: () => 1_000 },
+      { resolve: () => ({ principalId: "user-1", agentSessionId: "session-1" }) },
+      { authorize: async () => { await issuerReady; return true; } }
+    );
+    const first = evaluator.submit(context(), { id: "concurrent", decision: "approve", expiresAtEpochMs: 2_000 });
+    await expect(evaluator.submit(context(), { id: "concurrent", decision: "approve", expiresAtEpochMs: 2_000 })).rejects.toMatchObject({ code: "APPROVAL_DENIED" });
+    release?.();
+    await expect(first).resolves.toMatchObject({ status: "approved", id: "concurrent" });
+  });
+
   it("does not require approval for a read-only none policy", async () => {
     const evaluator = new InMemoryToolApprovalEvaluator(
       { now: () => 1_000 },

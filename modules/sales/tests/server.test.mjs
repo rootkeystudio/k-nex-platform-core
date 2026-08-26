@@ -74,6 +74,8 @@ test("Sales registers source/action-backed tools with strict write policy", () =
   assert.equal(AgentToolDescriptorSchema.safeParse(salesCreateTaskToolDescriptor).success, true);
   assert.equal(ActionDescriptorSchema.safeParse(salesTaskCreateDescriptor).success, true);
   assert.deepEqual(salesSearchTasksDescriptor.invocation, { kind: "source", source: { id: "sales.tasks", version: 1 } });
+  assert.deepEqual(salesSearchTasksDescriptor.inputSchema.required, ["title"]);
+  assert.deepEqual(Object.keys(salesSearchTasksDescriptor.inputSchema.properties), ["title"]);
   assert.deepEqual(salesCreateTaskToolDescriptor.invocation, { kind: "action", action: { id: "sales.task.create", version: 1 } });
   assert.equal(salesCreateTaskToolDescriptor.approval, "per-call");
   assert.equal(salesCreateTaskToolDescriptor.idempotency, "required");

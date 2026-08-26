@@ -9,7 +9,13 @@ import {
   ToolCatalog,
   ToolCatalogError,
   ToolExecutionGateway,
-  ToolGatewayError
+  RegisteredToolAuthorization,
+  RegisteredToolDispatcher,
+  RegisteredToolInputValidator,
+  RegisteredToolOutputValidator,
+  RegisteredToolRedactor,
+  RegisteredToolTargetResolver,
+  executeRegistration
 } from "../packages/runtime/dist/index.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -41,70 +47,247 @@ const requiredAttacks = [
 
 const focusedProofs = [
   {
-    id: "contracts",
+    id: "contract-input-schema",
     packageName: "@k-nex/contracts",
-    files: ["tests/agent-tool.test.ts"],
-    attacks: ["direct-identity-input-manipulation", "output-schema-and-undeclared-field"]
+    file: "tests/agent-tool.test.ts",
+    testName: "rejects an open input object with a stable diagnostic path",
+    attacks: ["direct-identity-input-manipulation"]
   },
   {
-    id: "catalog-and-registration",
+    id: "catalog-identity",
     packageName: "@k-nex/runtime",
-    files: ["tests/tool-catalog.test.ts", "tests/registration-runtime.test.ts"],
-    attacks: [
-      "automatic-exposure",
-      "cross-actor-isolation",
-      "direct-identity-input-manipulation",
-      "forbidden-target",
-      "invalid-or-foreign-audience-identity",
-      "runtime-cms-registration-mutation"
-    ]
+    file: "tests/tool-catalog.test.ts",
+    testName: "omits unknown and stale versions and supports synchronous invalidation subscribers",
+    attacks: ["direct-identity-input-manipulation"]
   },
   {
-    id: "gateway-and-approval",
+    id: "delegation-subject",
     packageName: "@k-nex/runtime",
-    files: ["tests/tool-gateway.test.ts", "tests/tool-approval.test.ts", "tests/tool-delegation.test.ts"],
-    attacks: [
-      "forbidden-target",
-      "approval-replay-and-substitution",
-      "expired-revoked-delegation",
-      "mcp-metadata-policy-bypass"
-    ]
+    file: "tests/tool-delegation.test.ts",
+    testName: "binds the exact subject/application and only reduces tool/effect scope",
+    attacks: ["cross-actor-isolation"]
   },
   {
-    id: "idempotency-budget-audit",
+    id: "registration-target",
     packageName: "@k-nex/runtime",
-    files: ["tests/tool-idempotency.test.ts", "tests/tool-budget.test.ts", "tests/tool-audit.test.ts"],
-    attacks: [
-      "duplicate-write-idempotency-conflict",
-      "budget-rate-timeout",
-      "secret-log-error-redaction"
-    ]
+    file: "tests/tool-catalog.test.ts",
+    testName: "rejects a tool targeting another plugin's binding",
+    attacks: ["forbidden-target"]
   },
   {
-    id: "payload-mcp",
+    id: "registration-mutation",
+    packageName: "@k-nex/runtime",
+    file: "tests/registration-runtime.test.ts",
+    testName: "snapshots declarations before hooks can mutate their source objects",
+    attacks: ["runtime-cms-registration-mutation"]
+  },
+  {
+    id: "registration-freeze",
+    packageName: "@k-nex/runtime",
+    file: "tests/registration-runtime.test.ts",
+    testName: "rejects late registration after freeze",
+    attacks: ["runtime-cms-registration-mutation"]
+  },
+  {
+    id: "registration-policy-mismatch",
+    packageName: "@k-nex/runtime",
+    file: "tests/registration-runtime.test.ts",
+    testName: "requires exact schema-compatible action tool bindings",
+    attacks: ["mcp-metadata-policy-bypass"]
+  },
+  {
+    id: "approval-binding",
+    packageName: "@k-nex/runtime",
+    file: "tests/tool-approval.test.ts",
+    testName: "binds an approval to exact arguments, principal, session, tool version, and one use",
+    attacks: ["approval-replay-and-substitution"]
+  },
+  {
+    id: "approval-concurrency",
+    packageName: "@k-nex/runtime",
+    file: "tests/tool-approval.test.ts",
+    testName: "reserves an approval ID across concurrent submissions",
+    attacks: ["approval-replay-and-substitution"]
+  },
+  {
+    id: "gateway-approval-concurrency",
+    packageName: "@k-nex/runtime",
+    file: "tests/tool-gateway.test.ts",
+    testName: "allows one concurrent gateway call to consume a single approval",
+    attacks: ["approval-replay-and-substitution"]
+  },
+  {
+    id: "delegation-expiry",
+    packageName: "@k-nex/runtime",
+    file: "tests/tool-delegation.test.ts",
+    testName: "denies expired",
+    attacks: ["expired-revoked-delegation"]
+  },
+  {
+    id: "delegation-revocation",
+    packageName: "@k-nex/runtime",
+    file: "tests/tool-delegation.test.ts",
+    testName: "denies revoked",
+    attacks: ["expired-revoked-delegation"]
+  },
+  {
+    id: "idempotency-replay",
+    packageName: "@k-nex/runtime",
+    file: "tests/tool-idempotency.test.ts",
+    testName: "canonicalizes input and returns one frozen stable result for exact replays",
+    attacks: ["duplicate-write-idempotency-conflict"]
+  },
+  {
+    id: "idempotency-conflict",
+    packageName: "@k-nex/runtime",
+    file: "tests/tool-idempotency.test.ts",
+    testName: "rejects changed input and isolates the key by exact tool identity",
+    attacks: ["duplicate-write-idempotency-conflict"]
+  },
+  {
+    id: "budget-concurrency",
+    packageName: "@k-nex/runtime",
+    file: "tests/tool-budget.test.ts",
+    testName: "enforces per-principal/tool concurrency and releases idempotently",
+    attacks: ["budget-rate-timeout"]
+  },
+  {
+    id: "budget-rate",
+    packageName: "@k-nex/runtime",
+    file: "tests/tool-budget.test.ts",
+    testName: "enforces rate/burst independently and refills with the injected clock",
+    attacks: ["budget-rate-timeout"]
+  },
+  {
+    id: "gateway-non-cooperative-timeout",
+    packageName: "@k-nex/runtime",
+    file: "tests/tool-gateway.test.ts",
+    testName: "enforces timeout against a non-cooperative dispatcher without releasing uncertain idempotency",
+    attacks: ["budget-rate-timeout"]
+  },
+  {
+    id: "audit-redaction",
+    packageName: "@k-nex/runtime",
+    file: "tests/tool-audit.test.ts",
+    testName: "records bounded success metadata without inputs, results, prompts, or key values",
+    attacks: ["secret-log-error-redaction"]
+  },
+  {
+    id: "gateway-error-redaction",
+    packageName: "@k-nex/runtime",
+    file: "tests/tool-gateway.test.ts",
+    testName: "normalizes unexpected failures without leaking their message",
+    attacks: ["secret-log-error-redaction"]
+  },
+  {
+    id: "gateway-audit-before-dispatch",
+    packageName: "@k-nex/runtime",
+    file: "tests/tool-gateway.test.ts",
+    testName: "fails closed before dispatch when authoritative audit is unavailable",
+    attacks: ["secret-log-error-redaction"]
+  },
+  {
+    id: "gateway-audit-completion",
+    packageName: "@k-nex/runtime",
+    file: "tests/tool-gateway.test.ts",
+    testName: "fails closed when the completion audit sink fails",
+    attacks: ["secret-log-error-redaction"]
+  },
+  {
+    id: "mcp-registration-boundary",
     packageName: "@k-nex/payload-adapter",
-    files: ["tests/mcp-adapter.test.ts", "tests/mcp-sales-proof.test.ts"],
+    file: "tests/mcp-adapter.test.ts",
+    testName: "registers only explicit K-Nex tools and disables Payload CRUD/experimental surfaces",
+    attacks: ["automatic-exposure"]
+  },
+  {
+    id: "mcp-api-key-intersection",
+    packageName: "@k-nex/payload-adapter",
+    file: "tests/mcp-adapter.test.ts",
+    testName: "intersects API-key capability toggles with actor/delegation-filtered catalog visibility",
+    attacks: ["api-key-toggle-authority"]
+  },
+  {
+    id: "mcp-api-key-denial",
+    packageName: "@k-nex/payload-adapter",
+    file: "tests/mcp-adapter.test.ts",
+    testName: "fails closed for an API key that has not enabled the visible K-Nex tool",
+    attacks: ["api-key-toggle-authority"]
+  },
+  {
+    id: "mcp-gateway-reentry",
+    packageName: "@k-nex/payload-adapter",
+    file: "tests/mcp-adapter.test.ts",
+    testName: "re-enters the K-Nex gateway and returns only the safe structured envelope",
+    attacks: ["mcp-metadata-policy-bypass", "untrusted-result-text"]
+  },
+  {
+    id: "mcp-protocol-roundtrip",
+    packageName: "@k-nex/payload-adapter",
+    file: "tests/mcp-adapter.test.ts",
+    testName: "serves tools/list and tools/call over the MCP protocol",
+    attacks: ["mcp-metadata-policy-bypass"]
+  },
+  {
+    id: "sales-mcp-security",
+    packageName: "@k-nex/payload-adapter",
+    file: "tests/mcp-sales-proof.test.ts",
+    testName: "runs one logical approved write, stable replay, conflict, audit, and the same read through MCP",
     attacks: [
-      "automatic-exposure",
-      "cross-actor-isolation",
       "forbidden-target",
-      "output-schema-and-undeclared-field",
-      "api-key-toggle-authority",
-      "mcp-metadata-policy-bypass",
-      "untrusted-result-text",
-      "secret-log-error-redaction"
+      "duplicate-write-idempotency-conflict",
+      "secret-log-error-redaction",
+      "untrusted-result-text"
     ]
   }
 ];
 
-const coveredAttacks = new Set(focusedProofs.flatMap(({ attacks }) => attacks));
-for (const attack of requiredAttacks) assert.ok(coveredAttacks.has(attack), `Gate 2A attack has no executable proof: ${attack}`);
+for (const proof of focusedProofs) {
+  assert.equal(typeof proof.file, "string", `Gate 2A proof ${proof.id} must name one test file.`);
+  assert.equal(typeof proof.testName, "string", `Gate 2A proof ${proof.id} must name one test.`);
+  assert.ok(proof.attacks.length > 0, `Gate 2A proof ${proof.id} must name an attack.`);
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 function runFocusedProof(proof) {
-  const output = execFileSync("pnpm", [
-    "--filter", proof.packageName, "exec", "vitest", "run", ...proof.files, "--reporter=dot"
-  ], { cwd: root, env: process.env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-  return { id: proof.id, status: "pass", attacks: proof.attacks, outputBytes: Buffer.byteLength(output) };
+  let output;
+  try {
+    output = execFileSync("pnpm", [
+      "--filter", proof.packageName, "exec", "vitest", "run", proof.file,
+      "--testNamePattern", escapeRegExp(proof.testName), "--reporter=json"
+    ], {
+      cwd: root,
+      env: { ...process.env, PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}` },
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+  } catch (error) {
+    const stdout = error?.stdout?.toString?.() ?? "";
+    const stderr = error?.stderr?.toString?.() ?? "";
+    throw new Error(`Gate 2A targeted proof failed: ${proof.id} (${proof.file} :: ${proof.testName})\n${stdout}${stderr}`, { cause: error });
+  }
+
+  let report;
+  try {
+    report = JSON.parse(output);
+  } catch (error) {
+    throw new Error(`Gate 2A targeted proof did not return a JSON report: ${proof.id}.`, { cause: error });
+  }
+  const assertions = report.testResults?.flatMap(({ assertionResults = [] }) => assertionResults) ?? [];
+  const passed = assertions.filter(({ status }) => status === "passed");
+  const selected = passed.filter(({ title }) => title === proof.testName);
+  assert.equal(selected.length, 1, `Gate 2A targeted proof did not execute exactly one selected test: ${proof.id}.`);
+  assert.equal(passed.length, 1, `Gate 2A targeted proof selected additional passing tests: ${proof.id}.`);
+  return {
+    id: proof.id,
+    status: "pass",
+    target: `${proof.file} :: ${proof.testName}`,
+    attacks: proof.attacks,
+    outputBytes: Buffer.byteLength(output)
+  };
 }
 
 function descriptor(index, overrides = {}) {
@@ -177,14 +360,82 @@ async function directAudienceProbe() {
     catalog.list({ ...catalogRequest(), actor: { principal: {}, effectiveActor: {} } }),
     (error) => error instanceof ToolCatalogError && error.code === "INVALID_ACTOR_CONTEXT"
   );
-  return { id: "audience-and-invalid-identity", status: "pass" };
+  return {
+    id: "audience-and-invalid-identity",
+    status: "pass",
+    target: "directAudienceProbe",
+    attacks: ["invalid-or-foreign-audience-identity"]
+  };
 }
 
 async function directOutputProbe() {
+  const outputSchema = { type: "object", properties: { ok: { type: "boolean" } }, additionalProperties: false };
+  const action = {
+    id: "fixture.actions.run",
+    version: 1,
+    ownerPluginId: "module.gate-2a",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    outputSchema,
+    permission: "fixture.tools.read",
+    policy: "fixture.tools.read",
+    effect: "read-only",
+    idempotency: "not-applicable",
+    dryRun: false
+  };
   const tool = descriptor(1, {
-    outputSchema: { type: "object", properties: { ok: { type: "boolean" } }, additionalProperties: false }
+    outputSchema,
+    invocation: { kind: "action", action: { id: action.id, version: action.version } }
   });
+  const runtimeOutputSchema = {
+    safeParse(value) {
+      const valid = value !== null && typeof value === "object" && !Array.isArray(value) &&
+        Object.keys(value).join("\u0000") === "ok" && typeof value.ok === "boolean";
+      return valid ? { success: true, data: value } : { success: false, error: new Error("invalid output") };
+    }
+  };
+  const runtimeInputSchema = { safeParse: (value) =>
+    value !== null && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 0
+      ? { success: true, data: value }
+      : { success: false, error: new Error("invalid input") } };
   let dispatches = 0;
+  const resolved = executeRegistration({
+    graph: {
+      resolverVersion: "1.0.0",
+      plugins: [{ id: "module.gate-2a", kind: "module", package: "@k-nex/gate-2a", version: "1.0.0", integrity: "sha512-gate-2a", required: [], optional: [] }],
+      capabilityProviders: [],
+      registrationOrder: ["module.gate-2a"]
+    },
+    installed: [{
+      package: { name: "@k-nex/gate-2a", version: "1.0.0", integrity: "sha512-gate-2a" },
+      manifest: {
+        apiVersion: 1,
+        id: "module.gate-2a",
+        kind: "module",
+        displayName: "Gate 2A",
+        version: "1.0.0",
+        package: "@k-nex/gate-2a",
+        compatibility: { core: ">=1.0.0 <2.0.0", payload: ">=3.0.0 <4.0.0", node: ">=24.0.0 <25.0.0", payloadDatabaseAdapters: ["postgres"] },
+        provides: [],
+        requires: [],
+        optional: [],
+        conflicts: [],
+        lifecycle: { ownsPayloadSchema: false, ownsPersistentData: false, disable: "supported", uninstall: "supported", purge: "unsupported" },
+        contributions: { actions: [action.id], tools: [tool.id] }
+      }
+    }],
+    registrations: [{
+      pluginId: "module.gate-2a",
+      contracts(context) {
+        context.register("actions", action.id, { descriptor: action, inputSchema: runtimeInputSchema, outputSchema: runtimeOutputSchema });
+        context.register("tools", tool.id, tool);
+      },
+      dataHandlers(context) {
+        context.bind("actions", action.id, () => { dispatches += 1; return { undeclared: "secret-output" }; });
+      }
+    }]
+  });
+  const catalog = new ToolCatalog(resolved, { isVisible: () => true });
+  const targets = new RegisteredToolTargetResolver(resolved);
   const request = {
     correlationId: "gate-output",
     rawRequest: {},
@@ -198,23 +449,22 @@ async function directOutputProbe() {
     principal: { authenticate: () => ({ actor: actor(), request: {}, authorizationContext: {} }) },
     agentClient: { authenticate: () => ({ client: {}, session: {} }) },
     delegation: { evaluate: () => ({}) },
-    catalog: { lookup: () => tool },
-    input: { validate: (_descriptor, input) => input },
-    authorization: { authorize: () => ({}) },
+    catalog: { lookup: (id, version, context) => catalog.lookup(id, version, {
+      actor: context.principal.actor,
+      delegation: context.delegation,
+      authorizationContext: context.principal.authorizationContext,
+      surface: context.surface,
+      features: context.features
+    }) },
+    input: new RegisteredToolInputValidator(targets),
+    authorization: new RegisteredToolAuthorization(targets, { authorize: () => ({}) }),
     budget: { evaluate: () => ({ context: {}, signal: request.signal, release: () => undefined }) },
     approval: { evaluate: () => ({ status: "not-required" }), prepare: () => ({ required: false }), submit: () => ({ accepted: true }) },
     idempotency: { claim: () => ({ context: { status: "not-applicable" }, complete: () => undefined, fail: () => undefined }) },
-    dispatcher: { dispatch: () => { dispatches += 1; return { undeclared: "secret-output" }; } },
-    output: {
-      validate: (_descriptor, output) => {
-        if (typeof output !== "object" || output === null || !Object.hasOwn(output, "ok") || Object.hasOwn(output, "undeclared")) {
-          throw new ToolGatewayError("TOOL_OUTPUT_INVALID", 500, "Tool output is invalid.");
-        }
-        return output;
-      }
-    },
-    redactor: { redact: (_context, output) => output },
-    audit: { success: () => undefined, failure: () => undefined },
+    dispatcher: new RegisteredToolDispatcher(targets, { dispatch: () => undefined }),
+    output: new RegisteredToolOutputValidator(targets),
+    redactor: new RegisteredToolRedactor(),
+    audit: { beforeDispatch: () => undefined, success: () => undefined, failure: () => undefined },
     problem: new SafeToolProblemSerializer()
   });
   const response = await gateway.execute(request);
@@ -222,7 +472,12 @@ async function directOutputProbe() {
   assert.equal(response.body.code, "TOOL_OUTPUT_INVALID");
   assert.equal(dispatches, 1);
   assert.equal(JSON.stringify(response).includes("secret-output"), false);
-  return { id: "output-schema-and-undeclared-field", status: "pass" };
+  return {
+    id: "output-schema-and-undeclared-field",
+    status: "pass",
+    target: "directOutputProbe",
+    attacks: ["output-schema-and-undeclared-field"]
+  };
 }
 
 function percentile(samples, quantile) {
@@ -280,7 +535,7 @@ async function runBenchmarks() {
     dispatcher: { dispatch: () => ({ ok: true }) },
     output: { validate: (_descriptor, output) => output },
     redactor: { redact: (_context, output) => output },
-    audit: { success: () => undefined, failure: () => undefined },
+    audit: { beforeDispatch: () => undefined, success: () => undefined, failure: () => undefined },
     problem: new SafeToolProblemSerializer()
   });
   const gatewayBenchmark = await benchmark(
@@ -299,12 +554,14 @@ const proofResults = [];
 for (const proof of focusedProofs) proofResults.push(runFocusedProof(proof));
 proofResults.push(await directAudienceProbe());
 proofResults.push(await directOutputProbe());
+const coveredAttacks = new Set(proofResults.flatMap(({ attacks = [] }) => attacks));
+for (const attack of requiredAttacks) assert.ok(coveredAttacks.has(attack), `Gate 2A attack has no executable proof: ${attack}`);
 const benchmarkResults = await runBenchmarks();
 
 console.log(JSON.stringify({
   gate: "Gate 2A",
   node: process.versions.node,
-  attackProofs: proofResults.map(({ id, status, attacks }) => ({ id, status, attacks })),
+  attackProofs: proofResults.map(({ id, status, target, attacks }) => ({ id, status, target, attacks })),
   benchmarks: benchmarkResults,
   qualification: "Bounded catalog/gateway validation overhead only; p95 ceilings are generous local proof budgets, not production capacity claims."
 }, null, 2));

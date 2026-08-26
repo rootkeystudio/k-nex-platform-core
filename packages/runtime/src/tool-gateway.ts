@@ -110,6 +110,7 @@ export interface ToolProjectionRedactor {
 }
 
 export interface ToolAuditDecorator {
+  readonly beforeDispatch?: (context: ToolExecutionContext) => void | Promise<void>;
   success(context: ToolExecutionContext, result: ToolSuccessEnvelope): void | Promise<void>;
   failure(request: ToolGatewayRequest, error: ToolGatewayError, context?: ToolExecutionContext): void | Promise<void>;
 }
@@ -220,6 +221,30 @@ function replayEnvelope(value: unknown, descriptor: AgentToolDescriptor): ToolSu
   return value as ToolSuccessEnvelope;
 }
 
+function abortedError(callerSignal: AbortSignal): ToolGatewayError {
+  return callerSignal.aborted
+    ? new ToolGatewayError("TOOL_CANCELLED", 499, "The tool request was cancelled.")
+    : new ToolGatewayError("TOOL_TIMEOUT", 504, "The tool request timed out.");
+}
+
+async function dispatchWithSignal(
+  dispatched: Promise<unknown>,
+  signal: AbortSignal,
+  callerSignal: AbortSignal
+): Promise<unknown> {
+  if (signal.aborted) throw abortedError(callerSignal);
+  let rejectAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_, reject) => {
+    rejectAbort = () => reject(abortedError(callerSignal));
+    signal.addEventListener("abort", rejectAbort, { once: true });
+  });
+  try {
+    return await Promise.race([dispatched, aborted]);
+  } finally {
+    if (rejectAbort) signal.removeEventListener("abort", rejectAbort);
+  }
+}
+
 export class ToolExecutionGateway {
   constructor(private readonly stages: ToolGatewayStages) {}
 
@@ -239,19 +264,23 @@ export class ToolExecutionGateway {
       context = Object.freeze({ ...context, idempotency: claim.context });
       executionContext = context;
       if (context.signal.aborted || request.signal.aborted) {
-        throw new ToolGatewayError("TOOL_CANCELLED", 499, "The tool request was cancelled.");
+        throw abortedError(request.signal);
       }
       if (claim.replay !== undefined) {
         const body = replayEnvelope(claim.replay, context.descriptor);
-        try {
-          await this.stages.audit.success(context, body);
-        } catch {
-          // Audit transport failure cannot corrupt an already validated replay.
-        }
+        await this.stages.audit.success(context, body);
         return { ok: true, status: 200, body };
       }
+      if (this.stages.audit.beforeDispatch === undefined) {
+        throw new ToolGatewayError("AUDIT_UNAVAILABLE", 503, "Tool audit is unavailable.");
+      }
+      await this.stages.audit.beforeDispatch(context);
       dispatchStarted = true;
-      const dispatched = await this.stages.dispatcher.dispatch(context);
+      const handlerResult = this.stages.dispatcher.dispatch(context);
+      const handlerLease = lease;
+      lease = undefined;
+      const handlerSettled = Promise.resolve(handlerResult).finally(() => handlerLease.release());
+      const dispatched = await dispatchWithSignal(handlerSettled, context.signal, request.signal);
       const validated = this.stages.output.validate(context.descriptor, dispatched);
       const data = await this.stages.redactor.redact(context, validated);
       const body: ToolSuccessEnvelope = Object.freeze({
@@ -263,11 +292,7 @@ export class ToolExecutionGateway {
         data
       });
       await claim.complete(body);
-      try {
-        await this.stages.audit.success(context, body);
-      } catch {
-        // Audit transport failure cannot corrupt an already validated result.
-      }
+      await this.stages.audit.success(context, body);
       return { ok: true, status: 200, body };
     } catch (cause) {
       const error = normalizedError(cause);
@@ -296,7 +321,7 @@ export class ToolExecutionGateway {
       lease = authorized.lease;
       executionContext = authorized.context;
       if (authorized.context.signal.aborted || request.signal.aborted) {
-        throw new ToolGatewayError("TOOL_CANCELLED", 499, "The tool request was cancelled.");
+        throw abortedError(request.signal);
       }
       return { ok: true, status: 200, body: await this.stages.approval.prepare(authorized.context) };
     } catch (cause) {
@@ -321,7 +346,7 @@ export class ToolExecutionGateway {
       lease = authorized.lease;
       executionContext = authorized.context;
       if (authorized.context.signal.aborted || request.signal.aborted) {
-        throw new ToolGatewayError("TOOL_CANCELLED", 499, "The tool request was cancelled.");
+        throw abortedError(request.signal);
       }
       return { ok: true, status: 200, body: await this.stages.approval.submit(authorized.context, approval) };
     } catch (cause) {

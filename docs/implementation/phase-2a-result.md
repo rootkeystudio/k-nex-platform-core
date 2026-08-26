@@ -34,15 +34,15 @@ Discovery considers the resolved inventory, effective actor, authorization conte
 
 ```text
 principal → agent client/session → delegation → catalog lookup → input
-→ authorization → budget → approval → idempotency → source/action dispatch
-→ output validation → redaction → audit → safe envelope
+→ authorization → budget → approval → idempotency → authoritative audit attempt
+→ source/action dispatch → output validation → redaction → completion audit → safe envelope
 ```
 
 Delegation binds the exact principal, client, application, tool/version, effects, resource scope, expiry, revision, and parent authority. It can only reduce authority. Per-call approvals bind the exact principal/session/tool/version/canonical input digest and are expiring, issuer-authorized, and single-use.
 
 Writes require bounded idempotency keys scoped by application, principal, tool/version, and canonical input. Same-input retries return the frozen first safe envelope without redispatch; changed-input reuse conflicts; pending or uncertain post-dispatch outcomes remain blocked. The Sales vertical proof creates one logical task across the first call and replay.
 
-Budgets cover JSON bytes/depth, timeout/cancellation, principal/tool concurrency, rate/burst, cost, calls per run, and catalog/page bounds. Audit contains bounded identities, references, digests, and outcomes without raw prompts, inputs, results, credentials, private notes, or key values. Result text is marked `structured-untrusted-content`.
+Budgets cover JSON bytes/depth, enforced timeout/cancellation even for non-cooperative handlers, principal/tool concurrency, rate/burst, cost, calls per run, and catalog/page bounds. A timed-out write retains its uncertain idempotency claim until the handler settles. Audit fails closed before dispatch, then records bounded identities, references, digests, and outcomes without raw prompts, inputs, results, credentials, private notes, or key values. Result text is marked `structured-untrusted-content`.
 
 ## Payload MCP adapter proof
 
@@ -64,7 +64,7 @@ The exact plugin has an internal peer-metadata mismatch: `mcp-handler@1.1.0` dec
 
 The adapter supplies empty collection/global maps, no experimental tools, and only generated K-Nex custom tools. `overrideAuth` intersects the current actor/delegation catalog with API-key toggles, so keys can narrow but never add authority. Every handler maps an exact tool ID/version back into the K-Nex gateway and does not expose ambient `req.payload` to module contracts. `onEvent` is telemetry-only and handler duration is bounded.
 
-Declared-versus-actual inventory covers `payload-mcp-api-keys`, `GET/POST /api/mcp`, the MCP admin group, per-tool fields, and the expiry migration field. Customer migration `20260826_000003_payload_mcp` owns the collection, relation columns, 30-day expiry, unique key-digest index, capability toggles, and revision `2 → 3`. The real PostgreSQL boot gate passes. Full evaluation and kill-criteria evidence are in [`p2a-7-payload-mcp-evaluation.md`](./p2a-7-payload-mcp-evaluation.md).
+Declared-versus-actual inventory covers `payload-mcp-api-keys`, `GET/POST /api/mcp`, the MCP admin group, per-tool fields, and the expiry migration field. Customer migration `20260826_000003_payload_mcp` owns the collection, relation columns, 30-day expiry, unique key-digest index, capability toggles, user-deletion cascade, and revision `2 → 3`. The real PostgreSQL boot and API-key lifecycle gate passes. Full evaluation and kill-criteria evidence are in [`p2a-7-payload-mcp-evaluation.md`](./p2a-7-payload-mcp-evaluation.md).
 
 Internal consumers can call the same catalog and gateway directly. The deterministic client proof contains no LLM, MCP, Payload, or model-provider type.
 
@@ -79,7 +79,7 @@ sales.tools.create-task  → sales.task.create action (write)
 
 The create tool requires per-call approval and idempotency, redacts its private-note input path, and dispatches through the registered action. The action uses Payload Local API once with `overrideAccess: false`, the effective actor user, depth zero, and the existing request context. Its strict output exposes only task ID, title, and status.
 
-The scripted flow authenticates, lists, reads, attempts a concealed forbidden tool, prepares approval, approves exact arguments, executes one write, repeats with the same key, rejects changed-input reuse, checks safe audit, and repeats discovery/read through the Payload MCP adapter.
+The scripted flow composes the bound delegation evaluator, delegated catalog policy, registration-backed target resolution/policy/input/output/dispatch/redaction stages, and the Phase 2 data-source gateway. It authenticates, lists, reads, attempts a concealed forbidden tool, prepares approval, approves exact arguments, executes one write, repeats with the same key, rejects changed-input reuse, checks safe audit, and repeats discovery/read through an actual MCP `tools/list`/`tools/call` protocol path. Gateway failures use MCP `isError`; successful object data uses `structuredContent`.
 
 ## Attack evidence
 
@@ -90,14 +90,14 @@ The scripted flow authenticates, lists, reads, attempts a concealed forbidden to
 | direct tool ID/version/input manipulation | strict descriptor fixtures, lookup identity, and input validation tests |
 | forbidden target source/action | registration owned-binding checks and concealed unknown-tool response |
 | output violation and undeclared field | action/source output schemas, gateway validation, malformed replay rejection |
-| approval replay and argument substitution | single-use digest-bound approval tests |
+| approval replay and argument substitution | atomic single-use digest-bound approval tests, including concurrent gateway calls |
 | duplicate writes and idempotency conflict | coordinator tests plus one-create Sales vertical replay/conflict proof |
 | expired/revoked delegation | delegation clock/revision corpus |
-| budget/rate/timeout enforcement | concrete tool budget tests |
+| budget/rate/timeout enforcement | concrete budget tests and a non-cooperative dispatcher timeout proof |
 | secret/log/error redaction | audit, problem serializer, and Sales private-note absence checks |
 | runtime/CMS registration or mutation | frozen registration and descriptor snapshot tests; executable metadata rejection |
 | API-key toggle authority expansion | actor catalog/API-key intersection tests |
-| MCP metadata policy bypass | exact generated handlers and gateway re-entry tests |
+| MCP metadata policy bypass | exact generated handlers, foreign metadata denial, gateway re-entry, and protocol round-trip tests |
 | invalid/foreign-audience identity | invalid actor and foreign audience catalog probe; no remote token exchange is exercised in this phase |
 | tool text instruction injection | safe envelope provenance/trust assertions |
 
@@ -107,8 +107,8 @@ Runner: Apple M1 Max, arm64, 64 GiB RAM, macOS 26.6, Node.js 24.19.0, one warm l
 
 | Path | Dataset | Iterations | Representative p95 | Accepted p95 ceiling |
 |---|---:|---:|---:|---:|
-| actor-filtered catalog list | 100 explicit descriptors | 100 | 2.452 ms | 250 ms |
-| bounded read gateway pipeline | one validated read call | 200 | 0.005 ms | 250 ms |
+| actor-filtered catalog list | 100 explicit descriptors | 100 | 2.337 ms | 250 ms |
+| bounded read gateway pipeline | one validated read call | 200 | 0.007 ms | 250 ms |
 
 These characterize bounded local catalog/gateway overhead and detect order-of-magnitude regressions. They are not production throughput, concurrency, network, database, model, or capacity claims.
 
@@ -127,7 +127,7 @@ git diff --check
 git status --porcelain --untracked-files=all
 ```
 
-`pnpm gate:2a` builds the workspace, runs contract/runtime/Payload-adapter/Sales suites, verifies the packed module, runs the real customer PostgreSQL migration/boot proof, executes focused attack mappings, and enforces the representative benchmark ceilings. CI runs Gate 2A after the earlier gates.
+`pnpm gate:2a` builds the workspace, runs contract/runtime/Payload-adapter/Sales suites, verifies the packed module, runs the real customer PostgreSQL migration/boot proof, executes each attack through an exact named test or a direct production-composition probe, verifies that every selected test actually ran alone and passed, and enforces the representative benchmark ceilings. CI runs Gate 2A after the earlier gates.
 
 ## Explicitly not proved
 

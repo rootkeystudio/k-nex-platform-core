@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import type { AgentToolDescriptor } from "@k-nex/contracts";
 import type { ToolGatewayResponse } from "@k-nex/runtime";
@@ -129,12 +132,71 @@ describe("Payload MCP adapter", () => {
     const payloadRequest = { headers: new Headers({ "x-correlation-id": "corr-1", "idempotency-key": "key-1" }) };
     const response = await handler!({ query: "follow-up" }, payloadRequest as never, undefined);
     expect(JSON.parse(response.content[0]!.text)).toMatchObject({ provenance: "k-nex-tool", data: { result: "safe" } });
+    expect(response.structuredContent).toEqual({ result: "safe" });
+    expect(response.isError).toBeUndefined();
     expect(setup.gateway.execute).toHaveBeenCalledWith(expect.objectContaining({
       rawRequest: payloadRequest,
       tool: { id: readTool.id, version: readTool.version },
       input: { query: "follow-up" },
       idempotencyKey: "key-1"
     }));
+  });
+
+  it("maps gateway failures to an MCP tool error result", async () => {
+    const failure: ToolGatewayResponse = {
+      ok: false,
+      status: 403,
+      body: {
+        type: "urn:k-nex:problem:tool-forbidden",
+        title: "Tool was forbidden.",
+        status: 403,
+        detail: "Tool was forbidden.",
+        code: "TOOL_FORBIDDEN",
+        correlationId: "corr-1"
+      }
+    };
+    const setup = options({ gateway: { execute: vi.fn(async () => failure) } });
+    const handler = createPayloadMcpPluginConfig(setup).mcp?.tools?.[0]?.handler;
+    const response = await handler!({ query: "follow-up" }, request() as never, undefined);
+    expect(response.isError).toBe(true);
+    expect(response.structuredContent).toBeUndefined();
+    expect(JSON.parse(response.content[0]!.text)).toMatchObject({ code: "TOOL_FORBIDDEN", status: 403 });
+  });
+
+  it("serves tools/list and tools/call over the MCP protocol", async () => {
+    const setup = options();
+    const config = createPayloadMcpPluginConfig(setup);
+    const server = new McpServer({ name: "k-nex-test", version: "1.0.0" });
+    const payloadRequest = request();
+    for (const tool of config.mcp?.tools ?? []) {
+      server.registerTool(tool.name, { description: tool.description, inputSchema: tool.parameters }, (args) =>
+        tool.handler(args as Record<string, unknown>, payloadRequest as never, undefined) as never
+      );
+    }
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "k-nex-test-client", version: "1.0.0" });
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    try {
+      const listed = await client.listTools();
+      expect(listed.tools.map(({ name }) => name)).toEqual([
+        "k-nex-sales-tools-search-v1",
+        "k-nex-sales-tools-update-v1"
+      ]);
+      const called = await client.callTool({
+        name: "k-nex-sales-tools-search-v1",
+        arguments: { query: "follow-up" }
+      });
+      expect(called.isError).toBeUndefined();
+      expect(called.structuredContent).toEqual({ result: "safe" });
+      expect(JSON.parse((called.content[0] as { text: string }).text)).toMatchObject({
+        provenance: "k-nex-tool",
+        data: { result: "safe" }
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
   });
 
   it("fails closed for an API key that has not enabled the visible K-Nex tool", async () => {
