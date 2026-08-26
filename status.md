@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-27
 - **Phase:** Phase 5 — UI Runtime, Themes, and Atomic CMS Publication
-- **Active task:** P5.8 — Accessibility and visual acceptance
+- **Active task:** P5.9 — Gate 5 closeout
 - **State:** Ready to start
 
 ## Last completed
 
-Implemented P5.7 deterministic workspace layout resolution: explicit user/group/permission assignments are ranked by priority, specificity, and stable ID; explanations preserve every matched policy; immutable snapshots accept only allowlisted move/hide/resize/prop patches; failures retain the last valid document.
+Completed P5.8 accessibility and visual acceptance for Minimal, Neobrutalism, and a customer override using one semantic surface and one canonical behavior journey.
 
 ## Validation
 
-UI runtime build and all 28 tests pass, including multiple simultaneous groups/permissions, deterministic ties, active intervals, immutable personalization, denied patches, and last-valid fallback after patch or migration failure.
+Real Chromium acceptance passes keyboard/focus, non-drag alternatives, 44 px targets, ARIA names/roles/states, reduced motion, forced colors, three distinct visual digests, and customer override preservation. Separate Playwright CLI snapshot, keyboard, and visual inspection evidence is recorded in `docs/implementation/phase-5-accessibility-smoke.md`.
 
 ## Next
 
-Execute P5.8 WCAG-oriented keyboard, focus, target-size, semantic, reduced-motion, forced-colors, screen-reader smoke, two-theme, and customer-override acceptance.
+Execute P5.9: compose `pnpm gate:5`, run the complete phase gate, record plugin-candidate decisions and the GO/REWORK result, then update the phase pull request.
 
 ## Blockers
 
