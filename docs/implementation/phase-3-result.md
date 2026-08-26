@@ -64,13 +64,13 @@ pnpm gate:3
 git diff --check
 ```
 
-`pnpm gate:3` includes Gate 2A, the complete Socket.IO provider suite, and a focused runner that requires exactly one named passing test for each non-database failure scenario. The real customer PostgreSQL gate carries explicit markers for atomicity, duplicate idempotent effect, distributed invalidation, and outage recovery. CI reaches Gate 3 once through the Gate 4 prerequisite chain.
+`pnpm gate:3` remains independently runnable and includes Gate 2A, the complete Socket.IO provider suite, and a focused runner that requires exactly one named passing test for each non-database failure scenario. Required CI instead uses `pnpm gate:through-4`: Phase 0 runs the shared build and package suites once, the real PostgreSQL fixture runs once, and every Gate 1, Gate 2, Gate 2A, Gate 3, and Gate 4 focused proof emits its explicit success marker without relying on the historical nested gate commands.
 
 The provider suite also runs `pnpm pack` into an isolated directory and compares every unpacked entry with the committed customer fixture archive, including the publish-time peer dependency rewrite, preventing workspace-dependent or stale package evidence.
 
 Generated event JSON Schema uses the registered `kNexMaxCanonicalBytes` AJV keyword to enforce the same canonical UTF-8 payload budget as the Zod authoring/writer contract and `kNexNoSecretFields` to apply the same recursive normalized secret-name rule, including leading, trailing, Unicode, and punctuation separators. Selecting `realtime.gateway` requires an explicit `runtime.realtime` topology in both the Zod authoring contract and generated AJV schema, so omission cannot bypass the fail-closed topology checks.
 
-The correction series extends secret classification to common camel/snake/kebab credential compounds such as access, refresh, session, and API-key values while retaining safe metadata such as `tokenCount`. Zod and generated AJV parity cover nested positive and negative cases. Event and retention instants now require exactly millisecond precision, matching PostgreSQL `timestamp(3) with time zone`; rejected sub-millisecond boundaries and a `.123`/`.456` real-database round-trip prove that accepted instants do not collapse during persistence.
+The correction series classifies credential-bearing field phrases rather than exact examples. Camel/snake/kebab access, refresh, session, authorization, password, credential, client-secret, private-key, and API-key variants are rejected while bounded metadata phrases such as `tokenCount`, `tokenBudget`, and `secretaryName` remain valid. Zod and generated AJV parity cover nested reject and accept corpora. Event and retention instants require the exact `YYYY-MM-DDTHH:mm:ss.sssZ` form, matching PostgreSQL `timestamp(3) with time zone` and the processor's `toISOString()` reconstruction. Offset and sub-millisecond inputs are rejected, while the real PostgreSQL fixture proves an accepted `.123Z` envelope remains byte-equal after persistence and subscriber reconstruction.
 
 ## Explicitly not proved
 

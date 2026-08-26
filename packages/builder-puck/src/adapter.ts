@@ -27,6 +27,7 @@ const childSlotKey = "__kNexChildren";
 const documentKey = "__kNexDocument";
 const fieldPrefix = "__kNexField:";
 const canMoveKey = "__kNexCanMove";
+const puckBridgeSnapshots = new WeakSet<object>();
 
 export type PuckBridgeField =
   | { readonly prop: string; readonly label: string; readonly kind: "text" | "textarea" | "number" | "boolean" }
@@ -147,6 +148,40 @@ function assertBridge(bridge: PuckBlockBridge): void {
   if (bridge.constraints !== undefined && !UiLayoutConstraintsSchema.safeParse(bridge.constraints).success) {
     throw new TypeError("Puck bridge constraints must satisfy the canonical layout constraint contract.");
   }
+}
+
+export function snapshotPuckBlockBridge(candidate: PuckBlockBridge): PuckBlockBridge {
+  if (puckBridgeSnapshots.has(candidate)) return candidate;
+  assertBridge(candidate);
+  const safeParse = candidate.definition.propsSchema.safeParse.bind(candidate.definition.propsSchema);
+  const render = candidate.definition.render;
+  const definition: UiBlockDefinition = Object.freeze({
+    id: candidate.definition.id,
+    version: candidate.definition.version,
+    profiles: Object.freeze([...candidate.definition.profiles]),
+    surfaces: Object.freeze([...candidate.definition.surfaces]),
+    audience: candidate.definition.audience,
+    ...(candidate.definition.permission === undefined ? {} : { permission: candidate.definition.permission }),
+    propsSchema: Object.freeze({ safeParse: (value: unknown) => safeParse(value) }),
+    ...(candidate.definition.sourcePolicy === undefined ? {} : {
+      sourcePolicy: Object.freeze({
+        required: candidate.definition.sourcePolicy.required,
+        contracts: Object.freeze(candidate.definition.sourcePolicy.contracts.map((contract) => Object.freeze({ ...contract }))),
+        requiredFields: Object.freeze([...candidate.definition.sourcePolicy.requiredFields])
+      })
+    }),
+    render: (input: Parameters<typeof render>[0]) => render(input)
+  });
+  const snapshot: PuckBlockBridge = Object.freeze({
+    definition,
+    label: candidate.label,
+    fields: deepFreeze(candidate.fields.map((field) => cloneJson(field))),
+    allowChildren: candidate.allowChildren,
+    defaultProps: deepFreeze(cloneJson(candidate.defaultProps)),
+    ...(candidate.constraints === undefined ? {} : { constraints: deepFreeze(cloneJson(candidate.constraints)) })
+  });
+  puckBridgeSnapshots.add(snapshot);
+  return snapshot;
 }
 
 function puckField(field: PuckBridgeField): Field {
@@ -354,13 +389,7 @@ function createConfig(bridges: ReadonlyMap<string, PuckBlockBridge>, preview?: P
 export function createPuckBuilderAdapter(input: { readonly blocks: readonly PuckBlockBridge[]; readonly canvasRegion?: string; readonly preview?: PuckPreviewContext }): PuckBuilderAdapter {
   const bridges = new Map<string, PuckBlockBridge>();
   for (const candidate of input.blocks) {
-    assertBridge(candidate);
-    const bridge: PuckBlockBridge = Object.freeze({
-      ...candidate,
-      fields: deepFreeze(candidate.fields.map((field) => cloneJson(field))),
-      defaultProps: deepFreeze(cloneJson(candidate.defaultProps)),
-      ...(candidate.constraints === undefined ? {} : { constraints: deepFreeze(cloneJson(candidate.constraints)) })
-    });
+    const bridge = snapshotPuckBlockBridge(candidate);
     const key = bridgeKey(bridge.definition.id, bridge.definition.version);
     if (bridges.has(key)) throw new TypeError(`Duplicate Puck block bridge: ${bridge.definition.id}@${bridge.definition.version}.`);
     bridges.set(key, bridge);

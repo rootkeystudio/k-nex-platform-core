@@ -14,8 +14,8 @@ await client.connect();
 
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-async function seed(eventId, taskId, availableAt = new Date(Date.now() - 1_000)) {
-  const occurredAt = new Date();
+async function seed(eventId, taskId, availableAt = new Date(Date.now() - 1_000), occurredAt = new Date()) {
+  const occurredAtDate = new Date(occurredAt);
   await client.query(`
     INSERT INTO k_nex_outbox (
       event_id, event_type, schema_version, message_class, occurred_at,
@@ -29,7 +29,7 @@ async function seed(eventId, taskId, availableAt = new Date(Date.now() - 1_000))
     `correlation-${eventId}`,
     JSON.stringify({ taskId, title: `Task ${taskId}` }),
     availableAt,
-    new Date(occurredAt.getTime() + 86_400_000)
+    new Date(occurredAtDate.getTime() + 86_400_000)
   ]);
 }
 
@@ -58,6 +58,7 @@ const subscriber = async (context) => {
   assert.equal(context.idempotencyKey, context.event.id);
 
   const eventId = context.event.id;
+  if (eventId === "p3-3-success") assert.equal(context.event.occurredAt, "2026-08-26T12:00:00.123Z");
   const taskId = context.event.payload.taskId;
   assert.equal(typeof taskId, "string");
   const count = (invocations.get(eventId) ?? 0) + 1;
@@ -84,7 +85,7 @@ try {
   await client.query("DELETE FROM sales_event_effects WHERE event_id LIKE 'p3-3-%'");
   await client.query("DELETE FROM k_nex_outbox WHERE event_id LIKE 'p3-3-%'");
 
-  await seed("p3-3-success", "task-success");
+  await seed("p3-3-success", "task-success", new Date(Date.now() - 1_000), "2026-08-26T12:00:00.123Z");
   const success = await processNextPayloadOutboxEvent({ payload, subscriber });
   assert.deepEqual(success, { eventId: "p3-3-success", status: "delivered" });
   assert.equal((await state("p3-3-success")).attempt_count, 1);

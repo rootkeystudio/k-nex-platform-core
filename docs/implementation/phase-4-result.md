@@ -38,7 +38,7 @@ The Puck adapter maps one configured canonical region to Puck content and retain
 
 CMS accepts only public-audience blocks and sources that explicitly support the public surface. Workspace uses its separate allowlists and authenticated surface. Authenticated preview cannot promote a workspace source into public authority. A shared field-selection and table-projection authority preserves the Phase 2 gateway rules for required fields, permission-filtered optional fields, selected-field coverage, result ordering, nullable omissions, and semantic cell kinds.
 
-The same browser presenter and UI runtime execute inside preview and outside the editor. Renderers receive a private non-mutable permission view, recursively immutable descriptor snapshots, and only strict, state/status-consistent, normalized source-result envelopes. Caller-owned actor/results remain detached, and one renderer cannot expand authority or mutate policy for another. Puck bridge/profile constraints and source metadata use the same recursive snapshot boundary. Missing plugins, block versions, sources, selected fields, structural hashes, permissions, migrations, and loose result envelopes produce bounded fallback/readiness results while retaining canonical content for remediation rather than silently deleting it.
+The same browser presenter and UI runtime execute inside preview and outside the editor. Renderers receive a private non-mutable permission view, recursively immutable descriptor snapshots, and only strict, state/status-consistent, normalized source-result envelopes. Caller-owned actor/results remain detached, and one renderer cannot expand authority or mutate policy for another. One canonical Puck bridge snapshot captures fields, defaults, constraints, profiles, surfaces, permissions, source policy, schema validation, and rendering callbacks before both profile policy and adapter/runtime generation consume it; later mutations of the registered bridge cannot split editor and publication authority. Missing plugins, block versions, sources, selected fields, structural hashes, permissions, migrations, and loose result envelopes produce bounded fallback/readiness results while retaining canonical content for remediation rather than silently deleting it.
 
 ## Bundle and accessibility proof
 
@@ -52,19 +52,14 @@ On exact Node.js `24.19.0` and pnpm `11.9.0`:
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm phase:0
-pnpm gate:1
-pnpm gate:2
-pnpm gate:2a
-pnpm gate:3
 pnpm exec playwright install chromium
-pnpm gate:4
+pnpm gate:through-4
 pnpm audit --audit-level high
 git diff --check
 git status --porcelain --untracked-files=all
 ```
 
-`pnpm gate:4` chains the Gate 2A and Gate 3 prerequisites, including the real customer PostgreSQL fixture, package/bundle boundary checks, and the real Chromium accessibility journey. The required workflow now runs only Phase 0 and this non-duplicated Gate 4 chain. Contract generation is reproducible at SHA-256 `4b420ac0fbac80e5b9d9530e9be1a37de73db303a026faf8b391d129eed8e7f2`.
+`pnpm gate:through-4` is the single required CI orchestration path. It runs Phase 0 shared build/tests once, the real customer PostgreSQL fixture once, every focused Gate 1–4 proof once, and the real Chromium accessibility journey, while preserving the historical gate commands for independent use. Contract-generation and Gate 1 static-artifact digests are recorded separately after exact-head and synthetic-merge verification so the two evidence domains cannot be conflated.
 
 The first clean correction CI run additionally proved that TypeScript's incremental `dist/tsconfig.tsbuildinfo` cache is machine-specific and must not be distributed. The provider package allowlist now explicitly excludes that cache, the committed archive contains only runtime declarations, JavaScript, source maps, manifest, and package metadata, and the synchronized provider integrity is `sha512-1AcAhPuIPKRi2JCft6dJPiLcN9as1r69/FXvYcKHDy6l3yFslwALsb2uvPxa6+e5UTYazv0Nr2SyDVJYwaCugw==`.
 
@@ -81,4 +76,4 @@ No Gate 4 kill criterion fired. Lossless round-trip, fixed-shell policy, public/
 
 ## Whole-phase review
 
-Independent reviews were run over the complete Phase 4 diff after each correction cycle. The designated project-manager review anchored to `54ad518` then identified cross-phase CI, event, outbox, realtime, immutable-authority, result-envelope, and unsupported-contract blockers. This correction series addresses every listed blocker, regenerates the provider archive and schemas, updates the lock integrity, removes the clean-machine package-cache variance discovered by CI, and leaves PR #17 open for the required green check and review confirmation.
+Independent reviews were run over the complete Phase 4 diff after each correction cycle. The designated project-manager reviews anchored to `54ad518` and `1ee5786` identified cross-phase CI, event, outbox, realtime, immutable-authority, result-envelope, unsupported-contract, bridge-snapshot, and evidence-labeling blockers. This correction series addresses every listed blocker, regenerates the provider archive and schemas, updates the lock integrity, removes clean-machine package variance, and leaves PR #17 open for the required green check and review confirmation.

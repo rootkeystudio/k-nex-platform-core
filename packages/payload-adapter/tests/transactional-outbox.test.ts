@@ -8,7 +8,7 @@ const event = {
   type: "sales.task.created",
   schemaVersion: 1,
   messageClass: "durable-integration",
-  occurredAt: "2026-08-26T12:00:00.000+00:00",
+  occurredAt: "2026-08-26T12:00:00.000Z",
   applicationId: "customer-gate-1",
   pluginId: "module.sales",
   actor: { id: "actor-1", type: "user" },
@@ -45,7 +45,7 @@ describe("writeTransactionalOutboxEvent", () => {
     await expect(writeTransactionalOutboxEvent({
       req: request({ execute }, "tx-1", {}, drizzleExecute),
       event: malformed,
-      retentionUntil: "2026-08-27T12:00:00.000+00:00"
+      retentionUntil: "2026-08-27T12:00:00.000Z"
     })).rejects.toThrow();
     expect(execute).not.toHaveBeenCalled();
     expect(drizzleExecute).not.toHaveBeenCalled();
@@ -60,12 +60,12 @@ describe("writeTransactionalOutboxEvent", () => {
     await expect(writeTransactionalOutboxEvent({
       req: missingTransaction,
       event,
-      retentionUntil: "2026-08-27T12:00:00.000+00:00"
+      retentionUntil: "2026-08-27T12:00:00.000Z"
     })).rejects.toThrow(/active Payload transaction/);
     await expect(writeTransactionalOutboxEvent({
       req: missingSession,
       event,
-      retentionUntil: "2026-08-27T12:00:00.000+00:00"
+      retentionUntil: "2026-08-27T12:00:00.000Z"
     })).rejects.toThrow(/active Postgres transaction session/);
     expect(transactionExecute).not.toHaveBeenCalled();
     expect(drizzleExecute).not.toHaveBeenCalled();
@@ -78,7 +78,7 @@ describe("writeTransactionalOutboxEvent", () => {
     await writeTransactionalOutboxEvent({
       req: request({ execute: transactionExecute }, "tx-1", {}, drizzleExecute),
       event,
-      retentionUntil: "2026-08-27T12:00:00.000+00:00"
+      retentionUntil: "2026-08-27T12:00:00.000Z"
     });
 
     expect(transactionExecute).toHaveBeenCalledOnce();
@@ -97,16 +97,16 @@ describe("writeTransactionalOutboxEvent", () => {
     await expect(writeTransactionalOutboxEvent({
       req,
       event,
-      retentionUntil: "2026-08-26T12:00:00.000+00:00"
+      retentionUntil: "2026-08-26T12:00:00.000Z"
     })).rejects.toThrow(/strictly after/);
-    for (const invalidEventTimestamp of ["2026-08-26T12:00:00Z", "2026-08-26T12:00:00.000001Z"]) {
+    for (const invalidEventTimestamp of ["2026-08-26T12:00:00Z", "2026-08-26T12:00:00.000001Z", "2026-08-26T08:00:00.000-04:00", "2026-08-26T12:00:00.000+00:00"]) {
       await expect(writeTransactionalOutboxEvent({
         req,
         event: { ...event, occurredAt: invalidEventTimestamp },
         retentionUntil: "2026-08-27T12:00:00.000Z"
       })).rejects.toThrow();
     }
-    for (const invalidRetentionTimestamp of ["2026-08-27T12:00:00Z", "2026-08-27T12:00:00.000001Z"]) {
+    for (const invalidRetentionTimestamp of ["2026-08-27T12:00:00Z", "2026-08-27T12:00:00.000001Z", "2026-08-27T08:00:00.000-04:00", "2026-08-27T12:00:00.000+00:00"]) {
       await expect(writeTransactionalOutboxEvent({ req, event, retentionUntil: invalidRetentionTimestamp })).rejects.toThrow();
     }
     expect(execute).not.toHaveBeenCalled();

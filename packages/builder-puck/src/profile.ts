@@ -1,7 +1,7 @@
 import { canonicalJson, DataSourceDescriptorSchema, ResourceIdSchema, UiDocumentSchema, UiLayoutConstraintsSchema, uiDocumentProfiles, type DataSourceDescriptor, type UiDocument, type UiDocumentProfile, type UiLayoutConstraints, type UiNode } from "@k-nex/contracts";
 import { createUiDocumentRuntime, createUiRuntimeRegistry, inspectUiDocumentReadiness } from "@k-nex/ui-runtime";
 
-import { createPuckBuilderAdapter, type PuckBlockBridge, type PuckBuilderAdapter, type PuckPreviewContext } from "./adapter.js";
+import { createPuckBuilderAdapter, snapshotPuckBlockBridge, type PuckBlockBridge, type PuckBuilderAdapter, type PuckPreviewContext } from "./adapter.js";
 
 export interface PuckProfileResource {
   readonly id: string;
@@ -212,7 +212,7 @@ export function createPuckBuilderProfileRegistry(input: {
   readonly preview?: Partial<Record<UiDocumentProfile, PuckProfilePreviewContext>>;
 }): PuckBuilderProfileRegistry {
   const canvasRegion = input.canvasRegion ?? "main";
-  const bridgeMap = new Map(input.blocks.map((bridge) => [`${bridge.definition.id}@${bridge.definition.version}`, bridge]));
+  const bridgeMap = new Map(input.blocks.map(snapshotPuckBlockBridge).map((bridge) => [`${bridge.definition.id}@${bridge.definition.version}`, bridge]));
   if (bridgeMap.size !== input.blocks.length) throw new TypeError("Puck block bridges must be unique before profile resolution.");
   const sourceMap = new Map<string, DataSourceDescriptor>();
   for (const candidate of input.sources) {
@@ -239,7 +239,7 @@ export function createPuckBuilderProfileRegistry(input: {
       const bridge = bridgeMap.get(keyOf(resource));
       if (bridge === undefined) throw new TypeError(`Puck profile references an unknown block: ${keyOf(resource)}.`);
       const constraints = combineConstraints(bridge.constraints, resource.constraints);
-      return constraints === undefined ? bridge : Object.freeze({ ...bridge, constraints: deepFreeze(structuredClone(constraints)) });
+      return constraints === undefined ? bridge : snapshotPuckBlockBridge({ ...bridge, constraints });
     });
     for (const bridge of selectedBridges) {
       if (!bridge.definition.profiles.includes(candidate.id)) {

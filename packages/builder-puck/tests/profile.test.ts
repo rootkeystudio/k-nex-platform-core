@@ -91,6 +91,52 @@ describe("profile-specific Puck policy", () => {
     })).toThrow(/SOURCE_FIELD_UNAVAILABLE/);
   });
 
+  it("uses one bridge snapshot for editor configuration and profile validation", () => {
+    const mutableBridge = {
+      ...staticBlock,
+      definition: {
+        ...staticBlock.definition,
+        profiles: [...staticBlock.definition.profiles],
+        surfaces: [...staticBlock.definition.surfaces],
+        propsSchema: { safeParse: staticBlock.definition.propsSchema.safeParse }
+      },
+      fields: [{ prop: "text", label: "Text", kind: "text" }],
+      defaultProps: { text: "Original" }
+    } as PuckBlockBridge;
+    const resolved = createPuckBuilderProfileRegistry({
+      blocks: [mutableBridge],
+      sources: [],
+      profiles: [{ ...cms, sources: [] }]
+    }).resolve("cms")!;
+    const original = {
+      id: "cms.snapshot", version: 1, schemaVersion: 1, profile: "cms",
+      regions: { main: [{ id: "text-1", type: "content.text", version: 1, props: { text: "Original" } }] }
+    } as const;
+
+    const mutable = mutableBridge as any;
+    mutable.fields[0].prop = "forged";
+    mutable.defaultProps.text = "Forged";
+    mutable.definition.permission = "forged.permission";
+    mutable.definition.profiles.length = 0;
+    mutable.definition.surfaces.length = 0;
+    mutable.definition.sourcePolicy = { required: true, contracts: [{ id: "table.records", version: 1 }], requiredFields: ["forged"] };
+    mutable.definition.propsSchema.safeParse = () => ({ success: false, error: new Error("forged") });
+    mutable.definition.render = () => "Forged";
+
+    const component = resolved.adapter.config.components["content.text__v1"] as { fields: Record<string, unknown>; defaultProps: Record<string, unknown> };
+    expect(Object.keys(component.fields)).toEqual(["__kNexField:text"]);
+    expect(component.defaultProps["__kNexField:text"]).toBe("Original");
+    expect(resolved.validateDocument(original)).toEqual(original);
+    expect(resolved.validateChange(original, {
+      ...original,
+      regions: { main: [{ ...original.regions.main[0], props: { text: "Edited" } }] }
+    }).regions.main[0]?.props).toEqual({ text: "Edited" });
+    expect(() => resolved.validateChange(original, {
+      ...original,
+      regions: { main: [{ ...original.regions.main[0], props: { text: "Original", forged: "value" } }] }
+    })).toThrow(/forbidden field edit/);
+  });
+
   it("rejects unknown blocks, duplicates, and crossed publication rules", () => {
     expect(() => createPuckBuilderProfileRegistry({ blocks: [staticBlock], sources, profiles: [{ ...cms, blocks: [{ id: "missing.block", version: 1 }] }] })).toThrow(/unknown block/);
     expect(() => createPuckBuilderProfileRegistry({ blocks: [staticBlock], sources, profiles: [cms, cms] })).toThrow(/unique/);

@@ -30,27 +30,20 @@ const ACTOR_TYPE_MAX_LENGTH = 64;
 const SCHEMA_VERSION_MAX = 1_000_000;
 const applicationIdPattern = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const controlFreeIdentifierPattern = /^(?!\s*$)[^\u0000-\u001F\u007F-\u009F]+$/;
-const secretFieldNames = new Set([
-  "authorization",
-  "cookie",
-  "password",
-  "secret",
-  "token",
-  "apikey",
-  "credential",
-  "privatenote",
-  "accesstoken",
-  "refreshtoken",
-  "sessiontoken",
-  "idtoken",
-  "authtoken",
-  "bearertoken",
-  "clientsecret",
-  "apisecret",
-  "secretkey",
-  "privatekey",
-  "apikeyvalue"
-]);
+const secretWords = new Set(["authorization", "cookie", "cookies", "password", "passwords", "credential", "credentials", "secret", "secrets"]);
+const safeTokenMetadata = new Set(["count", "budget"]);
+const credentialPhrasePatterns = [
+  /^(?:(?:access|refresh|session|id|auth|bearer))?tokens?(?:value|hash|secret|key)?$/,
+  /^clientsecret(?:value|hash|token|key)?$/,
+  /^apisecret(?:value|hash|token|key)?$/,
+  /^apikey(?:value|hash|secret|token)?$/,
+  /^privatekey(?:value|hash|secret|token)?$/,
+  /^secretkey(?:value|hash|token)?$/,
+  /^authorization(?:header|value|token)?$/,
+  /^password(?:hash|value|digest|secret)?$/,
+  /^credentials?$/,
+  /^privatenote$/
+];
 
 const boundedIdSchema = (maximum: number) => z.string().min(1).max(maximum).regex(controlFreeIdentifierPattern);
 
@@ -59,8 +52,8 @@ const EventTypeSchema = ResourceIdSchema.min(1).max(EVENT_ID_MAX_LENGTH);
 const ApplicationIdSchema = z.string().min(1).max(APPLICATION_ID_MAX_LENGTH).regex(applicationIdPattern);
 const EventPluginIdSchema = PluginIdSchema.max(PLUGIN_ID_MAX_LENGTH);
 const ActorTypeSchema = boundedIdSchema(ACTOR_TYPE_MAX_LENGTH);
-export const MillisecondTimestampSchema = z.iso.datetime({ offset: true })
-  .regex(/\.\d{3}(?:Z|[+-]\d{2}:\d{2})$/, "Timestamp must use canonical millisecond precision.")
+export const MillisecondTimestampSchema = z.iso.datetime({ precision: 3 })
+  .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/, "Timestamp must use canonical UTC millisecond precision.")
   .max(64);
 export const EventTimestampSchema = MillisecondTimestampSchema;
 const EventSchemaVersionSchema = z.number().finite().int().min(1).max(SCHEMA_VERSION_MAX);
@@ -72,7 +65,16 @@ function normalizedFieldName(key: string): string {
 }
 
 export function isEventSecretFieldName(key: string): boolean {
-  return secretFieldNames.has(normalizedFieldName(key));
+  const words = key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  if (words.some((word) => secretWords.has(word))) return true;
+  const tokenIndex = words.findIndex((word) => word === "token" || word === "tokens");
+  if (tokenIndex >= 0 && !(tokenIndex === 0 && words.length === 2 && safeTokenMetadata.has(words[1]!))) return true;
+  const normalized = normalizedFieldName(key);
+  return credentialPhrasePatterns.some((pattern) => pattern.test(normalized));
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

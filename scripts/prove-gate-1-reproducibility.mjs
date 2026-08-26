@@ -70,6 +70,7 @@ try {
     hash.update(name).update("\0").update(content).update("\0");
   }
   console.log(`Gate 1 static artifacts are reproducible. sha256=${hash.digest("hex")}`);
+  console.log("GATE_1_PASS");
 } finally {
   await rm(staging, { recursive: true, force: true });
 }
