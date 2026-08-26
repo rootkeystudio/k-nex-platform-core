@@ -93,7 +93,8 @@ const consumerManifest = {
   },
   contributions: {
     behavior: ["consumer.z", "consumer.a"],
-    actions: ["consumer.action"]
+    actions: ["consumer.action"],
+    tools: ["consumer.tool"]
   }
 };
 
@@ -287,7 +288,7 @@ describe("static artifact generator", () => {
       expect.objectContaining({
         id: "module.consumer",
         manifestDigest: `sha256:${sha256(consumerManifest)}`,
-        contributions: { actions: ["consumer.action"], behavior: ["consumer.a", "consumer.z"] },
+        contributions: { actions: ["consumer.action"], behavior: ["consumer.a", "consumer.z"], tools: ["consumer.tool"] },
         lifecycle: consumerManifest.lifecycle
       })
     ]));

@@ -127,6 +127,7 @@ const contributionKinds = [
   "jobs",
   "dataSources",
   "actions",
+  "tools",
   "blocks",
   "navigation",
   "admin"

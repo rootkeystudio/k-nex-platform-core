@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-26
 - **Phase:** Phase 2A — Agent Tool Contracts and Safe Execution
-- **Active task:** P2A.2 — Actor-filtered tool catalog
+- **Active task:** P2A.3 — Minimal registered actions and source/action bindings
 - **State:** Ready to implement
 
 ## Last completed
 
-Implemented the minimal serializable agent-tool descriptor: canonical identity/version/owner, closed bounded JSON input schema, optional output schema or contract, source/action target, audience/surface/policy, effect/risk/approval/idempotency invariants, dry-run declaration, ceilings, redaction, and audit metadata. Destructive/external tools fail closed; source tools are read-only; writes require actions, per-call approval, and idempotency. Added `tools` to the plugin manifest and generated a strict-Ajv-compatible agent-tool JSON Schema with valid/invalid fixtures.
+Implemented the static actor-filtered tool catalog from resolved registration inventory. It validates and freezes trusted descriptors, requires same-plugin source/action targets, filters by actor, delegation-aware policy, surface, and features, paginates only the visible set with opaque cursors, returns an actor-visible structural revision, hides unknown/forbidden versions, and exposes a synchronous invalidation hook without runtime scanning or database loading. Static composition now preserves declared tool contributions.
 
 ## Validation
 
-The full Phase 0 gate passes: generated artifacts are clean and reproducible (`sha256:2f0ba88ce06d0fcdf90f8c2d553bae8cf85efe887c39ac2bb15725942c933042`), schemas compile under strict Ajv, repository contracts validate, and all suites pass, including 62 contracts tests.
+`pnpm build` and the full Phase 0 gate pass. Generated artifacts remain clean and reproducible (`sha256:2f0ba88ce06d0fcdf90f8c2d553bae8cf85efe887c39ac2bb15725942c933042`); schemas compile under strict Ajv; repository contracts validate; runtime has 74 passing tests and composition has 75 passing tests.
 
 ## Next
 
-Implement P2A.2: a static frozen catalog built from resolved installed contributions, filtered by actor/delegation/surface/features, with bounded pagination, stable structural revision, and fail-closed discovery.
+Implement P2A.3: minimal registered action descriptors and exact source/action bindings so every tool delegates to one existing platform operation.
 
 ## Blockers
 
