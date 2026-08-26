@@ -268,6 +268,9 @@ importers:
 
   packages/ui-design-system-contracts:
     dependencies:
+      '@k-nex/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       react-aria-components:
         specifier: 1.20.0
         version: 1.20.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)

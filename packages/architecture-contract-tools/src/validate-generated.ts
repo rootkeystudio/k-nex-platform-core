@@ -12,6 +12,7 @@ import {
   MetricScalarSchema,
   PluginManifestSchema,
   TableRecordsSchema,
+  ThemeProfileSchema,
   UiDocumentSchema
 } from "@k-nex/contracts";
 import { Ajv2020, type AnySchema } from "ajv/dist/2020.js";
@@ -96,6 +97,7 @@ for (const relativePath of [
   "schemas/event.v1.schema.json",
   "schemas/metric-scalar.v1.schema.json",
   "schemas/table-records.v1.schema.json",
+  "schemas/theme-profile.v1.schema.json",
   "schemas/ui-document.v1.schema.json",
   "fixtures/actions/valid/complete.json",
   "fixtures/actions/invalid/non-canonical-id.json",
@@ -124,6 +126,7 @@ const applicationSchema = await load<AnySchema>("schemas/application-manifest.v1
 const eventSchema = await load<AnySchema>("schemas/event.v1.schema.json");
 const metricSchema = await load<AnySchema>("schemas/metric-scalar.v1.schema.json");
 const tableSchema = await load<AnySchema>("schemas/table-records.v1.schema.json");
+const themeProfileSchema = await load<AnySchema>("schemas/theme-profile.v1.schema.json");
 const uiDocumentSchema = await load<AnySchema>("schemas/ui-document.v1.schema.json");
 const validatePlugin = ajv.compile(pluginSchema);
 const validateAction = ajv.compile(actionSchema);
@@ -132,6 +135,7 @@ const validateApplication = ajv.compile(applicationSchema);
 const validateEvent = ajv.compile(eventSchema);
 const validateMetric = ajv.compile(metricSchema);
 const validateTable = ajv.compile(tableSchema);
+const validateThemeProfile = ajv.compile(themeProfileSchema);
 const validateUiDocument = ajv.compile(uiDocumentSchema);
 
 const generatedContracts = await load<{
@@ -150,6 +154,9 @@ for (const { schema } of outputContractSchemas) {
 }
 if (!generatedContracts.artifacts.includes("schemas/ui-document.v1.schema.json")) {
   throw new Error("Generated artifact inventory is missing schemas/ui-document.v1.schema.json.");
+}
+if (!generatedContracts.artifacts.includes("schemas/theme-profile.v1.schema.json")) {
+  throw new Error("Generated artifact inventory is missing schemas/theme-profile.v1.schema.json.");
 }
 
 const driver = await load("fixtures/plugin-manifests/module.logistics.driver.json");
@@ -252,6 +259,26 @@ for (const fixture of outputContractFixtures) {
   if (!fixture.valid && (zodValid || jsonSchemaValid)) {
     throw new Error(`Structurally invalid ${fixture.path} must fail both Zod and generated JSON Schema validation.`);
   }
+}
+
+const validThemeProfile = {
+  schemaVersion: 1,
+  id: "theme-profile.public-default",
+  surface: "public",
+  themeId: "theme.minimal",
+  themeVersion: "1.0.0",
+  palette: "default",
+  mode: "system",
+  values: { "color.accent": "#2457ff" },
+  revision: { id: "theme-revision.public-1", number: 1, state: "draft", createdAt: "2026-08-26T20:00:00.000Z" }
+};
+if (!ThemeProfileSchema.safeParse(validThemeProfile).success || !validateThemeProfile(validThemeProfile)) {
+  throw new Error(`Valid theme profile must pass both Zod and generated JSON Schema validation: ${ajv.errorsText(validateThemeProfile.errors)}`);
+}
+const unsafeThemeProfile = structuredClone(validThemeProfile) as Record<string, unknown>;
+unsafeThemeProfile.className = "brand";
+if (ThemeProfileSchema.safeParse(unsafeThemeProfile).success || validateThemeProfile(unsafeThemeProfile)) {
+  throw new Error("Theme profile unknown keys must fail both Zod and generated JSON Schema validation.");
 }
 
 const uiDocumentFixtures = [

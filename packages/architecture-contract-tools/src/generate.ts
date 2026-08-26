@@ -12,6 +12,7 @@ import {
   MetricScalarSchema,
   PluginManifestSchema,
   TableRecordsSchema,
+  ThemeProfileSchema,
   UiDocumentSchema,
   architectureRegistry
 } from "@k-nex/contracts";
@@ -130,6 +131,7 @@ const primaryArtifacts = [
   { path: "schemas/event.v1.schema.json", value: eventJsonSchema() },
   { path: "schemas/metric-scalar.v1.schema.json", value: jsonSchema(MetricScalarSchema) },
   { path: "schemas/table-records.v1.schema.json", value: jsonSchema(TableRecordsSchema) },
+  { path: "schemas/theme-profile.v1.schema.json", value: jsonSchema(ThemeProfileSchema) },
   { path: "schemas/ui-document.v1.schema.json", value: uiDocumentJsonSchema() }
 ] satisfies readonly Artifact[];
 

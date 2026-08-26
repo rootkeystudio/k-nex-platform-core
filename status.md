@@ -1,21 +1,21 @@
 # Project Status
 
-- **Updated:** 2026-08-26
+- **Updated:** 2026-08-27
 - **Phase:** Phase 5 — UI Runtime, Themes, and Atomic CMS Publication
-- **Active task:** P5.1 — Implement small semantic primitive ABI
-- **State:** Ready for review
+- **Active task:** P5.3 — Implement Minimal theme
+- **State:** Ready to start
 
 ## Last completed
 
-Implemented the exact 27-component V1 semantic primitive ABI in `@k-nex/ui-design-system-contracts`. K-Nex-owned props and a frozen provider boundary hide exact-pinned React Aria Components behavior; native semantics implement the simple table. Complex adapters, theme profiles, tokens, and styling remain outside P5.1.
+Defined P5.2 theme package and persisted profile contracts. Strict generated Zod/JSON Schema parity rejects unknown executable/runtime fields, URLs, CSS, secret-bearing keys, invalid revision states, uninstalled packages, unsupported surfaces, palettes, and token-schema violations; the registry snapshots package policy.
 
 ## Validation
 
-Frozen install, full `gate:through-4`, 3 ABI/render tests covering the complete primitive map, declaration/import boundary proof, real Chromium keyboard/focus journeys, high-level audit, and diff checks pass on Node 24.19.0. Audit has no high or critical findings.
+`pnpm contracts:generate`, contract tests (113), theme/primitive tests (6), generated-schema validation, repository validation, and diff checks pass on Node 24.19.0.
 
 ## Next
 
-Review and merge P5.1. Do not begin P5.2 until project-manager PASS and merge.
+Execute P5.3 Minimal theme. Phase tasks are intentionally batched on PR #19 per operator direction; preserve separate task commits.
 
 ## Blockers
 
