@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-26
 - **Phase:** Phase 4 — Builder Engine Kill-Spike
-- **Active task:** P4.3 — BuilderEngineAdapter and Puck round-trip
+- **Active task:** P4.4 — fixed shell and profile-specific palettes
 - **State:** Active
 
 ## Last completed
 
-P4.2 added the editor-independent `@k-nex/ui-runtime` boundary. It migrates and validates canonical documents, resolves exact trusted block/source definitions, checks source structural hashes and declared input/selected-field compatibility, enforces profile/surface/audience/permission policy, returns stable safe fallbacks, and invokes validated renderers without importing React, Puck, editor, or server packages. The canonical source binding now persists its required Phase 2 structural compatibility identity so P4.6 can prove fail-closed mismatch behavior.
+P4.3 added the isolated `@k-nex/builder-puck` adapter on current `@puckeditor/core` 0.23.0. Canonical documents map to Puck data/config through engine-neutral field definitions and a controlled child slot; untouched props, bindings, layout, namespaced metadata, nested nodes, and non-canvas regions survive round-trip. Existing edits and palette insertions serialize back to canonical V1 data, malformed editor data fails closed, and the package owns the only Puck editor host. No Puck import appears outside the adapter package.
 
 ## Validation
 
-On Node.js 24.19.0 and pnpm 11.9.0: all 104 contract tests and 10 focused UI-runtime tests pass; `pnpm contracts:generate`, `pnpm contracts:validate`, and `pnpm contracts:reproducibility` pass with generated-schema/Zod parity and reproducible SHA-256 `fce4d521cd4b9eee361b4eb475e7afd7bb61c34a838b7805a81266ef7e6b0e1b`. Run the full clean-state `pnpm phase:0` after the coherent P4.2 commit.
+On Node.js 24.19.0 and pnpm 11.9.0: `pnpm phase:0` passes with 104 contract, 10 UI-runtime, eight builder-Puck, 152 core-runtime, 75 composition, 41 Payload-adapter, 22 realtime-provider, eight Sales, 25 architecture-tool, and customer composition tests. Contract generation remains reproducible at SHA-256 `fce4d521cd4b9eee361b4eb475e7afd7bb61c34a838b7805a81266ef7e6b0e1b`; the boundary audit finds no Puck import outside `packages/builder-puck`.
 
 ## Next
 
-Execute P4.3 — `BuilderEngineAdapter` and Puck round-trip — in documented Phase 4 order.
+Execute P4.4 — fixed shell and profile-specific palettes — in documented Phase 4 order.
 
 ## Blockers
 
