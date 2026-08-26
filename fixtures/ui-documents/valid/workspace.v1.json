@@ -20,7 +20,8 @@
             "source": {
               "id": "sales.tasks",
               "version": 1
-            }
+            },
+            "structuralCompatibilityHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
           }
         },
         "children": [

@@ -78,6 +78,7 @@ export const UiStaticPropsSchema = z.record(
 export const UiSourceBindingSchema = z.strictObject({
   source: DataSourceSourceSchemaSchema,
   input: jsonValueSchema,
+  structuralCompatibilityHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
   selectedFields: uniqueArray(TableFieldIdSchema).max(dataSourcePlatformCeilings.selectedFields).optional()
 });
 

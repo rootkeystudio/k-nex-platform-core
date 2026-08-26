@@ -223,6 +223,19 @@ importers:
         specifier: 4.1.6
         version: 4.1.6(@types/node@24.13.3)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2)(sass@1.77.4)(tsx@4.22.4)(yaml@2.9.0))
 
+  packages/ui-runtime:
+    dependencies:
+      '@k-nex/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: 4.1.6
+        version: 4.1.6(@types/node@24.13.3)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2)(sass@1.77.4)(tsx@4.22.4)(yaml@2.9.0))
+
 packages:
 
   '@apidevtools/json-schema-ref-parser@11.9.3':
@@ -1061,7 +1074,7 @@ packages:
       '@k-nex/contracts': 0.0.0
 
   '@k-nex/provider-realtime-socketio@file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz':
-    resolution: {integrity: sha512-J0sBu2oo37Ck3r4y9dJEA0di2TWAX5Qfw96dXjkX/hdrJQGc850HPDXnc4El8iQ0Jfj9QDozlOhpP6JDPl1X0A==, tarball: file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz}
+    resolution: {integrity: sha512-Isb6+U88gltni+nOMYQpSpx3GfJdfQfwlY5makbKG6p1P7w41kraf4/5B6w5hK4J3N907ZLYj+HcA8DWc+l41g==, tarball: file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz}
     version: 1.0.0
     peerDependencies:
       '@k-nex/contracts': 0.0.0

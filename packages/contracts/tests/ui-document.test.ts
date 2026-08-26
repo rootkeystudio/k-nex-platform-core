@@ -10,6 +10,7 @@ import {
 const sourceBinding = {
   source: { id: "sales.tasks", version: 1 },
   input: { status: "open" },
+  structuralCompatibilityHash: `sha256:${"a".repeat(64)}`,
   selectedFields: ["title", "status"]
 };
 
@@ -133,8 +134,29 @@ describe("P4.1 canonical UI documents", () => {
     }).success).toBe(false);
     expect(parse({
       ...validDocument,
-      regions: { main: [{ ...node, bindings: { source: { source: { id: "sales.total-potential-revenue", version: 1 }, input: {} } } }] }
+      regions: { main: [{ ...node, bindings: { source: { source: { id: "sales.total-potential-revenue", version: 1 }, input: {}, structuralCompatibilityHash: `sha256:${"a".repeat(64)}` } } }] }
     }).success).toBe(true);
+  });
+
+  it("requires a lowercase SHA-256 source compatibility hash", () => {
+    const node = validDocument.regions.main[1];
+    const missingHash = { ...sourceBinding };
+    delete missingHash.structuralCompatibilityHash;
+    expect(parse({
+      ...validDocument,
+      regions: { main: [{ ...node, bindings: { source: missingHash } }] }
+    }).success).toBe(false);
+
+    for (const structuralCompatibilityHash of [
+      "sha1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    ]) {
+      expect(parse({
+        ...validDocument,
+        regions: { main: [{ ...node, bindings: { source: { ...sourceBinding, structuralCompatibilityHash } } }] }
+      }).success).toBe(false);
+    }
   });
 
   it("rejects non-JSON values and unsafe nested persisted keys", () => {

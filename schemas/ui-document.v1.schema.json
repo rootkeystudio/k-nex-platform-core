@@ -83,11 +83,16 @@
             "version"
           ],
           "type": "object"
+        },
+        "structuralCompatibilityHash": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
         }
       },
       "required": [
         "source",
-        "input"
+        "input",
+        "structuralCompatibilityHash"
       ],
       "type": "object"
     },

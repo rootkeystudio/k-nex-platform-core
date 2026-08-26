@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-26
 - **Phase:** Phase 4 — Builder Engine Kill-Spike
-- **Active task:** P4.2 — minimal UiDocumentRuntime
+- **Active task:** P4.3 — BuilderEngineAdapter and Puck round-trip
 - **State:** Active
 
 ## Last completed
 
-P4.1 froze the editor-independent canonical UI document contract: bounded regions and recursive nodes, versioned blocks and bindings, stable selected fields, constrained layout tokens, namespaced engine metadata, deterministic current-version migration, canonical valid/invalid fixtures, and generated JSON Schema parity through the repository's strict Ajv validation path. Puck types, executable/script/SQL/package-path fields, secrets, unrestricted URL fields, and arbitrary style fields are excluded.
+P4.2 added the editor-independent `@k-nex/ui-runtime` boundary. It migrates and validates canonical documents, resolves exact trusted block/source definitions, checks source structural hashes and declared input/selected-field compatibility, enforces profile/surface/audience/permission policy, returns stable safe fallbacks, and invokes validated renderers without importing React, Puck, editor, or server packages. The canonical source binding now persists its required Phase 2 structural compatibility identity so P4.6 can prove fail-closed mismatch behavior.
 
 ## Validation
 
-On Node.js 24.19.0 and pnpm 11.9.0: `pnpm --filter @k-nex/contracts build` and all 103 contract tests pass; `pnpm contracts:generate`, `pnpm contracts:validate`, and `pnpm contracts:reproducibility` pass with generated-schema/Zod parity and reproducible SHA-256 `d28e15b82a6ad3a7bd63ba6c22c3a77905a9f9a421a9bedf643b755d64381ee6`. Pre-commit `pnpm phase:0` reached the expected generated-clean guard because the new generated UI schema was not yet committed; rerun it from the committed clean state.
+On Node.js 24.19.0 and pnpm 11.9.0: all 104 contract tests and 10 focused UI-runtime tests pass; `pnpm contracts:generate`, `pnpm contracts:validate`, and `pnpm contracts:reproducibility` pass with generated-schema/Zod parity and reproducible SHA-256 `fce4d521cd4b9eee361b4eb475e7afd7bb61c34a838b7805a81266ef7e6b0e1b`. Run the full clean-state `pnpm phase:0` after the coherent P4.2 commit.
 
 ## Next
 
-Execute P4.2 — minimal `UiDocumentRuntime` — in documented Phase 4 order.
+Execute P4.3 — `BuilderEngineAdapter` and Puck round-trip — in documented Phase 4 order.
 
 ## Blockers
 
