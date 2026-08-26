@@ -8,6 +8,7 @@ import {
 } from "@k-nex/contracts";
 
 import { semanticPrimitiveNames, type SemanticPrimitives } from "./types.js";
+import { createSemanticPrimitives } from "./provider.js";
 
 export type ThemeTokenValues = Readonly<Record<string, ThemeProfileTokenValue>>;
 
@@ -39,6 +40,17 @@ export interface ResolvedThemeProfile {
   readonly package: ThemePackage;
   readonly profile: ThemeProfile;
   readonly values: ThemeTokenValues;
+}
+
+export interface ThemePresentationSnapshot {
+  readonly profileRevisionId: string;
+  readonly themeId: string;
+  readonly themeVersion: string;
+  readonly surface: "admin" | "public";
+  readonly mode: "light" | "dark" | "system";
+  readonly cssVariables: Readonly<Record<string, string>>;
+  readonly cssText: string;
+  readonly primitives: SemanticPrimitives;
 }
 
 function cloneValues(values: ThemeTokenValues): ThemeTokenValues {
@@ -118,5 +130,27 @@ export function createThemeRegistry(inputs: readonly ThemePackage[]) {
       if (!result.success) throw new TypeError("Theme profile values do not satisfy the installed package schema.");
       return Object.freeze({ package: themePackage, profile: Object.freeze(structuredClone(profile)), values: cloneValues(result.data) });
     }
+  });
+}
+
+export function createThemePresentation(resolved: ResolvedThemeProfile): ThemePresentationSnapshot {
+  const prefix = `--k-nex-${resolved.profile.surface}-`;
+  const cssVariables = Object.freeze(Object.fromEntries(Object.entries(resolved.values)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => [
+      `${prefix}${key.replaceAll(".", "-")}`,
+      typeof value === "boolean" ? value ? "1" : "0" : String(value)
+    ])));
+  const declarations = Object.entries(cssVariables).map(([name, value]) => `${name}:${value}`).join(";");
+  const selector = `[data-k-nex-theme-profile="${resolved.profile.revision.id}"]`;
+  return Object.freeze({
+    profileRevisionId: resolved.profile.revision.id,
+    themeId: resolved.profile.themeId,
+    themeVersion: resolved.profile.themeVersion,
+    surface: resolved.profile.surface,
+    mode: resolved.profile.mode,
+    cssVariables,
+    cssText: `${selector}{${declarations}}${resolved.package.structuralCss}`,
+    primitives: createSemanticPrimitives(resolved.package.primitiveOverrides)
   });
 }
