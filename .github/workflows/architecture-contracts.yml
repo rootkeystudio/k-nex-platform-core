@@ -29,8 +29,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Install browser proofs
-        run: pnpm --filter @k-nex/builder-puck exec playwright install --with-deps chromium
-      - name: Run Phase 0 through Gate 4
-        run: pnpm gate:through-4
-      - name: Run P5.1 semantic primitive browser proof
-        run: pnpm --filter @k-nex/ui-design-system-contracts test:browser
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Run Phase 0 through Gate 5
+        run: pnpm gate:5

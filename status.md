@@ -3,19 +3,19 @@
 - **Updated:** 2026-08-27
 - **Phase:** Phase 5 — UI Runtime, Themes, and Atomic CMS Publication
 - **Active task:** P5.9 — Gate 5 closeout
-- **State:** Ready to start
+- **State:** Ready for review
 
 ## Last completed
 
-Completed P5.8 accessibility and visual acceptance for Minimal, Neobrutalism, and a customer override using one semantic surface and one canonical behavior journey.
+Completed all Phase 5 tasks P5.1–P5.9 and recorded `GO Phase 6` in `docs/implementation/phase-5-result.md`.
 
 ## Validation
 
-Real Chromium acceptance passes keyboard/focus, non-drag alternatives, 44 px targets, ARIA names/roles/states, reduced motion, forced colors, three distinct visual digests, and customer override preservation. Separate Playwright CLI snapshot, keyboard, and visual inspection evidence is recorded in `docs/implementation/phase-5-accessibility-smoke.md`.
+`pnpm gate:5` is the single Phase 5 CI path: it preserves Gate 0–4, runs all Phase 5 package checks, semantic primitive and hydration browser proofs, real PostgreSQL atomic publication, accessibility/visual/customer override acceptance, and focused closeout assertions.
 
 ## Next
 
-Execute P5.9: compose `pnpm gate:5`, run the complete phase gate, record plugin-candidate decisions and the GO/REWORK result, then update the phase pull request.
+Review and merge the Phase 5 pull request, then begin P6.1 lifecycle state and planning model.
 
 ## Blockers
 

@@ -21,6 +21,7 @@ const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("ga
 const connectionString = container.getConnectionUri();
 const key = `p5-6-${Date.now()}`;
 let payload;
+let passed = false;
 
 const mutableCopy = (value) => {
   if (Array.isArray(value)) return value.map(mutableCopy);
@@ -113,8 +114,10 @@ try {
   const pairRows = await query('select count(*)::int as count from "k_nex_cms_publication_pairs"');
   assert.equal(pairRows.rows[0].count, 3);
   process.stdout.write("P5_6_POSTGRES_PUBLICATION_PASS\n");
+  passed = true;
 } finally {
   payload?.db?.pool?.on?.("error", () => {});
   if (payload) await payload.destroy();
-  await container.stop();
+  await Promise.race([container.stop(), new Promise((resolve) => setTimeout(resolve, 5_000))]);
 }
+if (passed) process.exit(0);
