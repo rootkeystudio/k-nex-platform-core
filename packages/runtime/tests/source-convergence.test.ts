@@ -174,16 +174,13 @@ describe("source revision convergence", () => {
     expect(authorize).toHaveBeenCalledTimes(3);
   });
 
-  it("bounds a hanging fetch, ignores its late result, and permits retry", async () => {
+  it("bounds a hanging fetch and ignores its late rejection after a successful retry", async () => {
     vi.useFakeTimers();
     let hang = false;
-    let release: (() => void) | undefined;
-    const fetch = vi.fn(async (_reason: string, signal: AbortSignal) => {
-      if (hang) await new Promise<void>((resolve) => {
-        release = resolve;
-        signal.addEventListener("abort", resolve, { once: true });
-      });
-      return { data: hang ? "late private" : "current private", revision: hang ? 2 : 3 };
+    let rejectLate: ((error: Error) => void) | undefined;
+    const fetch = vi.fn(async () => {
+      if (hang) await new Promise<void>((_, reject) => { rejectLate = reject; });
+      return { data: "current private", revision: 3 };
     });
     const controller = new SourceConvergenceController({
       authorize: async () => true,
@@ -197,10 +194,10 @@ describe("source revision convergence", () => {
     const timedOut = controller.handleReconnect();
     await vi.advanceTimersByTimeAsync(10);
     await expect(timedOut).resolves.toMatchObject({ status: "error", data: null, revision: null });
-    release?.();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(controller.state.data).toBeNull();
     hang = false;
     await expect(controller.handleReconnect()).resolves.toMatchObject({ status: "ready", data: "current private", revision: 3 });
+    rejectLate?.(new Error("late private failure"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(controller.state).toMatchObject({ status: "ready", data: "current private", revision: 3 });
   });
 });

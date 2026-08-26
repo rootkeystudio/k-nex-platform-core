@@ -165,6 +165,7 @@ export class SourceConvergenceController<T> {
       });
       return this.stateValue;
     } catch {
+      if (signal.aborted) return this.stateValue;
       this.stateValue = Object.freeze({ ...this.stateValue, status: "error" });
       return this.stateValue;
     }
