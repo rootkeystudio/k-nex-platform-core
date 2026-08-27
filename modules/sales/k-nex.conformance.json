@@ -16,10 +16,8 @@
     },
     {
       "covers": ["deterministic-inventory", "fresh-migration-boot", "install-disable-reenable"],
-      "file": "tests/conformance.test.mjs",
-      "id": "sales-postgres-lifecycle",
-      "kind": "node-test",
-      "testName": "Sales package proves deterministic inventory, fresh migration boot, and lifecycle transitions"
+      "id": "customer-postgres-lifecycle",
+      "kind": "runner-proof"
     },
     {
       "covers": ["settings-permission-attacks"],
@@ -30,10 +28,15 @@
     },
     {
       "covers": ["source-action-tool-event-realtime"],
-      "file": "tests/conformance.test.mjs",
-      "id": "source-action-tool-event-realtime",
+      "id": "sales-platform-boundaries",
+      "kind": "runner-proof"
+    },
+    {
+      "covers": ["browser-query-action-factories"],
+      "file": "tests/browser.test.mjs",
+      "id": "browser-query-action-factories",
       "kind": "node-test",
-      "testName": "Sales sources actions tools events and realtime execute through platform boundaries"
+      "testName": "Sales browser factories execute only through injected platform transport"
     },
     {
       "covers": ["component-runtime-puck"],
@@ -57,10 +60,15 @@
       "testName": "Sales UI contributions expose labelled semantic regions"
     },
     {
+      "covers": ["reference-documentation-generation"],
+      "id": "reference-documentation-generation",
+      "kind": "runner-proof"
+    },
+    {
       "covers": ["packed-reproducibility"],
       "id": "packed-reproducibility",
       "kind": "runner-proof"
     }
   ],
-  "schemaVersion": 2
+  "schemaVersion": 3
 }

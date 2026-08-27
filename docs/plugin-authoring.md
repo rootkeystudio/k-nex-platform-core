@@ -13,6 +13,8 @@ This is the pre-v1 authoring contract proved by `module.sales`. Until Gate 8 pas
 
 The canonical category list, phase, and authority live in [the typed contribution registry](../packages/contracts/src/plugin-contribution-taxonomy.ts). Sales declares and exercises schema, migrations, services, permissions, settings, sources, actions, tools, events, jobs, realtime topics, components, blocks, routes, navigation, page templates, localization, health/audit, lifecycle, and testing metadata. Required declarations must reconcile with runtime registration; optional declarations may be absent, but undeclared runtime contributions always fail.
 
+The runner-generated [Sales reference inventory](./generated/module-sales-reference.md) is derived from the exact manifest, package export map, and required evidence catalog; conformance fails when it is stale.
+
 ## Entrypoints and package boundary
 
 Use [the Sales export map](../modules/sales/package.json) as the package template. Only declared files enter the tarball. [The reproducibility check](../modules/sales/scripts/check-pack.mjs) compares every packed entry with the customer-installed artifact, while [the customer composition test](../modules/sales/tests/payload-composition.test.ts) proves public entrypoint loading and Payload ownership.
@@ -42,7 +44,7 @@ Plugins ship migration metadata, while customer applications own executable migr
 
 ## Conformance command
 
-`pnpm plugin:check modules/sales` runs the strict plan through [the conformance runner](../scripts/plugin-conformance.mjs). Every required evidence class must be covered exactly once. Named Node proofs must resolve by real path inside the target plugin, receive runner-owned plugin identity, and pass exactly one named test. Package-boundary and reproducibility evidence is implemented directly by the repository runner rather than plugin-selected scripts. The suite covers manifest/schema/exact runtime inventory, package boundaries, deterministic customer inventory, fresh migration/boot, lifecycle, Sales settings/permission attacks, registered Sales source/action/tool/event/realtime/job execution, runtime/Puck parity, default-page idempotency, Sales accessibility smoke, and packed reproducibility.
+`pnpm plugin:check modules/sales` runs the strict plan through [the conformance runner](../scripts/plugin-conformance.mjs). Every required evidence class must be covered exactly once. Named Node proofs must resolve by real path inside the target plugin, receive runner-owned plugin identity, pass exactly one named test, and have no direct or transitive process-runner import. Customer/Postgres boot, Sales platform boundaries, package boundaries, reference generation, and reproducible packing are repository-runner proofs rather than plugin-selected scripts. Public source boundaries are checked through their transitive local import graph. The suite also proves browser query/action factories explicitly.
 
 The plan cannot point at another workspace package, escape the target plugin, select arbitrary scripts, duplicate evidence, or introduce arbitrary command shapes. [Negative runner tests](../scripts/plugin-conformance.test.mjs) prove those cases fail closed.
 
