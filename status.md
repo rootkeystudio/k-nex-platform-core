@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Replaced advisory conformance markers with runner-owned, target-plugin-bound Sales proofs for manifest, packaging, inventory/migrations/lifecycle, settings, pages, UI/accessibility, source/action/tool/event/realtime execution, and reproducibility.
+Aligned the packed-customer unit gate with the closed raw Payload collection policy: authenticated actors must use authorized Sales sources/actions, never direct collection reads.
 
 ## Validation
 
-Node 24.19.0: `pnpm plugin:check:test` (2), `pnpm plugin:check modules/sales` (11 exact evidence classes), Sales 32 tests, deterministic pack check, and embedded real PostgreSQL customer gate PASS.
+Node 24.19.0: focused conformance and PostgreSQL proofs PASS; the full Gate 6 chain exposed one stale direct-read expectation, now corrected and pending full rerun.
 
 ## Next
 

@@ -20,6 +20,6 @@ test("loads the packed Sales module through generated registries and composes pu
     { slug: "sales-tasks", pluginId: "module.sales", contributionId: "sales.tasks.collection" }
   ]);
   assert.equal(await collection.access.read({ req: { user: null, context: {} } }), false);
-  assert.equal(await collection.access.read({ req: { user: { id: "actor-1", collection: "users" }, context: {} } }), true);
+  assert.equal(await collection.access.read({ req: { user: { id: "actor-1", collection: "users" }, context: {} } }), false);
   assert.equal(await collection.access.read({ req: { user: { id: "key-1", collection: "payload-mcp-api-keys" }, context: {} } }), false);
 });
