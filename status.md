@@ -7,7 +7,7 @@
 
 ## Last completed
 
-All formal-review blockers are corrected. Distinct prior/current/security-target Sales tarballs (0.9.0/1.0.0/1.0.1) are SHA512-bound to release manifests. The factory generates, installs, builds, migrates, and boots fresh prior/current applications from the packed mirror. Alpha and Beta remain isolated packed workspaces; Beta now installs the actual supported-prior Sales artifact. Fleet accepts only a target artifact present in the supplied trusted release manifest and generates both required patch updates.
+All formal-review blockers are corrected. Distinct prior/current/security-target Sales tarballs (0.9.0/1.0.0/1.0.1) are SHA512-bound to release manifests. The factory generates, installs, builds, migrates, and boots fresh prior/current applications from the packed mirror. Alpha and Beta remain isolated packed workspaces; Beta now installs the actual supported-prior Sales artifact. Fleet accepts only a target artifact present in the supplied trusted release manifest and generates both required patch updates. Deployment evidence now references source commit `7c90e86`; its generator and Gate 8 resolve that exact Git tree and recompute subject/material digests instead of trusting ancestor status.
 
 ## Validation
 
