@@ -8,6 +8,7 @@ import { salesTasksDescriptor } from "../dist/contracts.js";
 import {
   salesTaskTableBlock,
   salesTaskTablePuckAuthoring,
+  salesWorkspaceUiContract,
   salesUiBlockDefinitions,
   salesUiComponentDefinitions
 } from "../dist/ui.js";
@@ -90,4 +91,13 @@ test("Sales UI contributions expose labelled semantic regions", () => {
     assert.equal(rendered.accessibility.label, "Sales reference");
     assert.equal(["form", "list", "region", "status", "table"].includes(rendered.accessibility.role), true);
   }
+});
+
+test("Sales public UI inventory reconciles every canonical source action route page component and block", () => {
+  assert.deepEqual(salesWorkspaceUiContract.sourceIds, ["sales.opportunities", "sales.tasks", "sales.total-potential-revenue"]);
+  assert.deepEqual(salesWorkspaceUiContract.actionIds, ["sales.opportunity.stage.update", "sales.task.create", "sales.task.update"]);
+  assert.deepEqual(salesWorkspaceUiContract.pageTemplateIds, ["sales.page.opportunities", "sales.page.overview", "sales.page.settings", "sales.page.tasks"]);
+  assert.equal(salesWorkspaceUiContract.routeIds.length, 4);
+  assert.equal(salesWorkspaceUiContract.componentIds.length, 6);
+  assert.equal(salesWorkspaceUiContract.blockIds.length, 6);
 });

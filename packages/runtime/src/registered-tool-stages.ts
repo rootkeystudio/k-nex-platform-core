@@ -14,6 +14,7 @@ import {
 } from "./action.js";
 import { dataSourceToolCompatible, type DataSourceGatewayRequest, type DataSourceGatewayResponse } from "./data-source-gateway.js";
 import type { RegistrationResult } from "./registration-runtime.js";
+import { assertExecutableRegistrationAuthority } from "./plugin-lifecycle.js";
 import {
   ToolGatewayError,
   type SourceActionDispatcher,
@@ -48,8 +49,7 @@ export class RegisteredToolTargetResolver {
       throw new ToolGatewayError("TOOL_TARGET_FORBIDDEN", 403, "Tool target access is forbidden.");
     }
     const id = targetId(descriptor);
-    const lifecycleOwned = this.registration.contributions.lifecycle.some(({ pluginId }) => pluginId === descriptor.ownerPluginId);
-    if (lifecycleOwned && this.registration.lifecycleScope !== "reconciled") {
+    try { assertExecutableRegistrationAuthority(this.registration); } catch {
       throw new ToolGatewayError("TOOL_TARGET_FORBIDDEN", 403, "Tool target access is forbidden until lifecycle availability is reconciled.");
     }
     const version = targetVersion(descriptor);

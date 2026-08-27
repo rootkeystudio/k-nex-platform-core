@@ -12,8 +12,7 @@
     {
       "covers": ["package-export-boundaries"],
       "id": "package-export-boundaries",
-      "kind": "pnpm-script",
-      "script": "check:boundaries"
+      "kind": "runner-proof"
     },
     {
       "covers": ["deterministic-inventory", "fresh-migration-boot", "install-disable-reenable"],
@@ -60,8 +59,7 @@
     {
       "covers": ["packed-reproducibility"],
       "id": "packed-reproducibility",
-      "kind": "pnpm-script",
-      "script": "check:pack"
+      "kind": "runner-proof"
     }
   ],
   "schemaVersion": 2

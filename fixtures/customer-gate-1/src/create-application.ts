@@ -6,7 +6,8 @@ import {
   scopePluginRegistration,
   ToolCatalog,
   type PluginAvailability,
-  type PluginLifecycleState
+  type PluginLifecycleState,
+  type RegistrationResult
 } from "@k-nex/runtime";
 import { PluginManifestSchema, type AgentToolDescriptor } from "@k-nex/contracts";
 import manifestJson from "@k-nex/module-sales/manifest" with { type: "json" };
@@ -33,6 +34,7 @@ export interface CreateGate1ApplicationOptions {
 }
 
 export interface Gate1Application extends ComposedPayloadApplication {
+  readonly registration: RegistrationResult;
   readonly salesAvailability: PluginAvailability;
   readonly salesLifecycle: PluginLifecycleState;
 }
@@ -131,5 +133,5 @@ export function createGate1Application(options: CreateGate1ApplicationOptions): 
     pluginAvailability: [salesAvailability],
     registration: scopedRegistration
   });
-  return Object.freeze({ ...application, salesAvailability, salesLifecycle });
+  return Object.freeze({ ...application, registration: scopedRegistration, salesAvailability, salesLifecycle });
 }

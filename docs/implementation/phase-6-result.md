@@ -3,7 +3,7 @@
 - **Date:** 2026-08-27
 - **Gate:** Gate 6
 - **Baseline:** `6d9730d`
-- **Delivery:** Phase 6 branch and one open pull request; no merge or auto-merge
+- **Delivery:** Phase 6 local branch; pull request and CI pending; no merge or auto-merge
 - **Decision:** **GO Phase 7**
 - **Review state:** Fresh Sol/high phase review and project-manager merge remain required
 
@@ -48,7 +48,7 @@ Lifecycle state keeps support, installed bytes, enabled state, settings readines
 
 ## Conformance and gate evidence
 
-The plugin command requires all 11 evidence classes and executes nine target-bound proofs. Named Node proofs must live inside the Sales package, receive the runner-owned plugin identity, and pass exactly one selected test. Only the runner-owned package boundary and reproducibility scripts are permitted. Missing/unknown/duplicate evidence, external workspace tests, arbitrary scripts, extra fields, path escape, and stale package bytes fail closed.
+The plugin command requires all 11 evidence classes and executes nine target-bound proofs. Named Node proofs must live inside the Sales package, receive the runner-owned plugin identity, and pass exactly one selected test. Package-boundary and reproducibility proofs run directly inside the trusted conformance runner. Missing/unknown/duplicate evidence, external workspace tests, arbitrary scripts, extra fields, realpath escape, and stale package bytes fail closed.
 
 Acceptance observed on Node.js `24.19.0` and pnpm `11.9.0`:
 
@@ -65,7 +65,7 @@ pnpm audit --audit-level high
 git diff --check
 ```
 
-Final task acceptance totals reached contracts 140, runtime 174, UI runtime 41, builder 31, Payload adapter 31, Sales 32, conformance-plan 2, and the customer unit/PostgreSQL gates. The PostgreSQL lifecycle proof boots enabled, disabled, and re-enabled deployments against one database, observes disabled write rejection, retained task data, and restored source availability.
+Final task acceptance totals reached contracts 140, runtime 174, UI runtime 41, builder 31, Payload adapter 31, Sales 34, conformance-plan 2, and the customer unit/PostgreSQL gates. The PostgreSQL lifecycle proof boots enabled, disabled, and re-enabled deployments against one database, observes disabled write rejection, retained task data, registered event/realtime/job execution, and restored source availability.
 
 The complete local `gate:6` chain passed with its standard commands. The high/critical audit threshold also passed; the package manager reported two low and three moderate findings, with no high or critical advisory.
 

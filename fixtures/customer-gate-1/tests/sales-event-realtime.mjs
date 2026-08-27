@@ -1,14 +1,16 @@
 import assert from "node:assert/strict";
 
-import {
-  createSalesRealtimeRelay,
-  salesOpportunityStageUpdateHandler,
-  salesTaskCreateHandler
-} from "@k-nex/module-sales/server";
 import { processNextPayloadOutboxEvent } from "@k-nex/payload-adapter";
 import { createPayloadRequest } from "payload";
 
 import { bootGate1Application } from "../dist/src/boot.js";
+import { composedApplication } from "../dist/src/payload.config.js";
+
+function binding(kind, id) {
+  const found = composedApplication.registration.bindings[kind].find((entry) => entry.id === id && entry.pluginId === "module.sales");
+  assert.equal(typeof found?.value, "function", `${kind}:${id} must resolve from scoped registration.`);
+  return found.value;
+}
 
 const payload = await bootGate1Application({ key: process.env.BOOT_KEY });
 try {
@@ -28,20 +30,20 @@ try {
     effectiveActor: { kind: "user", id: String(req.user.id) }
   };
   const signal = new AbortController().signal;
-  const task = await salesTaskCreateHandler({
+  const task = await binding("actions", "sales.task.create")({
     actor, request: req, authorizationContext: {}, input: { title: "P6 durable Sales task" },
     idempotencyKey: "p6-sales-task-event", signal
   });
   const opportunity = await payload.create({
     collection: "sales-opportunities", data: { name: "P6 durable opportunity", stage: "lead", value: "100" }, overrideAccess: true
   });
-  await salesOpportunityStageUpdateHandler({
+  await binding("actions", "sales.opportunity.stage.update")({
     actor, request: req, authorizationContext: {}, input: { id: String(opportunity.id), stage: "qualified" },
     idempotencyKey: "p6-sales-opportunity-event", signal
   });
 
   const publications = [];
-  const relay = createSalesRealtimeRelay({
+  const relay = binding("realtimeTopics", "sales.realtime.tasks")({
     publish: async (input) => { publications.push(input); return { accepted: true }; }
   });
   const delivered = new Set();
@@ -55,6 +57,11 @@ try {
     { topicId: "sales.realtime.opportunities", sourceId: "sales.opportunities", resourceId: String(opportunity.id) },
     { topicId: "sales.realtime.tasks", sourceId: "sales.tasks", resourceId: task.id }
   ]);
+  const schemaHooks = composedApplication.registration.contributions.schema.flatMap(({ value }) => value.collection?.hooks?.afterChange ?? []);
+  for (const event of composedApplication.registration.bindings.events) assert.equal(schemaHooks.includes(event.value), true);
+  assert.deepEqual(await binding("jobs", "sales.job.pipeline-audit")({ opportunities: [{ stage: "lead" }, { stage: "won" }], signal }), {
+    pluginId: "module.sales", jobId: "sales.job.pipeline-audit", stageCounts: { lead: 1, qualified: 0, won: 1, lost: 0 }
+  });
   process.stdout.write("P6_SALES_EVENT_REALTIME_PASS\n");
 } finally {
   await Promise.race([payload.destroy(), new Promise((resolve) => setTimeout(resolve, 2_000))]);

@@ -3,19 +3,19 @@
 - **Updated:** 2026-08-27
 - **Phase:** Phase 6 — Plugin Platform Hardening and Sales Reference Module
 - **Active task:** P6.10 — Close Gate 6 and freeze the pre-v1 authoring contract
-- **State:** Gate complete; exact-head review pending
+- **State:** Ready for phase review
 
 ## Last completed
 
-Closed Gate 6 after all nine blocking review findings: lifecycle/executable binding authority, closed raw collections, typed contributions, Sales events/realtime/pages/settings, target-bound conformance, exact template adoption, and corrected evidence.
+Closed the second review: runtime-owned lifecycle authority, binding-resolved Sales event/realtime/job proof, runner-owned conformance with realpath containment, exact UI inventory, and localization reconciliation.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: complete `pnpm gate:6` PASS; contracts 140, runtime 174, UI runtime 41, builder 31, Payload adapter 31, Sales 32, conformance 2, all real PostgreSQL/browser gates PASS; audit has 0 high/critical findings.
+Node 24.19.0 / pnpm 11.9.0: focused runtime 174, Payload adapter 31, Sales 34, conformance 2, real PostgreSQL and target-bound plugin conformance PASS; complete Gate 6 exact-head rerun pending.
 
 ## Next
 
-Obtain fresh Sol/high review on the exact Phase 6 head; on PASS, preserve/push the pure Phase 6 branch and PR, then stack P7.1 without waiting for merge.
+Rerun complete Gate 6, push the pure Phase 6 branch, open its PR, then obtain exact-head project-manager PASS and required CI before merge. P7.1 remains post-merge in this branch snapshot.
 
 ## Blockers
 

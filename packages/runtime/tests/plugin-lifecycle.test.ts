@@ -66,6 +66,7 @@ describe("plugin lifecycle", () => {
     expect(availability.isAvailable("schema", "sales.tasks.collection")).toBe(true);
     expect(availability.isAvailable("actions", "sales.task.create")).toBe(false);
     const scoped = scopePluginRegistration(registration, [availability]);
+    expect(() => scopePluginRegistration(registration, [{ ...availability }])).toThrow(/not authoritative/);
     expect(scoped.contributions.schema).toHaveLength(1);
     expect(scoped.contributions.actions).toEqual([]);
     expect(scoped.contributions.jobs).toEqual([]);

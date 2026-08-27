@@ -93,7 +93,6 @@ export interface RegistrationInventoryPlugin {
   readonly capabilityAccess: readonly string[];
 }
 export interface RegistrationResult {
-  readonly lifecycleScope: "raw" | "reconciled";
   readonly phases: readonly RegistrationPhase[];
   readonly inventory: readonly RegistrationInventoryPlugin[];
   readonly contributions: Readonly<Record<ContributionKind, readonly RegisteredContribution[]>>;
@@ -373,6 +372,12 @@ export function executeRegistration(options: ExecuteRegistrationOptions): Regist
     }
   }
   for (const [pluginId, byKind] of actual) {
+    const messageIds = new Set([...(byKind.get("localization")?.values() ?? [])]
+      .flatMap((value) => Object.keys((value as { readonly messages?: Readonly<Record<string, string>> }).messages ?? {})));
+    for (const [navigationId, value] of byKind.get("navigation") ?? []) {
+      const labelMessageId = (value as { readonly labelMessageId?: string }).labelMessageId;
+      if (labelMessageId === undefined || !messageIds.has(labelMessageId)) mismatches.push(`${pluginId}:navigation:${navigationId}:localization`);
+    }
     for (const [toolId, value] of byKind.get("tools") ?? []) {
       const descriptor = value as AgentToolDescriptor;
       const targetKind: Extract<ContributionKind, "sources" | "actions"> = descriptor.invocation.kind === "source" ? "sources" : "actions";
@@ -449,7 +454,6 @@ export function executeRegistration(options: ExecuteRegistrationOptions): Regist
     capabilityAccess: Object.freeze([...(capabilityAccess.get(pluginId) ?? [])].sort(compare))
   }));
   return Object.freeze({
-    lifecycleScope: "raw",
     phases: Object.freeze([...registrationPhases]), inventory: Object.freeze(inventory),
     contributions: Object.freeze(contributions), bindings: Object.freeze(frozenBindings)
   });

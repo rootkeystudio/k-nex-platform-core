@@ -59,6 +59,8 @@ export interface PluginReference {
 const retainedWhileDisabled = new Set<PluginContributionCategory>([
   "healthAudit", "lifecycle", "migrations", "schema", "settings", "testingMetadata"
 ]);
+const authoritativeAvailability = new WeakSet<object>();
+const authoritativeRegistrations = new WeakSet<object>();
 
 function fail(code: PluginLifecycleErrorCode, message: string): never {
   throw new PluginLifecycleError(code, message);
@@ -167,13 +169,21 @@ export function reconcilePluginAvailability(registration: RegistrationResult, st
     if (ids.length > 0) available.set(kind, new Set(ids));
   }
   const contributions = Object.freeze(Object.fromEntries([...available].map(([kind, ids]) => [kind, Object.freeze([...ids].sort())])));
-  return Object.freeze({
+  const result = Object.freeze({
     pluginId: state.pluginId,
     enabled: state.enabled,
     ready,
     contributions,
     isAvailable(kind: PluginContributionCategory, id: string) { return available.get(kind)?.has(id) ?? false; }
   });
+  authoritativeAvailability.add(result);
+  return result;
+}
+
+export function assertExecutableRegistrationAuthority(registration: RegistrationResult): void {
+  if (registration.contributions.lifecycle.length > 0 && !authoritativeRegistrations.has(registration)) {
+    fail("NOT_READY", "Lifecycle-owned registration requires authoritative availability reconciliation before execution.");
+  }
 }
 
 export function scopePluginRegistration(
@@ -182,6 +192,7 @@ export function scopePluginRegistration(
 ): RegistrationResult {
   const availability = new Map<string, PluginAvailability>();
   for (const value of availabilityValues) {
+    if (!authoritativeAvailability.has(value)) fail("INVALID_STATE", `Plugin ${value.pluginId} availability is not authoritative.`);
     if (availability.has(value.pluginId)) fail("INVALID_STATE", `Plugin ${value.pluginId} has duplicate lifecycle availability.`);
     availability.set(value.pluginId, value);
   }
@@ -206,7 +217,9 @@ export function scopePluginRegistration(
       return ids.length === 0 ? [] : [[kind, Object.freeze(ids)]];
     })))
   })));
-  return Object.freeze({ lifecycleScope: "reconciled", phases: registration.phases, inventory, contributions, bindings });
+  const result = Object.freeze({ phases: registration.phases, inventory, contributions, bindings });
+  authoritativeRegistrations.add(result);
+  return result;
 }
 
 export function scanPluginReferences(pluginId: string, references: readonly PluginReference[]): readonly PluginReference[] {

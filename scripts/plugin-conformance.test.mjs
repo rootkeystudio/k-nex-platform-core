@@ -9,7 +9,7 @@ function plan() {
     pluginId: "module.sales",
     pluginPackage: "@k-nex/module-sales",
     proofs: requiredPluginEvidence.map((evidence) => evidence === "package-export-boundaries" || evidence === "packed-reproducibility"
-      ? { id: evidence, kind: "pnpm-script", covers: [evidence], script: evidence === "package-export-boundaries" ? "check:boundaries" : "check:pack" }
+      ? { id: evidence, kind: "runner-proof", covers: [evidence] }
       : { id: evidence, kind: "node-test", covers: [evidence], file: "tests/conformance.test.mjs", testName: evidence })
   };
 }
@@ -30,6 +30,6 @@ test("plugin conformance plans reject external runners, fabricated scripts, and 
   assert.throws(() => validateConformancePlan(external), /inside the target plugin/);
   const script = plan();
   script.proofs.find(({ id }) => id === "packed-reproducibility").script = "test";
-  assert.throws(() => validateConformancePlan(script), /runner-owned target-plugin script/);
+  assert.throws(() => validateConformancePlan(script), /keys are invalid/);
   assert.throws(() => validateConformancePlan({ ...plan(), command: "true" }), /keys are invalid/);
 });

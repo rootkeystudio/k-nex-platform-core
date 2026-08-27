@@ -10,6 +10,7 @@ import {
 import { isDataSourceActorContext, type DataSourceActorContext } from "./data-source-authorization.js";
 import { actionToolCompatible, type ActionDefinition } from "./action.js";
 import type { RegistrationResult } from "./registration-runtime.js";
+import { assertExecutableRegistrationAuthority } from "./plugin-lifecycle.js";
 
 export const toolCatalogLimits = Object.freeze({
   maxPageSize: 100,
@@ -165,6 +166,7 @@ export class ToolCatalog {
   private readonly listeners = new Set<() => void>();
 
   constructor(registration: RegistrationResult, policy: ToolCatalogPolicy) {
+    assertExecutableRegistrationAuthority(registration);
     if (typeof policy?.isVisible !== "function") throw new TypeError("Tool catalog policy must define isVisible.");
     this.policy = policy;
     const installedOwners = new Set(registration.inventory.map((plugin) => plugin.id));

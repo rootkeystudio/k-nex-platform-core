@@ -353,7 +353,7 @@ function completeConsumer(
       });
       context.register("localization", "consumer.localization", {
         id: "consumer.localization", version: 1, ownerPluginId: "module.consumer", locale: "en",
-        messages: { "consumer.message.title": "Consumer" }
+        messages: { "consumer.message.title": "Consumer", "consumer.message.navigation": "Consumer" }
       });
       context.bindRenderer("components", "consumer.component", () => undefined);
       context.bindRenderer("blocks", "consumer.block", () => undefined);

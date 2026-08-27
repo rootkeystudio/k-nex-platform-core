@@ -228,8 +228,19 @@ export function createSalesRealtimeRelay(gateway: Parameters<typeof createOutbox
   });
 }
 
-export function salesPipelineAuditJob() {
-  return Object.freeze({ pluginId: "module.sales" as const, jobId: "sales.job.pipeline-audit" as const, status: "ready" as const });
+export function salesPipelineAuditJob(input: {
+  readonly opportunities: readonly { readonly stage: "lead" | "qualified" | "won" | "lost" }[];
+  readonly signal: AbortSignal;
+}) {
+  if (input.signal.aborted) throw input.signal.reason;
+  if (!Array.isArray(input.opportunities) || input.opportunities.length > 1_000) throw new Error("Sales pipeline audit input exceeds its bounded contract.");
+  const stageCounts = { lead: 0, qualified: 0, won: 0, lost: 0 };
+  for (const opportunity of input.opportunities) {
+    if (!Object.hasOwn(stageCounts, opportunity.stage)) throw new Error("Sales pipeline audit received an invalid stage.");
+    const stage: keyof typeof stageCounts = opportunity.stage;
+    stageCounts[stage] += 1;
+  }
+  return Object.freeze({ pluginId: "module.sales" as const, jobId: "sales.job.pipeline-audit" as const, stageCounts: Object.freeze(stageCounts) });
 }
 
 interface DecimalAmount {
@@ -689,7 +700,7 @@ export const salesRegistration = definePluginRegistration({
   },
   jobs: (context) => {
     context.register("jobs", salesReferenceMetadata.job.id, salesReferenceMetadata.job);
-    context.bind(salesReferenceMetadata.job.id, salesPipelineAuditJob);
+    context.bind(salesReferenceMetadata.job.id, salesPipelineAuditJob as (...args: never[]) => unknown);
   },
   dataHandlers: (context) => {
     context.bind("sources", salesTotalPotentialRevenueDescriptor.id, salesTotalPotentialRevenueHandler);

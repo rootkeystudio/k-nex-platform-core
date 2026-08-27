@@ -799,7 +799,9 @@ export const salesReferenceMetadata = Object.freeze({
     id: "sales.localization.en", version: 1, ownerPluginId: "module.sales", locale: "en",
     messages: {
       "sales.message.overview": "Overview", "sales.message.tasks": "Tasks",
-      "sales.message.opportunities": "Opportunities", "sales.message.settings": "Settings"
+      "sales.message.opportunities": "Opportunities", "sales.message.settings": "Settings",
+      "sales.message.navigation-overview": "Overview", "sales.message.navigation-tasks": "Tasks",
+      "sales.message.navigation-opportunities": "Opportunities", "sales.message.navigation-settings": "Settings"
     }
   },
   health: { id: "sales.health.runtime", version: 1, ownerPluginId: "module.sales", safe: true },

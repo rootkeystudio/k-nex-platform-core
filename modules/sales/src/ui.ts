@@ -2,9 +2,13 @@ import { defineUiContributionBinding, type UiBlockRenderInput } from "@k-nex/ui-
 
 import {
   salesRouteDescriptors,
+  salesPageTemplates,
   salesUiBlockDescriptors,
   salesUiComponentDescriptors,
+  salesOpportunityStageUpdateDescriptor,
+  salesOpportunitiesDescriptor,
   salesTaskCreateDescriptor,
+  salesTaskUpdateDescriptor,
   salesTaskTableBlockDescriptor,
   salesTaskTableComponentDescriptor,
   salesTasksDescriptor,
@@ -100,10 +104,10 @@ export const salesTaskTablePuckAuthoring = Object.freeze({
 export const salesWorkspaceUiContract = Object.freeze({
   pluginId: "module.sales" as const,
   surface: "workspace" as const,
-  sourceIds: Object.freeze([salesTasksDescriptor.id, salesTotalPotentialRevenueDescriptor.id]),
-  actionIds: Object.freeze([salesTaskCreateDescriptor.id]),
+  sourceIds: Object.freeze([salesOpportunitiesDescriptor.id, salesTasksDescriptor.id, salesTotalPotentialRevenueDescriptor.id].sort()),
+  actionIds: Object.freeze([salesOpportunityStageUpdateDescriptor.id, salesTaskCreateDescriptor.id, salesTaskUpdateDescriptor.id].sort()),
   routeIds: Object.freeze(salesRouteDescriptors.map(({ id }) => id)),
-  pageTemplateIds: Object.freeze(["sales.page.tasks"]),
+  pageTemplateIds: Object.freeze(salesPageTemplates.map(({ id }) => id).sort()),
   componentIds: Object.freeze(salesUiComponentDescriptors.map(({ id }) => id)),
   blockIds: Object.freeze(salesUiBlockDescriptors.map(({ id }) => id))
 });

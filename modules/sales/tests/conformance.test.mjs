@@ -4,8 +4,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 
-import { pluginContributionCategoryKeys } from "@k-nex/contracts";
-import { instantiatePluginPageTemplate } from "@k-nex/runtime";
+import { PluginManifestSchema, pluginContributionCategoryKeys } from "@k-nex/contracts";
+import { executeRegistration, instantiatePluginPageTemplate } from "@k-nex/runtime";
 
 import {
   salesPageTemplates,
@@ -15,6 +15,7 @@ import {
   salesTasksDescriptor,
   salesUiBlockDescriptors
 } from "../dist/contracts.js";
+import { salesRegistration } from "../dist/server.js";
 
 function assertTarget() {
   assert.equal(process.env.K_NEX_CONFORMANCE_PLUGIN_ID, "module.sales");
@@ -29,10 +30,17 @@ function childEnvironment() {
 
 test("Sales manifest and registration inventory match every supported category", () => {
   assertTarget();
-  const manifest = JSON.parse(readFileSync(resolve(import.meta.dirname, "../k-nex.plugin.json"), "utf8"));
+  const manifest = PluginManifestSchema.parse(JSON.parse(readFileSync(resolve(import.meta.dirname, "../k-nex.plugin.json"), "utf8")));
   assert.equal(manifest.id, process.env.K_NEX_CONFORMANCE_PLUGIN_ID);
   assert.equal(manifest.package, process.env.K_NEX_CONFORMANCE_PLUGIN_PACKAGE);
   assert.deepEqual(Object.keys(manifest.contributions).sort(), [...pluginContributionCategoryKeys].sort());
+  const integrity = `sha512-${"a".repeat(86)}==`;
+  const registration = executeRegistration({
+    graph: { resolverVersion: "1.0.0", plugins: [{ id: manifest.id, kind: manifest.kind, package: manifest.package, version: manifest.version, integrity, required: [], optional: [] }], capabilityProviders: [], registrationOrder: [manifest.id] },
+    installed: [{ package: { name: manifest.package, version: manifest.version, integrity }, manifest }],
+    registrations: [salesRegistration]
+  });
+  assert.deepEqual(registration.inventory[0].contributions, Object.fromEntries(pluginContributionCategoryKeys.map((kind) => [kind, Object.keys(manifest.contributions[kind]).sort()])));
 });
 
 test("Sales default page seeds once as a customer-owned document", async () => {

@@ -95,6 +95,7 @@ function registration(scope = true) {
 describe("P2A.8 Sales tool proof", () => {
   it("runs one logical approved write and enforces actor-filtered MCP list/call", async () => {
     const resolved = registration();
+    expect(() => new ToolCatalog(registration(false), { isVisible: () => true })).toThrowError(/authoritative availability reconciliation/);
     expect(() => new RegisteredToolTargetResolver(registration(false)).resolve(salesCreateTaskToolDescriptor))
       .toThrowError(/until lifecycle availability is reconciled/);
     const actor = {

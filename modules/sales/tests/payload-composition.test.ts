@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { executeRegistration, type RegistrationResult } from "@k-nex/runtime";
+import { createPluginLifecycleState, executeRegistration, reconcilePluginAvailability, scopePluginRegistration, type RegistrationResult } from "@k-nex/runtime";
 import { PluginManifestSchema } from "@k-nex/contracts";
 import { salesOpportunitiesCollection, salesRegistration, salesTasksCollection } from "@k-nex/module-sales/server";
 import { salesTaskFixture } from "@k-nex/module-sales/testing";
@@ -14,7 +14,8 @@ const salesManifest = PluginManifestSchema.parse(JSON.parse(readFileSync(
   "utf8"
 )));
 
-function registration(): RegistrationResult {
+function rawRegistration(): RegistrationResult {
+  const integrity = `sha512-${"a".repeat(86)}==`;
   return executeRegistration({
     graph: {
       resolverVersion: "1.0.0",
@@ -23,7 +24,7 @@ function registration(): RegistrationResult {
         kind: "module",
         package: "@k-nex/module-sales",
         version: "1.0.0",
-        integrity: "sha512-sales",
+        integrity,
         required: [],
         optional: []
       }],
@@ -31,12 +32,24 @@ function registration(): RegistrationResult {
       registrationOrder: ["module.sales"]
     },
     installed: [{
-      package: { name: "@k-nex/module-sales", version: "1.0.0", integrity: "sha512-sales" },
+      package: { name: "@k-nex/module-sales", version: "1.0.0", integrity },
       manifest: salesManifest
     }],
     registrations: [salesRegistration]
   });
 }
+
+function scope(raw: RegistrationResult): RegistrationResult {
+  const integrity = `sha512-${"a".repeat(86)}==`;
+  const lifecycle = createPluginLifecycleState({
+    pluginId: "module.sales", catalogStatus: "supported",
+    package: { status: "installed", name: "@k-nex/module-sales", version: "1.0.0", integrity }, enabled: true,
+    configuration: { revision: 1, ready: true }, migration: { current: 1, required: 1, ready: true }, dataState: "active", releaseStatus: "supported"
+  });
+  return scopePluginRegistration(raw, [reconcilePluginAvailability(raw, lifecycle)]);
+}
+
+function registration(): RegistrationResult { return scope(rawRegistration()); }
 
 function compose(overrides: Partial<Parameters<typeof composePayloadApplication>[0]> = {}) {
   return composePayloadApplication({
@@ -48,14 +61,14 @@ function compose(overrides: Partial<Parameters<typeof composePayloadApplication>
 }
 
 function registrationWith(collectionValue: unknown): RegistrationResult {
-  const base = registration();
-  return {
+  const base = rawRegistration();
+  return scope({
     ...base,
     contributions: {
       ...base.contributions,
       schema: [{ pluginId: "module.sales", id: "sales.tasks.collection", value: collectionValue }]
     }
-  };
+  });
 }
 
 function expectCode(action: () => unknown, code: PayloadCompositionError["code"]): void {
@@ -69,6 +82,9 @@ function expectCode(action: () => unknown, code: PayloadCompositionError["code"]
 }
 
 describe("Payload application composition", () => {
+  it("rejects lifecycle-owned schema composition before authoritative reconciliation", () => {
+    expect(() => compose({ registration: rawRegistration() })).toThrow(/requires authoritative availability reconciliation/);
+  });
   it("composes the owned Sales collection with the Postgres adapter and sanitizes through public Payload APIs", async () => {
     const application = compose();
     expect(application.config.db.name).toBe("postgres");

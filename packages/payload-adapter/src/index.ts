@@ -1,6 +1,6 @@
 import { postgresAdapter } from "@payloadcms/db-postgres";
 import type { MigrateDownArgs, MigrateUpArgs } from "@payloadcms/db-postgres";
-import type { PluginAvailability, RegistrationResult } from "@k-nex/runtime";
+import { assertExecutableRegistrationAuthority, type PluginAvailability, type RegistrationResult } from "@k-nex/runtime";
 import type { CollectionConfig, Config } from "payload";
 
 export * from "./data-source-authenticator.js";
@@ -130,6 +130,7 @@ function validateApplicationRoutes(config: Omit<Config, "collections" | "db">, c
 }
 
 export function composePayloadApplication(options: ComposePayloadApplicationOptions): ComposedPayloadApplication {
+  assertExecutableRegistrationAuthority(options.registration);
   if (typeof options.databaseUrl !== "string" || options.databaseUrl.trim().length === 0) {
     fail("INVALID_DATABASE_URL", "A non-empty Postgres connection string is required.");
   }
