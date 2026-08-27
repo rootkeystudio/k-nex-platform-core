@@ -7,11 +7,11 @@
 
 ## Last completed
 
-P6.10 final review remediation hides raw capability-service prototypes and scopes optional service participants, so provider disable revokes leased authority without removing the optional consumer.
+P6.10 final review remediation re-snapshots page-template authority after asynchronous store reads, so an existing customer instance is never returned after authority revocation.
 
 ## Validation
 
-Focused optional-provider and prototype-escape regressions are added; runtime/full validation remains before final Phase 6 review.
+Focused existing-instance read-race coverage is added; runtime/full validation remains before final Phase 6 review.
 
 ## Next
 

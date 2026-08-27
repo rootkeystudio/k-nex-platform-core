@@ -132,6 +132,32 @@ describe("P6.4 page template seed semantics", () => {
     expect(store.snapshot()).toEqual(before);
   });
 
+  it("rechecks authority after an asynchronous read before returning an existing instance", async () => {
+    let authorityRevision = 0;
+    let revokeOnRead = false;
+    const changingInventory: PageTemplateInventory = {
+      ...inventory,
+      actions: new Set(inventory.actions),
+      get authorityRevision() { return authorityRevision; }
+    };
+    const store = memoryStore(() => authorityRevision, {
+      beforeRead: async () => {
+        if (!revokeOnRead) return;
+        changingInventory.actions.clear();
+        authorityRevision += 1;
+      }
+    });
+    await instantiatePluginPageTemplate(descriptor(), changingInventory, store);
+    const before = store.snapshot();
+    revokeOnRead = true;
+
+    await expect(instantiatePluginPageTemplate(descriptor(), changingInventory, store)).rejects.toSatisfy((error) => {
+      expectCode(error, "ACTION_MISSING");
+      return true;
+    });
+    expect(store.snapshot()).toEqual(before);
+  });
+
   it("never overwrites customer edits during package upgrade and requires explicit adoption", async () => {
     const store = memoryStore();
     const first = await instantiatePluginPageTemplate(descriptor(), inventory, store);

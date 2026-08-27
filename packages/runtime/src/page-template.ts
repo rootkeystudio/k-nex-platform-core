@@ -178,15 +178,17 @@ export async function instantiatePluginPageTemplate(
   const authority = snapshotPageTemplateAuthority(inventory);
   const descriptor = preflightSnapshot(descriptorValue, authority);
   const existing = await store.read(descriptor.id);
+  const currentAuthority = snapshotPageTemplateAuthority(inventory);
+  const currentDescriptor = preflightSnapshot(descriptorValue, currentAuthority);
   if (existing !== undefined) return Object.freeze({ created: false, instance: freezeInstance(existing) });
   const candidate = freezeInstance({
-    templateId: descriptor.id,
-    adoptedTemplateVersion: descriptor.version,
+    templateId: currentDescriptor.id,
+    adoptedTemplateVersion: currentDescriptor.version,
     revision: 1,
     ownership: "customer",
-    document: descriptor.document
+    document: currentDescriptor.document
   });
-  const result = await store.createIfAbsent(candidate, authority.authorityRevision);
+  const result = await store.createIfAbsent(candidate, currentAuthority.authorityRevision);
   if (result === undefined) {
     const latestAuthority = snapshotPageTemplateAuthority(inventory);
     preflightSnapshot(descriptor, latestAuthority);
