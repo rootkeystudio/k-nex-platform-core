@@ -11,11 +11,11 @@ The final two Phase 7 review blockers were closed. The evidence registry now exp
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: targeted rework PASS — UI data 14 tests plus boundaries, UI testing 6 tests plus real-browser matrix/performance, and Sales 22 Node plus 17 Vitest tests with packed-package reproducibility. The Sales tarball integrity and deterministic Gate 1 resolution were refreshed. Exact full Gate 7 rerun is next.
+Node 24.19.0 / pnpm 11.9.0: exact full `pnpm gate:7` PASS at `05bbe20`. Gates 0–7, real PostgreSQL lifecycle/publication, plugin conformance, package boundaries, browser journeys, independent 131-family evidence, actor-bound DataTable authorization, the 16-state/two-theme matrix, hydration/portal, bundle/tree-shaking, heap, and performance proofs all pass.
 
 ## Next
 
-Run exact full Gate 7, then repeat formal Sol-high exact-head review. Open the stacked Phase 7 PR only after PASS; do not merge or enable auto-merge.
+Record this gate evidence, rerun Gate 7 on the documentation-only final head, then repeat formal Sol-high exact-head review. Open the stacked Phase 7 PR only after PASS; do not merge or enable auto-merge.
 
 ## Blockers
 
