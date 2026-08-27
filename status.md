@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Aligned the packed-customer unit gate with the closed raw Payload collection policy: authenticated actors must use authorized Sales sources/actions, never direct collection reads.
+Regenerated the customer resolved graph from the final packed Sales bytes so its committed integrity matches the lockfile and immutable fixture.
 
 ## Validation
 
-Node 24.19.0: focused conformance and PostgreSQL proofs PASS; the full Gate 6 chain exposed one stale direct-read expectation, now corrected and pending full rerun.
+Node 24.19.0: packed-customer unit test and `check:gate-1` PASS; full Gate 6 rerun pending after final graph refresh.
 
 ## Next
 
