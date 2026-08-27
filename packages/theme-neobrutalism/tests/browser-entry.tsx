@@ -65,6 +65,7 @@ function App() {
   return <>
     <style>{ownership.cssText + neobrutalism.cssText + switched.cssText + customer.cssText + `[data-k-nex-theme-profile="${customer.profileRevisionId}"] [data-k-nex-primitive="card"]{border-width:5px;background:#eefbf2}`}</style>
     <main><Surface label="Minimal" presentation={first} onSwitch={() => setFirst(switched)} /><Surface label="Neobrutalism" presentation={neobrutalism} /><Surface label="Customer" presentation={customer} /></main>
+    <aside data-testid="outside-sibling"><div data-k-nex-primitive="card">Outside every theme root</div></aside>
   </>;
 }
 

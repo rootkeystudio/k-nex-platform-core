@@ -7,6 +7,7 @@ import {
   type ThemeProfileTokenValue
 } from "@k-nex/contracts";
 import postcss from "postcss";
+import selectorParser from "postcss-selector-parser";
 
 import { semanticPrimitiveNames, type SemanticPrimitives } from "./types.js";
 import { createSemanticPrimitives } from "./provider.js";
@@ -80,12 +81,29 @@ function scopeStructuralCss(input: string): string {
   let count = 0;
   const ownershipSuffix = `:where(:not(${themeRootSelector} [data-k-nex-theme-profile],${themeRootSelector} [data-k-nex-theme-profile] *))`;
   root.walkRules((rule) => {
-    for (const selector of rule.selectors) {
-      const authoredSelector = selector.endsWith(ownershipSuffix) ? selector.slice(0, -ownershipSuffix.length) : selector;
-      if (authoredSelector !== themeRootSelector && !authoredSelector.startsWith(`${themeRootSelector} `)) throw new TypeError(`Every theme structural CSS selector must start with ${themeRootSelector}; unscoped: ${selector}.`);
+    rule.selectors = rule.selectors.map((selector) => {
+      let parsed: ReturnType<ReturnType<typeof selectorParser>["astSync"]>;
+      try {
+        parsed = selectorParser().astSync(selector);
+      } catch {
+        throw new TypeError(`Theme structural CSS selector is invalid: ${selector}.`);
+      }
+      const target = parsed.first;
+      for (const node of [...target.nodes]) if (node.toString() === ownershipSuffix) target.removeChild(node);
+      const first = target.first;
+      const boundary = target.nodes[1];
+      const selectsRoot = target.length === 1;
+      const selectsDescendant = boundary?.type === "combinator" && (boundary.value === " " || boundary.value === ">");
+      if (first?.type !== "pseudo" || first.value !== themeRootSelector || (!selectsRoot && !selectsDescendant)) {
+        throw new TypeError(`Every theme structural CSS selector must select ${themeRootSelector} or its descendants; unscoped: ${selector}.`);
+      }
+      const ownership = selectorParser().astSync(ownershipSuffix).first.first;
+      const pseudoElement = target.nodes.find((node) => node.type === "pseudo" && node.value.startsWith("::"));
+      if (pseudoElement === undefined) target.append(ownership);
+      else target.insertBefore(pseudoElement, ownership);
       count += 1;
-    }
-    rule.selectors = rule.selectors.map((selector) => selector.endsWith(ownershipSuffix) ? selector : `${selector}${ownershipSuffix}`);
+      return parsed.toString();
+    });
   });
   if (count === 0) throw new TypeError("Theme structural CSS requires at least one selector.");
   return root.toString();

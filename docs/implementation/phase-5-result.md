@@ -31,7 +31,7 @@ Workspace layouts resolve explicit user, group, and permission assignments by pr
 
 ## Accessibility and visual proof
 
-The real Chromium journey bundles React and renders the canonical CMS document through `createUiDocumentRuntime`, `KNeXDesignSystemProvider`, and the React Aria-backed K-Nex primitives. It covers keyboard activation, focus visibility, dialog containment/restoration, named non-drag alternatives, 44-by-44 targets, ARIA-tree smoke, reduced motion, and forced colors. Minimal, Neobrutalism, and the customer override coexist in one page with distinct digests. PostCSS validates every selector inside top-level lists and conditional blocks, then adds zero-specificity exact-root ownership guards; sibling roots, nested root elements, and their descendants remain selector-isolated before and after live theme switching. Supplemental visual inspection is recorded in [`phase-5-accessibility-smoke.md`](./phase-5-accessibility-smoke.md).
+The real Chromium journey bundles React and renders the canonical CMS document through `createUiDocumentRuntime`, `KNeXDesignSystemProvider`, and the React Aria-backed K-Nex primitives. It covers keyboard activation, focus visibility, dialog containment/restoration, named non-drag alternatives, 44-by-44 targets, ARIA-tree smoke, reduced motion, and forced colors. Minimal, Neobrutalism, and the customer override coexist in one page with distinct digests. PostCSS and a selector AST validate every selector inside top-level lists and conditional blocks, reject root-level sibling/column escapes, and add zero-specificity exact-root ownership guards before pseudo-elements; sibling roots, unrelated outside siblings, nested root elements, and their descendants remain selector-isolated before and after live theme switching. Supplemental visual inspection is recorded in [`phase-5-accessibility-smoke.md`](./phase-5-accessibility-smoke.md).
 
 ## Payload plugin decisions
 
@@ -65,6 +65,8 @@ The blocking review anchored to `e991534` produced seven corrections: exact layo
 The follow-up review anchored to `5561b119` bound idempotency keys to operation kind and canonical request data, replaced selector-prelude matching with PostCSS per-selector ownership scoping including nested roots, and placed CMS metadata under generated-schema inventory plus Zod/AJV fixture parity.
 
 The review anchored to `472396aa` aligned generated CMS and theme-profile schemas with Zod refinements through explicit JSON Schema patterns and limits, expanded their shared parity corpus, extended ownership guards to nested root elements, and made resolved profile authority recursively immutable.
+
+The review anchored to `fd23a864` replaced the remaining selector-prefix assumption with AST boundary validation: only the exact theme root or its descendants/children are accepted, root-level sibling and column combinators are rejected inside ordinary and conditional rules, pseudo-element ownership guards serialize before the pseudo-element, and Chromium proves an unrelated outside sibling is untouched.
 
 ## Kill/rework assessment
 

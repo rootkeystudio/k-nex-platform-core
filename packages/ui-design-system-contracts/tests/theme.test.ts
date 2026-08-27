@@ -70,6 +70,14 @@ describe("theme package and profile registry", () => {
     expect(() => defineThemePackage({ ...themePackage(), structuralCss: `${themeRootSelector} [data-k-nex-primitive=stack],body{display:flex}` })).toThrow(/body/);
   });
 
+  it("rejects selectors that escape from the theme root", () => {
+    for (const selector of [`${themeRootSelector} + body`, `${themeRootSelector} ~ .external`, `${themeRootSelector} || .column`]) {
+      expect(() => defineThemePackage({ ...themePackage(), structuralCss: `${selector}{display:none}` })).toThrow(/descendants/);
+    }
+    expect(() => defineThemePackage({ ...themePackage(), structuralCss: `@media (min-width:1px){${themeRootSelector} + body{display:none}}` })).toThrow(/descendants/);
+    expect(() => defineThemePackage({ ...themePackage(), structuralCss: `@supports (display:grid){${themeRootSelector} ~ .external{display:none}}` })).toThrow(/descendants/);
+  });
+
   it("parses functional selector lists and conditional blocks per selector", () => {
     const structuralCss = `
 ${themeRootSelector} :is([data-kind="a,b"],[data-kind="c"]),${themeRootSelector} :where([data-kind="d"],[data-kind="e"]){display:block}
@@ -81,6 +89,12 @@ ${themeRootSelector} :is([data-kind="a,b"],[data-kind="c"]),${themeRootSelector}
     expect(presentation.cssText).toContain("@media (min-width:1px)");
     expect(presentation.cssText).toContain("@supports (display:grid)");
     expect(presentation.cssText).toContain(':where(:not([data-k-nex-theme-profile="theme-revision.public-1"] [data-k-nex-theme-profile],[data-k-nex-theme-profile="theme-revision.public-1"] [data-k-nex-theme-profile] *))');
+  });
+
+  it("places ownership guards before descendant pseudo-elements", () => {
+    const structuralCss = `${themeRootSelector} [data-k-nex-primitive="card"]::before{content:"safe"}`;
+    const presentation = createThemePresentation(createThemeRegistry([{ ...themePackage(), structuralCss }]).resolveProfile(profile));
+    expect(presentation.cssText).toContain(':where(:not([data-k-nex-theme-profile="theme-revision.public-1"] [data-k-nex-theme-profile],[data-k-nex-theme-profile="theme-revision.public-1"] [data-k-nex-theme-profile] *))::before');
   });
 
   it("deeply snapshots resolved profile authority before presentation", () => {

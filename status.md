@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Addressed the three blockers anchored to `472396aa`: generated CMS/theme Zod-AJV parity, nested-root-element ownership, and recursively immutable resolved theme authority.
+Addressed the selector-boundary blocker anchored to `fd23a864`: AST validation rejects root-level sibling/column escapes and places ownership guards before pseudo-elements.
 
 ## Validation
 
-Frozen install, complete `pnpm gate:5`, shared CMS/theme Zod-AJV parity, deep-immutability and nested-root-element Chromium regressions, audit threshold, and repository checks pass.
+Focused selector-boundary and Chromium outside-sibling regressions pass; full Gate 5 evidence is pending on the correction head.
 
 ## Next
 
-Push the correction head, refresh PR evidence, and await exact-head CI and project-manager PASS. Start Phase 6 only after PASS and merge.
+Run the complete Gate 5 closeout evidence, refresh result/PR claims, and await project-manager PASS. Start Phase 6 only after PASS and merge.
 
 ## Blockers
 

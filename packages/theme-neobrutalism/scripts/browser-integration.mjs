@@ -43,6 +43,7 @@ try {
     const style = getComputedStyle(element);
     return { borderRadius: style.borderTopLeftRadius, outlineOffset: style.outlineOffset };
   }), { borderRadius: "0px", outlineOffset: "0px" }, "outer universal and root-targeting rules must not style the nested root element");
+  assert.equal(await page.getByTestId("outside-sibling").locator('[data-k-nex-primitive="card"]').evaluate((element) => getComputedStyle(element).borderTopWidth), "0px", "theme structural CSS must not style siblings outside every theme root");
 
   const increment = page.getByRole("button", { name: "Increment Minimal" });
   await page.keyboard.press("Tab");
