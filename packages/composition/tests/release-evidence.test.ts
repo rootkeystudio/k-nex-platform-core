@@ -1,18 +1,33 @@
 import { generateKeyPairSync } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { createCycloneDxSbom, createReleaseProvenance, signReleaseProvenance, verifyReleaseProvenance } from "../src/index.js";
+import { createCycloneDxSbom, createReleaseProvenance, resolvePnpmLock, signReleaseProvenance, verifyReleaseProvenance } from "../src/index.js";
 
 const digest = (character: string) => `sha256:${character.repeat(64)}`;
 const sourceCommit = "a".repeat(40);
 
 describe("release evidence", () => {
   it("produces deterministic CycloneDX component inventory", () => {
-    const input = [{ name: "payload", version: "3.88.0" }, { name: "@k-nex/module-sales", version: "1.0.0", sha256: digest("b") }];
+    const input = [{ name: "payload", version: "3.88.0" }, { name: "@k-nex/module-sales", version: "1.0.0", integrity: digest("b") }];
     const first = createCycloneDxSbom("customer-alpha", input);
     expect(createCycloneDxSbom("customer-alpha", [...input].reverse())).toEqual(first);
     expect(first).toMatchObject({ bomFormat: "CycloneDX", specVersion: "1.6", components: [{ name: "@k-nex/module-sales" }, { name: "payload" }] });
+  });
+
+  it("derives transitive components, integrities, and dependency edges from the dedicated lock", () => {
+    const lock = resolvePnpmLock(readFileSync(new URL("../../../fixtures/customer-alpha/pnpm-lock.yaml", import.meta.url), "utf8"));
+    expect(lock.components.length).toBeGreaterThan(800);
+    expect(lock.components).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "semver", version: "7.8.5", integrity: expect.stringMatching(/^sha512-/u) }),
+      expect.objectContaining({ name: "yaml", version: "2.9.0" }),
+      expect.objectContaining({ name: "zod", version: "4.4.3" })
+    ]));
+    expect(lock.dependencies.some(({ dependsOn }) => dependsOn.length > 0)).toBe(true);
+    const sbom = createCycloneDxSbom("customer-alpha", lock.components, lock.dependencies, lock.rootDependencies);
+    expect(sbom.components).toHaveLength(lock.components.length);
+    expect(sbom.dependencies.length).toBeGreaterThan(1);
   });
 
   it("binds source, full-SHA workflow, lock, graph, SBOM, and artifact digests", () => {
