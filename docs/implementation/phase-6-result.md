@@ -3,9 +3,9 @@
 - **Date:** 2026-08-27
 - **Gate:** Gate 6
 - **Baseline:** `6d9730d`
-- **Delivery:** Pull request #21 open; CI and project-manager review pending; no merge or auto-merge
+- **Delivery:** Pull request #21 open; exact-head CI pending; no merge or auto-merge
 - **Decision:** **GO Phase 7**
-- **Review state:** Fresh Sol/high phase review and project-manager merge remain required
+- **Review state:** Sol-high exact-head phase review PASS at `60a58b4`; project-manager review/merge remain pending
 
 ## Scope proved
 
@@ -34,7 +34,7 @@ Lifecycle state keeps support, installed bytes, enabled state, settings readines
 | P6.9 — install/disable/re-enable proof | `1f9b24c` |
 | P6.10 — Gate 6 closeout | `e223d2d` |
 
-Post-closeout review remediation is preserved as coherent commits `9e312fe`, `8a3d543`, `e459787`, `4df5120`, `c288f43`, `5d6e3f5`, `1076a7e`, `9e31865`, `d5b35b1`, `1a4bab3`, `a75d563`, `f4720f1`, `5ca137c`, `4c2a808`, `e1efe98`, and `1bba6c7`. The final four commits replace the rejected legacy lifecycle fallback, reconcile the complete exact reference graph, remove ambient Payload/action authority, and make conformance evidence runner-owned.
+Post-closeout review remediation is preserved as coherent commits `9e312fe`, `8a3d543`, `e459787`, `4df5120`, `c288f43`, `5d6e3f5`, `1076a7e`, `9e31865`, `d5b35b1`, `1a4bab3`, `a75d563`, `f4720f1`, `5ca137c`, `4c2a808`, `e1efe98`, `1bba6c7`, `7afed87`, `d2929f2`, `14f938e`, `5e90414`, `4072284`, and `60a58b4`. The final layers replace the rejected legacy lifecycle fallback, reconcile the complete exact reference graph, remove ambient Payload/action authority, make conformance evidence runner-owned, align the Gate 2A fixture, and make clean Sales declaration/package generation reproducible in CI.
 
 ## Public contracts and packages affected
 
@@ -68,7 +68,7 @@ git diff --check
 
 Final task acceptance totals reached contracts 140, runtime 178, UI runtime 41, builder 31, Payload adapter 32, Sales 34, conformance-plan 4, and the customer unit/PostgreSQL gates. The PostgreSQL proof exercises all three Sales sources and all three actions through standard gateways, rejects out-of-scope task and opportunity IDs, boots enabled/disabled/re-enabled deployments, preserves retained data, and executes registered event/realtime/job behavior.
 
-The complete local `gate:6` chain passed with its standard commands. The high/critical audit threshold also passed; the package manager reported two low and three moderate findings, with no high or critical advisory.
+The complete local `gate:6` chain passed at exact head `60a58b4` with its standard commands. The high/critical audit threshold also passed; the package manager reported two low and three moderate findings, with no high or critical advisory. A Sol-high exact-head review independently returned PASS with no remaining blocker or regression.
 
 ## Plugin authoring freeze
 

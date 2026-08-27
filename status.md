@@ -3,20 +3,20 @@
 - **Updated:** 2026-08-27
 - **Phase:** Phase 6 — Plugin Platform Hardening and Sales Reference Module
 - **Active task:** P6.10 — Close Gate 6 and freeze the pre-v1 authoring contract
-- **State:** In progress
+- **State:** Ready for phase review
 
 ## Last completed
 
-Made Sales UI descriptor declarations byte-stable by explicitly exporting the canonical `PluginUiContributionDescriptor` type instead of compiler-expanded dependency unions. Repacked Sales, refreshed lock integrity, and regenerated the customer graph atomically.
+Closed Phase 6 after the exact-head Gate 6 chain and Sol-high review passed. The final remediation keeps Sales declarations and packed customer artifacts reproducible without weakening conformance, authority, or lifecycle checks.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: forced clean Sales build, official pack, lock refresh, `generate:gate-1`, and `check-pack` PASS; declarations now emit stable named types. Exact full Gate 6 rerun is next.
+Node 24.19.0 / pnpm 11.9.0: exact full `pnpm gate:6` PASS at `60a58b4`; Sol-high exact-head review PASS with no blockers; GitHub CI is running on the same head. Final metadata-only head requires one exact gate rerun.
 
 ## Next
 
-Run exact full `pnpm gate:6`, push the verified head, then request exact-head Sol-high review on PR #21.
+Preserve this branch as the pure Phase 6 snapshot. Per project-manager instruction, stack P7.1 on a new Phase 7 branch without merging PR #21.
 
 ## Blockers
 
-Sol-high review at `0ccf3b0` returned seven blocking findings under active remediation. No merge or auto-merge will be performed.
+None. PR #21 remains open; no merge or auto-merge will be performed.
