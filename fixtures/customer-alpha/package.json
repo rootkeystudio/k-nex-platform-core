@@ -1,0 +1,32 @@
+{
+  "name": "customer-alpha",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.9.0",
+  "engines": {
+    "node": "24.19.0",
+    "pnpm": "11.9.0"
+  },
+  "scripts": {
+    "build": "node ../../scripts/gate-8-customer-fixtures.mjs --customer customer-alpha",
+    "dev": "next dev",
+    "migrate": "payload migrate",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@k-nex/composition": "workspace:0.0.0",
+    "@k-nex/contracts": "workspace:0.0.0",
+    "@k-nex/module-sales": "workspace:1.0.0",
+    "@k-nex/payload-adapter": "workspace:0.0.0",
+    "@k-nex/runtime": "workspace:0.0.0",
+    "@payloadcms/db-postgres": "3.88.0",
+    "@payloadcms/next": "3.88.0",
+    "graphql": "16.14.2",
+    "next": "16.3.1",
+    "payload": "3.88.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "@k-nex/theme-minimal": "workspace:0.0.0"
+  }
+}

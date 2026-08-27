@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "salesSettings": {
+    "defaultTaskPageSize": 50,
+    "showPotentialRevenue": false
+  },
+  "defaultPages": [
+    "sales.page.tasks"
+  ],
+  "permissions": {
+    "sales-representative": [
+      "sales.task.read",
+      "sales.task.create"
+    ]
+  },
+  "layout": {
+    "role": "sales-representative",
+    "navigation": [
+      "sales.page.tasks"
+    ]
+  },
+  "releaseCadence": "quarterly",
+  "releaseRevision": "customer-beta/2026.06"
+}
