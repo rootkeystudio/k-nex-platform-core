@@ -11,6 +11,7 @@ describe("CmsPageMetadataSchema", () => {
 
   it.each([
     ["query", { path: "/operations?draft=1" }], ["fragment", { canonicalPath: "/operations#top" }], ["backslash", { path: "/operations\\draft" }],
+    ["parent segment", { path: "/a/../admin" }], ["current segment", { canonicalPath: "/./preview" }],
     ["control", { title: "Operations\nDraft" }], ["unbounded title", { title: "x".repeat(121) }], ["free ID", { pageId: "HOME" }], ["unknown key", { extra: true }]
   ])("rejects %s metadata", (_name, change) => {
     expect(CmsPageMetadataSchema.safeParse({ ...valid, ...change }).success).toBe(false);

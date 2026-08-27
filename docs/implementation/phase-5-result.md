@@ -4,13 +4,13 @@
 - **Gate:** Gate 5
 - **Baseline:** `0674add`
 - **Delivery:** Phase 5 branch and PR #19; no merge or auto-merge
-- **Decision:** **GO Phase 6**
+- **Decision:** **GO Phase 6 candidate; project-manager PASS required**
 
 ## Scope proved
 
 One canonical UI document renders through one semantic primitive ABI under materially different Minimal and Neobrutalism themes without document mutation or forked interaction behavior. Published theme profiles are strict, revisioned data and cannot introduce arbitrary CSS, code, URLs, secrets, class names, or uninstalled packages.
 
-Payload stores server-only UI drafts and immutable published revisions with validation, unique ordering keys, lineage, lookup, and rollback. One strict persisted schema bounds canonical locale, IDs, paths, title, description, canonical path, robots, document, and theme references at draft/publish/rollback boundaries. A real PostgreSQL fixture resolves an installed published `ThemeProfile`, publishes page and document as one pair, serializes parallel publish/rollback attempts through unique sequence constraints and bounded transaction retries, and preserves one ordered lineage. Failed writes roll back. Post-commit invalidation retries use a unique operation ID, recover the already committed pair, and never republish.
+Payload stores server-only UI drafts and immutable published revisions with validation, unique ordering keys, lineage, lookup, and rollback. One generated persisted schema bounds locale and resource IDs, canonical internal paths, title and description lengths, robots, document, and theme references at draft/publish/rollback boundaries. Zod and AJV run the same canonical valid/invalid fixture corpus, including dot-segment rejection. A real PostgreSQL fixture resolves an installed published `ThemeProfile`, publishes page and document as one pair, serializes parallel publish/rollback attempts through unique sequence constraints and bounded transaction retries, and preserves one ordered lineage. Failed writes roll back. Each bounded operation ID is persisted with its operation kind and canonical-argument SHA-256 digest, so exact retries recover the committed pair while changed-input or cross-kind reuse fails with a stable conflict. Post-commit invalidation retries never republish.
 
 Workspace layouts resolve explicit user, group, and permission assignments by priority, selector specificity, then stable assignment ID. The result explains selected and superseded policies. Published layouts remain immutable, user patches are allowlisted by operation/node/property, and a conflict, denied patch, missing revision, or migration failure retains the last valid resolved snapshot. Move-before behavior is exact for forward, backward, end, self/no-op, and nested sibling operations.
 
@@ -30,7 +30,7 @@ Workspace layouts resolve explicit user, group, and permission assignments by pr
 
 ## Accessibility and visual proof
 
-The real Chromium journey bundles React and renders the canonical CMS document through `createUiDocumentRuntime`, `KNeXDesignSystemProvider`, and the React Aria-backed K-Nex primitives. It covers keyboard activation, focus visibility, dialog containment/restoration, named non-drag alternatives, 44-by-44 targets, ARIA-tree smoke, reduced motion, and forced colors. Minimal, Neobrutalism, and the customer override coexist in one page with distinct digests; exact profile scoping prevents bleed before and after live theme switching. Supplemental visual inspection is recorded in [`phase-5-accessibility-smoke.md`](./phase-5-accessibility-smoke.md).
+The real Chromium journey bundles React and renders the canonical CMS document through `createUiDocumentRuntime`, `KNeXDesignSystemProvider`, and the React Aria-backed K-Nex primitives. It covers keyboard activation, focus visibility, dialog containment/restoration, named non-drag alternatives, 44-by-44 targets, ARIA-tree smoke, reduced motion, and forced colors. Minimal, Neobrutalism, and the customer override coexist in one page with distinct digests. PostCSS validates every selector inside top-level lists and conditional blocks, then adds zero-specificity exact-root ownership guards; sibling and nested roots remain isolated before and after live theme switching. Supplemental visual inspection is recorded in [`phase-5-accessibility-smoke.md`](./phase-5-accessibility-smoke.md).
 
 ## Payload plugin decisions
 
@@ -55,11 +55,13 @@ git diff --check
 git status --porcelain --untracked-files=all
 ```
 
-`pnpm gate:5` is the required CI path. It preserves Gate 0–4 evidence, executes all Phase 5 unit/contract checks through the shared phase build, then runs the semantic primitive browser journey, Minimal hydration proof, real PostgreSQL atomic-publication fixture, theme/customer-override accessibility journey, and focused Gate 5 boundary assertions.
+The required workflow runs `pnpm gate:5`, the high/critical audit threshold, `git diff --check`, and a clean exact-head tree assertion. Gate 5 preserves Gate 0–4 evidence, executes all Phase 5 unit/contract checks through the shared phase build, then runs the semantic primitive browser journey, Minimal hydration proof, real PostgreSQL atomic-publication fixture, theme/customer-override accessibility journey, and focused Gate 5 boundary assertions.
 
 ## Project-manager correction evidence
 
 The blocking review anchored to `e991534` produced seven corrections: exact layout movement, exact profile CSS scoping, server-only UI revision access, serialized and idempotent publication completion, rollback revalidation with authoritative published-theme lookup, actual primitive/theme/runtime browser integration, and one strict bounded CMS metadata schema. Each correction has a focused regression and is included in the single Gate 5 path.
+
+The follow-up review anchored to `5561b119` bound idempotency keys to operation kind and canonical request data, replaced selector-prelude matching with PostCSS per-selector ownership scoping including nested roots, and placed CMS metadata under generated-schema inventory plus Zod/AJV fixture parity.
 
 ## Kill/rework assessment
 

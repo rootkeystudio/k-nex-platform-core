@@ -100,6 +100,16 @@ try {
   await assert.rejects(() => payload.findByID({ collection: "k-nex-ui-document-revisions", id: firstDraft.id, overrideAccess: false, req: ordinary }), /not allowed|Forbidden|not found/i);
   const first = await publisher.publish("publish.first", String(pageDraft.id), firstDraft.id);
   assert.deepEqual(await publisher.getPublishedPair("cms.home", "en-US"), first);
+  assert.deepEqual(await publisher.publish("publish.first", String(pageDraft.id), firstDraft.id), first, "same operation input must replay");
+  await assert.rejects(() => publisher.publish("publish.first", String(pageDraft.id), `${firstDraft.id}-changed`), /CMS_OPERATION_CONFLICT/);
+  const otherMetadata = { ...metadata, pageId: "cms.other", documentId: "cms.other", path: "/other", canonicalPath: "/other", title: "Other" };
+  const otherPageDraft = await payload.create({ collection: "k-nex-cms-page-drafts", data: otherMetadata, overrideAccess: true });
+  const otherDocument = structuredClone(fixture);
+  otherDocument.id = "cms.other";
+  const otherDraft = await documents.saveDraft({ documentId: "cms.other", document: otherDocument, validationStatus: "valid" });
+  await assert.rejects(() => publisher.publish("publish.first", String(otherPageDraft.id), otherDraft.id), /CMS_OPERATION_CONFLICT/);
+  await assert.rejects(() => publisher.rollback("publish.first", "cms.home", "en-US", first.pairRevisionId), /CMS_OPERATION_CONFLICT/);
+  await assert.rejects(() => publisher.publish(" invalid ", String(pageDraft.id), firstDraft.id), /operation ID/);
 
   const invalidDocument = structuredClone(fixture);
   invalidDocument.regions.main[0].props.heading = "Denied heading";
@@ -134,6 +144,8 @@ try {
     publisher.rollback("rollback.parallel-0", "cms.home", "en-US", first.pairRevisionId),
     publisher.rollback("rollback.parallel-1", "cms.home", "en-US", parallel[0].pairRevisionId)
   ]);
+  assert.deepEqual(await publisher.rollback("rollback.parallel-0", "cms.home", "en-US", first.pairRevisionId), rollbacks[0], "same rollback input must replay");
+  await assert.rejects(() => publisher.rollback("rollback.parallel-0", "cms.home", "en-US", parallel[0].pairRevisionId), /CMS_OPERATION_CONFLICT/);
   assert.equal(new Set(rollbacks.map(({ revisionNumber }) => revisionNumber)).size, 2, "parallel rollbacks must receive distinct revisions");
   const pairs = await payload.find({ collection: "k-nex-cms-publication-pairs", where: { and: [{ pageId: { equals: "cms.home" } }, { locale: { equals: "en-US" } }] }, sort: "revisionNumber", limit: 100, overrideAccess: true });
   for (let index = 0; index < pairs.docs.length; index += 1) {

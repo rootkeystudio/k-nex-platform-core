@@ -1,0 +1,12 @@
+{
+  "canonicalPath": "/operations",
+  "description": "Track every delivery.",
+  "documentId": "cms.home",
+  "locale": "en-US",
+  "pageId": "cms.home",
+  "path": "/operations",
+  "robots": "index-follow",
+  "schemaVersion": 1,
+  "themeProfileRevisionId": "theme-revision.minimal-1",
+  "title": "Operations"
+}

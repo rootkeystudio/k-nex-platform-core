@@ -67,6 +67,20 @@ describe("theme package and profile registry", () => {
     expect(() => defineThemePackage({ ...themePackage(), defaults: {} })).toThrow(/defaults/);
     expect(() => defineThemePackage({ ...themePackage(), recipes: { DataGrid: ["dense"] } as never })).toThrow(/Unknown/);
     expect(() => defineThemePackage({ ...themePackage(), structuralCss: "[data-k-nex-primitive=stack]{display:flex}" })).toThrow(/selector/);
+    expect(() => defineThemePackage({ ...themePackage(), structuralCss: `${themeRootSelector} [data-k-nex-primitive=stack],body{display:flex}` })).toThrow(/body/);
+  });
+
+  it("parses functional selector lists and conditional blocks per selector", () => {
+    const structuralCss = `
+${themeRootSelector} :is([data-kind="a,b"],[data-kind="c"]),${themeRootSelector} :where([data-kind="d"],[data-kind="e"]){display:block}
+@media (min-width:1px){${themeRootSelector} [data-kind="media"]{display:block}}
+@supports (display:grid){${themeRootSelector} [data-kind="supports"]{display:grid}}
+`;
+    const presentation = createThemePresentation(createThemeRegistry([{ ...themePackage(), structuralCss }]).resolveProfile(profile));
+    expect(presentation.cssText).toContain(':is([data-kind="a,b"],[data-kind="c"])');
+    expect(presentation.cssText).toContain("@media (min-width:1px)");
+    expect(presentation.cssText).toContain("@supports (display:grid)");
+    expect(presentation.cssText).toContain(':where(:not([data-k-nex-theme-profile="theme-revision.public-1"] [data-k-nex-theme-profile] *))');
   });
 
   it("replaces every structural root with the exact profile revision selector", () => {

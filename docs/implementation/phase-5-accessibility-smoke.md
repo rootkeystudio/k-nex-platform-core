@@ -2,12 +2,12 @@
 
 - **Date:** 2026-08-27
 - **Environment:** Chromium via Playwright 1.61.0, 1440 × 900 viewport
-- **Surface:** canonical CMS runtime output through the actual K-Nex provider and primitives under simultaneous Minimal, Neobrutalism, and customer roots
+- **Surface:** canonical CMS runtime output through the actual K-Nex provider and primitives under simultaneous sibling and nested Minimal, Neobrutalism, and customer roots
 - **Result:** PASS
 
 ## Automated browser acceptance
 
-The bundled React proof evaluates `fixtures/ui-documents/valid/cms.v1.json` with `createUiDocumentRuntime`, then renders its result through `KNeXDesignSystemProvider` and the React Aria-backed K-Nex primitives. It exercises keyboard focus/activation, a non-drag move alternative, 44 × 44 targets, dialog containment and trigger-focus restoration, semantic headings/buttons/status through an ARIA snapshot, reduced motion, forced colors, simultaneous-root isolation, live switching, and distinct screenshots.
+The bundled React proof evaluates `fixtures/ui-documents/valid/cms.v1.json` with `createUiDocumentRuntime`, then renders its result through `KNeXDesignSystemProvider` and the React Aria-backed K-Nex primitives. It exercises keyboard focus/activation, a non-drag move alternative, 44 × 44 targets, dialog containment and trigger-focus restoration, semantic headings/buttons/status through an ARIA snapshot, reduced motion, forced colors, sibling and nested root isolation, live switching, and distinct screenshots.
 
 Command: `pnpm test:p5-accessibility`
 

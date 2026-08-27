@@ -1,0 +1,89 @@
+{
+  "$defs": {
+    "__schema0": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema1": {
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    },
+    "__schema2": {
+      "pattern": "^[a-z]{2}(?:-[A-Z]{2})?$",
+      "type": "string"
+    },
+    "__schema3": {
+      "maxLength": 2048,
+      "minLength": 1,
+      "pattern": "^\\/(?:(?!\\.{1,2}(?:\\/|$))[A-Za-z0-9._~-]+(?:\\/(?!\\.{1,2}(?:\\/|$))[A-Za-z0-9._~-]+)*)?$",
+      "type": "string"
+    },
+    "__schema4": {
+      "maxLength": 120,
+      "minLength": 1,
+      "type": "string"
+    },
+    "__schema5": {
+      "maxLength": 320,
+      "minLength": 1,
+      "type": "string"
+    },
+    "__schema6": {
+      "enum": [
+        "index-follow",
+        "noindex-follow",
+        "noindex-nofollow"
+      ],
+      "type": "string"
+    }
+  },
+  "$id": "https://schemas.k-nex.dev/cms-page-metadata/v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "canonicalPath": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "description": {
+      "$ref": "#/$defs/__schema5"
+    },
+    "documentId": {
+      "$ref": "#/$defs/__schema1"
+    },
+    "locale": {
+      "$ref": "#/$defs/__schema2"
+    },
+    "pageId": {
+      "$ref": "#/$defs/__schema1"
+    },
+    "path": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "robots": {
+      "$ref": "#/$defs/__schema6"
+    },
+    "schemaVersion": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "themeProfileRevisionId": {
+      "$ref": "#/$defs/__schema1"
+    },
+    "title": {
+      "$ref": "#/$defs/__schema4"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "pageId",
+    "locale",
+    "path",
+    "title",
+    "description",
+    "canonicalPath",
+    "robots",
+    "documentId",
+    "themeProfileRevisionId"
+  ],
+  "title": "K-Nex CMS page metadata v1",
+  "type": "object"
+}

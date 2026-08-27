@@ -31,10 +31,14 @@ try {
   page.on("console", (message) => { if (message.type() === "error") browserErrors.push(message.text()); });
   page.on("pageerror", (error) => browserErrors.push(error.message));
   await page.goto(url);
-  await page.waitForFunction(() => window.__K_NEX_READY__ === true);
+  await page.waitForFunction(() => window.__K_NEX_READY__ === true).catch((error) => {
+    throw new Error(`Gate 5 browser fixture did not become ready: ${browserErrors.join(" | ") || error.message}`);
+  });
   const surfaces = Object.fromEntries(["Minimal", "Neobrutalism", "Customer"].map((label) => [label, page.getByTestId(`surface-${label}`)]));
-  const borderWidth = (label) => surfaces[label].locator('[data-k-nex-primitive="card"]').evaluate((element) => getComputedStyle(element).borderTopWidth);
+  const borderWidth = (label) => surfaces[label].locator('[data-k-nex-primitive="card"]').first().evaluate((element) => getComputedStyle(element).borderTopWidth);
+  const nestedBorderWidth = () => page.getByTestId("surface-Nested").locator('[data-k-nex-primitive="card"]').evaluate((element) => getComputedStyle(element).borderTopWidth);
   assert.deepEqual(await Promise.all([borderWidth("Minimal"), borderWidth("Neobrutalism"), borderWidth("Customer")]), ["1px", "3px", "5px"], "simultaneous theme roots must remain isolated");
+  assert.equal(await nestedBorderWidth(), "5px", "nested theme root must own its descendants independently of the outer stylesheet");
 
   const increment = page.getByRole("button", { name: "Increment Minimal" });
   await page.keyboard.press("Tab");
@@ -69,6 +73,7 @@ try {
   if (process.env.K_NEX_EVIDENCE_PATH) await page.screenshot({ animations: "disabled", path: process.env.K_NEX_EVIDENCE_PATH, fullPage: true });
   await page.getByRole("button", { name: "Switch Minimal theme" }).click();
   assert.deepEqual(await Promise.all([borderWidth("Minimal"), borderWidth("Neobrutalism"), borderWidth("Customer")]), ["3px", "3px", "5px"], "theme switching must not restyle sibling roots");
+  assert.equal(await nestedBorderWidth(), "5px", "outer theme switching must not restyle a nested theme root");
   assert.deepEqual(browserErrors, []);
   await context.close();
 

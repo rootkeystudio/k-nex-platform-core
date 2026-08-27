@@ -22,6 +22,7 @@
     "@k-nex/theme-minimal": "workspace:*",
     "@payloadcms/db-postgres": "3.88.0",
     "@testcontainers/postgresql": "12.1.0",
+    "@types/node": "24.13.3",
     "graphql": "16.14.2",
     "next": "16.3.1",
     "payload": "3.88.0",

@@ -6,6 +6,7 @@ import {
   type ThemeProfile,
   type ThemeProfileTokenValue
 } from "@k-nex/contracts";
+import postcss from "postcss";
 
 import { semanticPrimitiveNames, type SemanticPrimitives } from "./types.js";
 import { createSemanticPrimitives } from "./provider.js";
@@ -58,14 +59,36 @@ function cloneValues(values: ThemeTokenValues): ThemeTokenValues {
   return Object.freeze({ ...values });
 }
 
+function scopeStructuralCss(input: string): string {
+  let root: ReturnType<typeof postcss.parse>;
+  try {
+    root = postcss.parse(input);
+  } catch {
+    throw new TypeError("Theme structural CSS must be valid CSS.");
+  }
+  root.walkAtRules((rule) => {
+    if (rule.name !== "media" && rule.name !== "supports") throw new TypeError(`Theme structural CSS at-rule is not allowed: @${rule.name}.`);
+  });
+  let count = 0;
+  const ownershipSuffix = `:where(:not(${themeRootSelector} [data-k-nex-theme-profile] *))`;
+  root.walkRules((rule) => {
+    for (const selector of rule.selectors) {
+      const authoredSelector = selector.endsWith(ownershipSuffix) ? selector.slice(0, -ownershipSuffix.length) : selector;
+      if (authoredSelector !== themeRootSelector && !authoredSelector.startsWith(`${themeRootSelector} `)) throw new TypeError(`Every theme structural CSS selector must start with ${themeRootSelector}; unscoped: ${selector}.`);
+      count += 1;
+    }
+    rule.selectors = rule.selectors.map((selector) => selector.endsWith(ownershipSuffix) ? selector : `${selector}${ownershipSuffix}`);
+  });
+  if (count === 0) throw new TypeError("Theme structural CSS requires at least one selector.");
+  return root.toString();
+}
+
 function snapshotThemePackage(input: ThemePackage): ThemePackage {
   if (!PluginIdSchema.safeParse(input.id).success || !input.id.startsWith("theme.")) throw new TypeError("Theme package ID must use the theme.* namespace.");
   if (!ExactSemverSchema.safeParse(input.version).success) throw new TypeError("Theme package version must be exact semver.");
   if (input.surfaces.length === 0 || new Set(input.surfaces).size !== input.surfaces.length) throw new TypeError("Theme package surfaces must be non-empty and unique.");
   if (/(@import|url\s*\(|https?:\/\/|javascript:)/i.test(input.structuralCss)) throw new TypeError("Theme structural CSS cannot import or load remote content.");
-  const selectors = [...input.structuralCss.matchAll(/([^{}]+)\{/g)].map((match) => match[1]!.trim()).filter((selector) => !selector.startsWith("@"));
-  const unscoped = selectors.filter((selector) => !selector.includes(themeRootSelector));
-  if (selectors.length === 0 || unscoped.length > 0) throw new TypeError(`Every theme structural CSS selector must include ${themeRootSelector}; unscoped: ${unscoped.join(" | ") || "none"}.`);
+  const structuralCss = scopeStructuralCss(input.structuralCss);
   const parse = input.tokenSchema.safeParse.bind(input.tokenSchema);
   const tokenSchema: RuntimeSchema<ThemeTokenValues> = Object.freeze({ safeParse: (value: unknown) => parse(value) });
   const defaults = cloneValues(input.defaults);
@@ -101,7 +124,7 @@ function snapshotThemePackage(input: ThemePackage): ThemePackage {
     defaults,
     palettes: Object.freeze(palettes),
     recipes,
-    structuralCss: input.structuralCss,
+    structuralCss,
     migrations,
     ...(primitiveOverrides === undefined ? {} : { primitiveOverrides })
   });

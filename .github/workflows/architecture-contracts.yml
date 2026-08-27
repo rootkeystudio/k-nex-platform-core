@@ -32,3 +32,8 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
       - name: Run Phase 0 through Gate 5
         run: pnpm gate:5
+      - name: Verify exact-head repository evidence
+        run: |
+          pnpm audit --audit-level high
+          git diff --check
+          test -z "$(git status --porcelain --untracked-files=all)"

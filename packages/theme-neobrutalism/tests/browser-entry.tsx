@@ -25,6 +25,15 @@ const evaluated = runtime.render({ document: uiDocument, surface: "public", acto
 if (!evaluated.success || evaluated.regions.main?.[0]?.status !== "rendered") throw new Error("Canonical CMS document runtime did not render.");
 const hero = evaluated.regions.main[0].output as { heading: string; body: string };
 
+function NestedCustomerSurface() {
+  const P = customer.primitives;
+  return <KNeXDesignSystemProvider primitives={P}>
+    <section data-testid="surface-Nested" data-k-nex-theme-profile={customer.profileRevisionId}>
+      <P.Card><P.Text>Nested customer theme</P.Text></P.Card>
+    </section>
+  </KNeXDesignSystemProvider>;
+}
+
 function Surface({ label, presentation, onSwitch }: { label: string; presentation: ThemePresentationSnapshot; onSwitch?: () => void }) {
   const [count, setCount] = useState(0);
   const [move, setMove] = useState("Ready");
@@ -40,6 +49,7 @@ function Surface({ label, presentation, onSwitch }: { label: string; presentatio
           <P.Dialog title={`${label} dialog`} triggerLabel={`Open ${label} dialog`}>Actual K-Nex dialog</P.Dialog>
         </P.Inline>
         <P.Status>Count {count}; {move}</P.Status>
+        {label === "Minimal" ? <NestedCustomerSurface /> : null}
       </P.Stack>
     </section>
   </KNeXDesignSystemProvider>;

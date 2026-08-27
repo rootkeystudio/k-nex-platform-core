@@ -237,6 +237,9 @@ importers:
       '@testcontainers/postgresql':
         specifier: 12.1.0
         version: 12.1.0
+      '@types/node':
+        specifier: 24.13.3
+        version: 24.13.3
       graphql:
         specifier: 16.14.2
         version: 16.14.2
@@ -391,6 +394,9 @@ importers:
       '@k-nex/contracts':
         specifier: workspace:*
         version: link:../contracts
+      postcss:
+        specifier: 8.5.26
+        version: 8.5.26
       react-aria-components:
         specifier: 1.20.0
         version: 1.20.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)

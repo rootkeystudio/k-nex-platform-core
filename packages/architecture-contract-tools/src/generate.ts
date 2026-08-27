@@ -7,6 +7,7 @@ import {
   AgentToolDescriptorSchema,
   ApplicationManifestSchema,
   canonicalJson,
+  CmsPageMetadataSchema,
   DurableEventEnvelopeSchema,
   EVENT_PAYLOAD_MAX_BYTES,
   MetricScalarSchema,
@@ -132,7 +133,8 @@ const primaryArtifacts = [
   { path: "schemas/metric-scalar.v1.schema.json", value: jsonSchema(MetricScalarSchema) },
   { path: "schemas/table-records.v1.schema.json", value: jsonSchema(TableRecordsSchema) },
   { path: "schemas/theme-profile.v1.schema.json", value: jsonSchema(ThemeProfileSchema) },
-  { path: "schemas/ui-document.v1.schema.json", value: uiDocumentJsonSchema() }
+  { path: "schemas/ui-document.v1.schema.json", value: uiDocumentJsonSchema() },
+  { path: "schemas/cms-page-metadata.v1.schema.json", value: jsonSchema(CmsPageMetadataSchema) }
 ] satisfies readonly Artifact[];
 
 const outputContractSchemas = [

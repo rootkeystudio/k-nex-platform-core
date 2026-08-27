@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@k-nex/contracts": "workspace:*",
+    "postcss": "8.5.26",
     "react-aria-components": "1.20.0"
   },
   "peerDependencies": {

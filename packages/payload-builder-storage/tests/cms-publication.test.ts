@@ -26,6 +26,9 @@ describe("atomic CMS publication boundaries", () => {
       const fields = new Map((collection.fields as any[]).map((field) => [field.name, field]));
       expect(fields.get("sequenceKey")).toMatchObject({ unique: true, index: true });
     }
+    const pairFields = new Map((cmsPublicationPairsCollection.fields as any[]).map((field) => [field.name, field]));
+    expect(pairFields.get("operationKind")).toMatchObject({ required: true, options: ["publish", "rollback"] });
+    expect(pairFields.get("operationDigest")).toMatchObject({ required: true });
     expect(() => cmsPageDraftsCollection.hooks.beforeValidate[0]({ data: { ...metadata, path: "/operations?draft=1" } })).toThrow();
     expect(cmsPageDraftsCollection.hooks.beforeValidate[0]({ data: metadata })).toEqual(metadata);
   });
