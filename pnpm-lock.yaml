@@ -1602,7 +1602,7 @@ packages:
     resolution: {integrity: sha512-4JQNk+3mVzK3xh2rqd6RB4J46qUR19azEHBneZyTZM+c456qOrbbM/5xcR8huNCCcbVt7+UmizG6GuUvPvKUYg==}
 
   '@k-nex/module-sales@file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz':
-    resolution: {integrity: sha512-b6RnMflzySfAw53+t9/aPhmss27fUGpp/Du979nJkO7Eyovrg8JxEd5Eh2cXN1vcSvhR8n4OsvkRnqU3eX+Pow==, tarball: file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz}
+    resolution: {integrity: sha512-InuLCoRNxuns2WvK0loqWB1O4Dnz/gkJGwW5uWcPHhRZf7vKpDWyuS2ImGdsDWJNlS9pYAxybp8W/zjIaqDLkw==, tarball: file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz}
     version: 1.0.0
     peerDependencies:
       '@k-nex/contracts': 0.0.0
@@ -1633,7 +1633,7 @@ packages:
         optional: true
 
   '@k-nex/provider-realtime-socketio@file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz':
-    resolution: {integrity: sha512-1AcAhPuIPKRi2JCft6dJPiLcN9as1r69/FXvYcKHDy6l3yFslwALsb2uvPxa6+e5UTYazv0Nr2SyDVJYwaCugw==, tarball: file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz}
+    resolution: {integrity: sha512-U0EHH5c1wuehYok+qms1r6HOKRR1NcSzAepoB0GbLJc8t1+3hY73CwXuu6uK4ZEO5yhSsTJW7lTOOGaMEn/RiA==, tarball: file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz}
     version: 1.0.0
     peerDependencies:
       '@k-nex/contracts': 0.0.0
