@@ -6,7 +6,12 @@ import { valid as validSemver } from "semver";
 export interface ReleaseComponent {
   readonly name: string;
   readonly version: string;
-  readonly sha256?: string;
+  readonly integrity?: string;
+}
+
+export interface ReleaseDependency {
+  readonly ref: string;
+  readonly dependsOn: readonly string[];
 }
 
 export interface ReleaseMaterial {
@@ -34,26 +39,37 @@ export interface SignedReleaseProvenance {
 const digestPattern = /^sha256:[0-9a-f]{64}$/u;
 const packagePattern = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/u;
 
-export function createCycloneDxSbom(applicationId: string, components: readonly ReleaseComponent[]) {
+export function createCycloneDxSbom(applicationId: string, components: readonly ReleaseComponent[], dependencies: readonly ReleaseDependency[] = [], rootDependencies: readonly string[] = []) {
   if (!/^[a-z][a-z0-9-]{2,127}$/u.test(applicationId)) throw new Error("SBOM application identity is invalid.");
   const normalized = components.map((component) => {
     if (!packagePattern.test(component.name) || validSemver(component.version) === null ||
-      (component.sha256 !== undefined && !digestPattern.test(component.sha256))) throw new Error("SBOM component is invalid.");
+      (component.integrity !== undefined && !/^(?:sha256:[0-9a-f]{64}|sha512-[A-Za-z0-9+/]{86}==)$/u.test(component.integrity))) throw new Error("SBOM component is invalid.");
+    const componentRef = `pkg:npm/${component.name.replace("@", "%40")}@${component.version}`;
     return Object.freeze({
       type: "library" as const,
       name: component.name,
       version: component.version,
-      purl: `pkg:npm/${component.name.replace("@", "%40")}@${component.version}`,
-      ...(component.sha256 === undefined ? {} : { hashes: Object.freeze([{ alg: "SHA-256" as const, content: component.sha256.slice(7) }]) })
+      "bom-ref": componentRef,
+      purl: componentRef,
+      ...(component.integrity === undefined ? {} : { hashes: Object.freeze([component.integrity.startsWith("sha512-")
+        ? { alg: "SHA-512" as const, content: Buffer.from(component.integrity.slice(7), "base64").toString("hex") }
+        : { alg: "SHA-256" as const, content: component.integrity.slice(7) }]) })
     });
   }).sort((left, right) => `${left.name}@${left.version}`.localeCompare(`${right.name}@${right.version}`));
-  if (new Set(normalized.map(({ name }) => name)).size !== normalized.length) throw new Error("SBOM components must be unique by name.");
+  if (new Set(normalized.map(({ purl }) => purl)).size !== normalized.length) throw new Error("SBOM components must be unique by package and version.");
+  const refs = new Set(normalized.map(({ purl }) => purl));
+  const dependencyGraph = dependencies.map((entry) => {
+    if (!refs.has(entry.ref) || entry.dependsOn.some((target) => !refs.has(target))) throw new Error("SBOM dependency graph references an unknown component.");
+    return Object.freeze({ ref: entry.ref, dependsOn: Object.freeze([...new Set(entry.dependsOn)].sort()) });
+  }).sort((left, right) => left.ref.localeCompare(right.ref));
+  const applicationRef = `application:${applicationId}`;
   return Object.freeze({
     bomFormat: "CycloneDX" as const,
     specVersion: "1.6" as const,
     version: 1,
-    metadata: Object.freeze({ component: Object.freeze({ type: "application" as const, name: applicationId }) }),
-    components: Object.freeze(normalized)
+    metadata: Object.freeze({ component: Object.freeze({ type: "application" as const, name: applicationId, "bom-ref": applicationRef }) }),
+    components: Object.freeze(normalized),
+    dependencies: Object.freeze([Object.freeze({ ref: applicationRef, dependsOn: Object.freeze([...new Set(rootDependencies)].sort()) }), ...dependencyGraph])
   });
 }
 

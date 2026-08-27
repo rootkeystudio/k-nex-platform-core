@@ -18,6 +18,9 @@ assert.deepEqual(modules, ["sales"], "Sales must remain the only first-party dom
 for (const usage of workflow.matchAll(/uses:\s*([^\s#]+)/gu)) assert.match(usage[1], /@[0-9a-f]{40}$/u, `Workflow action is not pinned to a full SHA: ${usage[1]}`);
 assert.match(workflow, /id-token:\s*write/u);
 assert.match(workflow, /attestations:\s*write/u);
+assert.match(workflow, /predicate-type:\s*https:\/\/k-nex\.dev\/provenance\/v1/u);
+assert.match(workflow, /predicate-path:\s*release-evidence\/provenance-predicate\.json/u);
+assert.match(workflow, /gh attestation verify[\s\S]*--predicate-type https:\/\/k-nex\.dev\/provenance\/v1/u);
 assert.doesNotMatch(workflow, /SLSA Build L[0-9]/u);
 
 const supportManifest = readJson("releases/0.2.0/package-release-manifest.json");
@@ -34,6 +37,7 @@ for (const customer of ["customer-alpha", "customer-beta"]) {
 }
 assert.deepEqual(fleet.list().map(({ inventory }) => inventory.platformRelease), ["0.2.0", "0.1.0"]);
 assert.deepEqual(fleet.affected("@k-nex/module-sales", "<1.0.1").map(({ inventory }) => inventory.applicationId), ["customer-alpha", "customer-beta"]);
+assert.deepEqual(fleet.affected("semver", "<7.8.6").map(({ inventory }) => inventory.applicationId), ["customer-alpha", "customer-beta"]);
 assert.equal(fleet.planSecurityPatch("@k-nex/module-sales", "<1.0.1", "1.0.1").length, 2);
 for (const customer of ["customer-alpha", "customer-beta"]) {
   const patch = readJson(`fixtures/${customer}/security-patch-plan.json`);

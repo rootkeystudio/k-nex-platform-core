@@ -42,10 +42,10 @@ export const RuntimeInventorySchema = z.strictObject({
     checks: uniqueArray(z.string().min(1)).min(1)
   })
 }).superRefine((inventory, context) => {
-  const packages = new Map(inventory.packages.map((entry) => [entry.package, entry.version]));
+  const packages = new Set(inventory.packages.map((entry) => `${entry.package}@${entry.version}`));
   if (packages.size !== inventory.packages.length) context.addIssue({ code: "custom", path: ["packages"], message: "Runtime packages must be unique." });
   for (const [index, plugin] of inventory.plugins.entries()) {
-    if (packages.get(plugin.package) !== plugin.version) context.addIssue({ code: "custom", path: ["plugins", index], message: "Runtime plugin must reconcile to exact package inventory." });
+    if (!packages.has(`${plugin.package}@${plugin.version}`)) context.addIssue({ code: "custom", path: ["plugins", index], message: "Runtime plugin must reconcile to exact package inventory." });
   }
   if (!inventory.releaseEvidence.workflowIdentity.endsWith(`@${inventory.releaseEvidence.sourceCommit}`)) {
     context.addIssue({ code: "custom", path: ["releaseEvidence", "workflowIdentity"], message: "Runtime workflow identity must be pinned to the observed source commit." });
