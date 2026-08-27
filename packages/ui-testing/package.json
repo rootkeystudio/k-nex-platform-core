@@ -9,7 +9,8 @@
     "build": "tsc -b",
     "test:unit": "vitest run",
     "test:browser": "node scripts/browser-matrix.mjs",
-    "test": "pnpm test:unit && pnpm test:browser"
+    "test:performance": "node scripts/performance.mjs",
+    "test": "pnpm test:unit && pnpm test:browser && pnpm test:performance"
   },
   "devDependencies": {
     "@k-nex/contracts": "workspace:*",
