@@ -179,10 +179,10 @@ describe("P2A.8 Sales tool proof", () => {
       resolve: () => ({ principalId: "user-1", agentRunId: "run-1" })
     });
     const sourceDefinitions = new Map(
-      resolved.contributions.dataSources.map(({ id, value }) => [id, value as DataSourceDefinition])
+      resolved.contributions.sources.map(({ id, value }) => [id, value as DataSourceDefinition])
     );
     const sourceHandlers = new Map(
-      resolved.bindings.dataSources.map(({ id, value }) => [id, value as DataSourceHandler])
+      resolved.bindings.sources.map(({ id, value }) => [id, value as DataSourceHandler])
     );
     const sourceCatalog = {
       lookup: (sourceId: string): RegisteredDataSource | undefined => {

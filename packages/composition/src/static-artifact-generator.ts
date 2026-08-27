@@ -2,7 +2,16 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
-import { canonicalJson, supportedFrameworkTuple, type ApplicationManifest, type PluginManifest, type SupportedFrameworkTuple } from "@k-nex/contracts";
+import {
+  canonicalJson,
+  pluginContributionCategoryKeys,
+  supportedFrameworkTuple,
+  type ApplicationManifest,
+  type PluginContributionCategory,
+  type PluginContributionRequirement,
+  type PluginManifest,
+  type SupportedFrameworkTuple
+} from "@k-nex/contracts";
 import * as semver from "semver";
 
 import { resolvePluginGraph, type ResolvedPluginGraph, type ResolvedPluginNode } from "./deterministic-resolver.js";
@@ -120,27 +129,18 @@ function sortedUnique(values: readonly string[] | undefined): readonly string[] 
   return Object.freeze([...new Set(values ?? [])].sort(compareStrings));
 }
 
-const contributionKinds = [
-  "contracts",
-  "schema",
-  "behavior",
-  "jobs",
-  "dataSources",
-  "actions",
-  "tools",
-  "blocks",
-  "navigation",
-  "admin"
-] as const;
-
-type NormalizedContributions = Readonly<Partial<Record<(typeof contributionKinds)[number], readonly string[]>>>;
+type NormalizedContributionDeclaration = Readonly<Record<string, PluginContributionRequirement>>;
+type NormalizedContributions = Readonly<Partial<Record<PluginContributionCategory, NormalizedContributionDeclaration>>>;
 
 function normalizeContributions(manifest: PluginManifest): NormalizedContributions {
   const contributions = manifest.contributions;
   const normalized = Object.fromEntries(
-    contributionKinds
-      .filter((kind) => contributions?.[kind] !== undefined)
-      .map((kind) => [kind, sortedUnique(contributions?.[kind])])
+    pluginContributionCategoryKeys.flatMap((category) => {
+      const declaration = contributions?.[category];
+      if (declaration === undefined) return [];
+      const entries = Object.entries(declaration).sort(([left], [right]) => compareStrings(left, right));
+      return [[category, Object.freeze(Object.fromEntries(entries))] as const];
+    })
   ) as NormalizedContributions;
   return Object.freeze(normalized);
 }
@@ -383,7 +383,11 @@ export function generateStaticArtifacts(input: StaticArtifactGenerationInput): R
   const output = new Map<GeneratedArtifactPath, string>();
   output.set(generatedArtifactPathValues[0], canonicalJson(resolvedDocument));
   output.set(generatedArtifactPathValues[1], generatePluginRegistry(plugins));
-  output.set(generatedArtifactPathValues[2], generateServerRegistry(plugins, (plugin) => (plugin.contributions.schema?.length ?? 0) > 0, "payloadContributions"));
+  output.set(generatedArtifactPathValues[2], generateServerRegistry(
+    plugins,
+    (plugin) => Object.keys(plugin.contributions.schema ?? {}).length > 0,
+    "payloadContributions"
+  ));
   output.set(generatedArtifactPathValues[3], generateServerRegistry(plugins, () => true, "runtimeRegistration"));
   output.set(generatedArtifactPathValues[4], generateEnvironmentSchema(names));
   return output;

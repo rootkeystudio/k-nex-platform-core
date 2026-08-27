@@ -92,7 +92,7 @@ function registration() {
     optional: [],
     conflicts: [],
     lifecycle: { ownsPayloadSchema: false, ownsPersistentData: false, disable: "supported", uninstall: "supported", purge: "unsupported" },
-    contributions: { actions: [actionDescriptor.id], tools: [tool.id] }
+    contributions: { actions: { [actionDescriptor.id]: "required" }, tools: { [tool.id]: "required" } }
   };
   const installed: readonly InstalledPluginManifest[] = [{ package: { name: manifest.package, version: manifest.version, integrity: "sha512-fixture" }, manifest }];
   const graph: ResolvedPluginGraph = {

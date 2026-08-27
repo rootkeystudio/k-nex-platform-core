@@ -35,7 +35,7 @@ const manifest: PluginManifest = {
   optional: [],
   conflicts: [],
   lifecycle: { ownsPayloadSchema: false, ownsPersistentData: true, disable: "supported", uninstall: "unsupported", purge: "supported" },
-  contributions: { dataSources: ["sales.tasks"], tools: ["sales.tools.search", "sales.tools.private"] }
+  contributions: { sources: { "sales.tasks": "required" }, tools: { "sales.tools.search": "required", "sales.tools.private": "required" } }
 };
 
 const installed: readonly InstalledPluginManifest[] = [{
@@ -120,10 +120,10 @@ function registration(toolValues: readonly AgentToolDescriptor[] = [tool("sales.
   const plan: PluginRegistration = {
     pluginId: manifest.id,
     contracts(context) {
-      context.register("dataSources", source.descriptor.id, source);
+      context.register("sources", source.descriptor.id, source);
       for (const value of toolValues) context.register("tools", value.id, value);
     },
-    dataHandlers: (context) => context.bind("dataSources", source.descriptor.id, () => undefined)
+    dataHandlers: (context) => context.bind("sources", source.descriptor.id, () => undefined)
   };
   return executeRegistration({ graph, installed, registrations: [plan] });
 }
@@ -218,7 +218,7 @@ describe("P2A.2 tool catalog", () => {
 
   it("rejects malformed, undeclared, duplicate, and unbound tool registrations", () => {
     const malformed = { ...tool("sales.tools.search"), ownerPluginId: "module.missing" } as AgentToolDescriptor;
-    expect(() => registration([malformed, tool("sales.tools.private")])).toThrowError(/owner/);
+    expect(() => registration([malformed, tool("sales.tools.private")])).toThrowError(/identity/);
 
     const undeclared: PluginRegistration = {
       pluginId: manifest.id,
@@ -250,7 +250,7 @@ describe("P2A.2 tool catalog", () => {
       displayName: "Other",
       package: "@k-nex/module-other",
       lifecycle: { ...manifest.lifecycle },
-      contributions: { dataSources: ["other.tasks"] }
+      contributions: { sources: { "other.tasks": "required" } }
     };
     const otherSource: DataSourceDefinition = {
       ...source,
@@ -280,16 +280,16 @@ describe("P2A.2 tool catalog", () => {
     };
     const plans: PluginRegistration[] = [{
       pluginId: otherManifest.id,
-      contracts: (context) => context.register("dataSources", otherSource.descriptor.id, otherSource),
-      dataHandlers: (context) => context.bind("dataSources", otherSource.descriptor.id, () => undefined)
+      contracts: (context) => context.register("sources", otherSource.descriptor.id, otherSource),
+      dataHandlers: (context) => context.bind("sources", otherSource.descriptor.id, () => undefined)
     }, {
       pluginId: manifest.id,
       contracts(context) {
-        context.register("dataSources", source.descriptor.id, source);
+        context.register("sources", source.descriptor.id, source);
         context.register("tools", crossPluginTool.id, crossPluginTool);
         context.register("tools", "sales.tools.private", tool("sales.tools.private"));
       },
-      dataHandlers: (context) => context.bind("dataSources", source.descriptor.id, () => undefined)
+      dataHandlers: (context) => context.bind("sources", source.descriptor.id, () => undefined)
     }];
     expect(() => executeRegistration({
       graph: crossGraph,

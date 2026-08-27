@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-27
 - **Phase:** Phase 6 — Plugin Platform Hardening and Sales Reference Module
-- **Active task:** P6.1 — Freeze the complete plugin contribution taxonomy
+- **Active task:** P6.2 — Define the plugin authoring and package-entrypoint API
 - **State:** Ready to start
 
 ## Last completed
 
-Finalized the Gate 5-based foundation roadmap, aligned repository entrypoints with the active Phase 6 handoff, and removed stale pre-merge instructions.
+Completed P6.1: froze the 20-category typed contribution taxonomy, required/optional declarations, namespace ownership, complete runtime reconciliation, deterministic resolved inventory, generated schema parity, and Sales-only fixtures.
 
 ## Validation
 
-PR #20 exact-head Architecture Contracts run #85 passes frozen installation, browser proofs, Phase 0 through Gate 5, and exact-head repository checks.
+Node 24.19.0: full monorepo build; contracts 128, runtime 154, composition 75, architecture tools 25, Payload adapter 41, Sales 8; generated-schema validation and reproducibility; Gate 2A; `git diff --check`.
 
 ## Next
 
-Implement P6.1 through P6.10 in order on one Phase 6 branch and pull request, using `module.sales` as the sole reference domain module.
+Implement P6.2 authoring and package-entrypoint boundaries without introducing speculative packages.
 
 ## Blockers
 

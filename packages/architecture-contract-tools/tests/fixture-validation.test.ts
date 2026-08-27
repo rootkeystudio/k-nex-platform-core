@@ -7,6 +7,7 @@ import addFormatsModule from "ajv-formats";
 import { describe, expect, it } from "vitest";
 
 import { type FixtureInput, type FixtureSchema, validateFixtures } from "../src/fixture-validation.js";
+import { registerPluginContributionOwnershipKeyword } from "../src/plugin-contribution-ownership.js";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -25,13 +26,14 @@ const registry = await load<{
 
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 addFormatsModule.default(ajv);
+registerPluginContributionOwnershipKeyword(ajv);
 const validators = {
   application: ajv.compile(await load<AnySchema>("schemas/application-manifest.v1.schema.json")),
   plugin: ajv.compile(await load<AnySchema>("schemas/plugin-manifest.v1.schema.json"))
 };
 
 const validPaths = [
-  "fixtures/plugin-manifests/module.logistics.driver.json",
+  "fixtures/plugin-manifests/valid/module.sales.json",
   "fixtures/contracts/valid/application.minimal.json",
   "fixtures/customer-gate-1/k-nex.app.json",
   "fixtures/contracts/valid/provider.realtime.socketio.json",

@@ -118,6 +118,12 @@ function uiDocumentJsonSchema(): unknown {
   return generated;
 }
 
+function pluginManifestJsonSchema(): unknown {
+  const generated = jsonSchema(PluginManifestSchema) as Record<string, unknown>;
+  generated.kNexPluginContributionOwnership = true;
+  return generated;
+}
+
 function referencedDefinition(schema: Record<string, any>, property: string): Record<string, any> {
   const reference = schema.properties?.[property]?.$ref as string | undefined;
   const definition = reference?.startsWith("#/$defs/") ? schema.$defs?.[reference.slice("#/$defs/".length)] : undefined;
@@ -156,7 +162,7 @@ const primaryArtifacts = [
   { path: "contracts/architecture-contracts.v1.json", value: architectureRegistry },
   { path: "schemas/action.v1.schema.json", value: jsonSchema(ActionDescriptorSchema) },
   { path: "schemas/agent-tool.v1.schema.json", value: jsonSchema(AgentToolDescriptorSchema) },
-  { path: "schemas/plugin-manifest.v1.schema.json", value: jsonSchema(PluginManifestSchema) },
+  { path: "schemas/plugin-manifest.v1.schema.json", value: pluginManifestJsonSchema() },
   { path: "schemas/application-manifest.v1.schema.json", value: applicationJsonSchema() },
   { path: "schemas/event.v1.schema.json", value: eventJsonSchema() },
   { path: "schemas/metric-scalar.v1.schema.json", value: jsonSchema(MetricScalarSchema) },

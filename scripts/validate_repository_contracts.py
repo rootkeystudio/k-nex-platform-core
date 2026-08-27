@@ -42,8 +42,8 @@ def check_identifier(value: str, pattern: str, label: str, errors: list[str]) ->
         fail(errors, f"{label}: {value!r} does not match {pattern!r}")
 
 
-def validate_driver_fixture(contracts: dict[str, Any], errors: list[str]) -> None:
-    path = ROOT / "fixtures" / "plugin-manifests" / "module.logistics.driver.json"
+def validate_reference_plugin_fixture(contracts: dict[str, Any], errors: list[str]) -> None:
+    path = ROOT / "fixtures" / "plugin-manifests" / "valid" / "module.sales.json"
     data = load_json(path, errors)
     if not isinstance(data, dict):
         return
@@ -142,7 +142,7 @@ def main() -> int:
     load_json(PLUGIN_SCHEMA_PATH, errors)
     load_json(APP_SCHEMA_PATH, errors)
     if isinstance(contracts, dict):
-        validate_driver_fixture(contracts, errors)
+        validate_reference_plugin_fixture(contracts, errors)
         scan_legacy_symbols(contracts, errors)
     validate_adr_evidence(errors)
     validate_local_markdown_links(errors)

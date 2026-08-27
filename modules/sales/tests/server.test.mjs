@@ -62,10 +62,10 @@ test("Sales registers two single-output data sources with valid descriptors", ()
   const bindings = [];
   salesRegistration.contracts?.({ pluginId: "module.sales", services: { get: () => undefined }, register: (kind, id) => contributions.push([kind, id]) });
   salesRegistration.dataHandlers?.({ pluginId: "module.sales", services: { get: () => undefined }, bind: (kind, id) => bindings.push([kind, id]) });
-  assert.deepEqual(contributions.filter(([kind]) => kind === "dataSources").map(([, id]) => id).sort(), ["sales.tasks", "sales.total-potential-revenue"]);
+  assert.deepEqual(contributions.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.tasks", "sales.total-potential-revenue"]);
   assert.deepEqual(contributions.filter(([kind]) => kind === "actions").map(([, id]) => id), ["sales.task.create"]);
   assert.deepEqual(contributions.filter(([kind]) => kind === "tools").map(([, id]) => id).sort(), ["sales.tools.create-task", "sales.tools.search-tasks"]);
-  assert.deepEqual(bindings.filter(([kind]) => kind === "dataSources").map(([, id]) => id).sort(), ["sales.tasks", "sales.total-potential-revenue"]);
+  assert.deepEqual(bindings.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.tasks", "sales.total-potential-revenue"]);
   assert.deepEqual(bindings.filter(([kind]) => kind === "actions").map(([, id]) => id), ["sales.task.create"]);
 });
 

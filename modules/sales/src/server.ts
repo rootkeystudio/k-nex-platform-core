@@ -721,19 +721,19 @@ export const salesTasksCollection: CollectionConfig = {
 export const salesRegistration: PluginRegistration = {
   pluginId: "module.sales",
   contracts: (context) => {
-    context.register("dataSources", salesTotalPotentialRevenueDescriptor.id, salesTotalPotentialRevenueDefinition);
-    context.register("dataSources", salesTasksDescriptor.id, salesTasksDefinition);
+    context.register("sources", salesTotalPotentialRevenueDescriptor.id, salesTotalPotentialRevenueDefinition);
+    context.register("sources", salesTasksDescriptor.id, salesTasksDefinition);
     context.register("actions", salesTaskCreateDescriptor.id, salesTaskCreateDefinition);
     context.register("tools", salesSearchTasksDescriptor.id, salesSearchTasksDescriptor);
     context.register("tools", salesCreateTaskToolDescriptor.id, salesCreateTaskToolDescriptor);
   },
-  schema: (context) => context.register("sales.tasks.collection", {
+  schema: (context) => context.register("schema", "sales.tasks.collection", {
     type: "payload.collection",
     collection: salesTasksCollection
   }),
   dataHandlers: (context) => {
-    context.bind("dataSources", salesTotalPotentialRevenueDescriptor.id, salesTotalPotentialRevenueHandler);
-    context.bind("dataSources", salesTasksDescriptor.id, salesTasksHandler);
+    context.bind("sources", salesTotalPotentialRevenueDescriptor.id, salesTotalPotentialRevenueHandler);
+    context.bind("sources", salesTasksDescriptor.id, salesTasksHandler);
     context.bind("actions", salesTaskCreateDescriptor.id, salesTaskCreateHandler as ActionHandler);
   }
 };

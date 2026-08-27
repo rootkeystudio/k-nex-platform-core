@@ -28,19 +28,19 @@
     "purge": "supported"
   },
   "contributions": {
-    "schema": [
-      "sales.tasks.collection"
-    ],
-    "dataSources": [
-      "sales.tasks",
-      "sales.total-potential-revenue"
-    ],
-    "actions": [
-      "sales.task.create"
-    ],
-    "tools": [
-      "sales.tools.search-tasks",
-      "sales.tools.create-task"
-    ]
+    "schema": {
+      "sales.tasks.collection": "required"
+    },
+    "sources": {
+      "sales.tasks": "required",
+      "sales.total-potential-revenue": "required"
+    },
+    "actions": {
+      "sales.task.create": "required"
+    },
+    "tools": {
+      "sales.tools.create-task": "required",
+      "sales.tools.search-tasks": "required"
+    }
   }
 }

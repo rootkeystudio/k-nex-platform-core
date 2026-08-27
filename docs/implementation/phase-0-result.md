@@ -55,7 +55,7 @@ The committed inventory in [`contracts/generated-contracts.v1.json`](../../contr
 [`reproducibility.ts`](../../packages/architecture-contract-tools/src/reproducibility.ts) stages the generator and required runtime into two unrelated temporary roots, reverses file write order, varies home, working directory, locale, timezone, and a marker environment variable, then compares every output byte. The verified output-tree digest is:
 
 ```text
-sha256=bc6886e272a10d1129347163deaaf87004800fb4d6655f37e5ba873070bf94ee
+sha256=792b2ab55af6b6e59852c1632f4f1ea5ca617832d7fe2a39673307bab0005eef
 ```
 
 ## Fixture inventory
@@ -63,7 +63,7 @@ sha256=bc6886e272a10d1129347163deaaf87004800fb4d6655f37e5ba873070bf94ee
 The executable validator accepts four valid fixtures:
 
 ```text
-fixtures/plugin-manifests/module.logistics.driver.json
+fixtures/plugin-manifests/valid/module.sales.json
 fixtures/contracts/valid/application.minimal.json
 fixtures/contracts/valid/provider.realtime.socketio.json
 fixtures/contracts/valid/theme.minimal.json

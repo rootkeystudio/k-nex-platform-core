@@ -50,9 +50,9 @@ export class RegisteredToolTargetResolver {
     const id = targetId(descriptor);
     const version = targetVersion(descriptor);
     const kind = descriptor.invocation.kind;
-    const contribution = this.registration.contributions[kind === "source" ? "dataSources" : "actions"]
+    const contribution = this.registration.contributions[kind === "source" ? "sources" : "actions"]
       ?.find((entry) => entry.id === id);
-    const binding = this.registration.bindings[kind === "source" ? "dataSources" : "actions"]
+    const binding = this.registration.bindings[kind === "source" ? "sources" : "actions"]
       ?.find((entry) => entry.id === id);
     if (contribution?.pluginId !== descriptor.ownerPluginId || binding?.pluginId !== descriptor.ownerPluginId) {
       throw new ToolGatewayError("TOOL_TARGET_FORBIDDEN", 403, "Tool target access is forbidden.");

@@ -1,0 +1,47 @@
+{
+  "$schema": "../../../schemas/plugin-manifest.v1.schema.json",
+  "apiVersion": 1,
+  "compatibility": {
+    "core": ">=1.0.0 <2.0.0",
+    "node": ">=24.0.0 <25.0.0",
+    "payload": ">=3.0.0 <4.0.0",
+    "payloadDatabaseAdapters": [
+      "postgres"
+    ]
+  },
+  "conflicts": [],
+  "contributions": {
+    "actions": {
+      "sales.task.create": "required"
+    },
+    "schema": {
+      "sales.tasks.collection": "required"
+    },
+    "sources": {
+      "sales.tasks": "required",
+      "sales.total-potential-revenue": "required"
+    },
+    "tools": {
+      "sales.tools.create-task": "required",
+      "sales.tools.search-tasks": "required"
+    }
+  },
+  "displayName": "Sales",
+  "id": "module.sales",
+  "kind": "module",
+  "lifecycle": {
+    "disable": "supported",
+    "ownsPayloadSchema": true,
+    "ownsPersistentData": true,
+    "purge": "supported",
+    "uninstall": "unsupported"
+  },
+  "optional": [],
+  "package": "@k-nex/module-sales",
+  "provides": [],
+  "requires": [],
+  "surfaces": [
+    "workspace"
+  ],
+  "version": "1.0.0"
+}

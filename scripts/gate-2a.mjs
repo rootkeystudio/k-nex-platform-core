@@ -323,14 +323,14 @@ function registration(descriptors) {
     inventory: [{ id: owner }],
     contributions: {
       tools: descriptors.map((value) => ({ pluginId: owner, id: value.id, value })),
-      dataSources: descriptors.map((value) => ({
+      sources: descriptors.map((value) => ({
         pluginId: owner,
         id: value.invocation.source.id,
         value: { descriptor: { id: value.invocation.source.id, version: 1 } }
       }))
     },
     bindings: {
-      dataSources: descriptors.map((value) => ({ pluginId: owner, id: value.invocation.source.id, value: () => ({}) })),
+      sources: descriptors.map((value) => ({ pluginId: owner, id: value.invocation.source.id, value: () => ({}) })),
       actions: []
     }
   };
@@ -421,7 +421,7 @@ async function directOutputProbe() {
         optional: [],
         conflicts: [],
         lifecycle: { ownsPayloadSchema: false, ownsPersistentData: false, disable: "supported", uninstall: "supported", purge: "unsupported" },
-        contributions: { actions: [action.id], tools: [tool.id] }
+        contributions: { actions: { [action.id]: "required" }, tools: { [tool.id]: "required" } }
       }
     }],
     registrations: [{

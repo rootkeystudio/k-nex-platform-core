@@ -157,15 +157,15 @@ assert.deepEqual(inventory.plugins, [{
   version: "1.0.0",
   integrity: inventory.plugins[0].integrity,
   expectedContributions: {
-    actions: ["sales.task.create"],
-    schema: ["sales.tasks.collection"],
-    dataSources: ["sales.tasks", "sales.total-potential-revenue"],
-    tools: ["sales.tools.create-task", "sales.tools.search-tasks"]
+    actions: { "sales.task.create": "required" },
+    schema: { "sales.tasks.collection": "required" },
+    sources: { "sales.tasks": "required", "sales.total-potential-revenue": "required" },
+    tools: { "sales.tools.create-task": "required", "sales.tools.search-tasks": "required" }
   },
   actualContributions: {
     actions: ["sales.task.create"],
     schema: ["sales.tasks.collection"],
-    dataSources: ["sales.tasks", "sales.total-potential-revenue"],
+    sources: ["sales.tasks", "sales.total-potential-revenue"],
     tools: ["sales.tools.create-task", "sales.tools.search-tasks"]
   }
 }, {

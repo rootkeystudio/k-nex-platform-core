@@ -43,8 +43,8 @@ function fingerprint(request: PayloadRequest): string {
 }
 
 function catalog(registration: RegistrationResult) {
-  const definitions = new Map(registration.contributions.dataSources.map((entry) => [entry.id, entry.value as DataSourceDefinition]));
-  const handlers = new Map(registration.bindings.dataSources.map((entry) => [entry.id, entry.value as DataSourceHandler]));
+  const definitions = new Map(registration.contributions.sources.map((entry) => [entry.id, entry.value as DataSourceDefinition]));
+  const handlers = new Map(registration.bindings.sources.map((entry) => [entry.id, entry.value as DataSourceHandler]));
   const sources = new Map<string, RegisteredDataSource>();
   for (const [id, definition] of definitions) {
     const handler = handlers.get(id);

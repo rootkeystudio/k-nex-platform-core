@@ -211,28 +211,58 @@
         "actions": {
           "$ref": "#/$defs/__schema23"
         },
-        "admin": {
-          "$ref": "#/$defs/__schema23"
-        },
-        "behavior": {
-          "$ref": "#/$defs/__schema23"
-        },
         "blocks": {
           "$ref": "#/$defs/__schema23"
         },
-        "contracts": {
+        "components": {
           "$ref": "#/$defs/__schema23"
         },
-        "dataSources": {
+        "events": {
+          "$ref": "#/$defs/__schema23"
+        },
+        "healthAudit": {
           "$ref": "#/$defs/__schema23"
         },
         "jobs": {
           "$ref": "#/$defs/__schema23"
         },
+        "lifecycle": {
+          "$ref": "#/$defs/__schema23"
+        },
+        "localization": {
+          "$ref": "#/$defs/__schema23"
+        },
+        "migrations": {
+          "$ref": "#/$defs/__schema23"
+        },
         "navigation": {
           "$ref": "#/$defs/__schema23"
         },
+        "pageTemplates": {
+          "$ref": "#/$defs/__schema23"
+        },
+        "permissions": {
+          "$ref": "#/$defs/__schema23"
+        },
+        "realtimeTopics": {
+          "$ref": "#/$defs/__schema23"
+        },
+        "routes": {
+          "$ref": "#/$defs/__schema23"
+        },
         "schema": {
+          "$ref": "#/$defs/__schema23"
+        },
+        "services": {
+          "$ref": "#/$defs/__schema23"
+        },
+        "settings": {
+          "$ref": "#/$defs/__schema23"
+        },
+        "sources": {
+          "$ref": "#/$defs/__schema23"
+        },
+        "testingMetadata": {
           "$ref": "#/$defs/__schema23"
         },
         "tools": {
@@ -242,14 +272,24 @@
       "type": "object"
     },
     "__schema23": {
-      "items": {
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema25"
+      },
+      "minProperties": 1,
+      "propertyNames": {
         "$ref": "#/$defs/__schema24"
       },
-      "type": "array",
-      "uniqueItems": true
+      "type": "object"
     },
     "__schema24": {
       "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    },
+    "__schema25": {
+      "enum": [
+        "required",
+        "optional"
+      ],
       "type": "string"
     },
     "__schema3": {
@@ -336,6 +376,7 @@
   "$id": "https://schemas.k-nex.dev/plugin/v1.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
+  "kNexPluginContributionOwnership": true,
   "properties": {
     "$schema": {
       "$ref": "#/$defs/__schema0"

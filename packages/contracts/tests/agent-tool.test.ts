@@ -103,12 +103,12 @@ describe("P2A.1 agent-tool contracts", () => {
       package: "@k-nex/module-sales",
       compatibility: { core: "1", payload: "3", node: "24", payloadDatabaseAdapters: ["postgres"] },
       lifecycle: { ownsPayloadSchema: false, ownsPersistentData: true, disable: "supported", purge: "unsupported", uninstall: "unsupported" },
-      contributions: { tools: ["sales.tools.search-tasks"] }
+      contributions: { tools: { "sales.tools.search-tasks": "required" } }
     };
     expect(PluginManifestSchema.safeParse(manifest).success).toBe(true);
     expect(PluginManifestSchema.safeParse({
       ...manifest,
-      contributions: { tools: ["sales.tools.search-tasks", "sales.tools.search-tasks"] }
+      contributions: { contracts: { "sales.tools.search-tasks": "required" } }
     }).success).toBe(false);
   });
 });

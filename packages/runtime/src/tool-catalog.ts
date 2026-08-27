@@ -149,7 +149,7 @@ function descriptorAllowed(descriptor: AgentToolDescriptor, request: ToolCatalog
 }
 
 function targetBinding(registration: RegistrationResult, descriptor: AgentToolDescriptor): boolean {
-  const kind = descriptor.invocation.kind === "source" ? "dataSources" : "actions";
+  const kind = descriptor.invocation.kind === "source" ? "sources" : "actions";
   const id = descriptor.invocation.kind === "source" ? descriptor.invocation.source.id : descriptor.invocation.action.id;
   const contribution = registration.contributions[kind]?.find((entry) => entry.id === id);
   const binding = registration.bindings[kind]?.find((entry) => entry.id === id);

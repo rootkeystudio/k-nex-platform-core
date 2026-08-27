@@ -8,7 +8,7 @@ import {
   RegistrationError,
   type DataSourceHandler,
   type PluginRegistration,
-  type SingleKindRegistrationContext
+  type SchemaRegistrationContext
 } from "../src/registration-runtime.js";
 import type { ActionDefinition, ActionHandler } from "../src/action.js";
 
@@ -163,15 +163,26 @@ function consumerManifest(overrides: Partial<PluginManifest> = {}): PluginManife
       purge: "supported"
     },
     contributions: {
-      contracts: ["consumer.contract"],
-      schema: ["consumer.schema"],
-      behavior: ["consumer.behavior"],
-      jobs: ["consumer.job"],
-      dataSources: ["consumer.source"],
-      actions: ["consumer.action"],
-      blocks: ["consumer.block"],
-      navigation: ["consumer.navigation"],
-      admin: ["consumer.admin"]
+      schema: { "consumer.schema": "required" },
+      migrations: { "consumer.migration": "required" },
+      services: { "consumer.service": "required" },
+      permissions: { "consumer.permission": "required" },
+      settings: { "consumer.setting": "required" },
+      sources: { "consumer.source": "required" },
+      actions: { "consumer.action": "required" },
+      tools: { "consumer.tools.action": "required" },
+      events: { "consumer.event": "required" },
+      jobs: { "consumer.job": "required" },
+      realtimeTopics: { "consumer.realtime": "required" },
+      components: { "consumer.component": "required" },
+      blocks: { "consumer.block": "required" },
+      routes: { "consumer.route": "required" },
+      navigation: { "consumer.navigation": "required" },
+      pageTemplates: { "consumer.template": "required" },
+      localization: { "consumer.localization": "required" },
+      healthAudit: { "consumer.health": "required" },
+      lifecycle: { "consumer.lifecycle": "required" },
+      testingMetadata: { "consumer.testing": "required" }
     },
     ...overrides
   };
@@ -220,31 +231,47 @@ function completeConsumer(
   onBehavior?: (services: { get<T = unknown>(capability: string): T }) => void,
   sourceDefinition: DataSourceDefinition = dataSourceDefinition("consumer.source"),
   sourceHandler: DataSourceHandler = () => undefined,
-  actionHandler: ActionHandler = () => ({ accepted: true })
+  actionHandler: ActionHandler = () => ({ accepted: true }),
+  registeredTool: AgentToolDescriptor | null = actionTool()
 ): PluginRegistration {
   return {
     pluginId: "module.consumer",
     contracts(context) {
-      context.register("contracts", "consumer.contract", {});
-      context.register("dataSources", "consumer.source", sourceDefinition);
+      context.register("permissions", "consumer.permission", {});
+      context.register("settings", "consumer.setting", {});
+      context.register("sources", "consumer.source", sourceDefinition);
       context.register("actions", "consumer.action", actionDefinition());
-      context.register("blocks", "consumer.block", {});
+      if (registeredTool) context.register("tools", registeredTool.id, registeredTool);
+      context.register("events", "consumer.event", {});
+      context.register("realtimeTopics", "consumer.realtime", {});
     },
-    schema: (context) => context.register("consumer.schema", { slug: "consumer" }),
+    schema(context) {
+      context.register("schema", "consumer.schema", { slug: "consumer" });
+      context.register("migrations", "consumer.migration", {});
+    },
     behavior(context) {
       onBehavior?.(context.services);
-      context.register("consumer.behavior", () => undefined);
+      context.register("services", "consumer.service", () => undefined);
+      context.register("lifecycle", "consumer.lifecycle", {});
     },
-    jobs: (context) => context.register("consumer.job", () => undefined),
+    jobs: (context) => context.register("jobs", "consumer.job", () => undefined),
     dataHandlers(context) {
-      context.bind("dataSources", "consumer.source", sourceHandler);
+      context.bind("sources", "consumer.source", sourceHandler);
       context.bind("actions", "consumer.action", actionHandler);
     },
     ui(context) {
+      context.register("components", "consumer.component", {});
+      context.register("blocks", "consumer.block", {});
+      context.register("routes", "consumer.route", {});
+      context.register("navigation", "consumer.navigation", {});
+      context.register("pageTemplates", "consumer.template", {});
+      context.register("localization", "consumer.localization", {});
       context.bindBlock("consumer.block", {});
-      context.registerNavigation("consumer.navigation", {});
     },
-    admin: (context) => context.register("consumer.admin", {})
+    validate(context) {
+      context.register("healthAudit", "consumer.health", {});
+      context.register("testingMetadata", "consumer.testing", {});
+    }
   };
 }
 
@@ -285,7 +312,8 @@ describe("phased registration runtime", () => {
       jobs: () => trace.push(`jobs:${pluginId}`),
       dataHandlers: () => trace.push(`data-handlers:${pluginId}`),
       ui: () => trace.push(`ui:${pluginId}`),
-      admin: () => trace.push(`admin:${pluginId}`)
+      admin: () => trace.push(`admin:${pluginId}`),
+      validate: () => trace.push(`validate:${pluginId}`)
     });
     const noContributions = consumerManifest({ requires: [], contributions: undefined });
     const noProviderSelection = { ...graph(), capabilityProviders: [] };
@@ -304,7 +332,8 @@ describe("phased registration runtime", () => {
       "jobs:provider.storage", "jobs:module.consumer",
       "data-handlers:provider.storage", "data-handlers:module.consumer",
       "ui:provider.storage", "ui:module.consumer",
-      "admin:provider.storage", "admin:module.consumer"
+      "admin:provider.storage", "admin:module.consumer",
+      "validate:provider.storage", "validate:module.consumer"
     ]);
   });
 
@@ -323,15 +352,26 @@ describe("phased registration runtime", () => {
       {
         id: "module.consumer",
         contributions: {
-          contracts: ["consumer.contract"],
           schema: ["consumer.schema"],
-          behavior: ["consumer.behavior"],
-          jobs: ["consumer.job"],
-          dataSources: ["consumer.source"],
+          migrations: ["consumer.migration"],
+          services: ["consumer.service"],
+          permissions: ["consumer.permission"],
+          settings: ["consumer.setting"],
+          sources: ["consumer.source"],
           actions: ["consumer.action"],
+          tools: ["consumer.tools.action"],
+          events: ["consumer.event"],
+          jobs: ["consumer.job"],
+          realtimeTopics: ["consumer.realtime"],
+          components: ["consumer.component"],
           blocks: ["consumer.block"],
+          routes: ["consumer.route"],
           navigation: ["consumer.navigation"],
-          admin: ["consumer.admin"]
+          pageTemplates: ["consumer.template"],
+          localization: ["consumer.localization"],
+          healthAudit: ["consumer.health"],
+          lifecycle: ["consumer.lifecycle"],
+          testingMetadata: ["consumer.testing"]
         },
         capabilityAccess: ["storage.records"]
       },
@@ -339,7 +379,7 @@ describe("phased registration runtime", () => {
     ]);
     expect(result.contributions.schema[0]).toMatchObject({ pluginId: "module.consumer", id: "consumer.schema" });
     expect(result.bindings).toMatchObject({
-      dataSources: [{ pluginId: "module.consumer", id: "consumer.source" }],
+      sources: [{ pluginId: "module.consumer", id: "consumer.source" }],
       actions: [{ pluginId: "module.consumer", id: "consumer.action" }],
       blocks: [{ pluginId: "module.consumer", id: "consumer.block" }]
     });
@@ -352,8 +392,8 @@ describe("phased registration runtime", () => {
     const handler: DataSourceHandler = ({ input, selectedFields, signal }) => ({ input, selectedFields, signal });
     const result = run([providerRegistration(), completeConsumer(undefined, definition, handler)]);
 
-    expect(result.contributions.dataSources).toEqual([{ pluginId: "module.consumer", id: "consumer.source", value: definition }]);
-    expect(result.bindings.dataSources).toEqual([{ pluginId: "module.consumer", id: "consumer.source", value: handler }]);
+    expect(result.contributions.sources).toEqual([{ pluginId: "module.consumer", id: "consumer.source", value: definition }]);
+    expect(result.bindings.sources).toEqual([{ pluginId: "module.consumer", id: "consumer.source", value: handler }]);
   });
 
   it("rejects invalid data-source definitions", () => {
@@ -361,7 +401,7 @@ describe("phased registration runtime", () => {
     expectCode(() => run([providerRegistration(), {
       ...consumer,
       contracts(context) {
-        context.register("dataSources", "consumer.source", {} as never);
+        context.register("sources", "consumer.source", {} as never);
       }
     }]), "INVALID_CONTRIBUTION");
   });
@@ -379,7 +419,7 @@ describe("phased registration runtime", () => {
     expectCode(() => run([providerRegistration(), {
       ...consumer,
       dataHandlers(context) {
-        context.bind("dataSources", "consumer.source", {} as never);
+        context.bind("sources", "consumer.source", {} as never);
       }
     }]), "INVALID_CONTRIBUTION");
   });
@@ -415,10 +455,10 @@ describe("phased registration runtime", () => {
 
   it("requires exact schema-compatible action tool bindings", () => {
     const manifest = consumerManifest({
-      contributions: { ...consumerManifest().contributions, tools: ["consumer.tools.action"] }
+      contributions: { ...consumerManifest().contributions, tools: { "consumer.tools.action": "required" } }
     });
     const plan = (tool: AgentToolDescriptor): PluginRegistration => {
-      const consumer = completeConsumer();
+      const consumer = completeConsumer(undefined, undefined, undefined, undefined, null);
       return {
         ...consumer,
         contracts(context) {
@@ -451,7 +491,7 @@ describe("phased registration runtime", () => {
   it("rejects a source tool whose output contract does not match the registered source", () => {
     const base = consumerManifest();
     const manifest = consumerManifest({
-      contributions: { ...base.contributions, tools: ["consumer.tools.source"] }
+      contributions: { ...base.contributions, tools: { "consumer.tools.source": "required" } }
     });
     const sourceTool = (outputContract: AgentToolDescriptor["outputContract"]): AgentToolDescriptor => ({
       ...actionTool(),
@@ -466,7 +506,7 @@ describe("phased registration runtime", () => {
       idempotency: "not-applicable"
     });
     const plan = (tool: AgentToolDescriptor): PluginRegistration => {
-      const consumer = completeConsumer();
+      const consumer = completeConsumer(undefined, undefined, undefined, undefined, null);
       return {
         ...consumer,
         contracts(context) {
@@ -493,7 +533,7 @@ describe("phased registration runtime", () => {
         consumer.contracts?.(context);
       },
       behavior(context) {
-        contracts?.register("contracts", "consumer.contract", {});
+        contracts?.register("permissions", "consumer.permission", {});
         consumer.behavior?.(context);
       }
     }]), "WRONG_PHASE");
@@ -502,8 +542,48 @@ describe("phased registration runtime", () => {
   it("rejects undeclared contributions immediately", () => {
     expectCode(() => run([providerRegistration(), {
       ...completeConsumer(),
-      schema: (context) => context.register("consumer.not-declared", {})
+      schema: (context) => context.register("schema", "consumer.not-declared", {})
     }]), "UNDECLARED_CONTRIBUTION");
+  });
+
+  it("allows absent optional declarations but requires a binding when an optional executable contribution registers", () => {
+    const optionalMigration = consumerManifest({
+      contributions: {
+        ...consumerManifest().contributions,
+        migrations: { "consumer.migration": "optional" }
+      }
+    });
+    const withoutMigration = completeConsumer();
+    expect(() => run([providerRegistration(), {
+      ...withoutMigration,
+      schema: (context) => context.register("schema", "consumer.schema", { slug: "consumer" })
+    }], [providerManifest(), optionalMigration])).not.toThrow();
+
+    const optionalSource = consumerManifest({
+      contributions: {
+        ...consumerManifest().contributions,
+        sources: { "consumer.source": "required", "consumer.optional": "optional" }
+      }
+    });
+    const consumer = completeConsumer();
+    expectCode(() => run([providerRegistration(), {
+      ...consumer,
+      contracts(context) {
+        consumer.contracts?.(context);
+        context.register("sources", "consumer.optional", dataSourceDefinition("consumer.optional"));
+      }
+    }], [providerManifest(), optionalSource]), "INVENTORY_MISMATCH");
+  });
+
+  it("rejects unknown categories instead of allowing runtime content to create them", () => {
+    const consumer = completeConsumer();
+    expectCode(() => run([providerRegistration(), {
+      ...consumer,
+      contracts(context) {
+        const register = context.register as (kind: string, id: string, value: unknown) => void;
+        register("database", "consumer.database", {});
+      }
+    }]), "INVALID_CONTRIBUTION");
   });
 
   it("snapshots declarations before hooks can mutate their source objects", () => {
@@ -512,12 +592,12 @@ describe("phased registration runtime", () => {
     expectCode(() => run([providerRegistration(), {
       ...consumer,
       contracts(context) {
-        manifest.contributions?.schema?.push("consumer.injected");
+        if (manifest.contributions?.schema) manifest.contributions.schema["consumer.injected"] = "required";
         consumer.contracts?.(context);
       },
       schema(context) {
         consumer.schema?.(context);
-        context.register("consumer.injected", {});
+        context.register("schema", "consumer.injected", {});
       }
     }], [providerManifest(), manifest]), "UNDECLARED_CONTRIBUTION");
   });
@@ -550,15 +630,15 @@ describe("phased registration runtime", () => {
   });
 
   it("rejects duplicate contribution IDs across plugins", () => {
-    const provider = providerManifest({ schema: ["consumer.schema"] });
+    const provider = providerManifest({ schema: { "consumer.schema": "required" } });
     expectCode(() => run([
-      { ...providerRegistration(), schema: (context) => context.register("consumer.schema", {}) },
+      { ...providerRegistration(), schema: (context) => context.register("schema", "consumer.schema", {}) },
       completeConsumer()
     ], [provider, consumerManifest()]), "DUPLICATE_CONTRIBUTION");
   });
 
   it("rejects late registration after freeze", () => {
-    let schema: SingleKindRegistrationContext | undefined;
+    let schema: SchemaRegistrationContext | undefined;
     const consumer = completeConsumer();
     run([providerRegistration(), {
       ...consumer,
@@ -567,7 +647,7 @@ describe("phased registration runtime", () => {
         consumer.schema?.(context);
       }
     }]);
-    expectCode(() => schema?.register("consumer.schema", {}), "FROZEN");
+    expectCode(() => schema?.register("schema", "consumer.schema", {}), "FROZEN");
   });
 
   it("rejects manifest and actual inventory mismatch", () => {

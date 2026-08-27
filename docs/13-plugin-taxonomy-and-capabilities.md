@@ -159,16 +159,16 @@ release and fleet inventory
 
 Contracts are serializable/neutral. Server handlers and React renderers are physically separate. Domain public APIs do not expose Puck, Socket.IO, ECharts, TanStack, Zustand, or Payload-internal implementation types unless the entrypoint is explicitly the Payload adapter.
 
-## Canonical driver example
+## Canonical Sales example
 
-The normative example is `fixtures/plugin-manifests/module.logistics.driver.json`:
+The normative example is `fixtures/plugin-manifests/valid/module.sales.json`:
 
 ```text
-module.logistics.driver
-  requires module.logistics.core
-  requires realtime.gateway
-  optionally integrates with module.logistics.dispatch
+module.sales
+  declares every executable contribution statically
+  registers required Sales sources, actions, and tools
   owns Payload schema and data
+  targets the workspace surface
   supports disable/re-enable
   does not promise retained-schema uninstall in V1
 ```
