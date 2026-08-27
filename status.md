@@ -7,16 +7,16 @@
 
 ## Last completed
 
-P8.9 corrective work replaces clone/dry-run recovery claims with real PostgreSQL proofs. Beta boots supported release 0.1.0 state and transactionally executes all eight reviewed Sales migrations to 0.2.0. Alpha restores a physical backup into a clean database, disables effects, re-observes runtime state, and compares the operational inventory while excluding observation time.
+P8.10 corrective work makes committed Phase 8 evidence fail closed. The gate regenerates both deployment and fleet artifacts from their authoring sources, byte-compares every output, restores the pre-check tree, and fails instead of silently repairing stale evidence.
 
 ## Validation
 
-Both focused PostgreSQL recovery tests PASS against Postgres 17.6. Runtime suite PASS: 26 files/198 tests. Fleet evidence generation and focused Gate 8 PASS without clone-derived match or dry-run-as-upgrade claims; committed proof records point to tests required by the customer Postgres suite.
+Positive deterministic evidence check PASS. Negative stale-artifact injection test PASS: changed patch evidence makes the checker fail, and the checker leaves the rejected bytes untouched. `git diff --check` PASS.
 
 ## Next
 
-Continue with secure atomic application factory plus real packed-package boot, connect protected runtime observation to deployment verification, then make Gate 8 generation fail closed.
+Finish secure atomic application factory plus real packed-package boot and connect its protected runtime observation to deployment verification. Then run the full Gate 8 and formal rereview.
 
 ## Blockers
 
-Formal review blockers remain: generated app boot, atomic apply, protected runtime observation integration, and fail-closed generated evidence.
+Formal review blockers remain: generated app boot, atomic apply, and protected runtime observation integration.
