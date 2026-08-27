@@ -31,6 +31,19 @@
     "schema": {
       "sales.tasks.collection": "required"
     },
+    "permissions": {
+      "sales.settings.read": "required",
+      "sales.settings.write": "required",
+      "sales.tasks.private-note.read": "required",
+      "sales.tasks.read": "required",
+      "sales.tasks.revenue.read": "required",
+      "sales.tasks.status.read": "required",
+      "sales.tasks.title.read": "required",
+      "sales.tasks.write": "required"
+    },
+    "settings": {
+      "sales.settings.workspace": "required"
+    },
     "sources": {
       "sales.tasks": "required",
       "sales.total-potential-revenue": "required"
@@ -41,6 +54,13 @@
     "tools": {
       "sales.tools.create-task": "required",
       "sales.tools.search-tasks": "required"
+    },
+    "routes": {
+      "sales.route.task-detail": "required",
+      "sales.route.tasks": "required"
+    },
+    "navigation": {
+      "sales.navigation.tasks": "required"
     }
   }
 }

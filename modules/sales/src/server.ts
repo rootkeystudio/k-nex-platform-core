@@ -3,34 +3,44 @@ import {
   TableRecordsSchema,
   type RuntimeSchema,
   type DataSourceDefinition,
-  type DataSourceQueryControls
+  type DataSourceQueryControls,
+  type PluginSettingValue
 } from "@k-nex/contracts";
 import type {
   ActionDefinition,
   ActionHandler,
   DataSourceHandler,
-  DataSourceHandlerRequest
+  DataSourceHandlerRequest,
+  PluginSettingsRuntimeDefinition
 } from "@k-nex/runtime";
-import { definePluginRegistration } from "@k-nex/runtime";
+import { definePluginRegistration, resolvePluginSettings } from "@k-nex/runtime";
 import type { CollectionConfig } from "payload";
 
 import {
   salesCreateTaskToolDescriptor,
+  salesNavigationDescriptors,
+  salesPermissionDescriptors,
+  salesRouteDescriptors,
   salesSearchTasksDescriptor,
   salesTaskCreateDescriptor,
   salesTaskFields,
   salesTasksDescriptor,
   salesTotalPotentialRevenueDescriptor,
+  salesWorkspaceSettingsDescriptor,
   type CreateTaskInput,
   type CreateTaskOutput
 } from "./contracts.js";
 
 export {
   salesCreateTaskToolDescriptor,
+  salesNavigationDescriptors,
+  salesPermissionDescriptors,
+  salesRouteDescriptors,
   salesSearchTasksDescriptor,
   salesTaskCreateDescriptor,
   salesTasksDescriptor,
-  salesTotalPotentialRevenueDescriptor
+  salesTotalPotentialRevenueDescriptor,
+  salesWorkspaceSettingsDescriptor
 } from "./contracts.js";
 
 const salesTaskFieldStorage = {
@@ -522,9 +532,30 @@ export const salesTasksCollection: CollectionConfig = {
   indexes: [{ fields: ["status"] }]
 };
 
+type SalesWorkspaceSettings = Readonly<Record<string, PluginSettingValue>>;
+
+export const salesWorkspaceSettingsDefinition: PluginSettingsRuntimeDefinition<SalesWorkspaceSettings> = {
+  descriptor: salesWorkspaceSettingsDescriptor,
+  migrations: [],
+  schema: {
+    safeParse(value: unknown) {
+      if (!isRecord(value) || Object.keys(value).sort().join("\u0000") !== "defaultTaskPageSize\u0000showPotentialRevenue" ||
+        !Number.isSafeInteger(value.defaultTaskPageSize) || Number(value.defaultTaskPageSize) < 1 || Number(value.defaultTaskPageSize) > 100 ||
+        typeof value.showPotentialRevenue !== "boolean") {
+        return invalidOutput("Sales workspace settings must match the strict current schema.");
+      }
+      return { success: true as const, data: value as SalesWorkspaceSettings };
+    }
+  }
+};
+
+export const salesDefaultSettings = resolvePluginSettings(salesWorkspaceSettingsDefinition);
+
 export const salesRegistration = definePluginRegistration({
   pluginId: "module.sales",
   contracts: (context) => {
+    for (const descriptor of salesPermissionDescriptors) context.register("permissions", descriptor.id, descriptor);
+    context.register("settings", salesWorkspaceSettingsDescriptor.id, salesWorkspaceSettingsDescriptor);
     context.register("sources", salesTotalPotentialRevenueDescriptor.id, salesTotalPotentialRevenueDefinition);
     context.register("sources", salesTasksDescriptor.id, salesTasksDefinition);
     context.register("actions", salesTaskCreateDescriptor.id, salesTaskCreateDefinition);
@@ -539,5 +570,9 @@ export const salesRegistration = definePluginRegistration({
     context.bind("sources", salesTotalPotentialRevenueDescriptor.id, salesTotalPotentialRevenueHandler);
     context.bind("sources", salesTasksDescriptor.id, salesTasksHandler);
     context.bind("actions", salesTaskCreateDescriptor.id, salesTaskCreateHandler as ActionHandler);
+  },
+  ui: (context) => {
+    for (const descriptor of salesRouteDescriptors) context.register("routes", descriptor.id, descriptor);
+    for (const descriptor of salesNavigationDescriptors) context.register("navigation", descriptor.id, descriptor);
   }
 });

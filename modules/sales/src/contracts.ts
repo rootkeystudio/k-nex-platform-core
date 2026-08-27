@@ -1,7 +1,11 @@
 import type {
   AgentToolDescriptor,
   AgentToolJsonSchema,
-  DataSourceDescriptor
+  DataSourceDescriptor,
+  PermissionDescriptor,
+  PluginNavigationDescriptor,
+  PluginRouteDescriptor,
+  PluginSettingsDescriptor
 } from "@k-nex/contracts";
 
 const salesSourceLimits = Object.freeze({
@@ -215,3 +219,101 @@ export const salesCreateTaskToolDescriptor: AgentToolDescriptor = {
   redaction: { inputPaths: ["/privateNote"], outputPaths: [] },
   audit: { category: "sales.task.create", resourcePath: "/id" }
 };
+
+export const salesWorkspaceSettingsDescriptor: PluginSettingsDescriptor = {
+  id: "sales.settings.workspace",
+  ownerPluginId: "module.sales",
+  schemaVersion: 1,
+  fields: {
+    defaultTaskPageSize: {
+      type: "integer",
+      required: true,
+      default: 25,
+      minimum: 1,
+      maximum: 100,
+      description: "Default bounded task page size."
+    },
+    showPotentialRevenue: {
+      type: "boolean",
+      required: true,
+      default: true,
+      description: "Show actor-authorized potential revenue fields."
+    }
+  },
+  surface: "workspace",
+  audience: "authenticated",
+  readPermission: "sales.settings.read",
+  changePermission: "sales.settings.write",
+  featureRevision: 1,
+  publicationRevision: 1
+};
+
+function permission(
+  id: string,
+  title: string,
+  description: string,
+  resource: string,
+  operation: PermissionDescriptor["operation"],
+  scope: PermissionDescriptor["policy"]["scope"]
+): PermissionDescriptor {
+  return {
+    id,
+    ownerPluginId: "module.sales",
+    title,
+    description,
+    audience: "authenticated",
+    resource,
+    operation,
+    policy: {
+      id: `sales.policy.${id.slice("sales.".length).replaceAll(".", "-")}`,
+      scope,
+      recordScoped: scope === "record" || scope === "field",
+      fieldScoped: scope === "field"
+    }
+  };
+}
+
+export const salesPermissionDescriptors = Object.freeze([
+  permission("sales.settings.read", "Read Sales settings", "Read non-secret Sales workspace settings.", "sales.settings", "read", "application"),
+  permission("sales.settings.write", "Change Sales settings", "Change validated Sales workspace settings.", "sales.settings", "write", "application"),
+  permission("sales.tasks.read", "Read Sales tasks", "Read actor-authorized Sales task records.", "sales.tasks", "read", "record"),
+  permission("sales.tasks.title.read", "Read task titles", "Read task title fields.", "sales.tasks.title", "read", "field"),
+  permission("sales.tasks.status.read", "Read task status", "Read task status fields.", "sales.tasks.status", "read", "field"),
+  permission("sales.tasks.revenue.read", "Read task revenue", "Read potential revenue fields.", "sales.tasks.revenue", "read", "field"),
+  permission("sales.tasks.private-note.read", "Read private task notes", "Read private task note fields.", "sales.tasks.private-note", "read", "field"),
+  permission("sales.tasks.write", "Write Sales tasks", "Create and update actor-authorized Sales tasks.", "sales.tasks", "write", "record")
+]);
+
+export const salesRouteDescriptors = Object.freeze([
+  {
+    id: "sales.route.tasks",
+    ownerPluginId: "module.sales",
+    path: "/sales/tasks",
+    parameters: {},
+    surface: "workspace",
+    audience: "authenticated",
+    permission: "sales.tasks.read",
+    viewId: "sales.view.tasks"
+  },
+  {
+    id: "sales.route.task-detail",
+    ownerPluginId: "module.sales",
+    path: "/sales/tasks/:taskId",
+    parameters: { taskId: { type: "string" } },
+    surface: "workspace",
+    audience: "authenticated",
+    permission: "sales.tasks.read",
+    viewId: "sales.view.task-detail"
+  }
+] satisfies readonly PluginRouteDescriptor[]);
+
+export const salesNavigationDescriptors = Object.freeze([
+  {
+    id: "sales.navigation.tasks",
+    ownerPluginId: "module.sales",
+    labelMessageId: "sales.message.navigation-tasks",
+    route: { routeId: "sales.route.tasks", params: {} },
+    permission: "sales.tasks.read",
+    order: 10
+  }
+] satisfies readonly PluginNavigationDescriptor[]);

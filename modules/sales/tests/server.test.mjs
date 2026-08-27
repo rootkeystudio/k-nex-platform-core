@@ -2,16 +2,30 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 
-import { ActionDescriptorSchema, AgentToolDescriptorSchema, canonicalJson, DataSourceDescriptorSchema } from "@k-nex/contracts";
+import {
+  ActionDescriptorSchema,
+  AgentToolDescriptorSchema,
+  DataSourceDescriptorSchema,
+  PermissionDescriptorSchema,
+  PluginNavigationDescriptorSchema,
+  PluginRouteDescriptorSchema,
+  PluginSettingsDescriptorSchema,
+  canonicalJson
+} from "@k-nex/contracts";
 
 import {
   salesCreateTaskToolDescriptor,
+  salesNavigationDescriptors,
+  salesPermissionDescriptors,
+  salesRouteDescriptors,
   salesSearchTasksDescriptor,
   salesTaskCreateDescriptor,
   salesTasksDescriptor,
-  salesTotalPotentialRevenueDescriptor
+  salesTotalPotentialRevenueDescriptor,
+  salesWorkspaceSettingsDescriptor
 } from "../dist/contracts.js";
 import {
+  salesDefaultSettings,
   salesRegistration,
   salesTaskCreateDefinition,
   salesTaskCreateHandler,
@@ -64,11 +78,24 @@ test("Sales registers two single-output data sources with valid descriptors", ()
   const bindings = [];
   salesRegistration.contracts?.({ pluginId: "module.sales", services: { get: () => undefined }, register: (kind, id) => contributions.push([kind, id]) });
   salesRegistration.dataHandlers?.({ pluginId: "module.sales", services: { get: () => undefined }, bind: (kind, id) => bindings.push([kind, id]) });
+  salesRegistration.ui?.({ pluginId: "module.sales", services: { get: () => undefined }, register: (kind, id) => contributions.push([kind, id]), bindBlock: () => undefined });
   assert.deepEqual(contributions.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.tasks", "sales.total-potential-revenue"]);
   assert.deepEqual(contributions.filter(([kind]) => kind === "actions").map(([, id]) => id), ["sales.task.create"]);
   assert.deepEqual(contributions.filter(([kind]) => kind === "tools").map(([, id]) => id).sort(), ["sales.tools.create-task", "sales.tools.search-tasks"]);
+  assert.deepEqual(contributions.filter(([kind]) => kind === "permissions").map(([, id]) => id).sort(), salesPermissionDescriptors.map(({ id }) => id).sort());
+  assert.deepEqual(contributions.filter(([kind]) => kind === "settings").map(([, id]) => id), [salesWorkspaceSettingsDescriptor.id]);
+  assert.deepEqual(contributions.filter(([kind]) => kind === "routes").map(([, id]) => id).sort(), salesRouteDescriptors.map(({ id }) => id).sort());
+  assert.deepEqual(contributions.filter(([kind]) => kind === "navigation").map(([, id]) => id), salesNavigationDescriptors.map(({ id }) => id));
   assert.deepEqual(bindings.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.tasks", "sales.total-potential-revenue"]);
   assert.deepEqual(bindings.filter(([kind]) => kind === "actions").map(([, id]) => id), ["sales.task.create"]);
+});
+
+test("Sales settings, permissions, routes, and navigation use strict platform contracts", () => {
+  assert.equal(PluginSettingsDescriptorSchema.safeParse(salesWorkspaceSettingsDescriptor).success, true);
+  assert.equal(salesPermissionDescriptors.every((descriptor) => PermissionDescriptorSchema.safeParse(descriptor).success), true);
+  assert.equal(salesRouteDescriptors.every((descriptor) => PluginRouteDescriptorSchema.safeParse(descriptor).success), true);
+  assert.equal(salesNavigationDescriptors.every((descriptor) => PluginNavigationDescriptorSchema.safeParse(descriptor).success), true);
+  assert.deepEqual(salesDefaultSettings.values, { defaultTaskPageSize: 25, showPotentialRevenue: true });
 });
 
 test("Sales registers source/action-backed tools with strict write policy", () => {

@@ -238,8 +238,28 @@ function completeConsumer(
   return {
     pluginId: "module.consumer",
     contracts(context) {
-      context.register("permissions", "consumer.permission", {});
-      context.register("settings", "consumer.setting", {});
+      context.register("permissions", "consumer.permission", {
+        id: "consumer.permission",
+        ownerPluginId: "module.consumer",
+        title: "Consumer read",
+        description: "Read consumer resources.",
+        audience: "authenticated",
+        resource: "consumer.resource",
+        operation: "read",
+        policy: { id: "consumer.policy.read", scope: "application", recordScoped: false, fieldScoped: false }
+      });
+      context.register("settings", "consumer.setting", {
+        id: "consumer.setting",
+        ownerPluginId: "module.consumer",
+        schemaVersion: 1,
+        fields: { enabled: { type: "boolean", required: true, default: true } },
+        surface: "workspace",
+        audience: "authenticated",
+        readPermission: "consumer.permission",
+        changePermission: "consumer.permission",
+        featureRevision: 1,
+        publicationRevision: 1
+      });
       context.register("sources", "consumer.source", sourceDefinition);
       context.register("actions", "consumer.action", actionDefinition());
       if (registeredTool) context.register("tools", registeredTool.id, registeredTool);
@@ -263,8 +283,24 @@ function completeConsumer(
     ui(context) {
       context.register("components", "consumer.component", {});
       context.register("blocks", "consumer.block", {});
-      context.register("routes", "consumer.route", {});
-      context.register("navigation", "consumer.navigation", {});
+      context.register("routes", "consumer.route", {
+        id: "consumer.route",
+        ownerPluginId: "module.consumer",
+        path: "/consumer",
+        parameters: {},
+        surface: "workspace",
+        audience: "authenticated",
+        permission: "consumer.permission",
+        viewId: "consumer.view.main"
+      });
+      context.register("navigation", "consumer.navigation", {
+        id: "consumer.navigation",
+        ownerPluginId: "module.consumer",
+        labelMessageId: "consumer.message.navigation",
+        route: { routeId: "consumer.route", params: {} },
+        permission: "consumer.permission",
+        order: 10
+      });
       context.register("pageTemplates", "consumer.template", {});
       context.register("localization", "consumer.localization", {});
       context.bindBlock("consumer.block", {});
@@ -409,6 +445,16 @@ describe("phased registration runtime", () => {
       ...consumer,
       contracts(context) {
         context.register("sources", "consumer.source", {} as never);
+      }
+    }]), "INVALID_CONTRIBUTION");
+  });
+
+  it("rejects invalid plugin configuration descriptors during registration", () => {
+    const consumer = completeConsumer();
+    expectCode(() => run([providerRegistration(), {
+      ...consumer,
+      contracts(context) {
+        context.register("settings", "consumer.setting", {} as never);
       }
     }]), "INVALID_CONTRIBUTION");
   });

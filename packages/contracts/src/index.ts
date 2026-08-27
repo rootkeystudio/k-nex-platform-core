@@ -15,6 +15,7 @@ export * from "./metric-scalar.js";
 export * from "./output-contracts.js";
 export * from "./plugin-manifest.js";
 export * from "./plugin-contribution-taxonomy.js";
+export * from "./plugin-configuration.js";
 export * from "./registration-phases.js";
 export * from "./realtime-topology.js";
 export * from "./table-records.js";

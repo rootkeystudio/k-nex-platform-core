@@ -170,6 +170,8 @@ The component renders outside Puck. Puck is only an authoring bridge.
 
 Modules contribute route IDs with typed parameters, surface/audience, permission, and page/view references. Navigation items reference route IDs rather than unrestricted URLs.
 
+`PluginRouteDescriptorSchema` and `PluginNavigationDescriptorSchema` validate source declarations. `resolvePluginNavigation` resolves installed targets, typed parameters, parent visibility, authentication, and both route and item permission before producing an href.
+
 The fixed application shell owns authentication, global routing, breadcrumbs, error boundaries, and system navigation.
 
 ## Default page templates
@@ -200,6 +202,8 @@ sales.page.settings
 ## Runtime settings
 
 Settings are plugin-owned, strict, schema-versioned records. They may configure installed behavior but cannot install packages, add schema, create executable contributions, store secret values, change required topology, or weaken authorization.
+
+Authors declare `PluginSettingsDescriptorSchema` metadata and a strict runtime schema. `resolvePluginSettings` applies sequential version migrations, defaults, validation, and immutable output; secret-bearing fields accept only `SecretReferenceSchema` references.
 
 ## Agent tools
 

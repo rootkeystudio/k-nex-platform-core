@@ -3,8 +3,9 @@ import type {
   PluginContributionRequirement, PluginManifest, RegistrationPhase
 } from "@k-nex/contracts";
 import {
-  AgentToolDescriptorSchema, assertDataSourceDefinition, pluginContributionCategoryKeys,
-  pluginContributionRegistry, registrationPhases
+  AgentToolDescriptorSchema, PermissionDescriptorSchema, PluginNavigationDescriptorSchema,
+  PluginRouteDescriptorSchema, PluginSettingsDescriptorSchema, assertDataSourceDefinition,
+  pluginContributionCategoryKeys, pluginContributionRegistry, registrationPhases
 } from "@k-nex/contracts";
 import * as semver from "semver";
 import { actionToolCompatible, assertActionDefinition, type ActionDefinition, type ActionHandler } from "./action.js";
@@ -45,6 +46,7 @@ export interface ContributionRegistrationContext<Kind extends ContributionKind> 
   register(kind: Kind, id: string, value: unknown): void;
 }
 export interface ContractsRegistrationContext extends ContributionRegistrationContext<ContractsContributionKind> {
+  register(kind: Exclude<ContractsContributionKind, "sources" | "actions" | "tools">, id: string, value: unknown): void;
   register(kind: "sources", id: string, value: DataSourceDefinition): void;
   register(kind: "actions", id: string, value: ActionDefinition): void;
   register(kind: "tools", id: string, value: AgentToolDescriptor): void;
@@ -164,6 +166,20 @@ function frozenClone<T>(value: T): T {
   return clone;
 }
 
+function configurationContribution(kind: ContributionKind, id: string, pluginId: string, value: unknown): unknown {
+  const schema = kind === "settings" ? PluginSettingsDescriptorSchema
+    : kind === "permissions" ? PermissionDescriptorSchema
+      : kind === "routes" ? PluginRouteDescriptorSchema
+        : kind === "navigation" ? PluginNavigationDescriptorSchema
+          : undefined;
+  if (schema === undefined) return value;
+  const parsed = schema.safeParse(value);
+  if (!parsed.success || parsed.data.id !== id || parsed.data.ownerPluginId !== pluginId) {
+    fail("INVALID_CONTRIBUTION", `${kind} contribution identity must match ${pluginId}:${id}.`, [pluginId, kind, id]);
+  }
+  return frozenClone(parsed.data);
+}
+
 export function executeRegistration(options: ExecuteRegistrationOptions): RegistrationResult {
   const manifests = activeManifests(options.graph, options.installed);
   const plans = new Map<string, PluginRegistration>();
@@ -232,6 +248,7 @@ export function executeRegistration(options: ExecuteRegistrationOptions): Regist
     if (!declarations.get(pluginId)?.get(kind)?.has(id)) {
       fail("UNDECLARED_CONTRIBUTION", `Plugin ${pluginId} did not declare ${kind} contribution ${id}.`, [pluginId, kind, id]);
     }
+    value = configurationContribution(kind, id, pluginId, value);
     if (kind === "sources") {
       let definition: DataSourceDefinition;
       try { assertDataSourceDefinition(value); definition = value; } catch {
