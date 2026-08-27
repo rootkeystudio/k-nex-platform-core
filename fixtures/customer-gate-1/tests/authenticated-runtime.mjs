@@ -38,13 +38,11 @@ const authenticatedRequest = await createPayloadRequest({
 });
 assert.ok(authenticatedRequest.user);
 
-const query = await payload.find({
+await assert.rejects(payload.find({
   collection: "sales-tasks",
   overrideAccess: false,
   req: authenticatedRequest
-});
-assert.equal(query.docs.length, 2);
-assert.equal(query.docs.some((document) => document.title === "Authenticated Gate 1 query"), true);
+}), /not allowed|forbidden|permission/i);
 
 const dataSourceEndpoint = payload.config.endpoints.find(({ path }) => path === "/k-nex/data-source-query");
 assert.ok(dataSourceEndpoint);
@@ -82,20 +80,19 @@ const forgedScopeResponse = await callSource(login.token, {
 assert.equal(forgedScopeResponse.status, 400);
 assert.equal((await forgedScopeResponse.json()).code, "INVALID_QUERY_CONTROLS");
 
-const updatedOpenTask = await payload.update({
+await assert.rejects(payload.update({
   collection: "sales-tasks",
   id: openTask.id,
   data: { title: "Mutated by authorized direct write" },
   user: login.user,
   overrideAccess: false
-});
-assert.equal(updatedOpenTask.title, "Mutated by authorized direct write");
+}), /not allowed|forbidden|permission/i);
 
 const peerResponse = await callSource(peerLogin.token);
 assert.equal(peerResponse.status, 200);
 const peerResult = await peerResponse.json();
 assert.deepEqual(peerResult.data.fields, openResult.data.fields);
-assert.deepEqual(peerResult.data.rows.map((row) => row.values.title.value), ["Mutated by authorized direct write"]);
+assert.deepEqual(peerResult.data.rows.map((row) => row.values.title.value), ["Authenticated Gate 1 query"]);
 assert.deepEqual(peerResult.data.rows.map((row) => row.values.status.value), ["open"]);
 
 const unknownResponse = await callSource(login.token, { ...sourceBody, sourceId: "sales.tasks.other" });

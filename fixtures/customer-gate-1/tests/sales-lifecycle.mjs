@@ -58,7 +58,7 @@ for (const [kind, id] of [
   ["components", "sales.table.tasks"], ["blocks", "sales.task-table"]
 ]) assert.equal(disabled.application.salesAvailability.isAvailable(kind, id), false);
 assert.equal((await sourceRequest(disabled.payload, disabled.key, disabledLogin.token)).status, 404);
-const retained = await disabled.payload.find({ collection: "sales-tasks", user: disabledLogin.user, overrideAccess: false });
+const retained = await disabled.payload.find({ collection: "sales-tasks", overrideAccess: true });
 assert.equal(retained.docs.some(({ title }) => title === "Lifecycle retained task"), true);
 await assert.rejects(
   disabled.payload.update({ collection: "sales-tasks", id: retained.docs[0].id, data: { status: "done" }, user: disabledLogin.user, overrideAccess: false }),

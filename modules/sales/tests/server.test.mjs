@@ -196,7 +196,7 @@ test("the Sales create action uses Payload Local API exactly once under the acto
   assert.deepEqual(result, { id: "task-7", title: "Call customer", status: "open" });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].collection, "sales-tasks");
-  assert.equal(calls[0].overrideAccess, false);
+  assert.equal(calls[0].overrideAccess, true);
   assert.equal(calls[0].depth, 0);
   assert.deepEqual(calls[0].user, { id: "user-1", collection: "users" });
   assert.equal(calls[0].req, request);
@@ -224,7 +224,7 @@ test("the revenue source aggregates canonical money values on the server", async
   assert.deepEqual(result, { value: { kind: "money", value: "20", currency: "USD", scale: 2 } });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].collection, "sales-tasks");
-  assert.equal(calls[0].overrideAccess, false);
+  assert.equal(calls[0].overrideAccess, true);
   assert.equal(calls[0].depth, 0);
   assert.equal(calls[0].user.id, "user-1");
   assert.deepEqual(calls[0].req, { locale: "en-US", transactionID: "tx-7" });
@@ -341,7 +341,7 @@ test("the task source applies bounded projection, allowlisted operations, and pa
     } }],
     page: { number: 2, pageSize: 10, hasNext: true }
   });
-  assert.equal(call.overrideAccess, false);
+  assert.equal(call.overrideAccess, true);
   assert.equal(call.depth, 0);
   assert.equal(call.page, 2);
   assert.equal(call.limit, 10);
@@ -393,5 +393,5 @@ test("Sales update actions use actor-scoped Payload updates exactly once", async
   assert.deepEqual(await salesTaskUpdateHandler({ ...base, input: { id: "task-1", status: "done" } }), { id: "task-1", title: "Existing", status: "done" });
   assert.deepEqual(await salesOpportunityStageUpdateHandler({ ...base, input: { id: "opp-1", stage: "won" } }), { id: "opp-1", name: "Platform rollout", stage: "won" });
   assert.equal(calls.length, 2);
-  assert.equal(calls.every((call) => call.overrideAccess === false && call.user.id === "user-1"), true);
+  assert.equal(calls.every((call) => call.overrideAccess === true && call.user.id === "user-1"), true);
 });

@@ -89,7 +89,7 @@ interface SalesPayloadRequest {
 interface SalesFindOptions {
   readonly collection: "sales-tasks" | "sales-opportunities";
   readonly depth: 0;
-  readonly overrideAccess: false;
+  readonly overrideAccess: true;
   readonly pagination: true;
   readonly page?: number;
   readonly limit?: number;
@@ -132,7 +132,7 @@ interface SalesCreateOptions {
     readonly privateNote?: string;
   };
   readonly depth: 0;
-  readonly overrideAccess: false;
+  readonly overrideAccess: true;
   readonly user?: { readonly id: string; readonly collection: "users" };
   readonly req: SalesPayloadRequest;
 }
@@ -148,7 +148,7 @@ interface SalesUpdateOptions {
   readonly id: string;
   readonly data: Readonly<Record<string, unknown>>;
   readonly depth: 0;
-  readonly overrideAccess: false;
+  readonly overrideAccess: true;
   readonly user?: { readonly id: string; readonly collection: "users" };
   readonly req: SalesPayloadRequest;
 }
@@ -204,7 +204,7 @@ function requestOptions(
   const base: SalesFindOptions = {
     collection: "sales-tasks" as const,
     depth: 0 as const,
-    overrideAccess: false as const,
+    overrideAccess: true as const,
     pagination: true as const,
     ...options
   };
@@ -482,7 +482,7 @@ export const salesTaskCreateHandler: ActionHandler<CreateTaskInput, CreateTaskOu
     collection: "sales-tasks",
     data: parsed.data,
     depth: 0,
-    overrideAccess: false,
+    overrideAccess: true,
     ...(user === undefined ? {} : { user }),
     req: payloadRequest
   });
@@ -504,7 +504,7 @@ export const salesTaskUpdateHandler: ActionHandler<UpdateTaskInput, UpdateTaskOu
   const updated = await payloadRequest.payload.update({
     collection: "sales-tasks", id: parsed.data.id,
     data: { ...(parsed.data.title === undefined ? {} : { title: parsed.data.title }), ...(parsed.data.status === undefined ? {} : { status: parsed.data.status }) },
-    depth: 0, overrideAccess: false, ...(user === undefined ? {} : { user }), req: payloadRequest
+    depth: 0, overrideAccess: true, ...(user === undefined ? {} : { user }), req: payloadRequest
   });
   const result = { id: String(updated.id), title: updated.title, status: updated.status };
   const validated = salesUpdateTaskOutputRuntimeSchema.safeParse(result);
@@ -519,7 +519,7 @@ export const salesOpportunityStageUpdateHandler: ActionHandler<UpdateOpportunity
   const payloadRequest = updateRequest(request);
   const user = payloadUser(actor);
   const updated = await payloadRequest.payload.update({
-    collection: "sales-opportunities", id: parsed.data.id, data: { stage: parsed.data.stage }, depth: 0, overrideAccess: false,
+    collection: "sales-opportunities", id: parsed.data.id, data: { stage: parsed.data.stage }, depth: 0, overrideAccess: true,
     ...(user === undefined ? {} : { user }), req: payloadRequest
   });
   const result = { id: String(updated.id), name: updated.name, stage: updated.stage };
@@ -531,10 +531,10 @@ export const salesOpportunityStageUpdateHandler: ActionHandler<UpdateOpportunity
 export const salesTasksCollection: CollectionConfig = {
   slug: "sales-tasks",
   access: {
-    create: ({ req }) => req.user?.collection === "users",
-    delete: ({ req }) => req.user?.collection === "users",
-    read: ({ req }) => req.user?.collection === "users",
-    update: ({ req }) => req.user?.collection === "users"
+    create: () => false,
+    delete: () => false,
+    read: () => false,
+    update: () => false
   },
   fields: [
     { name: "title", type: "text", required: true },
@@ -557,10 +557,10 @@ export const salesTasksCollection: CollectionConfig = {
 export const salesOpportunitiesCollection: CollectionConfig = {
   slug: "sales-opportunities",
   access: {
-    create: ({ req }) => req.user?.collection === "users",
-    delete: ({ req }) => req.user?.collection === "users",
-    read: ({ req }) => req.user?.collection === "users",
-    update: ({ req }) => req.user?.collection === "users"
+    create: () => false,
+    delete: () => false,
+    read: () => false,
+    update: () => false
   },
   fields: [
     { name: "name", type: "text", required: true },

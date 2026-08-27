@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Added fail-closed lifecycle-scoped registration: disabled plugins retain declared schema/readiness metadata while executable actions, jobs, routes, UI bindings, tools, and sources are removed before application composition.
+Closed raw Payload bypass: Sales-owned collections are internal-only, platform-authorized source/action handlers use explicit internal Local API access, and authenticated direct record/field writes and reads are denied.
 
 ## Validation
 
-Node 24.19.0: runtime 173/173, customer fixture build and unit composition PASS; prior full `gate:6` PASS is superseded by active Sol/high review remediation.
+Node 24.19.0: Sales 16/16, package boundaries/reproducibility, and full customer PostgreSQL gate PASS including authenticated raw-access denial; prior full `gate:6` PASS is superseded by active remediation.
 
 ## Next
 

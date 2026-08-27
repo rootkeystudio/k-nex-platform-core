@@ -134,7 +134,7 @@ try {
   const task = await payload.create({
     collection: "sales-tasks",
     data: { title: selectedCase.title, status: "open" },
-    overrideAccess: false,
+    overrideAccess: true,
     req
   });
   assert.equal(task.title, selectedCase.title);
