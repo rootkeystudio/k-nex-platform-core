@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-27
 - **Phase:** Phase 8 — Lifecycle, Application Factory, Release, and Fleet Safety
-- **Active task:** P8.6 — Two independent Sales-only customer applications
+- **Active task:** P8.7 — SBOM and signed provenance
 - **State:** In progress
 
 ## Last completed
 
-P8.5 added deterministic `create-knex-app` plan/apply for the Sales reference preset. It selects Minimal or Neobrutalism, local Docker or external Postgres, emits exact dependencies plus a valid application manifest and Payload config, records customer-owned migration/readiness/default-page/lifecycle plans, runs explicit source-time install commands, applies idempotently, and refuses customer-file overwrite. It introduces no runtime package installation.
+P8.6 generated two independently locked Sales-only customer fixtures. Alpha uses external Postgres, Minimal, manager permissions, both default pages, monthly cadence, and page size 25; Beta uses local Docker Postgres, Neobrutalism, representative permissions, the task page, quarterly cadence, and page size 50. Both use the same exact platform/Sales release surface while their dedicated lock digests and customer-owned composition artifacts differ.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: composition build and 77 tests PASS. Real CLI apply smoke PASS for an external-Postgres Sales/Minimal application with installation intentionally disabled for the isolated smoke target.
+Node 24.19.0 / pnpm 11.9.0: contracts build PASS; both customer fixture build validators PASS; combined manifest/override/dedicated-lock reconciliation emits `P8_6_CUSTOMER_FIXTURES_PASS`. Root lockfile regenerated for all 23 workspace projects and includes the current packed Sales integrity.
 
 ## Next
 
-Generate and prove two independent Sales-only customer fixtures with different theme/profile, settings, default pages, permissions/layouts, lockfile, and release cadence.
+Implement P8.7 deterministic CycloneDX SBOM evidence and cryptographically verifiable signed provenance without claiming an unverified SLSA level.
 
 ## Blockers
 

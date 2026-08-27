@@ -1,0 +1,47 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { ApplicationManifestSchema } from "../packages/contracts/dist/index.js";
+
+const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
+const requireFromComposition = createRequire(resolve(repositoryRoot, "packages/composition/package.json"));
+const YAML = requireFromComposition("yaml");
+const selected = process.argv[2] === "--customer" ? [process.argv[3]] : ["customer-alpha", "customer-beta"];
+const evidence = [];
+
+for (const customer of selected) {
+  assert.ok(customer === "customer-alpha" || customer === "customer-beta");
+  const root = resolve(repositoryRoot, "fixtures", customer);
+  const manifest = ApplicationManifestSchema.parse(JSON.parse(readFileSync(resolve(root, "k-nex.app.json"), "utf8")));
+  const overrides = JSON.parse(readFileSync(resolve(root, "customer-overrides.json"), "utf8"));
+  const lockContent = readFileSync(resolve(root, "pnpm-lock.yaml"), "utf8");
+  const lock = YAML.parse(lockContent);
+  assert.deepEqual(manifest.plugins, [{ id: "module.sales", package: "@k-nex/module-sales", version: "1.0.0", enabled: true }]);
+  assert.deepEqual(Object.keys(lock.importers), ["."]);
+  assert.equal(lock.importers["."].dependencies["@k-nex/module-sales"].specifier, "workspace:1.0.0");
+  assert.equal(overrides.schemaVersion, 1);
+  assert.ok([25, 50].includes(overrides.salesSettings.defaultTaskPageSize));
+  assert.ok(overrides.defaultPages.every((page) => page.startsWith("sales.page.")));
+  assert.ok(Object.keys(overrides.permissions).length === 1 && overrides.layout.role in overrides.permissions);
+  assert.match(overrides.releaseRevision, new RegExp(`^${customer}/`, "u"));
+  evidence.push({
+    customer,
+    database: manifest.development.database.mode,
+    theme: manifest.themes.active,
+    pageSize: overrides.salesSettings.defaultTaskPageSize,
+    releaseCadence: overrides.releaseCadence,
+    releaseRevision: overrides.releaseRevision,
+    lockDigest: createHash("sha256").update(lockContent).digest("hex")
+  });
+}
+
+if (evidence.length === 2) {
+  for (const key of ["database", "theme", "pageSize", "releaseCadence", "releaseRevision", "lockDigest"]) {
+    assert.notEqual(evidence[0][key], evidence[1][key], `${key} must differ between customers`);
+  }
+  process.stdout.write(`${JSON.stringify(evidence, null, 2)}\nP8_6_CUSTOMER_FIXTURES_PASS\n`);
+}

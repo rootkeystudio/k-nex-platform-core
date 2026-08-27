@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "instances": [
+    {
+      "templateId": "sales.page.tasks",
+      "ownership": "customer",
+      "instantiate": "if-missing"
+    },
+    {
+      "templateId": "sales.page.opportunities",
+      "ownership": "customer",
+      "instantiate": "if-missing"
+    }
+  ]
+}
