@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Addressed the three follow-up blockers anchored to `5561b119`: request-bound operation idempotency, parsed selector ownership with nested-root isolation, and generated CMS metadata governance with dot-segment denial.
+Restored the machine-readable `GO Phase 6` closeout token required by Gate 5 while keeping project-manager PASS and merge as explicit prerequisites.
 
 ## Validation
 
-Affected builds/tests, generated Zod/AJV fixture parity, the expanded real PostgreSQL operation-conflict fixture, and nested/sibling Chromium isolation pass. Full frozen Gate 5 remains to run.
+Affected builds/tests and focused review regressions pass. The full frozen path reached Gate 5, exposed the closeout-token mismatch, and must be rerun after this documentation correction.
 
 ## Next
 

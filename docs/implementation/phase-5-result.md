@@ -4,7 +4,8 @@
 - **Gate:** Gate 5
 - **Baseline:** `0674add`
 - **Delivery:** Phase 5 branch and PR #19; no merge or auto-merge
-- **Decision:** **GO Phase 6 candidate; project-manager PASS required**
+- **Decision:** **GO Phase 6**
+- **Review state:** Project-manager PASS and merge are required before Phase 6 begins
 
 ## Scope proved
 
