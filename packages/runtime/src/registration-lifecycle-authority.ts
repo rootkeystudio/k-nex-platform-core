@@ -81,6 +81,13 @@ function leaseService<T>(service: T, authority: RegistrationLifecycleAuthority, 
     ? rawByFacade.get(value as object) ?? value
     : value;
   const wrap = (value: unknown, receiver?: { readonly raw: object; readonly facade: object }): unknown => {
+    if ((typeof value === "object" && value !== null || typeof value === "function") &&
+      typeof Reflect.get(value, "then") === "function") {
+      return Promise.resolve(value).then((resolved) => {
+        assertAvailable();
+        return wrap(resolved);
+      });
+    }
     if ((typeof value !== "object" || value === null) && typeof value !== "function") return value;
     const raw = value as object;
     const known = wrapped.get(raw);

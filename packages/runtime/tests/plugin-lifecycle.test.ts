@@ -98,6 +98,7 @@ function lifecyclePlan(
       readonly derived: () => { readonly now: () => string };
       readonly callable: () => () => string;
     }) => void;
+    readonly captureService?: (service: unknown) => void;
     readonly jobs?: boolean;
     readonly lifecycle?: boolean;
   } = {}
@@ -108,6 +109,7 @@ function lifecyclePlan(
     providers: options.provideCapability === undefined ? undefined : (context) => context.provide(options.provideCapability!, options.service),
     behavior(context) {
       if (options.capture && options.capability) options.capture(context.services.get(options.capability));
+      if (options.captureService && options.capability) options.captureService(context.services.get(options.capability));
       if (options.lifecycle !== false) {
         context.register("lifecycle", `${namespace}.lifecycle`, {
           id: `${namespace}.lifecycle`, version: 1, ownerPluginId: manifestValue.id,
@@ -241,6 +243,76 @@ describe("plugin lifecycle", () => {
     expect(reenabled.contributions.jobs).toHaveLength(1);
     expect(capturedNow?.()).toBe("now");
   });
+
+  for (const lifecycle of [true, false]) {
+    it(`leases async capability results through ${lifecycle ? "lifecycle" : "non-lifecycle"} providers`, async () => {
+      const provider = lifecycleManifest({
+        id: "provider.clock", provides: [{ capability: "clock.now", version: "1.0.0" }], lifecycle
+      });
+      const consumer = lifecycleManifest({
+        id: "module.consumer", requires: [{ capability: "clock.now", version: "^1.0.0" }], lifecycle
+      });
+      const graph: ResolvedPluginGraph = {
+        resolverVersion: "1.0.0",
+        plugins: [
+          { id: provider.id, kind: provider.kind, package: provider.package, version: provider.version, integrity: "sha512-provider.clock", required: [], optional: [] },
+          { id: consumer.id, kind: consumer.kind, package: consumer.package, version: consumer.version, integrity: "sha512-module.consumer", required: [provider.id], optional: [] }
+        ],
+        capabilityProviders: [{ capability: "clock.now", plugin: provider.id, version: "1.0.0" }],
+        registrationOrder: [provider.id, consumer.id]
+      };
+      let releaseDelayed!: () => void;
+      const delayed = new Promise<void>((resolve) => { releaseDelayed = resolve; });
+      let service: {
+        readonly derived: () => Promise<{ readonly ping: () => string }>;
+        readonly delayed: () => Promise<{ readonly ping: () => string }>;
+      } | undefined;
+      const registrationResult = executeLifecycleRegistration(
+        [provider, consumer],
+        [
+          lifecyclePlan(provider, {
+            provideCapability: "clock.now",
+            service: {
+              async derived() { return { ping: () => "still-ran" }; },
+              delayed() {
+                return { then: (resolve: (value: { readonly ping: () => string }) => void) => {
+                  void delayed.then(() => resolve({ ping: () => "still-ran" }));
+                } };
+              }
+            },
+            lifecycle
+          }),
+          lifecyclePlan(consumer, { capability: "clock.now", captureService: (value) => { service = value as typeof service; }, lifecycle })
+        ],
+        graph
+      );
+      const available = () => [
+        reconcilePluginAvailability(registrationResult, lifecycleState(provider)),
+        reconcilePluginAvailability(registrationResult, lifecycleState(consumer))
+      ];
+      scopePluginRegistration(registrationResult, available());
+
+      const promise = service!.derived();
+      expect(promise).toBeInstanceOf(Promise);
+      const derived = await promise;
+      expect(derived.ping()).toBe("still-ran");
+
+      scopePluginRegistration(registrationResult, [
+        reconcilePluginAvailability(registrationResult, lifecycleState(provider, false)),
+        reconcilePluginAvailability(registrationResult, lifecycleState(consumer))
+      ]);
+      expect(() => derived.ping()).toThrow(/Capability service is unavailable/);
+
+      scopePluginRegistration(registrationResult, available());
+      const pending = service!.delayed();
+      scopePluginRegistration(registrationResult, [
+        reconcilePluginAvailability(registrationResult, lifecycleState(provider, false)),
+        reconcilePluginAvailability(registrationResult, lifecycleState(consumer))
+      ]);
+      releaseDelayed();
+      await expect(pending).rejects.toThrow(/Capability service is unavailable/);
+    });
+  }
 
   it("scopes required graph participants without lifecycle contributions and preserves unrelated registrations", () => {
     const provider = lifecycleManifest({

@@ -7,11 +7,11 @@
 
 ## Last completed
 
-P6.10 Sol review REWORK closes the initial default-page creation TOCTOU with authority-revision CAS and fail-closed re-preflight.
+P6.10 Sol review REWORK closes async capability-service lease escape: fulfilled promise/thenable values retain lifecycle authority and fail closed after provider revocation.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: runtime and Sales builds/tests, Sales package reproducibility, `pnpm plugin:check modules/sales`, Gate 1 generated-artifact reproducibility, and `git diff --check` pass; final Phase 6 review validation remains.
+Node 24.19.0 / pnpm 11.9.0: `pnpm --filter @k-nex/runtime test` (198), runtime build, `pnpm build`, and `git diff --check` pass; final Phase 6 review validation remains.
 
 ## Next
 
