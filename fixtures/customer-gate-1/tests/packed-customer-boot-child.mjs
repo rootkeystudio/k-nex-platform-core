@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 
 const customerDirectory = resolve(process.argv[2]);
 const customer = process.argv[3];
-if (!/^customer-(?:alpha|beta)$/u.test(customer)) throw new Error("Customer boot proof requires a known fixture.");
+if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u.test(customer)) throw new Error("Customer boot proof requires a canonical application ID.");
 
 const requireFromCustomer = createRequire(resolve(customerDirectory, "package.json"));
 const resolvedPackages = [

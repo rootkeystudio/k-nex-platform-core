@@ -12,10 +12,11 @@ import { assertMigrationReadiness, executeMigrationJob, planPluginUpgrade } from
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
 
 test("boots the supported prior release and upgrades every reviewed Sales artifact in PostgreSQL", { timeout: 180_000 }, async () => {
-  const supportManifest = PackageReleaseManifestSchema.parse(JSON.parse(readFileSync(new URL("../../../releases/0.2.0/package-release-manifest.json", import.meta.url), "utf8")));
+  const currentReleaseManifest = PackageReleaseManifestSchema.parse(JSON.parse(readFileSync(new URL("../../../releases/0.1.0/package-release-manifest.json", import.meta.url), "utf8")));
+  const targetReleaseManifest = PackageReleaseManifestSchema.parse(JSON.parse(readFileSync(new URL("../../../releases/0.2.0/package-release-manifest.json", import.meta.url), "utf8")));
   const plan = planPluginUpgrade({
-    pluginId: "module.sales", currentVersion: "1.0.0", targetVersion: "1.1.0",
-    currentPlatformRelease: "0.1.0", targetPlatformRelease: "0.2.0", supportManifest,
+    pluginId: "module.sales", currentVersion: "0.9.0", targetVersion: "1.0.0",
+    currentPlatformRelease: "0.1.0", targetPlatformRelease: "0.2.0", currentReleaseManifest, targetReleaseManifest,
     targets: salesUpgradeTargets, migrations: salesUpgradeMigrations
   });
   assert.equal(plan.ready, true);

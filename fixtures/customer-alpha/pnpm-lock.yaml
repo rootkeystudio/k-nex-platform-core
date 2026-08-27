@@ -942,7 +942,7 @@ packages:
       react: ^18.0.0 || ^19.0.0
 
   '@k-nex/composition@file:../customer-gate-1/packages/k-nex-composition-0.0.0.tgz':
-    resolution: {integrity: sha512-EBWwRVqQuFI5cVjxarYx+4Pnc4BNfu8EnA7pZYL4CH5gvy4IuzvZ43K08E/AJVkoARlHwMbJjV3Lw9Tzb7rFNg==, tarball: file:../customer-gate-1/packages/k-nex-composition-0.0.0.tgz}
+    resolution: {integrity: sha512-vMnvWptUT3rQFPE9pIymWHIB9gBdKVcAlxuAk5/NSnQQ+qWMpqz1v0LoLggauraZ2MmVxXQvL3RQk8uuojsOfQ==, tarball: file:../customer-gate-1/packages/k-nex-composition-0.0.0.tgz}
     version: 0.0.0
 
   '@k-nex/contracts@file:../customer-gate-1/packages/k-nex-contracts-0.0.0.tgz':
@@ -985,7 +985,7 @@ packages:
     version: 0.0.0
 
   '@k-nex/runtime@file:../customer-gate-1/packages/k-nex-runtime-0.0.0.tgz':
-    resolution: {integrity: sha512-MUP/9NLC8+O5k60CNo1PXwo/CKWh9WJp8Qcp2W7w2l3DQDfqmgtZbBLoZ2xHyAq3Z7vj5cFoM7dIb8ghAteulw==, tarball: file:../customer-gate-1/packages/k-nex-runtime-0.0.0.tgz}
+    resolution: {integrity: sha512-9HbWRSAyR18T5CEJUBBhkmGDs5P61PlqnwySiFiaX3vdpDJqK4vDM1kZIJRYMhGhSp9fhWFw87iRT575c8/1zw==, tarball: file:../customer-gate-1/packages/k-nex-runtime-0.0.0.tgz}
     version: 0.0.0
 
   '@k-nex/theme-minimal@file:../customer-gate-1/packages/k-nex-theme-minimal-0.0.0.tgz':

@@ -7,6 +7,7 @@ const root = resolve(import.meta.dirname, "..");
 const paths = [
   "releases/0.1.0/package-release-manifest.json",
   "releases/0.2.0/package-release-manifest.json",
+  "releases/0.2.1/package-release-manifest.json",
   "fixtures/customer-alpha/runtime-inventory.json",
   "fixtures/customer-alpha/deployment-receipt.json",
   "fixtures/customer-alpha/security-patch-plan.json",

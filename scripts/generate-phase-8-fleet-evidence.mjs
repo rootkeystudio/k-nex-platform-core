@@ -13,17 +13,19 @@ const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 const read = (customer, name) => JSON.parse(readFileSync(resolve(repositoryRoot, "fixtures", customer, name), "utf8"));
 const write = (path, value) => writeFileSync(resolve(repositoryRoot, path), `${JSON.stringify(value, null, 2)}\n`, "utf8");
 const customers = ["customer-alpha", "customer-beta"];
-const supportManifest = JSON.parse(readFileSync(resolve(repositoryRoot, "releases/0.2.0/package-release-manifest.json"), "utf8"));
+const targetReleaseManifest = JSON.parse(readFileSync(resolve(repositoryRoot, "releases/0.2.0/package-release-manifest.json"), "utf8"));
+const currentReleaseManifest = JSON.parse(readFileSync(resolve(repositoryRoot, "releases/0.1.0/package-release-manifest.json"), "utf8"));
+const patchReleaseManifest = JSON.parse(readFileSync(resolve(repositoryRoot, "releases/0.2.1/package-release-manifest.json"), "utf8"));
 const sourceCommit = read("customer-alpha", "runtime-inventory.json").releaseEvidence.sourceCommit;
 const verifier = createFixtureDeploymentVerifier(sourceCommit);
-const fleet = new FleetRegistry(supportManifest, verifier.authority);
+const fleet = new FleetRegistry(targetReleaseManifest, verifier.authority);
 for (const customer of customers) fleet.ingest(await verifier.verify(read(customer, "runtime-inventory.json"), read(customer, "deployment-receipt.json")));
 
 const deployments = fleet.list();
 assert.deepEqual(deployments.map(({ inventory }) => inventory.platformRelease), ["0.2.0", "0.1.0"]);
 const affected = fleet.affected("@k-nex/module-sales", "<1.0.1");
 assert.equal(affected.length, 2);
-const patches = fleet.planSecurityPatch("@k-nex/module-sales", "<1.0.1", "1.0.1");
+const patches = fleet.planSecurityPatch("@k-nex/module-sales", "<1.0.1", "1.0.1", patchReleaseManifest);
 for (const patch of patches) {
   write(`fixtures/${patch.applicationId}/security-patch-plan.json`, {
     schemaVersion: 1,
@@ -34,15 +36,15 @@ for (const patch of patches) {
 }
 
 const upgradePlan = planPluginUpgrade({
-  pluginId: "module.sales", currentVersion: "1.0.0", targetVersion: "1.1.0",
-  currentPlatformRelease: "0.1.0", targetPlatformRelease: "0.2.0", supportManifest,
+  pluginId: "module.sales", currentVersion: "0.9.0", targetVersion: "1.0.0",
+  currentPlatformRelease: "0.1.0", targetPlatformRelease: "0.2.0", currentReleaseManifest, targetReleaseManifest,
   targets: salesUpgradeTargets, migrations: salesUpgradeMigrations
 });
 assert.equal(upgradePlan.ready, true);
 write("fixtures/customer-beta/previous-release-upgrade.json", {
   schemaVersion: 1,
   platformRelease: { current: "0.1.0", target: "0.2.0" },
-  packageRelease: { current: "1.0.0", target: "1.1.0" },
+  packageRelease: { current: "0.9.0", target: "1.0.0" },
   expectedPredecessorMigrationRevision: 6,
   targetMigrationRevision: 7,
   reviewedMigrationIds: upgradePlan.steps.map(({ id }) => id),
@@ -63,7 +65,7 @@ write("fixtures/customer-alpha/restore-redeployment-proof.json", {
 write("docs/implementation/phase-8-fleet-evidence.json", {
   schemaVersion: 1,
   deployments: deployments.map(({ inventory, receipt }) => ({ applicationId: inventory.applicationId, platformRelease: inventory.platformRelease, deploymentId: receipt.deploymentId, inventoryDigest: runtimeInventoryDigest(inventory) })),
-  vulnerability: { package: "@k-nex/module-sales", affectedRange: "<1.0.1", targetVersion: "1.0.1", affectedApplications: affected.map(({ inventory }) => inventory.applicationId) },
+  vulnerability: { package: "@k-nex/module-sales", affectedRange: "<1.0.1", targetVersion: "1.0.1", affectedApplications: patches.map(({ applicationId }) => applicationId) },
   generatedPatchUpdates: patches.map(({ applicationId, repository, baseInventoryDigest }) => ({ applicationId, repository, baseInventoryDigest })),
   previousReleaseUpgrade: { applicationId: "customer-beta", postgresProof: "previous-release-upgrade-postgres.test.mjs", stepCount: upgradePlan.steps.length },
   restore: { applicationId: "customer-alpha", postgresProof: "backup-restore-postgres.test.mjs", expectedOperationalInventoryDigest: runtimeInventoryStateDigest(alpha) }

@@ -24,7 +24,9 @@ for (const customer of selected) {
   const lock = YAML.parse(lockContent);
   const inventory = RuntimeInventorySchema.parse(JSON.parse(readFileSync(resolve(root, "runtime-inventory.json"), "utf8")));
   const receipt = DeploymentReceiptSchema.parse(JSON.parse(readFileSync(resolve(root, "deployment-receipt.json"), "utf8")));
-  assert.deepEqual(manifest.plugins, [{ id: "module.sales", package: "@k-nex/module-sales", version: "1.0.0", enabled: true }]);
+  const release = JSON.parse(readFileSync(resolve(repositoryRoot, `releases/${inventory.platformRelease}/package-release-manifest.json`), "utf8"));
+  const salesRelease = release.packages.find((entry) => entry.package === "@k-nex/module-sales");
+  assert.deepEqual(manifest.plugins, [{ id: "module.sales", package: "@k-nex/module-sales", version: salesRelease?.version, enabled: true }]);
   assert.deepEqual(Object.keys(lock.importers), ["."]);
   const packedDependencies = Object.entries(lock.importers["."].dependencies).filter(([name]) => name.startsWith("@k-nex/"));
   assert.ok(packedDependencies.length >= 14);

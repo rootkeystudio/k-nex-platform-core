@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 
-import { ApplicationManifestSchema, canonicalJson, type ApplicationManifest } from "@k-nex/contracts";
+import { ApplicationManifestSchema, PackageReleaseManifestSchema, canonicalJson, type ApplicationManifest, type PackageReleaseManifest } from "@k-nex/contracts";
 
 export type SalesPresetTheme = "minimal" | "neobrutalism";
 export type ApplicationDatabaseMode = "docker-postgres" | "external";
@@ -12,6 +12,11 @@ export interface CreateKnexApplicationOptions {
   readonly applicationName: string;
   readonly theme: SalesPresetTheme;
   readonly database: ApplicationDatabaseMode;
+  readonly packageSource?: {
+    readonly kind: "packed-mirror";
+    readonly directory: string;
+    readonly releaseManifest: PackageReleaseManifest;
+  };
 }
 
 export interface ApplicationFactoryPlan {
@@ -119,14 +124,14 @@ export async function down({ db }: MigrateDownArgs): Promise<void> {
 `;
 }
 
-function bootstrapMigrationSource(applicationId: string): string {
+function bootstrapMigrationSource(applicationId: string, platformRelease: string): string {
   return `import { sql, type MigrateDownArgs, type MigrateUpArgs } from "@payloadcms/db-postgres";
 
 export async function up({ db }: MigrateUpArgs): Promise<void> {
   await db.execute(sql.raw(\`CREATE TABLE "k_nex_release_revision" (
     "application_id" varchar PRIMARY KEY NOT NULL, "predecessor_revision" integer NOT NULL,
     "revision" integer NOT NULL, "release_revision" varchar NOT NULL
-  ); INSERT INTO "k_nex_release_revision" VALUES ('${applicationId}', 0, 1, 'platform-0.2.0-bootstrap');\`));
+  ); INSERT INTO "k_nex_release_revision" VALUES ('${applicationId}', 0, 1, 'platform-${platformRelease}-bootstrap');\`));
 }
 
 export async function down({ db }: MigrateDownArgs): Promise<void> {
@@ -144,17 +149,21 @@ function validOptions(options: CreateKnexApplicationOptions): void {
     !["minimal", "neobrutalism"].includes(options.theme) || !["docker-postgres", "external"].includes(options.database)) {
     throw new Error("Application factory options are invalid.");
   }
+  if (options.packageSource !== undefined && (options.packageSource.kind !== "packed-mirror" ||
+    !/^(?:\.\.\/)*[a-zA-Z0-9._-]+(?:\/[a-zA-Z0-9._-]+)*$/u.test(options.packageSource.directory))) {
+    throw new Error("Application factory packed mirror is invalid.");
+  }
 }
 
-function applicationManifest(options: CreateKnexApplicationOptions): ApplicationManifest {
+function applicationManifest(options: CreateKnexApplicationOptions, packageVersions: ReadonlyMap<string, string>): ApplicationManifest {
   return ApplicationManifestSchema.parse({
     schemaVersion: 1,
     application: { id: options.applicationId, name: options.applicationName, type: "customer-platform" },
     runtime: { node: "24.19.0", packageManager: "pnpm", packageManagerVersion: "11.9.0", deploymentMode: "container" },
     framework: { payload: { database: { adapter: "postgres", package: "@payloadcms/db-postgres", connectionEnvironmentVariable: "DATABASE_URL" } } },
-    plugins: [{ id: "module.sales", package: "@k-nex/module-sales", version: "1.0.0", enabled: true }],
+    plugins: [{ id: "module.sales", package: "@k-nex/module-sales", version: packageVersions.get("@k-nex/module-sales") ?? "1.0.0", enabled: true }],
     providers: {},
-    themes: { active: options.theme, package: `@k-nex/theme-${options.theme}`, version: "0.0.0" },
+    themes: { active: options.theme, package: `@k-nex/theme-${options.theme}`, version: packageVersions.get(`@k-nex/theme-${options.theme}`) ?? "0.0.0" },
     development: { database: options.database === "docker-postgres" ? { mode: "docker-postgres", serviceName: "postgres" } : { mode: "external" } },
     build: { dockerfile: false, commitGeneratedRegistries: true, validateGeneratedFilesInCI: true },
     environment: { required: ["DATABASE_URL", "PAYLOAD_SECRET"] }
@@ -163,14 +172,27 @@ function applicationManifest(options: CreateKnexApplicationOptions): Application
 
 export function planCreateKnexApplication(options: CreateKnexApplicationOptions): ApplicationFactoryPlan {
   validOptions(options);
-  const manifest = applicationManifest(options);
-  const dependencies = { ...exactDependencies, [`@k-nex/theme-${options.theme}`]: "0.0.0" };
+  const release = options.packageSource === undefined ? undefined : PackageReleaseManifestSchema.parse(options.packageSource.releaseManifest);
+  const releasedPackages = new Map(release?.packages.map((entry) => [entry.package, entry.version]) ?? []);
+  const dependencyVersions = { ...exactDependencies, [`@k-nex/theme-${options.theme}`]: "0.0.0" };
+  const artifactName = (packageName: string, version: string) => `${packageName.slice(1).replace("/", "-")}-${version}.tgz`;
+  const dependencies = Object.fromEntries(Object.entries(dependencyVersions).map(([name, version]) => {
+    if (!name.startsWith("@k-nex/") || options.packageSource === undefined) return [name, version];
+    const releasedVersion = releasedPackages.get(name);
+    if (releasedVersion === undefined) throw new Error(`Packed release does not contain ${name}.`);
+    return [name, `file:${options.packageSource.directory}/${artifactName(name, releasedVersion)}`];
+  }));
+  const manifest = applicationManifest(options, releasedPackages);
   const files: Record<string, string> = {
     ".env.example": "DATABASE_URL=postgres://knex:knex@127.0.0.1:5432/knex\nPAYLOAD_SECRET=replace-with-a-long-random-secret\n",
     ".k-nex/application-plan.json": json({
       planVersion: 1,
       preset: "sales-reference",
-      composition: { plugins: ["module.sales@1.0.0"], theme: `${options.theme}@0.0.0`, databaseAdapter: "postgres" },
+      composition: { plugins: [`module.sales@${manifest.plugins[0]!.version}`], theme: `${options.theme}@${manifest.themes.version}`, databaseAdapter: "postgres" },
+      packageSource: release === undefined ? { kind: "registry" } : {
+        kind: "packed-mirror", release: release.release.version,
+        manifestDigest: `sha256:${createHash("sha256").update(canonicalJson(release)).digest("hex")}`
+      },
       migration: { owner: "customer", action: "review-and-apply", expectedPredecessorRevision: 0 },
       readiness: ["exact-package-inventory", "migration-revision", "sales-registration", "default-pages"],
       defaultPages: ["sales.page.tasks", "sales.page.opportunities"],
@@ -192,7 +214,7 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
     "src/k-nex-registry.ts": registrySource(),
     "src/k-nex-readiness.ts": `import { kNexSalesRegistry } from "./k-nex-registry.js";\n\nif (kNexSalesRegistry.collections.length !== 2 || kNexSalesRegistry.registration.pluginId !== "module.sales" || kNexSalesRegistry.readiness.currentRevision < 1 || kNexSalesRegistry.defaultPages.length === 0) {\n  throw new Error("K-Nex Sales readiness is incomplete.");\n}\nconsole.log("K_NEX_SALES_READY");\n`,
     "src/migrations/20260827_000001_sales_baseline.ts": payloadBaselineMigrationSource(),
-    "src/migrations/20260827_000002_knex_bootstrap.ts": bootstrapMigrationSource(options.applicationId),
+    "src/migrations/20260827_000002_knex_bootstrap.ts": bootstrapMigrationSource(options.applicationId, release?.release.version ?? "0.2.0"),
     "src/migrations/index.ts": `import * as baseline from "./20260827_000001_sales_baseline.js";\nimport * as bootstrap from "./20260827_000002_knex_bootstrap.js";\n\nexport const migrations = [\n  { name: "20260827_000001_sales_baseline", up: baseline.up, down: baseline.down },\n  { name: "20260827_000002_knex_bootstrap", up: bootstrap.up, down: bootstrap.down }\n];\n`,
     "src/payload.config.ts": payloadConfigSource(options.applicationId),
     "tsconfig.json": json({ compilerOptions: {
@@ -200,6 +222,12 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
       outDir: "dist", rootDir: "src", types: ["node"]
     }, include: ["src/**/*.ts"] })
   };
+  if (release !== undefined && options.packageSource !== undefined) {
+    const overrides = Object.fromEntries([...release.packages].sort((left, right) => left.package.localeCompare(right.package)).map((entry) => [entry.package,
+      `file:${options.packageSource!.directory}/${artifactName(entry.package, entry.version)}`]));
+    files[".npmrc"] = "link-workspace-packages=false\nshared-workspace-lockfile=false\n";
+    files["pnpm-workspace.yaml"] = `packages:\n  - "."\n\nallowBuilds:\n  "cpu-features@0.0.10": false\n  "esbuild@0.18.20": true\n  "esbuild@0.25.12": true\n  "esbuild@0.28.2": true\n  "protobufjs@7.6.5": false\n  "sharp@0.35.3": true\n  "ssh2@1.17.0": false\n\noverrides:\n${Object.entries(overrides).map(([name, specifier]) => `  "${name}": "${specifier}"`).join("\n")}\n`;
+  }
   if (options.database === "docker-postgres") {
     files["compose.yaml"] = "services:\n  postgres:\n    image: postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94\n    environment:\n      POSTGRES_DB: knex\n      POSTGRES_PASSWORD: knex\n      POSTGRES_USER: knex\n    ports:\n      - \"5432:5432\"\n    volumes:\n      - postgres-data:/var/lib/postgresql/data\nvolumes:\n  postgres-data:\n";
   }

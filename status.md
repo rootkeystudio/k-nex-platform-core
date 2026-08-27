@@ -7,11 +7,11 @@
 
 ## Last completed
 
-All formal-review blockers are corrected. Two isolated customer workspaces install a 16-artifact packed K-Nex closure, compile and boot real Sales/Payload configs on clean PostgreSQL, run production migrations/default-page seed, expose protected live inventory, and enter Fleet only after signed receipt/provenance verification. Release support, transitive SBOM/inventory, lifecycle evidence, recovery proofs, atomic factory apply, and stale-evidence rejection remain enforced.
+All formal-review blockers are corrected. Distinct prior/current/security-target Sales tarballs (0.9.0/1.0.0/1.0.1) are SHA512-bound to release manifests. The factory generates, installs, builds, migrates, and boots fresh prior/current applications from the packed mirror. Alpha and Beta remain isolated packed workspaces; Beta now installs the actual supported-prior Sales artifact. Fleet accepts only a target artifact present in the supplied trusted release manifest and generates both required patch updates.
 
 ## Validation
 
-`pnpm gate:8` PASS end-to-end: Phase 0 through Gate 8, 5 PostgreSQL proofs, browser/accessibility gates, plugin conformance, 16 packed artifacts, contracts 147 tests, composition 82 tests, runtime 198 tests, `P8_GENERATED_EVIDENCE_CLEAN`, and `GATE_8_PASS`. `git diff --check` PASS.
+`pnpm gate:8` PASS end-to-end on the corrective candidate: Phase 0 through Gate 8, five PostgreSQL test scenarios, fresh factory-generated prior/current packed application boot, browser/accessibility gates, plugin conformance, 18 packed release identities, contracts 147 tests, composition 83 tests, runtime 200 tests, `P8_GENERATED_EVIDENCE_CLEAN`, and `GATE_8_PASS`. `git diff --check` PASS.
 
 ## Next
 
