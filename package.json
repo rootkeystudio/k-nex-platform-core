@@ -15,6 +15,8 @@
     "contracts:test": "turbo run test",
     "contracts:reproducibility": "turbo run reproducibility",
     "docs:validate": "python3 scripts/validate_repository_contracts.py",
+    "plugin:check": "node scripts/plugin-check.mjs",
+    "plugin:check:test": "node --test scripts/plugin-conformance.test.mjs",
     "doctor": "pnpm --filter @k-nex/contracts build && pnpm --filter @k-nex/runtime build && node scripts/k-nex-doctor.mjs",
     "gate:1": "pnpm build && pnpm contracts:test && pnpm --filter @k-nex/composition check:gate-1 && node scripts/prove-gate-1-reproducibility.mjs && pnpm --filter @k-nex/customer-gate-1 test:postgres",
     "gate:2": "pnpm build && pnpm --filter @k-nex/contracts test && pnpm --filter @k-nex/runtime test && pnpm --filter @k-nex/payload-adapter test && pnpm --filter @k-nex/module-sales test && node scripts/gate-2.mjs",

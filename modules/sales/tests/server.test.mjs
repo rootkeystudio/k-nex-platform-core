@@ -17,9 +17,11 @@ import {
 
 import {
   salesCreateTaskToolDescriptor,
+  salesEventDescriptors,
   salesNavigationDescriptors,
   salesOpportunitiesDescriptor,
   salesPermissionDescriptors,
+  salesRealtimeTopicDescriptors,
   salesRouteDescriptors,
   salesSearchTasksDescriptor,
   salesTaskCreateDescriptor,
@@ -150,6 +152,24 @@ test("Sales registers source/action-backed tools with strict write policy", () =
   assert.deepEqual(salesCreateTaskToolDescriptor.inputSchema, salesTaskCreateDescriptor.inputSchema);
   assert.deepEqual(salesCreateTaskToolDescriptor.outputSchema, salesTaskCreateDescriptor.outputSchema);
   assert.equal(salesTaskCreateDefinition.descriptor.id, "sales.task.create");
+});
+
+test("Sales declares event-to-realtime invalidation mappings", () => {
+  assert.deepEqual(salesEventDescriptors.map(({ id }) => id).sort(), [
+    "sales.event.opportunity-changed", "sales.event.task-changed"
+  ]);
+  const eventIds = new Set(salesEventDescriptors.map(({ id }) => id));
+  const sourceIds = new Set([salesOpportunitiesDescriptor.id, salesTasksDescriptor.id]);
+  const permissionIds = new Set(salesPermissionDescriptors.map(({ id }) => id));
+  for (const event of salesEventDescriptors) {
+    assert.equal(event.eventClass, "durable-integration");
+    assert.equal(sourceIds.has(event.sourceId), true);
+  }
+  for (const topic of salesRealtimeTopicDescriptors) {
+    assert.equal(eventIds.has(topic.eventId), true);
+    assert.equal(sourceIds.has(topic.sourceId), true);
+    assert.equal(permissionIds.has(topic.permission), true);
+  }
 });
 
 test("the Sales create action uses Payload Local API exactly once under the actor context", async () => {

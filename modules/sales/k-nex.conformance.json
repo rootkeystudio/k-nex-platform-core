@@ -1,0 +1,113 @@
+{
+  "pluginId": "module.sales",
+  "proofs": [
+    {
+      "covers": ["manifest-schema-fixtures"],
+      "id": "manifest-schema-fixtures",
+      "kind": "pnpm-script",
+      "markers": ["Executable repository contract validation passed."],
+      "script": "contracts:validate"
+    },
+    {
+      "covers": ["package-export-boundaries"],
+      "id": "package-export-boundaries",
+      "kind": "pnpm-script",
+      "markers": ["Sales contracts, browser, UI, migrations, and testing entrypoints preserve package boundaries."],
+      "package": "$plugin",
+      "script": "check:boundaries"
+    },
+    {
+      "covers": ["deterministic-inventory", "fresh-migration-boot"],
+      "id": "inventory-migration-boot",
+      "kind": "pnpm-script",
+      "markers": ["proves customer-owned migrations and revision-aware Postgres boot", "pass 1", "fail 0"],
+      "package": "@k-nex/customer-gate-1",
+      "script": "test:postgres"
+    },
+    {
+      "covers": ["settings-permission-attacks"],
+      "file": "tests/plugin-settings.test.ts",
+      "id": "settings-secret-attack",
+      "kind": "vitest",
+      "package": "@k-nex/runtime",
+      "testName": "rejects raw secret values and accepts environment secret references"
+    },
+    {
+      "covers": ["settings-permission-attacks"],
+      "file": "tests/plugin-settings.test.ts",
+      "id": "settings-topology-attack",
+      "kind": "vitest",
+      "package": "@k-nex/runtime",
+      "testName": "rejects executable contribution and topology/import graph keys"
+    },
+    {
+      "covers": ["settings-permission-attacks"],
+      "file": "tests/data-source-authorization.test.ts",
+      "id": "source-permission-attack",
+      "kind": "vitest",
+      "package": "@k-nex/runtime",
+      "testName": "denies source permission before returning policy scope"
+    },
+    {
+      "covers": ["source-action-tool-event-realtime"],
+      "file": "modules/sales/tests/server.test.mjs",
+      "id": "sales-source-action-bindings",
+      "kind": "node-test",
+      "testName": "Sales registers three single-output data sources with valid descriptors"
+    },
+    {
+      "covers": ["source-action-tool-event-realtime"],
+      "file": "modules/sales/tests/server.test.mjs",
+      "id": "sales-tool-bindings",
+      "kind": "node-test",
+      "testName": "Sales registers source/action-backed tools with strict write policy"
+    },
+    {
+      "covers": ["source-action-tool-event-realtime"],
+      "file": "modules/sales/tests/server.test.mjs",
+      "id": "sales-contribution-bindings",
+      "kind": "node-test",
+      "testName": "Sales declares event-to-realtime invalidation mappings"
+    },
+    {
+      "covers": ["source-action-tool-event-realtime"],
+      "file": "tests/outbox-realtime-relay.test.ts",
+      "id": "event-realtime-relay",
+      "kind": "vitest",
+      "package": "@k-nex/payload-adapter",
+      "testName": "projects a durable event through only the provider-neutral gateway and checkpoints after publication"
+    },
+    {
+      "covers": ["component-runtime-puck"],
+      "file": "modules/sales/tests/ui.test.mjs",
+      "id": "component-runtime-puck",
+      "kind": "node-test",
+      "testName": "every Sales UI contribution renders outside the editor and every block reconciles into Puck"
+    },
+    {
+      "covers": ["default-page-seed"],
+      "file": "tests/page-template.test.ts",
+      "id": "default-page-seed",
+      "kind": "vitest",
+      "package": "@k-nex/runtime",
+      "testName": "creates once and returns the same customer-owned instance on retry"
+    },
+    {
+      "covers": ["accessibility-smoke"],
+      "file": "tests/accessibility.test.ts",
+      "id": "accessibility-smoke",
+      "kind": "vitest",
+      "package": "@k-nex/builder-puck",
+      "testName": "selects a block through a labelled native control so its fields can be edited by keyboard"
+    },
+    {
+      "covers": ["packed-reproducibility"],
+      "id": "packed-reproducibility",
+      "kind": "pnpm-script",
+      "markers": ["The committed Sales package tar content is current and reproducible."],
+      "package": "$plugin",
+      "script": "check:pack"
+    }
+  ],
+  "schemaVersion": 1
+}
