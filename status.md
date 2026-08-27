@@ -7,11 +7,11 @@
 
 ## Last completed
 
-The Phase 7 stack now preserves Phase 6 descriptor authority at the Puck snapshot boundary: a caller-provided action policy can no longer override the canonical policy rebound from the contribution descriptor.
+The rebased Phase 7 stack now carries a deterministic Sales package built from the combined Phase 6+7 source, with matching lock integrity and regenerated Gate 1 resolution evidence.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: focused builder acceptance passes (5 files, 35 tests), including boundaries and build; diff check passes. A complete exact-head Gate 7 rerun remains pending after the first post-rebase run correctly exposed the forged Puck-policy regression.
+Node 24.19.0 / pnpm 11.9.0: Sales acceptance passes (22 node tests, 17 Vitest tests), package boundaries and deterministic pack comparison pass, Gate 1 artifacts check current, frozen reinstall and diff check pass. Complete exact-head Gate 7 remains pending.
 
 ## Next
 
