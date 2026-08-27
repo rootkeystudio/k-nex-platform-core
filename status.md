@@ -11,7 +11,7 @@ The blocking Phase 7 review was addressed on one coherent rework head: executabl
 
 ## Validation
 
-Targeted rework validation PASS for UI components, UI data, UI builder blocks, UI testing unit/performance/Chromium suites, and the complete Sales build/test/package contract. Exact-head full `pnpm gate:7` remains the next validation step.
+Targeted rework validation PASS for UI components, UI data, UI builder blocks, UI testing unit/performance/Chromium suites, and the complete Sales build/test/package contract. The first full gate correctly rejected the refreshed Sales fixture's stale lockfile integrity; the verified SHA512 is now current. Exact-head full `pnpm gate:7` remains the next validation step.
 
 ## Next
 
