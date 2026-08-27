@@ -7,13 +7,13 @@
   "observedAt": "2026-08-27T12:00:00.000Z",
   "artifactDigest": "sha256:b7ac93d46f0cd95b8f2dc0981a16fc33f690c61e27264f862de0653b08f97d49",
   "releaseEvidence": {
-    "sourceCommit": "82e5224c29eefbbcc797cb270475fe02e56f7b66",
-    "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@82e5224c29eefbbcc797cb270475fe02e56f7b66",
+    "sourceCommit": "fe2cd8080a995d1b0bec764d24d0ca5c9e562a7d",
+    "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@fe2cd8080a995d1b0bec764d24d0ca5c9e562a7d",
     "manifestDigest": "sha256:a3aaf845c4f41aab65fdc0c9cec881ccf52ba56347da5d4f7596098925bf6b5e",
-    "lockfileDigest": "sha256:1246f793bfb79ea81c4562360024c46f848d91fd0521492919f2f399cf4477ba",
+    "lockfileDigest": "sha256:358b90adf9cc002a8974daccc392bc57de7776bd724056f3d1ce2d41c6862f48",
     "resolvedGraphDigest": "sha256:92bc3c722ab037c3b02cb3a3f117d8ef43c3b3f2f1227bcb0add4b2bf6a8899d",
-    "sbomDigest": "sha256:df4747c21ce8acee2cf87a6c0d64b7cd3c0e3af509a7c4a7e96dc8a29643171b",
-    "provenanceDigest": "sha256:1052ea0dd668a8a2a46ae2f631d8817f4b08515d063cc7ab892d2b0cb549c131"
+    "sbomDigest": "sha256:910519736edafa3ae95a39defd25ba94ce123e20417ce8b155acffd2591d7327",
+    "provenanceDigest": "sha256:9fe226d1edc93c002cd69bf7fbbca592fc10fb1aa10f874e22e3f4ec87f44d1e"
   },
   "packages": [
     {
@@ -839,7 +839,7 @@
     {
       "package": "@k-nex/runtime",
       "version": "0.0.0",
-      "integrity": "sha512-S18Z0VnjPuq7s13kW5PNIgSaDbV+qlPxbqnAu/ZrmN0/cDSMyxq0Q61wnv73lwzHRj299ZfovCFgZKidsJjVLg=="
+      "integrity": "sha512-/Ja2C5oDaXyD872Tw6ujf7uCkcy5b3CfgfJk+mHJht++SAOCBmdPx+pisowy7scDZwzbg6mZIxHNw68Qwk9IVw=="
     },
     {
       "package": "@k-nex/theme-minimal",
