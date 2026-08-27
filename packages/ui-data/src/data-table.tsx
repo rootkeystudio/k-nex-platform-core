@@ -210,10 +210,11 @@ function ReadyTable<TInput>({
   const actionContextValue = actionContext ?? { signal: new AbortController().signal };
   const updateSearch = (search: string): void => update({ search, pagination: firstPage(viewState.pagination) });
   const updateSort = (sort: DataTableViewState["sort"]): void => update({ sort, pagination: firstPage(viewState.pagination) });
-  const sortFields = (definition.descriptor.outputFields ?? []).filter((field) => field.sortable).map(({ id }) => ({ id, label: id }));
+  const effectiveFields = new Set(data.fields);
+  const sortFields = (definition.descriptor.outputFields ?? []).filter((field) => field.sortable && effectiveFields.has(field.id)).map(({ id }) => ({ id, label: id }));
   const controls = <FilterBar label="Table controls">
-    {definition.searchField === undefined ? null : <SearchControl label={`Search ${definition.descriptor.title}`} value={viewState.search} onChange={updateSearch} />}
-    {Object.entries(definition.facets ?? {}).map(([field, options]) => <FacetFilter key={field} label={field} value={facetValue(viewState.filters, field)} options={options} onChange={(value) => onViewStateChange?.(setFacet(viewState, field, value))} />)}
+    {definition.searchField === undefined || !effectiveFields.has(definition.searchField) ? null : <SearchControl label={`Search ${definition.descriptor.title}`} value={viewState.search} onChange={updateSearch} />}
+    {Object.entries(definition.facets ?? {}).filter(([field]) => effectiveFields.has(field)).map(([field, options]) => <FacetFilter key={field} label={field} value={facetValue(viewState.filters, field)} options={options} onChange={(value) => onViewStateChange?.(setFacet(viewState, field, value))} />)}
     <SortControl label="Sort" {...(viewState.sort[0] === undefined ? {} : { value: viewState.sort[0] })} fields={sortFields} onChange={(sort) => updateSort(sort === undefined ? [] : [sort])} />
     <ColumnChooser columns={definition.columns.filter(({ id }) => data.fields.includes(id))} visibility={visibility} onChange={(id, visible) => update({ columnVisibility: { ...viewState.columnVisibility, [id]: visible } })} />
     <DensityControl value={viewState.density} onChange={(density) => update({ density })} />

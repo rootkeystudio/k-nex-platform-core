@@ -249,7 +249,7 @@ export function createDataTableState<TInput>(definition: DataTableDefinition<TIn
   });
 }
 
-function controls<TInput>(definition: DataTableDefinition<TInput>, state: DataTableViewState): DataSourceQueryControls {
+function controls<TInput>(definition: DataTableDefinition<TInput>, state: DataTableViewState, selectedFields?: readonly string[]): DataSourceQueryControls {
   const descriptorFields = new Map((definition.descriptor.outputFields ?? []).map((field) => [field.id, field]));
   if (!definition.paginationModes.includes(state.pagination.mode)) throw new TypeError(`DataTable pagination mode is not declared: ${state.pagination.mode}.`);
   if (!Number.isInteger(state.pagination.size) || state.pagination.size < 1 || state.pagination.size > definition.descriptor.limits.maxPageSize) throw new TypeError("DataTable page size exceeds source limits.");
@@ -263,6 +263,12 @@ function controls<TInput>(definition: DataTableDefinition<TInput>, state: DataTa
     filters.push({ field: definition.searchField, operator: "contains", value: state.search });
   }
   if (filters.length > definition.descriptor.limits.maxFilters) throw new TypeError("DataTable query controls exceed source limits.");
+  if (selectedFields !== undefined) {
+    const authorized = new Set(selectedFields);
+    if (filters.some(({ field }) => !authorized.has(field)) || state.sort.some(({ field }) => !authorized.has(field))) {
+      throw new TypeError("DataTable query controls use an unauthorized field.");
+    }
+  }
   const pagination = state.pagination.mode === "offset"
     ? { page: { number: state.pagination.page, size: state.pagination.size } }
     : { cursor: { size: state.pagination.size, ...(state.pagination.after === undefined ? {} : { after: state.pagination.after }), ...(state.pagination.before === undefined ? {} : { before: state.pagination.before }) } };
@@ -359,13 +365,19 @@ export function createDataTableController<TInput>(definitionInput: DataTableDefi
     identity(input: TInput, state: DataTableViewState, allowedFields: ReadonlySet<string>, context: Omit<BrowserQueryContext, "signal">) {
       const selection = resolveDataSourceFieldSelection(definition.descriptor, definition.query.selectedFields, allowedFields);
       if (!selection.success) return Promise.reject(new TypeError("DataTable field selection is not authorized."));
-      return definition.query.identityWithControls(input, controls(definition, state), context, selection.selectedFields);
+      try {
+        return definition.query.identityWithControls(input, controls(definition, state, selection.selectedFields), context, selection.selectedFields);
+      } catch (error) {
+        return Promise.reject(error);
+      }
     },
     async execute(transport: BrowserDataTransport, input: TInput, state: DataTableViewState, allowedFields: ReadonlySet<string>, context: BrowserQueryContext): Promise<DataTableRequestState> {
       const selection = resolveDataSourceFieldSelection(definition.descriptor, definition.query.selectedFields, allowedFields);
       if (!selection.success && selection.reason === "REQUIRED_FIELD_NOT_ALLOWED") return freeze({ state: "insufficient-permission" });
       if (!selection.success) return freeze({ state: "invalid-contract" });
-      const result = await definition.query.executeWithControls(transport, input, controls(definition, state), context, selection.selectedFields);
+      let authorizedControls: DataSourceQueryControls;
+      try { authorizedControls = controls(definition, state, selection.selectedFields); } catch { return freeze({ state: "invalid-contract" }); }
+      const result = await definition.query.executeWithControls(transport, input, authorizedControls, context, selection.selectedFields);
       if (state.pagination.mode === "cursor" && result.state === "success" && result.data.page.hasNext && result.data.page.nextCursor === undefined) return freeze({ state: "invalid-contract" });
       return result;
     },

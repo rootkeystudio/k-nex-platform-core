@@ -106,11 +106,13 @@ function validateOperations(
   }
 
   const fields = new Map((descriptor.outputFields ?? []).map((field) => [field.id, field]));
+  const authorizedFields = new Set(selectedFields);
   for (const filter of controls.filters) {
     const field = fields.get(filter.field);
     if (!field || !field.filterOperators.includes(filter.operator)) {
       fail("FILTER_NOT_ALLOWED", 400, "A requested filter is not declared by the source.");
     }
+    if (!authorizedFields.has(filter.field)) fail("FILTER_FIELD_FORBIDDEN", 403, "A requested filter field is unavailable.");
   }
   const sortedFields = new Set<string>();
   for (const sort of controls.sort) {
@@ -118,6 +120,7 @@ function validateOperations(
     if (!field?.sortable || sortedFields.has(sort.field)) {
       fail("SORT_NOT_ALLOWED", 400, "A requested sort is not declared by the source.");
     }
+    if (!authorizedFields.has(sort.field)) fail("SORT_FIELD_FORBIDDEN", 403, "A requested sort field is unavailable.");
     sortedFields.add(sort.field);
   }
 }

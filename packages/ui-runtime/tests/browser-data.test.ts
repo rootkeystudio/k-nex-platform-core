@@ -93,6 +93,16 @@ describe("P6.5 standard browser data factories", () => {
     expect(firstIdentity.key).not.toBe(secondIdentity.key);
   });
 
+  it("rejects selected-field overrides outside the definition projection", async () => {
+    const controls = { page: { number: 1, size: 25 }, filters: [], sort: [] };
+    await expect(query.identityWithControls(query.defaults, controls, queryContext(), ["title", "private-note"]))
+      .rejects.toThrow(TypeError);
+    const queryCall = vi.fn(async () => ({ ok: true as const, data: { rows: [] } }));
+    await expect(query.executeWithControls(transport({ query: queryCall }), query.defaults, controls, queryContext(), ["title", "private-note"]))
+      .resolves.toEqual({ state: "invalid-contract" });
+    expect(queryCall).not.toHaveBeenCalled();
+  });
+
   it("cancels promptly even when transport ignores its signal", async () => {
     const controller = new AbortController();
     const pending = query.execute(transport({ query: () => new Promise(() => undefined) }), query.defaults, queryContext(controller.signal));

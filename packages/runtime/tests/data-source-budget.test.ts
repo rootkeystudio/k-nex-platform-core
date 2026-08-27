@@ -146,6 +146,33 @@ describe("bounded data-source query budgets", () => {
     ), "QUERY_OPERATION_NOT_DECLARED");
   });
 
+  it("rejects filter and sort inference through an unauthorized optional field", () => {
+    const hiddenFieldSource = registeredSource();
+    const hiddenStatus: RegisteredDataSource = {
+      ...hiddenFieldSource,
+      definition: {
+        ...hiddenFieldSource.definition,
+        descriptor: {
+          ...hiddenFieldSource.definition.descriptor,
+          outputFields: hiddenFieldSource.definition.descriptor.outputFields?.map((field) => field.id === "status" ? { ...field, sortable: true } : field)
+        }
+      }
+    };
+    const titleOnly = { selectedFields: ["title"], recordScope: { tenant: "one" } };
+    expectCode(() => new BoundedQueryBudgetEvaluator().evaluate(
+      hiddenStatus,
+      request({ selectedFields: ["title"], query: { page: { number: 1, size: 25 }, filters: [{ field: "status", operator: "eq", value: "secret" }], sort: [] } }),
+      actor(),
+      titleOnly
+    ), "FILTER_FIELD_FORBIDDEN");
+    expectCode(() => new BoundedQueryBudgetEvaluator().evaluate(
+      hiddenStatus,
+      request({ selectedFields: ["title"], query: { page: { number: 1, size: 25 }, filters: [], sort: [{ field: "status", direction: "asc" }] } }),
+      actor("hidden-sort"),
+      titleOnly
+    ), "SORT_FIELD_FORBIDDEN");
+  });
+
   it("enforces body depth, body bytes, query cost, and result bytes", () => {
     expectCode(() => new BoundedQueryBudgetEvaluator().evaluate(
       registeredSource("sales.tasks", { maxDepth: 3 }),

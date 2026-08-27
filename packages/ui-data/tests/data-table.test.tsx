@@ -196,6 +196,33 @@ describe("P7.6 standard DataTable/DataGrid", () => {
     expect(renderToStaticMarkup(<DataTable definition={definition} viewState={createDataTableState(definition)} requestState={{ state: "success", data: authorized }} />)).toContain(">Private note</th>");
   });
 
+  it("removes hidden-field operations from UI and rejects them before transport", async () => {
+    const hiddenDescriptor = {
+      ...salesTasksDescriptor,
+      outputFields: salesTasksDescriptor.outputFields?.map((field) => field.id === "private-note"
+        ? { ...field, sortable: true, filterOperators: ["contains" as const] }
+        : field)
+    };
+    const hiddenDefinition = defineDataTable({
+      ...definition,
+      descriptor: hiddenDescriptor,
+      searchField: "private-note"
+    });
+    const hiddenState = {
+      ...createDataTableState(hiddenDefinition),
+      search: "secret",
+      sort: [{ field: "private-note", direction: "asc" as const }]
+    };
+    const queryCall = vi.fn(async () => ({ ok: true as const, data: records }));
+    const hiddenTransport: BrowserDataTransport = { query: queryCall, mutate: async () => ({ ok: false, problem: { code: "UNUSED", status: 500 } }) };
+    await expect(createDataTableController(hiddenDefinition).execute(hiddenTransport, {}, hiddenState, nonPrivateTaskFields, context))
+      .resolves.toEqual({ state: "invalid-contract" });
+    expect(queryCall).not.toHaveBeenCalled();
+    const markup = renderToStaticMarkup(<DataTable definition={hiddenDefinition} viewState={hiddenState} requestState={{ state: "success", data: records }} />);
+    expect(markup).not.toContain('data-k-nex-component="search-control"');
+    expect(markup).not.toContain('<option value="private-note"');
+  });
+
   it("reflects and updates array-backed facet state", () => {
     const state = { ...createDataTableState(definition), filters: [{ field: "status", operator: "in" as const, value: ["open"] }] };
     const table = renderToStaticMarkup(<DataTable definition={definition} viewState={state} requestState={{ state: "success", data: records }} />);

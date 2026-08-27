@@ -171,7 +171,7 @@ export function defineSourceQuery<TInput, TOutput>(options: SourceQueryOptions<T
   const source = freeze({ ...options.source });
   const projection = (override: readonly string[] | undefined): readonly string[] => {
     const fields = [...(override ?? selectedFields)];
-    if (new Set(fields).size !== fields.length || fields.some((field) => !TableFieldIdSchema.safeParse(field).success)) throw new TypeError("Source query selected fields are invalid.");
+    if (new Set(fields).size !== fields.length || fields.some((field) => !TableFieldIdSchema.safeParse(field).success || !selectedFields.includes(field))) throw new TypeError("Source query selected fields are invalid.");
     return fields;
   };
   const identity = (input: TInput, controls: DataSourceQueryControls | undefined, context: Omit<BrowserQueryContext, "signal">, override?: readonly string[]): Promise<DataSourceQueryIdentity> => {
@@ -184,11 +184,13 @@ export function defineSourceQuery<TInput, TOutput>(options: SourceQueryOptions<T
     } catch (error) {
       return Promise.reject(error);
     }
+    let projectedFields: readonly string[];
+    try { projectedFields = projection(override); } catch (error) { return Promise.reject(error); }
     const identityInput = parsedControls === undefined ? parsed.data : { input: parsed.data, controls: parsedControls.data };
     return createDataSourceQueryIdentity({
       source,
       input: identityInput as JsonValue,
-      selectedFields: projection(override),
+      selectedFields: projectedFields,
       surface: context.surface,
       locale: context.locale ?? null,
       timezone: context.timezone ?? null,
@@ -207,10 +209,12 @@ export function defineSourceQuery<TInput, TOutput>(options: SourceQueryOptions<T
     } catch {
       return freeze({ state: "invalid-contract" as const });
     }
+    let projectedFields: readonly string[];
+    try { projectedFields = projection(override); } catch { return freeze({ state: "invalid-contract" as const }); }
     const response = await request(() => transport.query({
       source,
       input: parsed.data,
-      selectedFields: projection(override),
+      selectedFields: projectedFields,
       ...(parsedControls === undefined ? {} : { controls: parsedControls.data }),
       surface: context.surface,
       signal: context.signal
