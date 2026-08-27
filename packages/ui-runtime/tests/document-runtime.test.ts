@@ -4,6 +4,8 @@ import type { DataSourceDescriptor, UiDocument } from "@k-nex/contracts";
 import {
   createUiDocumentRuntime,
   createUiRuntimeRegistry,
+  defineUiContributionBinding,
+  snapshotUiBlockDefinition,
   type UiBlockDefinition,
   type UiRuntimeActor,
   type UiRuntimeNodeResult
@@ -97,6 +99,58 @@ describe("UI document runtime", () => {
     expect(firstNode(runtime.render({ document: bound, surface: "workspace", actor: actor(["sales.tasks.read"]) }))).toMatchObject({ reason: "SOURCE_FIELD_PERMISSION_DENIED" });
     expect(firstNode(createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [dataBlock], sources: [] })).render({ document: bound, surface: "workspace", actor: actor() }))).toMatchObject({ reason: "MISSING_SOURCE" });
     expect(firstNode(runtime.render({ document: document(), surface: "workspace", actor: actor() }))).toMatchObject({ reason: "SOURCE_BINDING_REQUIRED" });
+  });
+
+  it("requires persisted actions to match the component action policy", () => {
+    const actionBlock = block({ actionPolicy: { required: true, actions: [{ id: "sales.task.create", version: 1 }] } });
+    const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [actionBlock], sources: [] }));
+    expect(firstNode(runtime.render({ document: document(), surface: "workspace", actor: actor() }))).toMatchObject({ reason: "ACTION_BINDING_REQUIRED" });
+    expect(firstNode(runtime.render({ document: document({ bindings: { action: { id: "sales.task.delete", version: 1 } } }), surface: "workspace", actor: actor() }))).toMatchObject({ reason: "ACTION_NOT_ACCEPTED" });
+    expect(firstNode(runtime.render({ document: document({ bindings: { action: { id: "sales.task.create", version: 1 } } }), surface: "workspace", actor: actor() }))).toMatchObject({ status: "rendered" });
+  });
+
+  it("rebinds forged descriptor definitions before registry and document runtime use", () => {
+    const bound = defineUiContributionBinding({
+      descriptor: {
+        id: "sales.trusted-card",
+        version: 1,
+        ownerPluginId: "module.sales",
+        kind: "block",
+        propsSchema: { type: "object", properties: { title: { type: "string", maxLength: 4 } }, required: ["title"], additionalProperties: false },
+        profiles: ["workspace"],
+        surfaces: ["workspace"],
+        audience: "authenticated",
+        permission: "sales.tasks.read",
+        actionPolicy: { required: true, actions: [{ id: "sales.task.create", version: 1 }] },
+        sourcePolicy: { required: true, contracts: [{ id: "table.records", version: 1 }], requiredFields: ["title"] },
+        requiredStates: ["loading", "empty", "error", "forbidden"]
+      },
+      render: ({ props }) => props
+    });
+    const forged = {
+      ...bound,
+      propsSchema: { safeParse: (value: unknown) => ({ success: true as const, data: value }) },
+      sourcePolicy: undefined,
+      actionPolicy: { required: false, actions: [{ id: "sales.task.delete", version: 1 }] }
+    };
+    const direct = snapshotUiBlockDefinition(forged);
+    const registry = createUiRuntimeRegistry({ blocks: [forged], sources: [] });
+    const definition = registry.resolveBlock("sales.trusted-card", 1)!;
+    const runtime = createUiDocumentRuntime(registry);
+    const trustedDocument = (props: Record<string, unknown>, action?: { id: string; version: number }): UiDocument => ({
+      id: "workspace.trusted", version: 1, schemaVersion: 1, profile: "workspace",
+      regions: { main: [{ id: "trusted-card", type: "sales.trusted-card", version: 1, props, ...(action === undefined ? {} : { bindings: { action } }) }] }
+    });
+
+    for (const candidate of [bound, direct, definition]) {
+      expect(candidate.actionPolicy).toEqual({ required: true, actions: [{ id: "sales.task.create", version: 1 }] });
+      expect(candidate.sourcePolicy).toEqual({ required: true, contracts: [{ id: "table.records", version: 1 }], requiredFields: ["title"] });
+      expect(candidate.propsSchema.safeParse({ title: "too long" }).success).toBe(false);
+    }
+    expect(firstNode(runtime.render({ document: trustedDocument({ title: "Task" }), surface: "workspace", actor: actor(["sales.tasks.read"]) }))).toMatchObject({ reason: "ACTION_BINDING_REQUIRED" });
+    expect(firstNode(runtime.render({ document: trustedDocument({ title: "Task" }, { id: "sales.task.delete", version: 1 }), surface: "workspace", actor: actor(["sales.tasks.read"]) }))).toMatchObject({ reason: "ACTION_NOT_ACCEPTED" });
+    expect(firstNode(runtime.render({ document: trustedDocument({ title: "Task" }, { id: "sales.task.create", version: 1 }), surface: "workspace", actor: actor(["sales.tasks.read"]) }))).toMatchObject({ reason: "SOURCE_BINDING_REQUIRED" });
+    expect(firstNode(runtime.render({ document: trustedDocument({ title: "too long" }, { id: "sales.task.create", version: 1 }), surface: "workspace", actor: actor(["sales.tasks.read"]) }))).toMatchObject({ reason: "INVALID_PROPS" });
   });
 
   it("rejects incompatible source structure and descriptor-level input before rendering", () => {

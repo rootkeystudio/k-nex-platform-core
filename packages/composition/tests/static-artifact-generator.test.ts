@@ -92,9 +92,9 @@ const consumerManifest = {
     purge: "supported" as const
   },
   contributions: {
-    behavior: ["consumer.z", "consumer.a"],
-    actions: ["consumer.action"],
-    tools: ["consumer.tool"]
+    services: { "consumer.z": "required" as const, "consumer.a": "optional" as const },
+    actions: { "consumer.action": "required" as const },
+    tools: { "consumer.tool": "required" as const }
   }
 };
 
@@ -128,8 +128,8 @@ const providerManifest = {
     purge: "supported" as const
   },
   contributions: {
-    contracts: ["storage.contract"],
-    schema: ["storage.z", "storage.a"]
+    permissions: { "storage.contract": "required" as const },
+    schema: { "storage.z": "required" as const, "storage.a": "optional" as const }
   }
 };
 
@@ -281,14 +281,21 @@ describe("static artifact generator", () => {
         manifestDigest: `sha256:${sha256(providerManifest)}`,
         required: [],
         optional: [],
-        contributions: { contracts: ["storage.contract"], schema: ["storage.a", "storage.z"] },
+        contributions: {
+          permissions: { "storage.contract": "required" },
+          schema: { "storage.a": "optional", "storage.z": "required" }
+        },
         lifecycle: providerManifest.lifecycle,
         environment: { names: ["STORAGE_REGION", "STORAGE_TOKEN"] }
       }),
       expect.objectContaining({
         id: "module.consumer",
         manifestDigest: `sha256:${sha256(consumerManifest)}`,
-        contributions: { actions: ["consumer.action"], behavior: ["consumer.a", "consumer.z"], tools: ["consumer.tool"] },
+        contributions: {
+          actions: { "consumer.action": "required" },
+          services: { "consumer.a": "optional", "consumer.z": "required" },
+          tools: { "consumer.tool": "required" }
+        },
         lifecycle: consumerManifest.lifecycle
       })
     ]));

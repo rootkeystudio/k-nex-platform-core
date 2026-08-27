@@ -51,6 +51,7 @@ type ApplicationFixture = {
 const integrity = "sha512-ZmFrZS1wbHVnaW4=";
 
 function manifestFor(name: string, id: string, version: string): Manifest {
+  const namespace = id.split(".")[1];
   return {
     apiVersion: 1,
     id,
@@ -67,15 +68,15 @@ function manifestFor(name: string, id: string, version: string): Manifest {
     environment: [{ name: "SALES_SECRET", secret: true, requiredWhen: "enabled", description: "signs links" }],
     lifecycle: { ownsPayloadSchema: true, ownsPersistentData: true, disable: "supported", uninstall: "unsupported", purge: "supported" },
     contributions: {
-      contracts: ["sales.tasks"],
-      schema: ["sales.task"],
-      behavior: ["sales.task.create"],
-      jobs: ["sales.task.reminder"],
-      dataSources: ["sales.tasks"],
-      actions: ["sales.task.create"],
-      blocks: ["sales.task-list"],
-      navigation: ["sales.tasks.navigation"],
-      admin: ["sales.tasks.admin"]
+      permissions: { [`${namespace}.tasks.read`]: "required" },
+      schema: { [`${namespace}.task-schema`]: "required" },
+      services: { [`${namespace}.task-service`]: "required" },
+      jobs: { [`${namespace}.task-reminder`]: "required" },
+      sources: { [`${namespace}.tasks`]: "required" },
+      actions: { [`${namespace}.task.create`]: "required" },
+      blocks: { [`${namespace}.task-list`]: "required" },
+      navigation: { [`${namespace}.tasks.navigation`]: "required" },
+      routes: { [`${namespace}.tasks.admin`]: "optional" }
     }
   };
 }

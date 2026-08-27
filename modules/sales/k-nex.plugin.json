@@ -28,19 +28,104 @@
     "purge": "supported"
   },
   "contributions": {
-    "schema": [
-      "sales.tasks.collection"
-    ],
-    "dataSources": [
-      "sales.tasks",
-      "sales.total-potential-revenue"
-    ],
-    "actions": [
-      "sales.task.create"
-    ],
-    "tools": [
-      "sales.tools.search-tasks",
-      "sales.tools.create-task"
-    ]
+    "schema": {
+      "sales.opportunities.collection": "required",
+      "sales.tasks.collection": "required"
+    },
+    "migrations": {
+      "sales.migration.initial": "required"
+    },
+    "services": {
+      "sales.service.domain": "required"
+    },
+    "permissions": {
+      "sales.settings.read": "required",
+      "sales.settings.write": "required",
+      "sales.opportunities.name.read": "required",
+      "sales.opportunities.read": "required",
+      "sales.opportunities.stage.read": "required",
+      "sales.opportunities.value.read": "required",
+      "sales.opportunities.write": "required",
+      "sales.tasks.private-note.read": "required",
+      "sales.tasks.read": "required",
+      "sales.tasks.revenue.read": "required",
+      "sales.tasks.status.read": "required",
+      "sales.tasks.title.read": "required",
+      "sales.tasks.write": "required"
+    },
+    "settings": {
+      "sales.settings.workspace": "required"
+    },
+    "sources": {
+      "sales.opportunities": "required",
+      "sales.tasks": "required",
+      "sales.total-potential-revenue": "required"
+    },
+    "actions": {
+      "sales.opportunity.stage.update": "required",
+      "sales.task.create": "required",
+      "sales.task.update": "required"
+    },
+    "blocks": {
+      "sales.opportunity-detail": "required",
+      "sales.opportunity-list": "required",
+      "sales.revenue-metric": "required",
+      "sales.settings-summary": "required",
+      "sales.task-quick-create": "required",
+      "sales.task-table": "required"
+    },
+    "components": {
+      "sales.detail.opportunity": "required",
+      "sales.form.task-quick-create": "required",
+      "sales.list.opportunities": "required",
+      "sales.metric.total-potential-revenue": "required",
+      "sales.status.pipeline-stage": "required",
+      "sales.table.tasks": "required"
+    },
+    "tools": {
+      "sales.tools.create-task": "required",
+      "sales.tools.search-tasks": "required"
+    },
+    "routes": {
+      "sales.route.opportunities": "required",
+      "sales.route.overview": "required",
+      "sales.route.settings": "required",
+      "sales.route.tasks": "required"
+    },
+    "navigation": {
+      "sales.navigation.opportunities": "required",
+      "sales.navigation.overview": "required",
+      "sales.navigation.settings": "required",
+      "sales.navigation.tasks": "required"
+    },
+    "pageTemplates": {
+      "sales.page.opportunities": "required",
+      "sales.page.overview": "required",
+      "sales.page.settings": "required",
+      "sales.page.tasks": "required"
+    },
+    "events": {
+      "sales.event.opportunity-changed": "required",
+      "sales.event.task-changed": "required"
+    },
+    "jobs": {
+      "sales.job.pipeline-audit": "required"
+    },
+    "realtimeTopics": {
+      "sales.realtime.opportunities": "required",
+      "sales.realtime.tasks": "required"
+    },
+    "localization": {
+      "sales.localization.en": "required"
+    },
+    "healthAudit": {
+      "sales.health.runtime": "required"
+    },
+    "lifecycle": {
+      "sales.lifecycle.reference": "required"
+    },
+    "testingMetadata": {
+      "sales.testing.conformance": "required"
+    }
   }
 }

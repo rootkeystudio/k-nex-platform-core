@@ -79,6 +79,7 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
     const migrated = await query(connectionString, `
       select
         to_regclass('public.sales_tasks')::text as sales_tasks,
+        to_regclass('public.sales_opportunities')::text as sales_opportunities,
         to_regclass('public.payload_mcp_api_keys')::text as payload_mcp_api_keys,
         to_regclass('public.k_nex_outbox')::text as k_nex_outbox,
         to_regclass('public.sales_event_effects')::text as sales_event_effects,
@@ -87,11 +88,13 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
         (select count(*)::int from payload_migrations where name = '20260826_000003_payload_mcp') as mcp_migration_count,
         (select count(*)::int from payload_migrations where name = '20260826_000004_event_outbox') as outbox_migration_count,
         (select count(*)::int from payload_migrations where name = '20260826_000005_outbox_processor') as outbox_processor_migration_count,
+        (select count(*)::int from payload_migrations where name = '20260827_000006_sales_opportunities') as opportunities_migration_count,
         (select predecessor_revision from k_nex_migration_revision where id = 1) as predecessor_revision,
         (select revision from k_nex_migration_revision where id = 1) as revision
     `);
     assert.deepEqual(migrated.rows, [{
       sales_tasks: "sales_tasks",
+      sales_opportunities: "sales_opportunities",
       payload_mcp_api_keys: "payload_mcp_api_keys",
       k_nex_outbox: "k_nex_outbox",
       sales_event_effects: "sales_event_effects",
@@ -100,8 +103,9 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
       mcp_migration_count: 1,
       outbox_migration_count: 1,
       outbox_processor_migration_count: 1,
-      predecessor_revision: 4,
-      revision: 5
+      opportunities_migration_count: 1,
+      predecessor_revision: 5,
+      revision: 6
     }]);
 
     const outboxSchema = await runFixtureProcess("tests/outbox-schema.mjs", connectionString);
@@ -127,13 +131,19 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
     assert.equal(currentBoot.code, 0, `${currentBoot.stdout}\n${currentBoot.stderr}`);
     assert.match(currentBoot.stdout, /^READY$/m);
     const current = await query(connectionString, "select count(*)::int as count from payload_migrations");
-    assert.equal(current.rows[0].count, 5);
+    assert.equal(current.rows[0].count, 6);
 
     const authenticated = await runFixtureProcess("tests/authenticated-runtime.mjs", connectionString, {
       BOOT_KEY: "gate1-authenticated-runtime"
     });
     assert.equal(authenticated.code, 0, `${authenticated.stdout}\n${authenticated.stderr}`);
     assert.match(authenticated.stdout, /^P1_8_PASS$/m);
+
+    const salesLifecycle = await runFixtureProcess("tests/sales-lifecycle.mjs", connectionString, {
+      BOOT_KEY: "gate6-sales-lifecycle"
+    });
+    assert.equal(salesLifecycle.code, 0, `${salesLifecycle.stdout}\n${salesLifecycle.stderr}`);
+    assert.match(salesLifecycle.stdout, /^P6_9_SALES_LIFECYCLE_PASS$/m);
 
     const mcpLifecycle = await runFixtureProcess("tests/mcp-lifecycle.mjs", connectionString, {
       BOOT_KEY: "gate2a-mcp-lifecycle"
@@ -147,6 +157,12 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
     assert.equal(outboxProcessing.code, 0, `${outboxProcessing.stdout}\n${outboxProcessing.stderr}`);
     assert.match(outboxProcessing.stdout, /^P3_3_OUTBOX_PROCESSING_PASS$/m);
     assert.match(outboxProcessing.stdout, /^P3_9_DUPLICATE_OUTBOX_PASS$/m);
+
+    const salesEventRealtime = await runFixtureProcess("tests/sales-event-realtime.mjs", connectionString, {
+      BOOT_KEY: "gate6-sales-event-realtime"
+    });
+    assert.equal(salesEventRealtime.code, 0, `${salesEventRealtime.stdout}\n${salesEventRealtime.stderr}`);
+    assert.match(salesEventRealtime.stdout, /^P6_SALES_EVENT_REALTIME_PASS$/m);
 
     const distributedRealtime = await runFixtureProcess("tests/distributed-realtime.mjs", connectionString, {
       BOOT_KEY: "gate3-6-distributed-realtime",

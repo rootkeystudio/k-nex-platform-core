@@ -30,6 +30,8 @@ See [Plugin Platform Hardening and the Sales Reference Module](./33-plugin-platf
 
 Server dependencies must not leak into contracts/browser/UI entrypoints. Third-party component/query/editor/protocol types remain behind K-Nex adapters.
 
+`module.sales` is the executable package skeleton. Server registration uses `definePluginRegistration` from `@k-nex/runtime`; each phase receives only its registration operations and a capability reader that rejects services absent from the manifest-derived dependency grant. The package exports exactly the seven entrypoints above and exposes no root convenience entrypoint.
+
 ## Canonical manifest
 
 Do not copy a new manifest shape into prose. Use:
@@ -164,9 +166,13 @@ Puck field/bridge metadata
 
 The component renders outside Puck. Puck is only an authoring bridge.
 
+`PluginUiContributionDescriptorSchema` is the serializable component/block authority: canonical props JSON Schema, source/action policy, surface/audience/permission, and all required fallback states. `defineUiContributionBinding` derives its executable props validator from that schema and pairs it with the production renderer. Registration requires a descriptor plus renderer binding for both component and block inventories. `reconcilePuckBlockContribution` accepts only that same canonical block definition, so editor fields/defaults cannot replace renderer or persisted authority.
+
 ## Routes and navigation
 
 Modules contribute route IDs with typed parameters, surface/audience, permission, and page/view references. Navigation items reference route IDs rather than unrestricted URLs.
+
+`PluginRouteDescriptorSchema` and `PluginNavigationDescriptorSchema` validate source declarations. `resolvePluginNavigation` resolves installed targets, typed parameters, parent visibility, authentication, and both route and item permission before producing an href.
 
 The fixed application shell owns authentication, global routing, breadcrumbs, error boundaries, and system navigation.
 
@@ -186,6 +192,8 @@ migration metadata
 
 Installation may instantiate a template idempotently. The resulting page is customer-owned and mutable. Package upgrades never overwrite customer edits; a newer template is offered through an explicit compare/adopt operation.
 
+`PluginPageTemplateDescriptorSchema` binds an immutable template version to its canonical `UiDocument`, typed route, profile, permission, publication policy, and exact capability/source/action/block requirements. `instantiatePluginPageTemplate` performs fail-closed preflight and atomic create-if-absent. Page-template inventory carries a nonnegative safe authority revision; preflight clones an immutable authority snapshot and initial creation atomically compares that revision before writing. A stored customer instance is returned idempotently only while current template authority remains valid: customer ownership preserves edits, but does not authorize rendering a page whose required source, action, block, route, permission, or capability has been revoked. Later versions use `comparePluginPageTemplate` and `adoptPluginPageTemplate`; adoption requires an explicit migration, re-preflights the migrated candidate from a fresh authority snapshot, and atomically compares both customer and authority revisions before writing.
+
 Sales reference pages:
 
 ```text
@@ -199,11 +207,15 @@ sales.page.settings
 
 Settings are plugin-owned, strict, schema-versioned records. They may configure installed behavior but cannot install packages, add schema, create executable contributions, store secret values, change required topology, or weaken authorization.
 
+Authors declare `PluginSettingsDescriptorSchema` metadata and a strict runtime schema. `resolvePluginSettings` applies sequential version migrations, defaults, validation, and immutable output; secret-bearing fields accept only `SecretReferenceSchema` references.
+
 ## Agent tools
 
 A module may explicitly project selected registered sources/actions as tools. Tool discovery and invocation remain actor/delegation filtered, reauthorized, budgeted, approval-aware, idempotent where required, and audited.
 
 Raw Payload collection exposure and module-owned ambient MCP handlers are prohibited.
+
+Browser entrypoints declare data behavior with `defineSourceQuery` and `defineActionMutation`. These immutable, query-library-neutral definitions validate input/output, use only the injected platform transport, forward cancellation, expose standard result states, derive authorization-safe stable query identities, and declare source invalidation. `serializeBrowserViewState` provides bounded canonical URL-safe state and rejects actor or authorization record scope.
 
 ## Events, jobs, and realtime
 

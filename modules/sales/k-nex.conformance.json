@@ -1,0 +1,74 @@
+{
+  "pluginId": "module.sales",
+  "pluginPackage": "@k-nex/module-sales",
+  "proofs": [
+    {
+      "covers": ["manifest-schema-fixtures"],
+      "file": "tests/conformance.test.mjs",
+      "id": "manifest-schema-fixtures",
+      "kind": "node-test",
+      "testName": "Sales manifest and registration inventory match every supported category"
+    },
+    {
+      "covers": ["package-export-boundaries"],
+      "id": "package-export-boundaries",
+      "kind": "runner-proof"
+    },
+    {
+      "covers": ["deterministic-inventory", "fresh-migration-boot", "install-disable-reenable"],
+      "id": "customer-postgres-lifecycle",
+      "kind": "runner-proof"
+    },
+    {
+      "covers": ["settings-permission-attacks"],
+      "file": "tests/settings.test.mjs",
+      "id": "settings-permission-attacks",
+      "kind": "node-test",
+      "testName": "Sales persisted settings enforce read/change permissions and drive workspace presentation"
+    },
+    {
+      "covers": ["source-action-tool-event-realtime"],
+      "id": "sales-platform-boundaries",
+      "kind": "runner-proof"
+    },
+    {
+      "covers": ["browser-query-action-factories"],
+      "file": "tests/browser.test.mjs",
+      "id": "browser-query-action-factories",
+      "kind": "node-test",
+      "testName": "Sales browser factories execute only through injected platform transport"
+    },
+    {
+      "covers": ["component-runtime-puck"],
+      "file": "tests/ui.test.mjs",
+      "id": "component-runtime-puck",
+      "kind": "node-test",
+      "testName": "every Sales UI contribution renders outside the editor and every block reconciles into Puck"
+    },
+    {
+      "covers": ["default-page-seed"],
+      "file": "tests/conformance.test.mjs",
+      "id": "default-page-seed",
+      "kind": "node-test",
+      "testName": "Sales default page seeds once as a customer-owned document"
+    },
+    {
+      "covers": ["accessibility-smoke"],
+      "file": "tests/ui.test.mjs",
+      "id": "accessibility-smoke",
+      "kind": "node-test",
+      "testName": "Sales UI contributions expose labelled semantic regions"
+    },
+    {
+      "covers": ["reference-documentation-generation"],
+      "id": "reference-documentation-generation",
+      "kind": "runner-proof"
+    },
+    {
+      "covers": ["packed-reproducibility"],
+      "id": "packed-reproducibility",
+      "kind": "runner-proof"
+    }
+  ],
+  "schemaVersion": 3
+}

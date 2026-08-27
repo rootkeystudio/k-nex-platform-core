@@ -19,9 +19,12 @@ import {
 import { Ajv2020, type AnySchema } from "ajv/dist/2020.js";
 import addFormatsModule from "ajv-formats";
 
+import { registerPluginContributionOwnershipKeyword } from "./plugin-contribution-ownership.js";
+
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 addFormatsModule.default(ajv);
+registerPluginContributionOwnershipKeyword(ajv);
 ajv.addKeyword({
   keyword: "kNexMaxCanonicalBytes",
   type: "object",
@@ -51,7 +54,6 @@ ajv.addKeyword({
   errors: false,
   validate: (enabled: boolean, data: unknown) => !enabled || UiDocumentSchema.safeParse(data).success
 });
-
 const circular: { self?: unknown } = {};
 circular.self = circular;
 for (const unsupported of [undefined, Number.NaN, 1n, new Date(0), { value: undefined }, circular]) {
@@ -129,7 +131,12 @@ for (const relativePath of [
   "fixtures/theme-profiles/invalid/non-theme-id.json",
   "fixtures/theme-profiles/invalid/unsafe-url.json",
   "fixtures/theme-profiles/invalid/unsafe-key.json",
-  "fixtures/theme-profiles/invalid/too-many-overrides.json"
+  "fixtures/theme-profiles/invalid/too-many-overrides.json",
+  "fixtures/plugin-manifests/valid/module.sales.json",
+  "fixtures/plugin-manifests/invalid/empty-category.json",
+  "fixtures/plugin-manifests/invalid/invalid-requirement.json",
+  "fixtures/plugin-manifests/invalid/unknown-category.json",
+  "fixtures/plugin-manifests/invalid/wrong-owner.json"
 ]) {
   await loadCanonical(relativePath);
 }
@@ -179,11 +186,23 @@ if (!generatedContracts.artifacts.includes("schemas/cms-page-metadata.v1.schema.
   throw new Error("Generated artifact inventory is missing schemas/cms-page-metadata.v1.schema.json.");
 }
 
-const driver = await load("fixtures/plugin-manifests/module.logistics.driver.json");
-if (!PluginManifestSchema.safeParse(driver).success) throw new Error("Valid driver fixture failed the Zod authoring schema.");
-if (!validatePlugin(driver)) throw new Error(`Valid driver fixture failed generated schema: ${ajv.errorsText(validatePlugin.errors)}`);
+const salesPlugin = await load("fixtures/plugin-manifests/valid/module.sales.json");
+if (!PluginManifestSchema.safeParse(salesPlugin).success) throw new Error("Valid Sales fixture failed the Zod authoring schema.");
+if (!validatePlugin(salesPlugin)) throw new Error(`Valid Sales fixture failed generated schema: ${ajv.errorsText(validatePlugin.errors)}`);
 
-const invalidLifecycle = structuredClone(driver) as { lifecycle: { uninstall: string } };
+for (const path of [
+  "fixtures/plugin-manifests/invalid/empty-category.json",
+  "fixtures/plugin-manifests/invalid/invalid-requirement.json",
+  "fixtures/plugin-manifests/invalid/unknown-category.json",
+  "fixtures/plugin-manifests/invalid/wrong-owner.json"
+]) {
+  const fixture = await load(path);
+  if (PluginManifestSchema.safeParse(fixture).success || validatePlugin(fixture)) {
+    throw new Error(`Invalid plugin fixture must fail both Zod and generated JSON Schema validation: ${path}.`);
+  }
+}
+
+const invalidLifecycle = structuredClone(salesPlugin) as { lifecycle: { uninstall: string } };
 invalidLifecycle.lifecycle.uninstall = "supported";
 if (PluginManifestSchema.safeParse(invalidLifecycle).success) throw new Error("Zod authoring schema accepted retained-schema uninstall for a schema-owning V1 plugin.");
 if (validatePlugin(invalidLifecycle)) throw new Error("Generated schema accepted retained-schema uninstall for a schema-owning V1 plugin.");

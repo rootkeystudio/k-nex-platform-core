@@ -6,7 +6,8 @@ import { join, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
 
 const packageRoot = resolve(import.meta.dirname, "..");
-const temporaryRoot = mkdtempSync(join(tmpdir(), "k-nex-module-sales-pack-"));
+const firstTemporaryRoot = mkdtempSync(join(tmpdir(), "k-nex-module-sales-pack-first-"));
+const secondTemporaryRoot = mkdtempSync(join(tmpdir(), "k-nex-module-sales-pack-second-"));
 const filename = "k-nex-module-sales-1.0.0.tgz";
 
 function tarEntries(archive) {
@@ -34,20 +35,50 @@ function assertEquivalent(generated, committed) {
   for (const [name, content] of generatedEntries) {
     const expected = committedEntries.get(name);
     if (expected === undefined) throw new Error(`Packed Sales entry ${name} is missing.`);
-    if (name === "package/package.json") {
-      assert.deepEqual(JSON.parse(content.toString("utf8")), JSON.parse(expected.toString("utf8")));
-    } else if (!content.equals(expected)) {
+    if (!content.equals(expected)) {
       throw new Error(`Packed Sales entry ${name} is stale or non-deterministic.`);
     }
   }
 }
 
+function canonicalPackageArchive(archive) {
+  assert.ok(archive.length >= 10, "Packed Sales gzip archive is truncated.");
+  assert.deepEqual([...archive.subarray(0, 3)], [0x1f, 0x8b, 0x08], "Packed Sales archive must use gzip.");
+  const canonical = Buffer.from(archive);
+  canonical[9] = 0xff;
+  return canonical;
+}
+
+function assertDeclaredEntrypoints(archive) {
+  const entries = tarEntries(archive);
+  const packageJson = JSON.parse(entries.get("package/package.json")?.toString("utf8") ?? "null");
+  const entrypoints = ["./browser", "./contracts", "./manifest", "./migrations", "./server", "./testing", "./ui"];
+  assert.deepEqual(Object.keys(packageJson.exports).sort(), entrypoints);
+
+  const expectedFiles = new Set(["package/package.json"]);
+  for (const value of Object.values(packageJson.exports)) {
+    for (const target of typeof value === "string" ? [value] : Object.values(value)) {
+      expectedFiles.add(`package/${target.replace(/^\.\//, "")}`);
+    }
+  }
+  assert.deepEqual([...entries.keys()].sort(), [...expectedFiles].sort());
+}
+
 try {
-  execFileSync("pnpm", ["pack", "--pack-destination", temporaryRoot], { cwd: packageRoot, stdio: "ignore" });
-  const generated = gunzipSync(readFileSync(join(temporaryRoot, filename)));
-  const committed = gunzipSync(readFileSync(resolve(packageRoot, "../../fixtures/customer-gate-1/packages", filename)));
+  execFileSync("pnpm", ["pack", "--pack-destination", firstTemporaryRoot], { cwd: packageRoot, stdio: "ignore" });
+  execFileSync("pnpm", ["pack", "--pack-destination", secondTemporaryRoot], { cwd: packageRoot, stdio: "ignore" });
+  const firstArchive = readFileSync(join(firstTemporaryRoot, filename));
+  const secondArchive = readFileSync(join(secondTemporaryRoot, filename));
+  const committedArchive = readFileSync(resolve(packageRoot, "../../fixtures/customer-gate-1/packages", filename));
+  assert.equal(firstArchive.equals(secondArchive), true, "Consecutive Sales package archives are not byte-reproducible.");
+  assert.equal(committedArchive.equals(canonicalPackageArchive(committedArchive)), true, "The committed Sales package archive must use the cross-platform gzip OS marker.");
+  assert.equal(canonicalPackageArchive(firstArchive).equals(committedArchive), true, "The committed Sales package archive bytes are stale or non-deterministic.");
+  const generated = gunzipSync(firstArchive);
+  const committed = gunzipSync(committedArchive);
+  assertDeclaredEntrypoints(generated);
   assertEquivalent(generated, committed);
-  console.log("The committed Sales package tar content is current and reproducible.");
+  console.log("The committed Sales package archive is current and byte-reproducible.");
 } finally {
-  rmSync(temporaryRoot, { recursive: true, force: true });
+  rmSync(firstTemporaryRoot, { recursive: true, force: true });
+  rmSync(secondTemporaryRoot, { recursive: true, force: true });
 }

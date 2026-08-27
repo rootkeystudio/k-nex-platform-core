@@ -4,6 +4,7 @@ import { DataSourceGatewayError } from "@k-nex/runtime";
 import type { PayloadRequest } from "payload";
 
 import { PayloadRequestAuthenticator } from "../src/data-source-authenticator.js";
+import { createPayloadPersistenceCapability } from "../src/persistence-capability.js";
 
 const payload = { find: () => undefined };
 const rawRequest = {
@@ -25,7 +26,8 @@ function authenticator() {
         impersonation: { reason: "Support investigation", approvedBy: "admin-1" }
       };
     },
-    authorizationContext: () => ({ permissionRevision: "permissions-7" })
+    authorizationContext: () => ({ permissionRevision: "permissions-7" }),
+    requestContext: (request) => createPayloadPersistenceCapability(request, [{ collection: "sales-tasks", operations: ["find"] }])
   });
 }
 
@@ -53,10 +55,12 @@ describe("Payload data-source authentication adapter", () => {
 
   it("passes only the capability-scoped Payload request context to handlers", () => {
     const result = authenticator().authenticate(gatewayRequest);
-    expect(result.request).toEqual({ payload, locale: "en", transactionID: "tx-1" });
+    expect(result.request).toMatchObject({ locale: "en", transactionID: "tx-1" });
+    expect((result.request as { payload: unknown }).payload).not.toBe(payload);
     expect(result.request).not.toHaveProperty("headers");
     expect(result.request).not.toHaveProperty("user");
     expect(result.request).not.toHaveProperty("context");
+    expect(result.request).not.toHaveProperty("payload.config");
   });
 
   it("maps an unauthenticated Payload request to an explicit public actor", () => {
@@ -71,8 +75,15 @@ describe("Payload data-source authentication adapter", () => {
     expect(() => authenticator().authenticate({ ...gatewayRequest, rawRequest: {} })).toThrowError(DataSourceGatewayError);
     const invalid = new PayloadRequestAuthenticator({
       actor: () => ({ principal: { kind: "user", id: "one" }, effectiveActor: { kind: "user", id: "two" } }),
-      authorizationContext: () => ({})
+      authorizationContext: () => ({}),
+      requestContext: () => ({})
     });
     expect(() => invalid.authenticate(gatewayRequest)).toThrowError(DataSourceGatewayError);
+  });
+
+  it("denies operations outside the platform-issued collection grant", async () => {
+    const context = createPayloadPersistenceCapability(rawRequest, [{ collection: "sales-tasks", operations: ["find"] }]);
+    await expect(context.payload.find({ collection: "users", overrideAccess: true })).rejects.toThrow(/denied/i);
+    await expect(context.payload.update({ collection: "sales-tasks", overrideAccess: true })).rejects.toThrow(/denied/i);
   });
 });

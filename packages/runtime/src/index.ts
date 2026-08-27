@@ -1,5 +1,6 @@
 export * from "./registration-runtime.js";
 export * from "./action.js";
+export * from "./action-gateway.js";
 export * from "./tool-catalog.js";
 export * from "./tool-gateway.js";
 export * from "./tool-delegation.js";
@@ -16,3 +17,6 @@ export * from "./registered-tool-stages.js";
 export * from "./realtime.js";
 export * from "./realtime-topology.js";
 export * from "./source-convergence.js";
+export * from "./plugin-settings.js";
+export * from "./page-template.js";
+export * from "./plugin-lifecycle.js";

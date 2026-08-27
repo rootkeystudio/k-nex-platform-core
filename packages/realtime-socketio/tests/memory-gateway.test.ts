@@ -31,7 +31,7 @@ const revokedSessions = new Set<string>();
 let topicAllowed = true;
 
 const security = {
-  acknowledgementTimeoutMs: 20,
+  acknowledgementTimeoutMs: 1_000,
   authenticationTimeoutMs: 20,
   allowedOrigins: ["https://app.example.test"],
   allowedTransports: ["websocket"],

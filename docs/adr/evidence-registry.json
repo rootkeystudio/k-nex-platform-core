@@ -64,7 +64,7 @@
         "packages/contracts/tests/agent-tool.test.ts",
         "packages/payload-adapter/src/mcp-adapter.ts",
         "packages/payload-adapter/tests/mcp-adapter.test.ts",
-        "packages/payload-adapter/tests/mcp-sales-proof.test.ts",
+        "modules/sales/tests/mcp-sales-proof.test.ts",
         "packages/runtime/src/tool-catalog.ts",
         "packages/runtime/src/tool-gateway.ts",
         "packages/runtime/src/registered-tool-stages.ts",

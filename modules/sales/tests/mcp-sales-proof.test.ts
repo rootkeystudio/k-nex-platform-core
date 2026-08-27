@@ -32,7 +32,10 @@ import {
   DelegatedToolCatalogPolicy,
   ToolGatewayError,
   ToolExecutionGateway,
+  createPluginLifecycleState,
   executeRegistration,
+  reconcilePluginAvailability,
+  scopePluginRegistration,
   type DataSourceHandler,
   type DataSourcePolicyService,
   type RegisteredDataSource,
@@ -49,16 +52,16 @@ import {
 } from "@k-nex/module-sales/server";
 import { describe, expect, it } from "vitest";
 
-import { createPayloadMcpPlugin, createPayloadMcpPluginConfig } from "../src/mcp-adapter.js";
-import { PayloadRequestAuthenticator } from "../src/data-source-authenticator.js";
+import { createPayloadMcpPlugin, createPayloadMcpPluginConfig, createPayloadPersistenceCapability, PayloadRequestAuthenticator } from "@k-nex/payload-adapter";
 
 const manifest = PluginManifestSchema.parse(JSON.parse(readFileSync(
-  resolve(import.meta.dirname, "../../../modules/sales/k-nex.plugin.json"),
+  resolve(import.meta.dirname, "../k-nex.plugin.json"),
   "utf8"
 )));
 
-function registration() {
-  return executeRegistration({
+function registration(scope = true) {
+  const integrity = `sha512-${"a".repeat(86)}==`;
+  const raw = executeRegistration({
     graph: {
       resolverVersion: "1.0.0",
       plugins: [{
@@ -66,7 +69,7 @@ function registration() {
         kind: manifest.kind,
         package: manifest.package,
         version: manifest.version,
-        integrity: "sha512-sales-tool-proof",
+        integrity,
         required: [],
         optional: []
       }],
@@ -74,16 +77,27 @@ function registration() {
       registrationOrder: [manifest.id]
     },
     installed: [{
-      package: { name: manifest.package, version: manifest.version, integrity: "sha512-sales-tool-proof" },
+      package: { name: manifest.package, version: manifest.version, integrity },
       manifest
     }],
     registrations: [salesRegistration]
   });
+  const lifecycle = createPluginLifecycleState({
+    pluginId: manifest.id, catalogStatus: "supported",
+    package: { status: "installed", name: manifest.package, version: manifest.version, integrity },
+    enabled: true, configuration: { revision: 1, ready: true }, migration: { current: 1, required: 1, ready: true },
+    dataState: "active", releaseStatus: "supported"
+  });
+  if (!scope) return raw;
+  return scopePluginRegistration(raw, [reconcilePluginAvailability(raw, lifecycle)]);
 }
 
 describe("P2A.8 Sales tool proof", () => {
   it("runs one logical approved write and enforces actor-filtered MCP list/call", async () => {
     const resolved = registration();
+    expect(() => new ToolCatalog(registration(false) as never, { isVisible: () => true })).toThrowError(/authoritative lifecycle scoping/);
+    expect(() => new RegisteredToolTargetResolver(registration(false) as never).resolve(salesCreateTaskToolDescriptor))
+      .toThrowError(/until lifecycle availability is reconciled/);
     const actor = {
       principal: { kind: "user" as const, id: "user-1" },
       effectiveActor: { kind: "user" as const, id: "user-1" }
@@ -179,10 +193,10 @@ describe("P2A.8 Sales tool proof", () => {
       resolve: () => ({ principalId: "user-1", agentRunId: "run-1" })
     });
     const sourceDefinitions = new Map(
-      resolved.contributions.dataSources.map(({ id, value }) => [id, value as DataSourceDefinition])
+      resolved.contributions.sources.map(({ id, value }) => [id, value as DataSourceDefinition])
     );
     const sourceHandlers = new Map(
-      resolved.bindings.dataSources.map(({ id, value }) => [id, value as DataSourceHandler])
+      resolved.bindings.sources.map(({ id, value }) => [id, value as DataSourceHandler])
     );
     const sourceCatalog = {
       lookup: (sourceId: string): RegisteredDataSource | undefined => {
@@ -206,7 +220,10 @@ describe("P2A.8 Sales tool proof", () => {
     const dataSourceGateway = new DataSourceGateway({
       authenticator: new PayloadRequestAuthenticator({
         actor: salesActor,
-        authorizationContext: () => ({ permissionFingerprint: "sales:open:full" })
+        authorizationContext: () => ({ permissionFingerprint: "sales:open:full" }),
+        requestContext: (request) => createPayloadPersistenceCapability(request, [
+          { collection: "sales-tasks", operations: ["find", "create"] }
+        ])
       }),
       catalog: sourceCatalog,
       surfaceAudience: new DescriptorSurfaceAudienceGuard(),
@@ -250,7 +267,10 @@ describe("P2A.8 Sales tool proof", () => {
         authenticate: (request) => {
           const authenticated = new PayloadRequestAuthenticator({
             actor: salesActor,
-            authorizationContext: () => catalogContext.authorizationContext
+            authorizationContext: () => catalogContext.authorizationContext,
+            requestContext: (payloadRequest) => createPayloadPersistenceCapability(payloadRequest, [
+              { collection: "sales-tasks", operations: ["find", "create"] }
+            ])
           }).authenticate({
             correlationId: request.correlationId,
             rawRequest: request.rawRequest,

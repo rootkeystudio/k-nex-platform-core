@@ -13,7 +13,7 @@ import {
   type ActionHandlerRequest
 } from "./action.js";
 import { dataSourceToolCompatible, type DataSourceGatewayRequest, type DataSourceGatewayResponse } from "./data-source-gateway.js";
-import type { RegistrationResult } from "./registration-runtime.js";
+import { assertExecutableRegistrationAuthority, type ScopedRegistrationResult } from "./plugin-lifecycle.js";
 import {
   ToolGatewayError,
   type SourceActionDispatcher,
@@ -41,18 +41,21 @@ function targetVersion(descriptor: AgentToolDescriptor): number {
 }
 
 export class RegisteredToolTargetResolver {
-  constructor(private readonly registration: RegistrationResult) {}
+  constructor(private readonly registration: ScopedRegistrationResult) {}
 
   resolve(descriptor: AgentToolDescriptor): RegisteredToolTarget {
     if (!AgentToolDescriptorSchema.safeParse(descriptor).success) {
       throw new ToolGatewayError("TOOL_TARGET_FORBIDDEN", 403, "Tool target access is forbidden.");
     }
     const id = targetId(descriptor);
+    try { assertExecutableRegistrationAuthority(this.registration); } catch {
+      throw new ToolGatewayError("TOOL_TARGET_FORBIDDEN", 403, "Tool target access is forbidden until lifecycle availability is reconciled.");
+    }
     const version = targetVersion(descriptor);
     const kind = descriptor.invocation.kind;
-    const contribution = this.registration.contributions[kind === "source" ? "dataSources" : "actions"]
+    const contribution = this.registration.contributions[kind === "source" ? "sources" : "actions"]
       ?.find((entry) => entry.id === id);
-    const binding = this.registration.bindings[kind === "source" ? "dataSources" : "actions"]
+    const binding = this.registration.bindings[kind === "source" ? "sources" : "actions"]
       ?.find((entry) => entry.id === id);
     if (contribution?.pluginId !== descriptor.ownerPluginId || binding?.pluginId !== descriptor.ownerPluginId) {
       throw new ToolGatewayError("TOOL_TARGET_FORBIDDEN", 403, "Tool target access is forbidden.");
@@ -212,7 +215,7 @@ export class RegisteredToolDispatcher implements SourceActionDispatcher {
     const request: ActionHandlerRequest = {
       actor: context.principal.actor,
       request: context.principal.request,
-      authorizationContext: context.principal.authorizationContext,
+      authorizationContext: context.authorization,
       input: context.input,
       signal: context.signal,
       ...(context.request.idempotencyKey === undefined ? {} : { idempotencyKey: context.request.idempotencyKey })

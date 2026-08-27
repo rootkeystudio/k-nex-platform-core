@@ -191,34 +191,26 @@ The first proof may keep the pages small, but each must use canonical K-Nex comp
 
 Plugins do not invent a separate fetch/cache/mutation stack. They define typed factories over the standard gateways.
 
-Target authoring shape:
+Implemented authoring shape:
 
 ```ts
-export const salesQueries = definePluginQueries({
-  tasks: defineSourceQuery({
-    source: "sales.tasks",
-    input: SalesTasksInputSchema,
-    output: SalesTasksOutputSchema,
-    defaults: salesTaskTablePreset
-  }),
-  totalPotentialRevenue: defineSourceQuery({
-    source: "sales.total-potential-revenue",
-    input: SalesRevenueInputSchema,
-    output: SalesRevenueOutputSchema
-  })
+export const salesTasksQuery = defineSourceQuery({
+  source: { id: salesTasksDescriptor.id, version: salesTasksDescriptor.version },
+  input: salesEmptyInputRuntimeSchema,
+  output: salesTasksOutputRuntimeSchema,
+  defaults: {},
+  selectedFields: ["title", "status", "potential-revenue"]
 });
 
-export const salesActions = definePluginActions({
-  createTask: defineActionMutation({
-    action: "sales.task.create",
-    input: CreateTaskInputSchema,
-    output: CreateTaskResultSchema,
-    invalidates: ["sales.tasks"]
-  })
+export const salesCreateTaskMutation = defineActionMutation({
+  action: { id: salesTaskCreateDescriptor.id, version: salesTaskCreateDescriptor.version },
+  input: salesCreateTaskInputRuntimeSchema,
+  output: salesCreateTaskOutputRuntimeSchema,
+  invalidates: [salesTasksDescriptor.id, salesTotalPotentialRevenueDescriptor.id]
 });
 ```
 
-The exact helper names are provisional until implemented by Sales. The invariant is not provisional:
+These helper names are frozen for the pre-v1 authoring contract. The invariant remains:
 
 ```text
 plugin-specific types and defaults
@@ -278,13 +270,13 @@ packed-package reproducibility
 reference documentation generation
 ```
 
-Planned command:
+Authoritative command:
 
 ```text
 pnpm plugin:check modules/sales
 ```
 
-The command name becomes authoritative only when implemented. It must be runnable in a clean checkout and must fail if a declared contribution is missing, an undeclared contribution appears, a browser entry imports server code, or a default page references an unavailable source/block/action.
+The command is runnable in a clean checkout and fails if required evidence is missing, a declared contribution is missing, an undeclared contribution appears, a browser entry imports server code, or a default page references an unavailable source/block/action.
 
 ## Plugin author documentation
 

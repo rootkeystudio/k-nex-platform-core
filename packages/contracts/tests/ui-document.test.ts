@@ -298,6 +298,10 @@ describe("P4.1 canonical UI documents", () => {
     expect(parse({
       ...validDocument,
       regions: { main: [{ ...validDocument.regions.main[0], bindings: { action: { id: "sales.task.complete", version: 1 } } }] }
+    }).success).toBe(true);
+    expect(parse({
+      ...validDocument,
+      regions: { main: [{ ...validDocument.regions.main[0], bindings: { action: { id: "sales.task.complete", version: 1, endpoint: "/api/tasks" } } }] }
     }).success).toBe(false);
   });
 

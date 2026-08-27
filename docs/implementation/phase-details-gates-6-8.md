@@ -230,7 +230,7 @@ The domain remains intentionally small. The task is complete when it exercises p
 
 #### Deliver
 
-Planned command:
+Implemented command:
 
 ```text
 pnpm plugin:check modules/sales

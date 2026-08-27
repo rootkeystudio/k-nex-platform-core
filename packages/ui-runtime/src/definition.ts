@@ -1,7 +1,9 @@
 import {
+  createAgentToolJsonRuntimeSchema,
   DataSourceDescriptorSchema,
   DataSourcePrimaryContractSchema,
   PluginIdSchema,
+  PluginUiContributionDescriptorSchema,
   ResourceIdSchema,
   TableFieldIdSchema,
   uiDocumentProfiles,
@@ -9,6 +11,7 @@ import {
   type DataSourceBindingResult,
   type DataSourcePrimaryContract,
   type RuntimeSchema,
+  type PluginUiContributionDescriptor,
   type TableFieldId,
   type UiDocumentProfile,
   type UiNode
@@ -27,18 +30,25 @@ export interface UiBlockSourcePolicy {
   readonly requiredFields: readonly TableFieldId[];
 }
 
+export interface UiBlockActionPolicy {
+  readonly required: boolean;
+  readonly actions: readonly { readonly id: string; readonly version: number }[];
+}
+
 export interface UiBlockRenderInput {
   readonly node: UiNode;
   readonly props: unknown;
   readonly surface: UiRuntimeSurface;
   readonly actor: UiRuntimeActor;
   readonly source?: DataSourceDescriptor;
+  readonly action?: { readonly id: string; readonly version: number };
   readonly sourceResult?: DataSourceBindingResult<unknown>;
 }
 
 export type UiBlockRenderer<TResult = unknown> = (input: UiBlockRenderInput) => TResult;
 
 export interface UiBlockDefinition<TResult = unknown> {
+  readonly descriptor?: PluginUiContributionDescriptor;
   readonly id: string;
   readonly version: number;
   readonly profiles: readonly UiDocumentProfile[];
@@ -47,7 +57,12 @@ export interface UiBlockDefinition<TResult = unknown> {
   readonly permission?: string;
   readonly propsSchema: RuntimeSchema;
   readonly sourcePolicy?: UiBlockSourcePolicy;
+  readonly actionPolicy?: UiBlockActionPolicy;
   readonly render: UiBlockRenderer<TResult>;
+}
+
+export interface UiContributionDefinition<TResult = unknown> extends UiBlockDefinition<TResult> {
+  readonly descriptor: PluginUiContributionDescriptor;
 }
 
 export interface UiRuntimeRegistry {
@@ -107,6 +122,22 @@ function assertBlockDefinition(definition: UiBlockDefinition): void {
   if (typeof definition.propsSchema?.safeParse !== "function" || typeof definition.render !== "function") {
     throw new TypeError("UI block definitions require executable prop validation and rendering callbacks.");
   }
+  if (definition.descriptor !== undefined) {
+    const parsed = PluginUiContributionDescriptorSchema.safeParse(definition.descriptor);
+    if (!parsed.success || parsed.data.id !== definition.id || parsed.data.version !== definition.version ||
+      parsed.data.profiles.join("\u0000") !== definition.profiles.join("\u0000") || parsed.data.surfaces.join("\u0000") !== definition.surfaces.join("\u0000") ||
+      parsed.data.audience !== definition.audience || parsed.data.permission !== definition.permission) {
+      throw new TypeError("UI contribution descriptor and renderer binding do not reconcile.");
+    }
+  }
+  if (definition.actionPolicy !== undefined) {
+    if (typeof definition.actionPolicy.required !== "boolean") throw new TypeError("UI block action policy must declare whether an action is required.");
+    const actionKeys = definition.actionPolicy.actions.map(({ id, version }) => keyOf(id, version));
+    assertUniqueStrings(actionKeys, "UI block actions");
+    if (!definition.actionPolicy.actions.every(({ id, version }) => ResourceIdSchema.safeParse(id).success && Number.isSafeInteger(version) && version > 0)) {
+      throw new TypeError("UI block actions must use canonical identities.");
+    }
+  }
   if (definition.sourcePolicy === undefined) return;
   if (typeof definition.sourcePolicy.required !== "boolean") throw new TypeError("UI block source policy must declare whether a source is required.");
 
@@ -127,6 +158,7 @@ function assertBlockDefinition(definition: UiBlockDefinition): void {
 function copyBlock(definition: UiBlockDefinition): UiBlockDefinition {
   return Object.freeze({
     ...definition,
+    ...(definition.descriptor === undefined ? {} : { descriptor: deepFreeze(structuredClone(definition.descriptor)) }),
     profiles: Object.freeze([...definition.profiles]),
     surfaces: Object.freeze([...definition.surfaces]),
     ...(definition.sourcePolicy === undefined ? {} : {
@@ -135,8 +167,65 @@ function copyBlock(definition: UiBlockDefinition): UiBlockDefinition {
         contracts: Object.freeze(definition.sourcePolicy.contracts.map((contract) => Object.freeze({ ...contract }))),
         requiredFields: Object.freeze([...definition.sourcePolicy.requiredFields])
       })
+    }),
+    ...(definition.actionPolicy === undefined ? {} : {
+      actionPolicy: Object.freeze({
+        required: definition.actionPolicy.required,
+        actions: Object.freeze(definition.actionPolicy.actions.map((action) => Object.freeze({ ...action })))
+      })
     })
   });
+}
+
+/** Rebind serialized plugin authority before an executable definition crosses a public boundary. */
+export function snapshotUiBlockDefinition<TResult>(candidate: UiBlockDefinition<TResult>): UiBlockDefinition<TResult> {
+  const definition = candidate.descriptor === undefined
+    ? candidate
+    : (() => {
+        const parsed = PluginUiContributionDescriptorSchema.safeParse(candidate.descriptor);
+        if (!parsed.success) throw new TypeError("UI contribution descriptor is invalid.");
+        const descriptor = deepFreeze(structuredClone(parsed.data));
+        return {
+          descriptor,
+          id: descriptor.id,
+          version: descriptor.version,
+          profiles: descriptor.profiles,
+          surfaces: descriptor.surfaces,
+          audience: descriptor.audience,
+          ...(descriptor.permission === undefined ? {} : { permission: descriptor.permission }),
+          propsSchema: createAgentToolJsonRuntimeSchema(descriptor.propsSchema),
+          ...(descriptor.sourcePolicy === undefined ? {} : { sourcePolicy: descriptor.sourcePolicy }),
+          ...(descriptor.actionPolicy === undefined ? {} : { actionPolicy: descriptor.actionPolicy }),
+          render: candidate.render
+        } satisfies UiBlockDefinition<TResult>;
+      })();
+  assertBlockDefinition(definition);
+  return copyBlock(definition) as UiBlockDefinition<TResult>;
+}
+
+export function defineUiContributionBinding<TResult>(input: {
+  readonly descriptor: PluginUiContributionDescriptor;
+  readonly render: UiBlockRenderer<TResult>;
+}): UiContributionDefinition<TResult> {
+  const parsed = PluginUiContributionDescriptorSchema.safeParse(input.descriptor);
+  if (!parsed.success || typeof input.render !== "function") {
+    throw new TypeError("UI contribution binding is invalid.");
+  }
+  const descriptor = deepFreeze(structuredClone(parsed.data));
+  const definition: UiContributionDefinition<TResult> = {
+    descriptor,
+    id: descriptor.id,
+    version: descriptor.version,
+    profiles: descriptor.profiles,
+    surfaces: descriptor.surfaces,
+    audience: descriptor.audience,
+    ...(descriptor.permission === undefined ? {} : { permission: descriptor.permission }),
+    propsSchema: createAgentToolJsonRuntimeSchema(descriptor.propsSchema),
+    ...(descriptor.sourcePolicy === undefined ? {} : { sourcePolicy: descriptor.sourcePolicy }),
+    ...(descriptor.actionPolicy === undefined ? {} : { actionPolicy: descriptor.actionPolicy }),
+    render: input.render
+  };
+  return snapshotUiBlockDefinition(definition) as UiContributionDefinition<TResult>;
 }
 
 function catalogMap(entries: readonly UiRuntimeCatalogEntry[], label: string): Map<string, UiRuntimeCatalogEntry> {
@@ -184,8 +273,7 @@ export function createUiRuntimeRegistry(input: {
   const sourceCatalog = catalogMap(input.sourceCatalog ?? [], "UI source");
 
   for (const candidate of input.blocks) {
-    assertBlockDefinition(candidate);
-    const definition = copyBlock(candidate);
+    const definition = snapshotUiBlockDefinition(candidate);
     const key = keyOf(definition.id, definition.version);
     if (blockMap.has(key)) throw new TypeError(`Duplicate UI block definition: ${key}.`);
     blockMap.set(key, definition);

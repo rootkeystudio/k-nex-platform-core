@@ -7,6 +7,7 @@ import { Ajv2020, type AnySchema, type ValidateFunction } from "ajv/dist/2020.js
 import addFormatsModule from "ajv-formats";
 
 import { type FixtureInput, type FixtureSchema, validateFixtures } from "./fixture-validation.js";
+import { registerPluginContributionOwnershipKeyword } from "./plugin-contribution-ownership.js";
 
 export type RepositoryDiagnosticCode =
   | "ADR_EVIDENCE_INVALID"
@@ -285,7 +286,7 @@ export function validateValidFixtureCoverage(fixtures: readonly FixtureInput[]):
   const manifests = fixtures.filter(({ schema }) => schema === "plugin").map(({ value }) => value as Record<string, unknown>);
   const requirements = [
     [fixtures.some(({ schema }) => schema === "application"), "customer application"],
-    [manifests.some(({ id }) => id === "module.logistics.driver"), "module.logistics.driver plugin"],
+    [manifests.some(({ id }) => id === "module.sales"), "module.sales plugin"],
     [manifests.some(({ kind, lifecycle }) => kind === "provider" && (lifecycle as Record<string, unknown> | undefined)?.ownsPayloadSchema === false), "schema-less provider"],
     [manifests.some(({ kind }) => kind === "theme" || kind === "builder"), "theme or builder plugin"]
   ] as const;
@@ -365,6 +366,7 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
   const expected = expectedResult.expected;
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormatsModule.default(ajv);
+  registerPluginContributionOwnershipKeyword(ajv);
   let validators: { application: ValidateFunction; plugin: ValidateFunction };
   try {
     validators = { application: ajv.compile(applicationSchema as AnySchema), plugin: ajv.compile(pluginSchema as AnySchema) };
@@ -373,7 +375,7 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
     return sortDiagnostics(diagnostics);
   }
 
-  const validPaths = [...await walk(resolve(root, "fixtures/contracts/valid")), ...await walk(resolve(root, "fixtures/plugin-manifests"))]
+  const validPaths = [...await walk(resolve(root, "fixtures/contracts/valid")), ...await walk(resolve(root, "fixtures/plugin-manifests/valid"))]
     .filter((path) => extname(path) === ".json")
     .map((path) => repositoryPath(root, path))
     .sort(compare);

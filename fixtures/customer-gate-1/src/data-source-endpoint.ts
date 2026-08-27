@@ -16,7 +16,7 @@ import {
   type RegistrationResult,
   type RegisteredDataSource
 } from "@k-nex/runtime";
-import { PayloadRequestAuthenticator } from "@k-nex/payload-adapter";
+import { createPayloadPersistenceCapability, PayloadRequestAuthenticator } from "@k-nex/payload-adapter";
 import type { Endpoint, PayloadRequest } from "payload";
 
 interface QueryBody {
@@ -43,8 +43,9 @@ function fingerprint(request: PayloadRequest): string {
 }
 
 function catalog(registration: RegistrationResult) {
-  const definitions = new Map(registration.contributions.dataSources.map((entry) => [entry.id, entry.value as DataSourceDefinition]));
-  const handlers = new Map(registration.bindings.dataSources.map((entry) => [entry.id, entry.value as DataSourceHandler]));
+  const definitions = new Map(registration.contributions.sources
+    .map((entry) => [entry.id, entry.value as DataSourceDefinition]));
+  const handlers = new Map(registration.bindings.sources.map((entry) => [entry.id, entry.value as DataSourceHandler]));
   const sources = new Map<string, RegisteredDataSource>();
   for (const [id, definition] of definitions) {
     const handler = handlers.get(id);
@@ -59,15 +60,25 @@ const salesPolicy: DataSourcePolicyService = {
     const permissionFingerprint = context.permissionFingerprint;
     const sourceAllowed = typeof permissionFingerprint === "string" && permissionFingerprint.startsWith("sales:");
     const status = permissionFingerprint?.includes(":done:") ? "done" : "open";
-    const allowedFields = permissionFingerprint?.endsWith(":full")
+    const taskFields = permissionFingerprint?.endsWith(":full")
       ? ["title", "status", "potential-revenue", "private-note"]
       : permissionFingerprint?.endsWith(":required")
         ? ["title", "status", "potential-revenue"]
         : ["title", "status"];
-    return {
+    if (descriptor.id === "sales.tasks") return {
       sourceAllowed,
       recordScope: { kind: "sales.tasks", where: { status: { equals: status } } },
-      allowedFields: descriptor.primaryContract.id === "table.records" ? allowedFields : []
+      allowedFields: taskFields
+    };
+    if (descriptor.id === "sales.opportunities") return {
+      sourceAllowed,
+      recordScope: { kind: "sales.opportunities", where: { stage: { equals: status === "open" ? "lead" : "won" } } },
+      allowedFields: permissionFingerprint?.endsWith(":full") ? ["name", "stage", "value"] : ["name", "stage"]
+    };
+    return {
+      sourceAllowed: sourceAllowed && descriptor.id === "sales.total-potential-revenue",
+      recordScope: { kind: "sales.tasks", where: { status: { equals: status } } },
+      allowedFields: []
     };
   }
 };
@@ -88,6 +99,12 @@ function queryGateway(registration: RegistrationResult): DataSourceGateway {
       },
       authorizationContext(request) {
         return { permissionFingerprint: fingerprint(request) };
+      },
+      requestContext(request) {
+        return createPayloadPersistenceCapability(request, [
+          { collection: "sales-tasks", operations: ["find"] },
+          { collection: "sales-opportunities", operations: ["find"] }
+        ]);
       }
     }),
     catalog: catalog(registration),

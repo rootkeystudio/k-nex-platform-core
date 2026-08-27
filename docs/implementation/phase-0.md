@@ -35,7 +35,7 @@ The remediation branch added machine-readable starting artifacts:
 contracts/architecture-contracts.v1.json
 schemas/plugin-manifest.v1.schema.json
 schemas/application-manifest.v1.schema.json
-fixtures/plugin-manifests/module.logistics.driver.json
+fixtures/plugin-manifests/valid/module.sales.json
 scripts/validate_repository_contracts.py
 .github/workflows/architecture-contracts.yml
 docs/adr/evidence-registry.json
@@ -308,7 +308,7 @@ Prove that accepted examples pass and known drift/failure forms fail for the exp
 #### Minimum valid fixtures
 
 ```text
-module.logistics.driver plugin manifest
+module.sales plugin manifest
 minimal customer application manifest
 minimal schema-less provider manifest
 minimal theme or builder manifest

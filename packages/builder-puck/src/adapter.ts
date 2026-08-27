@@ -17,7 +17,9 @@ import {
   createUiDocumentRuntime,
   createUiRuntimeRegistry,
   presentUiRuntimeResult,
+  snapshotUiBlockDefinition,
   type UiBlockDefinition,
+  type UiContributionDefinition,
   type UiRuntimeActor,
   type UiRuntimeSurface
 } from "@k-nex/ui-runtime";
@@ -41,6 +43,8 @@ export interface PuckBlockBridge {
   readonly defaultProps: Readonly<Record<string, JsonValue>>;
   readonly constraints?: UiLayoutConstraints;
 }
+
+export type PuckBlockAuthoring = Omit<PuckBlockBridge, "definition">;
 
 export interface PuckPreviewContext {
   readonly surface: UiRuntimeSurface;
@@ -152,22 +156,31 @@ function assertBridge(bridge: PuckBlockBridge): void {
 
 export function snapshotPuckBlockBridge(candidate: PuckBlockBridge): PuckBlockBridge {
   if (puckBridgeSnapshots.has(candidate)) return candidate;
-  assertBridge(candidate);
-  const safeParse = candidate.definition.propsSchema.safeParse.bind(candidate.definition.propsSchema);
-  const render = candidate.definition.render;
+  const canonicalDefinition = snapshotUiBlockDefinition(candidate.definition);
+  const bridge = { ...candidate, definition: canonicalDefinition };
+  assertBridge(bridge);
+  const safeParse = canonicalDefinition.propsSchema.safeParse.bind(canonicalDefinition.propsSchema);
+  const render = canonicalDefinition.render;
   const definition: UiBlockDefinition = Object.freeze({
-    id: candidate.definition.id,
-    version: candidate.definition.version,
-    profiles: Object.freeze([...candidate.definition.profiles]),
-    surfaces: Object.freeze([...candidate.definition.surfaces]),
-    audience: candidate.definition.audience,
-    ...(candidate.definition.permission === undefined ? {} : { permission: candidate.definition.permission }),
+    ...(canonicalDefinition.descriptor === undefined ? {} : { descriptor: deepFreeze(structuredClone(canonicalDefinition.descriptor)) }),
+    id: canonicalDefinition.id,
+    version: canonicalDefinition.version,
+    profiles: Object.freeze([...canonicalDefinition.profiles]),
+    surfaces: Object.freeze([...canonicalDefinition.surfaces]),
+    audience: canonicalDefinition.audience,
+    ...(canonicalDefinition.permission === undefined ? {} : { permission: canonicalDefinition.permission }),
     propsSchema: Object.freeze({ safeParse: (value: unknown) => safeParse(value) }),
-    ...(candidate.definition.sourcePolicy === undefined ? {} : {
+    ...(canonicalDefinition.sourcePolicy === undefined ? {} : {
       sourcePolicy: Object.freeze({
-        required: candidate.definition.sourcePolicy.required,
-        contracts: Object.freeze(candidate.definition.sourcePolicy.contracts.map((contract) => Object.freeze({ ...contract }))),
-        requiredFields: Object.freeze([...candidate.definition.sourcePolicy.requiredFields])
+        required: canonicalDefinition.sourcePolicy.required,
+        contracts: Object.freeze(canonicalDefinition.sourcePolicy.contracts.map((contract) => Object.freeze({ ...contract }))),
+        requiredFields: Object.freeze([...canonicalDefinition.sourcePolicy.requiredFields])
+      })
+    }),
+    ...(canonicalDefinition.actionPolicy === undefined ? {} : {
+      actionPolicy: Object.freeze({
+        required: canonicalDefinition.actionPolicy.required,
+        actions: Object.freeze(canonicalDefinition.actionPolicy.actions.map((action) => Object.freeze({ ...action })))
       })
     }),
     render: (input: Parameters<typeof render>[0]) => render(input)
@@ -182,6 +195,17 @@ export function snapshotPuckBlockBridge(candidate: PuckBlockBridge): PuckBlockBr
   });
   puckBridgeSnapshots.add(snapshot);
   return snapshot;
+}
+
+export function reconcilePuckBlockContribution(
+  definition: UiContributionDefinition,
+  authoring: PuckBlockAuthoring
+): PuckBlockBridge {
+  const canonical = snapshotUiBlockDefinition(definition) as UiContributionDefinition;
+  if (canonical.descriptor.kind !== "block") {
+    throw new TypeError("Puck may bridge only a reconciled canonical block contribution.");
+  }
+  return snapshotPuckBlockBridge({ definition: canonical, ...authoring });
 }
 
 function puckField(field: PuckBridgeField): Field {

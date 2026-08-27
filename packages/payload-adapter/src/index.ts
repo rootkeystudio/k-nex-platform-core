@@ -1,9 +1,10 @@
 import { postgresAdapter } from "@payloadcms/db-postgres";
 import type { MigrateDownArgs, MigrateUpArgs } from "@payloadcms/db-postgres";
-import type { RegistrationResult } from "@k-nex/runtime";
+import { assertExecutableRegistrationAuthority, pluginEnabledInRegistration, type ScopedRegistrationResult } from "@k-nex/runtime";
 import type { CollectionConfig, Config } from "payload";
 
 export * from "./data-source-authenticator.js";
+export * from "./persistence-capability.js";
 export * from "./mcp-adapter.js";
 export * from "./outbox-processor.js";
 export * from "./outbox-realtime-relay.js";
@@ -44,7 +45,7 @@ export interface ComposePayloadApplicationOptions {
   readonly baseCollections?: readonly CollectionConfig[];
   readonly databaseUrl: string;
   readonly migrations?: readonly CustomerPayloadMigration[];
-  readonly registration: RegistrationResult;
+  readonly registration: ScopedRegistrationResult;
 }
 
 export interface CustomerPayloadMigration {
@@ -75,6 +76,19 @@ function ownedCollection(value: unknown): OwnedCollectionValue | undefined {
   const collection = value.collection as Partial<CollectionConfig>;
   if (typeof collection.slug !== "string" || !Array.isArray(collection.fields)) return undefined;
   return value as unknown as OwnedCollectionValue;
+}
+
+function collectionForAvailability(collection: CollectionConfig, enabled: boolean): CollectionConfig {
+  if (enabled) return collection;
+  return {
+    ...collection,
+    access: {
+      ...collection.access,
+      create: () => false,
+      delete: () => false,
+      update: () => false
+    }
+  };
 }
 
 function normalizedRoute(path: string): string {
@@ -116,6 +130,7 @@ function validateApplicationRoutes(config: Omit<Config, "collections" | "db">, c
 }
 
 export function composePayloadApplication(options: ComposePayloadApplicationOptions): ComposedPayloadApplication {
+  assertExecutableRegistrationAuthority(options.registration);
   if (typeof options.databaseUrl !== "string" || options.databaseUrl.trim().length === 0) {
     fail("INVALID_DATABASE_URL", "A non-empty Postgres connection string is required.");
   }
@@ -131,7 +146,7 @@ export function composePayloadApplication(options: ComposePayloadApplicationOpti
         [contribution.pluginId, contribution.id]
       );
     }
-    collections.push(value.collection);
+    collections.push(collectionForAvailability(value.collection, pluginEnabledInRegistration(options.registration, contribution.pluginId)));
     ownership.push({
       slug: value.collection.slug,
       pluginId: contribution.pluginId,

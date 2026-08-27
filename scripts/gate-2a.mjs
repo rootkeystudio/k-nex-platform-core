@@ -15,8 +15,10 @@ import {
   RegisteredToolOutputValidator,
   RegisteredToolRedactor,
   RegisteredToolTargetResolver,
-  executeRegistration
+  executeRegistration,
+  scopePluginRegistration
 } from "../packages/runtime/dist/index.js";
+import { pluginContributionCategoryKeys } from "../packages/contracts/dist/index.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const expectedNode = "24.19.0";
@@ -230,7 +232,7 @@ const focusedProofs = [
   },
   {
     id: "sales-mcp-security",
-    packageName: "@k-nex/payload-adapter",
+    packageName: "@k-nex/module-sales",
     file: "tests/mcp-sales-proof.test.ts",
     testName: "runs one logical approved write and enforces actor-filtered MCP list/call",
     attacks: [
@@ -303,8 +305,8 @@ function descriptor(index, overrides = {}) {
     invocation: { kind: "source", source: { id: `fixture.sources.source-${index}`, version: 1 } },
     audience: "authenticated",
     surfaces: ["workspace"],
-    permission: "fixture.tools.read",
-    policy: "fixture.tools.read",
+    permission: "gate-2a.tools.read",
+    policy: "gate-2a.tools.read",
     effect: "read-only",
     risk: "low",
     approval: "none",
@@ -319,21 +321,22 @@ function descriptor(index, overrides = {}) {
 
 function registration(descriptors) {
   const owner = "module.gate-2a";
-  return {
-    inventory: [{ id: owner }],
-    contributions: {
-      tools: descriptors.map((value) => ({ pluginId: owner, id: value.id, value })),
-      dataSources: descriptors.map((value) => ({
+  const contributions = Object.fromEntries(pluginContributionCategoryKeys.map((kind) => [kind, []]));
+  contributions.tools = descriptors.map((value) => ({ pluginId: owner, id: value.id, value }));
+  contributions.sources = descriptors.map((value) => ({
         pluginId: owner,
         id: value.invocation.source.id,
         value: { descriptor: { id: value.invocation.source.id, version: 1 } }
-      }))
-    },
+      }));
+  return scopePluginRegistration({
+    phases: [],
+    inventory: [{ id: owner, contributions: {}, capabilityAccess: [] }],
+    contributions,
     bindings: {
-      dataSources: descriptors.map((value) => ({ pluginId: owner, id: value.invocation.source.id, value: () => ({}) })),
-      actions: []
+      sources: descriptors.map((value) => ({ pluginId: owner, id: value.invocation.source.id, value: () => ({}) })),
+      actions: [], events: [], jobs: [], realtimeTopics: [], components: [], blocks: []
     }
-  };
+  }, []);
 }
 
 function actor(kind = "user", id = "gate-actor") {
@@ -377,15 +380,17 @@ async function directOutputProbe() {
     ownerPluginId: "module.gate-2a",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     outputSchema,
-    permission: "fixture.tools.read",
-    policy: "fixture.tools.read",
+    permission: "gate-2a.tools.read",
+    policy: "gate-2a.tools.read",
     effect: "read-only",
     idempotency: "not-applicable",
     dryRun: false
   };
   const tool = descriptor(1, {
     outputSchema,
-    invocation: { kind: "action", action: { id: action.id, version: action.version } }
+    invocation: { kind: "action", action: { id: action.id, version: action.version } },
+    permission: "gate-2a.tools.read",
+    policy: "gate-2a.tools.read"
   });
   const runtimeOutputSchema = {
     safeParse(value) {
@@ -399,7 +404,7 @@ async function directOutputProbe() {
       ? { success: true, data: value }
       : { success: false, error: new Error("invalid input") } };
   let dispatches = 0;
-  const resolved = executeRegistration({
+  const resolved = scopePluginRegistration(executeRegistration({
     graph: {
       resolverVersion: "1.0.0",
       plugins: [{ id: "module.gate-2a", kind: "module", package: "@k-nex/gate-2a", version: "1.0.0", integrity: "sha512-gate-2a", required: [], optional: [] }],
@@ -421,12 +426,17 @@ async function directOutputProbe() {
         optional: [],
         conflicts: [],
         lifecycle: { ownsPayloadSchema: false, ownsPersistentData: false, disable: "supported", uninstall: "supported", purge: "unsupported" },
-        contributions: { actions: [action.id], tools: [tool.id] }
+        contributions: { permissions: { "gate-2a.tools.read": "required" }, actions: { [action.id]: "required" }, tools: { [tool.id]: "required" } }
       }
     }],
     registrations: [{
       pluginId: "module.gate-2a",
       contracts(context) {
+        context.register("permissions", "gate-2a.tools.read", {
+          id: "gate-2a.tools.read", ownerPluginId: "module.gate-2a", title: "Read Gate 2A tools",
+          description: "Execute the Gate 2A fixture tool.", audience: "authenticated", resource: "gate-2a.tools",
+          operation: "execute", policy: { id: "gate-2a.tools.read", scope: "application", recordScoped: false, fieldScoped: false }
+        });
         context.register("actions", action.id, { descriptor: action, inputSchema: runtimeInputSchema, outputSchema: runtimeOutputSchema });
         context.register("tools", tool.id, tool);
       },
@@ -434,7 +444,7 @@ async function directOutputProbe() {
         context.bind("actions", action.id, () => { dispatches += 1; return { undeclared: "secret-output" }; });
       }
     }]
-  });
+  }), []);
   const catalog = new ToolCatalog(resolved, { isVisible: () => true });
   const targets = new RegisteredToolTargetResolver(resolved);
   const request = {

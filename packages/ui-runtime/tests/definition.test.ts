@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { createUiRuntimeRegistry, type UiBlockDefinition } from "../src/index.js";
-import type { DataSourceDescriptor } from "@k-nex/contracts";
+import { createUiRuntimeRegistry, defineUiContributionBinding, type UiBlockDefinition } from "../src/index.js";
+import { PluginUiContributionDescriptorSchema, type DataSourceDescriptor } from "@k-nex/contracts";
 
 const propsSchema = { safeParse: (value: unknown) => ({ success: true as const, data: value }) };
 const block: UiBlockDefinition = {
@@ -59,6 +59,36 @@ describe("UI runtime registry", () => {
     expect(() => createUiRuntimeRegistry({ blocks: [{ ...block, sourcePolicy: { required: "yes" as never, contracts: [{ id: "table.records", version: 1 }], requiredFields: [] } }], sources: [] })).toThrow(/declare whether/);
     expect(() => createUiRuntimeRegistry({ blocks: [{ ...block, sourcePolicy: { required: true, contracts: [{ id: "metric.scalar", version: 1 }], requiredFields: ["title"] } }], sources: [] })).toThrow(/table.records/);
     expect(() => createUiRuntimeRegistry({ blocks: [{ ...block, sourcePolicy: { required: true, contracts: [{ id: "table.records", version: 1 }], requiredFields: ["title", "title"] } }], sources: [] })).toThrow(/canonical and unique/);
+  });
+
+  it("derives runtime props validation from the static contribution descriptor", () => {
+    const descriptor = {
+      id: "content.card",
+      version: 1,
+      ownerPluginId: "module.content",
+      kind: "block" as const,
+      propsSchema: {
+        type: "object" as const,
+        properties: { title: { type: "string" as const, minLength: 1, maxLength: 4 } },
+        required: ["title"],
+        additionalProperties: false as const
+      },
+      profiles: ["cms"] as const,
+      surfaces: ["cms"] as const,
+      audience: "authenticated" as const,
+      permission: "content.cards.read",
+      requiredStates: ["loading", "empty", "error", "forbidden"] as const
+    };
+    expect(PluginUiContributionDescriptorSchema.safeParse(descriptor).success).toBe(true);
+    const binding = defineUiContributionBinding({ descriptor, render: ({ props }) => props });
+    expect(binding.propsSchema.safeParse({ title: "Card" }).success).toBe(true);
+    for (const props of [{}, { title: "Card", unexpected: true }, { title: 1 }, { title: "Longer" }]) {
+      expect(binding.propsSchema.safeParse(props).success).toBe(false);
+    }
+
+    const openObject = { ...descriptor, propsSchema: { ...descriptor.propsSchema, additionalProperties: true } };
+    expect(PluginUiContributionDescriptorSchema.safeParse(openObject).success).toBe(false);
+    expect(() => defineUiContributionBinding({ descriptor: openObject as never, render: ({ props }) => props })).toThrow(/invalid/);
   });
 
   it("validates ownership catalog identities and source ownership", () => {

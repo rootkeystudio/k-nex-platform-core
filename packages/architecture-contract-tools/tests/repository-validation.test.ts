@@ -9,6 +9,7 @@ import addFormatsModule from "ajv-formats";
 import { describe, expect, it } from "vitest";
 
 import { validateFixtures } from "../src/fixture-validation.js";
+import { registerPluginContributionOwnershipKeyword } from "../src/plugin-contribution-ownership.js";
 import {
   declaredFixtureSchema,
   formatDiagnostics,
@@ -43,6 +44,7 @@ describe("P0.4 executable repository validation", () => {
   it("reports schema-invalid input", async () => {
     const ajv = new Ajv2020({ allErrors: true, strict: true });
     addFormatsModule.default(ajv);
+    registerPluginContributionOwnershipKeyword(ajv);
     const pluginSchema = JSON.parse(await readFile(resolve(repositoryRoot, "schemas/plugin-manifest.v1.schema.json"), "utf8")) as AnySchema;
     const diagnostics = validateFixtures(
       [{ fixturePath: "invalid-plugin.json", schema: "plugin", value: {} }],

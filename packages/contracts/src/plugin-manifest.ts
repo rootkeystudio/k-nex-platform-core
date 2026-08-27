@@ -1,7 +1,13 @@
 import * as z from "zod";
 
-import { CapabilityIdSchema, ExactSemverSchema, PluginIdSchema, ResourceIdSchema, pluginKinds } from "./identity.js";
+import { CapabilityIdSchema, ExactSemverSchema, PluginIdSchema, pluginKinds } from "./identity.js";
 import { lifecycleOperationSupport, lifecyclePolicy } from "./lifecycle.js";
+import {
+  PluginContributionDeclarationSchema,
+  pluginContributionCategoryKeys,
+  pluginContributionNamespace,
+  type PluginContributionCategory
+} from "./plugin-contribution-taxonomy.js";
 import { uniqueArray } from "./schema-helpers.js";
 
 const packageNamePattern = "^@?[a-z0-9][a-z0-9._-]*(?:/[a-z0-9][a-z0-9._-]*)?$";
@@ -46,7 +52,11 @@ export const PluginLifecycleSchema = z.discriminatedUnion("ownsPayloadSchema", [
   })
 ]);
 
-const contributionArraySchema = uniqueArray(ResourceIdSchema);
+const contributionDeclarationShape = Object.fromEntries(
+  pluginContributionCategoryKeys.map((category) => [category, PluginContributionDeclarationSchema.optional()])
+) as { [Category in PluginContributionCategory]: z.ZodOptional<typeof PluginContributionDeclarationSchema> };
+
+export const PluginContributionsSchema = z.strictObject(contributionDeclarationShape);
 
 export const PluginManifestSchema = z.strictObject({
   "$schema": z.string().optional(),
@@ -74,18 +84,21 @@ export const PluginManifestSchema = z.strictObject({
     description: z.string().optional()
   })).optional(),
   lifecycle: PluginLifecycleSchema,
-  contributions: z.strictObject({
-    contracts: contributionArraySchema.optional(),
-    schema: contributionArraySchema.optional(),
-    behavior: contributionArraySchema.optional(),
-    jobs: contributionArraySchema.optional(),
-    dataSources: contributionArraySchema.optional(),
-    actions: contributionArraySchema.optional(),
-    tools: contributionArraySchema.optional(),
-    blocks: contributionArraySchema.optional(),
-    navigation: contributionArraySchema.optional(),
-    admin: contributionArraySchema.optional()
-  }).optional()
+  contributions: PluginContributionsSchema.optional()
+}).superRefine((manifest, context) => {
+  const namespace = pluginContributionNamespace(manifest.id);
+  for (const category of pluginContributionCategoryKeys) {
+    const declarations = manifest.contributions?.[category];
+    if (declarations === undefined) continue;
+    for (const id of Object.keys(declarations)) {
+      if (id.startsWith(`${namespace}.`)) continue;
+      context.addIssue({
+        code: "custom",
+        path: ["contributions", category, id],
+        message: `Contribution ID must use the ${namespace}. namespace owned by ${manifest.id}.`
+      });
+    }
+  }
 }).meta({
   $id: "https://schemas.k-nex.dev/plugin/v1.json",
   title: "K-Nex Plugin Manifest v1"
@@ -94,4 +107,5 @@ export const PluginManifestSchema = z.strictObject({
 export type CapabilityProvision = z.infer<typeof CapabilityProvisionSchema>;
 export type Dependency = z.infer<typeof DependencySchema>;
 export type PluginLifecycle = z.infer<typeof PluginLifecycleSchema>;
+export type PluginContributions = z.infer<typeof PluginContributionsSchema>;
 export type PluginManifest = z.infer<typeof PluginManifestSchema>;

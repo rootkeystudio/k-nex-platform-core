@@ -4,11 +4,12 @@ import { describe, expect, it } from "vitest";
 
 import type { InstalledPluginManifest, ResolvedPluginGraph } from "@k-nex/composition";
 import {
+  definePluginRegistration,
   executeRegistration,
   RegistrationError,
   type DataSourceHandler,
   type PluginRegistration,
-  type SingleKindRegistrationContext
+  type SchemaRegistrationContext
 } from "../src/registration-runtime.js";
 import type { ActionDefinition, ActionHandler } from "../src/action.js";
 
@@ -29,7 +30,7 @@ function dataSourceDefinition(id: string, ownerPluginId = "module.consumer"): Da
       sourceSchema: { id: `${id}.schema`, version: 1 },
       audience: "authenticated",
       surfaces: ["workspace"],
-      permission: "consumer.read",
+      permission: "consumer.permission",
       structuralCompatibilityHash: `sha256:${"0".repeat(64)}`,
       presentationMetadataRevision: 1,
       title: "Consumer source",
@@ -74,7 +75,7 @@ function actionDefinition(id = "consumer.action", ownerPluginId = "module.consum
         required: ["accepted"],
         additionalProperties: false
       },
-      permission: "consumer.write",
+      permission: "consumer.permission",
       policy: "consumer.domain",
       effect: "write",
       idempotency: "required",
@@ -82,6 +83,21 @@ function actionDefinition(id = "consumer.action", ownerPluginId = "module.consum
     },
     inputSchema: { safeParse: (value) => ({ success: true, data: value }) },
     outputSchema: { safeParse: (value) => ({ success: true, data: value }) }
+  };
+}
+
+function uiDescriptor(id: string, kind: "component" | "block") {
+  return {
+    id,
+    version: 1,
+    ownerPluginId: "module.consumer",
+    kind,
+    propsSchema: { type: "object" as const, properties: {}, required: [], additionalProperties: false },
+    profiles: ["workspace" as const],
+    surfaces: ["workspace" as const],
+    audience: "authenticated" as const,
+    permission: "consumer.permission",
+    requiredStates: ["loading" as const, "empty" as const, "error" as const, "forbidden" as const]
   };
 }
 
@@ -163,15 +179,26 @@ function consumerManifest(overrides: Partial<PluginManifest> = {}): PluginManife
       purge: "supported"
     },
     contributions: {
-      contracts: ["consumer.contract"],
-      schema: ["consumer.schema"],
-      behavior: ["consumer.behavior"],
-      jobs: ["consumer.job"],
-      dataSources: ["consumer.source"],
-      actions: ["consumer.action"],
-      blocks: ["consumer.block"],
-      navigation: ["consumer.navigation"],
-      admin: ["consumer.admin"]
+      schema: { "consumer.schema": "required" },
+      migrations: { "consumer.migration": "required" },
+      services: { "consumer.service": "required" },
+      permissions: { "consumer.permission": "required" },
+      settings: { "consumer.setting": "required" },
+      sources: { "consumer.source": "required" },
+      actions: { "consumer.action": "required" },
+      tools: { "consumer.tools.action": "required" },
+      events: { "consumer.event": "required" },
+      jobs: { "consumer.job": "required" },
+      realtimeTopics: { "consumer.realtime": "required" },
+      components: { "consumer.component": "required" },
+      blocks: { "consumer.block": "required" },
+      routes: { "consumer.route": "required" },
+      navigation: { "consumer.navigation": "required" },
+      pageTemplates: { "consumer.template": "required" },
+      localization: { "consumer.localization": "required" },
+      healthAudit: { "consumer.health": "required" },
+      lifecycle: { "consumer.lifecycle": "required" },
+      testingMetadata: { "consumer.testing": "required" }
     },
     ...overrides
   };
@@ -220,31 +247,123 @@ function completeConsumer(
   onBehavior?: (services: { get<T = unknown>(capability: string): T }) => void,
   sourceDefinition: DataSourceDefinition = dataSourceDefinition("consumer.source"),
   sourceHandler: DataSourceHandler = () => undefined,
-  actionHandler: ActionHandler = () => ({ accepted: true })
+  actionHandler: ActionHandler = () => ({ accepted: true }),
+  registeredTool: AgentToolDescriptor | null = actionTool()
 ): PluginRegistration {
   return {
     pluginId: "module.consumer",
     contracts(context) {
-      context.register("contracts", "consumer.contract", {});
-      context.register("dataSources", "consumer.source", sourceDefinition);
+      context.register("permissions", "consumer.permission", {
+        id: "consumer.permission",
+        ownerPluginId: "module.consumer",
+        title: "Consumer read",
+        description: "Read consumer resources.",
+        audience: "authenticated",
+        resource: "consumer.resource",
+        operation: "read",
+        policy: { id: "consumer.policy.read", scope: "application", recordScoped: false, fieldScoped: false }
+      });
+      context.register("settings", "consumer.setting", {
+        id: "consumer.setting",
+        ownerPluginId: "module.consumer",
+        schemaVersion: 1,
+        fields: { enabled: { type: "boolean", required: true, default: true } },
+        surface: "workspace",
+        audience: "authenticated",
+        readPermission: "consumer.permission",
+        changePermission: "consumer.permission",
+        featureRevision: 1,
+        publicationRevision: 1
+      });
+      context.register("sources", "consumer.source", sourceDefinition);
       context.register("actions", "consumer.action", actionDefinition());
-      context.register("blocks", "consumer.block", {});
+      if (registeredTool) context.register("tools", registeredTool.id, registeredTool);
+      context.register("events", "consumer.event", {
+        id: "consumer.event", version: 1, ownerPluginId: "module.consumer", eventClass: "durable-integration", sourceId: "consumer.source"
+      });
+      context.register("realtimeTopics", "consumer.realtime", {
+        id: "consumer.realtime", version: 1, ownerPluginId: "module.consumer", eventId: "consumer.event",
+        sourceId: "consumer.source", permission: "consumer.permission"
+      });
     },
-    schema: (context) => context.register("consumer.schema", { slug: "consumer" }),
+    schema(context) {
+      context.register("schema", "consumer.schema", { slug: "consumer" });
+      context.register("migrations", "consumer.migration", {
+        id: "consumer.migration", version: 1, ownerPluginId: "module.consumer", predecessorRevisions: []
+      });
+    },
     behavior(context) {
       onBehavior?.(context.services);
-      context.register("consumer.behavior", () => undefined);
+      context.register("services", "consumer.service", { id: "consumer.service", version: 1, ownerPluginId: "module.consumer" });
+      context.register("lifecycle", "consumer.lifecycle", {
+        id: "consumer.lifecycle", version: 1, ownerPluginId: "module.consumer",
+        disable: "supported", reenable: "supported", purge: "unsupported"
+      });
     },
-    jobs: (context) => context.register("consumer.job", () => undefined),
+    jobs: (context) => {
+      context.register("jobs", "consumer.job", {
+        id: "consumer.job", version: 1, ownerPluginId: "module.consumer", timeoutMs: 5_000, maxConcurrency: 1, idempotent: true
+      });
+      context.bind("consumer.job", () => undefined);
+    },
     dataHandlers(context) {
-      context.bind("dataSources", "consumer.source", sourceHandler);
+      context.bind("sources", "consumer.source", sourceHandler);
       context.bind("actions", "consumer.action", actionHandler);
+      context.bind("events", "consumer.event", () => undefined);
+      context.bind("realtimeTopics", "consumer.realtime", () => undefined);
     },
     ui(context) {
-      context.bindBlock("consumer.block", {});
-      context.registerNavigation("consumer.navigation", {});
+      context.register("components", "consumer.component", uiDescriptor("consumer.component", "component"));
+      context.register("blocks", "consumer.block", uiDescriptor("consumer.block", "block"));
+      context.register("routes", "consumer.route", {
+        id: "consumer.route",
+        ownerPluginId: "module.consumer",
+        path: "/consumer",
+        parameters: {},
+        surface: "workspace",
+        audience: "authenticated",
+        permission: "consumer.permission",
+        viewId: "consumer.template"
+      });
+      context.register("navigation", "consumer.navigation", {
+        id: "consumer.navigation",
+        ownerPluginId: "module.consumer",
+        labelMessageId: "consumer.message.navigation",
+        route: { routeId: "consumer.route", params: {} },
+        permission: "consumer.permission",
+        order: 10
+      });
+      context.register("pageTemplates", "consumer.template", {
+        id: "consumer.template",
+        version: 1,
+        ownerPluginId: "module.consumer",
+        route: { routeId: "consumer.route", params: {} },
+        surface: "workspace",
+        profile: "workspace",
+        permission: "consumer.permission",
+        publicationPolicy: { ownership: "customer", adoption: "explicit" },
+        requirements: { capabilities: [], sources: [], actions: [], blocks: [] },
+        document: {
+          id: "consumer.template",
+          version: 1,
+          schemaVersion: 1,
+          profile: "workspace",
+          regions: { main: [] }
+        }
+      });
+      context.register("localization", "consumer.localization", {
+        id: "consumer.localization", version: 1, ownerPluginId: "module.consumer", locale: "en",
+        messages: { "consumer.message.title": "Consumer", "consumer.message.navigation": "Consumer" }
+      });
+      context.bindRenderer("components", "consumer.component", () => undefined);
+      context.bindRenderer("blocks", "consumer.block", () => undefined);
     },
-    admin: (context) => context.register("consumer.admin", {})
+    validate(context) {
+      context.register("healthAudit", "consumer.health", { id: "consumer.health", version: 1, ownerPluginId: "module.consumer", safe: true });
+      context.register("testingMetadata", "consumer.testing", {
+        id: "consumer.testing", version: 1, ownerPluginId: "module.consumer", conformancePluginId: "module.consumer"
+      });
+    }
   };
 }
 
@@ -273,7 +392,42 @@ function expectCode(action: () => unknown, code: RegistrationError["code"]): voi
   }
 }
 
+function corruptedReference(
+  phase: "contracts" | "ui",
+  targetKind: string,
+  targetId: string,
+  mutate: (value: unknown) => unknown
+): PluginRegistration {
+  const base = completeConsumer();
+  if (phase === "contracts") return {
+    ...base,
+    contracts(context) {
+      base.contracts?.({
+        ...context,
+        register: ((kind: string, id: string, value: unknown) =>
+          context.register(kind as never, id, kind === targetKind && id === targetId ? mutate(value) : value)) as typeof context.register
+      });
+    }
+  };
+  return {
+    ...base,
+    ui(context) {
+      base.ui?.({
+        ...context,
+        register: ((kind: string, id: string, value: unknown) =>
+          context.register(kind as never, id, kind === targetKind && id === targetId ? mutate(value) : value)) as typeof context.register
+      });
+    }
+  };
+}
+
 describe("phased registration runtime", () => {
+  it("provides a frozen authoring helper without widening plugin registration callbacks", () => {
+    const registration = definePluginRegistration({ pluginId: "module.consumer" });
+    expect(registration.pluginId).toBe("module.consumer");
+    expect(Object.isFrozen(registration)).toBe(true);
+  });
+
   it("runs phase-major in canonical order and dependency-first plugin order", () => {
     const trace: string[] = [];
     const hookPlan = (pluginId: string): PluginRegistration => ({
@@ -285,7 +439,8 @@ describe("phased registration runtime", () => {
       jobs: () => trace.push(`jobs:${pluginId}`),
       dataHandlers: () => trace.push(`data-handlers:${pluginId}`),
       ui: () => trace.push(`ui:${pluginId}`),
-      admin: () => trace.push(`admin:${pluginId}`)
+      admin: () => trace.push(`admin:${pluginId}`),
+      validate: () => trace.push(`validate:${pluginId}`)
     });
     const noContributions = consumerManifest({ requires: [], contributions: undefined });
     const noProviderSelection = { ...graph(), capabilityProviders: [] };
@@ -304,7 +459,8 @@ describe("phased registration runtime", () => {
       "jobs:provider.storage", "jobs:module.consumer",
       "data-handlers:provider.storage", "data-handlers:module.consumer",
       "ui:provider.storage", "ui:module.consumer",
-      "admin:provider.storage", "admin:module.consumer"
+      "admin:provider.storage", "admin:module.consumer",
+      "validate:provider.storage", "validate:module.consumer"
     ]);
   });
 
@@ -317,21 +473,33 @@ describe("phased registration runtime", () => {
     })]);
 
     expect(result.phases).toEqual(registrationPhases);
-    expect(service).toEqual({ driver: "postgres" });
+    expect(service).toBeDefined();
+    expect(() => (service as { readonly driver: string }).driver).toThrow(/authoritative lifecycle scoping/);
     expect(serviceKeys).toEqual(["get"]);
     expect(result.inventory).toEqual([
       {
         id: "module.consumer",
         contributions: {
-          contracts: ["consumer.contract"],
           schema: ["consumer.schema"],
-          behavior: ["consumer.behavior"],
-          jobs: ["consumer.job"],
-          dataSources: ["consumer.source"],
+          migrations: ["consumer.migration"],
+          services: ["consumer.service"],
+          permissions: ["consumer.permission"],
+          settings: ["consumer.setting"],
+          sources: ["consumer.source"],
           actions: ["consumer.action"],
+          tools: ["consumer.tools.action"],
+          events: ["consumer.event"],
+          jobs: ["consumer.job"],
+          realtimeTopics: ["consumer.realtime"],
+          components: ["consumer.component"],
           blocks: ["consumer.block"],
+          routes: ["consumer.route"],
           navigation: ["consumer.navigation"],
-          admin: ["consumer.admin"]
+          pageTemplates: ["consumer.template"],
+          localization: ["consumer.localization"],
+          healthAudit: ["consumer.health"],
+          lifecycle: ["consumer.lifecycle"],
+          testingMetadata: ["consumer.testing"]
         },
         capabilityAccess: ["storage.records"]
       },
@@ -339,8 +507,9 @@ describe("phased registration runtime", () => {
     ]);
     expect(result.contributions.schema[0]).toMatchObject({ pluginId: "module.consumer", id: "consumer.schema" });
     expect(result.bindings).toMatchObject({
-      dataSources: [{ pluginId: "module.consumer", id: "consumer.source" }],
+      sources: [{ pluginId: "module.consumer", id: "consumer.source" }],
       actions: [{ pluginId: "module.consumer", id: "consumer.action" }],
+      components: [{ pluginId: "module.consumer", id: "consumer.component" }],
       blocks: [{ pluginId: "module.consumer", id: "consumer.block" }]
     });
     expect(Object.isFrozen(result)).toBe(true);
@@ -352,8 +521,8 @@ describe("phased registration runtime", () => {
     const handler: DataSourceHandler = ({ input, selectedFields, signal }) => ({ input, selectedFields, signal });
     const result = run([providerRegistration(), completeConsumer(undefined, definition, handler)]);
 
-    expect(result.contributions.dataSources).toEqual([{ pluginId: "module.consumer", id: "consumer.source", value: definition }]);
-    expect(result.bindings.dataSources).toEqual([{ pluginId: "module.consumer", id: "consumer.source", value: handler }]);
+    expect(result.contributions.sources).toEqual([{ pluginId: "module.consumer", id: "consumer.source", value: definition }]);
+    expect(result.bindings.sources).toEqual([{ pluginId: "module.consumer", id: "consumer.source", value: handler }]);
   });
 
   it("rejects invalid data-source definitions", () => {
@@ -361,9 +530,71 @@ describe("phased registration runtime", () => {
     expectCode(() => run([providerRegistration(), {
       ...consumer,
       contracts(context) {
-        context.register("dataSources", "consumer.source", {} as never);
+        context.register("sources", "consumer.source", {} as never);
       }
     }]), "INVALID_CONTRIBUTION");
+  });
+
+  it("rejects invalid plugin configuration descriptors during registration", () => {
+    const consumer = completeConsumer();
+    expectCode(() => run([providerRegistration(), {
+      ...consumer,
+      contracts(context) {
+        context.register("settings", "consumer.setting", {} as never);
+      }
+    }]), "INVALID_CONTRIBUTION");
+  });
+
+  it("reconciles every descriptor reference against its exact owned category", () => {
+    const patch = (fields: Readonly<Record<string, unknown>>) => (value: unknown): unknown => ({ ...(value as object), ...fields });
+    const definitionPatch = (fields: Readonly<Record<string, unknown>>) => (value: unknown): unknown => {
+      const definition = value as ActionDefinition | DataSourceDefinition;
+      return { ...definition, descriptor: { ...definition.descriptor, ...fields } };
+    };
+    const cases = [
+      ["contracts", "settings", "consumer.setting", patch({ readPermission: "consumer.route" })],
+      ["contracts", "sources", "consumer.source", definitionPatch({ permission: "consumer.route" })],
+      ["contracts", "actions", "consumer.action", definitionPatch({ permission: "consumer.route" })],
+      ["contracts", "tools", "consumer.tools.action", patch({ permission: "consumer.route" })],
+      ["contracts", "events", "consumer.event", patch({ sourceId: "consumer.permission" })],
+      ["contracts", "realtimeTopics", "consumer.realtime", patch({ eventId: "consumer.permission" })],
+      ["contracts", "realtimeTopics", "consumer.realtime", patch({ sourceId: "consumer.permission" })],
+      ["contracts", "realtimeTopics", "consumer.realtime", patch({ permission: "consumer.route" })],
+      ["ui", "components", "consumer.component", patch({ permission: "consumer.route" })],
+      ["ui", "components", "consumer.component", patch({ actionPolicy: { required: true, actions: [{ id: "consumer.route", version: 1 }] } })],
+      ["ui", "routes", "consumer.route", patch({ permission: "consumer.navigation" })],
+      ["ui", "routes", "consumer.route", patch({ viewId: "consumer.permission" })],
+      ["ui", "navigation", "consumer.navigation", patch({ route: { routeId: "consumer.permission", params: {} } })],
+      ["ui", "navigation", "consumer.navigation", patch({ permission: "consumer.route" })],
+      ["ui", "navigation", "consumer.navigation", patch({ parentId: "consumer.route" })],
+      ["ui", "pageTemplates", "consumer.template", patch({ route: { routeId: "consumer.permission", params: {} } })],
+      ["ui", "pageTemplates", "consumer.template", patch({ permission: "consumer.route" })]
+    ] as const;
+    for (const [phase, kind, id, mutate] of cases) {
+      expectCode(() => run([providerRegistration(), corruptedReference(phase, kind, id, mutate)]), "INVENTORY_MISMATCH");
+    }
+  });
+
+  it("requires canonical UI descriptor categories and executable renderer bindings", () => {
+    const consumer = completeConsumer();
+    expectCode(() => run([providerRegistration(), {
+      ...consumer,
+      ui(context) {
+        context.register("components", "consumer.component", uiDescriptor("consumer.component", "block"));
+      }
+    }]), "INVALID_CONTRIBUTION");
+
+    expectCode(() => run([providerRegistration(), {
+      ...consumer,
+      ui(context) {
+        consumer.ui?.({
+          ...context,
+          bindRenderer(kind, id, renderer) {
+            if (kind === "components") context.bindRenderer(kind, id, renderer);
+          }
+        });
+      }
+    }]), "INVENTORY_MISMATCH");
   });
 
   it("rejects data-source descriptor IDs that differ from contribution IDs", () => {
@@ -379,7 +610,7 @@ describe("phased registration runtime", () => {
     expectCode(() => run([providerRegistration(), {
       ...consumer,
       dataHandlers(context) {
-        context.bind("dataSources", "consumer.source", {} as never);
+        context.bind("sources", "consumer.source", {} as never);
       }
     }]), "INVALID_CONTRIBUTION");
   });
@@ -415,10 +646,10 @@ describe("phased registration runtime", () => {
 
   it("requires exact schema-compatible action tool bindings", () => {
     const manifest = consumerManifest({
-      contributions: { ...consumerManifest().contributions, tools: ["consumer.tools.action"] }
+      contributions: { ...consumerManifest().contributions, tools: { "consumer.tools.action": "required" } }
     });
     const plan = (tool: AgentToolDescriptor): PluginRegistration => {
-      const consumer = completeConsumer();
+      const consumer = completeConsumer(undefined, undefined, undefined, undefined, null);
       return {
         ...consumer,
         contracts(context) {
@@ -451,7 +682,7 @@ describe("phased registration runtime", () => {
   it("rejects a source tool whose output contract does not match the registered source", () => {
     const base = consumerManifest();
     const manifest = consumerManifest({
-      contributions: { ...base.contributions, tools: ["consumer.tools.source"] }
+      contributions: { ...base.contributions, tools: { "consumer.tools.source": "required" } }
     });
     const sourceTool = (outputContract: AgentToolDescriptor["outputContract"]): AgentToolDescriptor => ({
       ...actionTool(),
@@ -459,14 +690,14 @@ describe("phased registration runtime", () => {
       outputSchema: undefined,
       outputContract,
       invocation: { kind: "source", source: { id: "consumer.source", version: 1 } },
-      permission: "consumer.read",
+      permission: "consumer.permission",
       policy: "consumer.read",
       effect: "read-only",
       approval: "none",
       idempotency: "not-applicable"
     });
     const plan = (tool: AgentToolDescriptor): PluginRegistration => {
-      const consumer = completeConsumer();
+      const consumer = completeConsumer(undefined, undefined, undefined, undefined, null);
       return {
         ...consumer,
         contracts(context) {
@@ -493,7 +724,7 @@ describe("phased registration runtime", () => {
         consumer.contracts?.(context);
       },
       behavior(context) {
-        contracts?.register("contracts", "consumer.contract", {});
+        contracts?.register("permissions", "consumer.permission", {});
         consumer.behavior?.(context);
       }
     }]), "WRONG_PHASE");
@@ -502,8 +733,48 @@ describe("phased registration runtime", () => {
   it("rejects undeclared contributions immediately", () => {
     expectCode(() => run([providerRegistration(), {
       ...completeConsumer(),
-      schema: (context) => context.register("consumer.not-declared", {})
+      schema: (context) => context.register("schema", "consumer.not-declared", {})
     }]), "UNDECLARED_CONTRIBUTION");
+  });
+
+  it("allows absent optional declarations but requires a binding when an optional executable contribution registers", () => {
+    const optionalMigration = consumerManifest({
+      contributions: {
+        ...consumerManifest().contributions,
+        migrations: { "consumer.migration": "optional" }
+      }
+    });
+    const withoutMigration = completeConsumer();
+    expect(() => run([providerRegistration(), {
+      ...withoutMigration,
+      schema: (context) => context.register("schema", "consumer.schema", { slug: "consumer" })
+    }], [providerManifest(), optionalMigration])).not.toThrow();
+
+    const optionalSource = consumerManifest({
+      contributions: {
+        ...consumerManifest().contributions,
+        sources: { "consumer.source": "required", "consumer.optional": "optional" }
+      }
+    });
+    const consumer = completeConsumer();
+    expectCode(() => run([providerRegistration(), {
+      ...consumer,
+      contracts(context) {
+        consumer.contracts?.(context);
+        context.register("sources", "consumer.optional", dataSourceDefinition("consumer.optional"));
+      }
+    }], [providerManifest(), optionalSource]), "INVENTORY_MISMATCH");
+  });
+
+  it("rejects unknown categories instead of allowing runtime content to create them", () => {
+    const consumer = completeConsumer();
+    expectCode(() => run([providerRegistration(), {
+      ...consumer,
+      contracts(context) {
+        const register = context.register as (kind: string, id: string, value: unknown) => void;
+        register("database", "consumer.database", {});
+      }
+    }]), "INVALID_CONTRIBUTION");
   });
 
   it("snapshots declarations before hooks can mutate their source objects", () => {
@@ -512,12 +783,12 @@ describe("phased registration runtime", () => {
     expectCode(() => run([providerRegistration(), {
       ...consumer,
       contracts(context) {
-        manifest.contributions?.schema?.push("consumer.injected");
+        if (manifest.contributions?.schema) manifest.contributions.schema["consumer.injected"] = "required";
         consumer.contracts?.(context);
       },
       schema(context) {
         consumer.schema?.(context);
-        context.register("consumer.injected", {});
+        context.register("schema", "consumer.injected", {});
       }
     }], [providerManifest(), manifest]), "UNDECLARED_CONTRIBUTION");
   });
@@ -550,15 +821,15 @@ describe("phased registration runtime", () => {
   });
 
   it("rejects duplicate contribution IDs across plugins", () => {
-    const provider = providerManifest({ schema: ["consumer.schema"] });
+    const provider = providerManifest({ schema: { "consumer.schema": "required" } });
     expectCode(() => run([
-      { ...providerRegistration(), schema: (context) => context.register("consumer.schema", {}) },
+      { ...providerRegistration(), schema: (context) => context.register("schema", "consumer.schema", {}) },
       completeConsumer()
     ], [provider, consumerManifest()]), "DUPLICATE_CONTRIBUTION");
   });
 
   it("rejects late registration after freeze", () => {
-    let schema: SingleKindRegistrationContext | undefined;
+    let schema: SchemaRegistrationContext | undefined;
     const consumer = completeConsumer();
     run([providerRegistration(), {
       ...consumer,
@@ -567,7 +838,7 @@ describe("phased registration runtime", () => {
         consumer.schema?.(context);
       }
     }]);
-    expectCode(() => schema?.register("consumer.schema", {}), "FROZEN");
+    expectCode(() => schema?.register("schema", "consumer.schema", {}), "FROZEN");
   });
 
   it("rejects manifest and actual inventory mismatch", () => {
@@ -580,6 +851,13 @@ describe("phased registration runtime", () => {
 
   it("allows only the resolved provider to bind a capability", () => {
     expectCode(() => run([providerRegistration("storage.other"), completeConsumer()]), "PROVIDER_MISMATCH");
+  });
+
+  it("rejects capability services that cannot be lifecycle-revoked", () => {
+    expectCode(() => run([{
+      pluginId: "provider.storage",
+      providers: (context) => context.provide("storage.records", null)
+    }, completeConsumer()]), "INVALID_CONTRIBUTION");
   });
 
   it("rejects graph identity and registration-plan drift", () => {

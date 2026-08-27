@@ -2,21 +2,21 @@
 
 - **Updated:** 2026-08-27
 - **Phase:** Phase 6 — Plugin Platform Hardening and Sales Reference Module
-- **Active task:** P6.1 — Freeze the complete plugin contribution taxonomy
-- **State:** Ready to start
+- **Active task:** P6.10 — Close Gate 6 and freeze the pre-v1 authoring contract
+- **State:** Ready for phase review
 
 ## Last completed
 
-Finalized the Gate 5-based foundation roadmap, aligned repository entrypoints with the active Phase 6 handoff, and removed stale pre-merge instructions.
+P6.10 now gives the exported Sales workspace presentation an explicit stable declaration contract, canonicalizes dependency-map order before pnpm packs workspace manifests, and neutralizes the sole cross-OS gzip header byte in the committed package artifact.
 
 ## Validation
 
-PR #20 exact-head Architecture Contracts run #85 passes frozen installation, browser proofs, Phase 0 through Gate 5, and exact-head repository checks.
+Fresh GitHub CI isolated three environment differences. Cold-build Sales declaration drift and the realtime-test wall-clock race are corrected. Linux/macOS pack output has identical tar and deflate bytes but pnpm inherits zlib's platform-specific gzip OS marker; conformance now requires one neutral committed marker while still requiring raw repeated-pack equality on each platform. Docker Linux focused build/pack and the exact full Gate 6 pass.
 
 ## Next
 
-Implement P6.1 through P6.10 in order on one Phase 6 branch and pull request, using `module.sales` as the sole reference domain module.
+Repeat exact-head Gate 6 after this closeout metadata update, audit, and independent review before refreshing PR #21. PRs #22 and #23 remain drafts.
 
 ## Blockers
 
-None.
+No implementation blocker is known. The Linux reproduction proves the uncompressed tar SHA-256 is identical to macOS and differs only at gzip byte 9. Corrected Gate 6 passes. No merge or auto-merge will be performed.

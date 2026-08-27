@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   executeRegistration,
+  scopePluginRegistration,
   RegisteredToolAuthorization,
   RegisteredToolDataSourceDispatcher,
   RegisteredToolDispatcher,
@@ -92,7 +93,7 @@ function registration() {
     optional: [],
     conflicts: [],
     lifecycle: { ownsPayloadSchema: false, ownsPersistentData: false, disable: "supported", uninstall: "supported", purge: "unsupported" },
-    contributions: { actions: [actionDescriptor.id], tools: [tool.id] }
+    contributions: { permissions: { "fixture.run": "required" }, actions: { [actionDescriptor.id]: "required" }, tools: { [tool.id]: "required" } }
   };
   const installed: readonly InstalledPluginManifest[] = [{ package: { name: manifest.package, version: manifest.version, integrity: "sha512-fixture" }, manifest }];
   const graph: ResolvedPluginGraph = {
@@ -102,12 +103,17 @@ function registration() {
     registrationOrder: [manifest.id]
   };
   const definition: ActionDefinition = { descriptor: actionDescriptor, inputSchema, outputSchema };
-  return executeRegistration({
+  return scopePluginRegistration(executeRegistration({
     graph,
     installed,
     registrations: [{
       pluginId: manifest.id,
       contracts(context) {
+        context.register("permissions", "fixture.run", {
+          id: "fixture.run", ownerPluginId: manifest.id, title: "Run fixture", description: "Run fixture action.",
+          audience: "authenticated", resource: "fixture.action", operation: "execute",
+          policy: { id: "fixture.policy", scope: "application", recordScoped: false, fieldScoped: false }
+        });
         context.register("actions", actionDescriptor.id, definition);
         context.register("tools", tool.id, tool);
       },
@@ -115,7 +121,7 @@ function registration() {
         context.bind("actions", actionDescriptor.id, ({ input }) => ({ ok: true, secret: input, nested: { token: "token" } }));
       }
     }]
-  });
+  }), []);
 }
 
 function context(overrides: Partial<ToolExecutionContext> = {}): ToolExecutionContext {
@@ -129,7 +135,7 @@ function context(overrides: Partial<ToolExecutionContext> = {}): ToolExecutionCo
       input: { value: "input" },
       signal: new AbortController().signal
     },
-    principal: { actor: { id: "user-1" }, request: {}, authorizationContext: {} },
+    principal: { actor: { id: "user-1" }, request: {}, authorizationContext: { untrusted: true } },
     agentClient: { client: { id: "client-1" }, session: { id: "session-1" } },
     delegation: { id: "delegation-1" },
     descriptor: tool,

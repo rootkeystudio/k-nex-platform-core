@@ -82,8 +82,20 @@ export const UiSourceBindingSchema = z.strictObject({
   selectedFields: uniqueArray(TableFieldIdSchema).max(dataSourcePlatformCeilings.selectedFields).optional()
 });
 
+export const UiActionBindingSchema = z.strictObject({
+  action: z.strictObject({
+    id: boundedResourceIdSchema,
+    version: positiveVersionSchema
+  })
+});
+
 export const UiNodeBindingsSchema = z.strictObject({
-  source: UiSourceBindingSchema
+  source: UiSourceBindingSchema.optional(),
+  action: UiActionBindingSchema.shape.action.optional()
+}).check((context) => {
+  if (context.value.source === undefined && context.value.action === undefined) {
+    context.issues.push({ code: "custom", input: context.value, message: "UI bindings require a source or action." });
+  }
 });
 
 export const UiLayoutConstraintsSchema = z.strictObject({
@@ -134,7 +146,7 @@ export const UiEngineMetadataSchema = z.record(boundedPluginIdSchema, jsonValueS
   }
 });
 
-type UiNodeShape = {
+export type UiNodeShape = {
   readonly id: string;
   readonly type: string;
   readonly version: number;
