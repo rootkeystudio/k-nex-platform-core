@@ -5,7 +5,7 @@
 - **Baseline:** `9056043`
 - **Delivery:** stacked Phase 8 pull request; no merge or auto-merge
 - **Decision:** **PLATFORM FOUNDATION ACCEPTED**
-- **Review state:** Sol-high REWORK at `6d44b88`; all three P1 findings corrected; exact-head re-review pending
+- **Review state:** Independent Sol-high PASS at corrected implementation/evidence head `d09fb4f`; designated PR review pending
 
 ## Scope proved
 
@@ -74,7 +74,7 @@ The corrective full run on the refreshed candidate covers Phase 0 through Gate 8
 
 ## Gate decision
 
-The first formal review correctly rejected caller-authored lifecycle evidence, unenforced support policy, workspace-linked customer fixtures, incomplete transitive inventory, forgeable deployment state, simulated recovery, and a self-repairing gate. Corrective work now makes those paths executor/authority-issued, manifest-enforced, packed and clean-booted, transitive, signed and runtime-observed, PostgreSQL-backed, exact-source-bound, and stale-evidence rejecting. Restacking on final Phase 7 refreshed the complete packed closure, all dependent lock/static artifacts, and source-tree provenance without relying on discarded task hashes. Sol-high review at `6d44b88` then found vulnerable-target acceptance, offset-unsafe fleet freshness, and replayable purge authority; all three are corrected with focused regressions and a new complete Gate 8 PASS. No Gate 8 kill criterion fired. Exact-head re-review and designated PR review remain pending.
+The first formal review correctly rejected caller-authored lifecycle evidence, unenforced support policy, workspace-linked customer fixtures, incomplete transitive inventory, forgeable deployment state, simulated recovery, and a self-repairing gate. Corrective work now makes those paths executor/authority-issued, manifest-enforced, packed and clean-booted, transitive, signed and runtime-observed, PostgreSQL-backed, exact-source-bound, and stale-evidence rejecting. Restacking on final Phase 7 refreshed the complete packed closure, all dependent lock/static artifacts, and source-tree provenance without relying on discarded task hashes. Sol-high review at `6d44b88` then found vulnerable-target acceptance, offset-unsafe fleet freshness, and replayable purge authority; all three are corrected with focused regressions and a new complete Gate 8 PASS. Independent Sol-high re-review returned PASS at `d09fb4f`. No Gate 8 kill criterion fired; designated PR review remains pending.
 
 **Decision:** **PLATFORM FOUNDATION ACCEPTED**
 
