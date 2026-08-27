@@ -21,7 +21,14 @@ import {
   type SalesWorkspaceSettings
 } from "./contracts.js";
 
-export function salesWorkspacePresentation(settings: SalesWorkspaceSettings) {
+export interface SalesWorkspacePresentation {
+  readonly routeId: "sales.route.overview" | "sales.route.opportunities" | "sales.route.tasks";
+  readonly taskPageSize: number;
+  readonly showPotentialRevenue: boolean;
+  readonly pipelineStages: readonly string[];
+}
+
+export function salesWorkspacePresentation(settings: SalesWorkspaceSettings): Readonly<SalesWorkspacePresentation> {
   const routeId = settings.defaultPage === "overview" ? "sales.route.overview"
     : settings.defaultPage === "opportunities" ? "sales.route.opportunities" : "sales.route.tasks";
   return Object.freeze({

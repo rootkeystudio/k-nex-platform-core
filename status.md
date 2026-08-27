@@ -7,11 +7,11 @@
 
 ## Last completed
 
-P6.10 now packs Sales only after a forced TypeScript rebuild, eliminating stale incremental declaration output and aligning the committed tar, lock integrity, and Gate 1 artifacts with clean CI.
+P6.10 now gives the exported Sales workspace presentation an explicit stable declaration contract, eliminating TypeScript's build-order-dependent inferred union ordering from the packed customer artifact.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0 focused clean-pack acceptance passes: forced Sales build, 21 Node tests, 13 Vitest tests, boundaries, deterministic pack comparison, Gate 1 artifact check, frozen reinstall, and diff check. Exact-head Gate 6 and independent review must repeat before PR update.
+Node 24.19.0 / pnpm 11.9.0 focused acceptance passes: forced Sales build, 21 Node tests, 13 Vitest tests, package boundaries, deterministic pack comparison, Gate 1 reproducibility, frozen reinstall, plugin conformance, and diff check. Exact-head Gate 6 and independent review must repeat before PR update.
 
 ## Next
 
@@ -19,4 +19,4 @@ Run exact-head Gate 6, audit, clean-tree proof, and independent review; then ref
 
 ## Blockers
 
-PR #21 CI exposed and now has a local correction for stale incremental Sales declarations; push remains pending exact-head validation. No merge or auto-merge will be performed.
+PR #21 CI exposed build-order-dependent declaration output; local structural correction remains pending exact-head validation. No merge or auto-merge will be performed.
