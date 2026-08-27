@@ -7,16 +7,16 @@
 
 ## Last completed
 
-P8.10 corrective work makes committed Phase 8 evidence fail closed. The gate regenerates both deployment and fleet artifacts from their authoring sources, byte-compares every output, restores the pre-check tree, and fails instead of silently repairing stale evidence.
+P8.5 corrective work makes application apply all-or-nothing: preflight every path, reject custom symlink traversal, stage and validate the entire fresh application, then atomically rename. Generated and customer configs now import the real Sales collections/registration, migration readiness, and default-page template registry.
 
 ## Validation
 
-Positive deterministic evidence check PASS. Negative stale-artifact injection test PASS: changed patch evidence makes the checker fail, and the checker leaves the rejected bytes untouched. `git diff --check` PASS.
+Composition suite PASS: 5 files/82 tests, including later-file conflict with zero partial writes and symlink escape rejection. Both customer fixture validators PASS with the composed Sales config. `git diff --check` PASS.
 
 ## Next
 
-Finish secure atomic application factory plus real packed-package boot and connect its protected runtime observation to deployment verification. Then run the full Gate 8 and formal rereview.
+Replace customer workspace links with a packed internal-package closure, prove both composed applications boot/migrate/readiness/default pages on clean PostgreSQL, and connect protected runtime observation to deployment verification. Then run full Gate 8 and formal rereview.
 
 ## Blockers
 
-Formal review blockers remain: generated app boot, atomic apply, and protected runtime observation integration.
+Formal review blockers remain: exact packed-package customer boot and protected runtime observation integration.
