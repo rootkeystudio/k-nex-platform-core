@@ -9,8 +9,7 @@ import {
 
 import { isDataSourceActorContext, type DataSourceActorContext } from "./data-source-authorization.js";
 import { actionToolCompatible, type ActionDefinition } from "./action.js";
-import type { RegistrationResult } from "./registration-runtime.js";
-import { assertExecutableRegistrationAuthority } from "./plugin-lifecycle.js";
+import { assertExecutableRegistrationAuthority, type ScopedRegistrationResult } from "./plugin-lifecycle.js";
 
 export const toolCatalogLimits = Object.freeze({
   maxPageSize: 100,
@@ -149,7 +148,7 @@ function descriptorAllowed(descriptor: AgentToolDescriptor, request: ToolCatalog
   return true;
 }
 
-function targetBinding(registration: RegistrationResult, descriptor: AgentToolDescriptor): boolean {
+function targetBinding(registration: ScopedRegistrationResult, descriptor: AgentToolDescriptor): boolean {
   const kind = descriptor.invocation.kind === "source" ? "sources" : "actions";
   const id = descriptor.invocation.kind === "source" ? descriptor.invocation.source.id : descriptor.invocation.action.id;
   const contribution = registration.contributions[kind]?.find((entry) => entry.id === id);
@@ -165,7 +164,7 @@ export class ToolCatalog {
   private readonly policy: ToolCatalogPolicy;
   private readonly listeners = new Set<() => void>();
 
-  constructor(registration: RegistrationResult, policy: ToolCatalogPolicy) {
+  constructor(registration: ScopedRegistrationResult, policy: ToolCatalogPolicy) {
     assertExecutableRegistrationAuthority(registration);
     if (typeof policy?.isVisible !== "function") throw new TypeError("Tool catalog policy must define isVisible.");
     this.policy = policy;

@@ -15,8 +15,10 @@ import {
   RegisteredToolOutputValidator,
   RegisteredToolRedactor,
   RegisteredToolTargetResolver,
-  executeRegistration
+  executeRegistration,
+  scopePluginRegistration
 } from "../packages/runtime/dist/index.js";
+import { pluginContributionCategoryKeys } from "../packages/contracts/dist/index.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const expectedNode = "24.19.0";
@@ -319,21 +321,22 @@ function descriptor(index, overrides = {}) {
 
 function registration(descriptors) {
   const owner = "module.gate-2a";
-  return {
-    inventory: [{ id: owner }],
-    contributions: {
-      tools: descriptors.map((value) => ({ pluginId: owner, id: value.id, value })),
-      sources: descriptors.map((value) => ({
+  const contributions = Object.fromEntries(pluginContributionCategoryKeys.map((kind) => [kind, []]));
+  contributions.tools = descriptors.map((value) => ({ pluginId: owner, id: value.id, value }));
+  contributions.sources = descriptors.map((value) => ({
         pluginId: owner,
         id: value.invocation.source.id,
         value: { descriptor: { id: value.invocation.source.id, version: 1 } }
-      }))
-    },
+      }));
+  return scopePluginRegistration({
+    phases: [],
+    inventory: [{ id: owner, contributions: {}, capabilityAccess: [] }],
+    contributions,
     bindings: {
       sources: descriptors.map((value) => ({ pluginId: owner, id: value.invocation.source.id, value: () => ({}) })),
-      actions: []
+      actions: [], events: [], jobs: [], realtimeTopics: [], components: [], blocks: []
     }
-  };
+  }, []);
 }
 
 function actor(kind = "user", id = "gate-actor") {
@@ -399,7 +402,7 @@ async function directOutputProbe() {
       ? { success: true, data: value }
       : { success: false, error: new Error("invalid input") } };
   let dispatches = 0;
-  const resolved = executeRegistration({
+  const resolved = scopePluginRegistration(executeRegistration({
     graph: {
       resolverVersion: "1.0.0",
       plugins: [{ id: "module.gate-2a", kind: "module", package: "@k-nex/gate-2a", version: "1.0.0", integrity: "sha512-gate-2a", required: [], optional: [] }],
@@ -434,7 +437,7 @@ async function directOutputProbe() {
         context.bind("actions", action.id, () => { dispatches += 1; return { undeclared: "secret-output" }; });
       }
     }]
-  });
+  }), []);
   const catalog = new ToolCatalog(resolved, { isVisible: () => true });
   const targets = new RegisteredToolTargetResolver(resolved);
   const request = {

@@ -13,8 +13,7 @@ import {
   type ActionHandlerRequest
 } from "./action.js";
 import { dataSourceToolCompatible, type DataSourceGatewayRequest, type DataSourceGatewayResponse } from "./data-source-gateway.js";
-import type { RegistrationResult } from "./registration-runtime.js";
-import { assertExecutableRegistrationAuthority } from "./plugin-lifecycle.js";
+import { assertExecutableRegistrationAuthority, type ScopedRegistrationResult } from "./plugin-lifecycle.js";
 import {
   ToolGatewayError,
   type SourceActionDispatcher,
@@ -42,7 +41,7 @@ function targetVersion(descriptor: AgentToolDescriptor): number {
 }
 
 export class RegisteredToolTargetResolver {
-  constructor(private readonly registration: RegistrationResult) {}
+  constructor(private readonly registration: ScopedRegistrationResult) {}
 
   resolve(descriptor: AgentToolDescriptor): RegisteredToolTarget {
     if (!AgentToolDescriptorSchema.safeParse(descriptor).success) {

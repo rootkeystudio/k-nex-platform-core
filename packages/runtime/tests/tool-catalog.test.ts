@@ -7,6 +7,7 @@ import {
   executeRegistration,
   type PluginRegistration
 } from "../src/registration-runtime.js";
+import { scopePluginRegistration } from "../src/plugin-lifecycle.js";
 import {
   ToolCatalog,
   ToolCatalogError,
@@ -116,7 +117,7 @@ const tool = (id: string, audience: AgentToolDescriptor["audience"] = "authentic
   audit: { category: "sales.tasks" }
 });
 
-function registration(toolValues: readonly AgentToolDescriptor[] = [tool("sales.tools.search"), tool("sales.tools.private")]): ReturnType<typeof executeRegistration> {
+function registration(toolValues: readonly AgentToolDescriptor[] = [tool("sales.tools.search"), tool("sales.tools.private")]) {
   const plan: PluginRegistration = {
     pluginId: manifest.id,
     contracts(context) {
@@ -125,7 +126,7 @@ function registration(toolValues: readonly AgentToolDescriptor[] = [tool("sales.
     },
     dataHandlers: (context) => context.bind("sources", source.descriptor.id, () => undefined)
   };
-  return executeRegistration({ graph, installed, registrations: [plan] });
+  return scopePluginRegistration(executeRegistration({ graph, installed, registrations: [plan] }), []);
 }
 
 const actor: ToolCatalogRequest["actor"] = {
@@ -213,7 +214,7 @@ describe("P2A.2 tool catalog", () => {
         tools: Array.from({ length: toolCatalogLimits.maxCatalogSize + 1 }, () => resolved.contributions.tools[0]!)
       }
     };
-    expect(() => new ToolCatalog(oversized, { isVisible: () => true })).toThrowError(expect.objectContaining({ code: "CATALOG_LIMIT_EXCEEDED" }));
+    expect(() => new ToolCatalog(scopePluginRegistration(oversized, []), { isVisible: () => true })).toThrowError(expect.objectContaining({ code: "CATALOG_LIMIT_EXCEEDED" }));
   });
 
   it("rejects malformed, undeclared, duplicate, and unbound tool registrations", () => {

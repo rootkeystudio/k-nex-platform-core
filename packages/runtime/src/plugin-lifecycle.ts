@@ -61,6 +61,12 @@ const retainedWhileDisabled = new Set<PluginContributionCategory>([
 ]);
 const authoritativeAvailability = new WeakSet<object>();
 const authoritativeRegistrations = new WeakSet<object>();
+const registrationAvailability = new WeakMap<object, ReadonlyMap<string, PluginAvailability>>();
+declare const scopedRegistrationBrand: unique symbol;
+
+export interface ScopedRegistrationResult extends RegistrationResult {
+  readonly [scopedRegistrationBrand]: true;
+}
 
 function fail(code: PluginLifecycleErrorCode, message: string): never {
   throw new PluginLifecycleError(code, message);
@@ -180,16 +186,22 @@ export function reconcilePluginAvailability(registration: RegistrationResult, st
   return result;
 }
 
-export function assertExecutableRegistrationAuthority(registration: RegistrationResult): void {
-  if (registration.contributions.lifecycle?.length > 0 && !authoritativeRegistrations.has(registration)) {
-    fail("NOT_READY", "Lifecycle-owned registration requires authoritative availability reconciliation before execution.");
+export function assertExecutableRegistrationAuthority(registration: RegistrationResult): asserts registration is ScopedRegistrationResult {
+  if (!authoritativeRegistrations.has(registration)) {
+    fail("NOT_READY", "Registration requires authoritative lifecycle scoping before execution.");
   }
+}
+
+export function pluginEnabledInRegistration(registration: ScopedRegistrationResult, pluginId: string): boolean {
+  assertExecutableRegistrationAuthority(registration);
+  const availability = registrationAvailability.get(registration)?.get(pluginId);
+  return availability === undefined || availability.enabled && availability.ready;
 }
 
 export function scopePluginRegistration(
   registration: RegistrationResult,
   availabilityValues: readonly PluginAvailability[]
-): RegistrationResult {
+): ScopedRegistrationResult {
   const availability = new Map<string, PluginAvailability>();
   for (const value of availabilityValues) {
     if (!authoritativeAvailability.has(value)) fail("INVALID_STATE", `Plugin ${value.pluginId} availability is not authoritative.`);
@@ -217,8 +229,9 @@ export function scopePluginRegistration(
       return ids.length === 0 ? [] : [[kind, Object.freeze(ids)]];
     })))
   })));
-  const result = Object.freeze({ phases: registration.phases, inventory, contributions, bindings });
+  const result = Object.freeze({ phases: registration.phases, inventory, contributions, bindings }) as ScopedRegistrationResult;
   authoritativeRegistrations.add(result);
+  registrationAvailability.set(result, new Map(availability));
   return result;
 }
 

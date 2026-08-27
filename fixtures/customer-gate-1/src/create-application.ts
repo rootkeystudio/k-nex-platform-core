@@ -130,7 +130,6 @@ export function createGate1Application(options: CreateGate1ApplicationOptions): 
     baseCollections: [usersCollection],
     databaseUrl: options.databaseUrl,
     migrations: options.migrations,
-    pluginAvailability: [salesAvailability],
     registration: scopedRegistration
   });
   return Object.freeze({ ...application, registration: scopedRegistration, salesAvailability, salesLifecycle });

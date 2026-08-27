@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   executeRegistration,
+  scopePluginRegistration,
   RegisteredToolAuthorization,
   RegisteredToolDataSourceDispatcher,
   RegisteredToolDispatcher,
@@ -102,7 +103,7 @@ function registration() {
     registrationOrder: [manifest.id]
   };
   const definition: ActionDefinition = { descriptor: actionDescriptor, inputSchema, outputSchema };
-  return executeRegistration({
+  return scopePluginRegistration(executeRegistration({
     graph,
     installed,
     registrations: [{
@@ -115,7 +116,7 @@ function registration() {
         context.bind("actions", actionDescriptor.id, ({ input }) => ({ ok: true, secret: input, nested: { token: "token" } }));
       }
     }]
-  });
+  }), []);
 }
 
 function context(overrides: Partial<ToolExecutionContext> = {}): ToolExecutionContext {

@@ -54,9 +54,10 @@ const registration = {
 } as unknown as RegistrationResult;
 
 describe("plugin lifecycle", () => {
-  it("accepts legacy registrations without lifecycle ownership", () => {
-    const legacy = { ...registration, contributions: { tools: [] } } as unknown as RegistrationResult;
-    expect(() => assertExecutableRegistrationAuthority(legacy)).not.toThrow();
+  it("rejects every registration until authoritative lifecycle scoping", () => {
+    const raw = { ...registration, contributions: { ...registration.contributions, lifecycle: [] } } as unknown as RegistrationResult;
+    expect(() => assertExecutableRegistrationAuthority(raw)).toThrow(/authoritative lifecycle scoping/);
+    expect(() => assertExecutableRegistrationAuthority(scopePluginRegistration(raw, []))).not.toThrow();
   });
 
   it("plans source-controlled install and idempotent customer-owned template seeding", () => {

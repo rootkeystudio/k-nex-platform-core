@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { createPluginLifecycleState, executeRegistration, reconcilePluginAvailability, scopePluginRegistration, type RegistrationResult } from "@k-nex/runtime";
+import { createPluginLifecycleState, executeRegistration, reconcilePluginAvailability, scopePluginRegistration, type RegistrationResult, type ScopedRegistrationResult } from "@k-nex/runtime";
 import { PluginManifestSchema } from "@k-nex/contracts";
 import { salesOpportunitiesCollection, salesRegistration, salesTasksCollection } from "@k-nex/module-sales/server";
 import { salesTaskFixture } from "@k-nex/module-sales/testing";
@@ -39,7 +39,7 @@ function rawRegistration(): RegistrationResult {
   });
 }
 
-function scope(raw: RegistrationResult): RegistrationResult {
+function scope(raw: RegistrationResult): ScopedRegistrationResult {
   const integrity = `sha512-${"a".repeat(86)}==`;
   const lifecycle = createPluginLifecycleState({
     pluginId: "module.sales", catalogStatus: "supported",
@@ -49,7 +49,7 @@ function scope(raw: RegistrationResult): RegistrationResult {
   return scopePluginRegistration(raw, [reconcilePluginAvailability(raw, lifecycle)]);
 }
 
-function registration(): RegistrationResult { return scope(rawRegistration()); }
+function registration(): ScopedRegistrationResult { return scope(rawRegistration()); }
 
 function compose(overrides: Partial<Parameters<typeof composePayloadApplication>[0]> = {}) {
   return composePayloadApplication({
@@ -60,7 +60,7 @@ function compose(overrides: Partial<Parameters<typeof composePayloadApplication>
   });
 }
 
-function registrationWith(collectionValue: unknown): RegistrationResult {
+function registrationWith(collectionValue: unknown): ScopedRegistrationResult {
   const base = rawRegistration();
   return scope({
     ...base,
@@ -83,7 +83,7 @@ function expectCode(action: () => unknown, code: PayloadCompositionError["code"]
 
 describe("Payload application composition", () => {
   it("rejects lifecycle-owned schema composition before authoritative reconciliation", () => {
-    expect(() => compose({ registration: rawRegistration() })).toThrow(/requires authoritative availability reconciliation/);
+    expect(() => compose({ registration: rawRegistration() as never })).toThrow(/authoritative lifecycle scoping/);
   });
   it("composes the owned Sales collection with the Postgres adapter and sanitizes through public Payload APIs", async () => {
     const application = compose();
@@ -122,13 +122,16 @@ describe("Payload application composition", () => {
   });
 
   it("retains disabled plugin schema while direct collection access stays closed", async () => {
-    const disabled = {
-      pluginId: "module.sales", enabled: false, ready: true, contributions: {},
-      isAvailable: (kind: string) => kind === "schema"
-    };
+    const raw = rawRegistration();
+    const integrity = `sha512-${"a".repeat(86)}==`;
+    const lifecycle = createPluginLifecycleState({
+      pluginId: "module.sales", catalogStatus: "supported",
+      package: { status: "installed", name: "@k-nex/module-sales", version: "1.0.0", integrity }, enabled: false,
+      configuration: { revision: 1, ready: true }, migration: { current: 1, required: 1, ready: true }, dataState: "retained", releaseStatus: "supported"
+    });
     const composed = composePayloadApplication({
       baseConfig: { secret: "payload-composition-test-secret" }, databaseUrl: "postgres://test:test@localhost:5432/test",
-      pluginAvailability: [disabled], registration: registration()
+      registration: scopePluginRegistration(raw, [reconcilePluginAvailability(raw, lifecycle)])
     });
     const collection = composed.config.collections?.find(({ slug }) => slug === "sales-tasks");
     expect(collection).toBeDefined();
