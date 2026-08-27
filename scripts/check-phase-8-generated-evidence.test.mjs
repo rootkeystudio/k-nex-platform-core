@@ -22,3 +22,9 @@ test("Gate 8 rejects and does not silently repair stale committed evidence", () 
     writeFileSync(target, original);
   }
 });
+
+test("deployment evidence generator rejects a source commit that lacks the exact release materials", () => {
+  const result = spawnSync(process.execPath, ["scripts/generate-phase-8-deployment-evidence.mjs", "793927d83c8fa0cc945b274c4c2ac0c22621df0f"], { cwd: root, encoding: "utf8" });
+  assert.notEqual(result.status, 0);
+  assert.match(`${result.stdout}\n${result.stderr}`, /differs from source commit|does not exist in/u);
+});

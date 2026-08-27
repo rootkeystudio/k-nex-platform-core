@@ -9,7 +9,7 @@
   "currentVersion": "1.0.0",
   "targetVersion": "1.0.1",
   "targetIntegrity": "sha512-z+x9h7xV94BDRiHWK71Un9yJf0P+cWKl8MEbpsRb7eIPCKhxyy9H11djFVh3RBAXJ2OtlMWQ+NvPSoHUuByIlA==",
-  "baseInventoryDigest": "sha256:708dbcab14f1f76aed02efe0a4b413d8f5ab246ffabecb14b873d0531c2e42a8",
+  "baseInventoryDigest": "sha256:0e0298ee9be3fd5f4f7af6dbcb2d5eddb7c1a33babc9889428177de2ee3dd95f",
   "operations": [
     "update-lockfile",
     "plan-upgrade",

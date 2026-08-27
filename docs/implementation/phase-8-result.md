@@ -45,7 +45,7 @@ Customer Alpha uses external Postgres, Minimal, page size 25, manager authority,
 
 ## Release, deployment, and fleet proof
 
-- Timestamp-free CycloneDX 1.6 SBOM and canonical provenance bind source commit, full-SHA workflow identity, manifest, lock, complete transitive graph, SBOM, and artifact digests.
+- Timestamp-free CycloneDX 1.6 SBOM and canonical provenance bind source commit, full-SHA workflow identity, manifest, lock, complete transitive graph, SBOM, and artifact digests. Evidence generation and Gate 8 resolve the claimed Git tree and recompute the subject artifact, release-manifest integrity, application manifest, lock, plan, and derived SBOM digests; an ancestor-only or syntactically valid SHA cannot authorize absent bytes.
 - Local Ed25519 tests reject signature/payload substitution. The hosted workflow uses GitHub OIDC and `actions/attest` pinned to a complete SHA for signed provenance and SBOM attestations. No SLSA level is claimed.
 - Generated JSON Schemas validate non-secret runtime inventory and deployment receipts. Receipt reconciliation rejects artifact, migration, inventory, readiness, or smoke drift.
 - Authority-issued, signature-verified fleet ingestion keeps one current and one supported-prior customer. The clean-boot proof serves inventory from a protected runtime endpoint, rejects anonymous observation, reconciles live PostgreSQL readiness, verifies signed deployment receipt and provenance, then issues the only token Fleet accepts. Sales `<1.0.1` and transitive `semver <7.8.6` identify both deployments. A trusted 0.2.1 release manifest binds the real Sales 1.0.1 tarball and generates customer-specific lock/upgrade/migration/deploy update plans for both.

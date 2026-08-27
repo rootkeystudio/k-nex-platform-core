@@ -7,13 +7,13 @@
   "observedAt": "2026-08-27T12:10:00.000Z",
   "artifactDigest": "sha256:550ad3333dafd976676d857b7b88d8f946640c40037ae8246a749b4f52423ca3",
   "releaseEvidence": {
-    "sourceCommit": "793927d83c8fa0cc945b274c4c2ac0c22621df0f",
-    "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@793927d83c8fa0cc945b274c4c2ac0c22621df0f",
+    "sourceCommit": "7c90e869b5daf0c61cbbb3662a3e92722e1c1e05",
+    "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@7c90e869b5daf0c61cbbb3662a3e92722e1c1e05",
     "manifestDigest": "sha256:aa19e70beef97694cfe5639c25395a235a21beb0e3dad695cb32a1af9898d7d7",
     "lockfileDigest": "sha256:79f916ea19a27315f97bd6e026a8d0b1a42468aa41356e15586d2dfd39479072",
     "resolvedGraphDigest": "sha256:674df2d19578906449c56c81a57d5710a447552e96aa1a82b78f47b77e8d1eb8",
     "sbomDigest": "sha256:1a7665332ffcf866ec0bd71644cc43c48002081c69b78fbfec3b82656d5392f6",
-    "provenanceDigest": "sha256:2db2707534406a4c00dcbb7e49e0a38b47a4d8734ee61a97c2b62289b0e70f66"
+    "provenanceDigest": "sha256:0b69e8d1e1718f19ba728f15fa9196c476139dc283387ce702abe380f45ad37a"
   },
   "packages": [
     {
