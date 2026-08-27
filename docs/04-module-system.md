@@ -166,7 +166,7 @@ Puck field/bridge metadata
 
 The component renders outside Puck. Puck is only an authoring bridge.
 
-`PluginUiContributionDescriptorSchema` is the serializable component/block authority: canonical props JSON Schema, source/action policy, surface/audience/permission, and all required fallback states. `defineUiContributionBinding` pairs it with one executable props validator and production renderer. Registration requires a descriptor plus renderer binding for both component and block inventories. `reconcilePuckBlockContribution` accepts only that same canonical block definition, so editor fields/defaults cannot replace renderer or persisted authority.
+`PluginUiContributionDescriptorSchema` is the serializable component/block authority: canonical props JSON Schema, source/action policy, surface/audience/permission, and all required fallback states. `defineUiContributionBinding` derives its executable props validator from that schema and pairs it with the production renderer. Registration requires a descriptor plus renderer binding for both component and block inventories. `reconcilePuckBlockContribution` accepts only that same canonical block definition, so editor fields/defaults cannot replace renderer or persisted authority.
 
 ## Routes and navigation
 

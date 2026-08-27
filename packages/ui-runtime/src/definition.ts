@@ -1,4 +1,5 @@
 import {
+  createAgentToolJsonRuntimeSchema,
   DataSourceDescriptorSchema,
   DataSourcePrimaryContractSchema,
   PluginIdSchema,
@@ -178,11 +179,10 @@ function copyBlock(definition: UiBlockDefinition): UiBlockDefinition {
 
 export function defineUiContributionBinding<TResult>(input: {
   readonly descriptor: PluginUiContributionDescriptor;
-  readonly propsSchema: RuntimeSchema;
   readonly render: UiBlockRenderer<TResult>;
 }): UiContributionDefinition<TResult> {
   const parsed = PluginUiContributionDescriptorSchema.safeParse(input.descriptor);
-  if (!parsed.success || typeof input.propsSchema?.safeParse !== "function" || typeof input.render !== "function") {
+  if (!parsed.success || typeof input.render !== "function") {
     throw new TypeError("UI contribution binding is invalid.");
   }
   const descriptor = deepFreeze(structuredClone(parsed.data));
@@ -194,7 +194,7 @@ export function defineUiContributionBinding<TResult>(input: {
     surfaces: descriptor.surfaces,
     audience: descriptor.audience,
     ...(descriptor.permission === undefined ? {} : { permission: descriptor.permission }),
-    propsSchema: input.propsSchema,
+    propsSchema: createAgentToolJsonRuntimeSchema(descriptor.propsSchema),
     ...(descriptor.sourcePolicy === undefined ? {} : { sourcePolicy: descriptor.sourcePolicy }),
     ...(descriptor.actionPolicy === undefined ? {} : { actionPolicy: descriptor.actionPolicy }),
     render: input.render

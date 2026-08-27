@@ -69,7 +69,6 @@ describe("Puck builder adapter", () => {
         permission: "sales.tasks.read",
         requiredStates: ["loading", "empty", "error", "forbidden"]
       },
-      propsSchema: { safeParse: (value) => ({ success: true as const, data: value }) },
       render: ({ props }) => props
     });
     const bridge = reconcilePuckBlockContribution(bound, {

@@ -17,16 +17,6 @@ import {
 
 export { salesNavigationDescriptors, salesRouteDescriptors, salesTaskPageTemplate } from "./contracts.js";
 
-const taskTablePropsRuntimeSchema = {
-  safeParse(value: unknown) {
-    if (value === null || typeof value !== "object" || Array.isArray(value)) return { success: false as const, error: new Error("invalid") };
-    const record = value as Record<string, unknown>;
-    return Object.keys(record).length === 1 && typeof record.title === "string" && record.title.length > 0 && record.title.length <= 120
-      ? { success: true as const, data: { title: record.title } }
-      : { success: false as const, error: new Error("invalid") };
-  }
-};
-
 export function salesTaskTableRenderer(input: UiBlockRenderInput) {
   const props = input.props as { readonly title: string };
   const state = input.sourceResult?.state ?? "idle";
@@ -71,20 +61,17 @@ function contributionRenderer(id: string) {
 
 export const salesTaskTableComponent = defineUiContributionBinding({
   descriptor: salesTaskTableComponentDescriptor,
-  propsSchema: taskTablePropsRuntimeSchema,
   render: salesTaskTableRenderer
 });
 
 export const salesTaskTableBlock = defineUiContributionBinding({
   descriptor: salesTaskTableBlockDescriptor,
-  propsSchema: taskTablePropsRuntimeSchema,
   render: salesTaskTableRenderer
 });
 
 function definition(descriptor: (typeof salesUiComponentDescriptors)[number] | (typeof salesUiBlockDescriptors)[number]) {
   return defineUiContributionBinding({
     descriptor,
-    propsSchema: taskTablePropsRuntimeSchema,
     render: contributionRenderer(descriptor.id)
   });
 }

@@ -6,6 +6,7 @@ import {
   dataSourcePlatformCeilings,
   dataSourceSurfaces
 } from "./data-source.js";
+import type { RuntimeSchema, RuntimeSchemaResult } from "./data-source.js";
 import { OutputContractIdSchema, PluginIdSchema, ResourceIdSchema } from "./identity.js";
 import { uniqueArray } from "./schema-helpers.js";
 
@@ -105,6 +106,69 @@ function validateSchemaDepth(schema: AgentToolJsonSchema, depth: number, context
 }
 
 export const AgentToolJsonSchemaSchema = jsonSchemaNodeSchema;
+
+function runtimeSchemaResult<T>(success: boolean, data: T): RuntimeSchemaResult<T> {
+  return success ? { success: true, data } : { success: false, error: new TypeError("Value does not satisfy the JSON schema.") };
+}
+
+function isJsonObject(value: unknown): value is Readonly<Record<string, unknown>> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function matchesEnum(schema: AgentToolJsonSchema, value: unknown): boolean {
+  return schema.enum === undefined || schema.enum.some((candidate) => candidate === value);
+}
+
+function matchesJsonSchema(schema: AgentToolJsonSchema, value: unknown): boolean {
+  switch (schema.type) {
+    case "null":
+      return value === null && matchesEnum(schema, value);
+    case "boolean":
+      return typeof value === "boolean" && matchesEnum(schema, value);
+    case "string":
+      if (typeof value !== "string") return false;
+      if (schema.minLength !== undefined && [...value].length < schema.minLength) return false;
+      if (schema.maxLength !== undefined && [...value].length > schema.maxLength) return false;
+      return matchesEnum(schema, value);
+    case "number":
+    case "integer":
+      if (typeof value !== "number" || !Number.isFinite(value) || schema.type === "integer" && !Number.isInteger(value)) return false;
+      if (schema.minimum !== undefined && value < schema.minimum) return false;
+      if (schema.maximum !== undefined && value > schema.maximum) return false;
+      return matchesEnum(schema, value);
+    case "array":
+      if (!Array.isArray(value) || schema.items === undefined) return false;
+      if (schema.minItems !== undefined && value.length < schema.minItems) return false;
+      if (schema.maxItems !== undefined && value.length > schema.maxItems) return false;
+      return matchesEnum(schema, value) && value.every((item) => matchesJsonSchema(schema.items!, item));
+    case "object": {
+      if (!isJsonObject(value) || schema.properties === undefined || schema.additionalProperties !== false) return false;
+      const required = schema.required ?? [];
+      if (required.some((key) => !(key in value))) return false;
+      return matchesEnum(schema, value) && Object.entries(value).every(([key, item]) => {
+        const property = schema.properties![key];
+        return property !== undefined && matchesJsonSchema(property, item);
+      });
+    }
+  }
+}
+
+/**
+ * Builds an executable validator from the platform's serializable JSON-schema subset.
+ * The descriptor schema remains the sole source of truth for runtime prop validation.
+ */
+export function createAgentToolJsonRuntimeSchema(schema: AgentToolJsonSchema): RuntimeSchema {
+  const parsed = AgentToolJsonSchemaSchema.safeParse(schema);
+  if (!parsed.success) throw new TypeError("Runtime JSON schema must satisfy the canonical Agent Tool schema contract.");
+  const canonicalSchema = structuredClone(parsed.data);
+  return Object.freeze({
+    safeParse(value: unknown): RuntimeSchemaResult<unknown> {
+      return runtimeSchemaResult(matchesJsonSchema(canonicalSchema, value), value);
+    }
+  });
+}
 
 export const AgentToolInputSchemaSchema = z.strictObject({
   type: z.literal("object"),

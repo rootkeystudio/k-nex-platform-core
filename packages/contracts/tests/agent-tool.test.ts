@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   AgentToolDescriptorSchema,
   AgentToolInputSchemaSchema,
+  createAgentToolJsonRuntimeSchema,
   PluginManifestSchema
 } from "../src/index.js";
 
@@ -110,5 +111,35 @@ describe("P2A.1 agent-tool contracts", () => {
       ...manifest,
       contributions: { contracts: { "sales.tools.search-tasks": "required" } }
     }).success).toBe(false);
+  });
+
+  it("executes the bounded JSON-schema subset with nested objects and arrays", () => {
+    const schema = {
+      type: "object" as const,
+      properties: {
+        title: { type: "string" as const, minLength: 1, maxLength: 4 },
+        count: { type: "integer" as const, minimum: 1, maximum: 3 },
+        state: { type: "string" as const, enum: ["open", "done"] },
+        clearedAt: { type: "null" as const },
+        tags: { type: "array" as const, minItems: 1, maxItems: 2, items: { type: "string" as const, enum: ["urgent", "vip"] } },
+        options: {
+          type: "object" as const,
+          properties: { enabled: { type: "boolean" as const }, threshold: { type: "number" as const, minimum: 0, maximum: 1 } },
+          required: ["enabled"],
+          additionalProperties: false as const
+        }
+      },
+      required: ["title", "count", "state", "clearedAt", "tags", "options"],
+      additionalProperties: false as const
+    };
+    expect(AgentToolInputSchemaSchema.safeParse(schema).success).toBe(true);
+    const runtime = createAgentToolJsonRuntimeSchema(schema);
+    expect(runtime.safeParse({ title: "Task", count: 2, state: "open", clearedAt: null, tags: ["urgent"], options: { enabled: true, threshold: 0.5 } }).success).toBe(true);
+    for (const value of [
+      { count: 2, state: "open", clearedAt: null, tags: ["urgent"], options: { enabled: true } },
+      { title: "Task", count: 2, state: "open", clearedAt: null, tags: ["urgent"], options: { enabled: true }, unknown: true },
+      { title: "Task", count: 1.5, state: "open", clearedAt: "not-null", tags: ["urgent"], options: { enabled: true } },
+      { title: "Longer", count: 2, state: "open", clearedAt: null, tags: ["other"], options: { enabled: "true" } }
+    ]) expect(runtime.safeParse(value).success).toBe(false);
   });
 });
