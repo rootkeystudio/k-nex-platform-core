@@ -51,7 +51,10 @@ export interface CustomerPageTemplateInstance {
 
 export interface PageTemplateStore {
   read(templateId: string): Promise<CustomerPageTemplateInstance | undefined>;
-  createIfAbsent(instance: CustomerPageTemplateInstance): Promise<{ readonly created: boolean; readonly instance: CustomerPageTemplateInstance }>;
+  createIfAbsent(
+    instance: CustomerPageTemplateInstance,
+    expectedAuthorityRevision: number
+  ): Promise<{ readonly created: boolean; readonly instance: CustomerPageTemplateInstance } | undefined>;
   replace(
     instance: CustomerPageTemplateInstance,
     expectedRevision: number,
@@ -172,7 +175,8 @@ export async function instantiatePluginPageTemplate(
   inventory: PageTemplateInventory,
   store: PageTemplateStore
 ): Promise<PageTemplateInstantiationResult> {
-  const descriptor = preflightPluginPageTemplate(descriptorValue, inventory);
+  const authority = snapshotPageTemplateAuthority(inventory);
+  const descriptor = preflightSnapshot(descriptorValue, authority);
   const existing = await store.read(descriptor.id);
   if (existing !== undefined) return Object.freeze({ created: false, instance: freezeInstance(existing) });
   const candidate = freezeInstance({
@@ -182,7 +186,12 @@ export async function instantiatePluginPageTemplate(
     ownership: "customer",
     document: descriptor.document
   });
-  const result = await store.createIfAbsent(candidate);
+  const result = await store.createIfAbsent(candidate, authority.authorityRevision);
+  if (result === undefined) {
+    const latestAuthority = snapshotPageTemplateAuthority(inventory);
+    preflightSnapshot(descriptor, latestAuthority);
+    fail("AUTHORITY_CONFLICT", "Page template authority changed during creation.", [descriptor.id]);
+  }
   return Object.freeze({ created: result.created, instance: freezeInstance(result.instance) });
 }
 

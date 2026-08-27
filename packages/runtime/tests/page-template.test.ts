@@ -52,12 +52,25 @@ const inventory: PageTemplateInventory = {
 
 function memoryStore(
   authorityRevision: () => number = () => 0,
-  beforeReplace: () => Promise<void> = async () => {}
+  {
+    beforeRead = async () => {},
+    beforeCreate = async () => {},
+    beforeReplace = async () => {}
+  }: {
+    readonly beforeRead?: () => Promise<void>;
+    readonly beforeCreate?: () => Promise<void>;
+    readonly beforeReplace?: () => Promise<void>;
+  } = {}
 ): PageTemplateStore & { edit(document: UiDocument): void; snapshot(): CustomerPageTemplateInstance | undefined } {
   let value: CustomerPageTemplateInstance | undefined;
   return {
-    read: async () => value === undefined ? undefined : structuredClone(value),
-    createIfAbsent: async (candidate) => {
+    read: async () => {
+      await beforeRead();
+      return value === undefined ? undefined : structuredClone(value);
+    },
+    createIfAbsent: async (candidate, expectedAuthorityRevision) => {
+      await beforeCreate();
+      if (authorityRevision() !== expectedAuthorityRevision) return undefined;
       if (value !== undefined) return { created: false, instance: structuredClone(value) };
       value = structuredClone(candidate);
       return { created: true, instance: structuredClone(value) };
@@ -104,6 +117,19 @@ describe("P6.4 page template seed semantics", () => {
     const retry = await instantiatePluginPageTemplate(descriptor(), inventory, store);
     expect(retry.created).toBe(false);
     expect(retry.instance).toMatchObject({ ownership: "customer", adoptedTemplateVersion: 1, revision: 1 });
+  });
+
+  it("does not return a customer-owned instance when its current template authority is unavailable", async () => {
+    const store = memoryStore();
+    await instantiatePluginPageTemplate(descriptor(), inventory, store);
+    const before = store.snapshot();
+
+    await expect(instantiatePluginPageTemplate(descriptor(), { ...inventory, actions: new Set() }, store)).rejects.toSatisfy((error) => {
+      expectCode(error, "ACTION_MISSING");
+      return true;
+    });
+
+    expect(store.snapshot()).toEqual(before);
   });
 
   it("never overwrites customer edits during package upgrade and requires explicit adoption", async () => {
@@ -253,9 +279,11 @@ describe("P6.4 page template seed semantics", () => {
       ...inventory,
       get authorityRevision() { return authorityRevision; }
     };
-    const store = memoryStore(() => authorityRevision, async () => {
-      await Promise.resolve();
-      authorityRevision += 1;
+    const store = memoryStore(() => authorityRevision, {
+      beforeReplace: async () => {
+        await Promise.resolve();
+        authorityRevision += 1;
+      }
     });
     await instantiatePluginPageTemplate(descriptor(), changingInventory, store);
     const before = store.snapshot();
@@ -266,5 +294,48 @@ describe("P6.4 page template seed semantics", () => {
     });
 
     expect(store.snapshot()).toEqual(before);
+  });
+
+  it("rejects authority revocation after the absent read and never creates stale bytes", async () => {
+    let authorityRevision = 0;
+    const changingInventory: PageTemplateInventory = {
+      ...inventory,
+      actions: new Set(inventory.actions),
+      get authorityRevision() { return authorityRevision; }
+    };
+    const store = memoryStore(() => authorityRevision, {
+      beforeRead: async () => {
+        changingInventory.actions.clear();
+        authorityRevision += 1;
+      }
+    });
+
+    await expect(instantiatePluginPageTemplate(descriptor(), changingInventory, store)).rejects.toSatisfy((error) => {
+      expectCode(error, "ACTION_MISSING");
+      return true;
+    });
+
+    expect(store.snapshot()).toBeUndefined();
+  });
+
+  it("rejects authority changes during the asynchronous initial-create CAS", async () => {
+    let authorityRevision = 0;
+    const changingInventory: PageTemplateInventory = {
+      ...inventory,
+      get authorityRevision() { return authorityRevision; }
+    };
+    const store = memoryStore(() => authorityRevision, {
+      beforeCreate: async () => {
+        await Promise.resolve();
+        authorityRevision += 1;
+      }
+    });
+
+    await expect(instantiatePluginPageTemplate(descriptor(), changingInventory, store)).rejects.toSatisfy((error) => {
+      expectCode(error, "AUTHORITY_CONFLICT");
+      return true;
+    });
+
+    expect(store.snapshot()).toBeUndefined();
   });
 });

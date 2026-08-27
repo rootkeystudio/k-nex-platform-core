@@ -34,7 +34,7 @@ Lifecycle state keeps support, installed bytes, enabled state, settings readines
 | P6.9 — install/disable/re-enable proof | customer PostgreSQL lifecycle proof |
 | P6.10 — Gate 6 closeout | current artifact, contract, documentation, and gate validation |
 
-Post-closeout remediation replaces the rejected legacy lifecycle fallback, reconciles the complete exact reference graph, removes ambient Payload/action authority, makes conformance evidence runner-owned, aligns the Gate 2A fixture, and makes clean Sales declaration/package generation reproducible in CI. The project-manager remediation adds exact Vitest JSON evidence; removes Git-history coupling from Gate 6; persists normalized settings; repreflights migrated template authority; preserves Puck action policy; derives executable UI props validation from the canonical descriptor; and revokes required consumers plus captured capability services when provider lifecycle authority disappears.
+Post-closeout remediation replaces the rejected legacy lifecycle fallback, reconciles the complete exact reference graph, removes ambient Payload/action authority, makes conformance evidence runner-owned, aligns the Gate 2A fixture, and makes clean Sales declaration/package generation reproducible in CI. The project-manager remediation adds exact Vitest JSON evidence; removes Git-history coupling from Gate 6; persists normalized settings; atomically compares snapshot authority for initial and migrated template writes; preserves Puck action policy; derives executable UI props validation from the canonical descriptor; and revokes required consumers plus captured capability services when provider lifecycle authority disappears.
 
 ## Public contracts and packages affected
 

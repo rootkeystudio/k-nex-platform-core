@@ -7,11 +7,11 @@
 
 ## Last completed
 
-P6.10 Sol review REWORK aligns the Sales default-page conformance fixture with the required authority-revision CAS contract.
+P6.10 Sol review REWORK closes the initial default-page creation TOCTOU with authority-revision CAS and fail-closed re-preflight.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: Sales build/tests/boundaries/pack reproducibility, `pnpm plugin:check modules/sales`, Gate 1 generated-artifact check, and `git diff --check` pass; final Phase 6 review validation remains.
+Node 24.19.0 / pnpm 11.9.0: runtime and Sales builds/tests, Sales package reproducibility, `pnpm plugin:check modules/sales`, Gate 1 generated-artifact reproducibility, and `git diff --check` pass; final Phase 6 review validation remains.
 
 ## Next
 

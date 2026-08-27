@@ -43,7 +43,8 @@ test("Sales default page seeds once as a customer-owned document", async () => {
   let stored;
   const store = {
     read: async () => stored === undefined ? undefined : structuredClone(stored),
-    createIfAbsent: async (candidate) => {
+    createIfAbsent: async (candidate, expectedAuthorityRevision) => {
+      if (expectedAuthorityRevision !== inventory.authorityRevision) return undefined;
       if (stored !== undefined) return { created: false, instance: structuredClone(stored) };
       stored = structuredClone(candidate);
       return { created: true, instance: structuredClone(stored) };
