@@ -7,11 +7,11 @@
 
 ## Last completed
 
-The rebased Phase 7 stack now carries a deterministic Sales package built from the combined Phase 6+7 source, with matching lock integrity and regenerated Gate 1 resolution evidence.
+Gate 7 now validates task and artifact evidence without Git ancestry, so squash and rebase preserve the phase proof. A dedicated no-`.git` regression rejects missing P7 task evidence.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: Sales acceptance passes (22 node tests, 17 Vitest tests), package boundaries and deterministic pack comparison pass, Gate 1 artifacts check current, frozen reinstall and diff check pass. Complete exact-head Gate 7 remains pending.
+Node 24.19.0 / pnpm 11.9.0: all functional Gate 7 stages pass after rebase, including lower gates, PostgreSQL, browser, Sales conformance, component matrix, and performance. Git-free Gate 7 regressions (2 tests), direct validator, docs validation, and diff check pass; complete exact-head Gate 7 remains pending.
 
 ## Next
 

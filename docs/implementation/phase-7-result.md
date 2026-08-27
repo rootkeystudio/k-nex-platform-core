@@ -2,7 +2,7 @@
 
 - **Date:** 2026-08-27
 - **Gate:** Gate 7
-- **Baseline:** `f40f377`
+- **Baseline:** approved Phase 6 artifact
 - **Delivery:** stacked Phase 7 pull request; no merge or auto-merge
 - **Decision:** **GO Phase 8**
 - **Review state:** formal exact-head review pending
@@ -17,18 +17,18 @@ Sales remains the only first-party domain module. It is the real consumer for fo
 
 ## Completed tasks
 
-| Task | Primary commit |
+| Task | Primary evidence |
 |---|---|
-| P7.1 — taxonomy, slots, package boundaries | `581c179` |
-| P7.2 — foundation/layout/content/feedback | `5bd9c93` |
-| P7.3 — form and input family | `5301d53` |
-| P7.4 — navigation/disclosure/overlay family | `827fc24` |
-| P7.5 — data/content/editor adapters | `aa6abf4` |
-| P7.6 — standard DataTable/DataGrid | `b70815a` |
-| P7.7 — page templates and Sales pages | `f3cf1c6` |
-| P7.8 — generic and Sales Puck blocks | `e31af8d` |
-| P7.9 — accessibility/theme/interaction matrix | `b557058` |
-| P7.10 — performance, coverage, closeout | closeout commit |
+| P7.1 — taxonomy, slots, package boundaries | executable inventory and package boundaries |
+| P7.2 — foundation/layout/content/feedback | semantic component suites |
+| P7.3 — form and input family | form and Sales action spike suites |
+| P7.4 — navigation/disclosure/overlay family | unit and Chromium interaction suites |
+| P7.5 — data/content/editor adapters | bounded adapter and rich-text suites |
+| P7.6 — standard DataTable/DataGrid | authorization, query-state, and grid suites |
+| P7.7 — page templates and Sales pages | page-template and Sales page suites |
+| P7.8 — generic and Sales Puck blocks | runtime/Puck reconciliation suites |
+| P7.9 — accessibility/theme/interaction matrix | independent evidence registry and browser matrix |
+| P7.10 — performance, coverage, closeout | performance probe and named Gate 7 validator |
 
 ## Product and authority proof
 
