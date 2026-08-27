@@ -41,6 +41,14 @@ function assertEquivalent(generated, committed) {
   }
 }
 
+function canonicalPackageArchive(archive) {
+  assert.ok(archive.length >= 10, "Packed Sales gzip archive is truncated.");
+  assert.deepEqual([...archive.subarray(0, 3)], [0x1f, 0x8b, 0x08], "Packed Sales archive must use gzip.");
+  const canonical = Buffer.from(archive);
+  canonical[9] = 0xff;
+  return canonical;
+}
+
 function assertDeclaredEntrypoints(archive) {
   const entries = tarEntries(archive);
   const packageJson = JSON.parse(entries.get("package/package.json")?.toString("utf8") ?? "null");
@@ -63,7 +71,8 @@ try {
   const secondArchive = readFileSync(join(secondTemporaryRoot, filename));
   const committedArchive = readFileSync(resolve(packageRoot, "../../fixtures/customer-gate-1/packages", filename));
   assert.equal(firstArchive.equals(secondArchive), true, "Consecutive Sales package archives are not byte-reproducible.");
-  assert.equal(firstArchive.equals(committedArchive), true, "The committed Sales package archive bytes are stale or non-deterministic.");
+  assert.equal(committedArchive.equals(canonicalPackageArchive(committedArchive)), true, "The committed Sales package archive must use the cross-platform gzip OS marker.");
+  assert.equal(canonicalPackageArchive(firstArchive).equals(committedArchive), true, "The committed Sales package archive bytes are stale or non-deterministic.");
   const generated = gunzipSync(firstArchive);
   const committed = gunzipSync(committedArchive);
   assertDeclaredEntrypoints(generated);

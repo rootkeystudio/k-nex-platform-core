@@ -92,8 +92,13 @@ test("plugin conformance accepts only one exact passed Vitest file and test", ()
 });
 
 test("plugin conformance requires repeated and committed archive bytes to match", () => {
-  const committed = Buffer.from("stable archive");
-  assert.doesNotThrow(() => assertByteReproducible(Buffer.from(committed), Buffer.from(committed), committed, "sales.tgz"));
-  assert.throws(() => assertByteReproducible(Buffer.from("first"), Buffer.from("second"), committed, "sales.tgz"), /repeated pack bytes are non-deterministic/);
-  assert.throws(() => assertByteReproducible(Buffer.from("other"), Buffer.from("other"), committed, "sales.tgz"), /committed bytes are stale/);
+  const linux = Buffer.from([0x1f, 0x8b, 0x08, 0, 0, 0, 0, 0, 0, 0x03, 1, 2, 3]);
+  const committed = Buffer.from(linux);
+  committed[9] = 0xff;
+  assert.doesNotThrow(() => assertByteReproducible(linux, Buffer.from(linux), committed, "sales.tgz"));
+  const changed = Buffer.from(linux);
+  changed[12] = 4;
+  assert.throws(() => assertByteReproducible(linux, changed, committed, "sales.tgz"), /repeated pack bytes are non-deterministic/);
+  assert.throws(() => assertByteReproducible(changed, Buffer.from(changed), committed, "sales.tgz"), /committed bytes are stale/);
+  assert.throws(() => assertByteReproducible(linux, Buffer.from(linux), linux, "sales.tgz"), /gzip OS marker is not cross-platform/);
 });

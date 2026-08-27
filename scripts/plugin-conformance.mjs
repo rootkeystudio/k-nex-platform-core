@@ -178,9 +178,18 @@ function tarEntries(file) {
   return entries;
 }
 
+export function canonicalPackageArchive(archive) {
+  assert.ok(archive.length >= 10, "Package gzip archive is truncated.");
+  assert.deepEqual([...archive.subarray(0, 3)], [0x1f, 0x8b, 0x08], "Package archive must use gzip.");
+  const canonical = Buffer.from(archive);
+  canonical[9] = 0xff;
+  return canonical;
+}
+
 export function assertByteReproducible(first, second, committed, filename) {
   assert.equal(first.equals(second), true, `${filename} repeated pack bytes are non-deterministic.`);
-  assert.equal(first.equals(committed), true, `${filename} committed bytes are stale or non-deterministic.`);
+  assert.equal(committed.equals(canonicalPackageArchive(committed)), true, `${filename} committed gzip OS marker is not cross-platform.`);
+  assert.equal(canonicalPackageArchive(first).equals(committed), true, `${filename} committed bytes are stale or non-deterministic.`);
 }
 
 export function runBoundaryProof(pluginRoot) {
