@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
-import { gunzipSync } from "node:zlib";
+import { gzipSync, gunzipSync } from "node:zlib";
 
 export const requiredPluginEvidence = Object.freeze([
   "accessibility-smoke", "component-runtime-puck", "default-page-seed", "deterministic-inventory",
@@ -181,7 +181,7 @@ function tarEntries(file) {
 export function canonicalPackageArchive(archive) {
   assert.ok(archive.length >= 10, "Package gzip archive is truncated.");
   assert.deepEqual([...archive.subarray(0, 3)], [0x1f, 0x8b, 0x08], "Package archive must use gzip.");
-  const canonical = Buffer.from(archive);
+  const canonical = gzipSync(gunzipSync(archive), { level: 6, mtime: 0 });
   canonical[9] = 0xff;
   return canonical;
 }

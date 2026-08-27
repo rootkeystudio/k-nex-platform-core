@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, rmSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { gunzipSync } from "node:zlib";
+import { gzipSync, gunzipSync } from "node:zlib";
 
 const packageRoot = resolve(import.meta.dirname, "..");
 const firstTemporaryRoot = mkdtempSync(join(tmpdir(), "k-nex-module-sales-pack-first-"));
@@ -44,7 +44,7 @@ function assertEquivalent(generated, committed) {
 function canonicalPackageArchive(archive) {
   assert.ok(archive.length >= 10, "Packed Sales gzip archive is truncated.");
   assert.deepEqual([...archive.subarray(0, 3)], [0x1f, 0x8b, 0x08], "Packed Sales archive must use gzip.");
-  const canonical = Buffer.from(archive);
+  const canonical = gzipSync(gunzipSync(archive), { level: 6, mtime: 0 });
   canonical[9] = 0xff;
   return canonical;
 }

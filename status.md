@@ -7,16 +7,16 @@
 
 ## Last completed
 
-PR 22 is rebased onto accepted Phase 6 on `main`. All nine project-manager blockers are remediated, including nested production/Puck container composition.
+PR 22 is rebased onto accepted Phase 6 on `main`. All nine project-manager blockers are remediated. The CI-only Sales pack failure was traced to equivalent gzip streams over an identical tar payload; canonical compression comparison now preserves exact payload proof.
 
 ## Validation
 
-Code candidate `ba94f27` passed `pnpm gate:7` with `GATE_7_PASS`, all lower gates, PostgreSQL and Chromium journeys. Audit: no high/critical findings; two low and three moderate. Diff check and clean tree PASS.
+Code candidate `9e040b9` passed `pnpm gate:7` with `GATE_7_PASS`, all lower gates, PostgreSQL and Chromium journeys. Focused pack/conformance proof PASS. Audit remains zero high/critical findings; Linux isolated tar payload matched exactly.
 
 ## Next
 
-Run independent Sol-high exact-head review, record the result, push the rewritten branch, and leave PR 22 draft/open.
+Push the validated head, obtain exact-head CI, and run final Sol-high rereview. Leave PR 22 draft/open.
 
 ## Blockers
 
-None. Project-manager rereview remains pending on the updated PR head.
+Required exact-head CI must pass after the pack-proof hardening.
