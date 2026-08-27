@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "backupRestoreFixture": "backup-restore-postgres.test.mjs",
+  "expectedInventoryDigest": "sha256:b7d4b17633e958c4687f5c55fd85adab0e909cb380f5fdf6dfd512d84613816f",
+  "restoredInventoryDigest": "sha256:b7d4b17633e958c4687f5c55fd85adab0e909cb380f5fdf6dfd512d84613816f",
+  "matches": true,
+  "externalEffects": "disabled-before-readiness"
+}
