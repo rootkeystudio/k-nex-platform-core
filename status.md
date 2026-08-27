@@ -11,12 +11,12 @@ P6.10 now gives the exported Sales workspace presentation an explicit stable dec
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0 focused acceptance passes: forced Sales build, 21 Node tests, 13 Vitest tests, package boundaries, deterministic pack comparison, Gate 1 reproducibility, frozen reinstall, plugin conformance, and diff check. First full-gate rerun correctly rejected the stale generated inventory hash; regenerated exact artifact is pending another exact-head Gate 6 run.
+Node 24.19.0 / pnpm 11.9.0 full `pnpm gate:6` passes through Gates 0–6, including customer Postgres, browser accessibility, publication, 21 Sales Node tests, 13 Sales Vitest tests, deterministic pack, Gate 1 reproducibility, and all 13 conformance evidence classes. `pnpm audit --audit-level high` reports no high/critical findings; diff and worktree checks pass.
 
 ## Next
 
-Run exact-head Gate 6, audit, clean-tree proof, and independent review; then refresh PR #21 and await designated project-manager PASS. PRs #22 and #23 remain drafts.
+Repeat Gate 6 on this final status head, run independent review, refresh PR #21, and await designated project-manager PASS. PRs #22 and #23 remain drafts.
 
 ## Blockers
 
-PR #21 CI exposed build-order-dependent declaration output; local structural correction remains pending exact-head validation. No merge or auto-merge will be performed.
+No implementation blocker remains. PR #21 refresh stays pending final-head rerun and independent review. No merge or auto-merge will be performed.
