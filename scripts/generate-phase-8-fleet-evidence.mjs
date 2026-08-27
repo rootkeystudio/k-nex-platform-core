@@ -12,7 +12,8 @@ const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 const read = (customer, name) => JSON.parse(readFileSync(resolve(repositoryRoot, "fixtures", customer, name), "utf8"));
 const write = (path, value) => writeFileSync(resolve(repositoryRoot, path), `${JSON.stringify(value, null, 2)}\n`, "utf8");
 const customers = ["customer-alpha", "customer-beta"];
-const fleet = new FleetRegistry();
+const supportManifest = JSON.parse(readFileSync(resolve(repositoryRoot, "releases/0.2.0/package-release-manifest.json"), "utf8"));
+const fleet = new FleetRegistry(supportManifest);
 for (const customer of customers) fleet.ingest(read(customer, "deployment-receipt.json"), read(customer, "runtime-inventory.json"));
 
 const deployments = fleet.list();
@@ -31,6 +32,7 @@ for (const patch of patches) {
 
 const upgradePlan = planPluginUpgrade({
   pluginId: "module.sales", currentVersion: "1.0.0", targetVersion: "1.1.0",
+  currentPlatformRelease: "0.1.0", targetPlatformRelease: "0.2.0", supportManifest,
   targets: salesUpgradeTargets, migrations: salesUpgradeMigrations
 });
 const betaArtifacts = Object.fromEntries(salesUpgradeTargets.map(({ artifactId }) => [artifactId, { revision: 1, customer: "customer-beta", preserved: true }]));

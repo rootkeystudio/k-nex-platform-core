@@ -1,0 +1,50 @@
+{
+  "$schema": "../../schemas/package-release-manifest.v1.schema.json",
+  "schemaVersion": 1,
+  "release": {
+    "version": "0.2.0",
+    "channel": "pre-v1",
+    "versioningPolicy": "semver-pre-v1",
+    "compatibilityPolicy": "exact-framework-tuple"
+  },
+  "framework": {
+    "core": "1.0.0",
+    "payload": "3.88.0",
+    "node": "24.19.0",
+    "pnpm": "11.9.0",
+    "payloadDatabaseAdapter": "postgres"
+  },
+  "packages": [
+    {
+      "package": "@k-nex/module-sales",
+      "version": "1.0.0",
+      "role": "plugin",
+      "integrity": "sha512-dPbkms7ft3yI8qJXzU4Pub2IsXoEvo529Xc4Y2B776WOvmHIgErPavD/ZfySM98N+Wuiyrjhse7r8rYSz9QzLg==",
+      "peerCompatibility": {
+        "core": "1.0.0",
+        "payload": "3.88.0",
+        "node": "24.19.0",
+        "pnpm": "11.9.0",
+        "payloadDatabaseAdapter": "postgres"
+      }
+    },
+    {
+      "package": "@k-nex/provider-realtime-socketio",
+      "version": "1.0.0",
+      "role": "provider",
+      "integrity": "sha512-1AcAhPuIPKRi2JCft6dJPiLcN9as1r69/FXvYcKHDy6l3yFslwALsb2uvPxa6+e5UTYazv0Nr2SyDVJYwaCugw==",
+      "peerCompatibility": {
+        "core": "1.0.0",
+        "payload": "3.88.0",
+        "node": "24.19.0",
+        "pnpm": "11.9.0",
+        "payloadDatabaseAdapter": "postgres"
+      }
+    }
+  ],
+  "supportWindow": {
+    "policy": "current-and-one-prior-minor",
+    "supportedReleases": ["0.2.0", "0.1.0"],
+    "securityFixes": "all-supported-releases"
+  }
+}

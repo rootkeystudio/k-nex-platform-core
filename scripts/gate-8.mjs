@@ -20,7 +20,8 @@ assert.match(workflow, /id-token:\s*write/u);
 assert.match(workflow, /attestations:\s*write/u);
 assert.doesNotMatch(workflow, /SLSA Build L[0-9]/u);
 
-const fleet = new FleetRegistry();
+const supportManifest = readJson("releases/0.2.0/package-release-manifest.json");
+const fleet = new FleetRegistry(supportManifest);
 for (const customer of ["customer-alpha", "customer-beta"]) {
   const manifest = ApplicationManifestSchema.parse(readJson(`fixtures/${customer}/k-nex.app.json`));
   const inventory = RuntimeInventorySchema.parse(readJson(`fixtures/${customer}/runtime-inventory.json`));
