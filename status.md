@@ -7,11 +7,11 @@
 
 ## Last completed
 
-P6.10 review remediation makes lifecycle scoping authoritative over verified required plugin and capability-provider edges, revokes dependent executable inventory transitively, and gates captured capability-service access after freeze and lifecycle revocation.
+P6.10 review remediation refreshed the Gate 1 resolved customer snapshot after the descriptor-derived UI validator changed the reproducible Sales package integrity; lifecycle dependency and capability-lease authority remain covered by focused tests.
 
 ## Validation
 
-Node 24.19.0: Runtime tests (188), runtime build, full workspace build, and `git diff --check` PASS. Full `pnpm gate:6` remains required on this remediation head.
+Node 24.19.0: the first full `pnpm gate:6` run passed contracts/tests and stopped at the expected stale Gate 1 resolved snapshot; the source-derived snapshot is refreshed and the complete gate remains to be rerun.
 
 ## Next
 
