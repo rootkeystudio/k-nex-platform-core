@@ -5,7 +5,7 @@ import { contentDigest, firstDifference, proveReproducibility } from "../src/rep
 describe("P0.5 contract generation reproducibility", () => {
   it("produces byte-identical output trees under controlled path and environment differences", async () => {
     await expect(proveReproducibility()).resolves.toMatch(/^[0-9a-f]{64}$/);
-  });
+  }, 30_000);
 
   it("computes an ordering-independent diagnostic digest", () => {
     const first = new Map<string, Uint8Array>([["b.json", Buffer.from("b")], ["a.json", Buffer.from("a")]]);

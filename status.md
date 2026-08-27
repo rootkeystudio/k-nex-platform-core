@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Updated the Gate 2A synthetic action/tool fixture to declare and register its exact permission contribution under the stricter Phase 6 reference graph. This was the only failure found by the first full Gate 6 rerun.
+Raised only the contract reproducibility test's CI budget from Vitest's 5-second default to 30 seconds. The exact proof completed locally in about 2.1 seconds, but GitHub's contended runner reached 5.06 seconds and failed before the otherwise passing Gate 6 chain.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: targeted `node scripts/gate-2a.mjs` PASS with 29 attack proofs and both bounded benchmarks. Exact full Gate 6 rerun is next.
+Node 24.19.0 / pnpm 11.9.0: exact full `pnpm gate:6` PASS at `d2929f2`; GitHub failure isolated to the 5-second reproducibility-test timeout. Exact full rerun on the timeout-only head is next.
 
 ## Next
 
