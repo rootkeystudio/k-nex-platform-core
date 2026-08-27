@@ -1,22 +1,22 @@
 # Project Status
 
-- **Updated:** 2026-08-27
+- **Updated:** 2026-08-28
 - **Phase:** Phase 7 — Comprehensive Headless Component System
 - **Active task:** P7.10 — Performance, bundle, coverage audit, and closeout
-- **State:** Ready for phase review
+- **State:** In progress
 
 ## Last completed
 
-All Sol-high rereview implementation blockers are corrected. The form controller advances its saved baseline after successful submission. Generic source input validation covers every declared kind including boolean. Generic Form no longer invents an action: composition supplies an explicit valid registered identity, the default stays disabled, and Sales proves dispatch through its real registered mutation and browser transport.
+PR 21 is merged and post-merge `main` CI passes. Phase 7 was preserved at `codex/archive-phase-7-pre-review-9056043`, rebased onto accepted `main` commit `e05b1e68`, and PR 22 now targets `main`. Required CI now executes the complete Gate 7 path.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0 acceptance passes: UI builder blocks build, 5 tests and boundaries; Sales 22 Node plus 19 Vitest tests, boundaries, and package reproducibility; form 7 tests; complete lower gates, browser matrix, performance budgets, squash-safe closeout, and exact `GATE_7_PASS`.
+Previous exact `GATE_7_PASS` remains preserved on the archive branch. Fresh rebased-head acceptance is pending review remediation.
 
 ## Next
 
-Repeat exact Gate 7 after this closeout status amendment, then request Sol-high final rereview and refresh draft PR #22.
+Correct action freshness, cursor/projection/bulk bounds, composite focus, in-flight form edits, actual-control accessibility, VirtualList focus, and nested container DOM parity; then run complete Gate 7 evidence.
 
 ## Blockers
 
-None. Phase 7 remains stacked on final Phase 6 `6352d36`.
+Project-manager REWORK on PR 22; nine documented blockers are active.
