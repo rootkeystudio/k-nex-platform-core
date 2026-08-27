@@ -8,6 +8,7 @@ import { salesTasksDescriptor } from "../dist/contracts.js";
 import {
   salesTaskTableBlock,
   salesTaskTablePuckAuthoring,
+  salesPuckBlockBridges,
   salesWorkspaceUiContract,
   salesUiBlockDefinitions,
   salesUiComponentDefinitions
@@ -78,6 +79,11 @@ test("every Sales UI contribution renders outside the editor and every block rec
     const bridge = reconcilePuckBlockContribution(definition, salesTaskTablePuckAuthoring);
     assert.deepEqual(bridge.definition.render(input), definition.render(input));
     assert.equal(bridge.definition.id, definition.id);
+  }
+  assert.equal(salesPuckBlockBridges.length, salesUiBlockDefinitions.length);
+  for (const [index, bridge] of salesPuckBlockBridges.entries()) {
+    assert.equal(bridge.definition.id, salesUiBlockDefinitions[index].id);
+    assert.deepEqual(bridge.definition.render(input), salesUiBlockDefinitions[index].render(input));
   }
 });
 

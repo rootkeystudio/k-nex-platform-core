@@ -54,6 +54,7 @@
     "@k-nex/runtime": "0.0.0",
     "@k-nex/ui-runtime": "0.0.0",
     "@k-nex/ui-components": "0.0.0",
+    "@k-nex/ui-builder-blocks": "0.0.0",
     "@k-nex/ui-data": "0.0.0",
     "@k-nex/ui-design-system-contracts": "0.0.0",
     "@k-nex/ui-forms": "0.0.0",
@@ -62,6 +63,7 @@
   },
   "peerDependenciesMeta": {
     "@k-nex/ui-components": { "optional": true },
+    "@k-nex/ui-builder-blocks": { "optional": true },
     "@k-nex/ui-data": { "optional": true },
     "@k-nex/ui-design-system-contracts": { "optional": true },
     "@k-nex/ui-forms": { "optional": true },
@@ -75,6 +77,7 @@
     "@k-nex/runtime": "workspace:*",
     "@k-nex/ui-runtime": "workspace:*",
     "@k-nex/ui-components": "workspace:*",
+    "@k-nex/ui-builder-blocks": "workspace:*",
     "@k-nex/ui-data": "workspace:*",
     "@k-nex/ui-design-system-contracts": "workspace:*",
     "@k-nex/ui-forms": "workspace:*",

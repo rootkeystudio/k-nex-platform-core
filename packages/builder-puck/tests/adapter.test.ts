@@ -67,6 +67,7 @@ describe("Puck builder adapter", () => {
         surfaces: ["workspace"],
         audience: "authenticated",
         permission: "sales.tasks.read",
+        actionPolicy: { required: false, actions: [{ id: "sales.task.create", version: 1 }] },
         requiredStates: ["loading", "empty", "error", "forbidden"]
       },
       propsSchema: { safeParse: (value) => ({ success: true as const, data: value }) },
@@ -79,6 +80,7 @@ describe("Puck builder adapter", () => {
       defaultProps: { title: "Tasks" }
     });
     expect(bridge.definition.descriptor).toEqual(bound.descriptor);
+    expect(bridge.definition.actionPolicy).toEqual(bound.actionPolicy);
     expect(bridge.definition.render({ node: {} as never, props: { title: "Outside" }, surface: "workspace", actor: { authenticated: true, permissions: new Set() } }))
       .toEqual({ title: "Outside" });
     expect(() => reconcilePuckBlockContribution({ ...bound, descriptor: { ...bound.descriptor, kind: "component" } }, {
