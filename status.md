@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-27
 - **Phase:** Phase 8 — Lifecycle, Application Factory, Release, and Fleet Safety
-- **Active task:** P8.2 — Plugin/package upgrade planning and customer-owned migrations
+- **Active task:** P8.3 — Migration concurrency and stale-artifact readiness fences
 - **State:** In progress
 
 ## Last completed
 
-P8.1 froze a generated package-release manifest contract. Every released package has an exact semantic version, immutable SHA-512 integrity, role, and the exact supported K-Nex/Payload/Node/pnpm/Postgres tuple. The pre-v1 support window is bounded to current plus at most the immediately preceding minor in the same major line, with security fixes required across all supported releases. Release manifests remain deterministic and exclude deployment/provenance assertions owned by later tasks.
+P8.2 added deterministic current-to-target upgrade graph planning with ordered predecessor dependencies, fail-closed gap/duplicate/cycle/version diagnostics, and mutation-free dry runs. The Sales fixture is the sole schema-owning example and covers customer schema plus source, action, tool, block, theme, template, and settings migrations.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: contracts build and 145 tests PASS; architecture contract tooling builds; deterministic generation produced the release-manifest schema and updated generated-contract inventory. Full `pnpm phase:0` runs on the committed task head so generated-clean can compare against Git.
+Node 24.19.0 / pnpm 11.9.0: P8.1 full `pnpm phase:0` PASS on committed head. P8.2 runtime build and 182 tests PASS; Sales build, 22 Node tests, 18 Vitest tests, boundary validation, and deterministic package fixture validation PASS.
 
 ## Next
 
-Commit P8.1, run its full Phase 0 acceptance, then implement P8.2 current-to-target planning and customer-owned migration artifacts using Sales as the sole schema-owning fixture.
+Implement P8.3 PostgreSQL advisory-lock migration ownership and stale-artifact readiness fences, including concurrent-attempt evidence.
 
 ## Blockers
 
