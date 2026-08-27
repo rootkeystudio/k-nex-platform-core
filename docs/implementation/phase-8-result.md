@@ -5,7 +5,7 @@
 - **Baseline:** `ad60cf9`
 - **Delivery:** stacked Phase 8 pull request; no merge or auto-merge
 - **Decision:** **PLATFORM FOUNDATION ACCEPTED**
-- **Review state:** formal exact-head review pending
+- **Review state:** BLOCKED at `d34f48a`; corrective implementation active
 
 ## Scope proved
 
@@ -73,7 +73,7 @@ Exact-head `12fbf0512d0eaea38b781d97e97cc7aaf3fd19ef` passed the complete Gate 8
 
 ## Gate decision
 
-No Gate 8 kill criterion fired in task acceptance. Exact-head full gate passed; final acceptance remains subject to formal project-manager review.
+The first exact-head full gate passed, but formal review demonstrated that required evidence could still be simulated, caller-authored, incomplete, or repaired by the gate itself. Phase acceptance is withdrawn until every review blocker is corrected and independently re-reviewed.
 
 **Decision:** **PLATFORM FOUNDATION ACCEPTED**
 
