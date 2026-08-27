@@ -15,6 +15,12 @@ import * as semver from "semver";
 import { actionToolCompatible, assertActionDefinition, type ActionDefinition, type ActionHandler } from "./action.js";
 import { dataSourceToolCompatible, type DataSourceHandler } from "./data-source-gateway.js";
 import type { InstalledPluginManifest, ResolvedPluginGraph } from "@k-nex/composition";
+import {
+  createRegistrationLifecycleAuthority,
+  freezeRegistrationLifecycleAuthority,
+  leaseCapabilityService,
+  retainRegistrationLifecycleAuthority
+} from "./registration-lifecycle-authority.js";
 
 export type ContributionKind = PluginContributionCategory;
 export type BoundContributionKind = Extract<ContributionKind, "sources" | "actions" | "events" | "jobs" | "realtimeTopics" | "components" | "blocks">;
@@ -229,6 +235,28 @@ export function executeRegistration(options: ExecuteRegistrationOptions): Regist
     }
     selectedProviders.set(selection.capability, selection);
   }
+  const requiredProviders = new Map<string, ReadonlySet<string>>();
+  for (const [pluginId, manifest] of manifests) {
+    const node = graphNodes.get(pluginId);
+    const providers = new Set<string>();
+    for (const dependency of manifest.requires) {
+      if ("plugin" in dependency) {
+        if (!node?.required.includes(dependency.plugin)) {
+          fail("GRAPH_MISMATCH", `Resolved graph omits required provider ${dependency.plugin} for ${pluginId}.`, [pluginId, dependency.plugin]);
+        }
+        providers.add(dependency.plugin);
+        continue;
+      }
+      const selection = selectedProviders.get(dependency.capability);
+      if (!selection || !node?.required.includes(selection.plugin) ||
+        !semver.satisfies(selection.version, dependency.version, { loose: false, includePrerelease: false })) {
+        fail("GRAPH_MISMATCH", `Resolved graph omits required capability provider ${dependency.capability} for ${pluginId}.`, [pluginId, dependency.capability]);
+      }
+      providers.add(selection.plugin);
+    }
+    requiredProviders.set(pluginId, providers);
+  }
+  const lifecycleAuthority = createRegistrationLifecycleAuthority(requiredProviders);
   let phase: RegistrationPhase = "manifest";
   let currentPlugin: string | undefined;
   let frozen = false;
@@ -257,7 +285,7 @@ export function executeRegistration(options: ExecuteRegistrationOptions): Regist
         fail("CAPABILITY_UNAVAILABLE", `Capability ${capability} is not bound for plugin ${pluginId}.`, [pluginId, capability]);
       }
       capabilityAccess.get(pluginId)?.add(capability);
-      return services.get(capability) as T;
+      return leaseCapabilityService(services.get(capability) as T, lifecycleAuthority, pluginId, selection.plugin);
     }
   });
   const register = (expectedPhase: RegistrationPhase, pluginId: string, kind: ContributionKind, id: string, value: unknown): void => {
@@ -335,6 +363,9 @@ export function executeRegistration(options: ExecuteRegistrationOptions): Regist
             fail("PROVIDER_MISMATCH", `Plugin ${pluginId} is not the resolved provider for ${capability}.`, [pluginId, capability]);
           }
           if (services.has(capability)) fail("PROVIDER_MISMATCH", `Capability ${capability} is already bound.`, [pluginId, capability]);
+          if ((typeof service !== "object" || service === null) && typeof service !== "function") {
+            fail("INVALID_CONTRIBUTION", `Capability ${capability} service must be an object or function.`, [pluginId, capability]);
+          }
           services.set(capability, service);
         }
       });
@@ -492,6 +523,7 @@ export function executeRegistration(options: ExecuteRegistrationOptions): Regist
   }
   phase = "freeze";
   frozen = true;
+  freezeRegistrationLifecycleAuthority(lifecycleAuthority);
   const contributions = Object.fromEntries(pluginContributionCategoryKeys.map((kind) => [kind, freezeEntries(
     [...actual.entries()].flatMap(([pluginId, byKind]) => [...(byKind.get(kind)?.entries() ?? [])].map(([id, value]) => ({ pluginId, id, value })))
       .sort((left, right) => compare(`${left.pluginId}\u0000${left.id}`, `${right.pluginId}\u0000${right.id}`))
@@ -506,8 +538,14 @@ export function executeRegistration(options: ExecuteRegistrationOptions): Regist
       .filter(([, ids]) => ids.length > 0))),
     capabilityAccess: Object.freeze([...(capabilityAccess.get(pluginId) ?? [])].sort(compare))
   }));
-  return Object.freeze({
+  const result = Object.freeze({
     phases: Object.freeze([...registrationPhases]), inventory: Object.freeze(inventory),
     contributions: Object.freeze(contributions), bindings: Object.freeze(frozenBindings)
   });
+  retainRegistrationLifecycleAuthority(
+    result,
+    lifecycleAuthority,
+    new Set(result.contributions.lifecycle.map(({ pluginId }) => pluginId))
+  );
+  return result;
 }

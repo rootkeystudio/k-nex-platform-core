@@ -7,6 +7,11 @@ import {
 } from "@k-nex/contracts";
 
 import type { RegistrationResult } from "./registration-runtime.js";
+import {
+  registrationLifecycleAuthority,
+  retainRegistrationLifecycleAuthority,
+  scopeRegistrationLifecycleAuthority
+} from "./registration-lifecycle-authority.js";
 
 export type PluginLifecycleErrorCode =
   | "INVALID_STATE" | "PACKAGE_MISMATCH" | "NOT_READY" | "OPERATION_UNSUPPORTED" | "REFERENCES_PRESENT";
@@ -61,7 +66,10 @@ const retainedWhileDisabled = new Set<PluginContributionCategory>([
 ]);
 const authoritativeAvailability = new WeakSet<object>();
 const authoritativeRegistrations = new WeakSet<object>();
-const registrationAvailability = new WeakMap<object, ReadonlyMap<string, PluginAvailability>>();
+const registrationAvailability = new WeakMap<object, {
+  readonly availability: ReadonlyMap<string, PluginAvailability>;
+  readonly unavailablePlugins: ReadonlySet<string>;
+}>();
 declare const scopedRegistrationBrand: unique symbol;
 
 export interface ScopedRegistrationResult extends RegistrationResult {
@@ -194,7 +202,9 @@ export function assertExecutableRegistrationAuthority(registration: Registration
 
 export function pluginEnabledInRegistration(registration: ScopedRegistrationResult, pluginId: string): boolean {
   assertExecutableRegistrationAuthority(registration);
-  const availability = registrationAvailability.get(registration)?.get(pluginId);
+  const scope = registrationAvailability.get(registration);
+  if (scope?.unavailablePlugins.has(pluginId)) return false;
+  const availability = scope?.availability.get(pluginId);
   return availability === undefined || availability.enabled && availability.ready;
 }
 
@@ -208,12 +218,29 @@ export function scopePluginRegistration(
     if (availability.has(value.pluginId)) fail("INVALID_STATE", `Plugin ${value.pluginId} has duplicate lifecycle availability.`);
     availability.set(value.pluginId, value);
   }
-  const lifecycleOwners = new Set(registration.contributions.lifecycle.map(({ pluginId }) => pluginId));
+  const authority = registrationLifecycleAuthority(registration);
+  const lifecycleOwners = authority?.lifecycleOwners ?? new Set(registration.contributions.lifecycle.map(({ pluginId }) => pluginId));
   for (const pluginId of lifecycleOwners) {
     if (!availability.has(pluginId)) fail("NOT_READY", `Plugin ${pluginId} requires lifecycle availability before registration can execute.`);
   }
+  const unavailablePlugins = new Set<string>();
+  if (authority) {
+    const unavailable = (pluginId: string): boolean => {
+      const value = availability.get(pluginId);
+      return unavailablePlugins.has(pluginId) || lifecycleOwners.has(pluginId) && (!value?.enabled || !value.ready);
+    };
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const [consumerId, providers] of authority.requiredProviders) {
+        if (unavailablePlugins.has(consumerId) || ![...providers].some(unavailable)) continue;
+        unavailablePlugins.add(consumerId);
+        changed = true;
+      }
+    }
+  }
   const allowed = (kind: PluginContributionCategory, pluginId: string, id: string): boolean =>
-    !lifecycleOwners.has(pluginId) || availability.get(pluginId)?.isAvailable(kind, id) === true;
+    !unavailablePlugins.has(pluginId) && (!lifecycleOwners.has(pluginId) || availability.get(pluginId)?.isAvailable(kind, id) === true);
   const contributions = Object.freeze(Object.fromEntries(pluginContributionCategoryKeys.map((kind) => [
     kind,
     Object.freeze(registration.contributions[kind].filter(({ pluginId, id }) => allowed(kind, pluginId, id)))
@@ -231,7 +258,9 @@ export function scopePluginRegistration(
   })));
   const result = Object.freeze({ phases: registration.phases, inventory, contributions, bindings }) as ScopedRegistrationResult;
   authoritativeRegistrations.add(result);
-  registrationAvailability.set(result, new Map(availability));
+  registrationAvailability.set(result, { availability: new Map(availability), unavailablePlugins: new Set(unavailablePlugins) });
+  scopeRegistrationLifecycleAuthority(registration, availability, unavailablePlugins);
+  if (authority) retainRegistrationLifecycleAuthority(result, authority, lifecycleOwners);
   return result;
 }
 

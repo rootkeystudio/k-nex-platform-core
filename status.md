@@ -7,11 +7,11 @@
 
 ## Last completed
 
-P6.10 review remediation makes the UI contribution descriptor props schema the sole validation authority and preserves action-policy authority through immutable Puck bridge snapshots; focused regressions cover policy identity, mutation isolation, and fail-closed editor previews.
+P6.10 review remediation makes lifecycle scoping authoritative over verified required plugin and capability-provider edges, revokes dependent executable inventory transitively, and gates captured capability-service access after freeze and lifecycle revocation.
 
 ## Validation
 
-Node 24.19.0: Builder Puck (34) and UI runtime (42) tests; Builder browser accessibility; package boundaries; full workspace build; and `git diff --check` PASS. Full `pnpm gate:6` remains required on this remediation head.
+Node 24.19.0: Runtime tests (188), runtime build, full workspace build, and `git diff --check` PASS. Full `pnpm gate:6` remains required on this remediation head.
 
 ## Next
 

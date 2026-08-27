@@ -6,6 +6,7 @@ import {
   assertPluginUninstallSupported,
   createPluginLifecycleState,
   disablePlugin,
+  executeRegistration,
   planPluginInstall,
   pluginReadyForEnable,
   reenablePlugin,
@@ -14,6 +15,8 @@ import {
   scanPluginReferences,
   type RegistrationResult
 } from "../src/index.js";
+import type { InstalledPluginManifest, ResolvedPluginGraph } from "@k-nex/composition";
+import type { PluginRegistration } from "../src/registration-runtime.js";
 
 const integrity = `sha512-${"a".repeat(86)}==`;
 const manifest = {
@@ -53,11 +56,89 @@ const registration = {
   }
 } as unknown as RegistrationResult;
 
+function lifecycleManifest(input: {
+  readonly id: string;
+  readonly provides?: readonly { readonly capability: string; readonly version: string }[];
+  readonly requires?: PluginManifest["requires"];
+  readonly optional?: PluginManifest["optional"];
+  readonly jobs?: boolean;
+}): PluginManifest {
+  const namespace = input.id.split(".")[1]!;
+  return {
+    apiVersion: 1, id: input.id, kind: input.provides ? "provider" : "module", displayName: input.id, version: "1.0.0",
+    package: `@k-nex/${input.id.replace(".", "-")}`,
+    compatibility: { core: ">=1.0.0 <2.0.0", payload: ">=3.0.0 <4.0.0", node: ">=24.0.0 <25.0.0", payloadDatabaseAdapters: ["postgres"] },
+    provides: input.provides ?? [], requires: input.requires ?? [], optional: input.optional ?? [], conflicts: [], surfaces: ["workspace"],
+    lifecycle: { ownsPayloadSchema: false, ownsPersistentData: false, disable: "supported", uninstall: "supported", purge: "supported" },
+    contributions: {
+      lifecycle: { [`${namespace}.lifecycle`]: "required" },
+      ...(input.jobs ? { jobs: { [`${namespace}.job`]: "required" } } : {})
+    }
+  };
+}
+
+function lifecycleState(manifestValue: PluginManifest, enabled = true, ready = true) {
+  return createPluginLifecycleState({
+    pluginId: manifestValue.id, catalogStatus: "supported",
+    package: { status: "installed", name: manifestValue.package, version: manifestValue.version, integrity },
+    enabled, configuration: { revision: 1, ready }, migration: { current: ready ? 1 : 0, required: 1, ready },
+    dataState: enabled ? "active" : "retained", releaseStatus: "supported"
+  });
+}
+
+function lifecyclePlan(
+  manifestValue: PluginManifest,
+  options: {
+    readonly provideCapability?: string;
+    readonly capability?: string;
+    readonly service?: unknown;
+    readonly capture?: (service: {
+      readonly now: () => string;
+      readonly derived: () => { readonly now: () => string };
+      readonly callable: () => () => string;
+    }) => void;
+    readonly jobs?: boolean;
+  } = {}
+): PluginRegistration {
+  const namespace = manifestValue.id.split(".")[1]!;
+  return {
+    pluginId: manifestValue.id,
+    providers: options.provideCapability === undefined ? undefined : (context) => context.provide(options.provideCapability!, options.service),
+    behavior(context) {
+      if (options.capture && options.capability) options.capture(context.services.get(options.capability));
+      context.register("lifecycle", `${namespace}.lifecycle`, {
+        id: `${namespace}.lifecycle`, version: 1, ownerPluginId: manifestValue.id,
+        disable: "supported", reenable: "supported", purge: "supported"
+      });
+    },
+    jobs: options.jobs ? (context) => {
+      context.register("jobs", `${namespace}.job`, {
+        id: `${namespace}.job`, version: 1, ownerPluginId: manifestValue.id, timeoutMs: 1_000, maxConcurrency: 1, idempotent: true
+      });
+      context.bind(`${namespace}.job`, () => undefined);
+    } : undefined
+  };
+}
+
+function executeLifecycleRegistration(
+  manifests: readonly PluginManifest[],
+  registrations: readonly PluginRegistration[],
+  graph: ResolvedPluginGraph
+): RegistrationResult {
+  const installed: readonly InstalledPluginManifest[] = manifests.map((entry) => ({
+    package: { name: entry.package, version: entry.version, integrity: `sha512-${entry.id}` }, manifest: entry
+  }));
+  return executeRegistration({ graph, installed, registrations });
+}
+
 describe("plugin lifecycle", () => {
   it("rejects every registration until authoritative lifecycle scoping", () => {
     const raw = { ...registration, contributions: { ...registration.contributions, lifecycle: [] } } as unknown as RegistrationResult;
     expect(() => assertExecutableRegistrationAuthority(raw)).toThrow(/authoritative lifecycle scoping/);
     expect(() => assertExecutableRegistrationAuthority(scopePluginRegistration(raw, []))).not.toThrow();
+    const forged = { ...registration, requiredProviders: { "module.sales": ["provider.forged"] } } as unknown as RegistrationResult;
+    const availability = reconcilePluginAvailability(registration, state());
+    expect(scopePluginRegistration(forged, [availability]).contributions.actions).toHaveLength(1);
   });
 
   it("plans source-controlled install and idempotent customer-owned template seeding", () => {
@@ -85,6 +166,99 @@ describe("plugin lifecycle", () => {
     const stale = createPluginLifecycleState({ ...disabled, migration: { current: 5, required: 6, ready: false } });
     expect(pluginReadyForEnable(stale)).toBe(false);
     expect(() => reenablePlugin(stale, manifest)).toThrow(/not ready/);
+  });
+
+  it("revokes required consumers and captured capability services when a provider becomes unavailable", () => {
+    const provider = lifecycleManifest({ id: "provider.clock", provides: [{ capability: "clock.now", version: "1.0.0" }] });
+    const consumer = lifecycleManifest({ id: "module.consumer", requires: [{ capability: "clock.now", version: "^1.0.0" }], jobs: true });
+    const graph: ResolvedPluginGraph = {
+      resolverVersion: "1.0.0",
+      plugins: [
+        { id: provider.id, kind: provider.kind, package: provider.package, version: provider.version, integrity: "sha512-provider.clock", required: [], optional: [] },
+        { id: consumer.id, kind: consumer.kind, package: consumer.package, version: consumer.version, integrity: "sha512-module.consumer", required: [provider.id], optional: [] }
+      ],
+      capabilityProviders: [{ capability: "clock.now", plugin: provider.id, version: "1.0.0" }],
+      registrationOrder: [provider.id, consumer.id]
+    };
+    let captured: { readonly now: () => string } | undefined;
+    let capturedNow: (() => string) | undefined;
+    let capturedDerived: { readonly now: () => string } | undefined;
+    let capturedReturned: (() => string) | undefined;
+    const registrationResult = executeLifecycleRegistration(
+      [provider, consumer],
+      [
+        lifecyclePlan(provider, {
+          provideCapability: "clock.now",
+          service: { now: () => "now", derived: () => ({ now: () => "derived" }), callable: () => () => "returned" }
+        }),
+        lifecyclePlan(consumer, { capability: "clock.now", capture: (service) => {
+          captured = service;
+          capturedNow = service.now;
+          capturedDerived = service.derived();
+          capturedReturned = service.callable();
+        }, jobs: true })
+      ],
+      graph
+    );
+    const enabled = scopePluginRegistration(registrationResult, [
+      reconcilePluginAvailability(registrationResult, lifecycleState(provider)),
+      reconcilePluginAvailability(registrationResult, lifecycleState(consumer))
+    ]);
+    expect(enabled.contributions.jobs).toHaveLength(1);
+    expect(enabled.bindings.jobs).toHaveLength(1);
+    expect(captured?.now()).toBe("now");
+    expect(capturedNow?.()).toBe("now");
+    expect(capturedDerived?.now()).toBe("derived");
+    expect(capturedReturned?.()).toBe("returned");
+
+    const disabled = scopePluginRegistration(registrationResult, [
+      reconcilePluginAvailability(registrationResult, lifecycleState(provider, false)),
+      reconcilePluginAvailability(registrationResult, lifecycleState(consumer))
+    ]);
+    expect(disabled.contributions.jobs).toEqual([]);
+    expect(disabled.bindings.jobs).toEqual([]);
+    expect(disabled.contributions.lifecycle.filter(({ pluginId }) => pluginId === consumer.id)).toEqual([]);
+    expect(disabled.inventory.find(({ id }) => id === consumer.id)?.contributions).toEqual({});
+    expect(() => captured?.now()).toThrow(/Capability service is unavailable/);
+    expect(() => capturedNow?.()).toThrow(/Capability service is unavailable/);
+    expect(() => capturedDerived?.now()).toThrow(/Capability service is unavailable/);
+    expect(() => capturedReturned?.()).toThrow(/Capability service is unavailable/);
+
+    const notReady = scopePluginRegistration(registrationResult, [
+      reconcilePluginAvailability(registrationResult, lifecycleState(provider, true, false)),
+      reconcilePluginAvailability(registrationResult, lifecycleState(consumer))
+    ]);
+    expect(notReady.contributions.jobs).toEqual([]);
+
+    const reenabled = scopePluginRegistration(registrationResult, [
+      reconcilePluginAvailability(registrationResult, lifecycleState(provider)),
+      reconcilePluginAvailability(registrationResult, lifecycleState(consumer))
+    ]);
+    expect(reenabled.contributions.jobs).toHaveLength(1);
+    expect(capturedNow?.()).toBe("now");
+  });
+
+  it("propagates required dependency revocation transitively without revoking optional consumers", () => {
+    const provider = lifecycleManifest({ id: "provider.clock" });
+    const middle = lifecycleManifest({ id: "module.middle", requires: [{ plugin: provider.id, version: "^1.0.0" }], jobs: true });
+    const requiredConsumer = lifecycleManifest({ id: "module.required", requires: [{ plugin: middle.id, version: "^1.0.0" }], jobs: true });
+    const optionalConsumer = lifecycleManifest({ id: "module.optional", optional: [{ plugin: provider.id, version: "^1.0.0" }], jobs: true });
+    const manifests = [provider, middle, requiredConsumer, optionalConsumer] as const;
+    const graph: ResolvedPluginGraph = {
+      resolverVersion: "1.0.0",
+      plugins: [
+        { id: provider.id, kind: provider.kind, package: provider.package, version: provider.version, integrity: "sha512-provider.clock", required: [], optional: [] },
+        { id: middle.id, kind: middle.kind, package: middle.package, version: middle.version, integrity: "sha512-module.middle", required: [provider.id], optional: [] },
+        { id: requiredConsumer.id, kind: requiredConsumer.kind, package: requiredConsumer.package, version: requiredConsumer.version, integrity: "sha512-module.required", required: [middle.id], optional: [] },
+        { id: optionalConsumer.id, kind: optionalConsumer.kind, package: optionalConsumer.package, version: optionalConsumer.version, integrity: "sha512-module.optional", required: [], optional: [provider.id] }
+      ], capabilityProviders: [], registrationOrder: manifests.map(({ id }) => id)
+    };
+    const registrationResult = executeLifecycleRegistration(manifests, manifests.map((entry) => lifecyclePlan(entry, { jobs: entry.id !== provider.id })), graph);
+    const scoped = scopePluginRegistration(registrationResult, manifests.map((entry) =>
+      reconcilePluginAvailability(registrationResult, lifecycleState(entry, entry.id !== provider.id))
+    ));
+    expect(scoped.contributions.jobs.map(({ pluginId }) => pluginId)).toEqual([optionalConsumer.id]);
+    expect(scoped.bindings.jobs.map(({ pluginId }) => pluginId)).toEqual([optionalConsumer.id]);
   });
 
   it("scans references deterministically and refuses unsafe destructive lifecycle", () => {

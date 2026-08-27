@@ -473,7 +473,8 @@ describe("phased registration runtime", () => {
     })]);
 
     expect(result.phases).toEqual(registrationPhases);
-    expect(service).toEqual({ driver: "postgres" });
+    expect(service).toBeDefined();
+    expect(() => (service as { readonly driver: string }).driver).toThrow(/authoritative lifecycle scoping/);
     expect(serviceKeys).toEqual(["get"]);
     expect(result.inventory).toEqual([
       {
@@ -850,6 +851,13 @@ describe("phased registration runtime", () => {
 
   it("allows only the resolved provider to bind a capability", () => {
     expectCode(() => run([providerRegistration("storage.other"), completeConsumer()]), "PROVIDER_MISMATCH");
+  });
+
+  it("rejects capability services that cannot be lifecycle-revoked", () => {
+    expectCode(() => run([{
+      pluginId: "provider.storage",
+      providers: (context) => context.provide("storage.records", null)
+    }, completeConsumer()]), "INVALID_CONTRIBUTION");
   });
 
   it("rejects graph identity and registration-plan drift", () => {
