@@ -129,9 +129,9 @@ Update `docs/adr/evidence-registry.json` only with real evidence. A document or 
 
 ## Immediate work
 
-- complete and merge Gate 5 without expanding its scope;
-- begin Gate 6 with the contribution taxonomy, not another module;
-- use Sales for every plugin-authoring proof;
+- execute P6.1 by freezing the complete plugin contribution taxonomy;
+- complete Phase 6 entirely through the platform and `module.sales`, not another module;
+- make every supported plugin surface pass one conformance command before authorizing domain breadth;
 - keep the comprehensive component catalog in Gate 7 behind the small theme ABI;
 - defer customer generator/lifecycle/fleet proof to Gate 8;
 - do not select a new vertical or AI product until the foundation program passes.

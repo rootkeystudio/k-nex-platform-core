@@ -93,14 +93,15 @@ Implementation plans are execution specifications. A phase plan does not prove c
 | IDs | Hierarchical dot namespace, optional hyphen inside one segment | executable-poc for current pre-v1 grammar |
 | Reference plugin | `module.sales` is the only first-party domain module until Gate 8 | design-only |
 | Plugin authoring | Sales must exercise every supported contribution category and pass one conformance suite | design-only |
-| Official Payload plugins | Gate-scoped bounded adapters; no automatic catalog install or contract ownership | design-only with MCP candidate evidence |
+| Official Payload plugins | Gate-scoped bounded adapters; no automatic catalog install or contract ownership | bounded MCP subset executable; broader policy design-only |
 | Plugin lifecycle | Schema-owning V1 plugins support disable/re-enable, reviewed upgrade, archive/export, and explicit purge | design-only |
 | Registration | `manifest → contracts → providers → schema → behavior → jobs → data-handlers → ui → admin → validate → freeze` | executable-poc |
 | Data sources | Plugin-owned bounded projections behind authenticated gateway | executable-poc |
 | Agent tools | Explicit source/action-backed tools; MCP is an adapter | executable-poc |
 | Realtime | Transactional outbox plus supported Socket.IO memory topology and convergence | executable-poc |
 | Builder | Puck behind canonical engine adapter; runtime/storage remain separate | executable-poc |
-| Themes | Small stable primitive ABI plus runtime profiles | Gate 5 candidate |
+| Themes | Small stable primitive ABI plus strict runtime profiles | executable-poc |
+| Atomic CMS publication | Revisioned page/document pairs, rollback, idempotency, and current-policy validation | executable-poc |
 | Components | Comprehensive platform-owned headless component system; themes style, not reimplement behavior | design-only |
 | Accessibility | WCAG 2.2 AA target for supported surfaces | partial executable evidence |
 | Application factory | `create-knex-app`, lifecycle, release/fleet proof in Gate 8 | design-only |
@@ -133,8 +134,8 @@ Gate 2   source authorization and output contracts               complete
 Gate 2A  agent tools and safe MCP execution                      complete
 Gate 3   outbox and realtime convergence                         complete
 Gate 4   builder kill-spike                                      complete
-Gate 5   themes, accessibility, atomic publication               active PR
-Gate 6   plugin platform hardening + complete Sales reference
+Gate 5   themes, accessibility, atomic publication               complete
+Gate 6   plugin platform hardening + complete Sales reference    active
 Gate 7   comprehensive headless component/data/form/page system
 Gate 8   lifecycle + create-knex-app + release/fleet safety
 ```

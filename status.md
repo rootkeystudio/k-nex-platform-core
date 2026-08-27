@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Rebased the foundation roadmap onto accepted Gate 5 `main` and advanced the execution handoff to Phase 6 / P6.1.
+Finalized the Gate 5-based foundation roadmap, aligned repository entrypoints with the active Phase 6 handoff, and removed stale pre-merge instructions.
 
 ## Validation
 
-This docs/process-only branch changes no runtime, package, generated contract, schema, or fixture. Documentation and exact-head architecture validation are required before merge.
+PR #20 exact-head Architecture Contracts run #85 passes frozen installation, browser proofs, Phase 0 through Gate 5, and exact-head repository checks.
 
 ## Next
 
-Validate and merge roadmap PR #20. Then implement P6.1 through P6.10 in order on one Phase 6 branch and PR.
+Implement P6.1 through P6.10 in order on one Phase 6 branch and pull request, using `module.sales` as the sole reference domain module.
 
 ## Blockers
 

@@ -85,9 +85,14 @@ Gate 3
 Gate 4
   canonical UiDocument, editor-independent runtime,
   Puck adapter, fixed-shell policy, bundle/accessibility proof
+
+Gate 5
+  semantic primitive ABI, Minimal and Neobrutalism themes,
+  atomic CMS publication/rollback, deterministic layouts,
+  real PostgreSQL and Chromium evidence
 ```
 
-Gate 5 is the active UI/theme/atomic-publication phase; `status.md` is the current execution source.
+Phase 6 / P6.1 is active; `status.md` is the current execution source.
 
 This is a tested platform foundation, not a production-ready customer-delivery release.
 
@@ -208,24 +213,21 @@ The final `create-knex-app` product is Gate 8 work. Planned behavior includes ex
 ## Immediate roadmap
 
 ```text
-Gate 5
-  finish themes, accessibility, atomic publication, layouts
+Gate 5   themes, accessibility, atomic publication, layouts      complete
 
-Gate 6
-  complete plugin contribution taxonomy and authoring API
-  finish Sales as the sole reference plugin
-  build plugin conformance command
+Gate 6   plugin platform hardening + complete Sales reference    active
+         contribution taxonomy and authoring API
+         standard query/action/page/Puck contracts
+         plugin conformance command
 
-Gate 7
-  comprehensive headless component system
-  DataTable/forms/pages/Puck blocks
-  complete Sales reference UI
+Gate 7   comprehensive headless component system
+         DataTable/forms/pages/Puck blocks
+         complete Sales reference UI
 
-Gate 8
-  upgrade/lifecycle/backup/restore
-  create-knex-app
-  two independent Sales-based customer applications
-  SBOM/provenance/deployment/fleet proof
+Gate 8   upgrade/lifecycle/backup/restore
+         create-knex-app
+         two independent Sales-based customer applications
+         SBOM/provenance/deployment/fleet proof
 ```
 
 Only after Gate 8 project-manager PASS may the roadmap select the next domain product.
