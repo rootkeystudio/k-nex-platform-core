@@ -11,11 +11,11 @@ P8.10 added the Phase 8 result, Gate 8 closeout command, exact evidence reconcil
 
 ## Validation
 
-First full `pnpm gate:8` found the stale packed Sales declaration and the second run passed that boundary, all Phase 0 tests, browser matrix, performance, and reproducibility before finding the dependent Gate 1 resolved graph still carried the prior Sales integrity. The graph was deterministically regenerated; `check:gate-1` and the isolated double-generation proof now PASS with `GATE_1_PASS`. Full gate retry, audit, and exact-head rerun remain.
+The third full gate passed Phase 0, Gate 1, all three customer Postgres proofs, Gates 2–5, then found the Sales conformance wrapper still hardcoded the former one-test Postgres suite count. The wrapper now requires the reported test total to equal the pass total with zero failures, so future additive lifecycle proofs remain fail-closed without a stale count. Targeted Sales conformance PASS. Full gate retry, audit, and exact-head rerun remain.
 
 ## Next
 
-Commit the refreshed Gate 1 graph, rerun the full Gate 8 and audit, record exact-head evidence, obtain formal Sol-high review, then open the stacked Phase 8 pull request without merge or auto-merge.
+Commit the conformance harness correction, rerun the full Gate 8 and audit, record exact-head evidence, obtain formal Sol-high review, then open the stacked Phase 8 pull request without merge or auto-merge.
 
 ## Blockers
 

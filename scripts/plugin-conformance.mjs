@@ -174,7 +174,9 @@ function runCustomerPostgresProof(root, identity) {
   assert.deepEqual(identity, { pluginId: "module.sales", pluginPackage: "@k-nex/module-sales" });
   const output = execute("pnpm", ["--dir", "fixtures/customer-gate-1", "test:postgres"], root, "customer-postgres-lifecycle", identity);
   assert.match(output, /proves customer-owned migrations and revision-aware Postgres boot/);
-  assert.match(output, /pass 1/);
+  const tests = output.match(/(?:^|\n)ℹ tests (\d+)/u)?.[1];
+  const passed = output.match(/(?:^|\n)ℹ pass (\d+)/u)?.[1];
+  assert.ok(tests !== undefined && tests === passed, "Every customer Postgres lifecycle test must pass.");
   assert.match(output, /fail 0/);
 }
 
