@@ -31,6 +31,14 @@ function compare(left: FleetDeployment, right: FleetDeployment): number {
   return `${left.inventory.applicationId}\u0000${left.inventory.environment}`.localeCompare(`${right.inventory.applicationId}\u0000${right.inventory.environment}`);
 }
 
+function freeze<T>(value: T): T {
+  if (value !== null && typeof value === "object") {
+    for (const child of Object.values(value)) freeze(child);
+    Object.freeze(value);
+  }
+  return value;
+}
+
 export class FleetRegistry {
   readonly #deployments = new Map<string, FleetDeployment>();
 
@@ -43,7 +51,7 @@ export class FleetRegistry {
       return;
     }
     if (existing !== undefined && existing.receipt.deployedAt >= receipt.deployedAt) throw new FleetEvidenceError("CONFLICT", "Fleet evidence cannot regress or replace an equally new deployment.");
-    this.#deployments.set(key, Object.freeze({ receipt: structuredClone(receipt), inventory: structuredClone(inventory) }));
+    this.#deployments.set(key, freeze({ receipt: structuredClone(receipt), inventory: structuredClone(inventory) }));
   }
 
   list(): readonly FleetDeployment[] {
