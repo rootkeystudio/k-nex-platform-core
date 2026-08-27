@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Refreshed the committed Sales tarball and lock integrity from a forced clean TypeScript build. Clean CI canonicalized the generated UI-kind union as `block | component`; the cached local declaration and packed artifact still held the older equivalent ordering.
+Regenerated the customer Gate 1 resolved graph after the clean Sales tarball changed its exact integrity. The gate correctly rejected the stale installed-plugin identity before any runtime proof.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: exact full `pnpm gate:6` PASS at `14f938e`; forced Sales build plus `check-pack` PASS, lock integrity refreshed. Exact full rerun on the artifact-only head is next.
+Node 24.19.0 / pnpm 11.9.0: forced Sales build plus `check-pack` PASS; official `generate:gate-1` refreshed the exact graph. Exact full rerun on the complete artifact chain is next.
 
 ## Next
 
