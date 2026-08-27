@@ -10,7 +10,9 @@ import {
   allowedDataTableActions,
   createDataTableController,
   createDataTableState,
-  defineDataTable
+  defineDataTable,
+  resolveDataTableActionAuthorization,
+  type DataTableActionAuthorization
 } from "../src/index.js";
 
 const definition = defineDataTable({
@@ -33,10 +35,11 @@ const definition = defineDataTable({
   bulkActions: [{ id: salesUpdateTaskMutation.action.id, action: salesUpdateTaskMutation.action, mutation: salesUpdateTaskMutation, input: (rowKey: string) => ({ id: rowKey, status: "done" }), label: "Complete" }]
 });
 
-const capabilities = [
-  { state: "allowed" as const, action: salesUpdateTaskMutation.action },
-  { state: "denied" as const, action: salesOpportunityStageMutation.action }
-];
+const actorFingerprint = `sha256:${"a".repeat(64)}`;
+const catalogRevision = `sha256:${"b".repeat(64)}`;
+const authorization = resolveDataTableActionAuthorization(definition, actorFingerprint, {
+  resolve: (request) => ({ actorFingerprint: request.actorFingerprint, catalogRevision, capabilities: request.actions.map((action) => ({ state: action.id === salesUpdateTaskMutation.action.id ? "allowed" as const : "denied" as const, action })) })
+});
 
 const records = {
   fields: ["title", "status", "potential-revenue"],
@@ -93,10 +96,14 @@ describe("P7.6 standard DataTable/DataGrid", () => {
     expect(controller.shouldRefetch("sales.opportunities")).toBe(false);
   });
 
-  it("uses injected exact-identity capabilities and fails closed for forged or duplicate results", () => {
-    expect(allowedDataTableActions(definition.rowActions ?? [], capabilities).map(({ id }) => id)).toEqual([salesUpdateTaskMutation.action.id]);
-    expect(allowedDataTableActions(definition.rowActions ?? [], [{ state: "allowed", action: { id: "sales.task.forged", version: 1 } }])).toEqual([]);
-    expect(() => allowedDataTableActions(definition.rowActions ?? [], [capabilities[0]!, capabilities[0]!])).toThrow(/Duplicate/);
+  it("uses actor-bound authoritative catalog results and fails closed for forged receipts", () => {
+    expect(allowedDataTableActions(definition.rowActions ?? [], authorization, actorFingerprint).map(({ id }) => id)).toEqual([salesUpdateTaskMutation.action.id]);
+    expect(allowedDataTableActions(definition.rowActions ?? [], authorization, `sha256:${"c".repeat(64)}`)).toEqual([]);
+    const forged = { actorFingerprint, catalogRevision, capabilities: [{ state: "allowed", action: salesOpportunityStageMutation.action }] } as DataTableActionAuthorization;
+    expect(allowedDataTableActions(definition.rowActions ?? [], forged, actorFingerprint)).toEqual([]);
+    expect(() => resolveDataTableActionAuthorization(definition, actorFingerprint, { resolve: (request) => ({ actorFingerprint: request.actorFingerprint, catalogRevision, capabilities: [
+      { state: "allowed", action: request.actions[0]! }, { state: "allowed", action: request.actions[0]! }
+    ] }) })).toThrow(/invalid/);
   });
 
   it("executes only canonical allowed actions and reports partial bulk failures", async () => {
@@ -106,12 +113,12 @@ describe("P7.6 standard DataTable/DataGrid", () => {
       return id === "task-2" ? { state: "error" as const, problem: { code: "CONFLICT", status: 409 } } : { state: "success" as const, data: { id } };
     });
     const executor = { execute };
-    const action = await controller.executeAction(executor, capabilities, salesUpdateTaskMutation.action.id, "task-1", context);
+    const action = await controller.executeAction(executor, authorization, actorFingerprint, salesUpdateTaskMutation.action.id, "task-1", context);
     expect(action.result.state).toBe("success");
     expect(action.invalidatedSources).toEqual(["sales.tasks", "sales.total-potential-revenue"]);
-    await expect(controller.executeAction(executor, capabilities, salesOpportunityStageMutation.action.id, "task-1", context)).resolves.toMatchObject({ result: { state: "forbidden" } });
-    await expect(controller.executeAction(executor, capabilities, "sales.task.unknown", "task-1", context)).resolves.toMatchObject({ result: { state: "forbidden" } });
-    const bulk = await controller.executeBulkAction(executor, capabilities, salesUpdateTaskMutation.action.id, ["task-1", "task-2"], context);
+    await expect(controller.executeAction(executor, authorization, actorFingerprint, salesOpportunityStageMutation.action.id, "task-1", context)).resolves.toMatchObject({ result: { state: "forbidden" } });
+    await expect(controller.executeAction(executor, authorization, actorFingerprint, "sales.task.unknown", "task-1", context)).resolves.toMatchObject({ result: { state: "forbidden" } });
+    const bulk = await controller.executeBulkAction(executor, authorization, actorFingerprint, salesUpdateTaskMutation.action.id, ["task-1", "task-2"], context);
     expect(bulk.state).toBe("partial");
     expect(bulk.succeededRowKeys).toEqual(["task-1"]);
     expect(bulk.failedRowKeys).toEqual(["task-2"]);
@@ -120,7 +127,7 @@ describe("P7.6 standard DataTable/DataGrid", () => {
 
   it("renders semantic table by default and an explicit keyboard grid", () => {
     const state = { ...createDataTableState(definition), selectedRows: ["task-1"] };
-    const table = renderToStaticMarkup(<DataTable definition={definition} actionCapabilities={capabilities} viewState={state} requestState={{ state: "success", data: records }} />);
+    const table = renderToStaticMarkup(<DataTable definition={definition} actionAuthorization={authorization} actionActorFingerprint={actorFingerprint} viewState={state} requestState={{ state: "success", data: records }} />);
     expect(table).toContain("<table");
     expect(table).not.toContain('role="grid"');
     expect(table).toContain("Call customer");
@@ -131,7 +138,7 @@ describe("P7.6 standard DataTable/DataGrid", () => {
     expect(table).toContain('data-k-nex-component="facet-filter"');
     expect(table).toContain('data-k-nex-component="sort-control"');
     expect(table).toContain('data-k-nex-component="pagination-control"');
-    const grid = renderToStaticMarkup(<DataGrid definition={definition} actionCapabilities={capabilities} viewState={state} requestState={{ state: "success", data: records }} />);
+    const grid = renderToStaticMarkup(<DataGrid definition={definition} actionAuthorization={authorization} actionActorFingerprint={actorFingerprint} viewState={state} requestState={{ state: "success", data: records }} />);
     expect(grid).toContain('role="grid"');
     expect(grid).toContain('role="gridcell"');
     expect(grid.match(/role="gridcell" tabindex="0"/g)).toHaveLength(1);

@@ -13,7 +13,7 @@ import type { BrowserMutationContext } from "@k-nex/ui-runtime";
 import {
   allowedDataTableActions,
   createDataTableController,
-  type DataTableActionCapability,
+  type DataTableActionAuthorization,
   type DataTableActionResult,
   type DataTableBulkActionResult,
   type DataTableController,
@@ -57,7 +57,8 @@ export interface DataTableProps<TInput> {
   readonly mode?: "table" | "grid";
   readonly onViewStateChange?: (state: DataTableViewState) => void;
   readonly mutationExecutor?: DataTableMutationExecutor;
-  readonly actionCapabilities?: readonly DataTableActionCapability[];
+  readonly actionAuthorization?: DataTableActionAuthorization;
+  readonly actionActorFingerprint?: string;
   readonly actionContext?: BrowserMutationContext;
   readonly onActionResult?: (result: DataTableActionResult | DataTableBulkActionResult) => void | Promise<void>;
   readonly onSourceInvalidated?: (sourceId: string) => void;
@@ -114,7 +115,8 @@ function ReadyTable<TInput>({
   mode = "table",
   onViewStateChange,
   mutationExecutor,
-  actionCapabilities = [],
+  actionAuthorization,
+  actionActorFingerprint,
   actionContext,
   onActionResult,
   onSourceInvalidated,
@@ -124,8 +126,8 @@ function ReadyTable<TInput>({
   loadMoreLoading,
   controller
 }: ReadyTableProps<TInput>): ReactElement {
-  const rowActions = allowedDataTableActions(definition.rowActions ?? [], actionCapabilities);
-  const bulkActions = allowedDataTableActions(definition.bulkActions ?? [], actionCapabilities);
+  const rowActions = allowedDataTableActions(definition.rowActions ?? [], actionAuthorization, actionActorFingerprint);
+  const bulkActions = allowedDataTableActions(definition.bulkActions ?? [], actionAuthorization, actionActorFingerprint);
   const selectable = bulkActions.length > 0;
   const columns: ColumnDef<TableRow>[] = definition.columns.map((column) => {
     const size = viewState.columnSizes[column.id] ?? column.size;
@@ -158,7 +160,7 @@ function ReadyTable<TInput>({
       onAction={(id) => {
         if (mutationExecutor === undefined) return;
         const context = actionContext ?? { signal: new AbortController().signal };
-        void controller.executeAction(mutationExecutor, actionCapabilities, id, row.original.key, context).then((result) => {
+        void controller.executeAction(mutationExecutor, actionAuthorization, actionActorFingerprint, id, row.original.key, context).then((result) => {
           notifyActionResult(controller, result, { onActionResult, onSourceInvalidated, onRefetch });
         });
       }}
@@ -209,7 +211,7 @@ function ReadyTable<TInput>({
   </FilterBar>;
   const runBulkAction = (id: string): void => {
     if (mutationExecutor === undefined) return;
-    void controller.executeBulkAction(mutationExecutor, actionCapabilities, id, viewState.selectedRows, actionContextValue).then((result) => {
+    void controller.executeBulkAction(mutationExecutor, actionAuthorization, actionActorFingerprint, id, viewState.selectedRows, actionContextValue).then((result) => {
       notifyActionResult(controller, result, { onActionResult, onSourceInvalidated, onRefetch });
     });
   };

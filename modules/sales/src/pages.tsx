@@ -6,7 +6,7 @@ import { DataTable } from "@k-nex/ui-data/data-table";
 import {
   createDataTableState,
   defineDataTable,
-  type DataTableActionCapability,
+  type DataTableActionAuthorization,
   type DataTableActionResult,
   type DataTableBulkActionResult,
   type DataTableMutationExecutor,
@@ -101,7 +101,8 @@ export interface SalesTasksPageProps {
   readonly onCreateTaskChange: <K extends keyof CreateTaskInput>(field: K, value: CreateTaskInput[K]) => void;
   readonly onCreateTask: () => void | Promise<void>;
   readonly mutationExecutor?: DataTableMutationExecutor;
-  readonly actionCapabilities?: readonly DataTableActionCapability[];
+  readonly actionAuthorization?: DataTableActionAuthorization;
+  readonly actionActorFingerprint?: string;
   readonly actionContext?: BrowserMutationContext;
   readonly onActionResult?: (result: DataTableActionResult | DataTableBulkActionResult) => void | Promise<void>;
   readonly onSourceInvalidated?: (sourceId: string) => void;
@@ -110,9 +111,9 @@ export interface SalesTasksPageProps {
   readonly onLoadMore?: () => void;
   readonly loadMoreLoading?: boolean;
 }
-export function SalesTasksPage({ requestState, viewState = createDataTableState(salesTasksTableDefinition), createTask, onViewStateChange, onCreateTaskChange, onCreateTask, mutationExecutor, actionCapabilities, actionContext, onActionResult, onSourceInvalidated, onRefetch, renderDetail, onLoadMore, loadMoreLoading }: SalesTasksPageProps): ReactElement {
+export function SalesTasksPage({ requestState, viewState = createDataTableState(salesTasksTableDefinition), createTask, onViewStateChange, onCreateTaskChange, onCreateTask, mutationExecutor, actionAuthorization, actionActorFingerprint, actionContext, onActionResult, onSourceInvalidated, onRefetch, renderDetail, onLoadMore, loadMoreLoading }: SalesTasksPageProps): ReactElement {
   return <IndexPage templateId={salesTaskPageTemplate.id} title="Sales tasks" description="Authorized tasks and follow-up work." breadcrumbs={crumbs("Tasks", "/sales/tasks")} aside={<Card><Form label="Create task" pending={createTask.submitting} onSubmit={onCreateTask}><TextInput name="title" label="Title" value={createTask.values.title} {...(createTask.fieldErrors.title === undefined ? {} : { error: createTask.fieldErrors.title })} required onChange={(value) => onCreateTaskChange("title", value)} /><Select name="status" label="Status" value={createTask.values.status ?? "open"} options={[{ id: "open", label: "Open" }, { id: "done", label: "Done" }]} onChange={(value) => onCreateTaskChange("status", value as "open" | "done")} /><FormActions><Button type="submit" isDisabled={createTask.submitting}>Create task</Button></FormActions></Form></Card>}>
-    <DataTable definition={salesTasksTableDefinition} viewState={viewState} requestState={requestState} {...(onViewStateChange === undefined ? {} : { onViewStateChange })} {...(mutationExecutor === undefined ? {} : { mutationExecutor })} {...(actionCapabilities === undefined ? {} : { actionCapabilities })} {...(actionContext === undefined ? {} : { actionContext })} {...(onActionResult === undefined ? {} : { onActionResult })} {...(onSourceInvalidated === undefined ? {} : { onSourceInvalidated })} {...(onRefetch === undefined ? {} : { onRefetch })} {...(renderDetail === undefined ? {} : { renderDetail })} {...(onLoadMore === undefined ? {} : { onLoadMore })} {...(loadMoreLoading === undefined ? {} : { loadMoreLoading })} />
+    <DataTable definition={salesTasksTableDefinition} viewState={viewState} requestState={requestState} {...(onViewStateChange === undefined ? {} : { onViewStateChange })} {...(mutationExecutor === undefined ? {} : { mutationExecutor })} {...(actionAuthorization === undefined ? {} : { actionAuthorization })} {...(actionActorFingerprint === undefined ? {} : { actionActorFingerprint })} {...(actionContext === undefined ? {} : { actionContext })} {...(onActionResult === undefined ? {} : { onActionResult })} {...(onSourceInvalidated === undefined ? {} : { onSourceInvalidated })} {...(onRefetch === undefined ? {} : { onRefetch })} {...(renderDetail === undefined ? {} : { renderDetail })} {...(onLoadMore === undefined ? {} : { onLoadMore })} {...(loadMoreLoading === undefined ? {} : { loadMoreLoading })} />
   </IndexPage>;
 }
 
@@ -121,7 +122,8 @@ export interface SalesOpportunitiesPageProps {
   readonly viewState?: DataTableViewState;
   readonly onViewStateChange?: (state: DataTableViewState) => void;
   readonly mutationExecutor?: DataTableMutationExecutor;
-  readonly actionCapabilities?: readonly DataTableActionCapability[];
+  readonly actionAuthorization?: DataTableActionAuthorization;
+  readonly actionActorFingerprint?: string;
   readonly actionContext?: BrowserMutationContext;
   readonly onActionResult?: (result: DataTableActionResult | DataTableBulkActionResult) => void | Promise<void>;
   readonly onSourceInvalidated?: (sourceId: string) => void;
@@ -130,9 +132,9 @@ export interface SalesOpportunitiesPageProps {
   readonly onLoadMore?: () => void;
   readonly loadMoreLoading?: boolean;
 }
-export function SalesOpportunitiesPage({ requestState, viewState = createDataTableState(salesOpportunitiesTableDefinition), onViewStateChange, mutationExecutor, actionCapabilities, actionContext, onActionResult, onSourceInvalidated, onRefetch, renderDetail, onLoadMore, loadMoreLoading }: SalesOpportunitiesPageProps): ReactElement {
+export function SalesOpportunitiesPage({ requestState, viewState = createDataTableState(salesOpportunitiesTableDefinition), onViewStateChange, mutationExecutor, actionAuthorization, actionActorFingerprint, actionContext, onActionResult, onSourceInvalidated, onRefetch, renderDetail, onLoadMore, loadMoreLoading }: SalesOpportunitiesPageProps): ReactElement {
   return <IndexPage templateId={salesOpportunitiesPageTemplate.id} title="Opportunities" description="Authorized pipeline opportunities." breadcrumbs={crumbs("Opportunities", "/sales/opportunities")}>
-    <DataTable definition={salesOpportunitiesTableDefinition} viewState={viewState} requestState={requestState} {...(onViewStateChange === undefined ? {} : { onViewStateChange })} {...(mutationExecutor === undefined ? {} : { mutationExecutor })} {...(actionCapabilities === undefined ? {} : { actionCapabilities })} {...(actionContext === undefined ? {} : { actionContext })} {...(onActionResult === undefined ? {} : { onActionResult })} {...(onSourceInvalidated === undefined ? {} : { onSourceInvalidated })} {...(onRefetch === undefined ? {} : { onRefetch })} {...(renderDetail === undefined ? {} : { renderDetail })} {...(onLoadMore === undefined ? {} : { onLoadMore })} {...(loadMoreLoading === undefined ? {} : { loadMoreLoading })} />
+    <DataTable definition={salesOpportunitiesTableDefinition} viewState={viewState} requestState={requestState} {...(onViewStateChange === undefined ? {} : { onViewStateChange })} {...(mutationExecutor === undefined ? {} : { mutationExecutor })} {...(actionAuthorization === undefined ? {} : { actionAuthorization })} {...(actionActorFingerprint === undefined ? {} : { actionActorFingerprint })} {...(actionContext === undefined ? {} : { actionContext })} {...(onActionResult === undefined ? {} : { onActionResult })} {...(onSourceInvalidated === undefined ? {} : { onSourceInvalidated })} {...(onRefetch === undefined ? {} : { onRefetch })} {...(renderDetail === undefined ? {} : { renderDetail })} {...(onLoadMore === undefined ? {} : { onLoadMore })} {...(loadMoreLoading === undefined ? {} : { loadMoreLoading })} />
   </IndexPage>;
 }
 
