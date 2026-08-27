@@ -1,0 +1,169 @@
+{
+  "$defs": {
+    "__schema0": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema1": {
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:-]{2,127}$",
+      "type": "string"
+    },
+    "__schema10": {
+      "enum": [
+        "ready",
+        "not-ready"
+      ],
+      "type": "string"
+    },
+    "__schema2": {
+      "type": "string"
+    },
+    "__schema3": {
+      "type": "string"
+    },
+    "__schema4": {
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+      "type": "string"
+    },
+    "__schema5": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "approvalId": {
+              "maxLength": 160,
+              "minLength": 1,
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 160,
+              "minLength": 1,
+              "type": "string"
+            },
+            "kind": {
+              "const": "actor",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "approvalId"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "identity": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "kind": {
+              "const": "workflow",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "identity"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "__schema6": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "__schema7": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "__schema8": {
+      "additionalProperties": false,
+      "properties": {
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/__schema9"
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "failed"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "checks"
+      ],
+      "type": "object"
+    },
+    "__schema9": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "$id": "https://schemas.k-nex.dev/deployment-receipt/v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "applicationId": {
+      "$ref": "#/$defs/__schema2"
+    },
+    "approvedBy": {
+      "$ref": "#/$defs/__schema5"
+    },
+    "artifactDigest": {
+      "$ref": "#/$defs/__schema6"
+    },
+    "deployedAt": {
+      "$ref": "#/$defs/__schema4"
+    },
+    "deploymentId": {
+      "$ref": "#/$defs/__schema1"
+    },
+    "environment": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "inventoryDigest": {
+      "$ref": "#/$defs/__schema6"
+    },
+    "migrationRevision": {
+      "$ref": "#/$defs/__schema7"
+    },
+    "readiness": {
+      "$ref": "#/$defs/__schema10"
+    },
+    "schemaVersion": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "smoke": {
+      "$ref": "#/$defs/__schema8"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "deploymentId",
+    "applicationId",
+    "environment",
+    "deployedAt",
+    "approvedBy",
+    "artifactDigest",
+    "inventoryDigest",
+    "migrationRevision",
+    "smoke",
+    "readiness"
+  ],
+  "title": "K-Nex Deployment Receipt v1",
+  "type": "object"
+}
