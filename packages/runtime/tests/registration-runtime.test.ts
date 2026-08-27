@@ -86,6 +86,21 @@ function actionDefinition(id = "consumer.action", ownerPluginId = "module.consum
   };
 }
 
+function uiDescriptor(id: string, kind: "component" | "block") {
+  return {
+    id,
+    version: 1,
+    ownerPluginId: "module.consumer",
+    kind,
+    propsSchema: { type: "object" as const, properties: {}, required: [], additionalProperties: false },
+    profiles: ["workspace" as const],
+    surfaces: ["workspace" as const],
+    audience: "authenticated" as const,
+    permission: "consumer.permission",
+    requiredStates: ["loading" as const, "empty" as const, "error" as const, "forbidden" as const]
+  };
+}
+
 function actionTool(inputSchema = actionDefinition().descriptor.inputSchema): AgentToolDescriptor {
   const action = actionDefinition().descriptor;
   return {
@@ -281,8 +296,8 @@ function completeConsumer(
       context.bind("actions", "consumer.action", actionHandler);
     },
     ui(context) {
-      context.register("components", "consumer.component", {});
-      context.register("blocks", "consumer.block", {});
+      context.register("components", "consumer.component", uiDescriptor("consumer.component", "component"));
+      context.register("blocks", "consumer.block", uiDescriptor("consumer.block", "block"));
       context.register("routes", "consumer.route", {
         id: "consumer.route",
         ownerPluginId: "module.consumer",
@@ -320,7 +335,8 @@ function completeConsumer(
         }
       });
       context.register("localization", "consumer.localization", {});
-      context.bindBlock("consumer.block", {});
+      context.bindRenderer("components", "consumer.component", () => undefined);
+      context.bindRenderer("blocks", "consumer.block", () => undefined);
     },
     validate(context) {
       context.register("healthAudit", "consumer.health", {});
@@ -441,6 +457,7 @@ describe("phased registration runtime", () => {
     expect(result.bindings).toMatchObject({
       sources: [{ pluginId: "module.consumer", id: "consumer.source" }],
       actions: [{ pluginId: "module.consumer", id: "consumer.action" }],
+      components: [{ pluginId: "module.consumer", id: "consumer.component" }],
       blocks: [{ pluginId: "module.consumer", id: "consumer.block" }]
     });
     expect(Object.isFrozen(result)).toBe(true);
@@ -474,6 +491,28 @@ describe("phased registration runtime", () => {
         context.register("settings", "consumer.setting", {} as never);
       }
     }]), "INVALID_CONTRIBUTION");
+  });
+
+  it("requires canonical UI descriptor categories and executable renderer bindings", () => {
+    const consumer = completeConsumer();
+    expectCode(() => run([providerRegistration(), {
+      ...consumer,
+      ui(context) {
+        context.register("components", "consumer.component", uiDescriptor("consumer.component", "block"));
+      }
+    }]), "INVALID_CONTRIBUTION");
+
+    expectCode(() => run([providerRegistration(), {
+      ...consumer,
+      ui(context) {
+        consumer.ui?.({
+          ...context,
+          bindRenderer(kind, id, renderer) {
+            if (kind === "components") context.bindRenderer(kind, id, renderer);
+          }
+        });
+      }
+    }]), "INVENTORY_MISMATCH");
   });
 
   it("rejects data-source descriptor IDs that differ from contribution IDs", () => {

@@ -47,6 +47,7 @@
     "@k-nex/ui-runtime": "0.0.0"
   },
   "devDependencies": {
+    "@k-nex/builder-puck": "workspace:*",
     "@k-nex/contracts": "workspace:*",
     "@k-nex/runtime": "workspace:*",
     "@k-nex/ui-runtime": "workspace:*",

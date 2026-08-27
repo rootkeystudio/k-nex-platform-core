@@ -5,10 +5,11 @@ import {
   createStaticTextBlockDefinition,
   createUiDocumentRuntime,
   createUiRuntimeRegistry,
+  defineUiContributionBinding,
   presentUiRuntimeResult,
   type UiBlockDefinition
 } from "@k-nex/ui-runtime";
-import { createPuckBuilderAdapter, type PuckBlockBridge } from "../src/index.js";
+import { createPuckBuilderAdapter, reconcilePuckBlockContribution, type PuckBlockBridge } from "../src/index.js";
 
 const definition = (id: string): UiBlockDefinition => ({
   id,
@@ -54,6 +55,37 @@ const fixture: UiDocument = {
 };
 
 describe("Puck builder adapter", () => {
+  it("reconciles canonical block descriptors without replacing the production renderer", () => {
+    const bound = defineUiContributionBinding({
+      descriptor: {
+        id: "sales.task-table",
+        version: 2,
+        ownerPluginId: "module.sales",
+        kind: "block",
+        propsSchema: { type: "object", properties: { title: { type: "string" } }, required: ["title"], additionalProperties: false },
+        profiles: ["workspace"],
+        surfaces: ["workspace"],
+        audience: "authenticated",
+        permission: "sales.tasks.read",
+        requiredStates: ["loading", "empty", "error", "forbidden"]
+      },
+      propsSchema: { safeParse: (value) => ({ success: true as const, data: value }) },
+      render: ({ props }) => props
+    });
+    const bridge = reconcilePuckBlockContribution(bound, {
+      label: "Task table",
+      fields: [{ prop: "title", label: "Title", kind: "text" }],
+      allowChildren: false,
+      defaultProps: { title: "Tasks" }
+    });
+    expect(bridge.definition.descriptor).toEqual(bound.descriptor);
+    expect(bridge.definition.render({ node: {} as never, props: { title: "Outside" }, surface: "workspace", actor: { authenticated: true, permissions: new Set() } }))
+      .toEqual({ title: "Outside" });
+    expect(() => reconcilePuckBlockContribution({ ...bound, descriptor: { ...bound.descriptor, kind: "component" } }, {
+      label: "Task table", fields: [], allowChildren: false, defaultProps: {}
+    })).toThrow(/canonical block/);
+  });
+
   it("round-trips canonical documents without semantic loss", () => {
     const adapter = createPuckBuilderAdapter({ blocks: [card, text] });
     const puckData = adapter.toPuckData(fixture);

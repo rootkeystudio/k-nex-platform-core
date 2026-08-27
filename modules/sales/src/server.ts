@@ -24,6 +24,8 @@ import {
   salesRouteDescriptors,
   salesSearchTasksDescriptor,
   salesTaskCreateDescriptor,
+  salesTaskTableBlockDescriptor,
+  salesTaskTableComponentDescriptor,
   salesTaskPageTemplate,
   salesTaskFields,
   salesTasksDescriptor,
@@ -34,6 +36,7 @@ import {
   type CreateTaskInput,
   type CreateTaskOutput
 } from "./contracts.js";
+import { salesTaskTableBlock, salesTaskTableComponent } from "./ui.js";
 
 export {
   salesCreateTaskToolDescriptor,
@@ -456,8 +459,12 @@ export const salesRegistration = definePluginRegistration({
     context.bind("actions", salesTaskCreateDescriptor.id, salesTaskCreateHandler as ActionHandler);
   },
   ui: (context) => {
+    context.register("components", salesTaskTableComponentDescriptor.id, salesTaskTableComponentDescriptor);
+    context.register("blocks", salesTaskTableBlockDescriptor.id, salesTaskTableBlockDescriptor);
     for (const descriptor of salesRouteDescriptors) context.register("routes", descriptor.id, descriptor);
     for (const descriptor of salesNavigationDescriptors) context.register("navigation", descriptor.id, descriptor);
     context.register("pageTemplates", salesTaskPageTemplate.id, salesTaskPageTemplate);
+    context.bindRenderer("components", salesTaskTableComponentDescriptor.id, salesTaskTableComponent.render);
+    context.bindRenderer("blocks", salesTaskTableBlockDescriptor.id, salesTaskTableBlock.render);
   }
 });

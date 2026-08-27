@@ -8,6 +8,7 @@ import type {
   PluginPageTemplateDescriptor,
   PluginRouteDescriptor,
   PluginSettingsDescriptor,
+  PluginUiContributionDescriptor,
   RuntimeSchema,
   TableRecords
 } from "@k-nex/contracts";
@@ -142,6 +143,13 @@ const salesCreateTaskOutputSchema: AgentToolJsonSchema = {
   },
   required: ["id", "title", "status"],
   additionalProperties: false
+};
+
+export const salesTaskTablePropsSchema = {
+  type: "object" as const,
+  properties: { title: { type: "string" as const, minLength: 1, maxLength: 120 } },
+  required: ["title"],
+  additionalProperties: false as const
 };
 
 const salesToolLimits = Object.freeze({
@@ -446,4 +454,38 @@ export const salesTaskPageTemplate: PluginPageTemplateDescriptor = {
       }]
     }
   }
+};
+
+const salesTaskUiPolicy: Omit<PluginUiContributionDescriptor, "id" | "version" | "ownerPluginId" | "kind"> = {
+  profiles: ["workspace"],
+  surfaces: ["workspace"],
+  audience: "authenticated",
+  permission: "sales.tasks.read",
+  propsSchema: salesTaskTablePropsSchema,
+  sourcePolicy: {
+    required: true,
+    contracts: [{ id: "table.records", version: 1 }],
+    requiredFields: ["title", "status"]
+  },
+  actionPolicy: {
+    required: false,
+    actions: [{ id: salesTaskCreateDescriptor.id, version: salesTaskCreateDescriptor.version }]
+  },
+  requiredStates: ["loading", "empty", "error", "forbidden"]
+};
+
+export const salesTaskTableComponentDescriptor: PluginUiContributionDescriptor = {
+  id: "sales.table.tasks",
+  version: 1,
+  ownerPluginId: "module.sales",
+  kind: "component",
+  ...salesTaskUiPolicy
+};
+
+export const salesTaskTableBlockDescriptor: PluginUiContributionDescriptor = {
+  id: "sales.task-table",
+  version: 2,
+  ownerPluginId: "module.sales",
+  kind: "block",
+  ...salesTaskUiPolicy
 };

@@ -4,7 +4,8 @@ import type {
 } from "@k-nex/contracts";
 import {
   AgentToolDescriptorSchema, PermissionDescriptorSchema, PluginNavigationDescriptorSchema,
-  PluginPageTemplateDescriptorSchema, PluginRouteDescriptorSchema, PluginSettingsDescriptorSchema, assertDataSourceDefinition,
+  PluginPageTemplateDescriptorSchema, PluginRouteDescriptorSchema, PluginSettingsDescriptorSchema,
+  PluginUiContributionDescriptorSchema, assertDataSourceDefinition,
   pluginContributionCategoryKeys, pluginContributionRegistry, registrationPhases
 } from "@k-nex/contracts";
 import * as semver from "semver";
@@ -13,7 +14,7 @@ import { dataSourceToolCompatible, type DataSourceHandler } from "./data-source-
 import type { InstalledPluginManifest, ResolvedPluginGraph } from "@k-nex/composition";
 
 export type ContributionKind = PluginContributionCategory;
-export type BoundContributionKind = Extract<ContributionKind, "sources" | "actions" | "blocks">;
+export type BoundContributionKind = Extract<ContributionKind, "sources" | "actions" | "components" | "blocks">;
 
 type ContributionKindsForPhase<Phase extends RegistrationPhase> = {
   [Kind in ContributionKind]: (typeof pluginContributionRegistry)[Kind]["registrationPhase"] extends Phase ? Kind : never;
@@ -24,7 +25,7 @@ type BehaviorContributionKind = ContributionKindsForPhase<"behavior">;
 type JobsContributionKind = ContributionKindsForPhase<"jobs">;
 type UiContributionKind = ContributionKindsForPhase<"ui">;
 type ValidateContributionKind = ContributionKindsForPhase<"validate">;
-const boundContributionKinds = ["sources", "actions", "blocks"] as const satisfies readonly BoundContributionKind[];
+const boundContributionKinds = ["sources", "actions", "components", "blocks"] as const satisfies readonly BoundContributionKind[];
 
 export type RegistrationErrorCode =
   | "GRAPH_MISMATCH" | "WRONG_PHASE" | "UNDECLARED_CONTRIBUTION" | "UNDECLARED_CAPABILITY_ACCESS"
@@ -61,7 +62,7 @@ export interface DataHandlersRegistrationContext extends PhaseContext {
   bind(kind: "actions", id: string, handler: ActionHandler): void;
 }
 export interface UiRegistrationContext extends ContributionRegistrationContext<UiContributionKind> {
-  bindBlock(id: string, renderer: unknown): void;
+  bindRenderer(kind: "components" | "blocks", id: string, renderer: (...args: never[]) => unknown): void;
 }
 export interface AdminRegistrationContext extends PhaseContext {}
 export interface PluginRegistration {
@@ -172,11 +173,15 @@ function configurationContribution(kind: ContributionKind, id: string, pluginId:
       : kind === "routes" ? PluginRouteDescriptorSchema
         : kind === "navigation" ? PluginNavigationDescriptorSchema
           : kind === "pageTemplates" ? PluginPageTemplateDescriptorSchema
+            : kind === "components" || kind === "blocks" ? PluginUiContributionDescriptorSchema
           : undefined;
   if (schema === undefined) return value;
   const parsed = schema.safeParse(value);
   if (!parsed.success || parsed.data.id !== id || parsed.data.ownerPluginId !== pluginId) {
     fail("INVALID_CONTRIBUTION", `${kind} contribution identity must match ${pluginId}:${id}.`, [pluginId, kind, id]);
+  }
+  if ((kind === "components" || kind === "blocks") && (parsed.data as { readonly kind?: string }).kind !== (kind === "components" ? "component" : "block")) {
+    fail("INVALID_CONTRIBUTION", `${kind} contribution kind must match its inventory category.`, [pluginId, kind, id]);
   }
   return frozenClone(parsed.data);
 }
@@ -285,8 +290,8 @@ export function executeRegistration(options: ExecuteRegistrationOptions): Regist
   };
   const bind = (expectedPhase: RegistrationPhase, pluginId: string, kind: BoundContributionKind, id: string, value: unknown): void => {
     assertPhase(expectedPhase, pluginId);
-    if ((kind === "sources" || kind === "actions") && typeof value !== "function") {
-      fail("INVALID_CONTRIBUTION", `${kind === "sources" ? "Source" : "Action"} binding ${id} must be a handler function.`, [pluginId, kind, id]);
+    if (typeof value !== "function") {
+      fail("INVALID_CONTRIBUTION", `${kind} binding ${id} must be a function.`, [pluginId, kind, id]);
     }
     if (!actual.get(pluginId)?.get(kind)?.has(id)) {
       fail("UNDECLARED_CONTRIBUTION", `Plugin ${pluginId} cannot bind undeclared ${kind} contribution ${id}.`, [pluginId, kind, id]);
@@ -322,7 +327,10 @@ export function executeRegistration(options: ExecuteRegistrationOptions): Regist
       else if (nextPhase === "behavior") plan?.behavior?.(categoryContext<BehaviorContributionKind>(pluginId, nextPhase));
       else if (nextPhase === "jobs") plan?.jobs?.(categoryContext<JobsContributionKind>(pluginId, nextPhase));
       else if (nextPhase === "data-handlers") plan?.dataHandlers?.({ ...base, bind: (kind, id, value) => bind("data-handlers", pluginId, kind, id, value) });
-      else if (nextPhase === "ui") plan?.ui?.({ ...categoryContext<UiContributionKind>(pluginId, nextPhase), bindBlock: (id, value) => bind("ui", pluginId, "blocks", id, value) });
+      else if (nextPhase === "ui") plan?.ui?.({
+        ...categoryContext<UiContributionKind>(pluginId, nextPhase),
+        bindRenderer: (kind, id, value) => bind("ui", pluginId, kind, id, value)
+      });
       else if (nextPhase === "admin") plan?.admin?.(base);
       else if (nextPhase === "validate") plan?.validate?.(categoryContext<ValidateContributionKind>(pluginId, nextPhase));
     }
@@ -357,6 +365,46 @@ export function executeRegistration(options: ExecuteRegistrationOptions): Regist
         ? target !== undefined && dataSourceToolCompatible(descriptor, (target as DataSourceDefinition).descriptor)
         : target !== undefined && actionToolCompatible(descriptor, (target as ActionDefinition).descriptor);
       if (!hasOwnedBinding || !compatible) mismatches.push(`${pluginId}:tools:${toolId}:binding`);
+    }
+    for (const [uiId, value] of [...(byKind.get("components") ?? []), ...(byKind.get("blocks") ?? [])]) {
+      const descriptor = value as { readonly actionPolicy?: { readonly actions: readonly { readonly id: string; readonly version: number }[] } };
+      for (const action of descriptor.actionPolicy?.actions ?? []) {
+        const owner = contributionOwners.get(action.id);
+        const definition = owner === undefined ? undefined : actual.get(owner)?.get("actions")?.get(action.id) as ActionDefinition | undefined;
+        if (definition?.descriptor.version !== action.version) mismatches.push(`${pluginId}:ui:${uiId}:action:${action.id}@${action.version}`);
+      }
+    }
+    for (const [templateId, value] of byKind.get("pageTemplates") ?? []) {
+      const template = value as {
+        readonly route: { readonly routeId: string };
+        readonly permission: string;
+        readonly requirements: {
+          readonly capabilities: readonly { readonly id: string; readonly version: string }[];
+          readonly sources: readonly { readonly id: string; readonly version: number }[];
+          readonly actions: readonly { readonly id: string; readonly version: number }[];
+          readonly blocks: readonly { readonly id: string; readonly version: number }[];
+        };
+      };
+      if (!contributionOwners.has(template.route.routeId)) mismatches.push(`${pluginId}:pageTemplates:${templateId}:route`);
+      if (!contributionOwners.has(template.permission)) mismatches.push(`${pluginId}:pageTemplates:${templateId}:permission`);
+      for (const requirement of template.requirements.capabilities) {
+        const selected = selectedProviders.get(requirement.id);
+        if (selected?.version !== requirement.version) mismatches.push(`${pluginId}:pageTemplates:${templateId}:capability:${requirement.id}@${requirement.version}`);
+      }
+      for (const [kind, requirements] of [
+        ["sources", template.requirements.sources],
+        ["actions", template.requirements.actions],
+        ["blocks", template.requirements.blocks]
+      ] as const) {
+        for (const requirement of requirements) {
+          const owner = contributionOwners.get(requirement.id);
+          const registered = owner === undefined ? undefined : actual.get(owner)?.get(kind)?.get(requirement.id);
+          const version = kind === "sources" ? (registered as DataSourceDefinition | undefined)?.descriptor.version
+            : kind === "actions" ? (registered as ActionDefinition | undefined)?.descriptor.version
+              : (registered as { readonly version?: number } | undefined)?.version;
+          if (version !== requirement.version) mismatches.push(`${pluginId}:pageTemplates:${templateId}:${kind}:${requirement.id}@${requirement.version}`);
+        }
+      }
     }
   }
   for (const capability of [...selectedProviders.keys()].sort(compare)) {

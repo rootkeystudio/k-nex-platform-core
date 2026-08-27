@@ -51,6 +51,12 @@
     "actions": {
       "sales.task.create": "required"
     },
+    "blocks": {
+      "sales.task-table": "required"
+    },
+    "components": {
+      "sales.table.tasks": "required"
+    },
     "tools": {
       "sales.tools.create-task": "required",
       "sales.tools.search-tasks": "required"

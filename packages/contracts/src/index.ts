@@ -17,6 +17,7 @@ export * from "./plugin-manifest.js";
 export * from "./plugin-contribution-taxonomy.js";
 export * from "./plugin-configuration.js";
 export * from "./plugin-page-template.js";
+export * from "./plugin-ui-contribution.js";
 export * from "./registration-phases.js";
 export * from "./realtime-topology.js";
 export * from "./table-records.js";

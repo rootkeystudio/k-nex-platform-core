@@ -11,6 +11,7 @@ import {
   PluginPageTemplateDescriptorSchema,
   PluginRouteDescriptorSchema,
   PluginSettingsDescriptorSchema,
+  PluginUiContributionDescriptorSchema,
   canonicalJson
 } from "@k-nex/contracts";
 
@@ -21,6 +22,8 @@ import {
   salesRouteDescriptors,
   salesSearchTasksDescriptor,
   salesTaskCreateDescriptor,
+  salesTaskTableBlockDescriptor,
+  salesTaskTableComponentDescriptor,
   salesTaskPageTemplate,
   salesTasksDescriptor,
   salesTotalPotentialRevenueDescriptor,
@@ -80,7 +83,12 @@ test("Sales registers two single-output data sources with valid descriptors", ()
   const bindings = [];
   salesRegistration.contracts?.({ pluginId: "module.sales", services: { get: () => undefined }, register: (kind, id) => contributions.push([kind, id]) });
   salesRegistration.dataHandlers?.({ pluginId: "module.sales", services: { get: () => undefined }, bind: (kind, id) => bindings.push([kind, id]) });
-  salesRegistration.ui?.({ pluginId: "module.sales", services: { get: () => undefined }, register: (kind, id) => contributions.push([kind, id]), bindBlock: () => undefined });
+  salesRegistration.ui?.({
+    pluginId: "module.sales",
+    services: { get: () => undefined },
+    register: (kind, id) => contributions.push([kind, id]),
+    bindRenderer: (kind, id) => bindings.push([kind, id])
+  });
   assert.deepEqual(contributions.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.tasks", "sales.total-potential-revenue"]);
   assert.deepEqual(contributions.filter(([kind]) => kind === "actions").map(([, id]) => id), ["sales.task.create"]);
   assert.deepEqual(contributions.filter(([kind]) => kind === "tools").map(([, id]) => id).sort(), ["sales.tools.create-task", "sales.tools.search-tasks"]);
@@ -89,8 +97,12 @@ test("Sales registers two single-output data sources with valid descriptors", ()
   assert.deepEqual(contributions.filter(([kind]) => kind === "routes").map(([, id]) => id).sort(), salesRouteDescriptors.map(({ id }) => id).sort());
   assert.deepEqual(contributions.filter(([kind]) => kind === "navigation").map(([, id]) => id), salesNavigationDescriptors.map(({ id }) => id));
   assert.deepEqual(contributions.filter(([kind]) => kind === "pageTemplates").map(([, id]) => id), [salesTaskPageTemplate.id]);
+  assert.deepEqual(contributions.filter(([kind]) => kind === "components").map(([, id]) => id), [salesTaskTableComponentDescriptor.id]);
+  assert.deepEqual(contributions.filter(([kind]) => kind === "blocks").map(([, id]) => id), [salesTaskTableBlockDescriptor.id]);
   assert.deepEqual(bindings.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.tasks", "sales.total-potential-revenue"]);
   assert.deepEqual(bindings.filter(([kind]) => kind === "actions").map(([, id]) => id), ["sales.task.create"]);
+  assert.deepEqual(bindings.filter(([kind]) => kind === "components").map(([, id]) => id), [salesTaskTableComponentDescriptor.id]);
+  assert.deepEqual(bindings.filter(([kind]) => kind === "blocks").map(([, id]) => id), [salesTaskTableBlockDescriptor.id]);
 });
 
 test("Sales settings, permissions, routes, and navigation use strict platform contracts", () => {
@@ -99,6 +111,8 @@ test("Sales settings, permissions, routes, and navigation use strict platform co
   assert.equal(salesRouteDescriptors.every((descriptor) => PluginRouteDescriptorSchema.safeParse(descriptor).success), true);
   assert.equal(salesNavigationDescriptors.every((descriptor) => PluginNavigationDescriptorSchema.safeParse(descriptor).success), true);
   assert.equal(PluginPageTemplateDescriptorSchema.safeParse(salesTaskPageTemplate).success, true);
+  assert.equal(PluginUiContributionDescriptorSchema.safeParse(salesTaskTableComponentDescriptor).success, true);
+  assert.equal(PluginUiContributionDescriptorSchema.safeParse(salesTaskTableBlockDescriptor).success, true);
   assert.deepEqual(salesDefaultSettings.values, { defaultTaskPageSize: 25, showPotentialRevenue: true });
 });
 

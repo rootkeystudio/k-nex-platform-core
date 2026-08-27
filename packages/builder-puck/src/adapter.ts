@@ -18,6 +18,7 @@ import {
   createUiRuntimeRegistry,
   presentUiRuntimeResult,
   type UiBlockDefinition,
+  type UiContributionDefinition,
   type UiRuntimeActor,
   type UiRuntimeSurface
 } from "@k-nex/ui-runtime";
@@ -41,6 +42,8 @@ export interface PuckBlockBridge {
   readonly defaultProps: Readonly<Record<string, JsonValue>>;
   readonly constraints?: UiLayoutConstraints;
 }
+
+export type PuckBlockAuthoring = Omit<PuckBlockBridge, "definition">;
 
 export interface PuckPreviewContext {
   readonly surface: UiRuntimeSurface;
@@ -156,6 +159,7 @@ export function snapshotPuckBlockBridge(candidate: PuckBlockBridge): PuckBlockBr
   const safeParse = candidate.definition.propsSchema.safeParse.bind(candidate.definition.propsSchema);
   const render = candidate.definition.render;
   const definition: UiBlockDefinition = Object.freeze({
+    ...(candidate.definition.descriptor === undefined ? {} : { descriptor: deepFreeze(structuredClone(candidate.definition.descriptor)) }),
     id: candidate.definition.id,
     version: candidate.definition.version,
     profiles: Object.freeze([...candidate.definition.profiles]),
@@ -182,6 +186,16 @@ export function snapshotPuckBlockBridge(candidate: PuckBlockBridge): PuckBlockBr
   });
   puckBridgeSnapshots.add(snapshot);
   return snapshot;
+}
+
+export function reconcilePuckBlockContribution(
+  definition: UiContributionDefinition,
+  authoring: PuckBlockAuthoring
+): PuckBlockBridge {
+  if (definition.descriptor.kind !== "block" || definition.id !== definition.descriptor.id || definition.version !== definition.descriptor.version) {
+    throw new TypeError("Puck may bridge only a reconciled canonical block contribution.");
+  }
+  return snapshotPuckBlockBridge({ definition, ...authoring });
 }
 
 function puckField(field: PuckBridgeField): Field {

@@ -14,6 +14,12 @@
     "actions": {
       "sales.task.create": "required"
     },
+    "blocks": {
+      "sales.task-table": "required"
+    },
+    "components": {
+      "sales.table.tasks": "required"
+    },
     "navigation": {
       "sales.navigation.tasks": "required"
     },

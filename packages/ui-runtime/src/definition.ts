@@ -2,6 +2,7 @@ import {
   DataSourceDescriptorSchema,
   DataSourcePrimaryContractSchema,
   PluginIdSchema,
+  PluginUiContributionDescriptorSchema,
   ResourceIdSchema,
   TableFieldIdSchema,
   uiDocumentProfiles,
@@ -9,6 +10,7 @@ import {
   type DataSourceBindingResult,
   type DataSourcePrimaryContract,
   type RuntimeSchema,
+  type PluginUiContributionDescriptor,
   type TableFieldId,
   type UiDocumentProfile,
   type UiNode
@@ -39,6 +41,7 @@ export interface UiBlockRenderInput {
 export type UiBlockRenderer<TResult = unknown> = (input: UiBlockRenderInput) => TResult;
 
 export interface UiBlockDefinition<TResult = unknown> {
+  readonly descriptor?: PluginUiContributionDescriptor;
   readonly id: string;
   readonly version: number;
   readonly profiles: readonly UiDocumentProfile[];
@@ -48,6 +51,10 @@ export interface UiBlockDefinition<TResult = unknown> {
   readonly propsSchema: RuntimeSchema;
   readonly sourcePolicy?: UiBlockSourcePolicy;
   readonly render: UiBlockRenderer<TResult>;
+}
+
+export interface UiContributionDefinition<TResult = unknown> extends UiBlockDefinition<TResult> {
+  readonly descriptor: PluginUiContributionDescriptor;
 }
 
 export interface UiRuntimeRegistry {
@@ -107,6 +114,14 @@ function assertBlockDefinition(definition: UiBlockDefinition): void {
   if (typeof definition.propsSchema?.safeParse !== "function" || typeof definition.render !== "function") {
     throw new TypeError("UI block definitions require executable prop validation and rendering callbacks.");
   }
+  if (definition.descriptor !== undefined) {
+    const parsed = PluginUiContributionDescriptorSchema.safeParse(definition.descriptor);
+    if (!parsed.success || parsed.data.id !== definition.id || parsed.data.version !== definition.version ||
+      parsed.data.profiles.join("\u0000") !== definition.profiles.join("\u0000") || parsed.data.surfaces.join("\u0000") !== definition.surfaces.join("\u0000") ||
+      parsed.data.audience !== definition.audience || parsed.data.permission !== definition.permission) {
+      throw new TypeError("UI contribution descriptor and renderer binding do not reconcile.");
+    }
+  }
   if (definition.sourcePolicy === undefined) return;
   if (typeof definition.sourcePolicy.required !== "boolean") throw new TypeError("UI block source policy must declare whether a source is required.");
 
@@ -127,6 +142,7 @@ function assertBlockDefinition(definition: UiBlockDefinition): void {
 function copyBlock(definition: UiBlockDefinition): UiBlockDefinition {
   return Object.freeze({
     ...definition,
+    ...(definition.descriptor === undefined ? {} : { descriptor: deepFreeze(structuredClone(definition.descriptor)) }),
     profiles: Object.freeze([...definition.profiles]),
     surfaces: Object.freeze([...definition.surfaces]),
     ...(definition.sourcePolicy === undefined ? {} : {
@@ -137,6 +153,32 @@ function copyBlock(definition: UiBlockDefinition): UiBlockDefinition {
       })
     })
   });
+}
+
+export function defineUiContributionBinding<TResult>(input: {
+  readonly descriptor: PluginUiContributionDescriptor;
+  readonly propsSchema: RuntimeSchema;
+  readonly render: UiBlockRenderer<TResult>;
+}): UiContributionDefinition<TResult> {
+  const parsed = PluginUiContributionDescriptorSchema.safeParse(input.descriptor);
+  if (!parsed.success || typeof input.propsSchema?.safeParse !== "function" || typeof input.render !== "function") {
+    throw new TypeError("UI contribution binding is invalid.");
+  }
+  const descriptor = deepFreeze(structuredClone(parsed.data));
+  const definition: UiContributionDefinition<TResult> = {
+    descriptor,
+    id: descriptor.id,
+    version: descriptor.version,
+    profiles: descriptor.profiles,
+    surfaces: descriptor.surfaces,
+    audience: descriptor.audience,
+    ...(descriptor.permission === undefined ? {} : { permission: descriptor.permission }),
+    propsSchema: input.propsSchema,
+    ...(descriptor.sourcePolicy === undefined ? {} : { sourcePolicy: descriptor.sourcePolicy }),
+    render: input.render
+  };
+  assertBlockDefinition(definition);
+  return copyBlock(definition) as UiContributionDefinition<TResult>;
 }
 
 function catalogMap(entries: readonly UiRuntimeCatalogEntry[], label: string): Map<string, UiRuntimeCatalogEntry> {
