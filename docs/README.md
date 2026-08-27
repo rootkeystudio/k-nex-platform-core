@@ -27,14 +27,15 @@ Run `python3 scripts/validate_repository_contracts.py` before merging architectu
 
 ## Composition, plugins, and lifecycle
 
-1. [Plugin taxonomy and capabilities](./13-plugin-taxonomy-and-capabilities.md)
-2. [Plugin platform hardening and Sales reference](./33-plugin-platform-hardening-and-reference-sales.md)
-3. [Official Payload plugin adoption plan](./32-payload-official-plugin-adoption-plan.md)
-4. [Application manifest](./14-application-manifest.md)
-5. [CLI and project generation](./15-cli-and-project-generation.md)
-6. [Plugin lifecycle](./19-plugin-lifecycle-and-package-management.md)
-7. [Data, migrations, and versioning](./10-data-migrations-and-versioning.md)
-8. [Payload database selection](./23-database-adapters-and-runtime-providers.md)
+1. [Plugin authoring quick start and tested examples](./plugin-authoring.md)
+2. [Plugin taxonomy and capabilities](./13-plugin-taxonomy-and-capabilities.md)
+3. [Plugin platform hardening and Sales reference](./33-plugin-platform-hardening-and-reference-sales.md)
+4. [Official Payload plugin adoption plan](./32-payload-official-plugin-adoption-plan.md)
+5. [Application manifest](./14-application-manifest.md)
+6. [CLI and project generation](./15-cli-and-project-generation.md)
+7. [Plugin lifecycle](./19-plugin-lifecycle-and-package-management.md)
+8. [Data, migrations, and versioning](./10-data-migrations-and-versioning.md)
+9. [Payload database selection](./23-database-adapters-and-runtime-providers.md)
 
 ## UI, components, builder, themes, and dynamic data
 
@@ -92,9 +93,9 @@ Implementation plans are execution specifications. A phase plan does not prove c
 | Composition | Exact packages, canonical manifest, deterministic resolved graph/registries | executable-poc |
 | IDs | Hierarchical dot namespace, optional hyphen inside one segment | executable-poc for current pre-v1 grammar |
 | Reference plugin | `module.sales` is the only first-party domain module until Gate 8 | design-only |
-| Plugin authoring | Sales must exercise every supported contribution category and pass one conformance suite | design-only |
+| Plugin authoring | Sales exercises every supported contribution category and passes one conformance suite | executable-poc |
 | Official Payload plugins | Gate-scoped bounded adapters; no automatic catalog install or contract ownership | bounded MCP subset executable; broader policy design-only |
-| Plugin lifecycle | Schema-owning V1 plugins support disable/re-enable, reviewed upgrade, archive/export, and explicit purge | design-only |
+| Plugin lifecycle | Schema-owning V1 plugins prove disable/re-enable now; upgrade, archive/export, purge, backup, and restore remain Gate 8 | partial executable evidence |
 | Registration | `manifest → contracts → providers → schema → behavior → jobs → data-handlers → ui → admin → validate → freeze` | executable-poc |
 | Data sources | Plugin-owned bounded projections behind authenticated gateway | executable-poc |
 | Agent tools | Explicit source/action-backed tools; MCP is an adapter | executable-poc |
