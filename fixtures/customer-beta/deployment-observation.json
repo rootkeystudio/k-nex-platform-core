@@ -1,6 +1,7 @@
 {
   "deploymentId": "deploy:customer-beta:2026.06",
   "environment": "staging",
+  "platformRelease": "0.1.0",
   "observedAt": "2026-08-27T12:10:00.000Z",
   "deployedAt": "2026-08-27T12:15:00.000Z",
   "migrationRevision": 6,

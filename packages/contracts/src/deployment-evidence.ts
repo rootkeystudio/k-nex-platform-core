@@ -9,7 +9,9 @@ const FullShaSchema = z.string().regex(/^[0-9a-f]{40}$/u);
 export const RuntimeInventorySchema = z.strictObject({
   schemaVersion: z.literal(1),
   applicationId: z.string().regex(/^[a-z][a-z0-9-]{2,127}$/u),
+  repository: z.string().regex(/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/u),
   environment: z.string().regex(/^[a-z][a-z0-9-]{1,63}$/u),
+  platformRelease: ExactSemverSchema,
   observedAt: z.iso.datetime({ offset: true }),
   artifactDigest: DigestSchema,
   releaseEvidence: z.strictObject({

@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "deployments": [
+    {
+      "applicationId": "customer-alpha",
+      "platformRelease": "0.2.0",
+      "deploymentId": "deploy:customer-alpha:2026.08",
+      "inventoryDigest": "sha256:b7d4b17633e958c4687f5c55fd85adab0e909cb380f5fdf6dfd512d84613816f"
+    },
+    {
+      "applicationId": "customer-beta",
+      "platformRelease": "0.1.0",
+      "deploymentId": "deploy:customer-beta:2026.06",
+      "inventoryDigest": "sha256:5060fb967b5eee0e219654678f39bc0849cd5558745ca57b21fbe360f7af67eb"
+    }
+  ],
+  "vulnerability": {
+    "package": "@k-nex/module-sales",
+    "affectedRange": "<1.0.1",
+    "targetVersion": "1.0.1",
+    "affectedApplications": [
+      "customer-alpha",
+      "customer-beta"
+    ]
+  },
+  "generatedPatchUpdates": [
+    {
+      "applicationId": "customer-alpha",
+      "repository": "rootkeystudio/customer-alpha",
+      "baseInventoryDigest": "sha256:b7d4b17633e958c4687f5c55fd85adab0e909cb380f5fdf6dfd512d84613816f"
+    },
+    {
+      "applicationId": "customer-beta",
+      "repository": "rootkeystudio/customer-beta",
+      "baseInventoryDigest": "sha256:5060fb967b5eee0e219654678f39bc0849cd5558745ca57b21fbe360f7af67eb"
+    }
+  ],
+  "previousReleaseUpgrade": {
+    "applicationId": "customer-beta",
+    "ready": true,
+    "stepCount": 8
+  },
+  "restore": {
+    "applicationId": "customer-alpha",
+    "matchesExpectedInventory": true
+  }
+}

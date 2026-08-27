@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "branch": "security/sales-1.0.1-customer-alpha",
+  "title": "security: update Sales to 1.0.1 for customer-alpha",
+  "applicationId": "customer-alpha",
+  "repository": "rootkeystudio/customer-alpha",
+  "environment": "production",
+  "package": "@k-nex/module-sales",
+  "currentVersion": "1.0.0",
+  "targetVersion": "1.0.1",
+  "baseInventoryDigest": "sha256:b7d4b17633e958c4687f5c55fd85adab0e909cb380f5fdf6dfd512d84613816f",
+  "operations": [
+    "update-lockfile",
+    "plan-upgrade",
+    "run-migrations",
+    "deploy-and-receipt"
+  ]
+}

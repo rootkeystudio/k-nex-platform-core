@@ -9,11 +9,39 @@
       "type": "string"
     },
     "__schema10": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "pattern": "^(module|provider|builder|theme|integration|preset)(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+            "type": "string"
+          },
+          "package": {
+            "type": "string"
+          },
+          "version": {
+            "$ref": "#/$defs/__schema4"
+          }
+        },
+        "required": [
+          "id",
+          "package",
+          "version",
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "__schema11": {
       "maximum": 9007199254740991,
       "minimum": 0,
       "type": "integer"
     },
-    "__schema11": {
+    "__schema12": {
       "items": {
         "additionalProperties": false,
         "properties": {
@@ -40,7 +68,7 @@
       },
       "type": "array"
     },
-    "__schema12": {
+    "__schema13": {
       "items": {
         "additionalProperties": false,
         "properties": {
@@ -67,12 +95,12 @@
       },
       "type": "array"
     },
-    "__schema13": {
+    "__schema14": {
       "additionalProperties": false,
       "properties": {
         "checks": {
           "items": {
-            "$ref": "#/$defs/__schema14"
+            "$ref": "#/$defs/__schema15"
           },
           "minItems": 1,
           "type": "array",
@@ -92,40 +120,48 @@
       ],
       "type": "object"
     },
-    "__schema14": {
+    "__schema15": {
       "minLength": 1,
       "type": "string"
     },
     "__schema2": {
-      "pattern": "^[a-z][a-z0-9-]{1,63}$",
+      "pattern": "^[a-zA-Z0-9_.-]+\\/[a-zA-Z0-9_.-]+$",
       "type": "string"
     },
     "__schema3": {
+      "pattern": "^[a-z][a-z0-9-]{1,63}$",
+      "type": "string"
+    },
+    "__schema4": {
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$",
+      "type": "string"
+    },
+    "__schema5": {
       "format": "date-time",
       "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
       "type": "string"
     },
-    "__schema4": {
+    "__schema6": {
       "pattern": "^sha256:[0-9a-f]{64}$",
       "type": "string"
     },
-    "__schema5": {
+    "__schema7": {
       "additionalProperties": false,
       "properties": {
         "lockfileDigest": {
-          "$ref": "#/$defs/__schema4"
+          "$ref": "#/$defs/__schema6"
         },
         "manifestDigest": {
-          "$ref": "#/$defs/__schema4"
+          "$ref": "#/$defs/__schema6"
         },
         "provenanceDigest": {
-          "$ref": "#/$defs/__schema4"
+          "$ref": "#/$defs/__schema6"
         },
         "resolvedGraphDigest": {
-          "$ref": "#/$defs/__schema4"
+          "$ref": "#/$defs/__schema6"
         },
         "sbomDigest": {
-          "$ref": "#/$defs/__schema4"
+          "$ref": "#/$defs/__schema6"
         },
         "sourceCommit": {
           "pattern": "^[0-9a-f]{40}$",
@@ -148,14 +184,14 @@
       ],
       "type": "object"
     },
-    "__schema6": {
+    "__schema8": {
       "items": {
-        "$ref": "#/$defs/__schema7"
+        "$ref": "#/$defs/__schema9"
       },
       "minItems": 1,
       "type": "array"
     },
-    "__schema7": {
+    "__schema9": {
       "additionalProperties": false,
       "properties": {
         "integrity": {
@@ -167,7 +203,7 @@
           "type": "string"
         },
         "version": {
-          "$ref": "#/$defs/__schema8"
+          "$ref": "#/$defs/__schema4"
         }
       },
       "required": [
@@ -176,38 +212,6 @@
         "integrity"
       ],
       "type": "object"
-    },
-    "__schema8": {
-      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$",
-      "type": "string"
-    },
-    "__schema9": {
-      "items": {
-        "additionalProperties": false,
-        "properties": {
-          "enabled": {
-            "type": "boolean"
-          },
-          "id": {
-            "pattern": "^(module|provider|builder|theme|integration|preset)(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
-            "type": "string"
-          },
-          "package": {
-            "type": "string"
-          },
-          "version": {
-            "$ref": "#/$defs/__schema8"
-          }
-        },
-        "required": [
-          "id",
-          "package",
-          "version",
-          "enabled"
-        ],
-        "type": "object"
-      },
-      "type": "array"
     }
   },
   "$id": "https://schemas.k-nex.dev/runtime-inventory/v1.json",
@@ -218,43 +222,51 @@
       "$ref": "#/$defs/__schema1"
     },
     "artifactDigest": {
-      "$ref": "#/$defs/__schema4"
-    },
-    "environment": {
-      "$ref": "#/$defs/__schema2"
-    },
-    "health": {
-      "$ref": "#/$defs/__schema13"
-    },
-    "migrationRevision": {
-      "$ref": "#/$defs/__schema10"
-    },
-    "observedAt": {
-      "$ref": "#/$defs/__schema3"
-    },
-    "packages": {
       "$ref": "#/$defs/__schema6"
     },
+    "environment": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "health": {
+      "$ref": "#/$defs/__schema14"
+    },
+    "migrationRevision": {
+      "$ref": "#/$defs/__schema11"
+    },
+    "observedAt": {
+      "$ref": "#/$defs/__schema5"
+    },
+    "packages": {
+      "$ref": "#/$defs/__schema8"
+    },
+    "platformRelease": {
+      "$ref": "#/$defs/__schema4"
+    },
     "plugins": {
-      "$ref": "#/$defs/__schema9"
+      "$ref": "#/$defs/__schema10"
     },
     "releaseEvidence": {
-      "$ref": "#/$defs/__schema5"
+      "$ref": "#/$defs/__schema7"
+    },
+    "repository": {
+      "$ref": "#/$defs/__schema2"
     },
     "schemaVersion": {
       "$ref": "#/$defs/__schema0"
     },
     "settings": {
-      "$ref": "#/$defs/__schema11"
+      "$ref": "#/$defs/__schema12"
     },
     "templates": {
-      "$ref": "#/$defs/__schema12"
+      "$ref": "#/$defs/__schema13"
     }
   },
   "required": [
     "schemaVersion",
     "applicationId",
+    "repository",
     "environment",
+    "platformRelease",
     "observedAt",
     "artifactDigest",
     "releaseEvidence",
