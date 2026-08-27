@@ -1,4 +1,5 @@
-import { defineUiContributionBinding, type UiBlockRenderInput, type UiContributionDefinition } from "@k-nex/ui-runtime";
+import { defineUiContributionBinding, type UiBlockRenderInput } from "@k-nex/ui-runtime";
+import { createPuckBlockLibrary } from "@k-nex/ui-builder-blocks";
 
 import {
   salesRouteDescriptors,
@@ -108,6 +109,22 @@ export const salesTaskTablePuckAuthoring = Object.freeze({
   allowChildren: false,
   defaultProps: Object.freeze({ title: "Sales tasks" })
 });
+
+const salesBlockLabels: Readonly<Record<string, string>> = Object.freeze({
+  "sales.task-table": "Sales task table",
+  "sales.revenue-metric": "Sales revenue metric",
+  "sales.task-quick-create": "Sales task quick-create",
+  "sales.opportunity-list": "Sales opportunity list",
+  "sales.opportunity-detail": "Sales opportunity detail",
+  "sales.settings-summary": "Sales settings summary"
+});
+export const salesPuckBlockAuthoring = Object.freeze(Object.fromEntries(salesUiBlockDefinitions.map((definition) => [definition.id, Object.freeze({
+  label: salesBlockLabels[definition.id]!,
+  fields: Object.freeze([{ prop: "title", label: "Title", kind: "text" as const }]),
+  allowChildren: false,
+  defaultProps: Object.freeze({ title: salesBlockLabels[definition.id]! })
+})])));
+export const salesPuckBlockBridges = createPuckBlockLibrary(salesUiBlockDefinitions, salesPuckBlockAuthoring);
 
 export const salesWorkspaceUiContract = Object.freeze({
   pluginId: "module.sales" as const,

@@ -110,6 +110,7 @@ describe("Puck builder adapter", () => {
       defaultProps: { title: "Tasks" }
     });
     expect(bridge.definition.descriptor).toEqual(bound.descriptor);
+    expect(bridge.definition.actionPolicy).toEqual(bound.actionPolicy);
     expect(bridge.definition.render({ node: {} as never, props: { title: "Outside" }, surface: "workspace", actor: { authenticated: true, permissions: new Set() } }))
       .toEqual({ title: "Outside" });
     expect(() => reconcilePuckBlockContribution({ ...bound, descriptor: { ...bound.descriptor, kind: "component" } }, {

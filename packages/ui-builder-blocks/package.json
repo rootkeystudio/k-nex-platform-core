@@ -1,0 +1,19 @@
+{
+  "name": "@k-nex/ui-builder-blocks",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "scripts": { "build": "tsc -b", "test": "vitest run && node scripts/check-boundaries.mjs" },
+  "dependencies": {
+    "@k-nex/builder-puck": "workspace:*",
+    "@k-nex/contracts": "workspace:*",
+    "@k-nex/ui-runtime": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "typescript": "6.0.3",
+    "vitest": "4.1.6"
+  }
+}

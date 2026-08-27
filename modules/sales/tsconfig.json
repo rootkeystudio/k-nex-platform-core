@@ -25,6 +25,9 @@
       "path": "../../packages/ui-components"
     },
     {
+      "path": "../../packages/ui-builder-blocks"
+    },
+    {
       "path": "../../packages/ui-data"
     },
     {
