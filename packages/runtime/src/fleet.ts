@@ -2,7 +2,7 @@ import { gt, satisfies, valid, validRange } from "semver";
 
 import { PackageReleaseManifestSchema, type DeploymentReceipt, type PackageReleaseManifest, type RuntimeInventory } from "@k-nex/contracts";
 
-import { reconcileDeploymentReceipt, runtimeInventoryDigest } from "./deployment-evidence.js";
+import { runtimeInventoryDigest, type DeploymentEvidenceAuthority, type VerifiedDeploymentEvidence } from "./deployment-evidence.js";
 
 export class FleetEvidenceError extends Error {
   constructor(readonly code: "CONFLICT" | "EVIDENCE_INVALID" | "PATCH_INVALID", message: string) {
@@ -42,14 +42,18 @@ function freeze<T>(value: T): T {
 export class FleetRegistry {
   readonly #deployments = new Map<string, FleetDeployment>();
   readonly #supportedReleases: ReadonlySet<string>;
+  readonly #authority: DeploymentEvidenceAuthority;
 
-  constructor(supportManifest: PackageReleaseManifest) {
+  constructor(supportManifest: PackageReleaseManifest, authority: DeploymentEvidenceAuthority) {
     const parsed = PackageReleaseManifestSchema.parse(supportManifest);
     this.#supportedReleases = new Set(parsed.supportWindow.supportedReleases);
+    this.#authority = authority;
   }
 
-  ingest(receipt: DeploymentReceipt, inventory: RuntimeInventory): void {
-    if (!reconcileDeploymentReceipt(receipt, inventory)) throw new FleetEvidenceError("EVIDENCE_INVALID", "Fleet ingestion requires a reconciled deployment receipt and runtime inventory.");
+  ingest(evidence: VerifiedDeploymentEvidence): void {
+    let deployment: Readonly<{ receipt: DeploymentReceipt; inventory: RuntimeInventory }>;
+    try { deployment = this.#authority.read(evidence); } catch { throw new FleetEvidenceError("EVIDENCE_INVALID", "Fleet ingestion requires evidence from its trusted deployment authority."); }
+    const { receipt, inventory } = deployment;
     if (!this.#supportedReleases.has(inventory.platformRelease)) throw new FleetEvidenceError("EVIDENCE_INVALID", "Fleet ingestion rejects a platform release outside the declared support window.");
     const key = `${inventory.applicationId}\u0000${inventory.environment}`;
     const existing = this.#deployments.get(key);

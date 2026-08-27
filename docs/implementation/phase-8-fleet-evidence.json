@@ -5,13 +5,13 @@
       "applicationId": "customer-alpha",
       "platformRelease": "0.2.0",
       "deploymentId": "deploy:customer-alpha:2026.08",
-      "inventoryDigest": "sha256:9b56aa62e431a64a8b973c369cb34e0a596889eb84d6e2e36f6f2c65ca232a60"
+      "inventoryDigest": "sha256:9d296795ccbb070eb83ca66b012bfe855c3f29c22afbb22ad4d42cbb9cd9dd4e"
     },
     {
       "applicationId": "customer-beta",
       "platformRelease": "0.1.0",
       "deploymentId": "deploy:customer-beta:2026.06",
-      "inventoryDigest": "sha256:008629a504fa196c0b7e10c422a36e439e45d95b07518284ea75260422714d00"
+      "inventoryDigest": "sha256:fb471306bf8a3620f77d61be73b1149d3a5bc4ec5bdc5b3bf6407d048422161d"
     }
   ],
   "vulnerability": {
@@ -27,12 +27,12 @@
     {
       "applicationId": "customer-alpha",
       "repository": "rootkeystudio/customer-alpha",
-      "baseInventoryDigest": "sha256:9b56aa62e431a64a8b973c369cb34e0a596889eb84d6e2e36f6f2c65ca232a60"
+      "baseInventoryDigest": "sha256:9d296795ccbb070eb83ca66b012bfe855c3f29c22afbb22ad4d42cbb9cd9dd4e"
     },
     {
       "applicationId": "customer-beta",
       "repository": "rootkeystudio/customer-beta",
-      "baseInventoryDigest": "sha256:008629a504fa196c0b7e10c422a36e439e45d95b07518284ea75260422714d00"
+      "baseInventoryDigest": "sha256:fb471306bf8a3620f77d61be73b1149d3a5bc4ec5bdc5b3bf6407d048422161d"
     }
   ],
   "previousReleaseUpgrade": {

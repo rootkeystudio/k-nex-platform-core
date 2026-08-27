@@ -7,10 +7,18 @@ import { join, resolve } from "node:path";
 import { ApplicationManifestSchema, DeploymentReceiptSchema, RuntimeInventorySchema } from "../packages/contracts/dist/index.js";
 import { applyCreateKnexApplication, planCreateKnexApplication } from "../packages/composition/dist/index.js";
 import { FleetRegistry, reconcileDeploymentReceipt, restoredInventoryMatches } from "../packages/runtime/dist/index.js";
+import { createFixtureDeploymentVerifier } from "./lib/fixture-deployment-authority.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 if (process.versions.node !== "24.19.0") throw new Error(`Gate 8 requires Node 24.19.0; found ${process.versions.node}.`);
 const readJson = (path) => JSON.parse(readFileSync(resolve(root, path), "utf8"));
+const assertNoSecretKeys = (value, path = "$") => {
+  if (value === null || typeof value !== "object") return;
+  for (const [key, child] of Object.entries(value)) {
+    assert.doesNotMatch(key, /password|secret|token/iu, `Runtime inventory contains a secret-bearing key at ${path}.${key}.`);
+    assertNoSecretKeys(child, `${path}.${key}`);
+  }
+};
 const result = readFileSync(resolve(root, "docs/implementation/phase-8-result.md"), "utf8");
 const workflow = readFileSync(resolve(root, ".github/workflows/release-evidence.yml"), "utf8");
 const modules = readdirSync(resolve(root, "modules"), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map(({ name }) => name).sort();
@@ -24,7 +32,9 @@ assert.match(workflow, /gh attestation verify[\s\S]*--predicate-type https:\/\/k
 assert.doesNotMatch(workflow, /SLSA Build L[0-9]/u);
 
 const supportManifest = readJson("releases/0.2.0/package-release-manifest.json");
-const fleet = new FleetRegistry(supportManifest);
+const sourceCommit = readJson("fixtures/customer-alpha/runtime-inventory.json").releaseEvidence.sourceCommit;
+const verifier = createFixtureDeploymentVerifier(sourceCommit);
+const fleet = new FleetRegistry(supportManifest, verifier.authority);
 for (const customer of ["customer-alpha", "customer-beta"]) {
   const manifest = ApplicationManifestSchema.parse(readJson(`fixtures/${customer}/k-nex.app.json`));
   const inventory = RuntimeInventorySchema.parse(readJson(`fixtures/${customer}/runtime-inventory.json`));
@@ -32,8 +42,8 @@ for (const customer of ["customer-alpha", "customer-beta"]) {
   assert.deepEqual(manifest.plugins.map(({ id }) => id), ["module.sales"]);
   assert.equal(reconcileDeploymentReceipt(receipt, inventory), true);
   assert.equal(execFileSync("git", ["merge-base", "--is-ancestor", inventory.releaseEvidence.sourceCommit, "HEAD"], { cwd: root }).length, 0);
-  assert.doesNotMatch(JSON.stringify(inventory), /password|secret|token/iu);
-  fleet.ingest(receipt, inventory);
+  assertNoSecretKeys(inventory);
+  fleet.ingest(await verifier.verify(inventory, receipt));
 }
 assert.deepEqual(fleet.list().map(({ inventory }) => inventory.platformRelease), ["0.2.0", "0.1.0"]);
 assert.deepEqual(fleet.affected("@k-nex/module-sales", "<1.0.1").map(({ inventory }) => inventory.applicationId), ["customer-alpha", "customer-beta"]);
