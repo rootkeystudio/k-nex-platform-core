@@ -3,7 +3,7 @@
 - **Updated:** 2026-08-27
 - **Phase:** Phase 7 — Comprehensive Headless Component System
 - **Active task:** P7.10 — Performance, bundle, coverage audit, and closeout
-- **State:** Ready for final phase gate
+- **State:** Ready for phase review
 
 ## Last completed
 
@@ -11,11 +11,11 @@ Phase 7 is restacked on final reviewed Phase 6 head `86d36bf`; named Sales UI pr
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0 refreshed acceptance passes: frozen install, all 23 realtime provider tests and provider pack validation, Sales consecutive raw archive equality, and Gate 1 current check. The previous Phase 7 head also passed the exact full Gate 7; it must repeat on this final committed restack head.
+Node 24.19.0 / pnpm 11.9.0 refreshed acceptance passes: frozen install, all 23 realtime provider tests and provider pack validation, Sales consecutive raw archive equality, Gate 1 current check, and the exact full Gate 7 (`GATE_7_PASS`) including browser matrix and performance evidence.
 
 ## Next
 
-Commit the final Phase 6 restack evidence, complete immutable-head Gate 7 and Sol-high review, then refresh draft PR #22 without merge or auto-merge.
+Repeat immutable-head Gate 7 after this closeout commit, complete Sol-high review, then refresh draft PR #22 without merge or auto-merge.
 
 ## Blockers
 
