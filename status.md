@@ -1,22 +1,22 @@
 # Project Status
 
 - **Updated:** 2026-08-27
-- **Phase:** Phase 7 — Comprehensive Headless Component System
-- **Active task:** P7.10 — Performance, bundle, coverage audit, and closeout
-- **State:** Ready for phase review
+- **Phase:** Phase 8 — Lifecycle, Application Factory, Release, and Fleet Safety
+- **Active task:** P8.2 — Plugin/package upgrade planning and customer-owned migrations
+- **State:** In progress
 
 ## Last completed
 
-The final two Phase 7 review blockers were closed. The evidence registry now explicitly lists all 82 default-only and 49 stateful families without constructing family, state, or specialized test-class coverage from the component inventory; regression tests prove new families and browser claims fail closed. DataTable action visibility/execution now requires an actor-bound, catalog-revision-bound authorization receipt created only from an injected capability resolver. Hand-authored receipts, actor substitution, duplicate/unknown/incomplete catalog results, and absent authority fail closed. Sales accepts the receipt path instead of raw capability literals.
+P8.1 froze a generated package-release manifest contract. Every released package has an exact semantic version, immutable SHA-512 integrity, role, and the exact supported K-Nex/Payload/Node/pnpm/Postgres tuple. The pre-v1 support window is bounded to current plus at most the immediately preceding minor in the same major line, with security fixes required across all supported releases. Release manifests remain deterministic and exclude deployment/provenance assertions owned by later tasks.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: exact full `pnpm gate:7` PASS at `05bbe20`. Gates 0–7, real PostgreSQL lifecycle/publication, plugin conformance, package boundaries, browser journeys, independent 131-family evidence, actor-bound DataTable authorization, the 16-state/two-theme matrix, hydration/portal, bundle/tree-shaking, heap, and performance proofs all pass.
+Node 24.19.0 / pnpm 11.9.0: contracts build and 145 tests PASS; architecture contract tooling builds; deterministic generation produced the release-manifest schema and updated generated-contract inventory. Full `pnpm phase:0` runs on the committed task head so generated-clean can compare against Git.
 
 ## Next
 
-Record this gate evidence, rerun Gate 7 on the documentation-only final head, then repeat formal Sol-high exact-head review. Open the stacked Phase 7 PR only after PASS; do not merge or enable auto-merge.
+Commit P8.1, run its full Phase 0 acceptance, then implement P8.2 current-to-target planning and customer-owned migration artifacts using Sales as the sole schema-owning fixture.
 
 ## Blockers
 
-None. Phase 7 is stacked on the preserved Phase 6 branch per project-manager instruction.
+None. Phase 8 is stacked on the preserved Phase 7 branch per explicit project-manager instruction; Phase 7 PR #22 remains open.

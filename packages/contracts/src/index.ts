@@ -13,6 +13,7 @@ export * from "./identity.js";
 export * from "./lifecycle.js";
 export * from "./metric-scalar.js";
 export * from "./output-contracts.js";
+export * from "./package-release-manifest.js";
 export * from "./plugin-manifest.js";
 export * from "./plugin-contribution-taxonomy.js";
 export * from "./plugin-contribution-descriptors.js";
