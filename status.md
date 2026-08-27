@@ -7,16 +7,16 @@
 
 ## Last completed
 
-P8.7/P8.8 corrective work derives 848 exact components and dependency edges from each dedicated pnpm lock. CycloneDX and runtime inventory now include transitive versions/integrities, including semver, yaml, and zod. The workflow attests the K-Nex predicate explicitly and verifies the hosted attestation against the exact artifact.
+P8.4 corrective work replaces caller-authored archive/backup/restore shapes with executor-issued opaque receipts bound to application, plugin, migration revision, and content digest. Bounded export executes a read/restore proof; physical backup content executes a clean restore before purge can become authoritative.
 
 ## Validation
 
-Composition suite PASS: 5 files, 81 tests. Release generator produced a predicate-only document and CycloneDX graph with more than 800 components; transitive inventory checks PASS for both customers. Runtime inventory permits multiple exact versions of one transitive package while retaining plugin reconciliation. Hosted verification remains configuration evidence until CI executes it.
+Runtime suite PASS: 26 files, 198 tests, including fabricated/cloned/cross-application receipt rejection and purge rollback. Physical `pg_dump`/`pg_restore` proof PASS against clean PostgreSQL with executor-issued backup/restore receipts. `git diff --check` PASS.
 
 ## Next
 
-Continue with verified lifecycle/deployment evidence, secure atomic application factory plus real packed-package boot, real prior-upgrade/restore, and fail-closed Gate 8.
+Continue with verified deployment/fleet evidence, secure atomic application factory plus real packed-package boot, real prior-upgrade/restore, and fail-closed Gate 8.
 
 ## Blockers
 
-Formal review blockers remain: purge evidence authority, generated app boot, atomic apply, verified deployment receipts, real prior-upgrade/restore, and fail-closed generated evidence.
+Formal review blockers remain: generated app boot, atomic apply, verified deployment receipts, real prior-upgrade/restore, and fail-closed generated evidence.
