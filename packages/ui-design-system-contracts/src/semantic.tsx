@@ -72,7 +72,7 @@ export function ErrorState({ title, message, action, code }: ErrorStateProps): R
 }
 
 export function Table({ label, columns, rows, emptyMessage = "No records" }: TableProps): ReactElement {
-  return <table aria-label={label} data-k-nex-primitive="table">
+  return <table aria-label={label} data-k-nex-primitive="table" data-k-nex-component="table" data-slot="root">
     <thead><tr>{columns.map((column) => <th key={column.id} scope="col">{column.label}</th>)}</tr></thead>
     <tbody>{rows.length === 0
       ? <tr><td colSpan={columns.length}>{emptyMessage}</td></tr>
