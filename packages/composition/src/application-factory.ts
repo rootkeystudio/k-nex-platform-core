@@ -34,6 +34,13 @@ const exactDependencies = Object.freeze({
   "@k-nex/module-sales": "1.0.0",
   "@k-nex/payload-adapter": "0.0.0",
   "@k-nex/runtime": "0.0.0",
+  "@k-nex/ui-builder-blocks": "0.0.0",
+  "@k-nex/ui-components": "0.0.0",
+  "@k-nex/ui-data": "0.0.0",
+  "@k-nex/ui-design-system-contracts": "0.0.0",
+  "@k-nex/ui-forms": "0.0.0",
+  "@k-nex/ui-pages": "0.0.0",
+  "@k-nex/ui-runtime": "0.0.0",
   "@payloadcms/db-postgres": "3.88.0",
   "@payloadcms/next": "3.88.0",
   "graphql": "16.14.2",
@@ -58,21 +65,73 @@ export const kNexSalesRegistry = Object.freeze({
 `;
 }
 
-function payloadConfigSource(): string {
+function payloadConfigSource(applicationId: string): string {
   return `import { postgresAdapter } from "@payloadcms/db-postgres";
 import { buildConfig } from "payload";
 
 import { kNexSalesRegistry } from "./k-nex-registry.js";
+import { migrations } from "./migrations/index.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 const secret = process.env.PAYLOAD_SECRET;
 if (!databaseUrl || !secret) throw new Error("DATABASE_URL and PAYLOAD_SECRET are required.");
 
 export default buildConfig({
-  db: postgresAdapter({ pool: { connectionString: databaseUrl }, prodMigrations: [] }),
+  db: postgresAdapter({ pool: { connectionString: databaseUrl }, prodMigrations: migrations, push: false }),
   collections: [...kNexSalesRegistry.collections],
+  custom: { kNexApplicationId: "${applicationId}" },
   secret
 });
+`;
+}
+
+function bootSource(): string {
+  return `import { getPayload } from "payload";
+
+import config from "./payload.config.js";
+
+export async function bootKnexApplication(key = "k-nex-application") {
+  const payload = await getPayload({ config, key });
+  const collections = Object.keys(payload.collections).sort();
+  if (!collections.includes("sales-opportunities") || !collections.includes("sales-tasks")) {
+    throw new Error("K-Nex Sales collections did not register.");
+  }
+  return payload;
+}
+`;
+}
+
+function payloadBaselineMigrationSource(): string {
+  return `import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+import { sql, type MigrateDownArgs, type MigrateUpArgs } from "@payloadcms/db-postgres";
+
+const source = (path: string) => readFileSync(fileURLToPath(import.meta.resolve(path)), "utf8");
+
+export async function up({ db }: MigrateUpArgs): Promise<void> {
+  await db.execute(sql.raw(source("@k-nex/module-sales/payload-baseline-up.sql")));
+}
+
+export async function down({ db }: MigrateDownArgs): Promise<void> {
+  await db.execute(sql.raw(source("@k-nex/module-sales/payload-baseline-down.sql")));
+}
+`;
+}
+
+function bootstrapMigrationSource(applicationId: string): string {
+  return `import { sql, type MigrateDownArgs, type MigrateUpArgs } from "@payloadcms/db-postgres";
+
+export async function up({ db }: MigrateUpArgs): Promise<void> {
+  await db.execute(sql.raw(\`CREATE TABLE "k_nex_release_revision" (
+    "application_id" varchar PRIMARY KEY NOT NULL, "predecessor_revision" integer NOT NULL,
+    "revision" integer NOT NULL, "release_revision" varchar NOT NULL
+  ); INSERT INTO "k_nex_release_revision" VALUES ('${applicationId}', 0, 1, 'platform-0.2.0-bootstrap');\`));
+}
+
+export async function down({ db }: MigrateDownArgs): Promise<void> {
+  await db.execute(sql.raw('DROP TABLE "k_nex_release_revision" CASCADE;'));
+}
 `;
 }
 
@@ -125,12 +184,21 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
     "package.json": json({
       name: options.applicationId, version: "0.0.0", private: true, type: "module", packageManager: "pnpm@11.9.0",
       engines: { node: "24.19.0", pnpm: "11.9.0" },
-      scripts: { build: "next build", dev: "next dev", migrate: "payload migrate", readiness: "node --import tsx src/k-nex-readiness.ts", start: "next start" },
-      dependencies
+      scripts: { build: "tsc -p tsconfig.json", migrate: "payload migrate", readiness: "node dist/k-nex-readiness.js" },
+      dependencies,
+      devDependencies: { "@types/node": "24.13.3", typescript: "6.0.3" }
     }),
+    "src/boot.ts": bootSource(),
     "src/k-nex-registry.ts": registrySource(),
     "src/k-nex-readiness.ts": `import { kNexSalesRegistry } from "./k-nex-registry.js";\n\nif (kNexSalesRegistry.collections.length !== 2 || kNexSalesRegistry.registration.pluginId !== "module.sales" || kNexSalesRegistry.readiness.currentRevision < 1 || kNexSalesRegistry.defaultPages.length === 0) {\n  throw new Error("K-Nex Sales readiness is incomplete.");\n}\nconsole.log("K_NEX_SALES_READY");\n`,
-    "src/payload.config.ts": payloadConfigSource()
+    "src/migrations/20260827_000001_sales_baseline.ts": payloadBaselineMigrationSource(),
+    "src/migrations/20260827_000002_knex_bootstrap.ts": bootstrapMigrationSource(options.applicationId),
+    "src/migrations/index.ts": `import * as baseline from "./20260827_000001_sales_baseline.js";\nimport * as bootstrap from "./20260827_000002_knex_bootstrap.js";\n\nexport const migrations = [\n  { name: "20260827_000001_sales_baseline", up: baseline.up, down: baseline.down },\n  { name: "20260827_000002_knex_bootstrap", up: bootstrap.up, down: bootstrap.down }\n];\n`,
+    "src/payload.config.ts": payloadConfigSource(options.applicationId),
+    "tsconfig.json": json({ compilerOptions: {
+      target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true, skipLibCheck: true,
+      outDir: "dist", rootDir: "src", types: ["node"]
+    }, include: ["src/**/*.ts"] })
   };
   if (options.database === "docker-postgres") {
     files["compose.yaml"] = "services:\n  postgres:\n    image: postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94\n    environment:\n      POSTGRES_DB: knex\n      POSTGRES_PASSWORD: knex\n      POSTGRES_USER: knex\n    ports:\n      - \"5432:5432\"\n    volumes:\n      - postgres-data:/var/lib/postgresql/data\nvolumes:\n  postgres-data:\n";

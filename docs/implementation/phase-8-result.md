@@ -5,7 +5,7 @@
 - **Baseline:** `ad60cf9`
 - **Delivery:** stacked Phase 8 pull request; no merge or auto-merge
 - **Decision:** **PLATFORM FOUNDATION ACCEPTED**
-- **Review state:** BLOCKED at `d34f48a`; corrective implementation active
+- **Review state:** Corrective implementation complete; ready for exact-head formal rereview
 
 ## Scope proved
 
@@ -39,16 +39,16 @@ Sales remains the only first-party domain module. Customer Alpha and Customer Be
 
 ## Application and customer proof
 
-`create-knex-app` deterministically plans/applies the Sales reference preset, exact dependencies, Payload Postgres mode, application manifest/config, migration/readiness steps, customer-owned default pages, and add/disable/enable/upgrade plans. Apply is idempotent and refuses overwriting customer edits; dependency installation remains a source-time CLI action, never runtime code installation.
+`create-knex-app` deterministically plans/applies the Sales reference preset, exact dependencies, Payload Postgres mode, application manifest/config, production migrations, typed boot entrypoint, readiness steps, customer-owned default pages, and add/disable/enable/upgrade plans. Apply is atomic, idempotent, and rejects path traversal, symlink traversal, partial promotion, and customer-file overwrite; dependency installation remains a source-time CLI action, never runtime code installation.
 
-Customer Alpha uses external Postgres, Minimal, page size 25, manager authority, tasks plus opportunities, monthly cadence, and platform release 0.2.0. Customer Beta uses local Docker Postgres, Neobrutalism, page size 50, representative authority, tasks only, quarterly cadence, and supported prior release 0.1.0. Their dedicated lock digests differ and both reconcile exact manifests, inventories, and deployment receipts.
+Customer Alpha uses external Postgres, Minimal, page size 25, manager authority, tasks plus opportunities, monthly cadence, and platform release 0.2.0. Customer Beta uses local Docker Postgres, Neobrutalism, page size 50, representative authority, tasks only, quarterly cadence, and supported prior release 0.1.0. Both are isolated pnpm workspaces installed from the same 16-artifact packed release mirror, with no workspace links. A clean PostgreSQL test compiles and boots each Payload application, runs two production migrations, registers both Sales collections, instantiates both default pages, queries Sales, and proves every K-Nex resolution comes from the fixture's packed `.pnpm` tree.
 
 ## Release, deployment, and fleet proof
 
-- Timestamp-free CycloneDX 1.6 SBOM and canonical provenance bind source commit, full-SHA workflow identity, manifest, lock, graph/plan, SBOM, and artifact digests.
+- Timestamp-free CycloneDX 1.6 SBOM and canonical provenance bind source commit, full-SHA workflow identity, manifest, lock, complete transitive graph, SBOM, and artifact digests.
 - Local Ed25519 tests reject signature/payload substitution. The hosted workflow uses GitHub OIDC and `actions/attest` pinned to a complete SHA for signed provenance and SBOM attestations. No SLSA level is claimed.
 - Generated JSON Schemas validate non-secret runtime inventory and deployment receipts. Receipt reconciliation rejects artifact, migration, inventory, readiness, or smoke drift.
-- Receipt-only fleet ingestion keeps one current and one supported-prior customer. Sales `<1.0.1` identifies both deployments and generates customer-specific lock/upgrade/migration/deploy update plans.
+- Authority-issued, signature-verified fleet ingestion keeps one current and one supported-prior customer. The clean-boot proof serves inventory from a protected runtime endpoint, rejects anonymous observation, reconciles live PostgreSQL readiness, verifies signed deployment receipt and provenance, then issues the only token Fleet accepts. Sales `<1.0.1` and transitive `semver <7.8.6` identify both deployments and generate customer-specific lock/upgrade/migration/deploy update plans.
 - Beta dry-runs its previous-release upgrade through eight reviewed migration domains. Alpha's restore/redeploy reproduces the expected inventory digest. Generator marker: `P8_9_FLEET_EVIDENCE_PASS`.
 
 ## Validation
@@ -61,19 +61,19 @@ pnpm audit --audit-level high
 git diff --check
 ```
 
-Exact-head `12fbf0512d0eaea38b781d97e97cc7aaf3fd19ef` passed the complete Gate 8. The final runtime suite reported 26 files and 196 tests. `pnpm audit --audit-level high` passed with 2 low, 3 moderate, 0 high, and 0 critical advisories; `git diff --check` passed. Detailed current state is recorded in `status.md`.
+The corrective full run passed `pnpm gate:8` from Phase 0 through Gate 8, including 5 clean PostgreSQL proofs, 16 packed-release artifacts, 2 protected runtime observations, 20 contract files/147 tests, 5 composition files/82 tests, and 26 runtime files/198 tests. Packed SHA512/content closure, stale-evidence rejection, generated-artifact reproducibility, browser/accessibility, plugin conformance, and `git diff --check` passed. Detailed current state is recorded in `status.md`.
 
 ## Limits and production claims
 
 - This is executable platform-foundation evidence, not production-observed fleet operation.
 - GitHub-hosted attestation configuration is proved; a SLSA level is not claimed until independently verified.
 - Sales is a reference architecture and test case, not a complete CRM.
-- Customer Alpha/Beta validate independent composition and evidence; Gate 1 remains the full Payload/Postgres application boot fixture.
+- Customer Alpha/Beta validate independent packed composition, clean production migration/boot, and protected deployment observation; broader transactional/outbox behavior remains in Gate 1.
 - Payload Import/Export remains uninstalled until a customer explicitly selects and proves the bounded adapter.
 
 ## Gate decision
 
-The first exact-head full gate passed, but formal review demonstrated that required evidence could still be simulated, caller-authored, incomplete, or repaired by the gate itself. Phase acceptance is withdrawn until every review blocker is corrected and independently re-reviewed.
+The first formal review correctly rejected caller-authored lifecycle evidence, unenforced support policy, workspace-linked customer fixtures, incomplete transitive inventory, forgeable deployment state, simulated recovery, and a self-repairing gate. Corrective work now makes those paths executor/authority-issued, manifest-enforced, packed and clean-booted, transitive, signed and runtime-observed, PostgreSQL-backed, and stale-evidence rejecting. No Gate 8 kill criterion fired in the corrective full run; exact-head independent rereview remains required.
 
 **Decision:** **PLATFORM FOUNDATION ACCEPTED**
 

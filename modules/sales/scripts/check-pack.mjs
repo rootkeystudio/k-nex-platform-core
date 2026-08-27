@@ -45,7 +45,10 @@ function assertEquivalent(generated, committed) {
 function assertDeclaredEntrypoints(archive) {
   const entries = tarEntries(archive);
   const packageJson = JSON.parse(entries.get("package/package.json")?.toString("utf8") ?? "null");
-  const entrypoints = ["./browser", "./contracts", "./manifest", "./migrations", "./pages", "./server", "./testing", "./ui"];
+  const entrypoints = [
+    "./browser", "./contracts", "./manifest", "./migrations", "./pages", "./payload-baseline-down.sql",
+    "./payload-baseline-up.sql", "./server", "./testing", "./ui"
+  ];
   assert.deepEqual(Object.keys(packageJson.exports).sort(), entrypoints);
 
   const expectedFiles = new Set(["package/package.json"]);

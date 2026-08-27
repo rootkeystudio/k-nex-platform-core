@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -65,11 +65,12 @@ const restore = readJson("fixtures/customer-alpha/restore-redeployment-proof.jso
 assert.equal(restore.backupRestoreFixture, "fixtures/customer-gate-1/tests/backup-restore-postgres.test.mjs");
 assert.equal(restore.expectedOperationalInventoryDigest, runtimeInventoryStateDigest(expected));
 
-const target = mkdtempSync(join(tmpdir(), "gate-8-create-knex-app-"));
+const target = realpathSync(mkdtempSync(join(tmpdir(), "gate-8-create-knex-app-")));
 try {
   const plan = planCreateKnexApplication({ applicationId: "gate-eight-clean", applicationName: "Gate Eight Clean", theme: "minimal", database: "docker-postgres" });
   const applied = applyCreateKnexApplication(plan, target);
   assert.ok(applied.written.includes("k-nex.app.json") && applied.written.includes("compose.yaml"));
+  assert.ok(applied.written.includes("src/boot.ts") && applied.written.includes("src/migrations/20260827_000002_knex_bootstrap.ts"));
   assert.deepEqual(ApplicationManifestSchema.parse(JSON.parse(readFileSync(join(target, "k-nex.app.json"), "utf8"))).plugins.map(({ id }) => id), ["module.sales"]);
   assert.equal(applyCreateKnexApplication(plan, target).unchanged.length, Object.keys(plan.files).length);
 } finally {

@@ -81,6 +81,8 @@ def scan_legacy_symbols(contracts: dict[str, Any], errors: list[str]) -> None:
             if not path.is_file() or path.suffix not in SCAN_EXTENSIONS:
                 continue
             relative = path.relative_to(ROOT)
+            if "node_modules" in relative.parts:
+                continue
             if excluded_from_legacy_scan(relative):
                 continue
             text = path.read_text(encoding="utf-8")
