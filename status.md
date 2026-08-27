@@ -11,7 +11,7 @@ P7.10 added executable bundle/tree-shaking budgets, large-data and query-state p
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: targeted components/UI-testing suites, full 20-package build, browser matrix, performance budgets, and Gate 7 closeout assertions PASS. Complete `pnpm gate:7` is being repeated on the exact closeout commit before review.
+Node 24.19.0 / pnpm 11.9.0: targeted components/UI-testing suites, full 20-package build, browser matrix, performance budgets, and Gate 7 closeout assertions PASS. Full Gate 7 exposed and regenerated stale customer integrity and Sales reference artifacts; exact-head rerun remains pending.
 
 ## Next
 
