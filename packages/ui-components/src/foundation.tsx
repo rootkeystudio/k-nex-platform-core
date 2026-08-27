@@ -1,7 +1,9 @@
-import type { ReactElement, ReactNode } from "react";
+import type { CSSProperties, ReactElement, ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { FocusScope as AriaFocusScope } from "@react-aria/focus";
 
 export {
-  Badge, Box, Card, Container, EmptyState, ErrorState, Grid, Heading, Inline,
+  Badge, Box, Button, Card, Container, EmptyState, ErrorState, Grid, Heading, Inline,
   Link, Skeleton, Stack, Status, Table, Text
 } from "@k-nex/ui-design-system-contracts";
 
@@ -9,6 +11,23 @@ export interface SectionProps { readonly children?: ReactNode; readonly label?: 
 export function Section({ children, label }: SectionProps): ReactElement {
   return <section aria-label={label} data-k-nex-component="section" data-slot="root">{children}</section>;
 }
+
+export interface PageShellProps { readonly children: ReactNode; readonly label?: string; }
+export function PageShell({ children, label }: PageShellProps): ReactElement { return <main aria-label={label} data-k-nex-component="page-shell" data-slot="root">{children}</main>; }
+export interface PageHeaderProps { readonly title: ReactNode; readonly description?: ReactNode; readonly actions?: ReactNode; }
+export function PageHeader({ title, description, actions }: PageHeaderProps): ReactElement { return <header data-k-nex-component="page-header" data-slot="root"><div data-slot="title">{title}</div>{description === undefined ? null : <div data-slot="description">{description}</div>}{actions === undefined ? null : <div data-slot="actions">{actions}</div>}</header>; }
+export interface ActionBarProps { readonly children: ReactNode; readonly label: string; }
+export function ActionBar({ children, label }: ActionBarProps): ReactElement { return <div role="toolbar" aria-label={label} data-k-nex-component="action-bar" data-slot="root">{children}</div>; }
+export interface SplitViewProps { readonly primary: ReactNode; readonly secondary: ReactNode; readonly label?: string; }
+export function SplitView({ primary, secondary, label }: SplitViewProps): ReactElement { return <section aria-label={label} data-k-nex-component="split-view" data-slot="root"><div data-slot="primary">{primary}</div><aside data-slot="secondary">{secondary}</aside></section>; }
+export interface ScrollableAreaProps { readonly children: ReactNode; readonly label: string; readonly maxHeight?: CSSProperties["maxHeight"]; }
+export function ScrollableArea({ children, label, maxHeight }: ScrollableAreaProps): ReactElement { return <div role="region" aria-label={label} tabIndex={0} style={{ overflow: "auto", ...(maxHeight === undefined ? {} : { maxHeight }) }} data-k-nex-component="scrollable-area" data-slot="root">{children}</div>; }
+export interface AspectRatioProps { readonly children: ReactNode; readonly ratio?: number; }
+export function AspectRatio({ children, ratio = 16 / 9 }: AspectRatioProps): ReactElement { if (!Number.isFinite(ratio) || ratio <= 0) throw new TypeError("Aspect ratio must be positive."); return <div style={{ aspectRatio: String(ratio) }} data-k-nex-component="aspect-ratio" data-slot="root">{children}</div>; }
+export interface PortalProps { readonly children: ReactNode; readonly container: Element | null; }
+export function Portal({ children, container }: PortalProps): ReactElement | null { return container === null ? null : createPortal(children, container); }
+export interface FocusScopeProps { readonly children: ReactNode; readonly contain?: boolean; readonly restoreFocus?: boolean; readonly autoFocus?: boolean; }
+export function FocusScope({ children, contain = false, restoreFocus = false, autoFocus = false }: FocusScopeProps): ReactElement { return <div data-k-nex-component="focus-scope" data-slot="root"><AriaFocusScope contain={contain} restoreFocus={restoreFocus} autoFocus={autoFocus}>{children}</AriaFocusScope></div>; }
 
 export interface ListProps { readonly children?: ReactNode; readonly ordered?: boolean; }
 export function List({ children, ordered = false }: ListProps): ReactElement {
