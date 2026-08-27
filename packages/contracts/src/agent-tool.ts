@@ -67,7 +67,7 @@ const jsonSchemaNodeSchema: z.ZodType<AgentToolJsonSchema> = z.lazy(() => z.stri
       context.addIssue({ code: "custom", path: ["additionalProperties"], message: "JSON object schemas must set additionalProperties to false." });
     }
     for (const required of schema.required ?? []) {
-      if (schema.properties === undefined || !(required in schema.properties)) {
+      if (schema.properties === undefined || !Object.hasOwn(schema.properties, required)) {
         context.addIssue({ code: "custom", path: ["required"], message: "JSON schema required fields must be declared in properties." });
       }
     }
@@ -181,7 +181,7 @@ export const AgentToolInputSchemaSchema = z.strictObject({
   additionalProperties: z.literal(false)
 }).superRefine((schema, context) => {
   for (const required of schema.required ?? []) {
-    if (!(required in schema.properties)) {
+    if (!Object.hasOwn(schema.properties, required)) {
       context.addIssue({ code: "custom", path: ["required"], message: "JSON schema required fields must be declared in properties." });
     }
   }

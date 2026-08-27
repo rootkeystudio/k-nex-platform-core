@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   AgentToolDescriptorSchema,
   AgentToolInputSchemaSchema,
+  AgentToolJsonSchemaSchema,
   createAgentToolJsonRuntimeSchema,
   PluginManifestSchema
 } from "../src/index.js";
@@ -154,4 +155,18 @@ describe("P2A.1 agent-tool contracts", () => {
     expect(runtime.safeParse({ constructor: "owned" }).success).toBe(true);
     expect(runtime.safeParse(Object.create({ constructor: "inherited" })).success).toBe(false);
   });
+
+  it.each([AgentToolJsonSchemaSchema, AgentToolInputSchemaSchema])(
+    "rejects inherited names as undeclared required properties",
+    (schemaContract) => {
+      for (const inheritedName of ["constructor", "toString"]) {
+        expect(schemaContract.safeParse({
+          type: "object",
+          properties: {},
+          required: [inheritedName],
+          additionalProperties: false
+        }).success).toBe(false);
+      }
+    }
+  );
 });

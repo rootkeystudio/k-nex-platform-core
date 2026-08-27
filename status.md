@@ -3,15 +3,15 @@
 - **Updated:** 2026-08-27
 - **Phase:** Phase 6 — Plugin Platform Hardening and Sales Reference Module
 - **Active task:** P6.10 — Close Gate 6 and freeze the pre-v1 authoring contract
-- **State:** Ready for phase review
+- **State:** In progress
 
 ## Last completed
 
-P6.10 closes the owner and independent-review blockers: exact structured evidence, squash-safe gating, canonical settings/templates/UI authority, and lifecycle leases covering required/optional providers, prototypes, synchronous and asynchronous derived handles.
+P6.10 now also requires every authored JSON-schema `required` name to be an owned `properties` declaration, including reserved inherited names, across both canonical schema contracts.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0 focused acceptance: contracts 142, runtime 200, UI runtime 43, builder 35, Sales 34, conformance runner 5; builds, browser/boundary proofs, deterministic Sales pack/Gate 1 fixture, plugin conformance, and diff checks pass. The exact metadata head must complete the named Gate 6 path and high-threshold audit before PR update.
+Node 24.19.0 / pnpm 11.9.0 focused contract acceptance passes: 18 files, 144 tests, plus the contracts build and diff check. The exact resulting head must now complete Gate 6, high-threshold audit, clean-tree proof, and independent review before PR update.
 
 ## Next
 
