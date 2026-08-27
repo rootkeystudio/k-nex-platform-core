@@ -53,6 +53,7 @@ export function LoadingState(): ReactElement { return <div role="status" data-k-
 export function ForbiddenState(): ReactElement { return <div role="alert" data-k-nex-component="query-forbidden" data-state="forbidden">You do not have access.</div>; }
 export function InsufficientPermissionState(): ReactElement { return <div role="alert" data-k-nex-component="query-insufficient-permission" data-state="insufficient-permission">Required fields are not available.</div>; }
 export function QueryErrorState({ onRetry }: Pick<QueryStateProps, "onRetry">): ReactElement { return <div role="alert" data-k-nex-component="query-error" data-state="error">Data could not be loaded.{onRetry === undefined ? null : <button type="button" onClick={onRetry}>Retry</button>}</div>; }
+export function ErrorState(props: Pick<QueryStateProps, "onRetry">): ReactElement { return <QueryErrorState {...props} />; }
 export function StaleState({ children, onRetry }: QueryStateProps): ReactElement { return <section aria-label="Stale data" data-k-nex-component="query-stale" data-state="stale"><div role="status">Data may be outdated.{onRetry === undefined ? null : <button type="button" onClick={onRetry}>Refresh</button>}</div>{children}</section>; }
 
 export interface DetailPanelProps { readonly label: string; readonly children: ReactNode; readonly onClose: () => void; }

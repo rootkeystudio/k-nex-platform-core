@@ -93,6 +93,7 @@ function kebab(name: string): string {
 }
 
 function deliveryTask(category: ComponentInventoryEntry["category"], name: string): ComponentInventoryEntry["deliveryTask"] {
+  if (name === "RichTextRenderer") return "P7.5";
   if (category === "forms") return "P7.3";
   if (category === "navigation" || category === "overlay") return "P7.4";
   if (category === "data") return name === "DataTable" || name === "DataGrid" ? "P7.6" : "P7.5";
@@ -101,8 +102,9 @@ function deliveryTask(category: ComponentInventoryEntry["category"], name: strin
 }
 
 function packageTarget(category: ComponentInventoryEntry["category"], name: string): ComponentPackageTarget {
+  if (name === "RichTextRenderer") return "@k-nex/ui-data";
   if (category === "forms") return "@k-nex/ui-forms";
-  if (category === "data" && name !== "RichTextEditor") return "@k-nex/ui-data";
+  if (category === "data") return "@k-nex/ui-data";
   if (category === "pages") return "@k-nex/ui-pages";
   return "@k-nex/ui-components";
 }
