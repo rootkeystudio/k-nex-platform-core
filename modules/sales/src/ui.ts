@@ -1,5 +1,9 @@
 import { defineUiContributionBinding, type UiBlockRenderInput } from "@k-nex/ui-runtime";
-import { createPuckBlockLibrary } from "@k-nex/ui-builder-blocks";
+import { createKNextComponentElement, createPuckBlockLibrary } from "@k-nex/ui-builder-blocks";
+import { Section, Status } from "@k-nex/ui-components";
+import { DataList, DataTable, KeyValueList, Metric, QueryBoundary, createDataTableState } from "@k-nex/ui-data";
+import { Form } from "@k-nex/ui-forms";
+import type { MetricScalar, TableRecords } from "@k-nex/contracts";
 
 import {
   salesRouteDescriptors,
@@ -15,6 +19,7 @@ import {
   salesTasksDescriptor,
   salesTotalPotentialRevenueDescriptor
 } from "./contracts.js";
+import { salesOpportunitiesTableDefinition, salesTasksTableDefinition } from "./pages.js";
 
 export { salesNavigationDescriptors, salesRouteDescriptors, salesTaskPageTemplate } from "./contracts.js";
 
@@ -44,9 +49,17 @@ export function salesTaskTableRenderer(input: UiBlockRenderInput): Readonly<Sale
   const state = input.sourceResult?.state ?? "idle";
   return Object.freeze({
     kind: "data-table" as const,
+    component: "DataTable" as const,
     title: props.title,
     accessibility: Object.freeze({ role: "table" as const, label: props.title }),
     state,
+    element: createKNextComponentElement(DataTable, {
+      definition: salesTasksTableDefinition,
+      viewState: createDataTableState(salesTasksTableDefinition),
+      requestState: dataTableRequestState(input.sourceResult),
+      label: props.title
+    }),
+    ...(input.action === undefined ? {} : { action: input.action }),
     ...(input.sourceResult !== undefined && "data" in input.sourceResult ? { table: input.sourceResult.data } : {}),
     ...(input.sourceResult !== undefined && "problem" in input.sourceResult ? { problemCode: input.sourceResult.problem.code } : {})
   });
@@ -63,17 +76,79 @@ function rendererKind(id: string): "data-table" | "metric" | "form" | "data-list
 }
 
 function accessibility(kind: ReturnType<typeof rendererKind>, label: string) {
-  const role = kind === "data-table" ? "table" : kind === "form" ? "form" : kind === "data-list" ? "list" : kind === "status" || kind === "metric" ? "status" : "region";
+  const role = kind === "data-table" ? "table" : kind === "form" ? "form" : kind === "data-list" ? "region" : kind === "status" || kind === "metric" ? "status" : "region";
   return Object.freeze({ role, label });
 }
 
-function contributionRenderer(id: string): (input: UiBlockRenderInput) => Readonly<SalesContributionPresentation> {
+function dataTableRequestState(sourceResult: UiBlockRenderInput["sourceResult"]): unknown {
+  if (sourceResult === undefined) return { state: "idle" };
+  if (sourceResult.state === "insufficient-permission" || sourceResult.state === "invalid-contract") return { state: sourceResult.state };
+  return sourceResult;
+}
+
+function queryRequestState(sourceResult: UiBlockRenderInput["sourceResult"]): unknown {
+  if (sourceResult === undefined) return { state: "idle" };
+  if (sourceResult.state === "stale" || sourceResult.state === "refetching") return { state: "success", data: sourceResult.data };
+  if (sourceResult.state === "insufficient-permission") return { state: "forbidden", problem: { code: "SOURCE_FIELD_PERMISSION_DENIED", status: 403 } };
+  if (sourceResult.state === "invalid-contract") return { state: "invalid-contract" };
+  return sourceResult;
+}
+
+function cellText(value: unknown): string {
+  if (value === null || typeof value !== "object") return value === undefined ? "—" : String(value);
+  if ("value" in value) return String(value.value);
+  if ("label" in value) return String(value.label);
+  return "—";
+}
+
+function tableItems(value: unknown, fields: readonly string[]) {
+  if (value === null || typeof value !== "object" || !Array.isArray((value as TableRecords).rows)) return [];
+  return (value as TableRecords).rows.map((row) => ({
+    id: row.key,
+    label: row.values[fields[0] ?? "name"] === undefined ? row.key : cellText(row.values[fields[0] ?? "name"]),
+    value: fields.slice(1).map((field) => `${field}: ${cellText(row.values[field])}`).join(" · ") || row.key
+  }));
+}
+
+function queryElement(kind: ReturnType<typeof rendererKind>, input: UiBlockRenderInput, title: string): unknown {
+  const children = (value: unknown) => {
+    if (kind === "metric") return createKNextComponentElement(Metric, { label: title, metric: value as MetricScalar });
+    if (kind === "data-list") return createKNextComponentElement(DataList, { label: title, items: tableItems(value, ["name", "stage", "value"]) });
+    return createKNextComponentElement(Section, { label: title, children: createKNextComponentElement(KeyValueList, { label: title, items: tableItems(value, ["name", "stage", "value"]).map(({ id, label, value: itemValue }) => ({ id, key: label, value: itemValue })) }) });
+  };
+  return createKNextComponentElement(QueryBoundary, { state: queryRequestState(input.sourceResult), children });
+}
+
+function contributionElement(kind: ReturnType<typeof rendererKind>, input: UiBlockRenderInput, title: string): unknown {
+  if (kind === "data-table") return createKNextComponentElement(DataTable, {
+    definition: salesOpportunitiesTableDefinition,
+    viewState: createDataTableState(salesOpportunitiesTableDefinition),
+    requestState: dataTableRequestState(input.sourceResult),
+    label: title
+  });
+  if (kind === "metric" || kind === "data-list" || kind === "detail") return queryElement(kind, input, title);
+  if (kind === "form") return createKNextComponentElement(Form, { label: title, onSubmit: () => undefined, children: null });
+  if (kind === "status") return createKNextComponentElement(Status, { children: title });
+  return createKNextComponentElement(Section, { label: title, children: createKNextComponentElement(KeyValueList, { label: title, items: [{ id: "summary", key: title, value: "Available" }] }) });
+}
+
+function componentName(kind: ReturnType<typeof rendererKind>): string {
+  if (kind === "data-table") return "DataTable";
+  if (kind === "data-list") return "DataList";
+  if (kind === "detail" || kind === "settings-summary") return "KeyValueList";
+  if (kind === "metric") return "Metric";
+  if (kind === "form") return "Form";
+  return "Status";
+}
+
+function contributionRenderer(id: string) {
   return (input: UiBlockRenderInput) => {
     const props = input.props as { readonly title: string };
     const state = input.sourceResult?.state ?? "idle";
     const kind = rendererKind(id);
     return Object.freeze({
-      kind, title: props.title, accessibility: accessibility(kind, props.title), state,
+      kind, component: componentName(kind), title: props.title, accessibility: accessibility(kind, props.title), state,
+      element: contributionElement(kind, input, props.title),
       ...(input.action === undefined ? {} : { action: input.action }),
       ...(input.sourceResult !== undefined && "data" in input.sourceResult ? { data: input.sourceResult.data } : {}),
       ...(input.sourceResult !== undefined && "problem" in input.sourceResult ? { problemCode: input.sourceResult.problem.code } : {})

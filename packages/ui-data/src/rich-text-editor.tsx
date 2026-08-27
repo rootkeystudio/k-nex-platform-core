@@ -11,14 +11,18 @@ import type { ReactElement } from "react";
 
 import { parseRichTextDocument, type RichTextDocument, type RichTextInline } from "./rich-text.js";
 
-function plainText(document: RichTextDocument): string[] {
+function editableParagraphs(document: RichTextDocument): string[] {
   const text = (nodes: readonly RichTextInline[]): string => nodes.map((node) => node.type === "text" ? node.text : text(node.children)).join("");
-  return document.blocks.flatMap((current) => current.type === "list" ? current.items.map(text) : [text(current.children)]);
+  return document.blocks.map((block) => {
+    if (block.type !== "paragraph" || block.children.some((node) => node.type !== "text" || node.marks !== undefined)) throw new TypeError("Rich-text editor accepts only unmarked paragraphs; render structured documents read-only.");
+    return text(block.children);
+  });
 }
 
 export interface RichTextEditorProps { readonly document: RichTextDocument; readonly label: string; readonly placeholder?: string; readonly onChange: (document: RichTextDocument) => void; }
 export function RichTextEditor({ document, label, placeholder = "Enter text", onChange }: RichTextEditorProps): ReactElement {
   const parsed = parseRichTextDocument(document);
+  const paragraphs = editableParagraphs(parsed);
   const initialConfig = {
     namespace: "k-nex-rich-text-v1",
     theme: {},
@@ -26,7 +30,7 @@ export function RichTextEditor({ document, label, placeholder = "Enter text", on
     editorState() {
       const root = $getRoot();
       root.clear();
-      for (const value of plainText(parsed)) root.append($createParagraphNode().append($createTextNode(value)));
+      for (const value of paragraphs) root.append($createParagraphNode().append($createTextNode(value)));
     }
   };
   const handleChange = (editorState: EditorState): void => {
@@ -38,4 +42,4 @@ export function RichTextEditor({ document, label, placeholder = "Enter text", on
   return <div data-k-nex-component="rich-text-editor" data-slot="root"><LexicalComposer initialConfig={initialConfig}><RichTextPlugin contentEditable={<ContentEditable aria-label={label} aria-placeholder={placeholder} placeholder={<span>{placeholder}</span>} data-slot="content" />} ErrorBoundary={LexicalErrorBoundary} /><HistoryPlugin /><OnChangePlugin onChange={handleChange} /></LexicalComposer></div>;
 }
 
-export const richTextEditorAdapter = Object.freeze({ id: "lexical", version: "0.49.0", contractVersion: 1, supportedEditingBlocks: Object.freeze(["paragraph"]), persistedState: "k-nex-rich-text@1" });
+export const richTextEditorAdapter = Object.freeze({ id: "lexical", version: "0.49.0", contractVersion: 1, supportedEditingBlocks: Object.freeze(["unmarked-paragraph"]), persistedState: "k-nex-rich-text@1" });

@@ -1,28 +1,29 @@
-import type { ReactElement } from "react";
+import type { ReactElement, ReactNode } from "react";
 
 import { Button } from "@k-nex/ui-design-system-contracts";
 import { Card, Status } from "@k-nex/ui-components";
+import { DataTable } from "@k-nex/ui-data/data-table";
 import {
-  DataTable,
-  FilterBar,
-  KeyValueList,
-  Metric,
-  QueryBoundary,
-  SearchControl,
   createDataTableState,
   defineDataTable,
+  type DataTableActionResult,
+  type DataTableBulkActionResult,
+  type DataTableMutationExecutor,
   type DataTableRequestState,
   type DataTableViewState
-} from "@k-nex/ui-data";
+} from "@k-nex/ui-data/data-table-controller";
+import { KeyValueList } from "@k-nex/ui-data/presentation";
+import { Metric, QueryBoundary } from "@k-nex/ui-data/metric";
 import { Form, FormActions, Select, TextInput, createFormController, type FormSnapshot } from "@k-nex/ui-forms";
 import { DashboardPage, IndexPage, SettingsPage } from "@k-nex/ui-pages";
-import type { BrowserDataTransport, BrowserRequestState } from "@k-nex/ui-runtime";
-import type { MetricScalar } from "@k-nex/contracts";
+import type { BrowserDataTransport, BrowserMutationContext, BrowserRequestState } from "@k-nex/ui-runtime";
+import type { MetricScalar, TableRow } from "@k-nex/contracts";
 
 import {
   salesCreateTaskMutation,
   salesOpportunitiesQuery,
   salesOpportunityStageMutation,
+  salesUpdateTaskMutation,
   salesTasksQuery
 } from "./browser.js";
 import {
@@ -50,8 +51,8 @@ export const salesTasksTableDefinition = defineDataTable({
   defaultPageSize: 25,
   searchField: "title",
   facets: { status: ["open", "done"] },
-  rowActions: [{ id: "edit", label: "Edit", allowed: true }],
-  bulkActions: [{ id: "complete", label: "Complete", allowed: true }]
+  rowActions: [{ id: salesUpdateTaskMutation.action.id, action: salesUpdateTaskMutation.action, capability: { state: "allowed", action: salesUpdateTaskMutation.action }, mutation: salesUpdateTaskMutation, input: (rowKey: string) => ({ id: rowKey, status: "done" }), label: "Complete" }],
+  bulkActions: [{ id: salesUpdateTaskMutation.action.id, action: salesUpdateTaskMutation.action, capability: { state: "allowed", action: salesUpdateTaskMutation.action }, mutation: salesUpdateTaskMutation, input: (rowKey: string) => ({ id: rowKey, status: "done" }), label: "Complete" }]
 });
 
 export const salesOpportunitiesTableDefinition = defineDataTable({
@@ -63,7 +64,7 @@ export const salesOpportunitiesTableDefinition = defineDataTable({
   defaultPageSize: 25,
   searchField: "name",
   facets: { stage: ["lead", "qualified", "won", "lost"] },
-  rowActions: [{ id: "change-stage", label: "Change stage", allowed: true }]
+  rowActions: [{ id: salesOpportunityStageMutation.action.id, action: salesOpportunityStageMutation.action, capability: { state: "allowed", action: salesOpportunityStageMutation.action }, mutation: salesOpportunityStageMutation, input: (rowKey: string) => ({ id: rowKey, stage: "won" }), label: "Change stage" }]
 });
 
 export function createSalesTaskQuickCreateController(transport: BrowserDataTransport, idempotencyKey: string) {
@@ -98,17 +99,37 @@ export interface SalesTasksPageProps {
   readonly onViewStateChange?: (state: DataTableViewState) => void;
   readonly onCreateTaskChange: <K extends keyof CreateTaskInput>(field: K, value: CreateTaskInput[K]) => void;
   readonly onCreateTask: () => void | Promise<void>;
+  readonly mutationExecutor?: DataTableMutationExecutor;
+  readonly actionContext?: BrowserMutationContext;
+  readonly onActionResult?: (result: DataTableActionResult | DataTableBulkActionResult) => void | Promise<void>;
+  readonly onSourceInvalidated?: (sourceId: string) => void;
+  readonly onRefetch?: () => void;
+  readonly renderDetail?: (row: TableRow) => ReactNode;
+  readonly onLoadMore?: () => void;
+  readonly loadMoreLoading?: boolean;
 }
-export function SalesTasksPage({ requestState, viewState = createDataTableState(salesTasksTableDefinition), createTask, onViewStateChange, onCreateTaskChange, onCreateTask }: SalesTasksPageProps): ReactElement {
-  return <IndexPage templateId={salesTaskPageTemplate.id} title="Sales tasks" description="Authorized tasks and follow-up work." breadcrumbs={crumbs("Tasks", "/sales/tasks")} filters={<FilterBar><SearchControl label="Search tasks" value={viewState.search} onChange={(search) => onViewStateChange?.({ ...viewState, search })} /></FilterBar>} aside={<Card><Form label="Create task" pending={createTask.submitting} onSubmit={onCreateTask}><TextInput name="title" label="Title" value={createTask.values.title} {...(createTask.fieldErrors.title === undefined ? {} : { error: createTask.fieldErrors.title })} required onChange={(value) => onCreateTaskChange("title", value)} /><Select name="status" label="Status" value={createTask.values.status ?? "open"} options={[{ id: "open", label: "Open" }, { id: "done", label: "Done" }]} onChange={(value) => onCreateTaskChange("status", value as "open" | "done")} /><FormActions><Button type="submit" isDisabled={createTask.submitting}>Create task</Button></FormActions></Form></Card>}>
-    <DataTable definition={salesTasksTableDefinition} viewState={viewState} requestState={requestState} {...(onViewStateChange === undefined ? {} : { onViewStateChange })} />
+export function SalesTasksPage({ requestState, viewState = createDataTableState(salesTasksTableDefinition), createTask, onViewStateChange, onCreateTaskChange, onCreateTask, mutationExecutor, actionContext, onActionResult, onSourceInvalidated, onRefetch, renderDetail, onLoadMore, loadMoreLoading }: SalesTasksPageProps): ReactElement {
+  return <IndexPage templateId={salesTaskPageTemplate.id} title="Sales tasks" description="Authorized tasks and follow-up work." breadcrumbs={crumbs("Tasks", "/sales/tasks")} aside={<Card><Form label="Create task" pending={createTask.submitting} onSubmit={onCreateTask}><TextInput name="title" label="Title" value={createTask.values.title} {...(createTask.fieldErrors.title === undefined ? {} : { error: createTask.fieldErrors.title })} required onChange={(value) => onCreateTaskChange("title", value)} /><Select name="status" label="Status" value={createTask.values.status ?? "open"} options={[{ id: "open", label: "Open" }, { id: "done", label: "Done" }]} onChange={(value) => onCreateTaskChange("status", value as "open" | "done")} /><FormActions><Button type="submit" isDisabled={createTask.submitting}>Create task</Button></FormActions></Form></Card>}>
+    <DataTable definition={salesTasksTableDefinition} viewState={viewState} requestState={requestState} {...(onViewStateChange === undefined ? {} : { onViewStateChange })} {...(mutationExecutor === undefined ? {} : { mutationExecutor })} {...(actionContext === undefined ? {} : { actionContext })} {...(onActionResult === undefined ? {} : { onActionResult })} {...(onSourceInvalidated === undefined ? {} : { onSourceInvalidated })} {...(onRefetch === undefined ? {} : { onRefetch })} {...(renderDetail === undefined ? {} : { renderDetail })} {...(onLoadMore === undefined ? {} : { onLoadMore })} {...(loadMoreLoading === undefined ? {} : { loadMoreLoading })} />
   </IndexPage>;
 }
 
-export interface SalesOpportunitiesPageProps { readonly requestState: DataTableRequestState; readonly viewState?: DataTableViewState; readonly onViewStateChange?: (state: DataTableViewState) => void; }
-export function SalesOpportunitiesPage({ requestState, viewState = createDataTableState(salesOpportunitiesTableDefinition), onViewStateChange }: SalesOpportunitiesPageProps): ReactElement {
-  return <IndexPage templateId={salesOpportunitiesPageTemplate.id} title="Opportunities" description="Authorized pipeline opportunities." breadcrumbs={crumbs("Opportunities", "/sales/opportunities")} filters={<FilterBar><SearchControl label="Search opportunities" value={viewState.search} onChange={(search) => onViewStateChange?.({ ...viewState, search })} /></FilterBar>}>
-    <DataTable definition={salesOpportunitiesTableDefinition} viewState={viewState} requestState={requestState} {...(onViewStateChange === undefined ? {} : { onViewStateChange })} />
+export interface SalesOpportunitiesPageProps {
+  readonly requestState: DataTableRequestState;
+  readonly viewState?: DataTableViewState;
+  readonly onViewStateChange?: (state: DataTableViewState) => void;
+  readonly mutationExecutor?: DataTableMutationExecutor;
+  readonly actionContext?: BrowserMutationContext;
+  readonly onActionResult?: (result: DataTableActionResult | DataTableBulkActionResult) => void | Promise<void>;
+  readonly onSourceInvalidated?: (sourceId: string) => void;
+  readonly onRefetch?: () => void;
+  readonly renderDetail?: (row: TableRow) => ReactNode;
+  readonly onLoadMore?: () => void;
+  readonly loadMoreLoading?: boolean;
+}
+export function SalesOpportunitiesPage({ requestState, viewState = createDataTableState(salesOpportunitiesTableDefinition), onViewStateChange, mutationExecutor, actionContext, onActionResult, onSourceInvalidated, onRefetch, renderDetail, onLoadMore, loadMoreLoading }: SalesOpportunitiesPageProps): ReactElement {
+  return <IndexPage templateId={salesOpportunitiesPageTemplate.id} title="Opportunities" description="Authorized pipeline opportunities." breadcrumbs={crumbs("Opportunities", "/sales/opportunities")}>
+    <DataTable definition={salesOpportunitiesTableDefinition} viewState={viewState} requestState={requestState} {...(onViewStateChange === undefined ? {} : { onViewStateChange })} {...(mutationExecutor === undefined ? {} : { mutationExecutor })} {...(actionContext === undefined ? {} : { actionContext })} {...(onActionResult === undefined ? {} : { onActionResult })} {...(onSourceInvalidated === undefined ? {} : { onSourceInvalidated })} {...(onRefetch === undefined ? {} : { onRefetch })} {...(renderDetail === undefined ? {} : { renderDetail })} {...(onLoadMore === undefined ? {} : { onLoadMore })} {...(loadMoreLoading === undefined ? {} : { loadMoreLoading })} />
   </IndexPage>;
 }
 
@@ -128,5 +149,5 @@ export function SalesSettingsPage({ settings }: SalesSettingsPageProps): ReactEl
 export const salesDefaultPageContract = Object.freeze({
   templates: Object.freeze([salesOverviewPageTemplate.id, salesTaskPageTemplate.id, salesOpportunitiesPageTemplate.id, salesSettingsPageTemplate.id]),
   sourceQueries: Object.freeze([salesTasksQuery.source.id, salesOpportunitiesQuery.source.id]),
-  actions: Object.freeze([salesCreateTaskMutation.action.id, salesOpportunityStageMutation.action.id])
+  actions: Object.freeze([salesCreateTaskMutation.action.id, salesUpdateTaskMutation.action.id, salesOpportunityStageMutation.action.id])
 });

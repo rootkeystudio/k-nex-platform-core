@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   RichTextEditor, RichTextRenderer, migrateRichTextDocument, parseRichTextDocument,
-  publishRichTextDocument, richTextEditorAdapter
+  publishRichTextDocument, richTextBudgets, richTextEditorAdapter
 } from "../src/index.js";
 
 const document = {
@@ -42,6 +42,16 @@ describe("versioned rich-text boundary", () => {
   it("keeps Lexical state internal to the K-Nex versioned adapter", () => {
     const markup = renderToStaticMarkup(<RichTextEditor document={{ schemaVersion: 1, blocks: [{ type: "paragraph", children: [{ type: "text", text: "Draft" }] }] }} label="Editor" onChange={() => undefined} />);
     expect(markup).toContain('data-k-nex-component="rich-text-editor"');
-    expect(richTextEditorAdapter).toEqual({ id: "lexical", version: "0.49.0", contractVersion: 1, supportedEditingBlocks: ["paragraph"], persistedState: "k-nex-rich-text@1" });
+    expect(richTextEditorAdapter).toEqual({ id: "lexical", version: "0.49.0", contractVersion: 1, supportedEditingBlocks: ["unmarked-paragraph"], persistedState: "k-nex-rich-text@1" });
+    expect(() => renderToStaticMarkup(<RichTextEditor document={document} label="Editor" onChange={() => undefined} />)).toThrow(/only unmarked paragraphs/);
+  });
+
+  it("bounds depth, total nodes, and cumulative text bytes", () => {
+    let nested: unknown = { type: "text", text: "safe" };
+    for (let depth = 0; depth <= richTextBudgets.depth; depth += 1) nested = { type: "link", href: "/safe", children: [nested] };
+    expect(() => parseRichTextDocument({ schemaVersion: 1, blocks: [{ type: "paragraph", children: [nested] }] })).toThrow(/budget/);
+    const tooMany = Array.from({ length: richTextBudgets.inlineNodes + 1 }, () => ({ type: "text", text: "x" }));
+    expect(() => parseRichTextDocument({ schemaVersion: 1, blocks: [{ type: "paragraph", children: tooMany }] })).toThrow(/budget/);
+    expect(() => parseRichTextDocument({ schemaVersion: 1, blocks: [{ type: "paragraph", children: [{ type: "text", text: "x".repeat(richTextBudgets.textBytes + 1) }] }] })).toThrow(/budget/);
   });
 });

@@ -85,8 +85,19 @@ const slotParts = new Map<string, readonly string[]>([
   ["TreeView", ["root", "item", "item-trigger", "group"]],
   ["FilterBar", ["root", "controls", "summary", "clear"]]
 ]);
-const sharedStates = Object.freeze(["disabled", "read-only", "pending", "invalid"]);
-const interactiveStates = Object.freeze(["hover", "focus", "pressed", "selected", ...sharedStates]);
+const browserEvidenceNames = new Set(["Button", "DataGrid", "DataTable", "Dialog", "Form", "SegmentedControl", "TextInput", "TreeView", "VirtualList"]);
+const hydrationEvidenceNames = new Set(["DataTable", "Dialog"]);
+const stateEvidence = new Map<string, readonly string[]>([
+  ["Button", ["default", "hover", "focus", "pressed", "disabled"]],
+  ["DataGrid", ["default", "focus", "selected"]],
+  ["DataTable", ["default", "selected", "empty", "error"]],
+  ["Dialog", ["default", "focus"]],
+  ["Form", ["default", "pending"]],
+  ["SegmentedControl", ["default", "selected"]],
+  ["TextInput", ["default", "read-only", "invalid"]],
+  ["TreeView", ["default", "focus", "selected", "expanded", "collapsed"]],
+  ["VirtualList", ["default", "focus"]]
+]);
 export const referenceComponentNames = Object.freeze([
   "Alert", "Breadcrumbs", "Button", "Card", "DataGrid", "DataTable", "Dialog", "EmptyState", "ErrorState",
   "FilterBar", "Form", "FormActions", "Heading", "IndexPage", "KeyValueList", "LoadingState", "Metric",
@@ -120,9 +131,9 @@ function entry(origin: ComponentInventoryEntry["origin"], category: ComponentInv
   const id = kebab(name);
   const behaviorSource = complexSources.get(name) ?? (nativeNames.has(name) ? "native-html" : reactAriaNames.has(name) ? "react-aria-adapter" : "k-nex");
   const disposition: ComponentDisposition = behaviorSource === "native-html" ? "native-semantic-wrapper" : complexSources.has(name) ? "versioned-complex-adapter" : "platform-component";
-  const interactive = reactAriaNames.has(name) || category === "forms" || name === "DataTable" || name === "DataGrid";
-  const testClasses: ComponentTestClass[] = ["unit", "ssr-hydration", "theme-contract", "boundary"];
-  if (interactive) testClasses.push("interaction", "browser");
+  const testClasses: ComponentTestClass[] = ["unit", "theme-contract", "boundary"];
+  if (hydrationEvidenceNames.has(name)) testClasses.push("ssr-hydration");
+  if (browserEvidenceNames.has(name)) testClasses.push("interaction", "browser");
   if (complexSources.has(name)) testClasses.push("performance");
   return Object.freeze({
     id,
@@ -137,7 +148,7 @@ function entry(origin: ComponentInventoryEntry["origin"], category: ComponentInv
     deliveryTask: deliveryTask(category, name),
     testClasses: Object.freeze(testClasses),
     slots: Object.freeze((slotParts.get(name) ?? ["root"]).map((part) => `component.${id}.${part}`)),
-    states: interactive ? interactiveStates : sharedStates
+    states: Object.freeze(stateEvidence.get(name) ?? ["default"])
   });
 }
 

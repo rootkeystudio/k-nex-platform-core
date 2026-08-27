@@ -7,15 +7,15 @@
 
 ## Last completed
 
-P7.10 added executable bundle/tree-shaking budgets, large-data and query-state performance probes, Chromium render/dialog/mount-cycle checks, reference-maturity coverage, `gate:7`, and the Phase 7 result. The closeout proves all 60 Gallery plus 71 K-Nex families are executable, while Sales remains the only first-party domain module.
+The blocking Phase 7 review was addressed on one coherent rework head: executable 131-family evidence, real Chromium hydration/portal and virtual-list proofs, APG TreeView interaction, capability-bound DataTable mutations and controlled tooling, canonical Puck render parity, bounded rich-text handling, metafile tree-shaking inspection, and mandatory heap evidence. Sales remains the only first-party domain module.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: exact-head `pnpm gate:7` PASS, including Gates 0–6, PostgreSQL lifecycle/publication, plugin conformance, package boundaries, real-browser journeys, 16-state/two-theme matrix, hydration, bundle/tree-shaking budgets, and performance probes. `pnpm audit --audit-level high` found no high/critical advisory.
+Targeted rework validation PASS for UI components, UI data, UI builder blocks, UI testing unit/performance/Chromium suites, and the complete Sales build/test/package contract. Exact-head full `pnpm gate:7` remains the next validation step.
 
 ## Next
 
-Complete formal Sol-high phase review and open the stacked Phase 7 PR without merge or auto-merge.
+Run exact-head Gate 7 and audit, complete formal Sol-high phase review, then open the stacked Phase 7 PR without merge or auto-merge.
 
 ## Blockers
 

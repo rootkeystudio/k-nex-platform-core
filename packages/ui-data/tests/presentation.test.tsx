@@ -17,12 +17,12 @@ describe("data and media presentation", () => {
     expect(markup).toContain("<table");
   });
 
-  it("preserves full list semantics and positions inside a bounded virtual window", () => {
-    const markup = renderToStaticMarkup(<VirtualList label="Rows" items={["a", "b", "c", "d"]} getKey={(item) => item} renderItem={(item) => item} window={{ start: 1, size: 2 }} />);
+  it("preserves list semantics in its server-estimated virtual viewport", () => {
+    const markup = renderToStaticMarkup(<VirtualList label="Rows" items={["a", "b", "c", "d"]} getKey={(item) => item} renderItem={(item) => item} height={72} estimateSize={36} overscan={0} />);
     expect(markup).toContain('aria-rowcount="4"');
+    expect(markup).toContain('aria-posinset="1"');
     expect(markup).toContain('aria-posinset="2"');
-    expect(markup).toContain('aria-posinset="3"');
-    expect(markup).not.toContain(">a<");
+    expect(markup).not.toContain('aria-posinset="3"');
     expect(markup).not.toContain(">d<");
   });
 });

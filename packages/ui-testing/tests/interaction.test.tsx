@@ -13,14 +13,15 @@ describe("component interaction and semantic matrix", () => {
     const user = userEvent.setup();
     render(<MatrixFixture />);
     for (const label of ["Minimal", "Neobrutalism"]) {
-      const surface = within(screen.getByTestId(`surface-${label}`));
+      const surfaceElement = screen.getByTestId(`surface-${label}`);
+      const surface = within(surfaceElement);
       expect(surface.getAllByRole("table").length).toBeGreaterThan(0);
       expect(surface.getByRole("form", { name: "Create task" })).toBeTruthy();
       expect(surface.getByRole("grid", { name: "Task grid" })).toBeTruthy();
-      validateComponentStateMatrix(componentStateMatrix.filter((state) => surface.getByText(state)));
+      validateComponentStateMatrix(componentStateMatrix.filter((state) => surfaceElement.querySelector(`[data-matrix-state="${state}"]`) !== null));
     }
     const minimal = within(screen.getByTestId("surface-Minimal"));
-    const search = minimal.getByRole("searchbox", { name: "Search tasks" });
+    const search = minimal.getAllByRole("searchbox", { name: "Search Sales tasks" })[0]!;
     await user.type(search, "customer");
     expect(search).toHaveProperty("value", "customer");
     await user.click(minimal.getAllByRole("checkbox", { name: "Select row task-1" })[0]!);

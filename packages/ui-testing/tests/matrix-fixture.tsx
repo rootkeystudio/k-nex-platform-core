@@ -2,13 +2,12 @@ import { useState, type ReactElement } from "react";
 
 import { Button, KNeXDesignSystemProvider, type ThemePresentationSnapshot } from "@k-nex/ui-design-system-contracts";
 import { Card, Dialog, SegmentedControl } from "@k-nex/ui-components";
-import { DataGrid, DataTable, createDataTableState } from "@k-nex/ui-data";
+import { DataGrid, DataTable, VirtualList, createDataTableState } from "@k-nex/ui-data";
 import { Form, TextInput } from "@k-nex/ui-forms";
 import { resolveMinimalThemeProfile } from "@k-nex/theme-minimal";
 import { resolveNeobrutalismThemeProfile } from "@k-nex/theme-neobrutalism";
 import { SalesTasksPage, createSalesTaskQuickCreateController, salesTasksTableDefinition } from "@k-nex/module-sales/pages";
 import type { BrowserDataTransport } from "@k-nex/ui-runtime";
-import { componentStateMatrix } from "../src/index.js";
 
 const profile = (themeId: "theme.minimal" | "theme.neobrutalism", palette: string, revision: string) => ({
   schemaVersion: 1, id: `theme-profile.${revision}`, surface: "public", themeId, themeVersion: "1.0.0", palette, mode: "light", values: {},
@@ -24,25 +23,32 @@ export const taskRecords = {
 };
 const transport = { query: async () => ({ ok: false as const, problem: { code: "UNUSED", status: 500 } }), mutate: async () => ({ ok: false as const, problem: { code: "UNUSED", status: 500 } }) } as BrowserDataTransport;
 const createTask = createSalesTaskQuickCreateController(transport, "matrix").initial();
-
-function StateMarkers(): ReactElement {
-  return <div aria-label="Component state matrix">{componentStateMatrix.map((state) => <span key={state} data-matrix-state={state}>{state}</span>)}</div>;
-}
+const virtualRows = Array.from({ length: 10_000 }, (_, index) => `Virtual row ${index}`);
 
 function Surface({ label, presentation }: { readonly label: string; readonly presentation: ThemePresentationSnapshot }): ReactElement {
   const [viewState, setViewState] = useState(createDataTableState(salesTasksTableDefinition));
   const selectedState = { ...viewState, selectedRows: ["task-1"] };
   return <KNeXDesignSystemProvider primitives={presentation.primitives}><section data-testid={`surface-${label}`} data-theme-id={presentation.themeId} data-k-nex-theme-profile={presentation.profileRevisionId}>
-    <StateMarkers />
+    <div data-matrix-state="default"><Card>Default surface</Card></div>
+    <div data-matrix-state="hover"><Button>{label} hover probe</Button></div>
+    <div data-matrix-state="focus"><Button>{label} focus probe</Button></div>
+    <div data-matrix-state="pressed"><Button>{label} pressed probe</Button></div>
+    <div data-matrix-state="selected"><SegmentedControl label={`${label} selected view`} items={[{ id: "list", label: "List" }, { id: "board", label: "Board" }]} value="list" onChange={() => undefined} /></div>
+    <div data-matrix-state="disabled"><Button isDisabled>{label} disabled probe</Button></div>
+    <div data-matrix-state="read-only"><TextInput name={`${label}-readonly`} label={`${label} read only`} value="Fixed" readOnly onChange={() => undefined} /></div>
+    <div data-matrix-state="pending"><Form label={`${label} pending form`} pending onSubmit={() => undefined}><Button type="submit">Submit</Button></Form></div>
+    <div data-matrix-state="invalid"><TextInput name={`${label}-invalid`} label={`${label} invalid field`} value="Bad" error="Invalid value" onChange={() => undefined} /></div>
+    <div data-matrix-state="empty"><DataTable definition={salesTasksTableDefinition} viewState={viewState} requestState={{ state: "empty" }} label={`${label} empty tasks`} /></div>
+    <div data-matrix-state="error"><DataTable definition={salesTasksTableDefinition} viewState={viewState} requestState={{ state: "error", problem: { code: "FAILED", status: 500 } }} label={`${label} failed tasks`} /></div>
+    <div data-matrix-state="high-contrast"><Button>{label} high contrast probe</Button></div>
+    <div data-matrix-state="reduced-motion"><Button>{label} reduced motion probe</Button></div>
+    <div data-matrix-state="rtl" dir="rtl">مرحبا بالمبيعات</div>
+    <div data-matrix-state="long-text">Long localized customer follow-up task with intentionally extended content for bounded layout evidence</div>
+    <div data-matrix-state="localization" lang="tr">Satış görevleri yerelleştirme kontrolü</div>
     <SalesTasksPage requestState={{ state: "success", data: taskRecords }} viewState={viewState} createTask={createTask} onViewStateChange={setViewState} onCreateTaskChange={() => undefined} onCreateTask={() => undefined} />
-    <Card><SegmentedControl label="View" items={[{ id: "list", label: "List" }, { id: "board", label: "Board" }]} value="list" onChange={() => undefined} /></Card>
-    <Button isDisabled>Disabled action</Button>
     <Dialog triggerLabel={`Open ${label} matrix dialog`} title={`${label} matrix dialog`}>Overlay performance probe</Dialog>
-    <Form label="Pending form" pending onSubmit={() => undefined}><TextInput name="readonly" label="Read only" value="Fixed" readOnly onChange={() => undefined} /><TextInput name="invalid" label="Invalid field" value="Bad" error="Invalid value" onChange={() => undefined} /></Form>
-    <DataTable definition={salesTasksTableDefinition} viewState={viewState} requestState={{ state: "empty" }} label="Empty tasks" />
-    <DataTable definition={salesTasksTableDefinition} viewState={viewState} requestState={{ state: "error", problem: { code: "FAILED", status: 500 } }} label="Failed tasks" />
     <DataGrid definition={salesTasksTableDefinition} viewState={selectedState} requestState={{ state: "success", data: taskRecords }} label="Task grid" />
-    <p dir="rtl">مرحبا بالمبيعات</p><p lang="tr">Satış görevleri yerelleştirme kontrolü</p>
+    <VirtualList label={`${label} virtual tasks`} items={virtualRows} getKey={(item) => item} renderItem={(item) => item} height={180} />
   </section></KNeXDesignSystemProvider>;
 }
 
@@ -54,5 +60,5 @@ export function MatrixFixture(): ReactElement {
 
 export function HydrationProbe(): ReactElement {
   const viewState = createDataTableState(salesTasksTableDefinition);
-  return <KNeXDesignSystemProvider primitives={minimalPresentation.primitives}><section data-k-nex-theme-profile={minimalPresentation.profileRevisionId}><DataTable definition={salesTasksTableDefinition} viewState={viewState} requestState={{ state: "success", data: taskRecords }} label="Hydration tasks" /></section></KNeXDesignSystemProvider>;
+  return <KNeXDesignSystemProvider primitives={minimalPresentation.primitives}><section data-k-nex-theme-profile={minimalPresentation.profileRevisionId}><DataTable definition={salesTasksTableDefinition} viewState={viewState} requestState={{ state: "success", data: taskRecords }} label="Hydration tasks" /><Dialog triggerLabel="Open hydration portal" title="Hydration portal">Hydrated overlay</Dialog></section></KNeXDesignSystemProvider>;
 }

@@ -8,7 +8,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { Combobox } from "../../ui-forms/dist/index.js";
 import { TreeView } from "../../ui-components/dist/index.js";
-import { DataTable, VirtualList, createDataTableController, createDataTableState } from "../../ui-data/dist/index.js";
+import { DataTable, createDataTableController, createDataTableState } from "../../ui-data/dist/index.js";
 import { salesTasksTableDefinition } from "../../../modules/sales/dist/pages.js";
 
 const root = new URL("../../../", import.meta.url).pathname;
@@ -21,11 +21,12 @@ const bundles = {
 const bundleBudgets = { components: 45_000, dataTable: 65_000, richTextEditor: 120_000, salesPages: 150_000 };
 const bundleBytes = {};
 for (const [name, contents] of Object.entries(bundles)) {
-  const output = await build({ stdin: { contents, resolveDir: root, sourcefile: `${name}.js` }, bundle: true, format: "esm", minify: true, treeShaking: true, write: false });
+  const output = await build({ stdin: { contents, resolveDir: root, sourcefile: `${name}.js` }, bundle: true, format: "esm", minify: true, treeShaking: true, metafile: true, write: false });
   const bytes = gzipSync(output.outputFiles[0].contents).byteLength;
   bundleBytes[name] = bytes;
   assert(bytes <= bundleBudgets[name], `${name} gzip bundle ${bytes} exceeds ${bundleBudgets[name]}`);
-  if (name !== "richTextEditor") assert.equal(output.outputFiles[0].text.includes("LexicalEditor"), false, `${name} unexpectedly bundles Lexical`);
+  const lexicalInputs = Object.keys(output.metafile.inputs).filter((input) => /(?:^|\/)node_modules\/.pnpm\/(?:@lexical|lexical)@/.test(input));
+  assert.equal(name === "richTextEditor" ? lexicalInputs.length > 0 : lexicalInputs.length === 0, true, `${name} Lexical dependency graph is invalid`);
 }
 
 const rows = Array.from({ length: 1_000 }, (_, index) => ({ key: `task-${index}`, values: { title: { kind: "text", value: `Task ${index}` }, status: { kind: "status", value: index % 2 === 0 ? "open" : "done" }, "potential-revenue": { kind: "money", value: String(index), currency: "USD", scale: 2 } } }));
@@ -35,12 +36,6 @@ let start = performance.now();
 const tableMarkup = renderToStaticMarkup(React.createElement(DataTable, { definition: salesTasksTableDefinition, viewState: state, requestState: { state: "success", data: records } }));
 const normalTableMs = performance.now() - start;
 assert(tableMarkup.includes("Task 999") && normalTableMs < 1_500, `1,000-row table render exceeded 1.5s: ${normalTableMs}`);
-
-const items = Array.from({ length: 10_000 }, (_, index) => `Row ${index}`);
-start = performance.now();
-const virtualMarkup = renderToStaticMarkup(React.createElement(VirtualList, { label: "Virtual rows", items, getKey: (item) => item, renderItem: (item) => item, window: { start: 5_000, size: 50 } }));
-const virtualListMs = performance.now() - start;
-assert(virtualMarkup.includes("Row 5000") && !virtualMarkup.includes("Row 4999") && virtualListMs < 250, `10,000-row virtual window exceeded 250ms: ${virtualListMs}`);
 
 const controller = createDataTableController(salesTasksTableDefinition);
 start = performance.now();
@@ -55,5 +50,5 @@ renderToStaticMarkup(React.createElement(React.Fragment, null, React.createEleme
 const largeCollectionMs = performance.now() - start;
 assert(largeCollectionMs < 1_000, `large collections exceeded 1s: ${largeCollectionMs}`);
 
-console.log(JSON.stringify({ bundleGzipBytes: bundleBytes, normalTableMs: Math.round(normalTableMs * 100) / 100, virtualListMs: Math.round(virtualListMs * 100) / 100, queryChurnMs: Math.round(queryChurnMs * 100) / 100, largeCollectionMs: Math.round(largeCollectionMs * 100) / 100 }, null, 2));
+console.log(JSON.stringify({ bundleGzipBytes: bundleBytes, normalTableMs: Math.round(normalTableMs * 100) / 100, queryChurnMs: Math.round(queryChurnMs * 100) / 100, largeCollectionMs: Math.round(largeCollectionMs * 100) / 100 }, null, 2));
 console.log("P7_COMPONENT_PERFORMANCE_PASS");

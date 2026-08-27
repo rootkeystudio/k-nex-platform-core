@@ -26,6 +26,9 @@ describe("navigation, disclosure, and overlay family", () => {
     for (const id of ["skip-link", "navigation", "breadcrumbs", "tabs", "segmented-control", "button-group", "toolbar", "dropdown-menu", "tree-view", "accordion", "dialog", "modal", "drawer", "popover", "tooltip", "carousel"]) expect(markup).toContain(`data-k-nex-component="${id}"`);
     expect(markup).toContain('aria-current="page"');
     expect(markup).toContain('role="tree"');
+    expect(markup).toContain('tabindex="0"');
+    expect(markup).toContain('aria-expanded="true"');
+    expect(markup).toContain('aria-level="2"');
     expect(markup).toContain("<details");
   });
 });

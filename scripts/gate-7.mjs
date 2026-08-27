@@ -8,7 +8,7 @@ import * as data from "../packages/ui-data/dist/index.js";
 import * as forms from "../packages/ui-forms/dist/index.js";
 import * as pages from "../packages/ui-pages/dist/index.js";
 import { componentInventory, referenceComponentNames } from "../packages/ui-components/dist/index.js";
-import { componentStateMatrix, componentThemeMatrix } from "../packages/ui-testing/dist/index.js";
+import { componentEvidenceMap, componentStateMatrix, componentThemeMatrix, validateComponentEvidenceMap } from "../packages/ui-testing/dist/index.js";
 import { genericPuckBlockBridges } from "../packages/ui-builder-blocks/dist/index.js";
 import { salesDefaultPageContract } from "../modules/sales/dist/pages.js";
 import { salesPuckBlockBridges } from "../modules/sales/dist/ui.js";
@@ -32,6 +32,12 @@ assert.equal(componentInventory.length, 131);
 const packageExports = { "@k-nex/ui-components": components, "@k-nex/ui-data": data, "@k-nex/ui-forms": forms, "@k-nex/ui-pages": pages };
 assert.deepEqual(componentInventory.filter((entry) => packageExports[entry.packageTarget]?.[entry.name] === undefined).map(({ name }) => name), [], "Every inventory family must be executable from its declared package.");
 assert.deepEqual(componentInventory.filter(({ maturity }) => maturity === "reference").map(({ name }) => name).sort(), [...referenceComponentNames].sort());
+validateComponentEvidenceMap();
+assert.equal(componentEvidenceMap.length, componentInventory.length);
+for (const entry of componentInventory) {
+  const evidence = componentEvidenceMap.find(({ family }) => family === entry.name);
+  assert.ok(evidence && entry.testClasses.every((testClass) => evidence.proofs[testClass] !== undefined) && entry.states.every((state) => evidence.states.includes(state)), `Missing executable evidence for ${entry.name}.`);
+}
 assert.equal(componentStateMatrix.length, 16);
 assert.deepEqual(componentThemeMatrix, ["theme.minimal", "theme.neobrutalism"]);
 assert.equal(minimalThemePackage.primitiveOverrides?.Button, neobrutalismThemePackage.primitiveOverrides?.Button, "themes cannot fork component behavior");
@@ -41,11 +47,12 @@ assert.equal(salesDefaultPageContract.templates.length, 4);
 assert.equal(/from\s+["'](?:payload|@k-nex\/theme-|@tanstack\/|@puckeditor\/)/.test(salesPages), false, "Sales pages bypass platform UI boundaries.");
 assert.equal(componentManifest.dependencies["@react-aria/focus"], "3.22.1");
 assert.equal(dataManifest.dependencies["@tanstack/react-table"], "8.21.3");
+assert.equal(dataManifest.dependencies["@tanstack/react-virtual"], "3.14.9");
 assert.equal(dataManifest.dependencies.lexical, "0.49.0");
 
 for (const marker of [
   "# Phase 7 Result", "**Decision:** **GO Phase 8**", "60 Component Gallery", "131 executable families",
-  "P7_COMPONENT_MATRIX_BROWSER_PASS", "P7_COMPONENT_PERFORMANCE_PASS", "Sales remains the only first-party domain module",
+  "P7_COMPONENT_MATRIX_BROWSER_PASS", "P7_COMPONENT_PERFORMANCE_PASS", "family-to-test-class evidence map", "Sales remains the only first-party domain module",
   "P8.1"
 ]) assert.ok(result.includes(marker), `Phase 7 result is missing: ${marker}.`);
 const taskCommits = ["581c179", "5bd9c93", "5301d53", "827fc24", "aa6abf4", "b70815a", "f3cf1c6", "e31af8d", "b557058"];
