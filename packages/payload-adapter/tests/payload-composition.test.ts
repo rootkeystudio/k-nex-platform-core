@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { executeRegistration, type RegistrationResult } from "@k-nex/runtime";
 import { PluginManifestSchema } from "@k-nex/contracts";
 import { salesRegistration, salesTasksCollection } from "@k-nex/module-sales/server";
+import { salesTaskFixture } from "@k-nex/module-sales/testing";
 import { buildConfig, type CollectionConfig } from "payload";
 import { describe, expect, it } from "vitest";
 
@@ -139,15 +140,13 @@ describe("Payload application composition", () => {
     expectCode(() => compose({ registration: registrationWith({ arbitraryPayloadPatch: true }) }), "INVALID_SCHEMA_CONTRIBUTION");
   });
 
-  it("keeps the package server-only and ships one domain-neutral fixture", () => {
+  it("exposes the seven separated plugin entrypoints and a typed testing fixture", () => {
     const packageJson = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../../modules/sales/package.json"), "utf8"));
     expect(Object.hasOwn(packageJson.exports, ".")).toBe(false);
-    expect(packageJson.exports).toHaveProperty("./manifest", "./k-nex.plugin.json");
-    expect(packageJson.exports).toHaveProperty("./server");
-    expect(packageJson.exports).not.toHaveProperty("./browser");
-
-    const task = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../../modules/sales/testing/task-fixture.json"), "utf8"));
-    expect(task).toEqual({ title: "Prepare customer follow-up", status: "open" });
+    expect(Object.keys(packageJson.exports).sort()).toEqual([
+      "./browser", "./contracts", "./manifest", "./migrations", "./server", "./testing", "./ui"
+    ]);
+    expect(salesTaskFixture).toEqual({ title: "Prepare customer follow-up", status: "open" });
   });
 
   it("does not accept an empty database connection setting", () => {

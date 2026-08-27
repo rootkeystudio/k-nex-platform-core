@@ -42,10 +42,26 @@ function assertEquivalent(generated, committed) {
   }
 }
 
+function assertDeclaredEntrypoints(archive) {
+  const entries = tarEntries(archive);
+  const packageJson = JSON.parse(entries.get("package/package.json")?.toString("utf8") ?? "null");
+  const entrypoints = ["./browser", "./contracts", "./manifest", "./migrations", "./server", "./testing", "./ui"];
+  assert.deepEqual(Object.keys(packageJson.exports).sort(), entrypoints);
+
+  const expectedFiles = new Set(["package/package.json"]);
+  for (const value of Object.values(packageJson.exports)) {
+    for (const target of typeof value === "string" ? [value] : Object.values(value)) {
+      expectedFiles.add(`package/${target.replace(/^\.\//, "")}`);
+    }
+  }
+  assert.deepEqual([...entries.keys()].sort(), [...expectedFiles].sort());
+}
+
 try {
   execFileSync("pnpm", ["pack", "--pack-destination", temporaryRoot], { cwd: packageRoot, stdio: "ignore" });
   const generated = gunzipSync(readFileSync(join(temporaryRoot, filename)));
   const committed = gunzipSync(readFileSync(resolve(packageRoot, "../../fixtures/customer-gate-1/packages", filename)));
+  assertDeclaredEntrypoints(generated);
   assertEquivalent(generated, committed);
   console.log("The committed Sales package tar content is current and reproducible.");
 } finally {

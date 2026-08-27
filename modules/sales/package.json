@@ -6,25 +6,44 @@
   "sideEffects": false,
   "exports": {
     "./manifest": "./k-nex.plugin.json",
+    "./contracts": {
+      "types": "./dist/contracts.d.ts",
+      "default": "./dist/contracts.js"
+    },
     "./server": {
       "types": "./dist/server.d.ts",
       "default": "./dist/server.js"
     },
-    "./testing/task-fixture": "./testing/task-fixture.json"
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "default": "./dist/browser.js"
+    },
+    "./ui": {
+      "types": "./dist/ui.d.ts",
+      "default": "./dist/ui.js"
+    },
+    "./migrations": {
+      "types": "./dist/migrations.d.ts",
+      "default": "./dist/migrations.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
+    }
   },
   "files": [
-    "dist/server.d.ts",
-    "dist/server.js",
-    "k-nex.plugin.json",
-    "testing"
+    "dist/*.d.ts",
+    "dist/*.js",
+    "k-nex.plugin.json"
   ],
   "scripts": {
     "build": "tsc -b",
-    "test": "node --test tests/server.test.mjs && node scripts/check-pack.mjs",
+    "test": "node --test tests/server.test.mjs && node scripts/check-boundaries.mjs && node scripts/check-pack.mjs",
     "test:sources": "node --test tests/server.test.mjs"
   },
   "peerDependencies": {
-    "@k-nex/contracts": "0.0.0"
+    "@k-nex/contracts": "0.0.0",
+    "@k-nex/runtime": "0.0.0"
   },
   "devDependencies": {
     "@k-nex/contracts": "workspace:*",

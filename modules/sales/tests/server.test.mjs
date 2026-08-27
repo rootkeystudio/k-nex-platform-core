@@ -5,17 +5,19 @@ import test from "node:test";
 import { ActionDescriptorSchema, AgentToolDescriptorSchema, canonicalJson, DataSourceDescriptorSchema } from "@k-nex/contracts";
 
 import {
-  salesRegistration,
   salesCreateTaskToolDescriptor,
   salesSearchTasksDescriptor,
-  salesTaskCreateDefinition,
   salesTaskCreateDescriptor,
+  salesTasksDescriptor,
+  salesTotalPotentialRevenueDescriptor
+} from "../dist/contracts.js";
+import {
+  salesRegistration,
+  salesTaskCreateDefinition,
   salesTaskCreateHandler,
   salesTasksDefinition,
-  salesTasksDescriptor,
   salesTasksHandler,
   salesTotalPotentialRevenueDefinition,
-  salesTotalPotentialRevenueDescriptor,
   salesTotalPotentialRevenueHandler
 } from "../dist/server.js";
 

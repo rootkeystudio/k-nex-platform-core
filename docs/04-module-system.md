@@ -30,6 +30,8 @@ See [Plugin Platform Hardening and the Sales Reference Module](./33-plugin-platf
 
 Server dependencies must not leak into contracts/browser/UI entrypoints. Third-party component/query/editor/protocol types remain behind K-Nex adapters.
 
+`module.sales` is the executable package skeleton. Server registration uses `definePluginRegistration` from `@k-nex/runtime`; each phase receives only its registration operations and a capability reader that rejects services absent from the manifest-derived dependency grant. The package exports exactly the seven entrypoints above and exposes no root convenience entrypoint.
+
 ## Canonical manifest
 
 Do not copy a new manifest shape into prose. Use:

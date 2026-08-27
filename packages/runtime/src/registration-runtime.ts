@@ -74,6 +74,9 @@ export interface PluginRegistration {
   readonly admin?: (context: AdminRegistrationContext) => void;
   readonly validate?: (context: ValidateRegistrationContext) => void;
 }
+export function definePluginRegistration<const Registration extends PluginRegistration>(registration: Registration): Readonly<Registration> {
+  return Object.freeze(registration);
+}
 export interface RegisteredContribution { readonly pluginId: string; readonly id: string; readonly value: unknown; }
 export interface RegistrationInventoryPlugin {
   readonly id: string;

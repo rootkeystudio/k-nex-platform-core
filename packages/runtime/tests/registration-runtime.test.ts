@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import type { InstalledPluginManifest, ResolvedPluginGraph } from "@k-nex/composition";
 import {
+  definePluginRegistration,
   executeRegistration,
   RegistrationError,
   type DataSourceHandler,
@@ -301,6 +302,12 @@ function expectCode(action: () => unknown, code: RegistrationError["code"]): voi
 }
 
 describe("phased registration runtime", () => {
+  it("provides a frozen authoring helper without widening plugin registration callbacks", () => {
+    const registration = definePluginRegistration({ pluginId: "module.consumer" });
+    expect(registration.pluginId).toBe("module.consumer");
+    expect(Object.isFrozen(registration)).toBe(true);
+  });
+
   it("runs phase-major in canonical order and dependency-first plugin order", () => {
     const trace: string[] = [];
     const hookPlan = (pluginId: string): PluginRegistration => ({
