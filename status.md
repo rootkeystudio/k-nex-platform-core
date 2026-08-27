@@ -7,11 +7,11 @@
 
 ## Last completed
 
-P6.10 Sol review REWORK rebinds every descriptor-bearing UI definition at runtime and Puck public boundaries, so parsed canonical props/source/action policy remains authoritative while only the renderer crosses as executable behavior.
+P6.10 Sol review REWORK wires the Git-free Gate 6 squash regression into `pnpm gate:6` and proves stale generated artifacts plus missing task evidence fail closed.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: UI runtime tests/build; builder-Puck tests/build/boundary/browser; Sales test; full workspace build; and `git diff --check` pass. Final Phase 6 review validation remains.
+Node 24.19.0 / pnpm 11.9.0: focused Gate 6 regression and direct Gate 6 validation pass; final Phase 6 review validation remains.
 
 ## Next
 
