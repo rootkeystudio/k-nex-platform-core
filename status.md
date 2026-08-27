@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-27
 - **Phase:** Phase 6 — Plugin Platform Hardening and Sales Reference Module
-- **Active task:** P6.9 — Prove Sales install, enable, disable, and re-enable
+- **Active task:** P6.10 — Close Gate 6 and freeze the pre-v1 authoring contract
 - **State:** Ready to start
 
 ## Last completed
 
-Completed P6.8: added `pnpm plugin:check <plugin-directory>`, strict repository-scoped conformance plans, exact named-test execution, complete evidence-class accounting, Sales proof mapping, and fail-closed tests for missing/unknown evidence, duplicate proofs, and arbitrary runner shapes.
+Completed P6.9: added independent lifecycle state/readiness, source-controlled install and idempotent seed planning, fail-closed availability reconciliation, deterministic reference scans, unsupported-uninstall refusal, and a real PostgreSQL Sales enable-disable-re-enable proof preserving schema/reads/data while blocking writes and executable surfaces.
 
 ## Validation
 
-Node 24.19.0: `pnpm plugin:check:test` 2; `pnpm plugin:check modules/sales` PASS with 14 proof executions covering all 10 required evidence classes, including real PostgreSQL migration/boot, exact named tests, attacks, boundaries, UI/Puck, accessibility, and reproducible pack.
+Node 24.19.0: runtime 172; Payload adapter 43; conformance-plan 2; real PostgreSQL Gate 1 including disabled-write 403 and `P6_9_SALES_LIFECYCLE_PASS`; conformance PASS across 14 proofs/11 classes. Local Docker port-bind flake required Ryuk-disabled rerun; test-owned cleanup remained active.
 
 ## Next
 
-Implement P6.9 lifecycle state, availability reconciliation, data preservation, re-enable readiness, and destructive-operation reference scan.
+Create Phase 6 result and authoring documentation, remove obsolete pre-v1 helpers, add `pnpm gate:6`, then run full gate and independent review.
 
 ## Blockers
 

@@ -106,6 +106,23 @@ describe("Payload application composition", () => {
     expect((access as Function)({ req: { user: { id: "actor-1", collection: "users" } } })).toBe(true);
   });
 
+  it("retains disabled plugin schema and reads while gating collection writes", async () => {
+    const disabled = {
+      pluginId: "module.sales", enabled: false, ready: true, contributions: {},
+      isAvailable: (kind: string) => kind === "schema"
+    };
+    const composed = composePayloadApplication({
+      baseConfig: { secret: "payload-composition-test-secret" }, databaseUrl: "postgres://test:test@localhost:5432/test",
+      pluginAvailability: [disabled], registration: registration()
+    });
+    const collection = composed.config.collections?.find(({ slug }) => slug === "sales-tasks");
+    expect(collection).toBeDefined();
+    expect(await collection?.access?.read?.({ req: { user: { id: "actor-1", collection: "users" } } } as never)).not.toBe(false);
+    expect(await collection?.access?.create?.({} as never)).toBe(false);
+    expect(await collection?.access?.update?.({} as never)).toBe(false);
+    expect(await collection?.access?.delete?.({} as never)).toBe(false);
+  });
+
   it("rejects duplicate collection slugs before Payload initialization", () => {
     expectCode(() => compose({ baseCollections: [{ ...salesTasksCollection }] }), "DUPLICATE_COLLECTION_SLUG");
   });

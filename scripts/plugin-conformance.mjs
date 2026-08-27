@@ -8,6 +8,7 @@ export const requiredPluginEvidence = Object.freeze([
   "default-page-seed",
   "deterministic-inventory",
   "fresh-migration-boot",
+  "install-disable-reenable",
   "manifest-schema-fixtures",
   "package-export-boundaries",
   "packed-reproducibility",

@@ -1,5 +1,12 @@
 import type { ResolvedPluginGraph } from "@k-nex/composition";
-import { executeRegistration, ToolCatalog } from "@k-nex/runtime";
+import {
+  createPluginLifecycleState,
+  executeRegistration,
+  reconcilePluginAvailability,
+  ToolCatalog,
+  type PluginAvailability,
+  type PluginLifecycleState
+} from "@k-nex/runtime";
 import { PluginManifestSchema, type AgentToolDescriptor } from "@k-nex/contracts";
 import manifestJson from "@k-nex/module-sales/manifest" with { type: "json" };
 import providerManifestJson from "@k-nex/provider-realtime-socketio/manifest" with { type: "json" };
@@ -14,12 +21,19 @@ import {
 import resolvedJson from "../.k-nex/generated/k-nex.resolved.json" with { type: "json" };
 import { runtimeRegistration } from "../.k-nex/generated/runtime-registration.js";
 import { createDataSourceQueryEndpoint } from "./data-source-endpoint.js";
+import { applicationMigrationRevision } from "./migration-revision.js";
 import { createGate1RuntimeInventory, createRuntimeInventoryEndpoint } from "./runtime-inventory.js";
 
 export interface CreateGate1ApplicationOptions {
   readonly databaseUrl: string;
   readonly migrations: readonly CustomerPayloadMigration[];
   readonly payloadSecret: string;
+  readonly salesEnabled?: boolean;
+}
+
+export interface Gate1Application extends ComposedPayloadApplication {
+  readonly salesAvailability: PluginAvailability;
+  readonly salesLifecycle: PluginLifecycleState;
 }
 
 const usersCollection: CollectionConfig = {
@@ -28,7 +42,7 @@ const usersCollection: CollectionConfig = {
   fields: []
 };
 
-export function createGate1Application(options: CreateGate1ApplicationOptions): ComposedPayloadApplication {
+export function createGate1Application(options: CreateGate1ApplicationOptions): Gate1Application {
   if (resolvedJson.resolverVersion !== "1.0.0") throw new Error("Unsupported resolved graph version.");
   const manifest = PluginManifestSchema.parse(manifestJson);
   const providerManifest = PluginManifestSchema.parse(providerManifestJson);
@@ -61,10 +75,24 @@ export function createGate1Application(options: CreateGate1ApplicationOptions): 
       runtimeRegistration["provider.realtime.socketio"].socketIoRealtimeProviderRegistration
     ]
   });
+  const salesEnabled = options.salesEnabled ?? true;
+  const salesLifecycle = createPluginLifecycleState({
+    pluginId: manifest.id,
+    catalogStatus: "supported",
+    package: { status: "installed", name: plugin.package, version: plugin.version, integrity: plugin.integrity },
+    enabled: salesEnabled,
+    configuration: { revision: 1, ready: true },
+    migration: { current: applicationMigrationRevision.current, required: applicationMigrationRevision.current, ready: true },
+    dataState: salesEnabled ? "active" : "retained",
+    releaseStatus: "supported"
+  });
+  const salesAvailability = reconcilePluginAvailability(registration, salesLifecycle);
   const inventory = createGate1RuntimeInventory(registration);
-  const tools = registration.contributions.tools.map(({ value }) => value as AgentToolDescriptor);
+  const tools = registration.contributions.tools
+    .filter(({ id, pluginId }) => pluginId !== manifest.id || salesAvailability.isAvailable("tools", id))
+    .map(({ value }) => value as AgentToolDescriptor);
   const catalog = new ToolCatalog(registration, { isVisible: () => true });
-  const mcp = createPayloadMcpPlugin({
+  const mcp = tools.length === 0 ? undefined : createPayloadMcpPlugin({
     tools,
     catalog,
     gateway: { execute: async () => { throw new Error("The fixture MCP lifecycle proof does not invoke tools."); } },
@@ -89,15 +117,17 @@ export function createGate1Application(options: CreateGate1ApplicationOptions): 
     },
     surface: "workspace"
   });
-  return composePayloadApplication({
+  const application = composePayloadApplication({
     baseConfig: {
       secret: options.payloadSecret,
-      plugins: [mcp],
-      endpoints: [createRuntimeInventoryEndpoint(inventory), createDataSourceQueryEndpoint(registration)]
+      plugins: mcp === undefined ? [] : [mcp],
+      endpoints: [createRuntimeInventoryEndpoint(inventory), createDataSourceQueryEndpoint(registration, salesAvailability)]
     },
     baseCollections: [usersCollection],
     databaseUrl: options.databaseUrl,
     migrations: options.migrations,
+    pluginAvailability: [salesAvailability],
     registration
   });
+  return Object.freeze({ ...application, salesAvailability, salesLifecycle });
 }

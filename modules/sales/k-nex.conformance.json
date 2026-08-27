@@ -17,7 +17,7 @@
       "script": "check:boundaries"
     },
     {
-      "covers": ["deterministic-inventory", "fresh-migration-boot"],
+      "covers": ["deterministic-inventory", "fresh-migration-boot", "install-disable-reenable"],
       "id": "inventory-migration-boot",
       "kind": "pnpm-script",
       "markers": ["proves customer-owned migrations and revision-aware Postgres boot", "pass 1", "fail 0"],

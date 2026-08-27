@@ -139,6 +139,12 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
     assert.equal(authenticated.code, 0, `${authenticated.stdout}\n${authenticated.stderr}`);
     assert.match(authenticated.stdout, /^P1_8_PASS$/m);
 
+    const salesLifecycle = await runFixtureProcess("tests/sales-lifecycle.mjs", connectionString, {
+      BOOT_KEY: "gate6-sales-lifecycle"
+    });
+    assert.equal(salesLifecycle.code, 0, `${salesLifecycle.stdout}\n${salesLifecycle.stderr}`);
+    assert.match(salesLifecycle.stdout, /^P6_9_SALES_LIFECYCLE_PASS$/m);
+
     const mcpLifecycle = await runFixtureProcess("tests/mcp-lifecycle.mjs", connectionString, {
       BOOT_KEY: "gate2a-mcp-lifecycle"
     });

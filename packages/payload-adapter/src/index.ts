@@ -1,6 +1,6 @@
 import { postgresAdapter } from "@payloadcms/db-postgres";
 import type { MigrateDownArgs, MigrateUpArgs } from "@payloadcms/db-postgres";
-import type { RegistrationResult } from "@k-nex/runtime";
+import type { PluginAvailability, RegistrationResult } from "@k-nex/runtime";
 import type { CollectionConfig, Config } from "payload";
 
 export * from "./data-source-authenticator.js";
@@ -44,6 +44,7 @@ export interface ComposePayloadApplicationOptions {
   readonly baseCollections?: readonly CollectionConfig[];
   readonly databaseUrl: string;
   readonly migrations?: readonly CustomerPayloadMigration[];
+  readonly pluginAvailability?: readonly PluginAvailability[];
   readonly registration: RegistrationResult;
 }
 
@@ -75,6 +76,19 @@ function ownedCollection(value: unknown): OwnedCollectionValue | undefined {
   const collection = value.collection as Partial<CollectionConfig>;
   if (typeof collection.slug !== "string" || !Array.isArray(collection.fields)) return undefined;
   return value as unknown as OwnedCollectionValue;
+}
+
+function collectionForAvailability(collection: CollectionConfig, availability: PluginAvailability | undefined): CollectionConfig {
+  if (availability === undefined || availability.enabled && availability.ready) return collection;
+  return {
+    ...collection,
+    access: {
+      ...collection.access,
+      create: () => false,
+      delete: () => false,
+      update: () => false
+    }
+  };
 }
 
 function normalizedRoute(path: string): string {
@@ -122,6 +136,7 @@ export function composePayloadApplication(options: ComposePayloadApplicationOpti
 
   const collections: CollectionConfig[] = [...(options.baseCollections ?? [])];
   const ownership: CollectionOwnership[] = [];
+  const availability = new Map((options.pluginAvailability ?? []).map((entry) => [entry.pluginId, entry]));
   for (const contribution of options.registration.contributions.schema) {
     const value = ownedCollection(contribution.value);
     if (!value) {
@@ -131,7 +146,7 @@ export function composePayloadApplication(options: ComposePayloadApplicationOpti
         [contribution.pluginId, contribution.id]
       );
     }
-    collections.push(value.collection);
+    collections.push(collectionForAvailability(value.collection, availability.get(contribution.pluginId)));
     ownership.push({
       slug: value.collection.slug,
       pluginId: contribution.pluginId,

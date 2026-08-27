@@ -13,6 +13,7 @@ import {
   TableProjectionRedactor,
   type DataSourceHandler,
   type DataSourcePolicyService,
+  type PluginAvailability,
   type RegistrationResult,
   type RegisteredDataSource
 } from "@k-nex/runtime";
@@ -42,8 +43,10 @@ function fingerprint(request: PayloadRequest): string {
   return "sales:open:full";
 }
 
-function catalog(registration: RegistrationResult) {
-  const definitions = new Map(registration.contributions.sources.map((entry) => [entry.id, entry.value as DataSourceDefinition]));
+function catalog(registration: RegistrationResult, availability?: PluginAvailability) {
+  const definitions = new Map(registration.contributions.sources
+    .filter((entry) => availability === undefined || entry.pluginId !== availability.pluginId || availability.isAvailable("sources", entry.id))
+    .map((entry) => [entry.id, entry.value as DataSourceDefinition]));
   const handlers = new Map(registration.bindings.sources.map((entry) => [entry.id, entry.value as DataSourceHandler]));
   const sources = new Map<string, RegisteredDataSource>();
   for (const [id, definition] of definitions) {
@@ -72,7 +75,7 @@ const salesPolicy: DataSourcePolicyService = {
   }
 };
 
-function queryGateway(registration: RegistrationResult): DataSourceGateway {
+function queryGateway(registration: RegistrationResult, availability?: PluginAvailability): DataSourceGateway {
   return new DataSourceGateway({
     authenticator: new PayloadRequestAuthenticator({
       actor(request) {
@@ -90,7 +93,7 @@ function queryGateway(registration: RegistrationResult): DataSourceGateway {
         return { permissionFingerprint: fingerprint(request) };
       }
     }),
-    catalog: catalog(registration),
+    catalog: catalog(registration, availability),
     surfaceAudience: new DescriptorSurfaceAudienceGuard(),
     authorization: new PolicyAuthorizationEvaluator(salesPolicy),
     budget: new BoundedQueryBudgetEvaluator(),
@@ -104,8 +107,8 @@ function queryGateway(registration: RegistrationResult): DataSourceGateway {
   });
 }
 
-export function createDataSourceQueryEndpoint(registration: RegistrationResult): Endpoint {
-  const gateway = queryGateway(registration);
+export function createDataSourceQueryEndpoint(registration: RegistrationResult, availability?: PluginAvailability): Endpoint {
+  const gateway = queryGateway(registration, availability);
   const problemDetails = new SafeProblemDetailsSerializer();
   return {
     method: "post",
