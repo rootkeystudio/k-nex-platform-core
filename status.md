@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Regenerated the customer Gate 1 resolved graph after the clean Sales tarball changed its exact integrity. The gate correctly rejected the stale installed-plugin identity before any runtime proof.
+Made Sales UI descriptor declarations byte-stable by explicitly exporting the canonical `PluginUiContributionDescriptor` type instead of compiler-expanded dependency unions. Repacked Sales, refreshed lock integrity, and regenerated the customer graph atomically.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: forced Sales build plus `check-pack` PASS; official `generate:gate-1` refreshed the exact graph. Exact full rerun on the complete artifact chain is next.
+Node 24.19.0 / pnpm 11.9.0: forced clean Sales build, official pack, lock refresh, `generate:gate-1`, and `check-pack` PASS; declarations now emit stable named types. Exact full Gate 6 rerun is next.
 
 ## Next
 
