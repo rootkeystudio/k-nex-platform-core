@@ -7,15 +7,15 @@
 
 ## Last completed
 
-PR 21 is merged and post-merge `main` CI passes. Phase 7 was preserved at `codex/archive-phase-7-pre-review-9056043`, rebased onto accepted `main` commit `e05b1e68`, and PR 22 now targets `main`. Required CI now executes the complete Gate 7 path.
+Generic child-capable blocks now expose one runtime composition boundary. Stack, Grid, Section, Card, Alert, Tabs, Accordion, and Form place canonical children inside their actual component slots; Puck preview injects the same slot instead of flattening descendants as siblings.
 
 ## Validation
 
-Previous exact `GATE_7_PASS` remains preserved on the archive branch. Fresh rebased-head acceptance is pending review remediation.
+Focused UI runtime: 46 tests PASS. Builder Puck: 35 tests and boundaries PASS. UI builder blocks: 6 tests and boundaries PASS, including Stack → Card → Text and Tabs/Accordion production-versus-Puck DOM parity after serialize/reload.
 
 ## Next
 
-Correct action freshness, cursor/projection/bulk bounds, composite focus, in-flight form edits, actual-control accessibility, VirtualList focus, and nested container DOM parity; then run complete Gate 7 evidence.
+Correct action freshness, cursor/projection/bulk bounds, composite focus, in-flight form edits, actual-control accessibility, and VirtualList focus; then run complete Gate 7 evidence.
 
 ## Blockers
 

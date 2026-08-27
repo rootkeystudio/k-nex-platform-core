@@ -16,6 +16,7 @@ import type { ComponentData, Config, Data, Field } from "@puckeditor/core";
 import {
   createUiDocumentRuntime,
   createUiRuntimeRegistry,
+  presentUiRuntimeNode,
   presentUiRuntimeResult,
   snapshotUiBlockDefinition,
   type UiBlockDefinition,
@@ -403,7 +404,12 @@ function createConfig(bridges: ReadonlyMap<string, PuckBlockBridge>, preview?: P
           actor,
           ...(preview?.sourceResults === undefined ? {} : { sourceResults: preview.sourceResults })
         });
-        return presentUiRuntimeResult(result);
+        if (!result.success) return presentUiRuntimeResult(result);
+        const root = result.regions.main?.[0];
+        if (root === undefined) return "Unavailable: MISSING_BLOCK";
+        const slot = props[childSlotKey];
+        const previewChildren = slot === undefined ? [] : Array.isArray(slot) ? slot : [slot];
+        return presentUiRuntimeNode(root, previewChildren);
       }
     };
   }

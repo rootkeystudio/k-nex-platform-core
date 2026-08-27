@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { canonicalJson, type DataSourceDescriptor } from "@k-nex/contracts";
 import { createPuckBuilderAdapter } from "@k-nex/builder-puck";
-import { createUiDocumentRuntime, createUiRuntimeRegistry } from "@k-nex/ui-runtime";
+import { createUiDocumentRuntime, createUiRuntimeRegistry, presentUiRuntimeResult } from "@k-nex/ui-runtime";
 import { createGenericPuckBlockBridges, genericPuckBlockBridges } from "../src/index.js";
 
 const genericSource: DataSourceDescriptor = {
@@ -44,6 +44,17 @@ const typedSource: DataSourceDescriptor = {
 };
 
 describe("generic Puck block library", () => {
+  const actor = { authenticated: false, permissions: new Set<string>() };
+  const nestedBridge = (id: string) => genericPuckBlockBridges.find(({ definition }) => definition.id === id)!;
+  const renderEditorComponent = (adapter: ReturnType<typeof createPuckBuilderAdapter>, component: { readonly type: string; readonly props: Record<string, unknown> }): unknown => {
+    const definition = adapter.config.components[component.type] as { render: (props: Record<string, unknown>) => unknown };
+    const storedChildren = component.props.__kNexChildren;
+    const renderedChildren = Array.isArray(storedChildren)
+      ? storedChildren.map((child) => renderEditorComponent(adapter, child as { readonly type: string; readonly props: Record<string, unknown> }))
+      : [];
+    return definition.render({ ...component.props, __kNexChildren: renderedChildren });
+  };
+
   it("covers the canonical generic block set and round-trips through shared definitions", () => {
     expect(genericPuckBlockBridges.map(({ label }) => label)).toEqual(["Stack", "Grid", "Section", "Heading", "Text", "Card", "Alert", "Tabs", "Accordion", "Metric", "DataTable", "Form", "EmptyState"]);
     const nodes = genericPuckBlockBridges.map((bridge, index) => ({
@@ -94,6 +105,36 @@ describe("generic Puck block library", () => {
     const form = genericPuckBlockBridges.find(({ definition }) => definition.id === "content.form")!;
     expect(table.definition.sourcePolicy).toEqual({ required: true, contracts: [{ id: "table.records", version: 1 }], requiredFields: [] });
     expect(form.definition.actionPolicy).toBeUndefined();
+  });
+
+  it("preserves nested container DOM hierarchy in production and Puck preview after reload", () => {
+    const text = nestedBridge("content.text");
+    const card = nestedBridge("content.card");
+    const stack = nestedBridge("content.stack");
+    const tabs = nestedBridge("content.tabs");
+    const accordion = nestedBridge("content.accordion");
+    const textNode = (id: string, value: string) => ({ id, type: text.definition.id, version: 1, props: { text: value } });
+    const documents = [
+      { id: "content.nested-stack", root: { id: "stack", type: stack.definition.id, version: 1, props: stack.defaultProps, children: [{ id: "card", type: card.definition.id, version: 1, props: card.defaultProps, children: [textNode("text", "Nested text")] }] } },
+      { id: "content.nested-tabs", root: { id: "tabs", type: tabs.definition.id, version: 1, props: tabs.defaultProps, children: [textNode("tab-text", "Tab content")] } },
+      { id: "content.nested-accordion", root: { id: "accordion", type: accordion.definition.id, version: 1, props: accordion.defaultProps, children: [textNode("accordion-text", "Accordion content")] } }
+    ];
+    const adapter = createPuckBuilderAdapter({ blocks: genericPuckBlockBridges, preview: { surface: "public", actor } });
+    const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: genericPuckBlockBridges.map(({ definition }) => definition), sources: [] }));
+
+    for (const candidate of documents) {
+      const document = { id: candidate.id, version: 1, schemaVersion: 1 as const, profile: "cms" as const, regions: { main: [candidate.root] } };
+      const data = adapter.toPuckData(document);
+      const reloaded = adapter.fromPuckData(data);
+      expect(canonicalJson(reloaded)).toBe(canonicalJson(document));
+      const production = runtime.render({ document: reloaded, surface: "public", actor });
+      const productionMarkup = renderToStaticMarkup(presentUiRuntimeResult(production) as Parameters<typeof renderToStaticMarkup>[0]);
+      const editorMarkup = renderToStaticMarkup(renderEditorComponent(adapter, data.content[0] as { readonly type: string; readonly props: Record<string, unknown> }) as Parameters<typeof renderToStaticMarkup>[0]);
+      expect(editorMarkup).toBe(productionMarkup);
+    }
+
+    const stackMarkup = renderToStaticMarkup(presentUiRuntimeResult(runtime.render({ document: adapter.fromPuckData(adapter.toPuckData({ id: "content.nested-stack", version: 1, schemaVersion: 1, profile: "cms", regions: { main: [documents[0]!.root] } })), surface: "public", actor })) as Parameters<typeof renderToStaticMarkup>[0]);
+    expect(stackMarkup).toMatch(/data-k-nex-component="stack"[\s\S]*data-k-nex-component="card"[\s\S]*Nested text/);
   });
 
   it("renders a bound DataTable and keeps an unconfigured form disabled", () => {

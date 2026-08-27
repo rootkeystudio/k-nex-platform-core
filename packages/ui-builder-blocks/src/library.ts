@@ -94,9 +94,10 @@ interface KNextActionFormProps {
   readonly initialValues: Readonly<Record<string, string>>;
   readonly submitLabel: string;
   readonly enabled: boolean;
+  readonly children?: ReactNode;
   readonly onSubmit: (values: Readonly<Record<string, string>>) => void | Promise<void>;
 }
-function KNextActionForm({ label, fields, initialValues, submitLabel, enabled, onSubmit }: KNextActionFormProps): ReactElement {
+function KNextActionForm({ label, fields, initialValues, submitLabel, enabled, children: nestedChildren, onSubmit }: KNextActionFormProps): ReactElement {
   const [values, setValues] = useState(() => ({ ...initialValues }));
   const update = (name: string, value: string): void => setValues((current) => ({ ...current, [name]: value }));
   const valid = fields.every((field) => field.required !== true || (values[field.name] ?? "").trim().length > 0);
@@ -104,7 +105,8 @@ function KNextActionForm({ label, fields, initialValues, submitLabel, enabled, o
     ...fields.map((field) => field.kind === "select"
       ? createElement(Select, { key: field.name, name: field.name, label: field.label, value: values[field.name] ?? "", options: field.options ?? [], onChange: (value: string) => update(field.name, value) })
       : createElement(TextInput, { key: field.name, name: field.name, label: field.label, value: values[field.name] ?? "", ...(field.required === undefined ? {} : { required: field.required }), onChange: (value: string) => update(field.name, value) })),
-    createElement(FormActions, { key: "actions", children: createElement("button", { type: "submit", disabled: !enabled || !valid }, submitLabel) })
+    createElement(FormActions, { key: "actions", children: createElement("button", { type: "submit", disabled: !enabled || !valid }, submitLabel) }),
+    nestedChildren
   ];
   return createElement(Form, { label, onSubmit: () => enabled && valid ? onSubmit(values) : undefined, children });
 }
@@ -156,18 +158,18 @@ function genericDataTableRequestState(input: UiBlockRenderInput): DataTableReque
   return input.sourceResult as DataTableRequestState;
 }
 
-function genericElement(spec: GenericBlock, props: Record<string, JsonValue>, input: UiBlockRenderInput, formConfiguration?: GenericFormActionConfiguration): ReactElement {
+function genericElement(spec: GenericBlock, props: Record<string, JsonValue>, input: UiBlockRenderInput, formConfiguration?: GenericFormActionConfiguration, children: readonly ReactNode[] = []): ReactElement {
   const value = (key: string): string => String(props[key]);
   switch (spec.id) {
-    case "content.stack": return componentElement(Stack, { gap: value("gap"), children: null });
-    case "content.grid": return componentElement(Grid, { columns: props.columns, children: null });
-    case "content.section": return componentElement(Section, { label: value("label"), children: null });
+    case "content.stack": return componentElement(Stack, { gap: value("gap"), children });
+    case "content.grid": return componentElement(Grid, { columns: props.columns, children });
+    case "content.section": return componentElement(Section, { label: value("label"), children });
     case "content.heading": return componentElement(Heading, { level: props.level, children: value("text") });
     case "content.text": return componentElement(Text, { children: value("text") });
-    case "content.card": return componentElement(Card, { children: value("title") });
-    case "content.alert": return componentElement(Alert, { title: value("title"), children: value("title") });
-    case "content.tabs": return componentElement(Tabs, { label: value("label"), items: [{ id: "default", label: value("label"), content: null }], selectedId: "default" });
-    case "content.accordion": return componentElement(Accordion, { items: [{ id: "default", title: value("label"), content: null }] });
+    case "content.card": return componentElement(Card, { children: [createElement("span", { key: "title", "data-slot": "title" }, value("title")), ...children] });
+    case "content.alert": return componentElement(Alert, { title: value("title"), children });
+    case "content.tabs": return componentElement(Tabs, { label: value("label"), items: [{ id: "default", label: value("label"), content: children }], selectedId: "default" });
+    case "content.accordion": return componentElement(Accordion, { items: [{ id: "default", title: value("label"), content: children }] });
     case "content.metric": return componentElement(Metric, { label: value("label"), metric: { value: { kind: "number", value: 0 } } });
     case "content.data-table": {
       const definition = genericDataTableDefinition(input);
@@ -189,6 +191,7 @@ function genericElement(spec: GenericBlock, props: Record<string, JsonValue>, in
         initialValues,
         submitLabel: formConfiguration?.submitLabel ?? "Submit",
         enabled,
+        children,
         onSubmit: async (values) => {
           if (!enabled || input.action === undefined || input.dispatchAction === undefined) return;
           await input.dispatchAction({ action: input.action, input: values, nodeId: input.node.id });
@@ -230,6 +233,7 @@ function genericBridge(spec: GenericBlock, options: GenericPuckBlockOptions): Pu
       accessibility: Object.freeze({ role: spec.role, label: String((input.props as Record<string, unknown>)[spec.fields[0]!.prop]) }),
       props: input.props,
       element: genericElement(spec, input.props as Record<string, JsonValue>, input, options.form),
+      ...(spec.allowChildren ? { composeChildren: (children: readonly unknown[]) => genericElement(spec, input.props as Record<string, JsonValue>, input, options.form, children as readonly ReactNode[]) } : {}),
       ...(input.sourceResult === undefined ? {} : { state: input.sourceResult.state })
     })
   };
