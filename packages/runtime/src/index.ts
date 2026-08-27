@@ -21,3 +21,4 @@ export * from "./plugin-settings.js";
 export * from "./page-template.js";
 export * from "./plugin-lifecycle.js";
 export * from "./upgrade-planner.js";
+export * from "./migration-fence.js";
