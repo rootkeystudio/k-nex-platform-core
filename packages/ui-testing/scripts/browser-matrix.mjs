@@ -28,13 +28,16 @@ try {
     const aria = await surface.ariaSnapshot(); assert.match(aria, /heading "Sales tasks" \[level=1\]/); assert.match(aria, /form "Create task"/); assert.match(aria, /grid "Task grid"/);
   }
   const minimal = page.getByTestId("surface-Minimal");
+  assert((await page.evaluate(() => window.__K_NEX_P7_RENDER_MS__)) < 2_000, "initial component matrix render exceeded 2s");
   const switcher = page.getByRole("button", { name: "Switch matrix theme" });
   await switcher.hover(); assert.equal(await switcher.getAttribute("data-hovered"), "true");
   await switcher.focus(); assert.equal(await switcher.evaluate((element) => element === document.activeElement), true);
   await minimal.getByRole("checkbox", { name: "Select row task-1" }).first().click(); await minimal.getByText("1 selected").first().waitFor();
   const cells = minimal.getByRole("gridcell"); await cells.first().focus(); await page.keyboard.press("ArrowRight"); assert.equal(await cells.nth(1).evaluate((element) => element === document.activeElement), true);
+  const dialogTrigger = minimal.getByRole("button", { name: "Open Minimal matrix dialog" }); const overlayStart = performance.now(); await dialogTrigger.click(); await page.getByRole("dialog", { name: "Minimal matrix dialog" }).waitFor(); const openMs = performance.now() - overlayStart; assert(openMs < 500, `overlay open exceeded 500ms: ${openMs}`); await page.keyboard.press("Escape"); await page.getByRole("dialog", { name: "Minimal matrix dialog" }).waitFor({ state: "hidden" }); assert(performance.now() - overlayStart < 1_000, "overlay open/close exceeded 1s");
   assert.equal(await minimal.locator('[dir="rtl"]').getAttribute("dir"), "rtl"); assert.match(await minimal.textContent(), /Satış görevleri/);
   await switcher.click(); assert.equal(await minimal.getAttribute("data-theme-id"), "theme.neobrutalism");
+  const heapBefore = await page.evaluate(() => performance.memory?.usedJSHeapSize ?? 0); for (let index = 0; index < 20; index += 1) await page.getByRole("button", { name: "Toggle matrix surfaces" }).click(); const heapAfter = await page.evaluate(() => performance.memory?.usedJSHeapSize ?? 0); if (heapBefore > 0 && heapAfter > 0) assert(heapAfter - heapBefore < 64 * 1024 * 1024, "repeated mount/unmount retained more than 64 MiB");
   assert.deepEqual(errors, []); await context.close();
   const reduced = await browser.newContext({ reducedMotion: "reduce" }); const reducedPage = await reduced.newPage(); await reducedPage.goto(url); await reducedPage.waitForFunction(() => window.__K_NEX_P7_READY__ === true); assert.equal(await reducedPage.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches), true); assert.equal(await reducedPage.getByRole("button", { name: "Disabled action" }).first().evaluate((element) => getComputedStyle(element).transitionDuration), "0s"); await reduced.close();
   const forced = await browser.newContext({ forcedColors: "active" }); const forcedPage = await forced.newPage(); await forcedPage.goto(url); await forcedPage.waitForFunction(() => window.__K_NEX_P7_READY__ === true); assert.equal(await forcedPage.evaluate(() => matchMedia("(forced-colors: active)").matches), true); assert.notEqual(await forcedPage.getByRole("button", { name: "Disabled action" }).first().evaluate((element) => getComputedStyle(element).borderTopStyle), "none"); await forced.close();

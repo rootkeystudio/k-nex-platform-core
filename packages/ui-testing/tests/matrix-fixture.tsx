@@ -1,7 +1,7 @@
 import { useState, type ReactElement } from "react";
 
 import { Button, KNeXDesignSystemProvider, type ThemePresentationSnapshot } from "@k-nex/ui-design-system-contracts";
-import { Card, SegmentedControl } from "@k-nex/ui-components";
+import { Card, Dialog, SegmentedControl } from "@k-nex/ui-components";
 import { DataGrid, DataTable, createDataTableState } from "@k-nex/ui-data";
 import { Form, TextInput } from "@k-nex/ui-forms";
 import { resolveMinimalThemeProfile } from "@k-nex/theme-minimal";
@@ -37,6 +37,7 @@ function Surface({ label, presentation }: { readonly label: string; readonly pre
     <SalesTasksPage requestState={{ state: "success", data: taskRecords }} viewState={viewState} createTask={createTask} onViewStateChange={setViewState} onCreateTaskChange={() => undefined} onCreateTask={() => undefined} />
     <Card><SegmentedControl label="View" items={[{ id: "list", label: "List" }, { id: "board", label: "Board" }]} value="list" onChange={() => undefined} /></Card>
     <Button isDisabled>Disabled action</Button>
+    <Dialog triggerLabel={`Open ${label} matrix dialog`} title={`${label} matrix dialog`}>Overlay performance probe</Dialog>
     <Form label="Pending form" pending onSubmit={() => undefined}><TextInput name="readonly" label="Read only" value="Fixed" readOnly onChange={() => undefined} /><TextInput name="invalid" label="Invalid field" value="Bad" error="Invalid value" onChange={() => undefined} /></Form>
     <DataTable definition={salesTasksTableDefinition} viewState={viewState} requestState={{ state: "empty" }} label="Empty tasks" />
     <DataTable definition={salesTasksTableDefinition} viewState={viewState} requestState={{ state: "error", problem: { code: "FAILED", status: 500 } }} label="Failed tasks" />
@@ -47,7 +48,8 @@ function Surface({ label, presentation }: { readonly label: string; readonly pre
 
 export function MatrixFixture(): ReactElement {
   const [first, setFirst] = useState<ThemePresentationSnapshot>(minimalPresentation);
-  return <><style>{minimalPresentation.cssText + neobrutalismPresentation.cssText}</style><Button onPress={() => setFirst(neobrutalismPresentation)}>Switch matrix theme</Button><main><Surface label="Minimal" presentation={first} /><Surface label="Neobrutalism" presentation={neobrutalismPresentation} /></main></>;
+  const [mounted, setMounted] = useState(true);
+  return <><style>{minimalPresentation.cssText + neobrutalismPresentation.cssText}</style><Button onPress={() => setFirst(neobrutalismPresentation)}>Switch matrix theme</Button><Button onPress={() => setMounted((value) => !value)}>Toggle matrix surfaces</Button>{mounted ? <main><Surface label="Minimal" presentation={first} /><Surface label="Neobrutalism" presentation={neobrutalismPresentation} /></main> : null}</>;
 }
 
 export function HydrationProbe(): ReactElement {

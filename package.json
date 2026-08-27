@@ -27,6 +27,7 @@
     "test:p5-accessibility": "pnpm --filter @k-nex/theme-neobrutalism test:browser",
     "gate:5": "pnpm gate:through-4 && pnpm --filter @k-nex/ui-design-system-contracts test:browser && pnpm --filter @k-nex/theme-minimal test:browser && pnpm --filter @k-nex/payload-builder-storage test:postgres && pnpm test:p5-accessibility && node scripts/gate-5.mjs",
     "gate:6": "pnpm gate:5 && pnpm plugin:check:test && pnpm plugin:check modules/sales && node scripts/gate-6.mjs",
+    "gate:7": "pnpm gate:6 && pnpm --filter @k-nex/ui-components test && pnpm --filter @k-nex/ui-components test:browser && pnpm --filter @k-nex/ui-data test && pnpm --filter @k-nex/ui-forms test && pnpm --filter @k-nex/ui-pages test && pnpm --filter @k-nex/ui-builder-blocks test && pnpm --filter @k-nex/ui-testing test && node scripts/gate-7.mjs",
     "phase:0": "pnpm contracts:generate && pnpm contracts:generated-clean && pnpm contracts:validate && pnpm contracts:test && pnpm contracts:reproducibility && pnpm docs:validate"
   },
   "devDependencies": {
