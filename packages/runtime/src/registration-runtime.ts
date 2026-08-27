@@ -4,7 +4,7 @@ import type {
 } from "@k-nex/contracts";
 import {
   AgentToolDescriptorSchema, PermissionDescriptorSchema, PluginNavigationDescriptorSchema,
-  PluginRouteDescriptorSchema, PluginSettingsDescriptorSchema, assertDataSourceDefinition,
+  PluginPageTemplateDescriptorSchema, PluginRouteDescriptorSchema, PluginSettingsDescriptorSchema, assertDataSourceDefinition,
   pluginContributionCategoryKeys, pluginContributionRegistry, registrationPhases
 } from "@k-nex/contracts";
 import * as semver from "semver";
@@ -171,6 +171,7 @@ function configurationContribution(kind: ContributionKind, id: string, pluginId:
     : kind === "permissions" ? PermissionDescriptorSchema
       : kind === "routes" ? PluginRouteDescriptorSchema
         : kind === "navigation" ? PluginNavigationDescriptorSchema
+          : kind === "pageTemplates" ? PluginPageTemplateDescriptorSchema
           : undefined;
   if (schema === undefined) return value;
   const parsed = schema.safeParse(value);

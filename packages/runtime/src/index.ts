@@ -17,3 +17,4 @@ export * from "./realtime.js";
 export * from "./realtime-topology.js";
 export * from "./source-convergence.js";
 export * from "./plugin-settings.js";
+export * from "./page-template.js";

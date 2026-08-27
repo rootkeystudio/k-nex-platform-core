@@ -33,6 +33,9 @@
         "navigation": {
           "sales.navigation.tasks": "required"
         },
+        "pageTemplates": {
+          "sales.page.tasks": "required"
+        },
         "permissions": {
           "sales.settings.read": "required",
           "sales.settings.write": "required",
@@ -66,7 +69,7 @@
         "names": []
       },
       "id": "module.sales",
-      "integrity": "sha512-mrQS5vsL3vT/iArkA5ylXbCWKa8rbVxTMnURNlH+nYmne9tFgTkZXw+mJrOpSkoLiftkmuTj0LCXMs6lpf/DXw==",
+      "integrity": "sha512-Z1u3MCuW8O79dofQpme6WW7oMNAhqovi4Q6DStTdKoVUfs1kGsqoUFHU294FOp8bdC+4XS/In0ph89C6ymJ6oQ==",
       "kind": "module",
       "lifecycle": {
         "disable": "supported",
@@ -75,7 +78,7 @@
         "purge": "supported",
         "uninstall": "unsupported"
       },
-      "manifestDigest": "sha256:7ceaa6235530c49603dd56d749dc36998a504a46f8a2f92f3b49cc51d876d48f",
+      "manifestDigest": "sha256:e4a5f74fa00bbb6bca7a64a3a4acae8ada2af1ace5ab9934681a9cda343710f9",
       "optional": [],
       "package": "@k-nex/module-sales",
       "required": [],

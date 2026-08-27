@@ -301,7 +301,24 @@ function completeConsumer(
         permission: "consumer.permission",
         order: 10
       });
-      context.register("pageTemplates", "consumer.template", {});
+      context.register("pageTemplates", "consumer.template", {
+        id: "consumer.template",
+        version: 1,
+        ownerPluginId: "module.consumer",
+        route: { routeId: "consumer.route", params: {} },
+        surface: "workspace",
+        profile: "workspace",
+        permission: "consumer.permission",
+        publicationPolicy: { ownership: "customer", adoption: "explicit" },
+        requirements: { capabilities: [], sources: [], actions: [], blocks: [] },
+        document: {
+          id: "consumer.template",
+          version: 1,
+          schemaVersion: 1,
+          profile: "workspace",
+          regions: { main: [] }
+        }
+      });
       context.register("localization", "consumer.localization", {});
       context.bindBlock("consumer.block", {});
     },

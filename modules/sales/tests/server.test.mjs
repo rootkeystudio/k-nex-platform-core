@@ -8,6 +8,7 @@ import {
   DataSourceDescriptorSchema,
   PermissionDescriptorSchema,
   PluginNavigationDescriptorSchema,
+  PluginPageTemplateDescriptorSchema,
   PluginRouteDescriptorSchema,
   PluginSettingsDescriptorSchema,
   canonicalJson
@@ -20,6 +21,7 @@ import {
   salesRouteDescriptors,
   salesSearchTasksDescriptor,
   salesTaskCreateDescriptor,
+  salesTaskPageTemplate,
   salesTasksDescriptor,
   salesTotalPotentialRevenueDescriptor,
   salesWorkspaceSettingsDescriptor
@@ -86,6 +88,7 @@ test("Sales registers two single-output data sources with valid descriptors", ()
   assert.deepEqual(contributions.filter(([kind]) => kind === "settings").map(([, id]) => id), [salesWorkspaceSettingsDescriptor.id]);
   assert.deepEqual(contributions.filter(([kind]) => kind === "routes").map(([, id]) => id).sort(), salesRouteDescriptors.map(({ id }) => id).sort());
   assert.deepEqual(contributions.filter(([kind]) => kind === "navigation").map(([, id]) => id), salesNavigationDescriptors.map(({ id }) => id));
+  assert.deepEqual(contributions.filter(([kind]) => kind === "pageTemplates").map(([, id]) => id), [salesTaskPageTemplate.id]);
   assert.deepEqual(bindings.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.tasks", "sales.total-potential-revenue"]);
   assert.deepEqual(bindings.filter(([kind]) => kind === "actions").map(([, id]) => id), ["sales.task.create"]);
 });
@@ -95,6 +98,7 @@ test("Sales settings, permissions, routes, and navigation use strict platform co
   assert.equal(salesPermissionDescriptors.every((descriptor) => PermissionDescriptorSchema.safeParse(descriptor).success), true);
   assert.equal(salesRouteDescriptors.every((descriptor) => PluginRouteDescriptorSchema.safeParse(descriptor).success), true);
   assert.equal(salesNavigationDescriptors.every((descriptor) => PluginNavigationDescriptorSchema.safeParse(descriptor).success), true);
+  assert.equal(PluginPageTemplateDescriptorSchema.safeParse(salesTaskPageTemplate).success, true);
   assert.deepEqual(salesDefaultSettings.values, { defaultTaskPageSize: 25, showPotentialRevenue: true });
 });
 

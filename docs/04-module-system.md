@@ -190,6 +190,8 @@ migration metadata
 
 Installation may instantiate a template idempotently. The resulting page is customer-owned and mutable. Package upgrades never overwrite customer edits; a newer template is offered through an explicit compare/adopt operation.
 
+`PluginPageTemplateDescriptorSchema` binds an immutable template version to its canonical `UiDocument`, typed route, profile, permission, publication policy, and exact capability/source/action/block requirements. `instantiatePluginPageTemplate` performs fail-closed preflight and atomic create-if-absent. Later versions use `comparePluginPageTemplate` and `adoptPluginPageTemplate`; adoption requires an explicit migration and optimistic customer revision, and writes only after the migrated document validates.
+
 Sales reference pages:
 
 ```text

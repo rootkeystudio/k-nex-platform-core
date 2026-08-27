@@ -4,6 +4,7 @@ import type {
   DataSourceDescriptor,
   PermissionDescriptor,
   PluginNavigationDescriptor,
+  PluginPageTemplateDescriptor,
   PluginRouteDescriptor,
   PluginSettingsDescriptor
 } from "@k-nex/contracts";
@@ -317,3 +318,42 @@ export const salesNavigationDescriptors = Object.freeze([
     order: 10
   }
 ] satisfies readonly PluginNavigationDescriptor[]);
+
+export const salesTaskPageTemplate: PluginPageTemplateDescriptor = {
+  id: "sales.page.tasks",
+  version: 1,
+  ownerPluginId: "module.sales",
+  route: { routeId: "sales.route.tasks", params: {} },
+  surface: "workspace",
+  profile: "workspace",
+  permission: "sales.tasks.read",
+  publicationPolicy: { ownership: "customer", adoption: "explicit" },
+  requirements: {
+    capabilities: [],
+    sources: [{ id: salesTasksDescriptor.id, version: salesTasksDescriptor.version }],
+    actions: [{ id: salesTaskCreateDescriptor.id, version: salesTaskCreateDescriptor.version }],
+    blocks: [{ id: "sales.task-table", version: 2 }]
+  },
+  document: {
+    id: "sales.page.tasks",
+    version: 1,
+    schemaVersion: 1,
+    profile: "workspace",
+    regions: {
+      main: [{
+        id: "sales-tasks",
+        type: "sales.task-table",
+        version: 2,
+        props: { title: "Sales tasks" },
+        bindings: {
+          source: {
+            source: { id: salesTasksDescriptor.id, version: salesTasksDescriptor.version },
+            input: {},
+            structuralCompatibilityHash: salesTasksDescriptor.structuralCompatibilityHash,
+            selectedFields: ["title", "status", "potential-revenue"]
+          }
+        }
+      }]
+    }
+  }
+};

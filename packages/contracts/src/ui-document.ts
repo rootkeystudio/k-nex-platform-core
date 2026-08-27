@@ -134,7 +134,7 @@ export const UiEngineMetadataSchema = z.record(boundedPluginIdSchema, jsonValueS
   }
 });
 
-type UiNodeShape = {
+export type UiNodeShape = {
   readonly id: string;
   readonly type: string;
   readonly version: number;

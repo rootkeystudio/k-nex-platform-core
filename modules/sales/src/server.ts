@@ -23,6 +23,7 @@ import {
   salesRouteDescriptors,
   salesSearchTasksDescriptor,
   salesTaskCreateDescriptor,
+  salesTaskPageTemplate,
   salesTaskFields,
   salesTasksDescriptor,
   salesTotalPotentialRevenueDescriptor,
@@ -38,6 +39,7 @@ export {
   salesRouteDescriptors,
   salesSearchTasksDescriptor,
   salesTaskCreateDescriptor,
+  salesTaskPageTemplate,
   salesTasksDescriptor,
   salesTotalPotentialRevenueDescriptor,
   salesWorkspaceSettingsDescriptor
@@ -574,5 +576,6 @@ export const salesRegistration = definePluginRegistration({
   ui: (context) => {
     for (const descriptor of salesRouteDescriptors) context.register("routes", descriptor.id, descriptor);
     for (const descriptor of salesNavigationDescriptors) context.register("navigation", descriptor.id, descriptor);
+    context.register("pageTemplates", salesTaskPageTemplate.id, salesTaskPageTemplate);
   }
 });

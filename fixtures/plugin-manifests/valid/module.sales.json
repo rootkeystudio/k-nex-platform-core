@@ -17,6 +17,9 @@
     "navigation": {
       "sales.navigation.tasks": "required"
     },
+    "pageTemplates": {
+      "sales.page.tasks": "required"
+    },
     "permissions": {
       "sales.settings.read": "required",
       "sales.settings.write": "required",
