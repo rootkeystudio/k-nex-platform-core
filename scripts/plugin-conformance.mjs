@@ -178,6 +178,11 @@ function tarEntries(file) {
   return entries;
 }
 
+export function assertByteReproducible(first, second, committed, filename) {
+  assert.equal(first.equals(second), true, `${filename} repeated pack bytes are non-deterministic.`);
+  assert.equal(first.equals(committed), true, `${filename} committed bytes are stale or non-deterministic.`);
+}
+
 export function runBoundaryProof(pluginRoot) {
   const forbidden = ["@k-nex/runtime", "@modelcontextprotocol/sdk", "@puckeditor/core", "@tanstack/", "payload", "react", "socket.io", "./server.js"];
   for (const entrypoint of ["contracts", "browser", "ui"]) {
@@ -247,20 +252,28 @@ function runReferenceDocumentationProof(root, pluginRoot, identity, plan) {
 function runPackProof(root, pluginRoot, identity) {
   const packageJson = JSON.parse(readFileSync(inside(pluginRoot, "package.json", "package manifest"), "utf8"));
   assert.equal(packageJson.name, identity.pluginPackage);
-  const temporary = mkdtempSync(join(tmpdir(), "k-nex-conformance-pack-"));
+  const firstTemporary = mkdtempSync(join(tmpdir(), "k-nex-conformance-pack-first-"));
+  const secondTemporary = mkdtempSync(join(tmpdir(), "k-nex-conformance-pack-second-"));
   const filename = `${identity.pluginPackage.replace(/^@k-nex\//u, "k-nex-")}-${packageJson.version}.tgz`;
   try {
-    execute("pnpm", ["pack", "--pack-destination", temporary], pluginRoot, "packed-reproducibility", identity);
-    const generated = tarEntries(join(temporary, filename));
-    const committed = tarEntries(resolve(root, "fixtures/customer-gate-1/packages", filename));
+    execute("pnpm", ["pack", "--pack-destination", firstTemporary], pluginRoot, "packed-reproducibility", identity);
+    execute("pnpm", ["pack", "--pack-destination", secondTemporary], pluginRoot, "packed-reproducibility", identity);
+    const firstFile = join(firstTemporary, filename);
+    const secondFile = join(secondTemporary, filename);
+    const committedFile = resolve(root, "fixtures/customer-gate-1/packages", filename);
+    assertByteReproducible(readFileSync(firstFile), readFileSync(secondFile), readFileSync(committedFile), filename);
+    const generated = tarEntries(firstFile);
+    const committed = tarEntries(committedFile);
     assert.deepEqual([...generated.keys()], [...committed.keys()]);
     for (const [name, content] of generated) {
       const expected = committed.get(name);
       assert.ok(expected);
-      if (name === "package/package.json") assert.deepEqual(JSON.parse(content.toString()), JSON.parse(expected.toString()));
-      else assert.equal(content.equals(expected), true, `${basename(filename)}:${name} is stale.`);
+      assert.equal(content.equals(expected), true, `${basename(filename)}:${name} is stale.`);
     }
-  } finally { rmSync(temporary, { recursive: true, force: true }); }
+  } finally {
+    rmSync(firstTemporary, { recursive: true, force: true });
+    rmSync(secondTemporary, { recursive: true, force: true });
+  }
 }
 
 export function runConformancePlan({ plan, pluginId, pluginPackage, pluginRoot, root }) {

@@ -7,16 +7,16 @@
 
 ## Last completed
 
-P6.10 now gives the exported Sales workspace presentation an explicit stable declaration contract and carries its new tar integrity into the generated Gate 1 customer inventory.
+P6.10 now gives the exported Sales workspace presentation an explicit stable declaration contract and canonicalizes dependency-map order before pnpm packs workspace manifests.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0 full `pnpm gate:6` passes through Gates 0–6, including customer Postgres, browser accessibility, publication, 21 Sales Node tests, 13 Sales Vitest tests, deterministic pack, Gate 1 reproducibility, and all 13 conformance evidence classes. `pnpm audit --audit-level high` reports no high/critical findings; diff and worktree checks pass.
+Prior exact-head Gate 6 passed, but independent review correctly blocked raw-byte reproducibility because pnpm 11.9.0 rewrote `workspace:` dependency entries in nondeterministic order. A supported `beforePacking` hook now canonicalizes publish dependency maps; repeated raw-pack acceptance and all downstream integrity artifacts must be refreshed before Gate 6 reruns.
 
 ## Next
 
-Repeat Gate 6 on this final status head, run independent review, refresh PR #21, and await designated project-manager PASS. PRs #22 and #23 remain drafts.
+Prove repeated raw pack bytes, tighten conformance checks, refresh tar/lock/Gate 1 integrity, rerun Gate 6, and repeat independent review before refreshing PR #21. PRs #22 and #23 remain drafts.
 
 ## Blockers
 
-No implementation blocker remains. PR #21 refresh stays pending final-head rerun and independent review. No merge or auto-merge will be performed.
+Independent review blocker: raw `.tgz` bytes vary across consecutive pnpm 11.9.0 packs. Local canonicalization fix remains unaccepted until repeated raw-byte proof passes. No merge or auto-merge will be performed.

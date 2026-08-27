@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { assertNoShellWrapper, assertVitestExactTestProof, requiredPluginEvidence, runBoundaryProof, validateConformancePlan } from "./plugin-conformance.mjs";
+import { assertByteReproducible, assertNoShellWrapper, assertVitestExactTestProof, requiredPluginEvidence, runBoundaryProof, validateConformancePlan } from "./plugin-conformance.mjs";
 
 function plan() {
   return {
@@ -89,4 +89,11 @@ test("plugin conformance accepts only one exact passed Vitest file and test", ()
   assert.throws(() => assertVitestExactTestProof({ ...report, numPassedTests: 0, numPendingTests: 1 }, expected), /pass exactly one test/);
   assert.throws(() => assertVitestExactTestProof({ ...report, testResults: [{ ...report.testResults[0], name: "/other.test.ts" }] }, expected), /unexpected test file/);
   assert.throws(() => assertVitestExactTestProof({ ...report, testResults: [{ ...report.testResults[0], assertionResults: [{ ...report.testResults[0].assertionResults[0], fullName: "other" }] }] }, expected), /intended test/);
+});
+
+test("plugin conformance requires repeated and committed archive bytes to match", () => {
+  const committed = Buffer.from("stable archive");
+  assert.doesNotThrow(() => assertByteReproducible(Buffer.from(committed), Buffer.from(committed), committed, "sales.tgz"));
+  assert.throws(() => assertByteReproducible(Buffer.from("first"), Buffer.from("second"), committed, "sales.tgz"), /repeated pack bytes are non-deterministic/);
+  assert.throws(() => assertByteReproducible(Buffer.from("other"), Buffer.from("other"), committed, "sales.tgz"), /committed bytes are stale/);
 });
