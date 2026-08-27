@@ -1,12 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { canonicalJson, type DataSourceDescriptor } from "@k-nex/contracts";
 import { createPuckBuilderAdapter } from "@k-nex/builder-puck";
 import { createUiDocumentRuntime, createUiRuntimeRegistry } from "@k-nex/ui-runtime";
-import { genericPuckBlockBridges } from "../src/index.js";
+import { createGenericPuckBlockBridges, genericPuckBlockBridges } from "../src/index.js";
 
-const genericFormAction = { id: "content.form.submit", version: 1 } as const;
 const genericSource: DataSourceDescriptor = {
   id: "content.records",
   version: 1,
@@ -29,6 +28,20 @@ const genericRecords = {
   rows: [{ key: "record-1", values: { value: { kind: "text" as const, value: "Published content" } } }],
   page: { number: 1, pageSize: 25, hasNext: false }
 };
+const typedSource: DataSourceDescriptor = {
+  ...genericSource,
+  id: "content.typed-records",
+  sourceSchema: { id: "content.typed-records.output", version: 1 },
+  inputFields: [
+    { id: "text", kind: "string", required: true, nullable: false },
+    { id: "count", kind: "integer", required: true, nullable: false },
+    { id: "ratio", kind: "number", required: true, nullable: false },
+    { id: "enabled", kind: "boolean", required: true, nullable: false },
+    { id: "date", kind: "date", required: true, nullable: false },
+    { id: "datetime", kind: "datetime", required: true, nullable: false },
+    { id: "choice", kind: "enum", required: true, nullable: false }
+  ]
+};
 
 describe("generic Puck block library", () => {
   it("covers the canonical generic block set and round-trips through shared definitions", () => {
@@ -40,7 +53,6 @@ describe("generic Puck block library", () => {
       props: bridge.defaultProps,
       ...(bridge.allowChildren ? { children: [] } : {}),
       ...(bridge.definition.id === "content.data-table" ? { bindings: { source: { source: { id: genericSource.id, version: genericSource.version }, input: {}, structuralCompatibilityHash: genericSource.structuralCompatibilityHash, selectedFields: ["value"] } } } : {}),
-      ...(bridge.definition.id === "content.form" ? { bindings: { action: genericFormAction } } : {})
     }));
     const sourceResults = { "generic-10": { state: "success" as const, data: genericRecords } };
     const actor = { authenticated: false, permissions: new Set<string>() };
@@ -57,7 +69,6 @@ describe("generic Puck block library", () => {
         surface: "public",
         actor,
         ...(node.bindings?.source === undefined ? {} : { source: genericSource, sourceResult: sourceResults["generic-10"] }),
-        ...(node.bindings?.action === undefined ? {} : { action: genericFormAction })
       });
       expect(runtime).toMatchObject({ kind: bridge.definition.id.slice("content.".length), props: bridge.defaultProps });
       expect(runtime).toHaveProperty("component");
@@ -82,23 +93,21 @@ describe("generic Puck block library", () => {
     const table = genericPuckBlockBridges.find(({ definition }) => definition.id === "content.data-table")!;
     const form = genericPuckBlockBridges.find(({ definition }) => definition.id === "content.form")!;
     expect(table.definition.sourcePolicy).toEqual({ required: true, contracts: [{ id: "table.records", version: 1 }], requiredFields: [] });
-    expect(form.definition.actionPolicy).toEqual({ required: false, actions: [genericFormAction] });
+    expect(form.definition.actionPolicy).toBeUndefined();
   });
 
-  it("renders a bound DataTable and dispatches only its accepted form action", async () => {
+  it("renders a bound DataTable and keeps an unconfigured form disabled", () => {
     const table = genericPuckBlockBridges.find(({ definition }) => definition.id === "content.data-table")!;
     const form = genericPuckBlockBridges.find(({ definition }) => definition.id === "content.form")!;
     const tableNode = { id: "table", type: table.definition.id, version: 1, props: table.defaultProps, bindings: { source: { source: { id: genericSource.id, version: genericSource.version }, input: {}, structuralCompatibilityHash: genericSource.structuralCompatibilityHash, selectedFields: ["value"] } } };
-    const formNode = { id: "form", type: form.definition.id, version: 1, props: form.defaultProps, bindings: { action: genericFormAction } };
+    const formNode = { id: "form", type: form.definition.id, version: 1, props: form.defaultProps };
     const actor = { authenticated: false, permissions: new Set<string>() };
     const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [table.definition, form.definition], sources: [genericSource] }));
-    const dispatchAction = vi.fn(async () => ({ ok: true }));
     const result = runtime.render({
       document: { id: "content.bound", version: 1, schemaVersion: 1, profile: "cms", regions: { main: [tableNode, formNode] } },
       surface: "public",
       actor,
-      sourceResults: { table: { state: "success", data: genericRecords } },
-      dispatchAction
+      sourceResults: { table: { state: "success", data: genericRecords } }
     });
     if (!result.success) throw new Error("Expected generic components to render.");
     const tableOutput = result.regions.main?.[0];
@@ -106,17 +115,8 @@ describe("generic Puck block library", () => {
     expect(tableOutput?.status).toBe("rendered");
     expect(renderToStaticMarkup((tableOutput as { output: { element: Parameters<typeof renderToStaticMarkup>[0] } }).output.element)).toContain('data-k-nex-component="data-table"');
     expect(formOutput?.status).toBe("rendered");
-    const formElement = (formOutput as { output: { element: { props: { onSubmit: (values: Readonly<Record<string, string>>) => Promise<void> } } } }).output.element;
-    await formElement.props.onSubmit({ value: "hello" });
-    expect(dispatchAction).toHaveBeenCalledWith({ action: genericFormAction, input: { value: "hello" }, nodeId: "form" });
-
-    const wrongAction = runtime.render({
-      document: { id: "content.bound", version: 1, schemaVersion: 1, profile: "cms", regions: { main: [{ ...formNode, bindings: { action: { id: "content.form.other", version: 1 } } }] } },
-      surface: "public",
-      actor,
-      dispatchAction
-    });
-    expect(wrongAction.success && wrongAction.regions.main?.[0]).toMatchObject({ status: "fallback", reason: "ACTION_NOT_ACCEPTED" });
+    const formElement = (formOutput as { output: { element: Parameters<typeof renderToStaticMarkup>[0] } }).output.element;
+    expect(renderToStaticMarkup(formElement)).toMatch(/<button[^>]*disabled/);
 
     const wrongSource = runtime.render({
       document: { id: "content.bound", version: 1, schemaVersion: 1, profile: "cms", regions: { main: [{ ...tableNode, bindings: { source: { ...tableNode.bindings.source, structuralCompatibilityHash: `sha256:${"d".repeat(64)}` } } }] } },
@@ -125,5 +125,33 @@ describe("generic Puck block library", () => {
       sourceResults: { table: { state: "success", data: genericRecords } }
     });
     expect(wrongSource.success && wrongSource.regions.main?.[0]).toMatchObject({ status: "fallback", reason: "SOURCE_STRUCTURAL_HASH_MISMATCH" });
+  });
+
+  it("accepts an explicit action configuration without inventing action authority", () => {
+    const bridges = createGenericPuckBlockBridges({ form: {
+      action: { id: "sales.task.create", version: 1 },
+      fields: [{ name: "title", label: "Title", kind: "text", required: true }],
+      initialValues: { title: "" },
+      submitLabel: "Create"
+    } });
+    expect(bridges.find(({ definition }) => definition.id === "content.form")?.definition.actionPolicy).toEqual({ required: false, actions: [{ id: "sales.task.create", version: 1 }] });
+    expect(() => createGenericPuckBlockBridges({ form: {
+      action: { id: "not registered", version: 0 }, fields: [{ name: "title", label: "Title", kind: "text" }], initialValues: { title: "" }, submitLabel: "Submit"
+    } })).toThrow("Generic form action identity is invalid.");
+  });
+
+  it("validates every standard source input kind, including boolean", async () => {
+    const table = genericPuckBlockBridges.find(({ definition }) => definition.id === "content.data-table")!;
+    const input = { text: "hello", count: 2, ratio: 1.5, enabled: true, date: "2026-08-27", datetime: "2026-08-27T00:00:00Z", choice: "one" };
+    const node = { id: "typed-table", type: table.definition.id, version: 1, props: table.defaultProps, bindings: { source: { source: { id: typedSource.id, version: typedSource.version }, input, structuralCompatibilityHash: typedSource.structuralCompatibilityHash, selectedFields: ["value"] } } };
+    const output = table.definition.render({ node, props: table.defaultProps, surface: "public", actor: { authenticated: false, permissions: new Set() }, source: typedSource, sourceResult: { state: "idle" } }) as { element: { props: { definition: { query: { execute: (transport: unknown, value: unknown, context: unknown) => Promise<unknown> } } } } };
+    const query = output.element.props.definition.query;
+    expect(query).toBeDefined();
+    const context = { surface: "public", authorizationBoundary: { kind: "public", revision: "test" }, signal: new AbortController().signal };
+    const transport = { query: async () => ({ ok: true, data: genericRecords }), mutate: async () => ({ ok: true, data: {} }) };
+    await expect(query.execute(transport, input, context)).resolves.toEqual({ state: "success", data: genericRecords });
+    for (const [field, value] of Object.entries({ text: 1, count: 1.5, ratio: "1.5", enabled: "true", date: 1, datetime: 1, choice: 1 })) {
+      await expect(query.execute(transport, { ...input, [field]: value }, context)).resolves.toEqual({ state: "invalid-contract" });
+    }
   });
 });
