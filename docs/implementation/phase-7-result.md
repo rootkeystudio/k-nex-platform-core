@@ -5,7 +5,7 @@
 - **Baseline:** accepted Phase 6 on `main` (`e05b1e68`)
 - **Delivery:** Phase 7 pull request rebased onto `main`; draft/open with no merge or auto-merge
 - **Decision:** **GO Phase 8**
-- **Review state:** all nine project-manager blockers remediated; final exact-head rereview pending
+- **Review state:** all nine project-manager blockers remediated; final exact-head rereview pending after cross-platform declaration hardening
 
 ## Scope proved
 
@@ -17,7 +17,7 @@ Sales remains the only first-party domain module. It is the real consumer for fo
 
 Project-manager remediation closes the exact authority and product-proof gaps: renderer action dispatch is scoped to the accepted immutable node/action binding; generic DataTable covers every declared source input kind; generic Form accepts only an explicitly configured valid registered action while its unconfigured default stays disabled; checkbox and date-range invalid semantics belong to the actual controls; and form controllers publish observable pending state, coalesce duplicate submissions, advance the clean baseline after save, and drive a rendered Sales opportunity edit form from registered async source options.
 
-The follow-up review is also closed in executable paths. DataTable action visibility and execution re-resolve the current catalog revision; authorized projections are identical in cache identity and transport; filter, projection, page, cursor, and bulk limits fail closed. Sales proves an opaque cursor advancing between real pages. DataGrid retains one roving tab stop while nested controls use explicit action mode. Concurrent form submissions preserve newer edits and order their saved baseline. Labels, descriptions, errors, invalid, and read-only state reach the actual controls. VirtualList preserves keyed focus through reorder and shrink without stealing focus on mount. Nested Puck containers render their children through the same production presentation boundary.
+The follow-up review is also closed in executable paths. DataTable action visibility and execution re-resolve the current catalog revision; authorized projections are identical in cache identity and transport; filter, projection, page, cursor, and bulk limits fail closed. Sales proves an opaque cursor advancing between real pages. DataGrid retains one roving tab stop while nested controls use explicit action mode. Concurrent form submissions preserve newer edits and order their saved baseline. Labels, descriptions, errors, invalid, and read-only state reach the actual controls. VirtualList preserves keyed focus through reorder and shrink without stealing focus on mount. Nested Puck containers render their children through the same production presentation boundary. Sales exported descriptor aggregates use explicit public contract types, preventing host-dependent inferred union ordering from changing emitted declarations or the packed fixture.
 
 ## Completed tasks
 
@@ -82,7 +82,7 @@ pnpm audit --audit-level high
 git diff --check
 ```
 
-The acceptance candidate passed with `GATE_7_PASS`. The audit reported no high or critical vulnerabilities (two low and three moderate). Pack reproducibility requires consecutive raw pack bytes to match, a canonical committed gzip marker, and identical ordered exported entry names and contents. Platform-specific gzip streams or tar headers therefore cannot hide or fabricate a package-content change. The committed Sales fixture, root file-package integrity, and Gate 1 resolved application evidence were regenerated from a forced clean TypeScript build and pass the same clean-build pack proof on Linux.
+The previous exact candidate `2513120` passed GitHub Actions run `33123110563` with `GATE_7_PASS`. The audit reported no high or critical vulnerabilities (two low and three moderate). Pack reproducibility requires consecutive raw pack bytes to match, a canonical committed gzip marker, and identical ordered exported entry names and contents. Platform-specific gzip streams or tar headers therefore cannot hide or fabricate a package-content change. Explicit aggregate declaration types make forced clean macOS and Linux `contracts.d.ts` outputs byte-identical (`20f204c2837d78891afbb194d7805957bdcf06dff36efbf78545b390af2dbba1`). The committed Sales fixture, root file-package integrity, and Gate 1 resolved application evidence were regenerated from that stable clean output; pack checks pass on both hosts.
 
 Key Phase 7 totals: design-system 11 tests, components 12 tests, UI runtime 46 tests, UI data 17 tests, forms 11 tests, pages 1 test, builder Puck 35 tests, UI builder blocks 6 tests, UI testing 7 tests, Sales 23 Node tests plus 19 Vitest tests. Existing lower-gate contract/runtime/Payload/PostgreSQL and browser suites remain part of `gate:7`.
 

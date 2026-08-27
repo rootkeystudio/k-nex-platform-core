@@ -518,7 +518,7 @@ function permission(
   };
 }
 
-export const salesPermissionDescriptors = Object.freeze([
+export const salesPermissionDescriptors: readonly PermissionDescriptor[] = Object.freeze([
   permission("sales.settings.read", "Read Sales settings", "Read non-secret Sales workspace settings.", "sales.settings", "read", "application"),
   permission("sales.settings.write", "Change Sales settings", "Change validated Sales workspace settings.", "sales.settings", "write", "application"),
   permission("sales.tasks.read", "Read Sales tasks", "Read actor-authorized Sales task records.", "sales.tasks", "read", "record"),
@@ -772,11 +772,11 @@ export const salesOpportunityListBlockDescriptor: PluginUiContributionDescriptor
 export const salesOpportunityDetailBlockDescriptor: PluginUiContributionDescriptor = uiContribution("sales.opportunity-detail", "block", "sales.opportunities.read", opportunitySourcePolicy, { required: false, actions: [{ id: salesOpportunityStageUpdateDescriptor.id, version: 1 }] });
 export const salesSettingsSummaryBlockDescriptor: PluginUiContributionDescriptor = uiContribution("sales.settings-summary", "block", "sales.settings.read");
 
-export const salesUiComponentDescriptors = Object.freeze([
+export const salesUiComponentDescriptors: readonly PluginUiContributionDescriptor[] = Object.freeze([
   salesTaskTableComponentDescriptor, salesRevenueMetricComponentDescriptor, salesQuickCreateComponentDescriptor,
   salesOpportunityListComponentDescriptor, salesOpportunityDetailComponentDescriptor, salesPipelineStatusComponentDescriptor
 ]);
-export const salesUiBlockDescriptors = Object.freeze([
+export const salesUiBlockDescriptors: readonly PluginUiContributionDescriptor[] = Object.freeze([
   salesTaskTableBlockDescriptor, salesRevenueMetricBlockDescriptor, salesQuickCreateBlockDescriptor,
   salesOpportunityListBlockDescriptor, salesOpportunityDetailBlockDescriptor, salesSettingsSummaryBlockDescriptor
 ]);
