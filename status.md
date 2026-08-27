@@ -3,7 +3,7 @@
 - **Updated:** 2026-08-27
 - **Phase:** Phase 5 — UI Runtime, Themes, and Atomic CMS Publication
 - **Active task:** P5.9 — Gate 5 closeout
-- **State:** Rework in progress
+- **State:** Ready for review
 
 ## Last completed
 
@@ -11,12 +11,12 @@ Addressed the three blockers anchored to `472396aa`: generated CMS/theme Zod-AJV
 
 ## Validation
 
-Generated-schema validation, shared CMS/theme parity fixtures, design-system tests, deep-immutability regression, and nested-root-element Chromium ownership pass. Full frozen Gate 5 remains to run.
+Frozen install, complete `pnpm gate:5`, shared CMS/theme Zod-AJV parity, deep-immutability and nested-root-element Chromium regressions, audit threshold, and repository checks pass.
 
 ## Next
 
-Commit the coherent correction, run frozen `pnpm gate:5` plus audit/repository checks, push, refresh PR evidence, and await exact-head CI and project-manager PASS.
+Push the correction head, refresh PR evidence, and await exact-head CI and project-manager PASS. Start Phase 6 only after PASS and merge.
 
 ## Blockers
 
-Project-manager REWORK review anchored to `472396aa` remains open.
+None.
