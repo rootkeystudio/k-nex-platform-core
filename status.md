@@ -3,20 +3,20 @@
 - **Updated:** 2026-08-27
 - **Phase:** Phase 8 — Lifecycle, Application Factory, Release, and Fleet Safety
 - **Active task:** P8.10 — Platform-foundation closeout
-- **State:** Formal review
+- **State:** Blocked
 
 ## Last completed
 
-P8.10 added the Phase 8 result, Gate 8 closeout command, exact evidence reconciliation, and ADR-0015 executable-POC promotion. Fleet storage snapshots and deeply freezes receipt-bound evidence so callers cannot mutate authoritative package or deployment state after ingestion. Exact-head validation passed at `12fbf0512d0eaea38b781d97e97cc7aaf3fd19ef`.
+Sol-high formal review at `d34f48a` found nine blocking evidence/operation gaps despite the existing Gate 8 PASS. The phase remains active while those gaps are corrected; no PR will open from the blocked state.
 
 ## Validation
 
-Full `pnpm gate:8` PASS at `12fbf05` through Phase 0, Gates 1–8, all three customer Postgres proofs, browser/component/plugin proofs, two customer validators, and contracts/composition/runtime suites. Runtime: 26 files and 196 tests PASS after fleet immutability hardening. `pnpm audit --audit-level high` PASS with 2 low, 3 moderate, 0 high, and 0 critical advisories. `git diff --check` PASS; only protected user files `AGENTS.md` and `local-ai-info.md` remain outside phase commits.
+Existing full `pnpm gate:8` passed at `12fbf05`, but review proved the gate can accept caller-authored lifecycle/fleet evidence, incomplete transitive inventory, simulated recovery, and file-existence-only application generation. Those passes are not final acceptance evidence. Protected user files `AGENTS.md` and `local-ai-info.md` remain outside phase commits.
 
 ## Next
 
-Obtain formal Sol-high review, resolve every blocker, rerun final-head evidence if needed, then open the stacked Phase 8 pull request without merge or auto-merge.
+Resolve blockers in dependency order: support/release graph; verified lifecycle/deployment evidence; secure atomic application factory plus real packed-package boot; real prior-upgrade/restore; signed custom provenance; fail-closed deterministic Gate 8. Then rerun full gate/audit and Sol-high review.
 
 ## Blockers
 
-None. Phase 8 is stacked on the preserved Phase 7 branch per explicit project-manager instruction; Phase 7 PR #22 remains open.
+Formal review BLOCKED at `d34f48a`: purge evidence authority, support-window enforcement, generated app boot, atomic apply, custom provenance signing, transitive SBOM/fleet inventory, verified deployment receipts, real prior-upgrade/restore, and fail-closed generated evidence.
