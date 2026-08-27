@@ -3,7 +3,7 @@
 - **Date:** 2026-08-27
 - **Gate:** Gate 6
 - **Baseline:** `6d9730d`
-- **Delivery:** Phase 6 local branch; pull request and CI pending; no merge or auto-merge
+- **Delivery:** Pull request #21 open; CI and project-manager review pending; no merge or auto-merge
 - **Decision:** **GO Phase 7**
 - **Review state:** Fresh Sol/high phase review and project-manager merge remain required
 

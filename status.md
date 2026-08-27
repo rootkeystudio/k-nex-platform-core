@@ -15,7 +15,7 @@ Node 24.19.0 / pnpm 11.9.0: complete `pnpm gate:6` PASS; contracts 140, runtime 
 
 ## Next
 
-Push the pure Phase 6 branch, open its PR, then obtain exact-head project-manager PASS and required CI before merge. Preserve this branch before stacking P7.1 per user delivery direction.
+Obtain exact-head project-manager PASS and required CI on PR #21 before user merge. Preserve this branch while stacking P7.1 per user delivery direction.
 
 ## Blockers
 
