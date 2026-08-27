@@ -3,11 +3,11 @@
 - **Updated:** 2026-08-27
 - **Phase:** Phase 7 — Comprehensive Headless Component System
 - **Active task:** P7.10 — Performance, bundle, coverage audit, and closeout
-- **State:** Ready for final phase rereview
+- **State:** In progress
 
 ## Last completed
 
-All four Sol-high review blockers are corrected and Phase 7 is restacked on final Phase 6 `6352d36`. Renderers receive only exact node/action-scoped authority. Generic DataTable/Form use platform source/action gateways. Checkbox and date-range invalid state is attached to the actual controls. Form controllers publish observable pending state, coalesce duplicate submits, and Sales renders the async-source-backed opportunity edit form. The neutral Sales archive, lock integrity, and Gate 1 inventory are refreshed.
+The form controller now advances its saved baseline after successful submission, so reapplying the saved value remains clean while later divergence becomes dirty. Observable pending state, duplicate-submit coalescing, and sanitized failure behavior remain intact.
 
 ## Validation
 
@@ -15,8 +15,8 @@ Node 24.19.0 / pnpm 11.9.0 acceptance passes: frozen install, full workspace bui
 
 ## Next
 
-Repeat exact Gate 7 after this metadata amendment, then run Sol-high rereview and refresh draft PR #22.
+Complete generic DataTable boolean input coverage and replace the invented generic Form action with an explicitly configured registered-action path; then refresh artifacts and rerun Gate 7.
 
 ## Blockers
 
-No known review blocker remains. Phase 7 is stacked on final reviewed Phase 6 `6352d36`; PR #21 CI/merge remains external and does not block stacked validation.
+Generic DataTable boolean input and generic Form registered-action proof remain open from Sol-high rereview. Phase 7 remains stacked on final Phase 6 `6352d36`.

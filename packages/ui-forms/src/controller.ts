@@ -51,8 +51,8 @@ function problemErrors<TValues extends object>(problem: BrowserProblem, values: 
 }
 
 export function createFormController<TValues extends object, TOutput>(options: FormControllerOptions<TValues, TOutput>): FormController<TValues, TOutput> {
-  const initialValues = freeze(structuredClone(options.initialValues));
-  const initial = (): FormSnapshot<TValues> => freeze({ values: structuredClone(initialValues), initialValues, fieldErrors: emptyErrors<TValues>(), dirty: false, submitting: false });
+  let savedValues = freeze(structuredClone(options.initialValues));
+  const initial = (): FormSnapshot<TValues> => freeze({ values: structuredClone(savedValues), initialValues: savedValues, fieldErrors: emptyErrors<TValues>(), dirty: false, submitting: false });
   let current = initial();
   let inFlight: Promise<FormSnapshot<TValues>> | undefined;
   const listeners = new Set<(snapshot: FormSnapshot<TValues>) => void>();
@@ -71,7 +71,7 @@ export function createFormController<TValues extends object, TOutput>(options: F
     change<TKey extends keyof TValues>(snapshot: FormSnapshot<TValues>, field: TKey, value: TValues[TKey]): FormSnapshot<TValues> {
       const values = freeze({ ...snapshot.values, [field]: value }) as Readonly<TValues>;
       const fieldErrors = Object.fromEntries(Object.entries(snapshot.fieldErrors).filter(([key]) => key !== String(field))) as FormFieldErrors<TValues>;
-      return publish(freeze({ ...withoutFormError(snapshot), values, fieldErrors, dirty: JSON.stringify(values) !== JSON.stringify(initialValues) }));
+      return publish(freeze({ ...withoutFormError(snapshot), values, fieldErrors, dirty: JSON.stringify(values) !== JSON.stringify(savedValues) }));
     },
     submit(snapshot: FormSnapshot<TValues>, signal: AbortSignal): Promise<FormSnapshot<TValues>> {
       if (inFlight !== undefined) return inFlight;
@@ -82,7 +82,10 @@ export function createFormController<TValues extends object, TOutput>(options: F
       submission = (async (): Promise<FormSnapshot<TValues>> => {
         try {
           const result = await options.submit(snapshot.values, signal);
-          if (result.state === "success") return publish(freeze({ values: structuredClone(snapshot.values), initialValues: structuredClone(snapshot.values), fieldErrors: emptyErrors<TValues>(), dirty: false, submitting: false }));
+          if (result.state === "success") {
+            savedValues = freeze(structuredClone(snapshot.values));
+            return publish(freeze({ values: structuredClone(savedValues), initialValues: savedValues, fieldErrors: emptyErrors<TValues>(), dirty: false, submitting: false }));
+          }
           if (result.state === "cancelled") return publish(freeze({ ...snapshot, submitting: false }));
           if ("problem" in result) return publish(freeze({ ...snapshot, fieldErrors: problemErrors<TValues>(result.problem, snapshot.values), formError: result.problem.code, submitting: false }));
           return publish(freeze({ ...snapshot, fieldErrors: emptyErrors<TValues>(), formError: result.state === "invalid-contract" ? "FORM_INVALID_CONTRACT" : "FORM_SUBMISSION_FAILED", submitting: false }));

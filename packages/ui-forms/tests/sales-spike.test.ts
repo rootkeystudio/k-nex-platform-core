@@ -27,6 +27,8 @@ describe("bounded Sales form spike", () => {
     expect(changed.dirty).toBe(true);
     const submitted = await controller.submit(changed, signal);
     expect(submitted).toMatchObject({ dirty: false, fieldErrors: {}, submitting: false });
+    expect(controller.change(submitted, "title", "Follow up").dirty).toBe(false);
+    expect(controller.change(submitted, "title", "Next follow up").dirty).toBe(true);
     expect(calls).toEqual(["sales.task.create"]);
     expect(salesCreateTaskMutation.invalidation.sources).toEqual(["sales.tasks", "sales.total-potential-revenue"]);
   });
