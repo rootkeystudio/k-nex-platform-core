@@ -32,24 +32,24 @@ Lifecycle state keeps support, installed bytes, enabled state, settings readines
 | P6.7 — complete Sales reference plugin | `3e9be9d` |
 | P6.8 — plugin conformance kit | `789937a` |
 | P6.9 — install/disable/re-enable proof | `1f9b24c` |
-| P6.10 — Gate 6 closeout | this closeout commit |
-| Blocking review remediation — all nine findings | `9e312fe` through `1a4bab3` |
-| Final review remediation — all six findings | `a75d563`, `f4720f1` |
+| P6.10 — Gate 6 closeout | `e223d2d` |
+
+Post-closeout review remediation is preserved as coherent commits `9e312fe`, `8a3d543`, `e459787`, `4df5120`, `c288f43`, `5d6e3f5`, `1076a7e`, `9e31865`, `d5b35b1`, `1a4bab3`, `a75d563`, `f4720f1`, `5ca137c`, `4c2a808`, `e1efe98`, and `1bba6c7`. The final four commits replace the rejected legacy lifecycle fallback, reconcile the complete exact reference graph, remove ambient Payload/action authority, and make conformance evidence runner-owned.
 
 ## Public contracts and packages affected
 
 - `@k-nex/contracts`: contribution registry; strict settings, permission, route, navigation, page-template, and UI contribution descriptors.
-- `@k-nex/runtime`: phased registration/binding reconciliation; settings, page templates, lifecycle/readiness/reference scans.
+- `@k-nex/runtime`: phased registration/binding reconciliation; settings, page templates, opaque lifecycle authority, exact reference scans, and the registered action gateway.
 - `@k-nex/ui-runtime`: standard source queries, action mutations, UI bindings, result states, invalidation, URL-safe view state.
 - `@k-nex/builder-puck`: production/Puck reconciliation over the same canonical renderer.
-- `@k-nex/payload-adapter`: lifecycle-aware retained schema/read and disabled-write composition.
+- `@k-nex/payload-adapter`: lifecycle-aware composition plus collection/operation-scoped persistence capabilities; plugin handlers never receive ambient Payload Local API authority.
 - `@k-nex/module-sales`: the sole reference domain module and exact packed artifact.
 - Customer Gate 1: migration revision 6, exact inventory, lifecycle deployments, and real PostgreSQL data-retention proof.
 - Repository tooling: `pnpm plugin:check <plugin-directory>` and `pnpm gate:6`.
 
 ## Conformance and gate evidence
 
-The plugin command requires all 11 evidence classes and executes nine target-bound proofs. Named Node proofs must live inside the Sales package, receive the runner-owned plugin identity, and pass exactly one selected test. Package-boundary and reproducibility proofs run directly inside the trusted conformance runner. Missing/unknown/duplicate evidence, external workspace tests, arbitrary scripts, extra fields, realpath escape, and stale package bytes fail closed.
+The plugin command requires all 13 evidence classes and executes eleven exact proofs. Customer/Postgres boot, Sales platform execution, package boundaries, packed reproducibility, and generated reference documentation are runner-owned. Named Node proofs must live inside Sales, receive runner-owned identity, pass exactly one selected test, and cannot invoke a direct or transitively imported process runner. Public entrypoint boundaries traverse the complete local import graph. Missing/unknown/duplicate evidence, wrapper shell-outs, indirect forbidden imports, external tests, arbitrary scripts, extra fields, realpath escape, stale docs, and stale package bytes fail closed.
 
 Acceptance observed on Node.js `24.19.0` and pnpm `11.9.0`:
 
@@ -66,13 +66,13 @@ pnpm audit --audit-level high
 git diff --check
 ```
 
-Final task acceptance totals reached contracts 140, runtime 175, UI runtime 41, builder 31, Payload adapter 31, Sales 34, conformance-plan 2, and the customer unit/PostgreSQL gates. The PostgreSQL lifecycle proof boots enabled, disabled, and re-enabled deployments against one database, observes disabled write rejection, retained task data, registered event/realtime/job execution, and restored source availability.
+Final task acceptance totals reached contracts 140, runtime 178, UI runtime 41, builder 31, Payload adapter 32, Sales 34, conformance-plan 4, and the customer unit/PostgreSQL gates. The PostgreSQL proof exercises all three Sales sources and all three actions through standard gateways, rejects out-of-scope task and opportunity IDs, boots enabled/disabled/re-enabled deployments, preserves retained data, and executes registered event/realtime/job behavior.
 
 The complete local `gate:6` chain passed with its standard commands. The high/critical audit threshold also passed; the package manager reported two low and three moderate findings, with no high or critical advisory.
 
 ## Plugin authoring freeze
 
-[Plugin authoring](../plugin-authoring.md) is the entry document. It links directly to tested contracts, Sales implementations, fixtures, and commands instead of duplicating untested shapes. `defineSourceQuery`, `defineActionMutation`, `defineUiContributionBinding`, phased `definePluginRegistration`, settings/page-template/lifecycle helpers, and the conformance-plan shape are the pre-v1 authoring surface. The provisional `definePluginQueries`/`definePluginActions` examples were removed; no aliases or compatibility shims remain.
+[Plugin authoring](../plugin-authoring.md) is the entry document. It links directly to tested contracts, Sales implementations, fixtures, commands, and the runner-generated [Sales reference inventory](../generated/module-sales-reference.md). `defineSourceQuery`, `defineActionMutation`, `defineUiContributionBinding`, phased `definePluginRegistration`, settings/page-template/lifecycle helpers, and conformance schema 3 are the pre-v1 authoring surface. The provisional `definePluginQueries`/`definePluginActions` examples were removed; no aliases or compatibility shims remain.
 
 A second module should need domain contracts and handlers, not a new package boundary, contribution category, transport, cache, permission model, page seed mechanism, UI renderer bridge, lifecycle model, or test runner.
 
@@ -83,10 +83,11 @@ A second module should need domain contracts and handlers, not a new package bou
 | undeclared/duplicate/wrong-phase contribution or missing binding | registration runtime suite and customer inventory reconciliation |
 | unauthorized, stale, or schema-invalid Sales settings change | target-bound Sales settings conformance proof |
 | unauthorized source/field or direct query scope manipulation | runtime authorization and authenticated customer fixture |
-| server import in browser/UI or third-party type leakage in contracts | Sales boundary checker |
+| forged action authorization, arbitrary record mutation, or ambient Local API access | registered action/tool decision tests, persistence-capability denial, and customer PostgreSQL action fixture |
+| server import in browser/UI or third-party type leakage in contracts | runner-owned transitive Sales boundary checker |
 | unavailable page-template resource or failed migration | page-template preflight/last-valid tests |
 | editor/runtime renderer drift | Sales runtime/Puck parity proof |
-| external/unrelated proof, fabricated script, duplicate evidence, or arbitrary plan field | conformance-plan negative tests |
+| external/unrelated proof, wrapper shell-out, indirect forbidden import, fabricated script, duplicate evidence, or arbitrary plan field | four conformance-runner negative tests |
 | stale/non-reproducible packed module | byte-level Sales pack comparison and lock integrity |
 | disabled plugin write or executable surface access | lifecycle availability tests plus real PostgreSQL 403/source 404 proof |
 | schema-owning uninstall or destructive operation with references | lifecycle refusal/reference-scan tests |

@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Closed conformance self-attestation gaps: customer/Postgres, Sales platform, boundary, packing, and reference-generation proofs are runner-owned; named plugin tests cannot invoke direct or transitive process wrappers; public entrypoint boundaries traverse local import graphs. Browser factories and generated reference documentation are required evidence.
+Corrected the Gate 6 closeout artifact and gate verifier: exact P6 task commits must be ancestors, conformance schema/evidence and generated reference docs are recomputed, current test totals are required, and stale claims fail. The gate no longer passes from a predetermined GO marker.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: conformance negative suite 4/4 PASS; all 13 exact evidence classes PASS through `pnpm plugin:check modules/sales`, including runner-owned customer Postgres. Prior Gate 6 result superseded by active review remediation.
+Node 24.19.0 / pnpm 11.9.0: conformance negative suite 4/4 PASS; all 13 exact evidence classes PASS through `pnpm plugin:check modules/sales`, including runner-owned customer Postgres. Exact full Gate 6 rerun is next.
 
 ## Next
 
-Correct closeout evidence and Gate 6 validation, rerun the exact full gate, then request exact-head Sol-high review on PR #21.
+Run exact full `pnpm gate:6`, push the verified head, then request exact-head Sol-high review on PR #21.
 
 ## Blockers
 
