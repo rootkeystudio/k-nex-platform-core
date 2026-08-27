@@ -178,6 +178,28 @@ describe("UI document runtime", () => {
     expect(JSON.stringify(result)).not.toContain("private renderer detail");
   });
 
+  it("threads an exact action dispatcher only through an accepted action binding", async () => {
+    let submit: (() => void | Promise<unknown>) | undefined;
+    const actionable = block({
+      actionPolicy: { required: true, actions: [{ id: "sales.task.create", version: 1 }] },
+      render: ({ action, dispatchAction, node }) => {
+        if (action !== undefined && dispatchAction !== undefined) submit = () => dispatchAction({ action, input: { title: "Call customer" }, nodeId: node.id });
+        return "ready";
+      }
+    });
+    const dispatchAction = vi.fn(async () => ({ ok: true }));
+    const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [actionable], sources: [] }));
+    const result = runtime.render({
+      document: document({ bindings: { action: { id: "sales.task.create", version: 1 } } }),
+      surface: "workspace",
+      actor: actor(),
+      dispatchAction
+    });
+    expect(firstNode(result)).toMatchObject({ status: "rendered", output: "ready" });
+    await submit?.();
+    expect(dispatchAction).toHaveBeenCalledWith({ action: { id: "sales.task.create", version: 1 }, input: { title: "Call customer" }, nodeId: "card-1" });
+  });
+
   it("isolates renderer actor authority and deeply freezes registered descriptors", () => {
     const callerPermissions = new Set<string>();
     const mutator = block({

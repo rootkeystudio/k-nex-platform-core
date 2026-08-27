@@ -24,6 +24,7 @@ export const taskRecords = {
 const transport = { query: async () => ({ ok: false as const, problem: { code: "UNUSED", status: 500 } }), mutate: async () => ({ ok: false as const, problem: { code: "UNUSED", status: 500 } }) } as BrowserDataTransport;
 const createTask = createSalesTaskQuickCreateController(transport, "matrix").initial();
 const virtualRows = Array.from({ length: 10_000 }, (_, index) => `Virtual row ${index}`);
+const taskCapabilities = [{ state: "allowed" as const, action: { id: "sales.task.update", version: 1 } }];
 
 function Surface({ label, presentation }: { readonly label: string; readonly presentation: ThemePresentationSnapshot }): ReactElement {
   const [viewState, setViewState] = useState(createDataTableState(salesTasksTableDefinition));
@@ -45,9 +46,9 @@ function Surface({ label, presentation }: { readonly label: string; readonly pre
     <div data-matrix-state="rtl" dir="rtl">مرحبا بالمبيعات</div>
     <div data-matrix-state="long-text">Long localized customer follow-up task with intentionally extended content for bounded layout evidence</div>
     <div data-matrix-state="localization" lang="tr">Satış görevleri yerelleştirme kontrolü</div>
-    <SalesTasksPage requestState={{ state: "success", data: taskRecords }} viewState={viewState} createTask={createTask} onViewStateChange={setViewState} onCreateTaskChange={() => undefined} onCreateTask={() => undefined} />
+    <SalesTasksPage requestState={{ state: "success", data: taskRecords }} viewState={viewState} actionCapabilities={taskCapabilities} createTask={createTask} onViewStateChange={setViewState} onCreateTaskChange={() => undefined} onCreateTask={() => undefined} />
     <Dialog triggerLabel={`Open ${label} matrix dialog`} title={`${label} matrix dialog`}>Overlay performance probe</Dialog>
-    <DataGrid definition={salesTasksTableDefinition} viewState={selectedState} requestState={{ state: "success", data: taskRecords }} label="Task grid" />
+    <DataGrid definition={salesTasksTableDefinition} actionCapabilities={taskCapabilities} viewState={selectedState} requestState={{ state: "success", data: taskRecords }} label="Task grid" />
     <VirtualList label={`${label} virtual tasks`} items={virtualRows} getKey={(item) => item} renderItem={(item) => item} height={180} />
   </section></KNeXDesignSystemProvider>;
 }

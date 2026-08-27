@@ -9,7 +9,7 @@
 
 ## Scope proved
 
-K-Nex now owns a style-agnostic component system with 60 Component Gallery families and 71 additional K-Nex utilities: **131 executable families** total. Every inventory entry has an explicit owner, package, behavior source, disposition, maturity, slots, applicable states, delivery task, and truthful test classes. A family-to-test-class evidence map and two-theme executable render sweep fail if a family disappears, cannot render, or claims evidence that is not registered.
+K-Nex now owns a style-agnostic component system with 60 Component Gallery families and 71 additional K-Nex utilities: **131 executable families** total. Every inventory entry has an explicit owner, package, behavior source, disposition, maturity, slots, applicable states, delivery task, and truthful test classes. An independently maintained family-evidence registry explicitly classifies 40 stateful families and 91 default-only families. The two-theme executable sweep fails if a family disappears, cannot render, lacks exact evidence coverage, or claims a server-observable state whose DOM marker cannot be proved; browser-only interaction states fail closed instead of receiving synthetic credit.
 
 The primitive theme ABI remains small. Native semantics handle simple structures; React Aria 1.20.0 and FocusScope 3.22.1 remain behind K-Nex navigation/overlay/focus adapters; TanStack Table 8.21.3 and TanStack Virtual 3.14.9 remain behind data adapters; Lexical 0.49.0 remains behind the optional rich-text editor. Their public/persisted types do not escape the adapters.
 
@@ -34,15 +34,15 @@ Sales remains the only first-party domain module. It is the real consumer for fo
 
 - `@k-nex/ui-data` consumes registered `table.records@1` definitions. Descriptor metadata controls required fields, filters, facets, sorts, pagination, row identity, action visibility, query identity, URL view state, and exact-source invalidation.
 - Offset and opaque cursor controls are mutually exclusive and bounded. Controlled query state changes the authorization-safe query identity; actor/record authority never enters persisted URL state.
-- Required-field permission loss renders a canonical insufficient-permission state. Optional field omission, loading, empty, error, stale, refetching, selection, detail, and authorized actions have explicit surfaces.
-- Semantic table is the default. ARIA grid is explicit and has tested cell navigation. TanStack types do not enter K-Nex public declarations.
+- Required-field permission loss renders a canonical insufficient-permission state. Optional field omission, loading, empty, error, stale, refetching, selection, detail, and authorized actions have explicit surfaces. Action definitions contain mutation identity and presentation only; exact actor-authoritative capability results are injected separately, matched by action and state, reject duplicates, and fail closed for row and bulk execution.
+- Semantic table is the default. ARIA grid is explicit, exposes exactly one initial tab stop, and transfers that tab stop during tested arrow-key navigation. Array-backed `in` facets remain connected to the controlled query state. TanStack types do not enter K-Nex public declarations.
 - Sales create-task and opportunity-stage forms submit through registered action mutations. Field errors, conflicts, invalidation, dirty state, and async registered-source options are executable.
 - Dashboard, index, detail, create, edit, settings, wizard, and builder templates are compositional. Sales overview/tasks/opportunities/settings pages bind immutable page-template IDs and import no Payload, customer theme, Puck, or third-party table API.
-- The 13 generic and six Sales Puck bridges execute the same runtime definition in production and editor. Round-trip, profile, missing block, source, and action replacement tests fail closed. The adapter snapshot preserves both source and action policy.
+- The 13 generic and six Sales Puck bridges execute the same runtime definition in production and editor. Round-trip, profile, missing block, source, and action replacement tests fail closed. The adapter snapshot preserves both source and action policy. The Sales quick-create block renders a real title/status form and dispatches the exact registered create action through the injected UI runtime dispatcher; it is visibly disabled when that authority is absent.
 
 ## Accessibility, SSR, themes, and interaction
 
-The shared matrix covers default, hover, focus, pressed, selected, disabled, read-only, pending, invalid, empty, error, high contrast, reduced motion, RTL, long text, and localization through applicable components under Minimal and Neobrutalism. It does not falsely claim every state applies to every family. Testing Library uses role/name queries and user-event. Real Chromium checks keyboard focus, row selection, grid navigation, APG tree interaction, portal/dialog behavior, ARIA snapshots, forced colors, reduced motion, nested roots, live theme switching, and a keyboard-driven 10,000-row virtual list.
+The shared matrix covers default, hover, focus, pressed, selected, disabled, read-only, pending, invalid, empty, error, high contrast, reduced motion, RTL, long text, and localization through applicable components under Minimal and Neobrutalism. It does not falsely claim every state applies to every family. Testing Library uses role/name queries and user-event. Real Chromium checks keyboard focus, row selection, single-tab-stop grid navigation, APG tree keyboard interaction and nested-child pointer isolation, portal/dialog behavior, ARIA snapshots, forced colors, reduced motion, nested roots, live theme switching, and a keyboard-driven 10,000-row virtual list.
 
 React 19 server markup hydrates in real Chromium without `onRecoverableError`, then opens and dismisses a portalled dialog. Minimal also passes the existing server/client hydration proof. The [screen-reader smoke record](evidence/phase-7-screen-reader-smoke.md) documents the accessibility-tree and keyboard journey without overstating commercial screen-reader coverage.
 
@@ -77,7 +77,7 @@ pnpm gate:7
 git diff --check
 ```
 
-Key Phase 7 totals: design-system 11 tests, components 11 tests, UI data 10 tests, forms 5 tests, pages 1 test, builder Puck 31 tests, UI builder blocks 1 test, UI testing 3 tests, Sales 21 Node tests plus 17 Vitest tests. Existing lower-gate contract/runtime/Payload/PostgreSQL and browser suites remain part of `gate:7`.
+Key Phase 7 totals: design-system 11 tests, components 11 tests, UI data 14 tests, forms 5 tests, pages 1 test, builder Puck 31 tests, UI builder blocks 1 test, UI testing 5 tests, Sales 22 Node tests plus 17 Vitest tests. Existing lower-gate contract/runtime/Payload/PostgreSQL and browser suites remain part of `gate:7`.
 
 ## Limits and deferred scope
 

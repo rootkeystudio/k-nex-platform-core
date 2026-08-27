@@ -35,6 +35,14 @@ export interface UiBlockActionPolicy {
   readonly actions: readonly { readonly id: string; readonly version: number }[];
 }
 
+export interface UiRuntimeActionDispatchRequest {
+  readonly action: { readonly id: string; readonly version: number };
+  readonly input: unknown;
+  readonly nodeId: string;
+}
+
+export type UiRuntimeActionDispatcher = (request: UiRuntimeActionDispatchRequest) => void | Promise<unknown>;
+
 export interface UiBlockRenderInput {
   readonly node: UiNode;
   readonly props: unknown;
@@ -42,6 +50,7 @@ export interface UiBlockRenderInput {
   readonly actor: UiRuntimeActor;
   readonly source?: DataSourceDescriptor;
   readonly action?: { readonly id: string; readonly version: number };
+  readonly dispatchAction?: UiRuntimeActionDispatcher;
   readonly sourceResult?: DataSourceBindingResult<unknown>;
 }
 

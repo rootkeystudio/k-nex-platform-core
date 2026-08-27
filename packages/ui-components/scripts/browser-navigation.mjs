@@ -68,6 +68,10 @@ try {
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Enter");
   assert.equal(await projects.getAttribute("aria-selected"), "true", "Enter did not select tree item.");
+  await activeProjects.click();
+  assert.equal(await activeProjects.getAttribute("aria-selected"), "true", "Pointer did not select the nested tree item.");
+  assert.equal(await projects.getAttribute("aria-selected"), "false", "Nested pointer selection bubbled to its ancestor.");
+  await page.getByRole("status", { name: "Last action" }).filter({ hasText: "selected:active" }).waitFor();
 
   const dialogTrigger = page.getByRole("button", { name: "Open dialog" });
   await dialogTrigger.focus();
