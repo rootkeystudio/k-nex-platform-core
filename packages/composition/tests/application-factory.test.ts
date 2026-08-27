@@ -30,6 +30,19 @@ describe("create-knex-app", () => {
     expect(first.installCommands).toEqual([["pnpm", "install", "--lockfile-only"], ["pnpm", "install", "--frozen-lockfile"]]);
   });
 
+  it("binds a generated application to every exact artifact in a packed release mirror", () => {
+    const release = JSON.parse(readFileSync(new URL("../../../releases/0.2.0/package-release-manifest.json", import.meta.url), "utf8"));
+    const plan = planCreateKnexApplication({
+      applicationId: "packed-customer", applicationName: "Packed Customer", theme: "minimal", database: "external",
+      packageSource: { kind: "packed-mirror", directory: "../packages", releaseManifest: release }
+    });
+    const packageJson = JSON.parse(plan.files["package.json"]!);
+    const sales = release.packages.find((entry: { package: string }) => entry.package === "@k-nex/module-sales");
+    expect(packageJson.dependencies["@k-nex/module-sales"]).toBe(`file:../packages/k-nex-module-sales-${sales.version}.tgz`);
+    expect(plan.files["pnpm-workspace.yaml"]).toContain('"@k-nex/module-sales": "file:../packages/k-nex-module-sales-');
+    expect(JSON.parse(plan.files["k-nex.app.json"]!).plugins[0].version).toBe(sales.version);
+  });
+
   it("applies idempotently and refuses to overwrite customer files", () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), "create-knex-app-"))); roots.push(root);
     const plan = planCreateKnexApplication({ applicationId: "customer-beta", applicationName: "Customer Beta", theme: "neobrutalism", database: "external" });

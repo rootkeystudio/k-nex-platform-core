@@ -6,7 +6,7 @@ import { gunzipSync } from "node:zlib";
 
 const root = resolve(import.meta.dirname, "..");
 const artifactDirectory = resolve(root, "fixtures/customer-gate-1/packages");
-const release = JSON.parse(readFileSync(resolve(root, "releases/0.2.0/package-release-manifest.json"), "utf8"));
+const releases = ["0.1.0", "0.2.0", "0.2.1"].map((version) => JSON.parse(readFileSync(resolve(root, `releases/${version}/package-release-manifest.json`), "utf8")));
 const workspaceSpecifier = /^(?:workspace:|link:|file:)/u;
 
 function entries(archive) {
@@ -41,15 +41,16 @@ for (const filename of readdirSync(artifactDirectory).filter((name) => name.ends
   const metadata = JSON.parse(packageJson.toString("utf8"));
   assert.equal(typeof metadata.name, "string", `${filename} package name is invalid.`);
   assert.equal(typeof metadata.version, "string", `${filename} package version is invalid.`);
-  assert.ok(!archives.has(metadata.name), `Multiple packed artifacts declare ${metadata.name}.`);
-  archives.set(metadata.name, { filename, archive, packed, metadata });
+  const identity = `${metadata.name}@${metadata.version}`;
+  assert.ok(!archives.has(identity), `Multiple packed artifacts declare ${identity}.`);
+  archives.set(identity, { filename, archive, packed, metadata });
 }
 
-const releasedNames = new Set();
-for (const expected of release.packages) {
-  assert.ok(!releasedNames.has(expected.package), `Release manifest duplicates ${expected.package}.`);
-  releasedNames.add(expected.package);
-  const actual = archives.get(expected.package);
+const releasedIdentities = new Set();
+for (const release of releases) for (const expected of release.packages) {
+  const expectedIdentity = `${expected.package}@${expected.version}`;
+  releasedIdentities.add(expectedIdentity);
+  const actual = archives.get(expectedIdentity);
   assert.ok(actual, `Release artifact for ${expected.package}@${expected.version} is missing.`);
   assert.equal(actual.metadata.version, expected.version, `Packed artifact version differs for ${expected.package}.`);
   assert.equal(`sha512-${createHash("sha512").update(actual.archive).digest("base64")}`, expected.integrity, `Packed artifact digest differs for ${expected.package}.`);
@@ -59,7 +60,7 @@ for (const expected of release.packages) {
       assert.equal(typeof specifier, "string", `${expected.package} ${section}.${dependency} must be a string.`);
       assert.ok(!workspaceSpecifier.test(specifier), `${expected.package} has a non-release ${section} specifier for ${dependency}.`);
       if (dependency.startsWith("@k-nex/")) {
-        const dependencyArtifact = archives.get(dependency);
+        const dependencyArtifact = archives.get(`${dependency}@${specifier}`);
         assert.ok(dependencyArtifact, `${expected.package} depends on ${dependency}, but no packed release artifact exists.`);
         assert.equal(specifier, dependencyArtifact.metadata.version, `${expected.package} must depend on the exact packed ${dependency} version.`);
       }
@@ -73,5 +74,7 @@ for (const expected of release.packages) {
   }
 }
 
-assert.deepEqual([...archives.keys()].filter((name) => name.startsWith("@k-nex/")).sort(), [...releasedNames].sort(), "Packed release closure and manifest package sets differ.");
-process.stdout.write(`P8_PACKED_RELEASE_CLOSURE_PASS ${release.packages.length}\n`);
+assert.deepEqual([...archives.keys()].filter((identity) => identity.startsWith("@k-nex/")).sort(), [...releasedIdentities].sort(), "Packed release closure and manifest package sets differ.");
+const salesIntegrities = releases.map((release) => release.packages.find((entry) => entry.package === "@k-nex/module-sales")?.integrity);
+assert.equal(new Set(salesIntegrities).size, 3, "Prior, current, and security-target Sales releases must be distinct packed artifacts.");
+process.stdout.write(`P8_PACKED_RELEASE_CLOSURE_PASS ${releasedIdentities.size}\n`);

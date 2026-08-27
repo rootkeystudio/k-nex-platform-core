@@ -1,25 +1,26 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import test from "node:test";
 
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import pg from "pg";
 
+import { applyCreateKnexApplication, planCreateKnexApplication } from "@k-nex/composition";
 import { createDeploymentReceipt, FleetRegistry } from "@k-nex/runtime";
 import { createFixtureDeploymentVerifier } from "../../../scripts/lib/fixture-deployment-authority.mjs";
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
 const repositoryRoot = resolve(import.meta.dirname, "../../..");
 
-function bootCustomer(customer, connectionString) {
+function bootCustomer(customerDirectory, customer, connectionString) {
   return new Promise((resolveProcess, reject) => {
-    const fixture = resolve(repositoryRoot, "fixtures", customer);
-    const child = spawn(process.execPath, [resolve(import.meta.dirname, "packed-customer-boot-child.mjs"), fixture, customer], {
-      cwd: fixture,
+    const child = spawn(process.execPath, [resolve(import.meta.dirname, "packed-customer-boot-child.mjs"), customerDirectory, customer], {
+      cwd: customerDirectory,
       env: { ...process.env, DATABASE_URL: connectionString, NODE_ENV: "production", PAYLOAD_SECRET: `phase-8-${customer}-packed-boot-secret` },
       stdio: ["ignore", "pipe", "pipe"]
     });
@@ -74,18 +75,58 @@ test("boots both customer apps from packed packages and verifies protected runti
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("phase8").withStartupTimeout(120_000).start();
   const administrator = new pg.Pool({ connectionString: container.getConnectionUri() });
   const supportManifest = JSON.parse(readFileSync(resolve(repositoryRoot, "releases/0.2.0/package-release-manifest.json"), "utf8"));
+  const priorManifest = JSON.parse(readFileSync(resolve(repositoryRoot, "releases/0.1.0/package-release-manifest.json"), "utf8"));
   const committedAlpha = JSON.parse(readFileSync(resolve(repositoryRoot, "fixtures/customer-alpha/runtime-inventory.json"), "utf8"));
   const sourceCommit = committedAlpha.releaseEvidence.sourceCommit;
   const verifier = createFixtureDeploymentVerifier(sourceCommit);
   const fleet = new FleetRegistry(supportManifest, verifier.authority);
   const pools = [];
+  const generatedRoot = realpathSync(mkdtempSync(join(tmpdir(), "phase-8-generated-app-")));
   try {
+    const mirror = resolve(generatedRoot, "packages");
+    mkdirSync(mirror);
+    const releaseEntries = new Map([...supportManifest.packages, ...priorManifest.packages].map((entry) => [`${entry.package}@${entry.version}`, entry]));
+    for (const entry of releaseEntries.values()) {
+      const filename = `${entry.package.slice(1).replace("/", "-")}-${entry.version}.tgz`;
+      copyFileSync(resolve(repositoryRoot, "fixtures/customer-gate-1/packages", filename), resolve(mirror, filename));
+    }
+    for (const [label, releaseManifest] of [["current", supportManifest], ["prior", priorManifest]]) {
+      const applicationId = `gate-eight-${label}`;
+      const generatedApplication = resolve(generatedRoot, `application-${label}`);
+      const generatedPlan = planCreateKnexApplication({
+        applicationId, applicationName: `Gate Eight ${label}`, theme: "minimal", database: "external",
+        packageSource: { kind: "packed-mirror", directory: "../packages", releaseManifest }
+      });
+      applyCreateKnexApplication(generatedPlan, generatedApplication);
+      for (const command of generatedPlan.installCommands) {
+        execFileSync(command[0], command.slice(1), { cwd: generatedApplication, env: process.env, stdio: "pipe", encoding: "utf8" });
+      }
+      execFileSync("pnpm", ["build"], { cwd: generatedApplication, env: process.env, stdio: "pipe", encoding: "utf8" });
+      const database = `gate_eight_${label}`;
+      await administrator.query(`create database ${database}`);
+      const generatedUrl = new URL(container.getConnectionUri());
+      generatedUrl.pathname = `/${database}`;
+      const generatedBoot = await bootCustomer(generatedApplication, applicationId, generatedUrl.toString());
+      assert.equal(generatedBoot.code, 0, `${generatedBoot.stdout}\n${generatedBoot.stderr}`);
+      assert.ok(generatedBoot.stdout.includes("PACKED_CUSTOMER_BOOT"));
+      const generatedPool = new pg.Pool({ connectionString: generatedUrl.toString() });
+      pools.push(generatedPool);
+      const generatedState = await generatedPool.query(`select
+        to_regclass('public.sales_tasks')::text as tasks,
+        to_regclass('public.sales_opportunities')::text as opportunities,
+        (select count(*)::int from payload_migrations) as migrations,
+        (select revision from k_nex_release_revision where application_id = $1) as revision,
+        (select count(*)::int from k_nex_default_pages) as pages`, [applicationId]);
+      assert.deepEqual(generatedState.rows, [{ tasks: "sales_tasks", opportunities: "sales_opportunities", migrations: 2, revision: 1, pages: 2 }]);
+    }
+
     for (const customer of ["customer-alpha", "customer-beta"]) {
       const database = customer.replace("-", "_");
       await administrator.query(`create database ${database}`);
       const url = new URL(container.getConnectionUri());
       url.pathname = `/${database}`;
-      const boot = await bootCustomer(customer, url.toString());
+      const fixture = resolve(repositoryRoot, "fixtures", customer);
+      const boot = await bootCustomer(fixture, customer, url.toString());
       assert.equal(boot.code, 0, `${boot.stdout}\n${boot.stderr}`);
       const marker = boot.stdout.match(/PACKED_CUSTOMER_BOOT (\{.*\})/u);
       assert.ok(marker, boot.stdout);
@@ -116,5 +157,6 @@ test("boots both customer apps from packed packages and verifies protected runti
     await Promise.all(pools.map((pool) => pool.end()));
     await administrator.end();
     await container.stop();
+    rmSync(generatedRoot, { recursive: true, force: true });
   }
 });

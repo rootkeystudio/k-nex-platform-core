@@ -41,15 +41,15 @@ Sales remains the only first-party domain module. Customer Alpha and Customer Be
 
 `create-knex-app` deterministically plans/applies the Sales reference preset, exact dependencies, Payload Postgres mode, application manifest/config, production migrations, typed boot entrypoint, readiness steps, customer-owned default pages, and add/disable/enable/upgrade plans. Apply is atomic, idempotent, and rejects path traversal, symlink traversal, partial promotion, and customer-file overwrite; dependency installation remains a source-time CLI action, never runtime code installation.
 
-Customer Alpha uses external Postgres, Minimal, page size 25, manager authority, tasks plus opportunities, monthly cadence, and platform release 0.2.0. Customer Beta uses local Docker Postgres, Neobrutalism, page size 50, representative authority, tasks only, quarterly cadence, and supported prior release 0.1.0. Both are isolated pnpm workspaces installed from the same 16-artifact packed release mirror, with no workspace links. A clean PostgreSQL test compiles and boots each Payload application, runs two production migrations, registers both Sales collections, instantiates both default pages, queries Sales, and proves every K-Nex resolution comes from the fixture's packed `.pnpm` tree.
+Customer Alpha uses external Postgres, Minimal, page size 25, manager authority, tasks plus opportunities, monthly cadence, and platform release 0.2.0 with Sales 1.0.0. Customer Beta uses local Docker Postgres, Neobrutalism, page size 50, representative authority, tasks only, quarterly cadence, and supported prior release 0.1.0 with Sales 0.9.0. Both are isolated pnpm workspaces installed from an 18-artifact mirror containing the complete closure plus distinct prior/current/security-target Sales tarballs, with no workspace links. A clean PostgreSQL test also creates two fresh applications through the factory, installs each from its selected release manifest and packed mirror, compiles and boots the current and prior Payload applications, runs two production migrations, registers both Sales collections, instantiates both default pages, queries Sales, and proves every K-Nex resolution comes from the generated app's packed `.pnpm` tree.
 
 ## Release, deployment, and fleet proof
 
 - Timestamp-free CycloneDX 1.6 SBOM and canonical provenance bind source commit, full-SHA workflow identity, manifest, lock, complete transitive graph, SBOM, and artifact digests.
 - Local Ed25519 tests reject signature/payload substitution. The hosted workflow uses GitHub OIDC and `actions/attest` pinned to a complete SHA for signed provenance and SBOM attestations. No SLSA level is claimed.
 - Generated JSON Schemas validate non-secret runtime inventory and deployment receipts. Receipt reconciliation rejects artifact, migration, inventory, readiness, or smoke drift.
-- Authority-issued, signature-verified fleet ingestion keeps one current and one supported-prior customer. The clean-boot proof serves inventory from a protected runtime endpoint, rejects anonymous observation, reconciles live PostgreSQL readiness, verifies signed deployment receipt and provenance, then issues the only token Fleet accepts. Sales `<1.0.1` and transitive `semver <7.8.6` identify both deployments and generate customer-specific lock/upgrade/migration/deploy update plans.
-- Beta dry-runs its previous-release upgrade through eight reviewed migration domains. Alpha's restore/redeploy reproduces the expected inventory digest. Generator marker: `P8_9_FLEET_EVIDENCE_PASS`.
+- Authority-issued, signature-verified fleet ingestion keeps one current and one supported-prior customer. The clean-boot proof serves inventory from a protected runtime endpoint, rejects anonymous observation, reconciles live PostgreSQL readiness, verifies signed deployment receipt and provenance, then issues the only token Fleet accepts. Sales `<1.0.1` and transitive `semver <7.8.6` identify both deployments. A trusted 0.2.1 release manifest binds the real Sales 1.0.1 tarball and generates customer-specific lock/upgrade/migration/deploy update plans for both.
+- Beta installs and boots the actual Sales 0.9.0 prior artifact, then upgrades to the manifest-bound 1.0.0 artifact through eight reviewed migration domains. Alpha's restore/redeploy reproduces the expected inventory digest. Generator marker: `P8_9_FLEET_EVIDENCE_PASS`.
 
 ## Validation
 
@@ -61,7 +61,7 @@ pnpm audit --audit-level high
 git diff --check
 ```
 
-The corrective full run passed `pnpm gate:8` from Phase 0 through Gate 8, including 5 clean PostgreSQL proofs, 16 packed-release artifacts, 2 protected runtime observations, 20 contract files/147 tests, 5 composition files/82 tests, and 26 runtime files/198 tests. Packed SHA512/content closure, stale-evidence rejection, generated-artifact reproducibility, browser/accessibility, plugin conformance, and `git diff --check` passed. Detailed current state is recorded in `status.md`.
+The corrective full run is rerun on every exact review head. It covers Phase 0 through Gate 8, clean PostgreSQL proofs including factory-generated prior/current applications, 18 packed release identities, two protected runtime observations, contracts, composition, and runtime suites. Packed SHA512/content closure, stale-evidence rejection, generated-artifact reproducibility, browser/accessibility, plugin conformance, and `git diff --check` are required. Detailed current state is recorded in `status.md`.
 
 ## Limits and production claims
 

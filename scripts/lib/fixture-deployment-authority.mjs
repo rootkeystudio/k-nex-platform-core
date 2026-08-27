@@ -19,8 +19,10 @@ export function createFixtureDeploymentVerifier(sourceCommit) {
   return Object.freeze({
     authority,
     async verify(inventory, receipt, observe = async () => structuredClone(inventory)) {
+      const salesVersion = inventory.plugins.find(({ id }) => id === "module.sales")?.version;
+      if (typeof salesVersion !== "string") throw new Error("Fixture inventory does not declare Sales.");
       const provenance = createReleaseProvenance({
-        subjectName: "k-nex-module-sales-1.0.0.tgz", artifactDigest: inventory.artifactDigest, sourceCommit, workflowIdentity: releaseWorkflow,
+        subjectName: `k-nex-module-sales-${salesVersion}.tgz`, artifactDigest: inventory.artifactDigest, sourceCommit, workflowIdentity: releaseWorkflow,
         materials: [
           { name: "application-manifest", digest: inventory.releaseEvidence.manifestDigest },
           { name: "lockfile", digest: inventory.releaseEvidence.lockfileDigest },
