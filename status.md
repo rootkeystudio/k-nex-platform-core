@@ -11,7 +11,7 @@ The final blocking Phase 7 review was addressed on one coherent rework head. Sta
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: targeted rework suites PASS, including UI runtime 44, UI components 11 plus browser navigation, UI data 14, UI testing 5 plus browser/performance, and Sales 22 Node plus 17 Vitest tests. The verified Sales tarball SHA512 and deterministic Gate 1 resolution artifact were refreshed. Exact full `pnpm gate:7` rerun is next.
+Node 24.19.0 / pnpm 11.9.0: the full Gate 7 execution passed Gates 0–6 and every Phase 7 package, browser, matrix, and performance suite, then stopped only because the closeout prose had renamed one literal marker consumed by `scripts/gate-7.mjs`. The required marker was restored; exact full `pnpm gate:7` rerun is next.
 
 ## Next
 
