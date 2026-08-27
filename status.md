@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Deployment receipts, runtime inventories, patch plans, restore proof, and fleet evidence were regenerated from release-source commit `82e5224`. Alpha/Beta evidence now binds refreshed manifests, locks, packed Sales artifacts, SBOMs, and application plans to exact committed bytes.
+The shared Gate 1 workspace lock now binds refreshed Sales and Socket.IO packed checksums. This closes the first full-gate failure after release regeneration; Alpha/Beta evidence remains bound to source commit `82e5224`.
 
 ## Validation
 
-`node scripts/generate-phase-8-deployment-evidence.mjs 82e5224c29eefbbcc797cb270475fe02e56f7b66`, `node scripts/generate-phase-8-fleet-evidence.mjs`, `node scripts/check-phase-8-generated-evidence.mjs`, and `git diff --check` PASS.
+First `pnpm gate:8` run failed at Gate 1 with `ERR_PNPM_TARBALL_INTEGRITY`, proving the stale root lock. `pnpm install --lockfile-only` refreshed the two exact local tarball integrities. Full rerun pending.
 
 ## Next
 
-Refresh closeout result, run full Gate 8 and audit, then request Sol-high review.
+Rerun full Gate 8 and audit, refresh closeout result, then request Sol-high review.
 
 ## Blockers
 
