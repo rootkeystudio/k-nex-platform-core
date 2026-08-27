@@ -17,6 +17,18 @@ import { createFixtureDeploymentVerifier } from "../../../scripts/lib/fixture-de
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
 const repositoryRoot = resolve(import.meta.dirname, "../../..");
 
+async function startPostgres() {
+  let failure;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      return await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("phase8").withStartupTimeout(120_000).start();
+    } catch (error) {
+      failure = error;
+    }
+  }
+  throw failure;
+}
+
 function bootCustomer(customerDirectory, customer, connectionString) {
   return new Promise((resolveProcess, reject) => {
     const child = spawn(process.execPath, [resolve(import.meta.dirname, "packed-customer-boot-child.mjs"), customerDirectory, customer], {
@@ -72,7 +84,7 @@ async function protectedObservation(pool, inventory) {
 }
 
 test("boots both customer apps from packed packages and verifies protected runtime observations", { timeout: 240_000 }, async () => {
-  const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("phase8").withStartupTimeout(120_000).start();
+  const container = await startPostgres();
   const administrator = new pg.Pool({ connectionString: container.getConnectionUri() });
   const supportManifest = JSON.parse(readFileSync(resolve(repositoryRoot, "releases/0.2.0/package-release-manifest.json"), "utf8"));
   const priorManifest = JSON.parse(readFileSync(resolve(repositoryRoot, "releases/0.1.0/package-release-manifest.json"), "utf8"));

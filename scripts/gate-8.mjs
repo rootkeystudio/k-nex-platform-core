@@ -1,17 +1,19 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { ApplicationManifestSchema, DeploymentReceiptSchema, RuntimeInventorySchema } from "../packages/contracts/dist/index.js";
-import { applyCreateKnexApplication, planCreateKnexApplication } from "../packages/composition/dist/index.js";
+import { ApplicationManifestSchema, DeploymentReceiptSchema, RuntimeInventorySchema, canonicalJson } from "../packages/contracts/dist/index.js";
+import { applyCreateKnexApplication, createCycloneDxSbom, planCreateKnexApplication, resolvePnpmLock } from "../packages/composition/dist/index.js";
 import { FleetRegistry, reconcileDeploymentReceipt, runtimeInventoryStateDigest } from "../packages/runtime/dist/index.js";
 import { createFixtureDeploymentVerifier } from "./lib/fixture-deployment-authority.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 if (process.versions.node !== "24.19.0") throw new Error(`Gate 8 requires Node 24.19.0; found ${process.versions.node}.`);
 const readJson = (path) => JSON.parse(readFileSync(resolve(root, path), "utf8"));
+const sha256 = (content) => `sha256:${createHash("sha256").update(content).digest("hex")}`;
 const assertNoSecretKeys = (value, path = "$") => {
   if (value === null || typeof value !== "object") return;
   for (const [key, child] of Object.entries(value)) {
@@ -34,12 +36,33 @@ assert.doesNotMatch(workflow, /SLSA Build L[0-9]/u);
 const supportManifest = readJson("releases/0.2.0/package-release-manifest.json");
 const patchManifest = readJson("releases/0.2.1/package-release-manifest.json");
 const sourceCommit = readJson("fixtures/customer-alpha/runtime-inventory.json").releaseEvidence.sourceCommit;
+const sourceFile = (path) => execFileSync("git", ["show", `${sourceCommit}:${path}`], { cwd: root, maxBuffer: 4 * 1024 * 1024 });
+for (const [releaseVersion, salesVersion] of [["0.1.0", "0.9.0"], ["0.2.0", "1.0.0"], ["0.2.1", "1.0.1"]]) {
+  const release = JSON.parse(sourceFile(`releases/${releaseVersion}/package-release-manifest.json`).toString("utf8"));
+  const sales = release.packages.find((entry) => entry.package === "@k-nex/module-sales");
+  const artifact = sourceFile(`fixtures/customer-gate-1/packages/k-nex-module-sales-${salesVersion}.tgz`);
+  assert.equal(sales?.version, salesVersion);
+  assert.equal(sales?.integrity, `sha512-${createHash("sha512").update(artifact).digest("base64")}`);
+}
 const verifier = createFixtureDeploymentVerifier(sourceCommit);
 const fleet = new FleetRegistry(supportManifest, verifier.authority);
 for (const customer of ["customer-alpha", "customer-beta"]) {
   const manifest = ApplicationManifestSchema.parse(readJson(`fixtures/${customer}/k-nex.app.json`));
   const inventory = RuntimeInventorySchema.parse(readJson(`fixtures/${customer}/runtime-inventory.json`));
   const receipt = DeploymentReceiptSchema.parse(readJson(`fixtures/${customer}/deployment-receipt.json`));
+  const sourceManifest = JSON.parse(sourceFile(`fixtures/${customer}/k-nex.app.json`).toString("utf8"));
+  const sourceLock = sourceFile(`fixtures/${customer}/pnpm-lock.yaml`).toString("utf8");
+  const sourcePlan = JSON.parse(sourceFile(`fixtures/${customer}/.k-nex/application-plan.json`).toString("utf8"));
+  const salesVersion = sourceManifest.plugins.find(({ id }) => id === "module.sales")?.version;
+  const sourceArtifact = sourceFile(`fixtures/customer-gate-1/packages/k-nex-module-sales-${salesVersion}.tgz`);
+  const resolvedLock = resolvePnpmLock(sourceLock);
+  const salesRef = `pkg:npm/%40k-nex/module-sales@${salesVersion}`;
+  const sourceSbom = createCycloneDxSbom(customer, resolvedLock.components, resolvedLock.dependencies, [...resolvedLock.rootDependencies, salesRef]);
+  assert.equal(inventory.artifactDigest, sha256(sourceArtifact));
+  assert.equal(inventory.releaseEvidence.manifestDigest, sha256(canonicalJson(sourceManifest)));
+  assert.equal(inventory.releaseEvidence.lockfileDigest, sha256(sourceLock));
+  assert.equal(inventory.releaseEvidence.resolvedGraphDigest, sha256(canonicalJson(sourcePlan)));
+  assert.equal(inventory.releaseEvidence.sbomDigest, sha256(canonicalJson(sourceSbom)));
   assert.deepEqual(manifest.plugins.map(({ id }) => id), ["module.sales"]);
   assert.equal(reconcileDeploymentReceipt(receipt, inventory), true);
   assert.equal(execFileSync("git", ["merge-base", "--is-ancestor", inventory.releaseEvidence.sourceCommit, "HEAD"], { cwd: root }).length, 0);
