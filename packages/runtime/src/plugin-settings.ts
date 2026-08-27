@@ -82,8 +82,13 @@ export class PluginSettingsService {
       revision: current.revision + 1,
       values: input.values
     };
-    resolvePluginSettings(input.definition, candidate);
-    const replaced = await this.store.replace(candidate, input.expectedRevision);
+    const normalized = resolvePluginSettings(input.definition, candidate);
+    const replaced = await this.store.replace({
+      settingsId: normalized.settingsId,
+      schemaVersion: normalized.schemaVersion,
+      revision: normalized.revision,
+      values: normalized.values
+    }, input.expectedRevision);
     if (replaced === undefined) fail("REVISION_CONFLICT", "Plugin settings revision changed during update.");
     return resolvePluginSettings(input.definition, replaced);
   }

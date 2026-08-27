@@ -141,4 +141,61 @@ describe("P6.4 page template seed semantics", () => {
     });
     expect(store.snapshot()?.adoptedTemplateVersion).toBe(1);
   });
+
+  it.each(["source", "action", "block"] as const)("rejects a migration that injects an undeclared %s and preserves the customer instance", async (kind) => {
+    const store = memoryStore();
+    await instantiatePluginPageTemplate(descriptor(), inventory, store);
+    const before = store.snapshot();
+    await expect(adoptPluginPageTemplate(descriptor(2), inventory, store, 1, (current) => {
+      const node = current.regions.main![0]!;
+      return {
+        ...current,
+        version: 2,
+        regions: {
+          main: [{
+            ...node,
+            ...(kind === "block" ? { type: "sales.private-table" } : {
+              bindings: {
+                ...node.bindings,
+                [kind]: kind === "source"
+                  ? { ...node.bindings!.source!, source: { id: "sales.private-tasks", version: 1 } }
+                  : { id: "sales.task.delete", version: 1 }
+              }
+            })
+          }]
+        }
+      };
+    })).rejects.toSatisfy((error) => {
+      expectCode(error, "DEFINITION_INVALID");
+      return true;
+    });
+    expect(store.snapshot()).toEqual(before);
+  });
+
+  it.each([
+    ["capabilities", "CAPABILITY_MISSING"],
+    ["sources", "SOURCE_MISSING"],
+    ["actions", "ACTION_MISSING"],
+    ["blocks", "BLOCK_MISSING"]
+  ] as const)("rechecks %s authority after migration before writing", async (kind, code) => {
+    const store = memoryStore();
+    await instantiatePluginPageTemplate(descriptor(), inventory, store);
+    const before = store.snapshot();
+    const changedInventory: PageTemplateInventory = {
+      ...inventory,
+      capabilities: new Map(inventory.capabilities),
+      sources: new Set(inventory.sources),
+      actions: new Set(inventory.actions),
+      blocks: new Set(inventory.blocks)
+    };
+    await expect(adoptPluginPageTemplate(descriptor(2), changedInventory, store, 1, (current) => {
+      if (kind === "capabilities") changedInventory.capabilities.clear();
+      else changedInventory[kind].clear();
+      return { ...current, version: 2 };
+    })).rejects.toSatisfy((error) => {
+      expectCode(error, code);
+      return true;
+    });
+    expect(store.snapshot()).toEqual(before);
+  });
 });

@@ -147,4 +147,56 @@ describe("P6.3 plugin settings runtime", () => {
     expect(await service.change({ definition: definition(), actor: changeActor, expectedRevision: 4, values: { defaultTaskPageSize: 50, showPotentialRevenue: false } })).toMatchObject({ revision: 5, values: { defaultTaskPageSize: 50, showPotentialRevenue: false } });
     expect(await service.read(definition(), readActor)).toMatchObject({ revision: 5, values: { defaultTaskPageSize: 50, showPotentialRevenue: false } });
   });
+
+  it("persists the normalized settings candidate including defaults and schema transforms", async () => {
+    let document: PluginSettingsDocument = {
+      settingsId: descriptor.id, schemaVersion: 2, revision: 4,
+      values: { defaultTaskPageSize: 25, showPotentialRevenue: true }
+    };
+    const normalizingDefinition: PluginSettingsRuntimeDefinition<Values> = {
+      ...definition(),
+      schema: {
+        safeParse: (value) => {
+          const parsed = schema(value);
+          if (!parsed.success) return parsed;
+          const values = parsed.data as Values & { readonly defaultTaskPageSize: number };
+          return {
+            success: true as const,
+            data: {
+              ...values,
+              defaultTaskPageSize: Math.min(values.defaultTaskPageSize, 40)
+            }
+          };
+        }
+      }
+    };
+    const service = new PluginSettingsService({
+      read: async () => structuredClone(document),
+      replace: async (candidate, expectedRevision) => {
+        if (document.revision !== expectedRevision) return undefined;
+        document = structuredClone(candidate);
+        return structuredClone(document);
+      }
+    });
+
+    const changed = await service.change({
+      definition: normalizingDefinition,
+      actor: { permissions: new Set([descriptor.changePermission]) },
+      expectedRevision: 4,
+      values: { defaultTaskPageSize: 50 } as Values
+    });
+
+    expect(changed).toEqual({
+      settingsId: descriptor.id,
+      schemaVersion: 2,
+      revision: 5,
+      values: { defaultTaskPageSize: 40, showPotentialRevenue: true }
+    });
+    expect(document).toEqual({
+      settingsId: descriptor.id,
+      schemaVersion: 2,
+      revision: 5,
+      values: { defaultTaskPageSize: 40, showPotentialRevenue: true }
+    });
+  });
 });

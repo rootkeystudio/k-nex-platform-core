@@ -7,11 +7,11 @@
 
 ## Last completed
 
-P6.10 review remediation replaces ANSI-sensitive Vitest output scraping with exact JSON proof and removes Gate 6's historical-commit topology dependency while preserving current artifact, contract, and task-mapping validation.
+P6.10 review remediation persists normalized plugin settings candidates and rebuilds/repreflights migrated page-template descriptors before adoption, preserving the last valid customer instance on every failed authority check.
 
 ## Validation
 
-Node 24.19.0: focused conformance/Gate 6 regressions, exact Sales Vitest JSON proof, and `node scripts/gate-6.mjs` PASS; full `pnpm gate:6` remains required on this remediation head.
+Node 24.19.0: runtime settings/template regressions (186 tests), full workspace build, and `git diff --check` PASS; full `pnpm gate:6` remains required on this remediation head.
 
 ## Next
 

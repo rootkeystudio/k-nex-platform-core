@@ -152,10 +152,11 @@ export async function comparePluginPageTemplate(
   if (!document.success || document.data.id !== descriptor.id || document.data.version !== descriptor.version || document.data.profile !== descriptor.profile) {
     fail("DOCUMENT_INVALID", `Template ${descriptor.id} adoption migration returned an invalid document.`, [descriptor.id]);
   }
+  const migratedDescriptor = preflightPluginPageTemplate({ ...descriptor, document: document.data }, inventory);
   return Object.freeze({
     status: "update-available",
     current: freezeInstance(current),
-    candidate: freezeInstance({ ...current, document: document.data }).document,
+    candidate: freezeInstance({ ...current, document: migratedDescriptor.document }).document,
     targetTemplateVersion: descriptor.version
   });
 }
