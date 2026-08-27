@@ -3,19 +3,19 @@
 - **Updated:** 2026-08-27
 - **Phase:** Phase 8 — Lifecycle, Application Factory, Release, and Fleet Safety
 - **Active task:** P8.10 — Platform-foundation closeout
-- **State:** In progress
+- **State:** Ready for phase review
 
 ## Last completed
 
-Deployment receipts, runtime inventories, security patch plans, restore proof, and fleet evidence were regenerated from corrected release-source commit `fe2cd80`. Exact-source material now includes replay-safe purge and corrected fleet behavior.
+All three Sol-high P1 findings are corrected. Fleet freshness uses chronological RFC 3339 instants; patch targets must be outside the vulnerable range; purge plans are single-use and revision-bound. Corrected runtime artifact, releases, locks, and lifecycle evidence bind source commit `fe2cd80`.
 
 ## Validation
 
-`node scripts/generate-phase-8-deployment-evidence.mjs fe2cd8080a995d1b0bec764d24d0ca5c9e562a7d`, fleet generation, `P8_GENERATED_EVIDENCE_CLEAN`, and `git diff --check` PASS.
+`pnpm gate:8` PASS after P1 fixes: Gate 0 through Gate 8, five PostgreSQL scenarios, current/prior packed boot, browser/accessibility, Sales conformance, 18 packed identities, contracts 151 tests, composition 83 tests, runtime 226 tests, `P8_GENERATED_EVIDENCE_CLEAN`, and `GATE_8_PASS`. Audit PASS at high threshold with two low and three moderate advisories. Clean-tree checks PASS.
 
 ## Next
 
-Rerun full Gate 8 and audit, refresh closeout result, then request Sol-high re-review.
+Run Sol-high exact-head re-review, push Phase 8 snapshot and PR 23 branch, leave PR open/draft without merge or auto-merge.
 
 ## Blockers
 

@@ -5,7 +5,7 @@
 - **Baseline:** `9056043`
 - **Delivery:** stacked Phase 8 pull request; no merge or auto-merge
 - **Decision:** **PLATFORM FOUNDATION ACCEPTED**
-- **Review state:** Refreshed exact-head Sol-high review pending; designated PR review pending
+- **Review state:** Sol-high REWORK at `6d44b88`; all three P1 findings corrected; exact-head re-review pending
 
 ## Scope proved
 
@@ -45,10 +45,11 @@ Customer Alpha uses external Postgres, Minimal, page size 25, manager authority,
 
 ## Release, deployment, and fleet proof
 
-- Timestamp-free CycloneDX 1.6 SBOM and canonical provenance bind source commit, full-SHA workflow identity, manifest, lock, complete transitive graph, SBOM, and artifact digests. Refreshed evidence uses release-source commit `82e5224`, a descendant of final Phase 7 and ancestor of the evidence head. Evidence generation and Gate 8 require exact source/current release-manifest parity, verify every packed identity and SHA512 digest, require source/current artifact byte parity, and recompute application manifest, lock, plan, subject, and derived SBOM digests. Existing non-ancestor commits and stale current bytes fail closed.
+- Timestamp-free CycloneDX 1.6 SBOM and canonical provenance bind source commit, full-SHA workflow identity, manifest, lock, complete transitive graph, SBOM, and artifact digests. Corrected evidence uses release-source commit `fe2cd80`, a descendant of final Phase 7 and ancestor of the evidence head. Evidence generation and Gate 8 require exact source/current release-manifest parity, verify every packed identity and SHA512 digest, require source/current artifact byte parity, and recompute application manifest, lock, plan, subject, and derived SBOM digests. Existing non-ancestor commits and stale current bytes fail closed.
 - Local Ed25519 tests reject signature/payload substitution. The hosted workflow uses GitHub OIDC and `actions/attest` pinned to a complete SHA for signed provenance and SBOM attestations. No SLSA level is claimed.
 - Generated JSON Schemas validate non-secret runtime inventory and deployment receipts. Receipt reconciliation rejects artifact, migration, inventory, readiness, or smoke drift.
 - Authority-issued, signature-verified fleet ingestion keeps one current and one supported-prior customer. The clean-boot proof serves inventory from a protected runtime endpoint, rejects anonymous observation, reconciles live PostgreSQL readiness, verifies signed deployment receipt and provenance, then issues the only token Fleet accepts. Sales `<1.0.1` and transitive `semver <7.8.6` identify both deployments. A trusted 0.2.1 release manifest binds the real Sales 1.0.1 tarball and generates customer-specific lock/upgrade/migration/deploy update plans for both.
+- Fleet orders deployment receipts by RFC 3339 instant across timezone offsets, rejects chronological regression, and refuses a manifest-listed security target that remains inside the vulnerable range. Destructive purge consumes its authoritative plan before transaction start and binds the reviewed migration ID, predecessor revision, and target revision through execution, preventing success or failure replay.
 - Beta installs and boots the actual Sales 0.9.0 prior artifact, then upgrades to the manifest-bound 1.0.0 artifact through eight reviewed migration domains. Alpha's restore/redeploy reproduces the expected inventory digest. Generator marker: `P8_9_FLEET_EVIDENCE_PASS`.
 
 ## Validation
@@ -61,7 +62,7 @@ pnpm audit --audit-level high
 git diff --check
 ```
 
-The corrective full run on the refreshed candidate covers Phase 0 through Gate 8, five PostgreSQL scenarios including factory-generated prior/current applications, 18 packed release identities, two protected runtime observations, 151 contracts tests, 83 composition tests, and 222 runtime tests. Packed SHA512/content closure, stale-evidence rejection, generated-artifact reproducibility, browser/accessibility, plugin conformance, and `git diff --check` pass. The audit reports no high or critical findings; two low and three moderate advisories remain.
+The corrective full run on the refreshed candidate covers Phase 0 through Gate 8, five PostgreSQL scenarios including factory-generated prior/current applications, 18 packed release identities, two protected runtime observations, 151 contracts tests, 83 composition tests, and 226 runtime tests. Packed SHA512/content closure, stale-evidence rejection, generated-artifact reproducibility, browser/accessibility, plugin conformance, and `git diff --check` pass. The audit reports no high or critical findings; two low and three moderate advisories remain.
 
 ## Limits and production claims
 
@@ -73,7 +74,7 @@ The corrective full run on the refreshed candidate covers Phase 0 through Gate 8
 
 ## Gate decision
 
-The first formal review correctly rejected caller-authored lifecycle evidence, unenforced support policy, workspace-linked customer fixtures, incomplete transitive inventory, forgeable deployment state, simulated recovery, and a self-repairing gate. Corrective work now makes those paths executor/authority-issued, manifest-enforced, packed and clean-booted, transitive, signed and runtime-observed, PostgreSQL-backed, exact-source-bound, and stale-evidence rejecting. Restacking on final Phase 7 also refreshed the complete packed closure, all dependent lock/static artifacts, and source-tree provenance without relying on discarded task hashes. No Gate 8 kill criterion fired. Refreshed exact-head Sol-high and designated PR reviews remain pending.
+The first formal review correctly rejected caller-authored lifecycle evidence, unenforced support policy, workspace-linked customer fixtures, incomplete transitive inventory, forgeable deployment state, simulated recovery, and a self-repairing gate. Corrective work now makes those paths executor/authority-issued, manifest-enforced, packed and clean-booted, transitive, signed and runtime-observed, PostgreSQL-backed, exact-source-bound, and stale-evidence rejecting. Restacking on final Phase 7 refreshed the complete packed closure, all dependent lock/static artifacts, and source-tree provenance without relying on discarded task hashes. Sol-high review at `6d44b88` then found vulnerable-target acceptance, offset-unsafe fleet freshness, and replayable purge authority; all three are corrected with focused regressions and a new complete Gate 8 PASS. No Gate 8 kill criterion fired. Exact-head re-review and designated PR review remain pending.
 
 **Decision:** **PLATFORM FOUNDATION ACCEPTED**
 
