@@ -11,12 +11,12 @@ P6.10 now gives the exported Sales workspace presentation an explicit stable dec
 
 ## Validation
 
-Fresh GitHub CI isolated a second TypeScript declaration-order drift in inferred Sales UI presentation states. Exported Sales renderer results now use named presentation contracts and an indexed state alias instead of build-order-sensitive expanded unions.
+Fresh GitHub CI isolated a second TypeScript declaration-order drift in inferred Sales UI presentation states. Exported Sales renderer results now use named presentation contracts and an indexed state alias; a fully independent clone with no shared Turbo cache reproduces the committed raw archive exactly.
 
 ## Next
 
-Rebuild from a zero-cache clone, prove raw archive equality, refresh downstream integrity, rerun exact-head Gate 6, and repeat independent review before refreshing PR #21. PRs #22 and #23 remain drafts.
+Run exact-head Gate 6, audit, clean-tree proof, and repeat independent review before refreshing PR #21. PRs #22 and #23 remain drafts.
 
 ## Blockers
 
-PR #21 CI currently blocks on build-order-dependent `dist/ui.d.ts` bytes. Structural source correction is local and pending zero-cache proof. No merge or auto-merge will be performed.
+No local implementation blocker remains. Independent zero-cache clone Phase 0 and raw archive comparison pass with SHA-512 `012c4904…356cff0a`. No merge or auto-merge will be performed.
