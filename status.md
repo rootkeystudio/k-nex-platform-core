@@ -3,19 +3,19 @@
 - **Updated:** 2026-08-27
 - **Phase:** Phase 7 — Comprehensive Headless Component System
 - **Active task:** P7.10 — Performance, bundle, coverage audit, and closeout
-- **State:** Ready to start
+- **State:** Ready for phase review
 
 ## Last completed
 
-P7.9 delivered `@k-nex/ui-testing` with the complete 16-state Minimal/Neobrutalism matrix, Testing Library role/name interactions, React 19 hydration parity, real-Chromium ARIA/keyboard/theme switching, RTL/localization, forced-colors, and reduced-motion evidence. An executable audit proves all 60 Gallery plus 71 K-Nex families are exported; it also closed nine missing foundation utilities and corrected rich-text package ownership.
+P7.10 added executable bundle/tree-shaking budgets, large-data and query-state performance probes, Chromium render/dialog/mount-cycle checks, reference-maturity coverage, `gate:7`, and the Phase 7 result. The closeout proves all 60 Gallery plus 71 K-Nex families are executable, while Sales remains the only first-party domain module.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: design-system 11 tests + Chromium, components 11 tests + nested-overlay Chromium, Minimal 3 tests + browser hydration, Neobrutalism 3 tests + browser integration, UI testing 3 tests + Chromium state matrix PASS.
+Node 24.19.0 / pnpm 11.9.0: targeted components/UI-testing suites, full 20-package build, browser matrix, performance budgets, and Gate 7 closeout assertions PASS. Complete `pnpm gate:7` is being repeated on the exact closeout commit before review.
 
 ## Next
 
-Complete P7.10 bundle/performance/coverage audit, phase result, `gate:7`, formal phase review, and stacked PR.
+Run exact-head `pnpm gate:7`, formal Sol-high phase review, and open the stacked Phase 7 PR without merge or auto-merge.
 
 ## Blockers
 

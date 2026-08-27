@@ -87,6 +87,13 @@ const slotParts = new Map<string, readonly string[]>([
 ]);
 const sharedStates = Object.freeze(["disabled", "read-only", "pending", "invalid"]);
 const interactiveStates = Object.freeze(["hover", "focus", "pressed", "selected", ...sharedStates]);
+export const referenceComponentNames = Object.freeze([
+  "Alert", "Breadcrumbs", "Button", "Card", "DataGrid", "DataTable", "Dialog", "EmptyState", "ErrorState",
+  "FilterBar", "Form", "FormActions", "Heading", "IndexPage", "KeyValueList", "LoadingState", "Metric",
+  "QueryBoundary", "SearchControl", "SegmentedControl", "Select", "SettingsPage", "Stack", "Status", "Text",
+  "TextInput", "DashboardPage"
+] as const);
+const referenceNames = new Set<string>(referenceComponentNames);
 
 function kebab(name: string): string {
   return name.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
@@ -126,7 +133,7 @@ function entry(origin: ComponentInventoryEntry["origin"], category: ComponentInv
     packageTarget: packageTarget(category, name),
     behaviorSource,
     disposition,
-    maturity: "experimental",
+    maturity: referenceNames.has(name) ? "reference" : "experimental",
     deliveryTask: deliveryTask(category, name),
     testClasses: Object.freeze(testClasses),
     slots: Object.freeze((slotParts.get(name) ?? ["root"]).map((part) => `component.${id}.${part}`)),
