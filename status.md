@@ -11,12 +11,12 @@ P6.10 now gives the exported Sales workspace presentation an explicit stable dec
 
 ## Validation
 
-Independent review's raw-byte blocker is corrected: pnpm's supported `beforePacking` hook canonicalizes publish dependency maps, both conformance paths compare consecutive raw archives against committed bytes, and the canonical tar integrity is refreshed through the lockfile and generated Gate 1 inventory.
+Independent review's raw-byte blocker is corrected, and closeout evidence now records the sixth conformance regression added for raw archive equality instead of retaining the prior count of five.
 
 ## Next
 
-Run exact-head Gate 6, audit, clean-tree proof, and repeat independent review before refreshing PR #21. PRs #22 and #23 remain drafts.
+Run focused Gate 6 evidence validation, exact-head Gate 6, audit, clean-tree proof, and repeat independent review before refreshing PR #21. PRs #22 and #23 remain drafts.
 
 ## Blockers
 
-No local implementation blocker remains. Repeated raw-byte pack checks, plugin conformance, Gate 1 current check, and two-clean-copy Gate 1 reproducibility pass. No merge or auto-merge will be performed.
+No local implementation blocker remains. Final validation is pending after correcting the closeout count from conformance-plan 5 to 6. No merge or auto-merge will be performed.
