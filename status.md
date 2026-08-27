@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-27
 - **Phase:** Phase 8 — Lifecycle, Application Factory, Release, and Fleet Safety
-- **Active task:** P8.5 — `create-knex-app` and composition plan/apply
+- **Active task:** P8.6 — Two independent Sales-only customer applications
 - **State:** In progress
 
 ## Last completed
 
-P8.4 bounded archive/export as an access-controlled, versioned administrator-transfer adapter and documented why Payload's official Import/Export plugin is not backup, migration, retention, or disaster recovery. Purge now refuses unresolved references, dependents, retention, archive, clean-restore backup, migration, or approval evidence and rolls back failures. A physical `pg_dump`/`pg_restore` fixture proves Sales data, CMS versions, layouts, settings, outbox state, and migration revision restore into a clean Postgres database with integrations disabled.
+P8.5 added deterministic `create-knex-app` plan/apply for the Sales reference preset. It selects Minimal or Neobrutalism, local Docker or external Postgres, emits exact dependencies plus a valid application manifest and Payload config, records customer-owned migration/readiness/default-page/lifecycle plans, runs explicit source-time install commands, applies idempotently, and refuses customer-file overwrite. It introduces no runtime package installation.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: runtime build and 190 tests PASS. Customer fixture build PASS. Dedicated physical backup/clean-restore Testcontainers acceptance PASS. Current Payload Import/Export documentation evaluated through Context7 against the official Payload repository.
+Node 24.19.0 / pnpm 11.9.0: composition build and 77 tests PASS. Real CLI apply smoke PASS for an external-Postgres Sales/Minimal application with installation intentionally disabled for the isolated smoke target.
 
 ## Next
 
-Implement P8.5 `create-knex-app` with deterministic Sales preset planning/apply, exact package/config generation, Postgres selection, migration/readiness plan, and lifecycle planning without runtime installation.
+Generate and prove two independent Sales-only customer fixtures with different theme/profile, settings, default pages, permissions/layouts, lockfile, and release cadence.
 
 ## Blockers
 
