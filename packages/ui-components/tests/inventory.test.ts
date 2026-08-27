@@ -26,6 +26,8 @@ describe("component inventory contract", () => {
     expect(componentInventory.find((item) => item.name === "DataTable")).toMatchObject({ packageTarget: "@k-nex/ui-data", behaviorSource: "tanstack-table-adapter", deliveryTask: "P7.6" });
     expect(componentInventory.find((item) => item.name === "FormField")).toMatchObject({ packageTarget: "@k-nex/ui-forms", deliveryTask: "P7.3" });
     expect(componentInventory.find((item) => item.name === "DashboardPage")).toMatchObject({ packageTarget: "@k-nex/ui-pages", deliveryTask: "P7.7" });
+    expect(componentInventory.find((item) => item.name === "SegmentedControl")).toMatchObject({ behaviorSource: "native-html", disposition: "native-semantic-wrapper" });
+    expect(componentInventory.find((item) => item.name === "FormField")).toMatchObject({ behaviorSource: "native-html", disposition: "native-semantic-wrapper" });
   });
 
   it("publishes stable owned slots and library-neutral data attributes", () => {

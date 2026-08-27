@@ -91,7 +91,8 @@ export const TableRowSchema = z.strictObject({
 export const TablePageSchema = z.strictObject({
   number: z.number().int().min(1).max(1_000_000),
   pageSize: z.number().int().min(1).max(TABLE_ROW_LIMIT),
-  hasNext: z.boolean()
+  hasNext: z.boolean(),
+  nextCursor: z.string().min(1).max(2_048).optional()
 });
 
 export const TableRecordsSchema = z.strictObject({

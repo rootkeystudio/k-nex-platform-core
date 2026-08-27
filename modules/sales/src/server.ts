@@ -404,6 +404,21 @@ async function findTasks(context: DataSourceHandlerRequest, options: Omit<SalesF
   return salesRequest(context.request).payload.find(requestOptions(context, options));
 }
 
+function salesTaskCursor(page: number): string {
+  return Buffer.from(`sales.tasks@1:${page}`).toString("base64url");
+}
+
+function salesTaskCursorPage(after: string | undefined): number {
+  if (after === undefined) return 1;
+  let value: string;
+  try { value = Buffer.from(after, "base64url").toString("utf8"); } catch { throw new Error("Sales task cursor is invalid."); }
+  const match = /^sales\.tasks@1:([1-9][0-9]*)$/u.exec(value);
+  if (match === null) throw new Error("Sales task cursor is invalid.");
+  const page = Number(match[1]);
+  if (!Number.isSafeInteger(page) || page > 1_000_000) throw new Error("Sales task cursor is invalid.");
+  return page;
+}
+
 async function totalPotentialRevenue(context: DataSourceHandlerRequest): Promise<unknown> {
   const documents: SalesTaskDocument[] = [];
   let page = 1;
@@ -430,11 +445,14 @@ async function totalPotentialRevenue(context: DataSourceHandlerRequest): Promise
 }
 
 async function tasksTable(context: DataSourceHandlerRequest): Promise<unknown> {
-  if (context.query.page === undefined) throw new Error("Sales task table requires server pagination.");
+  if (context.query.page === undefined && context.query.cursor === undefined) throw new Error("Sales task table requires server pagination.");
+  if (context.query.cursor?.before !== undefined) throw new Error("Sales task table does not support backward cursors.");
+  const page = context.query.page?.number ?? salesTaskCursorPage(context.query.cursor?.after);
+  const pageSize = context.query.page?.size ?? context.query.cursor!.size;
   const selectedFields = [...context.selectedFields];
   const result = await findTasks(context, {
-    page: context.query.page.number,
-    limit: context.query.page.size,
+    page,
+    limit: pageSize,
     select: selectedStorageFields(selectedFields),
     sort: taskSort(context.query),
     where: taskWhere(context, context.query)
@@ -446,13 +464,15 @@ async function tasksTable(context: DataSourceHandlerRequest): Promise<unknown> {
       values: Object.fromEntries(selectedFields.map((fieldId) => [fieldId, taskCell(fieldId, document)]))
     };
   });
+  const hasNext = result.hasNextPage ?? (result.totalPages !== undefined && page < result.totalPages);
   return {
     fields: selectedFields,
     rows,
     page: {
-      number: context.query.page.number,
-      pageSize: context.query.page.size,
-      hasNext: result.hasNextPage ?? (result.totalPages !== undefined && context.query.page.number < result.totalPages)
+      number: page,
+      pageSize,
+      hasNext,
+      ...(context.query.cursor !== undefined && hasNext ? { nextCursor: salesTaskCursor(page + 1) } : {})
     }
   };
 }

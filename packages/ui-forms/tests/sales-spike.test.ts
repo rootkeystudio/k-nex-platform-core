@@ -99,4 +99,60 @@ describe("bounded Sales form spike", () => {
     expect(observed).toEqual([false, true, false]);
     unsubscribe();
   });
+
+  it("keeps newer edits and submits them independently while an earlier submission settles", async () => {
+    const completions: ((result: { readonly state: "success"; readonly data: { readonly id: string } }) => void)[] = [];
+    const controller = createFormController({
+      initialValues: { title: "" }, validate: () => ({}),
+      submit: async () => new Promise((resolve) => completions.push(resolve))
+    });
+    const firstValues = controller.change(controller.initial(), "title", "First");
+    const first = controller.submit(firstValues, signal);
+    const secondValues = controller.change(controller.snapshot(), "title", "Second");
+    const second = controller.submit(secondValues, signal);
+
+    expect(second).not.toBe(first);
+    expect(completions).toHaveLength(2);
+    completions[0]!({ state: "success", data: { id: "first" } });
+    await expect(first).resolves.toMatchObject({ values: { title: "First" }, dirty: false });
+    expect(controller.snapshot()).toMatchObject({ values: { title: "Second" }, initialValues: { title: "First" }, dirty: true, submitting: true });
+    completions[1]!({ state: "success", data: { id: "second" } });
+    await expect(second).resolves.toMatchObject({ values: { title: "Second" }, dirty: false });
+  });
+
+  it("does not let an older cancellation or error overwrite newer edits", async () => {
+    const completions: ((result: { readonly state: "cancelled" } | { readonly state: "error"; readonly problem: { readonly code: string; readonly status: number } }) => void)[] = [];
+    const controller = createFormController({
+      initialValues: { title: "" }, validate: () => ({}),
+      submit: async () => new Promise((resolve) => completions.push(resolve))
+    });
+    const firstValues = controller.change(controller.initial(), "title", "First");
+    const first = controller.submit(firstValues, signal);
+    const secondValues = controller.change(controller.snapshot(), "title", "Second");
+    const second = controller.submit(secondValues, signal);
+
+    completions[0]!({ state: "cancelled" });
+    await first;
+    expect(controller.snapshot()).toMatchObject({ values: { title: "Second" }, submitting: true });
+    completions[1]!({ state: "error", problem: { code: "SECOND_FAILED", status: 500 } });
+    await expect(second).resolves.toMatchObject({ values: { title: "Second" }, formError: "SECOND_FAILED", submitting: false });
+  });
+
+  it("does not let an older success finishing last replace a newer saved baseline", async () => {
+    const completions: ((result: { readonly state: "success"; readonly data: { readonly id: string } }) => void)[] = [];
+    const controller = createFormController({
+      initialValues: { title: "" }, validate: () => ({}),
+      submit: async () => new Promise((resolve) => completions.push(resolve))
+    });
+    const firstValues = controller.change(controller.initial(), "title", "First");
+    const first = controller.submit(firstValues, signal);
+    const secondValues = controller.change(controller.snapshot(), "title", "Second");
+    const second = controller.submit(secondValues, signal);
+
+    completions[1]!({ state: "success", data: { id: "second" } });
+    await second;
+    completions[0]!({ state: "success", data: { id: "first" } });
+    await first;
+    expect(controller.snapshot()).toMatchObject({ values: { title: "Second" }, initialValues: { title: "Second" }, dirty: false });
+  });
 });

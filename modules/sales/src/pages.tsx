@@ -129,7 +129,7 @@ export interface SalesTasksPageProps {
   readonly onSourceInvalidated?: (sourceId: string) => void;
   readonly onRefetch?: () => void;
   readonly renderDetail?: (row: TableRow) => ReactNode;
-  readonly onLoadMore?: () => void;
+  readonly onLoadMore?: (state: DataTableViewState) => void;
   readonly loadMoreLoading?: boolean;
 }
 export function SalesTasksPage({ requestState, viewState = createDataTableState(salesTasksTableDefinition), createTask, onViewStateChange, onCreateTaskChange, onCreateTask, mutationExecutor, actionAuthorization, actionActorFingerprint, actionContext, onActionResult, onSourceInvalidated, onRefetch, renderDetail, onLoadMore, loadMoreLoading }: SalesTasksPageProps): ReactElement {
@@ -150,7 +150,7 @@ export interface SalesOpportunitiesPageProps {
   readonly onSourceInvalidated?: (sourceId: string) => void;
   readonly onRefetch?: () => void;
   readonly renderDetail?: (row: TableRow) => ReactNode;
-  readonly onLoadMore?: () => void;
+  readonly onLoadMore?: (state: DataTableViewState) => void;
   readonly loadMoreLoading?: boolean;
 }
 export function SalesOpportunitiesPage({ requestState, viewState = createDataTableState(salesOpportunitiesTableDefinition), onViewStateChange, mutationExecutor, actionAuthorization, actionActorFingerprint, actionContext, onActionResult, onSourceInvalidated, onRefetch, renderDetail, onLoadMore, loadMoreLoading }: SalesOpportunitiesPageProps): ReactElement {

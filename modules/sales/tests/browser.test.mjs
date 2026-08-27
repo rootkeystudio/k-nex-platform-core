@@ -20,7 +20,7 @@ const context = {
 
 test("Sales browser factories use stable platform query/action metadata", async () => {
   assert.deepEqual(salesTasksQuery.source, { id: "sales.tasks", version: 1 });
-  assert.deepEqual(salesTasksQuery.selectedFields, ["title", "status", "potential-revenue"]);
+  assert.deepEqual(salesTasksQuery.selectedFields, ["title", "status", "potential-revenue", "private-note"]);
   assert.deepEqual(salesTotalPotentialRevenueQuery.invalidation.sources, ["sales.total-potential-revenue"]);
   assert.deepEqual(salesCreateTaskMutation.invalidation.sources, ["sales.tasks", "sales.total-potential-revenue"]);
   assert.deepEqual(salesOpportunitiesQuery.source, { id: "sales.opportunities", version: 1 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, type FormEvent, type ReactElement, type ReactNode } from "react";
+import { cloneElement, isValidElement, useEffect, useId, type FormEvent, type ReactElement, type ReactNode } from "react";
 
 export interface FieldMessages {
   readonly label: string;
@@ -12,10 +12,10 @@ export interface FieldMessages {
   readonly readOnly?: boolean;
 }
 
-interface FieldIds { readonly input: string; readonly description: string; readonly error: string; }
+interface FieldIds { readonly input: string; readonly label: string; readonly description: string; readonly error: string; }
 function useFieldIds(name: string): FieldIds {
   const id = useId().replaceAll(":", "");
-  return { input: `${name}-${id}`, description: `${name}-${id}-description`, error: `${name}-${id}-error` };
+  return { input: `${name}-${id}`, label: `${name}-${id}-label`, description: `${name}-${id}-description`, error: `${name}-${id}-error` };
 }
 
 function describedBy(ids: FieldIds, description?: string, error?: string): string | undefined {
@@ -51,7 +51,22 @@ export function Fieldset({ children, legend, description, disabled = false }: Fi
 }
 
 export interface FormFieldProps extends FieldMessages { readonly children: ReactNode; }
-export function FormField({ children, ...props }: FormFieldProps): ReactElement { return <FieldShell {...props}>{() => children}</FieldShell>; }
+export function FormField({ children, ...props }: FormFieldProps): ReactElement {
+  const ids = useFieldIds(props.name);
+  const messages = describedBy(ids, props.description, props.error);
+  const control = isValidElement<Record<string, unknown>>(children) ? cloneElement(children, {
+    id: children.props.id ?? ids.input,
+    "aria-labelledby": [children.props["aria-labelledby"], ids.label].filter((value) => typeof value === "string" && value.length > 0).join(" "),
+    ...(messages === undefined ? {} : { "aria-describedby": [children.props["aria-describedby"], messages].filter((value) => typeof value === "string" && value.length > 0).join(" ") }),
+    ...(props.error === undefined ? {} : { "aria-invalid": true }),
+    ...(props.readOnly === true ? { "aria-readonly": true } : {})
+  }) : children;
+  return <fieldset disabled={props.disabled} aria-describedby={describedBy(ids, props.description, props.error)} aria-invalid={props.error === undefined ? undefined : true} data-k-nex-component="form-field" data-slot="root" data-state={props.error === undefined ? props.disabled ? "disabled" : props.readOnly ? "read-only" : "default" : "invalid"}>
+    <legend id={ids.label} data-slot="label">{props.label}</legend>{control}
+    {props.description === undefined ? null : <FieldDescription id={ids.description}>{props.description}</FieldDescription>}
+    {props.error === undefined ? null : <FieldError id={ids.error}>{props.error}</FieldError>}
+  </fieldset>;
+}
 
 interface StringInputProps extends FieldMessages { readonly value: string; readonly placeholder?: string; readonly autoComplete?: string; readonly onChange: (value: string) => void; }
 function StringInput({ type, component, ...props }: StringInputProps & { readonly type: "text" | "password" | "search" | "tel" | "url"; readonly component: string }): ReactElement {
@@ -93,7 +108,9 @@ export function Checkbox(props: CheckboxProps): ReactElement {
 
 export interface RadioGroupProps extends FieldMessages { readonly value: string; readonly options: readonly ChoiceOption[]; readonly onChange: (value: string) => void; }
 export function RadioGroup(props: RadioGroupProps): ReactElement {
-  return <fieldset disabled={props.disabled} data-k-nex-component="radio-group" data-slot="root" data-state={props.error === undefined ? "default" : "invalid"}><legend>{props.label}</legend>{props.options.map((option) => <label key={option.id}><input type="radio" name={props.name} value={option.id} checked={props.value === option.id} disabled={option.disabled} onChange={() => props.onChange(option.id)} data-slot="control" />{option.label}</label>)}{props.description === undefined ? null : <FieldDescription>{props.description}</FieldDescription>}{props.error === undefined ? null : <FieldError>{props.error}</FieldError>}</fieldset>;
+  const ids = useFieldIds(props.name);
+  const messages = describedBy(ids, props.description, props.error);
+  return <fieldset disabled={props.disabled} aria-describedby={messages} aria-invalid={props.error === undefined ? undefined : true} data-k-nex-component="radio-group" data-slot="root" data-state={props.error === undefined ? "default" : "invalid"}><legend>{props.label}</legend>{props.options.map((option) => <label key={option.id}><input type="radio" name={props.name} value={option.id} checked={props.value === option.id} disabled={option.disabled} aria-describedby={messages} aria-invalid={props.error === undefined ? undefined : true} onChange={() => props.onChange(option.id)} data-slot="control" />{option.label}</label>)}{props.description === undefined ? null : <FieldDescription id={ids.description}>{props.description}</FieldDescription>}{props.error === undefined ? null : <FieldError id={ids.error}>{props.error}</FieldError>}</fieldset>;
 }
 
 export interface RadioButtonProps extends Omit<CheckboxProps, "checked" | "onChange"> { readonly value: string; readonly checked: boolean; readonly onChange: (value: string) => void; }
@@ -124,7 +141,7 @@ export function TagInput(props: TagInputProps): ReactElement {
 
 export interface SliderProps extends Omit<NumberInputProps, "value" | "onChange"> { readonly value: number; readonly onChange: (value: number) => void; }
 export function Slider(props: SliderProps): ReactElement {
-  return <FieldShell {...props} component="slider">{(ids) => <input id={ids.input} name={props.name} type="range" value={props.value} min={props.min} max={props.max} step={props.step} disabled={props.disabled} aria-describedby={describedBy(ids, props.description, props.error)} onChange={(event) => props.onChange(event.currentTarget.valueAsNumber)} data-slot="control" />}</FieldShell>;
+  return <FieldShell {...props} component="slider">{(ids) => <input id={ids.input} name={props.name} type="range" value={props.value} min={props.min} max={props.max} step={props.step} disabled={props.disabled} aria-readonly={props.readOnly || undefined} aria-invalid={props.error === undefined ? undefined : true} aria-describedby={describedBy(ids, props.description, props.error)} onChange={(event) => { if (!props.readOnly) props.onChange(event.currentTarget.valueAsNumber); }} data-slot="control" />}</FieldShell>;
 }
 
 export function Stepper(props: NumberInputProps): ReactElement {

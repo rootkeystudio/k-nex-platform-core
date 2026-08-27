@@ -22,7 +22,8 @@ const definition = defineDataTable({
   columns: [
     { id: "title", label: "Title", size: 240 },
     { id: "status", label: "Status" },
-    { id: "potential-revenue", label: "Potential revenue" }
+    { id: "potential-revenue", label: "Potential revenue" },
+    { id: "private-note", label: "Private note" }
   ],
   paginationModes: ["offset", "cursor"],
   defaultPageSize: 25,
@@ -56,6 +57,8 @@ const context = {
   authorizationBoundary: { kind: "actor" as const, actorFingerprint: `sha256:${"a".repeat(64)}` },
   signal: new AbortController().signal
 };
+const allTaskFields = new Set(["title", "status", "potential-revenue", "private-note"]);
+const nonPrivateTaskFields = new Set(["title", "status", "potential-revenue"]);
 
 describe("P7.6 standard DataTable/DataGrid", () => {
   it("turns Sales task state into bounded server-owned query controls", async () => {
@@ -77,11 +80,15 @@ describe("P7.6 standard DataTable/DataGrid", () => {
     });
     const query = vi.fn(async () => ({ ok: true as const, data: records }));
     const transport: BrowserDataTransport = { query, mutate: async () => ({ ok: false, problem: { code: "UNUSED", status: 500 } }) };
-    await expect(controller.execute(transport, {}, state, new Set(["title", "status", "potential-revenue"]), context)).resolves.toEqual({ state: "success", data: records });
-    expect(query).toHaveBeenCalledWith(expect.objectContaining({ controls: controller.controls(state) }));
-    const firstIdentity = await controller.identity({}, state, context);
-    const secondIdentity = await controller.identity({}, { ...state, search: "different" }, context);
+    await expect(controller.execute(transport, {}, state, allTaskFields, context)).resolves.toEqual({ state: "success", data: records });
+    expect(query).toHaveBeenCalledWith(expect.objectContaining({ controls: controller.controls(state), selectedFields: ["title", "status", "potential-revenue", "private-note"] }));
+    const firstIdentity = await controller.identity({}, state, allTaskFields, context);
+    const secondIdentity = await controller.identity({}, { ...state, search: "different" }, allTaskFields, context);
     expect(firstIdentity.key).not.toBe(secondIdentity.key);
+    const restrictedIdentity = await controller.identity({}, state, nonPrivateTaskFields, context);
+    expect(firstIdentity.key).not.toBe(restrictedIdentity.key);
+    await expect(controller.execute(transport, {}, state, nonPrivateTaskFields, context)).resolves.toEqual({ state: "success", data: records });
+    expect(query).toHaveBeenLastCalledWith(expect.objectContaining({ selectedFields: ["title", "status", "potential-revenue"] }));
     await expect(controller.execute(transport, {}, state, new Set(["title", "status"]), context)).resolves.toEqual({ state: "insufficient-permission" });
   });
 
@@ -89,6 +96,7 @@ describe("P7.6 standard DataTable/DataGrid", () => {
     const controller = createDataTableController(definition);
     const state = { ...createDataTableState(definition), selectedRows: ["task-1"], detailRow: "task-1" };
     expect(() => controller.controls({ ...state, sort: [{ field: "potential-revenue", direction: "desc" }] })).toThrow(/not declared/);
+    expect(() => controller.controls({ ...state, search: "customer", filters: Array.from({ length: definition.descriptor.limits.maxFilters }, () => ({ field: "status", operator: "eq" as const, value: "open" })) })).toThrow(/exceed source limits/);
     const serialized = controller.serializeView(state);
     expect(deserializeBrowserViewState(serialized)).not.toHaveProperty("selectedRows");
     expect(deserializeBrowserViewState(serialized)).not.toHaveProperty("detailRow");
@@ -104,6 +112,25 @@ describe("P7.6 standard DataTable/DataGrid", () => {
     expect(() => resolveDataTableActionAuthorization(definition, actorFingerprint, { resolve: (request) => ({ actorFingerprint: request.actorFingerprint, catalogRevision, capabilities: [
       { state: "allowed", action: request.actions[0]! }, { state: "allowed", action: request.actions[0]! }
     ] }) })).toThrow(/invalid/);
+  });
+
+  it("refreshes catalog authority before display, row execution, and bulk execution", async () => {
+    let allowed = true;
+    const resolver = vi.fn((request: { readonly actorFingerprint: string; readonly actions: readonly { readonly id: string; readonly version: number }[] }) => ({
+      actorFingerprint: request.actorFingerprint,
+      catalogRevision: `sha256:${(allowed ? "c" : "d").repeat(64)}`,
+      capabilities: request.actions.map((action) => ({ state: allowed ? "allowed" as const : "denied" as const, action }))
+    }));
+    const revocable = resolveDataTableActionAuthorization(definition, actorFingerprint, { resolve: resolver });
+    expect(allowedDataTableActions(definition.rowActions ?? [], revocable, actorFingerprint)).toHaveLength(2);
+    allowed = false;
+    expect(allowedDataTableActions(definition.rowActions ?? [], revocable, actorFingerprint)).toEqual([]);
+    const controller = createDataTableController(definition);
+    const executor = { execute: vi.fn(async () => ({ state: "success" as const, data: {} })) };
+    await expect(controller.executeAction(executor, revocable, actorFingerprint, salesUpdateTaskMutation.action.id, "task-1", context)).resolves.toMatchObject({ result: { state: "forbidden" } });
+    await expect(controller.executeBulkAction(executor, revocable, actorFingerprint, salesUpdateTaskMutation.action.id, ["task-1"], context)).resolves.toMatchObject({ state: "forbidden" });
+    expect(executor.execute).not.toHaveBeenCalled();
+    expect(resolver).toHaveBeenCalledTimes(6);
   });
 
   it("executes only canonical allowed actions and reports partial bulk failures", async () => {
@@ -123,6 +150,22 @@ describe("P7.6 standard DataTable/DataGrid", () => {
     expect(bulk.succeededRowKeys).toEqual(["task-1"]);
     expect(bulk.failedRowKeys).toEqual(["task-2"]);
     expect(execute).toHaveBeenCalledTimes(3);
+    const oversized = await controller.executeBulkAction(executor, authorization, actorFingerprint, salesUpdateTaskMutation.action.id, Array.from({ length: 101 }, (_, index) => `task-${index}`), context);
+    expect(oversized).toMatchObject({ state: "failure", results: [] });
+    expect(execute).toHaveBeenCalledTimes(3);
+  });
+
+  it("accepts response cursor metadata and carries it into the next page query", async () => {
+    const controller = createDataTableController(definition);
+    const first = { ...createDataTableState(definition), pagination: { mode: "cursor" as const, size: 25 } };
+    const query = vi.fn(async () => ({ ok: true as const, data: { ...records, page: { number: 1, pageSize: 25, hasNext: true, nextCursor: "opaque-next" } } }));
+    const transport: BrowserDataTransport = { query, mutate: async () => ({ ok: false, problem: { code: "UNUSED", status: 500 } }) };
+    await expect(controller.execute(transport, {}, first, allTaskFields, context)).resolves.toMatchObject({ state: "success", data: { page: { nextCursor: "opaque-next" } } });
+    const next = { ...first, pagination: { mode: "cursor" as const, size: 25, after: "opaque-next" } };
+    await controller.execute(transport, {}, next, allTaskFields, context);
+    expect(query).toHaveBeenLastCalledWith(expect.objectContaining({ controls: { cursor: { size: 25, after: "opaque-next" }, filters: [], sort: [] } }));
+    const missingToken: BrowserDataTransport = { query: async () => ({ ok: true, data: { ...records, page: { number: 1, pageSize: 25, hasNext: true } } }), mutate: async () => ({ ok: false, problem: { code: "UNUSED", status: 500 } }) };
+    await expect(controller.execute(missingToken, {}, first, allTaskFields, context)).resolves.toEqual({ state: "invalid-contract" });
   });
 
   it("renders semantic table by default and an explicit keyboard grid", () => {
@@ -134,6 +177,7 @@ describe("P7.6 standard DataTable/DataGrid", () => {
     expect(table).toContain("Complete");
     expect(table).toContain("Complete");
     expect(table).not.toContain("Secret");
+    expect(table).not.toContain(">Private note</th>");
     expect(table).toContain('data-k-nex-component="search-control"');
     expect(table).toContain('data-k-nex-component="facet-filter"');
     expect(table).toContain('data-k-nex-component="sort-control"');
@@ -142,6 +186,14 @@ describe("P7.6 standard DataTable/DataGrid", () => {
     expect(grid).toContain('role="grid"');
     expect(grid).toContain('role="gridcell"');
     expect(grid.match(/role="gridcell" tabindex="0"/g)).toHaveLength(1);
+    expect(grid.match(/tabindex="0"/g)).toHaveLength(1);
+  });
+
+  it("renders only fields returned by the authorized projection", () => {
+    const table = renderToStaticMarkup(<DataTable definition={definition} viewState={createDataTableState(definition)} requestState={{ state: "success", data: records }} />);
+    expect(table).not.toContain(">Private note</th>");
+    const authorized = { ...records, fields: [...records.fields, "private-note"], rows: [{ ...records.rows[0]!, values: { ...records.rows[0]!.values, "private-note": { kind: "text" as const, value: "Customer requested a call." } } }] };
+    expect(renderToStaticMarkup(<DataTable definition={definition} viewState={createDataTableState(definition)} requestState={{ state: "success", data: authorized }} />)).toContain(">Private note</th>");
   });
 
   it("reflects and updates array-backed facet state", () => {

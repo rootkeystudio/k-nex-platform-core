@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 
 import { componentStateMatrix, validateComponentStateMatrix } from "../src/index.js";
 import { MatrixFixture } from "./matrix-fixture.js";
+import { VirtualList } from "@k-nex/ui-data";
 
 afterEach(cleanup);
 
@@ -32,5 +33,22 @@ describe("component interaction and semantic matrix", () => {
     expect(document.activeElement).toBe(cells[1]);
     await user.click(screen.getByRole("button", { name: "Switch matrix theme" }));
     expect(screen.getByTestId("surface-Minimal").getAttribute("data-theme-id")).toBe("theme.neobrutalism");
+  });
+
+  it("does not steal mount focus and keeps virtual-list focus on stable item identities", async () => {
+    const user = userEvent.setup();
+    const view = render(<><button autoFocus>Keep focus</button><VirtualList label="Rows" items={["a", "b", "c"]} getKey={(item) => item} renderItem={(item) => item} height={72} estimateSize={36} /></>);
+    const retainedFocus = screen.getByRole("button", { name: "Keep focus" });
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    expect(document.activeElement).toBe(retainedFocus);
+
+    const item = (key: string): HTMLElement => view.container.querySelector<HTMLElement>(`[data-key="${key}"]`)!;
+    await user.click(item("b"));
+    view.rerender(<VirtualList label="Rows" items={["c", "b", "a"]} getKey={(value) => value} renderItem={(value) => value} height={72} estimateSize={36} />);
+    view.rerender(<VirtualList label="Rows" items={["a"]} getKey={(value) => value} renderItem={(value) => value} height={72} estimateSize={36} />);
+    expect(view.getByRole("list").getAttribute("aria-rowcount")).toBe("1");
+    view.rerender(<VirtualList label="Rows" items={[]} getKey={(value: string) => value} renderItem={(value) => value} height={72} estimateSize={36} />);
+    expect(view.getByRole("list").tabIndex).toBe(0);
+    expect(view.container.querySelector("[role=listitem]")).toBeNull();
   });
 });

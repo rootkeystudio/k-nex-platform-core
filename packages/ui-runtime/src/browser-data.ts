@@ -92,9 +92,9 @@ export interface SourceQueryDefinition<TInput, TOutput> {
   readonly selectedFields: readonly string[];
   readonly invalidation: { readonly sources: readonly string[] };
   identity(input: TInput, context: Omit<BrowserQueryContext, "signal">): Promise<DataSourceQueryIdentity>;
-  identityWithControls(input: TInput, controls: DataSourceQueryControls, context: Omit<BrowserQueryContext, "signal">): Promise<DataSourceQueryIdentity>;
+  identityWithControls(input: TInput, controls: DataSourceQueryControls, context: Omit<BrowserQueryContext, "signal">, selectedFields?: readonly string[]): Promise<DataSourceQueryIdentity>;
   execute(transport: BrowserDataTransport, input: TInput, context: BrowserQueryContext): Promise<BrowserRequestState<TOutput>>;
-  executeWithControls(transport: BrowserDataTransport, input: TInput, controls: DataSourceQueryControls, context: BrowserQueryContext): Promise<BrowserRequestState<TOutput>>;
+  executeWithControls(transport: BrowserDataTransport, input: TInput, controls: DataSourceQueryControls, context: BrowserQueryContext, selectedFields?: readonly string[]): Promise<BrowserRequestState<TOutput>>;
 }
 
 export interface ActionMutationOptions<TInput, TOutput> {
@@ -169,7 +169,12 @@ export function defineSourceQuery<TInput, TOutput>(options: SourceQueryOptions<T
     throw new TypeError("Source query selected fields are invalid.");
   }
   const source = freeze({ ...options.source });
-  const identity = (input: TInput, controls: DataSourceQueryControls | undefined, context: Omit<BrowserQueryContext, "signal">): Promise<DataSourceQueryIdentity> => {
+  const projection = (override: readonly string[] | undefined): readonly string[] => {
+    const fields = [...(override ?? selectedFields)];
+    if (new Set(fields).size !== fields.length || fields.some((field) => !TableFieldIdSchema.safeParse(field).success)) throw new TypeError("Source query selected fields are invalid.");
+    return fields;
+  };
+  const identity = (input: TInput, controls: DataSourceQueryControls | undefined, context: Omit<BrowserQueryContext, "signal">, override?: readonly string[]): Promise<DataSourceQueryIdentity> => {
     const parsed = options.input.safeParse(input);
     const parsedControls = controls === undefined ? undefined : DataSourceQueryControlsSchema.safeParse(controls);
     if (!parsed.success || parsedControls !== undefined && !parsedControls.success) return Promise.reject(new TypeError("Source query identity is invalid."));
@@ -183,7 +188,7 @@ export function defineSourceQuery<TInput, TOutput>(options: SourceQueryOptions<T
     return createDataSourceQueryIdentity({
       source,
       input: identityInput as JsonValue,
-      selectedFields,
+      selectedFields: projection(override),
       surface: context.surface,
       locale: context.locale ?? null,
       timezone: context.timezone ?? null,
@@ -191,7 +196,7 @@ export function defineSourceQuery<TInput, TOutput>(options: SourceQueryOptions<T
       authorizationBoundary: context.authorizationBoundary
     });
   };
-  const execute = async (transport: BrowserDataTransport, input: TInput, controls: DataSourceQueryControls | undefined, context: BrowserQueryContext): Promise<BrowserRequestState<TOutput>> => {
+  const execute = async (transport: BrowserDataTransport, input: TInput, controls: DataSourceQueryControls | undefined, context: BrowserQueryContext, override?: readonly string[]): Promise<BrowserRequestState<TOutput>> => {
     const parsed = options.input.safeParse(input);
     if (!parsed.success) return freeze({ state: "invalid-contract" as const });
     const parsedControls = controls === undefined ? undefined : DataSourceQueryControlsSchema.safeParse(controls);
@@ -205,7 +210,7 @@ export function defineSourceQuery<TInput, TOutput>(options: SourceQueryOptions<T
     const response = await request(() => transport.query({
       source,
       input: parsed.data,
-      selectedFields,
+      selectedFields: projection(override),
       ...(parsedControls === undefined ? {} : { controls: parsedControls.data }),
       surface: context.surface,
       signal: context.signal
@@ -219,9 +224,9 @@ export function defineSourceQuery<TInput, TOutput>(options: SourceQueryOptions<T
     selectedFields: freeze(selectedFields),
     invalidation: freeze({ sources: [source.id] }),
     identity(input: TInput, context: Omit<BrowserQueryContext, "signal">) { return identity(input, undefined, context); },
-    identityWithControls(input: TInput, controls: DataSourceQueryControls, context: Omit<BrowserQueryContext, "signal">) { return identity(input, controls, context); },
+    identityWithControls(input: TInput, controls: DataSourceQueryControls, context: Omit<BrowserQueryContext, "signal">, override?: readonly string[]) { return identity(input, controls, context, override); },
     execute(transport: BrowserDataTransport, input: TInput, context: BrowserQueryContext) { return execute(transport, input, undefined, context); },
-    executeWithControls(transport: BrowserDataTransport, input: TInput, controls: DataSourceQueryControls, context: BrowserQueryContext) { return execute(transport, input, controls, context); }
+    executeWithControls(transport: BrowserDataTransport, input: TInput, controls: DataSourceQueryControls, context: BrowserQueryContext, override?: readonly string[]) { return execute(transport, input, controls, context, override); }
   });
 }
 

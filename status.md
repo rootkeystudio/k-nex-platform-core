@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Generic child-capable blocks now expose one runtime composition boundary. Stack, Grid, Section, Card, Alert, Tabs, Accordion, and Form place canonical children inside their actual component slots; Puck preview injects the same slot instead of flattening descendants as siblings.
+PR 22 correctness remediation is implemented: action authorization re-resolves current catalog authority; cursor tokens advance through Sales; filter/projection/bulk bounds fail closed; DataGrid uses one tab stop plus explicit action mode; form submissions preserve newer edits and baseline ordering; actual controls carry labels/errors/read-only semantics; VirtualList preserves focus identity without mount focus theft.
 
 ## Validation
 
-Focused UI runtime: 46 tests PASS. Builder Puck: 35 tests and boundaries PASS. UI builder blocks: 6 tests and boundaries PASS, including Stack → Card → Text and Tabs/Accordion production-versus-Puck DOM parity after serialize/reload.
+Root build PASS. Focused contracts 147, UI runtime 46, UI data 17, forms 11, components 12, UI testing 7, Sales 23 Node plus 19 Vitest tests PASS. Component and matrix Chromium journeys PASS. Sales pack is byte-reproducible/current; Gate 1 artifacts are current. Diff check PASS.
 
 ## Next
 
-Correct action freshness, cursor/projection/bulk bounds, composite focus, in-flight form edits, actual-control accessibility, and VirtualList focus; then run complete Gate 7 evidence.
+Run the complete Gate 7 path, audit, clean-tree checks, closeout evidence refresh, and independent Sol-high review.
 
 ## Blockers
 

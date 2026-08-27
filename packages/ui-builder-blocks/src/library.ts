@@ -94,7 +94,7 @@ interface KNextActionFormProps {
   readonly initialValues: Readonly<Record<string, string>>;
   readonly submitLabel: string;
   readonly enabled: boolean;
-  readonly children?: ReactNode;
+  readonly children?: unknown;
   readonly onSubmit: (values: Readonly<Record<string, string>>) => void | Promise<void>;
 }
 function KNextActionForm({ label, fields, initialValues, submitLabel, enabled, children: nestedChildren, onSubmit }: KNextActionFormProps): ReactElement {
@@ -106,7 +106,7 @@ function KNextActionForm({ label, fields, initialValues, submitLabel, enabled, c
       ? createElement(Select, { key: field.name, name: field.name, label: field.label, value: values[field.name] ?? "", options: field.options ?? [], onChange: (value: string) => update(field.name, value) })
       : createElement(TextInput, { key: field.name, name: field.name, label: field.label, value: values[field.name] ?? "", ...(field.required === undefined ? {} : { required: field.required }), onChange: (value: string) => update(field.name, value) })),
     createElement(FormActions, { key: "actions", children: createElement("button", { type: "submit", disabled: !enabled || !valid }, submitLabel) }),
-    nestedChildren
+    nestedChildren as ReactNode
   ];
   return createElement(Form, { label, onSubmit: () => enabled && valid ? onSubmit(values) : undefined, children });
 }

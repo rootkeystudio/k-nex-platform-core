@@ -30,6 +30,12 @@ try {
   await page.keyboard.press("ArrowRight");
   await page.getByRole("tabpanel").filter({ hasText: "Panel two" }).waitFor();
 
+  const listView = page.getByRole("radio", { name: "List" });
+  await listView.focus();
+  await page.keyboard.press("ArrowRight");
+  assert.equal(await page.getByRole("radio", { name: "Board" }).isChecked(), true, "SegmentedControl did not follow native radio arrow-key selection.");
+  await page.getByRole("status", { name: "Selected view" }).filter({ hasText: "board" }).waitFor();
+
   await page.getByRole("button", { name: "More actions" }).focus();
   await page.keyboard.press("Enter");
   await page.getByRole("menuitem", { name: "Archive" }).waitFor();

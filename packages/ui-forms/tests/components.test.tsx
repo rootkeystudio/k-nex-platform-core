@@ -66,4 +66,25 @@ describe("form component family", () => {
       }
     }
   });
+
+  it("uses native grouping and connects radio and range controls to invalid messages", () => {
+    const field = renderToStaticMarkup(<FormField {...messages} error="Required"><input name="nested" /></FormField>);
+    const radio = renderToStaticMarkup(<RadioGroup {...messages} value="one" options={options} error="Required" onChange={noop} />);
+    const slider = renderToStaticMarkup(<Slider {...messages} value={2} readOnly error="Required" onChange={noop} />);
+
+    expect(field).toContain("<fieldset");
+    expect(field).toContain("<legend");
+    const fieldControl = field.match(/<input[^>]*name="nested"[^>]*>/)?.[0] ?? "";
+    const fieldLabel = fieldControl.match(/aria-labelledby="([^"]+)"/)?.[1];
+    expect(fieldLabel).toBeDefined();
+    expect(field).toContain(`id="${fieldLabel}"`);
+    for (const markup of [radio, slider]) {
+      const control = markup.match(/<input[^>]*data-slot="control"[^>]*>/)?.[0] ?? "";
+      expect(control).toContain('aria-invalid="true"');
+      const described = control.match(/aria-describedby="([^"]+)"/)?.[1];
+      expect(described).toBeDefined();
+      for (const id of described!.split(" ")) expect(markup).toContain(`id="${id}"`);
+    }
+    expect(slider).toContain('aria-readonly="true"');
+  });
 });

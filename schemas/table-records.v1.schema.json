@@ -20,6 +20,11 @@
         "hasNext": {
           "type": "boolean"
         },
+        "nextCursor": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
         "number": {
           "maximum": 1000000,
           "minimum": 1,

@@ -31,4 +31,13 @@ describe("navigation, disclosure, and overlay family", () => {
     expect(markup).toContain('aria-level="2"');
     expect(markup).toContain("<details");
   });
+
+  it("uses native radios for segmented selection", () => {
+    const markup = renderToStaticMarkup(<SegmentedControl label="View" items={[{ id: "list", label: "List" }, { id: "board", label: "Board", disabled: true }]} value="list" onChange={() => undefined} />);
+    expect(markup).toContain("<fieldset");
+    expect(markup).toContain("<legend>View</legend>");
+    expect(markup).toContain('type="radio"');
+    expect(markup).toContain('checked=""');
+    expect(markup).toContain('disabled=""');
+  });
 });

@@ -22,6 +22,7 @@ export const taskRecords = {
   page: { number: 1, pageSize: 25, hasNext: false }
 };
 const transport = { query: async () => ({ ok: false as const, problem: { code: "UNUSED", status: 500 } }), mutate: async () => ({ ok: false as const, problem: { code: "UNUSED", status: 500 } }) } as BrowserDataTransport;
+const mutationExecutor = { execute: async () => ({ state: "success" as const, data: {} }) };
 const createTask = createSalesTaskQuickCreateController(transport, "matrix").initial();
 const virtualRows = Array.from({ length: 10_000 }, (_, index) => `Virtual row ${index}`);
 const taskActorFingerprint = `sha256:${"a".repeat(64)}`;
@@ -35,6 +36,7 @@ const taskAuthorization = resolveDataTableActionAuthorization(salesTasksTableDef
 
 function Surface({ label, presentation }: { readonly label: string; readonly presentation: ThemePresentationSnapshot }): ReactElement {
   const [viewState, setViewState] = useState(createDataTableState(salesTasksTableDefinition));
+  const [mutableVirtualRows, setMutableVirtualRows] = useState(["Virtual A", "Virtual B", "Virtual C"]);
   const selectedState = { ...viewState, selectedRows: ["task-1"] };
   return <KNeXDesignSystemProvider primitives={presentation.primitives}><section data-testid={`surface-${label}`} data-theme-id={presentation.themeId} data-k-nex-theme-profile={presentation.profileRevisionId}>
     <div data-matrix-state="default"><Card>Default surface</Card></div>
@@ -55,8 +57,13 @@ function Surface({ label, presentation }: { readonly label: string; readonly pre
     <div data-matrix-state="localization" lang="tr">Satış görevleri yerelleştirme kontrolü</div>
     <SalesTasksPage requestState={{ state: "success", data: taskRecords }} viewState={viewState} actionAuthorization={taskAuthorization} actionActorFingerprint={taskActorFingerprint} createTask={createTask} onViewStateChange={setViewState} onCreateTaskChange={() => undefined} onCreateTask={() => undefined} />
     <Dialog triggerLabel={`Open ${label} matrix dialog`} title={`${label} matrix dialog`}>Overlay performance probe</Dialog>
-    <DataGrid definition={salesTasksTableDefinition} actionAuthorization={taskAuthorization} actionActorFingerprint={taskActorFingerprint} viewState={selectedState} requestState={{ state: "success", data: taskRecords }} label="Task grid" />
+    <DataGrid definition={salesTasksTableDefinition} actionAuthorization={taskAuthorization} actionActorFingerprint={taskActorFingerprint} mutationExecutor={mutationExecutor} viewState={selectedState} requestState={{ state: "success", data: taskRecords }} label="Task grid" renderDetail={(row) => row.key} />
     <VirtualList label={`${label} virtual tasks`} items={virtualRows} getKey={(item) => item} renderItem={(item) => item} height={180} />
+    <button autoFocus={label === "Minimal"} type="button">Keep virtual-list focus</button>
+    <button type="button" onClick={() => setMutableVirtualRows(["Virtual C", "Virtual B", "Virtual A"])}>Reorder virtual rows</button>
+    <button type="button" onClick={() => setMutableVirtualRows(["Virtual A"])}>Shrink virtual rows</button>
+    <button type="button" onClick={() => setMutableVirtualRows([])}>Clear virtual rows</button>
+    <VirtualList label={`${label} mutable virtual tasks`} items={mutableVirtualRows} getKey={(item) => item} renderItem={(item) => item} height={72} estimateSize={36} />
   </section></KNeXDesignSystemProvider>;
 }
 

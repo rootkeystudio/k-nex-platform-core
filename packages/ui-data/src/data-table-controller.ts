@@ -2,6 +2,7 @@ import {
   DataSourceDescriptorSchema,
   DataSourceQueryControlsSchema,
   ResourceIdSchema,
+  TABLE_ROW_LIMIT,
   TableRowKeySchema,
   resolveDataSourceFieldSelection,
   type DataSourceDescriptor,
@@ -119,6 +120,7 @@ function actionContractIsValid(action: DataTableActionDefinition): boolean {
 }
 
 const authoritativeActionAuthorizations = new WeakSet<object>();
+const authorizationResolvers = new WeakMap<object, { readonly definition: DataTableDefinition<unknown>; readonly resolver: DataTableActionCapabilityResolver }>();
 const fingerprintPattern = /^sha256:[0-9a-f]{64}$/;
 
 function actionKey(action: { readonly id: string; readonly version: number }): string { return `${action.id}@${action.version}`; }
@@ -139,6 +141,7 @@ export function resolveDataTableActionAuthorization<TInput>(definition: DataTabl
   if (received.size !== expected.size) throw new TypeError("DataTable action authorization result is incomplete.");
   const authorization = freeze({ actorFingerprint, catalogRevision: response.catalogRevision, capabilities: response.capabilities.map((capability) => ({ state: capability.state, action: { ...capability.action } })) });
   authoritativeActionAuthorizations.add(authorization);
+  authorizationResolvers.set(authorization, { definition: definition as DataTableDefinition<unknown>, resolver });
   return authorization;
 }
 
@@ -148,6 +151,9 @@ export function allowedDataTableActions(
   actorFingerprint: string | undefined
 ): readonly DataTableActionDefinition[] {
   if (authorization === undefined || actorFingerprint === undefined || !authoritativeActionAuthorizations.has(authorization) || authorization.actorFingerprint !== actorFingerprint) return [];
+  const registration = authorizationResolvers.get(authorization);
+  if (registration === undefined) return [];
+  try { authorization = resolveDataTableActionAuthorization(registration.definition, actorFingerprint, registration.resolver); } catch { return []; }
   const byIdentity = new Map<string, DataTableActionCapability>();
   for (const capability of authorization.capabilities) {
     const key = actionKey(capability.action);
@@ -248,7 +254,7 @@ function controls<TInput>(definition: DataTableDefinition<TInput>, state: DataTa
   if (!definition.paginationModes.includes(state.pagination.mode)) throw new TypeError(`DataTable pagination mode is not declared: ${state.pagination.mode}.`);
   if (!Number.isInteger(state.pagination.size) || state.pagination.size < 1 || state.pagination.size > definition.descriptor.limits.maxPageSize) throw new TypeError("DataTable page size exceeds source limits.");
   if (state.pagination.mode === "offset" && (!Number.isInteger(state.pagination.page) || state.pagination.page < 1)) throw new TypeError("DataTable page is invalid.");
-  if (state.filters.length > definition.descriptor.limits.maxFilters || state.sort.length > definition.descriptor.limits.maxSorts) throw new TypeError("DataTable query controls exceed source limits.");
+  if (state.sort.length > definition.descriptor.limits.maxSorts) throw new TypeError("DataTable query controls exceed source limits.");
   for (const filter of state.filters) if (!descriptorFields.get(filter.field)?.filterOperators.includes(filter.operator)) throw new TypeError(`DataTable filter is not declared: ${filter.field}/${filter.operator}.`);
   for (const sort of state.sort) if (!descriptorFields.get(sort.field)?.sortable) throw new TypeError(`DataTable sort is not declared: ${sort.field}.`);
   const filters = [...state.filters];
@@ -256,6 +262,7 @@ function controls<TInput>(definition: DataTableDefinition<TInput>, state: DataTa
     if (state.search.length > 512 || definition.searchField === undefined) throw new TypeError("DataTable search is not declared or exceeds its limit.");
     filters.push({ field: definition.searchField, operator: "contains", value: state.search });
   }
+  if (filters.length > definition.descriptor.limits.maxFilters) throw new TypeError("DataTable query controls exceed source limits.");
   const pagination = state.pagination.mode === "offset"
     ? { page: { number: state.pagination.page, size: state.pagination.size } }
     : { cursor: { size: state.pagination.size, ...(state.pagination.after === undefined ? {} : { after: state.pagination.after }), ...(state.pagination.before === undefined ? {} : { before: state.pagination.before }) } };
@@ -265,7 +272,7 @@ function controls<TInput>(definition: DataTableDefinition<TInput>, state: DataTa
 export interface DataTableController<TInput> {
   readonly definition: DataTableDefinition<TInput>;
   controls(state: DataTableViewState): DataSourceQueryControls;
-  identity(input: TInput, state: DataTableViewState, context: Omit<BrowserQueryContext, "signal">): Promise<import("@k-nex/contracts").DataSourceQueryIdentity>;
+  identity(input: TInput, state: DataTableViewState, allowedFields: ReadonlySet<string>, context: Omit<BrowserQueryContext, "signal">): Promise<import("@k-nex/contracts").DataSourceQueryIdentity>;
   execute(transport: BrowserDataTransport, input: TInput, state: DataTableViewState, allowedFields: ReadonlySet<string>, context: BrowserQueryContext): Promise<DataTableRequestState>;
   executeAction(executor: DataTableMutationExecutor, authorization: DataTableActionAuthorization | undefined, actorFingerprint: string | undefined, actionId: string, rowKey: string, context: BrowserMutationContext): Promise<DataTableActionResult>;
   executeBulkAction(executor: DataTableMutationExecutor, authorization: DataTableActionAuthorization | undefined, actorFingerprint: string | undefined, actionId: string, rowKeys: readonly string[], context: BrowserMutationContext): Promise<DataTableBulkActionResult>;
@@ -300,7 +307,7 @@ export function createDataTableController<TInput>(definitionInput: DataTableDefi
   const executeAction = (executor: DataTableMutationExecutor, authorization: DataTableActionAuthorization | undefined, actorFingerprint: string | undefined, actionId: string, rowKey: string, context: BrowserMutationContext): Promise<DataTableActionResult> => executeRegisteredAction(executor, authorization, actorFingerprint, actionById(definition.rowActions ?? [], actionId), rowKey, context);
   const executeBulkAction = async (executor: DataTableMutationExecutor, authorization: DataTableActionAuthorization | undefined, actorFingerprint: string | undefined, actionId: string, rowKeys: readonly string[], context: BrowserMutationContext): Promise<DataTableBulkActionResult> => {
     const action = actionById(definition.bulkActions ?? [], actionId);
-    if (rowKeys.length === 0 || new Set(rowKeys).size !== rowKeys.length) {
+    if (rowKeys.length === 0 || rowKeys.length > TABLE_ROW_LIMIT || new Set(rowKeys).size !== rowKeys.length) {
       return freeze({
         ...(action === undefined ? {} : { action: { ...action.action } }),
         state: "failure",
@@ -349,12 +356,18 @@ export function createDataTableController<TInput>(definitionInput: DataTableDefi
   return Object.freeze({
     definition,
     controls(state: DataTableViewState): DataSourceQueryControls { return freeze(controls(definition, state)); },
-    identity(input: TInput, state: DataTableViewState, context: Omit<BrowserQueryContext, "signal">) { return definition.query.identityWithControls(input, controls(definition, state), context); },
+    identity(input: TInput, state: DataTableViewState, allowedFields: ReadonlySet<string>, context: Omit<BrowserQueryContext, "signal">) {
+      const selection = resolveDataSourceFieldSelection(definition.descriptor, definition.query.selectedFields, allowedFields);
+      if (!selection.success) return Promise.reject(new TypeError("DataTable field selection is not authorized."));
+      return definition.query.identityWithControls(input, controls(definition, state), context, selection.selectedFields);
+    },
     async execute(transport: BrowserDataTransport, input: TInput, state: DataTableViewState, allowedFields: ReadonlySet<string>, context: BrowserQueryContext): Promise<DataTableRequestState> {
       const selection = resolveDataSourceFieldSelection(definition.descriptor, definition.query.selectedFields, allowedFields);
       if (!selection.success && selection.reason === "REQUIRED_FIELD_NOT_ALLOWED") return freeze({ state: "insufficient-permission" });
       if (!selection.success) return freeze({ state: "invalid-contract" });
-      return definition.query.executeWithControls(transport, input, controls(definition, state), context);
+      const result = await definition.query.executeWithControls(transport, input, controls(definition, state), context, selection.selectedFields);
+      if (state.pagination.mode === "cursor" && result.state === "success" && result.data.page.hasNext && result.data.page.nextCursor === undefined) return freeze({ state: "invalid-contract" });
+      return result;
     },
     executeAction,
     executeBulkAction,

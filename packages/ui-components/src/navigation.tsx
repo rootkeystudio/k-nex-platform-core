@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
+import { useId, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
 import {
   Button as AriaButton, Dialog as AriaDialog, DialogTrigger, Heading as AriaHeading,
   Menu, MenuItem, MenuTrigger, Modal as AriaModal, ModalOverlay, Popover as AriaPopover,
@@ -28,7 +28,8 @@ export function Tabs({ label, items, selectedId, onChange }: TabsProps): ReactEl
 
 export interface SegmentedControlProps { readonly label: string; readonly items: readonly Omit<TabItem, "content">[]; readonly value: string; readonly onChange: (id: string) => void; }
 export function SegmentedControl({ label, items, value, onChange }: SegmentedControlProps): ReactElement {
-  return <div role="radiogroup" aria-label={label} data-k-nex-component="segmented-control" data-slot="root">{items.map((item) => <button key={item.id} type="button" role="radio" aria-checked={value === item.id} disabled={item.disabled} onClick={() => onChange(item.id)} data-slot="item" data-state={value === item.id ? "selected" : "default"}>{item.label}</button>)}</div>;
+  const name = `segmented-${useId().replaceAll(":", "")}`;
+  return <fieldset data-k-nex-component="segmented-control" data-slot="root"><legend>{label}</legend>{items.map((item) => <label key={item.id} data-slot="item" data-state={value === item.id ? "selected" : "default"}><input type="radio" name={name} value={item.id} checked={value === item.id} disabled={item.disabled} onChange={() => onChange(item.id)} />{item.label}</label>)}</fieldset>;
 }
 
 export interface ButtonGroupProps { readonly label: string; readonly children: ReactNode; }
