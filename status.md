@@ -7,11 +7,11 @@
 
 ## Last completed
 
-P6.10 review remediation makes the UI contribution descriptor props schema the sole validation authority: bindings derive the bounded JSON-schema runtime validator, Sales no longer supplies a divergent validator, and static/runtime parity regressions cover required, unknown, wrong-type, bounds, enum, and nested values.
+P6.10 review remediation makes the UI contribution descriptor props schema the sole validation authority and preserves action-policy authority through immutable Puck bridge snapshots; focused regressions cover policy identity, mutation isolation, and fail-closed editor previews.
 
 ## Validation
 
-Node 24.19.0: contracts (141), UI runtime (42), Builder Puck (31), and Sales (34) tests; full workspace build; `pnpm contracts:validate`; packed Sales reproducibility; package boundaries; and `git diff --check` PASS. Full `pnpm gate:6` remains required on this remediation head.
+Node 24.19.0: Builder Puck (34) and UI runtime (42) tests; Builder browser accessibility; package boundaries; full workspace build; and `git diff --check` PASS. Full `pnpm gate:6` remains required on this remediation head.
 
 ## Next
 

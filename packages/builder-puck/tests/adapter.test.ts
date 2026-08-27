@@ -9,7 +9,7 @@ import {
   presentUiRuntimeResult,
   type UiBlockDefinition
 } from "@k-nex/ui-runtime";
-import { createPuckBuilderAdapter, reconcilePuckBlockContribution, type PuckBlockBridge } from "../src/index.js";
+import { createPuckBuilderAdapter, reconcilePuckBlockContribution, snapshotPuckBlockBridge, type PuckBlockBridge } from "../src/index.js";
 
 const definition = (id: string): UiBlockDefinition => ({
   id,
@@ -55,6 +55,37 @@ const fixture: UiDocument = {
 };
 
 describe("Puck builder adapter", () => {
+  it("preserves absent, optional, and required action policy identities in bridge snapshots", () => {
+    const policies = [
+      undefined,
+      { required: false, actions: [{ id: "sales.task.create", version: 1 }] },
+      { required: true, actions: [{ id: "sales.task.update", version: 2 }] }
+    ] as const;
+    const snapshots = policies.map((actionPolicy) => snapshotPuckBlockBridge({
+      ...text,
+      definition: { ...text.definition, ...(actionPolicy === undefined ? {} : { actionPolicy }) }
+    }));
+
+    expect(snapshots.map((snapshot) => snapshot.definition.actionPolicy)).toEqual(policies);
+  });
+
+  it("deeply snapshots action policy authority", () => {
+    const actionPolicy = { required: true, actions: [{ id: "sales.task.create", version: 1 }] };
+    const snapshot = snapshotPuckBlockBridge({
+      ...text,
+      definition: { ...text.definition, actionPolicy }
+    });
+
+    actionPolicy.required = false;
+    actionPolicy.actions[0]!.id = "sales.task.delete";
+    actionPolicy.actions.push({ id: "sales.task.update", version: 1 });
+
+    expect(snapshot.definition.actionPolicy).toEqual({ required: true, actions: [{ id: "sales.task.create", version: 1 }] });
+    expect(Object.isFrozen(snapshot.definition.actionPolicy)).toBe(true);
+    expect(Object.isFrozen(snapshot.definition.actionPolicy?.actions)).toBe(true);
+    expect(Object.isFrozen(snapshot.definition.actionPolicy?.actions[0])).toBe(true);
+  });
+
   it("reconciles canonical block descriptors without replacing the production renderer", () => {
     const bound = defineUiContributionBinding({
       descriptor: {
@@ -67,6 +98,7 @@ describe("Puck builder adapter", () => {
         surfaces: ["workspace"],
         audience: "authenticated",
         permission: "sales.tasks.read",
+        actionPolicy: { required: true, actions: [{ id: "sales.task.create", version: 1 }] },
         requiredStates: ["loading", "empty", "error", "forbidden"]
       },
       render: ({ props }) => props
@@ -83,6 +115,50 @@ describe("Puck builder adapter", () => {
     expect(() => reconcilePuckBlockContribution({ ...bound, descriptor: { ...bound.descriptor, kind: "component" } }, {
       label: "Task table", fields: [], allowChildren: false, defaultProps: {}
     })).toThrow(/canonical block/);
+  });
+
+  it("fails closed in Puck previews for missing or unauthorized action bindings", () => {
+    const bound = defineUiContributionBinding({
+      descriptor: {
+        id: "sales.task-action",
+        version: 1,
+        ownerPluginId: "module.sales",
+        kind: "block",
+        propsSchema: { type: "object", properties: { title: { type: "string" } }, required: ["title"], additionalProperties: false },
+        profiles: ["workspace"],
+        surfaces: ["workspace"],
+        audience: "authenticated",
+        permission: "sales.tasks.read",
+        actionPolicy: { required: true, actions: [{ id: "sales.task.create", version: 1 }] },
+        requiredStates: ["loading", "empty", "error", "forbidden"]
+      },
+      render: ({ props }) => ({ kind: "text", text: String((props as { title: string }).title) })
+    });
+    const bridge = reconcilePuckBlockContribution(bound, {
+      label: "Task action",
+      fields: [{ prop: "title", label: "Title", kind: "text" }],
+      allowChildren: false,
+      defaultProps: { title: "Tasks" }
+    });
+    const adapter = createPuckBuilderAdapter({
+      blocks: [bridge],
+      preview: { surface: "workspace", actor: { authenticated: true, permissions: new Set(["sales.tasks.read"]) } }
+    });
+    const component = adapter.config.components["sales.task-action__v1"] as { render: (props: Record<string, unknown>) => unknown };
+    const preview = (action?: { id: string; version: number }) => {
+      const data = adapter.toPuckData({
+        id: "workspace.tasks", version: 1, schemaVersion: 1, profile: "workspace",
+        regions: { main: [{
+          id: "task-action", type: "sales.task-action", version: 1, props: { title: "Tasks" },
+          ...(action === undefined ? {} : { bindings: { action } })
+        }] }
+      });
+      return component.render(data.content[0]!.props as Record<string, unknown>);
+    };
+
+    expect(preview()).toBe("Unavailable: ACTION_BINDING_REQUIRED");
+    expect(preview({ id: "sales.task.delete", version: 1 })).toBe("Unavailable: ACTION_NOT_ACCEPTED");
+    expect(preview({ id: "sales.task.create", version: 1 })).toBe("Tasks");
   });
 
   it("round-trips canonical documents without semantic loss", () => {
