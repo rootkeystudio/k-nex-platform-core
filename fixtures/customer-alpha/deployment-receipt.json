@@ -8,8 +8,8 @@
     "kind": "workflow",
     "identity": "rootkeystudio/k-nex-platform-core/.github/workflows/deploy.yml@c4117fb17bac9bc7a803bafbf3e93201dadc53b4"
   },
-  "artifactDigest": "sha256:5a32e7edc17fc3c6dbfa9ddc392a59c99cd31f9374469bc211ac8a71701e5f73",
-  "inventoryDigest": "sha256:b7d4b17633e958c4687f5c55fd85adab0e909cb380f5fdf6dfd512d84613816f",
+  "artifactDigest": "sha256:b2023ed6cda2d90c2e04072a0307054b665715570eeb1dd8c7601df2e120d528",
+  "inventoryDigest": "sha256:9b56aa62e431a64a8b973c369cb34e0a596889eb84d6e2e36f6f2c65ca232a60",
   "migrationRevision": 7,
   "smoke": {
     "status": "passed",
