@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 
 import { ApplicationManifestSchema, canonicalJson, type ApplicationManifest } from "@k-nex/contracts";
 
@@ -42,6 +42,39 @@ const exactDependencies = Object.freeze({
   "react": "19.2.8",
   "react-dom": "19.2.8"
 });
+
+function registrySource(): string {
+  return `import { salesOpportunitiesCollection, salesRegistration, salesTasksCollection } from "@k-nex/module-sales/server";
+import { salesMigrationReadiness, salesUpgradeMigrations } from "@k-nex/module-sales/migrations";
+import { salesPageTemplates } from "@k-nex/module-sales/contracts";
+
+export const kNexSalesRegistry = Object.freeze({
+  registration: salesRegistration,
+  collections: Object.freeze([salesTasksCollection, salesOpportunitiesCollection]),
+  migrations: salesUpgradeMigrations,
+  readiness: salesMigrationReadiness,
+  defaultPages: salesPageTemplates
+});
+`;
+}
+
+function payloadConfigSource(): string {
+  return `import { postgresAdapter } from "@payloadcms/db-postgres";
+import { buildConfig } from "payload";
+
+import { kNexSalesRegistry } from "./k-nex-registry.js";
+
+const databaseUrl = process.env.DATABASE_URL;
+const secret = process.env.PAYLOAD_SECRET;
+if (!databaseUrl || !secret) throw new Error("DATABASE_URL and PAYLOAD_SECRET are required.");
+
+export default buildConfig({
+  db: postgresAdapter({ pool: { connectionString: databaseUrl }, prodMigrations: [] }),
+  collections: [...kNexSalesRegistry.collections],
+  secret
+});
+`;
+}
 
 function json(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
@@ -92,10 +125,12 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
     "package.json": json({
       name: options.applicationId, version: "0.0.0", private: true, type: "module", packageManager: "pnpm@11.9.0",
       engines: { node: "24.19.0", pnpm: "11.9.0" },
-      scripts: { build: "next build", dev: "next dev", migrate: "payload migrate", start: "next start" },
+      scripts: { build: "next build", dev: "next dev", migrate: "payload migrate", readiness: "node --import tsx src/k-nex-readiness.ts", start: "next start" },
       dependencies
     }),
-    "src/payload.config.ts": `import { postgresAdapter } from "@payloadcms/db-postgres";\nimport { buildConfig } from "payload";\n\nconst databaseUrl = process.env.DATABASE_URL;\nconst secret = process.env.PAYLOAD_SECRET;\nif (!databaseUrl || !secret) throw new Error("DATABASE_URL and PAYLOAD_SECRET are required.");\n\nexport default buildConfig({ db: postgresAdapter({ pool: { connectionString: databaseUrl } }), secret });\n`
+    "src/k-nex-registry.ts": registrySource(),
+    "src/k-nex-readiness.ts": `import { kNexSalesRegistry } from "./k-nex-registry.js";\n\nif (kNexSalesRegistry.collections.length !== 2 || kNexSalesRegistry.registration.pluginId !== "module.sales" || kNexSalesRegistry.readiness.currentRevision < 1 || kNexSalesRegistry.defaultPages.length === 0) {\n  throw new Error("K-Nex Sales readiness is incomplete.");\n}\nconsole.log("K_NEX_SALES_READY");\n`,
+    "src/payload.config.ts": payloadConfigSource()
   };
   if (options.database === "docker-postgres") {
     files["compose.yaml"] = "services:\n  postgres:\n    image: postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94\n    environment:\n      POSTGRES_DB: knex\n      POSTGRES_PASSWORD: knex\n      POSTGRES_USER: knex\n    ports:\n      - \"5432:5432\"\n    volumes:\n      - postgres-data:/var/lib/postgresql/data\nvolumes:\n  postgres-data:\n";
@@ -117,20 +152,46 @@ export function applyCreateKnexApplication(plan: ApplicationFactoryPlan, targetD
     throw new Error("Application factory plan digest is invalid.");
   }
   const target = resolve(targetDirectory);
-  const written: string[] = [];
+  const paths = Object.entries(plan.files);
   const unchanged: string[] = [];
-  for (const [relativePath, content] of Object.entries(plan.files)) {
+  const pending: string[] = [];
+  const components = target.split("/").filter(Boolean);
+  let ancestor = "/";
+  for (const component of components) {
+    ancestor = join(ancestor, component);
+    if (existsSync(ancestor) && lstatSync(ancestor).isSymbolicLink()) {
+      throw new Error("Application factory refuses symlinked target paths.");
+    }
+  }
+  for (const [relativePath, content] of paths) {
     if (relativePath.startsWith("/") || relativePath.split("/").some((segment) => segment === ".." || segment === "")) throw new Error("Application factory path is invalid.");
     const path = resolve(target, relativePath);
-    let existing: string | undefined;
-    try { existing = readFileSync(path, "utf8"); } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-    if (existing === content) { unchanged.push(relativePath); continue; }
-    if (existing !== undefined) throw new Error(`Application factory refuses to overwrite ${relativePath}.`);
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, content, { encoding: "utf8", flag: "wx" });
-    written.push(relativePath);
+    if (relative(target, path).startsWith("..")) throw new Error("Application factory path escapes its target.");
+    if (!existsSync(path)) { pending.push(relativePath); continue; }
+    if (lstatSync(path).isSymbolicLink()) throw new Error("Application factory refuses symlinked destination paths.");
+    if (readFileSync(path, "utf8") !== content) throw new Error(`Application factory refuses to overwrite ${relativePath}.`);
+    unchanged.push(relativePath);
   }
-  return Object.freeze({ written: Object.freeze(written), unchanged: Object.freeze(unchanged) });
+  if (pending.length === 0) return Object.freeze({ written: Object.freeze([]), unchanged: Object.freeze(unchanged) });
+  if (existsSync(target)) {
+    if (!lstatSync(target).isDirectory() || readdirSync(target).length !== 0) throw new Error("Application factory only promotes a complete fresh application target.");
+    rmdirSync(target);
+  }
+  mkdirSync(dirname(target), { recursive: true });
+  const stage = mkdtempSync(join(dirname(target), ".k-nex-app-stage-"));
+  try {
+    for (const [relativePath, content] of paths) {
+      const path = resolve(stage, relativePath);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, content, { encoding: "utf8", flag: "wx" });
+    }
+    for (const [relativePath, content] of paths) {
+      if (readFileSync(resolve(stage, relativePath), "utf8") !== content) throw new Error("Application factory staged validation failed.");
+    }
+    renameSync(stage, target);
+  } catch (error) {
+    rmSync(stage, { recursive: true, force: true });
+    throw error;
+  }
+  return Object.freeze({ written: Object.freeze(paths.map(([relativePath]) => relativePath)), unchanged: Object.freeze([]) });
 }
