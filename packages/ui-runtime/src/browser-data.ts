@@ -4,9 +4,11 @@ import {
   assertJsonValue,
   canonicalJson,
   createDataSourceQueryIdentity,
+  DataSourceQueryControlsSchema,
   type DataSourceAuthorizationBoundary,
   type DataSourceQueryIdentity,
   type DataSourceSurface,
+  type DataSourceQueryControls,
   type JsonValue,
   type RuntimeSchema
 } from "@k-nex/contracts";
@@ -37,6 +39,7 @@ export interface BrowserDataTransport {
     readonly source: BrowserResourceReference;
     readonly input: unknown;
     readonly selectedFields: readonly string[];
+    readonly controls?: DataSourceQueryControls;
     readonly surface: DataSourceSurface;
     readonly signal: AbortSignal;
   }): Promise<BrowserTransportResult>;
@@ -89,7 +92,9 @@ export interface SourceQueryDefinition<TInput, TOutput> {
   readonly selectedFields: readonly string[];
   readonly invalidation: { readonly sources: readonly string[] };
   identity(input: TInput, context: Omit<BrowserQueryContext, "signal">): Promise<DataSourceQueryIdentity>;
+  identityWithControls(input: TInput, controls: DataSourceQueryControls, context: Omit<BrowserQueryContext, "signal">): Promise<DataSourceQueryIdentity>;
   execute(transport: BrowserDataTransport, input: TInput, context: BrowserQueryContext): Promise<BrowserRequestState<TOutput>>;
+  executeWithControls(transport: BrowserDataTransport, input: TInput, controls: DataSourceQueryControls, context: BrowserQueryContext): Promise<BrowserRequestState<TOutput>>;
 }
 
 export interface ActionMutationOptions<TInput, TOutput> {
@@ -164,44 +169,59 @@ export function defineSourceQuery<TInput, TOutput>(options: SourceQueryOptions<T
     throw new TypeError("Source query selected fields are invalid.");
   }
   const source = freeze({ ...options.source });
+  const identity = (input: TInput, controls: DataSourceQueryControls | undefined, context: Omit<BrowserQueryContext, "signal">): Promise<DataSourceQueryIdentity> => {
+    const parsed = options.input.safeParse(input);
+    const parsedControls = controls === undefined ? undefined : DataSourceQueryControlsSchema.safeParse(controls);
+    if (!parsed.success || parsedControls !== undefined && !parsedControls.success) return Promise.reject(new TypeError("Source query identity is invalid."));
+    try {
+      assertJsonValue(parsed.data);
+      inspectViewState(parsed.data);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    const identityInput = parsedControls === undefined ? parsed.data : { input: parsed.data, controls: parsedControls.data };
+    return createDataSourceQueryIdentity({
+      source,
+      input: identityInput as JsonValue,
+      selectedFields,
+      surface: context.surface,
+      locale: context.locale ?? null,
+      timezone: context.timezone ?? null,
+      publicationRevision: context.publicationRevision ?? null,
+      authorizationBoundary: context.authorizationBoundary
+    });
+  };
+  const execute = async (transport: BrowserDataTransport, input: TInput, controls: DataSourceQueryControls | undefined, context: BrowserQueryContext): Promise<BrowserRequestState<TOutput>> => {
+    const parsed = options.input.safeParse(input);
+    if (!parsed.success) return freeze({ state: "invalid-contract" as const });
+    const parsedControls = controls === undefined ? undefined : DataSourceQueryControlsSchema.safeParse(controls);
+    if (parsedControls !== undefined && !parsedControls.success) return freeze({ state: "invalid-contract" as const });
+    try {
+      assertJsonValue(parsed.data);
+      inspectViewState(parsed.data);
+    } catch {
+      return freeze({ state: "invalid-contract" as const });
+    }
+    const response = await request(() => transport.query({
+      source,
+      input: parsed.data,
+      selectedFields,
+      ...(parsedControls === undefined ? {} : { controls: parsedControls.data }),
+      surface: context.surface,
+      signal: context.signal
+    }), context.signal);
+    return resultState(response, options.output, options.isEmpty);
+  };
   return freeze({
     kind: "source-query" as const,
     source,
     defaults: structuredClone(defaults.data),
     selectedFields: freeze(selectedFields),
     invalidation: freeze({ sources: [source.id] }),
-    identity(input: TInput, context: Omit<BrowserQueryContext, "signal">) {
-      const parsed = options.input.safeParse(input);
-      if (!parsed.success) return Promise.reject(new TypeError("Source query input is invalid."));
-      try {
-        assertJsonValue(parsed.data);
-        inspectViewState(parsed.data);
-      } catch (error) {
-        return Promise.reject(error);
-      }
-      return createDataSourceQueryIdentity({
-        source,
-        input: parsed.data as JsonValue,
-        selectedFields,
-        surface: context.surface,
-        locale: context.locale ?? null,
-        timezone: context.timezone ?? null,
-        publicationRevision: context.publicationRevision ?? null,
-        authorizationBoundary: context.authorizationBoundary
-      });
-    },
-    async execute(transport: BrowserDataTransport, input: TInput, context: BrowserQueryContext) {
-      const parsed = options.input.safeParse(input);
-      if (!parsed.success) return freeze({ state: "invalid-contract" as const });
-      try {
-        assertJsonValue(parsed.data);
-        inspectViewState(parsed.data);
-      } catch {
-        return freeze({ state: "invalid-contract" as const });
-      }
-      const response = await request(() => transport.query({ source, input: parsed.data, selectedFields, surface: context.surface, signal: context.signal }), context.signal);
-      return resultState(response, options.output, options.isEmpty);
-    }
+    identity(input: TInput, context: Omit<BrowserQueryContext, "signal">) { return identity(input, undefined, context); },
+    identityWithControls(input: TInput, controls: DataSourceQueryControls, context: Omit<BrowserQueryContext, "signal">) { return identity(input, controls, context); },
+    execute(transport: BrowserDataTransport, input: TInput, context: BrowserQueryContext) { return execute(transport, input, undefined, context); },
+    executeWithControls(transport: BrowserDataTransport, input: TInput, controls: DataSourceQueryControls, context: BrowserQueryContext) { return execute(transport, input, controls, context); }
   });
 }
 
