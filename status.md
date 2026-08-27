@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-27
 - **Phase:** Phase 6 — Plugin Platform Hardening and Sales Reference Module
-- **Active task:** P6.7 — Complete module.sales as the reference plugin
+- **Active task:** P6.8 — Build the plugin conformance kit
 - **State:** Ready to start
 
 ## Last completed
 
-Completed P6.6: added canonical component/block descriptors, separate renderer bindings, props/source/action/policy/state metadata, required registration reconciliation, page-template resource inventory checks, and Puck reconciliation over the same production renderer; Sales task table exercises component, block, runtime, template, and editor parity.
+Completed P6.7: Sales now exercises tasks and opportunities, three sources/actions, two tools, event/realtime declarations, strict pipeline/default-page settings, six components, five blocks, four pages, routes/navigation, customer-owned migration revision 6, and every supported contribution category.
 
 ## Validation
 
-Node 24.19.0: full monorepo build; contracts 138, runtime 169, UI runtime 40, builder 31, Payload adapter 41, Sales 12, customer fixture 1; descriptor/category/binding/resource inventory and runtime/Puck parity; Sales boundary/exact pack and generated fixture checks.
+Node 24.19.0: full monorepo build and contract validation; contracts 138, runtime 169, UI runtime 40, builder 31, Payload adapter 42, Sales 15, customer fixture 1; real PostgreSQL Gate 1; canonical generated fixture and exact reproducible Sales pack checks.
 
 ## Next
 
-Complete P6.7 Sales as the intentionally small reference plugin across mandatory and selected optional contribution categories.
+Build P6.8 plugin conformance command with mandatory evidence accounting and negative-fixture proof.
 
 ## Blockers
 

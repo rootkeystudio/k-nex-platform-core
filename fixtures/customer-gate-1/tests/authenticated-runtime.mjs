@@ -157,15 +157,107 @@ assert.deepEqual(inventory.plugins, [{
   version: "1.0.0",
   integrity: inventory.plugins[0].integrity,
   expectedContributions: {
-    actions: { "sales.task.create": "required" },
-    schema: { "sales.tasks.collection": "required" },
-    sources: { "sales.tasks": "required", "sales.total-potential-revenue": "required" },
+    actions: {
+      "sales.opportunity.stage.update": "required",
+      "sales.task.create": "required",
+      "sales.task.update": "required"
+    },
+    blocks: {
+      "sales.opportunity-detail": "required",
+      "sales.opportunity-list": "required",
+      "sales.revenue-metric": "required",
+      "sales.task-quick-create": "required",
+      "sales.task-table": "required"
+    },
+    components: {
+      "sales.detail.opportunity": "required",
+      "sales.form.task-quick-create": "required",
+      "sales.list.opportunities": "required",
+      "sales.metric.total-potential-revenue": "required",
+      "sales.status.pipeline-stage": "required",
+      "sales.table.tasks": "required"
+    },
+    events: {
+      "sales.event.opportunity-changed": "required",
+      "sales.event.task-changed": "required"
+    },
+    healthAudit: { "sales.health.runtime": "required" },
+    jobs: { "sales.job.pipeline-audit": "required" },
+    lifecycle: { "sales.lifecycle.reference": "required" },
+    localization: { "sales.localization.en": "required" },
+    migrations: { "sales.migration.initial": "required" },
+    navigation: {
+      "sales.navigation.opportunities": "required",
+      "sales.navigation.overview": "required",
+      "sales.navigation.settings": "required",
+      "sales.navigation.tasks": "required"
+    },
+    pageTemplates: {
+      "sales.page.opportunities": "required",
+      "sales.page.overview": "required",
+      "sales.page.settings": "required",
+      "sales.page.tasks": "required"
+    },
+    permissions: {
+      "sales.opportunities.name.read": "required",
+      "sales.opportunities.read": "required",
+      "sales.opportunities.stage.read": "required",
+      "sales.opportunities.value.read": "required",
+      "sales.opportunities.write": "required",
+      "sales.settings.read": "required",
+      "sales.settings.write": "required",
+      "sales.tasks.private-note.read": "required",
+      "sales.tasks.read": "required",
+      "sales.tasks.revenue.read": "required",
+      "sales.tasks.status.read": "required",
+      "sales.tasks.title.read": "required",
+      "sales.tasks.write": "required"
+    },
+    realtimeTopics: {
+      "sales.realtime.opportunities": "required",
+      "sales.realtime.tasks": "required"
+    },
+    routes: {
+      "sales.route.opportunities": "required",
+      "sales.route.overview": "required",
+      "sales.route.settings": "required",
+      "sales.route.task-detail": "required",
+      "sales.route.tasks": "required"
+    },
+    schema: {
+      "sales.opportunities.collection": "required",
+      "sales.tasks.collection": "required"
+    },
+    services: { "sales.service.domain": "required" },
+    settings: { "sales.settings.workspace": "required" },
+    sources: {
+      "sales.opportunities": "required",
+      "sales.tasks": "required",
+      "sales.total-potential-revenue": "required"
+    },
+    testingMetadata: { "sales.testing.conformance": "required" },
     tools: { "sales.tools.create-task": "required", "sales.tools.search-tasks": "required" }
   },
   actualContributions: {
-    actions: ["sales.task.create"],
-    schema: ["sales.tasks.collection"],
-    sources: ["sales.tasks", "sales.total-potential-revenue"],
+    actions: ["sales.opportunity.stage.update", "sales.task.create", "sales.task.update"],
+    blocks: ["sales.opportunity-detail", "sales.opportunity-list", "sales.revenue-metric", "sales.task-quick-create", "sales.task-table"],
+    components: ["sales.detail.opportunity", "sales.form.task-quick-create", "sales.list.opportunities", "sales.metric.total-potential-revenue", "sales.status.pipeline-stage", "sales.table.tasks"],
+    events: ["sales.event.opportunity-changed", "sales.event.task-changed"],
+    healthAudit: ["sales.health.runtime"],
+    jobs: ["sales.job.pipeline-audit"],
+    lifecycle: ["sales.lifecycle.reference"],
+    localization: ["sales.localization.en"],
+    migrations: ["sales.migration.initial"],
+    navigation: ["sales.navigation.opportunities", "sales.navigation.overview", "sales.navigation.settings", "sales.navigation.tasks"],
+    pageTemplates: ["sales.page.opportunities", "sales.page.overview", "sales.page.settings", "sales.page.tasks"],
+    permissions: ["sales.opportunities.name.read", "sales.opportunities.read", "sales.opportunities.stage.read", "sales.opportunities.value.read", "sales.opportunities.write", "sales.settings.read", "sales.settings.write", "sales.tasks.private-note.read", "sales.tasks.read", "sales.tasks.revenue.read", "sales.tasks.status.read", "sales.tasks.title.read", "sales.tasks.write"],
+    realtimeTopics: ["sales.realtime.opportunities", "sales.realtime.tasks"],
+    routes: ["sales.route.opportunities", "sales.route.overview", "sales.route.settings", "sales.route.task-detail", "sales.route.tasks"],
+    schema: ["sales.opportunities.collection", "sales.tasks.collection"],
+    services: ["sales.service.domain"],
+    settings: ["sales.settings.workspace"],
+    sources: ["sales.opportunities", "sales.tasks", "sales.total-potential-revenue"],
+    testingMetadata: ["sales.testing.conformance"],
     tools: ["sales.tools.create-task", "sales.tools.search-tasks"]
   }
 }, {
@@ -177,9 +269,9 @@ assert.deepEqual(inventory.plugins, [{
   actualContributions: {}
 }]);
 assert.deepEqual(inventory.migrationRevision, {
-  migrationName: "20260826_000005_outbox_processor",
-  predecessor: 4,
-  current: 5
+  migrationName: "20260827_000006_sales_opportunities",
+  predecessor: 5,
+  current: 6
 });
 const serializedInventory = JSON.stringify(inventory);
 for (const forbidden of [process.env.DATABASE_URL, process.env.PAYLOAD_SECRET, login.token, password, "gate1@example.test"]) {

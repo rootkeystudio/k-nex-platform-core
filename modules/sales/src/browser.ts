@@ -4,12 +4,20 @@ import {
   salesCreateTaskInputRuntimeSchema,
   salesCreateTaskOutputRuntimeSchema,
   salesEmptyInputRuntimeSchema,
-  salesTaskCreateDescriptor,
+  salesOpportunitiesDescriptor,
+  salesOpportunitiesOutputRuntimeSchema,
+  salesOpportunityStageInputRuntimeSchema,
+  salesOpportunityStageOutputRuntimeSchema,
+  salesOpportunityStageUpdateDescriptor,
   salesRouteDescriptors,
+  salesTaskCreateDescriptor,
+  salesTaskUpdateDescriptor,
   salesTasksDescriptor,
   salesTasksOutputRuntimeSchema,
+  salesTotalPotentialRevenueDescriptor,
   salesTotalPotentialRevenueOutputRuntimeSchema,
-  salesTotalPotentialRevenueDescriptor
+  salesUpdateTaskInputRuntimeSchema,
+  salesUpdateTaskOutputRuntimeSchema
 } from "./contracts.js";
 
 export const salesTasksQuery = defineSourceQuery({
@@ -28,6 +36,15 @@ export const salesTotalPotentialRevenueQuery = defineSourceQuery({
   defaults: {}
 });
 
+export const salesOpportunitiesQuery = defineSourceQuery({
+  source: { id: salesOpportunitiesDescriptor.id, version: salesOpportunitiesDescriptor.version },
+  input: salesEmptyInputRuntimeSchema,
+  output: salesOpportunitiesOutputRuntimeSchema,
+  defaults: {},
+  selectedFields: ["name", "stage", "value"],
+  isEmpty: (value) => value.rows.length === 0
+});
+
 export const salesCreateTaskMutation = defineActionMutation({
   action: { id: salesTaskCreateDescriptor.id, version: salesTaskCreateDescriptor.version },
   input: salesCreateTaskInputRuntimeSchema,
@@ -35,12 +52,27 @@ export const salesCreateTaskMutation = defineActionMutation({
   invalidates: [salesTasksDescriptor.id, salesTotalPotentialRevenueDescriptor.id]
 });
 
+export const salesUpdateTaskMutation = defineActionMutation({
+  action: { id: salesTaskUpdateDescriptor.id, version: salesTaskUpdateDescriptor.version },
+  input: salesUpdateTaskInputRuntimeSchema,
+  output: salesUpdateTaskOutputRuntimeSchema,
+  invalidates: [salesTasksDescriptor.id, salesTotalPotentialRevenueDescriptor.id]
+});
+
+export const salesOpportunityStageMutation = defineActionMutation({
+  action: { id: salesOpportunityStageUpdateDescriptor.id, version: salesOpportunityStageUpdateDescriptor.version },
+  input: salesOpportunityStageInputRuntimeSchema,
+  output: salesOpportunityStageOutputRuntimeSchema,
+  invalidates: [salesOpportunitiesDescriptor.id]
+});
+
 export const salesBrowserContract = Object.freeze({
   pluginId: "module.sales" as const,
   sourceIds: Object.freeze([
     salesTasksDescriptor.id,
+    salesOpportunitiesDescriptor.id,
     salesTotalPotentialRevenueDescriptor.id
   ]),
-  actionIds: Object.freeze([salesTaskCreateDescriptor.id]),
+  actionIds: Object.freeze([salesTaskCreateDescriptor.id, salesTaskUpdateDescriptor.id, salesOpportunityStageUpdateDescriptor.id]),
   routeIds: Object.freeze(salesRouteDescriptors.map(({ id }) => id))
 });

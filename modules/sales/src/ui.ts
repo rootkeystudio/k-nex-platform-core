@@ -2,6 +2,8 @@ import { defineUiContributionBinding, type UiBlockRenderInput } from "@k-nex/ui-
 
 import {
   salesRouteDescriptors,
+  salesUiBlockDescriptors,
+  salesUiComponentDescriptors,
   salesTaskCreateDescriptor,
   salesTaskTableBlockDescriptor,
   salesTaskTableComponentDescriptor,
@@ -45,6 +47,19 @@ export const salesTaskTableBlock = defineUiContributionBinding({
   render: salesTaskTableRenderer
 });
 
+function definition(descriptor: (typeof salesUiComponentDescriptors)[number] | (typeof salesUiBlockDescriptors)[number]) {
+  return defineUiContributionBinding({
+    descriptor,
+    propsSchema: taskTablePropsRuntimeSchema,
+    render: salesTaskTableRenderer
+  });
+}
+
+export const salesUiComponentDefinitions = Object.freeze(salesUiComponentDescriptors.map((descriptor) =>
+  descriptor.id === salesTaskTableComponent.id ? salesTaskTableComponent : definition(descriptor)));
+export const salesUiBlockDefinitions = Object.freeze(salesUiBlockDescriptors.map((descriptor) =>
+  descriptor.id === salesTaskTableBlock.id ? salesTaskTableBlock : definition(descriptor)));
+
 export const salesTaskTablePuckAuthoring = Object.freeze({
   label: "Sales task table",
   fields: Object.freeze([{ prop: "title", label: "Title", kind: "text" as const }]),
@@ -59,6 +74,6 @@ export const salesWorkspaceUiContract = Object.freeze({
   actionIds: Object.freeze([salesTaskCreateDescriptor.id]),
   routeIds: Object.freeze(salesRouteDescriptors.map(({ id }) => id)),
   pageTemplateIds: Object.freeze(["sales.page.tasks"]),
-  componentIds: Object.freeze(["sales.table.tasks"]),
-  blockIds: Object.freeze(["sales.task-table"])
+  componentIds: Object.freeze(salesUiComponentDescriptors.map(({ id }) => id)),
+  blockIds: Object.freeze(salesUiBlockDescriptors.map(({ id }) => id))
 });

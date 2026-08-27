@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 import { executeRegistration, type RegistrationResult } from "@k-nex/runtime";
 import { PluginManifestSchema } from "@k-nex/contracts";
-import { salesRegistration, salesTasksCollection } from "@k-nex/module-sales/server";
+import { salesOpportunitiesCollection, salesRegistration, salesTasksCollection } from "@k-nex/module-sales/server";
 import { salesTaskFixture } from "@k-nex/module-sales/testing";
 import { buildConfig, type CollectionConfig } from "payload";
 import { describe, expect, it } from "vitest";
@@ -73,15 +73,15 @@ describe("Payload application composition", () => {
   it("composes the owned Sales collection with the Postgres adapter and sanitizes through public Payload APIs", async () => {
     const application = compose();
     expect(application.config.db.name).toBe("postgres");
-    expect(application.config.collections?.map(({ slug }) => slug)).toEqual(["sales-tasks"]);
-    expect(application.collectionOwnership).toEqual([{
-      slug: "sales-tasks",
-      pluginId: "module.sales",
-      contributionId: "sales.tasks.collection"
-    }]);
+    expect(application.config.collections?.map(({ slug }) => slug)).toEqual(["sales-opportunities", "sales-tasks"]);
+    expect(application.collectionOwnership).toEqual([
+      { slug: "sales-opportunities", pluginId: "module.sales", contributionId: "sales.opportunities.collection" },
+      { slug: "sales-tasks", pluginId: "module.sales", contributionId: "sales.tasks.collection" }
+    ]);
 
     const sanitized = await buildConfig(application.config);
     expect(sanitized.collections.map(({ slug }) => slug)).toContain("sales-tasks");
+    expect(sanitized.collections.map(({ slug }) => slug)).toContain("sales-opportunities");
   });
 
   it("requires an authenticated actor and preserves the Payload request context", async () => {
@@ -97,6 +97,13 @@ describe("Payload application composition", () => {
     await expect(Promise.resolve(access?.({ req: mcpKeyRequest } as never))).resolves.toBe(false);
     expect(anonymousRequest.context).toBe(context);
     expect(actorRequest.context).toBe(context);
+  });
+
+  it("applies the same authenticated collection boundary to Sales opportunities", () => {
+    const access = salesOpportunitiesCollection.access?.read;
+    expect(access).toBeTypeOf("function");
+    expect((access as Function)({ req: { user: null } })).toBe(false);
+    expect((access as Function)({ req: { user: { id: "actor-1", collection: "users" } } })).toBe(true);
   });
 
   it("rejects duplicate collection slugs before Payload initialization", () => {

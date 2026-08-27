@@ -1,4 +1,4 @@
 export const salesMigrationReadiness = Object.freeze({
-  currentRevision: 1,
-  predecessorRevisions: Object.freeze([] as number[])
+  currentRevision: 2,
+  predecessorRevisions: Object.freeze([1])
 });

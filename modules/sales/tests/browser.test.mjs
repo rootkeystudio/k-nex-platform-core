@@ -3,8 +3,11 @@ import test from "node:test";
 
 import {
   salesCreateTaskMutation,
+  salesOpportunitiesQuery,
+  salesOpportunityStageMutation,
   salesTasksQuery,
-  salesTotalPotentialRevenueQuery
+  salesTotalPotentialRevenueQuery,
+  salesUpdateTaskMutation
 } from "../dist/browser.js";
 
 const signal = new AbortController().signal;
@@ -19,6 +22,9 @@ test("Sales browser factories use stable platform query/action metadata", async 
   assert.deepEqual(salesTasksQuery.selectedFields, ["title", "status", "potential-revenue"]);
   assert.deepEqual(salesTotalPotentialRevenueQuery.invalidation.sources, ["sales.total-potential-revenue"]);
   assert.deepEqual(salesCreateTaskMutation.invalidation.sources, ["sales.tasks", "sales.total-potential-revenue"]);
+  assert.deepEqual(salesOpportunitiesQuery.source, { id: "sales.opportunities", version: 1 });
+  assert.deepEqual(salesOpportunityStageMutation.invalidation.sources, ["sales.opportunities"]);
+  assert.deepEqual(salesUpdateTaskMutation.invalidation.sources, ["sales.tasks", "sales.total-potential-revenue"]);
 
   const identity = await salesTasksQuery.identity({}, context);
   assert.match(identity.key, /^sha256:[0-9a-f]{64}$/);

@@ -18,10 +18,16 @@ import {
 import {
   salesCreateTaskToolDescriptor,
   salesNavigationDescriptors,
+  salesOpportunitiesDescriptor,
   salesPermissionDescriptors,
   salesRouteDescriptors,
   salesSearchTasksDescriptor,
   salesTaskCreateDescriptor,
+  salesTaskUpdateDescriptor,
+  salesOpportunityStageUpdateDescriptor,
+  salesPageTemplates,
+  salesUiBlockDescriptors,
+  salesUiComponentDescriptors,
   salesTaskTableBlockDescriptor,
   salesTaskTableComponentDescriptor,
   salesTaskPageTemplate,
@@ -31,9 +37,12 @@ import {
 } from "../dist/contracts.js";
 import {
   salesDefaultSettings,
+  salesOpportunitiesHandler,
+  salesOpportunityStageUpdateHandler,
   salesRegistration,
   salesTaskCreateDefinition,
   salesTaskCreateHandler,
+  salesTaskUpdateHandler,
   salesTasksDefinition,
   salesTasksHandler,
   salesTotalPotentialRevenueDefinition,
@@ -69,15 +78,21 @@ function structuralHash(descriptor) {
   })).digest("hex")}`;
 }
 
-test("Sales registers two single-output data sources with valid descriptors", () => {
+test("Sales registers three single-output data sources with valid descriptors", () => {
   assert.equal(DataSourceDescriptorSchema.safeParse(salesTotalPotentialRevenueDescriptor).success, true);
   assert.equal(DataSourceDescriptorSchema.safeParse(salesTasksDescriptor).success, true);
+  assert.equal(DataSourceDescriptorSchema.safeParse(salesOpportunitiesDescriptor).success, true);
   assert.equal(salesTotalPotentialRevenueDescriptor.structuralCompatibilityHash, structuralHash(salesTotalPotentialRevenueDescriptor));
   assert.equal(salesTasksDescriptor.structuralCompatibilityHash, structuralHash(salesTasksDescriptor));
+  assert.equal(salesOpportunitiesDescriptor.structuralCompatibilityHash, structuralHash(salesOpportunitiesDescriptor));
   assert.equal(salesTotalPotentialRevenueDefinition.descriptor.primaryContract.id, "metric.scalar");
   assert.equal(salesTasksDefinition.descriptor.primaryContract.id, "table.records");
   assert.equal(salesTasksDescriptor.outputFields.find(({ id }) => id === "potential-revenue").binding, "required");
   assert.deepEqual(salesTasksDescriptor.outputFields.find(({ id }) => id === "potential-revenue").filterOperators, []);
+  const permissionIds = new Set(salesPermissionDescriptors.map(({ id }) => id));
+  for (const descriptor of [salesTotalPotentialRevenueDescriptor, salesTasksDescriptor, salesOpportunitiesDescriptor]) {
+    assert.equal(permissionIds.has(descriptor.permission), true, `${descriptor.id} must reference a declared permission`);
+  }
 
   const contributions = [];
   const bindings = [];
@@ -89,20 +104,20 @@ test("Sales registers two single-output data sources with valid descriptors", ()
     register: (kind, id) => contributions.push([kind, id]),
     bindRenderer: (kind, id) => bindings.push([kind, id])
   });
-  assert.deepEqual(contributions.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.tasks", "sales.total-potential-revenue"]);
-  assert.deepEqual(contributions.filter(([kind]) => kind === "actions").map(([, id]) => id), ["sales.task.create"]);
+  assert.deepEqual(contributions.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.opportunities", "sales.tasks", "sales.total-potential-revenue"]);
+  assert.deepEqual(contributions.filter(([kind]) => kind === "actions").map(([, id]) => id).sort(), ["sales.opportunity.stage.update", "sales.task.create", "sales.task.update"]);
   assert.deepEqual(contributions.filter(([kind]) => kind === "tools").map(([, id]) => id).sort(), ["sales.tools.create-task", "sales.tools.search-tasks"]);
   assert.deepEqual(contributions.filter(([kind]) => kind === "permissions").map(([, id]) => id).sort(), salesPermissionDescriptors.map(({ id }) => id).sort());
   assert.deepEqual(contributions.filter(([kind]) => kind === "settings").map(([, id]) => id), [salesWorkspaceSettingsDescriptor.id]);
   assert.deepEqual(contributions.filter(([kind]) => kind === "routes").map(([, id]) => id).sort(), salesRouteDescriptors.map(({ id }) => id).sort());
   assert.deepEqual(contributions.filter(([kind]) => kind === "navigation").map(([, id]) => id), salesNavigationDescriptors.map(({ id }) => id));
-  assert.deepEqual(contributions.filter(([kind]) => kind === "pageTemplates").map(([, id]) => id), [salesTaskPageTemplate.id]);
-  assert.deepEqual(contributions.filter(([kind]) => kind === "components").map(([, id]) => id), [salesTaskTableComponentDescriptor.id]);
-  assert.deepEqual(contributions.filter(([kind]) => kind === "blocks").map(([, id]) => id), [salesTaskTableBlockDescriptor.id]);
-  assert.deepEqual(bindings.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.tasks", "sales.total-potential-revenue"]);
-  assert.deepEqual(bindings.filter(([kind]) => kind === "actions").map(([, id]) => id), ["sales.task.create"]);
-  assert.deepEqual(bindings.filter(([kind]) => kind === "components").map(([, id]) => id), [salesTaskTableComponentDescriptor.id]);
-  assert.deepEqual(bindings.filter(([kind]) => kind === "blocks").map(([, id]) => id), [salesTaskTableBlockDescriptor.id]);
+  assert.deepEqual(contributions.filter(([kind]) => kind === "pageTemplates").map(([, id]) => id), salesPageTemplates.map(({ id }) => id));
+  assert.deepEqual(contributions.filter(([kind]) => kind === "components").map(([, id]) => id), salesUiComponentDescriptors.map(({ id }) => id));
+  assert.deepEqual(contributions.filter(([kind]) => kind === "blocks").map(([, id]) => id), salesUiBlockDescriptors.map(({ id }) => id));
+  assert.deepEqual(bindings.filter(([kind]) => kind === "sources").map(([, id]) => id).sort(), ["sales.opportunities", "sales.tasks", "sales.total-potential-revenue"]);
+  assert.deepEqual(bindings.filter(([kind]) => kind === "actions").map(([, id]) => id).sort(), ["sales.opportunity.stage.update", "sales.task.create", "sales.task.update"]);
+  assert.deepEqual(bindings.filter(([kind]) => kind === "components").map(([, id]) => id), salesUiComponentDescriptors.map(({ id }) => id));
+  assert.deepEqual(bindings.filter(([kind]) => kind === "blocks").map(([, id]) => id), salesUiBlockDescriptors.map(({ id }) => id));
 });
 
 test("Sales settings, permissions, routes, and navigation use strict platform contracts", () => {
@@ -113,13 +128,18 @@ test("Sales settings, permissions, routes, and navigation use strict platform co
   assert.equal(PluginPageTemplateDescriptorSchema.safeParse(salesTaskPageTemplate).success, true);
   assert.equal(PluginUiContributionDescriptorSchema.safeParse(salesTaskTableComponentDescriptor).success, true);
   assert.equal(PluginUiContributionDescriptorSchema.safeParse(salesTaskTableBlockDescriptor).success, true);
-  assert.deepEqual(salesDefaultSettings.values, { defaultTaskPageSize: 25, showPotentialRevenue: true });
+  assert.deepEqual(salesDefaultSettings.values, {
+    defaultTaskPageSize: 25, showPotentialRevenue: true, defaultPage: "tasks",
+    pipelineStages: ["lead", "qualified", "won", "lost"]
+  });
 });
 
 test("Sales registers source/action-backed tools with strict write policy", () => {
   assert.equal(AgentToolDescriptorSchema.safeParse(salesSearchTasksDescriptor).success, true);
   assert.equal(AgentToolDescriptorSchema.safeParse(salesCreateTaskToolDescriptor).success, true);
   assert.equal(ActionDescriptorSchema.safeParse(salesTaskCreateDescriptor).success, true);
+  assert.equal(ActionDescriptorSchema.safeParse(salesTaskUpdateDescriptor).success, true);
+  assert.equal(ActionDescriptorSchema.safeParse(salesOpportunityStageUpdateDescriptor).success, true);
   assert.deepEqual(salesSearchTasksDescriptor.invocation, { kind: "source", source: { id: "sales.tasks", version: 1 } });
   assert.deepEqual(salesSearchTasksDescriptor.inputSchema.required, ["title"]);
   assert.deepEqual(Object.keys(salesSearchTasksDescriptor.inputSchema.properties), ["title"]);
@@ -315,4 +335,43 @@ test("the task source rejects direct unknown field manipulation", async () => {
     salesTasksHandler(handlerContext({ selectedFields: ["private-secret"] })),
     /invalid field selection/
   );
+});
+
+test("the opportunities source returns bounded canonical rows", async () => {
+  const result = await salesOpportunitiesHandler(handlerContext({
+    request: { payload: { find: async (options) => {
+      assert.equal(options.collection, "sales-opportunities");
+      return { docs: [{ id: "opp-1", name: "Platform rollout", stage: "qualified", value: "1200.50" }], hasNextPage: false };
+    } } },
+    selectedFields: ["name", "stage", "value"],
+    recordScope: { kind: "sales.opportunities" }
+  }));
+  assert.deepEqual(result.rows[0], {
+    key: "opp-1",
+    values: {
+      name: { kind: "text", value: "Platform rollout" },
+      stage: { kind: "status", value: "qualified" },
+      value: { kind: "money", value: "1200.5", currency: "USD", scale: 2 }
+    }
+  });
+});
+
+test("Sales update actions use actor-scoped Payload updates exactly once", async () => {
+  const calls = [];
+  const request = {
+    payload: {
+      find: async () => ({ docs: [] }), create: async () => ({}),
+      update: async (options) => {
+        calls.push(options);
+        return options.collection === "sales-tasks"
+          ? { id: options.id, title: options.data.title ?? "Existing", status: options.data.status ?? "open" }
+          : { id: options.id, name: "Platform rollout", stage: options.data.stage };
+      }
+    }
+  };
+  const base = { actor: handlerContext().actor, request, authorizationContext: {}, idempotencyKey: "update-1", signal: new AbortController().signal };
+  assert.deepEqual(await salesTaskUpdateHandler({ ...base, input: { id: "task-1", status: "done" } }), { id: "task-1", title: "Existing", status: "done" });
+  assert.deepEqual(await salesOpportunityStageUpdateHandler({ ...base, input: { id: "opp-1", stage: "won" } }), { id: "opp-1", name: "Platform rollout", stage: "won" });
+  assert.equal(calls.length, 2);
+  assert.equal(calls.every((call) => call.overrideAccess === false && call.user.id === "user-1"), true);
 });

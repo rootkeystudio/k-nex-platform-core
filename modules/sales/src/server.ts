@@ -19,24 +19,39 @@ import {
   salesCreateTaskInputRuntimeSchema,
   salesCreateTaskOutputRuntimeSchema,
   salesEmptyInputRuntimeSchema,
+  salesEventDescriptors,
   salesNavigationDescriptors,
+  salesOpportunitiesDescriptor,
+  salesOpportunitiesOutputRuntimeSchema,
+  salesOpportunityStageInputRuntimeSchema,
+  salesOpportunityStageOutputRuntimeSchema,
+  salesOpportunityStageUpdateDescriptor,
+  salesPageTemplates,
   salesPermissionDescriptors,
+  salesRealtimeTopicDescriptors,
+  salesReferenceMetadata,
   salesRouteDescriptors,
   salesSearchTasksDescriptor,
   salesTaskCreateDescriptor,
-  salesTaskTableBlockDescriptor,
-  salesTaskTableComponentDescriptor,
-  salesTaskPageTemplate,
   salesTaskFields,
+  salesTaskUpdateDescriptor,
   salesTasksDescriptor,
   salesTasksOutputRuntimeSchema,
   salesTotalPotentialRevenueDescriptor,
   salesTotalPotentialRevenueOutputRuntimeSchema,
+  salesUiBlockDescriptors,
+  salesUiComponentDescriptors,
+  salesUpdateTaskInputRuntimeSchema,
+  salesUpdateTaskOutputRuntimeSchema,
   salesWorkspaceSettingsDescriptor,
   type CreateTaskInput,
-  type CreateTaskOutput
+  type CreateTaskOutput,
+  type UpdateOpportunityStageInput,
+  type UpdateOpportunityStageOutput,
+  type UpdateTaskInput,
+  type UpdateTaskOutput
 } from "./contracts.js";
-import { salesTaskTableBlock, salesTaskTableComponent } from "./ui.js";
+import { salesUiBlockDefinitions, salesUiComponentDefinitions } from "./ui.js";
 
 export {
   salesCreateTaskToolDescriptor,
@@ -65,13 +80,14 @@ interface SalesPayloadRequest {
   readonly payload: {
     find(options: SalesFindOptions): Promise<SalesFindResult>;
     create(options: SalesCreateOptions): Promise<SalesCreatedTask>;
+    update(options: SalesUpdateOptions): Promise<SalesUpdatedRecord>;
   };
   readonly locale?: string;
   readonly transactionID?: number | string;
 }
 
 interface SalesFindOptions {
-  readonly collection: "sales-tasks";
+  readonly collection: "sales-tasks" | "sales-opportunities";
   readonly depth: 0;
   readonly overrideAccess: false;
   readonly pagination: true;
@@ -86,7 +102,7 @@ interface SalesFindOptions {
 }
 
 interface SalesFindResult {
-  readonly docs: readonly SalesTaskDocument[];
+  readonly docs: readonly (SalesTaskDocument | SalesOpportunityDocument)[];
   readonly page?: number;
   readonly totalPages?: number;
   readonly hasNextPage?: boolean;
@@ -98,6 +114,13 @@ interface SalesTaskDocument {
   readonly status?: unknown;
   readonly potentialRevenue?: unknown;
   readonly privateNote?: unknown;
+}
+
+interface SalesOpportunityDocument {
+  readonly id?: string | number;
+  readonly name?: unknown;
+  readonly stage?: unknown;
+  readonly value?: unknown;
 }
 
 interface SalesCreateOptions {
@@ -118,6 +141,24 @@ interface SalesCreatedTask {
   readonly id?: string | number;
   readonly title?: unknown;
   readonly status?: unknown;
+}
+
+interface SalesUpdateOptions {
+  readonly collection: "sales-tasks" | "sales-opportunities";
+  readonly id: string;
+  readonly data: Readonly<Record<string, unknown>>;
+  readonly depth: 0;
+  readonly overrideAccess: false;
+  readonly user?: { readonly id: string; readonly collection: "users" };
+  readonly req: SalesPayloadRequest;
+}
+
+interface SalesUpdatedRecord {
+  readonly id?: string | number;
+  readonly title?: unknown;
+  readonly status?: unknown;
+  readonly name?: unknown;
+  readonly stage?: unknown;
 }
 
 interface SalesTaskScope {
@@ -141,9 +182,9 @@ function salesRequest(value: unknown): SalesPayloadRequest {
   return value as unknown as SalesPayloadRequest;
 }
 
-function scopeWhere(value: unknown): unknown {
+function scopeWhere(value: unknown, expectedKind = "sales.tasks"): unknown {
   if (value === undefined || value === null) return undefined;
-  if (!isRecord(value) || value.kind !== "sales.tasks") throw new Error("The Sales source received an invalid record scope.");
+  if (!isRecord(value) || value.kind !== expectedKind) throw new Error("The Sales source received an invalid record scope.");
   return value.where;
 }
 
@@ -299,7 +340,7 @@ async function totalPotentialRevenue(context: DataSourceHandlerRequest): Promise
       sort: ["id"],
       where: scopeWhere(context.recordScope)
     });
-    documents.push(...result.docs);
+    documents.push(...result.docs as readonly SalesTaskDocument[]);
     if (documents.length > 10_000) throw new Error("Sales revenue aggregation exceeded its bounded row limit.");
     hasNext = result.hasNextPage ?? (result.totalPages !== undefined && page < result.totalPages);
     page += 1;
@@ -321,7 +362,7 @@ async function tasksTable(context: DataSourceHandlerRequest): Promise<unknown> {
     sort: taskSort(context.query),
     where: taskWhere(context, context.query)
   });
-  const rows = result.docs.map((document) => {
+  const rows = (result.docs as readonly SalesTaskDocument[]).map((document) => {
     if (document.id === undefined || document.id === null || String(document.id).length === 0) throw new Error("Sales task rows require stable IDs.");
     return {
       key: String(document.id),
@@ -336,6 +377,42 @@ async function tasksTable(context: DataSourceHandlerRequest): Promise<unknown> {
       pageSize: context.query.page.size,
       hasNext: result.hasNextPage ?? (result.totalPages !== undefined && context.query.page.number < result.totalPages)
     }
+  };
+}
+
+const opportunityStorage = { name: "name", stage: "stage", value: "value" } as const;
+
+function opportunityCell(fieldId: string, document: SalesOpportunityDocument): Record<string, unknown> | null {
+  const value = document[opportunityStorage[fieldId as keyof typeof opportunityStorage]];
+  if (fieldId === "value") return moneyCell(value);
+  if (typeof value !== "string" || value.length === 0) throw new Error(`Sales opportunity ${fieldId} is invalid.`);
+  return { kind: fieldId === "stage" ? "status" : "text", value };
+}
+
+async function opportunitiesTable(context: DataSourceHandlerRequest): Promise<unknown> {
+  if (context.query.page === undefined || context.query.filters.length > 0 || context.query.sort.length > 0) {
+    throw new Error("Sales opportunities require bounded unfiltered pagination.");
+  }
+  const selected = [...context.selectedFields];
+  if (new Set(selected).size !== selected.length || selected.some((field) => !(field in opportunityStorage))) {
+    throw new Error("Sales opportunity field selection is invalid.");
+  }
+  const base = requestOptions(context, {
+    page: context.query.page.number,
+    limit: context.query.page.size,
+    select: { id: true, ...Object.fromEntries(selected.map((field) => [opportunityStorage[field as keyof typeof opportunityStorage], true])) },
+    sort: ["id"],
+    where: scopeWhere(context.recordScope, "sales.opportunities")
+  });
+  const result = await salesRequest(context.request).payload.find({ ...base, collection: "sales-opportunities" });
+  const documents = result.docs as readonly SalesOpportunityDocument[];
+  return {
+    fields: selected,
+    rows: documents.map((document) => {
+      if (document.id === undefined || document.id === null) throw new Error("Sales opportunity rows require stable IDs.");
+      return { key: String(document.id), values: Object.fromEntries(selected.map((field) => [field, opportunityCell(field, document)])) };
+    }),
+    page: { number: context.query.page.number, pageSize: context.query.page.size, hasNext: result.hasNextPage ?? false }
   };
 }
 
@@ -355,8 +432,15 @@ export const salesTasksDefinition: DataSourceDefinition = {
   outputSchema: salesTasksOutputRuntimeSchema
 };
 
+export const salesOpportunitiesDefinition: DataSourceDefinition = {
+  descriptor: salesOpportunitiesDescriptor,
+  inputSchema: salesEmptyInputRuntimeSchema,
+  outputSchema: salesOpportunitiesOutputRuntimeSchema
+};
+
 export const salesTotalPotentialRevenueHandler: DataSourceHandler = totalPotentialRevenue;
 export const salesTasksHandler: DataSourceHandler = tasksTable;
+export const salesOpportunitiesHandler: DataSourceHandler = opportunitiesTable;
 
 export const salesTaskCreateDefinition: ActionDefinition<CreateTaskInput, CreateTaskOutput> = {
   descriptor: salesTaskCreateDescriptor,
@@ -364,9 +448,27 @@ export const salesTaskCreateDefinition: ActionDefinition<CreateTaskInput, Create
   outputSchema: salesCreateTaskOutputRuntimeSchema
 };
 
+export const salesTaskUpdateDefinition: ActionDefinition<UpdateTaskInput, UpdateTaskOutput> = {
+  descriptor: salesTaskUpdateDescriptor,
+  inputSchema: salesUpdateTaskInputRuntimeSchema,
+  outputSchema: salesUpdateTaskOutputRuntimeSchema
+};
+
+export const salesOpportunityStageUpdateDefinition: ActionDefinition<UpdateOpportunityStageInput, UpdateOpportunityStageOutput> = {
+  descriptor: salesOpportunityStageUpdateDescriptor,
+  inputSchema: salesOpportunityStageInputRuntimeSchema,
+  outputSchema: salesOpportunityStageOutputRuntimeSchema
+};
+
 function createTaskRequest(value: unknown): SalesPayloadRequest {
   const request = salesRequest(value);
   if (typeof request.payload.create !== "function") throw new Error("The Sales action requires a capability-scoped Payload request.");
+  return request;
+}
+
+function updateRequest(value: unknown): SalesPayloadRequest {
+  const request = salesRequest(value);
+  if (typeof request.payload.update !== "function") throw new Error("The Sales action requires a capability-scoped Payload update request.");
   return request;
 }
 
@@ -391,6 +493,39 @@ export const salesTaskCreateHandler: ActionHandler<CreateTaskInput, CreateTaskOu
     throw new Error("Sales task creation returned an invalid task.");
   }
   return { id: String(created.id), title: created.title, status: created.status };
+};
+
+export const salesTaskUpdateHandler: ActionHandler<UpdateTaskInput, UpdateTaskOutput> = async ({ actor, request, input, signal }) => {
+  if (signal.aborted) throw signal.reason;
+  const parsed = salesUpdateTaskInputRuntimeSchema.safeParse(input);
+  if (!parsed.success) throw parsed.error;
+  const payloadRequest = updateRequest(request);
+  const user = payloadUser(actor);
+  const updated = await payloadRequest.payload.update({
+    collection: "sales-tasks", id: parsed.data.id,
+    data: { ...(parsed.data.title === undefined ? {} : { title: parsed.data.title }), ...(parsed.data.status === undefined ? {} : { status: parsed.data.status }) },
+    depth: 0, overrideAccess: false, ...(user === undefined ? {} : { user }), req: payloadRequest
+  });
+  const result = { id: String(updated.id), title: updated.title, status: updated.status };
+  const validated = salesUpdateTaskOutputRuntimeSchema.safeParse(result);
+  if (!validated.success) throw validated.error;
+  return validated.data;
+};
+
+export const salesOpportunityStageUpdateHandler: ActionHandler<UpdateOpportunityStageInput, UpdateOpportunityStageOutput> = async ({ actor, request, input, signal }) => {
+  if (signal.aborted) throw signal.reason;
+  const parsed = salesOpportunityStageInputRuntimeSchema.safeParse(input);
+  if (!parsed.success) throw parsed.error;
+  const payloadRequest = updateRequest(request);
+  const user = payloadUser(actor);
+  const updated = await payloadRequest.payload.update({
+    collection: "sales-opportunities", id: parsed.data.id, data: { stage: parsed.data.stage }, depth: 0, overrideAccess: false,
+    ...(user === undefined ? {} : { user }), req: payloadRequest
+  });
+  const result = { id: String(updated.id), name: updated.name, stage: updated.stage };
+  const validated = salesOpportunityStageOutputRuntimeSchema.safeParse(result);
+  if (!validated.success) throw validated.error;
+  return validated.data;
 };
 
 export const salesTasksCollection: CollectionConfig = {
@@ -419,6 +554,25 @@ export const salesTasksCollection: CollectionConfig = {
   indexes: [{ fields: ["status"] }]
 };
 
+export const salesOpportunitiesCollection: CollectionConfig = {
+  slug: "sales-opportunities",
+  access: {
+    create: ({ req }) => req.user?.collection === "users",
+    delete: ({ req }) => req.user?.collection === "users",
+    read: ({ req }) => req.user?.collection === "users",
+    update: ({ req }) => req.user?.collection === "users"
+  },
+  fields: [
+    { name: "name", type: "text", required: true },
+    { name: "stage", type: "select", required: true, defaultValue: "lead", options: [
+      { label: "Lead", value: "lead" }, { label: "Qualified", value: "qualified" },
+      { label: "Won", value: "won" }, { label: "Lost", value: "lost" }
+    ] },
+    { name: "value", type: "text", required: false }
+  ],
+  indexes: [{ fields: ["stage"] }]
+};
+
 type SalesWorkspaceSettings = Readonly<Record<string, PluginSettingValue>>;
 
 export const salesWorkspaceSettingsDefinition: PluginSettingsRuntimeDefinition<SalesWorkspaceSettings> = {
@@ -426,9 +580,10 @@ export const salesWorkspaceSettingsDefinition: PluginSettingsRuntimeDefinition<S
   migrations: [],
   schema: {
     safeParse(value: unknown) {
-      if (!isRecord(value) || Object.keys(value).sort().join("\u0000") !== "defaultTaskPageSize\u0000showPotentialRevenue" ||
+      if (!isRecord(value) || Object.keys(value).sort().join("\u0000") !== "defaultPage\u0000defaultTaskPageSize\u0000pipelineStages\u0000showPotentialRevenue" ||
         !Number.isSafeInteger(value.defaultTaskPageSize) || Number(value.defaultTaskPageSize) < 1 || Number(value.defaultTaskPageSize) > 100 ||
-        typeof value.showPotentialRevenue !== "boolean") {
+        typeof value.showPotentialRevenue !== "boolean" || !["overview", "tasks", "opportunities"].includes(value.defaultPage as string) ||
+        !Array.isArray(value.pipelineStages) || value.pipelineStages.join("\u0000") !== "lead\u0000qualified\u0000won\u0000lost") {
         return invalidOutput("Sales workspace settings must match the strict current schema.");
       }
       return { success: true as const, data: value as SalesWorkspaceSettings };
@@ -445,26 +600,48 @@ export const salesRegistration = definePluginRegistration({
     context.register("settings", salesWorkspaceSettingsDescriptor.id, salesWorkspaceSettingsDescriptor);
     context.register("sources", salesTotalPotentialRevenueDescriptor.id, salesTotalPotentialRevenueDefinition);
     context.register("sources", salesTasksDescriptor.id, salesTasksDefinition);
+    context.register("sources", salesOpportunitiesDescriptor.id, salesOpportunitiesDefinition);
     context.register("actions", salesTaskCreateDescriptor.id, salesTaskCreateDefinition);
+    context.register("actions", salesTaskUpdateDescriptor.id, salesTaskUpdateDefinition);
+    context.register("actions", salesOpportunityStageUpdateDescriptor.id, salesOpportunityStageUpdateDefinition);
     context.register("tools", salesSearchTasksDescriptor.id, salesSearchTasksDescriptor);
     context.register("tools", salesCreateTaskToolDescriptor.id, salesCreateTaskToolDescriptor);
+    for (const descriptor of salesEventDescriptors) context.register("events", descriptor.id, descriptor);
+    for (const descriptor of salesRealtimeTopicDescriptors) context.register("realtimeTopics", descriptor.id, descriptor);
   },
-  schema: (context) => context.register("schema", "sales.tasks.collection", {
-    type: "payload.collection",
-    collection: salesTasksCollection
-  }),
+  schema: (context) => {
+    context.register("schema", "sales.tasks.collection", { type: "payload.collection", collection: salesTasksCollection });
+    context.register("schema", "sales.opportunities.collection", { type: "payload.collection", collection: salesOpportunitiesCollection });
+    context.register("migrations", salesReferenceMetadata.migration.id, salesReferenceMetadata.migration);
+  },
+  behavior: (context) => {
+    context.register("services", salesReferenceMetadata.service.id, Object.freeze({ version: 1 }));
+    context.register("lifecycle", salesReferenceMetadata.lifecycle.id, salesReferenceMetadata.lifecycle);
+  },
+  jobs: (context) => context.register("jobs", salesReferenceMetadata.job.id, () => Object.freeze({ ok: true })),
   dataHandlers: (context) => {
     context.bind("sources", salesTotalPotentialRevenueDescriptor.id, salesTotalPotentialRevenueHandler);
     context.bind("sources", salesTasksDescriptor.id, salesTasksHandler);
     context.bind("actions", salesTaskCreateDescriptor.id, salesTaskCreateHandler as ActionHandler);
+    context.bind("sources", salesOpportunitiesDescriptor.id, salesOpportunitiesHandler);
+    context.bind("actions", salesTaskUpdateDescriptor.id, salesTaskUpdateHandler as ActionHandler);
+    context.bind("actions", salesOpportunityStageUpdateDescriptor.id, salesOpportunityStageUpdateHandler as ActionHandler);
   },
   ui: (context) => {
-    context.register("components", salesTaskTableComponentDescriptor.id, salesTaskTableComponentDescriptor);
-    context.register("blocks", salesTaskTableBlockDescriptor.id, salesTaskTableBlockDescriptor);
+    for (const descriptor of salesUiComponentDescriptors) context.register("components", descriptor.id, descriptor);
+    for (const descriptor of salesUiBlockDescriptors) context.register("blocks", descriptor.id, descriptor);
     for (const descriptor of salesRouteDescriptors) context.register("routes", descriptor.id, descriptor);
     for (const descriptor of salesNavigationDescriptors) context.register("navigation", descriptor.id, descriptor);
-    context.register("pageTemplates", salesTaskPageTemplate.id, salesTaskPageTemplate);
-    context.bindRenderer("components", salesTaskTableComponentDescriptor.id, salesTaskTableComponent.render);
-    context.bindRenderer("blocks", salesTaskTableBlockDescriptor.id, salesTaskTableBlock.render);
+    for (const descriptor of salesPageTemplates) context.register("pageTemplates", descriptor.id, descriptor);
+    for (const definition of salesUiComponentDefinitions) context.bindRenderer("components", definition.id, definition.render);
+    for (const definition of salesUiBlockDefinitions) context.bindRenderer("blocks", definition.id, definition.render);
+    context.register("localization", salesReferenceMetadata.localization.id, {
+      ...salesReferenceMetadata.localization,
+      messages: { overview: "Overview", tasks: "Tasks", opportunities: "Opportunities", settings: "Settings" }
+    });
+  },
+  validate: (context) => {
+    context.register("healthAudit", salesReferenceMetadata.health.id, salesReferenceMetadata.health);
+    context.register("testingMetadata", salesReferenceMetadata.testing.id, salesReferenceMetadata.testing);
   }
 });

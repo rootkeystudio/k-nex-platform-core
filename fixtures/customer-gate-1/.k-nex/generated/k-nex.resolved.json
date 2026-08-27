@@ -28,21 +28,62 @@
     {
       "contributions": {
         "actions": {
-          "sales.task.create": "required"
+          "sales.opportunity.stage.update": "required",
+          "sales.task.create": "required",
+          "sales.task.update": "required"
         },
         "blocks": {
+          "sales.opportunity-detail": "required",
+          "sales.opportunity-list": "required",
+          "sales.revenue-metric": "required",
+          "sales.task-quick-create": "required",
           "sales.task-table": "required"
         },
         "components": {
+          "sales.detail.opportunity": "required",
+          "sales.form.task-quick-create": "required",
+          "sales.list.opportunities": "required",
+          "sales.metric.total-potential-revenue": "required",
+          "sales.status.pipeline-stage": "required",
           "sales.table.tasks": "required"
         },
+        "events": {
+          "sales.event.opportunity-changed": "required",
+          "sales.event.task-changed": "required"
+        },
+        "healthAudit": {
+          "sales.health.runtime": "required"
+        },
+        "jobs": {
+          "sales.job.pipeline-audit": "required"
+        },
+        "lifecycle": {
+          "sales.lifecycle.reference": "required"
+        },
+        "localization": {
+          "sales.localization.en": "required"
+        },
+        "migrations": {
+          "sales.migration.initial": "required"
+        },
         "navigation": {
+          "sales.navigation.opportunities": "required",
+          "sales.navigation.overview": "required",
+          "sales.navigation.settings": "required",
           "sales.navigation.tasks": "required"
         },
         "pageTemplates": {
+          "sales.page.opportunities": "required",
+          "sales.page.overview": "required",
+          "sales.page.settings": "required",
           "sales.page.tasks": "required"
         },
         "permissions": {
+          "sales.opportunities.name.read": "required",
+          "sales.opportunities.read": "required",
+          "sales.opportunities.stage.read": "required",
+          "sales.opportunities.value.read": "required",
+          "sales.opportunities.write": "required",
           "sales.settings.read": "required",
           "sales.settings.write": "required",
           "sales.tasks.private-note.read": "required",
@@ -52,19 +93,34 @@
           "sales.tasks.title.read": "required",
           "sales.tasks.write": "required"
         },
+        "realtimeTopics": {
+          "sales.realtime.opportunities": "required",
+          "sales.realtime.tasks": "required"
+        },
         "routes": {
+          "sales.route.opportunities": "required",
+          "sales.route.overview": "required",
+          "sales.route.settings": "required",
           "sales.route.task-detail": "required",
           "sales.route.tasks": "required"
         },
         "schema": {
+          "sales.opportunities.collection": "required",
           "sales.tasks.collection": "required"
+        },
+        "services": {
+          "sales.service.domain": "required"
         },
         "settings": {
           "sales.settings.workspace": "required"
         },
         "sources": {
+          "sales.opportunities": "required",
           "sales.tasks": "required",
           "sales.total-potential-revenue": "required"
+        },
+        "testingMetadata": {
+          "sales.testing.conformance": "required"
         },
         "tools": {
           "sales.tools.create-task": "required",
@@ -75,7 +131,7 @@
         "names": []
       },
       "id": "module.sales",
-      "integrity": "sha512-AnqVDwslyZbC6E/E3nAWOPAIjaL5hCnCIh386DaWo71fvmrIEsSKKVSDTIkJNLhSqdbdamjN1m0ZrGx+Eip17Q==",
+      "integrity": "sha512-HFSoEZu9t+yGoD1KtPSkFGemED6+QXFfx2ArXWZl1SoeAxvWWSNeBd6ybG3oSqKgMaL2mbmq88YOkKBkcNvZkA==",
       "kind": "module",
       "lifecycle": {
         "disable": "supported",
@@ -84,7 +140,7 @@
         "purge": "supported",
         "uninstall": "unsupported"
       },
-      "manifestDigest": "sha256:582583917d077d95ab67c9d92f5a6828c2747eff9ea9681a13ef1011fe859ff4",
+      "manifestDigest": "sha256:40016a1b5d785c3a783527c5a7b6eaa86efba557ef40341960d53d9f78f1067c",
       "optional": [],
       "package": "@k-nex/module-sales",
       "required": [],
