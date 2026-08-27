@@ -9,10 +9,20 @@
   "dependencies": {
     "@k-nex/builder-puck": "workspace:*",
     "@k-nex/contracts": "workspace:*",
+    "@k-nex/ui-components": "workspace:*",
+    "@k-nex/ui-data": "workspace:*",
+    "@k-nex/ui-forms": "workspace:*",
     "@k-nex/ui-runtime": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0"
   },
   "devDependencies": {
     "@types/node": "24.13.3",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "typescript": "6.0.3",
     "vitest": "4.1.6"
   }

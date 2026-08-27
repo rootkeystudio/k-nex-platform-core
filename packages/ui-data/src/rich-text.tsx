@@ -11,21 +11,59 @@ export interface RichTextDocument { readonly schemaVersion: 1; readonly blocks: 
 
 function record(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === "object" && !Array.isArray(value); }
 function safeHref(value: unknown): value is string { return typeof value === "string" && value.length <= 2_048 && (/^(https?:\/\/|\/|#)/.test(value)); }
-function inline(value: unknown): value is RichTextInline {
-  if (!record(value)) return false;
-  if (value.type === "text") return Object.keys(value).every((key) => ["type", "text", "marks"].includes(key)) && typeof value.text === "string" && value.text.length <= 100_000 && (value.marks === undefined || Array.isArray(value.marks) && new Set(value.marks).size === value.marks.length && value.marks.every((mark) => ["bold", "italic", "underline", "code"].includes(String(mark))));
-  return value.type === "link" && Object.keys(value).every((key) => ["type", "href", "children"].includes(key)) && safeHref(value.href) && Array.isArray(value.children) && value.children.length <= 1_000 && value.children.every(inline);
+export const richTextBudgets = Object.freeze({ blocks: 1_000, listItems: 5_000, inlineNodes: 10_000, depth: 16, textBytes: 1_048_576 });
+
+function validKeys(value: Record<string, unknown>, keys: readonly string[]): boolean { return Object.keys(value).every((key) => keys.includes(key)); }
+function validateInlineRoots(roots: readonly unknown[][]): boolean {
+  const pending = roots.map((nodes) => ({ depth: 1, nodes }));
+  const encoder = new TextEncoder();
+  let nodeCount = 0;
+  let textBytes = 0;
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current === undefined || current.depth > richTextBudgets.depth) return false;
+    for (const value of current.nodes) {
+      nodeCount += 1;
+      if (nodeCount > richTextBudgets.inlineNodes || !record(value)) return false;
+      if (value.type === "text") {
+        if (!validKeys(value, ["type", "text", "marks"]) || typeof value.text !== "string") return false;
+        textBytes += encoder.encode(value.text).byteLength;
+        if (textBytes > richTextBudgets.textBytes || value.marks !== undefined && (!Array.isArray(value.marks) || new Set(value.marks).size !== value.marks.length || !value.marks.every((mark) => ["bold", "italic", "underline", "code"].includes(String(mark))))) return false;
+      } else {
+        if (value.type !== "link" || !validKeys(value, ["type", "href", "children"]) || !safeHref(value.href) || !Array.isArray(value.children) || value.children.length > 1_000) return false;
+        textBytes += encoder.encode(value.href).byteLength;
+        if (textBytes > richTextBudgets.textBytes) return false;
+        pending.push({ depth: current.depth + 1, nodes: value.children });
+      }
+    }
+  }
+  return true;
 }
-function block(value: unknown): value is RichTextBlock {
-  if (!record(value)) return false;
-  if (value.type === "paragraph" || value.type === "quote") return Object.keys(value).every((key) => ["type", "children"].includes(key)) && Array.isArray(value.children) && value.children.every(inline);
-  if (value.type === "heading") return Object.keys(value).every((key) => ["type", "level", "children"].includes(key)) && Number.isInteger(value.level) && Number(value.level) >= 1 && Number(value.level) <= 6 && Array.isArray(value.children) && value.children.every(inline);
-  return value.type === "list" && Object.keys(value).every((key) => ["type", "ordered", "items"].includes(key)) && typeof value.ordered === "boolean" && Array.isArray(value.items) && value.items.length <= 10_000 && value.items.every((item) => Array.isArray(item) && item.every(inline));
+
+function blocks(value: readonly unknown[]): value is readonly RichTextBlock[] {
+  const inlineRoots: unknown[][] = [];
+  let listItems = 0;
+  for (const current of value) {
+    if (!record(current)) return false;
+    if (current.type === "paragraph" || current.type === "quote") {
+      if (!validKeys(current, ["type", "children"]) || !Array.isArray(current.children)) return false;
+      inlineRoots.push(current.children);
+    } else if (current.type === "heading") {
+      if (!validKeys(current, ["type", "level", "children"]) || !Number.isInteger(current.level) || Number(current.level) < 1 || Number(current.level) > 6 || !Array.isArray(current.children)) return false;
+      inlineRoots.push(current.children);
+    } else {
+      if (current.type !== "list" || !validKeys(current, ["type", "ordered", "items"]) || typeof current.ordered !== "boolean" || !Array.isArray(current.items)) return false;
+      listItems += current.items.length;
+      if (listItems > richTextBudgets.listItems || current.items.some((item) => !Array.isArray(item))) return false;
+      inlineRoots.push(...current.items);
+    }
+  }
+  return validateInlineRoots(inlineRoots);
 }
 function deepFreeze<T>(value: T): T { if (value !== null && typeof value === "object" && !Object.isFrozen(value)) { for (const child of Object.values(value)) deepFreeze(child); Object.freeze(value); } return value; }
 
 export function parseRichTextDocument(value: unknown): RichTextDocument {
-  if (!record(value) || value.schemaVersion !== 1 || !Array.isArray(value.blocks) || value.blocks.length > 10_000 || !value.blocks.every(block) || Object.keys(value).some((key) => !["schemaVersion", "blocks"].includes(key))) throw new TypeError("Rich-text document is invalid.");
+  if (!record(value) || value.schemaVersion !== 1 || !Array.isArray(value.blocks) || value.blocks.length > richTextBudgets.blocks || !blocks(value.blocks) || Object.keys(value).some((key) => !["schemaVersion", "blocks"].includes(key))) throw new TypeError("Rich-text document is invalid or exceeds its budget.");
   return deepFreeze(structuredClone(value as unknown as RichTextDocument));
 }
 

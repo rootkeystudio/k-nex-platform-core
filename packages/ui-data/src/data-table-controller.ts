@@ -1,6 +1,8 @@
 import {
   DataSourceDescriptorSchema,
   DataSourceQueryControlsSchema,
+  ResourceIdSchema,
+  TableRowKeySchema,
   resolveDataSourceFieldSelection,
   type DataSourceDescriptor,
   type DataSourceFilterQuery,
@@ -10,14 +12,24 @@ import {
 } from "@k-nex/contracts";
 import {
   serializeBrowserViewState,
+  type ActionMutationDefinition,
   type BrowserDataTransport,
+  type BrowserMutationContext,
   type BrowserQueryContext,
   type BrowserRequestState,
   type SourceQueryDefinition
 } from "@k-nex/ui-runtime";
 
 export interface DataTableColumnDefinition { readonly id: string; readonly label: string; readonly defaultVisible?: boolean; readonly size?: number; }
-export interface DataTableActionDefinition { readonly id: string; readonly label: string; readonly allowed: boolean; readonly destructive?: boolean; }
+export interface DataTableActionDefinition {
+  readonly id: string;
+  readonly action: { readonly id: string; readonly version: number };
+  readonly capability: { readonly state: "allowed" | "denied"; readonly action: { readonly id: string; readonly version: number } };
+  readonly mutation: ActionMutationDefinition<never, unknown>;
+  readonly input: (rowKey: string) => unknown;
+  readonly label: string;
+  readonly destructive?: boolean;
+}
 export interface DataTableDefinition<TInput> {
   readonly id: string;
   readonly descriptor: DataSourceDescriptor;
@@ -52,7 +64,89 @@ export type DataTableRequestState = BrowserRequestState<TableRecords>
   | { readonly state: "stale"; readonly data: TableRecords }
   | { readonly state: "refetching"; readonly data: TableRecords };
 
+export interface DataTableMutationExecutor {
+  execute(
+    mutation: ActionMutationDefinition<never, unknown>,
+    input: unknown,
+    context: BrowserMutationContext
+  ): Promise<BrowserRequestState<unknown>>;
+}
+
+export interface DataTableActionResult {
+  readonly action?: { readonly id: string; readonly version: number };
+  readonly rowKey: string;
+  readonly result: BrowserRequestState<unknown>;
+  readonly invalidatedSources: readonly string[];
+}
+
+export interface DataTableBulkActionResult {
+  readonly action?: { readonly id: string; readonly version: number };
+  readonly state: "success" | "partial" | "failure" | "forbidden" | "cancelled";
+  readonly results: readonly DataTableActionResult[];
+  readonly succeededRowKeys: readonly string[];
+  readonly failedRowKeys: readonly string[];
+  readonly invalidatedSources: readonly string[];
+}
+
 function freeze<T>(value: T): T { if (value !== null && typeof value === "object" && !Object.isFrozen(value)) { for (const child of Object.values(value)) freeze(child); Object.freeze(value); } return value; }
+
+function actionContractIsValid(action: DataTableActionDefinition): boolean {
+  return ResourceIdSchema.safeParse(action.id).success
+    && typeof action.action?.id === "string"
+    && action.action.id === action.id
+    && Number.isSafeInteger(action.action.version)
+    && action.action.version > 0
+    && action.mutation?.kind === "action-mutation"
+    && action.mutation.action.id === action.action.id
+    && action.mutation.action.version === action.action.version
+    && Array.isArray(action.mutation.invalidation.sources)
+    && typeof action.mutation.execute === "function"
+    && (action.capability?.state === "allowed" || action.capability?.state === "denied")
+    && action.capability.action.id === action.action.id
+    && action.capability.action.version === action.action.version
+    && typeof action.input === "function";
+}
+
+function actionIsAllowed(action: DataTableActionDefinition): boolean { return action.capability.state === "allowed"; }
+
+function actionById(actions: readonly DataTableActionDefinition[], actionId: string): DataTableActionDefinition | undefined {
+  return actions.find((action) => action.id === actionId);
+}
+
+function actionResult(
+  action: DataTableActionDefinition | undefined,
+  rowKey: string,
+  result: BrowserRequestState<unknown>,
+  invalidatedSources: readonly string[] = []
+): DataTableActionResult {
+  return freeze({
+    ...(action === undefined ? {} : { action: { ...action.action } }),
+    rowKey,
+    result,
+    invalidatedSources: [...invalidatedSources]
+  });
+}
+
+function forbiddenResult(action: DataTableActionDefinition | undefined, rowKey: string): DataTableActionResult {
+  return actionResult(action, rowKey, freeze({ state: "forbidden", problem: { code: "ACTION_FORBIDDEN", status: 403 } }));
+}
+
+function invalidActionResult(action: DataTableActionDefinition | undefined, rowKey: string): DataTableActionResult {
+  return actionResult(action, rowKey, freeze({ state: "invalid-contract" }));
+}
+
+function failedActionResult(action: DataTableActionDefinition | undefined, rowKey: string): DataTableActionResult {
+  return actionResult(action, rowKey, freeze({ state: "error", problem: { code: "ACTION_FAILED", status: 500 } }));
+}
+
+function bulkState(results: readonly DataTableActionResult[]): DataTableBulkActionResult["state"] {
+  const successful = results.filter(({ result }) => result.state === "success").length;
+  if (successful === results.length) return "success";
+  if (successful > 0) return "partial";
+  if (results.every(({ result }) => result.state === "cancelled")) return "cancelled";
+  if (results.every(({ result }) => result.state === "forbidden")) return "forbidden";
+  return "failure";
+}
 
 function validateDefinition<TInput>(input: DataTableDefinition<TInput>): DataTableDefinition<TInput> {
   const descriptor = DataSourceDescriptorSchema.parse(input.descriptor);
@@ -65,6 +159,10 @@ function validateDefinition<TInput>(input: DataTableDefinition<TInput>): DataTab
   if (!Number.isInteger(input.defaultPageSize) || input.defaultPageSize < 1 || input.defaultPageSize > descriptor.limits.maxPageSize) throw new TypeError("DataTable page size exceeds source limits.");
   if (input.searchField !== undefined && !fields.get(input.searchField)?.filterOperators.includes("contains")) throw new TypeError("DataTable search field must allow contains filtering.");
   for (const fieldId of Object.keys(input.facets ?? {})) if (!fields.get(fieldId)?.filterOperators.includes("in")) throw new TypeError(`DataTable facet field does not allow in filtering: ${fieldId}.`);
+  for (const action of [...(input.rowActions ?? []), ...(input.bulkActions ?? [])]) {
+    if (!actionContractIsValid(action)) throw new TypeError(`DataTable action is not a canonical registered mutation: ${action.id}.`);
+    if (action.mutation.invalidation.sources.some((sourceId) => !ResourceIdSchema.safeParse(sourceId).success)) throw new TypeError(`DataTable action invalidation is invalid: ${action.id}.`);
+  }
   return freeze({
     ...input,
     descriptor: structuredClone(descriptor),
@@ -112,8 +210,90 @@ function controls<TInput>(definition: DataTableDefinition<TInput>, state: DataTa
   return DataSourceQueryControlsSchema.parse({ ...pagination, filters, sort: state.sort });
 }
 
-export function createDataTableController<TInput>(definitionInput: DataTableDefinition<TInput>) {
+export interface DataTableController<TInput> {
+  readonly definition: DataTableDefinition<TInput>;
+  controls(state: DataTableViewState): DataSourceQueryControls;
+  identity(input: TInput, state: DataTableViewState, context: Omit<BrowserQueryContext, "signal">): Promise<import("@k-nex/contracts").DataSourceQueryIdentity>;
+  execute(transport: BrowserDataTransport, input: TInput, state: DataTableViewState, allowedFields: ReadonlySet<string>, context: BrowserQueryContext): Promise<DataTableRequestState>;
+  executeAction(executor: DataTableMutationExecutor, actionId: string, rowKey: string, context: BrowserMutationContext): Promise<DataTableActionResult>;
+  executeBulkAction(executor: DataTableMutationExecutor, actionId: string, rowKeys: readonly string[], context: BrowserMutationContext): Promise<DataTableBulkActionResult>;
+  serializeView(state: DataTableViewState): string;
+  shouldRefetch(sourceId: string): boolean;
+}
+
+export function createDataTableMutationExecutor(transport: BrowserDataTransport): DataTableMutationExecutor {
+  return Object.freeze({
+    execute(mutation: ActionMutationDefinition<never, unknown>, input: unknown, context: BrowserMutationContext) {
+      return mutation.execute(transport, input as never, context);
+    }
+  });
+}
+
+export function createDataTableController<TInput>(definitionInput: DataTableDefinition<TInput>): DataTableController<TInput> {
   const definition = validateDefinition(definitionInput);
+  const executeRegisteredAction = async (executor: DataTableMutationExecutor, action: DataTableActionDefinition | undefined, rowKey: string, context: BrowserMutationContext): Promise<DataTableActionResult> => {
+    if (action === undefined) return forbiddenResult(action, rowKey);
+    if (!actionContractIsValid(action)) return invalidActionResult(action, rowKey);
+    if (!actionIsAllowed(action)) return forbiddenResult(action, rowKey);
+    if (!TableRowKeySchema.safeParse(rowKey).success) return invalidActionResult(action, rowKey);
+    let input: unknown;
+    try { input = action.input(rowKey); } catch { return failedActionResult(action, rowKey); }
+    try {
+      const result = await executor.execute(action.mutation, input, context);
+      return actionResult(action, rowKey, result, result.state === "success" ? action.mutation.invalidation.sources : []);
+    } catch {
+      return failedActionResult(action, rowKey);
+    }
+  };
+  const executeAction = (executor: DataTableMutationExecutor, actionId: string, rowKey: string, context: BrowserMutationContext): Promise<DataTableActionResult> => executeRegisteredAction(executor, actionById(definition.rowActions ?? [], actionId), rowKey, context);
+  const executeBulkAction = async (executor: DataTableMutationExecutor, actionId: string, rowKeys: readonly string[], context: BrowserMutationContext): Promise<DataTableBulkActionResult> => {
+    const action = actionById(definition.bulkActions ?? [], actionId);
+    if (rowKeys.length === 0 || new Set(rowKeys).size !== rowKeys.length) {
+      return freeze({
+        ...(action === undefined ? {} : { action: { ...action.action } }),
+        state: "failure",
+        results: [],
+        succeededRowKeys: [],
+        failedRowKeys: [...rowKeys],
+        invalidatedSources: []
+      });
+    }
+    if (action === undefined || !actionContractIsValid(action) || !actionIsAllowed(action)) {
+      const valid = action !== undefined && actionContractIsValid(action);
+      const forbidden = action === undefined || valid && !actionIsAllowed(action);
+      const results = rowKeys.map((rowKey) => forbidden ? forbiddenResult(action, rowKey) : invalidActionResult(action, rowKey));
+      return freeze({
+        ...(action === undefined ? {} : { action: { ...action.action } }),
+        state: valid ? "forbidden" : "failure",
+        results,
+        succeededRowKeys: [],
+        failedRowKeys: [...rowKeys],
+        invalidatedSources: []
+      });
+    }
+    const results: DataTableActionResult[] = [];
+    for (const rowKey of rowKeys) {
+      if (context.signal.aborted) {
+        results.push(actionResult(action, rowKey, freeze({ state: "cancelled" })));
+        continue;
+      }
+      const rowContext = rowKeys.length === 1 || context.idempotencyKey === undefined
+        ? context
+        : { ...context, idempotencyKey: `${context.idempotencyKey}:${rowKey}` };
+      results.push(await executeRegisteredAction(executor, action, rowKey, rowContext));
+    }
+    const successful = results.filter(({ result }) => result.state === "success").map(({ rowKey }) => rowKey);
+    const failed = results.filter(({ result }) => result.state !== "success").map(({ rowKey }) => rowKey);
+    const invalidatedSources = [...new Set(results.flatMap(({ invalidatedSources: sources }) => sources))].sort();
+    return freeze({
+      action: { ...action.action },
+      state: bulkState(results),
+      results,
+      succeededRowKeys: successful,
+      failedRowKeys: failed,
+      invalidatedSources
+    });
+  };
   return Object.freeze({
     definition,
     controls(state: DataTableViewState): DataSourceQueryControls { return freeze(controls(definition, state)); },
@@ -124,6 +304,8 @@ export function createDataTableController<TInput>(definitionInput: DataTableDefi
       if (!selection.success) return freeze({ state: "invalid-contract" });
       return definition.query.executeWithControls(transport, input, controls(definition, state), context);
     },
+    executeAction,
+    executeBulkAction,
     serializeView(state: DataTableViewState): string {
       return serializeBrowserViewState({ pagination: state.pagination, search: state.search, filters: state.filters, sort: state.sort, columnVisibility: state.columnVisibility, columnOrder: state.columnOrder, columnSizes: state.columnSizes, density: state.density });
     },

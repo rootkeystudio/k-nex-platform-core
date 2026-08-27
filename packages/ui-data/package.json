@@ -4,17 +4,44 @@
   "private": true,
   "type": "module",
   "sideEffects": false,
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
-  "scripts": { "build": "tsc -b", "test": "vitest run && node scripts/check-boundaries.mjs" },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./data-table": {
+      "types": "./dist/data-table.d.ts",
+      "default": "./dist/data-table.js"
+    },
+    "./data-table-controller": {
+      "types": "./dist/data-table-controller.d.ts",
+      "default": "./dist/data-table-controller.js"
+    },
+    "./metric": {
+      "types": "./dist/metric.d.ts",
+      "default": "./dist/metric.js"
+    },
+    "./presentation": {
+      "types": "./dist/presentation.d.ts",
+      "default": "./dist/presentation.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run && node scripts/check-boundaries.mjs"
+  },
   "dependencies": {
     "@k-nex/contracts": "workspace:*",
     "@k-nex/ui-components": "workspace:*",
     "@k-nex/ui-runtime": "workspace:*",
     "@lexical/react": "0.49.0",
     "@tanstack/react-table": "8.21.3",
+    "@tanstack/react-virtual": "3.14.9",
     "lexical": "0.49.0"
   },
-  "peerDependencies": { "react": "^18.0.0 || ^19.0.0" },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0"
+  },
   "devDependencies": {
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",

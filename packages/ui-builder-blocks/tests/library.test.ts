@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
 
 import { canonicalJson } from "@k-nex/contracts";
 import { createPuckBuilderAdapter } from "@k-nex/builder-puck";
@@ -15,8 +16,22 @@ describe("generic Puck block library", () => {
     for (const [index, bridge] of genericPuckBlockBridges.entries()) {
       const editor = (adapter.config.components[`${bridge.definition.id}__v1`] as { render: (props: Record<string, unknown>) => unknown }).render(data.content[index]!.props);
       const runtime = bridge.definition.render({ node: nodes[index]!, props: bridge.defaultProps, surface: "public", actor: { authenticated: false, permissions: new Set() } });
-      expect(editor).toEqual("Unsupported block presentation");
       expect(runtime).toMatchObject({ kind: bridge.definition.id.slice("content.".length), props: bridge.defaultProps });
+      expect(runtime).toHaveProperty("component");
+      expect(runtime).toHaveProperty("accessibility.role");
+      expect(runtime).toHaveProperty("element");
+      const editorMarkup = renderToStaticMarkup(editor as Parameters<typeof renderToStaticMarkup>[0]);
+      const runtimeMarkup = renderToStaticMarkup((runtime as { element: Parameters<typeof renderToStaticMarkup>[0] }).element);
+      expect(editorMarkup).toBe(runtimeMarkup);
+      const componentName = String((runtime as { component: string }).component).replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+      expect(runtimeMarkup).toContain(`data-k-nex-component="${componentName.replace(/^-/, "")}"`);
+      const role = String((runtime as { accessibility: { role: string } }).accessibility.role);
+      if (role === "heading") expect(runtimeMarkup).toMatch(/<h[1-6]\b/);
+      else if (role === "table") expect(runtimeMarkup).toMatch(/<table\b/);
+      else if (role === "form") expect(runtimeMarkup).toMatch(/<form\b/);
+      else if (role === "status") expect(runtimeMarkup).toContain('role="status"');
+      else if (role === "tablist") expect(runtimeMarkup).toContain('role="tablist"');
+      else if (role === "region") expect(runtimeMarkup).toMatch(/<section\b[^>]*aria-label=/);
     }
   });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactElement, type ReactNode } from "react";
+import { useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
 import {
   Button as AriaButton, Dialog as AriaDialog, DialogTrigger, Heading as AriaHeading,
   Menu, MenuItem, MenuTrigger, Modal as AriaModal, ModalOverlay, Popover as AriaPopover,
@@ -42,11 +42,65 @@ export function DropdownMenu({ label, items }: DropdownMenuProps): ReactElement 
 }
 
 export interface TreeNode { readonly id: string; readonly label: string; readonly children?: readonly TreeNode[]; }
-export interface TreeViewProps { readonly label: string; readonly items: readonly TreeNode[]; }
-function TreeItems({ items }: { readonly items: readonly TreeNode[] }): ReactElement {
-  return <ul role="group" data-slot="group">{items.map((item) => <li key={item.id} role="treeitem" aria-expanded={item.children === undefined ? undefined : true} data-slot="item"><span>{item.label}</span>{item.children === undefined ? null : <TreeItems items={item.children} />}</li>)}</ul>;
+export interface TreeViewProps {
+  readonly label: string;
+  readonly items: readonly TreeNode[];
+  readonly selectedId?: string;
+  readonly defaultSelectedId?: string;
+  readonly onSelectionChange?: (id: string) => void;
+  readonly expandedIds?: readonly string[];
+  readonly defaultExpandedIds?: readonly string[];
+  readonly onExpansionChange?: (ids: readonly string[]) => void;
 }
-export function TreeView({ label, items }: TreeViewProps): ReactElement { return <div role="tree" aria-label={label} data-k-nex-component="tree-view" data-slot="root"><TreeItems items={items} /></div>; }
+interface VisibleTreeNode { readonly node: TreeNode; readonly parentId?: string; readonly level: number; readonly position: number; readonly setSize: number; }
+function branchIds(items: readonly TreeNode[]): string[] { return items.flatMap((item) => item.children === undefined ? [] : [item.id, ...branchIds(item.children)]); }
+function visibleTree(items: readonly TreeNode[], expanded: ReadonlySet<string>, level = 1, parentId?: string): VisibleTreeNode[] {
+  return items.flatMap((node, index) => {
+    const entry: VisibleTreeNode = parentId === undefined ? { node, level, position: index + 1, setSize: items.length } : { node, parentId, level, position: index + 1, setSize: items.length };
+    return node.children !== undefined && expanded.has(node.id) ? [entry, ...visibleTree(node.children, expanded, level + 1, node.id)] : [entry];
+  });
+}
+export function TreeView({ label, items, selectedId, defaultSelectedId, onSelectionChange, expandedIds, defaultExpandedIds, onExpansionChange }: TreeViewProps): ReactElement {
+  const allBranchIds = branchIds(items);
+  const [internalSelection, setInternalSelection] = useState(defaultSelectedId);
+  const [internalExpansion, setInternalExpansion] = useState(() => new Set(defaultExpandedIds ?? allBranchIds));
+  const [focusedId, setFocusedId] = useState(() => items[0]?.id);
+  const treeRef = useRef<HTMLDivElement>(null);
+  const expansion = new Set(expandedIds ?? internalExpansion);
+  const visible = visibleTree(items, expansion);
+  const visibleById = new Map(visible.map((item) => [item.node.id, item]));
+  const activeId = visible.some((item) => item.node.id === focusedId) ? focusedId : visible[0]?.node.id;
+  const activeSelection = selectedId ?? internalSelection;
+  const focus = (id: string) => { setFocusedId(id); Array.from(treeRef.current?.querySelectorAll<HTMLLIElement>("[role=treeitem]") ?? []).find((item) => item.dataset.treeNodeId === id)?.focus(); };
+  const select = (id: string) => { if (selectedId === undefined) setInternalSelection(id); onSelectionChange?.(id); };
+  const setExpanded = (id: string, nextValue: boolean) => {
+    const next = new Set(expansion);
+    if (nextValue) next.add(id); else next.delete(id);
+    if (expandedIds === undefined) setInternalExpansion(next);
+    onExpansionChange?.(allBranchIds.filter((branchId) => next.has(branchId)));
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLLIElement>, entry: VisibleTreeNode) => {
+    if (!["ArrowDown", "ArrowUp", "Home", "End", "ArrowRight", "ArrowLeft", "Enter", " "].includes(event.key)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const index = visible.findIndex((item) => item.node.id === entry.node.id);
+    const hasChildren = entry.node.children !== undefined;
+    const isExpanded = expansion.has(entry.node.id);
+    if (event.key === "ArrowDown") { const next = visible[index + 1]; if (next !== undefined) focus(next.node.id); return; }
+    if (event.key === "ArrowUp") { const previous = visible[index - 1]; if (previous !== undefined) focus(previous.node.id); return; }
+    if (event.key === "Home") { if (visible[0] !== undefined) focus(visible[0].node.id); return; }
+    if (event.key === "End") { const last = visible.at(-1); if (last !== undefined) focus(last.node.id); return; }
+    if (event.key === "ArrowRight" && hasChildren) { if (!isExpanded) setExpanded(entry.node.id, true); else if (entry.node.children?.[0] !== undefined) focus(entry.node.children[0].id); return; }
+    if (event.key === "ArrowLeft") { if (hasChildren && isExpanded) setExpanded(entry.node.id, false); else if (entry.parentId !== undefined) focus(entry.parentId); return; }
+    if (event.key === "Enter" || event.key === " ") select(entry.node.id);
+  };
+  const renderItems = (nodes: readonly TreeNode[]): ReactElement => <ul role="group" data-slot="group">{nodes.map((node) => {
+    const entry = visibleById.get(node.id)!;
+    const hasChildren = node.children !== undefined;
+    return <li key={node.id} role="treeitem" aria-label={node.label} tabIndex={activeId === node.id ? 0 : -1} aria-level={entry.level} aria-posinset={entry.position} aria-setsize={entry.setSize} aria-selected={activeSelection === node.id} aria-expanded={hasChildren ? expansion.has(node.id) : undefined} onFocus={() => setFocusedId(node.id)} onClick={() => select(node.id)} onKeyDown={(event) => onKeyDown(event, entry)} data-tree-node-id={node.id} data-slot="item"><span data-slot="item-trigger">{node.label}</span>{hasChildren && expansion.has(node.id) ? renderItems(node.children) : null}</li>;
+  })}</ul>;
+  return <div ref={treeRef} role="tree" aria-label={label} aria-multiselectable={false} data-k-nex-component="tree-view" data-slot="root">{renderItems(items)}</div>;
+}
 
 export interface SkipLinkProps { readonly href: `#${string}`; readonly children?: ReactNode; }
 export function SkipLink({ href, children = "Skip to main content" }: SkipLinkProps): ReactElement { return <a href={href} data-k-nex-component="skip-link" data-slot="root">{children}</a>; }
