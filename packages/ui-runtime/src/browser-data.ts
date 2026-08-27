@@ -25,6 +25,7 @@ export interface BrowserProblem {
   readonly code: string;
   readonly status: number;
   readonly retryAfterMs?: number;
+  readonly fieldErrors?: readonly { readonly field: string; readonly message: string; readonly code?: string }[];
 }
 
 export type BrowserTransportResult =
