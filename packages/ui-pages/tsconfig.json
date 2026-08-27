@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "jsx": "react-jsx", "skipLibCheck": true, "outDir": "dist", "rootDir": "src", "types": ["react"] },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "references": [{ "path": "../ui-components" }]
+}

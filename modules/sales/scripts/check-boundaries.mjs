@@ -12,6 +12,11 @@ function declaration(name) {
   return readFileSync(resolve(packageRoot, "dist", `${name}.d.ts`), "utf8");
 }
 
+const pages = readFileSync(resolve(packageRoot, "src", "pages.tsx"), "utf8").toLowerCase();
+for (const dependency of ["payload", "@puckeditor", "@tanstack", "socket.io", "theme-"]) {
+  assert.equal(pages.includes(dependency), false, `pages imports forbidden dependency ${dependency}`);
+}
+
 const forbiddenNeutralImports = [
   "@k-nex/runtime",
   "@modelcontextprotocol/sdk",
@@ -39,6 +44,9 @@ for (const entrypoint of ["contracts", "browser", "ui", "migrations", "testing"]
   for (const dependency of ["payload", "react", "@puckeditor", "@modelcontextprotocol", "@tanstack", "socket.io"]) {
     assert.equal(content.includes(dependency), false, `${entrypoint} declaration leaks third-party type ${dependency}`);
   }
+}
+for (const dependency of ["payload", "@puckeditor", "@tanstack", "socket.io", "theme-"]) {
+  assert.equal(declaration("pages").toLowerCase().includes(dependency), false, `pages declaration leaks forbidden type ${dependency}`);
 }
 
 console.log("Sales contracts, browser, UI, migrations, and testing entrypoints preserve package boundaries.");

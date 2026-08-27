@@ -1,4 +1,4 @@
-import { salesCreateTaskMutation, salesOpportunitiesQuery, salesOpportunityStageMutation } from "@k-nex/module-sales/browser";
+import { salesCreateTaskMutation, salesOpportunitiesQuery, salesOpportunityStageMutation } from "../../../modules/sales/src/browser.js";
 import type { BrowserDataTransport } from "@k-nex/ui-runtime";
 import { describe, expect, it } from "vitest";
 
