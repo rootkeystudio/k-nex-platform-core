@@ -15,7 +15,7 @@ The package boundary is fixed at `manifest/contracts/server/browser/ui/migration
 
 Strict settings, permission, route, navigation, default-page, browser query/action, component/block, renderer, and Puck bridge contracts are executable. Package templates instantiate idempotent customer-owned pages, preserve edits, preflight capabilities, and require explicit adoption of later versions.
 
-`module.sales` remains intentionally small while exercising every category: tasks and opportunities; three sources and actions; two tools; task/opportunity events and realtime invalidations; pipeline/default-page settings; six components, five blocks, four pages, routes/navigation, localization, health, lifecycle, jobs, migrations, and testing metadata.
+`module.sales` remains intentionally small while exercising every category: tasks and opportunities; three sources and three actions; two tools; task/opportunity events and realtime invalidations; pipeline/default-page settings; six components, six blocks, four pages, routes/navigation, localization, health, lifecycle, jobs, migrations, and testing metadata.
 
 Lifecycle state keeps support, installed bytes, enabled state, settings readiness, migration readiness, retained data, and release support independent. Source-controlled install plans seed missing templates only. Disable retains package/schema/read compatibility/data while blocking collection writes and executable source/action/tool/job/navigation/route/UI/page behavior. Re-enable restores behavior only after readiness. Schema-owning uninstall remains refused and destructive planning begins with deterministic reference scanning.
 
@@ -33,6 +33,7 @@ Lifecycle state keeps support, installed bytes, enabled state, settings readines
 | P6.8 — plugin conformance kit | `789937a` |
 | P6.9 — install/disable/re-enable proof | `1f9b24c` |
 | P6.10 — Gate 6 closeout | this closeout commit |
+| Blocking review remediation — all nine findings | `9e312fe` through `1a4bab3` |
 
 ## Public contracts and packages affected
 
@@ -47,7 +48,7 @@ Lifecycle state keeps support, installed bytes, enabled state, settings readines
 
 ## Conformance and gate evidence
 
-The plugin command requires all 11 evidence classes and executes 14 proofs. Named Node/Vitest proofs must pass exactly; package scripts must emit explicit markers. Missing/unknown evidence, duplicate IDs, extra runner fields, path escape, stale package bytes, and absent markers fail.
+The plugin command requires all 11 evidence classes and executes nine target-bound proofs. Named Node proofs must live inside the Sales package, receive the runner-owned plugin identity, and pass exactly one selected test. Only the runner-owned package boundary and reproducibility scripts are permitted. Missing/unknown/duplicate evidence, external workspace tests, arbitrary scripts, extra fields, path escape, and stale package bytes fail closed.
 
 Acceptance observed on Node.js `24.19.0` and pnpm `11.9.0`:
 
@@ -64,11 +65,9 @@ pnpm audit --audit-level high
 git diff --check
 ```
 
-Task acceptance totals reached contracts 138, runtime 172, UI runtime 40, builder 31, Payload adapter 43, Sales 16, conformance-plan 2, and the customer unit/PostgreSQL gates. The PostgreSQL lifecycle proof boots enabled, disabled, and re-enabled deployments against one database, observes disabled write rejection, retained task data, and restored source availability.
+Final task acceptance totals reached contracts 140, runtime 174, UI runtime 41, builder 31, Payload adapter 31, Sales 32, conformance-plan 2, and the customer unit/PostgreSQL gates. The PostgreSQL lifecycle proof boots enabled, disabled, and re-enabled deployments against one database, observes disabled write rejection, retained task data, and restored source availability.
 
-Local Docker Desktop intermittently failed Testcontainers' internal 10-second host-port discovery despite the fixture's 120-second startup timeout. The same code path passed with test-owned cleanup and `TESTCONTAINERS_RYUK_DISABLED=true`; this is recorded as local infrastructure failure evidence, not a product retry or a weakened assertion. CI uses the standard command on a fresh runner.
-
-The complete local `gate:6` chain passed. The high/critical audit threshold also passed; the package manager reported two low and three moderate findings, with no high or critical advisory.
+The complete local `gate:6` chain passed with its standard commands. The high/critical audit threshold also passed; the package manager reported two low and three moderate findings, with no high or critical advisory.
 
 ## Plugin authoring freeze
 
@@ -81,12 +80,12 @@ A second module should need domain contracts and handlers, not a new package bou
 | Failure/attack | Executable evidence |
 |---|---|
 | undeclared/duplicate/wrong-phase contribution or missing binding | registration runtime suite and customer inventory reconciliation |
-| raw setting secret or executable/topology key | exact conformance settings attacks |
+| unauthorized, stale, or schema-invalid Sales settings change | target-bound Sales settings conformance proof |
 | unauthorized source/field or direct query scope manipulation | runtime authorization and authenticated customer fixture |
 | server import in browser/UI or third-party type leakage in contracts | Sales boundary checker |
 | unavailable page-template resource or failed migration | page-template preflight/last-valid tests |
 | editor/runtime renderer drift | Sales runtime/Puck parity proof |
-| missing named evidence or fabricated plan field | conformance-plan negative tests |
+| external/unrelated proof, fabricated script, duplicate evidence, or arbitrary plan field | conformance-plan negative tests |
 | stale/non-reproducible packed module | byte-level Sales pack comparison and lock integrity |
 | disabled plugin write or executable surface access | lifecycle availability tests plus real PostgreSQL 403/source 404 proof |
 | schema-owning uninstall or destructive operation with references | lifecycle refusal/reference-scan tests |

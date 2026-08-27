@@ -36,4 +36,11 @@ test("Sales persisted settings enforce read/change permissions and drive workspa
     pipelineStages: ["lead", "qualified", "won", "lost"]
   });
   assert.equal((await service.read(salesWorkspaceSettingsDefinition, readActor)).revision, 4);
+  await assert.rejects(service.change({
+    definition: salesWorkspaceSettingsDefinition, actor: changeActor, expectedRevision: 3, values: changed.values
+  }), (error) => error.code === "REVISION_CONFLICT");
+  await assert.rejects(service.change({
+    definition: salesWorkspaceSettingsDefinition, actor: changeActor, expectedRevision: 4,
+    values: { ...changed.values, apiKey: "must-never-be-a-setting" }
+  }), (error) => error.code === "FIELD_UNKNOWN");
 });

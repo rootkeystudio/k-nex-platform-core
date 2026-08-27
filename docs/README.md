@@ -136,8 +136,8 @@ Gate 2A  agent tools and safe MCP execution                      complete
 Gate 3   outbox and realtime convergence                         complete
 Gate 4   builder kill-spike                                      complete
 Gate 5   themes, accessibility, atomic publication               complete
-Gate 6   plugin platform hardening + complete Sales reference    active
-Gate 7   comprehensive headless component/data/form/page system
+Gate 6   plugin platform hardening + complete Sales reference    complete
+Gate 7   comprehensive headless component/data/form/page system active
 Gate 8   lifecycle + create-knex-app + release/fleet safety
 ```
 
