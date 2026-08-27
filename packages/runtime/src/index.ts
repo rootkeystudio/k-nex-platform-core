@@ -24,3 +24,4 @@ export * from "./upgrade-planner.js";
 export * from "./migration-fence.js";
 export * from "./plugin-data-lifecycle.js";
 export * from "./deployment-evidence.js";
+export * from "./fleet.js";

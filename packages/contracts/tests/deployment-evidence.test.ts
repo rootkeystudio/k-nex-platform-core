@@ -5,7 +5,7 @@ import { DeploymentReceiptSchema, RuntimeInventorySchema } from "../src/index.js
 const digest = (character: string) => `sha256:${character.repeat(64)}`;
 const sourceCommit = "a".repeat(40);
 const inventory = {
-  schemaVersion: 1, applicationId: "customer-alpha", environment: "production", observedAt: "2026-08-27T12:00:00.000Z",
+  schemaVersion: 1, applicationId: "customer-alpha", repository: "rootkeystudio/customer-alpha", environment: "production", platformRelease: "0.2.0", observedAt: "2026-08-27T12:00:00.000Z",
   artifactDigest: digest("1"),
   releaseEvidence: { sourceCommit, workflowIdentity: `repo/workflow@${sourceCommit}`, manifestDigest: digest("2"), lockfileDigest: digest("3"), resolvedGraphDigest: digest("4"), sbomDigest: digest("5"), provenanceDigest: digest("6") },
   packages: [{ package: "@k-nex/module-sales", version: "1.0.0", integrity: `sha512-${"a".repeat(86)}==` }],

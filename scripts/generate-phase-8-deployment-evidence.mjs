@@ -50,7 +50,9 @@ for (const customer of ["customer-alpha", "customer-beta"]) {
   const inventory = observeRuntimeInventory({
     schemaVersion: 1,
     applicationId: customer,
+    repository: `rootkeystudio/${customer}`,
     environment: observation.environment,
+    platformRelease: observation.platformRelease,
     observedAt: observation.observedAt,
     artifactDigest: sha256(artifact),
     releaseEvidence: {
