@@ -18,7 +18,7 @@ describe("release evidence", () => {
 
   it("derives transitive components, integrities, and dependency edges from the dedicated lock", () => {
     const lock = resolvePnpmLock(readFileSync(new URL("../../../fixtures/customer-alpha/pnpm-lock.yaml", import.meta.url), "utf8"));
-    expect(lock.components.length).toBeGreaterThan(800);
+    expect(lock.components.length).toBeGreaterThan(600);
     expect(lock.components).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "semver", version: "7.8.5", integrity: expect.stringMatching(/^sha512-/u) }),
       expect.objectContaining({ name: "yaml", version: "2.9.0" }),

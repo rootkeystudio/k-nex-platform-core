@@ -20,6 +20,11 @@ describe("create-knex-app", () => {
     expect(manifest.plugins).toEqual([{ id: "module.sales", package: "@k-nex/module-sales", version: "1.0.0", enabled: true }]);
     expect(JSON.parse(first.files["package.json"]!).dependencies).toMatchObject({ payload: "3.88.0", "@k-nex/module-sales": "1.0.0", "@k-nex/theme-minimal": "0.0.0" });
     expect(first.files["src/payload.config.ts"]).toContain("kNexSalesRegistry.collections");
+    expect(first.files["src/payload.config.ts"]).toContain("prodMigrations: migrations");
+    expect(first.files["src/payload.config.ts"]).toContain('kNexApplicationId: "customer-alpha"');
+    expect(first.files["src/boot.ts"]).toContain("bootKnexApplication");
+    expect(first.files["src/migrations/index.ts"]).toContain("20260827_000002_knex_bootstrap");
+    expect(first.files["tsconfig.json"]).toContain('\"module\": \"NodeNext\"');
     expect(first.files["src/k-nex-registry.ts"]).toContain("salesRegistration");
     expect(first.files["src/k-nex-readiness.ts"]).toContain("K_NEX_SALES_READY");
     expect(first.installCommands).toEqual([["pnpm", "install", "--lockfile-only"], ["pnpm", "install", "--frozen-lockfile"]]);

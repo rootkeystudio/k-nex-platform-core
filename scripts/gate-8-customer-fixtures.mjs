@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -26,7 +26,16 @@ for (const customer of selected) {
   const receipt = DeploymentReceiptSchema.parse(JSON.parse(readFileSync(resolve(root, "deployment-receipt.json"), "utf8")));
   assert.deepEqual(manifest.plugins, [{ id: "module.sales", package: "@k-nex/module-sales", version: "1.0.0", enabled: true }]);
   assert.deepEqual(Object.keys(lock.importers), ["."]);
-  assert.equal(lock.importers["."].dependencies["@k-nex/module-sales"].specifier, "workspace:1.0.0");
+  const packedDependencies = Object.entries(lock.importers["."].dependencies).filter(([name]) => name.startsWith("@k-nex/"));
+  assert.ok(packedDependencies.length >= 14);
+  for (const [name, resolution] of packedDependencies) {
+    assert.match(resolution.specifier, /^file:\.\.\/customer-gate-1\/packages\/k-nex-[a-z-]+-\d+\.\d+\.\d+\.tgz$/u, `${name} must resolve from the packed release mirror.`);
+    assert.ok(existsSync(resolve(root, resolution.specifier.slice(5))), `${name} packed artifact is missing.`);
+  }
+  assert.equal(Object.keys(lock.packages).some((key) => key.includes("link:")), false);
+  for (const [key, entry] of Object.entries(lock.packages).filter(([key]) => key.startsWith("@k-nex/"))) {
+    assert.match(entry.resolution?.integrity ?? "", /^sha512-[A-Za-z0-9+/]{86}==$/u, `${key} lacks packed integrity.`);
+  }
   assert.equal(overrides.schemaVersion, 1);
   assert.ok([25, 50].includes(overrides.salesSettings.defaultTaskPageSize));
   assert.ok(overrides.defaultPages.every((page) => page.startsWith("sales.page.")));
