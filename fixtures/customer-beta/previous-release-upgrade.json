@@ -20,18 +20,6 @@
     "sales.migration.template.v2",
     "sales.migration.settings.v2"
   ],
-  "dryRunDiagnostics": [
-    {
-      "code": "READY",
-      "message": "Upgrade plan contains 8 ordered step(s).",
-      "severity": "info"
-    },
-    {
-      "code": "READY",
-      "message": "Upgrade dry-run completed without mutating source artifacts.",
-      "severity": "info"
-    }
-  ],
   "preservedArtifacts": [
     "sales.action",
     "sales.block",
@@ -41,5 +29,10 @@
     "sales.template",
     "sales.theme",
     "sales.tool"
-  ]
+  ],
+  "postgresProof": {
+    "test": "fixtures/customer-gate-1/tests/previous-release-upgrade-postgres.test.mjs",
+    "database": "postgres:17.6",
+    "execution": "required-by-customer-postgres-suite"
+  }
 }

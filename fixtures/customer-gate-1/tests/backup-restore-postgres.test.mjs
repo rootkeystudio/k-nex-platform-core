@@ -1,14 +1,16 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import pg from "pg";
 
-import { backupIsRestorable, executeCleanRestore, executeDatabaseBackup } from "@k-nex/runtime";
+import { backupIsRestorable, executeCleanRestore, executeDatabaseBackup, observeRuntimeInventory, restoredInventoryMatches, runtimeInventoryDigest } from "@k-nex/runtime";
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
 
 test("proves a physical backup restores complete Sales runtime state into a clean database", { timeout: 180_000 }, async () => {
+  const expectedInventory = observeRuntimeInventory(JSON.parse(readFileSync(new URL("../../customer-alpha/runtime-inventory.json", import.meta.url), "utf8")));
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("backup_source").withStartupTimeout(120_000).start();
   const source = new pg.Pool({ connectionString: container.getConnectionUri() });
   let restored;
@@ -39,6 +41,7 @@ test("proves a physical backup restores complete Sales runtime state into a clea
       backupId: "customer-alpha-7", applicationId: "customer.alpha", pluginId: "module.sales", migrationRevision: 7,
       executor: { createBackup: async () => backupContent }
     });
+    let restoredInventory;
     const restoreProof = await executeCleanRestore(backup, {
       restoreCleanEnvironment: async ({ applicationId, pluginId, migrationRevision, content, contentDigest }) => {
         assert.deepEqual(Buffer.from(content), backupContent);
@@ -47,7 +50,15 @@ test("proves a physical backup restores complete Sales runtime state into a clea
         const restore = await container.exec(["pg_restore", "-U", user, "-d", "restore_clean", "--exit-on-error", "/tmp/customer.backup"]);
         assert.equal(restore.exitCode, 0, restore.stderr);
         assert.match(contentDigest, /^sha256:[0-9a-f]{64}$/u);
-        return { applicationId, pluginId, migrationRevision, cleanEnvironment: true, externalEffects: "disabled", runtimeInventoryDigest: `sha256:${"b".repeat(64)}` };
+        const restoredUrl = new URL(container.getConnectionUri());
+        restoredUrl.pathname = "/restore_clean";
+        const observer = new pg.Pool({ connectionString: restoredUrl.toString() });
+        try {
+          await observer.query("update runtime_settings set external_integrations_enabled = false");
+          const state = await observer.query("select revision from k_nex_release_revision where application_id = 'customer.alpha'");
+          restoredInventory = observeRuntimeInventory({ ...expectedInventory, observedAt: "2026-08-27T13:00:00.000Z", migrationRevision: state.rows[0].revision });
+        } finally { await observer.end(); }
+        return { applicationId, pluginId, migrationRevision, cleanEnvironment: true, externalEffects: "disabled", runtimeInventoryDigest: runtimeInventoryDigest(restoredInventory) };
       }
     });
 
@@ -65,6 +76,7 @@ test("proves a physical backup restores complete Sales runtime state into a clea
         (select revision from k_nex_release_revision where application_id = 'customer.alpha') as migration_revision
     `);
     assert.deepEqual(evidence.rows, [{ task: "restore me", content_version: "2", theme: "minimal", integrations_enabled: false, outbox_status: "delivered", migration_revision: 7 }]);
+    assert.equal(restoredInventoryMatches(expectedInventory, restoredInventory), true);
     assert.equal(backupIsRestorable(backup, restoreProof), true);
   } finally {
     await restored?.end();
