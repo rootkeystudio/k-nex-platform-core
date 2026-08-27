@@ -11,11 +11,11 @@ P8.10 added the Phase 8 result, Gate 8 closeout command, exact evidence reconcil
 
 ## Validation
 
-Task-level acceptance through P8.9 PASS. Full `pnpm gate:8`, audit, diff check, and exact-head rerun are pending on the committed P8.10 closeout head.
+First full `pnpm gate:8` reached the complete Phase 0 test sweep and correctly failed because the P8.8 public contract expansion made the committed Sales `contracts.d.ts` package entry stale. Sales was rebuilt/repacked; root and dedicated locks, artifact/inventory/receipt/fleet digests, and restore/patch proofs were regenerated as one evidence chain. Sales 22 Node + 18 Vitest tests, deterministic pack check, and the Gate 8 closeout script now PASS. Full gate retry, audit, and exact-head rerun remain.
 
 ## Next
 
-Commit closeout artifacts, run the full Gate 8 and audit, record exact-head evidence, obtain formal Sol-high review, then open the stacked Phase 8 pull request without merge or auto-merge.
+Commit the refreshed release-evidence chain, rerun the full Gate 8 and audit, record exact-head evidence, obtain formal Sol-high review, then open the stacked Phase 8 pull request without merge or auto-merge.
 
 ## Blockers
 
