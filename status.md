@@ -11,11 +11,11 @@ The blocking Phase 7 review was addressed on one coherent rework head: executabl
 
 ## Validation
 
-Targeted rework validation PASS for UI components, UI data, UI builder blocks, UI testing unit/performance/Chromium suites, and the complete Sales build/test/package contract. Full-gate derivation refreshed both the verified Sales tarball SHA512 and its deterministic Gate 1 resolution artifact. Exact-head full `pnpm gate:7` remains the next validation step.
+Node 24.19.0 / pnpm 11.9.0: full `pnpm gate:7` PASS after refreshing the verified Sales tarball SHA512 and deterministic Gate 1 resolution artifact. Gates 0–7, PostgreSQL lifecycle/publication, plugin conformance, package boundaries, real-browser journeys, 131-family evidence, 16-state/two-theme matrix, real hydration/portal, bundle/tree-shaking budgets, heap proof, and performance probes all pass. `pnpm audit --audit-level high` reports no high/critical advisory (two low, three moderate).
 
 ## Next
 
-Run exact-head Gate 7 and audit, complete formal Sol-high phase review, then open the stacked Phase 7 PR without merge or auto-merge.
+Complete formal Sol-high phase review, then open the stacked Phase 7 PR without merge or auto-merge.
 
 ## Blockers
 
