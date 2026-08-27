@@ -16,14 +16,20 @@ export interface VirtualListProps<T> {
 export function VirtualList<T>({ label, items, getKey, renderItem, height = 400, estimateSize = 36, overscan = 5 }: VirtualListProps<T>): ReactElement {
   const scrollRef = useRef<HTMLDivElement>(null);
   const focusKey = useRef<string | undefined>(undefined);
-  const [active, setActive] = useState(() => ({ index: 0, key: items[0] === undefined ? undefined : getKey(items[0]) }));
   const keyedItems = items.map((item) => getKey(item));
+  if (keyedItems.some((key) => typeof key !== "string" || key.length === 0 || key.length > 512) || new Set(keyedItems).size !== keyedItems.length) {
+    throw new TypeError("VirtualList item keys must be unique non-empty stable strings.");
+  }
+  const [active, setActive] = useState(() => ({ index: 0, key: keyedItems[0] }));
   const rememberedIndex = active.key === undefined ? -1 : keyedItems.indexOf(active.key);
-  const activeIndex = items.length === 0 ? -1 : rememberedIndex === -1 ? Math.min(active.index, items.length - 1) : rememberedIndex;
+  const activeIndex = items.length === 0 ? -1 : rememberedIndex === -1 ? Math.max(0, Math.min(active.index, items.length - 1)) : rememberedIndex;
   const activeKey = activeIndex === -1 ? undefined : keyedItems[activeIndex]!;
   const virtualizer = useVirtualizer({ count: items.length, getScrollElement: () => scrollRef.current, estimateSize: () => estimateSize, getItemKey: (index) => getKey(items[index]!), overscan, initialRect: { width: 0, height }, useFlushSync: false });
   useEffect(() => {
-    if (active.index !== activeIndex || active.key !== activeKey) setActive({ index: activeIndex, key: activeKey });
+    if (active.index !== activeIndex || active.key !== activeKey) {
+      if (focusKey.current === active.key) focusKey.current = activeKey;
+      setActive({ index: activeIndex, key: activeKey });
+    }
   }, [active.index, active.key, activeIndex, activeKey]);
   useEffect(() => {
     if (focusKey.current === undefined || activeKey !== focusKey.current) return;
@@ -31,7 +37,7 @@ export function VirtualList<T>({ label, items, getKey, renderItem, height = 400,
     const focusActive = (attempt: number): void => {
       if (cancelled) return;
       const item = Array.from(scrollRef.current?.querySelectorAll<HTMLElement>("[data-key]") ?? []).find((element) => element.dataset.key === activeKey);
-      if (item !== undefined && item !== null) { item.focus(); focusKey.current = undefined; }
+      if (item !== undefined && item !== null) item.focus();
       else if (attempt < 10) requestAnimationFrame(() => focusActive(attempt + 1));
       else focusKey.current = undefined;
     };
@@ -57,6 +63,10 @@ export function VirtualList<T>({ label, items, getKey, renderItem, height = 400,
     aria-rowcount={items.length}
     tabIndex={items.length === 0 ? 0 : -1}
     onKeyDown={move}
+    onBlurCapture={(event) => {
+      const next = event.relatedTarget;
+      if (next instanceof Node && !event.currentTarget.contains(next)) focusKey.current = undefined;
+    }}
     style={{ height, overflow: "auto", contain: "strict" }}
     data-k-nex-component="virtual-list"
     data-slot="root"
@@ -71,7 +81,10 @@ export function VirtualList<T>({ label, items, getKey, renderItem, height = 400,
       tabIndex={virtualItem.index === activeIndex ? 0 : -1}
       data-index={virtualItem.index}
       data-key={keyedItems[virtualItem.index]}
-      onFocus={() => setActive({ index: virtualItem.index, key: keyedItems[virtualItem.index] })}
+      onFocus={() => {
+        focusKey.current = keyedItems[virtualItem.index];
+        setActive({ index: virtualItem.index, key: keyedItems[virtualItem.index] });
+      }}
       data-slot="item"
       style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${virtualItem.start}px)` }}
     >{renderItem(items[virtualItem.index]!)}</div>)}

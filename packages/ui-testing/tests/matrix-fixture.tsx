@@ -78,6 +78,9 @@ function Surface({ label, presentation }: { readonly label: string; readonly pre
     <button type="button" onClick={() => setMutableVirtualRows(["Virtual C", "Virtual B", "Virtual A"])}>Reorder virtual rows</button>
     <button type="button" onClick={() => setMutableVirtualRows(["Virtual A"])}>Shrink virtual rows</button>
     <button type="button" onClick={() => setMutableVirtualRows([])}>Clear virtual rows</button>
+    <button type="button" onClick={() => setMutableVirtualRows(["Virtual D", "Virtual E"])}>Repopulate virtual rows</button>
+    <button type="button" onClick={() => setMutableVirtualRows(["Virtual X", "Virtual Y"])}>Replace virtual rows</button>
+    <button type="button" onClick={() => setMutableVirtualRows([...Array.from({ length: 100 }, (_, index) => `Virtual moved ${index}`), "Virtual D"])}>Move active virtual row far</button>
     <VirtualList label={`${label} mutable virtual tasks`} items={mutableVirtualRows} getKey={(item) => item} renderItem={(item) => item} height={72} estimateSize={36} />
   </section></KNeXDesignSystemProvider>;
 }

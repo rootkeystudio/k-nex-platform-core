@@ -50,5 +50,12 @@ describe("component interaction and semantic matrix", () => {
     view.rerender(<VirtualList label="Rows" items={[]} getKey={(value: string) => value} renderItem={(value) => value} height={72} estimateSize={36} />);
     expect(view.getByRole("list").tabIndex).toBe(0);
     expect(view.container.querySelector("[role=listitem]")).toBeNull();
+    view.rerender(<VirtualList label="Rows" items={["d", "e"]} getKey={(value) => value} renderItem={(value) => value} height={72} estimateSize={36} />);
+    expect(view.getByRole("list").tabIndex).toBe(-1);
+  });
+
+  it("rejects duplicate VirtualList keys deterministically", () => {
+    expect(() => render(<VirtualList label="Duplicate rows" items={["same", "same"]} getKey={(value) => value} renderItem={(value) => value} />))
+      .toThrow(/keys must be unique/);
   });
 });
