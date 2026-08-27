@@ -7,15 +7,15 @@
 
 ## Last completed
 
-The final blocking Phase 7 review was addressed on one coherent rework head. Stateful-family claims now come from an independently maintained evidence registry and execute observable state markers under both themes. DataTable action definitions carry no author-supplied capability claims: exact actor-authoritative capability results are injected and fail closed, including bulk actions. Array-backed facets, single-tab-stop DataGrid navigation, nested TreeView pointer selection, and the Sales Puck quick-create form now have executable regression proofs. The quick-create form dispatches its exact registered action through the runtime dispatcher and remains disabled when no dispatcher is available. Sales remains the only first-party domain module.
+The final two Phase 7 review blockers were closed. The evidence registry now explicitly lists all 82 default-only and 49 stateful families without constructing family, state, or specialized test-class coverage from the component inventory; regression tests prove new families and browser claims fail closed. DataTable action visibility/execution now requires an actor-bound, catalog-revision-bound authorization receipt created only from an injected capability resolver. Hand-authored receipts, actor substitution, duplicate/unknown/incomplete catalog results, and absent authority fail closed. Sales accepts the receipt path instead of raw capability literals.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: exact full `pnpm gate:7` PASS at `e51bde5`. Gates 0–7, PostgreSQL lifecycle/publication, plugin conformance, package boundaries, real-browser journeys, independently registered 131-family evidence, 16-state/two-theme matrix, hydration/portal, bundle/tree-shaking budgets, heap proof, and performance probes all pass.
+Node 24.19.0 / pnpm 11.9.0: targeted rework PASS — UI data 14 tests plus boundaries, UI testing 6 tests plus real-browser matrix/performance, and Sales 22 Node plus 17 Vitest tests with packed-package reproducibility. The Sales tarball integrity and deterministic Gate 1 resolution were refreshed. Exact full Gate 7 rerun is next.
 
 ## Next
 
-Record this exact-head evidence, rerun Gate 7 on the documentation-only final head, complete formal Sol-high review, then open the stacked Phase 7 PR without merge or auto-merge.
+Run exact full Gate 7, then repeat formal Sol-high exact-head review. Open the stacked Phase 7 PR only after PASS; do not merge or enable auto-merge.
 
 ## Blockers
 
