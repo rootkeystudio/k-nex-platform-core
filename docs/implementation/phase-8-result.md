@@ -2,10 +2,10 @@
 
 - **Date:** 2026-08-27
 - **Gate:** Gate 8
-- **Baseline:** `ad60cf9`
+- **Baseline:** `9056043`
 - **Delivery:** stacked Phase 8 pull request; no merge or auto-merge
 - **Decision:** **PLATFORM FOUNDATION ACCEPTED**
-- **Review state:** Independent Sol-high pre-PR PASS at implementation/evidence head `4b2100f`; designated PR review pending
+- **Review state:** Refreshed exact-head Sol-high review pending; designated PR review pending
 
 ## Scope proved
 
@@ -17,16 +17,16 @@ Sales remains the only first-party domain module. Customer Alpha and Customer Be
 
 | Task | Primary commit |
 |---|---|
-| P8.1 — release and compatibility boundaries | `3f830ae` |
-| P8.2 — upgrade planning and customer migrations | `5efea55` |
-| P8.3 — advisory lock and stale readiness | `790a0df` |
-| P8.4 — archive/export, purge, backup, restore | `2a38c44` |
-| P8.5 — `create-knex-app` plan/apply | `d8984c6` |
-| P8.6 — two independent Sales customers | `4e0a77a` |
-| P8.7 — SBOM and signed provenance | `60a433b` |
-| P8.8 — deployment receipt/runtime inventory | `c4117fb` |
-| P8.9 — fleet query, patch, prior upgrade, restore | `6720839` |
-| P8.10 — closeout and full Gate 8 | `5dfe103` |
+| P8.1 — release and compatibility boundaries | `ff7dd3a` |
+| P8.2 — upgrade planning and customer migrations | `c9992af` |
+| P8.3 — advisory lock and stale readiness | `72a789e` |
+| P8.4 — archive/export, purge, backup, restore | `fa328d5` |
+| P8.5 — `create-knex-app` plan/apply | `55546e6` |
+| P8.6 — two independent Sales customers | `e2a4589` |
+| P8.7 — SBOM and signed provenance | `36edcc1` |
+| P8.8 — deployment receipt/runtime inventory | `4342f47` |
+| P8.9 — fleet query, patch, prior upgrade, restore | `b2fbccb` |
+| P8.10 — closeout and full Gate 8 | `a8f3956` |
 
 ## Lifecycle and migration safety
 
@@ -45,7 +45,7 @@ Customer Alpha uses external Postgres, Minimal, page size 25, manager authority,
 
 ## Release, deployment, and fleet proof
 
-- Timestamp-free CycloneDX 1.6 SBOM and canonical provenance bind source commit, full-SHA workflow identity, manifest, lock, complete transitive graph, SBOM, and artifact digests. Evidence generation and Gate 8 resolve the claimed Git tree and recompute the subject artifact, release-manifest integrity, application manifest, lock, plan, and derived SBOM digests; an ancestor-only or syntactically valid SHA cannot authorize absent bytes.
+- Timestamp-free CycloneDX 1.6 SBOM and canonical provenance bind source commit, full-SHA workflow identity, manifest, lock, complete transitive graph, SBOM, and artifact digests. Refreshed evidence uses release-source commit `82e5224`, a descendant of final Phase 7 and ancestor of the evidence head. Evidence generation and Gate 8 require exact source/current release-manifest parity, verify every packed identity and SHA512 digest, require source/current artifact byte parity, and recompute application manifest, lock, plan, subject, and derived SBOM digests. Existing non-ancestor commits and stale current bytes fail closed.
 - Local Ed25519 tests reject signature/payload substitution. The hosted workflow uses GitHub OIDC and `actions/attest` pinned to a complete SHA for signed provenance and SBOM attestations. No SLSA level is claimed.
 - Generated JSON Schemas validate non-secret runtime inventory and deployment receipts. Receipt reconciliation rejects artifact, migration, inventory, readiness, or smoke drift.
 - Authority-issued, signature-verified fleet ingestion keeps one current and one supported-prior customer. The clean-boot proof serves inventory from a protected runtime endpoint, rejects anonymous observation, reconciles live PostgreSQL readiness, verifies signed deployment receipt and provenance, then issues the only token Fleet accepts. Sales `<1.0.1` and transitive `semver <7.8.6` identify both deployments. A trusted 0.2.1 release manifest binds the real Sales 1.0.1 tarball and generates customer-specific lock/upgrade/migration/deploy update plans for both.
@@ -61,7 +61,7 @@ pnpm audit --audit-level high
 git diff --check
 ```
 
-The corrective full run is rerun on every exact review head. It covers Phase 0 through Gate 8, clean PostgreSQL proofs including factory-generated prior/current applications, 18 packed release identities, two protected runtime observations, contracts, composition, and runtime suites. Packed SHA512/content closure, stale-evidence rejection, generated-artifact reproducibility, browser/accessibility, plugin conformance, and `git diff --check` are required. Detailed current state is recorded in `status.md`.
+The corrective full run on the refreshed candidate covers Phase 0 through Gate 8, five PostgreSQL scenarios including factory-generated prior/current applications, 18 packed release identities, two protected runtime observations, 151 contracts tests, 83 composition tests, and 222 runtime tests. Packed SHA512/content closure, stale-evidence rejection, generated-artifact reproducibility, browser/accessibility, plugin conformance, and `git diff --check` pass. The audit reports no high or critical findings; two low and three moderate advisories remain.
 
 ## Limits and production claims
 
@@ -73,7 +73,7 @@ The corrective full run is rerun on every exact review head. It covers Phase 0 t
 
 ## Gate decision
 
-The first formal review correctly rejected caller-authored lifecycle evidence, unenforced support policy, workspace-linked customer fixtures, incomplete transitive inventory, forgeable deployment state, simulated recovery, and a self-repairing gate. Corrective work now makes those paths executor/authority-issued, manifest-enforced, packed and clean-booted, transitive, signed and runtime-observed, PostgreSQL-backed, exact-source-bound, and stale-evidence rejecting. No Gate 8 kill criterion fired; independent Sol-high pre-PR review returned PASS at implementation/evidence head `4b2100f`. Designated PR review remains pending.
+The first formal review correctly rejected caller-authored lifecycle evidence, unenforced support policy, workspace-linked customer fixtures, incomplete transitive inventory, forgeable deployment state, simulated recovery, and a self-repairing gate. Corrective work now makes those paths executor/authority-issued, manifest-enforced, packed and clean-booted, transitive, signed and runtime-observed, PostgreSQL-backed, exact-source-bound, and stale-evidence rejecting. Restacking on final Phase 7 also refreshed the complete packed closure, all dependent lock/static artifacts, and source-tree provenance without relying on discarded task hashes. No Gate 8 kill criterion fired. Refreshed exact-head Sol-high and designated PR reviews remain pending.
 
 **Decision:** **PLATFORM FOUNDATION ACCEPTED**
 
