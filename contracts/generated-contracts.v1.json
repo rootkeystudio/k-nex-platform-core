@@ -4,6 +4,7 @@
     "schemas/action.v1.schema.json",
     "schemas/agent-tool.v1.schema.json",
     "schemas/plugin-manifest.v1.schema.json",
+    "schemas/package-release-manifest.v1.schema.json",
     "schemas/application-manifest.v1.schema.json",
     "schemas/event.v1.schema.json",
     "schemas/metric-scalar.v1.schema.json",
