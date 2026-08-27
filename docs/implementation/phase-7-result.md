@@ -15,7 +15,7 @@ The primitive theme ABI remains small. Native semantics handle simple structures
 
 Sales remains the only first-party domain module. It is the real consumer for forms, registered sources/actions, authorized DataTable, page templates, four default pages, six component definitions, six Puck blocks, and the complete workspace builder profile. No additional domain plugin was introduced.
 
-Project-manager remediation closes four exact authority and product-proof gaps: renderer action dispatch is scoped to the accepted immutable node/action binding; generic DataTable and Form blocks execute the platform source/action gateways instead of placeholder primitives; checkbox and date-range invalid semantics belong to the actual controls; and form controllers publish observable pending state, coalesce duplicate submissions, and drive a rendered Sales opportunity edit form from registered async source options.
+Project-manager remediation closes the exact authority and product-proof gaps: renderer action dispatch is scoped to the accepted immutable node/action binding; generic DataTable covers every declared source input kind; generic Form accepts only an explicitly configured valid registered action while its unconfigured default stays disabled; checkbox and date-range invalid semantics belong to the actual controls; and form controllers publish observable pending state, coalesce duplicate submissions, advance the clean baseline after save, and drive a rendered Sales opportunity edit form from registered async source options.
 
 ## Completed tasks
 
@@ -40,7 +40,7 @@ Project-manager remediation closes four exact authority and product-proof gaps: 
 - Semantic table is the default. ARIA grid is explicit, exposes exactly one initial tab stop, and transfers that tab stop during tested arrow-key navigation. Array-backed `in` facets remain connected to the controlled query state. TanStack types do not enter K-Nex public declarations.
 - Sales create-task and rendered opportunity-stage forms submit through registered action mutations. Field errors, conflicts, invalidation, dirty/pending state, duplicate-submit coalescing, and async registered-source options are executable.
 - Dashboard, index, detail, create, edit, settings, wizard, and builder templates are compositional. Sales overview/tasks/opportunities/settings pages bind immutable page-template IDs and import no Payload, customer theme, Puck, or third-party table API.
-- The 13 generic and six Sales Puck bridges execute the same runtime definition in production and editor. Round-trip, profile, missing block, source, and action replacement tests fail closed. The adapter snapshot preserves both source and action policy. Generic DataTable consumes an accepted `table.records@1` binding through the standard query/data path; generic Form dispatches only its accepted action and is disabled without authority. The Sales quick-create block renders a real title/status form and dispatches the exact registered create action through the node/action-scoped UI runtime dispatcher; it is visibly disabled when that authority is absent.
+- The 13 generic and six Sales Puck bridges execute the same runtime definition in production and editor. Round-trip, profile, missing block, source, and action replacement tests fail closed. The adapter snapshot preserves both source and action policy. Generic DataTable consumes an accepted `table.records@1` binding through the standard query/data path. Generic Form has no implicit authority; composition must provide an explicit registered action identity and form schema. Sales proves that configuration through `sales.task.create@1`, the standard mutation definition, and browser transport. The Sales quick-create block renders a real title/status form and dispatches the exact registered create action through the node/action-scoped UI runtime dispatcher; it is visibly disabled when that authority is absent.
 
 ## Accessibility, SSR, themes, and interaction
 
@@ -79,7 +79,7 @@ pnpm gate:7
 git diff --check
 ```
 
-Key Phase 7 totals: design-system 11 tests, components 11 tests, UI runtime 46 tests, UI data 14 tests, forms 7 tests, pages 1 test, builder Puck 31 tests, UI builder blocks 3 tests, UI testing 6 tests, Sales 22 Node tests plus 18 Vitest tests. Existing lower-gate contract/runtime/Payload/PostgreSQL and browser suites remain part of `gate:7`.
+Key Phase 7 totals: design-system 11 tests, components 11 tests, UI runtime 46 tests, UI data 14 tests, forms 7 tests, pages 1 test, builder Puck 31 tests, UI builder blocks 5 tests, UI testing 6 tests, Sales 22 Node tests plus 19 Vitest tests. Existing lower-gate contract/runtime/Payload/PostgreSQL and browser suites remain part of `gate:7`.
 
 ## Limits and deferred scope
 

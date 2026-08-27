@@ -1,5 +1,5 @@
 import { snapshotPuckBlockBridge, reconcilePuckBlockContribution, type PuckBlockAuthoring, type PuckBlockBridge } from "@k-nex/builder-puck";
-import { assertJsonValue, resolveDataSourceFieldSelection, TableRecordsSchema, type DataSourceDescriptor, type JsonValue, type RuntimeSchema } from "@k-nex/contracts";
+import { assertJsonValue, ResourceIdSchema, resolveDataSourceFieldSelection, TableRecordsSchema, type DataSourceDescriptor, type JsonValue, type RuntimeSchema } from "@k-nex/contracts";
 import { createElement, useState, type ReactElement, type ReactNode } from "react";
 import { Accordion, Alert, Card, EmptyState, Grid, Heading, Section, Stack, Tabs, Text } from "@k-nex/ui-components";
 import { createDataTableState, DataTable, defineDataTable, Metric, type DataTableRequestState } from "@k-nex/ui-data";
@@ -33,7 +33,17 @@ const specs: readonly GenericBlock[] = Object.freeze([
   { id: "content.empty-state", label: "EmptyState", component: "EmptyState", role: "generic", allowChildren: false, fields: [{ prop: "title", label: "Title", kind: "text", defaultValue: "Nothing here" }] }
 ]);
 
-const genericFormAction = Object.freeze({ id: "content.form.submit", version: 1 });
+export interface GenericFormActionConfiguration {
+  readonly action: { readonly id: string; readonly version: number };
+  readonly fields: readonly KNextActionFormField[];
+  readonly initialValues: Readonly<Record<string, string>>;
+  readonly submitLabel: string;
+}
+
+export interface GenericPuckBlockOptions {
+  readonly form?: GenericFormActionConfiguration;
+}
+
 function sourceInputSchema(source: DataSourceDescriptor): RuntimeSchema<Record<string, JsonValue>> {
   return Object.freeze({
     safeParse(value: unknown) {
@@ -53,7 +63,7 @@ function sourceInputSchema(source: DataSourceDescriptor): RuntimeSchema<Record<s
         }
         const valid = field.kind === "integer" ? Number.isSafeInteger(candidate)
           : field.kind === "number" ? typeof candidate === "number" && Number.isFinite(candidate)
-          : typeof candidate === "string";
+          : field.kind === "boolean" ? typeof candidate === "boolean" : typeof candidate === "string";
         if (!valid) return { success: false as const, error: new TypeError("Source input field type is invalid.") };
       }
       try {
@@ -146,7 +156,7 @@ function genericDataTableRequestState(input: UiBlockRenderInput): DataTableReque
   return input.sourceResult as DataTableRequestState;
 }
 
-function genericElement(spec: GenericBlock, props: Record<string, JsonValue>, input: UiBlockRenderInput): ReactElement {
+function genericElement(spec: GenericBlock, props: Record<string, JsonValue>, input: UiBlockRenderInput, formConfiguration?: GenericFormActionConfiguration): ReactElement {
   const value = (key: string): string => String(props[key]);
   switch (spec.id) {
     case "content.stack": return componentElement(Stack, { gap: value("gap"), children: null });
@@ -168,17 +178,23 @@ function genericElement(spec: GenericBlock, props: Record<string, JsonValue>, in
         label: value("title")
       });
     }
-    case "content.form": return createKNextActionFormElement({
-      label: value("label"),
-      fields: [{ name: "value", label: "Value", kind: "text", required: true }],
-      initialValues: { value: "" },
-      submitLabel: "Submit",
-      enabled: input.action !== undefined && input.dispatchAction !== undefined,
-      onSubmit: async (values) => {
-        if (input.action === undefined || input.dispatchAction === undefined) return;
-        await input.dispatchAction({ action: input.action, input: values, nodeId: input.node.id });
-      }
-    }) as ReactElement;
+    case "content.form": {
+      const fields = formConfiguration?.fields ?? [{ name: "value", label: "Value", kind: "text" as const, required: true }];
+      const initialValues = formConfiguration?.initialValues ?? { value: "" };
+      const configuredAction = formConfiguration?.action;
+      const enabled = configuredAction !== undefined && input.action !== undefined && input.action.id === configuredAction.id && input.action.version === configuredAction.version && input.dispatchAction !== undefined;
+      return createKNextActionFormElement({
+        label: value("label"),
+        fields,
+        initialValues,
+        submitLabel: formConfiguration?.submitLabel ?? "Submit",
+        enabled,
+        onSubmit: async (values) => {
+          if (!enabled || input.action === undefined || input.dispatchAction === undefined) return;
+          await input.dispatchAction({ action: input.action, input: values, nodeId: input.node.id });
+        }
+      }) as ReactElement;
+    }
     case "content.empty-state": return componentElement(EmptyState, { title: value("title") });
   }
   throw new TypeError(`Unsupported generic block: ${spec.id}`);
@@ -197,7 +213,7 @@ function propsSchema(fields: readonly GenericField[]): RuntimeSchema<Record<stri
   } });
 }
 
-function genericBridge(spec: GenericBlock): PuckBlockBridge {
+function genericBridge(spec: GenericBlock, options: GenericPuckBlockOptions): PuckBlockBridge {
   const schema = propsSchema(spec.fields);
   const definition: UiBlockDefinition = {
     id: spec.id,
@@ -207,13 +223,13 @@ function genericBridge(spec: GenericBlock): PuckBlockBridge {
     audience: "public",
     propsSchema: schema,
     ...(spec.id === "content.data-table" ? { sourcePolicy: { required: true, contracts: [{ id: "table.records" as const, version: 1 as const }], requiredFields: [] } } : {}),
-    ...(spec.id === "content.form" ? { actionPolicy: { required: false, actions: [genericFormAction] } } : {}),
+    ...(spec.id === "content.form" && options.form === undefined ? {} : spec.id === "content.form" ? { actionPolicy: { required: false, actions: [options.form!.action] } } : {}),
     render: (input) => Object.freeze({
       kind: spec.id.slice("content.".length),
       component: spec.component,
       accessibility: Object.freeze({ role: spec.role, label: String((input.props as Record<string, unknown>)[spec.fields[0]!.prop]) }),
       props: input.props,
-      element: genericElement(spec, input.props as Record<string, JsonValue>, input),
+      element: genericElement(spec, input.props as Record<string, JsonValue>, input, options.form),
       ...(input.sourceResult === undefined ? {} : { state: input.sourceResult.state })
     })
   };
@@ -226,7 +242,28 @@ function genericBridge(spec: GenericBlock): PuckBlockBridge {
   });
 }
 
-export const genericPuckBlockBridges = Object.freeze(specs.map(genericBridge));
+function normalizeOptions(options: GenericPuckBlockOptions): GenericPuckBlockOptions {
+  if (options.form === undefined) return Object.freeze({});
+  if (!ResourceIdSchema.safeParse(options.form.action.id).success || !Number.isSafeInteger(options.form.action.version) || options.form.action.version < 1) {
+    throw new TypeError("Generic form action identity is invalid.");
+  }
+  if (options.form.fields.length === 0 || new Set(options.form.fields.map(({ name }) => name)).size !== options.form.fields.length) {
+    throw new TypeError("Generic form fields must be nonempty and unique.");
+  }
+  return Object.freeze({ form: Object.freeze({
+    action: Object.freeze({ ...options.form.action }),
+    fields: Object.freeze(options.form.fields.map((field) => Object.freeze({ ...field, ...(field.options === undefined ? {} : { options: Object.freeze(field.options.map((option) => Object.freeze({ ...option }))) }) }))),
+    initialValues: Object.freeze({ ...options.form.initialValues }),
+    submitLabel: options.form.submitLabel
+  }) });
+}
+
+export function createGenericPuckBlockBridges(options: GenericPuckBlockOptions = {}): readonly PuckBlockBridge[] {
+  const normalized = normalizeOptions(options);
+  return Object.freeze(specs.map((spec) => genericBridge(spec, normalized)));
+}
+
+export const genericPuckBlockBridges = createGenericPuckBlockBridges();
 
 export function createPuckBlockLibrary(
   definitions: readonly UiContributionDefinition[],
