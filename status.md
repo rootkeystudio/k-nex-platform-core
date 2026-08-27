@@ -7,16 +7,16 @@
 
 ## Last completed
 
-P8.4 corrective work replaces caller-authored archive/backup/restore shapes with executor-issued opaque receipts bound to application, plugin, migration revision, and content digest. Bounded export executes a read/restore proof; physical backup content executes a clean restore before purge can become authoritative.
+P8.8/P8.9 corrective work adds authority-scoped, opaque deployment evidence. Fleet ingestion accepts only inventory observed through the configured authority and Ed25519-signed provenance/receipt evidence that reconciles artifact, source, manifest, lock, graph, SBOM, migration, readiness, and trusted workflow identities.
 
 ## Validation
 
-Runtime suite PASS: 26 files, 198 tests, including fabricated/cloned/cross-application receipt rejection and purge rollback. Physical `pg_dump`/`pg_restore` proof PASS against clean PostgreSQL with executor-issued backup/restore receipts. `git diff --check` PASS.
+Runtime build PASS; 26 files/198 tests PASS, including foreign-authority and fabricated fleet evidence rejection. Fleet generator and focused Gate 8 reconciliation PASS with two authority-issued customer observations and transitive vulnerability lookup. Generated patch/fleet evidence was refreshed from the expanded inventories.
 
 ## Next
 
-Continue with verified deployment/fleet evidence, secure atomic application factory plus real packed-package boot, real prior-upgrade/restore, and fail-closed Gate 8.
+Continue with secure atomic application factory plus real packed-package boot, connect its protected runtime observation to deployment verification, implement real prior-upgrade/restore, then make Gate 8 generation fail closed.
 
 ## Blockers
 
-Formal review blockers remain: generated app boot, atomic apply, verified deployment receipts, real prior-upgrade/restore, and fail-closed generated evidence.
+Formal review blockers remain: generated app boot, atomic apply, protected runtime observation integration, real prior-upgrade/restore, and fail-closed generated evidence.
