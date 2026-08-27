@@ -146,7 +146,7 @@ function matchesJsonSchema(schema: AgentToolJsonSchema, value: unknown): boolean
     case "object": {
       if (!isJsonObject(value) || schema.properties === undefined || schema.additionalProperties !== false) return false;
       const required = schema.required ?? [];
-      if (required.some((key) => !(key in value))) return false;
+      if (required.some((key) => !Object.hasOwn(value, key))) return false;
       return matchesEnum(schema, value) && Object.entries(value).every(([key, item]) => {
         const property = schema.properties![key];
         return property !== undefined && matchesJsonSchema(property, item);

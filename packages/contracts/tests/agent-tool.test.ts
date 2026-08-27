@@ -142,4 +142,16 @@ describe("P2A.1 agent-tool contracts", () => {
       { title: "Longer", count: 2, state: "open", clearedAt: null, tags: ["other"], options: { enabled: "true" } }
     ]) expect(runtime.safeParse(value).success).toBe(false);
   });
+
+  it("requires declared object properties to be owned rather than inherited", () => {
+    const runtime = createAgentToolJsonRuntimeSchema({
+      type: "object",
+      properties: { constructor: { type: "string" } },
+      required: ["constructor"],
+      additionalProperties: false
+    });
+    expect(runtime.safeParse({}).success).toBe(false);
+    expect(runtime.safeParse({ constructor: "owned" }).success).toBe(true);
+    expect(runtime.safeParse(Object.create({ constructor: "inherited" })).success).toBe(false);
+  });
 });

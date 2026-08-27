@@ -7,11 +7,11 @@
 
 ## Last completed
 
-P6.10 final review remediation re-snapshots page-template authority after asynchronous store reads, so an existing customer instance is never returned after authority revocation.
+P6.10 final review remediation requires descriptor-derived JSON object properties to be owned, preventing inherited prototype fields from satisfying required UI props.
 
 ## Validation
 
-Focused existing-instance read-race coverage is added; runtime/full validation remains before final Phase 6 review.
+Focused inherited-required-property coverage is added; contracts/full validation remains before final Phase 6 review.
 
 ## Next
 
