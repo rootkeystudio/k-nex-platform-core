@@ -62,7 +62,7 @@ export class FleetRegistry {
       if (runtimeInventoryDigest(existing.inventory) !== runtimeInventoryDigest(inventory)) throw new FleetEvidenceError("CONFLICT", "Deployment identity cannot be rebound to different inventory.");
       return;
     }
-    if (existing !== undefined && existing.receipt.deployedAt >= receipt.deployedAt) throw new FleetEvidenceError("CONFLICT", "Fleet evidence cannot regress or replace an equally new deployment.");
+    if (existing !== undefined && Date.parse(existing.receipt.deployedAt) >= Date.parse(receipt.deployedAt)) throw new FleetEvidenceError("CONFLICT", "Fleet evidence cannot regress or replace an equally new deployment.");
     this.#deployments.set(key, freeze({ receipt: structuredClone(receipt), inventory: structuredClone(inventory) }));
   }
 
@@ -80,9 +80,10 @@ export class FleetRegistry {
   planSecurityPatch(packageName: string, vulnerableRange: string, targetVersion: string, targetReleaseManifest: PackageReleaseManifest): readonly SecurityPatchPlan[] {
     const targetRelease = PackageReleaseManifestSchema.parse(targetReleaseManifest);
     const target = targetRelease.packages.find((entry) => entry.package === packageName);
-    if (valid(targetVersion, { loose: false }) === null || target?.version !== targetVersion) {
-      throw new FleetEvidenceError("PATCH_INVALID", "Security patch target must be an exact version outside the vulnerable range.");
-    }
+    if (validRange(vulnerableRange, { loose: false }) === null) throw new FleetEvidenceError("PATCH_INVALID", "Vulnerable package range is invalid.");
+    if (valid(targetVersion, { loose: false }) === null) throw new FleetEvidenceError("PATCH_INVALID", "Security patch target must be an exact semantic version.");
+    if (target?.version !== targetVersion) throw new FleetEvidenceError("PATCH_INVALID", "Security patch target is absent from the trusted release manifest.");
+    if (satisfies(targetVersion, vulnerableRange, { loose: false, includePrerelease: false })) throw new FleetEvidenceError("PATCH_INVALID", "Security patch target remains within the vulnerable range.");
     return Object.freeze(this.affected(packageName, vulnerableRange).filter(({ inventory }) => {
       const current = inventory.packages.find((entry) => entry.package === packageName)!;
       return current.version !== targetVersion || current.integrity !== target.integrity;

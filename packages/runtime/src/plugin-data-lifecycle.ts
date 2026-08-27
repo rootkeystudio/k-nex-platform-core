@@ -112,7 +112,11 @@ export interface PluginPurgePlan {
 
 export interface PurgeTransaction {
   begin(): Promise<void>;
-  applyMigration(migrationId: string): Promise<void>;
+  applyMigration(migration: {
+    readonly id: string;
+    readonly expectedPredecessorRevision: number;
+    readonly targetRevision: number;
+  }): Promise<void>;
   commit(): Promise<void>;
   rollback(): Promise<void>;
 }
@@ -311,9 +315,14 @@ export function planPluginPurge(input: {
 
 export async function executePluginPurge(plan: PluginPurgePlan, transaction: PurgeTransaction): Promise<void> {
   if (!plan.ready || !authoritativePurgePlans.has(plan)) throw new Error("Plugin purge plan is not authoritative or ready.");
+  authoritativePurgePlans.delete(plan);
   await transaction.begin();
   try {
-    await transaction.applyMigration(plan.migrationId);
+    await transaction.applyMigration({
+      id: plan.migrationId,
+      expectedPredecessorRevision: plan.expectedPredecessorRevision,
+      targetRevision: plan.targetRevision
+    });
     await transaction.commit();
   } catch (error) {
     try { await transaction.rollback(); } catch { /* preserve the purge failure */ }
