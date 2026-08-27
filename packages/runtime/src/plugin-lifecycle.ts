@@ -219,15 +219,15 @@ export function scopePluginRegistration(
     availability.set(value.pluginId, value);
   }
   const authority = registrationLifecycleAuthority(registration);
-  const lifecycleOwners = authority?.lifecycleOwners ?? new Set(registration.contributions.lifecycle.map(({ pluginId }) => pluginId));
-  for (const pluginId of lifecycleOwners) {
+  const lifecycleParticipants = authority?.lifecycleParticipants ?? new Set(registration.contributions.lifecycle.map(({ pluginId }) => pluginId));
+  for (const pluginId of lifecycleParticipants) {
     if (!availability.has(pluginId)) fail("NOT_READY", `Plugin ${pluginId} requires lifecycle availability before registration can execute.`);
   }
   const unavailablePlugins = new Set<string>();
   if (authority) {
     const unavailable = (pluginId: string): boolean => {
       const value = availability.get(pluginId);
-      return unavailablePlugins.has(pluginId) || lifecycleOwners.has(pluginId) && (!value?.enabled || !value.ready);
+      return unavailablePlugins.has(pluginId) || lifecycleParticipants.has(pluginId) && (!value?.enabled || !value.ready);
     };
     let changed = true;
     while (changed) {
@@ -240,7 +240,7 @@ export function scopePluginRegistration(
     }
   }
   const allowed = (kind: PluginContributionCategory, pluginId: string, id: string): boolean =>
-    !unavailablePlugins.has(pluginId) && (!lifecycleOwners.has(pluginId) || availability.get(pluginId)?.isAvailable(kind, id) === true);
+    !unavailablePlugins.has(pluginId) && (!lifecycleParticipants.has(pluginId) || availability.get(pluginId)?.isAvailable(kind, id) === true);
   const contributions = Object.freeze(Object.fromEntries(pluginContributionCategoryKeys.map((kind) => [
     kind,
     Object.freeze(registration.contributions[kind].filter(({ pluginId, id }) => allowed(kind, pluginId, id)))
@@ -260,7 +260,7 @@ export function scopePluginRegistration(
   authoritativeRegistrations.add(result);
   registrationAvailability.set(result, { availability: new Map(availability), unavailablePlugins: new Set(unavailablePlugins) });
   scopeRegistrationLifecycleAuthority(registration, availability, unavailablePlugins);
-  if (authority) retainRegistrationLifecycleAuthority(result, authority, lifecycleOwners);
+  if (authority) retainRegistrationLifecycleAuthority(result, authority, lifecycleParticipants);
   return result;
 }
 

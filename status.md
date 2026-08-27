@@ -3,20 +3,20 @@
 - **Updated:** 2026-08-27
 - **Phase:** Phase 6 — Plugin Platform Hardening and Sales Reference Module
 - **Active task:** P6.10 — Close Gate 6 and freeze the pre-v1 authoring contract
-- **State:** Ready for phase review
+- **State:** In progress
 
 ## Last completed
 
-P6.10 project-manager remediation closes all eight blockers: machine-readable conformance, squash-safe gating, canonical settings persistence, post-migration template preflight, Puck action authority, descriptor-derived props validation, and transitive lifecycle/service revocation. The derived Sales and Gate 1 artifacts are current.
+P6.10 Sol review REWORK remediation now retains verified required-graph lifecycle participants even when their packages register no lifecycle contribution, so unavailable providers revoke dependent registrations and capability-service leases without affecting unrelated registrations.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: complete `pnpm gate:6` PASS on the remediation tree, including frozen install, PostgreSQL, browser/accessibility, exact machine-readable Sales proof, packed reproducibility, and `GATE_6_PASS`. Final metadata-head rerun, high-threshold audit, diff check, and independent review remain.
+Node 24.19.0 / pnpm 11.9.0: focused runtime lifecycle regression, complete runtime tests, runtime build, full workspace build, and `git diff --check` pass. Final Phase 6 review validation remains.
 
 ## Next
 
-Await designated project-manager PASS and merge for PR #21. Do not begin a subsequent phase or task before that decision.
+Complete P6.10 Sol review REWORK remediation validation; await designated project-manager review and PASS before merge.
 
 ## Blockers
 
-None. PR #21 remains open; no merge or auto-merge will be performed.
+Sol review REWORK is being addressed; full final acceptance has not been claimed. PR #21 remains open; no merge or auto-merge will be performed.

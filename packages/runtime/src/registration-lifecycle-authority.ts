@@ -12,7 +12,7 @@ interface LifecycleScope {
 
 export interface RegistrationLifecycleAuthority {
   readonly requiredProviders: ReadonlyMap<string, ReadonlySet<string>>;
-  lifecycleOwners: ReadonlySet<string>;
+  lifecycleParticipants: ReadonlySet<string>;
   registrationOpen: boolean;
   scope: LifecycleScope | undefined;
 }
@@ -20,7 +20,13 @@ export interface RegistrationLifecycleAuthority {
 const authorities = new WeakMap<object, RegistrationLifecycleAuthority>();
 
 export function createRegistrationLifecycleAuthority(requiredProviders: ReadonlyMap<string, ReadonlySet<string>>): RegistrationLifecycleAuthority {
-  return { requiredProviders, lifecycleOwners: new Set(), registrationOpen: true, scope: undefined };
+  const lifecycleParticipants = new Set<string>();
+  for (const [consumerId, providers] of requiredProviders) {
+    if (providers.size === 0) continue;
+    lifecycleParticipants.add(consumerId);
+    for (const providerId of providers) lifecycleParticipants.add(providerId);
+  }
+  return { requiredProviders, lifecycleParticipants, registrationOpen: true, scope: undefined };
 }
 
 export function freezeRegistrationLifecycleAuthority(authority: RegistrationLifecycleAuthority): void {
@@ -30,9 +36,9 @@ export function freezeRegistrationLifecycleAuthority(authority: RegistrationLife
 export function retainRegistrationLifecycleAuthority(
   registration: RegistrationResult,
   authority: RegistrationLifecycleAuthority,
-  lifecycleOwners: ReadonlySet<string>
+  lifecycleParticipants: ReadonlySet<string>
 ): void {
-  authority.lifecycleOwners = new Set(lifecycleOwners);
+  authority.lifecycleParticipants = new Set([...authority.lifecycleParticipants, ...lifecycleParticipants]);
   authorities.set(registration, authority);
 }
 
@@ -53,7 +59,7 @@ function unavailable(authority: RegistrationLifecycleAuthority, pluginId: string
   if (!authority.registrationOpen && authority.scope === undefined) return true;
   if (authority.scope === undefined) return false;
   if (authority.scope.unavailablePlugins.has(pluginId)) return true;
-  if (!authority.lifecycleOwners.has(pluginId)) return false;
+  if (!authority.lifecycleParticipants.has(pluginId)) return false;
   const availability = authority.scope.availability.get(pluginId);
   return availability === undefined || !availability.enabled || !availability.ready;
 }

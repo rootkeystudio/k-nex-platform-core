@@ -62,6 +62,7 @@ function lifecycleManifest(input: {
   readonly requires?: PluginManifest["requires"];
   readonly optional?: PluginManifest["optional"];
   readonly jobs?: boolean;
+  readonly lifecycle?: boolean;
 }): PluginManifest {
   const namespace = input.id.split(".")[1]!;
   return {
@@ -71,7 +72,7 @@ function lifecycleManifest(input: {
     provides: input.provides ?? [], requires: input.requires ?? [], optional: input.optional ?? [], conflicts: [], surfaces: ["workspace"],
     lifecycle: { ownsPayloadSchema: false, ownsPersistentData: false, disable: "supported", uninstall: "supported", purge: "supported" },
     contributions: {
-      lifecycle: { [`${namespace}.lifecycle`]: "required" },
+      ...(input.lifecycle === false ? {} : { lifecycle: { [`${namespace}.lifecycle`]: "required" } }),
       ...(input.jobs ? { jobs: { [`${namespace}.job`]: "required" } } : {})
     }
   };
@@ -98,6 +99,7 @@ function lifecyclePlan(
       readonly callable: () => () => string;
     }) => void;
     readonly jobs?: boolean;
+    readonly lifecycle?: boolean;
   } = {}
 ): PluginRegistration {
   const namespace = manifestValue.id.split(".")[1]!;
@@ -106,10 +108,12 @@ function lifecyclePlan(
     providers: options.provideCapability === undefined ? undefined : (context) => context.provide(options.provideCapability!, options.service),
     behavior(context) {
       if (options.capture && options.capability) options.capture(context.services.get(options.capability));
-      context.register("lifecycle", `${namespace}.lifecycle`, {
-        id: `${namespace}.lifecycle`, version: 1, ownerPluginId: manifestValue.id,
-        disable: "supported", reenable: "supported", purge: "supported"
-      });
+      if (options.lifecycle !== false) {
+        context.register("lifecycle", `${namespace}.lifecycle`, {
+          id: `${namespace}.lifecycle`, version: 1, ownerPluginId: manifestValue.id,
+          disable: "supported", reenable: "supported", purge: "supported"
+        });
+      }
     },
     jobs: options.jobs ? (context) => {
       context.register("jobs", `${namespace}.job`, {
@@ -236,6 +240,60 @@ describe("plugin lifecycle", () => {
     ]);
     expect(reenabled.contributions.jobs).toHaveLength(1);
     expect(capturedNow?.()).toBe("now");
+  });
+
+  it("scopes required graph participants without lifecycle contributions and preserves unrelated registrations", () => {
+    const provider = lifecycleManifest({
+      id: "provider.clock", provides: [{ capability: "clock.now", version: "1.0.0" }], lifecycle: false
+    });
+    const consumer = lifecycleManifest({
+      id: "module.consumer", requires: [{ capability: "clock.now", version: "^1.0.0" }], jobs: true, lifecycle: false
+    });
+    const independent = lifecycleManifest({ id: "module.independent", jobs: true, lifecycle: false });
+    const manifests = [provider, consumer, independent] as const;
+    const graph: ResolvedPluginGraph = {
+      resolverVersion: "1.0.0",
+      plugins: [
+        { id: provider.id, kind: provider.kind, package: provider.package, version: provider.version, integrity: "sha512-provider.clock", required: [], optional: [] },
+        { id: consumer.id, kind: consumer.kind, package: consumer.package, version: consumer.version, integrity: "sha512-module.consumer", required: [provider.id], optional: [] },
+        { id: independent.id, kind: independent.kind, package: independent.package, version: independent.version, integrity: "sha512-module.independent", required: [], optional: [] }
+      ],
+      capabilityProviders: [{ capability: "clock.now", plugin: provider.id, version: "1.0.0" }],
+      registrationOrder: manifests.map(({ id }) => id)
+    };
+    let capturedNow: (() => string) | undefined;
+    const registrationResult = executeLifecycleRegistration(
+      manifests,
+      [
+        lifecyclePlan(provider, { provideCapability: "clock.now", service: { now: () => "now" }, lifecycle: false }),
+        lifecyclePlan(consumer, { capability: "clock.now", capture: (service) => { capturedNow = service.now; }, jobs: true, lifecycle: false }),
+        lifecyclePlan(independent, { jobs: true, lifecycle: false })
+      ],
+      graph
+    );
+    const providerAvailability = reconcilePluginAvailability(registrationResult, lifecycleState(provider));
+    const consumerAvailability = reconcilePluginAvailability(registrationResult, lifecycleState(consumer));
+
+    expect(() => scopePluginRegistration(registrationResult, [consumerAvailability])).toThrow(/requires lifecycle availability/);
+    const enabled = scopePluginRegistration(registrationResult, [providerAvailability, consumerAvailability]);
+    expect(enabled.contributions.jobs.map(({ pluginId }) => pluginId)).toEqual([consumer.id, independent.id]);
+    expect(capturedNow?.()).toBe("now");
+
+    const disabled = scopePluginRegistration(registrationResult, [
+      reconcilePluginAvailability(registrationResult, lifecycleState(provider, false)),
+      consumerAvailability
+    ]);
+    expect(disabled.contributions.jobs.map(({ pluginId }) => pluginId)).toEqual([independent.id]);
+    expect(disabled.bindings.jobs.map(({ pluginId }) => pluginId)).toEqual([independent.id]);
+    expect(disabled.inventory.find(({ id }) => id === consumer.id)?.contributions).toEqual({});
+    expect(() => capturedNow?.()).toThrow(/Capability service is unavailable/);
+
+    const notReady = scopePluginRegistration(registrationResult, [
+      reconcilePluginAvailability(registrationResult, lifecycleState(provider, true, false)),
+      consumerAvailability
+    ]);
+    expect(notReady.contributions.jobs.map(({ pluginId }) => pluginId)).toEqual([independent.id]);
+    expect(() => capturedNow?.()).toThrow(/Capability service is unavailable/);
   });
 
   it("propagates required dependency revocation transitively without revoking optional consumers", () => {
