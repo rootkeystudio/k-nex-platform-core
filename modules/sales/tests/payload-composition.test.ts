@@ -5,13 +5,12 @@ import { executeRegistration, type RegistrationResult } from "@k-nex/runtime";
 import { PluginManifestSchema } from "@k-nex/contracts";
 import { salesOpportunitiesCollection, salesRegistration, salesTasksCollection } from "@k-nex/module-sales/server";
 import { salesTaskFixture } from "@k-nex/module-sales/testing";
+import { composePayloadApplication, PayloadCompositionError } from "@k-nex/payload-adapter";
 import { buildConfig, type CollectionConfig } from "payload";
 import { describe, expect, it } from "vitest";
 
-import { composePayloadApplication, PayloadCompositionError } from "../src/index.js";
-
 const salesManifest = PluginManifestSchema.parse(JSON.parse(readFileSync(
-  resolve(import.meta.dirname, "../../../modules/sales/k-nex.plugin.json"),
+  resolve(import.meta.dirname, "../k-nex.plugin.json"),
   "utf8"
 )));
 
@@ -84,7 +83,7 @@ describe("Payload application composition", () => {
     expect(sanitized.collections.map(({ slug }) => slug)).toContain("sales-opportunities");
   });
 
-  it("requires an authenticated actor and preserves the Payload request context", async () => {
+  it("rejects direct collection access even for authenticated actors and preserves the Payload request context", async () => {
     const access = salesTasksCollection.access?.read;
     expect(access).toBeTypeOf("function");
     const context = { correlationId: "gate-1-request" };
@@ -93,20 +92,20 @@ describe("Payload application composition", () => {
     const mcpKeyRequest = { user: { id: "key-1", collection: "payload-mcp-api-keys" }, context };
 
     await expect(Promise.resolve(access?.({ req: anonymousRequest } as never))).resolves.toBe(false);
-    await expect(Promise.resolve(access?.({ req: actorRequest } as never))).resolves.toBe(true);
+    await expect(Promise.resolve(access?.({ req: actorRequest } as never))).resolves.toBe(false);
     await expect(Promise.resolve(access?.({ req: mcpKeyRequest } as never))).resolves.toBe(false);
     expect(anonymousRequest.context).toBe(context);
     expect(actorRequest.context).toBe(context);
   });
 
-  it("applies the same authenticated collection boundary to Sales opportunities", () => {
+  it("applies the same internal-only collection boundary to Sales opportunities", () => {
     const access = salesOpportunitiesCollection.access?.read;
     expect(access).toBeTypeOf("function");
     expect((access as Function)({ req: { user: null } })).toBe(false);
-    expect((access as Function)({ req: { user: { id: "actor-1", collection: "users" } } })).toBe(true);
+    expect((access as Function)({ req: { user: { id: "actor-1", collection: "users" } } })).toBe(false);
   });
 
-  it("retains disabled plugin schema and reads while gating collection writes", async () => {
+  it("retains disabled plugin schema while direct collection access stays closed", async () => {
     const disabled = {
       pluginId: "module.sales", enabled: false, ready: true, contributions: {},
       isAvailable: (kind: string) => kind === "schema"
@@ -117,7 +116,7 @@ describe("Payload application composition", () => {
     });
     const collection = composed.config.collections?.find(({ slug }) => slug === "sales-tasks");
     expect(collection).toBeDefined();
-    expect(await collection?.access?.read?.({ req: { user: { id: "actor-1", collection: "users" } } } as never)).not.toBe(false);
+    expect(await collection?.access?.read?.({ req: { user: { id: "actor-1", collection: "users" } } } as never)).toBe(false);
     expect(await collection?.access?.create?.({} as never)).toBe(false);
     expect(await collection?.access?.update?.({} as never)).toBe(false);
     expect(await collection?.access?.delete?.({} as never)).toBe(false);
@@ -165,7 +164,7 @@ describe("Payload application composition", () => {
   });
 
   it("exposes the seven separated plugin entrypoints and a typed testing fixture", () => {
-    const packageJson = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../../modules/sales/package.json"), "utf8"));
+    const packageJson = JSON.parse(readFileSync(resolve(import.meta.dirname, "../package.json"), "utf8"));
     expect(Object.hasOwn(packageJson.exports, ".")).toBe(false);
     expect(Object.keys(packageJson.exports).sort()).toEqual([
       "./browser", "./contracts", "./manifest", "./migrations", "./server", "./testing", "./ui"

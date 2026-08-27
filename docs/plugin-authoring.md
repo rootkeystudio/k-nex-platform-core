@@ -15,7 +15,7 @@ The canonical category list, phase, and authority live in [the typed contributio
 
 ## Entrypoints and package boundary
 
-Use [the Sales export map](../modules/sales/package.json) as the package template. Only declared files enter the tarball. [The reproducibility check](../modules/sales/scripts/check-pack.mjs) compares every packed entry with the customer-installed artifact, while [the customer composition test](../packages/payload-adapter/tests/payload-composition.test.ts) proves public entrypoint loading and Payload ownership.
+Use [the Sales export map](../modules/sales/package.json) as the package template. Only declared files enter the tarball. [The reproducibility check](../modules/sales/scripts/check-pack.mjs) compares every packed entry with the customer-installed artifact, while [the customer composition test](../modules/sales/tests/payload-composition.test.ts) proves public entrypoint loading and Payload ownership.
 
 ## Sources, actions, and tools
 

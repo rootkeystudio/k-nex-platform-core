@@ -61,12 +61,18 @@ test("every Sales UI contribution renders outside the editor and every block rec
   const input = {
     node: { id: "reference", type: "sales.reference", version: 1, props: { title: "Reference" } },
     props: { title: "Reference" }, surface: "workspace", actor,
-    sourceResult: { state: "empty" }
+    sourceResult: { state: "empty" },
+    action: { id: "sales.task.create", version: 1 }
   };
+  const kinds = new Set();
   for (const definition of [...salesUiComponentDefinitions, ...salesUiBlockDefinitions]) {
-    assert.equal(typeof definition.render(input), "object");
+    const rendered = definition.render(input);
+    assert.equal(typeof rendered, "object");
+    kinds.add(rendered.kind);
     assert.equal(definition.descriptor.requiredStates.length, 4);
+    assert.deepEqual(definition.actionPolicy, definition.descriptor.actionPolicy);
   }
+  assert.deepEqual([...kinds].sort(), ["data-list", "data-table", "detail", "form", "metric", "settings-summary", "status"]);
   for (const definition of salesUiBlockDefinitions) {
     const bridge = reconcilePuckBlockContribution(definition, salesTaskTablePuckAuthoring);
     assert.deepEqual(bridge.definition.render(input), definition.render(input));

@@ -41,6 +41,8 @@ export const uiRuntimeFallbackReasons = [
   "SOURCE_FIELD_UNAVAILABLE",
   "SOURCE_FIELD_PERMISSION_DENIED",
   "SOURCE_RESULT_INVALID",
+  "ACTION_BINDING_REQUIRED",
+  "ACTION_NOT_ACCEPTED",
   "RENDER_FAILED"
 ] as const;
 
@@ -262,6 +264,14 @@ function sourceBindingReason(
   return undefined;
 }
 
+function actionBindingReason(definition: UiBlockDefinition, node: UiNode): UiRuntimeFallbackReason | undefined {
+  const policy = definition.actionPolicy;
+  const binding = node.bindings?.action;
+  if (policy === undefined) return binding === undefined ? undefined : "ACTION_NOT_ACCEPTED";
+  if (binding === undefined) return policy.required ? "ACTION_BINDING_REQUIRED" : undefined;
+  return policy.actions.some(({ id, version }) => id === binding.id && version === binding.version) ? undefined : "ACTION_NOT_ACCEPTED";
+}
+
 function nodeResultMetadata(node: UiNode): Pick<UiRuntimeRenderedNode, "nodeId" | "blockId" | "blockVersion"> {
   return { nodeId: node.id, blockId: node.type, blockVersion: node.version };
 }
@@ -289,6 +299,7 @@ function remediationFor(reason: UiRuntimeFallbackReason): UiRuntimeRemediation {
   if (reason === "MISSING_SOURCE") return "RESTORE_SOURCE";
   if (reason === "SOURCE_STRUCTURAL_HASH_MISMATCH") return "MIGRATE_DOCUMENT";
   if (reason.startsWith("SOURCE_") || reason === "SOURCE_BINDING_REQUIRED") return "UPDATE_SOURCE_BINDING";
+  if (reason.startsWith("ACTION_")) return "FIX_BLOCK_CONFIGURATION";
   if (reason === "PERMISSION_DENIED" || reason === "AUDIENCE_DENIED") return "REQUEST_ACCESS";
   if (reason === "RENDER_FAILED") return "RETRY_OR_REPAIR_RENDERER";
   return "FIX_BLOCK_CONFIGURATION";
@@ -323,6 +334,9 @@ function renderNode(
     return nodeResult(node, children, "INVALID_PROPS");
   }
 
+  const actionReason = actionBindingReason(definition, node);
+  if (actionReason !== undefined) return nodeResult(node, children, actionReason);
+
   const sourceReason = sourceBindingReason(definition, node, surface, actor, registry);
   if (sourceReason !== undefined) {
     const reference = node.bindings?.source?.source;
@@ -348,6 +362,7 @@ function renderNode(
       surface,
       actor,
       ...(source === undefined ? {} : { source }),
+      ...(node.bindings?.action === undefined ? {} : { action: node.bindings.action }),
       ...(sourceResult === undefined ? {} : { sourceResult })
     });
     return { status: "rendered", ...nodeResultMetadata(node), output, children };

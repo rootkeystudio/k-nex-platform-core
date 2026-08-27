@@ -4,6 +4,7 @@ import type { PluginSettingValue, PluginSettingsDescriptor, PluginSettingsDocume
 
 import {
   PluginSettingsError,
+  PluginSettingsService,
   resolvePluginSettings,
   type PluginSettingsRuntimeDefinition
 } from "../src/plugin-settings.js";
@@ -123,5 +124,27 @@ describe("P6.3 plugin settings runtime", () => {
       migrate: () => { throw new Error("failed"); }
     }]), document), "MIGRATION_FAILED");
     expect(document).toEqual(before);
+  });
+
+  it("reads and changes persisted settings only with explicit permissions and revision", async () => {
+    let document: PluginSettingsDocument = {
+      settingsId: descriptor.id, schemaVersion: 2, revision: 4,
+      values: { defaultTaskPageSize: 25, showPotentialRevenue: true }
+    };
+    const service = new PluginSettingsService({
+      read: async () => structuredClone(document),
+      replace: async (candidate, expectedRevision) => {
+        if (document.revision !== expectedRevision) return undefined;
+        document = structuredClone(candidate);
+        return structuredClone(document);
+      }
+    });
+    const readActor = { permissions: new Set([descriptor.readPermission]) };
+    const changeActor = { permissions: new Set([descriptor.changePermission]) };
+    await expect(service.read(definition(), { permissions: new Set() })).rejects.toMatchObject({ code: "ACCESS_DENIED" });
+    await expect(service.change({ definition: definition(), actor: readActor, expectedRevision: 4, values: { defaultTaskPageSize: 50, showPotentialRevenue: true } })).rejects.toMatchObject({ code: "ACCESS_DENIED" });
+    await expect(service.change({ definition: definition(), actor: changeActor, expectedRevision: 3, values: { defaultTaskPageSize: 50, showPotentialRevenue: true } })).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+    expect(await service.change({ definition: definition(), actor: changeActor, expectedRevision: 4, values: { defaultTaskPageSize: 50, showPotentialRevenue: false } })).toMatchObject({ revision: 5, values: { defaultTaskPageSize: 50, showPotentialRevenue: false } });
+    expect(await service.read(definition(), readActor)).toMatchObject({ revision: 5, values: { defaultTaskPageSize: 50, showPotentialRevenue: false } });
   });
 });

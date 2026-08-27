@@ -29,12 +29,18 @@ export interface UiBlockSourcePolicy {
   readonly requiredFields: readonly TableFieldId[];
 }
 
+export interface UiBlockActionPolicy {
+  readonly required: boolean;
+  readonly actions: readonly { readonly id: string; readonly version: number }[];
+}
+
 export interface UiBlockRenderInput {
   readonly node: UiNode;
   readonly props: unknown;
   readonly surface: UiRuntimeSurface;
   readonly actor: UiRuntimeActor;
   readonly source?: DataSourceDescriptor;
+  readonly action?: { readonly id: string; readonly version: number };
   readonly sourceResult?: DataSourceBindingResult<unknown>;
 }
 
@@ -50,6 +56,7 @@ export interface UiBlockDefinition<TResult = unknown> {
   readonly permission?: string;
   readonly propsSchema: RuntimeSchema;
   readonly sourcePolicy?: UiBlockSourcePolicy;
+  readonly actionPolicy?: UiBlockActionPolicy;
   readonly render: UiBlockRenderer<TResult>;
 }
 
@@ -122,6 +129,14 @@ function assertBlockDefinition(definition: UiBlockDefinition): void {
       throw new TypeError("UI contribution descriptor and renderer binding do not reconcile.");
     }
   }
+  if (definition.actionPolicy !== undefined) {
+    if (typeof definition.actionPolicy.required !== "boolean") throw new TypeError("UI block action policy must declare whether an action is required.");
+    const actionKeys = definition.actionPolicy.actions.map(({ id, version }) => keyOf(id, version));
+    assertUniqueStrings(actionKeys, "UI block actions");
+    if (!definition.actionPolicy.actions.every(({ id, version }) => ResourceIdSchema.safeParse(id).success && Number.isSafeInteger(version) && version > 0)) {
+      throw new TypeError("UI block actions must use canonical identities.");
+    }
+  }
   if (definition.sourcePolicy === undefined) return;
   if (typeof definition.sourcePolicy.required !== "boolean") throw new TypeError("UI block source policy must declare whether a source is required.");
 
@@ -151,6 +166,12 @@ function copyBlock(definition: UiBlockDefinition): UiBlockDefinition {
         contracts: Object.freeze(definition.sourcePolicy.contracts.map((contract) => Object.freeze({ ...contract }))),
         requiredFields: Object.freeze([...definition.sourcePolicy.requiredFields])
       })
+    }),
+    ...(definition.actionPolicy === undefined ? {} : {
+      actionPolicy: Object.freeze({
+        required: definition.actionPolicy.required,
+        actions: Object.freeze(definition.actionPolicy.actions.map((action) => Object.freeze({ ...action })))
+      })
     })
   });
 }
@@ -175,6 +196,7 @@ export function defineUiContributionBinding<TResult>(input: {
     ...(descriptor.permission === undefined ? {} : { permission: descriptor.permission }),
     propsSchema: input.propsSchema,
     ...(descriptor.sourcePolicy === undefined ? {} : { sourcePolicy: descriptor.sourcePolicy }),
+    ...(descriptor.actionPolicy === undefined ? {} : { actionPolicy: descriptor.actionPolicy }),
     render: input.render
   };
   assertBlockDefinition(definition);

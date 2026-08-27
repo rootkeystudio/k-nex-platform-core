@@ -17,8 +17,20 @@ import {
   salesTotalPotentialRevenueDescriptor,
   salesTotalPotentialRevenueOutputRuntimeSchema,
   salesUpdateTaskInputRuntimeSchema,
-  salesUpdateTaskOutputRuntimeSchema
+  salesUpdateTaskOutputRuntimeSchema,
+  type SalesWorkspaceSettings
 } from "./contracts.js";
+
+export function salesWorkspacePresentation(settings: SalesWorkspaceSettings) {
+  const routeId = settings.defaultPage === "overview" ? "sales.route.overview"
+    : settings.defaultPage === "opportunities" ? "sales.route.opportunities" : "sales.route.tasks";
+  return Object.freeze({
+    routeId,
+    taskPageSize: settings.defaultTaskPageSize,
+    showPotentialRevenue: settings.showPotentialRevenue,
+    pipelineStages: Object.freeze([...settings.pipelineStages])
+  });
+}
 
 export const salesTasksQuery = defineSourceQuery({
   source: { id: salesTasksDescriptor.id, version: salesTasksDescriptor.version },

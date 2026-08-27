@@ -9,6 +9,7 @@ import type {
   PluginPageTemplateDescriptor,
   PluginRouteDescriptor,
   PluginSettingsDescriptor,
+  PluginSettingValue,
   PluginUiContributionDescriptor,
   RuntimeSchema,
   TableRecords
@@ -485,6 +486,13 @@ export const salesWorkspaceSettingsDescriptor: PluginSettingsDescriptor = {
   publicationRevision: 1
 };
 
+export type SalesWorkspaceSettings = Readonly<{
+  defaultTaskPageSize: number;
+  showPotentialRevenue: boolean;
+  defaultPage: "overview" | "tasks" | "opportunities";
+  pipelineStages: readonly string[];
+}> & Readonly<Record<string, PluginSettingValue>>;
+
 function permission(
   id: string,
   title: string,
@@ -535,7 +543,7 @@ export const salesRouteDescriptors = Object.freeze([
     surface: "workspace",
     audience: "authenticated",
     permission: "sales.tasks.read",
-    viewId: "sales.metric.total-potential-revenue"
+    viewId: "sales.page.overview"
   },
   {
     id: "sales.route.tasks",
@@ -545,17 +553,7 @@ export const salesRouteDescriptors = Object.freeze([
     surface: "workspace",
     audience: "authenticated",
     permission: "sales.tasks.read",
-    viewId: "sales.view.tasks"
-  },
-  {
-    id: "sales.route.task-detail",
-    ownerPluginId: "module.sales",
-    path: "/sales/tasks/:taskId",
-    parameters: { taskId: { type: "string" } },
-    surface: "workspace",
-    audience: "authenticated",
-    permission: "sales.tasks.read",
-    viewId: "sales.view.task-detail"
+    viewId: "sales.page.tasks"
   },
   {
     id: "sales.route.opportunities",
@@ -565,7 +563,7 @@ export const salesRouteDescriptors = Object.freeze([
     surface: "workspace",
     audience: "authenticated",
     permission: "sales.opportunities.read",
-    viewId: "sales.list.opportunities"
+    viewId: "sales.page.opportunities"
   },
   {
     id: "sales.route.settings",
@@ -575,7 +573,7 @@ export const salesRouteDescriptors = Object.freeze([
     surface: "workspace",
     audience: "authenticated",
     permission: "sales.settings.read",
-    viewId: "sales.form.task-quick-create"
+    viewId: "sales.page.settings"
   }
 ] satisfies readonly PluginRouteDescriptor[]);
 
@@ -627,7 +625,7 @@ export const salesTaskPageTemplate: PluginPageTemplateDescriptor = {
     capabilities: [],
     sources: [{ id: salesTasksDescriptor.id, version: salesTasksDescriptor.version }],
     actions: [{ id: salesTaskCreateDescriptor.id, version: salesTaskCreateDescriptor.version }],
-    blocks: [{ id: "sales.task-table", version: 2 }]
+    blocks: [{ id: "sales.task-table", version: 2 }, { id: "sales.task-quick-create", version: 1 }]
   },
   document: {
     id: "sales.page.tasks",
@@ -648,6 +646,12 @@ export const salesTaskPageTemplate: PluginPageTemplateDescriptor = {
             selectedFields: ["title", "status", "potential-revenue"]
           }
         }
+      }, {
+        id: "sales-task-create",
+        type: "sales.task-quick-create",
+        version: 1,
+        props: { title: "Create task" },
+        bindings: { action: { id: salesTaskCreateDescriptor.id, version: salesTaskCreateDescriptor.version } }
       }]
     }
   }
@@ -691,10 +695,10 @@ export const salesSettingsPageTemplate: PluginPageTemplateDescriptor = {
   id: "sales.page.settings", version: 1, ownerPluginId: "module.sales",
   route: { routeId: "sales.route.settings", params: {} }, surface: "workspace", profile: "workspace",
   permission: "sales.settings.read", publicationPolicy: { ownership: "customer", adoption: "explicit" },
-  requirements: { capabilities: [], sources: [], actions: [{ id: salesTaskCreateDescriptor.id, version: 1 }], blocks: [{ id: "sales.task-quick-create", version: 1 }] },
+  requirements: { capabilities: [], sources: [], actions: [], blocks: [{ id: "sales.settings-summary", version: 1 }] },
   document: {
     id: "sales.page.settings", version: 1, schemaVersion: 1, profile: "workspace",
-    regions: { main: [{ id: "sales-quick-create", type: "sales.task-quick-create", version: 1, props: { title: "Quick create task" } }] }
+    regions: { main: [{ id: "sales-settings", type: "sales.settings-summary", version: 1, props: { title: "Sales settings" } }] }
   }
 };
 
@@ -766,6 +770,7 @@ export const salesRevenueMetricBlockDescriptor = uiContribution("sales.revenue-m
 export const salesQuickCreateBlockDescriptor = uiContribution("sales.task-quick-create", "block", "sales.tasks.write", undefined, { required: true, actions: [{ id: salesTaskCreateDescriptor.id, version: 1 }] });
 export const salesOpportunityListBlockDescriptor = uiContribution("sales.opportunity-list", "block", "sales.opportunities.read", opportunitySourcePolicy);
 export const salesOpportunityDetailBlockDescriptor = uiContribution("sales.opportunity-detail", "block", "sales.opportunities.read", opportunitySourcePolicy, { required: false, actions: [{ id: salesOpportunityStageUpdateDescriptor.id, version: 1 }] });
+export const salesSettingsSummaryBlockDescriptor = uiContribution("sales.settings-summary", "block", "sales.settings.read");
 
 export const salesUiComponentDescriptors = Object.freeze([
   salesTaskTableComponentDescriptor, salesRevenueMetricComponentDescriptor, salesQuickCreateComponentDescriptor,
@@ -773,7 +778,7 @@ export const salesUiComponentDescriptors = Object.freeze([
 ]);
 export const salesUiBlockDescriptors = Object.freeze([
   salesTaskTableBlockDescriptor, salesRevenueMetricBlockDescriptor, salesQuickCreateBlockDescriptor,
-  salesOpportunityListBlockDescriptor, salesOpportunityDetailBlockDescriptor
+  salesOpportunityListBlockDescriptor, salesOpportunityDetailBlockDescriptor, salesSettingsSummaryBlockDescriptor
 ]);
 
 export const salesEventDescriptors = Object.freeze([

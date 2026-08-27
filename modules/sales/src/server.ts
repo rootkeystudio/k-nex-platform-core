@@ -3,8 +3,7 @@ import { randomUUID } from "node:crypto";
 import {
   type RuntimeSchema,
   type DataSourceDefinition,
-  type DataSourceQueryControls,
-  type PluginSettingValue
+  type DataSourceQueryControls
 } from "@k-nex/contracts";
 import { createOutboxRealtimeRelay, writeTransactionalOutboxEvent } from "@k-nex/payload-adapter";
 import type {
@@ -48,6 +47,7 @@ import {
   salesUpdateTaskInputRuntimeSchema,
   salesUpdateTaskOutputRuntimeSchema,
   salesWorkspaceSettingsDescriptor,
+  type SalesWorkspaceSettings,
   type CreateTaskInput,
   type CreateTaskOutput,
   type UpdateOpportunityStageInput,
@@ -639,8 +639,6 @@ export const salesOpportunitiesCollection: CollectionConfig = {
   ],
   indexes: [{ fields: ["stage"] }]
 };
-
-type SalesWorkspaceSettings = Readonly<Record<string, PluginSettingValue>>;
 
 export const salesWorkspaceSettingsDefinition: PluginSettingsRuntimeDefinition<SalesWorkspaceSettings> = {
   descriptor: salesWorkspaceSettingsDescriptor,

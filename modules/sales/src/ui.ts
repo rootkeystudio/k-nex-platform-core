@@ -35,6 +35,29 @@ export function salesTaskTableRenderer(input: UiBlockRenderInput) {
   });
 }
 
+function rendererKind(id: string): "data-table" | "metric" | "form" | "data-list" | "detail" | "status" | "settings-summary" {
+  if (id.includes("revenue")) return "metric";
+  if (id.includes("quick-create")) return "form";
+  if (id.includes("opportunity-list") || id === "sales.list.opportunities") return "data-list";
+  if (id.includes("opportunity-detail") || id === "sales.detail.opportunity") return "detail";
+  if (id.includes("pipeline")) return "status";
+  if (id.includes("settings-summary")) return "settings-summary";
+  return "data-table";
+}
+
+function contributionRenderer(id: string) {
+  return (input: UiBlockRenderInput) => {
+    const props = input.props as { readonly title: string };
+    const state = input.sourceResult?.state ?? "idle";
+    return Object.freeze({
+      kind: rendererKind(id), title: props.title, state,
+      ...(input.action === undefined ? {} : { action: input.action }),
+      ...(input.sourceResult !== undefined && "data" in input.sourceResult ? { data: input.sourceResult.data } : {}),
+      ...(input.sourceResult !== undefined && "problem" in input.sourceResult ? { problemCode: input.sourceResult.problem.code } : {})
+    });
+  };
+}
+
 export const salesTaskTableComponent = defineUiContributionBinding({
   descriptor: salesTaskTableComponentDescriptor,
   propsSchema: taskTablePropsRuntimeSchema,
@@ -51,7 +74,7 @@ function definition(descriptor: (typeof salesUiComponentDescriptors)[number] | (
   return defineUiContributionBinding({
     descriptor,
     propsSchema: taskTablePropsRuntimeSchema,
-    render: salesTaskTableRenderer
+    render: contributionRenderer(descriptor.id)
   });
 }
 

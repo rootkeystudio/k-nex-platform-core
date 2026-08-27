@@ -24,7 +24,6 @@
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",
-    "@k-nex/module-sales": "workspace:*",
     "esbuild": "0.28.2",
     "typescript": "6.0.3",
     "vitest": "4.1.6"

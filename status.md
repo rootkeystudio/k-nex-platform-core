@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Bound Sales task/opportunity actions to transactional outbox hooks and an executable Sales realtime relay; action mutations now emit durable, minimal invalidation events inside the same Payload transaction.
+Added persisted action bindings and distinct Sales metric/form/list/detail/status/settings renderers; all routes now target registered page templates, while permission-aware persisted settings drive default route and source presentation.
 
 ## Validation
 
-Node 24.19.0: Sales server 13/13 and full PostgreSQL gate PASS; real task/opportunity actions atomically emitted durable events, processor delivered both, and realtime gateway received authoritative source invalidations.
+Node 24.19.0: `pnpm contracts:validate`, Sales 31-test suite, payload-adapter 31-test suite, deterministic Sales pack check, and the real PostgreSQL customer gate PASS. UI runtime 41 and runtime 174 focused tests PASS.
 
 ## Next
 

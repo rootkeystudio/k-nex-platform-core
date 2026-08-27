@@ -99,6 +99,14 @@ describe("UI document runtime", () => {
     expect(firstNode(runtime.render({ document: document(), surface: "workspace", actor: actor() }))).toMatchObject({ reason: "SOURCE_BINDING_REQUIRED" });
   });
 
+  it("requires persisted actions to match the component action policy", () => {
+    const actionBlock = block({ actionPolicy: { required: true, actions: [{ id: "sales.task.create", version: 1 }] } });
+    const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [actionBlock], sources: [] }));
+    expect(firstNode(runtime.render({ document: document(), surface: "workspace", actor: actor() }))).toMatchObject({ reason: "ACTION_BINDING_REQUIRED" });
+    expect(firstNode(runtime.render({ document: document({ bindings: { action: { id: "sales.task.delete", version: 1 } } }), surface: "workspace", actor: actor() }))).toMatchObject({ reason: "ACTION_NOT_ACCEPTED" });
+    expect(firstNode(runtime.render({ document: document({ bindings: { action: { id: "sales.task.create", version: 1 } } }), surface: "workspace", actor: actor() }))).toMatchObject({ status: "rendered" });
+  });
+
   it("rejects incompatible source structure and descriptor-level input before rendering", () => {
     const render = vi.fn(({ props }: { props: unknown }) => props);
     const dataBlock = block({ sourcePolicy: { required: true, contracts: [{ id: "table.records", version: 1 }], requiredFields: ["title"] }, render });

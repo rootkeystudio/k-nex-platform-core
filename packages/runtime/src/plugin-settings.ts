@@ -10,6 +10,7 @@ import {
 } from "@k-nex/contracts";
 
 export type PluginSettingsErrorCode =
+  | "ACCESS_DENIED"
   | "DEFINITION_INVALID"
   | "DOCUMENT_INVALID"
   | "FIELD_INVALID"
@@ -17,6 +18,7 @@ export type PluginSettingsErrorCode =
   | "FIELD_UNKNOWN"
   | "MIGRATION_INVALID"
   | "MIGRATION_FAILED"
+  | "REVISION_CONFLICT"
   | "SCHEMA_INVALID";
 
 export class PluginSettingsError extends Error {
@@ -43,6 +45,48 @@ export interface ResolvedPluginSettings<T extends Readonly<Record<string, Plugin
   readonly schemaVersion: number;
   readonly revision: number;
   readonly values: T;
+}
+
+export interface PluginSettingsActor {
+  readonly permissions: ReadonlySet<string>;
+}
+
+export interface PluginSettingsStore {
+  read(settingsId: string): Promise<PluginSettingsDocument | undefined>;
+  replace(document: PluginSettingsDocument, expectedRevision: number): Promise<PluginSettingsDocument | undefined>;
+}
+
+export class PluginSettingsService {
+  constructor(private readonly store: PluginSettingsStore) {}
+
+  async read<T extends Readonly<Record<string, PluginSettingValue>>>(
+    definition: PluginSettingsRuntimeDefinition<T>,
+    actor: PluginSettingsActor
+  ): Promise<ResolvedPluginSettings<T>> {
+    if (!actor.permissions.has(definition.descriptor.readPermission)) fail("ACCESS_DENIED", "Plugin settings read access is denied.");
+    return resolvePluginSettings(definition, await this.store.read(definition.descriptor.id));
+  }
+
+  async change<T extends Readonly<Record<string, PluginSettingValue>>>(input: {
+    readonly definition: PluginSettingsRuntimeDefinition<T>;
+    readonly actor: PluginSettingsActor;
+    readonly expectedRevision: number;
+    readonly values: T;
+  }): Promise<ResolvedPluginSettings<T>> {
+    if (!input.actor.permissions.has(input.definition.descriptor.changePermission)) fail("ACCESS_DENIED", "Plugin settings change access is denied.");
+    const current = await this.store.read(input.definition.descriptor.id);
+    if (current === undefined || current.revision !== input.expectedRevision) fail("REVISION_CONFLICT", "Plugin settings revision changed before update.");
+    const candidate: PluginSettingsDocument = {
+      settingsId: input.definition.descriptor.id,
+      schemaVersion: input.definition.descriptor.schemaVersion,
+      revision: current.revision + 1,
+      values: input.values
+    };
+    resolvePluginSettings(input.definition, candidate);
+    const replaced = await this.store.replace(candidate, input.expectedRevision);
+    if (replaced === undefined) fail("REVISION_CONFLICT", "Plugin settings revision changed during update.");
+    return resolvePluginSettings(input.definition, replaced);
+  }
 }
 
 function fail(code: PluginSettingsErrorCode, message: string, path: readonly string[] = []): never {

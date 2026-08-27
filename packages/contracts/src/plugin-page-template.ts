@@ -69,7 +69,7 @@ export const PluginPageTemplateDescriptorSchema = z.strictObject({
       if (!requiredBlocks.has(`${node.type}@${node.version}`)) {
         context.issues.push({ code: "custom", input: node.type, path: ["requirements", "blocks"], message: `Template block ${node.type}@${node.version} is not declared.` });
       }
-      const source = node.bindings?.source.source;
+      const source = node.bindings?.source?.source;
       if (source !== undefined && !requiredSources.has(`${source.id}@${source.version}`)) {
         context.issues.push({ code: "custom", input: source.id, path: ["requirements", "sources"], message: `Template source ${source.id}@${source.version} is not declared.` });
       }

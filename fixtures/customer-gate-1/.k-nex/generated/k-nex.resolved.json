@@ -36,6 +36,7 @@
           "sales.opportunity-detail": "required",
           "sales.opportunity-list": "required",
           "sales.revenue-metric": "required",
+          "sales.settings-summary": "required",
           "sales.task-quick-create": "required",
           "sales.task-table": "required"
         },
@@ -101,7 +102,6 @@
           "sales.route.opportunities": "required",
           "sales.route.overview": "required",
           "sales.route.settings": "required",
-          "sales.route.task-detail": "required",
           "sales.route.tasks": "required"
         },
         "schema": {
@@ -131,7 +131,7 @@
         "names": []
       },
       "id": "module.sales",
-      "integrity": "sha512-hKzGUMIpxz4qtdyGsSqyaWfuszt3QFMvZMPOozF55wSYEccAo2CwIE4glX3lAvLFGFnMBobMEqg0q6w+c6db4w==",
+      "integrity": "sha512-EaVZPq99wrPAk3JdVhzTzZtBFv31i5DuXby4fm2nQ7ExoT2z0lnqzhFKEhpmPgrnK3XMCQKCGwpCqVfF72YqCg==",
       "kind": "module",
       "lifecycle": {
         "disable": "supported",
@@ -140,7 +140,7 @@
         "purge": "supported",
         "uninstall": "unsupported"
       },
-      "manifestDigest": "sha256:40016a1b5d785c3a783527c5a7b6eaa86efba557ef40341960d53d9f78f1067c",
+      "manifestDigest": "sha256:137f9a1ea825abe16e110b856ee25567692a547447b0460518666e955c23aba1",
       "optional": [],
       "package": "@k-nex/module-sales",
       "required": [],

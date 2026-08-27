@@ -102,6 +102,9 @@ importers:
       typescript:
         specifier: 6.0.3
         version: 6.0.3
+      vitest:
+        specifier: 4.1.6
+        version: 4.1.6(@types/node@24.13.3)(happy-dom@20.11.2)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2)(sass@1.77.4)(tsx@4.22.4)(yaml@2.9.0))
 
   packages/architecture-contract-tools:
     dependencies:
@@ -218,9 +221,6 @@ importers:
         specifier: 3.25.76
         version: 3.25.76
     devDependencies:
-      '@k-nex/module-sales':
-        specifier: workspace:*
-        version: link:../../modules/sales
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
         version: 1.30.0(zod@3.25.76)
@@ -1322,7 +1322,7 @@ packages:
     resolution: {integrity: sha512-4JQNk+3mVzK3xh2rqd6RB4J46qUR19azEHBneZyTZM+c456qOrbbM/5xcR8huNCCcbVt7+UmizG6GuUvPvKUYg==}
 
   '@k-nex/module-sales@file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz':
-    resolution: {integrity: sha512-lM24jMcC30k5fONXwLRDfrFspDhT0XkBGkhlXODKAd7SFeBpaXgX1vgmYBCz4lBSNQRZDFPQiypuJJm7TRB2Fg==, tarball: file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz}
+    resolution: {integrity: sha512-EaVZPq99wrPAk3JdVhzTzZtBFv31i5DuXby4fm2nQ7ExoT2z0lnqzhFKEhpmPgrnK3XMCQKCGwpCqVfF72YqCg==, tarball: file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz}
     version: 1.0.0
     peerDependencies:
       '@k-nex/contracts': 0.0.0

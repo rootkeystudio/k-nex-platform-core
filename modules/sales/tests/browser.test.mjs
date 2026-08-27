@@ -7,7 +7,8 @@ import {
   salesOpportunityStageMutation,
   salesTasksQuery,
   salesTotalPotentialRevenueQuery,
-  salesUpdateTaskMutation
+  salesUpdateTaskMutation,
+  salesWorkspacePresentation
 } from "../dist/browser.js";
 
 const signal = new AbortController().signal;
@@ -29,6 +30,20 @@ test("Sales browser factories use stable platform query/action metadata", async 
   const identity = await salesTasksQuery.identity({}, context);
   assert.match(identity.key, /^sha256:[0-9a-f]{64}$/);
   assert.equal(JSON.stringify(identity).includes("actorFingerprint"), true);
+});
+
+test("Sales workspace settings drive default routing and source presentation", () => {
+  assert.deepEqual(salesWorkspacePresentation({
+    defaultTaskPageSize: 50,
+    showPotentialRevenue: false,
+    defaultPage: "opportunities",
+    pipelineStages: ["lead", "qualified", "won", "lost"]
+  }), {
+    routeId: "sales.route.opportunities",
+    taskPageSize: 50,
+    showPotentialRevenue: false,
+    pipelineStages: ["lead", "qualified", "won", "lost"]
+  });
 });
 
 test("Sales browser factories execute only through injected platform transport", async () => {

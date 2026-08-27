@@ -230,7 +230,7 @@ const focusedProofs = [
   },
   {
     id: "sales-mcp-security",
-    packageName: "@k-nex/payload-adapter",
+    packageName: "@k-nex/module-sales",
     file: "tests/mcp-sales-proof.test.ts",
     testName: "runs one logical approved write and enforces actor-filtered MCP list/call",
     attacks: [

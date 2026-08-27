@@ -70,6 +70,7 @@
       "sales.opportunity-detail": "required",
       "sales.opportunity-list": "required",
       "sales.revenue-metric": "required",
+      "sales.settings-summary": "required",
       "sales.task-quick-create": "required",
       "sales.task-table": "required"
     },
@@ -89,7 +90,6 @@
       "sales.route.opportunities": "required",
       "sales.route.overview": "required",
       "sales.route.settings": "required",
-      "sales.route.task-detail": "required",
       "sales.route.tasks": "required"
     },
     "navigation": {

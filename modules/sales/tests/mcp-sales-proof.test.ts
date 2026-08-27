@@ -49,11 +49,10 @@ import {
 } from "@k-nex/module-sales/server";
 import { describe, expect, it } from "vitest";
 
-import { createPayloadMcpPlugin, createPayloadMcpPluginConfig } from "../src/mcp-adapter.js";
-import { PayloadRequestAuthenticator } from "../src/data-source-authenticator.js";
+import { createPayloadMcpPlugin, createPayloadMcpPluginConfig, PayloadRequestAuthenticator } from "@k-nex/payload-adapter";
 
 const manifest = PluginManifestSchema.parse(JSON.parse(readFileSync(
-  resolve(import.meta.dirname, "../../../modules/sales/k-nex.plugin.json"),
+  resolve(import.meta.dirname, "../k-nex.plugin.json"),
   "utf8"
 )));
 
