@@ -55,13 +55,13 @@ Budgets are order-of-magnitude regression fences, not production capacity claims
 | Probe | Observed | Budget |
 |---|---:|---:|
 | component entry gzip | 17,300 B | 45,000 B |
-| DataTable adapter gzip | 18,251 B | 65,000 B |
-| optional rich editor gzip | 104,710 B | 120,000 B |
-| Sales pages gzip | 66,008 B | 150,000 B |
-| 1,000-row semantic table SSR | 109.74 ms | 1,500 ms |
+| DataTable adapter gzip | 47,299 B | 65,000 B |
+| optional rich editor gzip | 105,037 B | 120,000 B |
+| Sales pages gzip | 69,402 B | 150,000 B |
+| 1,000-row semantic table SSR | 72.33 ms | 1,500 ms |
 | 10,000-item virtual list keyboard scroll in Chromium | under 500 ms | 500 ms |
-| 1,000 filter/search/pagination control transitions | 7.11 ms | 500 ms |
-| 1,000-option combobox + 1,000-node tree SSR | 44.68 ms | 1,000 ms |
+| 1,000 filter/search/pagination control transitions | 6.70 ms | 500 ms |
+| 1,000-option combobox + 1,000-node tree SSR | 37.17 ms | 1,000 ms |
 | Chromium initial matrix render | under 2,000 ms | 2,000 ms |
 | dialog open / open-close | under 500 / 1,000 ms | 500 / 1,000 ms |
 | 20 mount/unmount cycles retained heap | under 64 MiB | 64 MiB |
