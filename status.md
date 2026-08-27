@@ -2,21 +2,21 @@
 
 - **Updated:** 2026-08-27
 - **Phase:** Phase 5 — UI Runtime, Themes, and Atomic CMS Publication
-- **Active task:** P5.9 — Gate 5 closeout
-- **State:** Ready for review
+- **Active task:** P5.1 — Implement small semantic primitive ABI
+- **State:** Ready to start
 
 ## Last completed
 
-Closed the selector-boundary blocker anchored to `fd23a864` and recorded full final-head Gate 5 closeout evidence.
+Recorded the post-Phase-5 foundation roadmap: Sales is the sole reference domain module, Gate 6 hardens the complete plugin authoring contract, Gate 7 builds the comprehensive headless component system, and Gate 8 proves lifecycle, `create-knex-app`, release, restore, and fleet safety.
 
 ## Validation
 
-Frozen install, complete `pnpm gate:5`, selector escape/pseudo-element tests, outside-sibling Chromium proof, audit threshold, and repository checks pass.
+This docs-only roadmap branch changes no Phase 5 runtime, package, generated contract, schema, or fixture. Required architecture CI is running against the unchanged through-Gate-4 executable baseline.
 
 ## Next
 
-Push the correction head, refresh PR evidence, and await exact-head CI and project-manager PASS. Start Phase 6 only after PASS and merge.
+Complete and merge Phase 5 PR #19. Then rebase this roadmap PR onto the accepted Gate 5 main branch, set the next task to P6.1, rerun required CI, review, and merge before beginning Phase 6 implementation.
 
 ## Blockers
 
-None.
+Phase 5 must receive project-manager PASS and merge before this roadmap can become the execution source for P6.1.
