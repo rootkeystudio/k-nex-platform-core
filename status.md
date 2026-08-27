@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Corrected the Gate 6 closeout artifact and gate verifier: exact P6 task commits must be ancestors, conformance schema/evidence and generated reference docs are recomputed, current test totals are required, and stale claims fail. The gate no longer passes from a predetermined GO marker.
+Updated the Gate 2A synthetic action/tool fixture to declare and register its exact permission contribution under the stricter Phase 6 reference graph. This was the only failure found by the first full Gate 6 rerun.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: conformance negative suite 4/4 PASS; all 13 exact evidence classes PASS through `pnpm plugin:check modules/sales`, including runner-owned customer Postgres. Exact full Gate 6 rerun is next.
+Node 24.19.0 / pnpm 11.9.0: targeted `node scripts/gate-2a.mjs` PASS with 29 attack proofs and both bounded benchmarks. Exact full Gate 6 rerun is next.
 
 ## Next
 

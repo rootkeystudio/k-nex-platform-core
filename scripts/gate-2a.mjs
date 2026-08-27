@@ -305,8 +305,8 @@ function descriptor(index, overrides = {}) {
     invocation: { kind: "source", source: { id: `fixture.sources.source-${index}`, version: 1 } },
     audience: "authenticated",
     surfaces: ["workspace"],
-    permission: "fixture.tools.read",
-    policy: "fixture.tools.read",
+    permission: "gate-2a.tools.read",
+    policy: "gate-2a.tools.read",
     effect: "read-only",
     risk: "low",
     approval: "none",
@@ -380,15 +380,17 @@ async function directOutputProbe() {
     ownerPluginId: "module.gate-2a",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     outputSchema,
-    permission: "fixture.tools.read",
-    policy: "fixture.tools.read",
+    permission: "gate-2a.tools.read",
+    policy: "gate-2a.tools.read",
     effect: "read-only",
     idempotency: "not-applicable",
     dryRun: false
   };
   const tool = descriptor(1, {
     outputSchema,
-    invocation: { kind: "action", action: { id: action.id, version: action.version } }
+    invocation: { kind: "action", action: { id: action.id, version: action.version } },
+    permission: "gate-2a.tools.read",
+    policy: "gate-2a.tools.read"
   });
   const runtimeOutputSchema = {
     safeParse(value) {
@@ -424,12 +426,17 @@ async function directOutputProbe() {
         optional: [],
         conflicts: [],
         lifecycle: { ownsPayloadSchema: false, ownsPersistentData: false, disable: "supported", uninstall: "supported", purge: "unsupported" },
-        contributions: { actions: { [action.id]: "required" }, tools: { [tool.id]: "required" } }
+        contributions: { permissions: { "gate-2a.tools.read": "required" }, actions: { [action.id]: "required" }, tools: { [tool.id]: "required" } }
       }
     }],
     registrations: [{
       pluginId: "module.gate-2a",
       contracts(context) {
+        context.register("permissions", "gate-2a.tools.read", {
+          id: "gate-2a.tools.read", ownerPluginId: "module.gate-2a", title: "Read Gate 2A tools",
+          description: "Execute the Gate 2A fixture tool.", audience: "authenticated", resource: "gate-2a.tools",
+          operation: "execute", policy: { id: "gate-2a.tools.read", scope: "application", recordScoped: false, fieldScoped: false }
+        });
         context.register("actions", action.id, { descriptor: action, inputSchema: runtimeInputSchema, outputSchema: runtimeOutputSchema });
         context.register("tools", tool.id, tool);
       },
