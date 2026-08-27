@@ -5,7 +5,7 @@
 - **Baseline:** `6d9730d`
 - **Delivery:** Pull request #21 open; project-manager remediation complete; no merge or auto-merge
 - **Decision:** **Await designated project-manager PASS and merge**
-- **Review state:** Remediation gate passed; designated project-manager rereview remains pending
+- **Review state:** Remediation complete; exact-head verification and designated project-manager rereview remain
 
 ## Scope proved
 
@@ -17,7 +17,7 @@ Strict settings, permission, route, navigation, default-page, browser query/acti
 
 `module.sales` remains intentionally small while exercising every category: tasks and opportunities; three sources and three actions; two tools; task/opportunity events and realtime invalidations; pipeline/default-page settings; six components, six blocks, four pages, routes/navigation, localization, health, lifecycle, jobs, migrations, and testing metadata.
 
-Lifecycle state keeps support, installed bytes, enabled state, settings readiness, migration readiness, retained data, and release support independent. Source-controlled install plans seed missing templates only. Disable retains package/schema/read compatibility/data while blocking collection writes and executable source/action/tool/job/navigation/route/UI/page behavior. Verified required plugin and capability-provider edges revoke dependent executable inventory transitively, and captured capability-service handles fail after freeze without authoritative scope or after provider/consumer revocation; optional edges remain independent. Re-enable restores behavior only after readiness. Schema-owning uninstall remains refused and destructive planning begins with deterministic reference scanning.
+Lifecycle state keeps support, installed bytes, enabled state, settings readiness, migration readiness, retained data, and release support independent. Source-controlled install plans seed missing templates only. Disable retains package/schema/read compatibility/data while blocking collection writes and executable source/action/tool/job/navigation/route/UI/page behavior. Verified required plugin and capability-provider edges revoke dependent executable inventory transitively. Optional dependency loss preserves consumer inventory but never authority to call a disabled provider. Captured capability-service handles—including prototype methods, synchronous/async derived objects, functions, promises, and thenables—fail after freeze without authoritative scope or after provider/consumer revocation. Re-enable restores behavior only after readiness. Schema-owning uninstall remains refused and destructive planning begins with deterministic reference scanning.
 
 ## Completed tasks
 
@@ -34,7 +34,7 @@ Lifecycle state keeps support, installed bytes, enabled state, settings readines
 | P6.9 — install/disable/re-enable proof | customer PostgreSQL lifecycle proof |
 | P6.10 — Gate 6 closeout | current artifact, contract, documentation, and gate validation |
 
-Post-closeout remediation replaces the rejected legacy lifecycle fallback, reconciles the complete exact reference graph, removes ambient Payload/action authority, makes conformance evidence runner-owned, aligns the Gate 2A fixture, and makes clean Sales declaration/package generation reproducible in CI. The project-manager remediation adds exact Vitest JSON evidence; removes Git-history coupling from Gate 6; persists normalized settings; atomically compares snapshot authority for initial and migrated template writes; preserves Puck action policy; derives executable UI props validation from the canonical descriptor; and revokes required consumers plus captured capability services, including asynchronously fulfilled service values, when provider lifecycle authority disappears.
+Post-closeout remediation replaces the rejected legacy lifecycle fallback, reconciles the complete exact reference graph, removes ambient Payload/action authority, makes conformance evidence runner-owned, aligns the Gate 2A fixture, and makes clean Sales declaration/package generation reproducible in CI. The project-manager remediation adds exact Vitest JSON evidence; executes Git-free squash regression inside Gate 6; persists normalized settings; atomically compares snapshot authority for initial, existing, and migrated template paths; preserves/rebinds canonical Puck action and source policy; derives executable UI props validation from the canonical descriptor with own-property semantics; and revokes required consumers plus every captured capability-service authority path when provider lifecycle authority disappears.
 
 ## Public contracts and packages affected
 
@@ -66,7 +66,7 @@ pnpm audit --audit-level high
 git diff --check
 ```
 
-Final task acceptance totals reached contracts 141, runtime 189, UI runtime 42, builder 34, Payload adapter 32, Sales 34, conformance-plan 5, and the customer unit/PostgreSQL gates. The PostgreSQL proof exercises all three Sales sources and all three actions through standard gateways, rejects out-of-scope task and opportunity IDs, boots enabled/disabled/re-enabled deployments, preserves retained data, and executes registered event/realtime/job behavior.
+Final task acceptance totals reached contracts 142, runtime 200, UI runtime 43, builder 35, Payload adapter 32, Sales 34, conformance-plan 5, and the customer unit/PostgreSQL gates. The PostgreSQL proof exercises all three Sales sources and all three actions through standard gateways, rejects out-of-scope task and opportunity IDs, boots enabled/disabled/re-enabled deployments, preserves retained data, and executes registered event/realtime/job behavior.
 
 The complete Gate 6 chain passed on the remediation tree, including frozen install, clean/squash-safe artifact validation, real PostgreSQL lifecycle execution, browser/accessibility proofs, exact machine-readable conformance, deterministic packed Sales bytes, and `GATE_6_PASS`. Final metadata-head verification, high-threshold audit, and independent exact-head review are recorded outside this immutable result before the designated project manager decides whether to PASS and merge PR #21.
 
