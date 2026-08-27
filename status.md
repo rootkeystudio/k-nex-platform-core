@@ -7,16 +7,16 @@
 
 ## Last completed
 
-Sol-high formal review at `d34f48a` found nine blocking evidence/operation gaps despite the existing Gate 8 PASS. The phase remains active while those gaps are corrected; no PR will open from the blocked state.
+P8.1/P8.9 corrective work now commits concrete 0.1.0 and 0.2.0 package release manifests bound to the packed Sales/realtime artifacts. Upgrade planning and fleet ingestion require the validated current support manifest and reject unsupported platform releases.
 
 ## Validation
 
-Existing full `pnpm gate:8` passed at `12fbf05`, but review proved the gate can accept caller-authored lifecycle/fleet evidence, incomplete transitive inventory, simulated recovery, and file-existence-only application generation. Those passes are not final acceptance evidence. Protected user files `AGENTS.md` and `local-ai-info.md` remain outside phase commits.
+Runtime suite PASS: 26 files, 197 tests. Sales full package suite PASS: 22 Node proofs plus 5 Vitest files/18 tests, boundaries, and packed reproducibility. Unsupported-release preflight now has explicit failure coverage. Existing Gate 8 passes remain non-final until all review blockers are resolved.
 
 ## Next
 
-Resolve blockers in dependency order: support/release graph; verified lifecycle/deployment evidence; secure atomic application factory plus real packed-package boot; real prior-upgrade/restore; signed custom provenance; fail-closed deterministic Gate 8. Then rerun full gate/audit and Sol-high review.
+Continue with transitive SBOM/inventory and signed custom provenance, then verified lifecycle/deployment evidence, secure atomic application factory plus real packed-package boot, real prior-upgrade/restore, and fail-closed Gate 8.
 
 ## Blockers
 
-Formal review BLOCKED at `d34f48a`: purge evidence authority, support-window enforcement, generated app boot, atomic apply, custom provenance signing, transitive SBOM/fleet inventory, verified deployment receipts, real prior-upgrade/restore, and fail-closed generated evidence.
+Formal review blockers remain: purge evidence authority, generated app boot, atomic apply, custom provenance signing, transitive SBOM/fleet inventory, verified deployment receipts, real prior-upgrade/restore, and fail-closed generated evidence.

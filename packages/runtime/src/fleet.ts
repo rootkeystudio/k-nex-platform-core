@@ -1,6 +1,6 @@
 import { gt, satisfies, valid, validRange } from "semver";
 
-import type { DeploymentReceipt, RuntimeInventory } from "@k-nex/contracts";
+import { PackageReleaseManifestSchema, type DeploymentReceipt, type PackageReleaseManifest, type RuntimeInventory } from "@k-nex/contracts";
 
 import { reconcileDeploymentReceipt, runtimeInventoryDigest } from "./deployment-evidence.js";
 
@@ -41,9 +41,16 @@ function freeze<T>(value: T): T {
 
 export class FleetRegistry {
   readonly #deployments = new Map<string, FleetDeployment>();
+  readonly #supportedReleases: ReadonlySet<string>;
+
+  constructor(supportManifest: PackageReleaseManifest) {
+    const parsed = PackageReleaseManifestSchema.parse(supportManifest);
+    this.#supportedReleases = new Set(parsed.supportWindow.supportedReleases);
+  }
 
   ingest(receipt: DeploymentReceipt, inventory: RuntimeInventory): void {
     if (!reconcileDeploymentReceipt(receipt, inventory)) throw new FleetEvidenceError("EVIDENCE_INVALID", "Fleet ingestion requires a reconciled deployment receipt and runtime inventory.");
+    if (!this.#supportedReleases.has(inventory.platformRelease)) throw new FleetEvidenceError("EVIDENCE_INVALID", "Fleet ingestion rejects a platform release outside the declared support window.");
     const key = `${inventory.applicationId}\u0000${inventory.environment}`;
     const existing = this.#deployments.get(key);
     if (existing !== undefined && existing.receipt.deploymentId === receipt.deploymentId) {

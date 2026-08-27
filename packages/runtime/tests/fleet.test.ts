@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
 
+import { supportedFrameworkTuple, type PackageReleaseManifest } from "@k-nex/contracts";
+
 import { FleetRegistry, createDeploymentReceipt, observeRuntimeInventory, restoredInventoryMatches } from "../src/index.js";
 
 const digest = (character: string) => `sha256:${character.repeat(64)}`;
 const sha = "a".repeat(40);
+const supportManifest = {
+  schemaVersion: 1, release: { version: "0.2.0", channel: "pre-v1", versioningPolicy: "semver-pre-v1", compatibilityPolicy: "exact-framework-tuple" }, framework: supportedFrameworkTuple,
+  packages: [{ package: "@k-nex/module-sales", version: "1.0.0", role: "plugin", integrity: `sha512-${"a".repeat(86)}==`, peerCompatibility: supportedFrameworkTuple }],
+  supportWindow: { policy: "current-and-one-prior-minor", supportedReleases: ["0.2.0", "0.1.0"], securityFixes: "all-supported-releases" }
+} as const satisfies PackageReleaseManifest;
 function deployment(applicationId: "customer-alpha" | "customer-beta", release: "0.2.0" | "0.1.0") {
   const inventory = observeRuntimeInventory({
     schemaVersion: 1, applicationId, repository: `rootkeystudio/${applicationId}`, environment: "production", platformRelease: release,
@@ -18,7 +25,7 @@ function deployment(applicationId: "customer-alpha" | "customer-beta", release: 
 
 describe("fleet evidence and patch propagation", () => {
   it("ingests receipt-bound deployments and preserves current/prior release state", () => {
-    const fleet = new FleetRegistry();
+    const fleet = new FleetRegistry(supportManifest);
     const alpha = deployment("customer-alpha", "0.2.0");
     const beta = deployment("customer-beta", "0.1.0");
     fleet.ingest(alpha.receipt, alpha.inventory); fleet.ingest(beta.receipt, beta.inventory);
@@ -27,7 +34,7 @@ describe("fleet evidence and patch propagation", () => {
   });
 
   it("snapshots and deeply freezes authoritative fleet evidence", () => {
-    const fleet = new FleetRegistry();
+    const fleet = new FleetRegistry(supportManifest);
     const source = deployment("customer-alpha", "0.2.0");
     const receipt = structuredClone(source.receipt);
     const inventory = structuredClone(source.inventory);
@@ -44,7 +51,7 @@ describe("fleet evidence and patch propagation", () => {
   });
 
   it("finds every vulnerable deployment and creates customer-specific patch updates", () => {
-    const fleet = new FleetRegistry();
+    const fleet = new FleetRegistry(supportManifest);
     for (const item of [deployment("customer-alpha", "0.2.0"), deployment("customer-beta", "0.1.0")]) fleet.ingest(item.receipt, item.inventory);
     expect(fleet.affected("@k-nex/module-sales", "<1.0.1")).toHaveLength(2);
     expect(fleet.planSecurityPatch("@k-nex/module-sales", "<1.0.1", "1.0.1")).toEqual(expect.arrayContaining([
