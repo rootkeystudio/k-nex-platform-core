@@ -7,11 +7,11 @@
 
 ## Last completed
 
-P6.10 Sol review REWORK closes async capability-service lease escape: fulfilled promise/thenable values retain lifecycle authority and fail closed after provider revocation.
+P6.10 final review remediation hides raw capability-service prototypes and scopes optional service participants, so provider disable revokes leased authority without removing the optional consumer.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: `pnpm --filter @k-nex/runtime test` (198), runtime build, `pnpm build`, and `git diff --check` pass; final Phase 6 review validation remains.
+Focused optional-provider and prototype-escape regressions are added; runtime/full validation remains before final Phase 6 review.
 
 ## Next
 

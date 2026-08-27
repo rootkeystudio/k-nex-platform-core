@@ -96,9 +96,21 @@ function leaseService<T>(service: T, authority: RegistrationLifecycleAuthority, 
     const callable = typeof value === "function";
     const target = callable
       ? Object.prototype.hasOwnProperty.call(value, "prototype") ? function capabilityLease() {} : () => undefined
-      : Object.create(Object.getPrototypeOf(value));
+      : Object.create(null);
     let facade: object;
     const handler: ProxyHandler<object> = {
+      getPrototypeOf() {
+        assertAvailable();
+        return null;
+      },
+      setPrototypeOf() {
+        assertAvailable();
+        return false;
+      },
+      preventExtensions() {
+        assertAvailable();
+        return false;
+      },
       get(target, property) {
         assertAvailable();
         const targetDescriptor = Reflect.getOwnPropertyDescriptor(target, property);
@@ -157,5 +169,6 @@ export function leaseCapabilityService<T>(
   consumerId: string,
   providerId: string
 ): T {
+  authority.lifecycleParticipants = new Set([...authority.lifecycleParticipants, consumerId, providerId]);
   return leaseService(service, authority, consumerId, providerId);
 }

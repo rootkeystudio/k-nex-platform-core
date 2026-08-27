@@ -368,6 +368,49 @@ describe("plugin lifecycle", () => {
     expect(() => capturedNow?.()).toThrow(/Capability service is unavailable/);
   });
 
+  it("revokes optional provider services without removing the optional consumer and hides raw prototypes", () => {
+    const provider = lifecycleManifest({
+      id: "provider.clock", provides: [{ capability: "clock.now", version: "1.0.0" }], lifecycle: false
+    });
+    const consumer = lifecycleManifest({
+      id: "module.consumer", optional: [{ capability: "clock.now", version: "^1.0.0" }], jobs: true, lifecycle: false
+    });
+    const graph: ResolvedPluginGraph = {
+      resolverVersion: "1.0.0",
+      plugins: [
+        { id: provider.id, kind: provider.kind, package: provider.package, version: provider.version, integrity: "sha512-provider.clock", required: [], optional: [] },
+        { id: consumer.id, kind: consumer.kind, package: consumer.package, version: consumer.version, integrity: "sha512-module.consumer", required: [], optional: [provider.id] }
+      ],
+      capabilityProviders: [{ capability: "clock.now", plugin: provider.id, version: "1.0.0" }],
+      registrationOrder: [provider.id, consumer.id]
+    };
+    class ClockService { now() { return "now"; } }
+    let service: ClockService | undefined;
+    const registrationResult = executeLifecycleRegistration(
+      [provider, consumer],
+      [
+        lifecyclePlan(provider, { provideCapability: "clock.now", service: new ClockService(), lifecycle: false }),
+        lifecyclePlan(consumer, { capability: "clock.now", captureService: (value) => { service = value as ClockService; }, jobs: true, lifecycle: false })
+      ],
+      graph
+    );
+    const enabled = scopePluginRegistration(registrationResult, [
+      reconcilePluginAvailability(registrationResult, lifecycleState(provider)),
+      reconcilePluginAvailability(registrationResult, lifecycleState(consumer))
+    ]);
+    expect(enabled.contributions.jobs.map(({ pluginId }) => pluginId)).toEqual([consumer.id]);
+    expect(service?.now()).toBe("now");
+    expect(Object.getPrototypeOf(service)).toBeNull();
+
+    const disabled = scopePluginRegistration(registrationResult, [
+      reconcilePluginAvailability(registrationResult, lifecycleState(provider, false)),
+      reconcilePluginAvailability(registrationResult, lifecycleState(consumer))
+    ]);
+    expect(disabled.contributions.jobs.map(({ pluginId }) => pluginId)).toEqual([consumer.id]);
+    expect(() => service?.now()).toThrow(/Capability service is unavailable/);
+    expect(() => Object.getPrototypeOf(service)).toThrow(/Capability service is unavailable/);
+  });
+
   it("propagates required dependency revocation transitively without revoking optional consumers", () => {
     const provider = lifecycleManifest({ id: "provider.clock" });
     const middle = lifecycleManifest({ id: "module.middle", requires: [{ plugin: provider.id, version: "^1.0.0" }], jobs: true });
