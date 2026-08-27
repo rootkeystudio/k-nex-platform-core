@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Closed the Gate 2A compatibility regression exposed by full Gate 6: lifecycle authority now preserves legacy registrations that declare no lifecycle ownership.
+Closed Gate 6 after final authority remediation and its legacy-registration compatibility regression.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: focused runtime 174, Payload adapter 31, Sales 34, conformance 2, real PostgreSQL and target-bound plugin conformance PASS. Full Gate 6 reached Gate 2A, exposed the fixed legacy-registration regression, and requires an exact-head rerun.
+Node 24.19.0 / pnpm 11.9.0: complete `pnpm gate:6` PASS; contracts 140, runtime 175, UI runtime 41, builder 31, Payload adapter 31, Sales 34, conformance 2, real PostgreSQL and target-bound plugin conformance PASS. Audit: 2 low, 3 moderate, 0 high/critical. `git diff --check` PASS.
 
 ## Next
 
-Rerun complete Gate 6, push the pure Phase 6 branch, open its PR, then obtain exact-head project-manager PASS and required CI before merge. P7.1 remains post-merge in this branch snapshot.
+Push the pure Phase 6 branch, open its PR, then obtain exact-head project-manager PASS and required CI before merge. Preserve this branch before stacking P7.1 per user delivery direction.
 
 ## Blockers
 

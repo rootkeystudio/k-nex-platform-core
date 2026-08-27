@@ -34,6 +34,7 @@ Lifecycle state keeps support, installed bytes, enabled state, settings readines
 | P6.9 — install/disable/re-enable proof | `1f9b24c` |
 | P6.10 — Gate 6 closeout | this closeout commit |
 | Blocking review remediation — all nine findings | `9e312fe` through `1a4bab3` |
+| Final review remediation — all six findings | `a75d563`, `f4720f1` |
 
 ## Public contracts and packages affected
 
@@ -65,7 +66,7 @@ pnpm audit --audit-level high
 git diff --check
 ```
 
-Final task acceptance totals reached contracts 140, runtime 174, UI runtime 41, builder 31, Payload adapter 31, Sales 34, conformance-plan 2, and the customer unit/PostgreSQL gates. The PostgreSQL lifecycle proof boots enabled, disabled, and re-enabled deployments against one database, observes disabled write rejection, retained task data, registered event/realtime/job execution, and restored source availability.
+Final task acceptance totals reached contracts 140, runtime 175, UI runtime 41, builder 31, Payload adapter 31, Sales 34, conformance-plan 2, and the customer unit/PostgreSQL gates. The PostgreSQL lifecycle proof boots enabled, disabled, and re-enabled deployments against one database, observes disabled write rejection, retained task data, registered event/realtime/job execution, and restored source availability.
 
 The complete local `gate:6` chain passed with its standard commands. The high/critical audit threshold also passed; the package manager reported two low and three moderate findings, with no high or critical advisory.
 
