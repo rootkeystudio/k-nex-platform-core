@@ -7,15 +7,15 @@
 
 ## Last completed
 
-The P1 runtime fixes are rebuilt into a reproducible packed runtime artifact. All three release manifests and both customer locks now bind its refreshed SHA512 identity; the remaining 17 artifacts stayed byte-identical.
+Deployment receipts, runtime inventories, security patch plans, restore proof, and fleet evidence were regenerated from corrected release-source commit `fe2cd80`. Exact-source material now includes replay-safe purge and corrected fleet behavior.
 
 ## Validation
 
-Deterministic double-pack generation, three release-manifest generations, both customer lock generations, `node scripts/check-phase-8-packed-packages.mjs`, and `git diff --check` PASS after P1 fixes.
+`node scripts/generate-phase-8-deployment-evidence.mjs fe2cd8080a995d1b0bec764d24d0ca5c9e562a7d`, fleet generation, `P8_GENERATED_EVIDENCE_CLEAN`, and `git diff --check` PASS.
 
 ## Next
 
-Commit the refreshed release-source state, regenerate exact-source deployment/fleet evidence, then rerun full Gate 8.
+Rerun full Gate 8 and audit, refresh closeout result, then request Sol-high re-review.
 
 ## Blockers
 
