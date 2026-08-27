@@ -149,7 +149,7 @@ export async function comparePluginPageTemplate(
     fail("MIGRATION_FAILED", `Template ${descriptor.id} adoption migration failed.`, [descriptor.id]);
   }
   const document = UiDocumentSchema.safeParse(migrated);
-  if (!document.success || document.data.id !== descriptor.id || document.data.profile !== descriptor.profile) {
+  if (!document.success || document.data.id !== descriptor.id || document.data.version !== descriptor.version || document.data.profile !== descriptor.profile) {
     fail("DOCUMENT_INVALID", `Template ${descriptor.id} adoption migration returned an invalid document.`, [descriptor.id]);
   }
   return Object.freeze({

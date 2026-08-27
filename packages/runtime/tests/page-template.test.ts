@@ -90,7 +90,7 @@ describe("P6.4 page template seed semantics", () => {
 
     const upgradeInstall = await instantiatePluginPageTemplate(descriptor(2), inventory, store);
     expect(upgradeInstall.instance.document.regions.main![0]!.props.title).toBe("Customer title");
-    const comparison = await comparePluginPageTemplate(descriptor(2), inventory, store, (current) => current);
+    const comparison = await comparePluginPageTemplate(descriptor(2), inventory, store, (current) => ({ ...current, version: 2 }));
     expect(comparison.status).toBe("update-available");
     expect(store.snapshot()?.adoptedTemplateVersion).toBe(1);
 
@@ -127,5 +127,15 @@ describe("P6.4 page template seed semantics", () => {
       return true;
     });
     expect(store.snapshot()).toEqual(before);
+  });
+
+  it("rejects adoption migrations that return a stale document version", async () => {
+    const store = memoryStore();
+    await instantiatePluginPageTemplate(descriptor(), inventory, store);
+    await expect(comparePluginPageTemplate(descriptor(2), inventory, store, (current) => current)).rejects.toSatisfy((error) => {
+      expectCode(error, "DOCUMENT_INVALID");
+      return true;
+    });
+    expect(store.snapshot()?.adoptedTemplateVersion).toBe(1);
   });
 });
