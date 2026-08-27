@@ -36,10 +36,10 @@ export async function validateGate6(root = repositoryRoot) {
   for (const task of ["P6.1", "P6.2", "P6.3", "P6.4", "P6.5", "P6.6", "P6.7", "P6.8", "P6.9", "P6.10"]) {
     assert.ok(result.includes(task), `Phase 6 result is missing task mapping: ${task}.`);
   }
-  for (const marker of ["all 13 evidence classes", "runtime 178", "Payload adapter 32", "conformance-plan 4"]) {
+  for (const marker of ["all 13 evidence classes", "runtime 189", "Payload adapter 32", "conformance-plan 5"]) {
     assert.ok(result.includes(marker), `Phase 6 result is missing: ${marker}.`);
   }
-  for (const stale of ["all 11 evidence classes", "runtime 175", "Payload adapter 31", "conformance-plan 2", "this closeout commit"]) {
+  for (const stale of ["all 11 evidence classes", "runtime 175", "runtime 178", "Payload adapter 31", "conformance-plan 2", "conformance-plan 4", "this closeout commit"]) {
     assert.equal(result.includes(stale), false, `Phase 6 result retains stale evidence: ${stale}.`);
   }
 

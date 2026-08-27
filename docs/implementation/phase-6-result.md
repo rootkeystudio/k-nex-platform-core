@@ -3,9 +3,9 @@
 - **Date:** 2026-08-27
 - **Gate:** Gate 6
 - **Baseline:** `6d9730d`
-- **Delivery:** Pull request #21 open; review remediation in progress; no merge or auto-merge
+- **Delivery:** Pull request #21 open; project-manager remediation complete; no merge or auto-merge
 - **Decision:** **Await designated project-manager PASS and merge**
-- **Review state:** Phase 6 remains under review; no subsequent phase work is authorized
+- **Review state:** Remediation gate passed; designated project-manager rereview remains pending
 
 ## Scope proved
 
@@ -17,7 +17,7 @@ Strict settings, permission, route, navigation, default-page, browser query/acti
 
 `module.sales` remains intentionally small while exercising every category: tasks and opportunities; three sources and three actions; two tools; task/opportunity events and realtime invalidations; pipeline/default-page settings; six components, six blocks, four pages, routes/navigation, localization, health, lifecycle, jobs, migrations, and testing metadata.
 
-Lifecycle state keeps support, installed bytes, enabled state, settings readiness, migration readiness, retained data, and release support independent. Source-controlled install plans seed missing templates only. Disable retains package/schema/read compatibility/data while blocking collection writes and executable source/action/tool/job/navigation/route/UI/page behavior. Re-enable restores behavior only after readiness. Schema-owning uninstall remains refused and destructive planning begins with deterministic reference scanning.
+Lifecycle state keeps support, installed bytes, enabled state, settings readiness, migration readiness, retained data, and release support independent. Source-controlled install plans seed missing templates only. Disable retains package/schema/read compatibility/data while blocking collection writes and executable source/action/tool/job/navigation/route/UI/page behavior. Verified required plugin and capability-provider edges revoke dependent executable inventory transitively, and captured capability-service handles fail after freeze without authoritative scope or after provider/consumer revocation; optional edges remain independent. Re-enable restores behavior only after readiness. Schema-owning uninstall remains refused and destructive planning begins with deterministic reference scanning.
 
 ## Completed tasks
 
@@ -34,7 +34,7 @@ Lifecycle state keeps support, installed bytes, enabled state, settings readines
 | P6.9 — install/disable/re-enable proof | customer PostgreSQL lifecycle proof |
 | P6.10 — Gate 6 closeout | current artifact, contract, documentation, and gate validation |
 
-Post-closeout remediation replaces the rejected legacy lifecycle fallback, reconciles the complete exact reference graph, removes ambient Payload/action authority, makes conformance evidence runner-owned, aligns the Gate 2A fixture, and makes clean Sales declaration/package generation reproducible in CI. The current review remediation adds machine-readable exact Vitest proof and makes Gate 6 validate current artifacts rather than branch commit topology.
+Post-closeout remediation replaces the rejected legacy lifecycle fallback, reconciles the complete exact reference graph, removes ambient Payload/action authority, makes conformance evidence runner-owned, aligns the Gate 2A fixture, and makes clean Sales declaration/package generation reproducible in CI. The project-manager remediation adds exact Vitest JSON evidence; removes Git-history coupling from Gate 6; persists normalized settings; repreflights migrated template authority; preserves Puck action policy; derives executable UI props validation from the canonical descriptor; and revokes required consumers plus captured capability services when provider lifecycle authority disappears.
 
 ## Public contracts and packages affected
 
@@ -66,9 +66,9 @@ pnpm audit --audit-level high
 git diff --check
 ```
 
-Final task acceptance totals reached contracts 140, runtime 178, UI runtime 41, builder 31, Payload adapter 32, Sales 34, conformance-plan 4, and the customer unit/PostgreSQL gates. The PostgreSQL proof exercises all three Sales sources and all three actions through standard gateways, rejects out-of-scope task and opportunity IDs, boots enabled/disabled/re-enabled deployments, preserves retained data, and executes registered event/realtime/job behavior.
+Final task acceptance totals reached contracts 141, runtime 189, UI runtime 42, builder 34, Payload adapter 32, Sales 34, conformance-plan 5, and the customer unit/PostgreSQL gates. The PostgreSQL proof exercises all three Sales sources and all three actions through standard gateways, rejects out-of-scope task and opportunity IDs, boots enabled/disabled/re-enabled deployments, preserves retained data, and executes registered event/realtime/job behavior.
 
-The full Gate 6 chain and final review evidence must be rerun on the remediation head before the designated project manager decides whether to PASS and merge PR #21. The high/critical audit threshold previously passed; the package manager reported two low and three moderate findings, with no high or critical advisory.
+The complete Gate 6 chain passed on the remediation tree, including frozen install, clean/squash-safe artifact validation, real PostgreSQL lifecycle execution, browser/accessibility proofs, exact machine-readable conformance, deterministic packed Sales bytes, and `GATE_6_PASS`. Final metadata-head verification, high-threshold audit, and independent exact-head review are recorded outside this immutable result before the designated project manager decides whether to PASS and merge PR #21.
 
 ## Plugin authoring freeze
 
@@ -85,11 +85,11 @@ A second module should need domain contracts and handlers, not a new package bou
 | unauthorized source/field or direct query scope manipulation | runtime authorization and authenticated customer fixture |
 | forged action authorization, arbitrary record mutation, or ambient Local API access | registered action/tool decision tests, persistence-capability denial, and customer PostgreSQL action fixture |
 | server import in browser/UI or third-party type leakage in contracts | runner-owned transitive Sales boundary checker |
-| unavailable page-template resource or failed migration | page-template preflight/last-valid tests |
-| editor/runtime renderer drift | Sales runtime/Puck parity proof |
-| external/unrelated proof, wrapper shell-out, indirect forbidden import, fabricated script, duplicate evidence, or arbitrary plan field | four conformance-runner negative tests |
+| unavailable or migration-injected page-template resource/authority | post-migration descriptor/inventory preflight attacks and last-valid-instance tests |
+| editor/runtime renderer, action-policy, or props-schema drift | immutable Puck policy snapshots and descriptor-derived runtime validator parity tests |
+| external/unrelated proof, wrapper shell-out, indirect forbidden import, fabricated script, duplicate evidence, arbitrary plan field, or human-reporter formatting | five conformance-runner tests plus exact Vitest JSON result validation |
 | stale/non-reproducible packed module | byte-level Sales pack comparison and lock integrity |
-| disabled plugin write or executable surface access | lifecycle availability tests plus real PostgreSQL 403/source 404 proof |
+| disabled plugin/provider write, dependent executable access, or stale captured capability service | lifecycle dependency-closure/service-lease tests plus real PostgreSQL 403/source 404 proof |
 | schema-owning uninstall or destructive operation with references | lifecycle refusal/reference-scan tests |
 
 ## Explicit limits and deferred scope
@@ -103,4 +103,4 @@ A second module should need domain contracts and handlers, not a new package bou
 
 ## Gate decision
 
-Phase 6 remains in review while the current remediation is validated. Await designated project-manager PASS and merge for PR #21; no subsequent phase work is authorized before that decision.
+No Gate 6 kill criterion fired after project-manager remediation. Await designated project-manager PASS and merge for PR #21; no merge or auto-merge is enabled.
