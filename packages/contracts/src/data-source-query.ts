@@ -15,6 +15,14 @@ export const DataSourcePageQuerySchema = z.strictObject({
   size: z.number().finite().int().min(1).max(100)
 });
 
+export const DataSourceCursorQuerySchema = z.strictObject({
+  after: z.string().min(1).max(2_048).optional(),
+  before: z.string().min(1).max(2_048).optional(),
+  size: z.number().finite().int().min(1).max(100)
+}).superRefine((cursor, context) => {
+  if (cursor.after !== undefined && cursor.before !== undefined) context.addIssue({ code: "custom", message: "Cursor pagination accepts after or before, not both." });
+});
+
 export const DataSourceFilterQuerySchema = z.strictObject({
   field: TableFieldIdSchema,
   operator: z.enum(dataSourceFilterOperators),
@@ -36,11 +44,15 @@ export const DataSourceSortQuerySchema = z.strictObject({
 
 export const DataSourceQueryControlsSchema = z.strictObject({
   page: DataSourcePageQuerySchema.optional(),
+  cursor: DataSourceCursorQuerySchema.optional(),
   filters: z.array(DataSourceFilterQuerySchema).max(32).default([]),
   sort: z.array(DataSourceSortQuerySchema).max(16).default([])
+}).superRefine((controls, context) => {
+  if (controls.page !== undefined && controls.cursor !== undefined) context.addIssue({ code: "custom", message: "Offset and cursor pagination are mutually exclusive." });
 });
 
 export type DataSourcePageQuery = z.infer<typeof DataSourcePageQuerySchema>;
+export type DataSourceCursorQuery = z.infer<typeof DataSourceCursorQuerySchema>;
 export type DataSourceFilterQuery = z.infer<typeof DataSourceFilterQuerySchema>;
 export type DataSourceSortQuery = z.infer<typeof DataSourceSortQuerySchema>;
 export type DataSourceQueryControls = z.infer<typeof DataSourceQueryControlsSchema>;
