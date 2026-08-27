@@ -183,6 +183,12 @@ export function snapshotPuckBlockBridge(candidate: PuckBlockBridge): PuckBlockBr
         actions: Object.freeze(canonicalDefinition.actionPolicy.actions.map((action) => Object.freeze({ ...action })))
       })
     }),
+    ...(candidate.definition.actionPolicy === undefined ? {} : {
+      actionPolicy: Object.freeze({
+        required: candidate.definition.actionPolicy.required,
+        actions: Object.freeze(candidate.definition.actionPolicy.actions.map((action) => Object.freeze({ ...action })))
+      })
+    }),
     render: (input: Parameters<typeof render>[0]) => render(input)
   });
   const snapshot: PuckBlockBridge = Object.freeze({
