@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Addressed the selector-boundary blocker anchored to `fd23a864`: AST validation rejects root-level sibling/column escapes and places ownership guards before pseudo-elements.
+Closed the selector-boundary blocker anchored to `fd23a864` and recorded full final-head Gate 5 closeout evidence.
 
 ## Validation
 
-Focused selector-boundary and Chromium outside-sibling regressions pass; full Gate 5 evidence is pending on the correction head.
+Frozen install, complete `pnpm gate:5`, selector escape/pseudo-element tests, outside-sibling Chromium proof, audit threshold, and repository checks pass.
 
 ## Next
 
-Run the complete Gate 5 closeout evidence, refresh result/PR claims, and await project-manager PASS. Start Phase 6 only after PASS and merge.
+Push the correction head, refresh PR evidence, and await exact-head CI and project-manager PASS. Start Phase 6 only after PASS and merge.
 
 ## Blockers
 
