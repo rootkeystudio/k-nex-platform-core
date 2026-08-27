@@ -189,7 +189,7 @@ function applicationId(request: PayloadRequest): string {
   return custom.kNexApplicationId;
 }
 
-const salesEventAfterChange: CollectionAfterChangeHook = async ({ context, doc, operation, req }) => {
+export const salesEventAfterChange: CollectionAfterChangeHook = async ({ context, doc, operation, req }) => {
   const event = (context as { readonly kNexSalesEvent?: SalesEventContext }).kNexSalesEvent;
   if (event === undefined) return doc;
   const occurredAt = new Date().toISOString();
@@ -226,6 +226,10 @@ export function createSalesRealtimeRelay(gateway: Parameters<typeof createOutbox
       return { topicId, params: {}, message: { sourceId: topicId === "sales.realtime.tasks" ? "sales.tasks" : "sales.opportunities", ...event.payload } };
     }
   });
+}
+
+export function salesPipelineAuditJob() {
+  return Object.freeze({ pluginId: "module.sales" as const, jobId: "sales.job.pipeline-audit" as const, status: "ready" as const });
 }
 
 interface DecimalAmount {
@@ -683,7 +687,10 @@ export const salesRegistration = definePluginRegistration({
     context.register("services", salesReferenceMetadata.service.id, salesReferenceMetadata.service);
     context.register("lifecycle", salesReferenceMetadata.lifecycle.id, salesReferenceMetadata.lifecycle);
   },
-  jobs: (context) => context.register("jobs", salesReferenceMetadata.job.id, salesReferenceMetadata.job),
+  jobs: (context) => {
+    context.register("jobs", salesReferenceMetadata.job.id, salesReferenceMetadata.job);
+    context.bind(salesReferenceMetadata.job.id, salesPipelineAuditJob);
+  },
   dataHandlers: (context) => {
     context.bind("sources", salesTotalPotentialRevenueDescriptor.id, salesTotalPotentialRevenueHandler);
     context.bind("sources", salesTasksDescriptor.id, salesTasksHandler);
@@ -691,6 +698,8 @@ export const salesRegistration = definePluginRegistration({
     context.bind("sources", salesOpportunitiesDescriptor.id, salesOpportunitiesHandler);
     context.bind("actions", salesTaskUpdateDescriptor.id, salesTaskUpdateHandler as ActionHandler);
     context.bind("actions", salesOpportunityStageUpdateDescriptor.id, salesOpportunityStageUpdateHandler as ActionHandler);
+    for (const descriptor of salesEventDescriptors) context.bind("events", descriptor.id, salesEventAfterChange as (...args: never[]) => unknown);
+    for (const descriptor of salesRealtimeTopicDescriptors) context.bind("realtimeTopics", descriptor.id, createSalesRealtimeRelay as (...args: never[]) => unknown);
   },
   ui: (context) => {
     for (const descriptor of salesUiComponentDescriptors) context.register("components", descriptor.id, descriptor);

@@ -17,7 +17,7 @@ import { dataSourceToolCompatible, type DataSourceHandler } from "./data-source-
 import type { InstalledPluginManifest, ResolvedPluginGraph } from "@k-nex/composition";
 
 export type ContributionKind = PluginContributionCategory;
-export type BoundContributionKind = Extract<ContributionKind, "sources" | "actions" | "components" | "blocks">;
+export type BoundContributionKind = Extract<ContributionKind, "sources" | "actions" | "events" | "jobs" | "realtimeTopics" | "components" | "blocks">;
 
 type ContributionKindsForPhase<Phase extends RegistrationPhase> = {
   [Kind in ContributionKind]: (typeof pluginContributionRegistry)[Kind]["registrationPhase"] extends Phase ? Kind : never;
@@ -28,7 +28,7 @@ type BehaviorContributionKind = ContributionKindsForPhase<"behavior">;
 type JobsContributionKind = ContributionKindsForPhase<"jobs">;
 type UiContributionKind = ContributionKindsForPhase<"ui">;
 type ValidateContributionKind = ContributionKindsForPhase<"validate">;
-const boundContributionKinds = ["sources", "actions", "components", "blocks"] as const satisfies readonly BoundContributionKind[];
+const boundContributionKinds = ["sources", "actions", "events", "jobs", "realtimeTopics", "components", "blocks"] as const satisfies readonly BoundContributionKind[];
 
 export type RegistrationErrorCode =
   | "GRAPH_MISMATCH" | "WRONG_PHASE" | "UNDECLARED_CONTRIBUTION" | "UNDECLARED_CAPABILITY_ACCESS"
@@ -58,11 +58,14 @@ export interface ContractsRegistrationContext extends ContributionRegistrationCo
 export interface ProvidersRegistrationContext extends PhaseContext { provide(capability: string, service: unknown): void; }
 export type SchemaRegistrationContext = ContributionRegistrationContext<SchemaContributionKind>;
 export type BehaviorRegistrationContext = ContributionRegistrationContext<BehaviorContributionKind>;
-export type JobsRegistrationContext = ContributionRegistrationContext<JobsContributionKind>;
+export interface JobsRegistrationContext extends ContributionRegistrationContext<JobsContributionKind> {
+  bind(id: string, handler: (...args: never[]) => unknown): void;
+}
 export type ValidateRegistrationContext = ContributionRegistrationContext<ValidateContributionKind>;
 export interface DataHandlersRegistrationContext extends PhaseContext {
   bind(kind: "sources", id: string, handler: DataSourceHandler): void;
   bind(kind: "actions", id: string, handler: ActionHandler): void;
+  bind(kind: "events" | "realtimeTopics", id: string, handler: (...args: never[]) => unknown): void;
 }
 export interface UiRegistrationContext extends ContributionRegistrationContext<UiContributionKind> {
   bindRenderer(kind: "components" | "blocks", id: string, renderer: (...args: never[]) => unknown): void;
@@ -90,6 +93,7 @@ export interface RegistrationInventoryPlugin {
   readonly capabilityAccess: readonly string[];
 }
 export interface RegistrationResult {
+  readonly lifecycleScope: "raw" | "reconciled";
   readonly phases: readonly RegistrationPhase[];
   readonly inventory: readonly RegistrationInventoryPlugin[];
   readonly contributions: Readonly<Record<ContributionKind, readonly RegisteredContribution[]>>;
@@ -337,7 +341,10 @@ export function executeRegistration(options: ExecuteRegistrationOptions): Regist
       });
       else if (nextPhase === "schema") plan?.schema?.(categoryContext<SchemaContributionKind>(pluginId, nextPhase));
       else if (nextPhase === "behavior") plan?.behavior?.(categoryContext<BehaviorContributionKind>(pluginId, nextPhase));
-      else if (nextPhase === "jobs") plan?.jobs?.(categoryContext<JobsContributionKind>(pluginId, nextPhase));
+      else if (nextPhase === "jobs") plan?.jobs?.({
+        ...categoryContext<JobsContributionKind>(pluginId, nextPhase),
+        bind: (id, value) => bind("jobs", pluginId, "jobs", id, value)
+      });
       else if (nextPhase === "data-handlers") plan?.dataHandlers?.({ ...base, bind: (kind, id, value) => bind("data-handlers", pluginId, kind, id, value) });
       else if (nextPhase === "ui") plan?.ui?.({
         ...categoryContext<UiContributionKind>(pluginId, nextPhase),
@@ -442,6 +449,7 @@ export function executeRegistration(options: ExecuteRegistrationOptions): Regist
     capabilityAccess: Object.freeze([...(capabilityAccess.get(pluginId) ?? [])].sort(compare))
   }));
   return Object.freeze({
+    lifecycleScope: "raw",
     phases: Object.freeze([...registrationPhases]), inventory: Object.freeze(inventory),
     contributions: Object.freeze(contributions), bindings: Object.freeze(frozenBindings)
   });

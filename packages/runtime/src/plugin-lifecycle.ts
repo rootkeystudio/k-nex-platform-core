@@ -206,7 +206,7 @@ export function scopePluginRegistration(
       return ids.length === 0 ? [] : [[kind, Object.freeze(ids)]];
     })))
   })));
-  return Object.freeze({ phases: registration.phases, inventory, contributions, bindings });
+  return Object.freeze({ lifecycleScope: "reconciled", phases: registration.phases, inventory, contributions, bindings });
 }
 
 export function scanPluginReferences(pluginId: string, references: readonly PluginReference[]): readonly PluginReference[] {

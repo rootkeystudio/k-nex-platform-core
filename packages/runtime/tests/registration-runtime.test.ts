@@ -300,12 +300,17 @@ function completeConsumer(
         disable: "supported", reenable: "supported", purge: "unsupported"
       });
     },
-    jobs: (context) => context.register("jobs", "consumer.job", {
-      id: "consumer.job", version: 1, ownerPluginId: "module.consumer", timeoutMs: 5_000, maxConcurrency: 1, idempotent: true
-    }),
+    jobs: (context) => {
+      context.register("jobs", "consumer.job", {
+        id: "consumer.job", version: 1, ownerPluginId: "module.consumer", timeoutMs: 5_000, maxConcurrency: 1, idempotent: true
+      });
+      context.bind("consumer.job", () => undefined);
+    },
     dataHandlers(context) {
       context.bind("sources", "consumer.source", sourceHandler);
       context.bind("actions", "consumer.action", actionHandler);
+      context.bind("events", "consumer.event", () => undefined);
+      context.bind("realtimeTopics", "consumer.realtime", () => undefined);
     },
     ui(context) {
       context.register("components", "consumer.component", uiDescriptor("consumer.component", "component"));

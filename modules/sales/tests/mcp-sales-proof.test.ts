@@ -32,7 +32,10 @@ import {
   DelegatedToolCatalogPolicy,
   ToolGatewayError,
   ToolExecutionGateway,
+  createPluginLifecycleState,
   executeRegistration,
+  reconcilePluginAvailability,
+  scopePluginRegistration,
   type DataSourceHandler,
   type DataSourcePolicyService,
   type RegisteredDataSource,
@@ -56,8 +59,9 @@ const manifest = PluginManifestSchema.parse(JSON.parse(readFileSync(
   "utf8"
 )));
 
-function registration() {
-  return executeRegistration({
+function registration(scope = true) {
+  const integrity = `sha512-${"a".repeat(86)}==`;
+  const raw = executeRegistration({
     graph: {
       resolverVersion: "1.0.0",
       plugins: [{
@@ -65,7 +69,7 @@ function registration() {
         kind: manifest.kind,
         package: manifest.package,
         version: manifest.version,
-        integrity: "sha512-sales-tool-proof",
+        integrity,
         required: [],
         optional: []
       }],
@@ -73,16 +77,26 @@ function registration() {
       registrationOrder: [manifest.id]
     },
     installed: [{
-      package: { name: manifest.package, version: manifest.version, integrity: "sha512-sales-tool-proof" },
+      package: { name: manifest.package, version: manifest.version, integrity },
       manifest
     }],
     registrations: [salesRegistration]
   });
+  const lifecycle = createPluginLifecycleState({
+    pluginId: manifest.id, catalogStatus: "supported",
+    package: { status: "installed", name: manifest.package, version: manifest.version, integrity },
+    enabled: true, configuration: { revision: 1, ready: true }, migration: { current: 1, required: 1, ready: true },
+    dataState: "active", releaseStatus: "supported"
+  });
+  if (!scope) return raw;
+  return scopePluginRegistration(raw, [reconcilePluginAvailability(raw, lifecycle)]);
 }
 
 describe("P2A.8 Sales tool proof", () => {
   it("runs one logical approved write and enforces actor-filtered MCP list/call", async () => {
     const resolved = registration();
+    expect(() => new RegisteredToolTargetResolver(registration(false)).resolve(salesCreateTaskToolDescriptor))
+      .toThrowError(/until lifecycle availability is reconciled/);
     const actor = {
       principal: { kind: "user" as const, id: "user-1" },
       effectiveActor: { kind: "user" as const, id: "user-1" }

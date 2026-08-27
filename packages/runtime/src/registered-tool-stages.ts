@@ -48,6 +48,10 @@ export class RegisteredToolTargetResolver {
       throw new ToolGatewayError("TOOL_TARGET_FORBIDDEN", 403, "Tool target access is forbidden.");
     }
     const id = targetId(descriptor);
+    const lifecycleOwned = this.registration.contributions.lifecycle.some(({ pluginId }) => pluginId === descriptor.ownerPluginId);
+    if (lifecycleOwned && this.registration.lifecycleScope !== "reconciled") {
+      throw new ToolGatewayError("TOOL_TARGET_FORBIDDEN", 403, "Tool target access is forbidden until lifecycle availability is reconciled.");
+    }
     const version = targetVersion(descriptor);
     const kind = descriptor.invocation.kind;
     const contribution = this.registration.contributions[kind === "source" ? "sources" : "actions"]

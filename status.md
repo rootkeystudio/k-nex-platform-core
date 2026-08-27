@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Added persisted action bindings and distinct Sales metric/form/list/detail/status/settings renderers; all routes now target registered page templates, while permission-aware persisted settings drive default route and source presentation.
+Made lifecycle reconciliation authoritative at tool execution and required executable Sales event, realtime, and job bindings; disabled behavior remains absent while schema is retained.
 
 ## Validation
 
-Node 24.19.0: `pnpm contracts:validate`, Sales 31-test suite, payload-adapter 31-test suite, deterministic Sales pack check, and the real PostgreSQL customer gate PASS. UI runtime 41 and runtime 174 focused tests PASS.
+Node 24.19.0: `pnpm contracts:validate`, runtime 174 tests, Sales 31 tests, deterministic Sales pack check, and the real PostgreSQL customer gate PASS.
 
 ## Next
 
