@@ -1,0 +1,38 @@
+{
+  "name": "@k-nex/ui-testing",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "scripts": {
+    "build": "tsc -b",
+    "test:unit": "vitest run",
+    "test:browser": "node scripts/browser-matrix.mjs",
+    "test": "pnpm test:unit && pnpm test:browser"
+  },
+  "devDependencies": {
+    "@k-nex/contracts": "workspace:*",
+    "@k-nex/module-sales": "workspace:*",
+    "@k-nex/theme-minimal": "workspace:*",
+    "@k-nex/theme-neobrutalism": "workspace:*",
+    "@k-nex/ui-components": "workspace:*",
+    "@k-nex/ui-data": "workspace:*",
+    "@k-nex/ui-design-system-contracts": "workspace:*",
+    "@k-nex/ui-forms": "workspace:*",
+    "@k-nex/ui-pages": "workspace:*",
+    "@k-nex/ui-runtime": "workspace:*",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.5",
+    "@types/node": "24.13.3",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "esbuild": "0.28.2",
+    "happy-dom": "20.11.2",
+    "playwright": "1.61.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "typescript": "6.0.3",
+    "vitest": "4.1.6"
+  }
+}
