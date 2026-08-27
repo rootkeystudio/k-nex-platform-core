@@ -2,17 +2,18 @@
 
 - Status: accepted
 - Date: 2026-08-26
+- Updated: 2026-08-27
 - Decision owners: K-Nex platform maintainers
 - Evidence: design-only
-- Related: [Payload plugin adoption plan](../32-payload-official-plugin-adoption-plan.md), [Payload strategic framework](./0016-payload-strategic-v1-framework.md), [Agent tools](./0018-agent-tool-contracts-and-safe-execution.md)
+- Related: [Payload plugin adoption plan](../32-payload-official-plugin-adoption-plan.md), [Payload strategic framework](./0016-payload-strategic-v1-framework.md), [Agent tools](./0018-agent-tool-contracts-and-safe-execution.md), [Reference Sales/component system](./0020-reference-sales-and-headless-component-system.md)
 
 ## Context
 
-Payload maintains official plugins for common concerns including MCP, forms, content hierarchy, redirects, search, observability, SEO, payments, import/export, multi-tenancy, and e-commerce.
+Payload maintains official plugins for MCP, forms, content hierarchy, redirects, search, observability, SEO, payments, import/export, multi-tenancy, and ecommerce.
 
-Reimplementing mature generic functionality increases K-Nex delivery and maintenance cost. Adopting a plugin without boundaries can create the opposite problem: Payload plugin types, collections, routes, lifecycle, and domain assumptions may become accidental K-Nex public contracts.
+Reimplementing mature generic functionality increases K-Nex delivery and maintenance cost. Adopting a plugin without boundaries creates the opposite risk: Payload plugin types, collections, routes, lifecycle, and domain assumptions can become accidental K-Nex public contracts.
 
-K-Nex needs a consistent rule for reusing official plugins while preserving its own contracts, security model, customer-isolation model, and independently falsifiable gates.
+The platform-foundation roadmap now freezes domain expansion around `module.sales`, so official plugins that imply new product modules must not bypass the Gate 6–8 focus.
 
 ## Decision
 
@@ -21,24 +22,25 @@ K-Nex needs a consistent rule for reusing official plugins while preserving its 
 3. Every adopted package is exact-pinned to the tested Payload tuple and enters the resolved graph, contribution inventory, customer migration, lockfile, SBOM, and runtime inventory.
 4. Third-party types, private schema, handler signatures, protocol SDK types, and collection internals remain behind K-Nex/Payload adapter packages.
 5. Automatic broad exposure is disabled by default. Collections, globals, endpoints, search projections, imports/exports, MCP tools, and payment operations require explicit allowlists and K-Nex policy.
-6. Adoption is gate-scoped:
-   - `@payloadcms/plugin-mcp` is the first Phase 2A MCP adapter candidate;
-   - SEO, Nested Docs, and Redirects are preferred Phase 5 CMS candidates;
-   - Form Builder and Search are conditional Phase 5 candidates;
-   - Import/Export is a preferred Phase 6 accelerator;
-   - Sentry is an optional Phase 7 deployment adapter;
-   - Multi-Tenant is not a V1 customer-isolation mechanism;
-   - Stripe and Ecommerce are deferred vertical accelerators.
-7. A failed candidate is removed before v1.0 rather than preserved through a compatibility shim. The K-Nex contract remains and may use a smaller implementation.
-8. No official plugin becomes a baseline dependency until its assigned gate records executable evidence and an explicit adoption decision.
+6. Current gate-scoped disposition:
+   - `@payloadcms/plugin-mcp@3.88.0` is adopted only for the bounded Phase 2A transport/API-key/admin subset proven by Gate 2A;
+   - SEO, Nested Docs, Redirects, Form Builder, and Search were reviewed in Phase 5 and deferred to post-Gate 8 product plans;
+   - Import/Export is the preferred Gate 8 transfer/archive candidate;
+   - Sentry is an optional Gate 8 deployment-observability candidate;
+   - Multi-Tenant is not a customer-isolation mechanism and may be evaluated only for an explicit post-Gate 8 intra-customer requirement;
+   - Stripe and Ecommerce are post-Gate 8 vertical accelerators.
+7. No official plugin may be introduced in Gate 6 or Gate 7 merely to expand product breadth. Those gates are reserved for the plugin/Sales conformance contract and the platform component system.
+8. A failed candidate is removed before v1.0 rather than preserved through a compatibility shim. The K-Nex contract remains and may use a smaller implementation.
+9. No official plugin becomes a baseline dependency beyond the exact subset recorded by executable evidence.
 
 ## Consequences
 
-- K-Nex can reuse Payload-maintained solutions without duplicating generic CMS/operations infrastructure.
+- K-Nex can reuse Payload-maintained solutions without duplicating generic infrastructure.
 - Customer repositories retain exact versions, migrations, and upgrade control.
-- Gate plans must test contributed collections, routes, jobs, admin components, access behavior, lifecycle, and bundle boundaries.
-- Some plugins remain intentionally deferred even when feature-rich because their domain or tenancy model does not fit the platform foundation.
-- The adapter may expose only a strict subset of a plugin's capabilities.
+- Gate plans test contributed collections, routes, jobs, admin components, access behavior, lifecycle, and bundle boundaries.
+- Feature-rich plugins may remain deferred when they would introduce premature product modules or incompatible domain assumptions.
+- The adapter may expose only a strict subset of the plugin.
+- Gate 2A evidence for MCP does not promote unrelated plugin candidates.
 
 ## Alternatives considered
 
@@ -54,12 +56,27 @@ Rejected because K-Nex would become coupled to package-private data shapes and u
 
 Rejected because it enlarges schema, attack surface, migration load, runtime cost, and support obligations without customer need.
 
+### Use official CMS plugins to broaden Phase 5/6 scope
+
+Rejected. Phase 5 proved the canonical publication/theme/runtime boundary; Gate 6 now hardens the plugin system through Sales rather than opening new product surfaces.
+
 ### Use the Multi-Tenant plugin for customer isolation
 
-Rejected for V1. K-Nex customers remain physically independent repositories, databases, secrets, deployments, and release cadences.
+Rejected. K-Nex customers remain physically independent repositories, databases, secrets, deployments, and release cadences.
 
 ## Validation
 
-The assigned phase must record the exact package version, compatible Payload tuple, contribution inventory, security/failure tests, migration/lifecycle impact, performance where relevant, known limitations, and adoption/rejection decision.
+The assigned gate records:
 
-ADR evidence remains `design-only` until the complete policy is exercised by the planned gate candidates. Individual plugin acceptance may be recorded in its phase result without promoting unrelated candidates.
+```text
+exact package version and compatible Payload tuple
+contribution inventory
+security/failure/bundle tests
+migration/lifecycle impact
+performance where relevant
+known limitations
+fallback/removal path
+explicit adoption or rejection
+```
+
+ADR evidence remains `design-only` until the complete cross-plugin policy is exercised. Individual candidate acceptance is recorded in its gate result without promoting unrelated candidates.

@@ -1,21 +1,21 @@
 # Project Status
 
 - **Updated:** 2026-08-27
-- **Phase:** Phase 5 — UI Runtime, Themes, and Atomic CMS Publication
-- **Active task:** P5.9 — Gate 5 closeout
-- **State:** Ready for review
+- **Phase:** Phase 6 — Plugin Platform Hardening and Sales Reference Module
+- **Active task:** P6.1 — Freeze the complete plugin contribution taxonomy
+- **State:** Ready to start
 
 ## Last completed
 
-Closed the selector-boundary blocker anchored to `fd23a864` and recorded full final-head Gate 5 closeout evidence.
+Finalized the Gate 5-based foundation roadmap, aligned repository entrypoints with the active Phase 6 handoff, and removed stale pre-merge instructions.
 
 ## Validation
 
-Frozen install, complete `pnpm gate:5`, selector escape/pseudo-element tests, outside-sibling Chromium proof, audit threshold, and repository checks pass.
+PR #20 exact-head Architecture Contracts run #85 passes frozen installation, browser proofs, Phase 0 through Gate 5, and exact-head repository checks.
 
 ## Next
 
-Push the correction head, refresh PR evidence, and await exact-head CI and project-manager PASS. Start Phase 6 only after PASS and merge.
+Implement P6.1 through P6.10 in order on one Phase 6 branch and pull request, using `module.sales` as the sole reference domain module.
 
 ## Blockers
 

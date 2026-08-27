@@ -81,6 +81,14 @@
         "packages/payload-adapter/src/mcp-adapter.ts",
         "packages/payload-adapter/tests/mcp-adapter.test.ts"
       ]
+    },
+    "0020": {
+      "level": "design-only",
+      "evidence": [
+        "docs/33-plugin-platform-hardening-and-reference-sales.md",
+        "docs/34-headless-component-system.md",
+        "docs/implementation/phase-details-gates-6-8.md"
+      ]
     }
   }
 }

@@ -1,81 +1,99 @@
 # K-Nex Implementation Master Plan — Codex Execution Contract
 
 - **Status:** active execution plan
-- **Scope:** Gate 0, Gates 1–7, and Gate 2A
-- **Execution authority:** `status.md` selects the only task that may be implemented
+- **Scope:** Gates 0–8 and Gate 2A
+- **Execution authority:** `status.md` selects the active phase/task
 - **Architecture authority:** generated contracts, accepted ADRs, and architecture documents
 - **Gate definitions:** [`../30-executable-poc-gates.md`](../30-executable-poc-gates.md)
 - **Official Payload plugin plan:** [`../32-payload-official-plugin-adoption-plan.md`](../32-payload-official-plugin-adoption-plan.md)
+- **Plugin platform direction:** [`../33-plugin-platform-hardening-and-reference-sales.md`](../33-plugin-platform-hardening-and-reference-sales.md)
+- **Component system direction:** [`../34-headless-component-system.md`](../34-headless-component-system.md)
 - **Detailed Phase 0 plan:** [`phase-0.md`](./phase-0.md)
-- **Detailed Gate 1–7 task catalog:** [`phase-details-gates-1-7.md`](./phase-details-gates-1-7.md)
+- **Detailed Gates 1–5 history/tasks:** [`phase-details-gates-1-7.md`](./phase-details-gates-1-7.md)
 - **Detailed Phase 2A plan:** [`phase-2a-agent-tools.md`](./phase-2a-agent-tools.md)
+- **Authoritative future Gates 6–8 plan:** [`phase-details-gates-6-8.md`](./phase-details-gates-6-8.md)
 
 ## 1. Purpose
 
-This is the single orchestration source for agentic implementation. It defines the phase order, task IDs, handoff protocol, gate commands, and which detailed plan Codex must read.
-
-The operator should not have to carry project context manually between sessions. Codex recovers the current task from the repository.
+This is the single orchestration source for agentic implementation. It defines phase order, task IDs, handoff protocol, gate commands, and the exact detailed plan Codex must read.
 
 Resolve conflicts in this order:
 
 1. machine-readable contracts and generated schemas;
 2. accepted ADRs and evidence registry;
-3. architecture documents, including the official Payload plugin adoption plan;
+3. architecture documents;
 4. this master plan;
-5. linked detailed task plan;
+5. the linked detailed plan for the active gate;
 6. PR descriptions and implementation notes.
 
-The phase order in this file is authoritative. The Gate 1–7 task catalog was preserved from the original full master plan; where its old phase map omits Gate 2A, this file and the dedicated Phase 2A plan take precedence.
+The future Gate 6 and Gate 7 sections in `phase-details-gates-1-7.md` are superseded. Gates 6–8 are defined only in `phase-details-gates-6-8.md`.
 
-## 2. One instruction to give Codex
+## 2. Product focus freeze
+
+Until Gate 8 passes:
 
 ```text
-Fetch the latest main branch. Read AGENTS.md, status.md, and
-`docs/implementation/codex-master-plan.md`. Find the exact active task ID,
-then read its linked detailed plan and any gate-assigned Payload plugin
-adoption notes. Execute only that task, follow its scope, acceptance commands,
-and stop conditions, update status.md in the same implementation commit,
-open a pull request, and stop without merging or enabling auto-merge.
+first-party reference domain module: module.sales
+new first-party logistics/restaurant/inventory/budgeting modules: prohibited
+component behavior: platform-owned
+customer reuse fixtures: Sales-based only
 ```
 
-## 3. Mandatory execution protocol
+Do not implement Cargo, Restaurant, Driver, Dispatch, Live Tracking, QR Menu, Inventory, Budgeting, or another domain module to discover a missing platform abstraction. Improve the platform and the Sales reference module instead.
+
+## 3. One instruction to give Codex
+
+```text
+Fetch the latest main branch. Read AGENTS.md, status.md,
+docs/implementation/codex-master-plan.md, and the detailed plan linked for the
+active phase. Work only inside that phase and in documented task order.
+
+Use one branch for the entire phase and one coherent commit per task. Update
+status.md in every task commit and run the task-specific acceptance commands.
+You may advance status.md between tasks within the same phase, but may not
+start the next phase.
+
+When the complete phase result and full gate pass, mark the phase Ready for
+review, open one pull request, and stop without merging or enabling auto-merge.
+```
+
+## 4. Mandatory execution protocol
 
 ### Task selection
 
 Codex must:
 
 1. fetch latest `main`;
-2. read `AGENTS.md`;
-3. read `status.md`;
-4. find the exact active task ID in the phase/task index below;
-5. read the linked detailed plan and relevant ADRs;
-6. when the phase has assigned official Payload plugin candidates, read `docs/32-payload-official-plugin-adoption-plan.md`;
-7. implement only that bounded task.
+2. read `AGENTS.md` and `status.md`;
+3. locate the exact active task in this plan;
+4. read the linked detailed phase plan and relevant ADRs;
+5. read gate-assigned official Payload plugin notes where applicable;
+6. implement tasks only in the active phase.
 
-If the task is absent, ambiguous, already complete, or blocked, Codex stops and reports the inconsistency. It does not infer a nearby task.
+If the active task is absent, ambiguous, already complete, or blocked, stop and report the inconsistency. Do not infer a nearby task.
 
-### Branch and pull request
-
-```text
-branch:   codex/<task-id-lowercase>-<short-slug>
-PR title: <type>: <task outcome>
-```
-
-One pull request implements one bounded work package unless the task explicitly allows a smaller sequence.
-
-Every implementation PR reports:
+### Branch, commits, and pull request
 
 ```text
-What changed
-Files/packages affected
-Architecture constraints preserved
-Commands run
-Test and CI results
-Known limitations
-Exact next task
+branch:   codex/phase-<number>-<short-slug>
+commit:   one coherent task outcome
+PR title: <type>: complete Phase <number> <outcome>
 ```
 
-Every agent-authored repository commit updates `status.md` according to `AGENTS.md`.
+One phase uses one branch and one final PR. Each task remains a separate coherent commit so review and rework can target the exact layer.
+
+Every phase PR reports:
+
+```text
+completed task matrix
+architecture constraints preserved
+packages/files affected
+commands and CI runs
+failure/attack evidence
+known limitations
+phase result decision
+exact next phase/task
+```
 
 ### Review boundary
 
@@ -83,17 +101,26 @@ Codex must never:
 
 - merge its own pull request;
 - enable auto-merge;
-- advance `status.md` beyond `Ready for review`;
-- start the next task before review and merge;
-- convert a kill criterion into a workaround without project-manager approval.
+- start the next phase;
+- convert a kill criterion into a workaround without project-manager approval;
+- add a second domain module before Gate 8;
+- preserve obsolete pre-v1 APIs through aliases or compatibility shims.
 
-The reviewer returns `PASS`, `REWORK`, `BLOCKED`, or `REJECT`. On PASS, the reviewer advances `status.md` to the post-merge task state, waits for final CI, and merges.
+The reviewer returns `PASS`, `REWORK`, `BLOCKED`, or `REJECT`. Only project-manager PASS and merge authorize the next phase.
 
-### Official Payload plugin boundary
+### Official plugin and dependency boundary
 
-Codex does not install the official plugin catalog preemptively. A candidate is considered only in its assigned gate and must be exact-pinned, inventoried, migrated, attacked, and kept behind K-Nex adapters. A candidate may implement only the subset allowed by `docs/32-payload-official-plugin-adoption-plan.md`.
+Do not install package catalogs preemptively. A dependency candidate is considered only when the active task has a real consumer and must be:
 
-## 4. Authoritative phase order
+```text
+exact-pinned
+compatible with the frozen framework tuple
+kept behind K-Nex contracts
+covered by access/bundle/lifecycle/failure tests
+removable if the kill criteria fire
+```
+
+## 5. Authoritative phase order
 
 ```text
 Phase 0   contract freeze and repository governance
@@ -110,14 +137,16 @@ Phase 4   builder engine kill-spike
    ↓
 Phase 5   UI runtime, themes, and atomic CMS publication
    ↓
-Phase 6   lifecycle, migrations, and upgrade safety
+Phase 6   plugin platform hardening and Sales reference module
    ↓
-Phase 7   second customer and verifiable fleet operations
+Phase 7   comprehensive headless component system
+   ↓
+Phase 8   lifecycle, application factory, release, and fleet safety
 ```
 
-A later phase starts only after the preceding result document records GO and `status.md` names the next task.
+A later phase starts only after the preceding phase result records GO/PASS and `status.md` names the next task.
 
-Required local/CI gate commands:
+Required gate commands:
 
 ```text
 pnpm phase:0
@@ -129,11 +158,12 @@ pnpm gate:4
 pnpm gate:5
 pnpm gate:6
 pnpm gate:7
+pnpm gate:8
 ```
 
-A gate command fails on the first failed requirement, requires no production secret, and is the command run by its required CI workflow.
+A gate command fails on the first missing requirement, requires no production secret, and is run by required CI at phase closeout.
 
-## 5. Phase and task index
+## 6. Phase and task index
 
 ### Phase 0 — Contract Freeze and Repository Readiness
 
@@ -149,245 +179,252 @@ P0.6  CI and repository governance                            complete
 P0.7  gate closeout and evidence promotion                    complete
 ```
 
-Result: [`phase-0-result.md`](./phase-0-result.md) — `GO PHASE 1`.
+Result: [`phase-0-result.md`](./phase-0-result.md).
 
 ### Phase 1 — Minimal Deterministic Payload Composition
 
-Detailed task definitions: search the exact task ID in [`phase-details-gates-1-7.md`](./phase-details-gates-1-7.md).
+Detailed historical plan: [`phase-details-gates-1-7.md`](./phase-details-gates-1-7.md)
 
 ```text
-P1.1  freeze executable framework tuple and Gate 1 fixture shell
-P1.2  load static package manifests and installed package identity
-P1.3  implement minimal deterministic resolver
-P1.4  generate resolved graph and static registries
-P1.5  implement phased registration and declared-versus-actual inventory
-P1.6  compose minimal Payload application
-P1.7  prove customer-owned migration and clean Postgres boot
-P1.8  add authenticated query and protected runtime inventory
-P1.9  Gate 1 failure corpus, reproducibility, and closeout
+P1.1  framework tuple and fixture shell
+P1.2  static installed-package manifest loader
+P1.3  deterministic resolver
+P1.4  resolved graph and static registries
+P1.5  phased registration and inventory reconciliation
+P1.6  minimal Payload composition
+P1.7  customer-owned migration and Postgres boot
+P1.8  authenticated query and runtime inventory
+P1.9  failure corpus and closeout
 ```
-
-Gate outcome: `GO PHASE 2`, `REWORK PHASE 1`, or reject the composition approach according to its kill criteria.
 
 ### Phase 2 — Authenticated Data Sources and Output Contracts
 
-Detailed task definitions: [`phase-details-gates-1-7.md`](./phase-details-gates-1-7.md).
-
 ```text
-P2.1  canonical Metric and Table contract schemas
-P2.2  source descriptor and handler registration APIs
-P2.3  staged data-source gateway pipeline
-P2.4  source, record, and field authorization
-P2.5  bounded query semantics and abuse budgets
-P2.6  safe cache classifications
+P2.1  canonical Metric and Table schemas
+P2.2  source descriptor and handler registration
+P2.3  staged source gateway
+P2.4  source/record/field authorization
+P2.5  bounded query semantics and budgets
+P2.6  safe cache classes
 P2.7  Sales proof sources
-P2.8  headless binding result states and client query identity
-P2.9  benchmark, attack, and Gate 2 closeout
+P2.8  headless result states and query identity
+P2.9  benchmark, attack, and closeout
 ```
-
-Gate outcome must authorize Phase 2A, not Phase 3 directly.
 
 ### Phase 2A — Agent Tool Contracts and Safe Execution
 
-Architecture: [`../31-agent-tools-and-ai-control-plane.md`](../31-agent-tools-and-ai-control-plane.md)
-
-Payload plugin policy: [`../32-payload-official-plugin-adoption-plan.md`](../32-payload-official-plugin-adoption-plan.md)
-
 Detailed plan: [`phase-2a-agent-tools.md`](./phase-2a-agent-tools.md)
 
-ADR: [`ADR-0018`](../adr/0018-agent-tool-contracts-and-safe-execution.md)
-
 ```text
-P2A.1  agent-tool identity, descriptor, and manifest contracts
-P2A.2  actor-filtered tool catalog
-P2A.3  minimal registered actions and source/action bindings
-P2A.4  staged tool execution gateway
-P2A.5  delegation, approval, and replay protection
-P2A.6  write idempotency, budgets, and audit
-P2A.7  official Payload MCP adapter evaluation and fallback
-P2A.8  Sales proof tools and deterministic agent client
-P2A.9  attack, close Gate 2A, and authorize Phase 3
+P2A.1  agent-tool descriptor and manifest contracts
+P2A.2  actor-filtered catalog
+P2A.3  registered actions and source/action bindings
+P2A.4  tool execution gateway
+P2A.5  delegation, approval, replay protection
+P2A.6  idempotency, budgets, audit
+P2A.7  official Payload MCP adapter evaluation
+P2A.8  Sales proof tools and deterministic client
+P2A.9  attack and closeout
 ```
-
-P2A.7 evaluates `@payloadcms/plugin-mcp` first, with collection/global CRUD disabled and all custom tools forced through the K-Nex gateway. A direct MCP SDK or custom transport is a fallback only after documented kill criteria.
-
-Gate 2A proves a model-independent tool control plane. It does not select an LLM provider, implement autonomous loops, or claim durable asynchronous workflows. Gate outcome: `GO PHASE 3`, `REWORK AGENT TOOL CONTRACT`, or `REJECT GENERIC AGENT TOOL EXPOSURE`.
 
 ### Phase 3 — Transactions, Durable Events, and Realtime Convergence
 
-Detailed task definitions: [`phase-details-gates-1-7.md`](./phase-details-gates-1-7.md).
-
 ```text
-P3.1  event classes and transactional outbox schema
-P3.2  transaction atomicity and rollback silence
+P3.1  event classes and outbox schema
+P3.2  atomicity and rollback silence
 P3.3  idempotent outbox processing
-P3.4  realtime.gateway and Socket.IO memory mode
+P3.4  realtime gateway and Socket.IO memory mode
 P3.5  process-topology compatibility
-P3.6  distributed publication path
+P3.6  worker-to-web publication path
 P3.7  source revisions and convergence
 P3.8  subscription security and backpressure
-P3.9  failure injection and Gate 3 closeout
+P3.9  failure injection and closeout
 ```
-
-Phase 3 may extend Gate 2A tools with durable asynchronous workflows and realtime progress only after outbox and convergence pass. Stripe/payment webhook integrations remain deferred until Gate 3 durability and Gate 6 lifecycle evidence exist.
 
 ### Phase 4 — Builder Engine Kill-Spike
 
-Detailed task definitions: [`phase-details-gates-1-7.md`](./phase-details-gates-1-7.md).
-
 ```text
-P4.1  minimal canonical document schema
-P4.2  minimal UiDocumentRuntime
-P4.3  BuilderEngineAdapter and Puck round-trip
-P4.4  fixed shell and profile-specific palettes
-P4.5  one static and one authenticated data block
-P4.6  missing component, migration, and safe fallback
-P4.7  bundle and runtime boundaries
-P4.8  accessibility kill-spike
-P4.9  Gate 4 decision
+P4.1  canonical UI document
+P4.2  editor-independent runtime
+P4.3  Puck adapter and round-trip
+P4.4  fixed shell and profile policy
+P4.5  static and authenticated data blocks
+P4.6  migrations and fallback
+P4.7  bundle/runtime boundaries
+P4.8  accessible keyboard operation
+P4.9  builder decision
 ```
 
 ### Phase 5 — UI Runtime, Themes, and Atomic CMS Publication
 
-Detailed task definitions: [`phase-details-gates-1-7.md`](./phase-details-gates-1-7.md).
-
 ```text
 P5.1  small semantic primitive ABI
-P5.2  theme package and profile schemas
+P5.2  theme package/profile contracts
 P5.3  Minimal theme
 P5.4  Neobrutalism theme
 P5.5  UiDocumentRepository
 P5.6  atomic CMS page/document publication
 P5.7  deterministic workspace layout resolution
 P5.8  accessibility and visual acceptance
-P5.9  Gate 5 closeout
+P5.9  closeout
 ```
 
-Phase 5 reads the official Payload plugin plan. Preferred CMS candidates are SEO, Nested Docs, and Redirects; Form Builder and Search are conditional. Gate 5 adopts only the smallest subset needed for its proof and records each candidate as accepted, conditional, deferred, or rejected. Plugin-private types do not enter the canonical CMS/document contract.
+### Phase 6 — Plugin Platform Hardening and Sales Reference Module
 
-### Phase 6 — Lifecycle, Migrations, and Upgrade Safety
-
-Detailed task definitions: [`phase-details-gates-1-7.md`](./phase-details-gates-1-7.md).
+Authoritative detail: [`phase-details-gates-6-8.md`](./phase-details-gates-6-8.md)
 
 ```text
-P6.1  lifecycle state and planning model
-P6.2  install, enable, disable, and re-enable
-P6.3  package upgrade and customer-owned migration
-P6.4  migration concurrency and stale-artifact fence
-P6.5  explicit archive/export project
-P6.6  explicit purge safety
-P6.7  source, block, theme, and document migrations
-P6.8  previous-release, overlap, restore, and rollback fixtures
-P6.9  Gate 6 closeout
+P6.1   complete plugin contribution taxonomy
+P6.2   plugin authoring and package-entrypoint API
+P6.3   settings, permissions, routes, and navigation
+P6.4   default page-template and seed semantics
+P6.5   standard browser query/action factories
+P6.6   component, Puck, route, and page registration
+P6.7   complete module.sales reference implementation
+P6.8   plugin conformance kit
+P6.9   install/enable/disable/re-enable proof
+P6.10  Gate 6 closeout and pre-v1 authoring freeze
 ```
 
-P6.5 evaluates `@payloadcms/plugin-import-export` as a bounded admin transfer/archive accelerator. It does not replace backups, schema migrations, legal retention, or lifecycle planning. Imports/exports require explicit field access, size/cost limits, job readiness, versioning, storage policy, and restore evidence.
-
-### Phase 7 — Second Customer and Verifiable Fleet Operations
-
-Detailed task definitions: [`phase-details-gates-1-7.md`](./phase-details-gates-1-7.md).
+Gate outcome:
 
 ```text
-P7.1   package release boundaries
-P7.2   Cargo fixture from released packages
-P7.3   Restaurant fixture from the same release line
-P7.4   independent upgrade cadence
-P7.5   verifiable build evidence
-P7.6   deployment receipt and runtime inventory
-P7.7   fleet evidence collection and query
-P7.8   security patch propagation
-P7.9   restore, previous-release, and operational proof
-P7.10  Gate 7 closeout
+GO PHASE 7
+REWORK PLUGIN AUTHORING CONTRACT
+REJECT GENERAL PLUGIN SURFACE
 ```
 
-Phase 7 may evaluate the official Sentry plugin as an optional deployment adapter while Pino/OpenTelemetry remain the K-Nex contracts. Payload Multi-Tenant is not used for customer isolation. Stripe and Ecommerce remain post-Gate 7 vertical candidates unless a separately approved bounded spike is added after their prerequisite gates.
+### Phase 7 — Comprehensive Headless Component System
 
-## 6. Cross-phase quality gates
+```text
+P7.1   component taxonomy, slots, and package boundaries
+P7.2   foundation/layout/content/feedback components
+P7.3   form and input family
+P7.4   navigation/disclosure/overlay family
+P7.5   data/content/editor adapters
+P7.6   standard DataTable/DataGrid system
+P7.7   page templates and Sales default pages
+P7.8   generic and Sales Puck block library
+P7.9   accessibility, SSR/hydration, theme matrix
+P7.10  performance, bundle, coverage audit, and closeout
+```
+
+All 60 Component Gallery families require an explicit executable disposition. The small theme ABI remains small; compound behavior is platform-owned.
+
+Gate outcome:
+
+```text
+GO PHASE 8
+REWORK COMPONENT SYSTEM
+REDUCE COMPONENT COVERAGE WITH EXPLICIT DECISION
+```
+
+### Phase 8 — Lifecycle, Application Factory, Release, and Fleet Safety
+
+```text
+P8.1   package release and compatibility boundaries
+P8.2   upgrade planning and customer-owned migrations
+P8.3   migration lock and stale-artifact readiness fence
+P8.4   archive/export, purge, backup, and restore
+P8.5   create-knex-app and composition plan/apply
+P8.6   two independent Sales-only customer applications
+P8.7   SBOM and signed provenance
+P8.8   deployment receipts and runtime inventory
+P8.9   fleet query, patch propagation, prior-release upgrade, restore
+P8.10  platform-foundation closeout
+```
+
+No Cargo or Restaurant module is added. Two Sales-based customers prove independent composition, theme/settings/layout differences, and release cadence.
+
+Gate outcome:
+
+```text
+PLATFORM FOUNDATION ACCEPTED
+REWORK APPLICATION FACTORY OR LIFECYCLE
+DO NOT START DOMAIN EXPANSION
+```
+
+## 7. Cross-phase quality gates
 
 ### Determinism
 
 ```text
-exact direct dependencies
-frozen lockfile
+exact direct dependencies and frozen lockfile
 canonical generated artifacts
 no time/path/host/random/secret in committed generation
-clean-tree checks
-staged-path reproducibility for deterministic generators
+clean-tree and staged-path reproducibility
+idempotent plugin/template installation
 ```
 
-### Security
+### Security and authority
 
 ```text
 server-side authorization
-least-privileged capability-scoped services
+capability-scoped services
 bounded inputs and resource use
-safe errors and logs
-no secret in events, tools, inventory, exports, or evidence
-public/authenticated authority separated by identity
-agent catalogs actor/delegation-filtered and invocation reauthorized
-protocol/model/plugin annotations never grant authority
-official plugin automatic surfaces disabled unless explicitly proved
+safe errors/logs/audit
+no secret in events/tools/settings/inventory/exports/evidence
+public/authenticated authority separated by ID
+runtime data cannot create executable contributions
+plugin UI cannot bypass source/action gateways
+```
+
+### Plugin completeness
+
+```text
+complete declared-versus-actual inventory
+Sales exercises every mandatory contribution category
+one plugin conformance command
+settings/routes/navigation/templates are versioned and typed
+component/Puck runtime parity
+lifecycle and migration fixtures
+```
+
+### Component quality
+
+```text
+style-agnostic K-Nex API
+small theme ABI plus compound platform components
+role/name/keyboard/focus contract
+SSR/hydration and portal behavior
+Minimal/Neobrutalism state matrix
+DataTable authorization/query integration
+bundle and performance budgets
 ```
 
 ### Package boundaries
 
 ```text
-contracts do not import framework, editor, model-provider, protocol, or official-plugin implementation types
-browser exports do not import server code
-modules do not import customer code
-core/composition do not import business modules
-runtime data does not select imports/packages or create executable tools
-third-party types remain behind adapters
+contracts import no framework/editor/model/protocol types
+browser exports import no server code
+modules import no customer/theme implementation
+third-party behavior engines remain behind adapters
+optional complex components remain tree-shakeable
 ```
 
-### Official plugin adoption
+### Evidence
 
 ```text
-exact package and Payload tuple
-current official documentation/license review
-contribution inventory and customer migration
-access/failure/bundle/lifecycle tests
-no plugin-private public contract
-no automatic catalog-wide installation
-candidate removal instead of pre-v1 compatibility shims
-phase result records explicit adoption/rejection
+real Postgres for migrations/transactions/lifecycle
+real Chromium for UI/focus/CSS/SSR behavior
+failure injection for durability and destructive operations
+packed-package tests
+previous-release upgrade and restore fixtures
+phase result states observed limitations only
 ```
 
-### Testing
+## 8. Decision and stop protocol
 
-```text
-unit tests for pure policy/algorithms
-contract fixtures for public shapes
-real Postgres for migrations/transactions
-scripted deterministic client for Gate 2A
-failure injection for durability/convergence
-browser tests for UI/accessibility
-previous-release fixtures for upgrades
-packed-package tests for release boundaries
-```
+Stop and request a decision when:
 
-### Documentation and evidence
-
-```text
-status.md current and compact
-phase result records observed evidence only
-ADR maturity promoted only for fully proved scope
-open limitations explicit
-all referenced paths and CI runs exist
-```
-
-## 7. Decision and stop protocol
-
-Codex stops and opens a decision request when:
-
-- an accepted invariant cannot be implemented with approved dependencies without weakening it;
-- a public or persisted contract must change outside the active task;
-- a new dependency family or provider abstraction is required;
-- an official Payload plugin requires K-Nex to adopt its private contract or weakens an accepted boundary;
+- an accepted invariant cannot be implemented without weakening it;
+- a persisted/public contract must change outside the active task;
+- a new dependency family is required without a bounded spike;
+- an official plugin/library requires private types to become K-Nex contracts;
 - a phase kill criterion is observed;
-- official package behavior/types contradict the plan;
-- a required test needs secrets, production data, or unsupported external access;
-- safe tool execution would require model-specific authority or protocol types in core contracts.
+- component coverage would force theme ABI expansion or duplicated behavior;
+- Sales cannot exercise a proposed generic plugin capability coherently;
+- another domain module appears necessary before the platform contract is complete.
 
 A decision request includes:
 
@@ -400,10 +437,18 @@ recommended option
 work that remains valid
 ```
 
-Do not merge a knowingly temporary stopgap while waiting for a decision.
+## 9. Post-Gate 8 boundary
 
-## 8. Post-Gate 7 boundary
+Only after Gate 8 PASS may the production roadmap select the next domain/product expansion:
 
-This plan proves or rejects platform foundations; it does not pre-approve a full product backlog.
+```text
+full CRM
+CMS features
+logistics/driver/dispatch/live tracking
+restaurant/QR menu/inventory/budgeting
+AI assistant productization
+commerce/payments
+third-party plugin distribution
+```
 
-Only after Gate 7 may the project manager create the production roadmap for full CRM/CMS/logistics/restaurant products, AI assistant productization, Stripe/e-commerce verticals, optional intra-customer multi-tenancy, marketplace/distribution, and the v1.0 support policy. Those plans must use evidence from Gates 1–7 and Gate 2A.
+The selected module starts from the Sales structure and passes the same plugin and component conformance gates.
