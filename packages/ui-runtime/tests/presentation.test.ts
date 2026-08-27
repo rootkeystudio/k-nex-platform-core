@@ -38,4 +38,20 @@ describe("shared browser presentation", () => {
       }] }
     })).toBe("Unavailable: PERMISSION_DENIED");
   });
+
+  it("passes K-Nex component elements through for production and editor rendering", () => {
+    const element = Object.freeze({ type: "section", props: { role: "region" }, key: null });
+    const rendered: UiDocumentRuntimeResult = {
+      success: true,
+      regions: { main: [{
+        status: "rendered",
+        nodeId: "section",
+        blockId: "content.section",
+        blockVersion: 1,
+        output: { component: "Section", element },
+        children: []
+      }] }
+    };
+    expect(presentUiRuntimeResult(rendered)).toBe(element);
+  });
 });

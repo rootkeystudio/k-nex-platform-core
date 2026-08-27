@@ -1,8 +1,9 @@
 import type { UiDocumentRuntimeResult, UiRuntimeNodeResult } from "./document-runtime.js";
 
-function presentOutput(output: unknown): string {
+function presentOutput(output: unknown): unknown {
   if (output === null || typeof output !== "object" || Array.isArray(output)) return "Unsupported block presentation";
   const view = output as Record<string, unknown>;
+  if (Object.hasOwn(view, "element") && view.element !== undefined) return view.element;
   if (view.kind === "text" && typeof view.text === "string") return view.text;
   if (view.kind === "data-table" && typeof view.title === "string" && typeof view.state === "string") {
     const rows = view.table !== null && typeof view.table === "object" && !Array.isArray(view.table) &&
@@ -14,13 +15,18 @@ function presentOutput(output: unknown): string {
   return "Unsupported block presentation";
 }
 
-/** Browser-safe presentation shared by production surfaces and editor preview. */
-export function presentUiRuntimeNode(node: UiRuntimeNodeResult): string {
-  const current = node.status === "fallback" ? `Unavailable: ${node.reason}` : presentOutput(node.output);
-  return [current, ...node.children.map(presentUiRuntimeNode)].join("\n");
+function joinPresentations(values: readonly unknown[]): unknown {
+  if (values.every((value) => typeof value === "string")) return values.join("\n");
+  return values.length === 1 ? values[0] : values;
 }
 
-export function presentUiRuntimeResult(result: UiDocumentRuntimeResult, region = "main"): string {
+/** Browser-safe presentation shared by production surfaces and editor preview. */
+export function presentUiRuntimeNode(node: UiRuntimeNodeResult): unknown {
+  const current = node.status === "fallback" ? `Unavailable: ${node.reason}` : presentOutput(node.output);
+  return joinPresentations([current, ...node.children.map(presentUiRuntimeNode)]);
+}
+
+export function presentUiRuntimeResult(result: UiDocumentRuntimeResult, region = "main"): unknown {
   if (!result.success) return `Unavailable: ${result.code}`;
-  return (result.regions[region] ?? []).map(presentUiRuntimeNode).join("\n");
+  return joinPresentations((result.regions[region] ?? []).map(presentUiRuntimeNode));
 }

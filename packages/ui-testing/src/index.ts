@@ -5,6 +5,8 @@ export const componentStateMatrix = Object.freeze([
 
 export const componentThemeMatrix = Object.freeze(["theme.minimal", "theme.neobrutalism"] as const);
 
+export * from "./evidence.js";
+
 export function validateComponentStateMatrix(values: readonly string[]): void {
   if (values.length !== componentStateMatrix.length || componentStateMatrix.some((state) => !values.includes(state))) {
     throw new TypeError("Component state evidence is incomplete.");

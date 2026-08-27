@@ -9,9 +9,9 @@
 
 ## Scope proved
 
-K-Nex now owns a style-agnostic component system with 60 Component Gallery families and 71 additional K-Nex utilities: **131 executable families** total. Every inventory entry has an explicit owner, package, behavior source, disposition, maturity, slots, states, delivery task, and test classes. The executable audit fails if any family disappears from its declared package.
+K-Nex now owns a style-agnostic component system with 60 Component Gallery families and 71 additional K-Nex utilities: **131 executable families** total. Every inventory entry has an explicit owner, package, behavior source, disposition, maturity, slots, applicable states, delivery task, and truthful test classes. A family-to-test-class evidence map and two-theme executable render sweep fail if a family disappears, cannot render, or claims evidence that is not registered.
 
-The primitive theme ABI remains small. Native semantics handle simple structures; React Aria 1.20.0 and FocusScope 3.22.1 remain behind K-Nex navigation/overlay/focus adapters; TanStack Table 8.21.3 remains behind DataTable/DataGrid; Lexical 0.49.0 remains behind the optional rich-text editor. Their public/persisted types do not escape the adapters.
+The primitive theme ABI remains small. Native semantics handle simple structures; React Aria 1.20.0 and FocusScope 3.22.1 remain behind K-Nex navigation/overlay/focus adapters; TanStack Table 8.21.3 and TanStack Virtual 3.14.9 remain behind data adapters; Lexical 0.49.0 remains behind the optional rich-text editor. Their public/persisted types do not escape the adapters.
 
 Sales remains the only first-party domain module. It is the real consumer for forms, registered sources/actions, authorized DataTable, page templates, four default pages, six component definitions, six Puck blocks, and the complete workspace builder profile. No additional domain plugin was introduced.
 
@@ -42,9 +42,9 @@ Sales remains the only first-party domain module. It is the real consumer for fo
 
 ## Accessibility, SSR, themes, and interaction
 
-The shared matrix covers default, hover, focus, pressed, selected, disabled, read-only, pending, invalid, empty, error, high contrast, reduced motion, RTL, long text, and localization under Minimal and Neobrutalism. Testing Library uses role/name queries and user-event. Real Chromium checks keyboard focus, row selection, grid navigation, portal/dialog behavior, ARIA snapshots, forced colors, reduced motion, nested roots, and live theme switching.
+The shared matrix covers default, hover, focus, pressed, selected, disabled, read-only, pending, invalid, empty, error, high contrast, reduced motion, RTL, long text, and localization through applicable components under Minimal and Neobrutalism. It does not falsely claim every state applies to every family. Testing Library uses role/name queries and user-event. Real Chromium checks keyboard focus, row selection, grid navigation, APG tree interaction, portal/dialog behavior, ARIA snapshots, forced colors, reduced motion, nested roots, live theme switching, and a keyboard-driven 10,000-row virtual list.
 
-React 19 server markup hydrates without `onRecoverableError`. Minimal also passes the existing real-browser server/client hydration proof. The [screen-reader smoke record](evidence/phase-7-screen-reader-smoke.md) documents the accessibility-tree and keyboard journey without overstating commercial screen-reader coverage.
+React 19 server markup hydrates in real Chromium without `onRecoverableError`, then opens and dismisses a portalled dialog. Minimal also passes the existing server/client hydration proof. The [screen-reader smoke record](evidence/phase-7-screen-reader-smoke.md) documents the accessibility-tree and keyboard journey without overstating commercial screen-reader coverage.
 
 Browser marker: `P7_COMPONENT_MATRIX_BROWSER_PASS`.
 
@@ -59,14 +59,14 @@ Budgets are order-of-magnitude regression fences, not production capacity claims
 | optional rich editor gzip | 104,710 B | 120,000 B |
 | Sales pages gzip | 66,008 B | 150,000 B |
 | 1,000-row semantic table SSR | 109.74 ms | 1,500 ms |
-| 10,000-item virtual list / 50-row window SSR | 0.71 ms | 250 ms |
+| 10,000-item virtual list keyboard scroll in Chromium | under 500 ms | 500 ms |
 | 1,000 filter/search/pagination control transitions | 7.11 ms | 500 ms |
 | 1,000-option combobox + 1,000-node tree SSR | 44.68 ms | 1,000 ms |
 | Chromium initial matrix render | under 2,000 ms | 2,000 ms |
 | dialog open / open-close | under 500 / 1,000 ms | 500 / 1,000 ms |
 | 20 mount/unmount cycles retained heap | under 64 MiB | 64 MiB |
 
-Lexical is absent from component, DataTable, and Sales-page bundles; it appears only in the optional rich editor entry. Performance marker: `P7_COMPONENT_PERFORMANCE_PASS`.
+Esbuild metafiles, rather than minified identifier text, prove Lexical is absent from component, DataTable, and Sales-page dependency graphs; it appears only in the optional rich editor entry. The editor rejects structured documents it cannot edit losslessly, while the renderer preserves headings, lists, links, and marks. Rich-text validation enforces depth, node, and cumulative-byte budgets. Performance marker: `P7_COMPONENT_PERFORMANCE_PASS`.
 
 ## Validation
 

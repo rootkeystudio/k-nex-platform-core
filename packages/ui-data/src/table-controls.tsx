@@ -5,7 +5,7 @@ import type { DataTableActionDefinition, DataTableViewState } from "./data-table
 
 export interface SearchControlProps { readonly label: string; readonly value: string; readonly onChange: (value: string) => void; }
 export function SearchControl({ label, value, onChange }: SearchControlProps): ReactElement {
-  return <label data-k-nex-component="search-control" data-slot="root"><span data-slot="label">{label}</span><input type="search" value={value} onChange={(event: ChangeEvent<HTMLInputElement>) => onChange(event.currentTarget.value)} data-slot="input" /></label>;
+  return <label data-k-nex-component="search-control" data-slot="root"><span data-slot="label">{label}</span><input type="search" value={value} maxLength={512} onChange={(event: ChangeEvent<HTMLInputElement>) => onChange(event.currentTarget.value)} data-slot="input" /></label>;
 }
 
 export interface FilterBarProps { readonly label?: string; readonly children: ReactNode; }
@@ -32,20 +32,25 @@ export function DensityControl({ value, onChange }: DensityControlProps): ReactE
   return <label data-k-nex-component="density-control" data-slot="root"><span>Density</span><select value={value} onChange={(event) => onChange(event.currentTarget.value as DataTableViewState["density"])}><option value="compact">Compact</option><option value="comfortable">Comfortable</option><option value="spacious">Spacious</option></select></label>;
 }
 
+export interface PaginationControlProps { readonly page: number; readonly hasNext: boolean; readonly onPageChange: (page: number) => void; }
+export function PaginationControl({ page, hasNext, onPageChange }: PaginationControlProps): ReactElement {
+  return <nav aria-label="Pagination" data-k-nex-component="pagination-control" data-slot="root"><button type="button" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>Previous</button><span aria-current="page">Page {page}</span><button type="button" disabled={!hasNext} onClick={() => onPageChange(page + 1)}>Next</button></nav>;
+}
+
 export interface SelectionSummaryProps { readonly count: number; }
 export function SelectionSummary({ count }: SelectionSummaryProps): ReactElement { return <span role="status" data-k-nex-component="selection-summary" data-slot="root">{count} selected</span>; }
 
-export interface ActionBarProps { readonly actions: readonly DataTableActionDefinition[]; readonly selectionCount?: number; readonly onAction?: (id: string) => void; }
-export function BulkActionBar({ actions, selectionCount = 0, onAction }: ActionBarProps): ReactElement | null {
-  const allowed = actions.filter((action) => action.allowed);
+export interface ActionBarProps { readonly actions: readonly DataTableActionDefinition[]; readonly selectionCount?: number; readonly disabled?: boolean; readonly onAction?: (id: string) => void; }
+export function BulkActionBar({ actions, selectionCount = 0, disabled = false, onAction }: ActionBarProps): ReactElement | null {
+  const allowed = actions.filter((action) => action.capability.state === "allowed");
   if (selectionCount === 0 || allowed.length === 0) return null;
-  return <div aria-label="Bulk actions" data-k-nex-component="bulk-action-bar" data-slot="root"><span>{selectionCount} selected</span>{allowed.map((action) => <button key={action.id} type="button" onClick={() => onAction?.(action.id)} data-state={action.destructive ? "destructive" : "default"}>{action.label}</button>)}</div>;
+  return <div aria-label="Bulk actions" data-k-nex-component="bulk-action-bar" data-slot="root"><span>{selectionCount} selected</span>{allowed.map((action) => <button key={action.id} type="button" disabled={disabled} onClick={() => onAction?.(action.id)} data-state={action.destructive ? "destructive" : "default"}>{action.label}</button>)}</div>;
 }
 
-export function RowActions({ actions, onAction }: ActionBarProps): ReactElement | null {
-  const allowed = actions.filter((action) => action.allowed);
+export function RowActions({ actions, disabled = false, onAction }: ActionBarProps): ReactElement | null {
+  const allowed = actions.filter((action) => action.capability.state === "allowed");
   if (allowed.length === 0) return null;
-  return <div aria-label="Row actions" data-k-nex-component="row-actions" data-slot="root">{allowed.map((action) => <button key={action.id} type="button" onClick={() => onAction?.(action.id)} data-state={action.destructive ? "destructive" : "default"}>{action.label}</button>)}</div>;
+  return <div aria-label="Row actions" data-k-nex-component="row-actions" data-slot="root">{allowed.map((action) => <button key={action.id} type="button" disabled={disabled} onClick={() => onAction?.(action.id)} data-state={action.destructive ? "destructive" : "default"}>{action.label}</button>)}</div>;
 }
 
 export interface QueryStateProps { readonly children: ReactNode; readonly onRetry?: () => void; }
