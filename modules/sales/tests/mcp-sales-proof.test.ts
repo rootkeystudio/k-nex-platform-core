@@ -107,7 +107,12 @@ describe("P2A.8 Sales tool proof", () => {
     const payloadRequest = {
       user: { id: "user-1", collection: "users" },
       payload: {
-        find: async () => ({ docs: tasks, page: 1, totalPages: 1, hasNextPage: false }),
+        find: async (options: { page?: number; limit?: number }) => {
+          const page = options.page ?? 1;
+          const limit = options.limit ?? tasks.length;
+          const totalPages = Math.max(1, Math.ceil(tasks.length / limit));
+          return { docs: tasks.slice((page - 1) * limit, page * limit), page, totalPages, hasNextPage: page < totalPages };
+        },
         create: async (options: { data: { title: string; status?: "open" | "done" } }) => {
           creates += 1;
           const task = { id: `task-${tasks.length + 1}`, title: options.data.title, status: options.data.status ?? "open", potentialRevenue: null, privateNote: null };
@@ -370,6 +375,25 @@ describe("P2A.8 Sales tool proof", () => {
     expect(creates).toBe(1);
     expect(tasks).toHaveLength(2);
     expect(JSON.stringify(audits)).not.toContain("never-audit-this");
+    const cursorRequest = (query: unknown) => dataSourceGateway.query({
+      correlationId: "sales-cursor-proof",
+      rawRequest: payloadRequest,
+      sourceId: salesTasksDefinition.descriptor.id,
+      surface: "workspace",
+      input: {},
+      query,
+      selectedFields: ["title", "status", "potential-revenue"],
+      signal: new AbortController().signal
+    });
+    const firstCursorPage = await cursorRequest({ cursor: { size: 1 }, filters: [], sort: [] });
+    expect(firstCursorPage).toMatchObject({ ok: true, body: { data: { rows: [{ key: "task-1" }], page: { number: 1, pageSize: 1, hasNext: true } } } });
+    if (!firstCursorPage.ok) throw new Error("First authenticated Sales cursor page failed.");
+    const nextCursor = (firstCursorPage.body.data as { page: { nextCursor?: string } }).page.nextCursor;
+    expect(nextCursor).toMatch(/^[A-Za-z0-9_-]+$/);
+    const secondCursorPage = await cursorRequest({ cursor: { size: 1, after: nextCursor }, filters: [], sort: [] });
+    expect(secondCursorPage).toMatchObject({ ok: true, body: { data: { rows: [{ key: "task-2" }], page: { number: 2, pageSize: 1, hasNext: false } } } });
+    const changedQueryReplay = await cursorRequest({ cursor: { size: 2, after: nextCursor }, filters: [], sort: [] });
+    expect(changedQueryReplay).toMatchObject({ ok: false, status: 500, body: { code: "INTERNAL_ERROR" } });
     const invalidRead = await gateway.execute({
       correlationId: "invalid-read",
       rawRequest: payloadRequest,

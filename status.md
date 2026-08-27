@@ -3,20 +3,20 @@
 - **Updated:** 2026-08-28
 - **Phase:** Phase 7 — Comprehensive Headless Component System
 - **Active task:** P7.10 — Performance, bundle, coverage audit, and closeout
-- **State:** Ready for phase review
+- **State:** In progress
 
 ## Last completed
 
-PR 22 is rebased onto accepted Phase 6 on `main`. All nine project-manager blockers are remediated. Final Sol-high review's cross-platform blocker is fixed: exported Sales descriptor aggregates use explicit public contract types, producing byte-identical clean declarations on macOS and Linux.
+PR 22 remains rebased onto accepted Phase 6 on `main`. New project-manager review on `2757411` identified six blockers. Cursor pagination now passes through the standard gateway budget/cache path with exclusive table pagination, metric rejection, cursor size/cost bounds, query-bound Sales continuation tokens, and authenticated page-one-to-page-two proof.
 
 ## Validation
 
-Exact code-bearing head `26b20b7` passed GitHub Actions run `33124403823`, including `GATE_7_PASS` and exact-head repository evidence. It also passes forced clean macOS/Linux declaration comparison (`20f204c2837d78891afbb194d7805957bdcf06dff36efbf78545b390af2dbba1`), Sales pack checks on both hosts, plugin conformance, and audit with zero high/critical findings. This closeout refresh changes documentation only.
+Previous exact head `2757411` passed GitHub Actions run `33125017425`. Focused runtime and Sales cursor validation for the new remediation is pending.
 
 ## Next
 
-Obtain the final project-manager decision. Leave PR 22 draft/open.
+Address hidden-field filter/sort authority next, then remaining review blockers in order. Leave PR 22 draft/open.
 
 ## Blockers
 
-No implementation blocker remains. Project-manager acceptance remains pending.
+Five project-manager blockers remain after the cursor vertical fix.

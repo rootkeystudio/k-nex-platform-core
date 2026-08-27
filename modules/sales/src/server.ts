@@ -1,6 +1,7 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import {
+  canonicalJson,
   type RuntimeSchema,
   type DataSourceDefinition,
   type DataSourceQueryControls
@@ -404,17 +405,27 @@ async function findTasks(context: DataSourceHandlerRequest, options: Omit<SalesF
   return salesRequest(context.request).payload.find(requestOptions(context, options));
 }
 
-function salesTaskCursor(page: number): string {
-  return Buffer.from(`sales.tasks@1:${page}`).toString("base64url");
+function salesTaskContinuationKey(query: DataSourceQueryControls): string {
+  if (query.cursor === undefined) throw new Error("Sales task cursor query is missing.");
+  return createHash("sha256").update(canonicalJson({
+    source: { id: "sales.tasks", version: 1 },
+    filters: query.filters,
+    sort: query.sort,
+    size: query.cursor.size
+  })).digest("hex");
 }
 
-function salesTaskCursorPage(after: string | undefined): number {
+function salesTaskCursor(page: number, continuationKey: string): string {
+  return Buffer.from(`sales.tasks@1:${continuationKey}:${page}`).toString("base64url");
+}
+
+function salesTaskCursorPage(after: string | undefined, continuationKey: string): number {
   if (after === undefined) return 1;
   let value: string;
   try { value = Buffer.from(after, "base64url").toString("utf8"); } catch { throw new Error("Sales task cursor is invalid."); }
-  const match = /^sales\.tasks@1:([1-9][0-9]*)$/u.exec(value);
-  if (match === null) throw new Error("Sales task cursor is invalid.");
-  const page = Number(match[1]);
+  const match = /^sales\.tasks@1:([0-9a-f]{64}):([1-9][0-9]*)$/u.exec(value);
+  if (match === null || match[1] !== continuationKey) throw new Error("Sales task cursor is invalid.");
+  const page = Number(match[2]);
   if (!Number.isSafeInteger(page) || page > 1_000_000) throw new Error("Sales task cursor is invalid.");
   return page;
 }
@@ -447,7 +458,8 @@ async function totalPotentialRevenue(context: DataSourceHandlerRequest): Promise
 async function tasksTable(context: DataSourceHandlerRequest): Promise<unknown> {
   if (context.query.page === undefined && context.query.cursor === undefined) throw new Error("Sales task table requires server pagination.");
   if (context.query.cursor?.before !== undefined) throw new Error("Sales task table does not support backward cursors.");
-  const page = context.query.page?.number ?? salesTaskCursorPage(context.query.cursor?.after);
+  const continuationKey = context.query.cursor === undefined ? undefined : salesTaskContinuationKey(context.query);
+  const page = context.query.page?.number ?? salesTaskCursorPage(context.query.cursor?.after, continuationKey!);
   const pageSize = context.query.page?.size ?? context.query.cursor!.size;
   const selectedFields = [...context.selectedFields];
   const result = await findTasks(context, {
@@ -472,7 +484,7 @@ async function tasksTable(context: DataSourceHandlerRequest): Promise<unknown> {
       number: page,
       pageSize,
       hasNext,
-      ...(context.query.cursor !== undefined && hasNext ? { nextCursor: salesTaskCursor(page + 1) } : {})
+      ...(continuationKey !== undefined && hasNext ? { nextCursor: salesTaskCursor(page + 1, continuationKey) } : {})
     }
   };
 }

@@ -94,13 +94,14 @@ function validateOperations(
   }
 
   if (descriptor.primaryContract.id === "metric.scalar") {
-    if (controls.page !== undefined || controls.filters.length > 0 || controls.sort.length > 0) {
+    if (controls.page !== undefined || controls.cursor !== undefined || controls.filters.length > 0 || controls.sort.length > 0) {
       fail("QUERY_OPERATION_NOT_DECLARED", 400, "The source does not declare tabular query operations.");
     }
     return;
   }
-  if (controls.page === undefined) fail("QUERY_PAGE_REQUIRED", 400, "A page request is required.");
-  if (controls.page.size > limits.maxPageSize || controls.page.size > dataSourcePlatformCeilings.pageSize) {
+  const pagination = controls.page ?? controls.cursor;
+  if (pagination === undefined) fail("QUERY_PAGINATION_REQUIRED", 400, "Exactly one page or cursor request is required.");
+  if (pagination.size > limits.maxPageSize || pagination.size > dataSourcePlatformCeilings.pageSize) {
     fail("PAGE_LIMIT_EXCEEDED", 400, "The requested page is too large.");
   }
 
@@ -122,7 +123,8 @@ function validateOperations(
 }
 
 function queryCost(descriptor: DataSourceDescriptor, controls: DataSourceQueryControls, selectedFields: readonly string[]): number {
-  const pageCost = controls.page === undefined ? 0 : Math.ceil(controls.page.size / 25);
+  const pagination = controls.page ?? controls.cursor;
+  const pageCost = pagination === undefined ? 0 : Math.ceil(pagination.size / 25);
   return classCeilings[descriptor.limits.costClass].baseCost
     + selectedFields.length
     + controls.filters.length * 2

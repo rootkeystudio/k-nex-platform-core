@@ -99,11 +99,27 @@ describe("bounded data-source query budgets", () => {
     evaluated.lease.release();
   });
 
+  it("accepts bounded cursor pagination and charges its page size", () => {
+    const budget = new BoundedQueryBudgetEvaluator();
+    const evaluated = budget.evaluate(registeredSource(), request({
+      query: { cursor: { after: "opaque-next", size: 25 }, filters: [], sort: [] }
+    }), actor(), authorized);
+    expect(evaluated.controls).toEqual({ cursor: { after: "opaque-next", size: 25 }, filters: [], sort: [] });
+    evaluated.lease.release();
+
+    expectCode(() => budget.evaluate(
+      registeredSource("sales.tasks", { maxCost: 4 }),
+      request({ query: { cursor: { size: 50 }, filters: [], sort: [] } }),
+      actor("cursor-cost"),
+      authorized
+    ), "QUERY_COST_EXCEEDED");
+  });
+
   it.each([
     [{ query: { page: { number: 1, size: 51 }, filters: [], sort: [] } }, "PAGE_LIMIT_EXCEEDED"],
     [{ query: { page: { number: 1, size: 25 }, filters: [{ field: "title", operator: "eq", value: "x" }], sort: [] } }, "FILTER_NOT_ALLOWED"],
     [{ query: { page: { number: 1, size: 25 }, filters: [], sort: [{ field: "status", direction: "asc" }] } }, "SORT_NOT_ALLOWED"],
-    [{ query: { filters: [], sort: [] } }, "QUERY_PAGE_REQUIRED"]
+    [{ query: { filters: [], sort: [] } }, "QUERY_PAGINATION_REQUIRED"]
   ] as const)("rejects undeclared or over-limit operations %#", (overrides, code) => {
     expectCode(() => new BoundedQueryBudgetEvaluator().evaluate(
       registeredSource(),
@@ -111,6 +127,23 @@ describe("bounded data-source query budgets", () => {
       actor(),
       authorized
     ), code);
+  });
+
+  it("rejects every pagination mode on metric sources", () => {
+    const metric = registeredSource();
+    const metricSource: RegisteredDataSource = {
+      ...metric,
+      definition: {
+        ...metric.definition,
+        descriptor: { ...metric.definition.descriptor, primaryContract: { id: "metric.scalar", version: 1 }, outputFields: undefined }
+      }
+    };
+    expectCode(() => new BoundedQueryBudgetEvaluator().evaluate(
+      metricSource,
+      request({ query: { cursor: { size: 1 }, filters: [], sort: [] }, selectedFields: [] }),
+      actor(),
+      { selectedFields: [], recordScope: {} }
+    ), "QUERY_OPERATION_NOT_DECLARED");
   });
 
   it("enforces body depth, body bytes, query cost, and result bytes", () => {
