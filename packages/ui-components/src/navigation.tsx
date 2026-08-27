@@ -97,7 +97,7 @@ export function TreeView({ label, items, selectedId, defaultSelectedId, onSelect
   const renderItems = (nodes: readonly TreeNode[]): ReactElement => <ul role="group" data-slot="group">{nodes.map((node) => {
     const entry = visibleById.get(node.id)!;
     const hasChildren = node.children !== undefined;
-    return <li key={node.id} role="treeitem" aria-label={node.label} tabIndex={activeId === node.id ? 0 : -1} aria-level={entry.level} aria-posinset={entry.position} aria-setsize={entry.setSize} aria-selected={activeSelection === node.id} aria-expanded={hasChildren ? expansion.has(node.id) : undefined} onFocus={() => setFocusedId(node.id)} onClick={() => select(node.id)} onKeyDown={(event) => onKeyDown(event, entry)} data-tree-node-id={node.id} data-slot="item"><span data-slot="item-trigger">{node.label}</span>{hasChildren && expansion.has(node.id) ? renderItems(node.children) : null}</li>;
+    return <li key={node.id} role="treeitem" aria-label={node.label} tabIndex={activeId === node.id ? 0 : -1} aria-level={entry.level} aria-posinset={entry.position} aria-setsize={entry.setSize} aria-selected={activeSelection === node.id} aria-expanded={hasChildren ? expansion.has(node.id) : undefined} onFocus={() => setFocusedId(node.id)} onClick={(event) => { event.stopPropagation(); select(node.id); }} onKeyDown={(event) => onKeyDown(event, entry)} data-tree-node-id={node.id} data-slot="item"><span data-slot="item-trigger">{node.label}</span>{hasChildren && expansion.has(node.id) ? renderItems(node.children) : null}</li>;
   })}</ul>;
   return <div ref={treeRef} role="tree" aria-label={label} aria-multiselectable={false} data-k-nex-component="tree-view" data-slot="root">{renderItems(items)}</div>;
 }

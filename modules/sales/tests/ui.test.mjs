@@ -197,7 +197,13 @@ test("every Sales Puck block preserves source/action authority and DOM role pari
     assert.match(productionMarkup, new RegExp(`data-k-nex-component="${componentName}"`));
     if (bridge.definition.id.includes("task-table")) assert.match(productionMarkup, /<table\b/);
     if (bridge.definition.id.includes("metric")) assert.match(productionMarkup, /role="status"/);
-    if (bridge.definition.id.includes("quick-create")) assert.match(productionMarkup, /<form\b/);
+    if (bridge.definition.id.includes("quick-create")) {
+      assert.match(productionMarkup, /<form\b/);
+      assert.match(productionMarkup, /name="title"/);
+      assert.match(productionMarkup, /name="status"/);
+      assert.match(productionMarkup, />Create task<\/button>/);
+      assert.match(productionMarkup, /disabled=""/);
+    }
     if (bridge.definition.id.includes("opportunity")) assert.match(productionMarkup, /<section\b[^>]*aria-label=/);
   }
 });

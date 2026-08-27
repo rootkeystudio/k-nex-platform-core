@@ -1,9 +1,9 @@
 import { snapshotPuckBlockBridge, reconcilePuckBlockContribution, type PuckBlockAuthoring, type PuckBlockBridge } from "@k-nex/builder-puck";
 import type { JsonValue, RuntimeSchema } from "@k-nex/contracts";
-import { createElement, type ReactElement, type ReactNode } from "react";
+import { createElement, useState, type ReactElement, type ReactNode } from "react";
 import { Accordion, Alert, Card, EmptyState, Grid, Heading, Section, Stack, Tabs, Text } from "@k-nex/ui-components";
 import { Metric, Table } from "@k-nex/ui-data";
-import { Form } from "@k-nex/ui-forms";
+import { Form, FormActions, Select, TextInput } from "@k-nex/ui-forms";
 import type { UiBlockDefinition, UiContributionDefinition } from "@k-nex/ui-runtime";
 
 type FieldKind = "text" | "textarea" | "number" | "boolean";
@@ -36,6 +36,38 @@ const specs: readonly GenericBlock[] = Object.freeze([
 export function createKNextComponentElement(component: unknown, props: Record<string, unknown>): unknown {
   if (typeof component !== "function") throw new TypeError("K-Nex component definition is not executable.");
   return createElement(component as (props: Record<string, unknown>) => ReactNode, props);
+}
+
+export interface KNextActionFormField {
+  readonly name: string;
+  readonly label: string;
+  readonly kind: "text" | "select";
+  readonly required?: boolean;
+  readonly options?: readonly { readonly id: string; readonly label: string }[];
+}
+interface KNextActionFormProps {
+  readonly label: string;
+  readonly fields: readonly KNextActionFormField[];
+  readonly initialValues: Readonly<Record<string, string>>;
+  readonly submitLabel: string;
+  readonly enabled: boolean;
+  readonly onSubmit: (values: Readonly<Record<string, string>>) => void | Promise<void>;
+}
+function KNextActionForm({ label, fields, initialValues, submitLabel, enabled, onSubmit }: KNextActionFormProps): ReactElement {
+  const [values, setValues] = useState(() => ({ ...initialValues }));
+  const update = (name: string, value: string): void => setValues((current) => ({ ...current, [name]: value }));
+  const valid = fields.every((field) => field.required !== true || (values[field.name] ?? "").trim().length > 0);
+  const children = [
+    ...fields.map((field) => field.kind === "select"
+      ? createElement(Select, { key: field.name, name: field.name, label: field.label, value: values[field.name] ?? "", options: field.options ?? [], onChange: (value: string) => update(field.name, value) })
+      : createElement(TextInput, { key: field.name, name: field.name, label: field.label, value: values[field.name] ?? "", ...(field.required === undefined ? {} : { required: field.required }), onChange: (value: string) => update(field.name, value) })),
+    createElement(FormActions, { key: "actions", children: createElement("button", { type: "submit", disabled: !enabled || !valid }, submitLabel) })
+  ];
+  return createElement(Form, { label, onSubmit: () => enabled && valid ? onSubmit(values) : undefined, children });
+}
+
+export function createKNextActionFormElement(props: KNextActionFormProps): unknown {
+  return createElement(KNextActionForm, props);
 }
 
 function componentElement(component: unknown, props: Record<string, unknown>): ReactElement {

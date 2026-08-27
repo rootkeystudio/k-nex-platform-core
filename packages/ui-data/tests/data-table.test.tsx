@@ -7,6 +7,7 @@ import { salesTasksDescriptor } from "../../../modules/sales/src/contracts.js";
 import {
   DataGrid,
   DataTable,
+  allowedDataTableActions,
   createDataTableController,
   createDataTableState,
   defineDataTable
@@ -26,11 +27,16 @@ const definition = defineDataTable({
   searchField: "title",
   facets: { status: ["open", "done"] },
   rowActions: [
-    { id: salesUpdateTaskMutation.action.id, action: salesUpdateTaskMutation.action, capability: { state: "allowed", action: salesUpdateTaskMutation.action }, mutation: salesUpdateTaskMutation, input: (rowKey: string) => ({ id: rowKey, status: "done" }), label: "Complete" },
-    { id: salesOpportunityStageMutation.action.id, action: salesOpportunityStageMutation.action, capability: { state: "denied", action: salesOpportunityStageMutation.action }, mutation: salesOpportunityStageMutation, input: (rowKey: string) => ({ id: rowKey, stage: "won" }), label: "Secret" }
+    { id: salesUpdateTaskMutation.action.id, action: salesUpdateTaskMutation.action, mutation: salesUpdateTaskMutation, input: (rowKey: string) => ({ id: rowKey, status: "done" }), label: "Complete" },
+    { id: salesOpportunityStageMutation.action.id, action: salesOpportunityStageMutation.action, mutation: salesOpportunityStageMutation, input: (rowKey: string) => ({ id: rowKey, stage: "won" }), label: "Secret" }
   ],
-  bulkActions: [{ id: salesUpdateTaskMutation.action.id, action: salesUpdateTaskMutation.action, capability: { state: "allowed", action: salesUpdateTaskMutation.action }, mutation: salesUpdateTaskMutation, input: (rowKey: string) => ({ id: rowKey, status: "done" }), label: "Complete" }]
+  bulkActions: [{ id: salesUpdateTaskMutation.action.id, action: salesUpdateTaskMutation.action, mutation: salesUpdateTaskMutation, input: (rowKey: string) => ({ id: rowKey, status: "done" }), label: "Complete" }]
 });
+
+const capabilities = [
+  { state: "allowed" as const, action: salesUpdateTaskMutation.action },
+  { state: "denied" as const, action: salesOpportunityStageMutation.action }
+];
 
 const records = {
   fields: ["title", "status", "potential-revenue"],
@@ -87,13 +93,10 @@ describe("P7.6 standard DataTable/DataGrid", () => {
     expect(controller.shouldRefetch("sales.opportunities")).toBe(false);
   });
 
-  it("rejects capability results that do not identify the registered action", () => {
-    const action = definition.rowActions?.[0];
-    expect(action).toBeDefined();
-    expect(() => defineDataTable({
-      ...definition,
-      rowActions: [{ ...action!, capability: { state: "allowed", action: { id: "sales.task.forged", version: 1 } } }]
-    })).toThrow(/canonical registered mutation/);
+  it("uses injected exact-identity capabilities and fails closed for forged or duplicate results", () => {
+    expect(allowedDataTableActions(definition.rowActions ?? [], capabilities).map(({ id }) => id)).toEqual([salesUpdateTaskMutation.action.id]);
+    expect(allowedDataTableActions(definition.rowActions ?? [], [{ state: "allowed", action: { id: "sales.task.forged", version: 1 } }])).toEqual([]);
+    expect(() => allowedDataTableActions(definition.rowActions ?? [], [capabilities[0]!, capabilities[0]!])).toThrow(/Duplicate/);
   });
 
   it("executes only canonical allowed actions and reports partial bulk failures", async () => {
@@ -103,12 +106,12 @@ describe("P7.6 standard DataTable/DataGrid", () => {
       return id === "task-2" ? { state: "error" as const, problem: { code: "CONFLICT", status: 409 } } : { state: "success" as const, data: { id } };
     });
     const executor = { execute };
-    const action = await controller.executeAction(executor, salesUpdateTaskMutation.action.id, "task-1", context);
+    const action = await controller.executeAction(executor, capabilities, salesUpdateTaskMutation.action.id, "task-1", context);
     expect(action.result.state).toBe("success");
     expect(action.invalidatedSources).toEqual(["sales.tasks", "sales.total-potential-revenue"]);
-    await expect(controller.executeAction(executor, salesOpportunityStageMutation.action.id, "task-1", context)).resolves.toMatchObject({ result: { state: "forbidden" } });
-    await expect(controller.executeAction(executor, "sales.task.unknown", "task-1", context)).resolves.toMatchObject({ result: { state: "forbidden" } });
-    const bulk = await controller.executeBulkAction(executor, salesUpdateTaskMutation.action.id, ["task-1", "task-2"], context);
+    await expect(controller.executeAction(executor, capabilities, salesOpportunityStageMutation.action.id, "task-1", context)).resolves.toMatchObject({ result: { state: "forbidden" } });
+    await expect(controller.executeAction(executor, capabilities, "sales.task.unknown", "task-1", context)).resolves.toMatchObject({ result: { state: "forbidden" } });
+    const bulk = await controller.executeBulkAction(executor, capabilities, salesUpdateTaskMutation.action.id, ["task-1", "task-2"], context);
     expect(bulk.state).toBe("partial");
     expect(bulk.succeededRowKeys).toEqual(["task-1"]);
     expect(bulk.failedRowKeys).toEqual(["task-2"]);
@@ -117,7 +120,7 @@ describe("P7.6 standard DataTable/DataGrid", () => {
 
   it("renders semantic table by default and an explicit keyboard grid", () => {
     const state = { ...createDataTableState(definition), selectedRows: ["task-1"] };
-    const table = renderToStaticMarkup(<DataTable definition={definition} viewState={state} requestState={{ state: "success", data: records }} />);
+    const table = renderToStaticMarkup(<DataTable definition={definition} actionCapabilities={capabilities} viewState={state} requestState={{ state: "success", data: records }} />);
     expect(table).toContain("<table");
     expect(table).not.toContain('role="grid"');
     expect(table).toContain("Call customer");
@@ -128,9 +131,16 @@ describe("P7.6 standard DataTable/DataGrid", () => {
     expect(table).toContain('data-k-nex-component="facet-filter"');
     expect(table).toContain('data-k-nex-component="sort-control"');
     expect(table).toContain('data-k-nex-component="pagination-control"');
-    const grid = renderToStaticMarkup(<DataGrid definition={definition} viewState={state} requestState={{ state: "success", data: records }} />);
+    const grid = renderToStaticMarkup(<DataGrid definition={definition} actionCapabilities={capabilities} viewState={state} requestState={{ state: "success", data: records }} />);
     expect(grid).toContain('role="grid"');
     expect(grid).toContain('role="gridcell"');
+    expect(grid.match(/role="gridcell" tabindex="0"/g)).toHaveLength(1);
+  });
+
+  it("reflects and updates array-backed facet state", () => {
+    const state = { ...createDataTableState(definition), filters: [{ field: "status", operator: "in" as const, value: ["open"] }] };
+    const table = renderToStaticMarkup(<DataTable definition={definition} viewState={state} requestState={{ state: "success", data: records }} />);
+    expect(table).toContain('<option value="open" selected="">open</option>');
   });
 
   it("exposes loading, empty, forbidden, stale, and refetching states", () => {
