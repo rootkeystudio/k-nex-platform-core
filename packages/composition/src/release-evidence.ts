@@ -1,4 +1,4 @@
-import { sign, verify, type KeyLike } from "node:crypto";
+import { sign, verify } from "node:crypto";
 
 import { canonicalJson } from "@k-nex/contracts";
 import { valid as validSemver } from "semver";
@@ -80,7 +80,7 @@ export function createReleaseProvenance(input: {
   });
 }
 
-export function signReleaseProvenance(statement: ReleaseProvenanceStatement, privateKey: KeyLike): SignedReleaseProvenance {
+export function signReleaseProvenance(statement: ReleaseProvenanceStatement, privateKey: string): SignedReleaseProvenance {
   const payload = canonicalJson(statement);
   return Object.freeze({
     algorithm: "Ed25519",
@@ -90,7 +90,7 @@ export function signReleaseProvenance(statement: ReleaseProvenanceStatement, pri
   });
 }
 
-export function verifyReleaseProvenance(envelope: SignedReleaseProvenance, publicKey: KeyLike): ReleaseProvenanceStatement {
+export function verifyReleaseProvenance(envelope: SignedReleaseProvenance, publicKey: string): ReleaseProvenanceStatement {
   if (envelope.algorithm !== "Ed25519" || envelope.payloadType !== "application/vnd.k-nex.provenance+json" ||
     !verify(null, Buffer.from(envelope.payload), publicKey, Buffer.from(envelope.signature, "base64"))) {
     throw new Error("Release provenance signature is invalid.");

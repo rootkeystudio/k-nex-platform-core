@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "applicationId": "customer-beta",
+  "environment": "staging",
+  "observedAt": "2026-08-27T12:10:00.000Z",
+  "artifactDigest": "sha256:5a32e7edc17fc3c6dbfa9ddc392a59c99cd31f9374469bc211ac8a71701e5f73",
+  "releaseEvidence": {
+    "sourceCommit": "60a433b245e7e31ab73aef5a24c9a8bedb30e9cf",
+    "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@60a433b245e7e31ab73aef5a24c9a8bedb30e9cf",
+    "manifestDigest": "sha256:cf4c955c442c51aca66456f7acc8d34488d532fc23ba5347aea63f4af9210b02",
+    "lockfileDigest": "sha256:736977a01ba855c6aad5eca62dd69db4fdef6620a4dbddb8d8b2b46ba861d0ba",
+    "resolvedGraphDigest": "sha256:674df2d19578906449c56c81a57d5710a447552e96aa1a82b78f47b77e8d1eb8",
+    "sbomDigest": "sha256:1ccb7063587a1c73c8e0636cb234f6dda96666d8ea078e76ed7b549f95c4a696",
+    "provenanceDigest": "sha256:8602fa03afff78b44a7ae45195c9099fa164b3b5797f44de7bea0e4327275e88"
+  },
+  "packages": [
+    {
+      "package": "@k-nex/composition",
+      "version": "0.0.0",
+      "integrity": "sha256:c2c9bc9498eecc291e7410738c8caec68e6953bb50114f7b3f48798e15584022"
+    },
+    {
+      "package": "@k-nex/contracts",
+      "version": "0.0.0",
+      "integrity": "sha256:b19f5054972d53f1cb49d64f59fcb77fd28b81335616f6411db650563a7166b2"
+    },
+    {
+      "package": "@k-nex/module-sales",
+      "version": "1.0.0",
+      "integrity": "sha512-hmaeYjVkO2P6Pz19CziYRMNfbM7SH2p7buwA1InBVe6i6LUeLvbIhKbjyGV14hhnSt5Bm4YtQvAf9o+ZszGUqQ=="
+    },
+    {
+      "package": "@k-nex/payload-adapter",
+      "version": "0.0.0",
+      "integrity": "sha256:beec196dbfa58e40817e2cdd2beda635b194eb68aff83189df341a7cac0a0c6f"
+    },
+    {
+      "package": "@k-nex/runtime",
+      "version": "0.0.0",
+      "integrity": "sha256:80b3c1cbc74b40f9665e6dce37967d77d6a7bcedf1ec3a08130fa57e6b92680c"
+    },
+    {
+      "package": "@k-nex/theme-neobrutalism",
+      "version": "0.0.0",
+      "integrity": "sha256:b299ca31e45a2c348d2da065d26da144a250abbe0147c8c986cb65a52b61321e"
+    },
+    {
+      "package": "@payloadcms/db-postgres",
+      "version": "3.88.0",
+      "integrity": "sha512-uP2b3yH8MulguWSH7j8vJaFX3ols4fVKPtsvZ49XQvDsafBAAUZjc1aCldo1ozoVfhC46tx4pv0ovtHQc8zdcA=="
+    },
+    {
+      "package": "@payloadcms/next",
+      "version": "3.88.0",
+      "integrity": "sha512-3f2YOGSmtTp85YnlJm9FusRgshKJbiLI8uXs8iQNMwU7RZJnLCURG8iv/6sjKHO0owIfw3vIL5qgxdtIBuQwpA=="
+    },
+    {
+      "package": "graphql",
+      "version": "16.14.2",
+      "integrity": "sha512-Chq1s4CY7jmh8gO2qvLIJyfCDIN+EHLFW/9iShnp1z8FjBQMoodWP1kDC36VAMXXIvAjj4ARa7ntfAV2BrjsbA=="
+    },
+    {
+      "package": "next",
+      "version": "16.3.1",
+      "integrity": "sha512-hsAp0i7Rh+/dhe7DGIeN2YlpLM1DP4MNxti9EtDMtqcO612X81MvvEj388/oTce9U1EcEIOWDlGq0zRwrBKvuA=="
+    },
+    {
+      "package": "payload",
+      "version": "3.88.0",
+      "integrity": "sha512-O7zuS80bvEGLte+7xZjwN05+ox5BCsGcQT2M6+CTote07JQOOvHJoiuoyQFw6cUElcFTWGMC5dy03w7J7sTYGg=="
+    },
+    {
+      "package": "react",
+      "version": "19.2.8",
+      "integrity": "sha512-PWaYA1L/q9u2u7xYQi+Y3L3Yfnie7XyLeaJICV1MGD6LprsBxcAqGjYyr0eY3p+QdsA+x/Irkt4Qif8D63+Sbw=="
+    },
+    {
+      "package": "react-dom",
+      "version": "19.2.8",
+      "integrity": "sha512-rVprimfGBG3DR+Tq0IQG2DT5PxKth1WIGDmj5yPmlzr4YBe7uyE+Du4oVqTDXZSHGGGXRtTJEGSSePyQCMBglQ=="
+    }
+  ],
+  "plugins": [
+    {
+      "id": "module.sales",
+      "package": "@k-nex/module-sales",
+      "version": "1.0.0",
+      "enabled": true
+    }
+  ],
+  "migrationRevision": 6,
+  "settings": [
+    {
+      "id": "sales.settings",
+      "schemaVersion": 1,
+      "revision": 1
+    }
+  ],
+  "templates": [
+    {
+      "id": "sales.page.tasks",
+      "templateVersion": 1,
+      "revision": 1
+    }
+  ],
+  "health": {
+    "status": "ready",
+    "checks": [
+      "database",
+      "default-pages",
+      "sales-registration"
+    ]
+  }
+}
