@@ -5,7 +5,7 @@
 - **Baseline:** `ad60cf9`
 - **Delivery:** stacked Phase 8 pull request; no merge or auto-merge
 - **Decision:** **PLATFORM FOUNDATION ACCEPTED**
-- **Review state:** Corrective implementation complete; ready for exact-head formal rereview
+- **Review state:** Independent Sol-high pre-PR PASS at implementation/evidence head `4b2100f`; designated PR review pending
 
 ## Scope proved
 
@@ -73,7 +73,7 @@ The corrective full run is rerun on every exact review head. It covers Phase 0 t
 
 ## Gate decision
 
-The first formal review correctly rejected caller-authored lifecycle evidence, unenforced support policy, workspace-linked customer fixtures, incomplete transitive inventory, forgeable deployment state, simulated recovery, and a self-repairing gate. Corrective work now makes those paths executor/authority-issued, manifest-enforced, packed and clean-booted, transitive, signed and runtime-observed, PostgreSQL-backed, and stale-evidence rejecting. No Gate 8 kill criterion fired in the corrective full run; exact-head independent rereview remains required.
+The first formal review correctly rejected caller-authored lifecycle evidence, unenforced support policy, workspace-linked customer fixtures, incomplete transitive inventory, forgeable deployment state, simulated recovery, and a self-repairing gate. Corrective work now makes those paths executor/authority-issued, manifest-enforced, packed and clean-booted, transitive, signed and runtime-observed, PostgreSQL-backed, exact-source-bound, and stale-evidence rejecting. No Gate 8 kill criterion fired; independent Sol-high pre-PR review returned PASS at implementation/evidence head `4b2100f`. Designated PR review remains pending.
 
 **Decision:** **PLATFORM FOUNDATION ACCEPTED**
 
