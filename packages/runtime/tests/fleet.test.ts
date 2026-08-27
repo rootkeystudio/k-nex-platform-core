@@ -26,6 +26,23 @@ describe("fleet evidence and patch propagation", () => {
     expect(() => fleet.ingest({ ...alpha.receipt, inventoryDigest: digest("f") }, alpha.inventory)).toThrow("reconciled");
   });
 
+  it("snapshots and deeply freezes authoritative fleet evidence", () => {
+    const fleet = new FleetRegistry();
+    const source = deployment("customer-alpha", "0.2.0");
+    const receipt = structuredClone(source.receipt);
+    const inventory = structuredClone(source.inventory);
+    fleet.ingest(receipt, inventory);
+
+    inventory.packages[0]!.version = "9.9.9";
+    receipt.smoke.checks.push("tampered");
+    const stored = fleet.list()[0]!;
+    expect(stored.inventory.packages[0]!.version).toBe("1.0.0");
+    expect(stored.receipt.smoke.checks).toEqual(["sales"]);
+    expect(Object.isFrozen(stored.inventory.packages)).toBe(true);
+    expect(Object.isFrozen(stored.inventory.packages[0])).toBe(true);
+    expect(() => { (stored.inventory.packages as Array<{ version: string }>)[0]!.version = "9.9.9"; }).toThrow();
+  });
+
   it("finds every vulnerable deployment and creates customer-specific patch updates", () => {
     const fleet = new FleetRegistry();
     for (const item of [deployment("customer-alpha", "0.2.0"), deployment("customer-beta", "0.1.0")]) fleet.ingest(item.receipt, item.inventory);
