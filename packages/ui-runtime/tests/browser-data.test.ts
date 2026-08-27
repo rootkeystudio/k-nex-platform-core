@@ -82,6 +82,17 @@ describe("P6.5 standard browser data factories", () => {
       .toEqual({ state: "invalid-contract" });
   });
 
+  it("validates and forwards bounded table query controls", async () => {
+    const queryCall = vi.fn(async () => ({ ok: true as const, data: { rows: [{ id: "task-1" }] } }));
+    const controls = { page: { number: 2, size: 25 }, filters: [{ field: "status", operator: "eq" as const, value: "open" }], sort: [{ field: "status", direction: "asc" as const }] };
+    expect((await query.executeWithControls(transport({ query: queryCall }), query.defaults, controls, queryContext())).state).toBe("success");
+    expect(queryCall).toHaveBeenCalledWith(expect.objectContaining({ controls }));
+    expect((await query.executeWithControls(transport({ query: queryCall }), query.defaults, { ...controls, page: { number: 0, size: 25 } }, queryContext())).state).toBe("invalid-contract");
+    const firstIdentity = await query.identityWithControls(query.defaults, controls, queryContext());
+    const secondIdentity = await query.identityWithControls(query.defaults, { ...controls, page: { number: 3, size: 25 } }, queryContext());
+    expect(firstIdentity.key).not.toBe(secondIdentity.key);
+  });
+
   it("cancels promptly even when transport ignores its signal", async () => {
     const controller = new AbortController();
     const pending = query.execute(transport({ query: () => new Promise(() => undefined) }), query.defaults, queryContext(controller.signal));
