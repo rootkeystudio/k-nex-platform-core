@@ -118,6 +118,35 @@ function uiDocumentJsonSchema(): unknown {
   return generated;
 }
 
+function referencedDefinition(schema: Record<string, any>, property: string): Record<string, any> {
+  const reference = schema.properties?.[property]?.$ref as string | undefined;
+  const definition = reference?.startsWith("#/$defs/") ? schema.$defs?.[reference.slice("#/$defs/".length)] : undefined;
+  if (definition === undefined) throw new TypeError(`Generated schema property is missing a local definition: ${property}.`);
+  return definition;
+}
+
+function cmsPageMetadataJsonSchema(): unknown {
+  const generated = jsonSchema(CmsPageMetadataSchema) as Record<string, any>;
+  const canonicalTextPattern = "^(?!\\s)(?![\\s\\S]*\\s$)(?![\\s\\S]*[\\u0000-\\u001f\\u007f-\\u009f])[\\s\\S]+$";
+  referencedDefinition(generated, "title").pattern = canonicalTextPattern;
+  referencedDefinition(generated, "description").pattern = canonicalTextPattern;
+  return generated;
+}
+
+function themeProfileJsonSchema(): unknown {
+  const generated = jsonSchema(ThemeProfileSchema) as Record<string, any>;
+  referencedDefinition(generated, "themeId").pattern = "^theme(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$";
+  const values = referencedDefinition(generated, "values");
+  values.maxProperties = 128;
+  values.propertyNames = { allOf: [values.propertyNames, { not: { pattern: "(?:^|\\.)(?:css|class|classname|style|import|function|secret|password|credential|token|fonturl)(?:\\.|$)" } }] };
+  const valueReference = values.additionalProperties?.$ref as string | undefined;
+  const valueDefinition = valueReference?.startsWith("#/$defs/") ? generated.$defs?.[valueReference.slice("#/$defs/".length)] : undefined;
+  const stringValue = valueDefinition?.anyOf?.find((candidate: Record<string, unknown>) => candidate.type === "string");
+  if (stringValue === undefined) throw new TypeError("Generated theme token string definition is missing.");
+  stringValue.pattern = "^(?![\\s\\S]*(?:[hH][tT][tT][pP][sS]?:\\/\\/|[dD][aA][tT][aA]:|[jJ][aA][vV][aA][sS][cC][rR][iI][pP][tT]:|@[iI][mM][pP][oO][rR][tT]|[uU][rR][lL]\\s*\\(|[{};]))[\\s\\S]+$";
+  return generated;
+}
+
 interface Artifact {
   path: string;
   value: unknown;
@@ -132,9 +161,9 @@ const primaryArtifacts = [
   { path: "schemas/event.v1.schema.json", value: eventJsonSchema() },
   { path: "schemas/metric-scalar.v1.schema.json", value: jsonSchema(MetricScalarSchema) },
   { path: "schemas/table-records.v1.schema.json", value: jsonSchema(TableRecordsSchema) },
-  { path: "schemas/theme-profile.v1.schema.json", value: jsonSchema(ThemeProfileSchema) },
+  { path: "schemas/theme-profile.v1.schema.json", value: themeProfileJsonSchema() },
   { path: "schemas/ui-document.v1.schema.json", value: uiDocumentJsonSchema() },
-  { path: "schemas/cms-page-metadata.v1.schema.json", value: jsonSchema(CmsPageMetadataSchema) }
+  { path: "schemas/cms-page-metadata.v1.schema.json", value: cmsPageMetadataJsonSchema() }
 ] satisfies readonly Artifact[];
 
 const outputContractSchemas = [

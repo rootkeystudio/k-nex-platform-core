@@ -31,7 +31,7 @@ Workspace layouts resolve explicit user, group, and permission assignments by pr
 
 ## Accessibility and visual proof
 
-The real Chromium journey bundles React and renders the canonical CMS document through `createUiDocumentRuntime`, `KNeXDesignSystemProvider`, and the React Aria-backed K-Nex primitives. It covers keyboard activation, focus visibility, dialog containment/restoration, named non-drag alternatives, 44-by-44 targets, ARIA-tree smoke, reduced motion, and forced colors. Minimal, Neobrutalism, and the customer override coexist in one page with distinct digests. PostCSS validates every selector inside top-level lists and conditional blocks, then adds zero-specificity exact-root ownership guards; sibling and nested roots remain isolated before and after live theme switching. Supplemental visual inspection is recorded in [`phase-5-accessibility-smoke.md`](./phase-5-accessibility-smoke.md).
+The real Chromium journey bundles React and renders the canonical CMS document through `createUiDocumentRuntime`, `KNeXDesignSystemProvider`, and the React Aria-backed K-Nex primitives. It covers keyboard activation, focus visibility, dialog containment/restoration, named non-drag alternatives, 44-by-44 targets, ARIA-tree smoke, reduced motion, and forced colors. Minimal, Neobrutalism, and the customer override coexist in one page with distinct digests. PostCSS validates every selector inside top-level lists and conditional blocks, then adds zero-specificity exact-root ownership guards; sibling roots, nested root elements, and their descendants remain selector-isolated before and after live theme switching. Supplemental visual inspection is recorded in [`phase-5-accessibility-smoke.md`](./phase-5-accessibility-smoke.md).
 
 ## Payload plugin decisions
 
@@ -64,6 +64,8 @@ The blocking review anchored to `e991534` produced seven corrections: exact layo
 
 The follow-up review anchored to `5561b119` bound idempotency keys to operation kind and canonical request data, replaced selector-prelude matching with PostCSS per-selector ownership scoping including nested roots, and placed CMS metadata under generated-schema inventory plus Zod/AJV fixture parity.
 
+The review anchored to `472396aa` aligned generated CMS and theme-profile schemas with Zod refinements through explicit JSON Schema patterns and limits, expanded their shared parity corpus, extended ownership guards to nested root elements, and made resolved profile authority recursively immutable.
+
 ## Kill/rework assessment
 
 No Gate 5 kill criterion fired. Theme differences do not mutate canonical documents or behavior, atomic page/document publication and rollback are proven on PostgreSQL, layout resolution is deterministic and explained, and the accessibility fixes remain ordinary semantic/CSS policy rather than replacement of the primitive or builder foundations.
@@ -74,3 +76,4 @@ No Gate 5 kill criterion fired. Theme differences do not mutate canonical docume
 - The primitive ABI intentionally defers advanced grids, dates, charts, maps, rich text, and resizable workspaces to separate adapters.
 - The accessibility result targets the supported proof surfaces and does not claim complete-product WCAG certification.
 - CMS hierarchy, redirects, form building, and search remain outside Gate 5 as recorded above.
+- Selector ownership does not disable normal CSS inheritance. An inner theme must explicitly define inherited properties it owns; the proof does not claim a shadow-DOM-style inheritance boundary.

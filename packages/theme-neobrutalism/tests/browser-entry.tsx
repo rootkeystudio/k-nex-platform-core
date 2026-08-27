@@ -2,19 +2,24 @@ import { useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import uiDocument from "../../../fixtures/ui-documents/valid/cms.v1.json";
-import { KNeXDesignSystemProvider, type ThemePresentationSnapshot } from "@k-nex/ui-design-system-contracts";
+import { KNeXDesignSystemProvider, createThemePresentation, createThemeRegistry, defineThemePackage, themeRootSelector, type ThemePresentationSnapshot } from "@k-nex/ui-design-system-contracts";
 import { createUiDocumentRuntime, createUiRuntimeRegistry } from "@k-nex/ui-runtime";
-import { resolveMinimalThemeProfile } from "@k-nex/theme-minimal";
+import { minimalThemePackage, resolveMinimalThemeProfile } from "@k-nex/theme-minimal";
 import { resolveNeobrutalismThemeProfile } from "../src/index.js";
 
-const profile = (themeId: "theme.minimal" | "theme.neobrutalism", palette: string, revisionId: string) => ({
+const profile = (themeId: "theme.minimal" | "theme.neobrutalism" | "theme.ownership-probe", palette: string, revisionId: string) => ({
   schemaVersion: 1, id: `theme-profile.${revisionId.split(".").at(-1)}`, surface: "public", themeId, themeVersion: "1.0.0", palette, mode: "light", values: {},
   revision: { id: revisionId, number: 1, state: "published", createdAt: "2026-08-27T00:00:00.000Z", publishedAt: "2026-08-27T00:01:00.000Z" }
 });
-const minimal = resolveMinimalThemeProfile(profile("theme.minimal", "light", "theme-revision.browser-minimal"));
 const neobrutalism = resolveNeobrutalismThemeProfile(profile("theme.neobrutalism", "primary", "theme-revision.browser-neobrutalism"));
 const switched = resolveNeobrutalismThemeProfile(profile("theme.neobrutalism", "primary", "theme-revision.browser-switched"));
 const customer = resolveMinimalThemeProfile(profile("theme.minimal", "light", "theme-revision.browser-customer"));
+const ownershipPackage = defineThemePackage({
+  ...minimalThemePackage,
+  id: "theme.ownership-probe",
+  structuralCss: `${minimalThemePackage.structuralCss}\n${themeRootSelector} *{outline-offset:99px}\n${themeRootSelector} [data-k-nex-theme-profile]{border-top-left-radius:99px}`
+});
+const ownership = createThemePresentation(createThemeRegistry([ownershipPackage]).resolveProfile(profile("theme.ownership-probe", "light", "theme-revision.browser-ownership")));
 
 const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [{
   id: "content.hero", version: 1, profiles: ["cms"], surfaces: ["public"], audience: "public",
@@ -56,9 +61,9 @@ function Surface({ label, presentation, onSwitch }: { label: string; presentatio
 }
 
 function App() {
-  const [first, setFirst] = useState<ThemePresentationSnapshot>(minimal);
+  const [first, setFirst] = useState<ThemePresentationSnapshot>(ownership);
   return <>
-    <style>{minimal.cssText + neobrutalism.cssText + switched.cssText + customer.cssText + `[data-k-nex-theme-profile="${customer.profileRevisionId}"] [data-k-nex-primitive="card"]{border-width:5px;background:#eefbf2}`}</style>
+    <style>{ownership.cssText + neobrutalism.cssText + switched.cssText + customer.cssText + `[data-k-nex-theme-profile="${customer.profileRevisionId}"] [data-k-nex-primitive="card"]{border-width:5px;background:#eefbf2}`}</style>
     <main><Surface label="Minimal" presentation={first} onSwitch={() => setFirst(switched)} /><Surface label="Neobrutalism" presentation={neobrutalism} /><Surface label="Customer" presentation={customer} /></main>
   </>;
 }

@@ -118,8 +118,18 @@ for (const relativePath of [
   "fixtures/ui-documents/invalid/unrestricted-url.json",
   "fixtures/ui-documents/invalid/unsafe-script.json",
   "fixtures/cms-page-metadata/valid/public-home.json",
+  "fixtures/cms-page-metadata/valid/boundaries.json",
   "fixtures/cms-page-metadata/invalid/dot-segment.json",
-  "fixtures/cms-page-metadata/invalid/query-string.json"
+  "fixtures/cms-page-metadata/invalid/query-string.json",
+  "fixtures/cms-page-metadata/invalid/leading-whitespace.json",
+  "fixtures/cms-page-metadata/invalid/trailing-whitespace.json",
+  "fixtures/cms-page-metadata/invalid/control-character.json",
+  "fixtures/cms-page-metadata/invalid/title-too-long.json",
+  "fixtures/theme-profiles/valid/public-minimal.json",
+  "fixtures/theme-profiles/invalid/non-theme-id.json",
+  "fixtures/theme-profiles/invalid/unsafe-url.json",
+  "fixtures/theme-profiles/invalid/unsafe-key.json",
+  "fixtures/theme-profiles/invalid/too-many-overrides.json"
 ]) {
   await loadCanonical(relativePath);
 }
@@ -290,6 +300,20 @@ unsafeThemeProfile.className = "brand";
 if (ThemeProfileSchema.safeParse(unsafeThemeProfile).success || validateThemeProfile(unsafeThemeProfile)) {
   throw new Error("Theme profile unknown keys must fail both Zod and generated JSON Schema validation.");
 }
+const themeProfileFixtures = [
+  { path: "fixtures/theme-profiles/valid/public-minimal.json", valid: true },
+  { path: "fixtures/theme-profiles/invalid/non-theme-id.json", valid: false },
+  { path: "fixtures/theme-profiles/invalid/unsafe-url.json", valid: false },
+  { path: "fixtures/theme-profiles/invalid/unsafe-key.json", valid: false },
+  { path: "fixtures/theme-profiles/invalid/too-many-overrides.json", valid: false }
+] as const;
+for (const fixture of themeProfileFixtures) {
+  const value = await load(fixture.path);
+  const zodValid = ThemeProfileSchema.safeParse(value).success;
+  const jsonSchemaValid = validateThemeProfile(value);
+  if (fixture.valid && (!zodValid || !jsonSchemaValid)) throw new Error(`Valid ${fixture.path} must pass both Zod and generated JSON Schema validation: ${ajv.errorsText(validateThemeProfile.errors)}`);
+  if (!fixture.valid && (zodValid || jsonSchemaValid)) throw new Error(`Invalid ${fixture.path} must fail both Zod and generated JSON Schema validation.`);
+}
 
 const uiDocumentFixtures = [
   { path: "fixtures/ui-documents/valid/cms.v1.json", valid: true },
@@ -314,8 +338,13 @@ for (const fixture of uiDocumentFixtures) {
 
 const cmsPageMetadataFixtures = [
   { path: "fixtures/cms-page-metadata/valid/public-home.json", valid: true },
+  { path: "fixtures/cms-page-metadata/valid/boundaries.json", valid: true },
   { path: "fixtures/cms-page-metadata/invalid/dot-segment.json", valid: false },
-  { path: "fixtures/cms-page-metadata/invalid/query-string.json", valid: false }
+  { path: "fixtures/cms-page-metadata/invalid/query-string.json", valid: false },
+  { path: "fixtures/cms-page-metadata/invalid/leading-whitespace.json", valid: false },
+  { path: "fixtures/cms-page-metadata/invalid/trailing-whitespace.json", valid: false },
+  { path: "fixtures/cms-page-metadata/invalid/control-character.json", valid: false },
+  { path: "fixtures/cms-page-metadata/invalid/title-too-long.json", valid: false }
 ] as const;
 for (const fixture of cmsPageMetadataFixtures) {
   const value = await load(fixture.path);

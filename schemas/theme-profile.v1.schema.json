@@ -140,7 +140,7 @@
       "type": "string"
     },
     "__schema3": {
-      "pattern": "^(module|provider|builder|theme|integration|preset)(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "pattern": "^theme(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
       "type": "string"
     },
     "__schema4": {
@@ -165,8 +165,18 @@
       "additionalProperties": {
         "$ref": "#/$defs/__schema9"
       },
+      "maxProperties": 128,
       "propertyNames": {
-        "$ref": "#/$defs/__schema8"
+        "allOf": [
+          {
+            "$ref": "#/$defs/__schema8"
+          },
+          {
+            "not": {
+              "pattern": "(?:^|\\.)(?:css|class|classname|style|import|function|secret|password|credential|token|fonturl)(?:\\.|$)"
+            }
+          }
+        ]
       },
       "type": "object"
     },
@@ -187,6 +197,7 @@
         {
           "maxLength": 256,
           "minLength": 1,
+          "pattern": "^(?![\\s\\S]*(?:[hH][tT][tT][pP][sS]?:\\/\\/|[dD][aA][tT][aA]:|[jJ][aA][vV][aA][sS][cC][rR][iI][pP][tT]:|@[iI][mM][pP][oO][rR][tT]|[uU][rR][lL]\\s*\\(|[{};]))[\\s\\S]+$",
           "type": "string"
         }
       ]

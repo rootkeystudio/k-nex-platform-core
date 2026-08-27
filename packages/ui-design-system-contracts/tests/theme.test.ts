@@ -80,7 +80,19 @@ ${themeRootSelector} :is([data-kind="a,b"],[data-kind="c"]),${themeRootSelector}
     expect(presentation.cssText).toContain(':is([data-kind="a,b"],[data-kind="c"])');
     expect(presentation.cssText).toContain("@media (min-width:1px)");
     expect(presentation.cssText).toContain("@supports (display:grid)");
-    expect(presentation.cssText).toContain(':where(:not([data-k-nex-theme-profile="theme-revision.public-1"] [data-k-nex-theme-profile] *))');
+    expect(presentation.cssText).toContain(':where(:not([data-k-nex-theme-profile="theme-revision.public-1"] [data-k-nex-theme-profile],[data-k-nex-theme-profile="theme-revision.public-1"] [data-k-nex-theme-profile] *))');
+  });
+
+  it("deeply snapshots resolved profile authority before presentation", () => {
+    const resolved = createThemeRegistry([themePackage()]).resolveProfile(profile);
+    expect(() => { (resolved.profile.revision as { id: string }).id = "theme-revision.mutated"; }).toThrow();
+    expect(() => { (resolved.profile.values as Record<string, unknown>)["color.accent"] = "#ff0000"; }).toThrow();
+    const presentation = createThemePresentation(resolved);
+    expect(resolved.profile.revision).toMatchObject({ id: "theme-revision.public-1", state: "draft" });
+    expect(resolved.profile.values).toEqual({});
+    expect(presentation.profileRevisionId).toBe("theme-revision.public-1");
+    expect(presentation.cssText).toContain('[data-k-nex-theme-profile="theme-revision.public-1"]');
+    expect(presentation.cssText).not.toContain("theme-revision.mutated");
   });
 
   it("replaces every structural root with the exact profile revision selector", () => {

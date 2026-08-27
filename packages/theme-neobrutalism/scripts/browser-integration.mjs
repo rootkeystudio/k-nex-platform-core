@@ -39,6 +39,10 @@ try {
   const nestedBorderWidth = () => page.getByTestId("surface-Nested").locator('[data-k-nex-primitive="card"]').evaluate((element) => getComputedStyle(element).borderTopWidth);
   assert.deepEqual(await Promise.all([borderWidth("Minimal"), borderWidth("Neobrutalism"), borderWidth("Customer")]), ["1px", "3px", "5px"], "simultaneous theme roots must remain isolated");
   assert.equal(await nestedBorderWidth(), "5px", "nested theme root must own its descendants independently of the outer stylesheet");
+  assert.deepEqual(await page.getByTestId("surface-Nested").evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { borderRadius: style.borderTopLeftRadius, outlineOffset: style.outlineOffset };
+  }), { borderRadius: "0px", outlineOffset: "0px" }, "outer universal and root-targeting rules must not style the nested root element");
 
   const increment = page.getByRole("button", { name: "Increment Minimal" });
   await page.keyboard.press("Tab");

@@ -7,7 +7,7 @@
 
 ## Automated browser acceptance
 
-The bundled React proof evaluates `fixtures/ui-documents/valid/cms.v1.json` with `createUiDocumentRuntime`, then renders its result through `KNeXDesignSystemProvider` and the React Aria-backed K-Nex primitives. It exercises keyboard focus/activation, a non-drag move alternative, 44 × 44 targets, dialog containment and trigger-focus restoration, semantic headings/buttons/status through an ARIA snapshot, reduced motion, forced colors, sibling and nested root isolation, live switching, and distinct screenshots.
+The bundled React proof evaluates `fixtures/ui-documents/valid/cms.v1.json` with `createUiDocumentRuntime`, then renders its result through `KNeXDesignSystemProvider` and the React Aria-backed K-Nex primitives. It exercises keyboard focus/activation, a non-drag move alternative, 44 × 44 targets, dialog containment and trigger-focus restoration, semantic headings/buttons/status through an ARIA snapshot, reduced motion, forced colors, sibling isolation, nested-root-element and descendant ownership, live switching, and distinct screenshots. Ordinary CSS inheritance remains platform behavior rather than a shadow-DOM boundary.
 
 Command: `pnpm test:p5-accessibility`
 

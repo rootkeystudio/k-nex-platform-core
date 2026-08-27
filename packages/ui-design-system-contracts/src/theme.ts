@@ -59,6 +59,14 @@ function cloneValues(values: ThemeTokenValues): ThemeTokenValues {
   return Object.freeze({ ...values });
 }
 
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+    for (const child of Object.values(value)) deepFreeze(child);
+    Object.freeze(value);
+  }
+  return value;
+}
+
 function scopeStructuralCss(input: string): string {
   let root: ReturnType<typeof postcss.parse>;
   try {
@@ -70,7 +78,7 @@ function scopeStructuralCss(input: string): string {
     if (rule.name !== "media" && rule.name !== "supports") throw new TypeError(`Theme structural CSS at-rule is not allowed: @${rule.name}.`);
   });
   let count = 0;
-  const ownershipSuffix = `:where(:not(${themeRootSelector} [data-k-nex-theme-profile] *))`;
+  const ownershipSuffix = `:where(:not(${themeRootSelector} [data-k-nex-theme-profile],${themeRootSelector} [data-k-nex-theme-profile] *))`;
   root.walkRules((rule) => {
     for (const selector of rule.selectors) {
       const authoredSelector = selector.endsWith(ownershipSuffix) ? selector.slice(0, -ownershipSuffix.length) : selector;
@@ -155,7 +163,7 @@ export function createThemeRegistry(inputs: readonly ThemePackage[]) {
       if (palette === undefined) throw new TypeError(`Theme palette is not installed: ${profile.palette}.`);
       const result = themePackage.tokenSchema.safeParse({ ...themePackage.defaults, ...palette.values, ...profile.values });
       if (!result.success) throw new TypeError("Theme profile values do not satisfy the installed package schema.");
-      return Object.freeze({ package: themePackage, profile: Object.freeze(structuredClone(profile)), values: cloneValues(result.data) });
+      return Object.freeze({ package: themePackage, profile: deepFreeze(structuredClone(profile)), values: cloneValues(result.data) });
     }
   });
 }
