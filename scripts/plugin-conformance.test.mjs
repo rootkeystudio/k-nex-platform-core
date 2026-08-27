@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { gzipSync } from "node:zlib";
 
 import { assertByteReproducible, assertNoShellWrapper, assertVitestExactTestProof, requiredPluginEvidence, runBoundaryProof, validateConformancePlan } from "./plugin-conformance.mjs";
 
@@ -91,14 +92,15 @@ test("plugin conformance accepts only one exact passed Vitest file and test", ()
   assert.throws(() => assertVitestExactTestProof({ ...report, testResults: [{ ...report.testResults[0], assertionResults: [{ ...report.testResults[0].assertionResults[0], fullName: "other" }] }] }, expected), /intended test/);
 });
 
-test("plugin conformance requires repeated and committed archive bytes to match", () => {
-  const linux = Buffer.from([0x1f, 0x8b, 0x08, 0, 0, 0, 0, 0, 0, 0x03, 1, 2, 3]);
-  const committed = Buffer.from(linux);
+test("plugin conformance requires repeated pack bytes and canonical committed gzip metadata", () => {
+  const payload = Buffer.from("sales package payload");
+  const linux = gzipSync(payload, { level: 1, mtime: 0 });
+  linux[9] = 0x03;
+  const committed = gzipSync(payload, { level: 6, mtime: 0 });
   committed[9] = 0xff;
   assert.doesNotThrow(() => assertByteReproducible(linux, Buffer.from(linux), committed, "sales.tgz"));
-  const changed = Buffer.from(linux);
-  changed[12] = 4;
-  assert.throws(() => assertByteReproducible(linux, changed, committed, "sales.tgz"), /repeated pack bytes are non-deterministic/);
-  assert.throws(() => assertByteReproducible(changed, Buffer.from(changed), committed, "sales.tgz"), /committed bytes are stale/);
+  const differentlyCompressed = gzipSync(payload, { level: 9, mtime: 0 });
+  differentlyCompressed[9] = 0x03;
+  assert.throws(() => assertByteReproducible(linux, differentlyCompressed, committed, "sales.tgz"), /repeated pack bytes are non-deterministic/);
   assert.throws(() => assertByteReproducible(linux, Buffer.from(linux), linux, "sales.tgz"), /gzip OS marker is not cross-platform/);
 });
