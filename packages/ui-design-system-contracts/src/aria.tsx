@@ -41,11 +41,11 @@ export function Link({ children, href, isExternal = false }: LinkProps): ReactEl
 }
 
 export function Button({ children, type = "button", variant = "primary", isDisabled = false, onPress }: ButtonProps): ReactElement {
-  return <AriaButton type={type} isDisabled={isDisabled} {...(onPress === undefined ? {} : { onPress })} data-k-nex-primitive="button" data-variant={variant}>{children}</AriaButton>;
+  return <AriaButton type={type} isDisabled={isDisabled} {...(onPress === undefined ? {} : { onPress })} data-k-nex-primitive="button" data-k-nex-component="button" data-slot="root" data-variant={variant}>{children}</AriaButton>;
 }
 
 export function IconButton({ icon, label, type = "button", variant = "quiet", isDisabled = false, onPress }: IconButtonProps): ReactElement {
-  return <AriaButton type={type} aria-label={label} isDisabled={isDisabled} {...(onPress === undefined ? {} : { onPress })} data-k-nex-primitive="icon-button" data-variant={variant}>{icon}</AriaButton>;
+  return <AriaButton type={type} aria-label={label} isDisabled={isDisabled} {...(onPress === undefined ? {} : { onPress })} data-k-nex-primitive="icon-button" data-k-nex-component="icon-button" data-slot="root" data-variant={variant}>{icon}</AriaButton>;
 }
 
 export function Input({ label, description, error, ...props }: InputProps): ReactElement {
@@ -131,7 +131,7 @@ export function Tooltip({ children, triggerLabel, delay = 500 }: TooltipProps): 
 export function Pagination({ label, currentPage, totalPages, onChange }: PaginationProps): ReactElement {
   const previous = Math.max(1, currentPage - 1);
   const next = Math.min(totalPages, currentPage + 1);
-  return <nav aria-label={label} data-k-nex-primitive="pagination">
+  return <nav aria-label={label} data-k-nex-primitive="pagination" data-k-nex-component="pagination" data-slot="root">
     <AriaButton aria-label="Previous page" isDisabled={currentPage <= 1} onPress={() => onChange(previous)}>Previous</AriaButton>
     <span aria-live="polite">Page {currentPage} of {totalPages}</span>
     <AriaButton aria-label="Next page" isDisabled={currentPage >= totalPages} onPress={() => onChange(next)}>Next</AriaButton>

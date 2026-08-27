@@ -56,7 +56,7 @@ export function FormField({ children, legend, description, error }: FormFieldPro
 }
 
 export function Toast({ children, tone = "neutral", priority = "polite" }: ToastProps): ReactElement {
-  return <div role={priority === "assertive" ? "alert" : "status"} aria-live={priority} data-k-nex-primitive="toast" data-tone={tone}>{children}</div>;
+  return <div role={priority === "assertive" ? "alert" : "status"} aria-live={priority} data-k-nex-primitive="toast" data-k-nex-component="toast" data-slot="root" data-tone={tone}>{children}</div>;
 }
 
 export function Skeleton({ label }: SkeletonProps): ReactElement {
