@@ -1,4 +1,4 @@
-import { defineUiContributionBinding, type UiBlockRenderInput } from "@k-nex/ui-runtime";
+import { defineUiContributionBinding, type UiBlockRenderInput, type UiContributionDefinition } from "@k-nex/ui-runtime";
 import { createKNextActionFormElement, createKNextComponentElement, createPuckBlockLibrary } from "@k-nex/ui-builder-blocks";
 import { Section, Status } from "@k-nex/ui-components";
 import { DataList, DataTable, KeyValueList, Metric, QueryBoundary, createDataTableState } from "@k-nex/ui-data";
@@ -26,18 +26,23 @@ export type SalesUiRenderState = NonNullable<UiBlockRenderInput["sourceResult"]>
 
 export interface SalesTaskTablePresentation {
   readonly kind: "data-table";
+  readonly component: "DataTable";
   readonly title: string;
   readonly accessibility: Readonly<{ readonly role: "table"; readonly label: string }>;
   readonly state: SalesUiRenderState;
+  readonly element: unknown;
+  readonly action?: NonNullable<UiBlockRenderInput["action"]>;
   readonly table?: unknown;
   readonly problemCode?: string;
 }
 
 export interface SalesContributionPresentation {
   readonly kind: "data-table" | "metric" | "form" | "data-list" | "detail" | "status" | "settings-summary";
+  readonly component: string;
   readonly title: string;
   readonly accessibility: Readonly<{ readonly role: "table" | "form" | "list" | "status" | "region"; readonly label: string }>;
   readonly state: SalesUiRenderState;
+  readonly element: unknown;
   readonly action?: NonNullable<UiBlockRenderInput["action"]>;
   readonly data?: unknown;
   readonly problemCode?: string;
@@ -150,7 +155,7 @@ function componentName(kind: ReturnType<typeof rendererKind>): string {
   return "Status";
 }
 
-function contributionRenderer(id: string) {
+function contributionRenderer(id: string): (input: UiBlockRenderInput) => Readonly<SalesContributionPresentation> {
   return (input: UiBlockRenderInput) => {
     const props = input.props as { readonly title: string };
     const state = input.sourceResult?.state ?? "idle";
