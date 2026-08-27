@@ -3,7 +3,7 @@
 - **Updated:** 2026-08-27
 - **Phase:** Phase 6 — Plugin Platform Hardening and Sales Reference Module
 - **Active task:** P6.10 — Close Gate 6 and freeze the pre-v1 authoring contract
-- **State:** In progress
+- **State:** Ready for phase review
 
 ## Last completed
 
@@ -11,7 +11,7 @@ P6.10 now also requires every authored JSON-schema `required` name to be an owne
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0 focused contract acceptance passes: 18 files, 144 tests, plus the contracts build and diff check. The exact resulting head must now complete Gate 6, high-threshold audit, clean-tree proof, and independent review before PR update.
+Node 24.19.0 / pnpm 11.9.0 acceptance inventory: contracts 144, runtime 200, UI runtime 43, builder 35, Sales 34, and conformance runner 5. Release evidence requires this immutable final metadata head to pass the named Gate 6 path, high-threshold audit, clean-tree proof, and independent review before PR update.
 
 ## Next
 

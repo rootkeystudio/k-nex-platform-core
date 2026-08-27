@@ -66,7 +66,7 @@ pnpm audit --audit-level high
 git diff --check
 ```
 
-Final task acceptance totals reached contracts 142, runtime 200, UI runtime 43, builder 35, Payload adapter 32, Sales 34, conformance-plan 5, and the customer unit/PostgreSQL gates. The PostgreSQL proof exercises all three Sales sources and all three actions through standard gateways, rejects out-of-scope task and opportunity IDs, boots enabled/disabled/re-enabled deployments, preserves retained data, and executes registered event/realtime/job behavior.
+Final task acceptance totals reached contracts 144, runtime 200, UI runtime 43, builder 35, Payload adapter 32, Sales 34, conformance-plan 5, and the customer unit/PostgreSQL gates. The PostgreSQL proof exercises all three Sales sources and all three actions through standard gateways, rejects out-of-scope task and opportunity IDs, boots enabled/disabled/re-enabled deployments, preserves retained data, and executes registered event/realtime/job behavior.
 
 The complete Gate 6 chain passed on the remediation tree, including frozen install, clean/squash-safe artifact validation, real PostgreSQL lifecycle execution, browser/accessibility proofs, exact machine-readable conformance, deterministic packed Sales bytes, and `GATE_6_PASS`. Final metadata-head verification, high-threshold audit, and independent exact-head review are recorded outside this immutable result before the designated project manager decides whether to PASS and merge PR #21.
 
