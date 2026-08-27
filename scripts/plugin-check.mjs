@@ -19,6 +19,6 @@ const [manifest, packageJson, plan] = await Promise.all([
 assert.equal(plan.pluginId, manifest.id, "Conformance plan pluginId must match the plugin manifest.");
 assert.equal(packageJson.name, manifest.package, "Plugin package name must match the plugin manifest.");
 
-const results = runConformancePlan({ plan, pluginPackage: packageJson.name, root });
+const results = runConformancePlan({ plan, pluginId: manifest.id, pluginPackage: packageJson.name, pluginRoot, root });
 console.log(JSON.stringify({ pluginId: manifest.id, evidence: results }, null, 2));
 console.log("PLUGIN_CONFORMANCE_PASS");

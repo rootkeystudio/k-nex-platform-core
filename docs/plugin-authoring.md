@@ -42,9 +42,9 @@ Plugins ship migration metadata, while customer applications own executable migr
 
 ## Conformance command
 
-`pnpm plugin:check modules/sales` runs the strict plan through [the conformance runner](../scripts/plugin-conformance.mjs). Every required evidence class must be covered, every named Node/Vitest proof must run exactly once, and every package-script proof must emit its declared marker. The current suite covers manifest/schema fixtures, package boundaries, inventory, fresh migration/boot, lifecycle, settings/permission attacks, source/action/tool/event/realtime behavior, runtime/Puck parity, default-page idempotency, accessibility smoke, and packed reproducibility.
+`pnpm plugin:check modules/sales` runs the strict plan through [the conformance runner](../scripts/plugin-conformance.mjs). Every required evidence class must be covered exactly once. Named Node proofs must live inside the target plugin, receive runner-owned plugin identity, and pass exactly one named test. The only package-script proofs are runner-owned boundary and reproducibility checks executed against the target package. The suite covers manifest/schema inventory, package boundaries, deterministic customer inventory, fresh migration/boot, lifecycle, Sales settings/permission attacks, Sales source/action/tool/event/realtime execution, runtime/Puck parity, default-page idempotency, Sales accessibility smoke, and packed reproducibility.
 
-The plan cannot escape the repository/package boundary or introduce arbitrary command shapes. [Negative runner tests](../scripts/plugin-conformance.test.mjs) prove missing/unknown evidence, duplicate proof IDs, and extra runner fields fail closed.
+The plan cannot point at another workspace package, escape the target plugin, select arbitrary scripts, duplicate evidence, or introduce arbitrary command shapes. [Negative runner tests](../scripts/plugin-conformance.test.mjs) prove those cases fail closed.
 
 ## Diagnostic catalog
 

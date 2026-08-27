@@ -79,3 +79,15 @@ test("every Sales UI contribution renders outside the editor and every block rec
     assert.equal(bridge.definition.id, definition.id);
   }
 });
+
+test("Sales UI contributions expose labelled semantic regions", () => {
+  const input = {
+    node: { id: "accessible", type: "sales.reference", version: 1, props: { title: "Sales reference" } },
+    props: { title: "Sales reference" }, surface: "workspace", actor, sourceResult: { state: "empty" }
+  };
+  for (const definition of [...salesUiComponentDefinitions, ...salesUiBlockDefinitions]) {
+    const rendered = definition.render(input);
+    assert.equal(rendered.accessibility.label, "Sales reference");
+    assert.equal(["form", "list", "region", "status", "table"].includes(rendered.accessibility.role), true);
+  }
+});

@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Made lifecycle reconciliation authoritative at tool execution and required executable Sales event, realtime, and job bindings; disabled behavior remains absent while schema is retained.
+Replaced advisory conformance markers with runner-owned, target-plugin-bound Sales proofs for manifest, packaging, inventory/migrations/lifecycle, settings, pages, UI/accessibility, source/action/tool/event/realtime execution, and reproducibility.
 
 ## Validation
 
-Node 24.19.0: `pnpm contracts:validate`, runtime 174 tests, Sales 31 tests, deterministic Sales pack check, and the real PostgreSQL customer gate PASS.
+Node 24.19.0: `pnpm plugin:check:test` (2), `pnpm plugin:check modules/sales` (11 exact evidence classes), Sales 32 tests, deterministic pack check, and embedded real PostgreSQL customer gate PASS.
 
 ## Next
 

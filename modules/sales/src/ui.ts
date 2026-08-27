@@ -29,6 +29,7 @@ export function salesTaskTableRenderer(input: UiBlockRenderInput) {
   return Object.freeze({
     kind: "data-table" as const,
     title: props.title,
+    accessibility: Object.freeze({ role: "table" as const, label: props.title }),
     state,
     ...(input.sourceResult !== undefined && "data" in input.sourceResult ? { table: input.sourceResult.data } : {}),
     ...(input.sourceResult !== undefined && "problem" in input.sourceResult ? { problemCode: input.sourceResult.problem.code } : {})
@@ -45,12 +46,18 @@ function rendererKind(id: string): "data-table" | "metric" | "form" | "data-list
   return "data-table";
 }
 
+function accessibility(kind: ReturnType<typeof rendererKind>, label: string) {
+  const role = kind === "data-table" ? "table" : kind === "form" ? "form" : kind === "data-list" ? "list" : kind === "status" || kind === "metric" ? "status" : "region";
+  return Object.freeze({ role, label });
+}
+
 function contributionRenderer(id: string) {
   return (input: UiBlockRenderInput) => {
     const props = input.props as { readonly title: string };
     const state = input.sourceResult?.state ?? "idle";
+    const kind = rendererKind(id);
     return Object.freeze({
-      kind: rendererKind(id), title: props.title, state,
+      kind, title: props.title, accessibility: accessibility(kind, props.title), state,
       ...(input.action === undefined ? {} : { action: input.action }),
       ...(input.sourceResult !== undefined && "data" in input.sourceResult ? { data: input.sourceResult.data } : {}),
       ...(input.sourceResult !== undefined && "problem" in input.sourceResult ? { problemCode: input.sourceResult.problem.code } : {})
