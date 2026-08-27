@@ -1,0 +1,180 @@
+{
+  "$defs": {
+    "__schema0": {
+      "type": "string"
+    },
+    "__schema1": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema2": {
+      "additionalProperties": false,
+      "properties": {
+        "channel": {
+          "const": "pre-v1",
+          "type": "string"
+        },
+        "compatibilityPolicy": {
+          "const": "exact-framework-tuple",
+          "type": "string"
+        },
+        "version": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "versioningPolicy": {
+          "const": "semver-pre-v1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "channel",
+        "versioningPolicy",
+        "compatibilityPolicy"
+      ],
+      "type": "object"
+    },
+    "__schema3": {
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$",
+      "type": "string"
+    },
+    "__schema4": {
+      "additionalProperties": false,
+      "properties": {
+        "core": {
+          "const": "1.0.0",
+          "type": "string"
+        },
+        "node": {
+          "const": "24.19.0",
+          "type": "string"
+        },
+        "payload": {
+          "const": "3.88.0",
+          "type": "string"
+        },
+        "payloadDatabaseAdapter": {
+          "const": "postgres",
+          "type": "string"
+        },
+        "pnpm": {
+          "const": "11.9.0",
+          "type": "string"
+        }
+      },
+      "required": [
+        "core",
+        "payload",
+        "node",
+        "pnpm",
+        "payloadDatabaseAdapter"
+      ],
+      "type": "object"
+    },
+    "__schema5": {
+      "items": {
+        "$ref": "#/$defs/__schema6"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "__schema6": {
+      "additionalProperties": false,
+      "properties": {
+        "integrity": {
+          "pattern": "^sha512-[A-Za-z0-9+/]{86}==$",
+          "type": "string"
+        },
+        "package": {
+          "pattern": "^@?[a-z0-9][a-z0-9._-]*(?:\\/[a-z0-9][a-z0-9._-]*)?$",
+          "type": "string"
+        },
+        "peerCompatibility": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "role": {
+          "enum": [
+            "core",
+            "plugin",
+            "provider",
+            "builder",
+            "theme",
+            "tooling"
+          ],
+          "type": "string"
+        },
+        "version": {
+          "$ref": "#/$defs/__schema3"
+        }
+      },
+      "required": [
+        "package",
+        "version",
+        "role",
+        "integrity",
+        "peerCompatibility"
+      ],
+      "type": "object"
+    },
+    "__schema7": {
+      "additionalProperties": false,
+      "properties": {
+        "policy": {
+          "const": "current-and-one-prior-minor",
+          "type": "string"
+        },
+        "securityFixes": {
+          "const": "all-supported-releases",
+          "type": "string"
+        },
+        "supportedReleases": {
+          "items": {
+            "$ref": "#/$defs/__schema3"
+          },
+          "maxItems": 2,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "policy",
+        "supportedReleases",
+        "securityFixes"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://schemas.k-nex.dev/package-release-manifest/v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "framework": {
+      "$ref": "#/$defs/__schema4"
+    },
+    "packages": {
+      "$ref": "#/$defs/__schema5"
+    },
+    "release": {
+      "$ref": "#/$defs/__schema2"
+    },
+    "schemaVersion": {
+      "$ref": "#/$defs/__schema1"
+    },
+    "supportWindow": {
+      "$ref": "#/$defs/__schema7"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "release",
+    "framework",
+    "packages",
+    "supportWindow"
+  ],
+  "title": "K-Nex Package Release Manifest v1",
+  "type": "object"
+}

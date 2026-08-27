@@ -1,22 +1,22 @@
 # Project Status
 
-- **Updated:** 2026-08-28
-- **Phase:** Phase 7 — Comprehensive Headless Component System
-- **Active task:** P7.10 — Performance, bundle, coverage audit, and closeout
-- **State:** Ready for phase review
+- **Updated:** 2026-08-27
+- **Phase:** Phase 8 — Lifecycle, Application Factory, Release, and Fleet Safety
+- **Active task:** P8.2 — Plugin/package upgrade planning and customer-owned migrations
+- **State:** In progress
 
 ## Last completed
 
-PR 22 remains rebased onto accepted Phase 6 on `main`. Explicit Puck preview contexts require an injected presentation host at adapter construction. Hostless legacy rendering and supplied hosts that return an opaque runtime list deterministically produce `PRESENTATION_HOST_REQUIRED`, so Builder/Puck never hands those objects to React.
+P8.1 froze a generated package-release manifest contract. Every released package has an exact semantic version, immutable SHA-512 integrity, role, and the exact supported K-Nex/Payload/Node/pnpm/Postgres tuple. The pre-v1 support window is bounded to current plus at most the immediately preceding minor in the same major line, with security fixes required across all supported releases. Release manifests remain deterministic and exclude deployment/provenance assertions owned by later tasks.
 
 ## Validation
 
-Local frozen install and complete Gate 7 pass with `GATE_7_PASS`. Builder/Puck (36 plus browser) and builder-block (9) suites pass. Coverage proves construction-time missing-host rejection, React success/fallback presentation, hostless and supplied no-op-host opaque-list denial, retained string-only legacy output, and all sibling-identity paths. Code-bearing head `4e84187` passed required workflow `33178126995` on attempt 1.
+Node 24.19.0 / pnpm 11.9.0: contracts build and 145 tests PASS; architecture contract tooling builds; deterministic generation produced the release-manifest schema and updated generated-contract inventory. Full `pnpm phase:0` runs on the committed task head so generated-clean can compare against Git.
 
 ## Next
 
-Validate the docs-only evidence head, refresh immutable PR evidence, then request project-manager review. Leave PR 22 draft/open without auto-merge.
+Commit P8.1, run its full Phase 0 acceptance, then implement P8.2 current-to-target planning and customer-owned migration artifacts using Sales as the sole schema-owning fixture.
 
 ## Blockers
 
-None. Final docs-head CI and external project-manager acceptance remain pending.
+None. Phase 8 is stacked on the preserved Phase 7 branch per explicit project-manager instruction; Phase 7 PR #22 remains open.
