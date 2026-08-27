@@ -24,11 +24,14 @@ export interface DataTableColumnDefinition { readonly id: string; readonly label
 export interface DataTableActionDefinition {
   readonly id: string;
   readonly action: { readonly id: string; readonly version: number };
-  readonly capability: { readonly state: "allowed" | "denied"; readonly action: { readonly id: string; readonly version: number } };
   readonly mutation: ActionMutationDefinition<never, unknown>;
   readonly input: (rowKey: string) => unknown;
   readonly label: string;
   readonly destructive?: boolean;
+}
+export interface DataTableActionCapability {
+  readonly state: "allowed" | "denied";
+  readonly action: { readonly id: string; readonly version: number };
 }
 export interface DataTableDefinition<TInput> {
   readonly id: string;
@@ -101,13 +104,25 @@ function actionContractIsValid(action: DataTableActionDefinition): boolean {
     && action.mutation.action.version === action.action.version
     && Array.isArray(action.mutation.invalidation.sources)
     && typeof action.mutation.execute === "function"
-    && (action.capability?.state === "allowed" || action.capability?.state === "denied")
-    && action.capability.action.id === action.action.id
-    && action.capability.action.version === action.action.version
     && typeof action.input === "function";
 }
 
-function actionIsAllowed(action: DataTableActionDefinition): boolean { return action.capability.state === "allowed"; }
+export function allowedDataTableActions(
+  actions: readonly DataTableActionDefinition[],
+  capabilities: readonly DataTableActionCapability[]
+): readonly DataTableActionDefinition[] {
+  const byIdentity = new Map<string, DataTableActionCapability>();
+  for (const capability of capabilities) {
+    const key = `${capability.action.id}@${capability.action.version}`;
+    if (byIdentity.has(key)) throw new TypeError(`Duplicate DataTable action capability: ${key}.`);
+    byIdentity.set(key, capability);
+  }
+  return actions.filter((action) => byIdentity.get(`${action.action.id}@${action.action.version}`)?.state === "allowed");
+}
+
+function actionIsAllowed(action: DataTableActionDefinition, capabilities: readonly DataTableActionCapability[]): boolean {
+  return allowedDataTableActions([action], capabilities).length === 1;
+}
 
 function actionById(actions: readonly DataTableActionDefinition[], actionId: string): DataTableActionDefinition | undefined {
   return actions.find((action) => action.id === actionId);
@@ -215,8 +230,8 @@ export interface DataTableController<TInput> {
   controls(state: DataTableViewState): DataSourceQueryControls;
   identity(input: TInput, state: DataTableViewState, context: Omit<BrowserQueryContext, "signal">): Promise<import("@k-nex/contracts").DataSourceQueryIdentity>;
   execute(transport: BrowserDataTransport, input: TInput, state: DataTableViewState, allowedFields: ReadonlySet<string>, context: BrowserQueryContext): Promise<DataTableRequestState>;
-  executeAction(executor: DataTableMutationExecutor, actionId: string, rowKey: string, context: BrowserMutationContext): Promise<DataTableActionResult>;
-  executeBulkAction(executor: DataTableMutationExecutor, actionId: string, rowKeys: readonly string[], context: BrowserMutationContext): Promise<DataTableBulkActionResult>;
+  executeAction(executor: DataTableMutationExecutor, capabilities: readonly DataTableActionCapability[], actionId: string, rowKey: string, context: BrowserMutationContext): Promise<DataTableActionResult>;
+  executeBulkAction(executor: DataTableMutationExecutor, capabilities: readonly DataTableActionCapability[], actionId: string, rowKeys: readonly string[], context: BrowserMutationContext): Promise<DataTableBulkActionResult>;
   serializeView(state: DataTableViewState): string;
   shouldRefetch(sourceId: string): boolean;
 }
@@ -231,10 +246,10 @@ export function createDataTableMutationExecutor(transport: BrowserDataTransport)
 
 export function createDataTableController<TInput>(definitionInput: DataTableDefinition<TInput>): DataTableController<TInput> {
   const definition = validateDefinition(definitionInput);
-  const executeRegisteredAction = async (executor: DataTableMutationExecutor, action: DataTableActionDefinition | undefined, rowKey: string, context: BrowserMutationContext): Promise<DataTableActionResult> => {
+  const executeRegisteredAction = async (executor: DataTableMutationExecutor, capabilities: readonly DataTableActionCapability[], action: DataTableActionDefinition | undefined, rowKey: string, context: BrowserMutationContext): Promise<DataTableActionResult> => {
     if (action === undefined) return forbiddenResult(action, rowKey);
     if (!actionContractIsValid(action)) return invalidActionResult(action, rowKey);
-    if (!actionIsAllowed(action)) return forbiddenResult(action, rowKey);
+    if (!actionIsAllowed(action, capabilities)) return forbiddenResult(action, rowKey);
     if (!TableRowKeySchema.safeParse(rowKey).success) return invalidActionResult(action, rowKey);
     let input: unknown;
     try { input = action.input(rowKey); } catch { return failedActionResult(action, rowKey); }
@@ -245,8 +260,8 @@ export function createDataTableController<TInput>(definitionInput: DataTableDefi
       return failedActionResult(action, rowKey);
     }
   };
-  const executeAction = (executor: DataTableMutationExecutor, actionId: string, rowKey: string, context: BrowserMutationContext): Promise<DataTableActionResult> => executeRegisteredAction(executor, actionById(definition.rowActions ?? [], actionId), rowKey, context);
-  const executeBulkAction = async (executor: DataTableMutationExecutor, actionId: string, rowKeys: readonly string[], context: BrowserMutationContext): Promise<DataTableBulkActionResult> => {
+  const executeAction = (executor: DataTableMutationExecutor, capabilities: readonly DataTableActionCapability[], actionId: string, rowKey: string, context: BrowserMutationContext): Promise<DataTableActionResult> => executeRegisteredAction(executor, capabilities, actionById(definition.rowActions ?? [], actionId), rowKey, context);
+  const executeBulkAction = async (executor: DataTableMutationExecutor, capabilities: readonly DataTableActionCapability[], actionId: string, rowKeys: readonly string[], context: BrowserMutationContext): Promise<DataTableBulkActionResult> => {
     const action = actionById(definition.bulkActions ?? [], actionId);
     if (rowKeys.length === 0 || new Set(rowKeys).size !== rowKeys.length) {
       return freeze({
@@ -258,9 +273,9 @@ export function createDataTableController<TInput>(definitionInput: DataTableDefi
         invalidatedSources: []
       });
     }
-    if (action === undefined || !actionContractIsValid(action) || !actionIsAllowed(action)) {
+    if (action === undefined || !actionContractIsValid(action) || !actionIsAllowed(action, capabilities)) {
       const valid = action !== undefined && actionContractIsValid(action);
-      const forbidden = action === undefined || valid && !actionIsAllowed(action);
+      const forbidden = action === undefined || valid && !actionIsAllowed(action, capabilities);
       const results = rowKeys.map((rowKey) => forbidden ? forbiddenResult(action, rowKey) : invalidActionResult(action, rowKey));
       return freeze({
         ...(action === undefined ? {} : { action: { ...action.action } }),
@@ -280,7 +295,7 @@ export function createDataTableController<TInput>(definitionInput: DataTableDefi
       const rowContext = rowKeys.length === 1 || context.idempotencyKey === undefined
         ? context
         : { ...context, idempotencyKey: `${context.idempotencyKey}:${rowKey}` };
-      results.push(await executeRegisteredAction(executor, action, rowKey, rowContext));
+      results.push(await executeRegisteredAction(executor, capabilities, action, rowKey, rowContext));
     }
     const successful = results.filter(({ result }) => result.state === "success").map(({ rowKey }) => rowKey);
     const failed = results.filter(({ result }) => result.state !== "success").map(({ rowKey }) => rowKey);

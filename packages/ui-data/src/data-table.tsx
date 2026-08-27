@@ -11,7 +11,9 @@ import type { DataSourceFilterQuery, TableCell, TableRecords, TableRow } from "@
 import type { BrowserMutationContext } from "@k-nex/ui-runtime";
 
 import {
+  allowedDataTableActions,
   createDataTableController,
+  type DataTableActionCapability,
   type DataTableActionResult,
   type DataTableBulkActionResult,
   type DataTableController,
@@ -55,6 +57,7 @@ export interface DataTableProps<TInput> {
   readonly mode?: "table" | "grid";
   readonly onViewStateChange?: (state: DataTableViewState) => void;
   readonly mutationExecutor?: DataTableMutationExecutor;
+  readonly actionCapabilities?: readonly DataTableActionCapability[];
   readonly actionContext?: BrowserMutationContext;
   readonly onActionResult?: (result: DataTableActionResult | DataTableBulkActionResult) => void | Promise<void>;
   readonly onSourceInvalidated?: (sourceId: string) => void;
@@ -71,8 +74,9 @@ function firstPage(pagination: DataTableViewState["pagination"]): DataTableViewS
 
 function facetValue(filters: readonly DataSourceFilterQuery[], field: string): string {
   const filter = filters.find((candidate) => candidate.field === field && candidate.operator === "in");
-  if (filter === undefined || Array.isArray(filter.value) || typeof filter.value !== "string") return "";
-  return filter.value;
+  if (filter === undefined) return "";
+  if (typeof filter.value === "string") return filter.value;
+  return Array.isArray(filter.value) && filter.value.length === 1 && typeof filter.value[0] === "string" ? filter.value[0] : "";
 }
 
 function setFacet(state: DataTableViewState, field: string, value: string): DataTableViewState {
@@ -110,6 +114,7 @@ function ReadyTable<TInput>({
   mode = "table",
   onViewStateChange,
   mutationExecutor,
+  actionCapabilities = [],
   actionContext,
   onActionResult,
   onSourceInvalidated,
@@ -119,7 +124,9 @@ function ReadyTable<TInput>({
   loadMoreLoading,
   controller
 }: ReadyTableProps<TInput>): ReactElement {
-  const selectable = (definition.bulkActions ?? []).some((action) => action.capability.state === "allowed");
+  const rowActions = allowedDataTableActions(definition.rowActions ?? [], actionCapabilities);
+  const bulkActions = allowedDataTableActions(definition.bulkActions ?? [], actionCapabilities);
+  const selectable = bulkActions.length > 0;
   const columns: ColumnDef<TableRow>[] = definition.columns.map((column) => {
     const size = viewState.columnSizes[column.id] ?? column.size;
     return {
@@ -142,16 +149,16 @@ function ReadyTable<TInput>({
     cell: ({ row }) => <button type="button" onClick={() => onViewStateChange?.({ ...viewState, detailRow: row.original.key })}>View</button>,
     size: 64
   });
-  if ((definition.rowActions ?? []).some((action) => action.capability.state === "allowed")) columns.push({
+  if (rowActions.length > 0) columns.push({
     id: "actions",
     header: "Actions",
     cell: ({ row }) => <RowActions
-      actions={definition.rowActions ?? []}
+      actions={rowActions}
       disabled={mutationExecutor === undefined}
       onAction={(id) => {
         if (mutationExecutor === undefined) return;
         const context = actionContext ?? { signal: new AbortController().signal };
-        void controller.executeAction(mutationExecutor, id, row.original.key, context).then((result) => {
+        void controller.executeAction(mutationExecutor, actionCapabilities, id, row.original.key, context).then((result) => {
           notifyActionResult(controller, result, { onActionResult, onSourceInvalidated, onRefetch });
         });
       }}
@@ -182,7 +189,11 @@ function ReadyTable<TInput>({
     if (current < 0) return;
     const width = Math.max(1, table.getVisibleLeafColumns().length);
     const delta = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : event.key === "ArrowDown" ? width : -width;
-    cells[current + delta]?.focus();
+    const next = cells[current + delta];
+    if (next === undefined) return;
+    cells[current]!.tabIndex = -1;
+    next.tabIndex = 0;
+    next.focus();
     event.preventDefault();
   } : undefined;
   const actionContextValue = actionContext ?? { signal: new AbortController().signal };
@@ -198,14 +209,14 @@ function ReadyTable<TInput>({
   </FilterBar>;
   const runBulkAction = (id: string): void => {
     if (mutationExecutor === undefined) return;
-    void controller.executeBulkAction(mutationExecutor, id, viewState.selectedRows, actionContextValue).then((result) => {
+    void controller.executeBulkAction(mutationExecutor, actionCapabilities, id, viewState.selectedRows, actionContextValue).then((result) => {
       notifyActionResult(controller, result, { onActionResult, onSourceInvalidated, onRefetch });
     });
   };
   return <div data-k-nex-component={mode === "grid" ? "data-grid" : "data-table"} data-density={viewState.density} data-slot="root">
     {controls}
-    <BulkActionBar actions={definition.bulkActions ?? []} disabled={mutationExecutor === undefined} selectionCount={viewState.selectedRows.length} onAction={runBulkAction} />
-    <table aria-label={label ?? definition.descriptor.title} {...(mode === "grid" ? { role: "grid", onKeyDown: keyboard } : {})} data-slot="table"><thead>{table.getHeaderGroups().map((group) => <tr key={group.id} role={mode === "grid" ? "row" : undefined}>{group.headers.map((header) => <th key={header.id} scope="col" role={mode === "grid" ? "columnheader" : undefined} style={{ width: header.getSize() }}>{flexRender(header.column.columnDef.header, header.getContext())}</th>)}</tr>)}</thead><tbody>{table.getRowModel().rows.map((row) => <tr key={row.id} role={mode === "grid" ? "row" : undefined} data-selected={row.getIsSelected() || undefined}>{row.getVisibleCells().map((cell) => <td key={cell.id} role={mode === "grid" ? "gridcell" : undefined} tabIndex={mode === "grid" ? 0 : undefined}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>)}</tr>)}</tbody></table>
+    <BulkActionBar actions={bulkActions} disabled={mutationExecutor === undefined} selectionCount={viewState.selectedRows.length} onAction={runBulkAction} />
+    <table aria-label={label ?? definition.descriptor.title} {...(mode === "grid" ? { role: "grid", onKeyDown: keyboard } : {})} data-slot="table"><thead>{table.getHeaderGroups().map((group) => <tr key={group.id} role={mode === "grid" ? "row" : undefined}>{group.headers.map((header) => <th key={header.id} scope="col" role={mode === "grid" ? "columnheader" : undefined} style={{ width: header.getSize() }}>{flexRender(header.column.columnDef.header, header.getContext())}</th>)}</tr>)}</thead><tbody>{table.getRowModel().rows.map((row, rowIndex) => <tr key={row.id} role={mode === "grid" ? "row" : undefined} data-selected={row.getIsSelected() || undefined}>{row.getVisibleCells().map((cell, cellIndex) => <td key={cell.id} role={mode === "grid" ? "gridcell" : undefined} tabIndex={mode === "grid" ? rowIndex === 0 && cellIndex === 0 ? 0 : -1 : undefined}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>)}</tr>)}</tbody></table>
     {viewState.pagination.mode === "offset" ? <PaginationControl page={viewState.pagination.page} hasNext={data.page.hasNext} onPageChange={(page) => update({ pagination: { mode: "offset", page, size: viewState.pagination.size } })} /> : <LoadMore hasNext={data.page.hasNext} {...(loadMoreLoading === undefined ? {} : { loading: loadMoreLoading })} onLoadMore={() => onLoadMore?.()} />}
     {renderDetail === undefined || viewState.detailRow === undefined ? null : (() => { const row = data.rows.find((candidate) => candidate.key === viewState.detailRow); return row === undefined ? null : <DetailPanel label="Row details" onClose={() => onViewStateChange?.(withoutDetail(viewState))}>{renderDetail(row)}</DetailPanel>; })()}
   </div>;

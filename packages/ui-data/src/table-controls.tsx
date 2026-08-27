@@ -42,15 +42,13 @@ export function SelectionSummary({ count }: SelectionSummaryProps): ReactElement
 
 export interface ActionBarProps { readonly actions: readonly DataTableActionDefinition[]; readonly selectionCount?: number; readonly disabled?: boolean; readonly onAction?: (id: string) => void; }
 export function BulkActionBar({ actions, selectionCount = 0, disabled = false, onAction }: ActionBarProps): ReactElement | null {
-  const allowed = actions.filter((action) => action.capability.state === "allowed");
-  if (selectionCount === 0 || allowed.length === 0) return null;
-  return <div aria-label="Bulk actions" data-k-nex-component="bulk-action-bar" data-slot="root"><span>{selectionCount} selected</span>{allowed.map((action) => <button key={action.id} type="button" disabled={disabled} onClick={() => onAction?.(action.id)} data-state={action.destructive ? "destructive" : "default"}>{action.label}</button>)}</div>;
+  if (selectionCount === 0 || actions.length === 0) return null;
+  return <div aria-label="Bulk actions" data-k-nex-component="bulk-action-bar" data-slot="root"><span>{selectionCount} selected</span>{actions.map((action) => <button key={action.id} type="button" disabled={disabled} onClick={() => onAction?.(action.id)} data-state={action.destructive ? "destructive" : "default"}>{action.label}</button>)}</div>;
 }
 
 export function RowActions({ actions, disabled = false, onAction }: ActionBarProps): ReactElement | null {
-  const allowed = actions.filter((action) => action.capability.state === "allowed");
-  if (allowed.length === 0) return null;
-  return <div aria-label="Row actions" data-k-nex-component="row-actions" data-slot="root">{allowed.map((action) => <button key={action.id} type="button" disabled={disabled} onClick={() => onAction?.(action.id)} data-state={action.destructive ? "destructive" : "default"}>{action.label}</button>)}</div>;
+  if (actions.length === 0) return null;
+  return <div aria-label="Row actions" data-k-nex-component="row-actions" data-slot="root">{actions.map((action) => <button key={action.id} type="button" disabled={disabled} onClick={() => onAction?.(action.id)} data-state={action.destructive ? "destructive" : "default"}>{action.label}</button>)}</div>;
 }
 
 export interface QueryStateProps { readonly children: ReactNode; readonly onRetry?: () => void; }

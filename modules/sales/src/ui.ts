@@ -1,8 +1,7 @@
 import { defineUiContributionBinding, type UiBlockRenderInput } from "@k-nex/ui-runtime";
-import { createKNextComponentElement, createPuckBlockLibrary } from "@k-nex/ui-builder-blocks";
+import { createKNextActionFormElement, createKNextComponentElement, createPuckBlockLibrary } from "@k-nex/ui-builder-blocks";
 import { Section, Status } from "@k-nex/ui-components";
 import { DataList, DataTable, KeyValueList, Metric, QueryBoundary, createDataTableState } from "@k-nex/ui-data";
-import { Form } from "@k-nex/ui-forms";
 import type { MetricScalar, TableRecords } from "@k-nex/contracts";
 
 import {
@@ -116,7 +115,17 @@ function contributionElement(kind: ReturnType<typeof rendererKind>, input: UiBlo
     label: title
   });
   if (kind === "metric" || kind === "data-list" || kind === "detail") return queryElement(kind, input, title);
-  if (kind === "form") return createKNextComponentElement(Form, { label: title, onSubmit: () => undefined, children: null });
+  if (kind === "form") return createKNextActionFormElement({
+    label: title,
+    fields: [{ name: "title", label: "Title", kind: "text", required: true }, { name: "status", label: "Status", kind: "select", options: [{ id: "open", label: "Open" }, { id: "done", label: "Done" }] }],
+    initialValues: { title: "", status: "open" },
+    submitLabel: "Create task",
+    enabled: input.action !== undefined && input.dispatchAction !== undefined,
+    onSubmit: async (values: Readonly<Record<string, string>>) => {
+      if (input.action === undefined || input.dispatchAction === undefined) return;
+      await input.dispatchAction({ action: input.action, input: values, nodeId: input.node.id });
+    }
+  });
   if (kind === "status") return createKNextComponentElement(Status, { children: title });
   return createKNextComponentElement(Section, { label: title, children: createKNextComponentElement(KeyValueList, { label: title, items: [{ id: "summary", key: title, value: "Available" }] }) });
 }

@@ -16,6 +16,7 @@ import {
 
 import type {
   UiBlockDefinition,
+  UiRuntimeActionDispatcher,
   UiRuntimeActor,
   UiRuntimeRegistry,
   UiRuntimeSurface
@@ -105,6 +106,7 @@ export interface UiDocumentRuntimeInput {
   readonly surface: UiRuntimeSurface;
   readonly actor: UiRuntimeActor;
   readonly sourceResults?: Readonly<Record<string, DataSourceBindingResult<unknown>>>;
+  readonly dispatchAction?: UiRuntimeActionDispatcher;
 }
 
 export interface UiDocumentRuntime {
@@ -311,9 +313,10 @@ function renderNode(
   surface: UiRuntimeSurface,
   actor: UiRuntimeActor,
   registry: UiRuntimeRegistry,
-  sourceResults: Readonly<Record<string, DataSourceBindingResult<unknown>>>
+  sourceResults: Readonly<Record<string, DataSourceBindingResult<unknown>>>,
+  dispatchAction?: UiRuntimeActionDispatcher
 ): UiRuntimeNodeResult {
-  const children = (node.children ?? []).map((child) => renderNode(child, document, surface, actor, registry, sourceResults));
+  const children = (node.children ?? []).map((child) => renderNode(child, document, surface, actor, registry, sourceResults, dispatchAction));
   const definition = registry.resolveBlock(node.type, node.version);
   if (definition === undefined) {
     const inspection = registry.inspectBlock(node.type, node.version);
@@ -363,6 +366,7 @@ function renderNode(
       actor,
       ...(source === undefined ? {} : { source }),
       ...(node.bindings?.action === undefined ? {} : { action: node.bindings.action }),
+      ...(dispatchAction === undefined ? {} : { dispatchAction }),
       ...(sourceResult === undefined ? {} : { sourceResult })
     });
     return { status: "rendered", ...nodeResultMetadata(node), output, children };
@@ -392,7 +396,7 @@ export function createUiDocumentRuntime(registry: UiRuntimeRegistry): UiDocument
 
       const regions: Record<string, readonly UiRuntimeNodeResult[]> = {};
       for (const [region, nodes] of Object.entries(document.regions)) {
-        regions[region] = nodes.map((node) => renderNode(node, document, input.surface, actor, registry, input.sourceResults ?? {}));
+        regions[region] = nodes.map((node) => renderNode(node, document, input.surface, actor, registry, input.sourceResults ?? {}, input.dispatchAction));
       }
       return { success: true, regions };
     }
