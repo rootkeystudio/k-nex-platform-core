@@ -7,11 +7,11 @@
 
 ## Last completed
 
-The shared Gate 1 workspace lock now binds refreshed Sales and Socket.IO packed checksums. This closes the first full-gate failure after release regeneration; Alpha/Beta evidence remains bound to source commit `82e5224`.
+The Gate 1 resolved registry was regenerated from the refreshed root lock, closing its embedded lock-digest mismatch. Shared fixture integrity and static composition authority now agree with refreshed packed Sales and Socket.IO bytes.
 
 ## Validation
 
-First `pnpm gate:8` run failed at Gate 1 with `ERR_PNPM_TARBALL_INTEGRITY`, proving the stale root lock. `pnpm install --lockfile-only` refreshed the two exact local tarball integrities. Full rerun pending.
+Second `pnpm gate:8` run passed packed installation, then failed because `.k-nex/generated/k-nex.resolved.json` retained the prior lock digest. `pnpm --filter @k-nex/composition generate:gate-1` and `check:gate-1` PASS after regeneration.
 
 ## Next
 
