@@ -6,6 +6,7 @@ import {
   adoptPluginPageTemplate,
   comparePluginPageTemplate,
   instantiatePluginPageTemplate,
+  snapshotPageTemplateAuthority,
   type CustomerPageTemplateInstance,
   type PageTemplateInventory,
   type PageTemplateStore
@@ -40,6 +41,7 @@ const descriptor = (version = 1): PluginPageTemplateDescriptor => ({
 });
 
 const inventory: PageTemplateInventory = {
+  authorityRevision: 0,
   capabilities: new Map([["records.storage", "1.0.0"]]),
   routes: new Set(["sales.route.tasks"]),
   permissions: new Set(["sales.tasks.read"]),
@@ -48,7 +50,10 @@ const inventory: PageTemplateInventory = {
   blocks: new Set(["sales.task-table@1"])
 };
 
-function memoryStore(): PageTemplateStore & { edit(document: UiDocument): void; snapshot(): CustomerPageTemplateInstance | undefined } {
+function memoryStore(
+  authorityRevision: () => number = () => 0,
+  beforeReplace: () => Promise<void> = async () => {}
+): PageTemplateStore & { edit(document: UiDocument): void; snapshot(): CustomerPageTemplateInstance | undefined } {
   let value: CustomerPageTemplateInstance | undefined;
   return {
     read: async () => value === undefined ? undefined : structuredClone(value),
@@ -57,8 +62,9 @@ function memoryStore(): PageTemplateStore & { edit(document: UiDocument): void; 
       value = structuredClone(candidate);
       return { created: true, instance: structuredClone(value) };
     },
-    replace: async (candidate, expectedRevision) => {
-      if (value?.revision !== expectedRevision) return undefined;
+    replace: async (candidate, expectedRevision, expectedAuthorityRevision) => {
+      await beforeReplace();
+      if (value?.revision !== expectedRevision || authorityRevision() !== expectedAuthorityRevision) return undefined;
       value = structuredClone(candidate);
       return structuredClone(value);
     },
@@ -76,6 +82,22 @@ function expectCode(error: unknown, code: PageTemplateError["code"]): void {
 }
 
 describe("P6.4 page template seed semantics", () => {
+  it("clones immutable authority snapshots and rejects invalid authority revisions", () => {
+    const actions = new Set(inventory.actions);
+    const snapshot = snapshotPageTemplateAuthority({ ...inventory, actions });
+    actions.clear();
+    expect(snapshot.actions.has("sales.task.create@1")).toBe(true);
+    expect("clear" in snapshot.actions).toBe(false);
+
+    expect(() => snapshotPageTemplateAuthority({ ...inventory, authorityRevision: -1 })).toThrowError(PageTemplateError);
+    expect(() => snapshotPageTemplateAuthority({ ...inventory, authorityRevision: Number.MAX_SAFE_INTEGER + 1 })).toThrowError(PageTemplateError);
+    try {
+      snapshotPageTemplateAuthority({ ...inventory, authorityRevision: -1 });
+    } catch (error) {
+      expectCode(error, "AUTHORITY_REVISION_INVALID");
+    }
+  });
+
   it("creates once and returns the same customer-owned instance on retry", async () => {
     const store = memoryStore();
     expect((await instantiatePluginPageTemplate(descriptor(), inventory, store)).created).toBe(true);
@@ -93,9 +115,10 @@ describe("P6.4 page template seed semantics", () => {
 
     const upgradeInstall = await instantiatePluginPageTemplate(descriptor(2), inventory, store);
     expect(upgradeInstall.instance.document.regions.main![0]!.props.title).toBe("Customer title");
+    const beforeComparison = store.snapshot();
     const comparison = await comparePluginPageTemplate(descriptor(2), inventory, store, (current) => ({ ...current, version: 2 }));
     expect(comparison.status).toBe("update-available");
-    expect(store.snapshot()?.adoptedTemplateVersion).toBe(1);
+    expect(store.snapshot()).toEqual(beforeComparison);
 
     const adopted = await adoptPluginPageTemplate(descriptor(2), inventory, store, 2, (current) => ({ ...current, version: 2 }));
     expect(adopted).toMatchObject({ adoptedTemplateVersion: 2, revision: 3 });
@@ -196,6 +219,52 @@ describe("P6.4 page template seed semantics", () => {
       expectCode(error, code);
       return true;
     });
+    expect(store.snapshot()).toEqual(before);
+  });
+
+  it("rejects a queued authority revocation after comparison and preserves storage bytes", async () => {
+    let authorityRevision = 0;
+    const changingInventory: PageTemplateInventory = {
+      ...inventory,
+      actions: new Set(inventory.actions),
+      get authorityRevision() { return authorityRevision; }
+    };
+    const store = memoryStore(() => authorityRevision);
+    await instantiatePluginPageTemplate(descriptor(), changingInventory, store);
+    const before = store.snapshot();
+
+    await expect(adoptPluginPageTemplate(descriptor(2), changingInventory, store, 1, (current) => {
+      queueMicrotask(() => {
+        changingInventory.actions.clear();
+        authorityRevision += 1;
+      });
+      return { ...current, version: 2 };
+    })).rejects.toSatisfy((error) => {
+      expectCode(error, "ACTION_MISSING");
+      return true;
+    });
+
+    expect(store.snapshot()).toEqual(before);
+  });
+
+  it("rejects authority changes during the asynchronous replacement CAS", async () => {
+    let authorityRevision = 0;
+    const changingInventory: PageTemplateInventory = {
+      ...inventory,
+      get authorityRevision() { return authorityRevision; }
+    };
+    const store = memoryStore(() => authorityRevision, async () => {
+      await Promise.resolve();
+      authorityRevision += 1;
+    });
+    await instantiatePluginPageTemplate(descriptor(), changingInventory, store);
+    const before = store.snapshot();
+
+    await expect(adoptPluginPageTemplate(descriptor(2), changingInventory, store, 1, (current) => ({ ...current, version: 2 }))).rejects.toSatisfy((error) => {
+      expectCode(error, "AUTHORITY_CONFLICT");
+      return true;
+    });
+
     expect(store.snapshot()).toEqual(before);
   });
 });

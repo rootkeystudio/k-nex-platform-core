@@ -7,11 +7,11 @@
 
 ## Last completed
 
-P6.10 Sol review REWORK remediation now retains verified required-graph lifecycle participants even when their packages register no lifecycle contribution, so unavailable providers revoke dependent registrations and capability-service leases without affecting unrelated registrations.
+P6.10 Sol review REWORK closes the page-template authority TOCTOU: immutable revisioned authority snapshots are re-preflighted after compare and atomically CAS-bound with the customer revision; queued revocation and async CAS-revision attacks preserve the customer instance.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: focused runtime lifecycle regression, complete runtime tests, runtime build, full workspace build, and `git diff --check` pass. Final Phase 6 review validation remains.
+Node 24.19.0 / pnpm 11.9.0: complete runtime tests, runtime build, full workspace build, and `git diff --check` pass. Final Phase 6 review validation remains.
 
 ## Next
 

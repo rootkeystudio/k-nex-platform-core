@@ -7,6 +7,8 @@ import {
 
 export type PageTemplateErrorCode =
   | "ACTION_MISSING"
+  | "AUTHORITY_CONFLICT"
+  | "AUTHORITY_REVISION_INVALID"
   | "BLOCK_MISSING"
   | "CAPABILITY_MISSING"
   | "DEFINITION_INVALID"
@@ -28,6 +30,7 @@ export class PageTemplateError extends Error {
 }
 
 export interface PageTemplateInventory {
+  readonly authorityRevision: number;
   readonly capabilities: ReadonlyMap<string, string>;
   readonly routes: ReadonlySet<string>;
   readonly permissions: ReadonlySet<string>;
@@ -35,6 +38,8 @@ export interface PageTemplateInventory {
   readonly actions: ReadonlySet<string>;
   readonly blocks: ReadonlySet<string>;
 }
+
+export interface PageTemplateAuthoritySnapshot extends PageTemplateInventory {}
 
 export interface CustomerPageTemplateInstance {
   readonly templateId: string;
@@ -47,7 +52,11 @@ export interface CustomerPageTemplateInstance {
 export interface PageTemplateStore {
   read(templateId: string): Promise<CustomerPageTemplateInstance | undefined>;
   createIfAbsent(instance: CustomerPageTemplateInstance): Promise<{ readonly created: boolean; readonly instance: CustomerPageTemplateInstance }>;
-  replace(instance: CustomerPageTemplateInstance, expectedRevision: number): Promise<CustomerPageTemplateInstance | undefined>;
+  replace(
+    instance: CustomerPageTemplateInstance,
+    expectedRevision: number,
+    expectedAuthorityRevision: number
+  ): Promise<CustomerPageTemplateInstance | undefined>;
 }
 
 export interface PageTemplateInstantiationResult {
@@ -83,7 +92,54 @@ function resourceKey(value: { readonly id: string; readonly version: number }): 
   return `${value.id}@${value.version}`;
 }
 
-export function preflightPluginPageTemplate(value: PluginPageTemplateDescriptor, inventory: PageTemplateInventory): PluginPageTemplateDescriptor {
+function immutableMap(values: ReadonlyMap<string, string>): ReadonlyMap<string, string> {
+  const copy = new Map(values);
+  let snapshot: ReadonlyMap<string, string>;
+  snapshot = Object.freeze({
+    get size() { return copy.size; },
+    has: (key: string) => copy.has(key),
+    get: (key: string) => copy.get(key),
+    entries: () => copy.entries(),
+    keys: () => copy.keys(),
+    values: () => copy.values(),
+    forEach: (callback: (value: string, key: string, map: ReadonlyMap<string, string>) => void, thisArg?: unknown) => copy.forEach((value, key) => callback.call(thisArg, value, key, snapshot)),
+    [Symbol.iterator]: () => copy[Symbol.iterator]()
+  }) as ReadonlyMap<string, string>;
+  return snapshot;
+}
+
+function immutableSet(values: ReadonlySet<string>): ReadonlySet<string> {
+  const copy = new Set(values);
+  let snapshot: ReadonlySet<string>;
+  snapshot = Object.freeze({
+    get size() { return copy.size; },
+    has: (value: string) => copy.has(value),
+    entries: () => copy.entries(),
+    keys: () => copy.keys(),
+    values: () => copy.values(),
+    forEach: (callback: (value: string, value2: string, set: ReadonlySet<string>) => void, thisArg?: unknown) => copy.forEach((value) => callback.call(thisArg, value, value, snapshot)),
+    [Symbol.iterator]: () => copy[Symbol.iterator]()
+  }) as ReadonlySet<string>;
+  return snapshot;
+}
+
+export function snapshotPageTemplateAuthority(inventory: PageTemplateInventory): PageTemplateAuthoritySnapshot {
+  const authorityRevision = inventory.authorityRevision;
+  if (!Number.isSafeInteger(authorityRevision) || authorityRevision < 0) {
+    fail("AUTHORITY_REVISION_INVALID", "Page template authority revision must be a nonnegative safe integer.");
+  }
+  return Object.freeze({
+    authorityRevision,
+    capabilities: immutableMap(inventory.capabilities),
+    routes: immutableSet(inventory.routes),
+    permissions: immutableSet(inventory.permissions),
+    sources: immutableSet(inventory.sources),
+    actions: immutableSet(inventory.actions),
+    blocks: immutableSet(inventory.blocks)
+  });
+}
+
+function preflightSnapshot(value: PluginPageTemplateDescriptor, inventory: PageTemplateAuthoritySnapshot): PluginPageTemplateDescriptor {
   const parsed = PluginPageTemplateDescriptorSchema.safeParse(value);
   if (!parsed.success) fail("DEFINITION_INVALID", "Plugin page template descriptor is invalid.");
   const descriptor = parsed.data;
@@ -105,6 +161,10 @@ export function preflightPluginPageTemplate(value: PluginPageTemplateDescriptor,
     }
   }
   return descriptor;
+}
+
+export function preflightPluginPageTemplate(value: PluginPageTemplateDescriptor, inventory: PageTemplateInventory): PluginPageTemplateDescriptor {
+  return preflightSnapshot(value, snapshotPageTemplateAuthority(inventory));
 }
 
 export async function instantiatePluginPageTemplate(
@@ -132,7 +192,8 @@ export async function comparePluginPageTemplate(
   store: PageTemplateStore,
   migrate?: PageTemplateMigration
 ): Promise<PageTemplateComparison> {
-  const descriptor = preflightPluginPageTemplate(descriptorValue, inventory);
+  const authority = snapshotPageTemplateAuthority(inventory);
+  const descriptor = preflightSnapshot(descriptorValue, authority);
   const current = await store.read(descriptor.id);
   if (current === undefined) fail("INSTANCE_MISSING", `Template instance ${descriptor.id} does not exist.`, [descriptor.id]);
   if (current.adoptedTemplateVersion > descriptor.version) fail("DOWNGRADE_UNSUPPORTED", "A page template cannot adopt an older package version.", [descriptor.id]);
@@ -152,7 +213,7 @@ export async function comparePluginPageTemplate(
   if (!document.success || document.data.id !== descriptor.id || document.data.version !== descriptor.version || document.data.profile !== descriptor.profile) {
     fail("DOCUMENT_INVALID", `Template ${descriptor.id} adoption migration returned an invalid document.`, [descriptor.id]);
   }
-  const migratedDescriptor = preflightPluginPageTemplate({ ...descriptor, document: document.data }, inventory);
+  const migratedDescriptor = preflightSnapshot({ ...descriptor, document: document.data }, authority);
   return Object.freeze({
     status: "update-available",
     current: freezeInstance(current),
@@ -171,12 +232,21 @@ export async function adoptPluginPageTemplate(
   const comparison = await comparePluginPageTemplate(descriptor, inventory, store, migrate);
   if (comparison.status !== "update-available" || comparison.candidate === undefined) return comparison.current;
   if (comparison.current.revision !== expectedRevision) fail("INSTANCE_CONFLICT", "Page template instance revision changed before adoption.", [descriptor.id]);
+  const authority = snapshotPageTemplateAuthority(inventory);
+  const migratedDescriptor = preflightSnapshot({ ...descriptor, document: comparison.candidate }, authority);
   const replaced = await store.replace(freezeInstance({
     ...comparison.current,
     adoptedTemplateVersion: comparison.targetTemplateVersion,
     revision: comparison.current.revision + 1,
-    document: comparison.candidate
-  }), expectedRevision);
-  if (replaced === undefined) fail("INSTANCE_CONFLICT", "Page template instance revision changed during adoption.", [descriptor.id]);
+    document: migratedDescriptor.document
+  }), expectedRevision, authority.authorityRevision);
+  if (replaced === undefined) {
+    const latestAuthority = snapshotPageTemplateAuthority(inventory);
+    preflightSnapshot({ ...descriptor, document: comparison.candidate }, latestAuthority);
+    if (latestAuthority.authorityRevision !== authority.authorityRevision) {
+      fail("AUTHORITY_CONFLICT", "Page template authority changed during adoption.", [descriptor.id]);
+    }
+    fail("INSTANCE_CONFLICT", "Page template instance revision changed during adoption.", [descriptor.id]);
+  }
   return freezeInstance(replaced);
 }
