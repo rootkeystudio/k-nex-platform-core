@@ -358,6 +358,17 @@ function renderNode(
     if (source === undefined || sourceResult === undefined) return nodeResult(node, children, "SOURCE_RESULT_INVALID");
   }
 
+  const nodeId = node.id;
+  const action = node.bindings?.action === undefined ? undefined : Object.freeze({ ...node.bindings.action });
+  const scopedDispatchAction = action === undefined || dispatchAction === undefined
+    ? undefined
+    : (request: Parameters<UiRuntimeActionDispatcher>[0]) => {
+      if (request.nodeId !== nodeId || request.action.id !== action.id || request.action.version !== action.version) {
+        throw new Error("Action dispatch denied.");
+      }
+      return dispatchAction({ action, input: request.input, nodeId });
+    };
+
   try {
     const output = definition.render({
       node,
@@ -365,8 +376,8 @@ function renderNode(
       surface,
       actor,
       ...(source === undefined ? {} : { source }),
-      ...(node.bindings?.action === undefined ? {} : { action: node.bindings.action }),
-      ...(dispatchAction === undefined ? {} : { dispatchAction }),
+      ...(action === undefined ? {} : { action }),
+      ...(scopedDispatchAction === undefined ? {} : { dispatchAction: scopedDispatchAction }),
       ...(sourceResult === undefined ? {} : { sourceResult })
     });
     return { status: "rendered", ...nodeResultMetadata(node), output, children };

@@ -3,11 +3,11 @@
 - **Updated:** 2026-08-27
 - **Phase:** Phase 7 — Comprehensive Headless Component System
 - **Active task:** P7.10 — Performance, bundle, coverage audit, and closeout
-- **State:** Ready for phase review
+- **State:** Project-manager remediation in progress
 
 ## Last completed
 
-Phase 7 is restacked on final reviewed Phase 6 head `86d36bf`; named Sales UI presentation contracts preserve Phase 7 component/element/action fields while preventing cold-build state-union expansion drift. The Phase 6 realtime CI scheduling correction is inherited unchanged.
+Sol-high review blocker 1 is corrected: renderers receive no dispatcher without an accepted action binding, and an accepted dispatcher is scoped to the exact immutable node/action identity before it can reach platform authority.
 
 ## Validation
 
@@ -15,8 +15,8 @@ Node 24.19.0 / pnpm 11.9.0 refreshed acceptance passes: frozen install, all 23 r
 
 ## Next
 
-Repeat immutable-head Gate 7 after this closeout commit, complete Sol-high review, then refresh draft PR #22 without merge or auto-merge.
+Correct the remaining generic block and form/accessibility review blockers, restack on final Phase 6, then repeat Gate 7 and Sol-high review.
 
 ## Blockers
 
-No known implementation blocker. Phase 7 remains stacked on reviewed Phase 6 head `86d36bf`; PR #21 CI and project-manager merge remain external.
+Review blockers 2–4 remain in remediation. Phase 7 is still temporarily based on Phase 6 `86d36bf`; final restack target is `6352d36`.
