@@ -5,15 +5,15 @@
   "environment": "production",
   "platformRelease": "0.2.0",
   "observedAt": "2026-08-27T12:00:00.000Z",
-  "artifactDigest": "sha256:5a32e7edc17fc3c6dbfa9ddc392a59c99cd31f9374469bc211ac8a71701e5f73",
+  "artifactDigest": "sha256:b2023ed6cda2d90c2e04072a0307054b665715570eeb1dd8c7601df2e120d528",
   "releaseEvidence": {
     "sourceCommit": "c4117fb17bac9bc7a803bafbf3e93201dadc53b4",
     "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@c4117fb17bac9bc7a803bafbf3e93201dadc53b4",
     "manifestDigest": "sha256:a3aaf845c4f41aab65fdc0c9cec881ccf52ba56347da5d4f7596098925bf6b5e",
-    "lockfileDigest": "sha256:37cc0d277c7a4d7cc5ae644637c68d25931a72d89538cfcb96435d9d0092440f",
+    "lockfileDigest": "sha256:726245441b2e0dde3c1b4038664189b22b9a79934793479e7905ba700871fd54",
     "resolvedGraphDigest": "sha256:92bc3c722ab037c3b02cb3a3f117d8ef43c3b3f2f1227bcb0add4b2bf6a8899d",
     "sbomDigest": "sha256:8dbab50296a21ddd729af0079a76bb7d5d668c3ddcddef7103fb331ac6946bc7",
-    "provenanceDigest": "sha256:fed0562847479d3e8061d9e9d54ef8675076e708c699bc25b095914d68604e28"
+    "provenanceDigest": "sha256:96862c0aaf6e3d7646b4b15aa916509d28a80de48c53bc31315fac12bd60464b"
   },
   "packages": [
     {
@@ -29,7 +29,7 @@
     {
       "package": "@k-nex/module-sales",
       "version": "1.0.0",
-      "integrity": "sha512-hmaeYjVkO2P6Pz19CziYRMNfbM7SH2p7buwA1InBVe6i6LUeLvbIhKbjyGV14hhnSt5Bm4YtQvAf9o+ZszGUqQ=="
+      "integrity": "sha512-dPbkms7ft3yI8qJXzU4Pub2IsXoEvo529Xc4Y2B776WOvmHIgErPavD/ZfySM98N+Wuiyrjhse7r8rYSz9QzLg=="
     },
     {
       "package": "@k-nex/payload-adapter",
