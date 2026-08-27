@@ -7,16 +7,16 @@
 
 ## Last completed
 
-P6.10 now also requires every authored JSON-schema `required` name to be an owned `properties` declaration, including reserved inherited names, across both canonical schema contracts.
+P6.10 now packs Sales only after a forced TypeScript rebuild, eliminating stale incremental declaration output and aligning the committed tar, lock integrity, and Gate 1 artifacts with clean CI.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0 acceptance inventory: contracts 144, runtime 200, UI runtime 43, builder 35, Sales 34, and conformance runner 5. Release evidence requires this immutable final metadata head to pass the named Gate 6 path, high-threshold audit, clean-tree proof, and independent review before PR update.
+Node 24.19.0 / pnpm 11.9.0 focused clean-pack acceptance passes: forced Sales build, 21 Node tests, 13 Vitest tests, boundaries, deterministic pack comparison, Gate 1 artifact check, frozen reinstall, and diff check. Exact-head Gate 6 and independent review must repeat before PR update.
 
 ## Next
 
-Update PR #21 only after exact-head Gate 6, audit, clean-tree, and independent PASS; then await designated project-manager PASS. PRs #22 and #23 remain parked as drafts.
+Run exact-head Gate 6, audit, clean-tree proof, and independent review; then refresh PR #21 and await designated project-manager PASS. PRs #22 and #23 remain drafts.
 
 ## Blockers
 
-None in the implementation tree. PR #21 remains open on its prior head until final verification; no merge or auto-merge will be performed.
+PR #21 CI exposed and now has a local correction for stale incremental Sales declarations; push remains pending exact-head validation. No merge or auto-merge will be performed.
