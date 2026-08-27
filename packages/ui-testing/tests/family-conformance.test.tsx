@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import * as components from "@k-nex/ui-components";
-import { componentInventory } from "@k-nex/ui-components";
+import { componentInventory, type ComponentInventoryEntry } from "@k-nex/ui-components";
 import { KNeXDesignSystemProvider, type SemanticPrimitives } from "@k-nex/ui-design-system-contracts";
 import * as data from "@k-nex/ui-data";
 import * as forms from "@k-nex/ui-forms";
@@ -124,6 +124,14 @@ function assertStateMarkup(name: string, state: string, markup: string): void {
 }
 
 describe("family conformance evidence", () => {
+  it("fails closed when inventory families or test-class claims lack independent evidence", () => {
+    const addedFamily = [...componentInventory, { ...componentInventory[0]!, id: "unproved-family", name: "UnprovedFamily" }] as readonly ComponentInventoryEntry[];
+    expect(() => validateComponentEvidenceMap(addedFamily)).toThrow(/exactly cover/);
+    const addedBrowserClaim = componentInventory.map((entry) => entry.name === "Card" ? { ...entry, testClasses: [...entry.testClasses, "browser" as const] } : entry);
+    expect(() => validateComponentEvidenceMap(addedBrowserClaim)).toThrow(/Card/);
+    expect(componentStateEvidence.filter(({ states }) => states.length === 1 && states[0] === "default")).toHaveLength(82);
+  });
+
   it("renders every declared family under both themes and maps every declared test class", () => {
     validateComponentEvidenceMap();
     expect(componentEvidenceMap).toHaveLength(131);

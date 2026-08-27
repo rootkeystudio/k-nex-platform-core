@@ -9,7 +9,7 @@
 
 ## Scope proved
 
-K-Nex now owns a style-agnostic component system with 60 Component Gallery families and 71 additional K-Nex utilities: **131 executable families** total. Every inventory entry has an explicit owner, package, behavior source, disposition, maturity, slots, applicable states, delivery task, and truthful test classes. An independently maintained family-to-test-class evidence map explicitly classifies 40 stateful families and 91 default-only families. The two-theme executable sweep fails if a family disappears, cannot render, lacks exact evidence coverage, or claims a server-observable state whose DOM marker cannot be proved; browser-only interaction states fail closed instead of receiving synthetic credit.
+K-Nex now owns a style-agnostic component system with 60 Component Gallery families and 71 additional K-Nex utilities: **131 executable families** total. Every inventory entry has an explicit owner, package, behavior source, disposition, maturity, slots, applicable states, delivery task, and truthful test classes. An independently maintained family-to-test-class evidence map explicitly lists 49 stateful families and 82 default-only families without deriving entries or specialized proof classes from the inventory. The two-theme executable sweep fails if a family disappears, cannot render, lacks exact evidence coverage, or claims a server-observable state whose DOM marker cannot be proved; browser-only interaction states fail closed instead of receiving synthetic credit. Mutation tests prove a new inventory family or test-class claim cannot manufacture its own evidence.
 
 The primitive theme ABI remains small. Native semantics handle simple structures; React Aria 1.20.0 and FocusScope 3.22.1 remain behind K-Nex navigation/overlay/focus adapters; TanStack Table 8.21.3 and TanStack Virtual 3.14.9 remain behind data adapters; Lexical 0.49.0 remains behind the optional rich-text editor. Their public/persisted types do not escape the adapters.
 
@@ -34,7 +34,7 @@ Sales remains the only first-party domain module. It is the real consumer for fo
 
 - `@k-nex/ui-data` consumes registered `table.records@1` definitions. Descriptor metadata controls required fields, filters, facets, sorts, pagination, row identity, action visibility, query identity, URL view state, and exact-source invalidation.
 - Offset and opaque cursor controls are mutually exclusive and bounded. Controlled query state changes the authorization-safe query identity; actor/record authority never enters persisted URL state.
-- Required-field permission loss renders a canonical insufficient-permission state. Optional field omission, loading, empty, error, stale, refetching, selection, detail, and authorized actions have explicit surfaces. Action definitions contain mutation identity and presentation only; exact actor-authoritative capability results are injected separately, matched by action and state, reject duplicates, and fail closed for row and bulk execution.
+- Required-field permission loss renders a canonical insufficient-permission state. Optional field omission, loading, empty, error, stale, refetching, selection, detail, and authorized actions have explicit surfaces. Action definitions contain mutation identity and presentation only. Row and bulk actions require an actor-bound, catalog-revision-bound receipt created through an injected authoritative resolver; raw literals, actor substitution, duplicate/unknown/incomplete results, and absent authority fail closed before display or execution.
 - Semantic table is the default. ARIA grid is explicit, exposes exactly one initial tab stop, and transfers that tab stop during tested arrow-key navigation. Array-backed `in` facets remain connected to the controlled query state. TanStack types do not enter K-Nex public declarations.
 - Sales create-task and opportunity-stage forms submit through registered action mutations. Field errors, conflicts, invalidation, dirty state, and async registered-source options are executable.
 - Dashboard, index, detail, create, edit, settings, wizard, and builder templates are compositional. Sales overview/tasks/opportunities/settings pages bind immutable page-template IDs and import no Payload, customer theme, Puck, or third-party table API.
@@ -55,13 +55,13 @@ Budgets are order-of-magnitude regression fences, not production capacity claims
 | Probe | Observed | Budget |
 |---|---:|---:|
 | component entry gzip | 17,300 B | 45,000 B |
-| DataTable adapter gzip | 47,299 B | 65,000 B |
+| DataTable adapter gzip | 47,375 B | 65,000 B |
 | optional rich editor gzip | 105,037 B | 120,000 B |
-| Sales pages gzip | 69,402 B | 150,000 B |
-| 1,000-row semantic table SSR | 72.33 ms | 1,500 ms |
+| Sales pages gzip | 69,502 B | 150,000 B |
+| 1,000-row semantic table SSR | 70.66 ms | 1,500 ms |
 | 10,000-item virtual list keyboard scroll in Chromium | under 500 ms | 500 ms |
-| 1,000 filter/search/pagination control transitions | 6.70 ms | 500 ms |
-| 1,000-option combobox + 1,000-node tree SSR | 37.17 ms | 1,000 ms |
+| 1,000 filter/search/pagination control transitions | 7.02 ms | 500 ms |
+| 1,000-option combobox + 1,000-node tree SSR | 44.54 ms | 1,000 ms |
 | Chromium initial matrix render | under 2,000 ms | 2,000 ms |
 | dialog open / open-close | under 500 / 1,000 ms | 500 / 1,000 ms |
 | 20 mount/unmount cycles retained heap | under 64 MiB | 64 MiB |
@@ -77,7 +77,7 @@ pnpm gate:7
 git diff --check
 ```
 
-Key Phase 7 totals: design-system 11 tests, components 11 tests, UI data 14 tests, forms 5 tests, pages 1 test, builder Puck 31 tests, UI builder blocks 1 test, UI testing 5 tests, Sales 22 Node tests plus 17 Vitest tests. Existing lower-gate contract/runtime/Payload/PostgreSQL and browser suites remain part of `gate:7`.
+Key Phase 7 totals: design-system 11 tests, components 11 tests, UI data 14 tests, forms 5 tests, pages 1 test, builder Puck 31 tests, UI builder blocks 1 test, UI testing 6 tests, Sales 22 Node tests plus 17 Vitest tests. Existing lower-gate contract/runtime/Payload/PostgreSQL and browser suites remain part of `gate:7`.
 
 ## Limits and deferred scope
 

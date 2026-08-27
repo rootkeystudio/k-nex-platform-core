@@ -33,6 +33,17 @@ export interface DataTableActionCapability {
   readonly state: "allowed" | "denied";
   readonly action: { readonly id: string; readonly version: number };
 }
+export interface DataTableActionAuthorization {
+  readonly actorFingerprint: string;
+  readonly catalogRevision: string;
+  readonly capabilities: readonly DataTableActionCapability[];
+}
+export interface DataTableActionCapabilityResolver {
+  resolve(request: {
+    readonly actorFingerprint: string;
+    readonly actions: readonly { readonly id: string; readonly version: number }[];
+  }): DataTableActionAuthorization;
+}
 export interface DataTableDefinition<TInput> {
   readonly id: string;
   readonly descriptor: DataSourceDescriptor;
@@ -107,21 +118,47 @@ function actionContractIsValid(action: DataTableActionDefinition): boolean {
     && typeof action.input === "function";
 }
 
+const authoritativeActionAuthorizations = new WeakSet<object>();
+const fingerprintPattern = /^sha256:[0-9a-f]{64}$/;
+
+function actionKey(action: { readonly id: string; readonly version: number }): string { return `${action.id}@${action.version}`; }
+
+export function resolveDataTableActionAuthorization<TInput>(definition: DataTableDefinition<TInput>, actorFingerprint: string, resolver: DataTableActionCapabilityResolver): DataTableActionAuthorization {
+  if (!fingerprintPattern.test(actorFingerprint)) throw new TypeError("DataTable action actor fingerprint is invalid.");
+  const actions = [...(definition.rowActions ?? []), ...(definition.bulkActions ?? [])];
+  const requested = [...new Map(actions.map(({ action }) => [actionKey(action), { ...action }])).values()];
+  const response = resolver.resolve(Object.freeze({ actorFingerprint, actions: Object.freeze(requested) }));
+  if (response.actorFingerprint !== actorFingerprint || !fingerprintPattern.test(response.catalogRevision)) throw new TypeError("DataTable action authorization identity is invalid.");
+  const expected = new Set(requested.map(actionKey));
+  const received = new Set<string>();
+  for (const capability of response.capabilities) {
+    const key = actionKey(capability.action);
+    if (!expected.has(key) || received.has(key) || capability.state !== "allowed" && capability.state !== "denied") throw new TypeError(`DataTable action authorization result is invalid: ${key}.`);
+    received.add(key);
+  }
+  if (received.size !== expected.size) throw new TypeError("DataTable action authorization result is incomplete.");
+  const authorization = freeze({ actorFingerprint, catalogRevision: response.catalogRevision, capabilities: response.capabilities.map((capability) => ({ state: capability.state, action: { ...capability.action } })) });
+  authoritativeActionAuthorizations.add(authorization);
+  return authorization;
+}
+
 export function allowedDataTableActions(
   actions: readonly DataTableActionDefinition[],
-  capabilities: readonly DataTableActionCapability[]
+  authorization: DataTableActionAuthorization | undefined,
+  actorFingerprint: string | undefined
 ): readonly DataTableActionDefinition[] {
+  if (authorization === undefined || actorFingerprint === undefined || !authoritativeActionAuthorizations.has(authorization) || authorization.actorFingerprint !== actorFingerprint) return [];
   const byIdentity = new Map<string, DataTableActionCapability>();
-  for (const capability of capabilities) {
-    const key = `${capability.action.id}@${capability.action.version}`;
+  for (const capability of authorization.capabilities) {
+    const key = actionKey(capability.action);
     if (byIdentity.has(key)) throw new TypeError(`Duplicate DataTable action capability: ${key}.`);
     byIdentity.set(key, capability);
   }
-  return actions.filter((action) => byIdentity.get(`${action.action.id}@${action.action.version}`)?.state === "allowed");
+  return actions.filter((action) => byIdentity.get(actionKey(action.action))?.state === "allowed");
 }
 
-function actionIsAllowed(action: DataTableActionDefinition, capabilities: readonly DataTableActionCapability[]): boolean {
-  return allowedDataTableActions([action], capabilities).length === 1;
+function actionIsAllowed(action: DataTableActionDefinition, authorization: DataTableActionAuthorization | undefined, actorFingerprint: string | undefined): boolean {
+  return allowedDataTableActions([action], authorization, actorFingerprint).length === 1;
 }
 
 function actionById(actions: readonly DataTableActionDefinition[], actionId: string): DataTableActionDefinition | undefined {
@@ -230,8 +267,8 @@ export interface DataTableController<TInput> {
   controls(state: DataTableViewState): DataSourceQueryControls;
   identity(input: TInput, state: DataTableViewState, context: Omit<BrowserQueryContext, "signal">): Promise<import("@k-nex/contracts").DataSourceQueryIdentity>;
   execute(transport: BrowserDataTransport, input: TInput, state: DataTableViewState, allowedFields: ReadonlySet<string>, context: BrowserQueryContext): Promise<DataTableRequestState>;
-  executeAction(executor: DataTableMutationExecutor, capabilities: readonly DataTableActionCapability[], actionId: string, rowKey: string, context: BrowserMutationContext): Promise<DataTableActionResult>;
-  executeBulkAction(executor: DataTableMutationExecutor, capabilities: readonly DataTableActionCapability[], actionId: string, rowKeys: readonly string[], context: BrowserMutationContext): Promise<DataTableBulkActionResult>;
+  executeAction(executor: DataTableMutationExecutor, authorization: DataTableActionAuthorization | undefined, actorFingerprint: string | undefined, actionId: string, rowKey: string, context: BrowserMutationContext): Promise<DataTableActionResult>;
+  executeBulkAction(executor: DataTableMutationExecutor, authorization: DataTableActionAuthorization | undefined, actorFingerprint: string | undefined, actionId: string, rowKeys: readonly string[], context: BrowserMutationContext): Promise<DataTableBulkActionResult>;
   serializeView(state: DataTableViewState): string;
   shouldRefetch(sourceId: string): boolean;
 }
@@ -246,10 +283,10 @@ export function createDataTableMutationExecutor(transport: BrowserDataTransport)
 
 export function createDataTableController<TInput>(definitionInput: DataTableDefinition<TInput>): DataTableController<TInput> {
   const definition = validateDefinition(definitionInput);
-  const executeRegisteredAction = async (executor: DataTableMutationExecutor, capabilities: readonly DataTableActionCapability[], action: DataTableActionDefinition | undefined, rowKey: string, context: BrowserMutationContext): Promise<DataTableActionResult> => {
+  const executeRegisteredAction = async (executor: DataTableMutationExecutor, authorization: DataTableActionAuthorization | undefined, actorFingerprint: string | undefined, action: DataTableActionDefinition | undefined, rowKey: string, context: BrowserMutationContext): Promise<DataTableActionResult> => {
     if (action === undefined) return forbiddenResult(action, rowKey);
     if (!actionContractIsValid(action)) return invalidActionResult(action, rowKey);
-    if (!actionIsAllowed(action, capabilities)) return forbiddenResult(action, rowKey);
+    if (!actionIsAllowed(action, authorization, actorFingerprint)) return forbiddenResult(action, rowKey);
     if (!TableRowKeySchema.safeParse(rowKey).success) return invalidActionResult(action, rowKey);
     let input: unknown;
     try { input = action.input(rowKey); } catch { return failedActionResult(action, rowKey); }
@@ -260,8 +297,8 @@ export function createDataTableController<TInput>(definitionInput: DataTableDefi
       return failedActionResult(action, rowKey);
     }
   };
-  const executeAction = (executor: DataTableMutationExecutor, capabilities: readonly DataTableActionCapability[], actionId: string, rowKey: string, context: BrowserMutationContext): Promise<DataTableActionResult> => executeRegisteredAction(executor, capabilities, actionById(definition.rowActions ?? [], actionId), rowKey, context);
-  const executeBulkAction = async (executor: DataTableMutationExecutor, capabilities: readonly DataTableActionCapability[], actionId: string, rowKeys: readonly string[], context: BrowserMutationContext): Promise<DataTableBulkActionResult> => {
+  const executeAction = (executor: DataTableMutationExecutor, authorization: DataTableActionAuthorization | undefined, actorFingerprint: string | undefined, actionId: string, rowKey: string, context: BrowserMutationContext): Promise<DataTableActionResult> => executeRegisteredAction(executor, authorization, actorFingerprint, actionById(definition.rowActions ?? [], actionId), rowKey, context);
+  const executeBulkAction = async (executor: DataTableMutationExecutor, authorization: DataTableActionAuthorization | undefined, actorFingerprint: string | undefined, actionId: string, rowKeys: readonly string[], context: BrowserMutationContext): Promise<DataTableBulkActionResult> => {
     const action = actionById(definition.bulkActions ?? [], actionId);
     if (rowKeys.length === 0 || new Set(rowKeys).size !== rowKeys.length) {
       return freeze({
@@ -273,9 +310,9 @@ export function createDataTableController<TInput>(definitionInput: DataTableDefi
         invalidatedSources: []
       });
     }
-    if (action === undefined || !actionContractIsValid(action) || !actionIsAllowed(action, capabilities)) {
+    if (action === undefined || !actionContractIsValid(action) || !actionIsAllowed(action, authorization, actorFingerprint)) {
       const valid = action !== undefined && actionContractIsValid(action);
-      const forbidden = action === undefined || valid && !actionIsAllowed(action, capabilities);
+      const forbidden = action === undefined || valid && !actionIsAllowed(action, authorization, actorFingerprint);
       const results = rowKeys.map((rowKey) => forbidden ? forbiddenResult(action, rowKey) : invalidActionResult(action, rowKey));
       return freeze({
         ...(action === undefined ? {} : { action: { ...action.action } }),
@@ -295,7 +332,7 @@ export function createDataTableController<TInput>(definitionInput: DataTableDefi
       const rowContext = rowKeys.length === 1 || context.idempotencyKey === undefined
         ? context
         : { ...context, idempotencyKey: `${context.idempotencyKey}:${rowKey}` };
-      results.push(await executeRegisteredAction(executor, capabilities, action, rowKey, rowContext));
+      results.push(await executeRegisteredAction(executor, authorization, actorFingerprint, action, rowKey, rowContext));
     }
     const successful = results.filter(({ result }) => result.state === "success").map(({ rowKey }) => rowKey);
     const failed = results.filter(({ result }) => result.state !== "success").map(({ rowKey }) => rowKey);
