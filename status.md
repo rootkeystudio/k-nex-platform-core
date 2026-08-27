@@ -11,12 +11,12 @@ P6.10 now gives the exported Sales workspace presentation an explicit stable dec
 
 ## Validation
 
-Independent review's raw-byte blocker is corrected, and closeout evidence now records the sixth conformance regression added for raw archive equality instead of retaining the prior count of five.
+Fresh GitHub CI isolated a second TypeScript declaration-order drift in inferred Sales UI presentation states. Exported Sales renderer results now use named presentation contracts and an indexed state alias instead of build-order-sensitive expanded unions.
 
 ## Next
 
-Run focused Gate 6 evidence validation, exact-head Gate 6, audit, clean-tree proof, and repeat independent review before refreshing PR #21. PRs #22 and #23 remain drafts.
+Rebuild from a zero-cache clone, prove raw archive equality, refresh downstream integrity, rerun exact-head Gate 6, and repeat independent review before refreshing PR #21. PRs #22 and #23 remain drafts.
 
 ## Blockers
 
-No local implementation blocker remains. Final validation is pending after correcting the closeout count from conformance-plan 5 to 6. No merge or auto-merge will be performed.
+PR #21 CI currently blocks on build-order-dependent `dist/ui.d.ts` bytes. Structural source correction is local and pending zero-cache proof. No merge or auto-merge will be performed.

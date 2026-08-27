@@ -1,4 +1,4 @@
-import { defineUiContributionBinding, type UiBlockRenderInput } from "@k-nex/ui-runtime";
+import { defineUiContributionBinding, type UiBlockRenderInput, type UiContributionDefinition } from "@k-nex/ui-runtime";
 
 import {
   salesRouteDescriptors,
@@ -17,7 +17,28 @@ import {
 
 export { salesNavigationDescriptors, salesRouteDescriptors, salesTaskPageTemplate } from "./contracts.js";
 
-export function salesTaskTableRenderer(input: UiBlockRenderInput) {
+export type SalesUiRenderState = NonNullable<UiBlockRenderInput["sourceResult"]>["state"] | "idle";
+
+export interface SalesTaskTablePresentation {
+  readonly kind: "data-table";
+  readonly title: string;
+  readonly accessibility: Readonly<{ readonly role: "table"; readonly label: string }>;
+  readonly state: SalesUiRenderState;
+  readonly table?: unknown;
+  readonly problemCode?: string;
+}
+
+export interface SalesContributionPresentation {
+  readonly kind: "data-table" | "metric" | "form" | "data-list" | "detail" | "status" | "settings-summary";
+  readonly title: string;
+  readonly accessibility: Readonly<{ readonly role: "table" | "form" | "list" | "status" | "region"; readonly label: string }>;
+  readonly state: SalesUiRenderState;
+  readonly action?: NonNullable<UiBlockRenderInput["action"]>;
+  readonly data?: unknown;
+  readonly problemCode?: string;
+}
+
+export function salesTaskTableRenderer(input: UiBlockRenderInput): Readonly<SalesTaskTablePresentation> {
   const props = input.props as { readonly title: string };
   const state = input.sourceResult?.state ?? "idle";
   return Object.freeze({
@@ -45,7 +66,7 @@ function accessibility(kind: ReturnType<typeof rendererKind>, label: string) {
   return Object.freeze({ role, label });
 }
 
-function contributionRenderer(id: string) {
+function contributionRenderer(id: string): (input: UiBlockRenderInput) => Readonly<SalesContributionPresentation> {
   return (input: UiBlockRenderInput) => {
     const props = input.props as { readonly title: string };
     const state = input.sourceResult?.state ?? "idle";
@@ -69,7 +90,7 @@ export const salesTaskTableBlock = defineUiContributionBinding({
   render: salesTaskTableRenderer
 });
 
-function definition(descriptor: (typeof salesUiComponentDescriptors)[number] | (typeof salesUiBlockDescriptors)[number]) {
+function definition(descriptor: (typeof salesUiComponentDescriptors)[number] | (typeof salesUiBlockDescriptors)[number]): UiContributionDefinition<Readonly<SalesContributionPresentation>> {
   return defineUiContributionBinding({
     descriptor,
     render: contributionRenderer(descriptor.id)
