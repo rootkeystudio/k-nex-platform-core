@@ -96,13 +96,46 @@ describe("plugin archive, purge, backup, and restore", () => {
     expect(substituted.diagnostics.map(({ code }) => code)).toEqual(expect.arrayContaining(["ARCHIVE_REQUIRED", "BACKUP_REQUIRED"]));
   });
 
-  it("commits an authoritative purge and rolls back failed purge work", async () => {
+  it("binds an authoritative purge to its reviewed revisions and consumes its plan", async () => {
     const events: string[] = [];
-    await executePluginPurge(await readyPlan(), { begin: async () => { events.push("begin"); }, applyMigration: async () => { events.push("apply"); }, commit: async () => { events.push("commit"); }, rollback: async () => { events.push("rollback"); } });
+    const plan = await readyPlan();
+    await executePluginPurge(plan, {
+      begin: async () => { events.push("begin"); },
+      applyMigration: async (migration) => {
+        events.push("apply");
+        expect(migration).toEqual({ id: "sales.purge.v1", expectedPredecessorRevision: 7, targetRevision: 8 });
+      },
+      commit: async () => { events.push("commit"); }, rollback: async () => { events.push("rollback"); }
+    });
     expect(events).toEqual(["begin", "apply", "commit"]);
+    await expect(executePluginPurge(plan, {
+      begin: async () => { events.push("replayed-begin"); }, applyMigration: async () => { events.push("replayed-apply"); },
+      commit: async () => { events.push("replayed-commit"); }, rollback: async () => { events.push("replayed-rollback"); }
+    })).rejects.toThrow("not authoritative or ready");
+    expect(events).toEqual(["begin", "apply", "commit"]);
+  });
 
+  it("consumes an attempted purge plan while preserving rollback for transaction failures", async () => {
     const failed: string[] = [];
-    await expect(executePluginPurge(await readyPlan(), { begin: async () => { failed.push("begin"); }, applyMigration: async () => { failed.push("apply"); throw new Error("purge failed"); }, commit: async () => { failed.push("commit"); }, rollback: async () => { failed.push("rollback"); } })).rejects.toThrow("purge failed");
+    const plan = await readyPlan();
+    await expect(executePluginPurge(plan, { begin: async () => { failed.push("begin"); }, applyMigration: async () => { failed.push("apply"); throw new Error("purge failed"); }, commit: async () => { failed.push("commit"); }, rollback: async () => { failed.push("rollback"); } })).rejects.toThrow("purge failed");
     expect(failed).toEqual(["begin", "apply", "rollback"]);
+    await expect(executePluginPurge(plan, { begin: async () => { failed.push("replayed-begin"); }, applyMigration: async () => { failed.push("replayed-apply"); }, commit: async () => { failed.push("replayed-commit"); }, rollback: async () => { failed.push("replayed-rollback"); } })).rejects.toThrow("not authoritative or ready");
+    expect(failed).toEqual(["begin", "apply", "rollback"]);
+  });
+
+  it("requires a new plan when transaction begin fails before purge work", async () => {
+    const plan = await readyPlan();
+    const events: string[] = [];
+    await expect(executePluginPurge(plan, {
+      begin: async () => { events.push("begin"); throw new Error("begin failed"); },
+      applyMigration: async () => { events.push("apply"); }, commit: async () => { events.push("commit"); }, rollback: async () => { events.push("rollback"); }
+    })).rejects.toThrow("begin failed");
+    expect(events).toEqual(["begin"]);
+    await expect(executePluginPurge(plan, {
+      begin: async () => { events.push("replayed-begin"); }, applyMigration: async () => { events.push("replayed-apply"); },
+      commit: async () => { events.push("replayed-commit"); }, rollback: async () => { events.push("replayed-rollback"); }
+    })).rejects.toThrow("not authoritative or ready");
+    expect(events).toEqual(["begin"]);
   });
 });

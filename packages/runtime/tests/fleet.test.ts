@@ -34,7 +34,7 @@ const patchManifest = {
   supportWindow: { ...supportManifest.supportWindow, supportedReleases: ["0.2.1", "0.1.0"] }
 } as const satisfies PackageReleaseManifest;
 
-async function deployment(applicationId: "customer-alpha" | "customer-beta", release: "0.2.0" | "0.1.0", trusted: DeploymentEvidenceAuthority) {
+async function deployment(applicationId: "customer-alpha" | "customer-beta", release: "0.2.0" | "0.1.0", trusted: DeploymentEvidenceAuthority, deploymentNumber = 1, deployedAt = "2026-08-27T12:05:00.000Z") {
   const provenance = createReleaseProvenance({
     subjectName: "sales.tgz", artifactDigest: digest("1"), sourceCommit: sha, workflowIdentity: releaseWorkflow,
     materials: [{ name: "application-manifest", digest: digest("2") }, { name: "lockfile", digest: digest("3") }, { name: "resolved-graph-or-plan", digest: digest("4") }, { name: "sbom", digest: digest("5") }]
@@ -46,7 +46,7 @@ async function deployment(applicationId: "customer-alpha" | "customer-beta", rel
     plugins: [{ id: "module.sales", package: "@k-nex/module-sales", version: release === "0.2.0" ? "1.0.0" : "0.9.0", enabled: true }], migrationRevision: release === "0.2.0" ? 7 : 6,
     settings: [{ id: "sales.settings", schemaVersion: 1, revision: 1 }], templates: [{ id: "sales.page.tasks", templateVersion: 1, revision: 1 }], health: { status: "ready", checks: ["sales"] }
   });
-  const receipt = createDeploymentReceipt({ inventory, deploymentId: `deploy:${applicationId}:1`, deployedAt: "2026-08-27T12:05:00.000Z", approvedBy: { kind: "workflow", identity: deploymentWorkflow }, smoke: { status: "passed", checks: ["sales"] } });
+  const receipt = createDeploymentReceipt({ inventory, deploymentId: `deploy:${applicationId}:${deploymentNumber}`, deployedAt, approvedBy: { kind: "workflow", identity: deploymentWorkflow }, smoke: { status: "passed", checks: ["sales"] } });
   const evidence = await trusted.verify({
     observe: async () => structuredClone(inventory), receipt: signDeploymentReceipt(receipt, privatePem(deploymentKeys.privateKey)),
     provenance: signReleaseProvenance(provenance, privatePem(releaseKeys.privateKey))
@@ -79,6 +79,19 @@ describe("fleet evidence and patch propagation", () => {
     expect(() => { (stored.inventory.packages as Array<{ version: string }>)[0]!.version = "9.9.9"; }).toThrow();
   });
 
+  it("orders RFC3339 deployment timestamps by instant across offsets", async () => {
+    const trusted = authority();
+    const fleet = new FleetRegistry(supportManifest, trusted);
+    fleet.ingest((await deployment("customer-alpha", "0.2.0", trusted, 1, "2026-08-27T12:00:00+02:00")).evidence);
+    fleet.ingest((await deployment("customer-alpha", "0.2.0", trusted, 2, "2026-08-27T11:30:00Z")).evidence);
+    expect(fleet.list()[0]?.receipt.deploymentId).toBe("deploy:customer-alpha:2");
+
+    const regression = new FleetRegistry(supportManifest, trusted);
+    regression.ingest((await deployment("customer-beta", "0.1.0", trusted, 1, "2026-08-27T11:30:00Z")).evidence);
+    const older = await deployment("customer-beta", "0.1.0", trusted, 2, "2026-08-27T12:00:00+02:00");
+    expect(() => regression.ingest(older.evidence)).toThrow("cannot regress");
+  });
+
   it("finds every vulnerable deployment and creates customer-specific patch updates", async () => {
     const trusted = authority();
     const fleet = new FleetRegistry(supportManifest, trusted);
@@ -95,7 +108,14 @@ describe("fleet evidence and patch propagation", () => {
     const trusted = authority();
     const fleet = new FleetRegistry(supportManifest, trusted);
     fleet.ingest((await deployment("customer-beta", "0.1.0", trusted)).evidence);
-    expect(() => fleet.planSecurityPatch("@k-nex/module-sales", "<1.0.1", "9.9.9", patchManifest)).toThrow("exact version");
+    expect(() => fleet.planSecurityPatch("@k-nex/module-sales", "<1.0.1", "9.9.9", patchManifest)).toThrow("absent from the trusted release manifest");
+  });
+
+  it("rejects a trusted patch target that remains vulnerable", async () => {
+    const trusted = authority();
+    const fleet = new FleetRegistry(supportManifest, trusted);
+    fleet.ingest((await deployment("customer-beta", "0.1.0", trusted)).evidence);
+    expect(() => fleet.planSecurityPatch("@k-nex/module-sales", "<1.0.1", "1.0.0", supportManifest)).toThrow("remains within the vulnerable range");
   });
 
   it("requires restore/redeploy inventory to exactly reproduce expected observed state", async () => {
