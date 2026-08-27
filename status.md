@@ -11,11 +11,11 @@ P7.10 added executable bundle/tree-shaking budgets, large-data and query-state p
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: targeted components/UI-testing suites, full 20-package build, browser matrix, performance budgets, and Gate 7 closeout assertions PASS. Full Gate 7 exposed and regenerated stale customer integrity and Sales reference artifacts; exact-head rerun remains pending.
+Node 24.19.0 / pnpm 11.9.0: exact-head `pnpm gate:7` PASS, including Gates 0–6, PostgreSQL lifecycle/publication, plugin conformance, package boundaries, real-browser journeys, 16-state/two-theme matrix, hydration, bundle/tree-shaking budgets, and performance probes. `pnpm audit --audit-level high` found no high/critical advisory.
 
 ## Next
 
-Run exact-head `pnpm gate:7`, formal Sol-high phase review, and open the stacked Phase 7 PR without merge or auto-merge.
+Complete formal Sol-high phase review and open the stacked Phase 7 PR without merge or auto-merge.
 
 ## Blockers
 
