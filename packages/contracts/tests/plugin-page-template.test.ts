@@ -28,7 +28,10 @@ const descriptor = {
         type: "sales.task-table",
         version: 1,
         props: {},
-        bindings: { source: { source: { id: "sales.tasks", version: 1 }, input: {}, structuralCompatibilityHash: `sha256:${"a".repeat(64)}` } }
+        bindings: {
+          source: { source: { id: "sales.tasks", version: 1 }, input: {}, structuralCompatibilityHash: `sha256:${"a".repeat(64)}` },
+          action: { id: "sales.task.create", version: 1 }
+        }
       }]
     }
   }
@@ -43,6 +46,11 @@ describe("P6.4 plugin page template contract", () => {
     expect(PluginPageTemplateDescriptorSchema.safeParse({ ...descriptor, document: { ...descriptor.document, id: "sales.page.other" } }).success).toBe(false);
     expect(PluginPageTemplateDescriptorSchema.safeParse({ ...descriptor, profile: "cms" }).success).toBe(false);
     expect(PluginPageTemplateDescriptorSchema.safeParse({ ...descriptor, requirements: { ...descriptor.requirements, sources: [] } }).success).toBe(false);
+    expect(PluginPageTemplateDescriptorSchema.safeParse({ ...descriptor, requirements: { ...descriptor.requirements, actions: [] } }).success).toBe(false);
+    expect(PluginPageTemplateDescriptorSchema.safeParse({
+      ...descriptor,
+      document: { ...descriptor.document, regions: { main: [{ ...descriptor.document.regions.main[0], bindings: { ...descriptor.document.regions.main[0].bindings, action: { id: "sales.task.other", version: 1 } } }] } }
+    }).success).toBe(false);
     expect(PluginPageTemplateDescriptorSchema.safeParse({ ...descriptor, version: 2, document: { ...descriptor.document, version: 2 } }).success).toBe(false);
   });
 

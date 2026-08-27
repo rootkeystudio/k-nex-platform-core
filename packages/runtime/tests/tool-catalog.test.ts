@@ -36,7 +36,7 @@ const manifest: PluginManifest = {
   optional: [],
   conflicts: [],
   lifecycle: { ownsPayloadSchema: false, ownsPersistentData: true, disable: "supported", uninstall: "unsupported", purge: "supported" },
-  contributions: { sources: { "sales.tasks": "required" }, tools: { "sales.tools.search": "required", "sales.tools.private": "required" } }
+  contributions: { permissions: { "sales.tasks.read": "required" }, sources: { "sales.tasks": "required" }, tools: { "sales.tools.search": "required", "sales.tools.private": "required" } }
 };
 
 const installed: readonly InstalledPluginManifest[] = [{
@@ -121,6 +121,11 @@ function registration(toolValues: readonly AgentToolDescriptor[] = [tool("sales.
   const plan: PluginRegistration = {
     pluginId: manifest.id,
     contracts(context) {
+      context.register("permissions", "sales.tasks.read", {
+        id: "sales.tasks.read", ownerPluginId: manifest.id, title: "Read tasks", description: "Read Sales tasks.",
+        audience: "authenticated", resource: "sales.tasks", operation: "read",
+        policy: { id: "sales.tasks.policy", scope: "application", recordScoped: false, fieldScoped: false }
+      });
       context.register("sources", source.descriptor.id, source);
       for (const value of toolValues) context.register("tools", value.id, value);
     },

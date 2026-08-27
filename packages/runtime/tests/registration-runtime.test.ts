@@ -30,7 +30,7 @@ function dataSourceDefinition(id: string, ownerPluginId = "module.consumer"): Da
       sourceSchema: { id: `${id}.schema`, version: 1 },
       audience: "authenticated",
       surfaces: ["workspace"],
-      permission: "consumer.read",
+      permission: "consumer.permission",
       structuralCompatibilityHash: `sha256:${"0".repeat(64)}`,
       presentationMetadataRevision: 1,
       title: "Consumer source",
@@ -75,7 +75,7 @@ function actionDefinition(id = "consumer.action", ownerPluginId = "module.consum
         required: ["accepted"],
         additionalProperties: false
       },
-      permission: "consumer.write",
+      permission: "consumer.permission",
       policy: "consumer.domain",
       effect: "write",
       idempotency: "required",
@@ -323,7 +323,7 @@ function completeConsumer(
         surface: "workspace",
         audience: "authenticated",
         permission: "consumer.permission",
-        viewId: "consumer.view.main"
+        viewId: "consumer.template"
       });
       context.register("navigation", "consumer.navigation", {
         id: "consumer.navigation",
@@ -390,6 +390,35 @@ function expectCode(action: () => unknown, code: RegistrationError["code"]): voi
     expect(error).toBeInstanceOf(RegistrationError);
     expect((error as RegistrationError).code).toBe(code);
   }
+}
+
+function corruptedReference(
+  phase: "contracts" | "ui",
+  targetKind: string,
+  targetId: string,
+  mutate: (value: unknown) => unknown
+): PluginRegistration {
+  const base = completeConsumer();
+  if (phase === "contracts") return {
+    ...base,
+    contracts(context) {
+      base.contracts?.({
+        ...context,
+        register: ((kind: string, id: string, value: unknown) =>
+          context.register(kind as never, id, kind === targetKind && id === targetId ? mutate(value) : value)) as typeof context.register
+      });
+    }
+  };
+  return {
+    ...base,
+    ui(context) {
+      base.ui?.({
+        ...context,
+        register: ((kind: string, id: string, value: unknown) =>
+          context.register(kind as never, id, kind === targetKind && id === targetId ? mutate(value) : value)) as typeof context.register
+      });
+    }
+  };
 }
 
 describe("phased registration runtime", () => {
@@ -515,6 +544,36 @@ describe("phased registration runtime", () => {
     }]), "INVALID_CONTRIBUTION");
   });
 
+  it("reconciles every descriptor reference against its exact owned category", () => {
+    const patch = (fields: Readonly<Record<string, unknown>>) => (value: unknown): unknown => ({ ...(value as object), ...fields });
+    const definitionPatch = (fields: Readonly<Record<string, unknown>>) => (value: unknown): unknown => {
+      const definition = value as ActionDefinition | DataSourceDefinition;
+      return { ...definition, descriptor: { ...definition.descriptor, ...fields } };
+    };
+    const cases = [
+      ["contracts", "settings", "consumer.setting", patch({ readPermission: "consumer.route" })],
+      ["contracts", "sources", "consumer.source", definitionPatch({ permission: "consumer.route" })],
+      ["contracts", "actions", "consumer.action", definitionPatch({ permission: "consumer.route" })],
+      ["contracts", "tools", "consumer.tools.action", patch({ permission: "consumer.route" })],
+      ["contracts", "events", "consumer.event", patch({ sourceId: "consumer.permission" })],
+      ["contracts", "realtimeTopics", "consumer.realtime", patch({ eventId: "consumer.permission" })],
+      ["contracts", "realtimeTopics", "consumer.realtime", patch({ sourceId: "consumer.permission" })],
+      ["contracts", "realtimeTopics", "consumer.realtime", patch({ permission: "consumer.route" })],
+      ["ui", "components", "consumer.component", patch({ permission: "consumer.route" })],
+      ["ui", "components", "consumer.component", patch({ actionPolicy: { required: true, actions: [{ id: "consumer.route", version: 1 }] } })],
+      ["ui", "routes", "consumer.route", patch({ permission: "consumer.navigation" })],
+      ["ui", "routes", "consumer.route", patch({ viewId: "consumer.permission" })],
+      ["ui", "navigation", "consumer.navigation", patch({ route: { routeId: "consumer.permission", params: {} } })],
+      ["ui", "navigation", "consumer.navigation", patch({ permission: "consumer.route" })],
+      ["ui", "navigation", "consumer.navigation", patch({ parentId: "consumer.route" })],
+      ["ui", "pageTemplates", "consumer.template", patch({ route: { routeId: "consumer.permission", params: {} } })],
+      ["ui", "pageTemplates", "consumer.template", patch({ permission: "consumer.route" })]
+    ] as const;
+    for (const [phase, kind, id, mutate] of cases) {
+      expectCode(() => run([providerRegistration(), corruptedReference(phase, kind, id, mutate)]), "INVENTORY_MISMATCH");
+    }
+  });
+
   it("requires canonical UI descriptor categories and executable renderer bindings", () => {
     const consumer = completeConsumer();
     expectCode(() => run([providerRegistration(), {
@@ -630,7 +689,7 @@ describe("phased registration runtime", () => {
       outputSchema: undefined,
       outputContract,
       invocation: { kind: "source", source: { id: "consumer.source", version: 1 } },
-      permission: "consumer.read",
+      permission: "consumer.permission",
       policy: "consumer.read",
       effect: "read-only",
       approval: "none",

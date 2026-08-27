@@ -63,6 +63,7 @@ export const PluginPageTemplateDescriptorSchema = z.strictObject({
   }
 
   const requiredSources = new Set(descriptor.requirements.sources.map((value) => `${value.id}@${value.version}`));
+  const requiredActions = new Set(descriptor.requirements.actions.map((value) => `${value.id}@${value.version}`));
   const requiredBlocks = new Set(descriptor.requirements.blocks.map((value) => `${value.id}@${value.version}`));
   const visit = (nodes: readonly UiNode[]): void => {
     for (const node of nodes) {
@@ -72,6 +73,10 @@ export const PluginPageTemplateDescriptorSchema = z.strictObject({
       const source = node.bindings?.source?.source;
       if (source !== undefined && !requiredSources.has(`${source.id}@${source.version}`)) {
         context.issues.push({ code: "custom", input: source.id, path: ["requirements", "sources"], message: `Template source ${source.id}@${source.version} is not declared.` });
+      }
+      const action = node.bindings?.action;
+      if (action !== undefined && !requiredActions.has(`${action.id}@${action.version}`)) {
+        context.issues.push({ code: "custom", input: action.id, path: ["requirements", "actions"], message: `Template action ${action.id}@${action.version} is not declared.` });
       }
       visit(node.children ?? []);
     }

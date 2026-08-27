@@ -31,7 +31,10 @@ const descriptor = (version = 1): PluginPageTemplateDescriptor => ({
     version,
     schemaVersion: 1,
     profile: "workspace",
-    regions: { main: [{ id: "tasks", type: "sales.task-table", version: 1, props: { title: `Tasks v${version}` }, bindings: { source: { source: { id: "sales.tasks", version: 1 }, input: {}, structuralCompatibilityHash: `sha256:${"a".repeat(64)}` } } }] }
+    regions: { main: [{ id: "tasks", type: "sales.task-table", version: 1, props: { title: `Tasks v${version}` }, bindings: {
+      source: { source: { id: "sales.tasks", version: 1 }, input: {}, structuralCompatibilityHash: `sha256:${"a".repeat(64)}` },
+      action: { id: "sales.task.create", version: 1 }
+    } }] }
   },
   ...(version === 1 ? {} : { migration: { adoptableFromVersions: [1], notesMessageId: "sales.message.template-v2" } })
 });

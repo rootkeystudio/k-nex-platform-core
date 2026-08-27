@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Closed lifecycle authority bypass: every executable consumer now requires an opaque runtime-scoped registration, and Payload composition derives enabled state from that authority instead of caller-supplied availability.
+Closed category-reference and page-action gaps: registration now reconciles permissions/routes/pages/navigation/events/realtime/source/action/UI references by exact owner, category, version, and binding; templates reject undeclared action bindings.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: runtime 175, focused Sales 13, Gate 2A PASS; runtime, Payload adapter, Sales, and customer builds PASS. Prior Gate 6 result superseded by active review remediation.
+Node 24.19.0 / pnpm 11.9.0: contracts 140, runtime 176, Sales 34 plus package boundaries/reproducibility PASS. Prior Gate 6 result superseded by active review remediation.
 
 ## Next
 

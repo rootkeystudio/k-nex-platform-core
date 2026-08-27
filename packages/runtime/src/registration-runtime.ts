@@ -372,14 +372,58 @@ export function executeRegistration(options: ExecuteRegistrationOptions): Regist
     }
   }
   for (const [pluginId, byKind] of actual) {
+    const reference = (
+      originKind: ContributionKind,
+      originId: string,
+      targetKind: ContributionKind,
+      targetId: string,
+      version?: number,
+      requireBinding = false
+    ): void => {
+      const value = actual.get(pluginId)?.get(targetKind)?.get(targetId);
+      const registeredVersion = targetKind === "sources"
+        ? (value as DataSourceDefinition | undefined)?.descriptor.version
+        : targetKind === "actions"
+          ? (value as ActionDefinition | undefined)?.descriptor.version
+          : (value as { readonly version?: number } | undefined)?.version;
+      if (contributionOwners.get(targetId) !== pluginId || value === undefined || version !== undefined && registeredVersion !== version ||
+        requireBinding && bindings.get(targetKind as BoundContributionKind)?.get(targetId)?.pluginId !== pluginId) {
+        mismatches.push(`${pluginId}:${originKind}:${originId}:${targetKind}:${targetId}${version === undefined ? "" : `@${version}`}`);
+      }
+    };
     const messageIds = new Set([...(byKind.get("localization")?.values() ?? [])]
       .flatMap((value) => Object.keys((value as { readonly messages?: Readonly<Record<string, string>> }).messages ?? {})));
+    for (const [settingsId, value] of byKind.get("settings") ?? []) {
+      const descriptor = value as { readonly readPermission: string; readonly changePermission: string };
+      reference("settings", settingsId, "permissions", descriptor.readPermission);
+      reference("settings", settingsId, "permissions", descriptor.changePermission);
+    }
+    for (const [sourceId, value] of byKind.get("sources") ?? []) {
+      const descriptor = (value as DataSourceDefinition).descriptor;
+      reference("sources", sourceId, "permissions", descriptor.permission);
+      for (const field of descriptor.outputFields ?? []) {
+        if (field.permission !== undefined) reference("sources", sourceId, "permissions", field.permission);
+      }
+    }
+    for (const [actionId, value] of byKind.get("actions") ?? []) {
+      reference("actions", actionId, "permissions", (value as ActionDefinition).descriptor.permission);
+    }
+    for (const [routeId, value] of byKind.get("routes") ?? []) {
+      const descriptor = value as { readonly permission: string; readonly viewId: string };
+      reference("routes", routeId, "permissions", descriptor.permission);
+      reference("routes", routeId, "pageTemplates", descriptor.viewId);
+    }
     for (const [navigationId, value] of byKind.get("navigation") ?? []) {
-      const labelMessageId = (value as { readonly labelMessageId?: string }).labelMessageId;
+      const descriptor = value as { readonly labelMessageId?: string; readonly route: { readonly routeId: string }; readonly permission: string; readonly parentId?: string };
+      const labelMessageId = descriptor.labelMessageId;
       if (labelMessageId === undefined || !messageIds.has(labelMessageId)) mismatches.push(`${pluginId}:navigation:${navigationId}:localization`);
+      reference("navigation", navigationId, "routes", descriptor.route.routeId);
+      reference("navigation", navigationId, "permissions", descriptor.permission);
+      if (descriptor.parentId !== undefined) reference("navigation", navigationId, "navigation", descriptor.parentId);
     }
     for (const [toolId, value] of byKind.get("tools") ?? []) {
       const descriptor = value as AgentToolDescriptor;
+      reference("tools", toolId, "permissions", descriptor.permission);
       const targetKind: Extract<ContributionKind, "sources" | "actions"> = descriptor.invocation.kind === "source" ? "sources" : "actions";
       const targetId = descriptor.invocation.kind === "source" ? descriptor.invocation.source.id : descriptor.invocation.action.id;
       const targetOwner = contributionOwners.get(targetId);
@@ -391,11 +435,25 @@ export function executeRegistration(options: ExecuteRegistrationOptions): Regist
       if (!hasOwnedBinding || !compatible) mismatches.push(`${pluginId}:tools:${toolId}:binding`);
     }
     for (const [uiId, value] of [...(byKind.get("components") ?? []), ...(byKind.get("blocks") ?? [])]) {
-      const descriptor = value as { readonly actionPolicy?: { readonly actions: readonly { readonly id: string; readonly version: number }[] } };
+      const originKind = byKind.get("components")?.has(uiId) ? "components" : "blocks";
+      const descriptor = value as { readonly permission?: string; readonly actionPolicy?: { readonly actions: readonly { readonly id: string; readonly version: number }[] } };
+      if (descriptor.permission !== undefined) reference(originKind, uiId, "permissions", descriptor.permission);
       for (const action of descriptor.actionPolicy?.actions ?? []) {
-        const owner = contributionOwners.get(action.id);
-        const definition = owner === undefined ? undefined : actual.get(owner)?.get("actions")?.get(action.id) as ActionDefinition | undefined;
-        if (definition?.descriptor.version !== action.version) mismatches.push(`${pluginId}:ui:${uiId}:action:${action.id}@${action.version}`);
+        reference(originKind, uiId, "actions", action.id, action.version, true);
+      }
+    }
+    for (const [eventId, value] of byKind.get("events") ?? []) {
+      reference("events", eventId, "sources", (value as { readonly sourceId: string }).sourceId, undefined, true);
+    }
+    for (const [topicId, value] of byKind.get("realtimeTopics") ?? []) {
+      const descriptor = value as { readonly eventId: string; readonly sourceId: string; readonly permission: string };
+      reference("realtimeTopics", topicId, "events", descriptor.eventId, undefined, true);
+      reference("realtimeTopics", topicId, "sources", descriptor.sourceId, undefined, true);
+      reference("realtimeTopics", topicId, "permissions", descriptor.permission);
+    }
+    for (const [testingId, value] of byKind.get("testingMetadata") ?? []) {
+      if ((value as { readonly conformancePluginId: string }).conformancePluginId !== pluginId) {
+        mismatches.push(`${pluginId}:testingMetadata:${testingId}:plugin`);
       }
     }
     for (const [templateId, value] of byKind.get("pageTemplates") ?? []) {
@@ -409,8 +467,8 @@ export function executeRegistration(options: ExecuteRegistrationOptions): Regist
           readonly blocks: readonly { readonly id: string; readonly version: number }[];
         };
       };
-      if (!contributionOwners.has(template.route.routeId)) mismatches.push(`${pluginId}:pageTemplates:${templateId}:route`);
-      if (!contributionOwners.has(template.permission)) mismatches.push(`${pluginId}:pageTemplates:${templateId}:permission`);
+      reference("pageTemplates", templateId, "routes", template.route.routeId);
+      reference("pageTemplates", templateId, "permissions", template.permission);
       for (const requirement of template.requirements.capabilities) {
         const selected = selectedProviders.get(requirement.id);
         if (selected?.version !== requirement.version) mismatches.push(`${pluginId}:pageTemplates:${templateId}:capability:${requirement.id}@${requirement.version}`);
@@ -421,12 +479,7 @@ export function executeRegistration(options: ExecuteRegistrationOptions): Regist
         ["blocks", template.requirements.blocks]
       ] as const) {
         for (const requirement of requirements) {
-          const owner = contributionOwners.get(requirement.id);
-          const registered = owner === undefined ? undefined : actual.get(owner)?.get(kind)?.get(requirement.id);
-          const version = kind === "sources" ? (registered as DataSourceDefinition | undefined)?.descriptor.version
-            : kind === "actions" ? (registered as ActionDefinition | undefined)?.descriptor.version
-              : (registered as { readonly version?: number } | undefined)?.version;
-          if (version !== requirement.version) mismatches.push(`${pluginId}:pageTemplates:${templateId}:${kind}:${requirement.id}@${requirement.version}`);
+          reference("pageTemplates", templateId, kind, requirement.id, requirement.version, kind === "sources" || kind === "actions" || kind === "blocks");
         }
       }
     }
