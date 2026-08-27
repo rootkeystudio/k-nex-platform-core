@@ -97,7 +97,7 @@
       "package": "@k-nex/runtime",
       "version": "0.0.0",
       "role": "core",
-      "integrity": "sha512-S18Z0VnjPuq7s13kW5PNIgSaDbV+qlPxbqnAu/ZrmN0/cDSMyxq0Q61wnv73lwzHRj299ZfovCFgZKidsJjVLg==",
+      "integrity": "sha512-/Ja2C5oDaXyD872Tw6ujf7uCkcy5b3CfgfJk+mHJht++SAOCBmdPx+pisowy7scDZwzbg6mZIxHNw68Qwk9IVw==",
       "peerCompatibility": {
         "core": "1.0.0",
         "payload": "3.88.0",

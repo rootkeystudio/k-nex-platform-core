@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Sol-high review found three P1 boundaries. Fleet now compares RFC 3339 deployment instants chronologically and rejects trusted patch targets still inside the vulnerable range. Authoritative purge plans are consumed before execution and bind migration ID plus predecessor/target revisions through the transaction interface.
+The P1 runtime fixes are rebuilt into a reproducible packed runtime artifact. All three release manifests and both customer locks now bind its refreshed SHA512 identity; the remaining 17 artifacts stayed byte-identical.
 
 ## Validation
 
-Sol-high exact-head review returned REWORK with three P1 findings. `pnpm --filter @k-nex/runtime exec vitest run tests/fleet.test.ts tests/plugin-data-lifecycle.test.ts` PASS (14 tests), runtime build PASS, and `git diff --check` PASS after fixes.
+Deterministic double-pack generation, three release-manifest generations, both customer lock generations, `node scripts/check-phase-8-packed-packages.mjs`, and `git diff --check` PASS after P1 fixes.
 
 ## Next
 
-Regenerate runtime-packed release closure and dependent evidence, rerun full Gate 8, then request Sol-high re-review.
+Commit the refreshed release-source state, regenerate exact-source deployment/fleet evidence, then rerun full Gate 8.
 
 ## Blockers
 

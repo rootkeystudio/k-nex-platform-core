@@ -985,7 +985,7 @@ packages:
     version: 0.0.0
 
   '@k-nex/runtime@file:../customer-gate-1/packages/k-nex-runtime-0.0.0.tgz':
-    resolution: {integrity: sha512-S18Z0VnjPuq7s13kW5PNIgSaDbV+qlPxbqnAu/ZrmN0/cDSMyxq0Q61wnv73lwzHRj299ZfovCFgZKidsJjVLg==, tarball: file:../customer-gate-1/packages/k-nex-runtime-0.0.0.tgz}
+    resolution: {integrity: sha512-/Ja2C5oDaXyD872Tw6ujf7uCkcy5b3CfgfJk+mHJht++SAOCBmdPx+pisowy7scDZwzbg6mZIxHNw68Qwk9IVw==, tarball: file:../customer-gate-1/packages/k-nex-runtime-0.0.0.tgz}
     version: 0.0.0
 
   '@k-nex/theme-neobrutalism@file:../customer-gate-1/packages/k-nex-theme-neobrutalism-0.0.0.tgz':
