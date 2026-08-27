@@ -3,20 +3,20 @@
 - **Updated:** 2026-08-27
 - **Phase:** Phase 5 — UI Runtime, Themes, and Atomic CMS Publication
 - **Active task:** P5.9 — Gate 5 closeout
-- **State:** Rework in progress
+- **State:** Ready for review
 
 ## Last completed
 
-Restored the machine-readable `GO Phase 6` closeout token required by Gate 5 while keeping project-manager PASS and merge as explicit prerequisites.
+Closed the three blockers anchored to `5561b119`: request-bound operation idempotency, parsed selector ownership with nested-root isolation, and generated CMS metadata governance with dot-segment denial.
 
 ## Validation
 
-Affected builds/tests and focused review regressions pass. The full frozen path reached Gate 5, exposed the closeout-token mismatch, and must be rerun after this documentation correction.
+Frozen install, complete `pnpm gate:5`, generated Zod/AJV parity, expanded PostgreSQL operation-conflict proof, nested-root Chromium proof, audit threshold, and repository checks pass.
 
 ## Next
 
-Commit the coherent correction, run frozen `pnpm gate:5` plus audit/repository checks, push, refresh PR evidence, and await exact-head CI and project-manager PASS.
+Push the correction head, refresh PR evidence, and await exact-head CI and project-manager PASS. Start Phase 6 only after PASS and merge.
 
 ## Blockers
 
-Project-manager REWORK review anchored to `5561b119` remains open.
+None.
