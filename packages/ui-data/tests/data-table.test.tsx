@@ -199,6 +199,8 @@ describe("P7.6 standard DataTable/DataGrid", () => {
     expect(grid).toContain('role="gridcell"');
     expect(grid.match(/role="gridcell" tabindex="0"/g)).toHaveLength(1);
     expect(grid.match(/tabindex="0"/g)).toHaveLength(1);
+    expect(grid).toMatch(/Select all rows<\/label>.*<table aria-label="Sales tasks" role="grid"/);
+    expect(grid).toContain('<th scope="col" role="columnheader" style="width:48px">Select</th>');
   });
 
   it("renders only fields returned by the authorized projection", () => {

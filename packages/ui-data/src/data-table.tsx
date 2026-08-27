@@ -141,7 +141,7 @@ function ReadyTable<TInput>({
   });
   if (selectable) columns.unshift({
     id: "selection",
-    header: ({ table }) => <input type="checkbox" aria-label="Select all rows" tabIndex={mode === "grid" ? -1 : undefined} checked={table.getIsAllRowsSelected()} onChange={table.getToggleAllRowsSelectedHandler()} />,
+    header: ({ table }) => mode === "grid" ? "Select" : <input type="checkbox" aria-label="Select all rows" checked={table.getIsAllRowsSelected()} onChange={table.getToggleAllRowsSelectedHandler()} />,
     cell: ({ row }) => <input type="checkbox" aria-label={`Select row ${row.original.key}`} tabIndex={mode === "grid" ? -1 : undefined} checked={row.getIsSelected()} onChange={row.getToggleSelectedHandler()} />,
     size: 48
   });
@@ -191,7 +191,18 @@ function ReadyTable<TInput>({
     const cell = target.closest<HTMLElement>("[role=gridcell]") ?? target;
     const current = cells.indexOf(cell);
     if (current < 0) return;
-    if (event.key === "Escape" && target !== cell) { cell.focus(); event.preventDefault(); return; }
+    if (target !== cell) {
+      if (event.key === "Escape") { cell.focus(); event.preventDefault(); return; }
+      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        const controls = [...cell.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href]")];
+        const control = target.closest<HTMLElement>("button, input, select, textarea, a") ?? target;
+        const index = controls.indexOf(control);
+        const next = controls[index + (event.key === "ArrowRight" ? 1 : -1)];
+        if (next !== undefined) next.focus();
+        event.preventDefault();
+      }
+      return;
+    }
     if ((event.key === "Enter" || event.key === "F2") && target === cell) {
       const control = cell.querySelector<HTMLElement>("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href]");
       if (control !== null) { control.focus(); event.preventDefault(); }
@@ -228,6 +239,7 @@ function ReadyTable<TInput>({
   return <div data-k-nex-component={mode === "grid" ? "data-grid" : "data-table"} data-density={viewState.density} data-slot="root">
     {controls}
     <BulkActionBar actions={bulkActions} disabled={mutationExecutor === undefined} selectionCount={viewState.selectedRows.length} onAction={runBulkAction} />
+    {mode === "grid" && selectable ? <label><input type="checkbox" aria-label="Select all rows" checked={table.getIsAllRowsSelected()} onChange={table.getToggleAllRowsSelectedHandler()} /> Select all rows</label> : null}
     <table aria-label={label ?? definition.descriptor.title} {...(mode === "grid" ? { role: "grid", onKeyDown: keyboard } : {})} data-slot="table"><thead>{table.getHeaderGroups().map((group) => <tr key={group.id} role={mode === "grid" ? "row" : undefined}>{group.headers.map((header) => <th key={header.id} scope="col" role={mode === "grid" ? "columnheader" : undefined} style={{ width: header.getSize() }}>{flexRender(header.column.columnDef.header, header.getContext())}</th>)}</tr>)}</thead><tbody>{table.getRowModel().rows.map((row, rowIndex) => <tr key={row.id} role={mode === "grid" ? "row" : undefined} data-selected={row.getIsSelected() || undefined}>{row.getVisibleCells().map((cell, cellIndex) => <td key={cell.id} role={mode === "grid" ? "gridcell" : undefined} tabIndex={mode === "grid" ? rowIndex === 0 && cellIndex === 0 ? 0 : -1 : undefined}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>)}</tr>)}</tbody></table>
     {viewState.pagination.mode === "offset" ? <PaginationControl page={viewState.pagination.page} hasNext={data.page.hasNext} onPageChange={(page) => update({ pagination: { mode: "offset", page, size: viewState.pagination.size } })} /> : <LoadMore hasNext={data.page.hasNext && data.page.nextCursor !== undefined} {...(loadMoreLoading === undefined ? {} : { loading: loadMoreLoading })} onLoadMore={() => {
       const next = { ...viewState, pagination: { mode: "cursor" as const, size: viewState.pagination.size, after: data.page.nextCursor! } };

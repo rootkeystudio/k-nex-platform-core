@@ -7,16 +7,16 @@
 
 ## Last completed
 
-PR 22 remains rebased onto accepted Phase 6 on `main`. Cursor and hidden-field authority blockers are closed. Bulk actions now use an explicit 100-row ceiling and reject oversized input before copying, validating, freezing, authorizing, or executing row keys; rejection output contains only a constant-size count.
+PR 22 remains rebased onto accepted Phase 6 on `main`. Cursor, hidden-field authority, and bounded bulk blockers are closed. DataGrid now keeps select-all outside the grid header, enters controls with Enter/F2, moves across every control in a multi-action cell with arrows, and returns to the owning cell with Escape while retaining one grid tab stop.
 
 ## Validation
 
-Hidden-field authority passed focused runtime, browser-query, and DataTable tests at `7c040cc`. Focused oversized bulk validation is pending.
+Oversized bulk rejection passed its million-key bounded-output regression at `0bc6837`. Focused DataGrid unit and browser validation is pending.
 
 ## Next
 
-Complete DataGrid keyboard action mode next, then remaining review blockers in order. Leave PR 22 draft/open.
+Fix logical-revision form coalescing next, then VirtualList key/repopulation invariants. Leave PR 22 draft/open.
 
 ## Blockers
 
-Three project-manager blockers remain after cursor, field-operation authority, and bounded bulk fixes.
+Two project-manager blockers remain after the DataGrid keyboard fix.

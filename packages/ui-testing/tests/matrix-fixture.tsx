@@ -2,11 +2,12 @@ import { useState, type ReactElement } from "react";
 
 import { Button, KNeXDesignSystemProvider, type ThemePresentationSnapshot } from "@k-nex/ui-design-system-contracts";
 import { Card, Dialog, SegmentedControl } from "@k-nex/ui-components";
-import { DataGrid, DataTable, VirtualList, createDataTableState, resolveDataTableActionAuthorization } from "@k-nex/ui-data";
+import { DataGrid, DataTable, VirtualList, createDataTableState, defineDataTable, resolveDataTableActionAuthorization } from "@k-nex/ui-data";
 import { Form, TextInput } from "@k-nex/ui-forms";
 import { resolveMinimalThemeProfile } from "@k-nex/theme-minimal";
 import { resolveNeobrutalismThemeProfile } from "@k-nex/theme-neobrutalism";
 import { SalesTasksPage, createSalesTaskQuickCreateController, salesTasksTableDefinition } from "@k-nex/module-sales/pages";
+import { salesOpportunityStageMutation } from "@k-nex/module-sales/browser";
 import type { BrowserDataTransport } from "@k-nex/ui-runtime";
 
 const profile = (themeId: "theme.minimal" | "theme.neobrutalism", palette: string, revision: string) => ({
@@ -26,10 +27,24 @@ const mutationExecutor = { execute: async () => ({ state: "success" as const, da
 const createTask = createSalesTaskQuickCreateController(transport, "matrix").initial();
 const virtualRows = Array.from({ length: 10_000 }, (_, index) => `Virtual row ${index}`);
 const taskActorFingerprint = `sha256:${"a".repeat(64)}`;
+const taskGridDefinition = defineDataTable({
+  ...salesTasksTableDefinition,
+  rowActions: [
+    ...(salesTasksTableDefinition.rowActions ?? []),
+    { id: salesOpportunityStageMutation.action.id, action: salesOpportunityStageMutation.action, mutation: salesOpportunityStageMutation, input: (rowKey: string) => ({ id: rowKey, stage: "won" }), label: "Archive" }
+  ]
+});
 const taskAuthorization = resolveDataTableActionAuthorization(salesTasksTableDefinition, taskActorFingerprint, {
   resolve: (request) => ({
     actorFingerprint: request.actorFingerprint,
     catalogRevision: `sha256:${"b".repeat(64)}`,
+    capabilities: request.actions.map((action) => ({ state: "allowed" as const, action }))
+  })
+});
+const taskGridAuthorization = resolveDataTableActionAuthorization(taskGridDefinition, taskActorFingerprint, {
+  resolve: (request) => ({
+    actorFingerprint: request.actorFingerprint,
+    catalogRevision: `sha256:${"c".repeat(64)}`,
     capabilities: request.actions.map((action) => ({ state: "allowed" as const, action }))
   })
 });
@@ -57,7 +72,7 @@ function Surface({ label, presentation }: { readonly label: string; readonly pre
     <div data-matrix-state="localization" lang="tr">Satış görevleri yerelleştirme kontrolü</div>
     <SalesTasksPage requestState={{ state: "success", data: taskRecords }} viewState={viewState} actionAuthorization={taskAuthorization} actionActorFingerprint={taskActorFingerprint} createTask={createTask} onViewStateChange={setViewState} onCreateTaskChange={() => undefined} onCreateTask={() => undefined} />
     <Dialog triggerLabel={`Open ${label} matrix dialog`} title={`${label} matrix dialog`}>Overlay performance probe</Dialog>
-    <DataGrid definition={salesTasksTableDefinition} actionAuthorization={taskAuthorization} actionActorFingerprint={taskActorFingerprint} mutationExecutor={mutationExecutor} viewState={selectedState} requestState={{ state: "success", data: taskRecords }} label="Task grid" renderDetail={(row) => row.key} />
+    <DataGrid definition={taskGridDefinition} actionAuthorization={taskGridAuthorization} actionActorFingerprint={taskActorFingerprint} mutationExecutor={mutationExecutor} viewState={selectedState} requestState={{ state: "success", data: taskRecords }} label="Task grid" renderDetail={(row) => row.key} />
     <VirtualList label={`${label} virtual tasks`} items={virtualRows} getKey={(item) => item} renderItem={(item) => item} height={180} />
     <button autoFocus={label === "Minimal"} type="button">Keep virtual-list focus</button>
     <button type="button" onClick={() => setMutableVirtualRows(["Virtual C", "Virtual B", "Virtual A"])}>Reorder virtual rows</button>
