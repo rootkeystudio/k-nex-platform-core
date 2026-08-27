@@ -176,6 +176,39 @@ export function reconcilePluginAvailability(registration: RegistrationResult, st
   });
 }
 
+export function scopePluginRegistration(
+  registration: RegistrationResult,
+  availabilityValues: readonly PluginAvailability[]
+): RegistrationResult {
+  const availability = new Map<string, PluginAvailability>();
+  for (const value of availabilityValues) {
+    if (availability.has(value.pluginId)) fail("INVALID_STATE", `Plugin ${value.pluginId} has duplicate lifecycle availability.`);
+    availability.set(value.pluginId, value);
+  }
+  const lifecycleOwners = new Set(registration.contributions.lifecycle.map(({ pluginId }) => pluginId));
+  for (const pluginId of lifecycleOwners) {
+    if (!availability.has(pluginId)) fail("NOT_READY", `Plugin ${pluginId} requires lifecycle availability before registration can execute.`);
+  }
+  const allowed = (kind: PluginContributionCategory, pluginId: string, id: string): boolean =>
+    !lifecycleOwners.has(pluginId) || availability.get(pluginId)?.isAvailable(kind, id) === true;
+  const contributions = Object.freeze(Object.fromEntries(pluginContributionCategoryKeys.map((kind) => [
+    kind,
+    Object.freeze(registration.contributions[kind].filter(({ pluginId, id }) => allowed(kind, pluginId, id)))
+  ]))) as RegistrationResult["contributions"];
+  const bindings = Object.freeze(Object.fromEntries(Object.entries(registration.bindings).map(([kind, entries]) => [
+    kind,
+    Object.freeze(entries.filter(({ pluginId, id }) => allowed(kind as PluginContributionCategory, pluginId, id)))
+  ]))) as RegistrationResult["bindings"];
+  const inventory = Object.freeze(registration.inventory.map((plugin) => Object.freeze({
+    ...plugin,
+    contributions: Object.freeze(Object.fromEntries(pluginContributionCategoryKeys.flatMap((kind) => {
+      const ids = contributions[kind].filter(({ pluginId }) => pluginId === plugin.id).map(({ id }) => id);
+      return ids.length === 0 ? [] : [[kind, Object.freeze(ids)]];
+    })))
+  })));
+  return Object.freeze({ phases: registration.phases, inventory, contributions, bindings });
+}
+
 export function scanPluginReferences(pluginId: string, references: readonly PluginReference[]): readonly PluginReference[] {
   ResourceIdSchema.parse(pluginId);
   const found = new Map<string, PluginReference>();

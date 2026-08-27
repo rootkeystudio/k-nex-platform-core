@@ -9,6 +9,7 @@ import {
   pluginReadyForEnable,
   reenablePlugin,
   reconcilePluginAvailability,
+  scopePluginRegistration,
   scanPluginReferences,
   type RegistrationResult
 } from "../src/index.js";
@@ -37,10 +38,18 @@ const registration = {
   contributions: {
     schema: [{ pluginId: "module.sales", id: "sales.tasks.collection", value: {} }],
     migrations: [], services: [], permissions: [], settings: [], sources: [],
-    actions: [{ pluginId: "module.sales", id: "sales.task.create", value: {} }], tools: [], events: [], jobs: [], realtimeTopics: [],
-    components: [], blocks: [], routes: [], navigation: [], pageTemplates: [], localization: [], healthAudit: [], lifecycle: [], testingMetadata: []
+    actions: [{ pluginId: "module.sales", id: "sales.task.create", value: {} }], tools: [], events: [],
+    jobs: [{ pluginId: "module.sales", id: "sales.job.audit", value: () => "ran" }], realtimeTopics: [],
+    components: [], blocks: [{ pluginId: "module.sales", id: "sales.block.tasks", value: {} }],
+    routes: [{ pluginId: "module.sales", id: "sales.route.tasks", value: {} }], navigation: [], pageTemplates: [],
+    localization: [], healthAudit: [], lifecycle: [{ pluginId: "module.sales", id: "sales.lifecycle.reference", value: {} }], testingMetadata: []
   },
-  bindings: { sources: empty(), actions: empty(), components: empty(), blocks: empty() }
+  bindings: {
+    sources: empty(),
+    actions: [{ pluginId: "module.sales", id: "sales.task.create", value: () => "ran" }],
+    components: empty(),
+    blocks: [{ pluginId: "module.sales", id: "sales.block.tasks", value: () => "rendered" }]
+  }
 } as unknown as RegistrationResult;
 
 describe("plugin lifecycle", () => {
@@ -56,6 +65,14 @@ describe("plugin lifecycle", () => {
     const availability = reconcilePluginAvailability(registration, disabled);
     expect(availability.isAvailable("schema", "sales.tasks.collection")).toBe(true);
     expect(availability.isAvailable("actions", "sales.task.create")).toBe(false);
+    const scoped = scopePluginRegistration(registration, [availability]);
+    expect(scoped.contributions.schema).toHaveLength(1);
+    expect(scoped.contributions.actions).toEqual([]);
+    expect(scoped.contributions.jobs).toEqual([]);
+    expect(scoped.contributions.routes).toEqual([]);
+    expect(scoped.bindings.actions).toEqual([]);
+    expect(scoped.bindings.blocks).toEqual([]);
+    expect(() => scopePluginRegistration(registration, [])).toThrow(/requires lifecycle availability/);
     expect(reenablePlugin(disabled, manifest)).toMatchObject({ enabled: true, dataState: "active" });
     const stale = createPluginLifecycleState({ ...disabled, migration: { current: 5, required: 6, ready: false } });
     expect(pluginReadyForEnable(stale)).toBe(false);

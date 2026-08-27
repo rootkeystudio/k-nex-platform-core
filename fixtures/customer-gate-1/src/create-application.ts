@@ -3,6 +3,7 @@ import {
   createPluginLifecycleState,
   executeRegistration,
   reconcilePluginAvailability,
+  scopePluginRegistration,
   ToolCatalog,
   type PluginAvailability,
   type PluginLifecycleState
@@ -87,11 +88,11 @@ export function createGate1Application(options: CreateGate1ApplicationOptions): 
     releaseStatus: "supported"
   });
   const salesAvailability = reconcilePluginAvailability(registration, salesLifecycle);
-  const inventory = createGate1RuntimeInventory(registration);
-  const tools = registration.contributions.tools
-    .filter(({ id, pluginId }) => pluginId !== manifest.id || salesAvailability.isAvailable("tools", id))
+  const scopedRegistration = scopePluginRegistration(registration, [salesAvailability]);
+  const inventory = createGate1RuntimeInventory(scopedRegistration);
+  const tools = scopedRegistration.contributions.tools
     .map(({ value }) => value as AgentToolDescriptor);
-  const catalog = new ToolCatalog(registration, { isVisible: () => true });
+  const catalog = new ToolCatalog(scopedRegistration, { isVisible: () => true });
   const mcp = tools.length === 0 ? undefined : createPayloadMcpPlugin({
     tools,
     catalog,
@@ -121,13 +122,13 @@ export function createGate1Application(options: CreateGate1ApplicationOptions): 
     baseConfig: {
       secret: options.payloadSecret,
       plugins: mcp === undefined ? [] : [mcp],
-      endpoints: [createRuntimeInventoryEndpoint(inventory), createDataSourceQueryEndpoint(registration, salesAvailability)]
+      endpoints: [createRuntimeInventoryEndpoint(inventory), createDataSourceQueryEndpoint(scopedRegistration)]
     },
     baseCollections: [usersCollection],
     databaseUrl: options.databaseUrl,
     migrations: options.migrations,
     pluginAvailability: [salesAvailability],
-    registration
+    registration: scopedRegistration
   });
   return Object.freeze({ ...application, salesAvailability, salesLifecycle });
 }

@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Fixed the Phase 6 review's stale page-template adoption defect: migration output must now match the exact target document version, with a regression preserving the current customer instance.
+Added fail-closed lifecycle-scoped registration: disabled plugins retain declared schema/readiness metadata while executable actions, jobs, routes, UI bindings, tools, and sources are removed before application composition.
 
 ## Validation
 
-Node 24.19.0: targeted page-template acceptance pending; prior full `gate:6` PASS is superseded by active Sol/high review remediation.
+Node 24.19.0: runtime 173/173, customer fixture build and unit composition PASS; prior full `gate:6` PASS is superseded by active Sol/high review remediation.
 
 ## Next
 
