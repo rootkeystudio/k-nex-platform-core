@@ -4,8 +4,12 @@
     "composite": true,
     "declaration": true,
     "declarationMap": true,
+    "jsx": "react-jsx",
     "outDir": "dist",
-    "rootDir": "."
+    "rootDir": "src",
+    "skipLibCheck": true,
+    "types": ["react"]
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "references": [{ "path": "../ui-design-system-contracts" }]
 }
