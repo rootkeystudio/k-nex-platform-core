@@ -5,7 +5,7 @@
 - **Baseline:** accepted Phase 6 on `main` (`e05b1e68`)
 - **Delivery:** Phase 7 pull request rebased onto `main`; draft/open with no merge or auto-merge
 - **Decision:** **GO Phase 8**
-- **Review state:** all nine project-manager blockers remediated; final exact-head rereview pending after cross-platform declaration hardening
+- **Review state:** all nine project-manager blockers remediated; implementation ready for final project-manager decision
 
 ## Scope proved
 
@@ -82,7 +82,7 @@ pnpm audit --audit-level high
 git diff --check
 ```
 
-The previous exact candidate `2513120` passed GitHub Actions run `33123110563` with `GATE_7_PASS`. The audit reported no high or critical vulnerabilities (two low and three moderate). Pack reproducibility requires consecutive raw pack bytes to match, a canonical committed gzip marker, and identical ordered exported entry names and contents. Platform-specific gzip streams or tar headers therefore cannot hide or fabricate a package-content change. Explicit aggregate declaration types make forced clean macOS and Linux `contracts.d.ts` outputs byte-identical (`20f204c2837d78891afbb194d7805957bdcf06dff36efbf78545b390af2dbba1`). The committed Sales fixture, root file-package integrity, and Gate 1 resolved application evidence were regenerated from that stable clean output; pack checks pass on both hosts.
+Exact code-bearing candidate `26b20b7` passed GitHub Actions run `33124403823` with `GATE_7_PASS` and exact-head repository evidence. The audit reported no high or critical vulnerabilities (two low and three moderate). Pack reproducibility requires consecutive raw pack bytes to match, a canonical committed gzip marker, and identical ordered exported entry names and contents. Platform-specific gzip streams or tar headers therefore cannot hide or fabricate a package-content change. Explicit aggregate declaration types make forced clean macOS and Linux `contracts.d.ts` outputs byte-identical (`20f204c2837d78891afbb194d7805957bdcf06dff36efbf78545b390af2dbba1`). The committed Sales fixture, root file-package integrity, and Gate 1 resolved application evidence were regenerated from that stable clean output; pack checks pass on both hosts. The final closeout refresh changes documentation only.
 
 Key Phase 7 totals: design-system 11 tests, components 12 tests, UI runtime 46 tests, UI data 17 tests, forms 11 tests, pages 1 test, builder Puck 35 tests, UI builder blocks 6 tests, UI testing 7 tests, Sales 23 Node tests plus 19 Vitest tests. Existing lower-gate contract/runtime/Payload/PostgreSQL and browser suites remain part of `gate:7`.
 
