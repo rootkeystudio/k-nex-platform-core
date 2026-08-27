@@ -22,6 +22,8 @@
     "gate:3": "pnpm gate:2a && pnpm --filter @k-nex/provider-realtime-socketio test && node scripts/gate-3.mjs",
     "gate:4": "pnpm gate:3 && pnpm --filter @k-nex/ui-runtime test && pnpm --filter @k-nex/builder-puck test && pnpm --filter @k-nex/builder-puck test:browser && node scripts/gate-4.mjs",
     "gate:through-4": "pnpm phase:0 && pnpm --filter @k-nex/composition check:gate-1 && node scripts/prove-gate-1-reproducibility.mjs && pnpm --filter @k-nex/customer-gate-1 test:postgres && node scripts/gate-2.mjs && node scripts/gate-2a.mjs && node scripts/gate-3.mjs && pnpm --filter @k-nex/builder-puck test:browser && node scripts/gate-4.mjs",
+    "test:p5-accessibility": "pnpm --filter @k-nex/theme-neobrutalism test:browser",
+    "gate:5": "pnpm gate:through-4 && pnpm --filter @k-nex/ui-design-system-contracts test:browser && pnpm --filter @k-nex/theme-minimal test:browser && pnpm --filter @k-nex/payload-builder-storage test:postgres && pnpm test:p5-accessibility && node scripts/gate-5.mjs",
     "phase:0": "pnpm contracts:generate && pnpm contracts:generated-clean && pnpm contracts:validate && pnpm contracts:test && pnpm contracts:reproducibility && pnpm docs:validate"
   },
   "devDependencies": {

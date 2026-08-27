@@ -1,0 +1,35 @@
+{
+  "name": "@k-nex/payload-builder-storage",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "test:postgres": "pnpm build && node scripts/postgres-publication.mjs"
+  },
+  "dependencies": {
+    "@k-nex/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@k-nex/theme-minimal": "workspace:*",
+    "@payloadcms/db-postgres": "3.88.0",
+    "@testcontainers/postgresql": "12.1.0",
+    "@types/node": "24.13.3",
+    "graphql": "16.14.2",
+    "next": "16.3.1",
+    "payload": "3.88.0",
+    "pg": "8.20.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "typescript": "6.0.3",
+    "vitest": "4.1.6"
+  }
+}

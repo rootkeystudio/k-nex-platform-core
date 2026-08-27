@@ -7,11 +7,13 @@ import {
   AgentToolDescriptorSchema,
   ApplicationManifestSchema,
   canonicalJson,
+  CmsPageMetadataSchema,
   DurableEventEnvelopeSchema,
   isEventSecretFieldName,
   MetricScalarSchema,
   PluginManifestSchema,
   TableRecordsSchema,
+  ThemeProfileSchema,
   UiDocumentSchema
 } from "@k-nex/contracts";
 import { Ajv2020, type AnySchema } from "ajv/dist/2020.js";
@@ -96,7 +98,9 @@ for (const relativePath of [
   "schemas/event.v1.schema.json",
   "schemas/metric-scalar.v1.schema.json",
   "schemas/table-records.v1.schema.json",
+  "schemas/theme-profile.v1.schema.json",
   "schemas/ui-document.v1.schema.json",
+  "schemas/cms-page-metadata.v1.schema.json",
   "fixtures/actions/valid/complete.json",
   "fixtures/actions/invalid/non-canonical-id.json",
   "fixtures/agent-tools/valid/read.json",
@@ -112,7 +116,20 @@ for (const relativePath of [
   "fixtures/ui-documents/invalid/duplicate-node-id.json",
   "fixtures/ui-documents/invalid/non-namespaced-engine-metadata.json",
   "fixtures/ui-documents/invalid/unrestricted-url.json",
-  "fixtures/ui-documents/invalid/unsafe-script.json"
+  "fixtures/ui-documents/invalid/unsafe-script.json",
+  "fixtures/cms-page-metadata/valid/public-home.json",
+  "fixtures/cms-page-metadata/valid/boundaries.json",
+  "fixtures/cms-page-metadata/invalid/dot-segment.json",
+  "fixtures/cms-page-metadata/invalid/query-string.json",
+  "fixtures/cms-page-metadata/invalid/leading-whitespace.json",
+  "fixtures/cms-page-metadata/invalid/trailing-whitespace.json",
+  "fixtures/cms-page-metadata/invalid/control-character.json",
+  "fixtures/cms-page-metadata/invalid/title-too-long.json",
+  "fixtures/theme-profiles/valid/public-minimal.json",
+  "fixtures/theme-profiles/invalid/non-theme-id.json",
+  "fixtures/theme-profiles/invalid/unsafe-url.json",
+  "fixtures/theme-profiles/invalid/unsafe-key.json",
+  "fixtures/theme-profiles/invalid/too-many-overrides.json"
 ]) {
   await loadCanonical(relativePath);
 }
@@ -124,7 +141,9 @@ const applicationSchema = await load<AnySchema>("schemas/application-manifest.v1
 const eventSchema = await load<AnySchema>("schemas/event.v1.schema.json");
 const metricSchema = await load<AnySchema>("schemas/metric-scalar.v1.schema.json");
 const tableSchema = await load<AnySchema>("schemas/table-records.v1.schema.json");
+const themeProfileSchema = await load<AnySchema>("schemas/theme-profile.v1.schema.json");
 const uiDocumentSchema = await load<AnySchema>("schemas/ui-document.v1.schema.json");
+const cmsPageMetadataSchema = await load<AnySchema>("schemas/cms-page-metadata.v1.schema.json");
 const validatePlugin = ajv.compile(pluginSchema);
 const validateAction = ajv.compile(actionSchema);
 const validateAgentTool = ajv.compile(agentToolSchema);
@@ -132,7 +151,9 @@ const validateApplication = ajv.compile(applicationSchema);
 const validateEvent = ajv.compile(eventSchema);
 const validateMetric = ajv.compile(metricSchema);
 const validateTable = ajv.compile(tableSchema);
+const validateThemeProfile = ajv.compile(themeProfileSchema);
 const validateUiDocument = ajv.compile(uiDocumentSchema);
+const validateCmsPageMetadata = ajv.compile(cmsPageMetadataSchema);
 
 const generatedContracts = await load<{
   artifacts: string[];
@@ -150,6 +171,12 @@ for (const { schema } of outputContractSchemas) {
 }
 if (!generatedContracts.artifacts.includes("schemas/ui-document.v1.schema.json")) {
   throw new Error("Generated artifact inventory is missing schemas/ui-document.v1.schema.json.");
+}
+if (!generatedContracts.artifacts.includes("schemas/theme-profile.v1.schema.json")) {
+  throw new Error("Generated artifact inventory is missing schemas/theme-profile.v1.schema.json.");
+}
+if (!generatedContracts.artifacts.includes("schemas/cms-page-metadata.v1.schema.json")) {
+  throw new Error("Generated artifact inventory is missing schemas/cms-page-metadata.v1.schema.json.");
 }
 
 const driver = await load("fixtures/plugin-manifests/module.logistics.driver.json");
@@ -254,6 +281,40 @@ for (const fixture of outputContractFixtures) {
   }
 }
 
+const validThemeProfile = {
+  schemaVersion: 1,
+  id: "theme-profile.public-default",
+  surface: "public",
+  themeId: "theme.minimal",
+  themeVersion: "1.0.0",
+  palette: "default",
+  mode: "system",
+  values: { "color.accent": "#2457ff" },
+  revision: { id: "theme-revision.public-1", number: 1, state: "draft", createdAt: "2026-08-26T20:00:00.000Z" }
+};
+if (!ThemeProfileSchema.safeParse(validThemeProfile).success || !validateThemeProfile(validThemeProfile)) {
+  throw new Error(`Valid theme profile must pass both Zod and generated JSON Schema validation: ${ajv.errorsText(validateThemeProfile.errors)}`);
+}
+const unsafeThemeProfile = structuredClone(validThemeProfile) as Record<string, unknown>;
+unsafeThemeProfile.className = "brand";
+if (ThemeProfileSchema.safeParse(unsafeThemeProfile).success || validateThemeProfile(unsafeThemeProfile)) {
+  throw new Error("Theme profile unknown keys must fail both Zod and generated JSON Schema validation.");
+}
+const themeProfileFixtures = [
+  { path: "fixtures/theme-profiles/valid/public-minimal.json", valid: true },
+  { path: "fixtures/theme-profiles/invalid/non-theme-id.json", valid: false },
+  { path: "fixtures/theme-profiles/invalid/unsafe-url.json", valid: false },
+  { path: "fixtures/theme-profiles/invalid/unsafe-key.json", valid: false },
+  { path: "fixtures/theme-profiles/invalid/too-many-overrides.json", valid: false }
+] as const;
+for (const fixture of themeProfileFixtures) {
+  const value = await load(fixture.path);
+  const zodValid = ThemeProfileSchema.safeParse(value).success;
+  const jsonSchemaValid = validateThemeProfile(value);
+  if (fixture.valid && (!zodValid || !jsonSchemaValid)) throw new Error(`Valid ${fixture.path} must pass both Zod and generated JSON Schema validation: ${ajv.errorsText(validateThemeProfile.errors)}`);
+  if (!fixture.valid && (zodValid || jsonSchemaValid)) throw new Error(`Invalid ${fixture.path} must fail both Zod and generated JSON Schema validation.`);
+}
+
 const uiDocumentFixtures = [
   { path: "fixtures/ui-documents/valid/cms.v1.json", valid: true },
   { path: "fixtures/ui-documents/valid/workspace.v1.json", valid: true },
@@ -273,6 +334,24 @@ for (const fixture of uiDocumentFixtures) {
   if (!fixture.valid && (zodValid || jsonSchemaValid)) {
     throw new Error(`Structurally invalid ${fixture.path} must fail both Zod and generated JSON Schema validation.`);
   }
+}
+
+const cmsPageMetadataFixtures = [
+  { path: "fixtures/cms-page-metadata/valid/public-home.json", valid: true },
+  { path: "fixtures/cms-page-metadata/valid/boundaries.json", valid: true },
+  { path: "fixtures/cms-page-metadata/invalid/dot-segment.json", valid: false },
+  { path: "fixtures/cms-page-metadata/invalid/query-string.json", valid: false },
+  { path: "fixtures/cms-page-metadata/invalid/leading-whitespace.json", valid: false },
+  { path: "fixtures/cms-page-metadata/invalid/trailing-whitespace.json", valid: false },
+  { path: "fixtures/cms-page-metadata/invalid/control-character.json", valid: false },
+  { path: "fixtures/cms-page-metadata/invalid/title-too-long.json", valid: false }
+] as const;
+for (const fixture of cmsPageMetadataFixtures) {
+  const value = await load(fixture.path);
+  const zodValid = CmsPageMetadataSchema.safeParse(value).success;
+  const jsonSchemaValid = validateCmsPageMetadata(value);
+  if (fixture.valid && (!zodValid || !jsonSchemaValid)) throw new Error(`Valid ${fixture.path} must pass both Zod and generated JSON Schema validation: ${ajv.errorsText(validateCmsPageMetadata.errors)}`);
+  if (!fixture.valid && (zodValid || jsonSchemaValid)) throw new Error(`Invalid ${fixture.path} must fail both Zod and generated JSON Schema validation.`);
 }
 
 console.log("Generated schemas compile with Ajv and preserve contract and lifecycle invariants.");

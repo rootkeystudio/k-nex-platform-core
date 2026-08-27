@@ -1,0 +1,19 @@
+{
+  "id": "theme-profile.public-default",
+  "mode": "light",
+  "palette": "light",
+  "revision": {
+    "createdAt": "2026-08-27T00:00:00.000Z",
+    "id": "theme-revision.minimal-1",
+    "number": 1,
+    "publishedAt": "2026-08-27T00:01:00.000Z",
+    "state": "published"
+  },
+  "schemaVersion": 1,
+  "surface": "public",
+  "themeId": "theme.minimal",
+  "themeVersion": "1.0.0",
+  "values": {
+    "color.hero": "https://example.com/theme.css"
+  }
+}
