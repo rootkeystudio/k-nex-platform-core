@@ -11,11 +11,11 @@ The final blocking Phase 7 review was addressed on one coherent rework head. Sta
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: the full Gate 7 execution passed Gates 0–6 and every Phase 7 package, browser, matrix, and performance suite, then stopped only because the closeout prose had renamed one literal marker consumed by `scripts/gate-7.mjs`. The required marker was restored; exact full `pnpm gate:7` rerun is next.
+Node 24.19.0 / pnpm 11.9.0: exact full `pnpm gate:7` PASS at `e51bde5`. Gates 0–7, PostgreSQL lifecycle/publication, plugin conformance, package boundaries, real-browser journeys, independently registered 131-family evidence, 16-state/two-theme matrix, hydration/portal, bundle/tree-shaking budgets, heap proof, and performance probes all pass.
 
 ## Next
 
-Run exact full Gate 7, complete formal Sol-high exact-head review, then open the stacked Phase 7 PR without merge or auto-merge.
+Record this exact-head evidence, rerun Gate 7 on the documentation-only final head, complete formal Sol-high review, then open the stacked Phase 7 PR without merge or auto-merge.
 
 ## Blockers
 
