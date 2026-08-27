@@ -1,5 +1,7 @@
 import { compare, valid as validSemver } from "semver";
 
+import { PackageReleaseManifestSchema, type PackageReleaseManifest } from "@k-nex/contracts";
+
 export const upgradeArtifactKinds = [
   "customer-schema", "source", "action", "tool", "block", "theme", "template", "settings"
 ] as const;
@@ -27,7 +29,7 @@ export interface UpgradeMigration {
 
 export interface UpgradeDiagnostic {
   readonly severity: "error" | "info";
-  readonly code: "CYCLE" | "DUPLICATE" | "GAP" | "INVALID" | "MIGRATION_FAILED" | "READY" | "REVISION_MISMATCH";
+  readonly code: "CYCLE" | "DUPLICATE" | "GAP" | "INVALID" | "MIGRATION_FAILED" | "READY" | "REVISION_MISMATCH" | "UNSUPPORTED_RELEASE";
   readonly artifactId?: string;
   readonly message: string;
 }
@@ -40,6 +42,8 @@ export interface UpgradePlan {
   readonly pluginId: string;
   readonly currentVersion: string;
   readonly targetVersion: string;
+  readonly currentPlatformRelease: string;
+  readonly targetPlatformRelease: string;
   readonly ready: boolean;
   readonly steps: readonly UpgradePlanStep[];
   readonly diagnostics: readonly UpgradeDiagnostic[];
@@ -80,10 +84,20 @@ export function planPluginUpgrade(input: {
   readonly pluginId: string;
   readonly currentVersion: string;
   readonly targetVersion: string;
+  readonly currentPlatformRelease: string;
+  readonly targetPlatformRelease: string;
+  readonly supportManifest: PackageReleaseManifest;
   readonly targets: readonly UpgradeTarget[];
   readonly migrations: readonly UpgradeMigration[];
 }): UpgradePlan {
   const diagnostics: UpgradeDiagnostic[] = [];
+  const support = PackageReleaseManifestSchema.safeParse(input.supportManifest);
+  if (!support.success) {
+    diagnostics.push(diagnostic("UNSUPPORTED_RELEASE", "The platform support manifest is invalid."));
+  } else if (input.targetPlatformRelease !== support.data.release.version ||
+    !support.data.supportWindow.supportedReleases.includes(input.currentPlatformRelease)) {
+    diagnostics.push(diagnostic("UNSUPPORTED_RELEASE", "Platform upgrade source and target must belong to the declared support window."));
+  }
   if (!validId.test(input.pluginId) || validSemver(input.currentVersion) === null || validSemver(input.targetVersion) === null) {
     diagnostics.push(diagnostic("INVALID", "Plugin identity and release versions must be valid."));
   } else if (compare(input.targetVersion, input.currentVersion) < 0) {
@@ -165,6 +179,8 @@ export function planPluginUpgrade(input: {
     pluginId: input.pluginId,
     currentVersion: input.currentVersion,
     targetVersion: input.targetVersion,
+    currentPlatformRelease: input.currentPlatformRelease,
+    targetPlatformRelease: input.targetPlatformRelease,
     ready,
     steps: ordered,
     diagnostics
