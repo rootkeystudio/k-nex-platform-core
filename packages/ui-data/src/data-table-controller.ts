@@ -2,7 +2,6 @@ import {
   DataSourceDescriptorSchema,
   DataSourceQueryControlsSchema,
   ResourceIdSchema,
-  TABLE_ROW_LIMIT,
   TableRowKeySchema,
   resolveDataSourceFieldSelection,
   type DataSourceDescriptor,
@@ -100,8 +99,11 @@ export interface DataTableBulkActionResult {
   readonly results: readonly DataTableActionResult[];
   readonly succeededRowKeys: readonly string[];
   readonly failedRowKeys: readonly string[];
+  readonly rejectedRowCount?: number;
   readonly invalidatedSources: readonly string[];
 }
+
+export const DATA_TABLE_BULK_ACTION_LIMIT = 100;
 
 function freeze<T>(value: T): T { if (value !== null && typeof value === "object" && !Object.isFrozen(value)) { for (const child of Object.values(value)) freeze(child); Object.freeze(value); } return value; }
 
@@ -313,7 +315,18 @@ export function createDataTableController<TInput>(definitionInput: DataTableDefi
   const executeAction = (executor: DataTableMutationExecutor, authorization: DataTableActionAuthorization | undefined, actorFingerprint: string | undefined, actionId: string, rowKey: string, context: BrowserMutationContext): Promise<DataTableActionResult> => executeRegisteredAction(executor, authorization, actorFingerprint, actionById(definition.rowActions ?? [], actionId), rowKey, context);
   const executeBulkAction = async (executor: DataTableMutationExecutor, authorization: DataTableActionAuthorization | undefined, actorFingerprint: string | undefined, actionId: string, rowKeys: readonly string[], context: BrowserMutationContext): Promise<DataTableBulkActionResult> => {
     const action = actionById(definition.bulkActions ?? [], actionId);
-    if (rowKeys.length === 0 || rowKeys.length > TABLE_ROW_LIMIT || new Set(rowKeys).size !== rowKeys.length) {
+    if (rowKeys.length > DATA_TABLE_BULK_ACTION_LIMIT) {
+      return freeze({
+        ...(action === undefined ? {} : { action: { ...action.action } }),
+        state: "failure",
+        results: [],
+        succeededRowKeys: [],
+        failedRowKeys: [],
+        rejectedRowCount: rowKeys.length,
+        invalidatedSources: []
+      });
+    }
+    if (rowKeys.length === 0 || new Set(rowKeys).size !== rowKeys.length) {
       return freeze({
         ...(action === undefined ? {} : { action: { ...action.action } }),
         state: "failure",

@@ -7,6 +7,7 @@ import { salesTasksDescriptor } from "../../../modules/sales/src/contracts.js";
 import {
   DataGrid,
   DataTable,
+  DATA_TABLE_BULK_ACTION_LIMIT,
   allowedDataTableActions,
   createDataTableController,
   createDataTableState,
@@ -150,8 +151,19 @@ describe("P7.6 standard DataTable/DataGrid", () => {
     expect(bulk.succeededRowKeys).toEqual(["task-1"]);
     expect(bulk.failedRowKeys).toEqual(["task-2"]);
     expect(execute).toHaveBeenCalledTimes(3);
-    const oversized = await controller.executeBulkAction(executor, authorization, actorFingerprint, salesUpdateTaskMutation.action.id, Array.from({ length: 101 }, (_, index) => `task-${index}`), context);
-    expect(oversized).toMatchObject({ state: "failure", results: [] });
+    const oversizedInput = Array.from({ length: 1_000_000 }, (_, index) => `task-${index}`);
+    const oversized = await controller.executeBulkAction(executor, authorization, actorFingerprint, salesUpdateTaskMutation.action.id, oversizedInput, context);
+    expect(oversized).toEqual({
+      action: salesUpdateTaskMutation.action,
+      state: "failure",
+      results: [],
+      succeededRowKeys: [],
+      failedRowKeys: [],
+      rejectedRowCount: oversizedInput.length,
+      invalidatedSources: []
+    });
+    expect(JSON.stringify(oversized).length).toBeLessThan(500);
+    expect(DATA_TABLE_BULK_ACTION_LIMIT).toBe(100);
     expect(execute).toHaveBeenCalledTimes(3);
   });
 

@@ -7,16 +7,16 @@
 
 ## Last completed
 
-PR 22 remains rebased onto accepted Phase 6 on `main`. Cursor pagination passes through the standard gateway budget/cache path. Hidden-field inference is closed by one projection rule across UI controls, query identity, transport, and server gateway: filter, sort, and search fields must belong to the effective authorized projection; source-query overrides cannot expand their declared projection.
+PR 22 remains rebased onto accepted Phase 6 on `main`. Cursor and hidden-field authority blockers are closed. Bulk actions now use an explicit 100-row ceiling and reject oversized input before copying, validating, freezing, authorizing, or executing row keys; rejection output contains only a constant-size count.
 
 ## Validation
 
-Cursor remediation passed focused runtime, Sales source, and authenticated gateway tests at `913c1d8`. Focused hidden-field authority validation is pending.
+Hidden-field authority passed focused runtime, browser-query, and DataTable tests at `7c040cc`. Focused oversized bulk validation is pending.
 
 ## Next
 
-Bound oversized bulk-action rejection next, then remaining review blockers in order. Leave PR 22 draft/open.
+Complete DataGrid keyboard action mode next, then remaining review blockers in order. Leave PR 22 draft/open.
 
 ## Blockers
 
-Four project-manager blockers remain after cursor and field-operation authority fixes.
+Three project-manager blockers remain after cursor, field-operation authority, and bounded bulk fixes.
