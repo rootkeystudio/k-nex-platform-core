@@ -1,0 +1,48 @@
+name: Release evidence
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+jobs:
+  attest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - name: Install exact dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build release evidence tooling
+        run: pnpm --filter @k-nex/contracts build && pnpm --filter @k-nex/composition build
+      - name: Generate SBOM and digest-bound provenance predicate
+        run: |
+          node scripts/generate-release-evidence.mjs \
+            --source-sha "${GITHUB_SHA}" \
+            --workflow-identity "${GITHUB_REPOSITORY}/.github/workflows/release-evidence.yml@${GITHUB_SHA}" \
+            --output release-evidence \
+            --artifact fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz \
+            --customer customer-alpha
+      - name: Attest artifact provenance with GitHub OIDC
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz
+      - name: Attest artifact SBOM with GitHub OIDC
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz
+          sbom-path: release-evidence/sbom.cdx.json

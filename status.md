@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-27
 - **Phase:** Phase 8 — Lifecycle, Application Factory, Release, and Fleet Safety
-- **Active task:** P8.7 — SBOM and signed provenance
+- **Active task:** P8.8 — Deployment receipts and runtime inventory
 - **State:** In progress
 
 ## Last completed
 
-P8.6 generated two independently locked Sales-only customer fixtures. Alpha uses external Postgres, Minimal, manager permissions, both default pages, monthly cadence, and page size 25; Beta uses local Docker Postgres, Neobrutalism, representative permissions, the task page, quarterly cadence, and page size 50. Both use the same exact platform/Sales release surface while their dedicated lock digests and customer-owned composition artifacts differ.
+P8.7 added deterministic CycloneDX 1.6 SBOM generation and canonical provenance that binds source, full-SHA workflow, application manifest, lockfile, graph/plan, SBOM, and release artifact digests. Local Ed25519 tests prove signature verification and tamper refusal. The hosted release workflow uses least-privilege GitHub OIDC plus `actions/attest` pinned to a complete SHA for provenance and SBOM attestations. No SLSA level is claimed.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: contracts build PASS; both customer fixture build validators PASS; combined manifest/override/dedicated-lock reconciliation emits `P8_6_CUSTOMER_FIXTURES_PASS`. Root lockfile regenerated for all 23 workspace projects and includes the current packed Sales integrity.
+Node 24.19.0 / pnpm 11.9.0: composition build and 80 tests PASS. Release evidence generator smoke PASS against the packed Sales artifact and Customer Alpha lock/manifest/plan; emitted valid CycloneDX and digest-bound provenance. GitHub artifact-attestation configuration was checked against current official documentation.
 
 ## Next
 
-Implement P8.7 deterministic CycloneDX SBOM evidence and cryptographically verifiable signed provenance without claiming an unverified SLSA level.
+Implement P8.8 deployment receipt and observed runtime inventory contracts, binding deployed artifacts and migration state to release evidence.
 
 ## Blockers
 
