@@ -161,6 +161,65 @@ describe("Puck builder adapter", () => {
     expect(preview({ id: "sales.task.create", version: 1 })).toBe("Tasks");
   });
 
+  it("rebinds forged descriptor policies and props validation before Puck snapshots and previews", () => {
+    const bound = defineUiContributionBinding({
+      descriptor: {
+        id: "sales.trusted-puck",
+        version: 1,
+        ownerPluginId: "module.sales",
+        kind: "block",
+        propsSchema: { type: "object", properties: { title: { type: "string", maxLength: 4 } }, required: ["title"], additionalProperties: false },
+        profiles: ["workspace"],
+        surfaces: ["workspace"],
+        audience: "authenticated",
+        permission: "sales.tasks.read",
+        actionPolicy: { required: true, actions: [{ id: "sales.task.create", version: 1 }] },
+        sourcePolicy: { required: true, contracts: [{ id: "table.records", version: 1 }], requiredFields: ["title"] },
+        requiredStates: ["loading", "empty", "error", "forbidden"]
+      },
+      render: ({ props }) => ({ kind: "text", text: String((props as { title: string }).title) })
+    });
+    const forged = {
+      ...bound,
+      propsSchema: { safeParse: (value: unknown) => ({ success: true as const, data: value }) },
+      sourcePolicy: undefined,
+      actionPolicy: { required: false, actions: [{ id: "sales.task.delete", version: 1 }] }
+    };
+    const authoring = {
+      label: "Trusted Puck",
+      fields: [{ prop: "title", label: "Title", kind: "text" }] as const,
+      allowChildren: false,
+      defaultProps: { title: "Task" }
+    };
+    const snapshot = snapshotPuckBlockBridge({ definition: forged, ...authoring });
+    const bridge = reconcilePuckBlockContribution(forged, authoring);
+    const adapter = createPuckBuilderAdapter({
+      blocks: [bridge],
+      preview: { surface: "workspace", actor: { authenticated: true, permissions: new Set(["sales.tasks.read"]) } }
+    });
+    const component = adapter.config.components["sales.trusted-puck__v1"] as { render: (props: Record<string, unknown>) => unknown };
+    const preview = (title: string, action?: { id: string; version: number }) => {
+      const data = adapter.toPuckData({
+        id: "workspace.trusted", version: 1, schemaVersion: 1, profile: "workspace",
+        regions: { main: [{ id: "trusted-puck", type: "sales.trusted-puck", version: 1, props: { title }, ...(action === undefined ? {} : { bindings: { action } }) }] }
+      });
+      return component.render(data.content[0]!.props as Record<string, unknown>);
+    };
+
+    expect(snapshot.definition.actionPolicy).toEqual({ required: true, actions: [{ id: "sales.task.create", version: 1 }] });
+    expect(snapshot.definition.sourcePolicy).toEqual({ required: true, contracts: [{ id: "table.records", version: 1 }], requiredFields: ["title"] });
+    expect(snapshot.definition.propsSchema.safeParse({ title: "too long" }).success).toBe(false);
+    expect(preview("Task")).toBe("Unavailable: ACTION_BINDING_REQUIRED");
+    expect(preview("Task", { id: "sales.task.delete", version: 1 })).toBe("Unavailable: ACTION_NOT_ACCEPTED");
+    expect(preview("Task", { id: "sales.task.create", version: 1 })).toBe("Unavailable: SOURCE_BINDING_REQUIRED");
+    const edited = structuredClone(adapter.toPuckData({
+      id: "workspace.trusted", version: 1, schemaVersion: 1, profile: "workspace",
+      regions: { main: [{ id: "trusted-puck", type: "sales.trusted-puck", version: 1, props: { title: "Task" }, bindings: { action: { id: "sales.task.create", version: 1 } } }] }
+    })) as { content: Array<{ props: Record<string, unknown> }> };
+    edited.content[0]!.props["__kNexField:title"] = "too long";
+    expect(component.render(edited.content[0]!.props)).toBe("Unavailable: INVALID_PROPS");
+  });
+
   it("round-trips canonical documents without semantic loss", () => {
     const adapter = createPuckBuilderAdapter({ blocks: [card, text] });
     const puckData = adapter.toPuckData(fixture);

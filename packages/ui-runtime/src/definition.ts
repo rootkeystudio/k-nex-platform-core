@@ -177,6 +177,32 @@ function copyBlock(definition: UiBlockDefinition): UiBlockDefinition {
   });
 }
 
+/** Rebind serialized plugin authority before an executable definition crosses a public boundary. */
+export function snapshotUiBlockDefinition<TResult>(candidate: UiBlockDefinition<TResult>): UiBlockDefinition<TResult> {
+  const definition = candidate.descriptor === undefined
+    ? candidate
+    : (() => {
+        const parsed = PluginUiContributionDescriptorSchema.safeParse(candidate.descriptor);
+        if (!parsed.success) throw new TypeError("UI contribution descriptor is invalid.");
+        const descriptor = deepFreeze(structuredClone(parsed.data));
+        return {
+          descriptor,
+          id: descriptor.id,
+          version: descriptor.version,
+          profiles: descriptor.profiles,
+          surfaces: descriptor.surfaces,
+          audience: descriptor.audience,
+          ...(descriptor.permission === undefined ? {} : { permission: descriptor.permission }),
+          propsSchema: createAgentToolJsonRuntimeSchema(descriptor.propsSchema),
+          ...(descriptor.sourcePolicy === undefined ? {} : { sourcePolicy: descriptor.sourcePolicy }),
+          ...(descriptor.actionPolicy === undefined ? {} : { actionPolicy: descriptor.actionPolicy }),
+          render: candidate.render
+        } satisfies UiBlockDefinition<TResult>;
+      })();
+  assertBlockDefinition(definition);
+  return copyBlock(definition) as UiBlockDefinition<TResult>;
+}
+
 export function defineUiContributionBinding<TResult>(input: {
   readonly descriptor: PluginUiContributionDescriptor;
   readonly render: UiBlockRenderer<TResult>;
@@ -199,8 +225,7 @@ export function defineUiContributionBinding<TResult>(input: {
     ...(descriptor.actionPolicy === undefined ? {} : { actionPolicy: descriptor.actionPolicy }),
     render: input.render
   };
-  assertBlockDefinition(definition);
-  return copyBlock(definition) as UiContributionDefinition<TResult>;
+  return snapshotUiBlockDefinition(definition) as UiContributionDefinition<TResult>;
 }
 
 function catalogMap(entries: readonly UiRuntimeCatalogEntry[], label: string): Map<string, UiRuntimeCatalogEntry> {
@@ -248,8 +273,7 @@ export function createUiRuntimeRegistry(input: {
   const sourceCatalog = catalogMap(input.sourceCatalog ?? [], "UI source");
 
   for (const candidate of input.blocks) {
-    assertBlockDefinition(candidate);
-    const definition = copyBlock(candidate);
+    const definition = snapshotUiBlockDefinition(candidate);
     const key = keyOf(definition.id, definition.version);
     if (blockMap.has(key)) throw new TypeError(`Duplicate UI block definition: ${key}.`);
     blockMap.set(key, definition);
