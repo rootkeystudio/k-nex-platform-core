@@ -2,7 +2,7 @@ import type { ReactElement, ReactNode } from "react";
 
 export {
   Badge, Box, Card, Container, EmptyState, ErrorState, Grid, Heading, Inline,
-  Link, Skeleton, Stack, Status, Text
+  Link, Skeleton, Stack, Status, Table, Text
 } from "@k-nex/ui-design-system-contracts";
 
 export interface SectionProps { readonly children?: ReactNode; readonly label?: string; }
