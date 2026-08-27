@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Phase 8 is restacked on final Phase 7 commit `9056043`. A deterministic generator rebuilt the complete 18-artifact packed closure from refreshed sources, preserved distinct prior/current/security-target Sales versions, regenerated three SHA512-bound release manifests, and refreshed both customer lockfiles.
+Phase 8 is restacked on final Phase 7 commit `9056043`. Gate and evidence generation now require a committed source descendant of final Phase 7 and ancestor of final head, exact source/current release-manifest parity, complete packed artifact identity and SHA512 closure, and source/current byte parity. Obsolete discarded-history task hashes are removed.
 
 ## Validation
 
-`pnpm install --frozen-lockfile`, `pnpm build`, deterministic double-pack generation, `node scripts/check-phase-8-packed-packages.mjs`, and `git diff --check` PASS after restack. Full Gate 8 pending refreshed deployment evidence.
+`node --test scripts/check-phase-8-generated-evidence.test.mjs`, source release parity against `82e5224`, and `git diff --check` PASS. Full Gate 8 pending refreshed deployment evidence.
 
 ## Next
 
-Commit release-source state, regenerate exact-source deployment evidence, then run full Gate 8.
+Regenerate deployment/fleet evidence from source commit `82e5224`, then run full Gate 8.
 
 ## Blockers
 

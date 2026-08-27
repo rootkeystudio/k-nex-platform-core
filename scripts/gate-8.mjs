@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,6 +8,7 @@ import { ApplicationManifestSchema, DeploymentReceiptSchema, RuntimeInventorySch
 import { applyCreateKnexApplication, createCycloneDxSbom, planCreateKnexApplication, resolvePnpmLock } from "../packages/composition/dist/index.js";
 import { FleetRegistry, reconcileDeploymentReceipt, runtimeInventoryStateDigest } from "../packages/runtime/dist/index.js";
 import { createFixtureDeploymentVerifier } from "./lib/fixture-deployment-authority.mjs";
+import { assertPhase8SourceRelease, sourceFile } from "./lib/phase-8-provenance.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 if (process.versions.node !== "24.19.0") throw new Error(`Gate 8 requires Node 24.19.0; found ${process.versions.node}.`);
@@ -36,25 +36,18 @@ assert.doesNotMatch(workflow, /SLSA Build L[0-9]/u);
 const supportManifest = readJson("releases/0.2.0/package-release-manifest.json");
 const patchManifest = readJson("releases/0.2.1/package-release-manifest.json");
 const sourceCommit = readJson("fixtures/customer-alpha/runtime-inventory.json").releaseEvidence.sourceCommit;
-const sourceFile = (path) => execFileSync("git", ["show", `${sourceCommit}:${path}`], { cwd: root, maxBuffer: 4 * 1024 * 1024 });
-for (const [releaseVersion, salesVersion] of [["0.1.0", "0.9.0"], ["0.2.0", "1.0.0"], ["0.2.1", "1.0.1"]]) {
-  const release = JSON.parse(sourceFile(`releases/${releaseVersion}/package-release-manifest.json`).toString("utf8"));
-  const sales = release.packages.find((entry) => entry.package === "@k-nex/module-sales");
-  const artifact = sourceFile(`fixtures/customer-gate-1/packages/k-nex-module-sales-${salesVersion}.tgz`);
-  assert.equal(sales?.version, salesVersion);
-  assert.equal(sales?.integrity, `sha512-${createHash("sha512").update(artifact).digest("base64")}`);
-}
+assertPhase8SourceRelease(root, sourceCommit);
 const verifier = createFixtureDeploymentVerifier(sourceCommit);
 const fleet = new FleetRegistry(supportManifest, verifier.authority);
 for (const customer of ["customer-alpha", "customer-beta"]) {
   const manifest = ApplicationManifestSchema.parse(readJson(`fixtures/${customer}/k-nex.app.json`));
   const inventory = RuntimeInventorySchema.parse(readJson(`fixtures/${customer}/runtime-inventory.json`));
   const receipt = DeploymentReceiptSchema.parse(readJson(`fixtures/${customer}/deployment-receipt.json`));
-  const sourceManifest = JSON.parse(sourceFile(`fixtures/${customer}/k-nex.app.json`).toString("utf8"));
-  const sourceLock = sourceFile(`fixtures/${customer}/pnpm-lock.yaml`).toString("utf8");
-  const sourcePlan = JSON.parse(sourceFile(`fixtures/${customer}/.k-nex/application-plan.json`).toString("utf8"));
+  const sourceManifest = JSON.parse(sourceFile(root, sourceCommit, `fixtures/${customer}/k-nex.app.json`).toString("utf8"));
+  const sourceLock = sourceFile(root, sourceCommit, `fixtures/${customer}/pnpm-lock.yaml`).toString("utf8");
+  const sourcePlan = JSON.parse(sourceFile(root, sourceCommit, `fixtures/${customer}/.k-nex/application-plan.json`).toString("utf8"));
   const salesVersion = sourceManifest.plugins.find(({ id }) => id === "module.sales")?.version;
-  const sourceArtifact = sourceFile(`fixtures/customer-gate-1/packages/k-nex-module-sales-${salesVersion}.tgz`);
+  const sourceArtifact = sourceFile(root, sourceCommit, `fixtures/customer-gate-1/packages/k-nex-module-sales-${salesVersion}.tgz`);
   const resolvedLock = resolvePnpmLock(sourceLock);
   const salesRef = `pkg:npm/%40k-nex/module-sales@${salesVersion}`;
   const sourceSbom = createCycloneDxSbom(customer, resolvedLock.components, resolvedLock.dependencies, [...resolvedLock.rootDependencies, salesRef]);
@@ -63,9 +56,9 @@ for (const customer of ["customer-alpha", "customer-beta"]) {
   assert.equal(inventory.releaseEvidence.lockfileDigest, sha256(sourceLock));
   assert.equal(inventory.releaseEvidence.resolvedGraphDigest, sha256(canonicalJson(sourcePlan)));
   assert.equal(inventory.releaseEvidence.sbomDigest, sha256(canonicalJson(sourceSbom)));
+  assert.equal(inventory.releaseEvidence.sourceCommit, sourceCommit);
   assert.deepEqual(manifest.plugins.map(({ id }) => id), ["module.sales"]);
   assert.equal(reconcileDeploymentReceipt(receipt, inventory), true);
-  assert.equal(execFileSync("git", ["merge-base", "--is-ancestor", inventory.releaseEvidence.sourceCommit, "HEAD"], { cwd: root }).length, 0);
   assertNoSecretKeys(inventory);
   fleet.ingest(await verifier.verify(inventory, receipt));
 }
@@ -105,8 +98,8 @@ for (const marker of [
   "# Phase 8 Result", "**Decision:** **PLATFORM FOUNDATION ACCEPTED**", "P8_9_FLEET_EVIDENCE_PASS",
   "Payload Import/Export", "CycloneDX", "signed provenance", "Customer Alpha", "Customer Beta", "DO NOT START DOMAIN EXPANSION"
 ]) assert.ok(result.includes(marker), `Phase 8 result is missing: ${marker}.`);
-for (const commit of ["3f830ae", "5efea55", "790a0df", "2a38c44", "d8984c6", "4e0a77a", "60a433b", "c4117fb", "6720839"]) {
-  execFileSync("git", ["merge-base", "--is-ancestor", commit, "HEAD"], { cwd: root, stdio: "ignore" });
+for (const task of ["P8.1", "P8.2", "P8.3", "P8.4", "P8.5", "P8.6", "P8.7", "P8.8", "P8.9", "P8.10"]) {
+  assert.ok(result.includes(task), `Phase 8 result is missing task mapping: ${task}.`);
 }
 console.log(JSON.stringify({ gate: "Gate 8", customers: fleet.list().length, affectedDeployments: fleet.affected("@k-nex/module-sales", "<1.0.1").length, patchPlans: 2, priorUpgradeSteps: priorUpgrade.reviewedMigrationIds.length, postgresRecoveryProofs: 2 }, null, 2));
 console.log("GATE_8_PASS");
