@@ -131,7 +131,7 @@
         "names": []
       },
       "id": "module.sales",
-      "integrity": "sha512-a1s2m6zs1s1PuV6UPHpH0Y1QMDwoHCSvyBoJT1b2YPIe2R3DGJlB/yjjacpIEIMlevKkfn+cUTUVtF4cFfzQeA==",
+      "integrity": "sha512-/aV73IZMs+ZpDF5op1sE5dTHgM/9IA1YzpCwjsYlx6O6j3Q+1ahGsK6P3suUD7h9hTXG9NgOQPvo8MGtcWr8iA==",
       "kind": "module",
       "lifecycle": {
         "disable": "supported",
