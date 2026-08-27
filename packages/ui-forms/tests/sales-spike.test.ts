@@ -70,4 +70,31 @@ describe("bounded Sales form spike", () => {
     expect(calls).toEqual(["sales.opportunities"]);
     expect(formEngineDecision.engine).toBe("native-react-state");
   });
+
+  it("publishes a reachable pending snapshot and coalesces duplicate submission", async () => {
+    let resolve!: (result: { readonly state: "success"; readonly data: { readonly id: string } }) => void;
+    let calls = 0;
+    const controller = createFormController({
+      initialValues: { title: "" },
+      validate: () => ({}),
+      submit: async () => {
+        calls += 1;
+        return new Promise((done) => { resolve = done; });
+      }
+    });
+    const observed: boolean[] = [];
+    const unsubscribe = controller.subscribe((snapshot) => observed.push(snapshot.submitting));
+    const changed = controller.change(controller.initial(), "title", "Follow up");
+    const first = controller.submit(changed, signal);
+    const duplicate = controller.submit(changed, signal);
+
+    expect(duplicate).toBe(first);
+    expect(calls).toBe(1);
+    expect(controller.snapshot()).toMatchObject({ values: { title: "Follow up" }, submitting: true });
+    resolve({ state: "success", data: { id: "task-1" } });
+    await expect(first).resolves.toMatchObject({ dirty: false, submitting: false });
+    expect(controller.snapshot().submitting).toBe(false);
+    expect(observed).toEqual([false, true, false]);
+    unsubscribe();
+  });
 });

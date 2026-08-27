@@ -7,7 +7,7 @@
 
 ## Last completed
 
-Sol-high review blockers 1–2 are corrected. Renderers receive only exact node/action-scoped authority. Generic DataTable now binds a descriptor-authorized table source through the standard query/data component path; generic Form binds the standard action gateway and remains disabled without accepted authority.
+All four Sol-high review blockers are corrected. Renderers receive only exact node/action-scoped authority. Generic DataTable/Form use platform source/action gateways. Checkbox and date-range invalid state is attached to the actual controls. Form controllers publish observable pending state, coalesce duplicate submits, and Sales renders the async-source-backed opportunity edit form.
 
 ## Validation
 
@@ -15,8 +15,8 @@ Node 24.19.0 / pnpm 11.9.0 refreshed acceptance passes: frozen install, all 23 r
 
 ## Next
 
-Correct the remaining form/accessibility review blockers, restack on final Phase 6, then repeat Gate 7 and Sol-high review.
+Run the combined focused suite, restack on final Phase 6 `6352d36`, refresh generated package artifacts, then repeat Gate 7 and Sol-high review.
 
 ## Blockers
 
-Review blockers 3–4 remain in remediation. Phase 7 is still temporarily based on Phase 6 `86d36bf`; final restack target is `6352d36`.
+No known review blocker remains. Phase 7 is still temporarily based on Phase 6 `86d36bf`; final restack target is `6352d36`.
