@@ -23,6 +23,7 @@ export interface SecurityPatchPlan {
   readonly package: string;
   readonly currentVersion: string;
   readonly targetVersion: string;
+  readonly targetIntegrity: string;
   readonly baseInventoryDigest: string;
   readonly operations: readonly ["update-lockfile", "plan-upgrade", "run-migrations", "deploy-and-receipt"];
 }
@@ -76,13 +77,18 @@ export class FleetRegistry {
     )));
   }
 
-  planSecurityPatch(packageName: string, vulnerableRange: string, targetVersion: string): readonly SecurityPatchPlan[] {
-    if (valid(targetVersion, { loose: false }) === null || satisfies(targetVersion, vulnerableRange, { loose: false, includePrerelease: false })) {
+  planSecurityPatch(packageName: string, vulnerableRange: string, targetVersion: string, targetReleaseManifest: PackageReleaseManifest): readonly SecurityPatchPlan[] {
+    const targetRelease = PackageReleaseManifestSchema.parse(targetReleaseManifest);
+    const target = targetRelease.packages.find((entry) => entry.package === packageName);
+    if (valid(targetVersion, { loose: false }) === null || target?.version !== targetVersion) {
       throw new FleetEvidenceError("PATCH_INVALID", "Security patch target must be an exact version outside the vulnerable range.");
     }
-    return Object.freeze(this.affected(packageName, vulnerableRange).map(({ inventory }) => {
+    return Object.freeze(this.affected(packageName, vulnerableRange).filter(({ inventory }) => {
       const current = inventory.packages.find((entry) => entry.package === packageName)!;
-      if (!gt(targetVersion, current.version, { loose: false })) throw new FleetEvidenceError("PATCH_INVALID", "Security patch target must advance every affected deployment.");
+      return current.version !== targetVersion || current.integrity !== target.integrity;
+    }).map(({ inventory }) => {
+      const current = inventory.packages.find((entry) => entry.package === packageName)!;
+      if (gt(current.version, targetVersion, { loose: false })) throw new FleetEvidenceError("PATCH_INVALID", "Security patch target must not regress an affected deployment.");
       return Object.freeze({
         applicationId: inventory.applicationId,
         repository: inventory.repository,
@@ -90,6 +96,7 @@ export class FleetRegistry {
         package: packageName,
         currentVersion: current.version,
         targetVersion,
+        targetIntegrity: target.integrity,
         baseInventoryDigest: runtimeInventoryDigest(inventory),
         operations: Object.freeze(["update-lockfile", "plan-upgrade", "run-migrations", "deploy-and-receipt"] as const)
       });

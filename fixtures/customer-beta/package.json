@@ -18,7 +18,7 @@
     "@k-nex/builder-puck": "file:../customer-gate-1/packages/k-nex-builder-puck-0.0.0.tgz",
     "@k-nex/composition": "file:../customer-gate-1/packages/k-nex-composition-0.0.0.tgz",
     "@k-nex/contracts": "file:../customer-gate-1/packages/k-nex-contracts-0.0.0.tgz",
-    "@k-nex/module-sales": "file:../customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz",
+    "@k-nex/module-sales": "file:../customer-gate-1/packages/k-nex-module-sales-0.9.0.tgz",
     "@k-nex/payload-adapter": "file:../customer-gate-1/packages/k-nex-payload-adapter-0.0.0.tgz",
     "@k-nex/runtime": "file:../customer-gate-1/packages/k-nex-runtime-0.0.0.tgz",
     "@k-nex/theme-neobrutalism": "file:../customer-gate-1/packages/k-nex-theme-neobrutalism-0.0.0.tgz",

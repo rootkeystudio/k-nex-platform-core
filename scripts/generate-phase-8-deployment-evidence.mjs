@@ -10,19 +10,21 @@ import { createDeploymentReceipt, observeRuntimeInventory } from "../packages/ru
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 const sourceCommit = process.argv[2];
 if (!/^[0-9a-f]{40}$/u.test(sourceCommit)) throw new Error("A full source commit SHA is required.");
-const artifactPath = resolve(repositoryRoot, "fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz");
-const artifact = readFileSync(artifactPath);
 const sha256 = (content) => `sha256:${createHash("sha256").update(content).digest("hex")}`;
 
 for (const customer of ["customer-alpha", "customer-beta"]) {
   const root = resolve(repositoryRoot, "fixtures", customer);
   const applicationManifest = JSON.parse(readFileSync(resolve(root, "k-nex.app.json"), "utf8"));
+  const salesVersion = applicationManifest.plugins.find(({ id }) => id === "module.sales")?.version;
+  if (typeof salesVersion !== "string") throw new Error(`${customer} does not declare Sales.`);
+  const artifactPath = resolve(repositoryRoot, `fixtures/customer-gate-1/packages/k-nex-module-sales-${salesVersion}.tgz`);
+  const artifact = readFileSync(artifactPath);
   const plan = JSON.parse(readFileSync(resolve(root, ".k-nex/application-plan.json"), "utf8"));
   const overrides = JSON.parse(readFileSync(resolve(root, "customer-overrides.json"), "utf8"));
   const observation = JSON.parse(readFileSync(resolve(root, "deployment-observation.json"), "utf8"));
   const lockContent = readFileSync(resolve(root, "pnpm-lock.yaml"), "utf8");
   const resolvedLock = resolvePnpmLock(lockContent);
-  const salesRef = "pkg:npm/%40k-nex/module-sales@1.0.0";
+  const salesRef = `pkg:npm/%40k-nex/module-sales@${salesVersion}`;
   const sbom = createCycloneDxSbom(customer, resolvedLock.components, resolvedLock.dependencies, [...resolvedLock.rootDependencies, salesRef]);
   const sbomContent = canonicalJson(sbom);
   const provenance = createReleaseProvenance({

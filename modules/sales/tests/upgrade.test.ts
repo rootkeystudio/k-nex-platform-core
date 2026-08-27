@@ -9,14 +9,16 @@ import { salesUpgradeMigrations, salesUpgradeTargets } from "../src/migrations.j
 
 describe("Sales upgrade fixture", () => {
   it("proves the customer-owned schema and every supported artifact migration", () => {
-    const supportManifest = PackageReleaseManifestSchema.parse(JSON.parse(readFileSync(new URL("../../../releases/0.2.0/package-release-manifest.json", import.meta.url), "utf8")));
+    const targetReleaseManifest = PackageReleaseManifestSchema.parse(JSON.parse(readFileSync(new URL("../../../releases/0.2.0/package-release-manifest.json", import.meta.url), "utf8")));
+    const currentReleaseManifest = PackageReleaseManifestSchema.parse(JSON.parse(readFileSync(new URL("../../../releases/0.1.0/package-release-manifest.json", import.meta.url), "utf8")));
     const plan = planPluginUpgrade({
       pluginId: "module.sales",
-      currentVersion: "1.0.0",
-      targetVersion: "1.1.0",
+      currentVersion: "0.9.0",
+      targetVersion: "1.0.0",
       currentPlatformRelease: "0.1.0",
       targetPlatformRelease: "0.2.0",
-      supportManifest,
+      currentReleaseManifest,
+      targetReleaseManifest,
       targets: salesUpgradeTargets,
       migrations: salesUpgradeMigrations
     });

@@ -8,7 +8,8 @@
   "package": "@k-nex/module-sales",
   "currentVersion": "1.0.0",
   "targetVersion": "1.0.1",
-  "baseInventoryDigest": "sha256:3421cb48e5b8a5d49b5a34304ab0f0a8c5afff6e5a6e54812ecd50a70844232b",
+  "targetIntegrity": "sha512-z+x9h7xV94BDRiHWK71Un9yJf0P+cWKl8MEbpsRb7eIPCKhxyy9H11djFVh3RBAXJ2OtlMWQ+NvPSoHUuByIlA==",
+  "baseInventoryDigest": "sha256:708dbcab14f1f76aed02efe0a4b413d8f5ab246ffabecb14b873d0531c2e42a8",
   "operations": [
     "update-lockfile",
     "plan-upgrade",

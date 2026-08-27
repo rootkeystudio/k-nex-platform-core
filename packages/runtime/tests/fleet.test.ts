@@ -27,6 +27,12 @@ const supportManifest = {
   packages: [{ package: "@k-nex/module-sales", version: "1.0.0", role: "plugin", integrity: `sha512-${"a".repeat(86)}==`, peerCompatibility: supportedFrameworkTuple }],
   supportWindow: { policy: "current-and-one-prior-minor", supportedReleases: ["0.2.0", "0.1.0"], securityFixes: "all-supported-releases" }
 } as const satisfies PackageReleaseManifest;
+const patchManifest = {
+  ...supportManifest,
+  release: { ...supportManifest.release, version: "0.2.1" },
+  packages: [{ ...supportManifest.packages[0], version: "1.0.1", integrity: `sha512-${"c".repeat(86)}==` }],
+  supportWindow: { ...supportManifest.supportWindow, supportedReleases: ["0.2.1", "0.1.0"] }
+} as const satisfies PackageReleaseManifest;
 
 async function deployment(applicationId: "customer-alpha" | "customer-beta", release: "0.2.0" | "0.1.0", trusted: DeploymentEvidenceAuthority) {
   const provenance = createReleaseProvenance({
@@ -36,8 +42,8 @@ async function deployment(applicationId: "customer-alpha" | "customer-beta", rel
   const inventory = observeRuntimeInventory({
     schemaVersion: 1, applicationId, repository: `rootkeystudio/${applicationId}`, environment: "production", platformRelease: release,
     observedAt: "2026-08-27T12:00:00.000Z", artifactDigest: digest("1"), releaseEvidence: { sourceCommit: sha, workflowIdentity: releaseWorkflow, manifestDigest: digest("2"), lockfileDigest: digest("3"), resolvedGraphDigest: digest("4"), sbomDigest: digest("5"), provenanceDigest: `sha256:${createHash("sha256").update(canonicalJson(provenance)).digest("hex")}` },
-    packages: [{ package: "@k-nex/module-sales", version: "1.0.0", integrity: `sha512-${"a".repeat(86)}==` }],
-    plugins: [{ id: "module.sales", package: "@k-nex/module-sales", version: "1.0.0", enabled: true }], migrationRevision: release === "0.2.0" ? 7 : 6,
+    packages: [{ package: "@k-nex/module-sales", version: release === "0.2.0" ? "1.0.0" : "0.9.0", integrity: `sha512-${(release === "0.2.0" ? "a" : "b").repeat(86)}==` }],
+    plugins: [{ id: "module.sales", package: "@k-nex/module-sales", version: release === "0.2.0" ? "1.0.0" : "0.9.0", enabled: true }], migrationRevision: release === "0.2.0" ? 7 : 6,
     settings: [{ id: "sales.settings", schemaVersion: 1, revision: 1 }], templates: [{ id: "sales.page.tasks", templateVersion: 1, revision: 1 }], health: { status: "ready", checks: ["sales"] }
   });
   const receipt = createDeploymentReceipt({ inventory, deploymentId: `deploy:${applicationId}:1`, deployedAt: "2026-08-27T12:05:00.000Z", approvedBy: { kind: "workflow", identity: deploymentWorkflow }, smoke: { status: "passed", checks: ["sales"] } });
@@ -79,10 +85,17 @@ describe("fleet evidence and patch propagation", () => {
     fleet.ingest((await deployment("customer-alpha", "0.2.0", trusted)).evidence);
     fleet.ingest((await deployment("customer-beta", "0.1.0", trusted)).evidence);
     expect(fleet.affected("@k-nex/module-sales", "<1.0.1")).toHaveLength(2);
-    expect(fleet.planSecurityPatch("@k-nex/module-sales", "<1.0.1", "1.0.1")).toEqual(expect.arrayContaining([
-      expect.objectContaining({ repository: "rootkeystudio/customer-alpha", operations: ["update-lockfile", "plan-upgrade", "run-migrations", "deploy-and-receipt"] }),
-      expect.objectContaining({ repository: "rootkeystudio/customer-beta" })
-    ]));
+    expect(fleet.planSecurityPatch("@k-nex/module-sales", "<1.0.1", "1.0.1", patchManifest)).toEqual([
+      expect.objectContaining({ repository: "rootkeystudio/customer-alpha", targetIntegrity: `sha512-${"c".repeat(86)}==`, operations: ["update-lockfile", "plan-upgrade", "run-migrations", "deploy-and-receipt"] }),
+      expect.objectContaining({ repository: "rootkeystudio/customer-beta", targetIntegrity: `sha512-${"c".repeat(86)}==`, operations: ["update-lockfile", "plan-upgrade", "run-migrations", "deploy-and-receipt"] })
+    ]);
+  });
+
+  it("rejects a patch target absent from the trusted release manifest", async () => {
+    const trusted = authority();
+    const fleet = new FleetRegistry(supportManifest, trusted);
+    fleet.ingest((await deployment("customer-beta", "0.1.0", trusted)).evidence);
+    expect(() => fleet.planSecurityPatch("@k-nex/module-sales", "<1.0.1", "9.9.9", patchManifest)).toThrow("exact version");
   });
 
   it("requires restore/redeploy inventory to exactly reproduce expected observed state", async () => {

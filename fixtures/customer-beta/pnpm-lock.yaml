@@ -8,7 +8,7 @@ overrides:
   '@k-nex/builder-puck': file:../customer-gate-1/packages/k-nex-builder-puck-0.0.0.tgz
   '@k-nex/composition': file:../customer-gate-1/packages/k-nex-composition-0.0.0.tgz
   '@k-nex/contracts': file:../customer-gate-1/packages/k-nex-contracts-0.0.0.tgz
-  '@k-nex/module-sales': file:../customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz
+  '@k-nex/module-sales': file:../customer-gate-1/packages/k-nex-module-sales-0.9.0.tgz
   '@k-nex/payload-adapter': file:../customer-gate-1/packages/k-nex-payload-adapter-0.0.0.tgz
   '@k-nex/runtime': file:../customer-gate-1/packages/k-nex-runtime-0.0.0.tgz
   '@k-nex/theme-neobrutalism': file:../customer-gate-1/packages/k-nex-theme-neobrutalism-0.0.0.tgz
@@ -34,8 +34,8 @@ importers:
         specifier: file:../customer-gate-1/packages/k-nex-contracts-0.0.0.tgz
         version: file:../customer-gate-1/packages/k-nex-contracts-0.0.0.tgz
       '@k-nex/module-sales':
-        specifier: file:../customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz
-        version: file:../customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz(8c6363bc8c9b4e618668e84c5d1786d0)
+        specifier: file:../customer-gate-1/packages/k-nex-module-sales-0.9.0.tgz
+        version: file:../customer-gate-1/packages/k-nex-module-sales-0.9.0.tgz(8c6363bc8c9b4e618668e84c5d1786d0)
       '@k-nex/payload-adapter':
         specifier: file:../customer-gate-1/packages/k-nex-payload-adapter-0.0.0.tgz
         version: file:../customer-gate-1/packages/k-nex-payload-adapter-0.0.0.tgz(graphql@16.14.2)(next@16.3.1(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(typescript@6.0.3)
@@ -942,16 +942,16 @@ packages:
       react: ^18.0.0 || ^19.0.0
 
   '@k-nex/composition@file:../customer-gate-1/packages/k-nex-composition-0.0.0.tgz':
-    resolution: {integrity: sha512-EBWwRVqQuFI5cVjxarYx+4Pnc4BNfu8EnA7pZYL4CH5gvy4IuzvZ43K08E/AJVkoARlHwMbJjV3Lw9Tzb7rFNg==, tarball: file:../customer-gate-1/packages/k-nex-composition-0.0.0.tgz}
+    resolution: {integrity: sha512-vMnvWptUT3rQFPE9pIymWHIB9gBdKVcAlxuAk5/NSnQQ+qWMpqz1v0LoLggauraZ2MmVxXQvL3RQk8uuojsOfQ==, tarball: file:../customer-gate-1/packages/k-nex-composition-0.0.0.tgz}
     version: 0.0.0
 
   '@k-nex/contracts@file:../customer-gate-1/packages/k-nex-contracts-0.0.0.tgz':
     resolution: {integrity: sha512-gAUva+/vQMgn93ijjTBhFQg0HlNVoWOYnVyMxLW2EqvJa/p5FTgkSpc3OSzZ1YHV3pbUjgrvgLigFWWmPXpATg==, tarball: file:../customer-gate-1/packages/k-nex-contracts-0.0.0.tgz}
     version: 0.0.0
 
-  '@k-nex/module-sales@file:../customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz':
-    resolution: {integrity: sha512-b6RnMflzySfAw53+t9/aPhmss27fUGpp/Du979nJkO7Eyovrg8JxEd5Eh2cXN1vcSvhR8n4OsvkRnqU3eX+Pow==, tarball: file:../customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz}
-    version: 1.0.0
+  '@k-nex/module-sales@file:../customer-gate-1/packages/k-nex-module-sales-0.9.0.tgz':
+    resolution: {integrity: sha512-B+xdbJ7FD4W1pg//ASXOW8YxWeegScvCmizA/e2ZzJTYF++ikBRyhLRAeqUGAA8X14JSe2Z6Y11MfI0AXJD+Dw==, tarball: file:../customer-gate-1/packages/k-nex-module-sales-0.9.0.tgz}
+    version: 0.9.0
     peerDependencies:
       '@k-nex/contracts': 0.0.0
       '@k-nex/payload-adapter': 0.0.0
@@ -985,7 +985,7 @@ packages:
     version: 0.0.0
 
   '@k-nex/runtime@file:../customer-gate-1/packages/k-nex-runtime-0.0.0.tgz':
-    resolution: {integrity: sha512-MUP/9NLC8+O5k60CNo1PXwo/CKWh9WJp8Qcp2W7w2l3DQDfqmgtZbBLoZ2xHyAq3Z7vj5cFoM7dIb8ghAteulw==, tarball: file:../customer-gate-1/packages/k-nex-runtime-0.0.0.tgz}
+    resolution: {integrity: sha512-9HbWRSAyR18T5CEJUBBhkmGDs5P61PlqnwySiFiaX3vdpDJqK4vDM1kZIJRYMhGhSp9fhWFw87iRT575c8/1zw==, tarball: file:../customer-gate-1/packages/k-nex-runtime-0.0.0.tgz}
     version: 0.0.0
 
   '@k-nex/theme-neobrutalism@file:../customer-gate-1/packages/k-nex-theme-neobrutalism-0.0.0.tgz':
@@ -3972,7 +3972,7 @@ snapshots:
     dependencies:
       zod: 4.4.3
 
-  '@k-nex/module-sales@file:../customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz(8c6363bc8c9b4e618668e84c5d1786d0)':
+  '@k-nex/module-sales@file:../customer-gate-1/packages/k-nex-module-sales-0.9.0.tgz(8c6363bc8c9b4e618668e84c5d1786d0)':
     dependencies:
       '@k-nex/contracts': file:../customer-gate-1/packages/k-nex-contracts-0.0.0.tgz
       '@k-nex/payload-adapter': file:../customer-gate-1/packages/k-nex-payload-adapter-0.0.0.tgz(graphql@16.14.2)(next@16.3.1(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(typescript@6.0.3)

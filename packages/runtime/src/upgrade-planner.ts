@@ -86,17 +86,25 @@ export function planPluginUpgrade(input: {
   readonly targetVersion: string;
   readonly currentPlatformRelease: string;
   readonly targetPlatformRelease: string;
-  readonly supportManifest: PackageReleaseManifest;
+  readonly currentReleaseManifest: PackageReleaseManifest;
+  readonly targetReleaseManifest: PackageReleaseManifest;
   readonly targets: readonly UpgradeTarget[];
   readonly migrations: readonly UpgradeMigration[];
 }): UpgradePlan {
   const diagnostics: UpgradeDiagnostic[] = [];
-  const support = PackageReleaseManifestSchema.safeParse(input.supportManifest);
-  if (!support.success) {
-    diagnostics.push(diagnostic("UNSUPPORTED_RELEASE", "The platform support manifest is invalid."));
-  } else if (input.targetPlatformRelease !== support.data.release.version ||
-    !support.data.supportWindow.supportedReleases.includes(input.currentPlatformRelease)) {
+  const currentRelease = PackageReleaseManifestSchema.safeParse(input.currentReleaseManifest);
+  const targetRelease = PackageReleaseManifestSchema.safeParse(input.targetReleaseManifest);
+  if (!currentRelease.success || !targetRelease.success) {
+    diagnostics.push(diagnostic("UNSUPPORTED_RELEASE", "Platform release manifests are invalid."));
+  } else if (input.currentPlatformRelease !== currentRelease.data.release.version || input.targetPlatformRelease !== targetRelease.data.release.version ||
+    !targetRelease.data.supportWindow.supportedReleases.includes(input.currentPlatformRelease)) {
     diagnostics.push(diagnostic("UNSUPPORTED_RELEASE", "Platform upgrade source and target must belong to the declared support window."));
+  } else {
+    const currentPackage = currentRelease.data.packages.find((entry) => entry.package === `@k-nex/${input.pluginId.replace("module.", "module-")}`);
+    const targetPackage = targetRelease.data.packages.find((entry) => entry.package === `@k-nex/${input.pluginId.replace("module.", "module-")}`);
+    if (currentPackage?.version !== input.currentVersion || targetPackage?.version !== input.targetVersion || currentPackage.integrity === targetPackage.integrity) {
+      diagnostics.push(diagnostic("UNSUPPORTED_RELEASE", "Plugin source and target must be distinct trusted release artifacts."));
+    }
   }
   if (!validId.test(input.pluginId) || validSemver(input.currentVersion) === null || validSemver(input.targetVersion) === null) {
     diagnostics.push(diagnostic("INVALID", "Plugin identity and release versions must be valid."));
