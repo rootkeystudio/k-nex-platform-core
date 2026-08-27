@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Raised only the contract reproducibility test's CI budget from Vitest's 5-second default to 30 seconds. The exact proof completed locally in about 2.1 seconds, but GitHub's contended runner reached 5.06 seconds and failed before the otherwise passing Gate 6 chain.
+Refreshed the committed Sales tarball and lock integrity from a forced clean TypeScript build. Clean CI canonicalized the generated UI-kind union as `block | component`; the cached local declaration and packed artifact still held the older equivalent ordering.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: exact full `pnpm gate:6` PASS at `d2929f2`; GitHub failure isolated to the 5-second reproducibility-test timeout. Exact full rerun on the timeout-only head is next.
+Node 24.19.0 / pnpm 11.9.0: exact full `pnpm gate:6` PASS at `14f938e`; forced Sales build plus `check-pack` PASS, lock integrity refreshed. Exact full rerun on the artifact-only head is next.
 
 ## Next
 
