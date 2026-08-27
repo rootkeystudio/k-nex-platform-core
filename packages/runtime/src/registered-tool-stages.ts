@@ -215,7 +215,7 @@ export class RegisteredToolDispatcher implements SourceActionDispatcher {
     const request: ActionHandlerRequest = {
       actor: context.principal.actor,
       request: context.principal.request,
-      authorizationContext: context.principal.authorizationContext,
+      authorizationContext: context.authorization,
       input: context.input,
       signal: context.signal,
       ...(context.request.idempotencyKey === undefined ? {} : { idempotencyKey: context.request.idempotencyKey })

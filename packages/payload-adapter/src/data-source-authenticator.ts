@@ -9,15 +9,10 @@ import {
   type RequestAuthenticator
 } from "@k-nex/runtime";
 
-export interface PayloadDataSourceRequestContext {
-  readonly payload: PayloadRequest["payload"];
-  readonly locale: PayloadRequest["locale"];
-  readonly transactionID: PayloadRequest["transactionID"];
-}
-
 export interface PayloadDataSourceActorAdapter {
   actor(request: PayloadRequest): DataSourceActorContext;
   authorizationContext(request: PayloadRequest): unknown;
+  requestContext(request: PayloadRequest): unknown;
 }
 
 function isPayloadRequest(value: unknown): value is PayloadRequest {
@@ -42,14 +37,9 @@ export class PayloadRequestAuthenticator implements RequestAuthenticator {
     if (!isDataSourceActorContext(actor)) {
       throw new DataSourceGatewayError("INVALID_ACTOR_CONTEXT", 401, "Authentication context is invalid.");
     }
-    const safeRequest: PayloadDataSourceRequestContext = {
-      payload: payloadRequest.payload,
-      locale: payloadRequest.locale,
-      transactionID: payloadRequest.transactionID
-    };
     return {
       actor,
-      request: safeRequest,
+      request: this.adapter.requestContext(payloadRequest),
       authorizationContext: this.adapter.authorizationContext(payloadRequest)
     };
   }

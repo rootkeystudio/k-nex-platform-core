@@ -52,7 +52,7 @@ import {
 } from "@k-nex/module-sales/server";
 import { describe, expect, it } from "vitest";
 
-import { createPayloadMcpPlugin, createPayloadMcpPluginConfig, PayloadRequestAuthenticator } from "@k-nex/payload-adapter";
+import { createPayloadMcpPlugin, createPayloadMcpPluginConfig, createPayloadPersistenceCapability, PayloadRequestAuthenticator } from "@k-nex/payload-adapter";
 
 const manifest = PluginManifestSchema.parse(JSON.parse(readFileSync(
   resolve(import.meta.dirname, "../k-nex.plugin.json"),
@@ -220,7 +220,10 @@ describe("P2A.8 Sales tool proof", () => {
     const dataSourceGateway = new DataSourceGateway({
       authenticator: new PayloadRequestAuthenticator({
         actor: salesActor,
-        authorizationContext: () => ({ permissionFingerprint: "sales:open:full" })
+        authorizationContext: () => ({ permissionFingerprint: "sales:open:full" }),
+        requestContext: (request) => createPayloadPersistenceCapability(request, [
+          { collection: "sales-tasks", operations: ["find", "create"] }
+        ])
       }),
       catalog: sourceCatalog,
       surfaceAudience: new DescriptorSurfaceAudienceGuard(),
@@ -264,7 +267,10 @@ describe("P2A.8 Sales tool proof", () => {
         authenticate: (request) => {
           const authenticated = new PayloadRequestAuthenticator({
             actor: salesActor,
-            authorizationContext: () => catalogContext.authorizationContext
+            authorizationContext: () => catalogContext.authorizationContext,
+            requestContext: (payloadRequest) => createPayloadPersistenceCapability(payloadRequest, [
+              { collection: "sales-tasks", operations: ["find", "create"] }
+            ])
           }).authenticate({
             correlationId: request.correlationId,
             rawRequest: request.rawRequest,

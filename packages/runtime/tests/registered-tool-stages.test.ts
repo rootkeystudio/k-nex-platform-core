@@ -135,7 +135,7 @@ function context(overrides: Partial<ToolExecutionContext> = {}): ToolExecutionCo
       input: { value: "input" },
       signal: new AbortController().signal
     },
-    principal: { actor: { id: "user-1" }, request: {}, authorizationContext: {} },
+    principal: { actor: { id: "user-1" }, request: {}, authorizationContext: { untrusted: true } },
     agentClient: { client: { id: "client-1" }, session: { id: "session-1" } },
     delegation: { id: "delegation-1" },
     descriptor: tool,

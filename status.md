@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Closed category-reference and page-action gaps: registration now reconciles permissions/routes/pages/navigation/events/realtime/source/action/UI references by exact owner, category, version, and binding; templates reject undeclared action bindings.
+Closed ambient persistence and action-authority gaps: plugins now receive adapter-issued collection/operation capabilities instead of the raw Payload Local API; browser actions use a lifecycle-scoped registered gateway and MCP dispatch passes the policy decision. Customer/Postgres proof covers all three Sales sources and actions plus out-of-scope record denial.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: contracts 140, runtime 176, Sales 34 plus package boundaries/reproducibility PASS. Prior Gate 6 result superseded by active review remediation.
+Node 24.19.0 / pnpm 11.9.0: runtime 178, Payload adapter 32, customer build PASS, customer Postgres gate PASS (22.6s). Prior Gate 6 result superseded by active review remediation.
 
 ## Next
 
-Fix remaining Sol-high blockers: narrow Payload/action authority, complete reference reconciliation and page-action validation, prove all Sales customer paths, harden conformance, then rerun Gate 6 and exact-head review on PR #21.
+Fix remaining Sol-high blockers: harden runner-owned conformance identity/transitive boundaries/evidence, correct closeout evidence and gate validation, then rerun Gate 6 and exact-head review on PR #21.
 
 ## Blockers
 

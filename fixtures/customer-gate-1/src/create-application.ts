@@ -23,6 +23,7 @@ import {
 import resolvedJson from "../.k-nex/generated/k-nex.resolved.json" with { type: "json" };
 import { runtimeRegistration } from "../.k-nex/generated/runtime-registration.js";
 import { createDataSourceQueryEndpoint } from "./data-source-endpoint.js";
+import { createActionEndpoint } from "./action-endpoint.js";
 import { applicationMigrationRevision } from "./migration-revision.js";
 import { createGate1RuntimeInventory, createRuntimeInventoryEndpoint } from "./runtime-inventory.js";
 
@@ -125,7 +126,7 @@ export function createGate1Application(options: CreateGate1ApplicationOptions): 
       secret: options.payloadSecret,
       custom: { kNexApplicationId: "customer-gate-1" },
       plugins: mcp === undefined ? [] : [mcp],
-      endpoints: [createRuntimeInventoryEndpoint(inventory), createDataSourceQueryEndpoint(scopedRegistration)]
+      endpoints: [createRuntimeInventoryEndpoint(inventory), createDataSourceQueryEndpoint(scopedRegistration), createActionEndpoint(scopedRegistration)]
     },
     baseCollections: [usersCollection],
     databaseUrl: options.databaseUrl,

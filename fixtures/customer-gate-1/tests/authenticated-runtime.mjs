@@ -17,9 +17,17 @@ const openTask = await payload.create({
   collection: "sales-tasks",
   data: { title: "Authenticated Gate 1 query", status: "open", potentialRevenue: "100", privateNote: "open-secret" }
 });
-await payload.create({
+const doneTask = await payload.create({
   collection: "sales-tasks",
   data: { title: "Done actor query", status: "done", potentialRevenue: "25", privateNote: "done-secret" }
+});
+const leadOpportunity = await payload.create({
+  collection: "sales-opportunities",
+  data: { name: "Lead opportunity", stage: "lead", value: "250" }
+});
+const wonOpportunity = await payload.create({
+  collection: "sales-opportunities",
+  data: { name: "Won opportunity", stage: "won", value: "500" }
 });
 
 const loginAs = (email) => payload.login({ collection: "users", data: { email, password }, overrideAccess: false });
@@ -117,6 +125,56 @@ assert.equal(doneResponse.status, 200);
 const doneResult = await doneResponse.json();
 assert.deepEqual(doneResult.data.rows.map((row) => row.values.title.value), ["Done actor query"]);
 assert.notDeepEqual(doneResult.data.rows, openResult.data.rows);
+
+const opportunitiesBody = {
+  ...sourceBody,
+  sourceId: "sales.opportunities",
+  selectedFields: ["name", "stage", "value"]
+};
+const opportunitiesResponse = await callSource(login.token, opportunitiesBody);
+assert.equal(opportunitiesResponse.status, 200);
+const opportunitiesResult = await opportunitiesResponse.json();
+assert.deepEqual(opportunitiesResult.data.rows.map((row) => row.values.name.value), ["Lead opportunity"]);
+const wonScopeResponse = await callSource(doneLogin.token, opportunitiesBody);
+assert.equal(wonScopeResponse.status, 200);
+assert.deepEqual((await wonScopeResponse.json()).data.rows.map((row) => row.values.name.value), ["Won opportunity"]);
+
+const metricResponse = await callSource(login.token, {
+  sourceId: "sales.total-potential-revenue",
+  surface: "workspace",
+  input: {},
+  query: { filters: [], sort: [] },
+  selectedFields: []
+});
+assert.equal(metricResponse.status, 200);
+assert.equal((await metricResponse.json()).data.value.value, "100");
+
+const actionEndpoint = payload.config.endpoints.find(({ path }) => path === "/k-nex/action");
+assert.ok(actionEndpoint);
+const callAction = async (token, actionId, input, idempotencyKey) => actionEndpoint.handler(await createPayloadRequest({
+  config: payload.config,
+  payloadInstanceCacheKey: key,
+  request: new Request("http://localhost/api/k-nex/action", {
+    method: "POST",
+    headers: { authorization: `JWT ${token}`, "content-type": "application/json", "idempotency-key": idempotencyKey },
+    body: JSON.stringify({ actionId, input })
+  })
+}));
+const createResponse = await callAction(login.token, "sales.task.create", { title: "Gateway-created task", status: "open" }, "action-create-1");
+assert.equal(createResponse.status, 200);
+const createdTask = (await createResponse.json()).data;
+const updateResponse = await callAction(login.token, "sales.task.update", { id: createdTask.id, status: "done" }, "action-update-1");
+assert.equal(updateResponse.status, 200);
+assert.equal((await updateResponse.json()).data.status, "done");
+const stageResponse = await callAction(login.token, "sales.opportunity.stage.update", { id: String(leadOpportunity.id), stage: "qualified" }, "action-stage-1");
+assert.equal(stageResponse.status, 200);
+assert.equal((await stageResponse.json()).data.stage, "qualified");
+const forbiddenTask = await callAction(login.token, "sales.task.update", { id: String(doneTask.id), status: "open" }, "action-forbidden-task");
+assert.equal(forbiddenTask.status, 403);
+assert.equal((await forbiddenTask.json()).code, "ACTION_TARGET_FORBIDDEN");
+const forbiddenOpportunity = await callAction(login.token, "sales.opportunity.stage.update", { id: String(wonOpportunity.id), stage: "lost" }, "action-forbidden-opportunity");
+assert.equal(forbiddenOpportunity.status, 403);
+assert.equal((await forbiddenOpportunity.json()).code, "ACTION_TARGET_FORBIDDEN");
 
 const unauthenticatedRequest = await createPayloadRequest({
   config: payload.config,

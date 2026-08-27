@@ -83,7 +83,7 @@ const payload = await bootGate1Application({ key: bootKey });
 
 try {
   await client.query("DELETE FROM sales_event_effects WHERE event_id LIKE 'p3-3-%'");
-  await client.query("DELETE FROM k_nex_outbox WHERE event_id LIKE 'p3-3-%'");
+  await client.query("DELETE FROM k_nex_outbox");
 
   await seed("p3-3-success", "task-success", new Date(Date.now() - 1_000), "2026-08-26T12:00:00.123Z");
   const success = await processNextPayloadOutboxEvent({ payload, subscriber });
