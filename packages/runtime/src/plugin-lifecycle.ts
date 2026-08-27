@@ -181,7 +181,7 @@ export function reconcilePluginAvailability(registration: RegistrationResult, st
 }
 
 export function assertExecutableRegistrationAuthority(registration: RegistrationResult): void {
-  if (registration.contributions.lifecycle.length > 0 && !authoritativeRegistrations.has(registration)) {
+  if (registration.contributions.lifecycle?.length > 0 && !authoritativeRegistrations.has(registration)) {
     fail("NOT_READY", "Lifecycle-owned registration requires authoritative availability reconciliation before execution.");
   }
 }

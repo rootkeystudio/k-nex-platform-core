@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Closed the second review: runtime-owned lifecycle authority, binding-resolved Sales event/realtime/job proof, runner-owned conformance with realpath containment, exact UI inventory, and localization reconciliation.
+Closed the Gate 2A compatibility regression exposed by full Gate 6: lifecycle authority now preserves legacy registrations that declare no lifecycle ownership.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: focused runtime 174, Payload adapter 31, Sales 34, conformance 2, real PostgreSQL and target-bound plugin conformance PASS; complete Gate 6 exact-head rerun pending.
+Node 24.19.0 / pnpm 11.9.0: focused runtime 174, Payload adapter 31, Sales 34, conformance 2, real PostgreSQL and target-bound plugin conformance PASS. Full Gate 6 reached Gate 2A, exposed the fixed legacy-registration regression, and requires an exact-head rerun.
 
 ## Next
 

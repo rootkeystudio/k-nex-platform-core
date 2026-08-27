@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PluginManifest } from "@k-nex/contracts";
 import {
+  assertExecutableRegistrationAuthority,
   assertPluginDestructiveOperationSafe,
   assertPluginUninstallSupported,
   createPluginLifecycleState,
@@ -53,6 +54,11 @@ const registration = {
 } as unknown as RegistrationResult;
 
 describe("plugin lifecycle", () => {
+  it("accepts legacy registrations without lifecycle ownership", () => {
+    const legacy = { ...registration, contributions: { tools: [] } } as unknown as RegistrationResult;
+    expect(() => assertExecutableRegistrationAuthority(legacy)).not.toThrow();
+  });
+
   it("plans source-controlled install and idempotent customer-owned template seeding", () => {
     const first = planPluginInstall({ manifest, package: { name: manifest.package, version: manifest.version, integrity } });
     expect(first).toEqual({ operation: "install", packageChange: { name: manifest.package, version: manifest.version, integrity }, requiresDeployment: true, seedTemplateIds: ["sales.page.tasks"] });
