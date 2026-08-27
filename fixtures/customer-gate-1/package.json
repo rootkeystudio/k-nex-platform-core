@@ -11,7 +11,7 @@
   "scripts": {
     "build": "tsc -b",
     "test": "pnpm build && node --test tests/payload-config.test.mjs",
-    "test:postgres": "pnpm build && node --test --test-concurrency=1 tests/backup-restore-postgres.test.mjs tests/migration-fence-postgres.test.mjs tests/postgres-gate.test.mjs"
+    "test:postgres": "pnpm build && node --test --test-concurrency=1 tests/backup-restore-postgres.test.mjs tests/migration-fence-postgres.test.mjs tests/postgres-gate.test.mjs tests/previous-release-upgrade-postgres.test.mjs"
   },
   "dependencies": {
     "@k-nex/composition": "workspace:*",

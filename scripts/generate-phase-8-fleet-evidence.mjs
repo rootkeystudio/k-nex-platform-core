@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { salesUpgradeMigrations, salesUpgradeTargets } from "../modules/sales/dist/migrations.js";
 import {
-  FleetRegistry, dryRunPluginUpgrade, planPluginUpgrade, restoredInventoryMatches, runtimeInventoryDigest
+  FleetRegistry, planPluginUpgrade, runtimeInventoryDigest, runtimeInventoryStateDigest
 } from "../packages/runtime/dist/index.js";
 import { createFixtureDeploymentVerifier } from "./lib/fixture-deployment-authority.mjs";
 
@@ -38,9 +38,7 @@ const upgradePlan = planPluginUpgrade({
   currentPlatformRelease: "0.1.0", targetPlatformRelease: "0.2.0", supportManifest,
   targets: salesUpgradeTargets, migrations: salesUpgradeMigrations
 });
-const betaArtifacts = Object.fromEntries(salesUpgradeTargets.map(({ artifactId }) => [artifactId, { revision: 1, customer: "customer-beta", preserved: true }]));
-const dryRun = dryRunPluginUpgrade(upgradePlan, betaArtifacts);
-assert.equal(upgradePlan.ready && dryRun.ready, true);
+assert.equal(upgradePlan.ready, true);
 write("fixtures/customer-beta/previous-release-upgrade.json", {
   schemaVersion: 1,
   platformRelease: { current: "0.1.0", target: "0.2.0" },
@@ -48,19 +46,17 @@ write("fixtures/customer-beta/previous-release-upgrade.json", {
   expectedPredecessorMigrationRevision: 6,
   targetMigrationRevision: 7,
   reviewedMigrationIds: upgradePlan.steps.map(({ id }) => id),
-  dryRunDiagnostics: dryRun.diagnostics,
-  preservedArtifacts: Object.keys(dryRun.artifacts).sort()
+  preservedArtifacts: salesUpgradeTargets.map(({ artifactId }) => artifactId).sort(),
+  postgresProof: { test: "fixtures/customer-gate-1/tests/previous-release-upgrade-postgres.test.mjs", database: "postgres:17.6", execution: "required-by-customer-postgres-suite" }
 });
 
 const alpha = read("customer-alpha", "runtime-inventory.json");
-const restored = structuredClone(alpha);
-assert.equal(restoredInventoryMatches(alpha, restored), true);
 write("fixtures/customer-alpha/restore-redeployment-proof.json", {
   schemaVersion: 1,
-  backupRestoreFixture: "backup-restore-postgres.test.mjs",
-  expectedInventoryDigest: runtimeInventoryDigest(alpha),
-  restoredInventoryDigest: runtimeInventoryDigest(restored),
-  matches: true,
+  backupRestoreFixture: "fixtures/customer-gate-1/tests/backup-restore-postgres.test.mjs",
+  expectedOperationalInventoryDigest: runtimeInventoryStateDigest(alpha),
+  observation: "clean-restored PostgreSQL runtime inventory",
+  execution: "required-by-customer-postgres-suite",
   externalEffects: "disabled-before-readiness"
 });
 
@@ -69,7 +65,7 @@ write("docs/implementation/phase-8-fleet-evidence.json", {
   deployments: deployments.map(({ inventory, receipt }) => ({ applicationId: inventory.applicationId, platformRelease: inventory.platformRelease, deploymentId: receipt.deploymentId, inventoryDigest: runtimeInventoryDigest(inventory) })),
   vulnerability: { package: "@k-nex/module-sales", affectedRange: "<1.0.1", targetVersion: "1.0.1", affectedApplications: affected.map(({ inventory }) => inventory.applicationId) },
   generatedPatchUpdates: patches.map(({ applicationId, repository, baseInventoryDigest }) => ({ applicationId, repository, baseInventoryDigest })),
-  previousReleaseUpgrade: { applicationId: "customer-beta", ready: dryRun.ready, stepCount: upgradePlan.steps.length },
-  restore: { applicationId: "customer-alpha", matchesExpectedInventory: true }
+  previousReleaseUpgrade: { applicationId: "customer-beta", postgresProof: "previous-release-upgrade-postgres.test.mjs", stepCount: upgradePlan.steps.length },
+  restore: { applicationId: "customer-alpha", postgresProof: "backup-restore-postgres.test.mjs", expectedOperationalInventoryDigest: runtimeInventoryStateDigest(alpha) }
 });
 process.stdout.write("P8_9_FLEET_EVIDENCE_PASS\n");

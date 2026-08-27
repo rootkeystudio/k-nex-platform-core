@@ -37,11 +37,12 @@
   ],
   "previousReleaseUpgrade": {
     "applicationId": "customer-beta",
-    "ready": true,
+    "postgresProof": "previous-release-upgrade-postgres.test.mjs",
     "stepCount": 8
   },
   "restore": {
     "applicationId": "customer-alpha",
-    "matchesExpectedInventory": true
+    "postgresProof": "backup-restore-postgres.test.mjs",
+    "expectedOperationalInventoryDigest": "sha256:66878f5fd69a2f56e37cd81f031f16eb9fda01e91338b8a276271088ec387389"
   }
 }

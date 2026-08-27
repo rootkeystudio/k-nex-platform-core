@@ -98,5 +98,11 @@ export class FleetRegistry {
 }
 
 export function restoredInventoryMatches(expected: RuntimeInventory, restored: RuntimeInventory): boolean {
-  return runtimeInventoryDigest(expected) === runtimeInventoryDigest(restored);
+  return runtimeInventoryStateDigest(expected) === runtimeInventoryStateDigest(restored);
+}
+
+export function runtimeInventoryStateDigest(inventory: RuntimeInventory): string {
+  const parsed = structuredClone(inventory);
+  parsed.observedAt = "2000-01-01T00:00:00.000Z";
+  return runtimeInventoryDigest(parsed);
 }
