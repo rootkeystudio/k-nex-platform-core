@@ -1,10 +1,10 @@
 import { snapshotPuckBlockBridge, reconcilePuckBlockContribution, type PuckBlockAuthoring, type PuckBlockBridge } from "@k-nex/builder-puck";
-import type { JsonValue, RuntimeSchema } from "@k-nex/contracts";
+import { assertJsonValue, resolveDataSourceFieldSelection, TableRecordsSchema, type DataSourceDescriptor, type JsonValue, type RuntimeSchema } from "@k-nex/contracts";
 import { createElement, useState, type ReactElement, type ReactNode } from "react";
 import { Accordion, Alert, Card, EmptyState, Grid, Heading, Section, Stack, Tabs, Text } from "@k-nex/ui-components";
-import { Metric, Table } from "@k-nex/ui-data";
+import { createDataTableState, DataTable, defineDataTable, Metric, type DataTableRequestState } from "@k-nex/ui-data";
 import { Form, FormActions, Select, TextInput } from "@k-nex/ui-forms";
-import type { UiBlockDefinition, UiContributionDefinition } from "@k-nex/ui-runtime";
+import { defineSourceQuery, type UiBlockDefinition, type UiContributionDefinition, type UiBlockRenderInput } from "@k-nex/ui-runtime";
 
 type FieldKind = "text" | "textarea" | "number" | "boolean";
 interface GenericField { readonly prop: string; readonly label: string; readonly kind: FieldKind; readonly defaultValue: JsonValue; }
@@ -28,10 +28,43 @@ const specs: readonly GenericBlock[] = Object.freeze([
   { id: "content.tabs", label: "Tabs", component: "Tabs", role: "tablist", allowChildren: true, fields: [{ prop: "label", label: "Label", kind: "text", defaultValue: "Tabs" }] },
   { id: "content.accordion", label: "Accordion", component: "Accordion", role: "generic", allowChildren: true, fields: [{ prop: "label", label: "Label", kind: "text", defaultValue: "Accordion" }] },
   { id: "content.metric", label: "Metric", component: "Metric", role: "status", allowChildren: false, fields: [{ prop: "label", label: "Label", kind: "text", defaultValue: "Metric" }] },
-  { id: "content.data-table", label: "DataTable", component: "Table", role: "table", allowChildren: false, fields: [{ prop: "title", label: "Title", kind: "text", defaultValue: "Data" }] },
+  { id: "content.data-table", label: "DataTable", component: "DataTable", role: "table", allowChildren: false, fields: [{ prop: "title", label: "Title", kind: "text", defaultValue: "Data" }] },
   { id: "content.form", label: "Form", component: "Form", role: "form", allowChildren: true, fields: [{ prop: "label", label: "Label", kind: "text", defaultValue: "Form" }] },
   { id: "content.empty-state", label: "EmptyState", component: "EmptyState", role: "generic", allowChildren: false, fields: [{ prop: "title", label: "Title", kind: "text", defaultValue: "Nothing here" }] }
 ]);
+
+const genericFormAction = Object.freeze({ id: "content.form.submit", version: 1 });
+function sourceInputSchema(source: DataSourceDescriptor): RuntimeSchema<Record<string, JsonValue>> {
+  return Object.freeze({
+    safeParse(value: unknown) {
+      if (value === null || typeof value !== "object" || Array.isArray(value)) return { success: false as const, error: new TypeError("Source input must be an object.") };
+      const record = value as Record<string, unknown>;
+      const fields = new Map(source.inputFields.map((field) => [field.id, field]));
+      if (Object.keys(record).some((key) => !fields.has(key))) return { success: false as const, error: new TypeError("Source input contains an undeclared field.") };
+      for (const field of source.inputFields) {
+        if (!Object.hasOwn(record, field.id)) {
+          if (field.required) return { success: false as const, error: new TypeError("Source input is missing a required field.") };
+          continue;
+        }
+        const candidate = record[field.id];
+        if (candidate === null) {
+          if (!field.nullable) return { success: false as const, error: new TypeError("Source input contains a non-nullable null.") };
+          continue;
+        }
+        const valid = field.kind === "integer" ? Number.isSafeInteger(candidate)
+          : field.kind === "number" ? typeof candidate === "number" && Number.isFinite(candidate)
+          : typeof candidate === "string";
+        if (!valid) return { success: false as const, error: new TypeError("Source input field type is invalid.") };
+      }
+      try {
+        assertJsonValue(value);
+        return { success: true as const, data: structuredClone(value) as Record<string, JsonValue> };
+      } catch (error) {
+        return { success: false as const, error };
+      }
+    }
+  });
+}
 
 export function createKNextComponentElement(component: unknown, props: Record<string, unknown>): unknown {
   if (typeof component !== "function") throw new TypeError("K-Nex component definition is not executable.");
@@ -74,7 +107,46 @@ function componentElement(component: unknown, props: Record<string, unknown>): R
   return createKNextComponentElement(component, props) as ReactElement;
 }
 
-function genericElement(spec: GenericBlock, props: Record<string, JsonValue>): ReactElement {
+function genericDataTableDefinition(input: UiBlockRenderInput) {
+  const source = input.source;
+  const binding = input.node.bindings?.source;
+  if (source === undefined || binding === undefined || source.primaryContract.id !== "table.records") throw new TypeError("Generic DataTable requires a bound table source.");
+  const requestedFields = binding.selectedFields ?? source.outputFields?.map(({ id }) => id) ?? [];
+  const allowedFields = new Set((source.outputFields ?? [])
+    .filter(({ permission }) => source.audience === "public" || input.actor.permissions.has(permission))
+    .map(({ id }) => id));
+  const selection = resolveDataSourceFieldSelection(source, requestedFields, allowedFields);
+  if (!selection.success) throw new TypeError(`Generic DataTable source fields are invalid: ${selection.reason}.`);
+  const selectedFields = selection.selectedFields;
+  const fields = (source.outputFields ?? []).filter(({ id }) => selectedFields.includes(id));
+  const query = defineSourceQuery({
+    source: { id: source.id, version: source.version },
+    input: sourceInputSchema(source),
+    output: TableRecordsSchema,
+    defaults: binding.input as Record<string, JsonValue>,
+    selectedFields,
+    isEmpty: (value) => value.rows.length === 0
+  });
+  return defineDataTable({
+    id: "content.data-table",
+    descriptor: source,
+    query,
+    columns: fields.map(({ id }) => ({ id, label: id })),
+    paginationModes: ["offset"],
+    defaultPageSize: Math.min(25, source.limits.maxPageSize),
+    ...(fields.find(({ filterOperators }) => filterOperators.includes("contains"))?.id === undefined ? {} : {
+      searchField: fields.find(({ filterOperators }) => filterOperators.includes("contains"))!.id
+    })
+  });
+}
+
+function genericDataTableRequestState(input: UiBlockRenderInput): DataTableRequestState {
+  if (input.sourceResult === undefined) return { state: "idle" };
+  if (input.sourceResult.state === "insufficient-permission") return { state: "insufficient-permission" };
+  return input.sourceResult as DataTableRequestState;
+}
+
+function genericElement(spec: GenericBlock, props: Record<string, JsonValue>, input: UiBlockRenderInput): ReactElement {
   const value = (key: string): string => String(props[key]);
   switch (spec.id) {
     case "content.stack": return componentElement(Stack, { gap: value("gap"), children: null });
@@ -87,8 +159,26 @@ function genericElement(spec: GenericBlock, props: Record<string, JsonValue>): R
     case "content.tabs": return componentElement(Tabs, { label: value("label"), items: [{ id: "default", label: value("label"), content: null }], selectedId: "default" });
     case "content.accordion": return componentElement(Accordion, { items: [{ id: "default", title: value("label"), content: null }] });
     case "content.metric": return componentElement(Metric, { label: value("label"), metric: { value: { kind: "number", value: 0 } } });
-    case "content.data-table": return componentElement(Table, { label: value("title"), columns: [{ id: "value", label: value("title") }], rows: [] });
-    case "content.form": return componentElement(Form, { label: value("label"), onSubmit: () => undefined, children: null });
+    case "content.data-table": {
+      const definition = genericDataTableDefinition(input);
+      return componentElement(DataTable, {
+        definition,
+        viewState: createDataTableState(definition),
+        requestState: genericDataTableRequestState(input),
+        label: value("title")
+      });
+    }
+    case "content.form": return createKNextActionFormElement({
+      label: value("label"),
+      fields: [{ name: "value", label: "Value", kind: "text", required: true }],
+      initialValues: { value: "" },
+      submitLabel: "Submit",
+      enabled: input.action !== undefined && input.dispatchAction !== undefined,
+      onSubmit: async (values) => {
+        if (input.action === undefined || input.dispatchAction === undefined) return;
+        await input.dispatchAction({ action: input.action, input: values, nodeId: input.node.id });
+      }
+    }) as ReactElement;
     case "content.empty-state": return componentElement(EmptyState, { title: value("title") });
   }
   throw new TypeError(`Unsupported generic block: ${spec.id}`);
@@ -116,13 +206,15 @@ function genericBridge(spec: GenericBlock): PuckBlockBridge {
     surfaces: ["cms", "public", "workspace"],
     audience: "public",
     propsSchema: schema,
-    render: ({ props, sourceResult }) => Object.freeze({
+    ...(spec.id === "content.data-table" ? { sourcePolicy: { required: true, contracts: [{ id: "table.records" as const, version: 1 as const }], requiredFields: [] } } : {}),
+    ...(spec.id === "content.form" ? { actionPolicy: { required: false, actions: [genericFormAction] } } : {}),
+    render: (input) => Object.freeze({
       kind: spec.id.slice("content.".length),
       component: spec.component,
-      accessibility: Object.freeze({ role: spec.role, label: String((props as Record<string, unknown>)[spec.fields[0]!.prop]) }),
-      props,
-      element: genericElement(spec, props as Record<string, JsonValue>),
-      ...(sourceResult === undefined ? {} : { state: sourceResult.state })
+      accessibility: Object.freeze({ role: spec.role, label: String((input.props as Record<string, unknown>)[spec.fields[0]!.prop]) }),
+      props: input.props,
+      element: genericElement(spec, input.props as Record<string, JsonValue>, input),
+      ...(input.sourceResult === undefined ? {} : { state: input.sourceResult.state })
     })
   };
   return snapshotPuckBlockBridge({
