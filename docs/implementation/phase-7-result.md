@@ -82,7 +82,7 @@ pnpm audit --audit-level high
 git diff --check
 ```
 
-The acceptance candidate passed with `GATE_7_PASS`. The audit reported no high or critical vulnerabilities (two low and three moderate).
+The acceptance candidate passed with `GATE_7_PASS`. The audit reported no high or critical vulnerabilities (two low and three moderate). Pack reproducibility requires consecutive raw pack bytes to match, a canonical committed gzip marker, and identical ordered exported entry names and contents. Platform-specific gzip streams or tar headers therefore cannot hide or fabricate a package-content change.
 
 Key Phase 7 totals: design-system 11 tests, components 12 tests, UI runtime 46 tests, UI data 17 tests, forms 11 tests, pages 1 test, builder Puck 35 tests, UI builder blocks 6 tests, UI testing 7 tests, Sales 23 Node tests plus 19 Vitest tests. Existing lower-gate contract/runtime/Payload/PostgreSQL and browser suites remain part of `gate:7`.
 
