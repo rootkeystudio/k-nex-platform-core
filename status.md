@@ -15,7 +15,7 @@ All formal-review blockers are corrected. Distinct prior/current/security-target
 
 ## Next
 
-Run exact-head Sol-high formal Phase 8 rereview. If PASS, push the stacked Phase 8 branch and open one PR against the preserved Phase 7 branch; leave it open without merge or auto-merge.
+Push the stacked Phase 8 branch and open one PR against the preserved Phase 7 branch; leave it open without merge or auto-merge.
 
 ## Blockers
 
