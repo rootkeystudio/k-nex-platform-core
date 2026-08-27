@@ -27,9 +27,11 @@ describe("release evidence", () => {
 
   it("verifies Ed25519 provenance and rejects payload or signature substitution", () => {
     const keys = generateKeyPairSync("ed25519");
+    const privateKey = keys.privateKey.export({ format: "pem", type: "pkcs8" }).toString();
+    const publicKey = keys.publicKey.export({ format: "pem", type: "spki" }).toString();
     const statement = createReleaseProvenance({ subjectName: "artifact.tgz", artifactDigest: digest("1"), sourceCommit, workflowIdentity: `repo/workflow@${sourceCommit}`, materials: [] });
-    const envelope = signReleaseProvenance(statement, keys.privateKey);
-    expect(verifyReleaseProvenance(envelope, keys.publicKey)).toEqual(statement);
-    expect(() => verifyReleaseProvenance({ ...envelope, payload: envelope.payload.replace("artifact", "tampered") }, keys.publicKey)).toThrow("signature is invalid");
+    const envelope = signReleaseProvenance(statement, privateKey);
+    expect(verifyReleaseProvenance(envelope, publicKey)).toEqual(statement);
+    expect(() => verifyReleaseProvenance({ ...envelope, payload: envelope.payload.replace("artifact", "tampered") }, publicKey)).toThrow("signature is invalid");
   });
 });

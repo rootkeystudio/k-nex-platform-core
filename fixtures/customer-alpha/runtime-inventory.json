@@ -1,0 +1,119 @@
+{
+  "schemaVersion": 1,
+  "applicationId": "customer-alpha",
+  "environment": "production",
+  "observedAt": "2026-08-27T12:00:00.000Z",
+  "artifactDigest": "sha256:5a32e7edc17fc3c6dbfa9ddc392a59c99cd31f9374469bc211ac8a71701e5f73",
+  "releaseEvidence": {
+    "sourceCommit": "60a433b245e7e31ab73aef5a24c9a8bedb30e9cf",
+    "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@60a433b245e7e31ab73aef5a24c9a8bedb30e9cf",
+    "manifestDigest": "sha256:a3aaf845c4f41aab65fdc0c9cec881ccf52ba56347da5d4f7596098925bf6b5e",
+    "lockfileDigest": "sha256:37cc0d277c7a4d7cc5ae644637c68d25931a72d89538cfcb96435d9d0092440f",
+    "resolvedGraphDigest": "sha256:92bc3c722ab037c3b02cb3a3f117d8ef43c3b3f2f1227bcb0add4b2bf6a8899d",
+    "sbomDigest": "sha256:8dbab50296a21ddd729af0079a76bb7d5d668c3ddcddef7103fb331ac6946bc7",
+    "provenanceDigest": "sha256:7c682c6b198a5d2d38105a2f888d2460c928a67841e045fb9fa2be438abd9218"
+  },
+  "packages": [
+    {
+      "package": "@k-nex/composition",
+      "version": "0.0.0",
+      "integrity": "sha256:c2c9bc9498eecc291e7410738c8caec68e6953bb50114f7b3f48798e15584022"
+    },
+    {
+      "package": "@k-nex/contracts",
+      "version": "0.0.0",
+      "integrity": "sha256:b19f5054972d53f1cb49d64f59fcb77fd28b81335616f6411db650563a7166b2"
+    },
+    {
+      "package": "@k-nex/module-sales",
+      "version": "1.0.0",
+      "integrity": "sha512-hmaeYjVkO2P6Pz19CziYRMNfbM7SH2p7buwA1InBVe6i6LUeLvbIhKbjyGV14hhnSt5Bm4YtQvAf9o+ZszGUqQ=="
+    },
+    {
+      "package": "@k-nex/payload-adapter",
+      "version": "0.0.0",
+      "integrity": "sha256:beec196dbfa58e40817e2cdd2beda635b194eb68aff83189df341a7cac0a0c6f"
+    },
+    {
+      "package": "@k-nex/runtime",
+      "version": "0.0.0",
+      "integrity": "sha256:80b3c1cbc74b40f9665e6dce37967d77d6a7bcedf1ec3a08130fa57e6b92680c"
+    },
+    {
+      "package": "@k-nex/theme-minimal",
+      "version": "0.0.0",
+      "integrity": "sha256:f444597eae80f42a18fd7ae725ec68cef77125e460246357846d922acc9fba69"
+    },
+    {
+      "package": "@payloadcms/db-postgres",
+      "version": "3.88.0",
+      "integrity": "sha512-uP2b3yH8MulguWSH7j8vJaFX3ols4fVKPtsvZ49XQvDsafBAAUZjc1aCldo1ozoVfhC46tx4pv0ovtHQc8zdcA=="
+    },
+    {
+      "package": "@payloadcms/next",
+      "version": "3.88.0",
+      "integrity": "sha512-3f2YOGSmtTp85YnlJm9FusRgshKJbiLI8uXs8iQNMwU7RZJnLCURG8iv/6sjKHO0owIfw3vIL5qgxdtIBuQwpA=="
+    },
+    {
+      "package": "graphql",
+      "version": "16.14.2",
+      "integrity": "sha512-Chq1s4CY7jmh8gO2qvLIJyfCDIN+EHLFW/9iShnp1z8FjBQMoodWP1kDC36VAMXXIvAjj4ARa7ntfAV2BrjsbA=="
+    },
+    {
+      "package": "next",
+      "version": "16.3.1",
+      "integrity": "sha512-hsAp0i7Rh+/dhe7DGIeN2YlpLM1DP4MNxti9EtDMtqcO612X81MvvEj388/oTce9U1EcEIOWDlGq0zRwrBKvuA=="
+    },
+    {
+      "package": "payload",
+      "version": "3.88.0",
+      "integrity": "sha512-O7zuS80bvEGLte+7xZjwN05+ox5BCsGcQT2M6+CTote07JQOOvHJoiuoyQFw6cUElcFTWGMC5dy03w7J7sTYGg=="
+    },
+    {
+      "package": "react",
+      "version": "19.2.8",
+      "integrity": "sha512-PWaYA1L/q9u2u7xYQi+Y3L3Yfnie7XyLeaJICV1MGD6LprsBxcAqGjYyr0eY3p+QdsA+x/Irkt4Qif8D63+Sbw=="
+    },
+    {
+      "package": "react-dom",
+      "version": "19.2.8",
+      "integrity": "sha512-rVprimfGBG3DR+Tq0IQG2DT5PxKth1WIGDmj5yPmlzr4YBe7uyE+Du4oVqTDXZSHGGGXRtTJEGSSePyQCMBglQ=="
+    }
+  ],
+  "plugins": [
+    {
+      "id": "module.sales",
+      "package": "@k-nex/module-sales",
+      "version": "1.0.0",
+      "enabled": true
+    }
+  ],
+  "migrationRevision": 7,
+  "settings": [
+    {
+      "id": "sales.settings",
+      "schemaVersion": 1,
+      "revision": 1
+    }
+  ],
+  "templates": [
+    {
+      "id": "sales.page.tasks",
+      "templateVersion": 1,
+      "revision": 1
+    },
+    {
+      "id": "sales.page.opportunities",
+      "templateVersion": 1,
+      "revision": 1
+    }
+  ],
+  "health": {
+    "status": "ready",
+    "checks": [
+      "database",
+      "default-pages",
+      "sales-registration"
+    ]
+  }
+}

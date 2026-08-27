@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-27
 - **Phase:** Phase 8 — Lifecycle, Application Factory, Release, and Fleet Safety
-- **Active task:** P8.8 — Deployment receipts and runtime inventory
+- **Active task:** P8.9 — Fleet query, patch propagation, prior-release upgrade, and restore
 - **State:** In progress
 
 ## Last completed
 
-P8.7 added deterministic CycloneDX 1.6 SBOM generation and canonical provenance that binds source, full-SHA workflow, application manifest, lockfile, graph/plan, SBOM, and release artifact digests. Local Ed25519 tests prove signature verification and tamper refusal. The hosted release workflow uses least-privilege GitHub OIDC plus `actions/attest` pinned to a complete SHA for provenance and SBOM attestations. No SLSA level is claimed.
+P8.8 added generated runtime-inventory and deployment-receipt contracts plus exact reconciliation. Each customer fixture now records the deployed artifact, full-SHA release evidence, exact package/plugin graph, migration revision, secret-free settings/template revisions, health, smoke, and readiness. Receipts are digest-bound to observed inventory and reject artifact, migration, health, or outcome drift.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: composition build and 80 tests PASS. Release evidence generator smoke PASS against the packed Sales artifact and Customer Alpha lock/manifest/plan; emitted valid CycloneDX and digest-bound provenance. GitHub artifact-attestation configuration was checked against current official documentation.
+Node 24.19.0 / pnpm 11.9.0: contracts build and 147 tests PASS; runtime build and 192 tests PASS; both customer deployment evidence sets reconcile and the combined fixture validator emits `P8_6_CUSTOMER_FIXTURES_PASS`. Contract generation produced runtime-inventory and deployment-receipt JSON Schemas plus updated generated inventory.
 
 ## Next
 
-Implement P8.8 deployment receipt and observed runtime inventory contracts, binding deployed artifacts and migration state to release evidence.
+Implement P8.9 authoritative fleet ingestion/query, vulnerable-range impact, customer-specific patch plans, prior-release Sales upgrade, and restore-to-inventory reconciliation.
 
 ## Blockers
 

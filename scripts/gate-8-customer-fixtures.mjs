@@ -6,6 +6,8 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ApplicationManifestSchema } from "../packages/contracts/dist/index.js";
+import { DeploymentReceiptSchema, RuntimeInventorySchema } from "../packages/contracts/dist/index.js";
+import { reconcileDeploymentReceipt } from "../packages/runtime/dist/index.js";
 
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 const requireFromComposition = createRequire(resolve(repositoryRoot, "packages/composition/package.json"));
@@ -20,6 +22,8 @@ for (const customer of selected) {
   const overrides = JSON.parse(readFileSync(resolve(root, "customer-overrides.json"), "utf8"));
   const lockContent = readFileSync(resolve(root, "pnpm-lock.yaml"), "utf8");
   const lock = YAML.parse(lockContent);
+  const inventory = RuntimeInventorySchema.parse(JSON.parse(readFileSync(resolve(root, "runtime-inventory.json"), "utf8")));
+  const receipt = DeploymentReceiptSchema.parse(JSON.parse(readFileSync(resolve(root, "deployment-receipt.json"), "utf8")));
   assert.deepEqual(manifest.plugins, [{ id: "module.sales", package: "@k-nex/module-sales", version: "1.0.0", enabled: true }]);
   assert.deepEqual(Object.keys(lock.importers), ["."]);
   assert.equal(lock.importers["."].dependencies["@k-nex/module-sales"].specifier, "workspace:1.0.0");
@@ -28,6 +32,10 @@ for (const customer of selected) {
   assert.ok(overrides.defaultPages.every((page) => page.startsWith("sales.page.")));
   assert.ok(Object.keys(overrides.permissions).length === 1 && overrides.layout.role in overrides.permissions);
   assert.match(overrides.releaseRevision, new RegExp(`^${customer}/`, "u"));
+  assert.equal(inventory.applicationId, customer);
+  assert.deepEqual(inventory.plugins, manifest.plugins);
+  assert.equal(inventory.settings.every((entry) => !("values" in entry)), true);
+  assert.equal(reconcileDeploymentReceipt(receipt, inventory), true);
   evidence.push({
     customer,
     database: manifest.development.database.mode,
