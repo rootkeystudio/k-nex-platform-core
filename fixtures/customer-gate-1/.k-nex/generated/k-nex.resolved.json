@@ -69,7 +69,7 @@
         "names": []
       },
       "id": "module.sales",
-      "integrity": "sha512-Z1u3MCuW8O79dofQpme6WW7oMNAhqovi4Q6DStTdKoVUfs1kGsqoUFHU294FOp8bdC+4XS/In0ph89C6ymJ6oQ==",
+      "integrity": "sha512-o5JzCQj0fSggBW1uB6mjqL4R2Omq1wRPi2TSM2Ji/UyAEWnDS4vX8+D+W16H7kj7eetXqn9o3g0qbZFxV/P0lg==",
       "kind": "module",
       "lifecycle": {
         "disable": "supported",

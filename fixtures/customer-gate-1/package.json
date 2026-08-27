@@ -16,6 +16,7 @@
   "dependencies": {
     "@k-nex/composition": "workspace:*",
     "@k-nex/runtime": "workspace:*",
+    "@k-nex/ui-runtime": "workspace:*",
     "@k-nex/contracts": "workspace:*",
     "@k-nex/module-sales": "file:packages/k-nex-module-sales-1.0.0.tgz",
     "@k-nex/payload-adapter": "workspace:*",

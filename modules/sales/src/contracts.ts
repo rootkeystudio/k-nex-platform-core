@@ -2,12 +2,16 @@ import type {
   AgentToolDescriptor,
   AgentToolJsonSchema,
   DataSourceDescriptor,
+  MetricScalar,
   PermissionDescriptor,
   PluginNavigationDescriptor,
   PluginPageTemplateDescriptor,
   PluginRouteDescriptor,
-  PluginSettingsDescriptor
+  PluginSettingsDescriptor,
+  RuntimeSchema,
+  TableRecords
 } from "@k-nex/contracts";
+import { MetricScalarSchema, TableRecordsSchema } from "@k-nex/contracts";
 
 const salesSourceLimits = Object.freeze({
   maxSelectedFields: 8,
@@ -161,6 +165,92 @@ export interface CreateTaskOutput {
   readonly title: string;
   readonly status: "open" | "done";
 }
+
+const salesDecimalPattern = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/;
+const salesRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+const invalidRuntimeValue = (message: string) => ({ success: false as const, error: new Error(message) });
+
+export const salesEmptyInputRuntimeSchema: RuntimeSchema<Record<string, never>> = {
+  safeParse(value) {
+    return salesRecord(value) && Object.keys(value).length === 0
+      ? { success: true as const, data: {} }
+      : invalidRuntimeValue("Sales data-source input must be empty.");
+  }
+};
+
+export const salesCreateTaskInputRuntimeSchema: RuntimeSchema<CreateTaskInput> = {
+  safeParse(value) {
+    if (!salesRecord(value) || Object.keys(value).some((key) => !["title", "status", "potentialRevenue", "privateNote"].includes(key))) {
+      return invalidRuntimeValue("Sales task input must be a closed object.");
+    }
+    if (typeof value.title !== "string" || value.title.length < 1 || value.title.length > 256) return invalidRuntimeValue("Sales task title is invalid.");
+    if (value.status !== undefined && value.status !== "open" && value.status !== "done") return invalidRuntimeValue("Sales task status is invalid.");
+    if (value.potentialRevenue !== undefined && (typeof value.potentialRevenue !== "string" || value.potentialRevenue.length > 64 || !salesDecimalPattern.test(value.potentialRevenue))) {
+      return invalidRuntimeValue("Sales task revenue is invalid.");
+    }
+    if (value.privateNote !== undefined && (typeof value.privateNote !== "string" || value.privateNote.length < 1 || value.privateNote.length > 4_096)) {
+      return invalidRuntimeValue("Sales task private note is invalid.");
+    }
+    return { success: true as const, data: {
+      title: value.title,
+      ...(value.status === undefined ? {} : { status: value.status }),
+      ...(value.potentialRevenue === undefined ? {} : { potentialRevenue: value.potentialRevenue }),
+      ...(value.privateNote === undefined ? {} : { privateNote: value.privateNote })
+    } };
+  }
+};
+
+export const salesCreateTaskOutputRuntimeSchema: RuntimeSchema<CreateTaskOutput> = {
+  safeParse(value) {
+    if (!salesRecord(value) || Object.keys(value).sort().join("\u0000") !== "id\u0000status\u0000title" ||
+      typeof value.id !== "string" || value.id.length < 1 || value.id.length > 128 ||
+      typeof value.title !== "string" || value.title.length < 1 || value.title.length > 256 ||
+      value.status !== "open" && value.status !== "done") return invalidRuntimeValue("Sales task action output is invalid.");
+    return { success: true as const, data: value as unknown as CreateTaskOutput };
+  }
+};
+
+export const salesTotalPotentialRevenueOutputRuntimeSchema: RuntimeSchema<MetricScalar> = {
+  safeParse(value) {
+    const parsed = MetricScalarSchema.safeParse(value);
+    if (!parsed.success) return parsed;
+    if (Object.keys(parsed.data).join("\u0000") !== "value" || parsed.data.value.kind !== "money" || parsed.data.value.currency !== "USD" || "rounding" in parsed.data.value) {
+      return invalidRuntimeValue("Sales revenue output must be an exact USD money metric.");
+    }
+    return parsed;
+  }
+};
+
+const salesTaskOutputFieldIds = new Set(salesTaskFields.map((field) => field.id));
+const salesRequiredTaskOutputFieldIds = new Set(salesTaskFields.filter((field) => field.binding === "required").map((field) => field.id));
+
+function exactSalesTaskCell(fieldId: string, cell: unknown): boolean {
+  const field = salesTaskFields.find((candidate) => candidate.id === fieldId);
+  if (field === undefined) return false;
+  if (cell === null) return field.nullable;
+  if (!salesRecord(cell) || cell.kind !== field.kind) return false;
+  const expectedKeys = field.kind === "money" ? ["kind", "value", "currency", "scale"] : ["kind", "value"];
+  if (Object.keys(cell).join("\u0000") !== expectedKeys.join("\u0000") || !field.nullable && cell.value === null) return false;
+  if (fieldId === "potential-revenue" && cell.currency !== "USD") return false;
+  return fieldId !== "status" || cell.value === "open" || cell.value === "done";
+}
+
+export const salesTasksOutputRuntimeSchema: RuntimeSchema<TableRecords> = {
+  safeParse(value) {
+    const parsed = TableRecordsSchema.safeParse(value);
+    if (!parsed.success) return parsed;
+    const { fields, rows } = parsed.data;
+    if (fields.some((fieldId) => !salesTaskOutputFieldIds.has(fieldId)) || [...salesRequiredTaskOutputFieldIds].some((fieldId) => !fields.includes(fieldId))) {
+      return invalidRuntimeValue("Sales task output fields do not match the source descriptor.");
+    }
+    for (const row of rows) {
+      if (Object.keys(row.values).join("\u0000") !== fields.join("\u0000") || fields.some((fieldId) => !exactSalesTaskCell(fieldId, row.values[fieldId]))) {
+        return invalidRuntimeValue("Sales task row cells do not match the source descriptor.");
+      }
+    }
+    return parsed;
+  }
+};
 
 export const salesTaskCreateDescriptor = {
   id: "sales.task.create",

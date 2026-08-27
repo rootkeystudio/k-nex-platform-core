@@ -1,6 +1,4 @@
 import {
-  MetricScalarSchema,
-  TableRecordsSchema,
   type RuntimeSchema,
   type DataSourceDefinition,
   type DataSourceQueryControls,
@@ -18,6 +16,9 @@ import type { CollectionConfig } from "payload";
 
 import {
   salesCreateTaskToolDescriptor,
+  salesCreateTaskInputRuntimeSchema,
+  salesCreateTaskOutputRuntimeSchema,
+  salesEmptyInputRuntimeSchema,
   salesNavigationDescriptors,
   salesPermissionDescriptors,
   salesRouteDescriptors,
@@ -26,7 +27,9 @@ import {
   salesTaskPageTemplate,
   salesTaskFields,
   salesTasksDescriptor,
+  salesTasksOutputRuntimeSchema,
   salesTotalPotentialRevenueDescriptor,
+  salesTotalPotentialRevenueOutputRuntimeSchema,
   salesWorkspaceSettingsDescriptor,
   type CreateTaskInput,
   type CreateTaskOutput
@@ -53,9 +56,6 @@ const salesTaskFieldStorage = {
 } as const;
 
 const salesTaskFieldIds = new Set(Object.keys(salesTaskFieldStorage));
-const salesRequiredTaskFieldIds = new Set(
-  salesTaskFields?.filter((field) => field.binding === "required").map((field) => field.id) ?? []
-);
 const decimalPattern = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/;
 
 interface SalesPayloadRequest {
@@ -340,138 +340,20 @@ function invalidOutput(message: string) {
   return { success: false as const, error: new Error(message) };
 }
 
-const salesTotalPotentialRevenueOutputSchema = {
-  safeParse(value: unknown) {
-    const parsed = MetricScalarSchema.safeParse(value);
-    if (!parsed.success) return parsed;
-    if (Object.keys(parsed.data).join("\u0000") !== "value") return invalidOutput("Sales revenue metrics cannot include comparisons.");
-    const metricValue = parsed.data.value;
-    if (metricValue.kind !== "money" || metricValue.currency !== "USD") {
-      return invalidOutput("Sales revenue metrics must be USD money values.");
-    }
-    if (Object.keys(metricValue).some((key) => key === "rounding")) {
-      return invalidOutput("Sales revenue metrics must use the source money shape.");
-    }
-    return parsed;
-  }
-};
-
-function exactTaskCell(fieldId: string, cell: unknown): boolean {
-  const field = salesTaskFields?.find((candidate) => candidate.id === fieldId);
-  if (field === undefined) return false;
-  if (cell === null) return field.nullable;
-  if (!isRecord(cell) || cell.kind !== field.kind) return false;
-  const expectedKeys = field.kind === "money"
-    ? ["kind", "value", "currency", "scale"]
-    : ["kind", "value"];
-  if (Object.keys(cell).join("\u0000") !== expectedKeys.join("\u0000")) return false;
-  if (!field.nullable && cell.value === null) return false;
-  if (fieldId === "potential-revenue" && cell.currency !== "USD") return false;
-  if (fieldId === "status" && cell.value !== "open" && cell.value !== "done") return false;
-  return true;
-}
-
-const salesTasksOutputSchema = {
-  safeParse(value: unknown) {
-    const parsed = TableRecordsSchema.safeParse(value);
-    if (!parsed.success) return parsed;
-    const { fields, rows } = parsed.data;
-    if (fields.some((fieldId) => !salesTaskFieldIds.has(fieldId)) || [...salesRequiredTaskFieldIds].some((fieldId) => !fields.includes(fieldId))) {
-      return invalidOutput("Sales task output fields do not match the source descriptor.");
-    }
-    for (const row of rows) {
-      const valueKeys = Object.keys(row.values);
-      if (valueKeys.join("\u0000") !== fields.join("\u0000")) {
-        return invalidOutput("Sales task rows must contain the selected fields in source order.");
-      }
-      for (const fieldId of fields) {
-        if (!exactTaskCell(fieldId, row.values[fieldId])) {
-          return invalidOutput("Sales task row cells do not match the source descriptor.");
-        }
-      }
-    }
-    return parsed;
-  }
-};
-
 export const salesTotalPotentialRevenueDefinition: DataSourceDefinition = {
   descriptor: salesTotalPotentialRevenueDescriptor,
-  inputSchema: zodEmptyObject(),
-  outputSchema: salesTotalPotentialRevenueOutputSchema
+  inputSchema: salesEmptyInputRuntimeSchema,
+  outputSchema: salesTotalPotentialRevenueOutputRuntimeSchema
 };
 
 export const salesTasksDefinition: DataSourceDefinition = {
   descriptor: salesTasksDescriptor,
-  inputSchema: zodEmptyObject(),
-  outputSchema: salesTasksOutputSchema
+  inputSchema: salesEmptyInputRuntimeSchema,
+  outputSchema: salesTasksOutputRuntimeSchema
 };
-
-function zodEmptyObject() {
-  return {
-    safeParse(value: unknown) {
-      return isRecord(value) && Object.keys(value).length === 0
-        ? { success: true as const, data: {} }
-        : { success: false as const, error: new Error("Sales data-source input must be empty.") };
-    }
-  };
-}
 
 export const salesTotalPotentialRevenueHandler: DataSourceHandler = totalPotentialRevenue;
 export const salesTasksHandler: DataSourceHandler = tasksTable;
-
-const salesCreateTaskInputRuntimeSchema: RuntimeSchema<CreateTaskInput> = {
-  safeParse(value: unknown) {
-    if (!isRecord(value) || Object.keys(value).some((key) => !["title", "status", "potentialRevenue", "privateNote"].includes(key))) {
-      return invalidOutput("Sales task input must be a closed object.");
-    }
-    if (typeof value.title !== "string" || value.title.length < 1 || value.title.length > 256) {
-      return invalidOutput("Sales task titles must be non-empty text up to 256 characters.");
-    }
-    if (value.status !== undefined && value.status !== "open" && value.status !== "done") {
-      return invalidOutput("Sales task status must be open or done.");
-    }
-    if (value.potentialRevenue !== undefined && (typeof value.potentialRevenue !== "string" || value.potentialRevenue.length < 1 || value.potentialRevenue.length > 64)) {
-      return invalidOutput("Sales task revenue must be a bounded decimal string.");
-    }
-    if (value.privateNote !== undefined && (typeof value.privateNote !== "string" || value.privateNote.length < 1 || value.privateNote.length > 4_096)) {
-      return invalidOutput("Sales task private notes must be bounded non-empty text.");
-    }
-    if (value.potentialRevenue !== undefined) {
-      try {
-        parseAmount(value.potentialRevenue);
-      } catch {
-        return invalidOutput("Sales task revenue must be a canonical decimal.");
-      }
-    }
-    return {
-      success: true as const,
-      data: {
-        title: value.title,
-        ...(value.status === undefined ? {} : { status: value.status }),
-        ...(value.potentialRevenue === undefined ? {} : { potentialRevenue: value.potentialRevenue }),
-        ...(value.privateNote === undefined ? {} : { privateNote: value.privateNote })
-      }
-    };
-  }
-};
-
-const salesCreateTaskOutputRuntimeSchema: RuntimeSchema<CreateTaskOutput> = {
-  safeParse(value: unknown) {
-    if (!isRecord(value) || Object.keys(value).sort().join("\u0000") !== "id\u0000status\u0000title") {
-      return invalidOutput("Sales task action output has an invalid shape.");
-    }
-    if (typeof value.id !== "string" || value.id.length === 0 || value.id.length > 128) {
-      return invalidOutput("Sales task action output requires a stable ID.");
-    }
-    if (typeof value.title !== "string" || value.title.length === 0 || value.title.length > 256) {
-      return invalidOutput("Sales task action output requires a task title.");
-    }
-    if (value.status !== "open" && value.status !== "done") {
-      return invalidOutput("Sales task action output requires a valid status.");
-    }
-    return { success: true as const, data: value as unknown as CreateTaskOutput };
-  }
-};
 
 export const salesTaskCreateDefinition: ActionDefinition<CreateTaskInput, CreateTaskOutput> = {
   descriptor: salesTaskCreateDescriptor,

@@ -213,6 +213,8 @@ A module may explicitly project selected registered sources/actions as tools. To
 
 Raw Payload collection exposure and module-owned ambient MCP handlers are prohibited.
 
+Browser entrypoints declare data behavior with `defineSourceQuery` and `defineActionMutation`. These immutable, query-library-neutral definitions validate input/output, use only the injected platform transport, forward cancellation, expose standard result states, derive authorization-safe stable query identities, and declare source invalidation. `serializeBrowserViewState` provides bounded canonical URL-safe state and rejects actor or authorization record scope.
+
 ## Events, jobs, and realtime
 
 Modules classify event semantics explicitly:

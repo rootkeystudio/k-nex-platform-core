@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-27
 - **Phase:** Phase 6 — Plugin Platform Hardening and Sales Reference Module
-- **Active task:** P6.5 — Implement standard browser query and action factories
+- **Active task:** P6.6 — Implement component, Puck-block, route, and page contribution registration
 - **State:** Ready to start
 
 ## Last completed
 
-Completed P6.4: added immutable customer-owned page-template contracts, exact capability/resource preflight, atomic idempotent instantiation, and explicit compare/adopt migrations with optimistic revision safety; Sales supplies the reference task template.
+Completed P6.5: added library-neutral source-query and action-mutation factories, injected platform transport, cancellation and standard result states, stable authorization-safe identity, deterministic invalidation, and bounded URL-safe view state; Sales browser exports exercise both factories.
 
 ## Validation
 
-Node 24.19.0: full monorepo build; contracts 136, runtime 168, UI runtime 34, Payload adapter 41, Sales 9, customer fixture 1; Sales boundary/exact pack and generated fixture checks; immutable template first-install/retry/customer-edit/missing-resource/failed-migration proofs.
+Node 24.19.0: full monorepo build; contracts 136, runtime 168, UI runtime 40, Payload adapter 41, Sales 11, customer fixture 1; Sales boundary/exact pack and generated fixture checks; stable identity, injected transport, ignored-signal cancellation, result-state, invalidation, URL-safe state, and scope-rejection proofs.
 
 ## Next
 
-Implement P6.5 library-neutral browser query/action factories, cancellation/result states, stable identity, invalidation, and URL-safe view state.
+Implement P6.6 component/block descriptors, renderer bindings, canonical props, policy/state metadata, Puck reconciliation, and route/template inventory.
 
 ## Blockers
 
