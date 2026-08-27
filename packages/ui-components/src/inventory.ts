@@ -57,21 +57,23 @@ const galleryGroups = {
   content: ["Heading"],
   feedback: ["Alert", "Badge", "EmptyState", "ProgressBar", "ProgressIndicator", "Skeleton", "Spinner", "Toast"],
   navigation: ["Breadcrumbs", "Button", "ButtonGroup", "DropdownMenu", "Navigation", "Pagination", "SegmentedControl", "SkipLink", "Tabs", "TreeView"],
-  forms: ["Checkbox", "ColorPicker", "Combobox", "DateInput", "DatePicker", "Fieldset", "FileUpload", "Form", "Label", "RadioGroup", "Rating", "SearchInput", "Select", "Slider", "Stepper", "TextInput", "Textarea", "Toggle"],
-  overlay: ["Accordion", "Carousel", "Drawer", "Dialog", "Popover", "Tooltip"],
+  forms: ["Checkbox", "ColorPicker", "Combobox", "DateInput", "DatePicker", "Fieldset", "FileUpload", "Form", "Label", "RadioButton", "Rating", "SearchInput", "Select", "Slider", "Stepper", "TextInput", "Textarea", "Toggle"],
+  overlay: ["Accordion", "Carousel", "Drawer", "Modal", "Popover", "Tooltip"],
   data: ["Table", "RichTextEditor"]
 } as const;
 
 const platformGroups = {
   foundation: ["Box", "Inline", "Grid", "Container", "PageShell", "PageHeader", "Section", "Toolbar", "ActionBar", "SplitView", "ScrollableArea", "AspectRatio", "Portal", "FocusScope"],
   content: ["Text", "Status", "RichTextRenderer"],
-  forms: ["FormField", "FieldDescription", "FieldError", "InputGroup", "PasswordInput", "NumberInput", "CurrencyInput", "PhoneInput", "URLInput", "TimeInput", "DateRangePicker", "MultiSelect", "TagInput", "Autocomplete", "FormActions", "UnsavedChangesGuard"],
+  feedback: ["Progress"],
+  forms: ["FormField", "FieldDescription", "FieldError", "InputGroup", "PasswordInput", "NumberInput", "CurrencyInput", "PhoneInput", "URLInput", "TimeInput", "DateRangePicker", "MultiSelect", "TagInput", "Autocomplete", "RadioGroup", "FormActions", "UnsavedChangesGuard"],
+  overlay: ["Dialog"],
   data: ["QueryBoundary", "LoadingState", "ErrorState", "ForbiddenState", "InsufficientPermissionState", "StaleState", "DataList", "KeyValueList", "DescriptionList", "Metric", "MetricGroup", "StatCard", "DataTable", "DataGrid", "FilterBar", "FacetFilter", "SortControl", "SearchControl", "ColumnChooser", "DensityControl", "SelectionSummary", "BulkActionBar", "RowActions", "DetailPanel", "LoadMore", "InfiniteList", "VirtualList"],
   pages: ["DashboardPage", "IndexPage", "DetailPage", "CreatePage", "EditPage", "SettingsPage", "WizardPage", "BuilderPage"]
 } as const;
 
 const nativeNames = new Set(["Box", "Inline", "Grid", "Container", "Section", "Text", "Heading", "Link", "List", "Image", "Separator", "VisuallyHidden", "Badge", "ProgressBar", "Fieldset", "Form", "Label", "SearchInput", "TextInput", "Textarea", "DateInput", "TimeInput", "Table", "Header", "Footer", "Quote", "Video"]);
-const reactAriaNames = new Set(["Button", "ButtonGroup", "DropdownMenu", "Navigation", "Pagination", "SegmentedControl", "Tabs", "TreeView", "Checkbox", "ColorPicker", "Combobox", "DatePicker", "FileUpload", "RadioGroup", "Rating", "Select", "Slider", "Stepper", "Toggle", "Accordion", "Carousel", "Drawer", "Dialog", "Popover", "Tooltip", "Toast", "FocusScope", "Portal", "MultiSelect", "TagInput", "Autocomplete"]);
+const reactAriaNames = new Set(["Button", "ButtonGroup", "DropdownMenu", "Navigation", "Pagination", "SegmentedControl", "Tabs", "TreeView", "Checkbox", "ColorPicker", "Combobox", "DatePicker", "FileUpload", "RadioButton", "RadioGroup", "Rating", "Select", "Slider", "Stepper", "Toggle", "Accordion", "Carousel", "Drawer", "Modal", "Dialog", "Popover", "Tooltip", "Toast", "FocusScope", "Portal", "MultiSelect", "TagInput", "Autocomplete"]);
 const complexSources = new Map<string, ComponentBehaviorSource>([["DataTable", "tanstack-table-adapter"], ["DataGrid", "tanstack-table-adapter"], ["VirtualList", "tanstack-virtual-adapter"], ["RichTextEditor", "lexical-adapter"]]);
 const slotParts = new Map<string, readonly string[]>([
   ["DataTable", ["root", "header", "row", "cell", "sort-trigger"]],

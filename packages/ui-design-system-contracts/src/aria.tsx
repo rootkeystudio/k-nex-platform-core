@@ -37,7 +37,7 @@ function fieldMessages(description: string | undefined, error: string | undefine
 }
 
 export function Link({ children, href, isExternal = false }: LinkProps): ReactElement {
-  return <AriaLink href={href} {...(isExternal ? { target: "_blank", rel: "noreferrer" } : {})} data-k-nex-primitive="link">{children}</AriaLink>;
+  return <AriaLink href={href} {...(isExternal ? { target: "_blank", rel: "noreferrer" } : {})} data-k-nex-primitive="link" data-k-nex-component="link" data-slot="root">{children}</AriaLink>;
 }
 
 export function Button({ children, type = "button", variant = "primary", isDisabled = false, onPress }: ButtonProps): ReactElement {
