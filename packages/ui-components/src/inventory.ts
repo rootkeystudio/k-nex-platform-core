@@ -72,8 +72,8 @@ const platformGroups = {
   pages: ["DashboardPage", "IndexPage", "DetailPage", "CreatePage", "EditPage", "SettingsPage", "WizardPage", "BuilderPage"]
 } as const;
 
-const nativeNames = new Set(["Box", "Inline", "Grid", "Container", "Section", "Text", "Heading", "Link", "List", "Image", "Separator", "VisuallyHidden", "Badge", "ProgressBar", "Fieldset", "Form", "Label", "SearchInput", "TextInput", "Textarea", "DateInput", "TimeInput", "Table", "Header", "Footer", "Quote", "Video"]);
-const reactAriaNames = new Set(["Button", "ButtonGroup", "DropdownMenu", "Navigation", "Pagination", "SegmentedControl", "Tabs", "TreeView", "Checkbox", "ColorPicker", "Combobox", "DatePicker", "FileUpload", "RadioButton", "RadioGroup", "Rating", "Select", "Slider", "Stepper", "Toggle", "Accordion", "Carousel", "Drawer", "Modal", "Dialog", "Popover", "Tooltip", "Toast", "FocusScope", "Portal", "MultiSelect", "TagInput", "Autocomplete"]);
+const nativeNames = new Set(["Box", "Inline", "Grid", "Container", "Section", "Text", "Heading", "Link", "List", "Image", "Separator", "VisuallyHidden", "Badge", "ProgressBar", "Fieldset", "Form", "Label", "SearchInput", "TextInput", "Textarea", "DateInput", "DatePicker", "TimeInput", "Table", "Header", "Footer", "Quote", "Video", "Checkbox", "ColorPicker", "Combobox", "FileUpload", "RadioButton", "RadioGroup", "Select", "Slider", "Toggle", "MultiSelect"]);
+const reactAriaNames = new Set(["Button", "ButtonGroup", "DropdownMenu", "Navigation", "Pagination", "SegmentedControl", "Tabs", "TreeView", "Rating", "Stepper", "Accordion", "Carousel", "Drawer", "Modal", "Dialog", "Popover", "Tooltip", "Toast", "FocusScope", "Portal", "TagInput", "Autocomplete"]);
 const complexSources = new Map<string, ComponentBehaviorSource>([["DataTable", "tanstack-table-adapter"], ["DataGrid", "tanstack-table-adapter"], ["VirtualList", "tanstack-virtual-adapter"], ["RichTextEditor", "lexical-adapter"]]);
 const slotParts = new Map<string, readonly string[]>([
   ["DataTable", ["root", "header", "row", "cell", "sort-trigger"]],
