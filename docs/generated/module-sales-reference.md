@@ -4,7 +4,7 @@
 
 - Plugin: `module.sales`
 - Package: `@k-nex/module-sales@1.0.0`
-- Entrypoints: `./browser`, `./contracts`, `./manifest`, `./migrations`, `./pages`, `./server`, `./testing`, `./ui`
+- Entrypoints: `./browser`, `./contracts`, `./manifest`, `./migrations`, `./pages`, `./payload-baseline-down.sql`, `./payload-baseline-up.sql`, `./server`, `./testing`, `./ui`
 
 ## Contributions
 

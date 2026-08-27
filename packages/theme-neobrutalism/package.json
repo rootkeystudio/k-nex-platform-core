@@ -2,6 +2,7 @@
   "name": "@k-nex/theme-neobrutalism",
   "version": "0.0.0",
   "private": true,
+  "files": ["dist"],
   "type": "module",
   "sideEffects": false,
   "exports": {

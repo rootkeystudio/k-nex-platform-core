@@ -5,6 +5,8 @@ import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
 const paths = [
+  "releases/0.1.0/package-release-manifest.json",
+  "releases/0.2.0/package-release-manifest.json",
   "fixtures/customer-alpha/runtime-inventory.json",
   "fixtures/customer-alpha/deployment-receipt.json",
   "fixtures/customer-alpha/security-patch-plan.json",
@@ -16,9 +18,10 @@ const paths = [
   "docs/implementation/phase-8-fleet-evidence.json"
 ];
 const before = new Map(paths.map((path) => [path, readFileSync(resolve(root, path))]));
-const sourceCommit = JSON.parse(before.get(paths[0]).toString("utf8")).releaseEvidence.sourceCommit;
+const sourceCommit = JSON.parse(before.get("fixtures/customer-alpha/runtime-inventory.json").toString("utf8")).releaseEvidence.sourceCommit;
 let changed = [];
 try {
+  execFileSync(process.execPath, ["scripts/generate-phase-8-release-manifests.mjs"], { cwd: root, stdio: "pipe" });
   execFileSync(process.execPath, ["scripts/generate-phase-8-deployment-evidence.mjs", sourceCommit], { cwd: root, stdio: "pipe" });
   execFileSync(process.execPath, ["scripts/generate-phase-8-fleet-evidence.mjs"], { cwd: root, stdio: "pipe" });
   changed = paths.filter((path) => !before.get(path).equals(readFileSync(resolve(root, path))));

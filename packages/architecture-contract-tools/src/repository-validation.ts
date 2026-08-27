@@ -299,6 +299,7 @@ async function walk(path: string): Promise<string[]> {
   const entries = await readdir(path, { withFileTypes: true }).catch(() => []);
   const paths: string[] = [];
   for (const entry of entries.sort((left, right) => compare(left.name, right.name))) {
+    if (entry.isDirectory() && entry.name === "node_modules") continue;
     const child = resolve(path, entry.name);
     if (entry.isDirectory()) paths.push(...await walk(child));
     else if (entry.isFile()) paths.push(child);

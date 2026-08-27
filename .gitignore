@@ -18,6 +18,8 @@
 /packages/*/dist/
 /modules/*/dist/
 /fixtures/customer-gate-1/dist/
+/fixtures/customer-alpha/dist/
+/fixtures/customer-beta/dist/
 
 # task cache
 /.turbo/

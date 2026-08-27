@@ -30,6 +30,8 @@
       "types": "./dist/migrations.d.ts",
       "default": "./dist/migrations.js"
     },
+    "./payload-baseline-up.sql": "./assets/payload-baseline-up.sql",
+    "./payload-baseline-down.sql": "./assets/payload-baseline-down.sql",
     "./testing": {
       "types": "./dist/testing.d.ts",
       "default": "./dist/testing.js"
@@ -38,6 +40,7 @@
   "files": [
     "dist/*.d.ts",
     "dist/*.js",
+    "assets/*.sql",
     "k-nex.plugin.json"
   ],
   "scripts": {
