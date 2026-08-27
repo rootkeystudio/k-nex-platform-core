@@ -7,11 +7,11 @@
 
 ## Last completed
 
-P6.10 Sol review REWORK wires the Git-free Gate 6 squash regression into `pnpm gate:6` and proves stale generated artifacts plus missing task evidence fail closed.
+P6.10 Sol review REWORK aligns the Sales default-page conformance fixture with the required authority-revision CAS contract.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: focused Gate 6 regression and direct Gate 6 validation pass; final Phase 6 review validation remains.
+Node 24.19.0 / pnpm 11.9.0: Sales build/tests/boundaries/pack reproducibility, `pnpm plugin:check modules/sales`, Gate 1 generated-artifact check, and `git diff --check` pass; final Phase 6 review validation remains.
 
 ## Next
 

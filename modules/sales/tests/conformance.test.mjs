@@ -48,9 +48,10 @@ test("Sales default page seeds once as a customer-owned document", async () => {
       stored = structuredClone(candidate);
       return { created: true, instance: structuredClone(stored) };
     },
-    replace: async () => undefined
+    replace: async (_candidate, _expectedRevision, _expectedAuthorityRevision) => undefined
   };
   const inventory = {
+    authorityRevision: 0,
     capabilities: new Map(),
     routes: new Set(salesRouteDescriptors.map(({ id }) => id)),
     permissions: new Set(salesPermissionDescriptors.map(({ id }) => id)),
