@@ -7,16 +7,16 @@
 
 ## Last completed
 
-P8.8/P8.9 corrective work adds authority-scoped, opaque deployment evidence. Fleet ingestion accepts only inventory observed through the configured authority and Ed25519-signed provenance/receipt evidence that reconciles artifact, source, manifest, lock, graph, SBOM, migration, readiness, and trusted workflow identities.
+P8.9 corrective work replaces clone/dry-run recovery claims with real PostgreSQL proofs. Beta boots supported release 0.1.0 state and transactionally executes all eight reviewed Sales migrations to 0.2.0. Alpha restores a physical backup into a clean database, disables effects, re-observes runtime state, and compares the operational inventory while excluding observation time.
 
 ## Validation
 
-Runtime build PASS; 26 files/198 tests PASS, including foreign-authority and fabricated fleet evidence rejection. Fleet generator and focused Gate 8 reconciliation PASS with two authority-issued customer observations and transitive vulnerability lookup. Generated patch/fleet evidence was refreshed from the expanded inventories.
+Both focused PostgreSQL recovery tests PASS against Postgres 17.6. Runtime suite PASS: 26 files/198 tests. Fleet evidence generation and focused Gate 8 PASS without clone-derived match or dry-run-as-upgrade claims; committed proof records point to tests required by the customer Postgres suite.
 
 ## Next
 
-Continue with secure atomic application factory plus real packed-package boot, connect its protected runtime observation to deployment verification, implement real prior-upgrade/restore, then make Gate 8 generation fail closed.
+Continue with secure atomic application factory plus real packed-package boot, connect protected runtime observation to deployment verification, then make Gate 8 generation fail closed.
 
 ## Blockers
 
-Formal review blockers remain: generated app boot, atomic apply, protected runtime observation integration, real prior-upgrade/restore, and fail-closed generated evidence.
+Formal review blockers remain: generated app boot, atomic apply, protected runtime observation integration, and fail-closed generated evidence.

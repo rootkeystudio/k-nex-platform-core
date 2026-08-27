@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 
 import { ApplicationManifestSchema, DeploymentReceiptSchema, RuntimeInventorySchema } from "../packages/contracts/dist/index.js";
 import { applyCreateKnexApplication, planCreateKnexApplication } from "../packages/composition/dist/index.js";
-import { FleetRegistry, reconcileDeploymentReceipt, restoredInventoryMatches } from "../packages/runtime/dist/index.js";
+import { FleetRegistry, reconcileDeploymentReceipt, runtimeInventoryStateDigest } from "../packages/runtime/dist/index.js";
 import { createFixtureDeploymentVerifier } from "./lib/fixture-deployment-authority.mjs";
 
 const root = resolve(import.meta.dirname, "..");
@@ -59,11 +59,11 @@ const priorUpgrade = readJson("fixtures/customer-beta/previous-release-upgrade.j
 assert.deepEqual(priorUpgrade.platformRelease, { current: "0.1.0", target: "0.2.0" });
 assert.equal(priorUpgrade.reviewedMigrationIds.length, 8);
 assert.equal(priorUpgrade.preservedArtifacts.length, 8);
+assert.equal(priorUpgrade.postgresProof.test, "fixtures/customer-gate-1/tests/previous-release-upgrade-postgres.test.mjs");
 const expected = RuntimeInventorySchema.parse(readJson("fixtures/customer-alpha/runtime-inventory.json"));
-assert.equal(restoredInventoryMatches(expected, structuredClone(expected)), true);
 const restore = readJson("fixtures/customer-alpha/restore-redeployment-proof.json");
-assert.equal(restore.matches, true);
-assert.equal(restore.expectedInventoryDigest, restore.restoredInventoryDigest);
+assert.equal(restore.backupRestoreFixture, "fixtures/customer-gate-1/tests/backup-restore-postgres.test.mjs");
+assert.equal(restore.expectedOperationalInventoryDigest, runtimeInventoryStateDigest(expected));
 
 const target = mkdtempSync(join(tmpdir(), "gate-8-create-knex-app-"));
 try {
@@ -83,5 +83,5 @@ for (const marker of [
 for (const commit of ["3f830ae", "5efea55", "790a0df", "2a38c44", "d8984c6", "4e0a77a", "60a433b", "c4117fb", "6720839"]) {
   execFileSync("git", ["merge-base", "--is-ancestor", commit, "HEAD"], { cwd: root, stdio: "ignore" });
 }
-console.log(JSON.stringify({ gate: "Gate 8", customers: fleet.list().length, affectedDeployments: fleet.affected("@k-nex/module-sales", "<1.0.1").length, patchPlans: 2, priorUpgradeSteps: priorUpgrade.reviewedMigrationIds.length, restoreInventoryMatch: true }, null, 2));
+console.log(JSON.stringify({ gate: "Gate 8", customers: fleet.list().length, affectedDeployments: fleet.affected("@k-nex/module-sales", "<1.0.1").length, patchPlans: 2, priorUpgradeSteps: priorUpgrade.reviewedMigrationIds.length, postgresRecoveryProofs: 2 }, null, 2));
 console.log("GATE_8_PASS");
