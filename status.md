@@ -7,7 +7,7 @@
 
 ## Last completed
 
-Sol-high review blocker 1 is corrected: renderers receive no dispatcher without an accepted action binding, and an accepted dispatcher is scoped to the exact immutable node/action identity before it can reach platform authority.
+Sol-high review blockers 1–2 are corrected. Renderers receive only exact node/action-scoped authority. Generic DataTable now binds a descriptor-authorized table source through the standard query/data component path; generic Form binds the standard action gateway and remains disabled without accepted authority.
 
 ## Validation
 
@@ -15,8 +15,8 @@ Node 24.19.0 / pnpm 11.9.0 refreshed acceptance passes: frozen install, all 23 r
 
 ## Next
 
-Correct the remaining generic block and form/accessibility review blockers, restack on final Phase 6, then repeat Gate 7 and Sol-high review.
+Correct the remaining form/accessibility review blockers, restack on final Phase 6, then repeat Gate 7 and Sol-high review.
 
 ## Blockers
 
-Review blockers 2–4 remain in remediation. Phase 7 is still temporarily based on Phase 6 `86d36bf`; final restack target is `6352d36`.
+Review blockers 3–4 remain in remediation. Phase 7 is still temporarily based on Phase 6 `86d36bf`; final restack target is `6352d36`.
