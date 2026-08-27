@@ -2,6 +2,8 @@ packages:
   - packages/*
   - modules/*
   - fixtures/customer-gate-1
+  - fixtures/customer-alpha
+  - fixtures/customer-beta
 
 allowBuilds:
   "cpu-features@0.0.10": false

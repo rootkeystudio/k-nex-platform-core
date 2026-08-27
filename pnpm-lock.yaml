@@ -20,6 +20,90 @@ importers:
         specifier: 6.0.3
         version: 6.0.3
 
+  fixtures/customer-alpha:
+    dependencies:
+      '@k-nex/composition':
+        specifier: workspace:0.0.0
+        version: link:../../packages/composition
+      '@k-nex/contracts':
+        specifier: workspace:0.0.0
+        version: link:../../packages/contracts
+      '@k-nex/module-sales':
+        specifier: workspace:1.0.0
+        version: link:../../modules/sales
+      '@k-nex/payload-adapter':
+        specifier: workspace:0.0.0
+        version: link:../../packages/payload-adapter
+      '@k-nex/runtime':
+        specifier: workspace:0.0.0
+        version: link:../../packages/runtime
+      '@k-nex/theme-minimal':
+        specifier: workspace:0.0.0
+        version: link:../../packages/theme-minimal
+      '@payloadcms/db-postgres':
+        specifier: 3.88.0
+        version: 3.88.0(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))
+      '@payloadcms/next':
+        specifier: 3.88.0
+        version: 3.88.0(@types/react@19.2.18)(graphql@16.14.2)(monaco-editor@0.56.0)(next@16.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)
+      graphql:
+        specifier: 16.14.2
+        version: 16.14.2
+      next:
+        specifier: 16.3.1
+        version: 16.3.1(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4)
+      payload:
+        specifier: 3.88.0
+        version: 3.88.0(graphql@16.14.2)(typescript@6.0.3)
+      react:
+        specifier: 19.2.8
+        version: 19.2.8
+      react-dom:
+        specifier: 19.2.8
+        version: 19.2.8(react@19.2.8)
+
+  fixtures/customer-beta:
+    dependencies:
+      '@k-nex/composition':
+        specifier: workspace:0.0.0
+        version: link:../../packages/composition
+      '@k-nex/contracts':
+        specifier: workspace:0.0.0
+        version: link:../../packages/contracts
+      '@k-nex/module-sales':
+        specifier: workspace:1.0.0
+        version: link:../../modules/sales
+      '@k-nex/payload-adapter':
+        specifier: workspace:0.0.0
+        version: link:../../packages/payload-adapter
+      '@k-nex/runtime':
+        specifier: workspace:0.0.0
+        version: link:../../packages/runtime
+      '@k-nex/theme-neobrutalism':
+        specifier: workspace:0.0.0
+        version: link:../../packages/theme-neobrutalism
+      '@payloadcms/db-postgres':
+        specifier: 3.88.0
+        version: 3.88.0(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))
+      '@payloadcms/next':
+        specifier: 3.88.0
+        version: 3.88.0(@types/react@19.2.18)(graphql@16.14.2)(monaco-editor@0.56.0)(next@16.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)
+      graphql:
+        specifier: 16.14.2
+        version: 16.14.2
+      next:
+        specifier: 16.3.1
+        version: 16.3.1(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4)
+      payload:
+        specifier: 3.88.0
+        version: 3.88.0(graphql@16.14.2)(typescript@6.0.3)
+      react:
+        specifier: 19.2.8
+        version: 19.2.8
+      react-dom:
+        specifier: 19.2.8
+        version: 19.2.8(react@19.2.8)
+
   fixtures/customer-gate-1:
     dependencies:
       '@k-nex/composition':
@@ -48,7 +132,7 @@ importers:
         version: 3.88.0(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))
       '@payloadcms/next':
         specifier: 3.88.0
-        version: 3.88.0(@types/react@19.2.18)(graphql@16.14.2)(monaco-editor@0.56.0)(next@16.3.1(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)
+        version: 3.88.0(@types/react@19.2.18)(graphql@16.14.2)(monaco-editor@0.56.0)(next@16.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)
       graphql:
         specifier: 16.14.2
         version: 16.14.2
@@ -172,9 +256,6 @@ importers:
         specifier: 0.23.0
         version: 0.23.0(@floating-ui/dom@1.8.0)(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(use-sync-external-store@1.6.0(react@19.2.8))
     devDependencies:
-      '@k-nex/ui-components':
-        specifier: workspace:*
-        version: link:../ui-components
       '@types/node':
         specifier: 24.13.3
         version: 24.13.3
@@ -457,9 +538,6 @@ importers:
         specifier: workspace:*
         version: link:../ui-runtime
     devDependencies:
-      '@testing-library/react':
-        specifier: 16.3.2
-        version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@types/node':
         specifier: 24.13.3
         version: 24.13.3
@@ -469,9 +547,6 @@ importers:
       '@types/react-dom':
         specifier: 19.2.4
         version: 19.2.4(@types/react@19.2.18)
-      happy-dom:
-        specifier: 20.11.2
-        version: 20.11.2
       react:
         specifier: 19.2.8
         version: 19.2.8
@@ -490,9 +565,6 @@ importers:
       '@k-nex/ui-design-system-contracts':
         specifier: workspace:*
         version: link:../ui-design-system-contracts
-      '@k-nex/ui-runtime':
-        specifier: workspace:*
-        version: link:../ui-runtime
       '@react-aria/focus':
         specifier: 3.22.1
         version: 3.22.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -1611,7 +1683,7 @@ packages:
     resolution: {integrity: sha512-4JQNk+3mVzK3xh2rqd6RB4J46qUR19azEHBneZyTZM+c456qOrbbM/5xcR8huNCCcbVt7+UmizG6GuUvPvKUYg==}
 
   '@k-nex/module-sales@file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz':
-    resolution: {integrity: sha512-0i7EHWzgSgTOcM2Wo5yEO0kxOrgxZEKEYmMt99ePaK6R7gGXBDLJIiRV9nwKdY0S6sakioSSEdHnmUx1siHMpw==, tarball: file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz}
+    resolution: {integrity: sha512-hmaeYjVkO2P6Pz19CziYRMNfbM7SH2p7buwA1InBVe6i6LUeLvbIhKbjyGV14hhnSt5Bm4YtQvAf9o+ZszGUqQ==, tarball: file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz}
     version: 1.0.0
     peerDependencies:
       '@k-nex/contracts': 0.0.0
@@ -5986,14 +6058,14 @@ snapshots:
     transitivePeerDependencies:
       - typescript
 
-  '@payloadcms/next@3.88.0(@types/react@19.2.18)(graphql@16.14.2)(monaco-editor@0.56.0)(next@16.3.1(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)':
+  '@payloadcms/next@3.88.0(@types/react@19.2.18)(graphql@16.14.2)(monaco-editor@0.56.0)(next@16.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)':
     dependencies:
       '@dnd-kit/core': 6.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@dnd-kit/modifiers': 9.0.0(@dnd-kit/core@6.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
       '@dnd-kit/sortable': 10.0.0(@dnd-kit/core@6.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
       '@payloadcms/graphql': 3.88.0(graphql@16.14.2)(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(typescript@6.0.3)
       '@payloadcms/translations': 3.88.0
-      '@payloadcms/ui': 3.88.0(@types/react@19.2.18)(monaco-editor@0.56.0)(next@16.3.1(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)
+      '@payloadcms/ui': 3.88.0(@types/react@19.2.18)(monaco-editor@0.56.0)(next@16.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)
       busboy: 1.6.0
       dequal: 2.0.3
       file-type: 21.3.4
@@ -6032,7 +6104,7 @@ snapshots:
     dependencies:
       date-fns: 4.1.0
 
-  '@payloadcms/ui@3.88.0(@types/react@19.2.18)(monaco-editor@0.56.0)(next@16.3.1(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)':
+  '@payloadcms/ui@3.88.0(@types/react@19.2.18)(monaco-editor@0.56.0)(next@16.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.77.4))(payload@3.88.0(graphql@16.14.2)(typescript@6.0.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@6.0.3)':
     dependencies:
       '@date-fns/tz': 1.2.0
       '@dnd-kit/core': 6.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)

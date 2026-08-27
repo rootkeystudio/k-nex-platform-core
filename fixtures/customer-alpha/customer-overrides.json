@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "salesSettings": {
+    "defaultTaskPageSize": 25,
+    "showPotentialRevenue": true
+  },
+  "defaultPages": [
+    "sales.page.tasks",
+    "sales.page.opportunities"
+  ],
+  "permissions": {
+    "sales-manager": [
+      "sales.task.read",
+      "sales.task.create",
+      "sales.opportunity.read",
+      "sales.opportunity.change"
+    ]
+  },
+  "layout": {
+    "role": "sales-manager",
+    "navigation": [
+      "sales.page.opportunities",
+      "sales.page.tasks"
+    ]
+  },
+  "releaseCadence": "monthly",
+  "releaseRevision": "customer-alpha/2026.08"
+}
