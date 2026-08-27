@@ -158,6 +158,12 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
     assert.match(outboxProcessing.stdout, /^P3_3_OUTBOX_PROCESSING_PASS$/m);
     assert.match(outboxProcessing.stdout, /^P3_9_DUPLICATE_OUTBOX_PASS$/m);
 
+    const salesEventRealtime = await runFixtureProcess("tests/sales-event-realtime.mjs", connectionString, {
+      BOOT_KEY: "gate6-sales-event-realtime"
+    });
+    assert.equal(salesEventRealtime.code, 0, `${salesEventRealtime.stdout}\n${salesEventRealtime.stderr}`);
+    assert.match(salesEventRealtime.stdout, /^P6_SALES_EVENT_REALTIME_PASS$/m);
+
     const distributedRealtime = await runFixtureProcess("tests/distributed-realtime.mjs", connectionString, {
       BOOT_KEY: "gate3-6-distributed-realtime",
       MODE: "initial"

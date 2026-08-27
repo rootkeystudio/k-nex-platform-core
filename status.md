@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Added strict owned descriptors and registration validation for migration, service, event, job, realtime, localization, health/audit, lifecycle, and testing contribution categories; invalid or foreign shapes now fail closed.
+Bound Sales task/opportunity actions to transactional outbox hooks and an executable Sales realtime relay; action mutations now emit durable, minimal invalidation events inside the same Payload transaction.
 
 ## Validation
 
-Node 24.19.0: contracts 140/140, runtime 173/173, Sales server 12/12, package builds PASS for typed contribution validation; prior full `gate:6` PASS is superseded by active remediation.
+Node 24.19.0: Sales server 13/13 and full PostgreSQL gate PASS; real task/opportunity actions atomically emitted durable events, processor delivered both, and realtime gateway received authoritative source invalidations.
 
 ## Next
 

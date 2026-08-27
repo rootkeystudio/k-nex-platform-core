@@ -38,6 +38,7 @@ import {
   salesWorkspaceSettingsDescriptor
 } from "../dist/contracts.js";
 import {
+  createSalesRealtimeRelay,
   salesDefaultSettings,
   salesOpportunitiesHandler,
   salesOpportunityStageUpdateHandler,
@@ -201,6 +202,26 @@ test("the Sales create action uses Payload Local API exactly once under the acto
   assert.deepEqual(calls[0].user, { id: "user-1", collection: "users" });
   assert.equal(calls[0].req, request);
   assert.deepEqual(calls[0].data, { title: "Call customer", status: "open", potentialRevenue: "12.50", privateNote: "follow-up" });
+  assert.deepEqual(calls[0].context, { kNexSalesEvent: { eventId: "create-task-1", type: "sales.event.task-changed" } });
+});
+
+test("Sales durable events project task and opportunity invalidations through the realtime gateway", async () => {
+  const publications = [];
+  const relay = createSalesRealtimeRelay({ publish: async (input) => { publications.push(input); return { accepted: true }; } });
+  const base = {
+    schemaVersion: 1, messageClass: "durable-integration", occurredAt: "2026-08-27T00:00:00.000Z",
+    applicationId: "customer-gate-1", pluginId: "module.sales", correlationId: "correlation-1"
+  };
+  const run = async (event) => relay({
+    actor: { kind: "system", id: "outbox.processor" }, checkpoint: null, event,
+    idempotencyKey: event.id, saveCheckpoint: async () => undefined
+  });
+  await run({ ...base, id: "task-event-1", type: "sales.event.task-changed", payload: { resourceId: "task-1", operation: "create" } });
+  await run({ ...base, id: "opportunity-event-1", type: "sales.event.opportunity-changed", payload: { resourceId: "opp-1", operation: "update" } });
+  assert.deepEqual(publications.map(({ channel, message }) => ({ topicId: channel.topicId, message })), [
+    { topicId: "sales.realtime.tasks", message: { sourceId: "sales.tasks", resourceId: "task-1", operation: "create" } },
+    { topicId: "sales.realtime.opportunities", message: { sourceId: "sales.opportunities", resourceId: "opp-1", operation: "update" } }
+  ]);
 });
 
 test("the revenue source aggregates canonical money values on the server", async () => {

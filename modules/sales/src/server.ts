@@ -1,9 +1,12 @@
+import { randomUUID } from "node:crypto";
+
 import {
   type RuntimeSchema,
   type DataSourceDefinition,
   type DataSourceQueryControls,
   type PluginSettingValue
 } from "@k-nex/contracts";
+import { createOutboxRealtimeRelay, writeTransactionalOutboxEvent } from "@k-nex/payload-adapter";
 import type {
   ActionDefinition,
   ActionHandler,
@@ -13,6 +16,7 @@ import type {
 } from "@k-nex/runtime";
 import { definePluginRegistration, resolvePluginSettings } from "@k-nex/runtime";
 import type { CollectionConfig } from "payload";
+import type { CollectionAfterChangeHook, PayloadRequest } from "payload";
 
 import {
   salesCreateTaskToolDescriptor,
@@ -135,6 +139,7 @@ interface SalesCreateOptions {
   readonly overrideAccess: true;
   readonly user?: { readonly id: string; readonly collection: "users" };
   readonly req: SalesPayloadRequest;
+  readonly context: { readonly kNexSalesEvent: SalesEventContext };
 }
 
 interface SalesCreatedTask {
@@ -151,6 +156,7 @@ interface SalesUpdateOptions {
   readonly overrideAccess: true;
   readonly user?: { readonly id: string; readonly collection: "users" };
   readonly req: SalesPayloadRequest;
+  readonly context: { readonly kNexSalesEvent: SalesEventContext };
 }
 
 interface SalesUpdatedRecord {
@@ -164,6 +170,62 @@ interface SalesUpdatedRecord {
 interface SalesTaskScope {
   readonly kind: "sales.tasks";
   readonly where?: unknown;
+}
+
+interface SalesEventContext {
+  readonly eventId: string;
+  readonly type: "sales.event.task-changed" | "sales.event.opportunity-changed";
+}
+
+function eventContext(type: SalesEventContext["type"], idempotencyKey?: string): { readonly kNexSalesEvent: SalesEventContext } {
+  return Object.freeze({ kNexSalesEvent: Object.freeze({ eventId: idempotencyKey ?? randomUUID(), type }) });
+}
+
+function applicationId(request: PayloadRequest): string {
+  const custom = request.payload.config.custom as { readonly kNexApplicationId?: unknown } | undefined;
+  if (typeof custom?.kNexApplicationId !== "string" || !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(custom.kNexApplicationId)) {
+    throw new Error("Sales durable events require a canonical application ID.");
+  }
+  return custom.kNexApplicationId;
+}
+
+const salesEventAfterChange: CollectionAfterChangeHook = async ({ context, doc, operation, req }) => {
+  const event = (context as { readonly kNexSalesEvent?: SalesEventContext }).kNexSalesEvent;
+  if (event === undefined) return doc;
+  const occurredAt = new Date().toISOString();
+  const retentionUntil = new Date(Date.parse(occurredAt) + 30 * 24 * 60 * 60 * 1_000).toISOString();
+  const actorId = req.user?.id;
+  await writeTransactionalOutboxEvent({
+    req,
+    event: {
+      id: event.eventId,
+      type: event.type,
+      schemaVersion: 1,
+      messageClass: "durable-integration",
+      occurredAt,
+      applicationId: applicationId(req),
+      pluginId: "module.sales",
+      ...(actorId === undefined || actorId === null ? {} : { actor: { id: String(actorId), type: "user" } }),
+      correlationId: req.headers.get("x-correlation-id") ?? event.eventId,
+      idempotencyKey: event.eventId,
+      payload: { resourceId: String(doc.id), operation }
+    },
+    retentionUntil
+  });
+  return doc;
+};
+
+export function createSalesRealtimeRelay(gateway: Parameters<typeof createOutboxRealtimeRelay>[0]["gateway"]) {
+  return createOutboxRealtimeRelay({
+    gateway,
+    project(event) {
+      if (event.pluginId !== "module.sales") return null;
+      const topicId = event.type === "sales.event.task-changed" ? "sales.realtime.tasks"
+        : event.type === "sales.event.opportunity-changed" ? "sales.realtime.opportunities" : undefined;
+      if (topicId === undefined) return null;
+      return { topicId, params: {}, message: { sourceId: topicId === "sales.realtime.tasks" ? "sales.tasks" : "sales.opportunities", ...event.payload } };
+    }
+  });
 }
 
 interface DecimalAmount {
@@ -472,7 +534,7 @@ function updateRequest(value: unknown): SalesPayloadRequest {
   return request;
 }
 
-export const salesTaskCreateHandler: ActionHandler<CreateTaskInput, CreateTaskOutput> = async ({ actor, request, input, signal }) => {
+export const salesTaskCreateHandler: ActionHandler<CreateTaskInput, CreateTaskOutput> = async ({ actor, request, input, idempotencyKey, signal }) => {
   if (signal.aborted) throw signal.reason;
   const parsed = salesCreateTaskInputRuntimeSchema.safeParse(input);
   if (!parsed.success) throw parsed.error;
@@ -484,7 +546,8 @@ export const salesTaskCreateHandler: ActionHandler<CreateTaskInput, CreateTaskOu
     depth: 0,
     overrideAccess: true,
     ...(user === undefined ? {} : { user }),
-    req: payloadRequest
+    req: payloadRequest,
+    context: eventContext("sales.event.task-changed", idempotencyKey)
   });
   if (signal.aborted) throw signal.reason;
   if (created.id === undefined || created.id === null || typeof created.title !== "string" ||
@@ -495,7 +558,7 @@ export const salesTaskCreateHandler: ActionHandler<CreateTaskInput, CreateTaskOu
   return { id: String(created.id), title: created.title, status: created.status };
 };
 
-export const salesTaskUpdateHandler: ActionHandler<UpdateTaskInput, UpdateTaskOutput> = async ({ actor, request, input, signal }) => {
+export const salesTaskUpdateHandler: ActionHandler<UpdateTaskInput, UpdateTaskOutput> = async ({ actor, request, input, idempotencyKey, signal }) => {
   if (signal.aborted) throw signal.reason;
   const parsed = salesUpdateTaskInputRuntimeSchema.safeParse(input);
   if (!parsed.success) throw parsed.error;
@@ -504,7 +567,8 @@ export const salesTaskUpdateHandler: ActionHandler<UpdateTaskInput, UpdateTaskOu
   const updated = await payloadRequest.payload.update({
     collection: "sales-tasks", id: parsed.data.id,
     data: { ...(parsed.data.title === undefined ? {} : { title: parsed.data.title }), ...(parsed.data.status === undefined ? {} : { status: parsed.data.status }) },
-    depth: 0, overrideAccess: true, ...(user === undefined ? {} : { user }), req: payloadRequest
+    depth: 0, overrideAccess: true, ...(user === undefined ? {} : { user }), req: payloadRequest,
+    context: eventContext("sales.event.task-changed", idempotencyKey)
   });
   const result = { id: String(updated.id), title: updated.title, status: updated.status };
   const validated = salesUpdateTaskOutputRuntimeSchema.safeParse(result);
@@ -512,7 +576,7 @@ export const salesTaskUpdateHandler: ActionHandler<UpdateTaskInput, UpdateTaskOu
   return validated.data;
 };
 
-export const salesOpportunityStageUpdateHandler: ActionHandler<UpdateOpportunityStageInput, UpdateOpportunityStageOutput> = async ({ actor, request, input, signal }) => {
+export const salesOpportunityStageUpdateHandler: ActionHandler<UpdateOpportunityStageInput, UpdateOpportunityStageOutput> = async ({ actor, request, input, idempotencyKey, signal }) => {
   if (signal.aborted) throw signal.reason;
   const parsed = salesOpportunityStageInputRuntimeSchema.safeParse(input);
   if (!parsed.success) throw parsed.error;
@@ -520,7 +584,8 @@ export const salesOpportunityStageUpdateHandler: ActionHandler<UpdateOpportunity
   const user = payloadUser(actor);
   const updated = await payloadRequest.payload.update({
     collection: "sales-opportunities", id: parsed.data.id, data: { stage: parsed.data.stage }, depth: 0, overrideAccess: true,
-    ...(user === undefined ? {} : { user }), req: payloadRequest
+    ...(user === undefined ? {} : { user }), req: payloadRequest,
+    context: eventContext("sales.event.opportunity-changed", idempotencyKey)
   });
   const result = { id: String(updated.id), name: updated.name, stage: updated.stage };
   const validated = salesOpportunityStageOutputRuntimeSchema.safeParse(result);
@@ -530,6 +595,7 @@ export const salesOpportunityStageUpdateHandler: ActionHandler<UpdateOpportunity
 
 export const salesTasksCollection: CollectionConfig = {
   slug: "sales-tasks",
+  hooks: { afterChange: [salesEventAfterChange] },
   access: {
     create: () => false,
     delete: () => false,
@@ -556,6 +622,7 @@ export const salesTasksCollection: CollectionConfig = {
 
 export const salesOpportunitiesCollection: CollectionConfig = {
   slug: "sales-opportunities",
+  hooks: { afterChange: [salesEventAfterChange] },
   access: {
     create: () => false,
     delete: () => false,
@@ -618,7 +685,7 @@ export const salesRegistration = definePluginRegistration({
     context.register("services", salesReferenceMetadata.service.id, salesReferenceMetadata.service);
     context.register("lifecycle", salesReferenceMetadata.lifecycle.id, salesReferenceMetadata.lifecycle);
   },
-  jobs: (context) => context.register("jobs", salesReferenceMetadata.job.id, () => Object.freeze({ ok: true })),
+  jobs: (context) => context.register("jobs", salesReferenceMetadata.job.id, salesReferenceMetadata.job),
   dataHandlers: (context) => {
     context.bind("sources", salesTotalPotentialRevenueDescriptor.id, salesTotalPotentialRevenueHandler);
     context.bind("sources", salesTasksDescriptor.id, salesTasksHandler);

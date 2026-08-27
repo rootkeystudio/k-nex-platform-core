@@ -11,6 +11,9 @@
   ],
   "references": [
     {
+      "path": "../../packages/payload-adapter"
+    },
+    {
       "path": "../../packages/runtime"
     },
     {

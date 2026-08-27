@@ -121,6 +121,7 @@ export function createGate1Application(options: CreateGate1ApplicationOptions): 
   const application = composePayloadApplication({
     baseConfig: {
       secret: options.payloadSecret,
+      custom: { kNexApplicationId: "customer-gate-1" },
       plugins: mcp === undefined ? [] : [mcp],
       endpoints: [createRuntimeInventoryEndpoint(inventory), createDataSourceQueryEndpoint(scopedRegistration)]
     },
