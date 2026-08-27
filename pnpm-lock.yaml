@@ -408,6 +408,9 @@ importers:
       '@k-nex/ui-design-system-contracts':
         specifier: workspace:*
         version: link:../ui-design-system-contracts
+      react-aria-components:
+        specifier: 1.20.0
+        version: 1.20.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
     devDependencies:
       '@types/react':
         specifier: 19.2.18
@@ -415,6 +418,12 @@ importers:
       '@types/react-dom':
         specifier: 19.2.4
         version: 19.2.4(@types/react@19.2.18)
+      esbuild:
+        specifier: 0.28.2
+        version: 0.28.2
+      playwright:
+        specifier: 1.61.0
+        version: 1.61.0
       react:
         specifier: 19.2.8
         version: 19.2.8
