@@ -49,4 +49,21 @@ describe("form component family", () => {
     expect(markup).toContain('role="alert"');
     expect(markup).not.toContain("class=");
   });
+
+  it("connects checkbox and both date-range controls to their rendered messages", () => {
+    const checkbox = renderToStaticMarkup(<Checkbox {...messages} label="Check" checked={false} error="Required" onChange={noop} />);
+    const range = renderToStaticMarkup(<DateRangePicker {...messages} start="2026-08-27" end="2026-08-28" error="Required" onChange={noop} />);
+    const control = (markup: string, slot: string): string => markup.match(new RegExp(`<input[^>]*data-slot="${slot}"[^>]*>`))?.[0] ?? "";
+
+    for (const [markup, slots] of [[checkbox, ["control"]], [range, ["start", "end"]]] as const) {
+      expect(markup).toContain('data-state="invalid"');
+      for (const slot of slots) {
+        const rendered = control(markup, slot);
+        expect(rendered).toContain('aria-invalid="true"');
+        const described = rendered.match(/aria-describedby="([^"]+)"/)?.[1];
+        expect(described).toBeDefined();
+        for (const id of described!.split(" ")) expect(markup).toContain(`id="${id}"`);
+      }
+    }
+  });
 });

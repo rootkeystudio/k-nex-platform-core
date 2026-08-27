@@ -106,6 +106,19 @@ function assertStateMarkup(name: string, state: string, markup: string): void {
     expect(markup).toContain("One");
     return;
   }
+  if (state === "invalid" && (name === "Checkbox" || name === "DateRangePicker")) {
+    const slots = name === "Checkbox" ? ["control"] : ["start", "end"];
+    for (const slot of slots) {
+      const control = markup.match(new RegExp(`<input[^>]*data-slot="${slot}"[^>]*>`))?.[0];
+      expect(control, `${name}:${slot}`).toBeDefined();
+      expect(control).toContain('aria-invalid="true"');
+      const described = control!.match(/aria-describedby="([^"]+)"/)?.[1];
+      expect(described, `${name}:${slot}:description`).toBeDefined();
+      for (const id of described!.split(" ")) expect(markup).toContain(`id="${id}"`);
+    }
+    expect(markup).toContain('data-state="invalid"');
+    return;
+  }
   if (state === "previous-disabled" || state === "next-disabled") {
     const label = state === "previous-disabled" ? "Previous page" : "Next page";
     expect(markup).toMatch(new RegExp(`<button[^>]*disabled=""[^>]*aria-label="${label}"`));

@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { BrowserDataTransport } from "@k-nex/ui-runtime";
 import {
   SalesOpportunitiesPage,
+  SalesOpportunityEditForm,
   SalesOverviewPage,
   SalesSettingsPage,
   SalesTasksPage,
@@ -57,5 +58,31 @@ describe("P7.7 Sales default pages", () => {
     const opportunity = createSalesOpportunityStageController(transport, { id: "opp-1", stage: "qualified" }, "stage-1");
     await opportunity.submit(opportunity.change(opportunity.initial(), "stage", "won"), new AbortController().signal);
     expect(actions).toEqual(["sales.task.create", "sales.opportunity.stage.update"]);
+  });
+
+  it("renders the opportunity edit form with options from the registered async source", async () => {
+    const transport: BrowserDataTransport = {
+      async query(request) {
+        expect(request.source.id).toBe("sales.opportunities");
+        return { ok: true, data: opportunityRecords };
+      },
+      async mutate() { return { ok: false, problem: { code: "UNUSED", status: 500 } }; }
+    };
+    const source = await salesOpportunitiesTableDefinition.query.execute(transport, {}, {
+      surface: "workspace",
+      authorizationBoundary: { kind: "actor", actorFingerprint: `sha256:${"a".repeat(64)}` },
+      signal: new AbortController().signal
+    });
+    expect(source).toMatchObject({ state: "success" });
+    const record = source.state === "success" ? source.data.rows[0]! : undefined;
+    const name = record?.values.name;
+    const options = record === undefined || name?.kind !== "text" ? [] : [{ id: record.key, label: name.value }];
+    const controller = createSalesOpportunityStageController(transport, { id: "opp-1", stage: "qualified" }, "edit-1");
+    const markup = renderToStaticMarkup(<SalesOpportunityEditForm opportunity={controller.initial()} opportunityOptions={options} onOpportunityChange={() => undefined} onOpportunitySubmit={() => undefined} />);
+
+    expect(markup).toContain('aria-label="Edit opportunity"');
+    expect(markup).toContain('<option value="opp-1" selected="">Platform rollout</option>');
+    expect(markup).toContain('<option value="qualified" selected="">Qualified</option>');
+    expect(markup).toContain("Save opportunity");
   });
 });

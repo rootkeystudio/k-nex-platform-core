@@ -15,7 +15,7 @@ import {
 } from "@k-nex/ui-data/data-table-controller";
 import { KeyValueList } from "@k-nex/ui-data/presentation";
 import { Metric, QueryBoundary } from "@k-nex/ui-data/metric";
-import { Form, FormActions, Select, TextInput, createFormController, type FormSnapshot } from "@k-nex/ui-forms";
+import { Form, FormActions, Select, TextInput, createFormController, type ChoiceOption, type FormSnapshot } from "@k-nex/ui-forms";
 import { DashboardPage, IndexPage, SettingsPage } from "@k-nex/ui-pages";
 import type { BrowserDataTransport, BrowserMutationContext, BrowserRequestState } from "@k-nex/ui-runtime";
 import type { MetricScalar, TableRow } from "@k-nex/contracts";
@@ -82,6 +82,27 @@ export function createSalesOpportunityStageController(transport: BrowserDataTran
     validate: () => ({}),
     submit: (values, signal) => salesOpportunityStageMutation.execute(transport, values, { signal, idempotencyKey })
   });
+}
+
+const opportunityStages: readonly ChoiceOption[] = [
+  { id: "lead", label: "Lead" },
+  { id: "qualified", label: "Qualified" },
+  { id: "won", label: "Won" },
+  { id: "lost", label: "Lost" }
+];
+
+export interface SalesOpportunityEditFormProps {
+  readonly opportunity: FormSnapshot<UpdateOpportunityStageInput>;
+  readonly opportunityOptions: readonly ChoiceOption[];
+  readonly onOpportunityChange: <K extends keyof UpdateOpportunityStageInput>(field: K, value: UpdateOpportunityStageInput[K]) => void;
+  readonly onOpportunitySubmit: () => void | Promise<void>;
+}
+export function SalesOpportunityEditForm({ opportunity, opportunityOptions, onOpportunityChange, onOpportunitySubmit }: SalesOpportunityEditFormProps): ReactElement {
+  return <Form label="Edit opportunity" pending={opportunity.submitting} onSubmit={onOpportunitySubmit}>
+    <Select name="id" label="Opportunity" value={opportunity.values.id} options={opportunityOptions} disabled={opportunity.submitting} {...(opportunity.fieldErrors.id === undefined ? {} : { error: opportunity.fieldErrors.id })} onChange={(value) => onOpportunityChange("id", value)} />
+    <Select name="stage" label="Stage" value={opportunity.values.stage} options={opportunityStages} disabled={opportunity.submitting} {...(opportunity.fieldErrors.stage === undefined ? {} : { error: opportunity.fieldErrors.stage })} onChange={(value) => onOpportunityChange("stage", value as UpdateOpportunityStageInput["stage"])} />
+    <FormActions><Button type="submit" isDisabled={opportunity.submitting}>Save opportunity</Button></FormActions>
+  </Form>;
 }
 
 const crumbs = (current: string, href: string) => [{ id: "sales", label: "Sales", href: "/sales" }, { id: "current", label: current, href, current: true }];
