@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Phase 8 is restacked on final Phase 7 commit `9056043`. Gate and evidence generation now require a committed source descendant of final Phase 7 and ancestor of final head, exact source/current release-manifest parity, complete packed artifact identity and SHA512 closure, and source/current byte parity. Obsolete discarded-history task hashes are removed.
+Deployment receipts, runtime inventories, patch plans, restore proof, and fleet evidence were regenerated from release-source commit `82e5224`. Alpha/Beta evidence now binds refreshed manifests, locks, packed Sales artifacts, SBOMs, and application plans to exact committed bytes.
 
 ## Validation
 
-`node --test scripts/check-phase-8-generated-evidence.test.mjs`, source release parity against `82e5224`, and `git diff --check` PASS. Full Gate 8 pending refreshed deployment evidence.
+`node scripts/generate-phase-8-deployment-evidence.mjs 82e5224c29eefbbcc797cb270475fe02e56f7b66`, `node scripts/generate-phase-8-fleet-evidence.mjs`, `node scripts/check-phase-8-generated-evidence.mjs`, and `git diff --check` PASS.
 
 ## Next
 
-Regenerate deployment/fleet evidence from source commit `82e5224`, then run full Gate 8.
+Refresh closeout result, run full Gate 8 and audit, then request Sol-high review.
 
 ## Blockers
 
