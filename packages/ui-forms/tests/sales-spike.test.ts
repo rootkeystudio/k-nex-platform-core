@@ -88,9 +88,11 @@ describe("bounded Sales form spike", () => {
     const unsubscribe = controller.subscribe((snapshot) => observed.push(snapshot.submitting));
     const changed = controller.change(controller.initial(), "title", "Follow up");
     const first = controller.submit(changed, signal);
-    const duplicate = controller.submit(changed, signal);
+    const pending = controller.snapshot();
+    const duplicate = controller.submit(pending, signal);
 
     expect(duplicate).toBe(first);
+    expect(controller.submit(changed, signal)).toBe(first);
     expect(calls).toBe(1);
     expect(controller.snapshot()).toMatchObject({ values: { title: "Follow up" }, submitting: true });
     resolve({ state: "success", data: { id: "task-1" } });

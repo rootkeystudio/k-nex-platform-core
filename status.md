@@ -7,16 +7,16 @@
 
 ## Last completed
 
-PR 22 remains rebased onto accepted Phase 6 on `main`. Cursor, hidden-field authority, and bounded bulk blockers are closed. DataGrid now keeps select-all outside the grid header, enters controls with Enter/F2, moves across every control in a multi-action cell with arrows, and returns to the owning cell with Escape while retaining one grid tab stop.
+PR 22 remains rebased onto accepted Phase 6 on `main`. Cursor, hidden-field authority, bounded bulk, and DataGrid blockers are closed. Form in-flight work is now keyed by logical snapshot revision, so submitting the controller's published pending snapshot coalesces with the original promise while genuinely newer edits retain independent revisions.
 
 ## Validation
 
-Oversized bulk rejection passed its million-key bounded-output regression at `0bc6837`. Focused DataGrid unit and browser validation is pending.
+DataGrid unit, interaction, and real Chromium keyboard proofs passed at `f713eac`. Focused form coalescing validation is pending.
 
 ## Next
 
-Fix logical-revision form coalescing next, then VirtualList key/repopulation invariants. Leave PR 22 draft/open.
+Fix VirtualList key and repopulation invariants next. Leave PR 22 draft/open.
 
 ## Blockers
 
-Two project-manager blockers remain after the DataGrid keyboard fix.
+One project-manager blocker remains after logical-revision form coalescing.

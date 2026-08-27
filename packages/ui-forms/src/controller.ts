@@ -62,7 +62,7 @@ export function createFormController<TValues extends object, TOutput>(options: F
   };
   const initial = (): FormSnapshot<TValues> => createSnapshot({ values: structuredClone(savedValues), initialValues: savedValues, fieldErrors: emptyErrors<TValues>(), dirty: false, submitting: false });
   let current = initial();
-  const inFlight = new Map<FormSnapshot<TValues>, Promise<FormSnapshot<TValues>>>();
+  const inFlight = new Map<number, Promise<FormSnapshot<TValues>>>();
   const listeners = new Set<(snapshot: FormSnapshot<TValues>) => void>();
   const publish = (next: FormSnapshot<TValues>, snapshotRevision = revisions.get(next) ?? ++revision): FormSnapshot<TValues> => {
     current = createSnapshot(next, snapshotRevision);
@@ -82,11 +82,11 @@ export function createFormController<TValues extends object, TOutput>(options: F
       return publish({ ...withoutFormError(snapshot), values, fieldErrors, dirty: JSON.stringify(values) !== JSON.stringify(savedValues), submitting: false });
     },
     submit(snapshot: FormSnapshot<TValues>, signal: AbortSignal): Promise<FormSnapshot<TValues>> {
-      const duplicate = inFlight.get(snapshot);
+      const submissionRevision = revisions.get(snapshot) ?? ++revision;
+      const duplicate = inFlight.get(submissionRevision);
       if (duplicate !== undefined) return duplicate;
       const fieldErrors = freeze({ ...options.validate(snapshot.values) });
       if (Object.keys(fieldErrors).length > 0) return Promise.resolve(publish(freeze({ ...withoutFormError(snapshot), fieldErrors, submitting: false })));
-      const submissionRevision = revisions.get(snapshot) ?? ++revision;
       publish({ ...withoutFormError(snapshot), fieldErrors, submitting: true }, submissionRevision);
       const submission = (async (): Promise<FormSnapshot<TValues>> => {
         try {
@@ -108,10 +108,10 @@ export function createFormController<TValues extends object, TOutput>(options: F
           const settled = createSnapshot({ ...snapshot, fieldErrors: emptyErrors<TValues>(), formError: "FORM_SUBMISSION_FAILED", submitting: false }, submissionRevision);
           return revisions.get(current) === submissionRevision ? publish(settled, submissionRevision) : settled;
         } finally {
-          inFlight.delete(snapshot);
+          queueMicrotask(() => inFlight.delete(submissionRevision));
         }
       })();
-      inFlight.set(snapshot, submission);
+      inFlight.set(submissionRevision, submission);
       return submission;
     }
   });
