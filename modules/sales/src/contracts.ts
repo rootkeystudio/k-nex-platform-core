@@ -790,8 +790,14 @@ export const salesReferenceMetadata = Object.freeze({
   migration: { id: "sales.migration.initial", version: 2, ownerPluginId: "module.sales", predecessorRevisions: [1] },
   service: { id: "sales.service.domain", version: 1, ownerPluginId: "module.sales" },
   job: { id: "sales.job.pipeline-audit", version: 1, ownerPluginId: "module.sales", timeoutMs: 5_000, maxConcurrency: 1, idempotent: true },
-  localization: { id: "sales.localization.en", version: 1, ownerPluginId: "module.sales", locale: "en" },
+  localization: {
+    id: "sales.localization.en", version: 1, ownerPluginId: "module.sales", locale: "en",
+    messages: {
+      "sales.message.overview": "Overview", "sales.message.tasks": "Tasks",
+      "sales.message.opportunities": "Opportunities", "sales.message.settings": "Settings"
+    }
+  },
   health: { id: "sales.health.runtime", version: 1, ownerPluginId: "module.sales", safe: true },
   lifecycle: { id: "sales.lifecycle.reference", version: 1, ownerPluginId: "module.sales", disable: "supported", reenable: "supported", purge: "supported" },
-  testing: { id: "sales.testing.conformance", version: 1, ownerPluginId: "module.sales" }
+  testing: { id: "sales.testing.conformance", version: 1, ownerPluginId: "module.sales", conformancePluginId: "module.sales" }
 });

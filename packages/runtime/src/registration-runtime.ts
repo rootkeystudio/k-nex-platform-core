@@ -4,7 +4,10 @@ import type {
 } from "@k-nex/contracts";
 import {
   AgentToolDescriptorSchema, PermissionDescriptorSchema, PluginNavigationDescriptorSchema,
+  PluginEventDescriptorSchema, PluginHealthAuditDescriptorSchema, PluginJobDescriptorSchema,
+  PluginLifecycleDescriptorSchema, PluginLocalizationDescriptorSchema, PluginMigrationDescriptorSchema,
   PluginPageTemplateDescriptorSchema, PluginRouteDescriptorSchema, PluginSettingsDescriptorSchema,
+  PluginRealtimeTopicDescriptorSchema, PluginServiceDescriptorSchema, PluginTestingMetadataDescriptorSchema,
   PluginUiContributionDescriptorSchema, assertDataSourceDefinition,
   pluginContributionCategoryKeys, pluginContributionRegistry, registrationPhases
 } from "@k-nex/contracts";
@@ -174,6 +177,15 @@ function configurationContribution(kind: ContributionKind, id: string, pluginId:
         : kind === "navigation" ? PluginNavigationDescriptorSchema
           : kind === "pageTemplates" ? PluginPageTemplateDescriptorSchema
             : kind === "components" || kind === "blocks" ? PluginUiContributionDescriptorSchema
+              : kind === "migrations" ? PluginMigrationDescriptorSchema
+                : kind === "services" ? PluginServiceDescriptorSchema
+                  : kind === "events" ? PluginEventDescriptorSchema
+                    : kind === "jobs" ? PluginJobDescriptorSchema
+                      : kind === "realtimeTopics" ? PluginRealtimeTopicDescriptorSchema
+                        : kind === "localization" ? PluginLocalizationDescriptorSchema
+                          : kind === "healthAudit" ? PluginHealthAuditDescriptorSchema
+                            : kind === "lifecycle" ? PluginLifecycleDescriptorSchema
+                              : kind === "testingMetadata" ? PluginTestingMetadataDescriptorSchema
           : undefined;
   if (schema === undefined) return value;
   const parsed = schema.safeParse(value);

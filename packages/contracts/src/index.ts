@@ -15,6 +15,7 @@ export * from "./metric-scalar.js";
 export * from "./output-contracts.js";
 export * from "./plugin-manifest.js";
 export * from "./plugin-contribution-taxonomy.js";
+export * from "./plugin-contribution-descriptors.js";
 export * from "./plugin-configuration.js";
 export * from "./plugin-page-template.js";
 export * from "./plugin-ui-contribution.js";

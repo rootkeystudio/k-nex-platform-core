@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Closed raw Payload bypass: Sales-owned collections are internal-only, platform-authorized source/action handlers use explicit internal Local API access, and authenticated direct record/field writes and reads are denied.
+Added strict owned descriptors and registration validation for migration, service, event, job, realtime, localization, health/audit, lifecycle, and testing contribution categories; invalid or foreign shapes now fail closed.
 
 ## Validation
 
-Node 24.19.0: Sales 16/16, package boundaries/reproducibility, and full customer PostgreSQL gate PASS including authenticated raw-access denial; prior full `gate:6` PASS is superseded by active remediation.
+Node 24.19.0: contracts 140/140, runtime 173/173, Sales server 12/12, package builds PASS for typed contribution validation; prior full `gate:6` PASS is superseded by active remediation.
 
 ## Next
 

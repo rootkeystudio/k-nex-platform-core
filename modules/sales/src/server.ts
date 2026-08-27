@@ -615,7 +615,7 @@ export const salesRegistration = definePluginRegistration({
     context.register("migrations", salesReferenceMetadata.migration.id, salesReferenceMetadata.migration);
   },
   behavior: (context) => {
-    context.register("services", salesReferenceMetadata.service.id, Object.freeze({ version: 1 }));
+    context.register("services", salesReferenceMetadata.service.id, salesReferenceMetadata.service);
     context.register("lifecycle", salesReferenceMetadata.lifecycle.id, salesReferenceMetadata.lifecycle);
   },
   jobs: (context) => context.register("jobs", salesReferenceMetadata.job.id, () => Object.freeze({ ok: true })),
@@ -635,10 +635,7 @@ export const salesRegistration = definePluginRegistration({
     for (const descriptor of salesPageTemplates) context.register("pageTemplates", descriptor.id, descriptor);
     for (const definition of salesUiComponentDefinitions) context.bindRenderer("components", definition.id, definition.render);
     for (const definition of salesUiBlockDefinitions) context.bindRenderer("blocks", definition.id, definition.render);
-    context.register("localization", salesReferenceMetadata.localization.id, {
-      ...salesReferenceMetadata.localization,
-      messages: { overview: "Overview", tasks: "Tasks", opportunities: "Opportunities", settings: "Settings" }
-    });
+    context.register("localization", salesReferenceMetadata.localization.id, salesReferenceMetadata.localization);
   },
   validate: (context) => {
     context.register("healthAudit", salesReferenceMetadata.health.id, salesReferenceMetadata.health);

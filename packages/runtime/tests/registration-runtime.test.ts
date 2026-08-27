@@ -278,19 +278,31 @@ function completeConsumer(
       context.register("sources", "consumer.source", sourceDefinition);
       context.register("actions", "consumer.action", actionDefinition());
       if (registeredTool) context.register("tools", registeredTool.id, registeredTool);
-      context.register("events", "consumer.event", {});
-      context.register("realtimeTopics", "consumer.realtime", {});
+      context.register("events", "consumer.event", {
+        id: "consumer.event", version: 1, ownerPluginId: "module.consumer", eventClass: "durable-integration", sourceId: "consumer.source"
+      });
+      context.register("realtimeTopics", "consumer.realtime", {
+        id: "consumer.realtime", version: 1, ownerPluginId: "module.consumer", eventId: "consumer.event",
+        sourceId: "consumer.source", permission: "consumer.permission"
+      });
     },
     schema(context) {
       context.register("schema", "consumer.schema", { slug: "consumer" });
-      context.register("migrations", "consumer.migration", {});
+      context.register("migrations", "consumer.migration", {
+        id: "consumer.migration", version: 1, ownerPluginId: "module.consumer", predecessorRevisions: []
+      });
     },
     behavior(context) {
       onBehavior?.(context.services);
-      context.register("services", "consumer.service", () => undefined);
-      context.register("lifecycle", "consumer.lifecycle", {});
+      context.register("services", "consumer.service", { id: "consumer.service", version: 1, ownerPluginId: "module.consumer" });
+      context.register("lifecycle", "consumer.lifecycle", {
+        id: "consumer.lifecycle", version: 1, ownerPluginId: "module.consumer",
+        disable: "supported", reenable: "supported", purge: "unsupported"
+      });
     },
-    jobs: (context) => context.register("jobs", "consumer.job", () => undefined),
+    jobs: (context) => context.register("jobs", "consumer.job", {
+      id: "consumer.job", version: 1, ownerPluginId: "module.consumer", timeoutMs: 5_000, maxConcurrency: 1, idempotent: true
+    }),
     dataHandlers(context) {
       context.bind("sources", "consumer.source", sourceHandler);
       context.bind("actions", "consumer.action", actionHandler);
@@ -334,13 +346,18 @@ function completeConsumer(
           regions: { main: [] }
         }
       });
-      context.register("localization", "consumer.localization", {});
+      context.register("localization", "consumer.localization", {
+        id: "consumer.localization", version: 1, ownerPluginId: "module.consumer", locale: "en",
+        messages: { "consumer.message.title": "Consumer" }
+      });
       context.bindRenderer("components", "consumer.component", () => undefined);
       context.bindRenderer("blocks", "consumer.block", () => undefined);
     },
     validate(context) {
-      context.register("healthAudit", "consumer.health", {});
-      context.register("testingMetadata", "consumer.testing", {});
+      context.register("healthAudit", "consumer.health", { id: "consumer.health", version: 1, ownerPluginId: "module.consumer", safe: true });
+      context.register("testingMetadata", "consumer.testing", {
+        id: "consumer.testing", version: 1, ownerPluginId: "module.consumer", conformancePluginId: "module.consumer"
+      });
     }
   };
 }
