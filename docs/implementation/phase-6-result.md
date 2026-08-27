@@ -3,9 +3,9 @@
 - **Date:** 2026-08-27
 - **Gate:** Gate 6
 - **Baseline:** `6d9730d`
-- **Delivery:** Pull request #21 open; exact-head CI pending; no merge or auto-merge
-- **Decision:** **GO Phase 7**
-- **Review state:** Sol-high exact-head phase review PASS at `60a58b4`; project-manager review/merge remain pending
+- **Delivery:** Pull request #21 open; review remediation in progress; no merge or auto-merge
+- **Decision:** **Await designated project-manager PASS and merge**
+- **Review state:** Phase 6 remains under review; no subsequent phase work is authorized
 
 ## Scope proved
 
@@ -21,20 +21,20 @@ Lifecycle state keeps support, installed bytes, enabled state, settings readines
 
 ## Completed tasks
 
-| Task | Primary commit |
+| Task | Current evidence |
 |---|---|
-| P6.1 — complete contribution taxonomy | `9829b1e` |
-| P6.2 — authoring entrypoints | `6b32642` |
-| P6.3 — settings, permissions, routes, navigation | `8506747` |
-| P6.4 — default page templates and seed semantics | `480e73a` |
-| P6.5 — browser query/action factories | `5d46610` |
-| P6.6 — component/Puck registration | `7f20c40` |
-| P6.7 — complete Sales reference plugin | `3e9be9d` |
-| P6.8 — plugin conformance kit | `789937a` |
-| P6.9 — install/disable/re-enable proof | `1f9b24c` |
-| P6.10 — Gate 6 closeout | `e223d2d` |
+| P6.1 — complete contribution taxonomy | typed contribution registry and Sales manifest reconciliation |
+| P6.2 — authoring entrypoints | Sales package exports and transitive boundary proof |
+| P6.3 — settings, permissions, routes, navigation | strict contracts and Sales settings/permission proof |
+| P6.4 — default page templates and seed semantics | default-page seed conformance proof |
+| P6.5 — browser query/action factories | browser query/action factory conformance proof |
+| P6.6 — component/Puck registration | component runtime/Puck parity proof |
+| P6.7 — complete Sales reference plugin | complete Sales contribution inventory and generated reference |
+| P6.8 — plugin conformance kit | runner-owned plan validation and negative tests |
+| P6.9 — install/disable/re-enable proof | customer PostgreSQL lifecycle proof |
+| P6.10 — Gate 6 closeout | current artifact, contract, documentation, and gate validation |
 
-Post-closeout review remediation is preserved as coherent commits `9e312fe`, `8a3d543`, `e459787`, `4df5120`, `c288f43`, `5d6e3f5`, `1076a7e`, `9e31865`, `d5b35b1`, `1a4bab3`, `a75d563`, `f4720f1`, `5ca137c`, `4c2a808`, `e1efe98`, `1bba6c7`, `7afed87`, `d2929f2`, `14f938e`, `5e90414`, `4072284`, and `60a58b4`. The final layers replace the rejected legacy lifecycle fallback, reconcile the complete exact reference graph, remove ambient Payload/action authority, make conformance evidence runner-owned, align the Gate 2A fixture, and make clean Sales declaration/package generation reproducible in CI.
+Post-closeout remediation replaces the rejected legacy lifecycle fallback, reconciles the complete exact reference graph, removes ambient Payload/action authority, makes conformance evidence runner-owned, aligns the Gate 2A fixture, and makes clean Sales declaration/package generation reproducible in CI. The current review remediation adds machine-readable exact Vitest proof and makes Gate 6 validate current artifacts rather than branch commit topology.
 
 ## Public contracts and packages affected
 
@@ -49,7 +49,7 @@ Post-closeout review remediation is preserved as coherent commits `9e312fe`, `8a
 
 ## Conformance and gate evidence
 
-The plugin command requires all 13 evidence classes and executes eleven exact proofs. Customer/Postgres boot, Sales platform execution, package boundaries, packed reproducibility, and generated reference documentation are runner-owned. Named Node proofs must live inside Sales, receive runner-owned identity, pass exactly one selected test, and cannot invoke a direct or transitively imported process runner. Public entrypoint boundaries traverse the complete local import graph. Missing/unknown/duplicate evidence, wrapper shell-outs, indirect forbidden imports, external tests, arbitrary scripts, extra fields, realpath escape, stale docs, and stale package bytes fail closed.
+The plugin command requires all 13 evidence classes and executes eleven exact proofs. Customer/Postgres boot, Sales platform execution, package boundaries, packed reproducibility, and generated reference documentation are runner-owned. Named Node proofs must live inside Sales, receive runner-owned identity, pass exactly one selected test, and cannot invoke a direct or transitively imported process runner. The Sales Vitest proof writes a JSON report and verifies one exact file/full test name passed with zero test or suite failures. Public entrypoint boundaries traverse the complete local import graph. Missing/unknown/duplicate evidence, wrapper shell-outs, indirect forbidden imports, external tests, arbitrary scripts, extra fields, realpath escape, stale docs, and stale package bytes fail closed.
 
 Acceptance observed on Node.js `24.19.0` and pnpm `11.9.0`:
 
@@ -68,7 +68,7 @@ git diff --check
 
 Final task acceptance totals reached contracts 140, runtime 178, UI runtime 41, builder 31, Payload adapter 32, Sales 34, conformance-plan 4, and the customer unit/PostgreSQL gates. The PostgreSQL proof exercises all three Sales sources and all three actions through standard gateways, rejects out-of-scope task and opportunity IDs, boots enabled/disabled/re-enabled deployments, preserves retained data, and executes registered event/realtime/job behavior.
 
-The complete local `gate:6` chain passed at exact head `60a58b4` with its standard commands. The high/critical audit threshold also passed; the package manager reported two low and three moderate findings, with no high or critical advisory. A Sol-high exact-head review independently returned PASS with no remaining blocker or regression.
+The full Gate 6 chain and final review evidence must be rerun on the remediation head before the designated project manager decides whether to PASS and merge PR #21. The high/critical audit threshold previously passed; the package manager reported two low and three moderate findings, with no high or critical advisory.
 
 ## Plugin authoring freeze
 
@@ -103,8 +103,4 @@ A second module should need domain contracts and handlers, not a new package bou
 
 ## Gate decision
 
-No Gate 6 kill criterion fired. Sales passes the complete authoring/conformance path; the remaining work is explicit Gate 7 component breadth and Gate 8 lifecycle/application-factory/release depth.
-
-**Decision:** **GO Phase 7**
-
-After project-manager PASS, the exact next task is **P7.1 — component taxonomy, slots, and package boundaries**.
+Phase 6 remains in review while the current remediation is validated. Await designated project-manager PASS and merge for PR #21; no subsequent phase work is authorized before that decision.

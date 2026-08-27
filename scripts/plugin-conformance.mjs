@@ -98,6 +98,29 @@ function runNodeTest(proof, root, pluginRoot, identity) {
   assert.match(output, /^# fail 0$/m, `${proof.id} reported a failure.`);
 }
 
+export function assertVitestExactTestProof(report, { file, testName, fullName }) {
+  assert.ok(report && typeof report === "object" && !Array.isArray(report), "Vitest proof report must be an object.");
+  assert.equal(report.success, true, "Vitest proof report did not succeed.");
+  assert.equal(report.numTotalTests, 1, "Vitest proof must execute exactly one test.");
+  assert.equal(report.numPassedTests, 1, "Vitest proof must pass exactly one test.");
+  assert.equal(report.numFailedTests, 0, "Vitest proof must not fail a test.");
+  assert.equal(report.numFailedTestSuites, 0, "Vitest proof must not fail a test suite.");
+  assert.equal(report.numPendingTests, 0, "Vitest proof must not skip a test.");
+  assert.equal(report.numTodoTests, 0, "Vitest proof must not leave a todo test.");
+  assert.ok(Array.isArray(report.testResults), "Vitest proof report must include test results.");
+  assert.equal(report.testResults.length, 1, "Vitest proof must report exactly one test file.");
+  const [testFile] = report.testResults;
+  assert.equal(testFile.name, file, "Vitest proof ran an unexpected test file.");
+  assert.equal(testFile.status, "passed", "Vitest proof file did not pass.");
+  assert.ok(Array.isArray(testFile.assertionResults), "Vitest proof file must include assertions.");
+  assert.equal(testFile.assertionResults.length, 1, "Vitest proof file must contain exactly one assertion.");
+  const [assertion] = testFile.assertionResults;
+  assert.equal(assertion.fullName, fullName, "Vitest proof did not run the intended test.");
+  assert.equal(assertion.title, testName, "Vitest proof did not run the intended test.");
+  assert.equal(assertion.status, "passed", "Vitest proof did not pass the intended test.");
+  assert.deepEqual(assertion.failureMessages, [], "Vitest proof reported a test failure.");
+}
+
 function importSpecifiers(content) {
   const values = [];
   const pattern = /(?:import|export)\s+(?:[^"']*?\s+from\s+)?["']([^"']+)["']|import\s*\(\s*["']([^"']+)["']\s*\)|require\s*\(\s*["']([^"']+)["']\s*\)/gu;
@@ -185,9 +208,18 @@ function runSalesPlatformProof(root, pluginRoot, identity) {
     inside(pluginRoot, "tests/server.test.mjs", "Sales event proof")
   ], root, "sales-platform-boundaries", identity);
   assert.match(eventOutput, /^# pass 1$/m);
-  const toolOutput = execute("pnpm", ["--filter", identity.pluginPackage, "exec", "vitest", "run", "tests/mcp-sales-proof.test.ts"], root, "sales-platform-boundaries", identity);
-  assert.match(toolOutput, /Test Files\s+1 passed/);
-  assert.match(toolOutput, /Tests\s+1 passed/);
+  const temporary = mkdtempSync(join(tmpdir(), "k-nex-conformance-vitest-"));
+  const reportFile = join(temporary, "report.json");
+  const testFile = inside(pluginRoot, "tests/mcp-sales-proof.test.ts", "Sales tool proof");
+  const testName = "runs one logical approved write and enforces actor-filtered MCP list/call";
+  const fullName = `P2A.8 Sales tool proof ${testName}`;
+  try {
+    execute("pnpm", [
+      "--filter", identity.pluginPackage, "exec", "vitest", "run", "tests/mcp-sales-proof.test.ts",
+      `--testNamePattern=^${escapeRegExp(fullName)}$`, "--reporter=json", `--outputFile=${reportFile}`
+    ], root, "sales-platform-boundaries", identity);
+    assertVitestExactTestProof(JSON.parse(readFileSync(reportFile, "utf8")), { file: testFile, testName, fullName });
+  } finally { rmSync(temporary, { recursive: true, force: true }); }
 }
 
 export function generateReferenceDocumentation(manifest, packageJson, plan) {

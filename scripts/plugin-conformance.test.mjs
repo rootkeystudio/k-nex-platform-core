@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { assertNoShellWrapper, requiredPluginEvidence, runBoundaryProof, validateConformancePlan } from "./plugin-conformance.mjs";
+import { assertNoShellWrapper, assertVitestExactTestProof, requiredPluginEvidence, runBoundaryProof, validateConformancePlan } from "./plugin-conformance.mjs";
 
 function plan() {
   return {
@@ -74,4 +74,19 @@ test("plugin conformance rejects transitive forbidden entrypoint imports", () =>
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("plugin conformance accepts only one exact passed Vitest file and test", () => {
+  const report = {
+    success: true, numTotalTests: 1, numPassedTests: 1, numFailedTests: 0, numFailedTestSuites: 0, numPendingTests: 0, numTodoTests: 0,
+    testResults: [{
+      name: "/plugin/tests/mcp-sales-proof.test.ts", status: "passed",
+      assertionResults: [{ fullName: "Sales proof runs the Sales proof", title: "runs the Sales proof", status: "passed", failureMessages: [] }]
+    }]
+  };
+  const expected = { file: "/plugin/tests/mcp-sales-proof.test.ts", testName: "runs the Sales proof", fullName: "Sales proof runs the Sales proof" };
+  assert.doesNotThrow(() => assertVitestExactTestProof(report, expected));
+  assert.throws(() => assertVitestExactTestProof({ ...report, numPassedTests: 0, numPendingTests: 1 }, expected), /pass exactly one test/);
+  assert.throws(() => assertVitestExactTestProof({ ...report, testResults: [{ ...report.testResults[0], name: "/other.test.ts" }] }, expected), /unexpected test file/);
+  assert.throws(() => assertVitestExactTestProof({ ...report, testResults: [{ ...report.testResults[0], assertionResults: [{ ...report.testResults[0].assertionResults[0], fullName: "other" }] }] }, expected), /intended test/);
 });
