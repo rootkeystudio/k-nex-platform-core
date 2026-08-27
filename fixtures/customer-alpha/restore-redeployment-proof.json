@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "backupRestoreFixture": "backup-restore-postgres.test.mjs",
-  "expectedInventoryDigest": "sha256:9b56aa62e431a64a8b973c369cb34e0a596889eb84d6e2e36f6f2c65ca232a60",
-  "restoredInventoryDigest": "sha256:9b56aa62e431a64a8b973c369cb34e0a596889eb84d6e2e36f6f2c65ca232a60",
+  "expectedInventoryDigest": "sha256:9d296795ccbb070eb83ca66b012bfe855c3f29c22afbb22ad4d42cbb9cd9dd4e",
+  "restoredInventoryDigest": "sha256:9d296795ccbb070eb83ca66b012bfe855c3f29c22afbb22ad4d42cbb9cd9dd4e",
   "matches": true,
   "externalEffects": "disabled-before-readiness"
 }

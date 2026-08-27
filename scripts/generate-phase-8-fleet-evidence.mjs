@@ -7,14 +7,17 @@ import { salesUpgradeMigrations, salesUpgradeTargets } from "../modules/sales/di
 import {
   FleetRegistry, dryRunPluginUpgrade, planPluginUpgrade, restoredInventoryMatches, runtimeInventoryDigest
 } from "../packages/runtime/dist/index.js";
+import { createFixtureDeploymentVerifier } from "./lib/fixture-deployment-authority.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 const read = (customer, name) => JSON.parse(readFileSync(resolve(repositoryRoot, "fixtures", customer, name), "utf8"));
 const write = (path, value) => writeFileSync(resolve(repositoryRoot, path), `${JSON.stringify(value, null, 2)}\n`, "utf8");
 const customers = ["customer-alpha", "customer-beta"];
 const supportManifest = JSON.parse(readFileSync(resolve(repositoryRoot, "releases/0.2.0/package-release-manifest.json"), "utf8"));
-const fleet = new FleetRegistry(supportManifest);
-for (const customer of customers) fleet.ingest(read(customer, "deployment-receipt.json"), read(customer, "runtime-inventory.json"));
+const sourceCommit = read("customer-alpha", "runtime-inventory.json").releaseEvidence.sourceCommit;
+const verifier = createFixtureDeploymentVerifier(sourceCommit);
+const fleet = new FleetRegistry(supportManifest, verifier.authority);
+for (const customer of customers) fleet.ingest(await verifier.verify(read(customer, "runtime-inventory.json"), read(customer, "deployment-receipt.json")));
 
 const deployments = fleet.list();
 assert.deepEqual(deployments.map(({ inventory }) => inventory.platformRelease), ["0.2.0", "0.1.0"]);
