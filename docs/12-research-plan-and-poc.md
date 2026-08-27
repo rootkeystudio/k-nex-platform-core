@@ -2,7 +2,9 @@
 
 ## Principle
 
-The architecture is validated through independent kill gates, not one small-platform implementation. The normative gate definitions are in [Executable POC Gates](./30-executable-poc-gates.md).
+The architecture is validated through independent kill gates, not one small-platform implementation. The normative gate definitions are in [Executable Gates](./30-executable-poc-gates.md).
+
+The foundation program uses one domain reference module, `module.sales`, so every missing plugin/UI/lifecycle contract is solved once in the platform rather than independently inside multiple verticals.
 
 ## Sequence
 
@@ -14,64 +16,101 @@ Gate 2A  agent tool contracts and safe execution
 Gate 3   outbox and realtime convergence
 Gate 4   builder engine kill-spike
 Gate 5   UI themes, accessibility, atomic publication
-Gate 6   lifecycle and migration safety
-Gate 7   second customer and fleet operations
+Gate 6   plugin platform hardening and complete Sales reference
+Gate 7   comprehensive headless component/data/form/page system
+Gate 8   lifecycle, application factory, release, and fleet safety
 ```
 
 Each gate has explicit exclusions so failure identifies the wrong assumption.
 
-## First customer slice
+## Reference customer slice
 
-After Gates 0–2:
-
-```text
-Payload + Postgres
-module.sales
-one opportunity metric source
-one task table source
-source/record/field authorization
-```
-
-Gate 2A adds only the model-independent agent-tool proof:
+The same Sales-based vertical slice grows through the gates:
 
 ```text
-one source-backed read tool
-one approved idempotent action-backed write tool
-actor/delegation-filtered discovery
-safe execution gateway and audit
-minimal MCP list/call adapter
-deterministic scripted client, not an LLM
+Gate 1
+  Payload + Postgres
+  module.sales
+  deterministic composition and migration
+
+Gate 2
+  sales.total-potential-revenue
+  sales.tasks
+  source/record/field authorization
+
+Gate 2A
+  sales.tools.search-tasks
+  sales.tools.create-task
+  safe catalog/gateway/MCP proof
+
+Gate 3
+  Sales durable events/outbox
+  realtime invalidation and convergence
+
+Gate 4
+  Sales static/authenticated blocks through canonical Puck adapter
+
+Gate 5
+  Sales-compatible runtime under Minimal/Neobrutalism
+  atomic CMS publication and workspace layout
+
+Gate 6
+  complete Sales plugin contribution matrix
+  settings/routes/navigation/default pages
+  plugin conformance command
+
+Gate 7
+  comprehensive component library
+  DataTable/forms/page templates/Puck blocks
+  complete Sales overview/tasks/opportunities/settings UI
+
+Gate 8
+  upgrade/lifecycle/restore
+  create-knex-app
+  two independent Sales-only customer compositions
+  release/fleet evidence
 ```
 
-Gate 3 then adds outbox, durable event processing, and realtime invalidation/refetch. Durable autonomous agent workflows are not claimed before Gate 3.
+## Domain expansion freeze
 
-After Gates 4–5 add one CMS page and one workspace dashboard, Minimal/Neobrutalism themes, and atomic publication.
-
-After Gate 6 add controlled logistics Driver proof:
+Before Gate 8 PASS, do not implement:
 
 ```text
-module.logistics.core
-module.logistics.driver
-provider.realtime.socketio
-one assignment/task projection and secure driver client
+module.logistics.*
+module.restaurant.*
+module.inventory
+module.budgeting
+other first-party domain modules
 ```
 
-## Second customer slice
+Domain blueprints remain research/backlog context only. They do not select implementation work.
 
-Only Gate 7 introduces a restaurant repository:
+This freeze prevents Cargo and Restaurant fixtures from inventing separate settings, query, component, page-template, lifecycle, and deployment patterns before the Sales reference contract is complete.
+
+## Component research
+
+The Component Gallery list is the minimum coverage inventory for Gate 7. React Aria, WAI-ARIA APG, TanStack Table/Virtual, form-engine candidates, and Lexical are evaluated as implementation engines behind K-Nex contracts.
+
+The theme ABI remains small. Component breadth is achieved through platform-owned compound components and adapters, not by requiring each theme to implement a separate component framework.
+
+See:
+
+- [Plugin platform hardening and Sales reference](./33-plugin-platform-hardening-and-reference-sales.md)
+- [Headless component system](./34-headless-component-system.md)
+
+## Two-customer proof
+
+Gate 8 creates two independent customer applications using the same platform and Sales packages but different:
 
 ```text
-module.cms
-module.restaurant.core
-module.restaurant.qr-menu
-module.visualization
-builder.puck
-theme.minimal
-theme.glassmorphism
-explicit public menu source excluding internal cost data
+themes/profiles
+Sales settings
+default-page selection
+permissions and layouts
+lockfiles and release cadence
 ```
 
-This proves package reuse and independent composition/release—not completeness of either vertical.
+This proves application-factory and fleet reuse without adding another domain module.
 
 ## Evidence discipline
 
@@ -90,7 +129,9 @@ Update `docs/adr/evidence-registry.json` only with real evidence. A document or 
 
 ## Immediate work
 
-- execute Gate 1 from the active status and master plan;
-- keep Gate 2A design-only until Gate 2 passes;
-- do not select an LLM provider merely to prove the agent-tool control plane;
-- do not begin Puck/theme/realtime breadth until their predecessor gate exits.
+- complete and merge Gate 5 without expanding its scope;
+- begin Gate 6 with the contribution taxonomy, not another module;
+- use Sales for every plugin-authoring proof;
+- keep the comprehensive component catalog in Gate 7 behind the small theme ABI;
+- defer customer generator/lifecycle/fleet proof to Gate 8;
+- do not select a new vertical or AI product until the foundation program passes.

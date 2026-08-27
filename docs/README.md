@@ -2,6 +2,8 @@
 
 K-Nex is a Payload-based, manifest-driven application factory that composes trusted backend/UI plugins, authenticated data sources, output contracts, agent-tool capabilities, realtime infrastructure, visual CMS/workspace composition, and runtime-configurable installed themes into independently deployed customer products.
 
+The foundation program deliberately uses `module.sales` as its sole first-party reference domain plugin. New logistics, restaurant, inventory, budgeting, and similar modules are deferred until the plugin platform, component system, lifecycle, and customer-application factory gates pass.
+
 ## Normative order
 
 When prose and an example conflict, resolve in this order:
@@ -23,24 +25,26 @@ Run `python3 scripts/validate_repository_contracts.py` before merging architectu
 4. [Module system](./04-module-system.md)
 5. [Customer applications](./06-customer-applications.md)
 
-## Composition and lifecycle
+## Composition, plugins, and lifecycle
 
 1. [Plugin taxonomy and capabilities](./13-plugin-taxonomy-and-capabilities.md)
-2. [Official Payload plugin adoption plan](./32-payload-official-plugin-adoption-plan.md)
-3. [Application manifest](./14-application-manifest.md)
-4. [CLI and project generation](./15-cli-and-project-generation.md)
-5. [Plugin lifecycle](./19-plugin-lifecycle-and-package-management.md)
-6. [Data, migrations, and versioning](./10-data-migrations-and-versioning.md)
-7. [Payload database selection](./23-database-adapters-and-runtime-providers.md)
+2. [Plugin platform hardening and Sales reference](./33-plugin-platform-hardening-and-reference-sales.md)
+3. [Official Payload plugin adoption plan](./32-payload-official-plugin-adoption-plan.md)
+4. [Application manifest](./14-application-manifest.md)
+5. [CLI and project generation](./15-cli-and-project-generation.md)
+6. [Plugin lifecycle](./19-plugin-lifecycle-and-package-management.md)
+7. [Data, migrations, and versioning](./10-data-migrations-and-versioning.md)
+8. [Payload database selection](./23-database-adapters-and-runtime-providers.md)
 
-## UI, builder, themes, and dynamic data
+## UI, components, builder, themes, and dynamic data
 
-1. [CMS and page builder](./07-cms-and-page-builder.md)
-2. [UI composition runtime](./16-ui-composition-runtime.md)
-3. [Builder engine and profiles](./17-builder-engine-and-profiles.md)
-4. [Theme and design system](./18-theme-and-design-system.md)
-5. [Plugin data sources and bindings](./24-data-sources-state-and-binding-graph.md)
-6. [Data-source output contracts](./25-output-contracts.md)
+1. [Headless component system and data experience](./34-headless-component-system.md)
+2. [CMS and page builder](./07-cms-and-page-builder.md)
+3. [UI composition runtime](./16-ui-composition-runtime.md)
+4. [Builder engine and profiles](./17-builder-engine-and-profiles.md)
+5. [Theme and design system](./18-theme-and-design-system.md)
+6. [Plugin data sources and bindings](./24-data-sources-state-and-binding-graph.md)
+7. [Data-source output contracts](./25-output-contracts.md)
 
 ## Runtime, agents, security, and operations
 
@@ -52,12 +56,14 @@ Run `python3 scripts/validate_repository_contracts.py` before merging architectu
 6. [Domain blueprints](./08-domain-blueprints.md)
 7. [Technology and package baseline](./26-technology-package-baseline.md)
 
+Domain blueprints are deferred product context. They do not authorize implementation before Gate 8.
+
 ## Review remediation and executable proof
 
 1. [Architecture review disposition](./27-architecture-review-remediation.md)
 2. [Contract governance, resolution, and determinism](./28-contract-governance-and-determinism.md)
 3. [Runtime security, reliability, and quality gates](./29-runtime-security-reliability-and-quality-gates.md)
-4. [Executable POC gates](./30-executable-poc-gates.md)
+4. [Executable gates](./30-executable-poc-gates.md)
 5. [Research plan](./12-research-plan-and-poc.md)
 6. [Decision register](./21-decision-register.md)
 7. [Architecture Decision Records](./adr/README.md)
@@ -69,43 +75,51 @@ Run `python3 scripts/validate_repository_contracts.py` before merging architectu
 1. [Codex master execution plan](./implementation/codex-master-plan.md)
 2. [Phase 0 — Contract freeze and repository readiness](./implementation/phase-0.md)
 3. [Phase 2A — Agent tool contracts and safe execution](./implementation/phase-2a-agent-tools.md)
-4. [Gate 1–7 detailed task catalog](./implementation/phase-details-gates-1-7.md)
+4. [Historical Gates 1–5 task catalog](./implementation/phase-details-gates-1-7.md)
+5. [Authoritative future Gates 6–8 task catalog](./implementation/phase-details-gates-6-8.md)
 
-Implementation plans are execution specifications. They translate architecture gates into bounded work packages, acceptance commands, evidence requirements, and agentic-coding constraints. A phase plan does not prove completion; completion is recorded separately in a phase result document.
+The old future Gate 6–7 sections in `phase-details-gates-1-7.md` are superseded. Future execution uses `phase-details-gates-6-8.md`.
+
+Implementation plans are execution specifications. A phase plan does not prove completion; completion is recorded separately in a phase result document.
 
 ## Current accepted direction
 
 | Area | Direction | Evidence |
 |---|---|---|
 | Product | Separate customer repositories, databases, deployments, and release cadences | design-only |
-| Framework | Payload is the strategic V1 application framework | design-only |
-| Database | Payload Postgres adapter; Docker Postgres locally or external `DATABASE_URL` | design-only |
-| Composition | Exact packages, canonical manifest, hermetic customer config, deterministic resolved graph | executable-poc after Gate 1 |
+| Framework | Payload is the strategic V1 application framework | executable foundation |
+| Database | Payload Postgres adapter; Docker Postgres locally or external `DATABASE_URL` | executable foundation |
+| Composition | Exact packages, canonical manifest, deterministic resolved graph/registries | executable-poc |
 | IDs | Hierarchical dot namespace, optional hyphen inside one segment | executable-poc for current pre-v1 grammar |
-| Official Payload plugins | Gate-scoped bounded adapters; no automatic catalog install or contract ownership | design-only |
-| Plugin lifecycle | Schema-owning V1 plugins support disable/re-enable and explicit purge; retained-schema uninstall is not promised | design-only |
-| Registration | `manifest → contracts → providers → schema → behavior → jobs → data-handlers → ui → admin → validate → freeze` | executable-poc after Gate 1 |
-| Data sources | Plugin-owned bounded projections behind authenticated standard gateway | design-only |
-| Output contracts | Hybrid canonical/plugin-owned contracts; one source has one primary projection | design-only |
-| Agent tools | Explicit source/action-backed tools, actor/delegation-filtered catalog, reauthorized execution gateway, MCP as adapter | design-only |
-| Realtime | Socket.IO provider candidate; invalidation/refetch; outbox for durable event classes | design-only |
-| Builder | Puck candidate behind engine adapter; runtime and storage remain separate | design-only |
-| Themes | Small primitive ABI plus versioned complex adapters; separate admin/public profiles | design-only |
-| Accessibility | WCAG 2.2 AA target for supported web surfaces | evidence pending |
+| Reference plugin | `module.sales` is the only first-party domain module until Gate 8 | design-only |
+| Plugin authoring | Sales must exercise every supported contribution category and pass one conformance suite | design-only |
+| Official Payload plugins | Gate-scoped bounded adapters; no automatic catalog install or contract ownership | design-only with MCP candidate evidence |
+| Plugin lifecycle | Schema-owning V1 plugins support disable/re-enable, reviewed upgrade, archive/export, and explicit purge | design-only |
+| Registration | `manifest → contracts → providers → schema → behavior → jobs → data-handlers → ui → admin → validate → freeze` | executable-poc |
+| Data sources | Plugin-owned bounded projections behind authenticated gateway | executable-poc |
+| Agent tools | Explicit source/action-backed tools; MCP is an adapter | executable-poc |
+| Realtime | Transactional outbox plus supported Socket.IO memory topology and convergence | executable-poc |
+| Builder | Puck behind canonical engine adapter; runtime/storage remain separate | executable-poc |
+| Themes | Small stable primitive ABI plus runtime profiles | Gate 5 candidate |
+| Components | Comprehensive platform-owned headless component system; themes style, not reimplement behavior | design-only |
+| Accessibility | WCAG 2.2 AA target for supported surfaces | partial executable evidence |
+| Application factory | `create-knex-app`, lifecycle, release/fleet proof in Gate 8 | design-only |
 | Supply chain | Exact integrity, SBOM, signed provenance, deployment receipt before production distribution | evidence pending |
 
 ## Canonical examples
 
 ```text
 module.sales
-module.logistics.core
-module.logistics.driver
 provider.realtime.socketio
 builder.puck
+theme.minimal
 theme.neobrutalism
 sales.tasks
 sales.tools.create-task
+sales.page.overview
+sales.table.tasks
 metric.scalar@1
+table.records@1
 ```
 
 Persisted IDs never use package paths. Package names may remain kebab-case.
@@ -113,15 +127,16 @@ Persisted IDs never use package paths. Package names may remain kebab-case.
 ## Immediate sequence
 
 ```text
-Gate 0   contract freeze and docs-as-code
-Gate 1   deterministic minimal Payload composition
-Gate 2   source authorization and output contracts
-Gate 2A  agent tool contracts and safe execution
-Gate 3   outbox and realtime convergence
-Gate 4   builder kill-spike
-Gate 5   themes, accessibility, atomic publication
-Gate 6   lifecycle and migration safety
-Gate 7   second customer and verifiable fleet operations
+Gate 0   contract freeze and docs-as-code                         complete
+Gate 1   deterministic minimal Payload composition               complete
+Gate 2   source authorization and output contracts               complete
+Gate 2A  agent tools and safe MCP execution                      complete
+Gate 3   outbox and realtime convergence                         complete
+Gate 4   builder kill-spike                                      complete
+Gate 5   themes, accessibility, atomic publication               active PR
+Gate 6   plugin platform hardening + complete Sales reference
+Gate 7   comprehensive headless component/data/form/page system
+Gate 8   lifecycle + create-knex-app + release/fleet safety
 ```
 
-Official Payload plugin candidates are evaluated only in their assigned gates. Do not implement full CRM, autonomous AI workflows, logistics optimization, broad theme catalogs, marketplace work, or visual query languages before the relevant gate passes.
+Do not implement another first-party domain module before Gate 8. Missing capabilities are solved in the platform and exercised through Sales.

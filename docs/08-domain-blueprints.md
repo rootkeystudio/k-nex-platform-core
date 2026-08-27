@@ -1,8 +1,17 @@
-# Domain Blueprints
+# Domain Blueprints — Deferred Product Backlog
 
-These blueprints validate module boundaries; they are not promises of complete vertical products.
+These blueprints describe possible future module boundaries. They are **not active implementation plans**, do not select a gate task, and are not customer fixtures for the platform-foundation program.
 
-## Logistics graph
+Until Gate 8 passes:
+
+```text
+implemented first-party reference domain module: module.sales
+new logistics/restaurant/inventory/budgeting modules: prohibited
+```
+
+Missing plugin, component, query, page, lifecycle, CLI, or fleet capabilities are solved through the platform and the Sales reference module first.
+
+## Logistics graph — future candidate
 
 ```text
 module.logistics.core
@@ -25,7 +34,7 @@ module.logistics.live-tracking
   owns tracking sessions, public projections, retention/privacy policy
 ```
 
-Canonical collaboration:
+Possible collaboration:
 
 ```text
 command: logistics.shipment.assign
@@ -35,13 +44,13 @@ source:  logistics.driver.tasks
 public:  logistics.public-tracking
 ```
 
-A driver client receives an invalidation, then fetches its authoritative permitted task projection. Another driver cannot subscribe to or fetch that projection.
+A future driver client should receive an invalidation and then fetch its authoritative permitted task projection. Another driver must not subscribe to or fetch it.
 
 ### Tracking storage
 
-Business/control records remain in Payload/Postgres. High-frequency positions can use a separate current-position store and partitioned/PostGIS history after measured workload evidence. Precision, retention, public delay, and privacy are domain policy.
+Business/control records would remain in Payload/Postgres. High-frequency positions may use a separate current-position store and partitioned/PostGIS history only after measured workload evidence. Precision, retention, public delay, and privacy are domain policy.
 
-## Restaurant graph
+## Restaurant graph — future candidate
 
 ```text
 module.restaurant.core
@@ -61,9 +70,9 @@ integration.inventory-budgeting
   consumes stable inventory/budget contracts/events
 ```
 
-Inventory is movement/ledger based rather than one mutable quantity field. Budget approval and stock adjustment are commands with permission, transaction, audit, and idempotency rules.
+A future inventory model should be movement/ledger based rather than one mutable quantity field. Budget approval and stock adjustment are commands with permission, transaction, audit, and idempotency rules.
 
-Public menu sources never expose internal cost, supplier, margin, or stock-control data.
+Public menu sources must never expose internal cost, supplier, margin, or stock-control data.
 
 ## Cross-domain rules
 
@@ -75,26 +84,16 @@ Public menu sources never expose internal cost, supplier, margin, or stock-contr
 - Generic Metric/Table/Chart blocks consume output contracts, not domain storage.
 - Realtime transport never owns domain truth.
 - Public and workspace sources/actions use separate authority-specific IDs.
+- Every future module starts from the Sales package layout and passes the Gate 6–8 conformance suites.
 
-## Thin POC slices
+## Preconditions for selecting a blueprint
 
-### Cargo
-
-```text
-one shipment and driver task
-one authenticated driver projection
-one assignment event/outbox record
-one realtime invalidation/refetch
-one public tracking-safe projection
-```
-
-### Restaurant
+A real product/customer requirement may select one blueprint only after:
 
 ```text
-one branch/category/menu item
-one explicit public menu source
-one CMS page using the public source
-one internal field that is provably absent publicly
+Gate 6  plugin authoring contract and Sales conformance PASS
+Gate 7  comprehensive component/data/form/page system PASS
+Gate 8  lifecycle, create-knex-app, release/fleet proof PASS
 ```
 
-Do not implement route optimization, full GPS history, accounting, recipe costing, or enterprise CRM until platform gates justify them.
+The selected vertical receives a new bounded product plan. The blueprint itself is not sufficient authorization to write the module.
