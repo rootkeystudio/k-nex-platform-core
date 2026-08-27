@@ -26,7 +26,7 @@ Sales remains the only first-party domain module. Customer Alpha and Customer Be
 | P8.7 — SBOM and signed provenance | `60a433b` |
 | P8.8 — deployment receipt/runtime inventory | `c4117fb` |
 | P8.9 — fleet query, patch, prior upgrade, restore | `6720839` |
-| P8.10 — closeout and full Gate 8 | closeout commit |
+| P8.10 — closeout and full Gate 8 | `5dfe103` |
 
 ## Lifecycle and migration safety
 
@@ -61,7 +61,7 @@ pnpm audit --audit-level high
 git diff --check
 ```
 
-Exact-head totals and audit result are recorded in `status.md` after the gate completes.
+Exact-head `12fbf0512d0eaea38b781d97e97cc7aaf3fd19ef` passed the complete Gate 8. The final runtime suite reported 26 files and 196 tests. `pnpm audit --audit-level high` passed with 2 low, 3 moderate, 0 high, and 0 critical advisories; `git diff --check` passed. Detailed current state is recorded in `status.md`.
 
 ## Limits and production claims
 
@@ -73,7 +73,7 @@ Exact-head totals and audit result are recorded in `status.md` after the gate co
 
 ## Gate decision
 
-No Gate 8 kill criterion fired in task acceptance. Final acceptance remains subject to the exact-head full gate and formal project-manager review.
+No Gate 8 kill criterion fired in task acceptance. Exact-head full gate passed; final acceptance remains subject to formal project-manager review.
 
 **Decision:** **PLATFORM FOUNDATION ACCEPTED**
 
