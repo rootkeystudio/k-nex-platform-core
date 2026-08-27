@@ -3,20 +3,20 @@
 - **Updated:** 2026-08-28
 - **Phase:** Phase 7 — Comprehensive Headless Component System
 - **Active task:** P7.10 — Performance, bundle, coverage audit, and closeout
-- **State:** In progress
+- **State:** Ready for phase review
 
 ## Last completed
 
-PR 22 correctness remediation is implemented: action authorization re-resolves current catalog authority; cursor tokens advance through Sales; filter/projection/bulk bounds fail closed; DataGrid uses one tab stop plus explicit action mode; form submissions preserve newer edits and baseline ordering; actual controls carry labels/errors/read-only semantics; VirtualList preserves focus identity without mount focus theft.
+PR 22 is rebased onto accepted Phase 6 on `main`. All nine project-manager blockers are remediated, including nested production/Puck container composition.
 
 ## Validation
 
-Root build PASS. Focused contracts 147, UI runtime 46, UI data 17, forms 11, components 12, UI testing 7, Sales 23 Node plus 19 Vitest tests PASS. Component and matrix Chromium journeys PASS. Sales pack is byte-reproducible/current; Gate 1 artifacts are current. Diff check PASS.
+Code candidate `ba94f27` passed `pnpm gate:7` with `GATE_7_PASS`, all lower gates, PostgreSQL and Chromium journeys. Audit: no high/critical findings; two low and three moderate. Diff check and clean tree PASS.
 
 ## Next
 
-Run the complete Gate 7 path, audit, clean-tree checks, closeout evidence refresh, and independent Sol-high review.
+Run independent Sol-high exact-head review, record the result, push the rewritten branch, and leave PR 22 draft/open.
 
 ## Blockers
 
-Project-manager REWORK on PR 22; nine documented blockers are active.
+None. Project-manager rereview remains pending on the updated PR head.

@@ -1,11 +1,11 @@
 # Phase 7 Result — Comprehensive Headless Component System
 
-- **Date:** 2026-08-27
+- **Date:** 2026-08-28
 - **Gate:** Gate 7
-- **Baseline:** approved Phase 6 artifact
-- **Delivery:** stacked Phase 7 pull request; no merge or auto-merge
+- **Baseline:** accepted Phase 6 on `main` (`e05b1e68`)
+- **Delivery:** Phase 7 pull request rebased onto `main`; draft/open with no merge or auto-merge
 - **Decision:** **GO Phase 8**
-- **Review state:** project-manager blockers remediated; final exact-head rereview pending
+- **Review state:** all nine project-manager blockers remediated; final exact-head rereview pending
 
 ## Scope proved
 
@@ -16,6 +16,8 @@ The primitive theme ABI remains small. Native semantics handle simple structures
 Sales remains the only first-party domain module. It is the real consumer for forms, registered sources/actions, authorized DataTable, page templates, four default pages, six component definitions, six Puck blocks, and the complete workspace builder profile. No additional domain plugin was introduced.
 
 Project-manager remediation closes the exact authority and product-proof gaps: renderer action dispatch is scoped to the accepted immutable node/action binding; generic DataTable covers every declared source input kind; generic Form accepts only an explicitly configured valid registered action while its unconfigured default stays disabled; checkbox and date-range invalid semantics belong to the actual controls; and form controllers publish observable pending state, coalesce duplicate submissions, advance the clean baseline after save, and drive a rendered Sales opportunity edit form from registered async source options.
+
+The follow-up review is also closed in executable paths. DataTable action visibility and execution re-resolve the current catalog revision; authorized projections are identical in cache identity and transport; filter, projection, page, cursor, and bulk limits fail closed. Sales proves an opaque cursor advancing between real pages. DataGrid retains one roving tab stop while nested controls use explicit action mode. Concurrent form submissions preserve newer edits and order their saved baseline. Labels, descriptions, errors, invalid, and read-only state reach the actual controls. VirtualList preserves keyed focus through reorder and shrink without stealing focus on mount. Nested Puck containers render their children through the same production presentation boundary.
 
 ## Completed tasks
 
@@ -57,13 +59,13 @@ Budgets are order-of-magnitude regression fences, not production capacity claims
 | Probe | Observed | Budget |
 |---|---:|---:|
 | component entry gzip | 17,300 B | 45,000 B |
-| DataTable adapter gzip | 47,375 B | 65,000 B |
+| DataTable adapter gzip | 48,015 B | 65,000 B |
 | optional rich editor gzip | 105,037 B | 120,000 B |
-| Sales pages gzip | 69,503 B | 150,000 B |
-| 1,000-row semantic table SSR | 70.66 ms | 1,500 ms |
+| Sales pages gzip | 70,208 B | 150,000 B |
+| 1,000-row semantic table SSR | 73.71 ms | 1,500 ms |
 | 10,000-item virtual list keyboard scroll in Chromium | under 500 ms | 500 ms |
-| 1,000 filter/search/pagination control transitions | 7.02 ms | 500 ms |
-| 1,000-option combobox + 1,000-node tree SSR | 44.54 ms | 1,000 ms |
+| 1,000 filter/search/pagination control transitions | 6.95 ms | 500 ms |
+| 1,000-option combobox + 1,000-node tree SSR | 44.06 ms | 1,000 ms |
 | Chromium initial matrix render | under 2,000 ms | 2,000 ms |
 | dialog open / open-close | under 500 / 1,000 ms | 500 / 1,000 ms |
 | 20 mount/unmount cycles retained heap | under 64 MiB | 64 MiB |
@@ -76,10 +78,13 @@ The phase gate runs every earlier gate, plugin conformance, full build, componen
 
 ```bash
 pnpm gate:7
+pnpm audit --audit-level high
 git diff --check
 ```
 
-Key Phase 7 totals: design-system 11 tests, components 11 tests, UI runtime 46 tests, UI data 14 tests, forms 7 tests, pages 1 test, builder Puck 31 tests, UI builder blocks 5 tests, UI testing 6 tests, Sales 22 Node tests plus 19 Vitest tests. Existing lower-gate contract/runtime/Payload/PostgreSQL and browser suites remain part of `gate:7`.
+The acceptance candidate passed with `GATE_7_PASS`. The audit reported no high or critical vulnerabilities (two low and three moderate).
+
+Key Phase 7 totals: design-system 11 tests, components 12 tests, UI runtime 46 tests, UI data 17 tests, forms 11 tests, pages 1 test, builder Puck 35 tests, UI builder blocks 6 tests, UI testing 7 tests, Sales 23 Node tests plus 19 Vitest tests. Existing lower-gate contract/runtime/Payload/PostgreSQL and browser suites remain part of `gate:7`.
 
 ## Limits and deferred scope
 
