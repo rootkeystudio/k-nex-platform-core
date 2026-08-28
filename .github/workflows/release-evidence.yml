@@ -27,32 +27,47 @@ jobs:
           cache: pnpm
       - name: Install exact dependencies
         run: pnpm install --frozen-lockfile
-      - name: Build release evidence tooling
-        run: pnpm --filter @k-nex/contracts build && pnpm --filter @k-nex/composition build
-      - name: Generate SBOM and digest-bound provenance predicate
+      - name: Build deployable application and evidence tooling
+        run: pnpm --filter @k-nex/contracts build && pnpm --filter @k-nex/composition build && pnpm --dir fixtures/customer-alpha build
+      - name: Generate deployable bundle, SBOM, and closure-bound predicates
         run: |
           node scripts/generate-release-evidence.mjs \
             --source-sha "${GITHUB_SHA}" \
             --workflow-identity "${GITHUB_REPOSITORY}/.github/workflows/release-evidence.yml@${GITHUB_SHA}" \
             --output release-evidence \
-            --artifact fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz \
             --customer customer-alpha
-      - name: Attest artifact provenance with GitHub OIDC
+      - name: Attest deployable application bundle with GitHub OIDC
         id: provenance-attestation
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
-          subject-path: fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz
+          subject-path: release-evidence/customer-alpha.application-bundle.json
           predicate-type: https://k-nex.dev/provenance/v1
           predicate-path: release-evidence/provenance-predicate.json
-      - name: Verify hosted custom provenance against exact artifact
+      - name: Attest canonical package release manifest with GitHub OIDC
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: release-evidence/release-manifest.json
+          predicate-type: https://k-nex.dev/release-manifest/v1
+          predicate-path: release-evidence/release-manifest-predicate.json
+      - name: Download and verify hosted bundles against exact subjects
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >-
-          gh attestation verify fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz
-          --repo "${GITHUB_REPOSITORY}"
-          --predicate-type https://k-nex.dev/provenance/v1
+        run: |
+          mkdir -p release-evidence/hosted/application release-evidence/hosted/manifest
+          (cd release-evidence/hosted/application && gh attestation download ../../customer-alpha.application-bundle.json --repo "${GITHUB_REPOSITORY}" --predicate-type https://k-nex.dev/provenance/v1)
+          (cd release-evidence/hosted/manifest && gh attestation download ../../release-manifest.json --repo "${GITHUB_REPOSITORY}" --predicate-type https://k-nex.dev/release-manifest/v1)
+          APP_BUNDLE="$(find release-evidence/hosted/application -type f | head -1)"
+          MANIFEST_BUNDLE="$(find release-evidence/hosted/manifest -type f | head -1)"
+          gh attestation verify release-evidence/customer-alpha.application-bundle.json --bundle "${APP_BUNDLE}" --repo "${GITHUB_REPOSITORY}" --predicate-type https://k-nex.dev/provenance/v1 --format json > release-evidence/hosted/application-verification.json
+          gh attestation verify release-evidence/release-manifest.json --bundle "${MANIFEST_BUNDLE}" --repo "${GITHUB_REPOSITORY}" --predicate-type https://k-nex.dev/release-manifest/v1 --format json > release-evidence/hosted/manifest-verification.json
       - name: Attest artifact SBOM with GitHub OIDC
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
-          subject-path: fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz
+          subject-path: release-evidence/customer-alpha.application-bundle.json
           sbom-path: release-evidence/sbom.cdx.json
+      - name: Publish hosted verification evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: phase-8-hosted-release-evidence
+          path: release-evidence
+          if-no-files-found: error

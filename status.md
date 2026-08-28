@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Prior, current, and security-target Sales archives now build from three committed immutable package-source snapshots. The prior source has revision-1 behavior; 1.0.0 reproduces the reviewed export-key traversal and 1.0.1 contains the tested basename remediation.
+Release evidence now targets a deterministic, self-contained customer application bundle containing generated source, build output, frozen lock, release manifest, and every package in the exact closure. The workflow separately attests the canonical release manifest and downloads/verifies both hosted bundles.
 
 ## Validation
 
-Packed release generation PASS (18 artifacts); release manifests regenerated. Closure check PASS (18 identities), including exact source/archive parity, three distinct Sales integrities, prior/current migration distinction, vulnerable reproduction, and remediated target denial.
+Deployable bundle generation PASS twice with byte-identical 1.2 MB subjects and predicates. Materials bind application manifest, lock, plan, SBOM, release manifest, full closure, generated tree, and build output.
 
 ## Next
 
