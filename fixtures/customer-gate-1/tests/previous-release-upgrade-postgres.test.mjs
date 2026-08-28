@@ -38,7 +38,7 @@ test("boots the supported prior release and upgrades every reviewed Sales artifa
     }
 
     const receipt = await executeMigrationJob({
-      pool, applicationId: "customer.beta", databaseIdentity: "customer-beta-prior", expectedPredecessorRevision: 6,
+      pool, applicationId: "customer.beta", expectedPredecessorRevision: 6,
       targetRevision: 7, releaseRevision: "platform-0.2.0",
       async migrate(session) {
         for (const step of plan.steps) {

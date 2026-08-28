@@ -44,7 +44,7 @@ function hash32(value: string, seed: number): number {
 }
 
 export function deriveMigrationLockKey(applicationId: string, databaseIdentity: string): readonly [number, number] {
-  if (!/^[a-z][a-z0-9.-]{2,127}$/u.test(applicationId) || databaseIdentity.length < 1 || databaseIdentity.length > 512) {
+  if (!/^[a-z][a-z0-9.-]{2,127}$/u.test(applicationId) || !/^\d+$/u.test(databaseIdentity)) {
     fail("INVALID_INPUT", "Migration application and database identities are invalid.");
   }
   const identity = `${applicationId}\u0000${databaseIdentity}`;
@@ -53,12 +53,11 @@ export function deriveMigrationLockKey(applicationId: string, databaseIdentity: 
 
 function validateJob(input: {
   readonly applicationId: string;
-  readonly databaseIdentity: string;
   readonly expectedPredecessorRevision: number;
   readonly targetRevision: number;
   readonly releaseRevision: string;
 }): void {
-  deriveMigrationLockKey(input.applicationId, input.databaseIdentity);
+  if (!/^[a-z][a-z0-9.-]{2,127}$/u.test(input.applicationId)) fail("INVALID_INPUT", "Migration application identity is invalid.");
   if (!Number.isSafeInteger(input.expectedPredecessorRevision) || input.expectedPredecessorRevision < 0 ||
     input.targetRevision !== input.expectedPredecessorRevision + 1 ||
     !/^[a-zA-Z0-9][a-zA-Z0-9._:+/-]{0,127}$/u.test(input.releaseRevision)) {
@@ -69,7 +68,6 @@ function validateJob(input: {
 export async function executeMigrationJob(input: {
   readonly pool: MigrationPool;
   readonly applicationId: string;
-  readonly databaseIdentity: string;
   readonly expectedPredecessorRevision: number;
   readonly targetRevision: number;
   readonly releaseRevision: string;
@@ -77,10 +75,18 @@ export async function executeMigrationJob(input: {
 }): Promise<MigrationRevisionReceipt> {
   validateJob(input);
   const session = await input.pool.connect();
-  const [lockKeyA, lockKeyB] = deriveMigrationLockKey(input.applicationId, input.databaseIdentity);
+  let lockKeyA = 0;
+  let lockKeyB = 0;
   let locked = false;
   let transaction = false;
   try {
+    const database = await session.query<{ database_id: string }>(
+      "select oid::text as database_id from pg_database where datname = current_database()"
+    );
+    if (database.rows.length !== 1 || database.rows[0] === undefined) {
+      fail("INVALID_INPUT", "Connected PostgreSQL database identity is unavailable.");
+    }
+    [lockKeyA, lockKeyB] = deriveMigrationLockKey(input.applicationId, database.rows[0].database_id);
     const lock = await session.query<{ locked: boolean }>("select pg_try_advisory_lock($1, $2) as locked", [lockKeyA, lockKeyB]);
     locked = lock.rows[0]?.locked === true;
     if (!locked) fail("LOCK_UNAVAILABLE", "Another migration owns the application/database advisory lock.");

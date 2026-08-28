@@ -9,6 +9,7 @@ function harness(options: { lock?: boolean; revision?: number; migrationFails?: 
   const session: MigrationSession = {
     async query<T extends object>(text: string) {
       queries.push(text);
+      if (text.includes("from pg_database")) return { rows: [{ database_id: "16384" }] as T[] };
       if (text.includes("pg_try_advisory_lock")) return { rows: [{ locked: options.lock ?? true }] as T[] };
       if (text.startsWith("select revision")) return { rows: [{ revision }] as T[] };
       if (text.startsWith("update k_nex_release_revision")) {
@@ -31,24 +32,24 @@ function harness(options: { lock?: boolean; revision?: number; migrationFails?: 
 
 describe("migration execution fence", () => {
   it("derives stable database-scoped two-key advisory locks", () => {
-    expect(deriveMigrationLockKey("customer.alpha", "postgres://cluster/database")).toEqual(deriveMigrationLockKey("customer.alpha", "postgres://cluster/database"));
-    expect(deriveMigrationLockKey("customer.alpha", "postgres://cluster/other")).not.toEqual(deriveMigrationLockKey("customer.alpha", "postgres://cluster/database"));
+    expect(deriveMigrationLockKey("customer.alpha", "16384")).toEqual(deriveMigrationLockKey("customer.alpha", "16384"));
+    expect(deriveMigrationLockKey("customer.alpha", "16385")).not.toEqual(deriveMigrationLockKey("customer.alpha", "16384"));
   });
 
   it("owns one dedicated session, verifies predecessor, records release, and unlocks", async () => {
     const test = harness();
-    await expect(executeMigrationJob({ pool: test.pool, applicationId: "customer.alpha", databaseIdentity: "gate1", expectedPredecessorRevision: 6, targetRevision: 7, releaseRevision: "release-7", migrate: test.migrate })).resolves.toEqual({ applicationId: "customer.alpha", predecessorRevision: 6, revision: 7, releaseRevision: "release-7" });
+    await expect(executeMigrationJob({ pool: test.pool, applicationId: "customer.alpha", expectedPredecessorRevision: 6, targetRevision: 7, releaseRevision: "release-7", migrate: test.migrate })).resolves.toEqual({ applicationId: "customer.alpha", predecessorRevision: 6, revision: 7, releaseRevision: "release-7" });
     expect(test.queries).toEqual(expect.arrayContaining(["begin", "migrate", "commit", "release"]));
     expect(test.queries.some((query) => query.includes("pg_advisory_unlock"))).toBe(true);
   });
 
   it("denies concurrent ownership and rolls back interrupted work", async () => {
     const concurrent = harness({ lock: false });
-    await expect(executeMigrationJob({ pool: concurrent.pool, applicationId: "customer.alpha", databaseIdentity: "gate1", expectedPredecessorRevision: 6, targetRevision: 7, releaseRevision: "release-7", migrate: concurrent.migrate })).rejects.toMatchObject({ code: "LOCK_UNAVAILABLE" });
+    await expect(executeMigrationJob({ pool: concurrent.pool, applicationId: "customer.alpha", expectedPredecessorRevision: 6, targetRevision: 7, releaseRevision: "release-7", migrate: concurrent.migrate })).rejects.toMatchObject({ code: "LOCK_UNAVAILABLE" });
     expect(concurrent.queries).not.toContain("migrate");
 
     const interrupted = harness({ migrationFails: true });
-    await expect(executeMigrationJob({ pool: interrupted.pool, applicationId: "customer.alpha", databaseIdentity: "gate1", expectedPredecessorRevision: 6, targetRevision: 7, releaseRevision: "release-7", migrate: interrupted.migrate })).rejects.toThrow("interrupted");
+    await expect(executeMigrationJob({ pool: interrupted.pool, applicationId: "customer.alpha", expectedPredecessorRevision: 6, targetRevision: 7, releaseRevision: "release-7", migrate: interrupted.migrate })).rejects.toThrow("interrupted");
     expect(interrupted.queries).toEqual(expect.arrayContaining(["rollback", "release"]));
   });
 

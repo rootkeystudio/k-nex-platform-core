@@ -7,11 +7,11 @@
 
 ## Last completed
 
-The Phase 8 restack now carries the dependency importer entries required by the accepted Phase 7 package manifests, restoring frozen-install parity.
+Migration advisory locks now derive database identity from the connected PostgreSQL session; callers cannot partition the lock with a forged connection label.
 
 ## Validation
 
-`pnpm install` PASS with Node 24.19.0 and pnpm 11.9.0; the lockfile is synchronized with all workspace importers.
+`vitest run tests/migration-fence.test.ts` PASS (4 tests). Real PostgreSQL migration-fence scenario PASS using two equivalent connection descriptions, including lock contention, rollback, receipt, and stale-readiness denial.
 
 ## Next
 

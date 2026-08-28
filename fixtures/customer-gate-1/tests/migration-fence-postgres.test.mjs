@@ -11,6 +11,7 @@ const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b5
 test("proves advisory-lock concurrency, rollback, release receipt, and stale readiness against PostgreSQL", { timeout: 180_000 }, async () => {
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("migration_fence").withStartupTimeout(120_000).start();
   const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
+  const equivalentPool = new pg.Pool({ connectionString: container.getConnectionUri(), application_name: "equivalent-description" });
   try {
     await pool.query(`
       create table k_nex_release_revision (
@@ -27,7 +28,7 @@ test("proves advisory-lock concurrency, rollback, release receipt, and stale rea
     let continueFirst;
     const allowFirst = new Promise((resolve) => { continueFirst = resolve; });
     const first = executeMigrationJob({
-      pool, applicationId: "customer.alpha", databaseIdentity: "migration-fence", expectedPredecessorRevision: 6,
+      pool, applicationId: "customer.alpha", expectedPredecessorRevision: 6,
       targetRevision: 7, releaseRevision: "release-7",
       async migrate(session) {
         await session.query("create table sales_upgrade_marker (id integer primary key)");
@@ -38,14 +39,15 @@ test("proves advisory-lock concurrency, rollback, release receipt, and stale rea
     await migrationEntered;
 
     await assert.rejects(executeMigrationJob({
-      pool, applicationId: "customer.alpha", databaseIdentity: "migration-fence", expectedPredecessorRevision: 6,
+      pool: equivalentPool,
+      applicationId: "customer.alpha", expectedPredecessorRevision: 6,
       targetRevision: 7, releaseRevision: "release-7", migrate: async () => {}
     }), { code: "LOCK_UNAVAILABLE" });
     continueFirst();
     assert.deepEqual(await first, { applicationId: "customer.alpha", predecessorRevision: 6, revision: 7, releaseRevision: "release-7" });
 
     await assert.rejects(executeMigrationJob({
-      pool, applicationId: "customer.alpha", databaseIdentity: "migration-fence", expectedPredecessorRevision: 7,
+      pool, applicationId: "customer.alpha", expectedPredecessorRevision: 7,
       targetRevision: 8, releaseRevision: "release-8",
       async migrate(session) {
         await session.query("create table interrupted_marker (id integer primary key)");
@@ -65,6 +67,7 @@ test("proves advisory-lock concurrency, rollback, release receipt, and stale rea
       applicationId: "customer.alpha", predecessorRevision: 6, revision: 7, releaseRevision: "release-7"
     });
   } finally {
+    await equivalentPool.end();
     await pool.end();
     await container.stop();
   }
