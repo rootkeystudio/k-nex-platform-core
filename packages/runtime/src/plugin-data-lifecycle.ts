@@ -133,6 +133,8 @@ export interface PluginPurgePlan {
   readonly expectedPredecessorRevision: number;
   readonly targetRevision: number;
   readonly approvalId: string;
+  readonly authorityRevision: string;
+  readonly inputDigest: string;
   readonly ready: boolean;
   readonly diagnostics: readonly PluginDataLifecycleDiagnostic[];
 }
@@ -163,7 +165,45 @@ interface BackupBinding extends EvidenceBinding {
   readonly store: ContentAddressedStore;
 }
 
-const authoritativePurgePlans = new WeakSet<object>();
+export interface PluginPurgeAuthorityDependencies {
+  scanReferences(applicationId: string, pluginId: string): Promise<{ readonly revision: string; readonly references: readonly PluginReference[] }>;
+  scanDependents(applicationId: string, pluginId: string): Promise<{ readonly revision: string; readonly pluginIds: readonly string[] }>;
+  evaluateRetention(applicationId: string, pluginId: string): Promise<{ readonly revision: string; readonly satisfied: boolean }>;
+  currentMigrationRevision(applicationId: string): Promise<number>;
+  resolveMigration(applicationId: string, pluginId: string, migrationId: string): Promise<{ readonly id: string; readonly expectedPredecessorRevision: number; readonly targetRevision: number } | undefined>;
+  authorize(input: {
+    readonly applicationId: string;
+    readonly pluginId: string;
+    readonly actorId: string;
+    readonly sessionId: string;
+    readonly approvalId: string;
+    readonly inputDigest: string;
+  }): Promise<boolean>;
+}
+
+export interface PluginPurgeAuthority {
+  plan(input: {
+    readonly manifest: PluginManifest;
+    readonly applicationId: string;
+    readonly actorId: string;
+    readonly sessionId: string;
+    readonly approvalId: string;
+    readonly migrationId: string;
+    readonly archive?: VerifiedPluginArchiveReceipt;
+    readonly backup?: VerifiedBackupReceipt;
+    readonly restore?: VerifiedRestoreReceipt;
+  }): Promise<PluginPurgePlan>;
+}
+
+interface PurgeBinding {
+  readonly dependencies: PluginPurgeAuthorityDependencies;
+  readonly referenceRevision: string;
+  readonly dependencyRevision: string;
+  readonly retentionRevision: string;
+  readonly migrationRevision: number;
+}
+
+const authoritativePurgePlans = new WeakMap<object, PurgeBinding>();
 const archivePlans = new WeakSet<object>();
 const archiveReceipts = new WeakMap<object, EvidenceBinding>();
 const backupReceipts = new WeakMap<object, BackupBinding>();
@@ -332,61 +372,74 @@ export function backupIsRestorable(backup: VerifiedBackupReceipt, restore: Verif
     backupBinding.migrationRevision === restoreBinding.migrationRevision && backupBinding.contentDigest === restoreBinding.contentDigest;
 }
 
-export function planPluginPurge(input: {
-  readonly manifest: PluginManifest;
-  readonly applicationId: string;
-  readonly references: readonly PluginReference[];
-  readonly dependentPluginIds: readonly string[];
-  readonly retentionSatisfied: boolean;
-  readonly archive?: VerifiedPluginArchiveReceipt;
-  readonly backup?: VerifiedBackupReceipt;
-  readonly restore?: VerifiedRestoreReceipt;
-  readonly migration?: { readonly id: string; readonly expectedPredecessorRevision: number; readonly targetRevision: number };
-  readonly authorization?: { readonly actorPermissions: ReadonlySet<string>; readonly approvalId: string };
-}): PluginPurgePlan {
-  const manifest = PluginManifestSchema.parse(input.manifest);
-  ResourceIdSchema.parse(input.applicationId);
-  const diagnostics: PluginDataLifecycleDiagnostic[] = [];
-  if (manifest.lifecycle.purge !== "supported") diagnostics.push(issue("PURGE_UNSUPPORTED", "Plugin manifest does not support purge."));
-  const references = scanPluginReferences(manifest.id, input.references);
-  if (references.length > 0) diagnostics.push(issue("REFERENCE_PRESENT", `${references.length} active plugin reference(s) remain.`));
-  const dependents = [...new Set(input.dependentPluginIds)];
-  for (const pluginId of dependents) ResourceIdSchema.parse(pluginId);
-  if (dependents.length > 0) diagnostics.push(issue("DEPENDENCY_PRESENT", `${dependents.length} dependent plugin(s) remain.`));
-  if (!input.retentionSatisfied) diagnostics.push(issue("RETENTION_BLOCKED", "Retention or legal-hold requirements are unresolved."));
-  const migration = input.migration;
-  const validMigration = migration !== undefined && /^[a-z][a-z0-9._-]{2,127}$/u.test(migration.id) &&
-    validRevision(migration.expectedPredecessorRevision) && migration.targetRevision === migration.expectedPredecessorRevision + 1;
-  if (!validMigration) diagnostics.push(issue("MIGRATION_REQUIRED", "A reviewed, sequential customer purge migration is required."));
-  const expectedRevision = validMigration ? migration.expectedPredecessorRevision : -1;
-  if (!validArchiveBinding(input.archive, input.applicationId, manifest.id, expectedRevision)) {
-    diagnostics.push(issue("ARCHIVE_REQUIRED", "An executor-verified, restore-read plugin archive is required."));
-  }
-  if (input.backup === undefined || input.restore === undefined || !backupIsRestorable(input.backup, input.restore)) {
-    diagnostics.push(issue("BACKUP_REQUIRED", "An executor-verified database backup restored into a clean environment is required."));
-  } else {
-    const backupBinding = backupReceipts.get(input.backup);
-    if (backupBinding?.applicationId !== input.applicationId || backupBinding.pluginId !== manifest.id || backupBinding.migrationRevision !== expectedRevision) {
-      diagnostics.push(issue("BACKUP_REQUIRED", "The backup and clean restore must match this application, plugin, and migration revision."));
+export function createPluginPurgeAuthority(dependencies: PluginPurgeAuthorityDependencies): PluginPurgeAuthority {
+  const usedApprovals = new Set<string>();
+  return Object.freeze({
+    async plan(input: Parameters<PluginPurgeAuthority["plan"]>[0]) {
+      const manifest = PluginManifestSchema.parse(input.manifest);
+      ResourceIdSchema.parse(input.applicationId);
+      ResourceIdSchema.parse(input.actorId);
+      if (!/^[a-zA-Z0-9][a-zA-Z0-9._:-]{7,255}$/u.test(input.sessionId) || !/^approval:[a-zA-Z0-9._-]{3,128}$/u.test(input.approvalId)) {
+        throw new Error("Purge actor, session, or approval identity is invalid.");
+      }
+      const [referenceState, dependencyState, retentionState, migrationRevision, migration] = await Promise.all([
+        dependencies.scanReferences(input.applicationId, manifest.id), dependencies.scanDependents(input.applicationId, manifest.id),
+        dependencies.evaluateRetention(input.applicationId, manifest.id), dependencies.currentMigrationRevision(input.applicationId),
+        dependencies.resolveMigration(input.applicationId, manifest.id, input.migrationId)
+      ]);
+      const diagnostics: PluginDataLifecycleDiagnostic[] = [];
+      if (manifest.lifecycle.purge !== "supported") diagnostics.push(issue("PURGE_UNSUPPORTED", "Plugin manifest does not support purge."));
+      const references = scanPluginReferences(manifest.id, referenceState.references);
+      if (references.length > 0) diagnostics.push(issue("REFERENCE_PRESENT", `${references.length} active plugin reference(s) remain.`));
+      const dependents = [...new Set(dependencyState.pluginIds)];
+      for (const pluginId of dependents) ResourceIdSchema.parse(pluginId);
+      if (dependents.length > 0) diagnostics.push(issue("DEPENDENCY_PRESENT", `${dependents.length} dependent plugin(s) remain.`));
+      if (!retentionState.satisfied) diagnostics.push(issue("RETENTION_BLOCKED", "Retention or legal-hold requirements are unresolved."));
+      const validMigration = migration !== undefined && migration.id === input.migrationId && validRevision(migration.expectedPredecessorRevision) &&
+        migration.targetRevision === migration.expectedPredecessorRevision + 1 && migration.expectedPredecessorRevision === migrationRevision;
+      if (!validMigration) diagnostics.push(issue("MIGRATION_REQUIRED", "A registry-issued sequential customer purge migration is required."));
+      const expectedRevision = validMigration ? migration.expectedPredecessorRevision : -1;
+      if (!validArchiveBinding(input.archive, input.applicationId, manifest.id, expectedRevision)) diagnostics.push(issue("ARCHIVE_REQUIRED", "An executor-verified, restore-read plugin archive is required."));
+      const backupBinding = input.backup === undefined ? undefined : backupReceipts.get(input.backup);
+      if (input.backup === undefined || input.restore === undefined || !backupIsRestorable(input.backup, input.restore) ||
+        backupBinding?.applicationId !== input.applicationId || backupBinding?.pluginId !== manifest.id || backupBinding?.migrationRevision !== expectedRevision) {
+        diagnostics.push(issue("BACKUP_REQUIRED", "The verified backup and clean restore must match this application, plugin, and migration revision."));
+      }
+      const archiveBinding = input.archive === undefined ? undefined : archiveReceipts.get(input.archive);
+      const inputDigest = digestPattern.test(archiveBinding?.contentDigest ?? "") && digestPattern.test(backupBinding?.contentDigest ?? "") ?
+        `sha256:${createHash("sha256").update(canonicalJson({ applicationId: input.applicationId, pluginId: manifest.id, migration, migrationRevision, referenceRevision: referenceState.revision, dependencyRevision: dependencyState.revision, retentionRevision: retentionState.revision, archiveDigest: archiveBinding!.contentDigest, backupDigest: backupBinding!.contentDigest, actorId: input.actorId, sessionId: input.sessionId, approvalId: input.approvalId })).digest("hex")}` : `sha256:${"0".repeat(64)}`;
+      const authorized = diagnostics.length === 0 && !usedApprovals.has(input.approvalId) && await dependencies.authorize({
+        applicationId: input.applicationId, pluginId: manifest.id, actorId: input.actorId, sessionId: input.sessionId,
+        approvalId: input.approvalId, inputDigest
+      });
+      if (!authorized) diagnostics.push(issue("ACCESS_DENIED", "Authority-bound single-use purge approval is required."));
+      const ready = diagnostics.length === 0;
+      const authorityRevision = `refs:${referenceState.revision};deps:${dependencyState.revision};retention:${retentionState.revision};migration:${migrationRevision}`;
+      const plan = Object.freeze({
+        applicationId: input.applicationId, pluginId: manifest.id, migrationId: migration?.id ?? "unavailable",
+        expectedPredecessorRevision: migration?.expectedPredecessorRevision ?? -1, targetRevision: migration?.targetRevision ?? -1,
+        approvalId: input.approvalId, authorityRevision, inputDigest, ready, diagnostics: Object.freeze(diagnostics)
+      });
+      if (ready) {
+        usedApprovals.add(input.approvalId);
+        authoritativePurgePlans.set(plan, { dependencies, referenceRevision: referenceState.revision, dependencyRevision: dependencyState.revision, retentionRevision: retentionState.revision, migrationRevision });
+      }
+      return plan;
     }
-  }
-  if (input.authorization === undefined || !input.authorization.actorPermissions.has("plugin.purge.execute") ||
-    !/^approval:[a-zA-Z0-9._-]{3,128}$/u.test(input.authorization.approvalId)) {
-    diagnostics.push(issue("ACCESS_DENIED", "Explicit purge permission and approval are required."));
-  }
-  const ready = diagnostics.length === 0;
-  const plan = Object.freeze({
-    applicationId: input.applicationId, pluginId: manifest.id, migrationId: migration?.id ?? "unavailable",
-    expectedPredecessorRevision: migration?.expectedPredecessorRevision ?? -1, targetRevision: migration?.targetRevision ?? -1,
-    approvalId: input.authorization?.approvalId ?? "unavailable", ready, diagnostics: Object.freeze(diagnostics)
   });
-  if (ready) authoritativePurgePlans.add(plan);
-  return plan;
 }
 
 export async function executePluginPurge(plan: PluginPurgePlan, transaction: PurgeTransaction): Promise<void> {
-  if (!plan.ready || !authoritativePurgePlans.has(plan)) throw new Error("Plugin purge plan is not authoritative or ready.");
+  const binding = authoritativePurgePlans.get(plan);
+  if (!plan.ready || binding === undefined) throw new Error("Plugin purge plan is not authoritative or ready.");
   authoritativePurgePlans.delete(plan);
+  const [references, dependents, retention, revision] = await Promise.all([
+    binding.dependencies.scanReferences(plan.applicationId, plan.pluginId), binding.dependencies.scanDependents(plan.applicationId, plan.pluginId),
+    binding.dependencies.evaluateRetention(plan.applicationId, plan.pluginId), binding.dependencies.currentMigrationRevision(plan.applicationId)
+  ]);
+  if (references.revision !== binding.referenceRevision || scanPluginReferences(plan.pluginId, references.references).length > 0 ||
+    dependents.revision !== binding.dependencyRevision || dependents.pluginIds.length > 0 || retention.revision !== binding.retentionRevision ||
+    !retention.satisfied || revision !== binding.migrationRevision) throw new Error("Plugin purge authority state changed after approval.");
   await transaction.begin();
   try {
     await transaction.applyMigration({

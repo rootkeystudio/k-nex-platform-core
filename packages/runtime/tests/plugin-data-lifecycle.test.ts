@@ -2,8 +2,8 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import {
-  backupIsRestorable, createPluginArchivePlan, executeCleanRestore, executeDatabaseBackup, executePluginArchive,
-  executePluginPurge, planPluginPurge, type ContentAddressedStore, type PluginPurgePlan
+  backupIsRestorable, createPluginArchivePlan, createPluginPurgeAuthority, executeCleanRestore, executeDatabaseBackup, executePluginArchive,
+  executePluginPurge, type ContentAddressedStore, type PluginPurgePlan
 } from "../src/index.js";
 
 const inventoryDigest = `sha256:${"b".repeat(64)}`;
@@ -76,12 +76,22 @@ async function verifiedEvidence(applicationId = "customer.alpha", migrationRevis
   return { archive, backup, restore };
 }
 
+function purgeAuthority(options: { references?: readonly { kind: "document"; id: string; pluginId: string }[]; dependents?: readonly string[]; retention?: boolean; revision?: number; authorized?: boolean } = {}) {
+  return createPluginPurgeAuthority({
+    scanReferences: async () => ({ revision: "refs-1", references: options.references ?? [] }),
+    scanDependents: async () => ({ revision: "deps-1", pluginIds: options.dependents ?? [] }),
+    evaluateRetention: async () => ({ revision: "retention-1", satisfied: options.retention ?? true }),
+    currentMigrationRevision: async () => options.revision ?? 7,
+    resolveMigration: async (_applicationId, _pluginId, id) => id === "sales.purge.v1" ? { id, expectedPredecessorRevision: 7, targetRevision: 8 } : undefined,
+    authorize: async () => options.authorized ?? true
+  });
+}
+
 async function readyPlan(): Promise<PluginPurgePlan> {
   const { archive, backup, restore } = await verifiedEvidence();
-  return planPluginPurge({
-    manifest, applicationId: "customer.alpha", references: [], dependentPluginIds: [], retentionSatisfied: true, archive, backup, restore,
-    migration: { id: "sales.purge.v1", expectedPredecessorRevision: 7, targetRevision: 8 },
-    authorization: { actorPermissions: new Set(["plugin.purge.execute"]), approvalId: "approval:change-42" }
+  return purgeAuthority().plan({
+    manifest, applicationId: "customer.alpha", actorId: "actor.admin", sessionId: "session:admin-1234",
+    approvalId: "approval:change-42", migrationId: "sales.purge.v1", archive, backup, restore
   });
 }
 
@@ -123,8 +133,11 @@ describe("plugin archive, purge, backup, and restore", () => {
   });
 
   it("refuses purge until references, dependents, retention, executor receipts, migration, and approval are resolved", async () => {
-    const blocked = planPluginPurge({
-      manifest, applicationId: "customer.alpha", references: [{ kind: "document", id: "page.sales", pluginId: "module.sales" }], dependentPluginIds: ["module.consumer"], retentionSatisfied: false
+    const blocked = await purgeAuthority({
+      references: [{ kind: "document", id: "page.sales", pluginId: "module.sales" }], dependents: ["module.consumer"], retention: false, authorized: false
+    }).plan({
+      manifest, applicationId: "customer.alpha", actorId: "actor.admin", sessionId: "session:admin-1234",
+      approvalId: "approval:change-42", migrationId: "missing"
     });
     expect(blocked.ready).toBe(false);
     expect(blocked.diagnostics.map(({ code }) => code)).toEqual(expect.arrayContaining(["REFERENCE_PRESENT", "DEPENDENCY_PRESENT", "RETENTION_BLOCKED", "ARCHIVE_REQUIRED", "BACKUP_REQUIRED", "MIGRATION_REQUIRED", "ACCESS_DENIED"]));
@@ -133,21 +146,17 @@ describe("plugin archive, purge, backup, and restore", () => {
 
   it("rejects fabricated or substituted lifecycle evidence even when its fields look valid", async () => {
     const { archive, backup, restore } = await verifiedEvidence();
-    const fabricated = planPluginPurge({
-      manifest, applicationId: "customer.alpha", references: [], dependentPluginIds: [], retentionSatisfied: true,
+    const fabricated = await purgeAuthority().plan({
+      manifest, applicationId: "customer.alpha", actorId: "actor.admin", sessionId: "session:admin-1234", approvalId: "approval:change-42", migrationId: "sales.purge.v1",
       archive: { ...archive } as typeof archive, backup: { ...backup } as typeof backup, restore: { ...restore } as typeof restore,
-      migration: { id: "sales.purge.v1", expectedPredecessorRevision: 7, targetRevision: 8 },
-      authorization: { actorPermissions: new Set(["plugin.purge.execute"]), approvalId: "approval:change-42" }
     });
     expect(fabricated.ready).toBe(false);
     expect(fabricated.diagnostics.map(({ code }) => code)).toEqual(expect.arrayContaining(["ARCHIVE_REQUIRED", "BACKUP_REQUIRED"]));
 
     const otherApplication = await verifiedEvidence("customer.beta");
-    const substituted = planPluginPurge({
-      manifest, applicationId: "customer.alpha", references: [], dependentPluginIds: [], retentionSatisfied: true,
+    const substituted = await purgeAuthority().plan({
+      manifest, applicationId: "customer.alpha", actorId: "actor.admin", sessionId: "session:admin-1234", approvalId: "approval:change-43", migrationId: "sales.purge.v1",
       archive: otherApplication.archive, backup: otherApplication.backup, restore: otherApplication.restore,
-      migration: { id: "sales.purge.v1", expectedPredecessorRevision: 7, targetRevision: 8 },
-      authorization: { actorPermissions: new Set(["plugin.purge.execute"]), approvalId: "approval:change-42" }
     });
     expect(substituted.ready).toBe(false);
     expect(substituted.diagnostics.map(({ code }) => code)).toEqual(expect.arrayContaining(["ARCHIVE_REQUIRED", "BACKUP_REQUIRED"]));
@@ -170,6 +179,34 @@ describe("plugin archive, purge, backup, and restore", () => {
       commit: async () => { events.push("replayed-commit"); }, rollback: async () => { events.push("replayed-rollback"); }
     })).rejects.toThrow("not authoritative or ready");
     expect(events).toEqual(["begin", "apply", "commit"]);
+  });
+
+  it("denies replayed approvals and state drift before any purge transaction starts", async () => {
+    const { archive, backup, restore } = await verifiedEvidence();
+    let referenceRevision = "refs-1";
+    let references: readonly { kind: "document"; id: string; pluginId: string }[] = [];
+    const authority = createPluginPurgeAuthority({
+      scanReferences: async () => ({ revision: referenceRevision, references }),
+      scanDependents: async () => ({ revision: "deps-1", pluginIds: [] }),
+      evaluateRetention: async () => ({ revision: "retention-1", satisfied: true }),
+      currentMigrationRevision: async () => 7,
+      resolveMigration: async (_applicationId, _pluginId, id) => ({ id, expectedPredecessorRevision: 7, targetRevision: 8 }),
+      authorize: async () => true
+    });
+    const input = {
+      manifest, applicationId: "customer.alpha", actorId: "actor.admin", sessionId: "session:admin-1234",
+      approvalId: "approval:single-use", migrationId: "sales.purge.v1", archive, backup, restore
+    } as const;
+    const plan = await authority.plan(input);
+    expect((await authority.plan(input)).diagnostics.map(({ code }) => code)).toContain("ACCESS_DENIED");
+    referenceRevision = "refs-2";
+    references = [{ kind: "document", id: "page.sales", pluginId: "module.sales" }];
+    const events: string[] = [];
+    await expect(executePluginPurge(plan, {
+      begin: async () => { events.push("begin"); }, applyMigration: async () => { events.push("apply"); },
+      commit: async () => { events.push("commit"); }, rollback: async () => { events.push("rollback"); }
+    })).rejects.toThrow("state changed after approval");
+    expect(events).toEqual([]);
   });
 
   it("consumes an attempted purge plan while preserving rollback for transaction failures", async () => {

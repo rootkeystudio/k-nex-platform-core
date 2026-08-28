@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Archive and physical-backup evidence now flows through bounded async streams into digest-keyed encrypted object storage. Receipts bind storage key, digest, byte length, and key reference; restore reads the exact receipt object instead of retained caller bytes.
+Purge planning now runs behind an injected lifecycle authority that obtains references, dependents, retention, migration revision, reviewed migration, and actor/session approval itself. Plans bind those revisions and evidence digests, consume approvals once, and revalidate before opening a transaction.
 
 ## Validation
 
-Runtime build PASS. Lifecycle tests PASS (8), including per-document and total-byte denial. Real PostgreSQL backup/restore PASS using the receipt-addressed stream to restore Sales/content/layout/settings/outbox/revision.
+Runtime build PASS. Lifecycle tests PASS (9), including fabricated evidence, other-app substitution, approval replay, post-approval reference drift with zero transaction calls, rollback, and plan replay denial.
 
 ## Next
 
