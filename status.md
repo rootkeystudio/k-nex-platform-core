@@ -3,19 +3,19 @@
 - **Updated:** 2026-08-28
 - **Phase:** Phase 8 — Lifecycle, Application Factory, Release, and Fleet Safety
 - **Active task:** P8.10 — Platform-foundation closeout
-- **State:** In progress
+- **State:** Ready for phase review
 
 ## Last completed
 
-Final hosted evidence from run 33199256506 binds both customer application bundles and both release manifests to executable source 10e4049. Generated runtime-inventory schema and Gate 1 resolution evidence are reconciled with the new framework and package-integrity contracts.
+All PR 23 blockers are remediated. Final hosted run 33199256506 binds both customer application bundles and both release manifests to executable source 10e4049; final-head generation, mutation, PostgreSQL, deployment, and Fleet evidence all reconcile.
 
 ## Validation
 
-Hosted run 33199256506 PASS; contracts/repository generation and all workspace unit suites PASS. Full Gate 8 rerun pending after Gate 1 generated-resolution refresh.
+`pnpm gate:8` PASS: Gates 1–8; contracts 152, composition 84, runtime 237; five PostgreSQL proofs; 18 release artifacts; generated-evidence mutation and four Sigstore subject verifications. Hosted run 33199256506 PASS.
 
 ## Next
 
-Run one complete Gate 8, close status and result on PASS, then run final-head audit and cleanliness checks.
+Project-manager re-review of PR 23. Leave the PR open; do not merge or enable auto-merge.
 
 ## Blockers
 

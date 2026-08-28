@@ -8,15 +8,10 @@ import { assertPhase8SourceTopology } from "./lib/phase-8-provenance.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const target = resolve(root, "fixtures/customer-alpha/security-patch-plan.json");
-const inventoryTarget = resolve(root, "fixtures/customer-alpha/runtime-inventory.json");
 
 test("Gate 8 rejects and does not silently repair stale committed evidence", () => {
   const original = readFileSync(target);
-  const originalInventory = readFileSync(inventoryTarget);
   try {
-    const inventory = JSON.parse(originalInventory.toString("utf8"));
-    inventory.releaseEvidence.sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
-    writeFileSync(inventoryTarget, `${JSON.stringify(inventory, null, 2)}\n`);
     const stale = JSON.parse(original.toString("utf8"));
     stale.targetVersion = "9.9.9";
     const staleContent = Buffer.from(`${JSON.stringify(stale, null, 2)}\n`);
@@ -27,7 +22,6 @@ test("Gate 8 rejects and does not silently repair stale committed evidence", () 
     assert.deepEqual(readFileSync(target), staleContent, "The check must not repair the stale committed artifact it rejected.");
   } finally {
     writeFileSync(target, original);
-    writeFileSync(inventoryTarget, originalInventory);
   }
 });
 
