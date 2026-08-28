@@ -8,7 +8,7 @@ import { join, resolve } from "node:path";
 import { ApplicationManifestSchema, DeploymentReceiptSchema, RuntimeInventorySchema, canonicalJson } from "../packages/contracts/dist/index.js";
 import { applyCreateKnexApplication, planCreateKnexApplication } from "../packages/composition/dist/index.js";
 import { FleetRegistry, createApplicationBundleAuthority, createDeploymentEvidenceAuthority, createGitHubHostedAttestationVerifier, createPackageReleaseManifestAuthority, reconcileDeploymentReceipt, runtimeInventoryStateDigest, signDeploymentReceipt } from "../packages/runtime/dist/index.js";
-import { assertPhase8SourceRelease, sourceFile } from "./lib/phase-8-provenance.mjs";
+import { assertPhase8ReleaseSnapshot, bundledFile } from "./lib/phase-8-provenance.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 if (process.versions.node !== "24.19.0") throw new Error(`Gate 8 requires Node 24.19.0; found ${process.versions.node}.`);
@@ -59,7 +59,15 @@ const verifiedApplication = async (location, customer, release) => {
   assert.equal(bundle.closureDigest, sha256(canonicalJson(bundle.installedPackages)));
   const application = await applicationAuthority.verify(bundle, applicationVerification[0], release);
   const attestation = applicationAuthority.read(application).attestation;
-  assertPhase8SourceRelease(root, attestation.sourceCommit);
+  const materials = new Map(attestation.materials.map(({ name, digest }) => [name, digest]));
+  const applicationFiles = bundle.files.filter(({ path }) => path.startsWith("application/"));
+  const buildFiles = bundle.files.filter(({ path }) => path.startsWith("application/dist/"));
+  assert.equal(materials.get("application-manifest"), sha256(bundledFile(bundle, "application/k-nex.app.json")));
+  assert.equal(materials.get("resolved-graph-or-plan"), sha256(canonicalJson(JSON.parse(bundledFile(bundle, "application/.k-nex/application-plan.json").toString("utf8")))));
+  assert.equal(materials.get("package-release-manifest"), bundle.releaseManifestDigest);
+  assert.equal(materials.get("generated-application-tree"), sha256(canonicalJson(applicationFiles)));
+  assert.equal(materials.get("application-build-output"), sha256(canonicalJson(buildFiles)));
+  assertPhase8ReleaseSnapshot(root, bundle);
   return { release, application, attestation, bundle, sbom: JSON.parse(readFileSync(resolve(location, "sbom.cdx.json"), "utf8")) };
 };
 const supportRelease = await verifiedManifest(hostedRoot, "releases/0.2.0/package-release-manifest.json");
@@ -78,7 +86,7 @@ const targetTokens = new Map([
 ]);
 
 const sourceCommit = readJson("fixtures/customer-alpha/runtime-inventory.json").releaseEvidence.sourceCommit;
-assertPhase8SourceRelease(root, sourceCommit);
+assert.match(sourceCommit, /^[0-9a-f]{40}$/u);
 const deploymentKeys = generateKeyPairSync("ed25519");
 const deploymentAuthority = createDeploymentEvidenceAuthority({
   applicationBundleAuthority: applicationAuthority, packageReleaseAuthority: releaseAuthority,
@@ -90,14 +98,17 @@ for (const customer of ["customer-alpha", "customer-beta"]) {
   const manifest = ApplicationManifestSchema.parse(readJson(`fixtures/${customer}/k-nex.app.json`));
   const inventory = RuntimeInventorySchema.parse(readJson(`fixtures/${customer}/runtime-inventory.json`));
   const receipt = DeploymentReceiptSchema.parse(readJson(`fixtures/${customer}/deployment-receipt.json`));
-  const sourceManifest = JSON.parse(sourceFile(root, sourceCommit, `fixtures/${customer}/k-nex.app.json`).toString("utf8"));
-  const sourceLock = sourceFile(root, sourceCommit, `fixtures/${customer}/pnpm-lock.yaml`).toString("utf8");
-  const sourcePlan = JSON.parse(sourceFile(root, sourceCommit, `fixtures/${customer}/.k-nex/application-plan.json`).toString("utf8"));
   const hosted = hostedTokens.get(customer);
+  const signedManifest = bundledFile(hosted.bundle, "application/k-nex.app.json");
+  const signedLock = bundledFile(hosted.bundle, "application/pnpm-lock.yaml");
+  const signedPlan = bundledFile(hosted.bundle, "application/.k-nex/application-plan.json");
+  assert.ok(readFileSync(resolve(root, `fixtures/${customer}/k-nex.app.json`)).equals(signedManifest), `${customer} manifest differs from the signed application bundle.`);
+  assert.ok(readFileSync(resolve(root, `fixtures/${customer}/pnpm-lock.yaml`)).equals(signedLock), `${customer} lock differs from the signed application bundle.`);
+  assert.ok(readFileSync(resolve(root, `fixtures/${customer}/.k-nex/application-plan.json`)).equals(signedPlan), `${customer} plan differs from the signed application bundle.`);
   assert.equal(inventory.artifactDigest, sha256(canonicalJson(hosted.bundle)));
-  assert.equal(inventory.releaseEvidence.manifestDigest, sha256(sourceFile(root, sourceCommit, `fixtures/${customer}/k-nex.app.json`)));
-  assert.equal(inventory.releaseEvidence.lockfileDigest, sha256(sourceLock));
-  assert.equal(inventory.releaseEvidence.resolvedGraphDigest, sha256(canonicalJson(sourcePlan)));
+  assert.equal(inventory.releaseEvidence.manifestDigest, sha256(signedManifest));
+  assert.equal(inventory.releaseEvidence.lockfileDigest, sha256(signedLock));
+  assert.equal(inventory.releaseEvidence.resolvedGraphDigest, sha256(canonicalJson(JSON.parse(signedPlan.toString("utf8")))));
   assert.equal(inventory.releaseEvidence.frameworkDigest, hosted.bundle.frameworkDigest);
   assert.equal(inventory.releaseEvidence.sbomDigest, sha256(canonicalJson(hosted.sbom)));
   assert.equal(inventory.releaseEvidence.sourceCommit, sourceCommit);

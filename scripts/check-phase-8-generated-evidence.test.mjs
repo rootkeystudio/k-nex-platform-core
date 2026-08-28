@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import test from "node:test";
-import { resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 
-import { assertPhase8SourceTopology } from "./lib/phase-8-provenance.mjs";
+import { assertPhase8ReleaseSnapshot } from "./lib/phase-8-provenance.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const target = resolve(root, "fixtures/customer-alpha/security-patch-plan.json");
@@ -25,13 +26,30 @@ test("Gate 8 rejects and does not silently repair stale committed evidence", () 
   }
 });
 
-test("deployment evidence rejects an existing non-ancestor source commit", () => {
-  const sourceCommit = execFileSync("git", ["commit-tree", "HEAD^{tree}"], {
-    cwd: root,
-    encoding: "utf8",
-    input: "detached Phase 8 source\n",
-    env: { ...process.env, GIT_AUTHOR_NAME: "Gate 8", GIT_AUTHOR_EMAIL: "gate8@example.invalid", GIT_AUTHOR_DATE: "2000-01-01T00:00:00Z", GIT_COMMITTER_NAME: "Gate 8", GIT_COMMITTER_EMAIL: "gate8@example.invalid", GIT_COMMITTER_DATE: "2000-01-01T00:00:00Z" }
-  }).trim();
-  assert.match(sourceCommit, /^[0-9a-f]{40}$/u, "The repository needs a non-ancestor commit for this topology test.");
-  assert.throws(() => assertPhase8SourceTopology(root, sourceCommit), /must be an ancestor of the final head/u);
+test("Gate 8 validates a squash-style signed release snapshot without Git topology and rejects missing or modified artifacts", () => {
+  const snapshot = mkdtempSync(join(tmpdir(), "k-nex-gate-8-squash-"));
+  const manifest = "releases/0.2.0/package-release-manifest.json";
+  const bundlePath = "release-evidence/phase-8/customer-alpha.application-bundle.json";
+  try {
+    for (const path of [manifest, bundlePath]) {
+      mkdirSync(resolve(snapshot, path, ".."), { recursive: true });
+      cpSync(resolve(root, path), resolve(snapshot, path));
+    }
+    mkdirSync(resolve(snapshot, "fixtures/customer-gate-1"), { recursive: true });
+    cpSync(resolve(root, "fixtures/customer-gate-1/packages"), resolve(snapshot, "fixtures/customer-gate-1/packages"), { recursive: true });
+    assert.equal(existsSync(resolve(snapshot, ".git")), false);
+    const bundle = JSON.parse(readFileSync(resolve(snapshot, bundlePath), "utf8"));
+    assert.doesNotThrow(() => assertPhase8ReleaseSnapshot(snapshot, bundle));
+
+    const artifact = resolve(snapshot, "fixtures/customer-gate-1/packages/k-nex-runtime-0.0.0.tgz");
+    const original = readFileSync(artifact);
+    rmSync(artifact);
+    assert.throws(() => assertPhase8ReleaseSnapshot(snapshot, bundle), /ENOENT/u);
+    writeFileSync(artifact, "modified");
+    assert.throws(() => assertPhase8ReleaseSnapshot(snapshot, bundle), /differs from the signed application bundle/u);
+    writeFileSync(artifact, original);
+    assert.doesNotThrow(() => assertPhase8ReleaseSnapshot(snapshot, bundle));
+  } finally {
+    rmSync(snapshot, { recursive: true, force: true });
+  }
 });

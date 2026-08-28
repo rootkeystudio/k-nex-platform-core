@@ -1,20 +1,14 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
 
-const runGit = (root, args, options = {}) => execFileSync("git", args, { cwd: root, ...options });
+const sha256 = (content) => `sha256:${createHash("sha256").update(content).digest("hex")}`;
 const sha512 = (content) => `sha512-${createHash("sha512").update(content).digest("base64")}`;
-const phaseSevenFinal = "7e89949e17c0edcded2fe67e41b518d31ada4ba1";
-const releaseManifest = /^releases\/[^/]+\/package-release-manifest\.json$/u;
-const artifact = /^fixtures\/customer-gate-1\/packages\/[^/]+\.tgz$/u;
-
-function trackedPaths(root, revision, pattern) {
-  return runGit(root, ["ls-tree", "-r", "--name-only", revision], { encoding: "utf8" })
-    .split("\n").filter((path) => pattern.test(path)).sort();
-}
+const canonical = (value) => Array.isArray(value) ? value.map(canonical) : value !== null && typeof value === "object" ?
+  Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, child]) => [key, canonical(child)])) : value;
+const canonicalJson = (value) => `${JSON.stringify(canonical(value), null, 2)}\n`;
 
 function packedIdentity(archive) {
   const tar = gunzipSync(archive);
@@ -33,57 +27,33 @@ function packedIdentity(archive) {
   throw new Error("Packed release artifact lacks package/package.json.");
 }
 
-export function sourceFile(root, sourceCommit, path) {
-  return runGit(root, ["show", `${sourceCommit}:${path}`], { maxBuffer: 4 * 1024 * 1024 });
+function artifactName(packageName, version) {
+  return `${packageName.slice(1).replace("/", "-")}-${version}.tgz`;
 }
 
-export function assertPhase8SourceTopology(root, sourceCommit, finalHead = "HEAD") {
-  assert.match(sourceCommit, /^[0-9a-f]{40}$/u, "Phase 8 source commit must be a full SHA.");
-  runGit(root, ["cat-file", "-e", `${sourceCommit}^{commit}`]);
-  const isAncestor = (base, head) => {
-    try {
-      runGit(root, ["merge-base", "--is-ancestor", base, head]);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-  assert.ok(isAncestor(sourceCommit, finalHead), "Phase 8 source commit must be an ancestor of the final head.");
-  assert.ok(isAncestor(phaseSevenFinal, sourceCommit), "Phase 8 source commit must descend from the Phase 7 final base.");
+export function bundledFile(bundle, path) {
+  const file = bundle.files.find((entry) => entry.path === path);
+  assert.ok(file, `Signed application bundle is missing ${path}.`);
+  const content = Buffer.from(file.content, "base64");
+  assert.equal(file.digest, sha256(content), `Signed application bundle has an invalid digest for ${path}.`);
+  return content;
 }
 
-export function assertPhase8SourceRelease(root, sourceCommit, finalHead = "HEAD") {
-  assertPhase8SourceTopology(root, sourceCommit, finalHead);
-  const currentManifests = readdirSync(resolve(root, "releases"), { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && /^\d+\.\d+\.\d+$/u.test(entry.name))
-    .map(({ name }) => `releases/${name}/package-release-manifest.json`).sort();
-  const sourceManifests = trackedPaths(root, sourceCommit, releaseManifest);
-  assert.deepEqual(sourceManifests, currentManifests, "Source release manifest set differs from the final tree.");
+export function assertPhase8ReleaseSnapshot(root, bundle) {
+  assert.match(bundle.sourceCommit, /^[0-9a-f]{40}$/u, "Phase 8 source commit metadata must be a full SHA.");
+  const manifestPath = resolve(root, `releases/${bundle.release}/package-release-manifest.json`);
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  assert.equal(bundle.releaseManifestDigest, sha256(canonicalJson(manifest)), `Release ${bundle.release} manifest differs from the signed application bundle.`);
 
-  const sourceArtifacts = trackedPaths(root, sourceCommit, artifact);
-  const currentArtifacts = readdirSync(resolve(root, "fixtures/customer-gate-1/packages"))
-    .filter((name) => name.endsWith(".tgz")).map((name) => `fixtures/customer-gate-1/packages/${name}`).sort();
-  assert.deepEqual(sourceArtifacts, currentArtifacts, "Source artifact set differs from the final tree.");
-
-  const artifacts = new Map();
-  for (const path of sourceArtifacts) {
-    const source = sourceFile(root, sourceCommit, path);
-    assert.ok(readFileSync(resolve(root, path)).equals(source), `${path} differs from source commit.`);
-    const identity = packedIdentity(source);
-    assert.ok(!artifacts.has(identity), `Source has duplicate packed artifact ${identity}.`);
-    artifacts.set(identity, source);
+  const expectedPaths = manifest.packages.map(({ package: packageName, version }) => `packages/${artifactName(packageName, version)}`).sort();
+  const bundledPaths = bundle.files.map(({ path }) => path).filter((path) => /^packages\/[^/]+\.tgz$/u.test(path)).sort();
+  assert.deepEqual(bundledPaths, expectedPaths, `Release ${bundle.release} package set differs from the signed application bundle.`);
+  for (const expected of manifest.packages) {
+    const name = artifactName(expected.package, expected.version);
+    const bundled = bundledFile(bundle, `packages/${name}`);
+    const repository = readFileSync(resolve(root, "fixtures/customer-gate-1/packages", name));
+    assert.ok(repository.equals(bundled), `${name} differs from the signed application bundle.`);
+    assert.equal(sha512(repository), expected.integrity, `${name} has an invalid release-manifest integrity.`);
+    assert.equal(packedIdentity(repository), `${expected.package}@${expected.version}`, `${name} has the wrong package identity.`);
   }
-  const released = new Set();
-  for (const path of currentManifests) {
-    const source = sourceFile(root, sourceCommit, path);
-    assert.ok(readFileSync(resolve(root, path)).equals(source), `${path} differs from source commit.`);
-    for (const expected of JSON.parse(source.toString("utf8")).packages) {
-      const identity = `${expected.package}@${expected.version}`;
-      const packed = artifacts.get(identity);
-      assert.ok(packed, `Source release artifact ${identity} is missing.`);
-      assert.equal(sha512(packed), expected.integrity, `Source release artifact ${identity} has an invalid integrity hash.`);
-      released.add(identity);
-    }
-  }
-  assert.deepEqual([...artifacts.keys()].sort(), [...released].sort(), "Source release artifacts and manifests differ.");
 }

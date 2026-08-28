@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Project-manager blockers are closed with real factory-built Alpha/Beta 0.2.1 targets, seven hosted attestations, exact signed lock/SBOM runtime closures, and Fleet plan/apply evidence that adds, removes, and upgrades non-K-Nex dependencies.
+The final project-manager blocker is closed: Gate 8 keeps the attested source SHA as metadata but verifies signed manifests, package bytes, customer files, tree/build materials, and hosted predicates without PR-internal Git topology.
 
 ## Validation
 
-`pnpm gate:8` PASS on the final evidence tree with Node 24.19.0; contracts 152, composition 84, runtime 238, five PostgreSQL proofs, packed closure 18, hosted run 33214953185 PASS.
+`pnpm gate:8` PASS with Node 24.19.0; contracts 152, composition 84, runtime 238, five PostgreSQL proofs, packed closure 18, no-`.git` squash snapshot regression, hosted run 33214953185 PASS.
 
 ## Next
 
