@@ -5,7 +5,7 @@
 - **Baseline:** accepted Phase 6 on `main` (`e05b1e68`)
 - **Delivery:** Phase 7 pull request rebased onto `main`; draft/open with no merge or auto-merge
 - **Decision:** **GO Phase 8**
-- **Review state:** original nine and latest six project-manager blockers remediated; acceptance evidence is tracked against the immutable PR head
+- **Review state:** all project-manager blockers remediated; acceptance evidence is tracked against the immutable PR head
 
 ## Scope proved
 
@@ -20,6 +20,8 @@ Project-manager remediation closes the exact authority and product-proof gaps: r
 The follow-up review is also closed in executable paths. DataTable action visibility and execution re-resolve the current catalog revision; authorized projections are identical in cache identity and transport; filter, projection, page, cursor, and bulk limits fail closed. Sales proves an opaque cursor advancing between real pages. DataGrid retains one roving tab stop while nested controls use explicit action mode. Concurrent form submissions preserve newer edits and order their saved baseline. Labels, descriptions, errors, invalid, and read-only state reach the actual controls. VirtualList preserves keyed focus through reorder and shrink without stealing focus on mount. Nested Puck containers render their children through the same production presentation boundary. Sales exported descriptor aggregates use explicit public contract types, preventing host-dependent inferred union ordering from changing emitted declarations or the packed fixture.
 
 The latest review closes the remaining vertical gaps. Standard gateway budgets accept exactly one table pagination mode, reject pagination on metrics, charge cursor size, and key cache identity by the full controls. Sales continuation tokens bind source/version, filters, sorts, and page size; an authenticated gateway proof advances page one to page two and rejects changed-query replay. Filter, sort, and search fields must belong to the effective authorized projection across UI, query identity, transport, and server enforcement; source-query overrides cannot expand the definition projection. Oversized bulk actions stop at an explicit 100-row ceiling and return constant-size rejection metadata. DataGrid exposes select-all outside its composite, reaches multiple actions with keyboard-only action mode, and returns to the owning cell. Form duplicate work is keyed by logical revision. VirtualList covers empty repopulation, removed-key replacement, off-viewport keyed reorder, and deterministic duplicate-key rejection; focus handoff reruns after active-key reconciliation so the result is stable across browser scheduling speeds.
+
+The final remediation makes pagination authority source-owned. Every descriptor declares supported pagination modes; the runtime rejects offset/cursor mismatches before handler dispatch, and DataTable definitions cannot advertise a broader client preset. Sales tasks declare offset and cursor support, opportunities remain offset-only, and metrics declare no pagination. Malformed or query-mismatched Sales continuation tokens now produce bounded `INVALID_CURSOR` 400 problems while the authenticated page-one-to-page-two proof remains intact. The Socket.IO connection-bound regression no longer relies on a fixed 20 ms delay: it waits for each observable denial counter transition, passes a 20-run focused stress proof, and remains inside the complete Gate 7 chain.
 
 ## Completed tasks
 
@@ -61,9 +63,9 @@ Budgets are order-of-magnitude regression fences, not production capacity claims
 | Probe | Observed | Budget |
 |---|---:|---:|
 | component entry gzip | 17,300 B | 45,000 B |
-| DataTable adapter gzip | 48,231 B | 65,000 B |
+| DataTable adapter gzip | 48,321 B | 65,000 B |
 | optional rich editor gzip | 105,037 B | 120,000 B |
-| Sales pages gzip | 70,563 B | 150,000 B |
+| Sales pages gzip | 70,648 B | 150,000 B |
 | 1,000-row semantic table SSR | under 1,500 ms | 1,500 ms |
 | 10,000-item virtual list keyboard scroll in Chromium | under 500 ms | 500 ms |
 | 1,000 filter/search/pagination control transitions | under 500 ms | 500 ms |
@@ -84,7 +86,7 @@ pnpm audit --audit-level high
 git diff --check
 ```
 
-The final local candidate passes `pnpm install --frozen-lockfile`, the complete `pnpm gate:7` chain with `GATE_7_PASS`, `pnpm audit --audit-level high`, and `git diff --check`. Every acceptance candidate must also pass the required exact-head GitHub workflow; immutable head and run IDs are recorded in the pull-request evidence after GitHub creates them. The audit reports no high or critical vulnerabilities (two low and three moderate). Pack reproducibility requires consecutive raw pack bytes to match, a canonical committed gzip marker, and identical ordered exported entry names and contents. Platform-specific gzip streams or tar headers therefore cannot hide or fabricate a package-content change. Explicit aggregate declaration types make forced clean macOS and Linux `contracts.d.ts` outputs byte-identical (`20f204c2837d78891afbb194d7805957bdcf06dff36efbf78545b390af2dbba1`). The committed Sales fixture, root file-package integrity, and Gate 1 resolved application evidence are regenerated from stable clean output and pass cross-host pack checks.
+The final local candidate passes `pnpm install --frozen-lockfile`, the complete `pnpm gate:7` chain with `GATE_7_PASS`, documentation validation, `pnpm audit --audit-level high`, and `git diff --check`. The audit reports no high or critical vulnerabilities (two low and three moderate). Every acceptance candidate must also pass the required exact-head GitHub workflow on its first attempt; immutable head and run IDs are recorded in the pull-request evidence after GitHub creates them. Pack reproducibility requires consecutive raw pack bytes to match, a canonical committed gzip marker, and identical ordered exported entry names and contents. Platform-specific gzip streams or tar headers therefore cannot hide or fabricate a package-content change. Explicit aggregate declaration types make forced clean macOS and Linux `contracts.d.ts` outputs byte-identical (`20f204c2837d78891afbb194d7805957bdcf06dff36efbf78545b390af2dbba1`). The committed Sales fixture, root file-package integrity, and Gate 1 resolved application evidence are regenerated from stable clean output and pass cross-host pack checks.
 
 Key Phase 7 totals remain enforced by Gate 7 rather than frozen prose counts. Existing lower-gate contract/runtime/Payload/PostgreSQL and browser suites, plus the latest cursor, hidden-field, bulk, DataGrid, form, and VirtualList regressions, remain part of `gate:7`.
 

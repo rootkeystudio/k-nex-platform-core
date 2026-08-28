@@ -7,16 +7,16 @@
 
 ## Last completed
 
-PR 22 remains rebased onto accepted Phase 6 on `main`. DataGrid proof now reaches row selection, external select-all, grid entry, detail, and both row actions through Tab, arrows, Enter/F2, Space, and Escape without programmatic control focus. Closeout performance observations match the current candidate.
+PR 22 remains rebased onto accepted Phase 6 on `main`. Source descriptors now own offset/cursor capabilities, the gateway rejects unsupported modes before dispatch, DataTable presets cannot exceed source authority, and malformed or changed Sales cursors return stable `INVALID_CURSOR` 400 problems. The former Socket.IO fixed-delay race now waits on the bounded denial condition and passes a 20-run focused stress proof.
 
 ## Validation
 
-Local frozen install and the complete Gate 7 pass with `GATE_7_PASS`, including the keyboard-only DataGrid path. The required PR workflow validates the immutable exact head before acceptance; audit and diff checks remain part of closeout.
+Local frozen install and the complete Gate 7 pass with `GATE_7_PASS`, including source-declared pagination, authenticated Sales continuation, deterministic realtime bounds, and the keyboard-only DataGrid path. Documentation validation and `git diff --check` pass; the audit reports no high or critical vulnerabilities (two low and three moderate). The required PR workflow must validate the new immutable exact head on its first attempt before acceptance.
 
 ## Next
 
-Obtain the final project-manager decision; PR 22 records current exact-head CI. Leave it draft/open without auto-merge.
+Push the remediation commit, require first-attempt exact-head Gate 7 CI, then obtain the final project-manager decision. Leave PR 22 draft/open without auto-merge.
 
 ## Blockers
 
-No implementation blocker. External project-manager acceptance remains pending.
+No implementation blocker. Exact-head CI and external project-manager acceptance remain pending.

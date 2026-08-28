@@ -237,15 +237,17 @@ describe("Socket.IO memory realtime gateway", () => {
     })).resolves.toEqual({ ok: false, code: "LIMIT_EXCEEDED" });
 
     const port = (httpServer?.address() as AddressInfo).port;
-    const second = connect(`http://127.0.0.1:${port}`, {
-      auth: { actor: "owner-1" },
-      transports: ["websocket"],
-      extraHeaders: { origin: "https://app.example.test" },
-      reconnection: false
-    });
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    second.disconnect();
-    expect(active.gateway.health()).toMatchObject({ connections: 1, connectionDenied: 1, subscriptions: 1, subscriptionDenied: 1 });
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      const denied = connect(`http://127.0.0.1:${port}`, {
+        auth: { actor: "owner-1" },
+        transports: ["websocket"],
+        extraHeaders: { origin: "https://app.example.test" },
+        reconnection: false
+      });
+      await expect.poll(() => active.gateway.health(), { interval: 5, timeout: 1_000 }).toMatchObject({ connectionDenied: attempt });
+      denied.disconnect();
+    }
+    expect(active.gateway.health()).toMatchObject({ connections: 1, connectionDenied: 5, subscriptions: 1, subscriptionDenied: 1 });
   });
 
   it("bounds pending authentication work before invoking the authenticator", async () => {

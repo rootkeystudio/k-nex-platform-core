@@ -11,6 +11,7 @@ export const dataSourceSurfaces = ["workspace", "cms", "public", "driver", "mobi
 export const dataSourceAudiences = ["public", "authenticated", "internal"] as const;
 export const dataSourceCacheClasses = ["no-store", "actor", "authorization-context", "public"] as const;
 export const dataSourceCostClasses = ["low", "medium", "high"] as const;
+export const dataSourcePaginationModes = ["offset", "cursor"] as const;
 export const dataSourcePlatformCeilings = Object.freeze({
   selectedFields: 64,
   pageSize: 100,
@@ -129,6 +130,7 @@ export const DataSourceDescriptorSchema = z.strictObject({
   description: z.string().min(1).max(512).optional(),
   inputFields: z.array(DataSourceInputFieldSchema).max(32),
   outputFields: z.array(DataSourceOutputFieldSchema).max(64).optional(),
+  paginationModes: z.array(z.enum(dataSourcePaginationModes)).max(dataSourcePaginationModes.length).superRefine(uniqueValues),
   limits: DataSourceLimitsSchema,
   cacheClass: z.enum(dataSourceCacheClasses)
 }).superRefine((descriptor, context) => {
@@ -144,12 +146,20 @@ export const DataSourceDescriptorSchema = z.strictObject({
     });
   }
 
+  if (descriptor.primaryContract.id === "metric.scalar" && descriptor.paginationModes.length > 0) {
+    context.addIssue({ code: "custom", path: ["paginationModes"], message: "metric.scalar sources cannot declare pagination." });
+  }
+
   if (descriptor.primaryContract.id === "table.records" && outputFieldCount === 0) {
     context.addIssue({
       code: "custom",
       path: ["outputFields"],
       message: "table.records sources must declare at least one output field."
     });
+  }
+
+  if (descriptor.primaryContract.id === "table.records" && descriptor.paginationModes.length === 0) {
+    context.addIssue({ code: "custom", path: ["paginationModes"], message: "table.records sources must declare at least one pagination mode." });
   }
 
   const isPublic = descriptor.audience === "public";
@@ -179,6 +189,7 @@ export type DataSourceSurface = (typeof dataSourceSurfaces)[number];
 export type DataSourceAudience = (typeof dataSourceAudiences)[number];
 export type DataSourceCacheClass = (typeof dataSourceCacheClasses)[number];
 export type DataSourceCostClass = (typeof dataSourceCostClasses)[number];
+export type DataSourcePaginationMode = (typeof dataSourcePaginationModes)[number];
 
 export type DataSourceFieldSelectionFailure =
   | "DUPLICATE_FIELDS"

@@ -73,6 +73,7 @@ const source: DataSourceDefinition = {
     presentationMetadataRevision: 1,
     title: "Tasks",
     inputFields: [],
+    paginationModes: [],
     limits: {
       maxSelectedFields: 1,
       maxPageSize: 100,

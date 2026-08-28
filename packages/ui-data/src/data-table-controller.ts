@@ -216,6 +216,7 @@ function validateDefinition<TInput>(input: DataTableDefinition<TInput>): DataTab
   if (input.columns.length === 0 || new Set(input.columns.map(({ id }) => id)).size !== input.columns.length || input.columns.some(({ id }) => !fields.has(id))) throw new TypeError("DataTable columns must be unique declared source fields.");
   for (const field of fields.values()) if (field.binding === "required" && !input.columns.some(({ id }) => id === field.id)) throw new TypeError(`DataTable omits required field: ${field.id}.`);
   if (input.paginationModes.length === 0 || new Set(input.paginationModes).size !== input.paginationModes.length) throw new TypeError("DataTable requires unique pagination modes.");
+  if (input.paginationModes.some((mode) => !descriptor.paginationModes.includes(mode))) throw new TypeError("DataTable pagination modes exceed source capabilities.");
   if (!Number.isInteger(input.defaultPageSize) || input.defaultPageSize < 1 || input.defaultPageSize > descriptor.limits.maxPageSize) throw new TypeError("DataTable page size exceeds source limits.");
   if (input.searchField !== undefined && !fields.get(input.searchField)?.filterOperators.includes("contains")) throw new TypeError("DataTable search field must allow contains filtering.");
   for (const fieldId of Object.keys(input.facets ?? {})) if (!fields.get(fieldId)?.filterOperators.includes("in")) throw new TypeError(`DataTable facet field does not allow in filtering: ${fieldId}.`);

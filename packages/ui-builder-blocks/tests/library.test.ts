@@ -20,6 +20,7 @@ const genericSource: DataSourceDescriptor = {
   title: "Content records",
   inputFields: [],
   outputFields: [{ id: "value", kind: "text", binding: "required", nullable: false, permission: "content.records.value.read", sortable: false, filterOperators: [] }],
+  paginationModes: ["offset"],
   limits: { maxSelectedFields: 8, maxPageSize: 25, maxFilters: 4, maxSorts: 2, maxBodyBytes: 4096, maxResultBytes: 65536, maxDepth: 4, timeoutMs: 5000, maxConcurrency: 4, ratePerMinute: 60, burst: 10, costClass: "low", maxCost: 10 },
   cacheClass: "public"
 };

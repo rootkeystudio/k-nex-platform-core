@@ -25,6 +25,7 @@ const baseDefinition: DataSourceDefinition = {
     presentationMetadataRevision: 1,
     title: "Total revenue",
     inputFields: [],
+    paginationModes: [],
     limits: {
       maxSelectedFields: 1,
       maxPageSize: 1,

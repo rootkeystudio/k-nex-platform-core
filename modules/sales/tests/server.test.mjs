@@ -77,6 +77,7 @@ function structuralHash(descriptor) {
     sourceSchema: descriptor.sourceSchema,
     inputFields: descriptor.inputFields,
     outputFields: descriptor.outputFields ?? [],
+    paginationModes: descriptor.paginationModes,
     limits: descriptor.limits
   })).digest("hex")}`;
 }
@@ -392,6 +393,13 @@ test("the task source advances opaque cursor pages through bounded Payload pagin
   }));
   assert.equal(call.page, 2);
   assert.equal(second.page.nextCursor, undefined);
+  const invalidCursor = (error) => error?.code === "INVALID_CURSOR" && error?.status === 400;
+  await assert.rejects(salesTasksHandler(handlerContext({
+    query: { cursor: { size: 5, after: first.page.nextCursor }, filters: [], sort: [] }
+  })), invalidCursor);
+  await assert.rejects(salesTasksHandler(handlerContext({
+    query: { cursor: { size: 10, after: "not-a-sales-cursor" }, filters: [], sort: [] }
+  })), invalidCursor);
 });
 
 test("the task source rejects direct unknown field manipulation", async () => {

@@ -101,6 +101,10 @@ function validateOperations(
   }
   const pagination = controls.page ?? controls.cursor;
   if (pagination === undefined) fail("QUERY_PAGINATION_REQUIRED", 400, "Exactly one page or cursor request is required.");
+  const paginationMode = controls.page === undefined ? "cursor" : "offset";
+  if (!descriptor.paginationModes.includes(paginationMode)) {
+    fail("QUERY_PAGINATION_NOT_SUPPORTED", 400, "The requested pagination mode is not supported by the source.");
+  }
   if (pagination.size > limits.maxPageSize || pagination.size > dataSourcePlatformCeilings.pageSize) {
     fail("PAGE_LIMIT_EXCEEDED", 400, "The requested page is too large.");
   }

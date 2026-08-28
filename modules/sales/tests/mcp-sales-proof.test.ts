@@ -393,7 +393,9 @@ describe("P2A.8 Sales tool proof", () => {
     const secondCursorPage = await cursorRequest({ cursor: { size: 1, after: nextCursor }, filters: [], sort: [] });
     expect(secondCursorPage).toMatchObject({ ok: true, body: { data: { rows: [{ key: "task-2" }], page: { number: 2, pageSize: 1, hasNext: false } } } });
     const changedQueryReplay = await cursorRequest({ cursor: { size: 2, after: nextCursor }, filters: [], sort: [] });
-    expect(changedQueryReplay).toMatchObject({ ok: false, status: 500, body: { code: "INTERNAL_ERROR" } });
+    expect(changedQueryReplay).toMatchObject({ ok: false, status: 400, body: { code: "INVALID_CURSOR" } });
+    const malformedCursorReplay = await cursorRequest({ cursor: { size: 1, after: "not-a-sales-cursor" }, filters: [], sort: [] });
+    expect(malformedCursorReplay).toMatchObject({ ok: false, status: 400, body: { code: "INVALID_CURSOR" } });
     const invalidRead = await gateway.execute({
       correlationId: "invalid-read",
       rawRequest: payloadRequest,

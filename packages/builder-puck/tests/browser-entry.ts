@@ -21,7 +21,7 @@ const source: DataSourceDescriptor = {
   audience: "authenticated",
   surfaces: ["workspace"],
   permission: "sales.tasks.read",
-  structuralCompatibilityHash: "sha256:c8367ee2c153671b70e606ec4445358ab2ebbf5561318cef1829fe4390487120",
+  structuralCompatibilityHash: "sha256:520d5f0bd7874a0b9c63fd3974ce355180314fcbd961ca9407a781d9fc768f26",
   presentationMetadataRevision: 1,
   title: "Sales tasks",
   inputFields: [],
@@ -31,6 +31,7 @@ const source: DataSourceDescriptor = {
     { id: "potential-revenue", kind: "money", binding: "required", nullable: true, permission: "sales.tasks.revenue.read", sortable: false, filterOperators: [] },
     { id: "private-note", kind: "text", binding: "optional", nullable: true, permission: "sales.tasks.private-note.read", sortable: false, filterOperators: [] }
   ],
+  paginationModes: ["offset"],
   limits: {
     maxSelectedFields: 8, maxPageSize: 100, maxFilters: 8, maxSorts: 2, maxBodyBytes: 32768, maxResultBytes: 1048576,
     maxDepth: 6, timeoutMs: 5000, maxConcurrency: 16, ratePerMinute: 300, burst: 30, costClass: "medium", maxCost: 100

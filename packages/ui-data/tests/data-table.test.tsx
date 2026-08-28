@@ -94,6 +94,11 @@ describe("P7.6 standard DataTable/DataGrid", () => {
   });
 
   it("rejects undeclared operations and keeps URL state non-authoritative", () => {
+    expect(() => defineDataTable({
+      ...definition,
+      descriptor: { ...definition.descriptor, paginationModes: ["offset"] },
+      paginationModes: ["offset", "cursor"]
+    })).toThrow(/exceed source capabilities/);
     const controller = createDataTableController(definition);
     const state = { ...createDataTableState(definition), selectedRows: ["task-1"], detailRow: "task-1" };
     expect(() => controller.controls({ ...state, sort: [{ field: "potential-revenue", direction: "desc" }] })).toThrow(/not declared/);
