@@ -28,7 +28,7 @@ jobs:
       - name: Install exact dependencies
         run: pnpm install --frozen-lockfile
       - name: Build customer applications and evidence tooling
-        run: pnpm --filter @k-nex/contracts build && pnpm --filter @k-nex/composition build && pnpm --filter @k-nex/runtime build && pnpm --dir fixtures/customer-alpha build && pnpm --dir fixtures/customer-beta build
+        run: pnpm --filter @k-nex/contracts build && pnpm --filter @k-nex/composition build && pnpm --filter @k-nex/runtime build && pnpm --dir fixtures/customer-alpha exec tsc -p tsconfig.json && pnpm --dir fixtures/customer-beta exec tsc -p tsconfig.json
       - name: Generate customer-specific deployable bundles and predicates
         run: |
           node scripts/generate-release-evidence.mjs \

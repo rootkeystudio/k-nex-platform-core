@@ -7,15 +7,15 @@
 
 ## Last completed
 
-PR 23 re-review remediation is in progress. The application bundle now owns the signed deployable subject, exact installed K-Nex closure, framework tuple, and migration-plan identity; GitHub-hosted verification output feeds runtime authorities and Fleet enforces exact target closure and revision.
+The prior-release upgrade now boots immutable Sales 0.9.0, creates real customer records and descriptor-backed schema/source/action/tool/UI/theme/template/settings state, transitions the same app and PostgreSQL database to 1.0.0, runs target-owned reviewed migrations, and reboots with preserved behavior.
 
 ## Validation
 
-Contracts 152 PASS; runtime 237 PASS; runtime/contracts builds PASS; dual-customer release-evidence generation smoke PASS; `git diff --check` PASS. Full Gate 8 awaits refreshed hosted evidence and continuous prior-release upgrade proof.
+Continuous prior-release PostgreSQL proof PASS; packed release closure 18 PASS; contracts 152 PASS; runtime 237 PASS; runtime/contracts/Sales builds PASS; `git diff --check` PASS. Full Gate 8 awaits refreshed hosted evidence and regenerated final receipts.
 
 ## Next
 
-Complete same-app prior-release upgrade proof, refresh real hosted evidence for both customers, regenerate inventory/Fleet receipts, then run one complete Gate 8 on final HEAD.
+Refresh real hosted evidence for both customers from this release source, regenerate inventory/Fleet receipts, then run one complete Gate 8 on final HEAD.
 
 ## Blockers
 

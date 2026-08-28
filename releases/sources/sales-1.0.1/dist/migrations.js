@@ -3,6 +3,12 @@ export const salesMigrationReadiness = Object.freeze({
     predecessorRevisions: Object.freeze([1])
 });
 const artifactKinds = ["customer-schema", "source", "action", "tool", "block", "theme", "template", "settings"];
+const migrationMarkers = {
+    "customer-schema": ["indexContractVersion", 2],
+    source: ["queryPolicyVersion", 2], action: ["idempotencyPolicyVersion", 2], tool: ["approvalPolicyVersion", 2],
+    block: ["accessibilityContractVersion", 2], theme: ["tokenContractVersion", 2], template: ["requirementsVersion", 2],
+    settings: ["settingsMigrationVersion", 2]
+};
 export const salesUpgradeTargets = Object.freeze(artifactKinds.map((kind) => Object.freeze({
     artifactId: `sales.${kind}`,
     kind,
@@ -20,10 +26,12 @@ export const salesUpgradeMigrations = Object.freeze(artifactKinds.map((kind) => 
     migrate(value) {
         if (typeof value !== "object" || value === null || Array.isArray(value))
             throw new TypeError("Sales artifact must be a record.");
-        return { ...value, revision: 2 };
+        const [marker, markerRevision] = migrationMarkers[kind];
+        return { ...value, revision: 2, [marker]: markerRevision };
     },
     validate(value) {
-        return typeof value === "object" && value !== null && !Array.isArray(value) && "revision" in value && value.revision === 2;
+        const [marker, markerRevision] = migrationMarkers[kind];
+        return typeof value === "object" && value !== null && !Array.isArray(value) && "revision" in value && value.revision === 2 && marker in value && value[marker] === markerRevision;
     }
 })));
 //# sourceMappingURL=migrations.js.map

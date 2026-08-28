@@ -1,45 +1,85 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import pg from "pg";
 
 import { PackageReleaseManifestSchema } from "@k-nex/contracts";
-import { salesUpgradeMigrations, salesUpgradeTargets } from "@k-nex/module-sales/migrations";
+import { applyCreateKnexApplication, planCreateKnexApplication } from "@k-nex/composition";
 import { assertMigrationReadiness, executeMigrationJob, planPluginUpgrade } from "@k-nex/runtime";
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
+const repositoryRoot = resolve(import.meta.dirname, "../../..");
+const digest = (content) => `sha256:${createHash("sha256").update(content).digest("hex")}`;
 
-test("boots the supported prior release and upgrades every reviewed Sales artifact in PostgreSQL", { timeout: 180_000 }, async () => {
-  const currentReleaseManifest = PackageReleaseManifestSchema.parse(JSON.parse(readFileSync(new URL("../../../releases/0.1.0/package-release-manifest.json", import.meta.url), "utf8")));
-  const targetReleaseManifest = PackageReleaseManifestSchema.parse(JSON.parse(readFileSync(new URL("../../../releases/0.2.0/package-release-manifest.json", import.meta.url), "utf8")));
-  const plan = planPluginUpgrade({
-    pluginId: "module.sales", currentVersion: "0.9.0", targetVersion: "1.0.0",
-    currentPlatformRelease: "0.1.0", targetPlatformRelease: "0.2.0", currentReleaseManifest, targetReleaseManifest,
-    targets: salesUpgradeTargets, migrations: salesUpgradeMigrations
+function boot(application, applicationId, connectionString, mode = "observe") {
+  return new Promise((resolveProcess, reject) => {
+    const child = spawn(process.execPath, [resolve(import.meta.dirname, "packed-customer-boot-child.mjs"), application, applicationId, mode], {
+      cwd: application,
+      env: { ...process.env, DATABASE_URL: connectionString, NODE_ENV: "production", PAYLOAD_SECRET: "phase-8-prior-upgrade-secret" },
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let stdout = ""; let stderr = "";
+    child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
+    child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
+    child.on("error", reject);
+    child.on("close", (code) => resolveProcess({ code, stdout, stderr }));
   });
-  assert.equal(plan.ready, true);
+}
 
-  const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("customer_beta_prior").withStartupTimeout(120_000).start();
+function installApplication(application, mirror, releaseManifest, applicationId) {
+  const plan = planCreateKnexApplication({
+    applicationId, applicationName: "Customer Beta Upgrade", theme: "minimal", database: "external",
+    packageSource: { kind: "packed-mirror", directory: mirror, releaseManifest }
+  });
+  applyCreateKnexApplication(plan, application);
+  for (const command of plan.installCommands) execFileSync(command[0], command.slice(1), { cwd: application, env: process.env, stdio: "pipe" });
+  execFileSync("pnpm", ["build"], { cwd: application, env: process.env, stdio: "pipe" });
+  return readFileSync(resolve(application, "pnpm-lock.yaml"));
+}
+
+test("boots an immutable prior app and upgrades its real Sales state in the same PostgreSQL database", { timeout: 300_000 }, async () => {
+  const priorManifest = PackageReleaseManifestSchema.parse(JSON.parse(readFileSync(resolve(repositoryRoot, "releases/0.1.0/package-release-manifest.json"), "utf8")));
+  const targetManifest = PackageReleaseManifestSchema.parse(JSON.parse(readFileSync(resolve(repositoryRoot, "releases/0.2.0/package-release-manifest.json"), "utf8")));
+  const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("customer_beta_upgrade").withStartupTimeout(120_000).start();
   const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
+  const generatedRoot = realpathSync(mkdtempSync(join(tmpdir(), "phase-8-continuous-upgrade-")));
+  const application = resolve(generatedRoot, "customer-beta");
+  const mirror = resolve(generatedRoot, "packages");
+  const applicationId = "customer-beta-upgrade";
   try {
-    await pool.query(`
-      create table k_nex_release_revision (
-        application_id text primary key, predecessor_revision integer not null, revision integer not null, release_revision text not null
-      );
-      create table k_nex_upgrade_artifacts (
-        artifact_id text primary key, kind text not null, revision integer not null, document jsonb not null
-      );
-      insert into k_nex_release_revision values ('customer.beta', 5, 6, 'platform-0.1.0');
-    `);
-    for (const target of salesUpgradeTargets) {
-      await pool.query("insert into k_nex_upgrade_artifacts values ($1, $2, 1, $3::jsonb)", [target.artifactId, target.kind, JSON.stringify({ revision: 1, customer: "customer-beta", preserved: target.artifactId })]);
+    mkdirSync(mirror);
+    const packages = new Map([...priorManifest.packages, ...targetManifest.packages].map((entry) => [`${entry.package}@${entry.version}`, entry]));
+    for (const entry of packages.values()) {
+      const filename = `${entry.package.slice(1).replace("/", "-")}-${entry.version}.tgz`;
+      copyFileSync(resolve(repositoryRoot, "fixtures/customer-gate-1/packages", filename), resolve(mirror, filename));
     }
 
-    const receipt = await executeMigrationJob({
-      pool, applicationId: "customer.beta", expectedPredecessorRevision: 6,
-      targetRevision: 7, releaseRevision: "platform-0.2.0",
+    const priorLock = installApplication(application, mirror, priorManifest, applicationId);
+    const priorBoot = await boot(application, applicationId, container.getConnectionUri(), "seed-prior");
+    assert.equal(priorBoot.code, 0, `${priorBoot.stdout}\n${priorBoot.stderr}`);
+    assert.equal(JSON.parse(priorBoot.stdout.match(/PACKED_CUSTOMER_BOOT (\{.*\})/u)[1]).documents, 1);
+
+    rmSync(application, { recursive: true, force: true });
+    const targetLock = installApplication(application, mirror, targetManifest, applicationId);
+    assert.notEqual(digest(priorLock), digest(targetLock), "The same application must transition to the exact target lock.");
+    const requireFromTarget = createRequire(resolve(application, "package.json"));
+    const targetMigrations = await import(pathToFileURL(requireFromTarget.resolve("@k-nex/module-sales/migrations")));
+    const plan = planPluginUpgrade({
+      pluginId: "module.sales", currentVersion: "0.9.0", targetVersion: "1.0.0",
+      currentPlatformRelease: "0.1.0", targetPlatformRelease: "0.2.0", currentReleaseManifest: priorManifest, targetReleaseManifest: targetManifest,
+      targets: targetMigrations.salesUpgradeTargets, migrations: targetMigrations.salesUpgradeMigrations
+    });
+    assert.equal(plan.ready, true);
+    await executeMigrationJob({
+      pool, applicationId: `${applicationId}-sales`, expectedPredecessorRevision: 1, targetRevision: 2, releaseRevision: "module.sales-1.0.0",
       async migrate(session) {
         for (const step of plan.steps) {
           const current = await session.query("select revision, document from k_nex_upgrade_artifacts where artifact_id = $1 for update", [step.artifactId]);
@@ -50,18 +90,22 @@ test("boots the supported prior release and upgrades every reviewed Sales artifa
         }
       }
     });
-    assert.deepEqual(receipt, { applicationId: "customer.beta", predecessorRevision: 6, revision: 7, releaseRevision: "platform-0.2.0" });
-    await assertMigrationReadiness({ pool, applicationId: "customer.beta", artifactRevision: 7, releaseRevision: "platform-0.2.0" });
-    const upgraded = await pool.query("select artifact_id, kind, revision, document from k_nex_upgrade_artifacts order by artifact_id");
-    assert.equal(upgraded.rows.length, 8);
-    for (const row of upgraded.rows) {
-      assert.equal(row.revision, 2);
-      assert.equal(row.document.revision, 2);
-      assert.equal(row.document.customer, "customer-beta");
-      assert.equal(row.document.preserved, row.artifact_id);
-    }
+    await assertMigrationReadiness({ pool, applicationId: `${applicationId}-sales`, artifactRevision: 2, releaseRevision: "module.sales-1.0.0" });
+
+    const targetBoot = await boot(application, applicationId, container.getConnectionUri());
+    assert.equal(targetBoot.code, 0, `${targetBoot.stdout}\n${targetBoot.stderr}`);
+    const targetEvidence = JSON.parse(targetBoot.stdout.match(/PACKED_CUSTOMER_BOOT (\{.*\})/u)[1]);
+    assert.equal(targetEvidence.documents, 1); assert.equal(targetEvidence.opportunities, 1);
+    const customerData = await pool.query("select title, potential_revenue, private_note from sales_tasks");
+    assert.deepEqual(customerData.rows, [{ title: "Preserve beta renewal", potential_revenue: "42000", private_note: "customer-owned" }]);
+    const artifacts = await pool.query("select artifact_id, revision, document from k_nex_upgrade_artifacts order by artifact_id");
+    assert.equal(artifacts.rows.length, 8);
+    assert.equal(artifacts.rows.every(({ revision, document }) => revision === 2 && document.revision === 2), true);
+    assert.equal(artifacts.rows.find(({ artifact_id }) => artifact_id === "sales.settings").document.values.defaultPage, "tasks");
+    assert.equal(artifacts.rows.find(({ artifact_id }) => artifact_id === "sales.template").document.descriptor.id, "sales.page.tasks");
   } finally {
     await pool.end();
     await container.stop();
+    rmSync(generatedRoot, { recursive: true, force: true });
   }
 });

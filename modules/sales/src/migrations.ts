@@ -6,6 +6,14 @@ export const salesMigrationReadiness = Object.freeze({
 import type { UpgradeMigration, UpgradeTarget } from "@k-nex/runtime";
 
 const artifactKinds = ["customer-schema", "source", "action", "tool", "block", "theme", "template", "settings"] as const;
+type SalesArtifactKind = typeof artifactKinds[number];
+
+const migrationMarkers = {
+  "customer-schema": ["indexContractVersion", 2],
+  source: ["queryPolicyVersion", 2], action: ["idempotencyPolicyVersion", 2], tool: ["approvalPolicyVersion", 2],
+  block: ["accessibilityContractVersion", 2], theme: ["tokenContractVersion", 2], template: ["requirementsVersion", 2],
+  settings: ["settingsMigrationVersion", 2]
+} as const satisfies Readonly<Record<SalesArtifactKind, readonly [string, number]>>;
 
 export const salesUpgradeTargets: readonly UpgradeTarget[] = Object.freeze(artifactKinds.map((kind) => Object.freeze({
   artifactId: `sales.${kind}`,
@@ -24,9 +32,11 @@ export const salesUpgradeMigrations: readonly UpgradeMigration[] = Object.freeze
   ...(kind === "customer-schema" ? {} : { dependsOn: Object.freeze(["sales.customer-schema@2"]) }),
   migrate(value: unknown): unknown {
     if (typeof value !== "object" || value === null || Array.isArray(value)) throw new TypeError("Sales artifact must be a record.");
-    return { ...value, revision: 2 };
+    const [marker, markerRevision] = migrationMarkers[kind];
+    return { ...value, revision: 2, [marker]: markerRevision };
   },
   validate(value: unknown): boolean {
-    return typeof value === "object" && value !== null && !Array.isArray(value) && "revision" in value && value.revision === 2;
+    const [marker, markerRevision] = migrationMarkers[kind];
+    return typeof value === "object" && value !== null && !Array.isArray(value) && "revision" in value && value.revision === 2 && marker in value && (value as Record<string, unknown>)[marker] === markerRevision;
   }
 })));

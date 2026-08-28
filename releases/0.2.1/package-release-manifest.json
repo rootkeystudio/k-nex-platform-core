@@ -45,7 +45,7 @@
       "package": "@k-nex/contracts",
       "version": "0.0.0",
       "role": "core",
-      "integrity": "sha512-gjgKoPVKojukiwi+Y2wP0Tx25hdWFbkwhUK3PDE+KUEw0DhvouVoAD3VQ4OVIEjHCPD+Gw14vGVIeQBsBHAoLw==",
+      "integrity": "sha512-adQIqMBPcpYLzj4/+wo/45W4r0uDz8Qieo7RnvYAyMYCcDNGX5RqGnNDZyiMWq+CZpN4fZH04JqRTOZ9U7pseA==",
       "peerCompatibility": {
         "core": "1.0.0",
         "payload": "3.88.0",
@@ -58,7 +58,7 @@
       "package": "@k-nex/module-sales",
       "version": "1.0.1",
       "role": "plugin",
-      "integrity": "sha512-5n+Zh2VGrtBsAC9t5eGR8tldoGBWfucoZwkFLLqxbGFcZmKzLWgsAlCoEOc4OTzChkUVUui+E0vU88bNkJd2Pg==",
+      "integrity": "sha512-z/HUG6G/9ny40N+1tzJ1hjLHi2Nm1iNQ4s86u8fKgiF/CjtiK78A3KkjXEZLI8ChD+94eY7fxsoT+v8AFTWf2Q==",
       "peerCompatibility": {
         "core": "1.0.0",
         "payload": "3.88.0",
@@ -71,7 +71,7 @@
       "package": "@k-nex/payload-adapter",
       "version": "0.0.0",
       "role": "core",
-      "integrity": "sha512-hzt+rQxYnXDqECpii8+KUmHH2MBMX8xi/vi9Hhvb09QEomdDjtKl+6VXU5Y1Gw1WzrXjL4J++WWpbIGRBUxscg==",
+      "integrity": "sha512-n5bh26nk2NWZRLB3ZXo85LNJMgUGZIR4/VfHB5qcSzmX7vtCajlr861kWZmNigXZUmYG64i5CJFpPpVeZvNcFA==",
       "peerCompatibility": {
         "core": "1.0.0",
         "payload": "3.88.0",
@@ -97,7 +97,7 @@
       "package": "@k-nex/runtime",
       "version": "0.0.0",
       "role": "core",
-      "integrity": "sha512-inZiGxLa5JATCoDMNOzrN3CfXqKVfBr449jF4NQ857SopOjXJX0pVpckmXb0Y6F/Pizl8g5EvuVIJUCCOl3jwQ==",
+      "integrity": "sha512-tsEmWPH9IU4o4Q43hopLKDhiJIsCBhru1iMN+sS+vE5I4X/lUTsYuWcYXTHv2Ck7k9Aqxml1iREywR8xtp7+NA==",
       "peerCompatibility": {
         "core": "1.0.0",
         "payload": "3.88.0",
@@ -136,7 +136,7 @@
       "package": "@k-nex/ui-builder-blocks",
       "version": "0.0.0",
       "role": "builder",
-      "integrity": "sha512-MoxGwahoGfcvE/QekqVV2LhP8eRqdzb87PhkWE3GQDFpqMbhmuVTXhckSii0ftpShOUNLz8HKKX5uJhjdVSL9Q==",
+      "integrity": "sha512-SPJiOM9lR2LX0PJNq0dn64R1LJTFLY/WqH6j+SUi1obrE372tOQV4nIVFszWLZ5vKEuOSyJHa0ftLloyCSlH6g==",
       "peerCompatibility": {
         "core": "1.0.0",
         "payload": "3.88.0",

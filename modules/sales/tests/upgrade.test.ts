@@ -26,6 +26,15 @@ describe("Sales upgrade fixture", () => {
     const result = dryRunPluginUpgrade(plan, artifacts);
     expect(plan.steps[0]?.kind).toBe("customer-schema");
     expect(result.ready).toBe(true);
-    expect(Object.values(result.artifacts)).toEqual(salesUpgradeTargets.map(() => ({ revision: 2, customerOwned: true })));
+    expect(Object.values(result.artifacts)).toEqual([
+      { revision: 2, customerOwned: true, indexContractVersion: 2 },
+      { revision: 2, customerOwned: true, queryPolicyVersion: 2 },
+      { revision: 2, customerOwned: true, idempotencyPolicyVersion: 2 },
+      { revision: 2, customerOwned: true, approvalPolicyVersion: 2 },
+      { revision: 2, customerOwned: true, accessibilityContractVersion: 2 },
+      { revision: 2, customerOwned: true, tokenContractVersion: 2 },
+      { revision: 2, customerOwned: true, requirementsVersion: 2 },
+      { revision: 2, customerOwned: true, settingsMigrationVersion: 2 }
+    ]);
   });
 });
