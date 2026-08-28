@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Purge planning now runs behind an injected lifecycle authority that obtains references, dependents, retention, migration revision, reviewed migration, and actor/session approval itself. Plans bind those revisions and evidence digests, consume approvals once, and revalidate before opening a transaction.
+Runtime release trust now consumes opaque hosted-attestation and verified package-manifest tokens; local release PEM envelopes are no longer a production input. Fleet patch plans bind the target manifest/framework/full closure and require a fresh verified deployment before applying.
 
 ## Validation
 
-Runtime build PASS. Lifecycle tests PASS (9), including fabricated evidence, other-app substitution, approval replay, post-approval reference drift with zero transaction calls, rollback, and plan replay denial.
+Runtime build PASS. Fleet/deployment tests PASS (10), including foreign authority denial, complete-closure transition, fresh migration/readiness evidence, vulnerable fleet clearance, and cloned-plan denial.
 
 ## Next
 

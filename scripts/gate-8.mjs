@@ -34,11 +34,15 @@ assert.match(workflow, /gh attestation verify[\s\S]*--predicate-type https:\/\/k
 assert.doesNotMatch(workflow, /SLSA Build L[0-9]/u);
 
 const supportManifest = readJson("releases/0.2.0/package-release-manifest.json");
+const priorManifest = readJson("releases/0.1.0/package-release-manifest.json");
 const patchManifest = readJson("releases/0.2.1/package-release-manifest.json");
 const sourceCommit = readJson("fixtures/customer-alpha/runtime-inventory.json").releaseEvidence.sourceCommit;
 assertPhase8SourceRelease(root, sourceCommit);
 const verifier = createFixtureDeploymentVerifier(sourceCommit);
-const fleet = new FleetRegistry(supportManifest, verifier.authority);
+const supportRelease = await verifier.verifyManifest(supportManifest);
+const priorRelease = await verifier.verifyManifest(priorManifest);
+const patchRelease = await verifier.verifyManifest(patchManifest);
+const fleet = new FleetRegistry(supportRelease, verifier.packageReleaseAuthority, verifier.authority);
 for (const customer of ["customer-alpha", "customer-beta"]) {
   const manifest = ApplicationManifestSchema.parse(readJson(`fixtures/${customer}/k-nex.app.json`));
   const inventory = RuntimeInventorySchema.parse(readJson(`fixtures/${customer}/runtime-inventory.json`));
@@ -60,12 +64,12 @@ for (const customer of ["customer-alpha", "customer-beta"]) {
   assert.deepEqual(manifest.plugins.map(({ id }) => id), ["module.sales"]);
   assert.equal(reconcileDeploymentReceipt(receipt, inventory), true);
   assertNoSecretKeys(inventory);
-  fleet.ingest(await verifier.verify(inventory, receipt));
+  fleet.ingest(await verifier.verify(inventory, receipt, inventory.platformRelease === "0.2.0" ? supportRelease : priorRelease));
 }
 assert.deepEqual(fleet.list().map(({ inventory }) => inventory.platformRelease), ["0.2.0", "0.1.0"]);
 assert.deepEqual(fleet.affected("@k-nex/module-sales", "<1.0.1").map(({ inventory }) => inventory.applicationId), ["customer-alpha", "customer-beta"]);
 assert.deepEqual(fleet.affected("semver", "<7.8.6").map(({ inventory }) => inventory.applicationId), ["customer-alpha", "customer-beta"]);
-assert.equal(fleet.planSecurityPatch("@k-nex/module-sales", "<1.0.1", "1.0.1", patchManifest).length, 2);
+assert.equal(fleet.planSecurityPatch("@k-nex/module-sales", "<1.0.1", "1.0.1", patchRelease).length, 2);
 for (const customer of ["customer-alpha", "customer-beta"]) {
   const patch = readJson(`fixtures/${customer}/security-patch-plan.json`);
   assert.equal(patch.applicationId, customer);

@@ -18,14 +18,20 @@ const currentReleaseManifest = JSON.parse(readFileSync(resolve(repositoryRoot, "
 const patchReleaseManifest = JSON.parse(readFileSync(resolve(repositoryRoot, "releases/0.2.1/package-release-manifest.json"), "utf8"));
 const sourceCommit = read("customer-alpha", "runtime-inventory.json").releaseEvidence.sourceCommit;
 const verifier = createFixtureDeploymentVerifier(sourceCommit);
-const fleet = new FleetRegistry(targetReleaseManifest, verifier.authority);
-for (const customer of customers) fleet.ingest(await verifier.verify(read(customer, "runtime-inventory.json"), read(customer, "deployment-receipt.json")));
+const targetRelease = await verifier.verifyManifest(targetReleaseManifest);
+const currentRelease = await verifier.verifyManifest(currentReleaseManifest);
+const patchRelease = await verifier.verifyManifest(patchReleaseManifest);
+const fleet = new FleetRegistry(targetRelease, verifier.packageReleaseAuthority, verifier.authority);
+for (const customer of customers) {
+  const inventory = read(customer, "runtime-inventory.json");
+  fleet.ingest(await verifier.verify(inventory, read(customer, "deployment-receipt.json"), inventory.platformRelease === "0.2.0" ? targetRelease : currentRelease));
+}
 
 const deployments = fleet.list();
 assert.deepEqual(deployments.map(({ inventory }) => inventory.platformRelease), ["0.2.0", "0.1.0"]);
 const affected = fleet.affected("@k-nex/module-sales", "<1.0.1");
 assert.equal(affected.length, 2);
-const patches = fleet.planSecurityPatch("@k-nex/module-sales", "<1.0.1", "1.0.1", patchReleaseManifest);
+const patches = fleet.planSecurityPatch("@k-nex/module-sales", "<1.0.1", "1.0.1", patchRelease);
 for (const patch of patches) {
   write(`fixtures/${patch.applicationId}/security-patch-plan.json`, {
     schemaVersion: 1,

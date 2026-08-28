@@ -1,39 +1,58 @@
-import { generateKeyPairSync } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 
-import { createReleaseProvenance, signReleaseProvenance } from "../../packages/composition/dist/index.js";
-import { createDeploymentEvidenceAuthority, signDeploymentReceipt } from "../../packages/runtime/dist/index.js";
+import { canonicalJson } from "../../packages/contracts/dist/index.js";
+import {
+  createDeploymentEvidenceAuthority, createPackageReleaseManifestAuthority, runtimeInventoryDigest, signDeploymentReceipt
+} from "../../packages/runtime/dist/index.js";
 
 const privatePem = (key) => key.export({ format: "pem", type: "pkcs8" }).toString();
 const publicPem = (key) => key.export({ format: "pem", type: "spki" }).toString();
+const sha256 = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 
+// Test-only adapter. Production Gate 8 consumes GitHub/Sigstore verification output.
 export function createFixtureDeploymentVerifier(sourceCommit) {
   if (!/^[0-9a-f]{40}$/u.test(sourceCommit)) throw new Error("Fixture deployment verifier requires an exact source commit.");
   const releaseWorkflow = `rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@${sourceCommit}`;
   const deploymentWorkflow = `rootkeystudio/k-nex-platform-core/.github/workflows/deploy.yml@${sourceCommit}`;
-  const releaseKeys = generateKeyPairSync("ed25519");
   const deploymentKeys = generateKeyPairSync("ed25519");
+  const issued = new WeakMap();
+  const releaseVerifier = Object.freeze({
+    async verify(token) {
+      const value = token !== null && typeof token === "object" ? issued.get(token) : undefined;
+      if (value === undefined) throw new Error("Fixture hosted attestation was not issued by the test adapter.");
+      return value;
+    }
+  });
+  const issue = (value) => { const token = Object.freeze({}); issued.set(token, Object.freeze(value)); return token; };
+  const packageReleaseAuthority = createPackageReleaseManifestAuthority(releaseVerifier);
   const authority = createDeploymentEvidenceAuthority({
-    provenancePublicKey: publicPem(releaseKeys.publicKey), deploymentPublicKey: publicPem(deploymentKeys.publicKey),
-    trustedReleaseWorkflow: releaseWorkflow, trustedDeploymentWorkflow: deploymentWorkflow
+    releaseVerifier, packageReleaseAuthority, deploymentPublicKey: publicPem(deploymentKeys.publicKey), trustedDeploymentWorkflow: deploymentWorkflow
   });
   return Object.freeze({
     authority,
-    async verify(inventory, receipt, observe = async () => structuredClone(inventory)) {
-      const salesVersion = inventory.plugins.find(({ id }) => id === "module.sales")?.version;
-      if (typeof salesVersion !== "string") throw new Error("Fixture inventory does not declare Sales.");
-      const provenance = createReleaseProvenance({
-        subjectName: `k-nex-module-sales-${salesVersion}.tgz`, artifactDigest: inventory.artifactDigest, sourceCommit, workflowIdentity: releaseWorkflow,
+    packageReleaseAuthority,
+    async verifyManifest(manifest) {
+      return packageReleaseAuthority.verify(manifest, issue({ subjectDigest: sha256(canonicalJson(manifest)), sourceCommit, workflowIdentity: releaseWorkflow, materials: [] }));
+    },
+    async verify(inventory, receipt, packageRelease, observe = async () => structuredClone(inventory)) {
+      const verifiedManifest = packageReleaseAuthority.read(packageRelease);
+      const attestation = {
+        subjectDigest: inventory.artifactDigest, sourceCommit, workflowIdentity: releaseWorkflow,
         materials: [
           { name: "application-manifest", digest: inventory.releaseEvidence.manifestDigest },
           { name: "lockfile", digest: inventory.releaseEvidence.lockfileDigest },
           { name: "resolved-graph-or-plan", digest: inventory.releaseEvidence.resolvedGraphDigest },
-          { name: "sbom", digest: inventory.releaseEvidence.sbomDigest }
+          { name: "sbom", digest: inventory.releaseEvidence.sbomDigest },
+          { name: "package-release-manifest", digest: verifiedManifest.digest }
         ]
-      });
+      };
+      const observed = structuredClone(await observe());
+      observed.releaseEvidence = { ...observed.releaseEvidence, provenanceDigest: sha256(canonicalJson(attestation)) };
+      const boundReceipt = { ...receipt, inventoryDigest: runtimeInventoryDigest(observed) };
       return authority.verify({
-        observe,
-        receipt: signDeploymentReceipt(receipt, privatePem(deploymentKeys.privateKey)),
-        provenance: signReleaseProvenance(provenance, privatePem(releaseKeys.privateKey))
+        observe: async () => observed,
+        receipt: signDeploymentReceipt(boundReceipt, privatePem(deploymentKeys.privateKey)),
+        releaseAttestation: issue(attestation), packageRelease
       });
     }
   });

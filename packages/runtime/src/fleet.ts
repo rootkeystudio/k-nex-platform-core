@@ -1,8 +1,9 @@
+import { createHash } from "node:crypto";
 import { gt, satisfies, valid, validRange } from "semver";
 
-import { PackageReleaseManifestSchema, type DeploymentReceipt, type PackageReleaseManifest, type RuntimeInventory } from "@k-nex/contracts";
+import { canonicalJson, type DeploymentReceipt, type RuntimeInventory } from "@k-nex/contracts";
 
-import { runtimeInventoryDigest, type DeploymentEvidenceAuthority, type VerifiedDeploymentEvidence } from "./deployment-evidence.js";
+import { runtimeInventoryDigest, type DeploymentEvidenceAuthority, type PackageReleaseManifestAuthority, type VerifiedDeploymentEvidence, type VerifiedPackageReleaseManifest } from "./deployment-evidence.js";
 
 export class FleetEvidenceError extends Error {
   constructor(readonly code: "CONFLICT" | "EVIDENCE_INVALID" | "PATCH_INVALID", message: string) {
@@ -24,6 +25,10 @@ export interface SecurityPatchPlan {
   readonly currentVersion: string;
   readonly targetVersion: string;
   readonly targetIntegrity: string;
+  readonly targetRelease: string;
+  readonly targetReleaseManifestDigest: string;
+  readonly targetFrameworkDigest: string;
+  readonly targetClosure: readonly { readonly package: string; readonly version: string; readonly integrity: string }[];
   readonly baseInventoryDigest: string;
   readonly operations: readonly ["update-lockfile", "plan-upgrade", "run-migrations", "deploy-and-receipt"];
 }
@@ -42,12 +47,15 @@ function freeze<T>(value: T): T {
 
 export class FleetRegistry {
   readonly #deployments = new Map<string, FleetDeployment>();
-  readonly #supportedReleases: ReadonlySet<string>;
+  readonly #supportedReleases: Set<string>;
   readonly #authority: DeploymentEvidenceAuthority;
+  readonly #releaseAuthority: PackageReleaseManifestAuthority;
+  readonly #patchPlans = new WeakSet<object>();
 
-  constructor(supportManifest: PackageReleaseManifest, authority: DeploymentEvidenceAuthority) {
-    const parsed = PackageReleaseManifestSchema.parse(supportManifest);
+  constructor(supportRelease: VerifiedPackageReleaseManifest, releaseAuthority: PackageReleaseManifestAuthority, authority: DeploymentEvidenceAuthority) {
+    const parsed = releaseAuthority.read(supportRelease).manifest;
     this.#supportedReleases = new Set(parsed.supportWindow.supportedReleases);
+    this.#releaseAuthority = releaseAuthority;
     this.#authority = authority;
   }
 
@@ -77,20 +85,23 @@ export class FleetRegistry {
     )));
   }
 
-  planSecurityPatch(packageName: string, vulnerableRange: string, targetVersion: string, targetReleaseManifest: PackageReleaseManifest): readonly SecurityPatchPlan[] {
-    const targetRelease = PackageReleaseManifestSchema.parse(targetReleaseManifest);
+  planSecurityPatch(packageName: string, vulnerableRange: string, targetVersion: string, targetReleaseToken: VerifiedPackageReleaseManifest): readonly SecurityPatchPlan[] {
+    let verifiedTarget: ReturnType<PackageReleaseManifestAuthority["read"]>;
+    try { verifiedTarget = this.#releaseAuthority.read(targetReleaseToken); } catch { throw new FleetEvidenceError("EVIDENCE_INVALID", "Security patch target requires a verified package release manifest."); }
+    const targetRelease = verifiedTarget.manifest;
     const target = targetRelease.packages.find((entry) => entry.package === packageName);
     if (validRange(vulnerableRange, { loose: false }) === null) throw new FleetEvidenceError("PATCH_INVALID", "Vulnerable package range is invalid.");
     if (valid(targetVersion, { loose: false }) === null) throw new FleetEvidenceError("PATCH_INVALID", "Security patch target must be an exact semantic version.");
     if (target?.version !== targetVersion) throw new FleetEvidenceError("PATCH_INVALID", "Security patch target is absent from the trusted release manifest.");
     if (satisfies(targetVersion, vulnerableRange, { loose: false, includePrerelease: false })) throw new FleetEvidenceError("PATCH_INVALID", "Security patch target remains within the vulnerable range.");
-    return Object.freeze(this.affected(packageName, vulnerableRange).filter(({ inventory }) => {
+    const plans = this.affected(packageName, vulnerableRange).filter(({ inventory }) => {
       const current = inventory.packages.find((entry) => entry.package === packageName)!;
       return current.version !== targetVersion || current.integrity !== target.integrity;
     }).map(({ inventory }) => {
       const current = inventory.packages.find((entry) => entry.package === packageName)!;
       if (gt(current.version, targetVersion, { loose: false })) throw new FleetEvidenceError("PATCH_INVALID", "Security patch target must not regress an affected deployment.");
-      return Object.freeze({
+      const targetClosure = Object.freeze([...targetRelease.packages].map(({ package: targetPackage, version, integrity }) => Object.freeze({ package: targetPackage, version, integrity })).sort((left, right) => left.package.localeCompare(right.package)));
+      const plan = Object.freeze({
         applicationId: inventory.applicationId,
         repository: inventory.repository,
         environment: inventory.environment,
@@ -98,10 +109,36 @@ export class FleetRegistry {
         currentVersion: current.version,
         targetVersion,
         targetIntegrity: target.integrity,
+        targetRelease: targetRelease.release.version,
+        targetReleaseManifestDigest: verifiedTarget.digest,
+        targetFrameworkDigest: `sha256:${createHash("sha256").update(canonicalJson(targetRelease.framework)).digest("hex")}`,
+        targetClosure,
         baseInventoryDigest: runtimeInventoryDigest(inventory),
         operations: Object.freeze(["update-lockfile", "plan-upgrade", "run-migrations", "deploy-and-receipt"] as const)
       });
-    }));
+      this.#patchPlans.add(plan);
+      return plan;
+    });
+    return Object.freeze(plans);
+  }
+
+  applySecurityPatch(plan: SecurityPatchPlan, evidence: VerifiedDeploymentEvidence): FleetDeployment {
+    if (!this.#patchPlans.has(plan)) throw new FleetEvidenceError("PATCH_INVALID", "Security patch plan was not issued by this fleet authority.");
+    this.#patchPlans.delete(plan);
+    const key = `${plan.applicationId}\u0000${plan.environment}`;
+    const current = this.#deployments.get(key);
+    if (current === undefined || runtimeInventoryDigest(current.inventory) !== plan.baseInventoryDigest) throw new FleetEvidenceError("CONFLICT", "Security patch base inventory changed before application.");
+    let target: Readonly<{ receipt: DeploymentReceipt; inventory: RuntimeInventory }>;
+    try { target = this.#authority.read(evidence); } catch { throw new FleetEvidenceError("EVIDENCE_INVALID", "Security patch result requires verified deployment evidence."); }
+    const closure = [...target.inventory.packages].sort((left, right) => left.package.localeCompare(right.package));
+    if (target.inventory.applicationId !== plan.applicationId || target.inventory.environment !== plan.environment ||
+      target.inventory.platformRelease !== plan.targetRelease || canonicalJson(closure) !== canonicalJson(plan.targetClosure) ||
+      target.inventory.health.status !== "ready" || target.inventory.migrationRevision <= current.inventory.migrationRevision) {
+      throw new FleetEvidenceError("PATCH_INVALID", "Security patch result does not match the complete verified target release transition.");
+    }
+    this.#supportedReleases.add(plan.targetRelease);
+    this.ingest(evidence);
+    return this.#deployments.get(key)!;
   }
 }
 

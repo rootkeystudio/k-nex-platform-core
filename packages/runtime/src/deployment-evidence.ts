@@ -1,7 +1,6 @@
 import { createHash, sign, verify } from "node:crypto";
 
-import { DeploymentReceiptSchema, RuntimeInventorySchema, canonicalJson, type DeploymentReceipt, type RuntimeInventory } from "@k-nex/contracts";
-import { verifyReleaseProvenance, type SignedReleaseProvenance } from "@k-nex/composition";
+import { DeploymentReceiptSchema, PackageReleaseManifestSchema, RuntimeInventorySchema, canonicalJson, type DeploymentReceipt, type PackageReleaseManifest, type RuntimeInventory } from "@k-nex/contracts";
 
 function freeze<T>(value: T): T {
   if (value !== null && typeof value === "object") {
@@ -23,11 +22,54 @@ export interface VerifiedDeploymentEvidence {
   readonly [verifiedDeploymentEvidence]: true;
 }
 
+export interface VerifiedHostedAttestation {
+  readonly subjectDigest: string;
+  readonly sourceCommit: string;
+  readonly workflowIdentity: string;
+  readonly materials: readonly { readonly name: string; readonly digest: string }[];
+}
+
+export interface HostedAttestationVerifier {
+  verify(attestation: unknown): Promise<VerifiedHostedAttestation>;
+}
+
+declare const verifiedPackageReleaseManifest: unique symbol;
+export interface VerifiedPackageReleaseManifest {
+  readonly [verifiedPackageReleaseManifest]: true;
+}
+
+export interface PackageReleaseManifestAuthority {
+  verify(manifest: PackageReleaseManifest, attestation: unknown): Promise<VerifiedPackageReleaseManifest>;
+  read(token: VerifiedPackageReleaseManifest): Readonly<{ manifest: PackageReleaseManifest; digest: string; attestation: VerifiedHostedAttestation }>;
+}
+
+export function createPackageReleaseManifestAuthority(verifier: HostedAttestationVerifier): PackageReleaseManifestAuthority {
+  const tokens = new WeakMap<object, Readonly<{ manifest: PackageReleaseManifest; digest: string; attestation: VerifiedHostedAttestation }>>();
+  const authority: PackageReleaseManifestAuthority = {
+    async verify(value, attestationInput) {
+      const manifest = PackageReleaseManifestSchema.parse(value);
+      const digest = `sha256:${createHash("sha256").update(canonicalJson(manifest)).digest("hex")}`;
+      const attestation = await verifier.verify(attestationInput);
+      if (attestation.subjectDigest !== digest) throw new Error("Hosted attestation does not bind the package release manifest.");
+      const token = Object.freeze({}) as VerifiedPackageReleaseManifest;
+      tokens.set(token, freeze({ manifest: structuredClone(manifest), digest, attestation: structuredClone(attestation) }));
+      return token;
+    },
+    read(token) {
+      const value = tokens.get(token);
+      if (value === undefined) throw new Error("Package release manifest was not issued by this hosted-attestation authority.");
+      return value;
+    }
+  };
+  return Object.freeze(authority);
+}
+
 export interface DeploymentEvidenceAuthority {
   verify(input: {
     readonly observe: () => Promise<unknown>;
     readonly receipt: SignedDeploymentReceipt;
-    readonly provenance: SignedReleaseProvenance;
+    readonly releaseAttestation: unknown;
+    readonly packageRelease: VerifiedPackageReleaseManifest;
   }): Promise<VerifiedDeploymentEvidence>;
   read(evidence: VerifiedDeploymentEvidence): Readonly<{ receipt: DeploymentReceipt; inventory: RuntimeInventory }>;
 }
@@ -51,9 +93,9 @@ function verifyDeploymentReceipt(envelope: SignedDeploymentReceipt, publicKey: s
 }
 
 export function createDeploymentEvidenceAuthority(input: {
-  readonly provenancePublicKey: string;
+  readonly releaseVerifier: HostedAttestationVerifier;
+  readonly packageReleaseAuthority: PackageReleaseManifestAuthority;
   readonly deploymentPublicKey: string;
-  readonly trustedReleaseWorkflow: string;
   readonly trustedDeploymentWorkflow: string;
 }): DeploymentEvidenceAuthority {
   const evidence = new WeakMap<object, Readonly<{ receipt: DeploymentReceipt; inventory: RuntimeInventory }>>();
@@ -61,15 +103,21 @@ export function createDeploymentEvidenceAuthority(input: {
     async verify(candidate) {
       const inventory = observeRuntimeInventory(RuntimeInventorySchema.parse(await candidate.observe()));
       const receipt = verifyDeploymentReceipt(candidate.receipt, input.deploymentPublicKey);
-      const provenance = verifyReleaseProvenance(candidate.provenance, input.provenancePublicKey);
-      if (provenance.predicate.workflowIdentity !== input.trustedReleaseWorkflow || inventory.releaseEvidence.workflowIdentity !== input.trustedReleaseWorkflow ||
+      const releaseAttestation = await input.releaseVerifier.verify(candidate.releaseAttestation);
+      const packageRelease = input.packageReleaseAuthority.read(candidate.packageRelease);
+      if (releaseAttestation.workflowIdentity !== inventory.releaseEvidence.workflowIdentity ||
         receipt.approvedBy.kind !== "workflow" || receipt.approvedBy.identity !== input.trustedDeploymentWorkflow) throw new Error("Deployment evidence workflow identity is not trusted.");
-      const material = new Map(provenance.predicate.materials.map((entry) => [entry.name, entry.digest]));
-      if (provenance.subject.digest !== inventory.artifactDigest || provenance.predicate.sourceCommit !== inventory.releaseEvidence.sourceCommit ||
+      const material = new Map(releaseAttestation.materials.map((entry) => [entry.name, entry.digest]));
+      const releasedPackages = [...packageRelease.manifest.packages].map(({ package: packageName, version, integrity }) => ({ package: packageName, version, integrity })).sort((left, right) => left.package.localeCompare(right.package));
+      const observedPackages = [...inventory.packages].sort((left, right) => left.package.localeCompare(right.package));
+      if (releaseAttestation.subjectDigest !== inventory.artifactDigest || releaseAttestation.sourceCommit !== inventory.releaseEvidence.sourceCommit ||
+        packageRelease.attestation.workflowIdentity !== releaseAttestation.workflowIdentity || packageRelease.attestation.sourceCommit !== releaseAttestation.sourceCommit ||
+        packageRelease.manifest.release.version !== inventory.platformRelease || canonicalJson(releasedPackages) !== canonicalJson(observedPackages) ||
         runtimeInventoryDigest(inventory) !== receipt.inventoryDigest || !reconcileDeploymentReceipt(receipt, inventory) ||
         material.get("application-manifest") !== inventory.releaseEvidence.manifestDigest || material.get("lockfile") !== inventory.releaseEvidence.lockfileDigest ||
         material.get("resolved-graph-or-plan") !== inventory.releaseEvidence.resolvedGraphDigest || material.get("sbom") !== inventory.releaseEvidence.sbomDigest ||
-        `sha256:${createHash("sha256").update(canonicalJson(provenance)).digest("hex")}` !== inventory.releaseEvidence.provenanceDigest) {
+        material.get("package-release-manifest") !== packageRelease.digest ||
+        `sha256:${createHash("sha256").update(canonicalJson(releaseAttestation)).digest("hex")}` !== inventory.releaseEvidence.provenanceDigest) {
         throw new Error("Signed deployment evidence does not reconcile to the observed runtime inventory.");
       }
       const token = Object.freeze({}) as VerifiedDeploymentEvidence;

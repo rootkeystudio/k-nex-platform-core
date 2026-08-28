@@ -91,7 +91,9 @@ test("boots both customer apps from packed packages and verifies protected runti
   const committedAlpha = JSON.parse(readFileSync(resolve(repositoryRoot, "fixtures/customer-alpha/runtime-inventory.json"), "utf8"));
   const sourceCommit = committedAlpha.releaseEvidence.sourceCommit;
   const verifier = createFixtureDeploymentVerifier(sourceCommit);
-  const fleet = new FleetRegistry(supportManifest, verifier.authority);
+  const supportRelease = await verifier.verifyManifest(supportManifest);
+  const priorRelease = await verifier.verifyManifest(priorManifest);
+  const fleet = new FleetRegistry(supportRelease, verifier.packageReleaseAuthority, verifier.authority);
   const pools = [];
   const generatedRoot = realpathSync(mkdtempSync(join(tmpdir(), "phase-8-generated-app-")));
   try {
@@ -159,7 +161,7 @@ test("boots both customer apps from packed packages and verifies protected runti
           approvedBy: { kind: "workflow", identity: `rootkeystudio/k-nex-platform-core/.github/workflows/deploy.yml@${sourceCommit}` },
           smoke: { status: "passed", checks: ["protected-runtime-inventory", "sales-query"] }
         });
-        fleet.ingest(await verifier.verify(inventory, receipt, endpoint.observe));
+        fleet.ingest(await verifier.verify(inventory, receipt, inventory.platformRelease === "0.2.0" ? supportRelease : priorRelease, endpoint.observe));
       } finally {
         await endpoint.close();
       }
