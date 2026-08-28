@@ -172,6 +172,9 @@ importers:
         specifier: 0.23.0
         version: 0.23.0(@floating-ui/dom@1.8.0)(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(use-sync-external-store@1.6.0(react@19.2.8))
     devDependencies:
+      '@k-nex/ui-components':
+        specifier: workspace:*
+        version: link:../ui-components
       '@types/node':
         specifier: 24.13.3
         version: 24.13.3
@@ -457,6 +460,9 @@ importers:
         specifier: workspace:*
         version: link:../ui-runtime
     devDependencies:
+      '@testing-library/react':
+        specifier: 16.3.2
+        version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@types/node':
         specifier: 24.13.3
         version: 24.13.3
@@ -466,6 +472,9 @@ importers:
       '@types/react-dom':
         specifier: 19.2.4
         version: 19.2.4(@types/react@19.2.18)
+      happy-dom:
+        specifier: 20.11.2
+        version: 20.11.2
       react:
         specifier: 19.2.8
         version: 19.2.8
@@ -484,6 +493,9 @@ importers:
       '@k-nex/ui-design-system-contracts':
         specifier: workspace:*
         version: link:../ui-design-system-contracts
+      '@k-nex/ui-runtime':
+        specifier: workspace:*
+        version: link:../ui-runtime
       '@react-aria/focus':
         specifier: 3.22.1
         version: 3.22.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
