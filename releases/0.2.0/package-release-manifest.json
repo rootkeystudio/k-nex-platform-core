@@ -32,7 +32,7 @@
       "package": "@k-nex/composition",
       "version": "0.0.0",
       "role": "core",
-      "integrity": "sha512-1eMIKJ9uyd7hpwnx9NjW0f8eGIupcNlzfBbZUamgQV1gTYjHooUF0sUNRuXsynmMwe7ga/txjYHCj1I+ALpPwA==",
+      "integrity": "sha512-a+K48Dkj4jSCyVeSBn/MlkXRsagxbHTKrZ/290WeCBtp0tbD8+J68aTQhQ3Nzekxpbqk97FykJMrq0KpHzSEwA==",
       "peerCompatibility": {
         "core": "1.0.0",
         "payload": "3.88.0",
@@ -97,7 +97,7 @@
       "package": "@k-nex/runtime",
       "version": "0.0.0",
       "role": "core",
-      "integrity": "sha512-tsEmWPH9IU4o4Q43hopLKDhiJIsCBhru1iMN+sS+vE5I4X/lUTsYuWcYXTHv2Ck7k9Aqxml1iREywR8xtp7+NA==",
+      "integrity": "sha512-TCURHGYSQeCb9IVg5gleVscMvcXt2D366QwQ24JVHttWs4J3eZI63G/zUvdfodAmmxbZA2zeS35ToMw3LNOTmg==",
       "peerCompatibility": {
         "core": "1.0.0",
         "payload": "3.88.0",

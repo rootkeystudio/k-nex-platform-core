@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { canonicalJson } from "../packages/contracts/dist/index.js";
-import { createCycloneDxSbom, resolvePnpmLock } from "../packages/composition/dist/index.js";
+import { resolvePnpmLock } from "../packages/composition/dist/index.js";
 import { createDeploymentReceipt, createGitHubHostedAttestationVerifier, observeRuntimeInventory } from "../packages/runtime/dist/index.js";
 import { assertPhase8SourceRelease, sourceFile } from "./lib/phase-8-provenance.mjs";
 
@@ -28,6 +28,7 @@ for (const customer of ["customer-alpha", "customer-beta"]) {
   const bundle = JSON.parse(readFileSync(resolve(hostedRoot, `${customer}.application-bundle.json`), "utf8"));
   const verification = JSON.parse(readFileSync(resolve(hostedRoot, "hosted/application-verification.json"), "utf8"));
   const attestation = await hostedVerifier.verify(verification[0]);
+  const materials = new Map(attestation.materials.map(({ name, digest }) => [name, digest]));
   const plan = JSON.parse(sourceFile(repositoryRoot, sourceCommit, planPath).toString("utf8"));
   const overrides = JSON.parse(readFileSync(resolve(root, "customer-overrides.json"), "utf8"));
   const observation = JSON.parse(readFileSync(resolve(root, "deployment-observation.json"), "utf8"));
@@ -37,9 +38,6 @@ for (const customer of ["customer-alpha", "customer-beta"]) {
   assert.equal(readFileSync(resolve(root, "pnpm-lock.yaml"), "utf8"), lockContent, `${lockPath} differs from source commit.`);
   assert.equal(bundle.sourceCommit, sourceCommit);
   const resolvedLock = resolvePnpmLock(lockContent);
-  const salesRef = `pkg:npm/%40k-nex/module-sales@${salesVersion}`;
-  const sbom = createCycloneDxSbom(customer, resolvedLock.components, resolvedLock.dependencies, [...resolvedLock.rootDependencies, salesRef]);
-  const sbomContent = canonicalJson(sbom);
   const packageInventory = resolvedLock.components.map(({ name, version, integrity }) => ({ package: name, version, integrity }))
     .sort((left, right) => `${left.package}@${left.version}`.localeCompare(`${right.package}@${right.version}`));
   const inventory = observeRuntimeInventory({
@@ -53,11 +51,11 @@ for (const customer of ["customer-alpha", "customer-beta"]) {
     releaseEvidence: {
       sourceCommit,
       workflowIdentity: attestation.workflowIdentity,
-      manifestDigest: sha256(canonicalJson(applicationManifest)),
-      lockfileDigest: sha256(lockContent),
-      resolvedGraphDigest: sha256(canonicalJson(plan)),
+      manifestDigest: materials.get("application-manifest"),
+      lockfileDigest: materials.get("lockfile"),
+      resolvedGraphDigest: materials.get("resolved-graph-or-plan"),
       frameworkDigest: bundle.frameworkDigest,
-      sbomDigest: sha256(sbomContent),
+      sbomDigest: materials.get("sbom"),
       provenanceDigest: sha256(canonicalJson(attestation))
     },
     packages: packageInventory,

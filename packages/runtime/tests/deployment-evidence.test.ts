@@ -32,6 +32,10 @@ describe("runtime deployment evidence", () => {
     const verifier = createGitHubHostedAttestationVerifier({ repository: "rootkeystudio/k-nex-platform-core", workflow: "release.yml", predicateType: "https://k-nex.dev/provenance/v1" });
     await expect(verifier.verify(output)).resolves.toEqual({ subjectDigest: digest("1"), sourceCommit: sha, workflowIdentity, materials: [{ name: "lockfile", digest: digest("2") }] });
     await expect(verifier.verify({ ...output, verificationResult: { ...output.verificationResult, statement: { ...statement, predicate: { ...statement.predicate, sourceCommit: "b".repeat(40) } } } })).rejects.toThrow("differs from the signed DSSE statement");
+    const manifestStatement = { ...statement, predicateType: "https://k-nex.dev/release-manifest/v1", predicate: { sourceCommit: sha, workflowIdentity } };
+    const manifestOutput = { ...output, attestation: { bundle: { dsseEnvelope: { payload: Buffer.from(JSON.stringify(manifestStatement)).toString("base64") } } }, verificationResult: { ...output.verificationResult, statement: manifestStatement } };
+    const manifestVerifier = createGitHubHostedAttestationVerifier({ repository: "rootkeystudio/k-nex-platform-core", workflow: "release.yml", predicateType: "https://k-nex.dev/release-manifest/v1" });
+    await expect(manifestVerifier.verify(manifestOutput)).resolves.toEqual({ subjectDigest: digest("1"), sourceCommit: sha, workflowIdentity, materials: [] });
   });
 
   it("freezes secret-free observed inventory and produces a stable digest", () => {

@@ -60,7 +60,7 @@ export function createGitHubHostedAttestationVerifier(input: {
       const workflowIdentity = `${input.repository}/.github/workflows/${input.workflow}@${sourceCommit}`;
       const predicate = statement.predicate as Record<string, unknown> | undefined;
       const subjects = statement.subject as readonly { readonly digest?: { readonly sha256?: string } }[] | undefined;
-      const materials = predicate?.materials as readonly { readonly name?: string; readonly digest?: string }[] | undefined;
+      const materials = (predicate?.materials ?? []) as readonly { readonly name?: string; readonly digest?: string }[];
       if (statement._type !== "https://in-toto.io/Statement/v1" || statement.predicateType !== input.predicateType ||
         certificate.githubWorkflowRepository !== input.repository || certificate.runnerEnvironment !== "github-hosted" ||
         certificate.buildConfigURI !== `https://github.com/${input.repository}/.github/workflows/${input.workflow}@${certificate.githubWorkflowRef}` ||

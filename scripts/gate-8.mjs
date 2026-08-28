@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { ApplicationManifestSchema, DeploymentReceiptSchema, RuntimeInventorySchema, canonicalJson } from "../packages/contracts/dist/index.js";
-import { applyCreateKnexApplication, createCycloneDxSbom, planCreateKnexApplication, resolvePnpmLock } from "../packages/composition/dist/index.js";
+import { applyCreateKnexApplication, planCreateKnexApplication } from "../packages/composition/dist/index.js";
 import { FleetRegistry, createApplicationBundleAuthority, createDeploymentEvidenceAuthority, createGitHubHostedAttestationVerifier, createPackageReleaseManifestAuthority, reconcileDeploymentReceipt, runtimeInventoryStateDigest, signDeploymentReceipt } from "../packages/runtime/dist/index.js";
 import { assertPhase8SourceRelease, sourceFile } from "./lib/phase-8-provenance.mjs";
 
@@ -62,7 +62,7 @@ for (const [customer, location] of Object.entries(evidenceLocations)) {
   const application = await applicationAuthority.verify(bundle, applicationVerification[0], release);
   const attestation = applicationAuthority.read(application).attestation;
   assertPhase8SourceRelease(root, attestation.sourceCommit);
-  hostedTokens.set(customer, { release, application, attestation, bundle });
+  hostedTokens.set(customer, { release, application, attestation, bundle, sbom: JSON.parse(readFileSync(resolve(location.root, "sbom.cdx.json"), "utf8")) });
 }
 
 const sourceCommit = readJson("fixtures/customer-alpha/runtime-inventory.json").releaseEvidence.sourceCommit;
@@ -83,16 +83,12 @@ for (const customer of ["customer-alpha", "customer-beta"]) {
   const sourceLock = sourceFile(root, sourceCommit, `fixtures/${customer}/pnpm-lock.yaml`).toString("utf8");
   const sourcePlan = JSON.parse(sourceFile(root, sourceCommit, `fixtures/${customer}/.k-nex/application-plan.json`).toString("utf8"));
   const hosted = hostedTokens.get(customer);
-  const salesVersion = sourceManifest.plugins.find(({ id }) => id === "module.sales")?.version;
-  const resolvedLock = resolvePnpmLock(sourceLock);
-  const salesRef = `pkg:npm/%40k-nex/module-sales@${salesVersion}`;
-  const sourceSbom = createCycloneDxSbom(customer, resolvedLock.components, resolvedLock.dependencies, [...resolvedLock.rootDependencies, salesRef]);
   assert.equal(inventory.artifactDigest, sha256(canonicalJson(hosted.bundle)));
-  assert.equal(inventory.releaseEvidence.manifestDigest, sha256(canonicalJson(sourceManifest)));
+  assert.equal(inventory.releaseEvidence.manifestDigest, sha256(sourceFile(root, sourceCommit, `fixtures/${customer}/k-nex.app.json`)));
   assert.equal(inventory.releaseEvidence.lockfileDigest, sha256(sourceLock));
   assert.equal(inventory.releaseEvidence.resolvedGraphDigest, sha256(canonicalJson(sourcePlan)));
   assert.equal(inventory.releaseEvidence.frameworkDigest, hosted.bundle.frameworkDigest);
-  assert.equal(inventory.releaseEvidence.sbomDigest, sha256(canonicalJson(sourceSbom)));
+  assert.equal(inventory.releaseEvidence.sbomDigest, sha256(canonicalJson(hosted.sbom)));
   assert.equal(inventory.releaseEvidence.sourceCommit, sourceCommit);
   assert.equal(inventory.releaseEvidence.provenanceDigest, sha256(canonicalJson(hosted.attestation)));
   assert.deepEqual(manifest.plugins.map(({ id }) => id), ["module.sales"]);
