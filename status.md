@@ -11,12 +11,12 @@ PR 22 remains rebased onto accepted Phase 6 on `main`. Explicit Puck preview con
 
 ## Validation
 
-Local frozen install and complete Gate 7 pass with `GATE_7_PASS`. Builder/Puck (36 plus browser) and builder-block (9) suites pass. Coverage proves construction-time missing-host rejection, React success/fallback presentation, hostless and supplied no-op-host opaque-list denial, retained string-only legacy output, and all sibling-identity paths.
+Local frozen install and complete Gate 7 pass with `GATE_7_PASS`. Builder/Puck (36 plus browser) and builder-block (9) suites pass. Coverage proves construction-time missing-host rejection, React success/fallback presentation, hostless and supplied no-op-host opaque-list denial, retained string-only legacy output, and all sibling-identity paths. Code-bearing head `4e84187` passed required workflow `33178126995` on attempt 1.
 
 ## Next
 
-Commit and push the final remediation, validate exact-head CI, refresh PR evidence, then request project-manager review. Leave PR 22 draft/open without auto-merge.
+Validate the docs-only evidence head, refresh immutable PR evidence, then request project-manager review. Leave PR 22 draft/open without auto-merge.
 
 ## Blockers
 
-None. Exact-head CI and external project-manager acceptance remain pending.
+None. Final docs-head CI and external project-manager acceptance remain pending.
