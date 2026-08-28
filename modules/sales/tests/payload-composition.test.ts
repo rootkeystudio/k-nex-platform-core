@@ -182,11 +182,11 @@ describe("Payload application composition", () => {
     expectCode(() => compose({ registration: registrationWith({ arbitraryPayloadPatch: true }) }), "INVALID_SCHEMA_CONTRIBUTION");
   });
 
-  it("exposes the seven separated plugin entrypoints and a typed testing fixture", () => {
+  it("exposes the eight separated plugin entrypoints and a typed testing fixture", () => {
     const packageJson = JSON.parse(readFileSync(resolve(import.meta.dirname, "../package.json"), "utf8"));
     expect(Object.hasOwn(packageJson.exports, ".")).toBe(false);
     expect(Object.keys(packageJson.exports).sort()).toEqual([
-      "./browser", "./contracts", "./manifest", "./migrations", "./server", "./testing", "./ui"
+      "./browser", "./contracts", "./manifest", "./migrations", "./pages", "./server", "./testing", "./ui"
     ]);
     expect(salesTaskFixture).toEqual({ title: "Prepare customer follow-up", status: "open" });
   });

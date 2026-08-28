@@ -7,43 +7,43 @@ import type {
 } from "./types.js";
 
 export function Box({ children, element = "div" }: BoxProps): ReactElement {
-  return createElement(element, { "data-k-nex-primitive": "box" }, children);
+  return createElement(element, { "data-k-nex-primitive": "box", "data-k-nex-component": "box", "data-slot": "root" }, children);
 }
 
 export function Stack({ children, gap = "content", align = "stretch" }: StackProps): ReactElement {
-  return <div data-k-nex-primitive="stack" data-gap={gap} data-align={align}>{children}</div>;
+  return <div data-k-nex-primitive="stack" data-k-nex-component="stack" data-slot="root" data-gap={gap} data-align={align}>{children}</div>;
 }
 
 export function Inline({ children, gap = "content", align = "center", wrap = true }: InlineProps): ReactElement {
-  return <div data-k-nex-primitive="inline" data-gap={gap} data-align={align} data-wrap={wrap}>{children}</div>;
+  return <div data-k-nex-primitive="inline" data-k-nex-component="inline" data-slot="root" data-gap={gap} data-align={align} data-wrap={wrap}>{children}</div>;
 }
 
 export function Grid({ children, columns = 1, gap = "content" }: GridProps): ReactElement {
-  return <div data-k-nex-primitive="grid" data-columns={columns} data-gap={gap}>{children}</div>;
+  return <div data-k-nex-primitive="grid" data-k-nex-component="grid" data-slot="root" data-columns={columns} data-gap={gap}>{children}</div>;
 }
 
 export function Container({ children, size = "content" }: ContainerProps): ReactElement {
-  return <div data-k-nex-primitive="container" data-size={size}>{children}</div>;
+  return <div data-k-nex-primitive="container" data-k-nex-component="container" data-slot="root" data-size={size}>{children}</div>;
 }
 
 export function Text({ children, element = "span", size = "body", tone = "neutral", weight = "regular" }: TextProps): ReactElement {
-  return createElement(element, { "data-k-nex-primitive": "text", "data-size": size, "data-tone": tone, "data-weight": weight }, children);
+  return createElement(element, { "data-k-nex-primitive": "text", "data-k-nex-component": "text", "data-slot": "root", "data-size": size, "data-tone": tone, "data-weight": weight }, children);
 }
 
 export function Heading({ children, level }: HeadingProps): ReactElement {
-  return createElement(`h${level}`, { "data-k-nex-primitive": "heading", "data-level": level }, children);
+  return createElement(`h${level}`, { "data-k-nex-primitive": "heading", "data-k-nex-component": "heading", "data-slot": "root", "data-level": level }, children);
 }
 
 export function Card({ children, variant = "default" }: CardProps): ReactElement {
-  return <section data-k-nex-primitive="card" data-variant={variant}>{children}</section>;
+  return <section data-k-nex-primitive="card" data-k-nex-component="card" data-slot="root" data-variant={variant}>{children}</section>;
 }
 
 export function Badge({ children, tone = "neutral" }: BadgeProps): ReactElement {
-  return <span data-k-nex-primitive="badge" data-tone={tone}>{children}</span>;
+  return <span data-k-nex-primitive="badge" data-k-nex-component="badge" data-slot="root" data-tone={tone}>{children}</span>;
 }
 
 export function Status({ children, tone = "neutral", live = "polite" }: StatusProps): ReactElement {
-  return <span role={live === "assertive" ? "alert" : "status"} aria-live={live} data-k-nex-primitive="status" data-tone={tone}>{children}</span>;
+  return <span role={live === "assertive" ? "alert" : "status"} aria-live={live} data-k-nex-primitive="status" data-k-nex-component="status" data-slot="root" data-tone={tone}>{children}</span>;
 }
 
 export function FormField({ children, legend, description, error }: FormFieldProps): ReactElement {
@@ -56,23 +56,23 @@ export function FormField({ children, legend, description, error }: FormFieldPro
 }
 
 export function Toast({ children, tone = "neutral", priority = "polite" }: ToastProps): ReactElement {
-  return <div role={priority === "assertive" ? "alert" : "status"} aria-live={priority} data-k-nex-primitive="toast" data-tone={tone}>{children}</div>;
+  return <div role={priority === "assertive" ? "alert" : "status"} aria-live={priority} data-k-nex-primitive="toast" data-k-nex-component="toast" data-slot="root" data-tone={tone}>{children}</div>;
 }
 
 export function Skeleton({ label }: SkeletonProps): ReactElement {
-  return <div role="status" aria-label={label} data-k-nex-primitive="skeleton" />;
+  return <div role="status" aria-label={label} data-k-nex-primitive="skeleton" data-k-nex-component="skeleton" data-slot="root" data-state="pending" />;
 }
 
 export function EmptyState({ title, message, action }: EmptyStateProps): ReactElement {
-  return <section data-k-nex-primitive="empty-state"><h2>{title}</h2>{message === undefined ? null : <p>{message}</p>}{action}</section>;
+  return <section data-k-nex-primitive="empty-state" data-k-nex-component="empty-state" data-slot="root" data-state="empty"><h2>{title}</h2>{message === undefined ? null : <p>{message}</p>}{action}</section>;
 }
 
 export function ErrorState({ title, message, action, code }: ErrorStateProps): ReactElement {
-  return <section role="alert" data-k-nex-primitive="error-state"><h2>{title}</h2>{message === undefined ? null : <p>{message}</p>}{code === undefined ? null : <code>{code}</code>}{action}</section>;
+  return <section role="alert" data-k-nex-primitive="error-state" data-k-nex-component="error-state" data-slot="root" data-state="error"><h2>{title}</h2>{message === undefined ? null : <p>{message}</p>}{code === undefined ? null : <code>{code}</code>}{action}</section>;
 }
 
 export function Table({ label, columns, rows, emptyMessage = "No records" }: TableProps): ReactElement {
-  return <table aria-label={label} data-k-nex-primitive="table">
+  return <table aria-label={label} data-k-nex-primitive="table" data-k-nex-component="table" data-slot="root">
     <thead><tr>{columns.map((column) => <th key={column.id} scope="col">{column.label}</th>)}</tr></thead>
     <tbody>{rows.length === 0
       ? <tr><td colSpan={columns.length}>{emptyMessage}</td></tr>

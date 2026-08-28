@@ -50,6 +50,7 @@ const source = (overrides: Partial<DataSourceDescriptor> = {}): DataSourceDescri
   title: "Tasks",
   inputFields: [],
   outputFields: [{ id: "title", kind: "text", binding: "required", nullable: false, permission: "sales.tasks.title.read", sortable: true, filterOperators: [] }],
+  paginationModes: ["offset"],
   limits: { maxSelectedFields: 8, maxPageSize: 20, maxFilters: 4, maxSorts: 2, maxBodyBytes: 4096, maxResultBytes: 65536, maxDepth: 4, timeoutMs: 5000, maxConcurrency: 4, ratePerMinute: 60, burst: 10, costClass: "low", maxCost: 10 },
   cacheClass: "actor",
   ...overrides
@@ -176,6 +177,54 @@ describe("UI document runtime", () => {
     const result = firstNode(createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [throwing], sources: [] })).render({ document: document(), surface: "workspace", actor: actor() }));
     expect(result).toMatchObject({ status: "fallback", reason: "RENDER_FAILED" });
     expect(JSON.stringify(result)).not.toContain("private renderer detail");
+  });
+
+  it("scopes action dispatch to an accepted node binding", async () => {
+    let readOnlyDispatch: unknown;
+    let submit: (() => void | Promise<unknown>) | undefined;
+    let arbitrarySubmit: (() => void | Promise<unknown>) | undefined;
+    const readOnly = block({
+      id: "content.read-only",
+      render: ({ dispatchAction }) => {
+        readOnlyDispatch = dispatchAction;
+        return "read-only";
+      }
+    });
+    const actionable = block({
+      actionPolicy: { required: true, actions: [{ id: "sales.task.create", version: 1 }] },
+      render: ({ action, dispatchAction, node }) => {
+        if (action !== undefined && dispatchAction !== undefined) {
+          const boundNodeId = node.id;
+          submit = () => dispatchAction({ action, input: { title: "Call customer" }, nodeId: boundNodeId });
+          arbitrarySubmit = () => dispatchAction({ action: { id: "sales.task.delete", version: 1 }, input: {}, nodeId: boundNodeId });
+          (node as { id: string }).id = "forged-node";
+        }
+        return "ready";
+      }
+    });
+    const dispatchAction = vi.fn(async () => ({ ok: true }));
+    const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [readOnly, actionable], sources: [] }));
+    const readOnlyResult = runtime.render({
+      document: document({ type: "content.read-only" }),
+      surface: "workspace",
+      actor: actor(),
+      dispatchAction
+    });
+    expect(firstNode(readOnlyResult)).toMatchObject({ status: "rendered", output: "read-only" });
+    expect(readOnlyDispatch).toBeUndefined();
+    expect(dispatchAction).not.toHaveBeenCalled();
+
+    const result = runtime.render({
+      document: document({ bindings: { action: { id: "sales.task.create", version: 1 } } }),
+      surface: "workspace",
+      actor: actor(),
+      dispatchAction
+    });
+    expect(firstNode(result)).toMatchObject({ status: "rendered", output: "ready" });
+    expect(() => arbitrarySubmit?.()).toThrow("Action dispatch denied.");
+    expect(dispatchAction).not.toHaveBeenCalled();
+    await submit?.();
+    expect(dispatchAction).toHaveBeenCalledWith({ action: { id: "sales.task.create", version: 1 }, input: { title: "Call customer" }, nodeId: "card-1" });
   });
 
   it("isolates renderer actor authority and deeply freezes registered descriptors", () => {

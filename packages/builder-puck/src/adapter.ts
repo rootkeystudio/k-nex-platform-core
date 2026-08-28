@@ -16,7 +16,9 @@ import type { ComponentData, Config, Data, Field } from "@puckeditor/core";
 import {
   createUiDocumentRuntime,
   createUiRuntimeRegistry,
+  presentUiRuntimeNodeWithIdentity,
   presentUiRuntimeResult,
+  isUiRuntimePresentationList,
   snapshotUiBlockDefinition,
   type UiBlockDefinition,
   type UiContributionDefinition,
@@ -51,6 +53,7 @@ export interface PuckPreviewContext {
   readonly actor: UiRuntimeActor;
   readonly sources?: readonly DataSourceDescriptor[];
   readonly sourceResults?: Readonly<Record<string, DataSourceBindingResult<unknown>>>;
+  readonly present: (presentation: unknown) => unknown;
 }
 
 export interface PuckBuilderAdapter {
@@ -403,7 +406,18 @@ function createConfig(bridges: ReadonlyMap<string, PuckBlockBridge>, preview?: P
           actor,
           ...(preview?.sourceResults === undefined ? {} : { sourceResults: preview.sourceResults })
         });
-        return presentUiRuntimeResult(result);
+        if (!result.success) {
+          const presentation = presentUiRuntimeResult(result);
+          const presented = preview?.present(presentation) ?? presentation;
+          return isUiRuntimePresentationList(presented) ? "Unavailable: PRESENTATION_HOST_REQUIRED" : presented;
+        }
+        const root = result.regions.main?.[0];
+        if (root === undefined) return "Unavailable: MISSING_BLOCK";
+        const slot = props[childSlotKey];
+        const previewChildren = slot === undefined ? [] : Array.isArray(slot) ? slot : [slot];
+        const presentation = presentUiRuntimeNodeWithIdentity(root, previewChildren);
+        const presented = preview?.present(presentation) ?? presentation;
+        return isUiRuntimePresentationList(presented) ? "Unavailable: PRESENTATION_HOST_REQUIRED" : presented;
       }
     };
   }
@@ -411,6 +425,9 @@ function createConfig(bridges: ReadonlyMap<string, PuckBlockBridge>, preview?: P
 }
 
 export function createPuckBuilderAdapter(input: { readonly blocks: readonly PuckBlockBridge[]; readonly canvasRegion?: string; readonly preview?: PuckPreviewContext }): PuckBuilderAdapter {
+  if (input.preview !== undefined && typeof input.preview.present !== "function") {
+    throw new TypeError("Puck preview requires a presentation host.");
+  }
   const bridges = new Map<string, PuckBlockBridge>();
   for (const candidate of input.blocks) {
     const bridge = snapshotPuckBlockBridge(candidate);

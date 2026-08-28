@@ -35,6 +35,7 @@ function dataSourceDefinition(id: string, ownerPluginId = "module.consumer"): Da
       presentationMetadataRevision: 1,
       title: "Consumer source",
       inputFields: [],
+      paginationModes: [],
       limits: {
         maxSelectedFields: 1,
         maxPageSize: 100,

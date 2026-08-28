@@ -56,6 +56,11 @@ describe("table.records@1", () => {
     expect(TableRecordsSchema.safeParse(baseTable).success).toBe(true);
   });
 
+  it("accepts bounded opaque next-cursor result metadata", () => {
+    expect(TableRecordsSchema.safeParse({ ...baseTable, page: { ...baseTable.page, hasNext: true, nextCursor: "opaque-next" } }).success).toBe(true);
+    expect(TableRecordsSchema.safeParse({ ...baseTable, page: { ...baseTable.page, nextCursor: "" } }).success).toBe(false);
+  });
+
   it("rejects dotted storage paths as field IDs", () => {
     expect(TableRecordsSchema.safeParse({
       ...baseTable,

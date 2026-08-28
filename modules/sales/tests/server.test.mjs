@@ -77,6 +77,7 @@ function structuralHash(descriptor) {
     sourceSchema: descriptor.sourceSchema,
     inputFields: descriptor.inputFields,
     outputFields: descriptor.outputFields ?? [],
+    paginationModes: descriptor.paginationModes,
     limits: descriptor.limits
   })).digest("hex")}`;
 }
@@ -370,6 +371,35 @@ test("the task source applies bounded projection, allowlisted operations, and pa
   assert.deepEqual(call.select, { id: true, title: true, status: true, potentialRevenue: true, privateNote: true });
   assert.deepEqual(call.sort, ["-status", "id"]);
   assert.deepEqual(call.where, { and: [{ owner: { equals: "user-1" } }, { title: { contains: "follow" } }] });
+});
+
+test("the task source advances opaque cursor pages through bounded Payload pagination", async () => {
+  let call;
+  const first = await salesTasksHandler(handlerContext({
+    query: { cursor: { size: 10 }, filters: [], sort: [] },
+    request: { payload: { find: async (options) => {
+      call = options;
+      return { docs: [], hasNextPage: true };
+    } } }
+  }));
+  assert.equal(first.page.number, 1);
+  assert.equal(typeof first.page.nextCursor, "string");
+  const second = await salesTasksHandler(handlerContext({
+    query: { cursor: { size: 10, after: first.page.nextCursor }, filters: [], sort: [] },
+    request: { payload: { find: async (options) => {
+      call = options;
+      return { docs: [], hasNextPage: false };
+    } } }
+  }));
+  assert.equal(call.page, 2);
+  assert.equal(second.page.nextCursor, undefined);
+  const invalidCursor = (error) => error?.code === "INVALID_CURSOR" && error?.status === 400;
+  await assert.rejects(salesTasksHandler(handlerContext({
+    query: { cursor: { size: 5, after: first.page.nextCursor }, filters: [], sort: [] }
+  })), invalidCursor);
+  await assert.rejects(salesTasksHandler(handlerContext({
+    query: { cursor: { size: 10, after: "not-a-sales-cursor" }, filters: [], sort: [] }
+  })), invalidCursor);
 });
 
 test("the task source rejects direct unknown field manipulation", async () => {

@@ -22,7 +22,8 @@ const baseLimits: DataSourceDescriptor["limits"] = {
 
 function registeredSource(
   id = "sales.tasks",
-  limits: Partial<DataSourceDescriptor["limits"]> = {}
+  limits: Partial<DataSourceDescriptor["limits"]> = {},
+  paginationModes: DataSourceDescriptor["paginationModes"] = ["offset", "cursor"]
 ): RegisteredDataSource {
   const descriptor: DataSourceDescriptor = {
     id,
@@ -41,6 +42,7 @@ function registeredSource(
       { id: "title", kind: "text", binding: "required", nullable: false, permission: "sales.tasks.title.read", sortable: true, filterOperators: ["contains"] },
       { id: "status", kind: "status", binding: "optional", nullable: false, permission: "sales.tasks.status.read", sortable: false, filterOperators: ["eq", "in"] }
     ],
+    paginationModes,
     limits: { ...baseLimits, ...limits },
     cacheClass: "actor"
   };
@@ -99,11 +101,43 @@ describe("bounded data-source query budgets", () => {
     evaluated.lease.release();
   });
 
+  it("accepts bounded cursor pagination and charges its page size", () => {
+    const budget = new BoundedQueryBudgetEvaluator();
+    const evaluated = budget.evaluate(registeredSource(), request({
+      query: { cursor: { after: "opaque-next", size: 25 }, filters: [], sort: [] }
+    }), actor(), authorized);
+    expect(evaluated.controls).toEqual({ cursor: { after: "opaque-next", size: 25 }, filters: [], sort: [] });
+    evaluated.lease.release();
+
+    expectCode(() => budget.evaluate(
+      registeredSource("sales.tasks", { maxCost: 4 }),
+      request({ query: { cursor: { size: 50 }, filters: [], sort: [] } }),
+      actor("cursor-cost"),
+      authorized
+    ), "QUERY_COST_EXCEEDED");
+  });
+
+  it("rejects unsupported pagination modes before dispatch", () => {
+    const budget = new BoundedQueryBudgetEvaluator();
+    expectCode(() => budget.evaluate(
+      registeredSource("sales.offset-only", {}, ["offset"]),
+      request({ sourceId: "sales.offset-only", query: { cursor: { size: 25 }, filters: [], sort: [] } }),
+      actor("offset-only"),
+      authorized
+    ), "QUERY_PAGINATION_NOT_SUPPORTED");
+    expectCode(() => budget.evaluate(
+      registeredSource("sales.cursor-only", {}, ["cursor"]),
+      request({ sourceId: "sales.cursor-only", query: { page: { number: 1, size: 25 }, filters: [], sort: [] } }),
+      actor("cursor-only"),
+      authorized
+    ), "QUERY_PAGINATION_NOT_SUPPORTED");
+  });
+
   it.each([
     [{ query: { page: { number: 1, size: 51 }, filters: [], sort: [] } }, "PAGE_LIMIT_EXCEEDED"],
     [{ query: { page: { number: 1, size: 25 }, filters: [{ field: "title", operator: "eq", value: "x" }], sort: [] } }, "FILTER_NOT_ALLOWED"],
     [{ query: { page: { number: 1, size: 25 }, filters: [], sort: [{ field: "status", direction: "asc" }] } }, "SORT_NOT_ALLOWED"],
-    [{ query: { filters: [], sort: [] } }, "QUERY_PAGE_REQUIRED"]
+    [{ query: { filters: [], sort: [] } }, "QUERY_PAGINATION_REQUIRED"]
   ] as const)("rejects undeclared or over-limit operations %#", (overrides, code) => {
     expectCode(() => new BoundedQueryBudgetEvaluator().evaluate(
       registeredSource(),
@@ -111,6 +145,50 @@ describe("bounded data-source query budgets", () => {
       actor(),
       authorized
     ), code);
+  });
+
+  it("rejects every pagination mode on metric sources", () => {
+    const metric = registeredSource();
+    const metricSource: RegisteredDataSource = {
+      ...metric,
+      definition: {
+        ...metric.definition,
+        descriptor: { ...metric.definition.descriptor, primaryContract: { id: "metric.scalar", version: 1 }, outputFields: undefined, paginationModes: [] }
+      }
+    };
+    expectCode(() => new BoundedQueryBudgetEvaluator().evaluate(
+      metricSource,
+      request({ query: { cursor: { size: 1 }, filters: [], sort: [] }, selectedFields: [] }),
+      actor(),
+      { selectedFields: [], recordScope: {} }
+    ), "QUERY_OPERATION_NOT_DECLARED");
+  });
+
+  it("rejects filter and sort inference through an unauthorized optional field", () => {
+    const hiddenFieldSource = registeredSource();
+    const hiddenStatus: RegisteredDataSource = {
+      ...hiddenFieldSource,
+      definition: {
+        ...hiddenFieldSource.definition,
+        descriptor: {
+          ...hiddenFieldSource.definition.descriptor,
+          outputFields: hiddenFieldSource.definition.descriptor.outputFields?.map((field) => field.id === "status" ? { ...field, sortable: true } : field)
+        }
+      }
+    };
+    const titleOnly = { selectedFields: ["title"], recordScope: { tenant: "one" } };
+    expectCode(() => new BoundedQueryBudgetEvaluator().evaluate(
+      hiddenStatus,
+      request({ selectedFields: ["title"], query: { page: { number: 1, size: 25 }, filters: [{ field: "status", operator: "eq", value: "secret" }], sort: [] } }),
+      actor(),
+      titleOnly
+    ), "FILTER_FIELD_FORBIDDEN");
+    expectCode(() => new BoundedQueryBudgetEvaluator().evaluate(
+      hiddenStatus,
+      request({ selectedFields: ["title"], query: { page: { number: 1, size: 25 }, filters: [], sort: [{ field: "status", direction: "asc" }] } }),
+      actor("hidden-sort"),
+      titleOnly
+    ), "SORT_FIELD_FORBIDDEN");
   });
 
   it("enforces body depth, body bytes, query cost, and result bytes", () => {

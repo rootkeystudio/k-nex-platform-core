@@ -89,10 +89,11 @@ export const salesTotalPotentialRevenueDescriptor: DataSourceDescriptor = {
   audience: "authenticated",
   surfaces: ["workspace"],
   permission: "sales.tasks.revenue.read",
-  structuralCompatibilityHash: "sha256:4e20e6c42ce9d3ea887a6b9d18bce800ec0c2d1b3ff2b6357f740374f091e45b",
+  structuralCompatibilityHash: "sha256:44396ab7e33f70f1bb4250494af86105624f2c28b9e7095e8d438fc7fafeb85d",
   presentationMetadataRevision: 1,
   title: "Total potential revenue",
   inputFields: [],
+  paginationModes: [],
   limits: { ...salesMetricLimits },
   cacheClass: "actor"
 };
@@ -106,11 +107,12 @@ export const salesTasksDescriptor: DataSourceDescriptor = {
   audience: "authenticated",
   surfaces: ["workspace"],
   permission: "sales.tasks.read",
-  structuralCompatibilityHash: "sha256:c8367ee2c153671b70e606ec4445358ab2ebbf5561318cef1829fe4390487120",
+  structuralCompatibilityHash: "sha256:520d5f0bd7874a0b9c63fd3974ce355180314fcbd961ca9407a781d9fc768f26",
   presentationMetadataRevision: 1,
   title: "Sales tasks",
   inputFields: [],
   outputFields: salesTaskFields,
+  paginationModes: ["offset", "cursor"],
   limits: { ...salesSourceLimits },
   cacheClass: "actor"
 };
@@ -130,11 +132,12 @@ export const salesOpportunitiesDescriptor: DataSourceDescriptor = {
   audience: "authenticated",
   surfaces: ["workspace"],
   permission: "sales.opportunities.read",
-  structuralCompatibilityHash: "sha256:98668dea4b31ee699c906841ac73ad9c44f13a3ea1b8870caea4c9b2f08c44b3",
+  structuralCompatibilityHash: "sha256:1bffe6601229801384d7f058f71607d6dc9ebeb09defabb7b74b53b5d9feb569",
   presentationMetadataRevision: 1,
   title: "Sales opportunities",
   inputFields: [],
   outputFields: salesOpportunityFields,
+  paginationModes: ["offset"],
   limits: { ...salesSourceLimits },
   cacheClass: "actor"
 };
@@ -518,7 +521,7 @@ function permission(
   };
 }
 
-export const salesPermissionDescriptors = Object.freeze([
+export const salesPermissionDescriptors: readonly PermissionDescriptor[] = Object.freeze([
   permission("sales.settings.read", "Read Sales settings", "Read non-secret Sales workspace settings.", "sales.settings", "read", "application"),
   permission("sales.settings.write", "Change Sales settings", "Change validated Sales workspace settings.", "sales.settings", "write", "application"),
   permission("sales.tasks.read", "Read Sales tasks", "Read actor-authorized Sales task records.", "sales.tasks", "read", "record"),
@@ -772,11 +775,11 @@ export const salesOpportunityListBlockDescriptor: PluginUiContributionDescriptor
 export const salesOpportunityDetailBlockDescriptor: PluginUiContributionDescriptor = uiContribution("sales.opportunity-detail", "block", "sales.opportunities.read", opportunitySourcePolicy, { required: false, actions: [{ id: salesOpportunityStageUpdateDescriptor.id, version: 1 }] });
 export const salesSettingsSummaryBlockDescriptor: PluginUiContributionDescriptor = uiContribution("sales.settings-summary", "block", "sales.settings.read");
 
-export const salesUiComponentDescriptors = Object.freeze([
+export const salesUiComponentDescriptors: readonly PluginUiContributionDescriptor[] = Object.freeze([
   salesTaskTableComponentDescriptor, salesRevenueMetricComponentDescriptor, salesQuickCreateComponentDescriptor,
   salesOpportunityListComponentDescriptor, salesOpportunityDetailComponentDescriptor, salesPipelineStatusComponentDescriptor
 ]);
-export const salesUiBlockDescriptors = Object.freeze([
+export const salesUiBlockDescriptors: readonly PluginUiContributionDescriptor[] = Object.freeze([
   salesTaskTableBlockDescriptor, salesRevenueMetricBlockDescriptor, salesQuickCreateBlockDescriptor,
   salesOpportunityListBlockDescriptor, salesOpportunityDetailBlockDescriptor, salesSettingsSummaryBlockDescriptor
 ]);

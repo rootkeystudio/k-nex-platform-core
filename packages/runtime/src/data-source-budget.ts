@@ -94,22 +94,29 @@ function validateOperations(
   }
 
   if (descriptor.primaryContract.id === "metric.scalar") {
-    if (controls.page !== undefined || controls.filters.length > 0 || controls.sort.length > 0) {
+    if (controls.page !== undefined || controls.cursor !== undefined || controls.filters.length > 0 || controls.sort.length > 0) {
       fail("QUERY_OPERATION_NOT_DECLARED", 400, "The source does not declare tabular query operations.");
     }
     return;
   }
-  if (controls.page === undefined) fail("QUERY_PAGE_REQUIRED", 400, "A page request is required.");
-  if (controls.page.size > limits.maxPageSize || controls.page.size > dataSourcePlatformCeilings.pageSize) {
+  const pagination = controls.page ?? controls.cursor;
+  if (pagination === undefined) fail("QUERY_PAGINATION_REQUIRED", 400, "Exactly one page or cursor request is required.");
+  const paginationMode = controls.page === undefined ? "cursor" : "offset";
+  if (!descriptor.paginationModes.includes(paginationMode)) {
+    fail("QUERY_PAGINATION_NOT_SUPPORTED", 400, "The requested pagination mode is not supported by the source.");
+  }
+  if (pagination.size > limits.maxPageSize || pagination.size > dataSourcePlatformCeilings.pageSize) {
     fail("PAGE_LIMIT_EXCEEDED", 400, "The requested page is too large.");
   }
 
   const fields = new Map((descriptor.outputFields ?? []).map((field) => [field.id, field]));
+  const authorizedFields = new Set(selectedFields);
   for (const filter of controls.filters) {
     const field = fields.get(filter.field);
     if (!field || !field.filterOperators.includes(filter.operator)) {
       fail("FILTER_NOT_ALLOWED", 400, "A requested filter is not declared by the source.");
     }
+    if (!authorizedFields.has(filter.field)) fail("FILTER_FIELD_FORBIDDEN", 403, "A requested filter field is unavailable.");
   }
   const sortedFields = new Set<string>();
   for (const sort of controls.sort) {
@@ -117,12 +124,14 @@ function validateOperations(
     if (!field?.sortable || sortedFields.has(sort.field)) {
       fail("SORT_NOT_ALLOWED", 400, "A requested sort is not declared by the source.");
     }
+    if (!authorizedFields.has(sort.field)) fail("SORT_FIELD_FORBIDDEN", 403, "A requested sort field is unavailable.");
     sortedFields.add(sort.field);
   }
 }
 
 function queryCost(descriptor: DataSourceDescriptor, controls: DataSourceQueryControls, selectedFields: readonly string[]): number {
-  const pageCost = controls.page === undefined ? 0 : Math.ceil(controls.page.size / 25);
+  const pagination = controls.page ?? controls.cursor;
+  const pageCost = pagination === undefined ? 0 : Math.ceil(pagination.size / 25);
   return classCeilings[descriptor.limits.costClass].baseCost
     + selectedFields.length
     + controls.filters.length * 2

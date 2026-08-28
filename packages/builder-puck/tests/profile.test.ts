@@ -32,6 +32,7 @@ const source = (id: string, audience: "public" | "authenticated", surfaces: Data
   presentationMetadataRevision: 1, title: id, inputFields: [], outputFields: [{
     id: "title", kind: "text", binding: "required", nullable: false, permission: "sales.tasks.read", sortable: false, filterOperators: []
   }],
+  paginationModes: ["offset"],
   limits: { maxSelectedFields: 8, maxPageSize: 20, maxFilters: 4, maxSorts: 2, maxBodyBytes: 4096, maxResultBytes: 65536, maxDepth: 4, timeoutMs: 5000, maxConcurrency: 4, ratePerMinute: 60, burst: 10, costClass: "low", maxCost: 10 },
   cacheClass: audience === "public" ? "public" : "actor"
 });
@@ -178,7 +179,8 @@ describe("profile-specific Puck policy", () => {
       preview: { workspace: {
         surface: "workspace",
         actor: { authenticated: true, permissions: new Set(["sales.tasks.read"]) },
-        sourceResults: { tasks: { state: "idle" } }
+        sourceResults: { tasks: { state: "idle" } },
+        present: (value) => value
       } }
     });
     const profile = registry.resolve("workspace");
@@ -216,6 +218,7 @@ describe("profile-specific Puck policy", () => {
       preview: { workspace: {
         surface: "workspace",
         actor: { authenticated: true, permissions: new Set([descriptor.permission, descriptor.outputFields![0]!.permission]) },
+        present: (value) => value,
         sourceResults: { tasks: {
           state: "success",
           data: { fields: ["title"], rows: [], page: { number: 1, pageSize: 20, hasNext: false } },

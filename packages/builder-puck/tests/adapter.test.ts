@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 
 import { canonicalJson, type UiDocument } from "@k-nex/contracts";
+import { presentUiRuntimeReact } from "@k-nex/ui-components";
 import {
   createStaticTextBlockDefinition,
   createUiDocumentRuntime,
@@ -110,6 +113,7 @@ describe("Puck builder adapter", () => {
       defaultProps: { title: "Tasks" }
     });
     expect(bridge.definition.descriptor).toEqual(bound.descriptor);
+    expect(bridge.definition.actionPolicy).toEqual(bound.actionPolicy);
     expect(bridge.definition.render({ node: {} as never, props: { title: "Outside" }, surface: "workspace", actor: { authenticated: true, permissions: new Set() } }))
       .toEqual({ title: "Outside" });
     expect(() => reconcilePuckBlockContribution({ ...bound, descriptor: { ...bound.descriptor, kind: "component" } }, {
@@ -142,7 +146,7 @@ describe("Puck builder adapter", () => {
     });
     const adapter = createPuckBuilderAdapter({
       blocks: [bridge],
-      preview: { surface: "workspace", actor: { authenticated: true, permissions: new Set(["sales.tasks.read"]) } }
+      preview: { surface: "workspace", actor: { authenticated: true, permissions: new Set(["sales.tasks.read"]) }, present: (value) => value }
     });
     const component = adapter.config.components["sales.task-action__v1"] as { render: (props: Record<string, unknown>) => unknown };
     const preview = (action?: { id: string; version: number }) => {
@@ -195,7 +199,7 @@ describe("Puck builder adapter", () => {
     const bridge = reconcilePuckBlockContribution(forged, authoring);
     const adapter = createPuckBuilderAdapter({
       blocks: [bridge],
-      preview: { surface: "workspace", actor: { authenticated: true, permissions: new Set(["sales.tasks.read"]) } }
+      preview: { surface: "workspace", actor: { authenticated: true, permissions: new Set(["sales.tasks.read"]) }, present: (value) => value }
     });
     const component = adapter.config.components["sales.trusted-puck__v1"] as { render: (props: Record<string, unknown>) => unknown };
     const preview = (title: string, action?: { id: string; version: number }) => {
@@ -248,7 +252,7 @@ describe("Puck builder adapter", () => {
 
   it("uses the full runtime policy and shared browser presenter inside and outside Puck", () => {
     const actualText = { ...text, definition: createStaticTextBlockDefinition(), defaultProps: { text: "New text" } };
-    const adapter = createPuckBuilderAdapter({ blocks: [actualText], preview: { surface: "public", actor: { authenticated: false, permissions: new Set() } } });
+    const adapter = createPuckBuilderAdapter({ blocks: [actualText] });
     const data = adapter.toPuckData({ ...fixture, regions: { main: [fixture.regions.main[0].children?.[0]!] } });
     const component = adapter.config.components["content.text__v1"] as { render: (props: Record<string, unknown>) => unknown };
     const editorOutput = component.render(data.content[0]!.props);
@@ -268,7 +272,7 @@ describe("Puck builder adapter", () => {
     const protectedBridge = { ...actualText, definition: protectedDefinition };
     const protectedAdapter = createPuckBuilderAdapter({
       blocks: [protectedBridge],
-      preview: { surface: "workspace", actor: { authenticated: true, permissions: new Set() } }
+      preview: { surface: "workspace", actor: { authenticated: true, permissions: new Set() }, present: (value) => value }
     });
     const protectedData = protectedAdapter.toPuckData({
       id: "workspace.secure", version: 1, schemaVersion: 1, profile: "workspace",
@@ -276,6 +280,56 @@ describe("Puck builder adapter", () => {
     });
     const protectedComponent = protectedAdapter.config.components["sales.secure-text__v1"] as { render: (props: Record<string, unknown>) => unknown };
     expect(protectedComponent.render(protectedData.content[0]!.props)).toBe("Unavailable: PERMISSION_DENIED");
+  });
+
+  it("requires a host for explicit previews and presents React success and fallback roots", () => {
+    const reactBridge: PuckBlockBridge = {
+      ...text,
+      definition: {
+        ...text.definition,
+        permission: "content.read",
+        render: ({ props }) => ({ element: createElement("p", null, String((props as { text: string }).text)) })
+      }
+    };
+    const actor = { authenticated: true, permissions: new Set(["content.read"]) };
+    expect(() => createPuckBuilderAdapter({
+      blocks: [reactBridge],
+      preview: { surface: "workspace", actor } as never
+    })).toThrow(/presentation host/);
+
+    const renderPreview = (permissions: ReadonlySet<string>) => {
+      const adapter = createPuckBuilderAdapter({
+        blocks: [reactBridge],
+        preview: { surface: "workspace", actor: { authenticated: true, permissions }, present: presentUiRuntimeReact }
+      });
+      const data = adapter.toPuckData({
+        id: "workspace.react", version: 1, schemaVersion: 1, profile: "workspace",
+        regions: { main: [{ id: "react-1", type: "content.text", version: 1, props: { text: "Ready" } }] }
+      });
+      const component = adapter.config.components["content.text__v1"] as { render: (props: Record<string, unknown>) => unknown };
+      return renderToStaticMarkup(component.render(data.content[0]!.props) as Parameters<typeof renderToStaticMarkup>[0]);
+    };
+
+    expect(renderPreview(actor.permissions)).toBe("<p>Ready</p>");
+    expect(renderPreview(new Set())).toBe("Unavailable: PERMISSION_DENIED");
+    const unsafeHost = createPuckBuilderAdapter({
+      blocks: [reactBridge],
+      preview: { surface: "workspace", actor, present: (value) => value }
+    });
+    const unsafeData = unsafeHost.toPuckData({
+      id: "workspace.unsafe", version: 1, schemaVersion: 1, profile: "workspace",
+      regions: { main: [{ id: "unsafe-1", type: "content.text", version: 1, props: { text: "Unsafe" } }] }
+    });
+    const unsafeComponent = unsafeHost.config.components["content.text__v1"] as { render: (props: Record<string, unknown>) => unknown };
+    expect(unsafeComponent.render(unsafeData.content[0]!.props)).toBe("Unavailable: PRESENTATION_HOST_REQUIRED");
+    const legacyBridge = { ...reactBridge, definition: { ...text.definition, render: reactBridge.definition.render } };
+    const legacy = createPuckBuilderAdapter({ blocks: [legacyBridge] });
+    const legacyData = legacy.toPuckData({
+      id: "workspace.legacy", version: 1, schemaVersion: 1, profile: "workspace",
+      regions: { main: [{ id: "legacy-1", type: "content.text", version: 1, props: { text: "Legacy" } }] }
+    });
+    const legacyComponent = legacy.config.components["content.text__v1"] as { render: (props: Record<string, unknown>) => unknown };
+    expect(legacyComponent.render(legacyData.content[0]!.props)).toBe("Unavailable: PRESENTATION_HOST_REQUIRED");
   });
 
   it("round-trips a document without the configured canvas region", () => {

@@ -34,6 +34,7 @@ const descriptor = {
     { id: "assignee", kind: "resource", binding: "optional", nullable: true, permission: "sales.tasks.assignee.read", sortable: false, filterOperators: [] },
     { id: "private-note", kind: "text", binding: "optional", nullable: true, permission: "sales.tasks.private-note.read", sortable: false, filterOperators: [] }
   ],
+  paginationModes: ["offset"],
   limits: {
     maxSelectedFields: 3,
     maxPageSize: 50,
@@ -116,7 +117,7 @@ describe("P2.4 data-source authorization", () => {
     }
     const metricSource: RegisteredDataSource = {
       ...source,
-      definition: { ...definition, descriptor: { ...descriptor, primaryContract: { id: "metric.scalar", version: 1 }, outputFields: undefined } }
+      definition: { ...definition, descriptor: { ...descriptor, primaryContract: { id: "metric.scalar", version: 1 }, outputFields: undefined, paginationModes: [] } }
     };
     await expect(authorization.authorize(metricSource, { ...baseRequest, selectedFields: ["title"] }, authenticated)).rejects.toMatchObject({ code: "INVALID_FIELD_SELECTION" });
   });

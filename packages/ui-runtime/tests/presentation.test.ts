@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { presentUiRuntimeResult, type UiDocumentRuntimeResult } from "../src/index.js";
+import { isUiRuntimePresentationList, presentUiRuntimeResult, type UiDocumentRuntimeResult } from "../src/index.js";
 
 describe("shared browser presentation", () => {
   it("presents Phase 4 view models and fail-closed runtime results without React", () => {
@@ -37,5 +37,26 @@ describe("shared browser presentation", () => {
         children: []
       }] }
     })).toBe("Unavailable: PERMISSION_DENIED");
+  });
+
+  it("passes K-Nex component elements through for production and editor rendering", () => {
+    const element = Object.freeze({ type: "section", props: { role: "region" }, key: null });
+    const rendered: UiDocumentRuntimeResult = {
+      success: true,
+      regions: { main: [{
+        status: "rendered",
+        nodeId: "section",
+        blockId: "content.section",
+        blockVersion: 1,
+        output: { component: "Section", element },
+        children: []
+      }] }
+    };
+    const presentation = presentUiRuntimeResult(rendered);
+    expect(isUiRuntimePresentationList(presentation)).toBe(true);
+    expect(presentation).toMatchObject({
+      kind: "ui-runtime-presentation-list",
+      canonical: [{ nodeId: "section", presentation: element }]
+    });
   });
 });

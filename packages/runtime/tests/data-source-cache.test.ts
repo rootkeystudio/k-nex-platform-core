@@ -25,6 +25,7 @@ const baseDefinition: DataSourceDefinition = {
     presentationMetadataRevision: 1,
     title: "Total revenue",
     inputFields: [],
+    paginationModes: [],
     limits: {
       maxSelectedFields: 1,
       maxPageSize: 1,
@@ -133,6 +134,10 @@ describe("P2.6 safe cache classifications", () => {
         authorizationContext: { ...(original.authenticated.authorizationContext as object), locale: "tr-TR" }
       }
     })).resolves.toBeUndefined();
+
+    const cursorPage = { ...original, query: { ...original.query, controls: { cursor: { size: 25, after: "next-page" }, filters: [], sort: [] } } };
+    await cache.store(cursorPage, envelope);
+    await expect(cache.lookup({ ...cursorPage, query: { ...cursorPage.query, controls: { cursor: { size: 25, after: "other-page" }, filters: [], sort: [] } } })).resolves.toBeUndefined();
   });
 
   it("permits public sharing only for public sources, surfaces, and actors without impersonation", async () => {

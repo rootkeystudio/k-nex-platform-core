@@ -38,6 +38,7 @@ const metricDescriptor = {
   presentationMetadataRevision: 4,
   title: "Total potential revenue",
   inputFields: [],
+  paginationModes: [],
   limits,
   cacheClass: "actor"
 } as const;
@@ -61,7 +62,8 @@ const tableDescriptor = {
   permission: "sales.tasks.read",
   title: "Sales tasks",
   inputFields: [{ id: "status", kind: "enum", required: false, nullable: false }],
-  outputFields: [taskField]
+  outputFields: [taskField],
+  paginationModes: ["offset", "cursor"]
 } as const;
 
 describe("P2.2 data-source contracts", () => {
@@ -77,6 +79,9 @@ describe("P2.2 data-source contracts", () => {
 
   it("accepts declared table field semantics and bounded operations", () => {
     expect(DataSourceDescriptorSchema.safeParse(tableDescriptor).success).toBe(true);
+    expect(DataSourceDescriptorSchema.safeParse({ ...tableDescriptor, paginationModes: [] }).success).toBe(false);
+    expect(DataSourceDescriptorSchema.safeParse({ ...tableDescriptor, paginationModes: ["offset", "offset"] }).success).toBe(false);
+    expect(DataSourceDescriptorSchema.safeParse({ ...metricDescriptor, paginationModes: ["offset"] }).success).toBe(false);
   });
 
   it("enforces one primary projection shape", () => {

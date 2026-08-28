@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { MetricScalarSchema, type DataSourceDefinition } from "@k-nex/contracts";
+import { MetricScalarSchema, TableRecordsSchema, type DataSourceDefinition } from "@k-nex/contracts";
 
 import {
+  BoundedQueryBudgetEvaluator,
   CanonicalOutputContractValidator,
   DataSourceGateway,
   DataSourceGatewayError,
@@ -36,6 +37,7 @@ const definition: DataSourceDefinition = {
     presentationMetadataRevision: 1,
     title: "Total potential revenue",
     inputFields: [],
+    paginationModes: [],
     limits: {
       maxSelectedFields: 1,
       maxPageSize: 1,
@@ -220,6 +222,45 @@ describe("P2.3 staged data-source gateway", () => {
       signal: abort.signal
     });
     expect(received).not.toMatchObject({ input: request.input, selectedFields: request.selectedFields });
+  });
+
+  it.each([
+    { modes: ["offset"] as const, query: { cursor: { size: 1 }, filters: [], sort: [] } },
+    { modes: ["cursor"] as const, query: { page: { number: 1, size: 1 }, filters: [], sort: [] } }
+  ])("rejects unsupported source pagination before dispatch", async ({ modes, query }) => {
+    let dispatched = false;
+    const tableDefinition: DataSourceDefinition = {
+      ...definition,
+      descriptor: {
+        ...definition.descriptor,
+        id: `sales.${modes[0]}-only`,
+        primaryContract: { id: "table.records", version: 1 },
+        sourceSchema: { id: `sales.${modes[0]}-only.output`, version: 1 },
+        outputFields: [{ id: "title", kind: "text", binding: "required", nullable: false, permission: "sales.tasks.title.read", sortable: false, filterOperators: [] }],
+        paginationModes: [...modes]
+      },
+      outputSchema: TableRecordsSchema
+    };
+    const stages = recordingStages([]);
+    stages.authenticator.authenticate = () => ({
+      actor: { principal: { kind: "user", id: "user-1" }, effectiveActor: { kind: "user", id: "user-1" } },
+      request: {},
+      authorizationContext: { revision: "r1" }
+    });
+    stages.catalog.lookup = () => ({ definition: tableDefinition, handler: () => metricValue });
+    stages.authorization.authorize = () => ({ selectedFields: ["title"], recordScope: { tenantId: "tenant-1" } });
+    stages.budget = new BoundedQueryBudgetEvaluator();
+    stages.dispatcher.dispatch = () => { dispatched = true; return metricValue; };
+
+    const result = await new DataSourceGateway(stages).query({
+      ...request,
+      sourceId: tableDefinition.descriptor.id,
+      input: {},
+      query,
+      selectedFields: ["title"]
+    });
+    expect(result).toMatchObject({ ok: false, status: 400, body: { code: "QUERY_PAGINATION_NOT_SUPPORTED" } });
+    expect(dispatched).toBe(false);
   });
 
   it("returns cache hits before dispatch and releases the query lease", async () => {

@@ -1,6 +1,7 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import {
+  canonicalJson,
   type RuntimeSchema,
   type DataSourceDefinition,
   type DataSourceQueryControls
@@ -13,7 +14,7 @@ import type {
   DataSourceHandlerRequest,
   PluginSettingsRuntimeDefinition
 } from "@k-nex/runtime";
-import { definePluginRegistration, resolvePluginSettings } from "@k-nex/runtime";
+import { DataSourceGatewayError, definePluginRegistration, resolvePluginSettings } from "@k-nex/runtime";
 import type { CollectionConfig } from "payload";
 import type { CollectionAfterChangeHook, PayloadRequest } from "payload";
 
@@ -404,6 +405,31 @@ async function findTasks(context: DataSourceHandlerRequest, options: Omit<SalesF
   return salesRequest(context.request).payload.find(requestOptions(context, options));
 }
 
+function salesTaskContinuationKey(query: DataSourceQueryControls): string {
+  if (query.cursor === undefined) throw new Error("Sales task cursor query is missing.");
+  return createHash("sha256").update(canonicalJson({
+    source: { id: "sales.tasks", version: 1 },
+    filters: query.filters,
+    sort: query.sort,
+    size: query.cursor.size
+  })).digest("hex");
+}
+
+function salesTaskCursor(page: number, continuationKey: string): string {
+  return Buffer.from(`sales.tasks@1:${continuationKey}:${page}`).toString("base64url");
+}
+
+function salesTaskCursorPage(after: string | undefined, continuationKey: string): number {
+  if (after === undefined) return 1;
+  let value: string;
+  try { value = Buffer.from(after, "base64url").toString("utf8"); } catch { throw new DataSourceGatewayError("INVALID_CURSOR", 400, "Sales task cursor is invalid."); }
+  const match = /^sales\.tasks@1:([0-9a-f]{64}):([1-9][0-9]*)$/u.exec(value);
+  if (match === null || match[1] !== continuationKey) throw new DataSourceGatewayError("INVALID_CURSOR", 400, "Sales task cursor is invalid.");
+  const page = Number(match[2]);
+  if (!Number.isSafeInteger(page) || page > 1_000_000) throw new DataSourceGatewayError("INVALID_CURSOR", 400, "Sales task cursor is invalid.");
+  return page;
+}
+
 async function totalPotentialRevenue(context: DataSourceHandlerRequest): Promise<unknown> {
   const documents: SalesTaskDocument[] = [];
   let page = 1;
@@ -430,11 +456,15 @@ async function totalPotentialRevenue(context: DataSourceHandlerRequest): Promise
 }
 
 async function tasksTable(context: DataSourceHandlerRequest): Promise<unknown> {
-  if (context.query.page === undefined) throw new Error("Sales task table requires server pagination.");
+  if (context.query.page === undefined && context.query.cursor === undefined) throw new Error("Sales task table requires server pagination.");
+  if (context.query.cursor?.before !== undefined) throw new DataSourceGatewayError("INVALID_CURSOR", 400, "Sales task cursor is invalid.");
+  const continuationKey = context.query.cursor === undefined ? undefined : salesTaskContinuationKey(context.query);
+  const page = context.query.page?.number ?? salesTaskCursorPage(context.query.cursor?.after, continuationKey!);
+  const pageSize = context.query.page?.size ?? context.query.cursor!.size;
   const selectedFields = [...context.selectedFields];
   const result = await findTasks(context, {
-    page: context.query.page.number,
-    limit: context.query.page.size,
+    page,
+    limit: pageSize,
     select: selectedStorageFields(selectedFields),
     sort: taskSort(context.query),
     where: taskWhere(context, context.query)
@@ -446,13 +476,15 @@ async function tasksTable(context: DataSourceHandlerRequest): Promise<unknown> {
       values: Object.fromEntries(selectedFields.map((fieldId) => [fieldId, taskCell(fieldId, document)]))
     };
   });
+  const hasNext = result.hasNextPage ?? (result.totalPages !== undefined && page < result.totalPages);
   return {
     fields: selectedFields,
     rows,
     page: {
-      number: context.query.page.number,
-      pageSize: context.query.page.size,
-      hasNext: result.hasNextPage ?? (result.totalPages !== undefined && context.query.page.number < result.totalPages)
+      number: page,
+      pageSize,
+      hasNext,
+      ...(continuationKey !== undefined && hasNext ? { nextCursor: salesTaskCursor(page + 1, continuationKey) } : {})
     }
   };
 }

@@ -2,6 +2,7 @@ import "@puckeditor/core/puck.css";
 import { createRoot } from "react-dom/client";
 
 import type { DataSourceDescriptor } from "@k-nex/contracts";
+import { presentUiRuntimeReact } from "@k-nex/ui-components";
 import {
   createStaticTextBlockDefinition,
   createUiDocumentRuntime,
@@ -21,7 +22,7 @@ const source: DataSourceDescriptor = {
   audience: "authenticated",
   surfaces: ["workspace"],
   permission: "sales.tasks.read",
-  structuralCompatibilityHash: "sha256:c8367ee2c153671b70e606ec4445358ab2ebbf5561318cef1829fe4390487120",
+  structuralCompatibilityHash: "sha256:520d5f0bd7874a0b9c63fd3974ce355180314fcbd961ca9407a781d9fc768f26",
   presentationMetadataRevision: 1,
   title: "Sales tasks",
   inputFields: [],
@@ -31,6 +32,7 @@ const source: DataSourceDescriptor = {
     { id: "potential-revenue", kind: "money", binding: "required", nullable: true, permission: "sales.tasks.revenue.read", sortable: false, filterOperators: [] },
     { id: "private-note", kind: "text", binding: "optional", nullable: true, permission: "sales.tasks.private-note.read", sortable: false, filterOperators: [] }
   ],
+  paginationModes: ["offset"],
   limits: {
     maxSelectedFields: 8, maxPageSize: 100, maxFilters: 8, maxSorts: 2, maxBodyBytes: 32768, maxResultBytes: 1048576,
     maxDepth: 6, timeoutMs: 5000, maxConcurrency: 16, ratePerMinute: 300, burst: 30, costClass: "medium", maxCost: 100
@@ -108,7 +110,7 @@ const profile = createPuckBuilderProfileRegistry({
     sources: [{ id: source.id, version: source.version }],
     publication: "save-layout"
   }],
-  preview: { workspace: { surface: "workspace", actor, sourceResults } }
+  preview: { workspace: { surface: "workspace", actor, sourceResults, present: presentUiRuntimeReact } }
 }).resolve("workspace");
 if (profile === undefined) throw new Error("Workspace builder profile is missing.");
 
@@ -119,7 +121,7 @@ window.__kNexDocument = uiDocument;
 const root = document.getElementById("root");
 const production = document.getElementById("production");
 if (root === null || production === null) throw new Error("Browser fixture roots are missing.");
-createRoot(production).render(presentUiRuntimeResult(productionResult));
+createRoot(production).render(presentUiRuntimeReact(presentUiRuntimeResult(productionResult)));
 createRoot(root).render(PuckFixedShellHost({
   profile,
   document: uiDocument,
