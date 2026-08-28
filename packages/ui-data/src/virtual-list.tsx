@@ -46,7 +46,7 @@ export function VirtualList<T>({ label, items, getKey, renderItem, height = 400,
       requestAnimationFrame(() => focusActive(0));
     });
     return () => { cancelled = true; cancelAnimationFrame(frame); };
-  }, [activeIndex, activeKey, virtualizer]);
+  }, [active.index, active.key, activeIndex, activeKey, virtualizer]);
   const move = (event: KeyboardEvent<HTMLDivElement>): void => {
     const page = Math.max(1, Math.floor(height / estimateSize));
     const next = event.key === "ArrowDown" ? activeIndex + 1 : event.key === "ArrowUp" ? activeIndex - 1 : event.key === "PageDown" ? activeIndex + page : event.key === "PageUp" ? activeIndex - page : event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : undefined;
