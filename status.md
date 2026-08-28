@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Project-manager review found the 0.2.1 patch path still used synthetic target bundles and preserved the current external dependency closure. Remediation now binds application bundles and deployment verification to the exact complete lock/SBOM runtime closure.
+Project-manager remediation now binds application and deployment evidence to the complete lock/SBOM runtime closure, replaces preserved current dependencies with the exact target closure, and refreshes the packed runtime artifact and release manifests from the changed source.
 
 ## Validation
 
-Previous exact-head Gate 8 run 33204365892 PASS. Focused full-closure tests and replacement hosted target evidence are pending.
+Runtime tests: 238 PASS. Packed runtime closure regenerated. Replacement hosted current/prior/target attestations and the complete Gate 8 rerun are pending.
 
 ## Next
 
-Generate and attest real Alpha/Beta 0.2.1 target applications, apply them through Fleet, then rerun Gate 8.
+Generate and attest real Alpha/Beta 0.2.1 target applications from the refreshed packed closure, apply them through Fleet, then rerun Gate 8.
 
 ## Blockers
 

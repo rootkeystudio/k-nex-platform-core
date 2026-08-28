@@ -24,6 +24,8 @@ const issueAttestation = (value: object) => { const token = Object.freeze({}); i
 const evidenceFile = (path: string, content: string) => ({ path, mode: 0o644, digest: `sha256:${createHash("sha256").update(content).digest("hex")}`, content: Buffer.from(content).toString("base64") });
 const fullClosure = (release: "0.2.1" | "0.2.0" | "0.1.0", packages: readonly { readonly package: string; readonly version: string; readonly integrity: string }[]) => [...packages,
   ...(release === "0.2.1" ? [
+    { package: "@floating-ui/react", version: "0.27.20", integrity: sri("floating-react") },
+    { package: "@floating-ui/react-dom", version: "2.1.9", integrity: sri("floating-react-dom") },
     { package: "new-target-runtime", version: "1.0.0", integrity: sri("new") },
     { package: "semver", version: "7.8.6", integrity: sri("upgraded") }
   ] : [
@@ -170,7 +172,7 @@ describe("fleet evidence and patch propagation", () => {
     const patched = await deployment("customer-alpha", "0.2.1", trusted, 2, "2026-08-27T13:05:00.000Z");
     const [plan] = fleet.planSecurityPatch("@k-nex/module-sales", "<1.0.1", "1.0.1", await verifiedManifest(patchManifest), [patched.applicationBundle]);
     expect(plan?.targetClosure).toEqual(patchManifest.packages.map(({ package: packageName, version, integrity }) => ({ package: packageName, version, integrity })).sort((left, right) => left.package.localeCompare(right.package)));
-    expect(plan?.targetDeploymentClosure.map(({ package: packageName }) => packageName)).toEqual(["@k-nex/contracts", "@k-nex/module-sales", "new-target-runtime", "semver"]);
+    expect(plan?.targetDeploymentClosure.map(({ package: packageName }) => packageName)).toEqual(["@floating-ui/react-dom", "@floating-ui/react", "@k-nex/contracts", "@k-nex/module-sales", "new-target-runtime", "semver"]);
     expect(plan?.targetDeploymentClosure.some(({ package: packageName }) => packageName === "legacy-runtime")).toBe(false);
     expect(fleet.applySecurityPatch(plan!, patched.evidence).inventory.platformRelease).toBe("0.2.1");
     expect(fleet.affected("@k-nex/module-sales", "<1.0.1")).toHaveLength(0);

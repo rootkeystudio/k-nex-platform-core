@@ -146,7 +146,7 @@ export class FleetRegistry {
     if (current === undefined || runtimeInventoryDigest(current.inventory) !== plan.baseInventoryDigest) throw new FleetEvidenceError("CONFLICT", "Security patch base inventory changed before application.");
     let target: Readonly<{ receipt: DeploymentReceipt; inventory: RuntimeInventory }>;
     try { target = this.#authority.read(evidence); } catch { throw new FleetEvidenceError("EVIDENCE_INVALID", "Security patch result requires verified deployment evidence."); }
-    const closure = [...target.inventory.packages].sort((left, right) => left.package.localeCompare(right.package));
+    const closure = [...target.inventory.packages].sort((left, right) => `${left.package}@${left.version}`.localeCompare(`${right.package}@${right.version}`));
     if (target.inventory.applicationId !== plan.applicationId || target.inventory.environment !== plan.environment ||
       target.inventory.platformRelease !== plan.targetRelease || canonicalJson(closure) !== canonicalJson(plan.targetDeploymentClosure) ||
       target.inventory.releaseEvidence.frameworkDigest !== plan.targetFrameworkDigest ||
