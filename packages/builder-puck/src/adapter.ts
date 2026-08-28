@@ -408,15 +408,16 @@ function createConfig(bridges: ReadonlyMap<string, PuckBlockBridge>, preview?: P
         });
         if (!result.success) {
           const presentation = presentUiRuntimeResult(result);
-          return preview?.present(presentation) ?? presentation;
+          const presented = preview?.present(presentation) ?? presentation;
+          return isUiRuntimePresentationList(presented) ? "Unavailable: PRESENTATION_HOST_REQUIRED" : presented;
         }
         const root = result.regions.main?.[0];
         if (root === undefined) return "Unavailable: MISSING_BLOCK";
         const slot = props[childSlotKey];
         const previewChildren = slot === undefined ? [] : Array.isArray(slot) ? slot : [slot];
         const presentation = presentUiRuntimeNodeWithIdentity(root, previewChildren);
-        if (preview !== undefined) return preview.present(presentation);
-        return isUiRuntimePresentationList(presentation) ? "Unavailable: PRESENTATION_HOST_REQUIRED" : presentation;
+        const presented = preview?.present(presentation) ?? presentation;
+        return isUiRuntimePresentationList(presented) ? "Unavailable: PRESENTATION_HOST_REQUIRED" : presented;
       }
     };
   }

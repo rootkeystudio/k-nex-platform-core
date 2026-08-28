@@ -312,6 +312,16 @@ describe("Puck builder adapter", () => {
 
     expect(renderPreview(actor.permissions)).toBe("<p>Ready</p>");
     expect(renderPreview(new Set())).toBe("Unavailable: PERMISSION_DENIED");
+    const unsafeHost = createPuckBuilderAdapter({
+      blocks: [reactBridge],
+      preview: { surface: "workspace", actor, present: (value) => value }
+    });
+    const unsafeData = unsafeHost.toPuckData({
+      id: "workspace.unsafe", version: 1, schemaVersion: 1, profile: "workspace",
+      regions: { main: [{ id: "unsafe-1", type: "content.text", version: 1, props: { text: "Unsafe" } }] }
+    });
+    const unsafeComponent = unsafeHost.config.components["content.text__v1"] as { render: (props: Record<string, unknown>) => unknown };
+    expect(unsafeComponent.render(unsafeData.content[0]!.props)).toBe("Unavailable: PRESENTATION_HOST_REQUIRED");
     const legacyBridge = { ...reactBridge, definition: { ...text.definition, render: reactBridge.definition.render } };
     const legacy = createPuckBuilderAdapter({ blocks: [legacyBridge] });
     const legacyData = legacy.toPuckData({
