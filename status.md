@@ -7,16 +7,16 @@
 
 ## Last completed
 
-PR 22 remains rebased onto accepted Phase 6 on `main`. Source descriptors now own offset/cursor capabilities, the gateway rejects unsupported modes before dispatch, DataTable presets cannot exceed source authority, and malformed or changed Sales cursors return stable `INVALID_CURSOR` 400 problems. The former Socket.IO fixed-delay race now waits on the bounded denial condition and passes a 20-run focused stress proof.
+PR 22 remains rebased onto accepted Phase 6 on `main`. Code-bearing remediation head `5fdaf44` makes source descriptors own offset/cursor capabilities, rejects unsupported modes before dispatch, prevents DataTable presets from exceeding source authority, and returns stable `INVALID_CURSOR` 400 problems for malformed or changed Sales cursors. The former Socket.IO fixed-delay race now waits on the bounded denial condition and passes a 20-run focused stress proof.
 
 ## Validation
 
-Local frozen install and the complete Gate 7 pass with `GATE_7_PASS`, including source-declared pagination, authenticated Sales continuation, deterministic realtime bounds, and the keyboard-only DataGrid path. Documentation validation and `git diff --check` pass; the audit reports no high or critical vulnerabilities (two low and three moderate). The required PR workflow must validate the new immutable exact head on its first attempt before acceptance.
+Local frozen install and the complete Gate 7 pass with `GATE_7_PASS`, including source-declared pagination, authenticated Sales continuation, deterministic realtime bounds, and the keyboard-only DataGrid path. Documentation validation and `git diff --check` pass; the audit reports no high or critical vulnerabilities (two low and three moderate). Exact code-bearing head workflow run `33133363385` passed on attempt 1; the final docs-only closeout head must receive the same exact-head check.
 
 ## Next
 
-Push the remediation commit, require first-attempt exact-head Gate 7 CI, then obtain the final project-manager decision. Leave PR 22 draft/open without auto-merge.
+Validate the docs-only closeout head, then obtain the final project-manager decision. Leave PR 22 draft/open without auto-merge.
 
 ## Blockers
 
-No implementation blocker. Exact-head CI and external project-manager acceptance remain pending.
+No implementation blocker. Final docs-head CI and external project-manager acceptance remain pending.
