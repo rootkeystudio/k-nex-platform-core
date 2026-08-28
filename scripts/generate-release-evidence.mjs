@@ -42,6 +42,8 @@ for (const entry of releaseManifest.packages) {
 files.sort((left, right) => left.path.localeCompare(right.path));
 const lockContent = readFileSync(resolve(fixtureRoot, "pnpm-lock.yaml"), "utf8");
 const resolvedLock = resolvePnpmLock(lockContent);
+const installedPackages = resolvedLock.components.filter(({ name }) => name.startsWith("@k-nex/")).map(({ name, version, integrity }) => ({ package: name, version, integrity })).sort((left, right) => left.package.localeCompare(right.package));
+const applicationPlanContent = canonicalJson(JSON.parse(readFileSync(resolve(fixtureRoot, ".k-nex/application-plan.json"), "utf8")));
 const baseSbom = createCycloneDxSbom(customer, resolvedLock.components, resolvedLock.dependencies, resolvedLock.rootDependencies);
 const serialSuffix = createHash("sha256").update(`${customer}\u0000${sourceCommit}`).digest("hex").slice(0, 12);
 const sbom = { ...baseSbom, serialNumber: `urn:uuid:00000000-0000-4000-8000-${serialSuffix}` };
@@ -49,7 +51,9 @@ const sbomContent = canonicalJson(sbom);
 const bundle = {
   schemaVersion: 1, format: "k-nex-deployable-application-bundle/v1", applicationId: customer, sourceCommit,
   release: observation.platformRelease, releaseManifestDigest: sha256(canonicalJson(releaseManifest)),
-  closureDigest: sha256(canonicalJson(releaseManifest.packages)), files
+  closureDigest: sha256(canonicalJson(installedPackages)), frameworkDigest: sha256(canonicalJson(releaseManifest.framework)),
+  migrationPlanDigest: sha256(applicationPlanContent), targetMigrationRevision: observation.migrationRevision,
+  installedPackages, files
 };
 const bundleContent = canonicalJson(bundle);
 const bundlePath = resolve(output, `${customer}.application-bundle.json`);
@@ -60,7 +64,7 @@ const provenance = createReleaseProvenance({
   materials: [
     { name: "application-manifest", digest: sha256(readFileSync(resolve(fixtureRoot, "k-nex.app.json"))) },
     { name: "lockfile", digest: sha256(lockContent) },
-    { name: "resolved-graph-or-plan", digest: sha256(readFileSync(resolve(fixtureRoot, ".k-nex/application-plan.json"))) },
+    { name: "resolved-graph-or-plan", digest: sha256(applicationPlanContent) },
     { name: "sbom", digest: sha256(sbomContent) },
     { name: "package-release-manifest", digest: bundle.releaseManifestDigest },
     { name: "release-closure", digest: bundle.closureDigest },

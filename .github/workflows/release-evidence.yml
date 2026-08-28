@@ -27,41 +27,66 @@ jobs:
           cache: pnpm
       - name: Install exact dependencies
         run: pnpm install --frozen-lockfile
-      - name: Build deployable application and evidence tooling
-        run: pnpm --filter @k-nex/contracts build && pnpm --filter @k-nex/composition build && pnpm --filter @k-nex/runtime build && pnpm --dir fixtures/customer-alpha build
-      - name: Generate deployable bundle, SBOM, and closure-bound predicates
+      - name: Build customer applications and evidence tooling
+        run: pnpm --filter @k-nex/contracts build && pnpm --filter @k-nex/composition build && pnpm --filter @k-nex/runtime build && pnpm --dir fixtures/customer-alpha build && pnpm --dir fixtures/customer-beta build
+      - name: Generate customer-specific deployable bundles and predicates
         run: |
           node scripts/generate-release-evidence.mjs \
             --source-sha "${GITHUB_SHA}" \
             --workflow-identity "${GITHUB_REPOSITORY}/.github/workflows/release-evidence.yml@${GITHUB_SHA}" \
             --output release-evidence \
             --customer customer-alpha
-      - name: Attest deployable application bundle with GitHub OIDC
+          node scripts/generate-release-evidence.mjs \
+            --source-sha "${GITHUB_SHA}" \
+            --workflow-identity "${GITHUB_REPOSITORY}/.github/workflows/release-evidence.yml@${GITHUB_SHA}" \
+            --output release-evidence/customer-beta \
+            --customer customer-beta
+      - name: Attest Customer Alpha deployable application bundle with GitHub OIDC
         id: provenance-attestation
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: release-evidence/customer-alpha.application-bundle.json
           predicate-type: https://k-nex.dev/provenance/v1
           predicate-path: release-evidence/provenance-predicate.json
-      - name: Attest canonical package release manifest with GitHub OIDC
+      - name: Attest Customer Beta deployable application bundle with GitHub OIDC
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: release-evidence/customer-beta/customer-beta.application-bundle.json
+          predicate-type: https://k-nex.dev/provenance/v1
+          predicate-path: release-evidence/customer-beta/provenance-predicate.json
+      - name: Attest current package release manifest with GitHub OIDC
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: release-evidence/release-manifest.json
           predicate-type: https://k-nex.dev/release-manifest/v1
           predicate-path: release-evidence/release-manifest-predicate.json
+      - name: Attest prior package release manifest with GitHub OIDC
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: release-evidence/customer-beta/release-manifest.json
+          predicate-type: https://k-nex.dev/release-manifest/v1
+          predicate-path: release-evidence/customer-beta/release-manifest-predicate.json
       - name: Download and verify hosted bundles against exact subjects
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p release-evidence/hosted/application release-evidence/hosted/manifest
+          mkdir -p release-evidence/hosted/application release-evidence/hosted/manifest release-evidence/customer-beta/hosted/application release-evidence/customer-beta/hosted/manifest
           (cd release-evidence/hosted/application && gh attestation download ../../customer-alpha.application-bundle.json --repo "${GITHUB_REPOSITORY}" --predicate-type https://k-nex.dev/provenance/v1)
           (cd release-evidence/hosted/manifest && gh attestation download ../../release-manifest.json --repo "${GITHUB_REPOSITORY}" --predicate-type https://k-nex.dev/release-manifest/v1)
+          (cd release-evidence/customer-beta/hosted/application && gh attestation download ../../customer-beta.application-bundle.json --repo "${GITHUB_REPOSITORY}" --predicate-type https://k-nex.dev/provenance/v1)
+          (cd release-evidence/customer-beta/hosted/manifest && gh attestation download ../../release-manifest.json --repo "${GITHUB_REPOSITORY}" --predicate-type https://k-nex.dev/release-manifest/v1)
           APP_BUNDLE="$(find release-evidence/hosted/application -type f | head -1)"
           MANIFEST_BUNDLE="$(find release-evidence/hosted/manifest -type f | head -1)"
+          BETA_APP_BUNDLE="$(find release-evidence/customer-beta/hosted/application -type f | head -1)"
+          BETA_MANIFEST_BUNDLE="$(find release-evidence/customer-beta/hosted/manifest -type f | head -1)"
           gh attestation verify release-evidence/customer-alpha.application-bundle.json --bundle "${APP_BUNDLE}" --repo "${GITHUB_REPOSITORY}" --predicate-type https://k-nex.dev/provenance/v1 --format json > release-evidence/hosted/application-verification.json
           gh attestation verify release-evidence/release-manifest.json --bundle "${MANIFEST_BUNDLE}" --repo "${GITHUB_REPOSITORY}" --predicate-type https://k-nex.dev/release-manifest/v1 --format json > release-evidence/hosted/manifest-verification.json
+          gh attestation verify release-evidence/customer-beta/customer-beta.application-bundle.json --bundle "${BETA_APP_BUNDLE}" --repo "${GITHUB_REPOSITORY}" --predicate-type https://k-nex.dev/provenance/v1 --format json > release-evidence/customer-beta/hosted/application-verification.json
+          gh attestation verify release-evidence/customer-beta/release-manifest.json --bundle "${BETA_MANIFEST_BUNDLE}" --repo "${GITHUB_REPOSITORY}" --predicate-type https://k-nex.dev/release-manifest/v1 --format json > release-evidence/customer-beta/hosted/manifest-verification.json
           mv "${APP_BUNDLE}" release-evidence/hosted/application/application-attestation.jsonl
           mv "${MANIFEST_BUNDLE}" release-evidence/hosted/manifest/manifest-attestation.jsonl
+          mv "${BETA_APP_BUNDLE}" release-evidence/customer-beta/hosted/application/application-attestation.jsonl
+          mv "${BETA_MANIFEST_BUNDLE}" release-evidence/customer-beta/hosted/manifest/manifest-attestation.jsonl
       - name: Attest artifact SBOM with GitHub OIDC
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
@@ -74,6 +99,7 @@ jobs:
           path: |
             release-evidence/customer-alpha.application-bundle.json
             release-evidence/hosted
+            release-evidence/customer-beta
             release-evidence/provenance-predicate.json
             release-evidence/provenance.json
             release-evidence/release-manifest-predicate.json

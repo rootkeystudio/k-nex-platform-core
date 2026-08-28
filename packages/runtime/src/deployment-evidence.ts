@@ -33,6 +33,54 @@ export interface HostedAttestationVerifier {
   verify(attestation: unknown): Promise<VerifiedHostedAttestation>;
 }
 
+interface GitHubVerificationEntry {
+  readonly attestation?: { readonly bundle?: { readonly dsseEnvelope?: { readonly payload?: string } } };
+  readonly verificationResult?: {
+    readonly signature?: { readonly certificate?: Record<string, unknown> };
+    readonly statement?: unknown;
+  };
+}
+
+export function createGitHubHostedAttestationVerifier(input: {
+  readonly repository: string;
+  readonly workflow: string;
+  readonly predicateType: string;
+}): HostedAttestationVerifier {
+  return Object.freeze({
+    async verify(value: unknown): Promise<VerifiedHostedAttestation> {
+      const entry = value as GitHubVerificationEntry;
+      const payload = entry?.attestation?.bundle?.dsseEnvelope?.payload;
+      const statement = entry?.verificationResult?.statement as Record<string, unknown> | undefined;
+      const certificate = entry?.verificationResult?.signature?.certificate;
+      if (typeof payload !== "string" || statement === undefined || certificate === undefined) throw new Error("GitHub hosted attestation verification output is incomplete.");
+      let signedStatement: unknown;
+      try { signedStatement = JSON.parse(Buffer.from(payload, "base64").toString("utf8")); } catch { throw new Error("GitHub hosted attestation contains an invalid signed statement."); }
+      if (canonicalJson(signedStatement) !== canonicalJson(statement)) throw new Error("GitHub verification result differs from the signed DSSE statement.");
+      const sourceCommit = certificate.sourceRepositoryDigest;
+      const workflowIdentity = `${input.repository}/.github/workflows/${input.workflow}@${sourceCommit}`;
+      const predicate = statement.predicate as Record<string, unknown> | undefined;
+      const subjects = statement.subject as readonly { readonly digest?: { readonly sha256?: string } }[] | undefined;
+      const materials = predicate?.materials as readonly { readonly name?: string; readonly digest?: string }[] | undefined;
+      if (statement._type !== "https://in-toto.io/Statement/v1" || statement.predicateType !== input.predicateType ||
+        certificate.githubWorkflowRepository !== input.repository || certificate.runnerEnvironment !== "github-hosted" ||
+        certificate.buildConfigURI !== `https://github.com/${input.repository}/.github/workflows/${input.workflow}@${certificate.githubWorkflowRef}` ||
+        certificate.githubWorkflowSHA !== sourceCommit || certificate.buildConfigDigest !== sourceCommit ||
+        typeof sourceCommit !== "string" || !/^[0-9a-f]{40}$/u.test(sourceCommit) ||
+        predicate?.sourceCommit !== sourceCommit || predicate?.workflowIdentity !== workflowIdentity ||
+        subjects?.length !== 1 || !/^[0-9a-f]{64}$/u.test(subjects[0]?.digest?.sha256 ?? "") || !Array.isArray(materials) ||
+        materials.some((material) => typeof material.name !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(material.digest ?? ""))) {
+        throw new Error("GitHub hosted attestation identity or signed predicate is not trusted.");
+      }
+      return freeze({
+        subjectDigest: `sha256:${subjects[0]!.digest!.sha256!}`,
+        sourceCommit,
+        workflowIdentity,
+        materials: materials.map(({ name, digest }) => ({ name: name!, digest: digest! }))
+      });
+    }
+  });
+}
+
 declare const verifiedPackageReleaseManifest: unique symbol;
 export interface VerifiedPackageReleaseManifest {
   readonly [verifiedPackageReleaseManifest]: true;
@@ -41,6 +89,65 @@ export interface VerifiedPackageReleaseManifest {
 export interface PackageReleaseManifestAuthority {
   verify(manifest: PackageReleaseManifest, attestation: unknown): Promise<VerifiedPackageReleaseManifest>;
   read(token: VerifiedPackageReleaseManifest): Readonly<{ manifest: PackageReleaseManifest; digest: string; attestation: VerifiedHostedAttestation }>;
+}
+
+export interface ApplicationBundle {
+  readonly schemaVersion: 1;
+  readonly format: "k-nex-deployable-application-bundle/v1";
+  readonly applicationId: string;
+  readonly sourceCommit: string;
+  readonly release: string;
+  readonly releaseManifestDigest: string;
+  readonly closureDigest: string;
+  readonly frameworkDigest: string;
+  readonly migrationPlanDigest: string;
+  readonly targetMigrationRevision: number;
+  readonly installedPackages: readonly { readonly package: string; readonly version: string; readonly integrity: string }[];
+  readonly files: readonly { readonly path: string; readonly mode: number; readonly digest: string; readonly content: string }[];
+}
+
+declare const verifiedApplicationBundle: unique symbol;
+export interface VerifiedApplicationBundle { readonly [verifiedApplicationBundle]: true; }
+
+export interface ApplicationBundleAuthority {
+  verify(bundle: ApplicationBundle, attestation: unknown, release: VerifiedPackageReleaseManifest): Promise<VerifiedApplicationBundle>;
+  read(token: VerifiedApplicationBundle): Readonly<{ bundle: ApplicationBundle; digest: string; attestation: VerifiedHostedAttestation }>;
+}
+
+export function createApplicationBundleAuthority(verifier: HostedAttestationVerifier, releases: PackageReleaseManifestAuthority): ApplicationBundleAuthority {
+  const tokens = new WeakMap<object, Readonly<{ bundle: ApplicationBundle; digest: string; attestation: VerifiedHostedAttestation }>>();
+  const authority: ApplicationBundleAuthority = {
+    async verify(value, attestationInput, releaseToken) {
+      const bundle = structuredClone(value);
+      const release = releases.read(releaseToken);
+      const digest = `sha256:${createHash("sha256").update(canonicalJson(bundle)).digest("hex")}`;
+      const attestation = await verifier.verify(attestationInput);
+      const installed = [...bundle.installedPackages].sort((left, right) => left.package.localeCompare(right.package));
+      const releasePackages = new Map(release.manifest.packages.map((entry) => [entry.package, entry]));
+      const releaseFrameworkDigest = `sha256:${createHash("sha256").update(canonicalJson(release.manifest.framework)).digest("hex")}`;
+      const packageMatchesRelease = (entry: ApplicationBundle["installedPackages"][number]): boolean => {
+        const found = releasePackages.get(entry.package);
+        return found !== undefined && found.version === entry.version && found.integrity === entry.integrity;
+      };
+      if (bundle.schemaVersion !== 1 || bundle.format !== "k-nex-deployable-application-bundle/v1" || bundle.release !== release.manifest.release.version ||
+        bundle.releaseManifestDigest !== release.digest || bundle.sourceCommit !== attestation.sourceCommit || attestation.subjectDigest !== digest ||
+        bundle.closureDigest !== `sha256:${createHash("sha256").update(canonicalJson(installed)).digest("hex")}` || bundle.targetMigrationRevision < 0 ||
+        bundle.frameworkDigest !== releaseFrameworkDigest || !/^sha256:[0-9a-f]{64}$/u.test(bundle.migrationPlanDigest) ||
+        installed.length === 0 || new Set(installed.map((entry) => entry.package)).size !== installed.length ||
+        installed.some((entry) => !entry.package.startsWith("@k-nex/") || !packageMatchesRelease(entry))) {
+        throw new Error("Hosted attestation does not bind a valid deployable application bundle.");
+      }
+      const token = Object.freeze({}) as VerifiedApplicationBundle;
+      tokens.set(token, freeze({ bundle, digest, attestation: structuredClone(attestation) }));
+      return token;
+    },
+    read(token) {
+      const value = tokens.get(token);
+      if (value === undefined) throw new Error("Application bundle was not issued by this hosted-attestation authority.");
+      return value;
+    }
+  };
+  return Object.freeze(authority);
 }
 
 export function createPackageReleaseManifestAuthority(verifier: HostedAttestationVerifier): PackageReleaseManifestAuthority {
@@ -68,7 +175,7 @@ export interface DeploymentEvidenceAuthority {
   verify(input: {
     readonly observe: () => Promise<unknown>;
     readonly receipt: SignedDeploymentReceipt;
-    readonly releaseAttestation: unknown;
+    readonly applicationBundle: VerifiedApplicationBundle;
     readonly packageRelease: VerifiedPackageReleaseManifest;
   }): Promise<VerifiedDeploymentEvidence>;
   read(evidence: VerifiedDeploymentEvidence): Readonly<{ receipt: DeploymentReceipt; inventory: RuntimeInventory }>;
@@ -93,7 +200,7 @@ function verifyDeploymentReceipt(envelope: SignedDeploymentReceipt, publicKey: s
 }
 
 export function createDeploymentEvidenceAuthority(input: {
-  readonly releaseVerifier: HostedAttestationVerifier;
+  readonly applicationBundleAuthority: ApplicationBundleAuthority;
   readonly packageReleaseAuthority: PackageReleaseManifestAuthority;
   readonly deploymentPublicKey: string;
   readonly trustedDeploymentWorkflow: string;
@@ -103,17 +210,19 @@ export function createDeploymentEvidenceAuthority(input: {
     async verify(candidate) {
       const inventory = observeRuntimeInventory(RuntimeInventorySchema.parse(await candidate.observe()));
       const receipt = verifyDeploymentReceipt(candidate.receipt, input.deploymentPublicKey);
-      const releaseAttestation = await input.releaseVerifier.verify(candidate.releaseAttestation);
+      const application = input.applicationBundleAuthority.read(candidate.applicationBundle);
+      const releaseAttestation = application.attestation;
       const packageRelease = input.packageReleaseAuthority.read(candidate.packageRelease);
       if (releaseAttestation.workflowIdentity !== inventory.releaseEvidence.workflowIdentity ||
         receipt.approvedBy.kind !== "workflow" || receipt.approvedBy.identity !== input.trustedDeploymentWorkflow) throw new Error("Deployment evidence workflow identity is not trusted.");
       const material = new Map(releaseAttestation.materials.map((entry) => [entry.name, entry.digest]));
-      const releasedPackages = [...packageRelease.manifest.packages].map(({ package: packageName, version, integrity }) => ({ package: packageName, version, integrity })).sort((left, right) => left.package.localeCompare(right.package));
+      const releasedPackages = [...application.bundle.installedPackages].sort((left, right) => left.package.localeCompare(right.package));
       const observedPackages = inventory.packages.filter((entry) => entry.package.startsWith("@k-nex/")).sort((left, right) => left.package.localeCompare(right.package));
       if (releaseAttestation.subjectDigest !== inventory.artifactDigest || releaseAttestation.sourceCommit !== inventory.releaseEvidence.sourceCommit ||
         packageRelease.attestation.workflowIdentity !== releaseAttestation.workflowIdentity || packageRelease.attestation.sourceCommit !== releaseAttestation.sourceCommit ||
-        packageRelease.manifest.release.version !== inventory.platformRelease || observedPackages.length === 0 || observedPackages.some((observed) =>
-          !releasedPackages.some((released) => canonicalJson(released) === canonicalJson(observed))) ||
+        packageRelease.manifest.release.version !== inventory.platformRelease || application.bundle.applicationId !== inventory.applicationId ||
+        application.bundle.frameworkDigest !== inventory.releaseEvidence.frameworkDigest || application.bundle.migrationPlanDigest !== inventory.releaseEvidence.resolvedGraphDigest ||
+        application.bundle.targetMigrationRevision !== inventory.migrationRevision || canonicalJson(observedPackages) !== canonicalJson(releasedPackages) ||
         runtimeInventoryDigest(inventory) !== receipt.inventoryDigest || !reconcileDeploymentReceipt(receipt, inventory) ||
         material.get("application-manifest") !== inventory.releaseEvidence.manifestDigest || material.get("lockfile") !== inventory.releaseEvidence.lockfileDigest ||
         material.get("resolved-graph-or-plan") !== inventory.releaseEvidence.resolvedGraphDigest || material.get("sbom") !== inventory.releaseEvidence.sbomDigest ||

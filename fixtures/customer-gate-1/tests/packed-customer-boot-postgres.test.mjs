@@ -93,7 +93,7 @@ test("boots both customer apps from packed packages and verifies protected runti
   const verifier = createFixtureDeploymentVerifier(sourceCommit);
   const supportRelease = await verifier.verifyManifest(supportManifest);
   const priorRelease = await verifier.verifyManifest(priorManifest);
-  const fleet = new FleetRegistry(supportRelease, verifier.packageReleaseAuthority, verifier.authority);
+  const fleet = new FleetRegistry(supportRelease, verifier.packageReleaseAuthority, verifier.applicationBundleAuthority, verifier.authority);
   const pools = [];
   const generatedRoot = realpathSync(mkdtempSync(join(tmpdir(), "phase-8-generated-app-")));
   try {

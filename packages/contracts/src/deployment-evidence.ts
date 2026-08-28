@@ -20,6 +20,7 @@ export const RuntimeInventorySchema = z.strictObject({
     manifestDigest: DigestSchema,
     lockfileDigest: DigestSchema,
     resolvedGraphDigest: DigestSchema,
+    frameworkDigest: DigestSchema,
     sbomDigest: DigestSchema,
     provenanceDigest: DigestSchema
   }),

@@ -1,9 +1,8 @@
-import { createHash } from "node:crypto";
 import { gt, satisfies, valid, validRange } from "semver";
 
 import { canonicalJson, type DeploymentReceipt, type RuntimeInventory } from "@k-nex/contracts";
 
-import { runtimeInventoryDigest, type DeploymentEvidenceAuthority, type PackageReleaseManifestAuthority, type VerifiedDeploymentEvidence, type VerifiedPackageReleaseManifest } from "./deployment-evidence.js";
+import { runtimeInventoryDigest, type ApplicationBundleAuthority, type DeploymentEvidenceAuthority, type PackageReleaseManifestAuthority, type VerifiedApplicationBundle, type VerifiedDeploymentEvidence, type VerifiedPackageReleaseManifest } from "./deployment-evidence.js";
 
 export class FleetEvidenceError extends Error {
   constructor(readonly code: "CONFLICT" | "EVIDENCE_INVALID" | "PATCH_INVALID", message: string) {
@@ -28,6 +27,8 @@ export interface SecurityPatchPlan {
   readonly targetRelease: string;
   readonly targetReleaseManifestDigest: string;
   readonly targetFrameworkDigest: string;
+  readonly targetMigrationPlanDigest: string;
+  readonly targetMigrationRevision: number;
   readonly targetClosure: readonly { readonly package: string; readonly version: string; readonly integrity: string }[];
   readonly targetDeploymentClosure: readonly { readonly package: string; readonly version: string; readonly integrity: string }[];
   readonly baseInventoryDigest: string;
@@ -51,12 +52,14 @@ export class FleetRegistry {
   readonly #supportedReleases: Set<string>;
   readonly #authority: DeploymentEvidenceAuthority;
   readonly #releaseAuthority: PackageReleaseManifestAuthority;
+  readonly #applicationAuthority: ApplicationBundleAuthority;
   readonly #patchPlans = new WeakSet<object>();
 
-  constructor(supportRelease: VerifiedPackageReleaseManifest, releaseAuthority: PackageReleaseManifestAuthority, authority: DeploymentEvidenceAuthority) {
+  constructor(supportRelease: VerifiedPackageReleaseManifest, releaseAuthority: PackageReleaseManifestAuthority, applicationAuthority: ApplicationBundleAuthority, authority: DeploymentEvidenceAuthority) {
     const parsed = releaseAuthority.read(supportRelease).manifest;
     this.#supportedReleases = new Set(parsed.supportWindow.supportedReleases);
     this.#releaseAuthority = releaseAuthority;
+    this.#applicationAuthority = applicationAuthority;
     this.#authority = authority;
   }
 
@@ -86,10 +89,14 @@ export class FleetRegistry {
     )));
   }
 
-  planSecurityPatch(packageName: string, vulnerableRange: string, targetVersion: string, targetReleaseToken: VerifiedPackageReleaseManifest): readonly SecurityPatchPlan[] {
+  planSecurityPatch(packageName: string, vulnerableRange: string, targetVersion: string, targetReleaseToken: VerifiedPackageReleaseManifest, targetApplications: readonly VerifiedApplicationBundle[]): readonly SecurityPatchPlan[] {
     let verifiedTarget: ReturnType<PackageReleaseManifestAuthority["read"]>;
     try { verifiedTarget = this.#releaseAuthority.read(targetReleaseToken); } catch { throw new FleetEvidenceError("EVIDENCE_INVALID", "Security patch target requires a verified package release manifest."); }
     const targetRelease = verifiedTarget.manifest;
+    const applications = new Map(targetApplications.map((token) => {
+      const value = this.#applicationAuthority.read(token);
+      return [value.bundle.applicationId, value] as const;
+    }));
     const target = targetRelease.packages.find((entry) => entry.package === packageName);
     if (validRange(vulnerableRange, { loose: false }) === null) throw new FleetEvidenceError("PATCH_INVALID", "Vulnerable package range is invalid.");
     if (valid(targetVersion, { loose: false }) === null) throw new FleetEvidenceError("PATCH_INVALID", "Security patch target must be an exact semantic version.");
@@ -99,11 +106,14 @@ export class FleetRegistry {
       const current = inventory.packages.find((entry) => entry.package === packageName)!;
       return current.version !== targetVersion || current.integrity !== target.integrity;
     }).map(({ inventory }) => {
+      const application = applications.get(inventory.applicationId);
+      if (application === undefined || application.bundle.release !== targetRelease.release.version || application.bundle.releaseManifestDigest !== verifiedTarget.digest) {
+        throw new FleetEvidenceError("EVIDENCE_INVALID", `Security patch target requires a verified application bundle for ${inventory.applicationId}.`);
+      }
       const current = inventory.packages.find((entry) => entry.package === packageName)!;
       if (gt(current.version, targetVersion, { loose: false })) throw new FleetEvidenceError("PATCH_INVALID", "Security patch target must not regress an affected deployment.");
       const targetClosure = Object.freeze([...targetRelease.packages].map(({ package: targetPackage, version, integrity }) => Object.freeze({ package: targetPackage, version, integrity })).sort((left, right) => left.package.localeCompare(right.package)));
-      const targetByPackage = new Map(targetClosure.map((entry) => [entry.package, entry]));
-      const targetDeploymentClosure = Object.freeze(inventory.packages.map((entry) => targetByPackage.get(entry.package) ?? entry).sort((left, right) => left.package.localeCompare(right.package)));
+      const targetDeploymentClosure = Object.freeze([...inventory.packages.filter((entry) => !entry.package.startsWith("@k-nex/")), ...application.bundle.installedPackages].sort((left, right) => left.package.localeCompare(right.package)));
       const plan = Object.freeze({
         applicationId: inventory.applicationId,
         repository: inventory.repository,
@@ -114,7 +124,9 @@ export class FleetRegistry {
         targetIntegrity: target.integrity,
         targetRelease: targetRelease.release.version,
         targetReleaseManifestDigest: verifiedTarget.digest,
-        targetFrameworkDigest: `sha256:${createHash("sha256").update(canonicalJson(targetRelease.framework)).digest("hex")}`,
+        targetFrameworkDigest: application.bundle.frameworkDigest,
+        targetMigrationPlanDigest: application.bundle.migrationPlanDigest,
+        targetMigrationRevision: application.bundle.targetMigrationRevision,
         targetClosure,
         targetDeploymentClosure,
         baseInventoryDigest: runtimeInventoryDigest(inventory),
@@ -137,7 +149,10 @@ export class FleetRegistry {
     const closure = [...target.inventory.packages].sort((left, right) => left.package.localeCompare(right.package));
     if (target.inventory.applicationId !== plan.applicationId || target.inventory.environment !== plan.environment ||
       target.inventory.platformRelease !== plan.targetRelease || canonicalJson(closure) !== canonicalJson(plan.targetDeploymentClosure) ||
-      target.inventory.health.status !== "ready" || target.inventory.migrationRevision <= current.inventory.migrationRevision) {
+      target.inventory.releaseEvidence.frameworkDigest !== plan.targetFrameworkDigest ||
+      target.inventory.releaseEvidence.resolvedGraphDigest !== plan.targetMigrationPlanDigest ||
+      target.inventory.health.status !== "ready" || target.inventory.migrationRevision !== plan.targetMigrationRevision ||
+      plan.targetMigrationRevision <= current.inventory.migrationRevision) {
       throw new FleetEvidenceError("PATCH_INVALID", "Security patch result does not match the complete verified target release transition.");
     }
     this.#supportedReleases.add(plan.targetRelease);

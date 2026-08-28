@@ -30,8 +30,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Install browser proofs
         run: pnpm exec playwright install --with-deps chromium
-      - name: Run Phase 0 through Gate 7
-        run: pnpm gate:7
+      - name: Run Phase 0 through Gate 8
+        run: pnpm gate:8
       - name: Verify exact-head repository evidence
         run: |
           pnpm audit --audit-level high

@@ -64,6 +64,7 @@ for (const customer of ["customer-alpha", "customer-beta"]) {
       manifestDigest: sha256(canonicalJson(applicationManifest)),
       lockfileDigest: sha256(lockContent),
       resolvedGraphDigest: sha256(canonicalJson(plan)),
+      frameworkDigest: sha256(canonicalJson((observation.platformRelease === "0.2.0" ? JSON.parse(readFileSync(resolve(repositoryRoot, "releases/0.2.0/package-release-manifest.json"), "utf8")) : JSON.parse(readFileSync(resolve(repositoryRoot, "releases/0.1.0/package-release-manifest.json"), "utf8"))).framework)),
       sbomDigest: sha256(sbomContent),
       provenanceDigest: sha256(canonicalJson(provenance))
     },

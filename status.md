@@ -3,19 +3,19 @@
 - **Updated:** 2026-08-28
 - **Phase:** Phase 8 — Lifecycle, Application Factory, Release, and Fleet Safety
 - **Active task:** P8.10 — Platform-foundation closeout
-- **State:** Ready for phase review
+- **State:** In progress
 
 ## Last completed
 
-All PR 23 project-manager blockers are remediated. Hosted attestations, immutable Sales releases, application-factory staging, migration/lifecycle authority, and full-fleet transitions are reconciled with the final customer evidence.
+PR 23 re-review remediation is in progress. The application bundle now owns the signed deployable subject, exact installed K-Nex closure, framework tuple, and migration-plan identity; GitHub-hosted verification output feeds runtime authorities and Fleet enforces exact target closure and revision.
 
 ## Validation
 
-`pnpm gate:8` PASS: Gates 1–8; contracts 152, composition 84, runtime 235; five PostgreSQL proofs; 18-package release closure; generated evidence and Sigstore verification. Hosted run 33190357411 PASS. `pnpm audit --audit-level high` PASS (0 high/critical; 2 low, 3 moderate). `git diff --check` PASS.
+Contracts 152 PASS; runtime 237 PASS; runtime/contracts builds PASS; dual-customer release-evidence generation smoke PASS; `git diff --check` PASS. Full Gate 8 awaits refreshed hosted evidence and continuous prior-release upgrade proof.
 
 ## Next
 
-Project-manager re-review of PR 23. Do not merge or enable auto-merge from the implementation side.
+Complete same-app prior-release upgrade proof, refresh real hosted evidence for both customers, regenerate inventory/Fleet receipts, then run one complete Gate 8 on final HEAD.
 
 ## Blockers
 

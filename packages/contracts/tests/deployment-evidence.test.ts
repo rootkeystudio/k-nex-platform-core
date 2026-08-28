@@ -7,7 +7,7 @@ const sourceCommit = "a".repeat(40);
 const inventory = {
   schemaVersion: 1, applicationId: "customer-alpha", repository: "rootkeystudio/customer-alpha", environment: "production", platformRelease: "0.2.0", observedAt: "2026-08-27T12:00:00.000Z",
   artifactDigest: digest("1"),
-  releaseEvidence: { sourceCommit, workflowIdentity: `repo/workflow@${sourceCommit}`, manifestDigest: digest("2"), lockfileDigest: digest("3"), resolvedGraphDigest: digest("4"), sbomDigest: digest("5"), provenanceDigest: digest("6") },
+  releaseEvidence: { sourceCommit, workflowIdentity: `repo/workflow@${sourceCommit}`, manifestDigest: digest("2"), lockfileDigest: digest("3"), resolvedGraphDigest: digest("4"), frameworkDigest: digest("7"), sbomDigest: digest("5"), provenanceDigest: digest("6") },
   packages: [{ package: "@k-nex/module-sales", version: "1.0.0", integrity: `sha512-${"a".repeat(86)}==` }],
   plugins: [{ id: "module.sales", package: "@k-nex/module-sales", version: "1.0.0", enabled: true }],
   migrationRevision: 7, settings: [{ id: "sales.settings", schemaVersion: 2, revision: 3 }],
