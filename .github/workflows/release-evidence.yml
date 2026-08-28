@@ -61,13 +61,15 @@ jobs:
           MANIFEST_BUNDLE="$(find release-evidence/hosted/manifest -type f | head -1)"
           gh attestation verify release-evidence/customer-alpha.application-bundle.json --bundle "${APP_BUNDLE}" --repo "${GITHUB_REPOSITORY}" --predicate-type https://k-nex.dev/provenance/v1 --format json > release-evidence/hosted/application-verification.json
           gh attestation verify release-evidence/release-manifest.json --bundle "${MANIFEST_BUNDLE}" --repo "${GITHUB_REPOSITORY}" --predicate-type https://k-nex.dev/release-manifest/v1 --format json > release-evidence/hosted/manifest-verification.json
+          mv "${APP_BUNDLE}" release-evidence/hosted/application/application-attestation.jsonl
+          mv "${MANIFEST_BUNDLE}" release-evidence/hosted/manifest/manifest-attestation.jsonl
       - name: Attest artifact SBOM with GitHub OIDC
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: release-evidence/customer-alpha.application-bundle.json
           sbom-path: release-evidence/sbom.cdx.json
       - name: Publish hosted verification evidence
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: phase-8-hosted-release-evidence
           path: release-evidence

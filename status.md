@@ -7,11 +7,11 @@
 
 ## Last completed
 
-The deterministic CycloneDX release SBOM now includes its required stable `urn:uuid` serial number, satisfying GitHub's hosted SBOM-attestation format check.
+Hosted attestation bundles are now renamed to filesystem-portable evidence paths before publication, and the upload action is pinned to its Node 24-compatible v5 release.
 
 ## Validation
 
-Hosted attempt 3 successfully issued and locally reverified both application and release-manifest OIDC bundles; it then failed closed on the missing CycloneDX serial before SBOM attestation. The schema gap is corrected.
+Hosted attempt 4 issued and reverified application, manifest, and SBOM attestations; publication alone failed closed because GitHub's digest-derived filenames contain colons. Portable evidence naming is corrected.
 
 ## Next
 
