@@ -7,11 +7,11 @@
 
 ## Last completed
 
-The release-evidence workflow is enabled on the Phase 8 PR branch so GitHub can issue and verify the required OIDC attestations before merge; its normal dispatch and release-tag triggers remain intact.
+Customer and workspace frozen locks now bind the regenerated immutable Sales/runtime/application-factory archives, closing the clean-runner checksum failure exposed by the first hosted-attestation attempt.
 
 ## Validation
 
-Local deterministic bundle validation PASS. Hosted GitHub attestation run will start from this pushed workflow commit and produce downloadable subject-bound bundles for final Gate 8 evidence.
+Root, Alpha, and Beta lock-only resolution PASS with pnpm 11.9.0; updated checksums match the committed tarballs. Hosted attempt 1 failed closed on the old Sales checksum before any attestation was issued.
 
 ## Next
 
