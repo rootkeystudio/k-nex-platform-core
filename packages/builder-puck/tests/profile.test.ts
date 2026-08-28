@@ -179,7 +179,8 @@ describe("profile-specific Puck policy", () => {
       preview: { workspace: {
         surface: "workspace",
         actor: { authenticated: true, permissions: new Set(["sales.tasks.read"]) },
-        sourceResults: { tasks: { state: "idle" } }
+        sourceResults: { tasks: { state: "idle" } },
+        present: (value) => value
       } }
     });
     const profile = registry.resolve("workspace");
@@ -217,6 +218,7 @@ describe("profile-specific Puck policy", () => {
       preview: { workspace: {
         surface: "workspace",
         actor: { authenticated: true, permissions: new Set([descriptor.permission, descriptor.outputFields![0]!.permission]) },
+        present: (value) => value,
         sourceResults: { tasks: {
           state: "success",
           data: { fields: ["title"], rows: [], page: { number: 1, pageSize: 20, hasNext: false } },

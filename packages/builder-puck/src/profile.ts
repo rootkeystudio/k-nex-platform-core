@@ -267,8 +267,8 @@ export function createPuckBuilderProfileRegistry(input: {
     if (configuredPreview !== undefined && configuredPreview.surface !== expectedSurface) {
       throw new TypeError(`Puck ${policy.id} preview must use the ${expectedSurface} surface.`);
     }
-    const preview: PuckPreviewContext = configuredPreview === undefined
-      ? { surface: expectedSurface, actor: { authenticated: true, permissions: new Set() }, sources: selectedSources }
+    const preview: PuckPreviewContext | undefined = configuredPreview === undefined
+      ? undefined
       : { ...configuredPreview, sources: selectedSources };
     const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({
       blocks: selectedBridges.map(({ definition }) => definition),
@@ -293,7 +293,7 @@ export function createPuckBuilderProfileRegistry(input: {
     };
     const baseAdapter = createPuckBuilderAdapter({
       blocks: selectedBridges,
-      preview,
+      ...(preview === undefined ? {} : { preview }),
       ...(input.canvasRegion === undefined ? {} : { canvasRegion: input.canvasRegion })
     });
     const adapter: PuckBuilderAdapter = Object.freeze({
