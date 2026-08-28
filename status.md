@@ -11,12 +11,12 @@ PR 22 remains rebased onto accepted Phase 6 on `main`. The latest remediation pr
 
 ## Validation
 
-Local frozen install, focused UI runtime and builder-block suites, and the complete Gate 7 pass with `GATE_7_PASS`, including the nested identity/state regression and warning capture. Documentation validation, audit, and `git diff --check` are rerun before push; the immutable exact-head workflow result is recorded in PR evidence after GitHub creates it.
+Local frozen install, focused UI runtime and builder-block suites, and the complete Gate 7 pass with `GATE_7_PASS`, including the nested identity/state regression and warning capture. Documentation validation, audit, and `git diff --check` pass; the audit reports no high or critical vulnerabilities (two low and three moderate). Exact code-bearing head `356bcd3` passed required workflow run `33136735111` on attempt 1, including Gate 7 and exact-head repository evidence.
 
 ## Next
 
-Push the nested identity remediation, obtain a first-attempt exact-head workflow pass, refresh PR evidence, then obtain the final project-manager decision. Leave PR 22 draft/open without auto-merge.
+Validate the docs-only evidence head, refresh PR evidence, then obtain the final project-manager decision. Leave PR 22 draft/open without auto-merge.
 
 ## Blockers
 
-No implementation blocker. Exact-head CI and external project-manager acceptance remain pending.
+No implementation blocker. Final docs-head CI and external project-manager acceptance remain pending.
