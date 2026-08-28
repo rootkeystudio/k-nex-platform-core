@@ -7,16 +7,16 @@
 
 ## Last completed
 
-PR 22 remains rebased onto accepted Phase 6 on `main`. Exact-head Linux CI exposed and drove closure of a VirtualList focus-effect race: keyed replacement now reruns focus after active identity reconciliation, and the browser proof waits for the observable focus result.
+PR 22 remains rebased onto accepted Phase 6 on `main`. DataGrid proof now reaches row selection, external select-all, grid entry, detail, and both row actions through Tab, arrows, Enter/F2, Space, and Escape without programmatic control focus. Closeout performance observations match the current candidate.
 
 ## Validation
 
-Three repeated focused Chromium matrix runs pass. `pnpm install --frozen-lockfile` and the complete `pnpm gate:7` chain pass with `GATE_7_PASS`; audit reports zero high/critical vulnerabilities and `git diff --check` passes.
+Local frozen install and the complete Gate 7 pass with `GATE_7_PASS`, including the keyboard-only DataGrid path. The required PR workflow validates the immutable exact head before acceptance; audit and diff checks remain part of closeout.
 
 ## Next
 
-Obtain fresh exact-head CI and the final project-manager decision. Leave PR 22 draft/open without auto-merge.
+Obtain the final project-manager decision; PR 22 records current exact-head CI. Leave it draft/open without auto-merge.
 
 ## Blockers
 
-No implementation blocker. Exact-head CI and final project-manager review remain pending.
+No implementation blocker. External project-manager acceptance remains pending.

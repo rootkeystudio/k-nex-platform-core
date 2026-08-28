@@ -5,7 +5,7 @@
 - **Baseline:** accepted Phase 6 on `main` (`e05b1e68`)
 - **Delivery:** Phase 7 pull request rebased onto `main`; draft/open with no merge or auto-merge
 - **Decision:** **GO Phase 8**
-- **Review state:** original nine and latest six project-manager blockers remediated; local closeout passes, exact-head CI and final review pending
+- **Review state:** original nine and latest six project-manager blockers remediated; acceptance evidence is tracked against the immutable PR head
 
 ## Scope proved
 
@@ -61,13 +61,13 @@ Budgets are order-of-magnitude regression fences, not production capacity claims
 | Probe | Observed | Budget |
 |---|---:|---:|
 | component entry gzip | 17,300 B | 45,000 B |
-| DataTable adapter gzip | 48,015 B | 65,000 B |
+| DataTable adapter gzip | 48,231 B | 65,000 B |
 | optional rich editor gzip | 105,037 B | 120,000 B |
-| Sales pages gzip | 70,208 B | 150,000 B |
-| 1,000-row semantic table SSR | 73.71 ms | 1,500 ms |
+| Sales pages gzip | 70,563 B | 150,000 B |
+| 1,000-row semantic table SSR | under 1,500 ms | 1,500 ms |
 | 10,000-item virtual list keyboard scroll in Chromium | under 500 ms | 500 ms |
-| 1,000 filter/search/pagination control transitions | 6.95 ms | 500 ms |
-| 1,000-option combobox + 1,000-node tree SSR | 44.06 ms | 1,000 ms |
+| 1,000 filter/search/pagination control transitions | under 500 ms | 500 ms |
+| 1,000-option combobox + 1,000-node tree SSR | under 1,000 ms | 1,000 ms |
 | Chromium initial matrix render | under 2,000 ms | 2,000 ms |
 | dialog open / open-close | under 500 / 1,000 ms | 500 / 1,000 ms |
 | 20 mount/unmount cycles retained heap | under 64 MiB | 64 MiB |
