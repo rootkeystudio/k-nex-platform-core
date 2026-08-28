@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { Readable } from "node:stream";
 import test from "node:test";
 
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
@@ -8,6 +10,26 @@ import pg from "pg";
 import { backupIsRestorable, executeCleanRestore, executeDatabaseBackup, observeRuntimeInventory, restoredInventoryMatches, runtimeInventoryDigest } from "@k-nex/runtime";
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
+
+function memoryStore() {
+  const values = new Map();
+  return {
+    async write({ content, encryptionKeyReference }) {
+      const chunks = [];
+      const hash = createHash("sha256");
+      let byteLength = 0;
+      for await (const chunk of content) { const copy = Buffer.from(chunk); chunks.push(copy); hash.update(copy); byteLength += copy.byteLength; }
+      const storageKey = `sha256:${hash.digest("hex")}`;
+      values.set(storageKey, chunks);
+      return { storageKey, byteLength, encryptionKeyReference };
+    },
+    async *read(storageKey) {
+      const chunks = values.get(storageKey);
+      if (!chunks) throw new Error("backup object missing");
+      yield* chunks;
+    }
+  };
+}
 
 test("proves a physical backup restores complete Sales runtime state into a clean database", { timeout: 180_000 }, async () => {
   const expectedInventory = observeRuntimeInventory(JSON.parse(readFileSync(new URL("../../customer-alpha/runtime-inventory.json", import.meta.url), "utf8")));
@@ -37,17 +59,21 @@ test("proves a physical backup restores complete Sales runtime state into a clea
     const encodedBackup = await container.exec(["base64", "/tmp/customer.backup"]);
     assert.equal(encodedBackup.exitCode, 0, encodedBackup.stderr);
     const backupContent = Buffer.from(encodedBackup.stdout.replace(/\s/gu, ""), "base64");
+    const store = memoryStore();
     const backup = await executeDatabaseBackup({
       backupId: "customer-alpha-7", applicationId: "customer.alpha", pluginId: "module.sales", migrationRevision: 7,
-      executor: { createBackup: async () => backupContent }
+      executor: {
+        store, maximumBytes: 64 * 1024 * 1024, encryptionKeyReference: "secret:backup/customer-alpha",
+        createBackup: async function* () { for (let offset = 0; offset < backupContent.byteLength; offset += 16 * 1024) yield backupContent.subarray(offset, offset + 16 * 1024); }
+      }
     });
     let restoredInventory;
     const restoreProof = await executeCleanRestore(backup, {
       restoreCleanEnvironment: async ({ applicationId, pluginId, migrationRevision, content, contentDigest }) => {
-        assert.deepEqual(Buffer.from(content), backupContent);
         const create = await container.exec(["createdb", "-U", user, "restore_clean"]);
         assert.equal(create.exitCode, 0, create.stderr);
-        const restore = await container.exec(["pg_restore", "-U", user, "-d", "restore_clean", "--exit-on-error", "/tmp/customer.backup"]);
+        await container.copyContentToContainer([{ content: Readable.from(content), target: "/tmp/restored-by-receipt.backup" }]);
+        const restore = await container.exec(["pg_restore", "-U", user, "-d", "restore_clean", "--exit-on-error", "/tmp/restored-by-receipt.backup"]);
         assert.equal(restore.exitCode, 0, restore.stderr);
         assert.match(contentDigest, /^sha256:[0-9a-f]{64}$/u);
         const restoredUrl = new URL(container.getConnectionUri());

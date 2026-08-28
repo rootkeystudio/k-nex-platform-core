@@ -1,8 +1,9 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import {
   backupIsRestorable, createPluginArchivePlan, executeCleanRestore, executeDatabaseBackup, executePluginArchive,
-  executePluginPurge, planPluginPurge, type PluginPurgePlan
+  executePluginPurge, planPluginPurge, type ContentAddressedStore, type PluginPurgePlan
 } from "../src/index.js";
 
 const inventoryDigest = `sha256:${"b".repeat(64)}`;
@@ -13,26 +14,62 @@ const manifest = {
   lifecycle: { ownsPayloadSchema: true, ownsPersistentData: true, disable: "supported", uninstall: "unsupported", purge: "supported" }
 } as const;
 
+const encode = (value: string) => new TextEncoder().encode(value);
+async function collect(content: AsyncIterable<Uint8Array>): Promise<Uint8Array> {
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of content) chunks.push(chunk);
+  const output = new Uint8Array(chunks.reduce((size, chunk) => size + chunk.byteLength, 0));
+  let offset = 0;
+  for (const chunk of chunks) { output.set(chunk, offset); offset += chunk.byteLength; }
+  return output;
+}
+
+function memoryStore(): ContentAddressedStore {
+  const values = new Map<string, readonly Uint8Array[]>();
+  return {
+    async write({ content, encryptionKeyReference }) {
+      const chunks: Uint8Array[] = [];
+      for await (const chunk of content) chunks.push(new Uint8Array(chunk));
+      const bytes = await collect((async function* () { yield* chunks; })());
+      const storageKey = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+      values.set(storageKey, chunks);
+      return { storageKey, byteLength: bytes.byteLength, encryptionKeyReference };
+    },
+    async *read(storageKey) {
+      const chunks = values.get(storageKey);
+      if (chunks === undefined) throw new Error("content missing");
+      for (const chunk of chunks) yield new Uint8Array(chunk);
+    }
+  };
+}
+
 async function verifiedEvidence(applicationId = "customer.alpha", migrationRevision = 7) {
   const archivePlan = createPluginArchivePlan({
     manifest, applicationId, migrationRevision, actorPermissions: new Set(["plugin.archive.export"]), collections: ["sales-tasks"],
-    maximumDocuments: 50, encryptionKeyReference: "secret:archive/key", restoreReadPath: "/admin/archive/sales"
+    maximumDocuments: 50, maximumDocumentBytes: 1024, maximumBytes: 4096,
+    encryptionKeyReference: "secret:archive/key", restoreReadPath: "/admin/archive/sales"
   });
+  const archiveStore = memoryStore();
   const archive = await executePluginArchive(archivePlan, {
-    exportDocuments: async () => [{ id: "task-1", title: "Archived task" }],
-    readRestore: async ({ content, contentDigest, documentCount }) => {
-      const envelope = JSON.parse(content) as { applicationId: string; pluginId: string; migrationRevision: number; documents: unknown[] };
-      expect(envelope.documents).toHaveLength(1);
-      return { applicationId: envelope.applicationId, pluginId: envelope.pluginId, migrationRevision: envelope.migrationRevision, contentDigest, documentCount };
+    store: archiveStore,
+    exportDocuments: async function* () { yield { id: "task-1", title: "Archived task" }; },
+    readRestore: async ({ plan, content, contentDigest, documentCount, byteLength }) => {
+      const restored = new TextDecoder().decode(await collect(content));
+      expect(restored).toContain('"title": "Archived task"');
+      return { applicationId: plan.applicationId, pluginId: plan.pluginId, migrationRevision: plan.migrationRevision, contentDigest, documentCount, byteLength };
     }
   });
+  const backupStore = memoryStore();
   const backup = await executeDatabaseBackup({
     backupId: `${applicationId.replace(".", "-")}-${migrationRevision}`, applicationId, pluginId: manifest.id, migrationRevision,
-    executor: { createBackup: async () => new TextEncoder().encode("physical backup content") }
+    executor: {
+      store: backupStore, maximumBytes: 4096, encryptionKeyReference: "secret:backup/key",
+      createBackup: async function* () { yield encode("physical "); yield encode("backup content"); }
+    }
   });
   const restore = await executeCleanRestore(backup, {
     restoreCleanEnvironment: async ({ applicationId: restoredApplicationId, pluginId, migrationRevision: restoredRevision, content }) => {
-      expect(new TextDecoder().decode(content)).toBe("physical backup content");
+      expect(new TextDecoder().decode(await collect(content))).toBe("physical backup content");
       return { applicationId: restoredApplicationId, pluginId, migrationRevision: restoredRevision, cleanEnvironment: true, externalEffects: "disabled", runtimeInventoryDigest: inventoryDigest };
     }
   });
@@ -50,9 +87,29 @@ async function readyPlan(): Promise<PluginPurgePlan> {
 
 describe("plugin archive, purge, backup, and restore", () => {
   it("requires archive permission and executes a bounded export plus read/restore proof", async () => {
-    expect(() => createPluginArchivePlan({ manifest, applicationId: "customer.alpha", migrationRevision: 7, actorPermissions: new Set(), collections: ["sales-tasks"], maximumDocuments: 50, encryptionKeyReference: "secret:archive/key", restoreReadPath: "/admin/archive/sales" })).toThrow("access is denied");
+    expect(() => createPluginArchivePlan({ manifest, applicationId: "customer.alpha", migrationRevision: 7, actorPermissions: new Set(), collections: ["sales-tasks"], maximumDocuments: 50, maximumDocumentBytes: 1024, maximumBytes: 4096, encryptionKeyReference: "secret:archive/key", restoreReadPath: "/admin/archive/sales" })).toThrow("access is denied");
     const { archive } = await verifiedEvidence();
     expect(archive).toMatchObject({ applicationId: "customer.alpha", pluginId: "module.sales", migrationRevision: 7, format: "k-nex-plugin-archive/v1", schemaVersion: 1, documentCount: 1 });
+  });
+
+  it("enforces per-document and total streaming byte bounds before issuing receipts", async () => {
+    const plan = createPluginArchivePlan({
+      manifest, applicationId: "customer.alpha", migrationRevision: 7, actorPermissions: new Set(["plugin.archive.export"]),
+      collections: ["sales-tasks"], maximumDocuments: 2, maximumDocumentBytes: 24, maximumBytes: 4096,
+      encryptionKeyReference: "secret:archive/key", restoreReadPath: "/admin/archive/sales"
+    });
+    await expect(executePluginArchive(plan, {
+      store: memoryStore(), exportDocuments: async function* () { yield { title: "x".repeat(100) }; },
+      readRestore: async () => { throw new Error("must not verify"); }
+    })).rejects.toThrow("document exceeded its byte bound");
+
+    await expect(executeDatabaseBackup({
+      backupId: "customer-alpha-oversized", applicationId: "customer.alpha", pluginId: "module.sales", migrationRevision: 7,
+      executor: {
+        store: memoryStore(), maximumBytes: 5, encryptionKeyReference: "secret:backup/key",
+        createBackup: async function* () { yield encode("123"); yield encode("456"); }
+      }
+    })).rejects.toThrow("exceeded its byte bound");
   });
 
   it("accepts backup evidence only after an executor-issued clean-environment restore proof", async () => {

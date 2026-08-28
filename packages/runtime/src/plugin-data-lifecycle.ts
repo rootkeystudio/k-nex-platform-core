@@ -21,6 +21,8 @@ export interface PluginArchivePlan {
   readonly schemaVersion: 1;
   readonly collections: readonly string[];
   readonly maximumDocuments: number;
+  readonly maximumDocumentBytes: number;
+  readonly maximumBytes: number;
   readonly encryptionKeyReference: string;
   readonly restoreReadPath: string;
 }
@@ -37,6 +39,9 @@ export interface VerifiedPluginArchiveReceipt {
   readonly schemaVersion: 1;
   readonly contentDigest: string;
   readonly documentCount: number;
+  readonly byteLength: number;
+  readonly storageKey: string;
+  readonly encryptionKeyReference: string;
   readonly [verifiedArchiveReceipt]: true;
 }
 
@@ -46,6 +51,9 @@ export interface VerifiedBackupReceipt {
   readonly pluginId: string;
   readonly migrationRevision: number;
   readonly contentDigest: string;
+  readonly byteLength: number;
+  readonly storageKey: string;
+  readonly encryptionKeyReference: string;
   readonly [verifiedBackupReceipt]: true;
 }
 
@@ -62,23 +70,39 @@ export interface VerifiedRestoreReceipt {
 }
 
 export interface PluginArchiveExecutor {
-  exportDocuments(plan: PluginArchivePlan): Promise<readonly JsonValue[]>;
+  exportDocuments(plan: PluginArchivePlan): AsyncIterable<JsonValue>;
+  readonly store: ContentAddressedStore;
   readRestore(input: {
     readonly plan: PluginArchivePlan;
-    readonly content: string;
+    readonly content: AsyncIterable<Uint8Array>;
+    readonly storageKey: string;
     readonly contentDigest: string;
     readonly documentCount: number;
+    readonly byteLength: number;
   }): Promise<{
     readonly applicationId: string;
     readonly pluginId: string;
     readonly migrationRevision: number;
     readonly contentDigest: string;
     readonly documentCount: number;
+    readonly byteLength: number;
   }>;
 }
 
 export interface DatabaseBackupExecutor {
-  createBackup(): Promise<Uint8Array>;
+  createBackup(): AsyncIterable<Uint8Array>;
+  readonly store: ContentAddressedStore;
+  readonly maximumBytes: number;
+  readonly encryptionKeyReference: string;
+}
+
+export interface ContentAddressedStore {
+  write(input: {
+    readonly content: AsyncIterable<Uint8Array>;
+    readonly maximumBytes: number;
+    readonly encryptionKeyReference: string;
+  }): Promise<{ readonly storageKey: string; readonly byteLength: number; readonly encryptionKeyReference: string }>;
+  read(storageKey: string): AsyncIterable<Uint8Array>;
 }
 
 export interface CleanRestoreExecutor {
@@ -87,8 +111,11 @@ export interface CleanRestoreExecutor {
     readonly applicationId: string;
     readonly pluginId: string;
     readonly migrationRevision: number;
-    readonly content: Uint8Array;
+    readonly content: AsyncIterable<Uint8Array>;
+    readonly storageKey: string;
     readonly contentDigest: string;
+    readonly byteLength: number;
+    readonly encryptionKeyReference: string;
   }): Promise<{
     readonly applicationId: string;
     readonly pluginId: string;
@@ -126,11 +153,14 @@ interface EvidenceBinding {
   readonly pluginId: string;
   readonly migrationRevision: number;
   readonly contentDigest: string;
+  readonly byteLength: number;
+  readonly storageKey: string;
+  readonly encryptionKeyReference: string;
 }
 
 interface BackupBinding extends EvidenceBinding {
   readonly backupId: string;
-  readonly content: Uint8Array;
+  readonly store: ContentAddressedStore;
 }
 
 const authoritativePurgePlans = new WeakSet<object>();
@@ -144,8 +174,34 @@ function issue(code: PluginDataLifecycleDiagnosticCode, message: string): Plugin
   return Object.freeze({ code, message });
 }
 
-function digest(content: Uint8Array | string): string {
-  return `sha256:${createHash("sha256").update(content).digest("hex")}`;
+async function writeContentAddressed(input: {
+  readonly content: AsyncIterable<Uint8Array>;
+  readonly store: ContentAddressedStore;
+  readonly maximumBytes: number;
+  readonly encryptionKeyReference: string;
+}): Promise<{ readonly contentDigest: string; readonly byteLength: number; readonly storageKey: string; readonly encryptionKeyReference: string }> {
+  if (!Number.isSafeInteger(input.maximumBytes) || input.maximumBytes < 1 || input.maximumBytes > 1024 ** 4 ||
+    !/^secret:[a-zA-Z0-9._/-]+$/u.test(input.encryptionKeyReference)) throw new Error("Content-addressed storage bounds are invalid.");
+  const hash = createHash("sha256");
+  let byteLength = 0;
+  let complete = false;
+  const bounded = async function* () {
+    for await (const chunk of input.content) {
+      if (!(chunk instanceof Uint8Array) || chunk.byteLength === 0) throw new Error("Content stream produced an invalid chunk.");
+      byteLength += chunk.byteLength;
+      if (byteLength > input.maximumBytes) throw new Error("Content stream exceeded its byte bound.");
+      hash.update(chunk);
+      yield chunk;
+    }
+    complete = true;
+  };
+  const stored = await input.store.write({ content: bounded(), maximumBytes: input.maximumBytes, encryptionKeyReference: input.encryptionKeyReference });
+  if (!complete || byteLength === 0) throw new Error("Content store did not consume the complete bounded stream.");
+  const contentDigest = `sha256:${hash.digest("hex")}`;
+  if (stored.storageKey !== contentDigest || stored.byteLength !== byteLength || stored.encryptionKeyReference !== input.encryptionKeyReference) {
+    throw new Error("Content store receipt does not match the streamed content.");
+  }
+  return Object.freeze({ contentDigest, byteLength, storageKey: stored.storageKey, encryptionKeyReference: stored.encryptionKeyReference });
 }
 
 function validRevision(revision: number): boolean {
@@ -165,6 +221,8 @@ export function createPluginArchivePlan(input: {
   readonly actorPermissions: ReadonlySet<string>;
   readonly collections: readonly string[];
   readonly maximumDocuments: number;
+  readonly maximumDocumentBytes: number;
+  readonly maximumBytes: number;
   readonly encryptionKeyReference: string;
   readonly restoreReadPath: string;
 }): PluginArchivePlan {
@@ -175,6 +233,8 @@ export function createPluginArchivePlan(input: {
   const collections = [...new Set(input.collections)].sort();
   if (collections.length === 0 || collections.some((value) => !/^[a-z][a-z0-9-]{1,63}$/u.test(value)) ||
     !Number.isSafeInteger(input.maximumDocuments) || input.maximumDocuments < 1 || input.maximumDocuments > 100_000 ||
+    !Number.isSafeInteger(input.maximumDocumentBytes) || input.maximumDocumentBytes < 1 || input.maximumDocumentBytes > 64 * 1024 * 1024 ||
+    !Number.isSafeInteger(input.maximumBytes) || input.maximumBytes < input.maximumDocumentBytes || input.maximumBytes > 1024 ** 4 ||
     !/^secret:[a-zA-Z0-9._/-]+$/u.test(input.encryptionKeyReference) || !input.restoreReadPath.startsWith("/")) {
     throw new Error("Plugin archive export bounds are invalid.");
   }
@@ -186,6 +246,8 @@ export function createPluginArchivePlan(input: {
     schemaVersion: 1,
     collections: Object.freeze(collections),
     maximumDocuments: input.maximumDocuments,
+    maximumDocumentBytes: input.maximumDocumentBytes,
+    maximumBytes: input.maximumBytes,
     encryptionKeyReference: input.encryptionKeyReference,
     restoreReadPath: input.restoreReadPath
   });
@@ -195,19 +257,28 @@ export function createPluginArchivePlan(input: {
 
 export async function executePluginArchive(plan: PluginArchivePlan, executor: PluginArchiveExecutor): Promise<VerifiedPluginArchiveReceipt> {
   if (!archivePlans.has(plan)) throw new Error("Plugin archive plan was not issued by the archive planner.");
-  const documents = await executor.exportDocuments(plan);
-  if (!Array.isArray(documents) || documents.length > plan.maximumDocuments) throw new Error("Plugin archive export exceeded its document bound.");
-  for (const [index, document] of documents.entries()) assertJsonValue(document, `$[${index}]`);
-  const content = canonicalJson({ applicationId: plan.applicationId, pluginId: plan.pluginId, migrationRevision: plan.migrationRevision, documents });
-  const contentDigest = digest(content);
-  const read = await executor.readRestore({ plan, content, contentDigest, documentCount: documents.length });
+  let documentCount = 0;
+  const content = async function* () {
+    yield new TextEncoder().encode(`${canonicalJson({ format: plan.format, schemaVersion: plan.schemaVersion, applicationId: plan.applicationId, pluginId: plan.pluginId, migrationRevision: plan.migrationRevision })}\n`);
+    for await (const document of executor.exportDocuments(plan)) {
+      if (documentCount >= plan.maximumDocuments) throw new Error("Plugin archive export exceeded its document bound.");
+      assertJsonValue(document, `$[${documentCount}]`);
+      const bytes = new TextEncoder().encode(`${canonicalJson(document)}\n`);
+      if (bytes.byteLength > plan.maximumDocumentBytes) throw new Error("Plugin archive document exceeded its byte bound.");
+      documentCount += 1;
+      yield bytes;
+    }
+  };
+  const stored = await writeContentAddressed({ content: content(), store: executor.store, maximumBytes: plan.maximumBytes, encryptionKeyReference: plan.encryptionKeyReference });
+  const read = await executor.readRestore({ plan, content: executor.store.read(stored.storageKey), storageKey: stored.storageKey, contentDigest: stored.contentDigest, documentCount, byteLength: stored.byteLength });
   if (read.applicationId !== plan.applicationId || read.pluginId !== plan.pluginId || read.migrationRevision !== plan.migrationRevision ||
-    read.contentDigest !== contentDigest || read.documentCount !== documents.length) throw new Error("Plugin archive read/restore proof does not match the bounded export.");
+    read.contentDigest !== stored.contentDigest || read.documentCount !== documentCount || read.byteLength !== stored.byteLength) throw new Error("Plugin archive read/restore proof does not match the bounded export.");
   const receipt = Object.freeze({
     applicationId: plan.applicationId, pluginId: plan.pluginId, migrationRevision: plan.migrationRevision,
-    format: plan.format, schemaVersion: plan.schemaVersion, contentDigest, documentCount: documents.length
+    format: plan.format, schemaVersion: plan.schemaVersion, contentDigest: stored.contentDigest, documentCount,
+    byteLength: stored.byteLength, storageKey: stored.storageKey, encryptionKeyReference: stored.encryptionKeyReference
   }) as VerifiedPluginArchiveReceipt;
-  archiveReceipts.set(receipt, { applicationId: plan.applicationId, pluginId: plan.pluginId, migrationRevision: plan.migrationRevision, contentDigest });
+  archiveReceipts.set(receipt, { applicationId: plan.applicationId, pluginId: plan.pluginId, migrationRevision: plan.migrationRevision, ...stored });
   return receipt;
 }
 
@@ -221,14 +292,13 @@ export async function executeDatabaseBackup(input: {
   ResourceIdSchema.parse(input.applicationId);
   ResourceIdSchema.parse(input.pluginId);
   if (!/^[a-z][a-z0-9._-]{2,127}$/u.test(input.backupId) || !validRevision(input.migrationRevision)) throw new Error("Database backup identity is invalid.");
-  const content = await input.executor.createBackup();
-  if (!(content instanceof Uint8Array) || content.byteLength === 0) throw new Error("Database backup executor did not produce backup content.");
-  const contentDigest = digest(content);
+  const stored = await writeContentAddressed({ content: input.executor.createBackup(), store: input.executor.store, maximumBytes: input.executor.maximumBytes, encryptionKeyReference: input.executor.encryptionKeyReference });
   const receipt = Object.freeze({
     backupId: input.backupId, applicationId: input.applicationId, pluginId: input.pluginId,
-    migrationRevision: input.migrationRevision, contentDigest
+    migrationRevision: input.migrationRevision, contentDigest: stored.contentDigest, byteLength: stored.byteLength,
+    storageKey: stored.storageKey, encryptionKeyReference: stored.encryptionKeyReference
   }) as VerifiedBackupReceipt;
-  backupReceipts.set(receipt, { backupId: input.backupId, applicationId: input.applicationId, pluginId: input.pluginId, migrationRevision: input.migrationRevision, contentDigest, content: new Uint8Array(content) });
+  backupReceipts.set(receipt, { backupId: input.backupId, applicationId: input.applicationId, pluginId: input.pluginId, migrationRevision: input.migrationRevision, ...stored, store: input.executor.store });
   return receipt;
 }
 
@@ -237,7 +307,8 @@ export async function executeCleanRestore(backup: VerifiedBackupReceipt, executo
   if (backupBinding === undefined) throw new Error("Database backup receipt was not issued by the backup executor.");
   const restored = await executor.restoreCleanEnvironment({
     backupId: backupBinding.backupId, applicationId: backupBinding.applicationId, pluginId: backupBinding.pluginId,
-    migrationRevision: backupBinding.migrationRevision, content: new Uint8Array(backupBinding.content), contentDigest: backupBinding.contentDigest
+    migrationRevision: backupBinding.migrationRevision, content: backupBinding.store.read(backupBinding.storageKey), storageKey: backupBinding.storageKey,
+    contentDigest: backupBinding.contentDigest, byteLength: backupBinding.byteLength, encryptionKeyReference: backupBinding.encryptionKeyReference
   });
   if (restored.applicationId !== backupBinding.applicationId || restored.pluginId !== backupBinding.pluginId ||
     restored.migrationRevision !== backupBinding.migrationRevision || restored.cleanEnvironment !== true ||

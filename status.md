@@ -7,11 +7,11 @@
 
 ## Last completed
 
-The application-factory authority now verifies every packed artifact's release integrity and embedded package identity, captures immutable bytes in its issued plan, and stages those exact bytes inside the generated app.
+Archive and physical-backup evidence now flows through bounded async streams into digest-keyed encrypted object storage. Receipts bind storage key, digest, byte length, and key reference; restore reads the exact receipt object instead of retained caller bytes.
 
 ## Validation
 
-Composition build PASS. Application-factory tests PASS (5), including direct-library tamper/wrong-identity denial and a post-plan mirror replacement that cannot change installed bytes.
+Runtime build PASS. Lifecycle tests PASS (8), including per-document and total-byte denial. Real PostgreSQL backup/restore PASS using the receipt-addressed stream to restore Sales/content/layout/settings/outbox/revision.
 
 ## Next
 
