@@ -10,19 +10,23 @@
         "name": "application-manifest"
       },
       {
-        "digest": "sha256:8519ab4b12ff4fb8b8404f49921c21a39359e154427721da18a0bec844faac4d",
+        "digest": "sha256:2a31fae575ef61665a519fbb5dad4c5f3732c23e81a87e7923a51fda0afb89b6",
         "name": "generated-application-tree"
       },
       {
-        "digest": "sha256:6212d506bed01253f9166b084b00c2f69300f24dd48bf518b2a28a5812238270",
+        "digest": "sha256:0b1d63eb635bad5b316ba81ac2a61a8c273bd07a2782deb56f01c38a5b801ecf",
+        "name": "lock-runtime-closure"
+      },
+      {
+        "digest": "sha256:e0a583613f8d0acc44e4d0c57ddc39f54a006e4d41be537d7758b08edd3dc838",
         "name": "lockfile"
       },
       {
-        "digest": "sha256:450d3b34ea893dd71f2c48669c85b55f9ac98d39d1b1ae49e5b976821516e33b",
+        "digest": "sha256:32363aebbc9da6b92cc72c32a17271af2034e8f7c97869d5603a439ad6716fcd",
         "name": "package-release-manifest"
       },
       {
-        "digest": "sha256:7c47bfeec849ea48147835a1048883f6f4cfa1775902d4c17e3e741c9ca064f4",
+        "digest": "sha256:0b1d63eb635bad5b316ba81ac2a61a8c273bd07a2782deb56f01c38a5b801ecf",
         "name": "release-closure"
       },
       {
@@ -30,16 +34,16 @@
         "name": "resolved-graph-or-plan"
       },
       {
-        "digest": "sha256:c8af8b9fabb9932868b9759cd4aa5fbf6fb31fcf16cf746d05d261d5f86337e1",
+        "digest": "sha256:f4b95900ec98d9598f4ad0c6a9dae50a9bebaa92e81e69dc870efbd9d8655ca7",
         "name": "sbom"
       }
     ],
-    "sourceCommit": "3f4513f3947664d0ddf68cf08114f1fd3c6fffda",
-    "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@3f4513f3947664d0ddf68cf08114f1fd3c6fffda"
+    "sourceCommit": "1b85599d919482a16885a922d816d7a3a1006082",
+    "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@1b85599d919482a16885a922d816d7a3a1006082"
   },
   "predicateType": "https://k-nex.dev/provenance/v1",
   "subject": {
-    "digest": "sha256:4b4c6f1c02c01501a4e1382695a3bea7b28caebe57131a6de38117674b2053ee",
+    "digest": "sha256:a120a0f051ab42bcd9b3e33689d489c85dc68836c19822b57df1bba00d846582",
     "name": "customer-beta.application-bundle.json"
   }
 }

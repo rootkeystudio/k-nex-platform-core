@@ -3,19 +3,19 @@
 - **Updated:** 2026-08-29
 - **Phase:** Phase 8 — Lifecycle, Application Factory, Release, and Fleet Safety
 - **Active task:** P8.10 — Platform-foundation closeout
-- **State:** In progress
+- **State:** Ready for phase review
 
 ## Last completed
 
-Project-manager remediation now binds application and deployment evidence to the complete lock/SBOM runtime closure, replaces preserved current dependencies with the exact target closure, and refreshes the packed runtime artifact and release manifests from the changed source.
+Project-manager blockers are closed with real factory-built Alpha/Beta 0.2.1 targets, seven hosted attestations, exact signed lock/SBOM runtime closures, and Fleet plan/apply evidence that adds, removes, and upgrades non-K-Nex dependencies.
 
 ## Validation
 
-Runtime tests: 238 PASS. Packed runtime closure regenerated. Replacement hosted current/prior/target attestations and the complete Gate 8 rerun are pending.
+`pnpm gate:8` PASS on the final evidence tree with Node 24.19.0; contracts 152, composition 84, runtime 238, five PostgreSQL proofs, packed closure 18, hosted run 33214953185 PASS.
 
 ## Next
 
-Generate and attest real Alpha/Beta 0.2.1 target applications from the refreshed packed closure, apply them through Fleet, then rerun Gate 8.
+Project-manager review and merge of PR 23. Do not start the next phase before PASS.
 
 ## Blockers
 

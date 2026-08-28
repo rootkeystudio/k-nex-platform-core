@@ -87,7 +87,7 @@
       "version": "1.0.0"
     },
     {
-      "integrity": "sha512-/AyvAY0sq0GSQCOBo70C6vl7N3UfvE3bHm+iDHRGgVkBRHfkrz1VaIt98aiUpDEYR7t5PUA/5lwBBUpZDtSorQ==",
+      "integrity": "sha512-dkd3JMLqpaimRe6265V3BFEcH7Mys3i56x3/mYRM5M8SggxDeMKIuGaIYJV9waSXOxrb9/RrAw71oTEYfdRnLA==",
       "package": "@k-nex/runtime",
       "peerCompatibility": {
         "core": "1.0.0",

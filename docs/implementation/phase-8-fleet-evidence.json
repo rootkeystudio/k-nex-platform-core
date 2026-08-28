@@ -5,13 +5,13 @@
       "applicationId": "customer-alpha",
       "platformRelease": "0.2.0",
       "deploymentId": "deploy:customer-alpha:2026.08",
-      "inventoryDigest": "sha256:ce4dab413b37acd805ac1b4c46f7b09f8275ffb7ae3b21c0277c3786f1d5ed39"
+      "inventoryDigest": "sha256:6a750f217a4b5d2d0ee8234defbeaf2a10c812688a22649835cb60df611aebcd"
     },
     {
       "applicationId": "customer-beta",
       "platformRelease": "0.1.0",
       "deploymentId": "deploy:customer-beta:2026.06",
-      "inventoryDigest": "sha256:83ddb586f5f3aee628baf1f6e77136f4406e62819e45d6dbfdaac4a3ea3d1647"
+      "inventoryDigest": "sha256:46a82639cedd53911bb9a6a4461592dee9b89c56ec9e9298ae9500115531cf48"
     }
   ],
   "vulnerability": {
@@ -27,12 +27,12 @@
     {
       "applicationId": "customer-alpha",
       "repository": "rootkeystudio/customer-alpha",
-      "baseInventoryDigest": "sha256:ce4dab413b37acd805ac1b4c46f7b09f8275ffb7ae3b21c0277c3786f1d5ed39"
+      "baseInventoryDigest": "sha256:6a750f217a4b5d2d0ee8234defbeaf2a10c812688a22649835cb60df611aebcd"
     },
     {
       "applicationId": "customer-beta",
       "repository": "rootkeystudio/customer-beta",
-      "baseInventoryDigest": "sha256:83ddb586f5f3aee628baf1f6e77136f4406e62819e45d6dbfdaac4a3ea3d1647"
+      "baseInventoryDigest": "sha256:46a82639cedd53911bb9a6a4461592dee9b89c56ec9e9298ae9500115531cf48"
     }
   ],
   "previousReleaseUpgrade": {
@@ -43,6 +43,6 @@
   "restore": {
     "applicationId": "customer-alpha",
     "postgresProof": "backup-restore-postgres.test.mjs",
-    "expectedOperationalInventoryDigest": "sha256:79f99ff32208f8e4e53e652327c675309b2a708c93d6799c8c2119e4449f1787"
+    "expectedOperationalInventoryDigest": "sha256:8989b001a879716a4cf7e6d643bd3d98cf144fd1a08283e5adf125a5dcdf0f8c"
   }
 }

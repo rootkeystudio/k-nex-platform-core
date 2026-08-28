@@ -2138,7 +2138,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "fc0caf018d2cab4192402381a3bd02eaf97b37751fbc4ddb1e6fa20c74468159014477e4af3d55688b7df1a894a4311847bb793d403fe65c01054a590ed4a8ad"
+          "content": "76477724c2eaa5a8a645eeb6eb957704511c1fb332b378b9eb1dff99844ce4cf12820c4378c288b8668860957dc1a4973b1adbf7f46b030ef5a131187dd4672c"
         }
       ],
       "name": "@k-nex/runtime",
@@ -11565,7 +11565,7 @@
       "type": "application"
     }
   },
-  "serialNumber": "urn:uuid:00000000-0000-4000-8000-351ab14aa3a0",
+  "serialNumber": "urn:uuid:00000000-0000-4000-8000-95fff8ed0a14",
   "specVersion": "1.6",
   "version": 1
 }
