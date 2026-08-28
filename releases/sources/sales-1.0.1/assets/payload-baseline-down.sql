@@ -1,0 +1,13 @@
+DROP TABLE "sales_tasks" CASCADE;
+DROP TABLE "sales_opportunities" CASCADE;
+DROP TABLE "payload_kv" CASCADE;
+DROP TABLE "users_sessions" CASCADE;
+DROP TABLE "users" CASCADE;
+DROP TABLE "payload_locked_documents" CASCADE;
+DROP TABLE "payload_locked_documents_rels" CASCADE;
+DROP TABLE "payload_preferences" CASCADE;
+DROP TABLE "payload_preferences_rels" CASCADE;
+DROP TABLE "payload_migrations" CASCADE;
+DROP TABLE "k_nex_default_pages" CASCADE;
+DROP TYPE "public"."enum_sales_tasks_status";
+DROP TYPE "public"."enum_sales_opportunities_stage";

@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Runtime release trust now consumes opaque hosted-attestation and verified package-manifest tokens; local release PEM envelopes are no longer a production input. Fleet patch plans bind the target manifest/framework/full closure and require a fresh verified deployment before applying.
+Prior, current, and security-target Sales archives now build from three committed immutable package-source snapshots. The prior source has revision-1 behavior; 1.0.0 reproduces the reviewed export-key traversal and 1.0.1 contains the tested basename remediation.
 
 ## Validation
 
-Runtime build PASS. Fleet/deployment tests PASS (10), including foreign authority denial, complete-closure transition, fresh migration/readiness evidence, vulnerable fleet clearance, and cloned-plan denial.
+Packed release generation PASS (18 artifacts); release manifests regenerated. Closure check PASS (18 identities), including exact source/archive parity, three distinct Sales integrities, prior/current migration distinction, vulnerable reproduction, and remediated target denial.
 
 ## Next
 

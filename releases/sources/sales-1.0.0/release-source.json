@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "package": "@k-nex/module-sales",
+  "version": "1.0.0",
+  "platformRelease": "0.2.0",
+  "migrationRevision": 2,
+  "securityState": "CVE-KNEX-2026-0001-vulnerable",
+  "sourceKind": "immutable-package-source"
+}

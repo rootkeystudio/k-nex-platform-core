@@ -37,21 +37,19 @@ function pack(directory, expectedFilename) {
 }
 
 for (const entry of release.packages) {
+  if (entry.package === "@k-nex/module-sales") continue;
   const filename = `${entry.package.replace(/^@k-nex\//u, "k-nex-")}-${entry.version}.tgz`;
   pack(packageRoot(entry.package), filename);
 }
 
-const salesRoot = packageRoot("@k-nex/module-sales");
-const salesManifestPath = resolve(salesRoot, "package.json");
-const salesManifestText = readFileSync(salesManifestPath, "utf8");
-const salesManifest = JSON.parse(salesManifestText);
-try {
-  for (const version of ["0.9.0", "1.0.1"]) {
-    writeFileSync(salesManifestPath, `${JSON.stringify({ ...salesManifest, version }, null, 2)}\n`, "utf8");
-    pack(salesRoot, `k-nex-module-sales-${version}.tgz`);
-  }
-} finally {
-  writeFileSync(salesManifestPath, salesManifestText, "utf8");
+for (const version of ["0.9.0", "1.0.0", "1.0.1"]) {
+  const source = resolve(root, `releases/sources/sales-${version}`);
+  const metadata = JSON.parse(readFileSync(resolve(source, "release-source.json"), "utf8"));
+  const manifest = JSON.parse(readFileSync(resolve(source, "package.json"), "utf8"));
+  assert.equal(metadata.version, version);
+  assert.equal(manifest.name, "@k-nex/module-sales");
+  assert.equal(manifest.version, version);
+  pack(source, `k-nex-module-sales-${version}.tgz`);
 }
 
 process.stdout.write(`P8_PACKED_RELEASES_GENERATED ${release.packages.length + 2}\n`);
