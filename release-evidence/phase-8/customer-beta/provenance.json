@@ -10,19 +10,19 @@
         "name": "application-manifest"
       },
       {
-        "digest": "sha256:5e4c769b408efe87c249a5d92e9cc10c15b84a036b6bc2fef55ba3f0fbf69b2e",
+        "digest": "sha256:8519ab4b12ff4fb8b8404f49921c21a39359e154427721da18a0bec844faac4d",
         "name": "generated-application-tree"
       },
       {
-        "digest": "sha256:8a0f4d385c29eef54ee291ca1cef7474832044a9346b69f81f65fe04ca428540",
+        "digest": "sha256:6212d506bed01253f9166b084b00c2f69300f24dd48bf518b2a28a5812238270",
         "name": "lockfile"
       },
       {
-        "digest": "sha256:eb815a61917b774bf6edfcc3f01b1faa59d012b435bf4a236cf61d0f2a2c9121",
+        "digest": "sha256:450d3b34ea893dd71f2c48669c85b55f9ac98d39d1b1ae49e5b976821516e33b",
         "name": "package-release-manifest"
       },
       {
-        "digest": "sha256:d563ef8afb3ead63bb675353c4172aa9f061119a40798788f69cab20433d8483",
+        "digest": "sha256:7c47bfeec849ea48147835a1048883f6f4cfa1775902d4c17e3e741c9ca064f4",
         "name": "release-closure"
       },
       {
@@ -30,16 +30,16 @@
         "name": "resolved-graph-or-plan"
       },
       {
-        "digest": "sha256:60a78fd246cd40eebf37413060b68b8e34be6b072111c279f91774c2020ee4b0",
+        "digest": "sha256:c8af8b9fabb9932868b9759cd4aa5fbf6fb31fcf16cf746d05d261d5f86337e1",
         "name": "sbom"
       }
     ],
-    "sourceCommit": "10e4049cb683b4ef59511f6ad1b6ecace334347e",
-    "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@10e4049cb683b4ef59511f6ad1b6ecace334347e"
+    "sourceCommit": "3f4513f3947664d0ddf68cf08114f1fd3c6fffda",
+    "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@3f4513f3947664d0ddf68cf08114f1fd3c6fffda"
   },
   "predicateType": "https://k-nex.dev/provenance/v1",
   "subject": {
-    "digest": "sha256:dc6164f060b69188d5b9f0b0167e90b51db735cf7d3ec67cd7444a5e91b55279",
+    "digest": "sha256:4b4c6f1c02c01501a4e1382695a3bea7b28caebe57131a6de38117674b2053ee",
     "name": "customer-beta.application-bundle.json"
   }
 }

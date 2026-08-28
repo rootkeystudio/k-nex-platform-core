@@ -1,7 +1,7 @@
 {
-  "closureDigest": "sha256:a8d9ca91c74b9f475c00780bd70a7c972c9e3df9d61c28c222315a9242968708",
+  "closureDigest": "sha256:7f87b75e954ededce9ec37b05f6fef282d2a7ce694103fcef634225f9940fa8a",
   "release": "0.2.0",
   "schemaVersion": 1,
-  "sourceCommit": "10e4049cb683b4ef59511f6ad1b6ecace334347e",
-  "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@10e4049cb683b4ef59511f6ad1b6ecace334347e"
+  "sourceCommit": "3f4513f3947664d0ddf68cf08114f1fd3c6fffda",
+  "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@3f4513f3947664d0ddf68cf08114f1fd3c6fffda"
 }

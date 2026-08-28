@@ -2073,7 +2073,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "22bff70fa83c79340f987c26f68f40915cbcc2aeb0c27c2ef90fd0d2b78a7a74f564142ee835a06a5a0d03aae9bad77ce620b90e90a29cec345c681852ca6834"
+          "content": "b5078cfc5fdf3a21f80031c6fa09ae219223922c0df569fb590b4ff2c65abb294f43dc574bdfdd2904dba372a7285641567635d29a41aa45f0fe2661fa07993a"
         }
       ],
       "name": "@k-nex/builder-puck",
@@ -2086,7 +2086,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "6be2b8f03923e23482c95792067fcc9645d1b1a8316c74caad9ff6f7459e081b69d2d6c3f3e27af1a4d0850dcdcde931a5baa4f7b17290932bab42a91f3484c0"
+          "content": "6bdd5ac9929694f22d0d35a3e25866ec91b0424f0ea0cab82ec8cee0e8455f1111c2b06cad0342639edd306b299ae592904c80c5fe708d261b55cdc611fcdab2"
         }
       ],
       "name": "@k-nex/composition",
@@ -2099,7 +2099,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "69d408a8c04f72960bce3e3ffb0a3fe395b8af4b83cfc4227a8ed19ef600c8c6027033465f946a1a734367288c5aaf826693787d91f4e09a914ce67d53ba6c78"
+          "content": "28456d2dfea6e8beb4f2d651148424dc2d49febb6008f8c0de868ee4c4d432d1c9a45d36bde42185ff2b25565a23726c74931eb3be278a8bf5e2a889d92de428"
         }
       ],
       "name": "@k-nex/contracts",
@@ -2125,7 +2125,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "9f96e1dba9e4d8d59944b077657a3ce4b349320506648478fd57c7079a9c4b3997eefb426a396bf3ad6459998d8a05d9526606eb88b90891693e955e66f35c14"
+          "content": "5aa8a56ba32326b00e480dbad8296474800ed9dd47284597d5b15daee40d96281939347ee38a1bd5339d9a4ece7ccb93fb182fc6a7f419a71ca5d48d1827418a"
         }
       ],
       "name": "@k-nex/payload-adapter",
@@ -2138,7 +2138,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "4c25111c661241e09bf48560e6095e56c70cbdc5edd83dfae90c10db82551edb56b3827779923adc6ff352f75fa1d0269b16d9036cde4b7e53a0cc372cd3939a"
+          "content": "fc0caf018d2cab4192402381a3bd02eaf97b37751fbc4ddb1e6fa20c74468159014477e4af3d55688b7df1a894a4311847bb793d403fe65c01054a590ed4a8ad"
         }
       ],
       "name": "@k-nex/runtime",
@@ -2151,7 +2151,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "538c71c4ad32e9050ffd274bd53c19b5796448ed65e6dbdf5db8fd30ebb70660ba17cd22332a70cd61b047536dde8168ad47f9a0b73b8a7634d8f2ed0f49da39"
+          "content": "8cc1a4975fed6b75265539261ba950bbd89584dd8e91371682ca9862191948d19557906a2451cd925968402ef3eaa112c5865e4bf8de09871622571d2b610e15"
         }
       ],
       "name": "@k-nex/theme-minimal",
@@ -2164,7 +2164,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "48f26238cf654762d7d0f24dab4767eb84752c94c52d8fd6a87ea3f92522d686eb137ef6b4e415e2721516ccd62d9e6f284b8e4b22476b47ed2e5a32092947ea"
+          "content": "db3788e48c1d7c2fb5d6829f5bc0d438d040a812e5f31355f799db837ce6019306e61e06317c95307a11dd1dfb59d8b183489a6c5eb77a192bdbed94332985fc"
         }
       ],
       "name": "@k-nex/ui-builder-blocks",
@@ -2203,7 +2203,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "0c500fa40f1fe2485a8662f7129c9f27518468a43437e5dc5f716b219eeac15af7ed5593883e8dfcd514f0943deadcec58cc8bbee6d87113b53bd61e5714c0a1"
+          "content": "6dd8fbaa7333b1b237a07ffc2091c6221bf70c3009b80aaf86920e778521561cbfe12d2a9a5ba42e677db285d27e47e7b6aeba14337f72f2cbeb6c156d1dda1a"
         }
       ],
       "name": "@k-nex/ui-design-system-contracts",
@@ -2242,7 +2242,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "5efe3567ce1c347fa98ab1d76afcbcd8e945ed4ded3c4acfa932e7107e471657348fa9f5372c341b7eb14ef925a6d730153d7de1065b33fa301c2797b48a01c6"
+          "content": "b8e4826d3a379078ec7b8775860a163e7ec99d193daa61bda868d57ce5090af6f605d76e51206c383933379875d6712a618d8742df56a58b734957b3ca9e1668"
         }
       ],
       "name": "@k-nex/ui-runtime",
@@ -11565,7 +11565,7 @@
       "type": "application"
     }
   },
-  "serialNumber": "urn:uuid:00000000-0000-4000-8000-fbc16b8a0c11",
+  "serialNumber": "urn:uuid:00000000-0000-4000-8000-d5608cef3446",
   "specVersion": "1.6",
   "version": 1
 }
