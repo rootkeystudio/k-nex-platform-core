@@ -11,12 +11,12 @@ PR 22 remains rebased onto accepted Phase 6 on `main`. The latest remediation ca
 
 ## Validation
 
-Local frozen install and complete Gate 7 pass with `GATE_7_PASS`. Focused runtime (47), builder-block (9), Builder/Puck (35 plus browser), component (12), and Sales (42) tests pass. Stateful production and serialized/reloaded Puck regressions cover root, fallback, non-composable, and composable reorder paths while failing on React missing-key warnings. Exact-head CI is recorded in PR evidence after push.
+Local frozen install and complete Gate 7 pass with `GATE_7_PASS`. Focused runtime (47), builder-block (9), Builder/Puck (35 plus browser), component (12), and Sales (42) tests pass. Stateful production and serialized/reloaded Puck regressions cover root, fallback, non-composable, and composable reorder paths without React missing-key warnings. Code-bearing head `2da6f25` passed required workflow `33138611718` on attempt 1.
 
 ## Next
 
-Push the complete sibling-identity remediation, obtain first-attempt exact-head CI, refresh PR evidence, then obtain the final project-manager decision. Leave PR 22 draft/open without auto-merge.
+Validate the docs-only evidence head, refresh PR evidence, then obtain the final project-manager decision. Leave PR 22 draft/open without auto-merge.
 
 ## Blockers
 
-No implementation blocker. Exact-head CI and external project-manager acceptance remain pending.
+No implementation blocker. Final docs-head CI and external project-manager acceptance remain pending.
