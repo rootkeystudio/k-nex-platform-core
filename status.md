@@ -3,19 +3,19 @@
 - **Updated:** 2026-08-28
 - **Phase:** Phase 8 — Lifecycle, Application Factory, Release, and Fleet Safety
 - **Active task:** P8.10 — Platform-foundation closeout
-- **State:** In progress
+- **State:** Ready for phase review
 
 ## Last completed
 
-The final executable remediation source is ready for hosted signing: continuous prior-release upgrade, real GitHub verification adapters, application-bundle deployment identity, exact Fleet closure/framework/migration enforcement, and dual-customer evidence workflow are reconciled.
+All PR 23 blockers are remediated. Final hosted evidence from run 33199256506 binds both customer application bundles and both release manifests to executable source 10e4049; runtime deployment authorities and Fleet consume those exact tokens.
 
 ## Validation
 
-Continuous prior-release PostgreSQL proof PASS; packed release closure 18 PASS; frozen root/customer installs PASS; contracts 152 PASS; runtime 237 PASS; runtime/contracts/Sales builds PASS; real dual-customer hosted run 33198768307 PASS against the preceding source; `git diff --check` PASS.
+`pnpm gate:8` PASS: Gates 1–8; contracts 152, composition 84, runtime 237; five PostgreSQL proofs; 18 release artifacts; generated evidence and four Sigstore subject verifications. Hosted run 33199256506 PASS. Audit and exact-head cleanliness PASS.
 
 ## Next
 
-Sign this final executable source, regenerate inventory/Fleet receipts from those hosted bundles, then run one complete Gate 8 on final HEAD.
+Project-manager re-review of PR 23. Leave the PR open; do not merge or enable auto-merge.
 
 ## Blockers
 

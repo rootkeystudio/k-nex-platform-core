@@ -148,6 +148,9 @@
     "__schema7": {
       "additionalProperties": false,
       "properties": {
+        "frameworkDigest": {
+          "$ref": "#/$defs/__schema6"
+        },
         "lockfileDigest": {
           "$ref": "#/$defs/__schema6"
         },
@@ -179,6 +182,7 @@
         "manifestDigest",
         "lockfileDigest",
         "resolvedGraphDigest",
+        "frameworkDigest",
         "sbomDigest",
         "provenanceDigest"
       ],

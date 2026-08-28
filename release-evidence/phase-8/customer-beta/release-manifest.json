@@ -48,7 +48,7 @@
       "version": "0.0.0"
     },
     {
-      "integrity": "sha512-qDm4VY2AEG8m7578O+LYPVjJqZ3iCR/i53sxRhCKqW2VdXEao80aSVt+NrgvayDLpnA/6vT6dAs+0TR8klqo+g==",
+      "integrity": "sha512-T64ra/qBhPTVVvMds3Q++IVhlc2uXCC6HzLlwJMRXxUJ3w9AeC8O2LF2OJh3fPC/R/Kfy/zrRDWx+do2aT3PPg==",
       "package": "@k-nex/module-sales",
       "peerCompatibility": {
         "core": "1.0.0",
@@ -58,7 +58,7 @@
         "pnpm": "11.9.0"
       },
       "role": "plugin",
-      "version": "1.0.0"
+      "version": "0.9.0"
     },
     {
       "integrity": "sha512-n5bh26nk2NWZRLB3ZXo85LNJMgUGZIR4/VfHB5qcSzmX7vtCajlr861kWZmNigXZUmYG64i5CJFpPpVeZvNcFA==",
@@ -220,7 +220,7 @@
   "release": {
     "channel": "pre-v1",
     "compatibilityPolicy": "exact-framework-tuple",
-    "version": "0.2.0",
+    "version": "0.1.0",
     "versioningPolicy": "semver-pre-v1"
   },
   "schemaVersion": 1,
@@ -228,7 +228,6 @@
     "policy": "current-and-one-prior-minor",
     "securityFixes": "all-supported-releases",
     "supportedReleases": [
-      "0.2.0",
       "0.1.0"
     ]
   }

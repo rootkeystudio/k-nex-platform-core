@@ -48,13 +48,13 @@ Customer Alpha uses external Postgres, Minimal, current platform release 0.2.0, 
 ## Release, deployment, and fleet proof
 
 - Sales 0.9.0, 1.0.0, and 1.0.1 build from separate committed immutable package-source snapshots. The prior snapshot exposes revision-1 behavior. The 1.0.0 snapshot reproduces `CVE-KNEX-2026-0001` export-key traversal; 1.0.1 rejects traversal and accepts bounded basenames.
-- The release subject is a deterministic, self-contained customer application bundle, not a single plugin tarball. It carries generated sources, build output, application manifest, dedicated frozen lock, release manifest, and all artifacts in the exact K-Nex release closure.
+- Each release subject is a deterministic, self-contained customer application bundle, not a single plugin tarball. It carries generated sources, build output, application manifest, dedicated frozen lock, release manifest, all release artifacts, and the exact installed K-Nex closure derived from that customer lock.
 - The signed provenance materials bind the application manifest, lock, resolved plan, CycloneDX SBOM, canonical package-release manifest, release closure, generated tree, and build output.
-- GitHub-hosted run `33190357411` issued application-provenance, package-manifest, and SBOM attestations from source `b77ab19b5bafa1be8a5fd683321c8f0bdc2cf038`. The workflow downloaded and reverified both custom bundles before publishing them. Gate 8 re-runs `gh attestation verify --bundle`, constrains repository, source SHA, and GitHub-hosted runner identity, and reconciles every bundle entry and material digest.
-- Runtime production APIs consume an opaque hosted-attestation verifier and authority-issued package-manifest token. They no longer accept caller-provided release PEMs. The in-process fixture signer is explicitly test-only.
-- Fleet accepts only deployment evidence and package manifests issued by its configured authorities. Patch plans bind base inventory, target release-manifest digest, exact framework digest, full K-Nex release closure, customer deployment closure, migrations, and readiness operations.
-- Applying a patch requires a fresh verified deployment whose application/environment, release, complete installed closure, readiness, and advanced migration revision match the issued plan. Base drift, incomplete closure, stale receipt, vulnerable target, foreign authority, and cloned/replayed plan fail.
-- Beta boots the genuine prior Sales artifact and exercises the reviewed 0.9.0 → 1.0.0 upgrade. Alpha's clean restore reproduces its expected operational inventory.
+- GitHub-hosted run `33199256506` issued separate application-provenance and package-manifest attestations for Alpha/current and Beta/prior plus the Alpha SBOM attestation from executable source `10e4049cb683b4ef59511f6ad1b6ecace334347e`. Gate 8 re-runs `gh attestation verify --bundle` for all four subjects and validates the signed DSSE statement, repository, workflow, source SHA, runner, certificate identity, predicate type, subject digest, and materials.
+- Runtime production APIs turn that real GitHub verification output into authority-issued package-release and application-bundle tokens. Deployment verification consumes those exact tokens, an independently signed receipt, and a protected observation; Fleet ingests the resulting authority token. The in-process issuer remains test-only.
+- Fleet patch plans derive the target deployment closure from a verified target application bundle and exact target lock graph, so K-Nex additions and removals are preserved. Plans bind the base inventory, target manifest, framework transition, reviewed migration-plan identity, exact readiness revision, and complete customer closure.
+- Applying a patch requires a fresh verified deployment whose application/environment, release, framework, exact installed closure, reviewed migration plan, readiness, and exact target revision match the issued plan. Base drift, incomplete closure, stale receipt, unrelated revision increases, vulnerable targets, foreign authorities, and cloned/replayed plans fail.
+- Beta installs and boots immutable Sales 0.9.0, writes real Sales records plus descriptor-backed schema/source/action/tool/UI/theme/template/settings state, replaces the same app installation with 1.0.0, runs the target artifact's reviewed migrations against the same PostgreSQL database, and reboots with preserved data and target behavior. Alpha's clean restore reproduces its expected operational inventory.
 - Deterministic fleet evidence generator marker: `P8_9_FLEET_EVIDENCE_PASS`.
 
 ## Public contracts and affected areas
@@ -76,7 +76,7 @@ pnpm audit --audit-level high
 git diff --check
 ```
 
-The complete `pnpm gate:8` passed at the final working-tree state: Gates 1–8, 152 contract tests, 84 composition tests, 235 runtime tests, five customer PostgreSQL proofs, the 18-package immutable release closure, generated-evidence mutation checks, and committed Sigstore bundle verification all passed. Focused remediation evidence also includes deterministic bundle reproduction and hosted release-evidence run `33190357411`.
+The complete `pnpm gate:8` passed at final HEAD: Gates 1–8, 152 contract tests, 84 composition tests, 237 runtime tests, five customer PostgreSQL proofs, the 18-artifact immutable release closure, generated-evidence mutation checks, and four committed Sigstore subject verifications all passed. Focused remediation evidence also includes deterministic dual-customer bundle reproduction and hosted release-evidence run `33199256506`.
 
 `pnpm audit --audit-level high` passed with no high or critical findings (two low and three moderate findings remain), and `git diff --check` passed.
 

@@ -2108,17 +2108,17 @@
       "version": "0.0.0"
     },
     {
-      "bom-ref": "pkg:npm/%40k-nex/module-sales@1.0.0",
+      "bom-ref": "pkg:npm/%40k-nex/module-sales@0.9.0",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "a839b8558d80106f26ef9efc3be2d83d58c9a99de2091fe2e77b3146108aa96d9575711aa3cd1a495b7e36b82f6b20cba6703feaf4fa740b3ed1347c925aa8fa"
+          "content": "4fae2b6bfa8184f4d556f31db3743ef8856195cdae5c20ba1f32e5c093115f1509df0f40782f0ed8b1763898777cf0bf47f29fcbfceb4435b1f9da36693dcf3e"
         }
       ],
       "name": "@k-nex/module-sales",
-      "purl": "pkg:npm/%40k-nex/module-sales@1.0.0",
+      "purl": "pkg:npm/%40k-nex/module-sales@0.9.0",
       "type": "library",
-      "version": "1.0.0"
+      "version": "0.9.0"
     },
     {
       "bom-ref": "pkg:npm/%40k-nex/payload-adapter@0.0.0",
@@ -2147,15 +2147,15 @@
       "version": "0.0.0"
     },
     {
-      "bom-ref": "pkg:npm/%40k-nex/theme-minimal@0.0.0",
+      "bom-ref": "pkg:npm/%40k-nex/theme-neobrutalism@0.0.0",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "538c71c4ad32e9050ffd274bd53c19b5796448ed65e6dbdf5db8fd30ebb70660ba17cd22332a70cd61b047536dde8168ad47f9a0b73b8a7634d8f2ed0f49da39"
+          "content": "5f47a59ca4ee1f1d7270eed0e98dd1c3c4c6c540c9e3c712a1ae80b91a59b1f721d708578c24f41e0620d232b0ec9448f84dac4119dd89417c7bc4dd82a812ee"
         }
       ],
-      "name": "@k-nex/theme-minimal",
-      "purl": "pkg:npm/%40k-nex/theme-minimal@0.0.0",
+      "name": "@k-nex/theme-neobrutalism",
+      "purl": "pkg:npm/%40k-nex/theme-neobrutalism@0.0.0",
       "type": "library",
       "version": "0.0.0"
     },
@@ -8230,7 +8230,7 @@
         "pkg:npm/react-dom@19.2.8",
         "pkg:npm/react@19.2.8"
       ],
-      "ref": "application:customer-alpha"
+      "ref": "application:customer-beta"
     },
     {
       "dependsOn": [
@@ -11560,12 +11560,12 @@
   ],
   "metadata": {
     "component": {
-      "bom-ref": "application:customer-alpha",
-      "name": "customer-alpha",
+      "bom-ref": "application:customer-beta",
+      "name": "customer-beta",
       "type": "application"
     }
   },
-  "serialNumber": "urn:uuid:00000000-0000-4000-8000-fbc16b8a0c11",
+  "serialNumber": "urn:uuid:00000000-0000-4000-8000-d1ec18dd9a8c",
   "specVersion": "1.6",
   "version": 1
 }
