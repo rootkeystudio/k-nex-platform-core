@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Customer and workspace frozen locks now bind the regenerated immutable Sales/runtime/application-factory archives, closing the clean-runner checksum failure exposed by the first hosted-attestation attempt.
+The hosted evidence job now builds the root runtime authority before the customer fixture invokes its Gate 8 evidence hook, closing the clean-runner module-resolution failure from attempt 2.
 
 ## Validation
 
-Root, Alpha, and Beta lock-only resolution PASS with pnpm 11.9.0; updated checksums match the committed tarballs. Hosted attempt 1 failed closed on the old Sales checksum before any attestation was issued.
+Hosted attempt 2 passed frozen installation and failed closed before attestation because the root runtime build output was absent. The workflow dependency order is corrected.
 
 ## Next
 

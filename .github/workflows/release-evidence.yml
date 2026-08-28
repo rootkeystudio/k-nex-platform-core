@@ -29,7 +29,7 @@ jobs:
       - name: Install exact dependencies
         run: pnpm install --frozen-lockfile
       - name: Build deployable application and evidence tooling
-        run: pnpm --filter @k-nex/contracts build && pnpm --filter @k-nex/composition build && pnpm --dir fixtures/customer-alpha build
+        run: pnpm --filter @k-nex/contracts build && pnpm --filter @k-nex/composition build && pnpm --filter @k-nex/runtime build && pnpm --dir fixtures/customer-alpha build
       - name: Generate deployable bundle, SBOM, and closure-bound predicates
         run: |
           node scripts/generate-release-evidence.mjs \
