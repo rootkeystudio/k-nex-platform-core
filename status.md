@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Hosted attestation bundles are now renamed to filesystem-portable evidence paths before publication, and the upload action is pinned to its Node 24-compatible v5 release.
+Gate 8 now ingests committed GitHub/Sigstore bundles for the deterministic deployable application and canonical package manifest, re-verifies them with `gh`, constrains repository/hosted-runner/source identity, and reconciles the complete bundle closure and materials.
 
 ## Validation
 
-Hosted attempt 4 issued and reverified application, manifest, and SBOM attestations; publication alone failed closed because GitHub's digest-derived filenames contain colons. Portable evidence naming is corrected.
+Hosted release-evidence run 33189636126 PASS at source `2727212`; application, manifest, and CycloneDX attestations issued, downloaded, locally reverified, and published. Direct `node scripts/gate-8.mjs` PASS with committed bundles and refreshed customer/fleet evidence.
 
 ## Next
 
-Close the remaining PR 23 project-manager blockers in documented Phase 8 scope, then run the full Gate 8.
+Refresh the Phase 8 result and run the complete `pnpm gate:8` on the final evidence head.
 
 ## Blockers
 

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -32,6 +33,33 @@ assert.match(workflow, /predicate-type:\s*https:\/\/k-nex\.dev\/provenance\/v1/u
 assert.match(workflow, /predicate-path:\s*release-evidence\/provenance-predicate\.json/u);
 assert.match(workflow, /gh attestation verify[\s\S]*--predicate-type https:\/\/k-nex\.dev\/provenance\/v1/u);
 assert.doesNotMatch(workflow, /SLSA Build L[0-9]/u);
+
+const hostedRoot = resolve(root, "release-evidence/phase-8");
+const hostedBundlePath = resolve(hostedRoot, "customer-alpha.application-bundle.json");
+const hostedManifestPath = resolve(hostedRoot, "release-manifest.json");
+const verifyHosted = (subject, bundle, predicateType) => JSON.parse(execFileSync("gh", [
+  "attestation", "verify", subject, "--bundle", bundle, "--repo", "rootkeystudio/k-nex-platform-core",
+  "--predicate-type", predicateType, "--format", "json"
+], { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 }));
+const hostedApplicationVerification = verifyHosted(hostedBundlePath, resolve(hostedRoot, "hosted/application/application-attestation.jsonl"), "https://k-nex.dev/provenance/v1");
+const hostedManifestVerification = verifyHosted(hostedManifestPath, resolve(hostedRoot, "hosted/manifest/manifest-attestation.jsonl"), "https://k-nex.dev/release-manifest/v1");
+assert.ok(hostedApplicationVerification.length >= 1 && hostedManifestVerification.length >= 1, "Hosted Sigstore bundles must verify locally.");
+const hostedProvenance = readJson("release-evidence/phase-8/provenance.json");
+assertPhase8SourceRelease(root, hostedProvenance.predicate.sourceCommit);
+assert.equal(hostedApplicationVerification[0].verificationResult.signature.certificate.sourceRepositoryDigest, hostedProvenance.predicate.sourceCommit);
+assert.equal(hostedApplicationVerification[0].verificationResult.signature.certificate.githubWorkflowRepository, "rootkeystudio/k-nex-platform-core");
+assert.equal(hostedApplicationVerification[0].verificationResult.signature.certificate.runnerEnvironment, "github-hosted");
+const hostedBundle = readJson("release-evidence/phase-8/customer-alpha.application-bundle.json");
+const hostedReleaseManifest = readJson("release-evidence/phase-8/release-manifest.json");
+assert.equal(hostedBundle.releaseManifestDigest, sha256(canonicalJson(hostedReleaseManifest)));
+assert.equal(hostedBundle.closureDigest, sha256(canonicalJson(hostedReleaseManifest.packages)));
+for (const file of hostedBundle.files) assert.equal(file.digest, sha256(Buffer.from(file.content, "base64")), `Deployable bundle file digest differs: ${file.path}`);
+const bundledPackages = hostedBundle.files.filter(({ path }) => path.startsWith("packages/"));
+assert.equal(bundledPackages.length, hostedReleaseManifest.packages.length, "Deployable bundle must carry the complete release package closure.");
+const hostedMaterials = new Map(hostedProvenance.predicate.materials.map(({ name, digest }) => [name, digest]));
+for (const name of ["application-manifest", "lockfile", "resolved-graph-or-plan", "sbom", "package-release-manifest", "release-closure", "generated-application-tree", "application-build-output"]) {
+  assert.match(hostedMaterials.get(name) ?? "", /^sha256:[0-9a-f]{64}$/u, `Hosted provenance is missing material: ${name}`);
+}
 
 const supportManifest = readJson("releases/0.2.0/package-release-manifest.json");
 const priorManifest = readJson("releases/0.1.0/package-release-manifest.json");

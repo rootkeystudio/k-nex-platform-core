@@ -7,7 +7,7 @@ import { gunzipSync } from "node:zlib";
 
 const runGit = (root, args, options = {}) => execFileSync("git", args, { cwd: root, ...options });
 const sha512 = (content) => `sha512-${createHash("sha512").update(content).digest("base64")}`;
-const phaseSevenFinal = "9056043602fc046537978167e4f23bfcb53c1616";
+const phaseSevenFinal = "7e89949e17c0edcded2fe67e41b518d31ada4ba1";
 const releaseManifest = /^releases\/[^/]+\/package-release-manifest\.json$/u;
 const artifact = /^fixtures\/customer-gate-1\/packages\/[^/]+\.tgz$/u;
 
@@ -55,7 +55,7 @@ export function assertPhase8SourceTopology(root, sourceCommit, finalHead = "HEAD
 export function assertPhase8SourceRelease(root, sourceCommit, finalHead = "HEAD") {
   assertPhase8SourceTopology(root, sourceCommit, finalHead);
   const currentManifests = readdirSync(resolve(root, "releases"), { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
+    .filter((entry) => entry.isDirectory() && /^\d+\.\d+\.\d+$/u.test(entry.name))
     .map(({ name }) => `releases/${name}/package-release-manifest.json`).sort();
   const sourceManifests = trackedPaths(root, sourceCommit, releaseManifest);
   assert.deepEqual(sourceManifests, currentManifests, "Source release manifest set differs from the final tree.");

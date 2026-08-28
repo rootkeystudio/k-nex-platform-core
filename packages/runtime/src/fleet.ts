@@ -29,6 +29,7 @@ export interface SecurityPatchPlan {
   readonly targetReleaseManifestDigest: string;
   readonly targetFrameworkDigest: string;
   readonly targetClosure: readonly { readonly package: string; readonly version: string; readonly integrity: string }[];
+  readonly targetDeploymentClosure: readonly { readonly package: string; readonly version: string; readonly integrity: string }[];
   readonly baseInventoryDigest: string;
   readonly operations: readonly ["update-lockfile", "plan-upgrade", "run-migrations", "deploy-and-receipt"];
 }
@@ -101,6 +102,8 @@ export class FleetRegistry {
       const current = inventory.packages.find((entry) => entry.package === packageName)!;
       if (gt(current.version, targetVersion, { loose: false })) throw new FleetEvidenceError("PATCH_INVALID", "Security patch target must not regress an affected deployment.");
       const targetClosure = Object.freeze([...targetRelease.packages].map(({ package: targetPackage, version, integrity }) => Object.freeze({ package: targetPackage, version, integrity })).sort((left, right) => left.package.localeCompare(right.package)));
+      const targetByPackage = new Map(targetClosure.map((entry) => [entry.package, entry]));
+      const targetDeploymentClosure = Object.freeze(inventory.packages.map((entry) => targetByPackage.get(entry.package) ?? entry).sort((left, right) => left.package.localeCompare(right.package)));
       const plan = Object.freeze({
         applicationId: inventory.applicationId,
         repository: inventory.repository,
@@ -113,6 +116,7 @@ export class FleetRegistry {
         targetReleaseManifestDigest: verifiedTarget.digest,
         targetFrameworkDigest: `sha256:${createHash("sha256").update(canonicalJson(targetRelease.framework)).digest("hex")}`,
         targetClosure,
+        targetDeploymentClosure,
         baseInventoryDigest: runtimeInventoryDigest(inventory),
         operations: Object.freeze(["update-lockfile", "plan-upgrade", "run-migrations", "deploy-and-receipt"] as const)
       });
@@ -132,7 +136,7 @@ export class FleetRegistry {
     try { target = this.#authority.read(evidence); } catch { throw new FleetEvidenceError("EVIDENCE_INVALID", "Security patch result requires verified deployment evidence."); }
     const closure = [...target.inventory.packages].sort((left, right) => left.package.localeCompare(right.package));
     if (target.inventory.applicationId !== plan.applicationId || target.inventory.environment !== plan.environment ||
-      target.inventory.platformRelease !== plan.targetRelease || canonicalJson(closure) !== canonicalJson(plan.targetClosure) ||
+      target.inventory.platformRelease !== plan.targetRelease || canonicalJson(closure) !== canonicalJson(plan.targetDeploymentClosure) ||
       target.inventory.health.status !== "ready" || target.inventory.migrationRevision <= current.inventory.migrationRevision) {
       throw new FleetEvidenceError("PATCH_INVALID", "Security patch result does not match the complete verified target release transition.");
     }

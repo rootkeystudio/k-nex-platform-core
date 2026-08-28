@@ -109,10 +109,11 @@ export function createDeploymentEvidenceAuthority(input: {
         receipt.approvedBy.kind !== "workflow" || receipt.approvedBy.identity !== input.trustedDeploymentWorkflow) throw new Error("Deployment evidence workflow identity is not trusted.");
       const material = new Map(releaseAttestation.materials.map((entry) => [entry.name, entry.digest]));
       const releasedPackages = [...packageRelease.manifest.packages].map(({ package: packageName, version, integrity }) => ({ package: packageName, version, integrity })).sort((left, right) => left.package.localeCompare(right.package));
-      const observedPackages = [...inventory.packages].sort((left, right) => left.package.localeCompare(right.package));
+      const observedPackages = inventory.packages.filter((entry) => entry.package.startsWith("@k-nex/")).sort((left, right) => left.package.localeCompare(right.package));
       if (releaseAttestation.subjectDigest !== inventory.artifactDigest || releaseAttestation.sourceCommit !== inventory.releaseEvidence.sourceCommit ||
         packageRelease.attestation.workflowIdentity !== releaseAttestation.workflowIdentity || packageRelease.attestation.sourceCommit !== releaseAttestation.sourceCommit ||
-        packageRelease.manifest.release.version !== inventory.platformRelease || canonicalJson(releasedPackages) !== canonicalJson(observedPackages) ||
+        packageRelease.manifest.release.version !== inventory.platformRelease || observedPackages.length === 0 || observedPackages.some((observed) =>
+          !releasedPackages.some((released) => canonicalJson(released) === canonicalJson(observed))) ||
         runtimeInventoryDigest(inventory) !== receipt.inventoryDigest || !reconcileDeploymentReceipt(receipt, inventory) ||
         material.get("application-manifest") !== inventory.releaseEvidence.manifestDigest || material.get("lockfile") !== inventory.releaseEvidence.lockfileDigest ||
         material.get("resolved-graph-or-plan") !== inventory.releaseEvidence.resolvedGraphDigest || material.get("sbom") !== inventory.releaseEvidence.sbomDigest ||
