@@ -1,9 +1,13 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment happy-dom
+
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cloneElement, createElement, Fragment, isValidElement, useState, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { canonicalJson, type DataSourceDescriptor } from "@k-nex/contracts";
-import { createPuckBuilderAdapter } from "@k-nex/builder-puck";
-import { createUiDocumentRuntime, createUiRuntimeRegistry, presentUiRuntimeResult } from "@k-nex/ui-runtime";
+import { createPuckBuilderAdapter, type PuckBlockBridge } from "@k-nex/builder-puck";
+import { createUiDocumentRuntime, createUiRuntimeRegistry, presentUiRuntimeNode, presentUiRuntimeResult } from "@k-nex/ui-runtime";
 import { createGenericPuckBlockBridges, genericPuckBlockBridges } from "../src/index.js";
 
 const genericSource: DataSourceDescriptor = {
@@ -44,6 +48,38 @@ const typedSource: DataSourceDescriptor = {
   ]
 };
 
+function StatefulInput({ label }: { readonly label: string }) {
+  const [value, setValue] = useState(label);
+  return createElement("label", null, label, createElement("input", {
+    "aria-label": label,
+    value,
+    onChange: (event: { readonly target: { readonly value: string } }) => setValue(event.target.value)
+  }));
+}
+
+const statefulBridge: PuckBlockBridge = {
+  definition: {
+    id: "content.stateful-proof",
+    version: 1,
+    profiles: ["cms"],
+    surfaces: ["public"],
+    audience: "public",
+    propsSchema: { safeParse(value: unknown) {
+      if (typeof value !== "object" || value === null || Array.isArray(value) || Object.keys(value).length !== 1 || typeof (value as { label?: unknown }).label !== "string") {
+        return { success: false as const, error: new TypeError("invalid") };
+      }
+      return { success: true as const, data: { label: (value as { label: string }).label } };
+    } },
+    render: ({ props }) => ({ element: createElement(StatefulInput, { label: (props as { label: string }).label }) })
+  },
+  label: "Stateful proof",
+  fields: [{ prop: "label", label: "Label", kind: "text" }],
+  allowChildren: false,
+  defaultProps: { label: "Stateful" }
+};
+
+afterEach(cleanup);
+
 describe("generic Puck block library", () => {
   const actor = { authenticated: false, permissions: new Set<string>() };
   const nestedBridge = (id: string) => genericPuckBlockBridges.find(({ definition }) => definition.id === id)!;
@@ -51,7 +87,12 @@ describe("generic Puck block library", () => {
     const definition = adapter.config.components[component.type] as { render: (props: Record<string, unknown>) => unknown };
     const storedChildren = component.props.__kNexChildren;
     const renderedChildren = Array.isArray(storedChildren)
-      ? storedChildren.map((child) => renderEditorComponent(adapter, child as { readonly type: string; readonly props: Record<string, unknown> }))
+      ? storedChildren.map((child) => {
+        const stored = child as { readonly type: string; readonly props: Record<string, unknown> };
+        const rendered = renderEditorComponent(adapter, stored);
+        const key = String(stored.props.id);
+        return isValidElement(rendered) ? cloneElement(rendered, { key }) : createElement(Fragment, { key }, rendered as ReactNode);
+      })
       : [];
     return definition.render({ ...component.props, __kNexChildren: renderedChildren });
   };
@@ -136,6 +177,49 @@ describe("generic Puck block library", () => {
 
     const stackMarkup = renderToStaticMarkup(presentUiRuntimeResult(runtime.render({ document: adapter.fromPuckData(adapter.toPuckData({ id: "content.nested-stack", version: 1, schemaVersion: 1, profile: "cms", regions: { main: [documents[0]!.root] } })), surface: "public", actor })) as Parameters<typeof renderToStaticMarkup>[0]);
     expect(stackMarkup).toMatch(/data-k-nex-component="stack"[\s\S]*data-k-nex-component="card"[\s\S]*Nested text/);
+  });
+
+  it("keeps nested state with canonical node IDs after production and Puck reorder", () => {
+    const stack = nestedBridge("content.stack");
+    const bridges = [stack, statefulBridge];
+    const adapter = createPuckBuilderAdapter({ blocks: bridges, preview: { surface: "public", actor } });
+    const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: bridges.map(({ definition }) => definition), sources: [] }));
+    const child = (id: string, label: string) => ({ id, type: statefulBridge.definition.id, version: 1, props: { label } });
+    const root = { id: "stateful-stack", type: stack.definition.id, version: 1, props: stack.defaultProps, children: [child("alpha", "Alpha"), child("beta", "Beta")] };
+    const document = { id: "content.stateful-reorder", version: 1, schemaVersion: 1 as const, profile: "cms" as const, regions: { main: [root] } };
+    const reordered = { ...document, regions: { main: [{ ...root, children: [root.children[1]!, root.children[0]!] }] } };
+    const present = (value: unknown) => presentUiRuntimeResult(runtime.render({ document: value, surface: "public", actor })) as Parameters<typeof render>[0];
+    const warning = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      const production = render(present(document));
+      fireEvent.change(production.getByLabelText("Alpha"), { target: { value: "alpha-production" } });
+      fireEvent.change(production.getByLabelText("Beta"), { target: { value: "beta-production" } });
+      production.rerender(present(reordered));
+      expect((production.getByLabelText("Alpha") as HTMLInputElement).value).toBe("alpha-production");
+      expect((production.getByLabelText("Beta") as HTMLInputElement).value).toBe("beta-production");
+      production.unmount();
+
+      const initialData = adapter.toPuckData(document);
+      const reloaded = adapter.fromPuckData(initialData);
+      const reloadedRoot = reloaded.regions.main![0]!;
+      const reloadedChildren = reloadedRoot.children!;
+      const reorderedReload = { ...reloaded, regions: { ...reloaded.regions, main: [{ ...reloadedRoot, children: [reloadedChildren[1]!, reloadedChildren[0]!] }] } };
+      const preview = render(renderEditorComponent(adapter, initialData.content[0] as { readonly type: string; readonly props: Record<string, unknown> }) as Parameters<typeof render>[0]);
+      fireEvent.change(preview.getByLabelText("Alpha"), { target: { value: "alpha-preview" } });
+      fireEvent.change(preview.getByLabelText("Beta"), { target: { value: "beta-preview" } });
+      const reorderedData = adapter.toPuckData(reorderedReload);
+      preview.rerender(renderEditorComponent(adapter, reorderedData.content[0] as { readonly type: string; readonly props: Record<string, unknown> }) as Parameters<typeof render>[0]);
+      expect((preview.getByLabelText("Alpha") as HTMLInputElement).value).toBe("alpha-preview");
+      expect((preview.getByLabelText("Beta") as HTMLInputElement).value).toBe("beta-preview");
+
+      const productionResult = runtime.render({ document, surface: "public", actor });
+      if (!productionResult.success) throw new Error("Expected production presentation.");
+      render(presentUiRuntimeNode(productionResult.regions.main![0]!, [createElement("span", { key: "alpha" }, "Injected")]) as Parameters<typeof render>[0]);
+      expect(warning.mock.calls.flat().join(" ")).not.toContain('unique "key"');
+    } finally {
+      warning.mockRestore();
+    }
   });
 
   it("renders a bound DataTable and keeps an unconfigured form disabled", () => {

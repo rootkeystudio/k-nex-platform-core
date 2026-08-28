@@ -2,14 +2,19 @@ import type { UiDocumentRuntimeResult, UiRuntimeNodeResult } from "./document-ru
 
 export interface UiRuntimeComposablePresentation {
   readonly element: unknown;
-  readonly composeChildren: (children: readonly unknown[]) => unknown;
+  readonly composeChildren: (children: readonly UiRuntimeChildPresentation[], injectedChildren: readonly unknown[]) => unknown;
 }
 
-function presentOutput(output: unknown, children: readonly unknown[]): unknown {
+export interface UiRuntimeChildPresentation {
+  readonly nodeId: string;
+  readonly presentation: unknown;
+}
+
+function presentOutput(output: unknown, children: readonly UiRuntimeChildPresentation[], injectedChildren: readonly unknown[]): unknown {
   if (output === null || typeof output !== "object" || Array.isArray(output)) return "Unsupported block presentation";
   const view = output as Record<string, unknown>;
   if (Object.hasOwn(view, "element") && view.element !== undefined) {
-    if (typeof view.composeChildren === "function") return (view.composeChildren as UiRuntimeComposablePresentation["composeChildren"])(children);
+    if (typeof view.composeChildren === "function") return (view.composeChildren as UiRuntimeComposablePresentation["composeChildren"])(children, injectedChildren);
     return view.element;
   }
   if (view.kind === "text" && typeof view.text === "string") return view.text;
@@ -30,12 +35,13 @@ function joinPresentations(values: readonly unknown[]): unknown {
 
 /** Browser-safe presentation shared by production surfaces and editor preview. */
 export function presentUiRuntimeNode(node: UiRuntimeNodeResult, injectedChildren: readonly unknown[] = []): unknown {
-  const children = [...node.children.map((child) => presentUiRuntimeNode(child)), ...injectedChildren];
-  if (node.status === "fallback") return joinPresentations([`Unavailable: ${node.reason}`, ...children]);
-  const current = presentOutput(node.output, children);
+  const children = node.children.map((child) => ({ nodeId: child.nodeId, presentation: presentUiRuntimeNode(child) }));
+  const childValues = children.map(({ presentation }) => presentation);
+  if (node.status === "fallback") return joinPresentations([`Unavailable: ${node.reason}`, ...childValues, ...injectedChildren]);
+  const current = presentOutput(node.output, children, injectedChildren);
   return typeof node.output === "object" && node.output !== null && !Array.isArray(node.output) && typeof (node.output as Record<string, unknown>).composeChildren === "function"
     ? current
-    : joinPresentations([current, ...children]);
+    : joinPresentations([current, ...childValues, ...injectedChildren]);
 }
 
 export function presentUiRuntimeResult(result: UiDocumentRuntimeResult, region = "main"): unknown {

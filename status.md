@@ -7,16 +7,16 @@
 
 ## Last completed
 
-PR 22 remains rebased onto accepted Phase 6 on `main`. Code-bearing remediation head `5fdaf44` makes source descriptors own offset/cursor capabilities, rejects unsupported modes before dispatch, prevents DataTable presets from exceeding source authority, and returns stable `INVALID_CURSOR` 400 problems for malformed or changed Sales cursors. The former Socket.IO fixed-delay race now waits on the bounded denial condition and passes a 20-run focused stress proof.
+PR 22 remains rebased onto accepted Phase 6 on `main`. The latest remediation preserves each canonical nested `UiNode.id` through the React-free runtime presentation boundary, applies that identity only inside the React adapter, and keeps Puck-injected child identity in a separate keyed namespace. A stateful same-type-child regression proves production and serialized/reloaded Puck renders retain distinct state across canonical reorder and fail on any React missing-key warning.
 
 ## Validation
 
-Local frozen install and the complete Gate 7 pass with `GATE_7_PASS`, including source-declared pagination, authenticated Sales continuation, deterministic realtime bounds, and the keyboard-only DataGrid path. Documentation validation and `git diff --check` pass; the audit reports no high or critical vulnerabilities (two low and three moderate). Exact code-bearing head workflow run `33133363385` passed on attempt 1; the final docs-only closeout head must receive the same exact-head check.
+Local frozen install, focused UI runtime and builder-block suites, and the complete Gate 7 pass with `GATE_7_PASS`, including the nested identity/state regression and warning capture. Documentation validation, audit, and `git diff --check` are rerun before push; the immutable exact-head workflow result is recorded in PR evidence after GitHub creates it.
 
 ## Next
 
-Validate the docs-only closeout head, then obtain the final project-manager decision. Leave PR 22 draft/open without auto-merge.
+Push the nested identity remediation, obtain a first-attempt exact-head workflow pass, refresh PR evidence, then obtain the final project-manager decision. Leave PR 22 draft/open without auto-merge.
 
 ## Blockers
 
-No implementation blocker. Final docs-head CI and external project-manager acceptance remain pending.
+No implementation blocker. Exact-head CI and external project-manager acceptance remain pending.

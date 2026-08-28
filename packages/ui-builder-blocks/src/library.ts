@@ -1,10 +1,10 @@
 import { snapshotPuckBlockBridge, reconcilePuckBlockContribution, type PuckBlockAuthoring, type PuckBlockBridge } from "@k-nex/builder-puck";
 import { assertJsonValue, ResourceIdSchema, resolveDataSourceFieldSelection, TableRecordsSchema, type DataSourceDescriptor, type JsonValue, type RuntimeSchema } from "@k-nex/contracts";
-import { createElement, useState, type ReactElement, type ReactNode } from "react";
+import { createElement, Fragment, useState, type ReactElement, type ReactNode } from "react";
 import { Accordion, Alert, Card, EmptyState, Grid, Heading, Section, Stack, Tabs, Text } from "@k-nex/ui-components";
 import { createDataTableState, DataTable, defineDataTable, Metric, type DataTableRequestState } from "@k-nex/ui-data";
 import { Form, FormActions, Select, TextInput } from "@k-nex/ui-forms";
-import { defineSourceQuery, type UiBlockDefinition, type UiContributionDefinition, type UiBlockRenderInput } from "@k-nex/ui-runtime";
+import { defineSourceQuery, type UiBlockDefinition, type UiContributionDefinition, type UiBlockRenderInput, type UiRuntimeChildPresentation } from "@k-nex/ui-runtime";
 
 type FieldKind = "text" | "textarea" | "number" | "boolean";
 interface GenericField { readonly prop: string; readonly label: string; readonly kind: FieldKind; readonly defaultValue: JsonValue; }
@@ -203,6 +203,13 @@ function genericElement(spec: GenericBlock, props: Record<string, JsonValue>, in
   throw new TypeError(`Unsupported generic block: ${spec.id}`);
 }
 
+function reactChildren(canonical: readonly UiRuntimeChildPresentation[], injected: readonly unknown[]): readonly ReactNode[] {
+  return [
+    ...(canonical.length === 0 ? [] : [createElement(Fragment, { key: "k-nex:canonical" }, canonical.map(({ nodeId, presentation }) => createElement(Fragment, { key: nodeId }, presentation as ReactNode)))]),
+    ...(injected.length === 0 ? [] : [createElement(Fragment, { key: "k-nex:injected" }, injected as readonly ReactNode[])])
+  ];
+}
+
 function propsSchema(fields: readonly GenericField[]): RuntimeSchema<Record<string, JsonValue>> {
   return Object.freeze({ safeParse(value: unknown) {
     if (value === null || typeof value !== "object" || Array.isArray(value)) return { success: false as const, error: new TypeError("invalid") };
@@ -233,7 +240,7 @@ function genericBridge(spec: GenericBlock, options: GenericPuckBlockOptions): Pu
       accessibility: Object.freeze({ role: spec.role, label: String((input.props as Record<string, unknown>)[spec.fields[0]!.prop]) }),
       props: input.props,
       element: genericElement(spec, input.props as Record<string, JsonValue>, input, options.form),
-      ...(spec.allowChildren ? { composeChildren: (children: readonly unknown[]) => genericElement(spec, input.props as Record<string, JsonValue>, input, options.form, children as readonly ReactNode[]) } : {}),
+      ...(spec.allowChildren ? { composeChildren: (children: readonly UiRuntimeChildPresentation[], injectedChildren: readonly unknown[]) => genericElement(spec, input.props as Record<string, JsonValue>, input, options.form, reactChildren(children, injectedChildren)) } : {}),
       ...(input.sourceResult === undefined ? {} : { state: input.sourceResult.state })
     })
   };
