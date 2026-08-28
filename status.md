@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Gate 8 now ingests committed GitHub/Sigstore bundles for the deterministic deployable application and canonical package manifest, re-verifies them with `gh`, constrains repository/hosted-runner/source identity, and reconciles the complete bundle closure and materials.
+The immutable Sales release snapshots now share the accepted Phase 7+ Pages/data-table ABI while preserving distinct prior migration and security behavior; all packed artifacts and frozen locks were regenerated from the final build.
 
 ## Validation
 
-Hosted release-evidence run 33189636126 PASS at source `2727212`; application, manifest, and CycloneDX attestations issued, downloaded, locally reverified, and published. Direct `node scripts/gate-8.mjs` PASS with committed bundles and refreshed customer/fleet evidence.
+Full Gate 8 attempt 1 passed Phase 0 generation/validation and broad suites, then failed closed when the immutable Sales snapshot lacked required `paginationModes`. Snapshot parity and closure checks now PASS; new hosted evidence is required for the changed subject.
 
 ## Next
 
-Refresh the Phase 8 result and run the complete `pnpm gate:8` on the final evidence head.
+Regenerate hosted evidence for the corrected closure, refresh results, and rerun the complete Gate 8.
 
 ## Blockers
 

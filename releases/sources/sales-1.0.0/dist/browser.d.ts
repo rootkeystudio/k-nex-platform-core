@@ -61,6 +61,7 @@ export declare const salesTasksQuery: import("@k-nex/ui-runtime").SourceQueryDef
         number: number;
         pageSize: number;
         hasNext: boolean;
+        nextCursor?: string | undefined;
     };
 }>;
 export declare const salesTotalPotentialRevenueQuery: import("@k-nex/ui-runtime").SourceQueryDefinition<Record<string, never>, {
@@ -181,6 +182,7 @@ export declare const salesOpportunitiesQuery: import("@k-nex/ui-runtime").Source
         number: number;
         pageSize: number;
         hasNext: boolean;
+        nextCursor?: string | undefined;
     };
 }>;
 export declare const salesCreateTaskMutation: import("@k-nex/ui-runtime").ActionMutationDefinition<import("./contracts.js").CreateTaskInput, import("./contracts.js").CreateTaskOutput>;

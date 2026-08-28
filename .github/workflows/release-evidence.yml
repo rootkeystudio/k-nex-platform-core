@@ -3,6 +3,7 @@ name: Release evidence
 on:
   workflow_dispatch:
   push:
+    branches: ["codex/phase-8-lifecycle-application-factory"]
     tags: ["v*"]
 
 permissions:

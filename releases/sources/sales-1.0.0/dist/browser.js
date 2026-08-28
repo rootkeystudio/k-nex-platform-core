@@ -15,7 +15,7 @@ export const salesTasksQuery = defineSourceQuery({
     input: salesEmptyInputRuntimeSchema,
     output: salesTasksOutputRuntimeSchema,
     defaults: {},
-    selectedFields: ["title", "status", "potential-revenue"],
+    selectedFields: ["title", "status", "potential-revenue", "private-note"],
     isEmpty: (value) => value.rows.length === 0
 });
 export const salesTotalPotentialRevenueQuery = defineSourceQuery({

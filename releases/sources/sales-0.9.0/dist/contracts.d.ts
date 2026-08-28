@@ -1,4 +1,4 @@
-import type { AgentToolDescriptor, AgentToolJsonSchema, ActionDescriptor, DataSourceDescriptor, MetricScalar, PluginPageTemplateDescriptor, PluginSettingsDescriptor, PluginSettingValue, PluginUiContributionDescriptor, RuntimeSchema, TableRecords } from "@k-nex/contracts";
+import type { AgentToolDescriptor, AgentToolJsonSchema, ActionDescriptor, DataSourceDescriptor, MetricScalar, PermissionDescriptor, PluginPageTemplateDescriptor, PluginSettingsDescriptor, PluginSettingValue, PluginUiContributionDescriptor, RuntimeSchema, TableRecords } from "@k-nex/contracts";
 export declare const salesTaskFields: NonNullable<DataSourceDescriptor["outputFields"]>;
 export declare const salesTotalPotentialRevenueDescriptor: DataSourceDescriptor;
 export declare const salesTasksDescriptor: DataSourceDescriptor;
@@ -86,21 +86,7 @@ export type SalesWorkspaceSettings = Readonly<{
     defaultPage: "overview" | "tasks" | "opportunities";
     pipelineStages: readonly string[];
 }> & Readonly<Record<string, PluginSettingValue>>;
-export declare const salesPermissionDescriptors: readonly {
-    id: string;
-    ownerPluginId: string;
-    title: string;
-    description: string;
-    audience: "public" | "authenticated" | "system";
-    resource: string;
-    operation: "write" | "read" | "manage" | "execute";
-    policy: {
-        id: string;
-        scope: "record" | "application" | "field";
-        recordScoped: boolean;
-        fieldScoped: boolean;
-    };
-}[];
+export declare const salesPermissionDescriptors: readonly PermissionDescriptor[];
 export declare const salesRouteDescriptors: readonly {
     id: string;
     ownerPluginId: string;
@@ -183,74 +169,8 @@ export declare const salesQuickCreateBlockDescriptor: PluginUiContributionDescri
 export declare const salesOpportunityListBlockDescriptor: PluginUiContributionDescriptor;
 export declare const salesOpportunityDetailBlockDescriptor: PluginUiContributionDescriptor;
 export declare const salesSettingsSummaryBlockDescriptor: PluginUiContributionDescriptor;
-export declare const salesUiComponentDescriptors: readonly {
-    id: string;
-    version: number;
-    ownerPluginId: string;
-    kind: "block" | "component";
-    propsSchema: {
-        type: "object";
-        properties: Record<string, AgentToolJsonSchema>;
-        additionalProperties: false;
-        title?: string | undefined;
-        description?: string | undefined;
-        required?: string[] | undefined;
-    };
-    profiles: ("workspace" | "cms")[];
-    surfaces: ("public" | "workspace" | "cms")[];
-    audience: "public" | "authenticated";
-    requiredStates: ("error" | "loading" | "empty" | "forbidden")[];
-    permission?: string | undefined;
-    sourcePolicy?: {
-        required: boolean;
-        contracts: {
-            id: "metric.scalar" | "table.records";
-            version: 1;
-        }[];
-        requiredFields: string[];
-    } | undefined;
-    actionPolicy?: {
-        required: boolean;
-        actions: {
-            id: string;
-            version: number;
-        }[];
-    } | undefined;
-}[];
-export declare const salesUiBlockDescriptors: readonly {
-    id: string;
-    version: number;
-    ownerPluginId: string;
-    kind: "block" | "component";
-    propsSchema: {
-        type: "object";
-        properties: Record<string, AgentToolJsonSchema>;
-        additionalProperties: false;
-        title?: string | undefined;
-        description?: string | undefined;
-        required?: string[] | undefined;
-    };
-    profiles: ("workspace" | "cms")[];
-    surfaces: ("public" | "workspace" | "cms")[];
-    audience: "public" | "authenticated";
-    requiredStates: ("error" | "loading" | "empty" | "forbidden")[];
-    permission?: string | undefined;
-    sourcePolicy?: {
-        required: boolean;
-        contracts: {
-            id: "metric.scalar" | "table.records";
-            version: 1;
-        }[];
-        requiredFields: string[];
-    } | undefined;
-    actionPolicy?: {
-        required: boolean;
-        actions: {
-            id: string;
-            version: number;
-        }[];
-    } | undefined;
-}[];
+export declare const salesUiComponentDescriptors: readonly PluginUiContributionDescriptor[];
+export declare const salesUiBlockDescriptors: readonly PluginUiContributionDescriptor[];
 export declare const salesEventDescriptors: readonly {
     id: string;
     version: number;

@@ -19,7 +19,7 @@
       "package": "@k-nex/builder-puck",
       "version": "0.0.0",
       "role": "builder",
-      "integrity": "sha512-M5J4a+tN7RMqFE62GtExHIkDomUqMDVrLvtJsPlvpViYz+/08JrYsRHh5x6gEeU6eT1zsOti8vDCnVV/+DTJzw==",
+      "integrity": "sha512-Ir/3D6g8eTQPmHwm9o9AkVy8wq6wwnwu+Q/Q0reKenT1ZBQu6DWgaloNA6rputd85iC5DpCinOw0XGgYUspoNA==",
       "peerCompatibility": {
         "core": "1.0.0",
         "payload": "3.88.0",
@@ -58,7 +58,7 @@
       "package": "@k-nex/module-sales",
       "version": "0.9.0",
       "role": "plugin",
-      "integrity": "sha512-+TIfaMUbsz4tOZvUPKpyXOb0Ds9NxsnSj9OxMxF3zxcVnCTpcMpGDbaEjbh7HQFdnFOWuN3nDHWj5O6JoqnMqA==",
+      "integrity": "sha512-T64ra/qBhPTVVvMds3Q++IVhlc2uXCC6HzLlwJMRXxUJ3w9AeC8O2LF2OJh3fPC/R/Kfy/zrRDWx+do2aT3PPg==",
       "peerCompatibility": {
         "core": "1.0.0",
         "payload": "3.88.0",
@@ -71,7 +71,7 @@
       "package": "@k-nex/payload-adapter",
       "version": "0.0.0",
       "role": "core",
-      "integrity": "sha512-aeWVlSQxx3TT+otpwLw2RM93v4xX9avjhZw8KThM1sxZ7+xET699JjeJny49OUqlONTNjrrymuwQbyxgT3sKNA==",
+      "integrity": "sha512-hzt+rQxYnXDqECpii8+KUmHH2MBMX8xi/vi9Hhvb09QEomdDjtKl+6VXU5Y1Gw1WzrXjL4J++WWpbIGRBUxscg==",
       "peerCompatibility": {
         "core": "1.0.0",
         "payload": "3.88.0",
@@ -97,7 +97,7 @@
       "package": "@k-nex/runtime",
       "version": "0.0.0",
       "role": "core",
-      "integrity": "sha512-qno6rL8n0lIOn7sPZFMiInhsc/8Vpb+FQDnKmYNe9tbDwga9AqC03IZv1WC0X6yM49gRqxxQM94j402AYMALyw==",
+      "integrity": "sha512-inZiGxLa5JATCoDMNOzrN3CfXqKVfBr449jF4NQ857SopOjXJX0pVpckmXb0Y6F/Pizl8g5EvuVIJUCCOl3jwQ==",
       "peerCompatibility": {
         "core": "1.0.0",
         "payload": "3.88.0",
@@ -136,7 +136,7 @@
       "package": "@k-nex/ui-builder-blocks",
       "version": "0.0.0",
       "role": "builder",
-      "integrity": "sha512-o0sXfKOlDj0/EaAjFNiQeLgWEkZC61YXYdfDjOEMGwpPgwQyu8fblasLlmkSrx4BtjHb+COaFiTnCWb2mFqC2g==",
+      "integrity": "sha512-MoxGwahoGfcvE/QekqVV2LhP8eRqdzb87PhkWE3GQDFpqMbhmuVTXhckSii0ftpShOUNLz8HKKX5uJhjdVSL9Q==",
       "peerCompatibility": {
         "core": "1.0.0",
         "payload": "3.88.0",
@@ -149,7 +149,7 @@
       "package": "@k-nex/ui-components",
       "version": "0.0.0",
       "role": "core",
-      "integrity": "sha512-v80vSx4SDnAxq44NllKP4xQiGzaK3lfxGOmuSHJuS7GhUPz0Pzt7Jqs3I7qtUYm+RsZ8TBVwLr3G5gn51h2r0g==",
+      "integrity": "sha512-+x3SoXm8kWTDRM0H5HLI7MkHA+v7nWaPnkfYsHeG926QGMwJsC+Bmf+Dy24rcZ4PYNUG1X/TG/EtMECXHYJ9IA==",
       "peerCompatibility": {
         "core": "1.0.0",
         "payload": "3.88.0",
@@ -162,7 +162,7 @@
       "package": "@k-nex/ui-data",
       "version": "0.0.0",
       "role": "core",
-      "integrity": "sha512-O63T0CraOmjIm9PV5OYoWdnVPelm/FHg337T+mSErtklPWZ/iqd/NLiEFneTYImRVxFym2s1kd80cdX7boFrmg==",
+      "integrity": "sha512-lFsS2MF1DKWkp8fQnZNqcfOqiv6JJSPNBAXnYUhECe7Cdbtv6FaZ54Cm6UdNpiQYfMU74vrkCrGyLju+ZQzxkw==",
       "peerCompatibility": {
         "core": "1.0.0",
         "payload": "3.88.0",
@@ -188,7 +188,7 @@
       "package": "@k-nex/ui-forms",
       "version": "0.0.0",
       "role": "core",
-      "integrity": "sha512-w8xJMaXqYRY8Es8Nak92sdFCY1v4F3hb5FVtcYp7cEtY/63YJczRJQlv5qPu80qN+0iEiraa56vW3IBT6Ett5w==",
+      "integrity": "sha512-yt/S+iYNxLcU8VRu1MlF/pTILGUb9HspIiUPNmGgjBQFe0VP4WZzz+bLC7KXtTX3yIwYOI47W+FGrdinYB1dsQ==",
       "peerCompatibility": {
         "core": "1.0.0",
         "payload": "3.88.0",
@@ -214,7 +214,7 @@
       "package": "@k-nex/ui-runtime",
       "version": "0.0.0",
       "role": "core",
-      "integrity": "sha512-I0Hyg04DR3OtwSjBOj8XyyGuoE7fyknbUU25pMTiQIBHaD1eRdbOUj0TEtWo983526zVWkE/UE1QQ1cnEwjccQ==",
+      "integrity": "sha512-Xv41Z84cNH+pirHXavy82OlF7U3tPErPqTLnEH5HFlc0j6n1Nyw0G36xTvklptcwFT194QZbM/owHCeXtIoBxg==",
       "peerCompatibility": {
         "core": "1.0.0",
         "payload": "3.88.0",
