@@ -107,7 +107,7 @@ test("boots both customer apps from packed packages and verifies protected runti
       const generatedApplication = resolve(generatedRoot, `application-${label}`);
       const generatedPlan = planCreateKnexApplication({
         applicationId, applicationName: `Gate Eight ${label}`, theme: "minimal", database: "external",
-        packageSource: { kind: "packed-mirror", directory: "../packages", releaseManifest }
+        packageSource: { kind: "packed-mirror", directory: mirror, releaseManifest }
       });
       applyCreateKnexApplication(generatedPlan, generatedApplication);
       for (const command of generatedPlan.installCommands) {

@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { relative, resolve, sep } from "node:path";
+import { resolve } from "node:path";
 
 import { applyCreateKnexApplication, planCreateKnexApplication } from "../packages/composition/dist/index.js";
 
@@ -26,14 +25,7 @@ const directory = resolve(target);
 let packageSource;
 if (releaseManifestPath !== undefined && packageMirror !== undefined) {
   const releaseManifest = JSON.parse(readFileSync(resolve(releaseManifestPath), "utf8"));
-  const mirror = resolve(packageMirror);
-  for (const entry of releaseManifest.packages ?? []) {
-    const filename = `${entry.package.slice(1).replace("/", "-")}-${entry.version}.tgz`;
-    const archive = readFileSync(resolve(mirror, filename));
-    const integrity = `sha512-${createHash("sha512").update(archive).digest("base64")}`;
-    if (integrity !== entry.integrity) throw new Error(`Packed release integrity mismatch for ${entry.package}@${entry.version}.`);
-  }
-  packageSource = { kind: "packed-mirror", directory: relative(directory, mirror).split(sep).join("/"), releaseManifest };
+  packageSource = { kind: "packed-mirror", directory: resolve(packageMirror), releaseManifest };
 }
 const plan = planCreateKnexApplication({ applicationId, applicationName, theme, database, ...(packageSource === undefined ? {} : { packageSource }) });
 if (args.includes("--plan-only")) {

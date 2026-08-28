@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
+import { gunzipSync } from "node:zlib";
 
 import { ApplicationManifestSchema, PackageReleaseManifestSchema, canonicalJson, type ApplicationManifest, type PackageReleaseManifest } from "@k-nex/contracts";
 
@@ -25,6 +26,7 @@ export interface ApplicationFactoryPlan {
   readonly applicationId: string;
   readonly digest: string;
   readonly files: Readonly<Record<string, string>>;
+  readonly artifactDigests: Readonly<Record<string, string>>;
   readonly installCommands: readonly (readonly string[])[];
 }
 
@@ -54,6 +56,30 @@ const exactDependencies = Object.freeze({
   "react": "19.2.8",
   "react-dom": "19.2.8"
 });
+
+const verifiedPlanArtifacts = new WeakMap<ApplicationFactoryPlan, ReadonlyMap<string, Uint8Array>>();
+
+function artifactFilename(packageName: string, version: string): string {
+  return `${packageName.slice(1).replace("/", "-")}-${version}.tgz`;
+}
+
+function packageIdentity(archive: Uint8Array): { readonly name: string; readonly version: string } {
+  const tar = gunzipSync(archive);
+  for (let offset = 0; offset + 512 <= tar.byteLength;) {
+    const header = tar.subarray(offset, offset + 512);
+    const name = header.subarray(0, 100).toString("utf8").replace(/\0.*$/u, "");
+    const sizeText = header.subarray(124, 136).toString("ascii").replace(/\0.*$/u, "").trim();
+    const size = Number.parseInt(sizeText || "0", 8);
+    if (!Number.isSafeInteger(size) || size < 0 || offset + 512 + size > tar.byteLength) throw new Error("Packed release archive is malformed.");
+    if (name === "package/package.json") {
+      const value = JSON.parse(tar.subarray(offset + 512, offset + 512 + size).toString("utf8")) as { name?: unknown; version?: unknown };
+      if (typeof value.name !== "string" || typeof value.version !== "string") throw new Error("Packed release package identity is missing.");
+      return { name: value.name, version: value.version };
+    }
+    offset += 512 + Math.ceil(size / 512) * 512;
+  }
+  throw new Error("Packed release archive has no package identity.");
+}
 
 function registrySource(): string {
   return `import { salesOpportunitiesCollection, salesRegistration, salesTasksCollection } from "@k-nex/module-sales/server";
@@ -150,7 +176,7 @@ function validOptions(options: CreateKnexApplicationOptions): void {
     throw new Error("Application factory options are invalid.");
   }
   if (options.packageSource !== undefined && (options.packageSource.kind !== "packed-mirror" ||
-    !/^(?:\.\.\/)*[a-zA-Z0-9._-]+(?:\/[a-zA-Z0-9._-]+)*$/u.test(options.packageSource.directory))) {
+    !options.packageSource.directory.startsWith("/") || !existsSync(options.packageSource.directory) || !lstatSync(options.packageSource.directory).isDirectory())) {
     throw new Error("Application factory packed mirror is invalid.");
   }
 }
@@ -175,12 +201,29 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
   const release = options.packageSource === undefined ? undefined : PackageReleaseManifestSchema.parse(options.packageSource.releaseManifest);
   const releasedPackages = new Map(release?.packages.map((entry) => [entry.package, entry.version]) ?? []);
   const dependencyVersions = { ...exactDependencies, [`@k-nex/theme-${options.theme}`]: "0.0.0" };
-  const artifactName = (packageName: string, version: string) => `${packageName.slice(1).replace("/", "-")}-${version}.tgz`;
+  const artifacts = new Map<string, Uint8Array>();
+  const artifactDigests: Record<string, string> = {};
+  if (release !== undefined && options.packageSource !== undefined) {
+    for (const entry of release.packages) {
+      const filename = artifactFilename(entry.package, entry.version);
+      const path = resolve(options.packageSource.directory, filename);
+      if (dirname(path) !== resolve(options.packageSource.directory) || !existsSync(path) || lstatSync(path).isSymbolicLink()) {
+        throw new Error(`Packed release artifact is unavailable for ${entry.package}@${entry.version}.`);
+      }
+      const bytes = readFileSync(path);
+      const integrity = `sha512-${createHash("sha512").update(bytes).digest("base64")}`;
+      if (integrity !== entry.integrity) throw new Error(`Packed release integrity mismatch for ${entry.package}@${entry.version}.`);
+      const identity = packageIdentity(bytes);
+      if (identity.name !== entry.package || identity.version !== entry.version) throw new Error(`Packed release package identity mismatch for ${entry.package}@${entry.version}.`);
+      artifacts.set(filename, new Uint8Array(bytes));
+      artifactDigests[filename] = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+    }
+  }
   const dependencies = Object.fromEntries(Object.entries(dependencyVersions).map(([name, version]) => {
     if (!name.startsWith("@k-nex/") || options.packageSource === undefined) return [name, version];
     const releasedVersion = releasedPackages.get(name);
     if (releasedVersion === undefined) throw new Error(`Packed release does not contain ${name}.`);
-    return [name, `file:${options.packageSource.directory}/${artifactName(name, releasedVersion)}`];
+    return [name, `file:.k-nex/packages/${artifactFilename(name, releasedVersion)}`];
   }));
   const manifest = applicationManifest(options, releasedPackages);
   const files: Record<string, string> = {
@@ -224,7 +267,7 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
   };
   if (release !== undefined && options.packageSource !== undefined) {
     const overrides = Object.fromEntries([...release.packages].sort((left, right) => left.package.localeCompare(right.package)).map((entry) => [entry.package,
-      `file:${options.packageSource!.directory}/${artifactName(entry.package, entry.version)}`]));
+      `file:.k-nex/packages/${artifactFilename(entry.package, entry.version)}`]));
     files[".npmrc"] = "link-workspace-packages=false\nshared-workspace-lockfile=false\n";
     files["pnpm-workspace.yaml"] = `packages:\n  - "."\n\nallowBuilds:\n  "cpu-features@0.0.10": false\n  "esbuild@0.18.20": true\n  "esbuild@0.25.12": true\n  "esbuild@0.28.2": true\n  "protobufjs@7.6.5": false\n  "sharp@0.35.3": true\n  "ssh2@1.17.0": false\n\noverrides:\n${Object.entries(overrides).map(([name, specifier]) => `  "${name}": "${specifier}"`).join("\n")}\n`;
   }
@@ -232,23 +275,30 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
     files["compose.yaml"] = "services:\n  postgres:\n    image: postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94\n    environment:\n      POSTGRES_DB: knex\n      POSTGRES_PASSWORD: knex\n      POSTGRES_USER: knex\n    ports:\n      - \"5432:5432\"\n    volumes:\n      - postgres-data:/var/lib/postgresql/data\nvolumes:\n  postgres-data:\n";
   }
   const orderedFiles = Object.freeze(Object.fromEntries(Object.entries(files).sort(([left], [right]) => left.localeCompare(right))));
-  const digest = `sha256:${createHash("sha256").update(canonicalJson(orderedFiles)).digest("hex")}`;
-  return Object.freeze({
+  const orderedArtifactDigests = Object.freeze(Object.fromEntries(Object.entries(artifactDigests).sort(([left], [right]) => left.localeCompare(right))));
+  const digest = `sha256:${createHash("sha256").update(canonicalJson({ files: orderedFiles, artifactDigests: orderedArtifactDigests })).digest("hex")}`;
+  const plan = Object.freeze({
     planVersion: 1,
     preset: "sales-reference",
     applicationId: options.applicationId,
     digest,
     files: orderedFiles,
+    artifactDigests: orderedArtifactDigests,
     installCommands: Object.freeze([Object.freeze(["pnpm", "install", "--lockfile-only"]), Object.freeze(["pnpm", "install", "--frozen-lockfile"])])
   });
+  verifiedPlanArtifacts.set(plan, new Map([...artifacts].map(([name, bytes]) => [name, new Uint8Array(bytes)])));
+  return plan;
 }
 
 export function applyCreateKnexApplication(plan: ApplicationFactoryPlan, targetDirectory: string): ApplicationFactoryApplyResult {
-  if (!/^sha256:[0-9a-f]{64}$/u.test(plan.digest) || plan.digest !== `sha256:${createHash("sha256").update(canonicalJson(plan.files)).digest("hex")}`) {
+  const artifacts = verifiedPlanArtifacts.get(plan);
+  if (artifacts === undefined || !/^sha256:[0-9a-f]{64}$/u.test(plan.digest) ||
+    plan.digest !== `sha256:${createHash("sha256").update(canonicalJson({ files: plan.files, artifactDigests: plan.artifactDigests })).digest("hex")}`) {
     throw new Error("Application factory plan digest is invalid.");
   }
   const target = resolve(targetDirectory);
   const paths = Object.entries(plan.files);
+  const artifactPaths = [...artifacts].map(([name, bytes]) => [`.k-nex/packages/${name}`, bytes] as const);
   const unchanged: string[] = [];
   const pending: string[] = [];
   const components = target.split("/").filter(Boolean);
@@ -268,6 +318,12 @@ export function applyCreateKnexApplication(plan: ApplicationFactoryPlan, targetD
     if (readFileSync(path, "utf8") !== content) throw new Error(`Application factory refuses to overwrite ${relativePath}.`);
     unchanged.push(relativePath);
   }
+  for (const [relativePath, bytes] of artifactPaths) {
+    const path = resolve(target, relativePath);
+    if (!existsSync(path)) { pending.push(relativePath); continue; }
+    if (lstatSync(path).isSymbolicLink() || !readFileSync(path).equals(bytes)) throw new Error(`Application factory refuses to overwrite ${relativePath}.`);
+    unchanged.push(relativePath);
+  }
   if (pending.length === 0) return Object.freeze({ written: Object.freeze([]), unchanged: Object.freeze(unchanged) });
   if (existsSync(target)) {
     if (!lstatSync(target).isDirectory() || readdirSync(target).length !== 0) throw new Error("Application factory only promotes a complete fresh application target.");
@@ -281,13 +337,21 @@ export function applyCreateKnexApplication(plan: ApplicationFactoryPlan, targetD
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, content, { encoding: "utf8", flag: "wx" });
     }
+    for (const [relativePath, bytes] of artifactPaths) {
+      const path = resolve(stage, relativePath);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, bytes, { flag: "wx" });
+    }
     for (const [relativePath, content] of paths) {
       if (readFileSync(resolve(stage, relativePath), "utf8") !== content) throw new Error("Application factory staged validation failed.");
+    }
+    for (const [relativePath, bytes] of artifactPaths) {
+      if (!readFileSync(resolve(stage, relativePath)).equals(bytes)) throw new Error("Application factory staged artifact validation failed.");
     }
     renameSync(stage, target);
   } catch (error) {
     rmSync(stage, { recursive: true, force: true });
     throw error;
   }
-  return Object.freeze({ written: Object.freeze(paths.map(([relativePath]) => relativePath)), unchanged: Object.freeze([]) });
+  return Object.freeze({ written: Object.freeze([...paths.map(([relativePath]) => relativePath), ...artifactPaths.map(([relativePath]) => relativePath)]), unchanged: Object.freeze([]) });
 }

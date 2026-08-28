@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Migration advisory locks now derive database identity from the connected PostgreSQL session; callers cannot partition the lock with a forged connection label.
+The application-factory authority now verifies every packed artifact's release integrity and embedded package identity, captures immutable bytes in its issued plan, and stages those exact bytes inside the generated app.
 
 ## Validation
 
-`vitest run tests/migration-fence.test.ts` PASS (4 tests). Real PostgreSQL migration-fence scenario PASS using two equivalent connection descriptions, including lock contention, rollback, receipt, and stale-readiness denial.
+Composition build PASS. Application-factory tests PASS (5), including direct-library tamper/wrong-identity denial and a post-plan mirror replacement that cannot change installed bytes.
 
 ## Next
 
