@@ -25,6 +25,8 @@ The final remediation makes pagination authority source-owned. Every descriptor 
 
 The nested-runtime identity follow-up is closed at the presentation boundary. Canonical child presentations carry their immutable `UiNode.id` through the React-free runtime, while the React adapter applies those IDs as stable keys in a canonical-child fragment and preserves Puck-injected children in a separate keyed fragment. Canonical and injected keys may therefore share text without colliding or rewriting Puck-owned keys. A stateful regression renders two children of the same component type, gives each distinct local state, reverses canonical order, and proves the values stay with their node IDs in both production and Puck after serialize/reload. The same proof captures `console.error` and fails on React's missing-key warning.
 
+The final sibling-boundary correction extends that identity contract beyond composable containers. Region roots, fallback-preserved children, and non-composable children now remain immutable identity-bearing lists whenever the presentation is not string-only. `@k-nex/ui-runtime` stays React-free and recognizes only lists it created; `@k-nex/ui-components` owns the shared React host adapter, which applies canonical node keys and keeps leading, canonical, and injected namespaces separate. Builder preview accepts that host adapter and wraps its root with canonical identity. Regressions prove two same-type stateful region roots, fallback children, and non-composable children keep state through reorder; production and applicable Puck serialize/reload paths pass while captured `console.error` remains free of missing-key warnings.
+
 ## Completed tasks
 
 | Task | Primary evidence |
@@ -67,7 +69,7 @@ Budgets are order-of-magnitude regression fences, not production capacity claims
 | component entry gzip | 17,300 B | 45,000 B |
 | DataTable adapter gzip | 48,321 B | 65,000 B |
 | optional rich editor gzip | 105,037 B | 120,000 B |
-| Sales pages gzip | 70,648 B | 150,000 B |
+| Sales pages gzip | 70,640 B | 150,000 B |
 | 1,000-row semantic table SSR | under 1,500 ms | 1,500 ms |
 | 10,000-item virtual list keyboard scroll in Chromium | under 500 ms | 500 ms |
 | 1,000 filter/search/pagination control transitions | under 500 ms | 500 ms |
@@ -88,9 +90,9 @@ pnpm audit --audit-level high
 git diff --check
 ```
 
-The final local candidate passes `pnpm install --frozen-lockfile`, the focused UI runtime and builder-block suites, and the complete `pnpm gate:7` chain with `GATE_7_PASS`; the builder suite includes seven passing tests and emits no React missing-key warning. Documentation validation, `pnpm audit --audit-level high`, and `git diff --check` pass, with no high or critical vulnerabilities (two low and three moderate). Exact code-bearing head `356bcd3405e7c108b30b64365d34b7894f02aeae` passed required workflow run `33136735111` on attempt 1, including Gate 7 and exact-head repository evidence; the subsequent docs-only evidence head/run is recorded in the pull-request evidence after GitHub creates it. Pack reproducibility requires consecutive raw pack bytes to match, a canonical committed gzip marker, and identical ordered exported entry names and contents. Platform-specific gzip streams or tar headers therefore cannot hide or fabricate a package-content change. Explicit aggregate declaration types make forced clean macOS and Linux `contracts.d.ts` outputs byte-identical (`20f204c2837d78891afbb194d7805957bdcf06dff36efbf78545b390af2dbba1`). The committed Sales fixture, root file-package integrity, and Gate 1 resolved application evidence are regenerated from stable clean output and pass cross-host pack checks.
+The final local candidate passes `pnpm install --frozen-lockfile`, focused UI runtime, component, builder-block, Builder/Puck, and Sales suites, and the complete `pnpm gate:7` chain with `GATE_7_PASS`; the builder suite now includes nine passing tests and emits no React missing-key warning. Documentation validation, `pnpm audit --audit-level high`, and `git diff --check` complete before push. The immutable exact-head workflow run for this complete sibling-identity remediation is recorded in pull-request evidence after GitHub creates it. Pack reproducibility requires consecutive raw pack bytes to match, a canonical committed gzip marker, and identical ordered exported entry names and contents. Platform-specific gzip streams or tar headers therefore cannot hide or fabricate a package-content change. Explicit aggregate declaration types make forced clean macOS and Linux `contracts.d.ts` outputs byte-identical (`20f204c2837d78891afbb194d7805957bdcf06dff36efbf78545b390af2dbba1`). The committed Sales fixture, root file-package integrity, and Gate 1 resolved application evidence are regenerated from stable clean output and pass cross-host pack checks.
 
-Key Phase 7 totals remain enforced by Gate 7 rather than frozen prose counts. Existing lower-gate contract/runtime/Payload/PostgreSQL and browser suites, plus the latest cursor, hidden-field, bulk, DataGrid, form, VirtualList, and nested runtime identity regressions, remain part of `gate:7`.
+Key Phase 7 totals remain enforced by Gate 7 rather than frozen prose counts. Existing lower-gate contract/runtime/Payload/PostgreSQL and browser suites, plus the latest cursor, hidden-field, bulk, DataGrid, form, VirtualList, and complete runtime sibling-identity regressions, remain part of `gate:7`.
 
 ## Limits and deferred scope
 

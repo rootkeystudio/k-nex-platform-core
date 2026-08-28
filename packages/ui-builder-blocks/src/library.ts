@@ -1,7 +1,7 @@
 import { snapshotPuckBlockBridge, reconcilePuckBlockContribution, type PuckBlockAuthoring, type PuckBlockBridge } from "@k-nex/builder-puck";
 import { assertJsonValue, ResourceIdSchema, resolveDataSourceFieldSelection, TableRecordsSchema, type DataSourceDescriptor, type JsonValue, type RuntimeSchema } from "@k-nex/contracts";
 import { createElement, Fragment, useState, type ReactElement, type ReactNode } from "react";
-import { Accordion, Alert, Card, EmptyState, Grid, Heading, Section, Stack, Tabs, Text } from "@k-nex/ui-components";
+import { Accordion, Alert, Card, EmptyState, Grid, Heading, presentUiRuntimeReact, Section, Stack, Tabs, Text } from "@k-nex/ui-components";
 import { createDataTableState, DataTable, defineDataTable, Metric, type DataTableRequestState } from "@k-nex/ui-data";
 import { Form, FormActions, Select, TextInput } from "@k-nex/ui-forms";
 import { defineSourceQuery, type UiBlockDefinition, type UiContributionDefinition, type UiBlockRenderInput, type UiRuntimeChildPresentation } from "@k-nex/ui-runtime";
@@ -205,7 +205,7 @@ function genericElement(spec: GenericBlock, props: Record<string, JsonValue>, in
 
 function reactChildren(canonical: readonly UiRuntimeChildPresentation[], injected: readonly unknown[]): readonly ReactNode[] {
   return [
-    ...(canonical.length === 0 ? [] : [createElement(Fragment, { key: "k-nex:canonical" }, canonical.map(({ nodeId, presentation }) => createElement(Fragment, { key: nodeId }, presentation as ReactNode)))]),
+    ...(canonical.length === 0 ? [] : [createElement(Fragment, { key: "k-nex:canonical" }, canonical.map(({ nodeId, presentation }) => createElement(Fragment, { key: nodeId }, presentUiRuntimeReact(presentation))))]),
     ...(injected.length === 0 ? [] : [createElement(Fragment, { key: "k-nex:injected" }, injected as readonly ReactNode[])])
   ];
 }

@@ -7,16 +7,16 @@
 
 ## Last completed
 
-PR 22 remains rebased onto accepted Phase 6 on `main`. The latest remediation preserves each canonical nested `UiNode.id` through the React-free runtime presentation boundary, applies that identity only inside the React adapter, and keeps Puck-injected child identity in a separate keyed namespace. A stateful same-type-child regression proves production and serialized/reloaded Puck renders retain distinct state across canonical reorder and fail on any React missing-key warning.
+PR 22 remains rebased onto accepted Phase 6 on `main`. The latest remediation carries immutable canonical identity through every non-string presentation list: region roots, fallback-preserved children, non-composable children, and composable containers. The React-free runtime emits opaque identity-bearing lists; the shared React host adapter applies canonical node keys while preserving separate injected-child identity.
 
 ## Validation
 
-Local frozen install, focused UI runtime and builder-block suites, and the complete Gate 7 pass with `GATE_7_PASS`, including the nested identity/state regression and warning capture. Documentation validation, audit, and `git diff --check` pass; the audit reports no high or critical vulnerabilities (two low and three moderate). Exact code-bearing head `356bcd3` passed required workflow run `33136735111` on attempt 1, including Gate 7 and exact-head repository evidence.
+Local frozen install and complete Gate 7 pass with `GATE_7_PASS`. Focused runtime (47), builder-block (9), Builder/Puck (35 plus browser), component (12), and Sales (42) tests pass. Stateful production and serialized/reloaded Puck regressions cover root, fallback, non-composable, and composable reorder paths while failing on React missing-key warnings. Exact-head CI is recorded in PR evidence after push.
 
 ## Next
 
-Validate the docs-only evidence head, refresh PR evidence, then obtain the final project-manager decision. Leave PR 22 draft/open without auto-merge.
+Push the complete sibling-identity remediation, obtain first-attempt exact-head CI, refresh PR evidence, then obtain the final project-manager decision. Leave PR 22 draft/open without auto-merge.
 
 ## Blockers
 
-No implementation blocker. Final docs-head CI and external project-manager acceptance remain pending.
+No implementation blocker. Exact-head CI and external project-manager acceptance remain pending.

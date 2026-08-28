@@ -7,7 +7,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { canonicalJson, type DataSourceDescriptor } from "@k-nex/contracts";
 import { createPuckBuilderAdapter, type PuckBlockBridge } from "@k-nex/builder-puck";
-import { createUiDocumentRuntime, createUiRuntimeRegistry, presentUiRuntimeNode, presentUiRuntimeResult } from "@k-nex/ui-runtime";
+import { presentUiRuntimeReact } from "@k-nex/ui-components";
+import { createUiDocumentRuntime, createUiRuntimeRegistry, presentUiRuntimeNode, presentUiRuntimeNodeWithIdentity, presentUiRuntimeResult } from "@k-nex/ui-runtime";
 import { createGenericPuckBlockBridges, genericPuckBlockBridges } from "../src/index.js";
 
 const genericSource: DataSourceDescriptor = {
@@ -48,6 +49,8 @@ const typedSource: DataSourceDescriptor = {
   ]
 };
 
+type EditorComponent = { readonly type: string; readonly props: Record<string, unknown> };
+
 function StatefulInput({ label }: { readonly label: string }) {
   const [value, setValue] = useState(label);
   return createElement("label", null, label, createElement("input", {
@@ -78,12 +81,32 @@ const statefulBridge: PuckBlockBridge = {
   defaultProps: { label: "Stateful" }
 };
 
+const nonComposableBridge: PuckBlockBridge = {
+  definition: {
+    id: "content.non-composable-proof",
+    version: 1,
+    profiles: ["cms"],
+    surfaces: ["public"],
+    audience: "public",
+    propsSchema: { safeParse(value: unknown) {
+      return typeof value === "object" && value !== null && !Array.isArray(value) && (value as { label?: unknown }).label === "Parent"
+        ? { success: true as const, data: { label: "Parent" } }
+        : { success: false as const, error: new TypeError("invalid") };
+    } },
+    render: () => ({ element: createElement("div", null, "Parent") })
+  },
+  label: "Non-composable proof",
+  fields: [{ prop: "label", label: "Label", kind: "text" }],
+  allowChildren: true,
+  defaultProps: { label: "Parent" }
+};
+
 afterEach(cleanup);
 
 describe("generic Puck block library", () => {
   const actor = { authenticated: false, permissions: new Set<string>() };
   const nestedBridge = (id: string) => genericPuckBlockBridges.find(({ definition }) => definition.id === id)!;
-  const renderEditorComponent = (adapter: ReturnType<typeof createPuckBuilderAdapter>, component: { readonly type: string; readonly props: Record<string, unknown> }): unknown => {
+  const renderEditorComponent = (adapter: ReturnType<typeof createPuckBuilderAdapter>, component: EditorComponent): unknown => {
     const definition = adapter.config.components[component.type] as { render: (props: Record<string, unknown>) => unknown };
     const storedChildren = component.props.__kNexChildren;
     const renderedChildren = Array.isArray(storedChildren)
@@ -96,6 +119,12 @@ describe("generic Puck block library", () => {
       : [];
     return definition.render({ ...component.props, __kNexChildren: renderedChildren });
   };
+  const renderEditorRoots = (adapter: ReturnType<typeof createPuckBuilderAdapter>, components: readonly EditorComponent[]): ReactNode =>
+    components.map((component) => {
+      const rendered = renderEditorComponent(adapter, component);
+      const key = String(component.props.id);
+      return isValidElement(rendered) ? cloneElement(rendered, { key }) : createElement(Fragment, { key }, rendered as ReactNode);
+    });
 
   it("covers the canonical generic block set and round-trips through shared definitions", () => {
     expect(genericPuckBlockBridges.map(({ label }) => label)).toEqual(["Stack", "Grid", "Section", "Heading", "Text", "Card", "Alert", "Tabs", "Accordion", "Metric", "DataTable", "Form", "EmptyState"]);
@@ -109,7 +138,7 @@ describe("generic Puck block library", () => {
     }));
     const sourceResults = { "generic-10": { state: "success" as const, data: genericRecords } };
     const actor = { authenticated: false, permissions: new Set<string>() };
-    const adapter = createPuckBuilderAdapter({ blocks: genericPuckBlockBridges, preview: { surface: "public", actor, sources: [genericSource], sourceResults } });
+    const adapter = createPuckBuilderAdapter({ blocks: genericPuckBlockBridges, preview: { surface: "public", actor, sources: [genericSource], sourceResults, present: presentUiRuntimeReact } });
     const document = { id: "content.reference", version: 1, schemaVersion: 1 as const, profile: "cms" as const, regions: { main: nodes } };
     const data = adapter.toPuckData(document);
     expect(canonicalJson(adapter.fromPuckData(data))).toBe(canonicalJson(document));
@@ -128,7 +157,14 @@ describe("generic Puck block library", () => {
       expect(runtime).toHaveProperty("accessibility.role");
       expect(runtime).toHaveProperty("element");
       const editorMarkup = renderToStaticMarkup(editor as Parameters<typeof renderToStaticMarkup>[0]);
-      const runtimeMarkup = renderToStaticMarkup((runtime as { element: Parameters<typeof renderToStaticMarkup>[0] }).element);
+      const runtimeMarkup = renderToStaticMarkup(presentUiRuntimeReact(presentUiRuntimeNodeWithIdentity({
+        status: "rendered",
+        nodeId: node.id,
+        blockId: bridge.definition.id,
+        blockVersion: bridge.definition.version,
+        output: runtime,
+        children: []
+      })) as Parameters<typeof renderToStaticMarkup>[0]);
       expect(editorMarkup).toBe(runtimeMarkup);
       const componentName = String((runtime as { component: string }).component).replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
       expect(runtimeMarkup).toContain(`data-k-nex-component="${componentName.replace(/^-/, "")}"`);
@@ -161,7 +197,7 @@ describe("generic Puck block library", () => {
       { id: "content.nested-tabs", root: { id: "tabs", type: tabs.definition.id, version: 1, props: tabs.defaultProps, children: [textNode("tab-text", "Tab content")] } },
       { id: "content.nested-accordion", root: { id: "accordion", type: accordion.definition.id, version: 1, props: accordion.defaultProps, children: [textNode("accordion-text", "Accordion content")] } }
     ];
-    const adapter = createPuckBuilderAdapter({ blocks: genericPuckBlockBridges, preview: { surface: "public", actor } });
+    const adapter = createPuckBuilderAdapter({ blocks: genericPuckBlockBridges, preview: { surface: "public", actor, present: presentUiRuntimeReact } });
     const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: genericPuckBlockBridges.map(({ definition }) => definition), sources: [] }));
 
     for (const candidate of documents) {
@@ -170,25 +206,25 @@ describe("generic Puck block library", () => {
       const reloaded = adapter.fromPuckData(data);
       expect(canonicalJson(reloaded)).toBe(canonicalJson(document));
       const production = runtime.render({ document: reloaded, surface: "public", actor });
-      const productionMarkup = renderToStaticMarkup(presentUiRuntimeResult(production) as Parameters<typeof renderToStaticMarkup>[0]);
+      const productionMarkup = renderToStaticMarkup(presentUiRuntimeReact(presentUiRuntimeResult(production)) as Parameters<typeof renderToStaticMarkup>[0]);
       const editorMarkup = renderToStaticMarkup(renderEditorComponent(adapter, data.content[0] as { readonly type: string; readonly props: Record<string, unknown> }) as Parameters<typeof renderToStaticMarkup>[0]);
       expect(editorMarkup).toBe(productionMarkup);
     }
 
-    const stackMarkup = renderToStaticMarkup(presentUiRuntimeResult(runtime.render({ document: adapter.fromPuckData(adapter.toPuckData({ id: "content.nested-stack", version: 1, schemaVersion: 1, profile: "cms", regions: { main: [documents[0]!.root] } })), surface: "public", actor })) as Parameters<typeof renderToStaticMarkup>[0]);
+    const stackMarkup = renderToStaticMarkup(presentUiRuntimeReact(presentUiRuntimeResult(runtime.render({ document: adapter.fromPuckData(adapter.toPuckData({ id: "content.nested-stack", version: 1, schemaVersion: 1, profile: "cms", regions: { main: [documents[0]!.root] } })), surface: "public", actor }))) as Parameters<typeof renderToStaticMarkup>[0]);
     expect(stackMarkup).toMatch(/data-k-nex-component="stack"[\s\S]*data-k-nex-component="card"[\s\S]*Nested text/);
   });
 
   it("keeps nested state with canonical node IDs after production and Puck reorder", () => {
     const stack = nestedBridge("content.stack");
     const bridges = [stack, statefulBridge];
-    const adapter = createPuckBuilderAdapter({ blocks: bridges, preview: { surface: "public", actor } });
+    const adapter = createPuckBuilderAdapter({ blocks: bridges, preview: { surface: "public", actor, present: presentUiRuntimeReact } });
     const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: bridges.map(({ definition }) => definition), sources: [] }));
     const child = (id: string, label: string) => ({ id, type: statefulBridge.definition.id, version: 1, props: { label } });
     const root = { id: "stateful-stack", type: stack.definition.id, version: 1, props: stack.defaultProps, children: [child("alpha", "Alpha"), child("beta", "Beta")] };
     const document = { id: "content.stateful-reorder", version: 1, schemaVersion: 1 as const, profile: "cms" as const, regions: { main: [root] } };
     const reordered = { ...document, regions: { main: [{ ...root, children: [root.children[1]!, root.children[0]!] }] } };
-    const present = (value: unknown) => presentUiRuntimeResult(runtime.render({ document: value, surface: "public", actor })) as Parameters<typeof render>[0];
+    const present = (value: unknown) => presentUiRuntimeReact(presentUiRuntimeResult(runtime.render({ document: value, surface: "public", actor }))) as Parameters<typeof render>[0];
     const warning = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
     try {
@@ -215,7 +251,81 @@ describe("generic Puck block library", () => {
 
       const productionResult = runtime.render({ document, surface: "public", actor });
       if (!productionResult.success) throw new Error("Expected production presentation.");
-      render(presentUiRuntimeNode(productionResult.regions.main![0]!, [createElement("span", { key: "alpha" }, "Injected")]) as Parameters<typeof render>[0]);
+      render(presentUiRuntimeReact(presentUiRuntimeNode(productionResult.regions.main![0]!, [createElement("span", { key: "alpha" }, "Injected")])) as Parameters<typeof render>[0]);
+      expect(warning.mock.calls.flat().join(" ")).not.toContain('unique "key"');
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it("keeps same-type region-root state with canonical node IDs after production and Puck reorder", () => {
+    const bridges = [statefulBridge];
+    const adapter = createPuckBuilderAdapter({ blocks: bridges, preview: { surface: "public", actor, present: presentUiRuntimeReact } });
+    const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: bridges.map(({ definition }) => definition), sources: [] }));
+    const root = (id: string, label: string) => ({ id, type: statefulBridge.definition.id, version: 1, props: { label } });
+    const document = { id: "content.stateful-roots", version: 1, schemaVersion: 1 as const, profile: "cms" as const, regions: { main: [root("alpha", "Alpha"), root("beta", "Beta")] } };
+    const reordered = { ...document, regions: { main: [document.regions.main[1]!, document.regions.main[0]!] } };
+    const present = (value: unknown) => presentUiRuntimeReact(presentUiRuntimeResult(runtime.render({ document: value, surface: "public", actor }))) as Parameters<typeof render>[0];
+    const warning = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      const production = render(present(document));
+      fireEvent.change(production.getByLabelText("Alpha"), { target: { value: "alpha-production" } });
+      fireEvent.change(production.getByLabelText("Beta"), { target: { value: "beta-production" } });
+      production.rerender(present(reordered));
+      expect((production.getByLabelText("Alpha") as HTMLInputElement).value).toBe("alpha-production");
+      expect((production.getByLabelText("Beta") as HTMLInputElement).value).toBe("beta-production");
+      production.unmount();
+
+      const initialData = adapter.toPuckData(document);
+      const reloaded = adapter.fromPuckData(initialData);
+      const reorderedData = adapter.toPuckData({ ...reloaded, regions: { ...reloaded.regions, main: [reloaded.regions.main![1]!, reloaded.regions.main![0]!] } });
+      const preview = render(renderEditorRoots(adapter, initialData.content as readonly EditorComponent[]) as Parameters<typeof render>[0]);
+      fireEvent.change(preview.getByLabelText("Alpha"), { target: { value: "alpha-preview" } });
+      fireEvent.change(preview.getByLabelText("Beta"), { target: { value: "beta-preview" } });
+      preview.rerender(renderEditorRoots(adapter, reorderedData.content as readonly EditorComponent[]) as Parameters<typeof render>[0]);
+      expect((preview.getByLabelText("Alpha") as HTMLInputElement).value).toBe("alpha-preview");
+      expect((preview.getByLabelText("Beta") as HTMLInputElement).value).toBe("beta-preview");
+      expect(warning.mock.calls.flat().join(" ")).not.toContain('unique "key"');
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it("keeps child state below fallback and non-composable parents without key warnings", () => {
+    const bridges = [nonComposableBridge, statefulBridge];
+    const adapter = createPuckBuilderAdapter({ blocks: bridges, preview: { surface: "public", actor, present: presentUiRuntimeReact } });
+    const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: bridges.map(({ definition }) => definition), sources: [] }));
+    const fallbackRuntime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [statefulBridge.definition], sources: [] }));
+    const child = (id: string, label: string) => ({ id, type: statefulBridge.definition.id, version: 1, props: { label } });
+    const parent = (type: string) => ({ id: "parent", type, version: 1, props: type === nonComposableBridge.definition.id ? { label: "Parent" } : {}, children: [child("alpha", "Alpha"), child("beta", "Beta")] });
+    const document = (type: string) => ({ id: `content.${type}`, version: 1, schemaVersion: 1 as const, profile: "cms" as const, regions: { main: [parent(type)] } });
+    const reorder = (value: ReturnType<typeof document>) => ({ ...value, regions: { main: [{ ...value.regions.main[0]!, children: [value.regions.main[0]!.children[1]!, value.regions.main[0]!.children[0]!] }] } });
+    const present = (value: unknown, selectedRuntime = runtime) => presentUiRuntimeReact(presentUiRuntimeResult(selectedRuntime.render({ document: value, surface: "public", actor }))) as Parameters<typeof render>[0];
+    const warning = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      for (const [type, selectedRuntime] of [[nonComposableBridge.definition.id, runtime], ["content.missing-proof", fallbackRuntime]] as const) {
+        const initial = document(type);
+        const production = render(present(initial, selectedRuntime));
+        fireEvent.change(production.getByLabelText("Alpha"), { target: { value: `${type}-alpha` } });
+        fireEvent.change(production.getByLabelText("Beta"), { target: { value: `${type}-beta` } });
+        production.rerender(present(reorder(initial), selectedRuntime));
+        expect((production.getByLabelText("Alpha") as HTMLInputElement).value).toBe(`${type}-alpha`);
+        expect((production.getByLabelText("Beta") as HTMLInputElement).value).toBe(`${type}-beta`);
+        production.unmount();
+      }
+
+      const initial = document(nonComposableBridge.definition.id);
+      const initialData = adapter.toPuckData(initial);
+      const reloaded = adapter.fromPuckData(initialData);
+      const reorderedData = adapter.toPuckData(reorder(reloaded as ReturnType<typeof document>));
+      const preview = render(renderEditorComponent(adapter, initialData.content[0] as EditorComponent) as Parameters<typeof render>[0]);
+      fireEvent.change(preview.getByLabelText("Alpha"), { target: { value: "alpha-preview" } });
+      fireEvent.change(preview.getByLabelText("Beta"), { target: { value: "beta-preview" } });
+      preview.rerender(renderEditorComponent(adapter, reorderedData.content[0] as EditorComponent) as Parameters<typeof render>[0]);
+      expect((preview.getByLabelText("Alpha") as HTMLInputElement).value).toBe("alpha-preview");
+      expect((preview.getByLabelText("Beta") as HTMLInputElement).value).toBe("beta-preview");
       expect(warning.mock.calls.flat().join(" ")).not.toContain('unique "key"');
     } finally {
       warning.mockRestore();

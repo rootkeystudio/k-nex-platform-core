@@ -3,6 +3,7 @@ import test from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { createPuckBuilderAdapter, reconcilePuckBlockContribution } from "@k-nex/builder-puck";
+import { presentUiRuntimeReact } from "@k-nex/ui-components";
 import { createUiDocumentRuntime, createUiRuntimeRegistry, presentUiRuntimeResult } from "@k-nex/ui-runtime";
 
 import {
@@ -112,10 +113,10 @@ function sourceResultFor(bridge) {
 
 test("Sales task table uses the same renderer outside Puck and through its authoring bridge", () => {
   const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: [salesTaskTableBlock], sources: [salesTasksDescriptor] }));
-  const production = presentUiRuntimeResult(runtime.render({ document, surface: "workspace", actor, sourceResults }));
+  const production = presentUiRuntimeReact(presentUiRuntimeResult(runtime.render({ document, surface: "workspace", actor, sourceResults })));
 
   const bridge = reconcilePuckBlockContribution(salesTaskTableBlock, salesTaskTablePuckAuthoring);
-  const adapter = createPuckBuilderAdapter({ blocks: [bridge], preview: { surface: "workspace", actor, sources: [salesTasksDescriptor], sourceResults } });
+  const adapter = createPuckBuilderAdapter({ blocks: [bridge], preview: { surface: "workspace", actor, sources: [salesTasksDescriptor], sourceResults, present: presentUiRuntimeReact } });
   const puckData = adapter.toPuckData(document);
   const component = adapter.config.components["sales.task-table__v2"];
   const editor = component.render(puckData.content[0].props);
@@ -175,13 +176,14 @@ test("every Sales Puck block preserves source/action authority and DOM role pari
     const output = renderedNode.output;
     if (node.bindings?.action !== undefined) assert.deepEqual(output.action, node.bindings.action);
     if (result?.state === "success") assert.deepEqual(output.data ?? output.table, result.data);
-    const production = presentUiRuntimeResult(productionResult);
+    const production = presentUiRuntimeReact(presentUiRuntimeResult(productionResult));
     const adapter = createPuckBuilderAdapter({
       blocks: salesPuckBlockBridges,
       preview: {
         surface: "workspace",
         actor,
         sources: [salesTasksDescriptor, salesOpportunitiesDescriptor, salesTotalPotentialRevenueDescriptor],
+        present: presentUiRuntimeReact,
         ...(result === undefined ? {} : { sourceResults: { reference: result } })
       }
     });

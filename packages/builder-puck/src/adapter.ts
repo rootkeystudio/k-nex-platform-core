@@ -16,7 +16,7 @@ import type { ComponentData, Config, Data, Field } from "@puckeditor/core";
 import {
   createUiDocumentRuntime,
   createUiRuntimeRegistry,
-  presentUiRuntimeNode,
+  presentUiRuntimeNodeWithIdentity,
   presentUiRuntimeResult,
   snapshotUiBlockDefinition,
   type UiBlockDefinition,
@@ -52,6 +52,7 @@ export interface PuckPreviewContext {
   readonly actor: UiRuntimeActor;
   readonly sources?: readonly DataSourceDescriptor[];
   readonly sourceResults?: Readonly<Record<string, DataSourceBindingResult<unknown>>>;
+  readonly present?: (presentation: unknown) => unknown;
 }
 
 export interface PuckBuilderAdapter {
@@ -404,12 +405,16 @@ function createConfig(bridges: ReadonlyMap<string, PuckBlockBridge>, preview?: P
           actor,
           ...(preview?.sourceResults === undefined ? {} : { sourceResults: preview.sourceResults })
         });
-        if (!result.success) return presentUiRuntimeResult(result);
+        if (!result.success) {
+          const presentation = presentUiRuntimeResult(result);
+          return preview?.present?.(presentation) ?? presentation;
+        }
         const root = result.regions.main?.[0];
         if (root === undefined) return "Unavailable: MISSING_BLOCK";
         const slot = props[childSlotKey];
         const previewChildren = slot === undefined ? [] : Array.isArray(slot) ? slot : [slot];
-        return presentUiRuntimeNode(root, previewChildren);
+        const presentation = presentUiRuntimeNodeWithIdentity(root, previewChildren);
+        return preview?.present?.(presentation) ?? presentation;
       }
     };
   }

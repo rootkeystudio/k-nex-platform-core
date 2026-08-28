@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { presentUiRuntimeResult, type UiDocumentRuntimeResult } from "../src/index.js";
+import { isUiRuntimePresentationList, presentUiRuntimeResult, type UiDocumentRuntimeResult } from "../src/index.js";
 
 describe("shared browser presentation", () => {
   it("presents Phase 4 view models and fail-closed runtime results without React", () => {
@@ -52,6 +52,11 @@ describe("shared browser presentation", () => {
         children: []
       }] }
     };
-    expect(presentUiRuntimeResult(rendered)).toBe(element);
+    const presentation = presentUiRuntimeResult(rendered);
+    expect(isUiRuntimePresentationList(presentation)).toBe(true);
+    expect(presentation).toMatchObject({
+      kind: "ui-runtime-presentation-list",
+      canonical: [{ nodeId: "section", presentation: element }]
+    });
   });
 });

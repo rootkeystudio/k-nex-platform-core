@@ -11,5 +11,5 @@
     "types": ["react"]
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "references": [{ "path": "../ui-design-system-contracts" }]
+  "references": [{ "path": "../ui-design-system-contracts" }, { "path": "../ui-runtime" }]
 }

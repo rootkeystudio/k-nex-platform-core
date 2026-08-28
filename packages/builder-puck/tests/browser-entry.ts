@@ -2,6 +2,7 @@ import "@puckeditor/core/puck.css";
 import { createRoot } from "react-dom/client";
 
 import type { DataSourceDescriptor } from "@k-nex/contracts";
+import { presentUiRuntimeReact } from "@k-nex/ui-components";
 import {
   createStaticTextBlockDefinition,
   createUiDocumentRuntime,
@@ -109,7 +110,7 @@ const profile = createPuckBuilderProfileRegistry({
     sources: [{ id: source.id, version: source.version }],
     publication: "save-layout"
   }],
-  preview: { workspace: { surface: "workspace", actor, sourceResults } }
+  preview: { workspace: { surface: "workspace", actor, sourceResults, present: presentUiRuntimeReact } }
 }).resolve("workspace");
 if (profile === undefined) throw new Error("Workspace builder profile is missing.");
 
@@ -120,7 +121,7 @@ window.__kNexDocument = uiDocument;
 const root = document.getElementById("root");
 const production = document.getElementById("production");
 if (root === null || production === null) throw new Error("Browser fixture roots are missing.");
-createRoot(production).render(presentUiRuntimeResult(productionResult));
+createRoot(production).render(presentUiRuntimeReact(presentUiRuntimeResult(productionResult)));
 createRoot(root).render(PuckFixedShellHost({
   profile,
   document: uiDocument,
