@@ -15,31 +15,45 @@ if (!/^[0-9a-f]{40}$/u.test(sourceCommit)) throw new Error("A full source commit
 const sha256 = (content) => `sha256:${createHash("sha256").update(content).digest("hex")}`;
 assertPhase8SourceRelease(repositoryRoot, sourceCommit);
 const hostedVerifier = createGitHubHostedAttestationVerifier({ repository: "rootkeystudio/k-nex-platform-core", workflow: "release-evidence.yml", predicateType: "https://k-nex.dev/provenance/v1" });
+const bundledText = (bundle, path) => {
+  const file = bundle.files.find((entry) => entry.path === path);
+  if (file === undefined || file.digest !== sha256(Buffer.from(file.content, "base64"))) throw new Error(`Hosted bundle file is missing or invalid: ${path}`);
+  return Buffer.from(file.content, "base64").toString("utf8");
+};
 
-for (const customer of ["customer-alpha", "customer-beta"]) {
+for (const [customer, target] of [["customer-alpha", false], ["customer-beta", false], ["customer-alpha", true], ["customer-beta", true]]) {
   const root = resolve(repositoryRoot, "fixtures", customer);
   const manifestPath = `fixtures/${customer}/k-nex.app.json`;
   const lockPath = `fixtures/${customer}/pnpm-lock.yaml`;
   const planPath = `fixtures/${customer}/.k-nex/application-plan.json`;
-  const applicationManifest = JSON.parse(sourceFile(repositoryRoot, sourceCommit, manifestPath).toString("utf8"));
+  const hostedRoot = target ? resolve(repositoryRoot, "release-evidence/phase-8/targets", customer) :
+    resolve(repositoryRoot, "release-evidence/phase-8", customer === "customer-alpha" ? "" : "customer-beta");
+  const bundle = JSON.parse(readFileSync(resolve(hostedRoot, `${customer}.application-bundle.json`), "utf8"));
+  const applicationManifest = target ? JSON.parse(bundledText(bundle, "application/k-nex.app.json")) :
+    JSON.parse(sourceFile(repositoryRoot, sourceCommit, manifestPath).toString("utf8"));
   const salesVersion = applicationManifest.plugins.find(({ id }) => id === "module.sales")?.version;
   if (typeof salesVersion !== "string") throw new Error(`${customer} does not declare Sales.`);
-  const hostedRoot = resolve(repositoryRoot, "release-evidence/phase-8", customer === "customer-alpha" ? "" : "customer-beta");
-  const bundle = JSON.parse(readFileSync(resolve(hostedRoot, `${customer}.application-bundle.json`), "utf8"));
   const verification = JSON.parse(readFileSync(resolve(hostedRoot, "hosted/application-verification.json"), "utf8"));
   const attestation = await hostedVerifier.verify(verification[0]);
   const materials = new Map(attestation.materials.map(({ name, digest }) => [name, digest]));
-  const plan = JSON.parse(sourceFile(repositoryRoot, sourceCommit, planPath).toString("utf8"));
+  const plan = target ? JSON.parse(bundledText(bundle, "application/.k-nex/application-plan.json")) :
+    JSON.parse(sourceFile(repositoryRoot, sourceCommit, planPath).toString("utf8"));
   const overrides = JSON.parse(readFileSync(resolve(root, "customer-overrides.json"), "utf8"));
-  const observation = JSON.parse(readFileSync(resolve(root, "deployment-observation.json"), "utf8"));
-  const lockContent = sourceFile(repositoryRoot, sourceCommit, lockPath).toString("utf8");
-  assert.equal(canonicalJson(JSON.parse(readFileSync(resolve(root, "k-nex.app.json"), "utf8"))), canonicalJson(applicationManifest), `${manifestPath} differs from source commit.`);
-  assert.equal(canonicalJson(JSON.parse(readFileSync(resolve(root, ".k-nex/application-plan.json"), "utf8"))), canonicalJson(plan), `${planPath} differs from source commit.`);
-  assert.equal(readFileSync(resolve(root, "pnpm-lock.yaml"), "utf8"), lockContent, `${lockPath} differs from source commit.`);
+  const currentObservation = JSON.parse(readFileSync(resolve(root, "deployment-observation.json"), "utf8"));
+  const observation = target ? { ...currentObservation, platformRelease: "0.2.1", migrationRevision: 8,
+    deploymentId: `deploy:${customer}:security-0.2.1`, observedAt: customer === "customer-alpha" ? "2026-08-27T13:00:00.000Z" : "2026-08-27T13:10:00.000Z",
+    deployedAt: customer === "customer-alpha" ? "2026-08-27T13:05:00.000Z" : "2026-08-27T13:15:00.000Z" } : currentObservation;
+  const lockContent = target ? bundledText(bundle, "application/pnpm-lock.yaml") : sourceFile(repositoryRoot, sourceCommit, lockPath).toString("utf8");
+  if (!target) {
+    assert.equal(canonicalJson(JSON.parse(readFileSync(resolve(root, "k-nex.app.json"), "utf8"))), canonicalJson(applicationManifest), `${manifestPath} differs from source commit.`);
+    assert.equal(canonicalJson(JSON.parse(readFileSync(resolve(root, ".k-nex/application-plan.json"), "utf8"))), canonicalJson(plan), `${planPath} differs from source commit.`);
+    assert.equal(readFileSync(resolve(root, "pnpm-lock.yaml"), "utf8"), lockContent, `${lockPath} differs from source commit.`);
+  }
   assert.equal(bundle.sourceCommit, sourceCommit);
   const resolvedLock = resolvePnpmLock(lockContent);
   const packageInventory = resolvedLock.components.map(({ name, version, integrity }) => ({ package: name, version, integrity }))
     .sort((left, right) => `${left.package}@${left.version}`.localeCompare(`${right.package}@${right.version}`));
+  assert.equal(canonicalJson(packageInventory), canonicalJson(bundle.installedPackages), `${customer} ${target ? "target" : "current"} bundle differs from its frozen lock closure.`);
   const inventory = observeRuntimeInventory({
     schemaVersion: 1,
     applicationId: customer,
@@ -72,6 +86,6 @@ for (const customer of ["customer-alpha", "customer-beta"]) {
     approvedBy: { kind: "workflow", identity: `rootkeystudio/k-nex-platform-core/.github/workflows/deploy.yml@${sourceCommit}` },
     smoke: { status: "passed", checks: observation.smokeChecks }
   });
-  writeFileSync(resolve(root, "runtime-inventory.json"), `${JSON.stringify(inventory, null, 2)}\n`, "utf8");
-  writeFileSync(resolve(root, "deployment-receipt.json"), `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
+  writeFileSync(resolve(root, target ? "security-target-runtime-inventory.json" : "runtime-inventory.json"), `${JSON.stringify(inventory, null, 2)}\n`, "utf8");
+  writeFileSync(resolve(root, target ? "security-target-deployment-receipt.json" : "deployment-receipt.json"), `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
 }

@@ -10,6 +10,7 @@ import {
 } from "../src/index.js";
 
 const digest = (character: string) => `sha256:${character.repeat(64)}`;
+const sri = (character: string) => `sha512-${createHash("sha512").update(character).digest("base64")}`;
 const sha = "a".repeat(40);
 const releaseWorkflow = `repo/release@${sha}`;
 const deploymentWorkflow = `repo/deploy@${sha}`;
@@ -20,14 +21,32 @@ const publicPem = (key: typeof releaseKeys.publicKey) => key.export({ format: "p
 const issuedAttestations = new WeakMap<object, object>();
 const releaseVerifier = { async verify(token: unknown) { const value = token !== null && typeof token === "object" ? issuedAttestations.get(token) : undefined; if (value === undefined) throw new Error("unverified hosted attestation"); return value as never; } };
 const issueAttestation = (value: object) => { const token = Object.freeze({}); issuedAttestations.set(token, value); return token; };
+const evidenceFile = (path: string, content: string) => ({ path, mode: 0o644, digest: `sha256:${createHash("sha256").update(content).digest("hex")}`, content: Buffer.from(content).toString("base64") });
+const fullClosure = (release: "0.2.1" | "0.2.0" | "0.1.0", packages: readonly { readonly package: string; readonly version: string; readonly integrity: string }[]) => [...packages,
+  ...(release === "0.2.1" ? [
+    { package: "new-target-runtime", version: "1.0.0", integrity: sri("new") },
+    { package: "semver", version: "7.8.6", integrity: sri("upgraded") }
+  ] : [
+    { package: "legacy-runtime", version: "1.0.0", integrity: sri("legacy") },
+    { package: "semver", version: "7.7.3", integrity: sri("semver") }
+  ])].sort((left, right) => `${left.package}@${left.version}`.localeCompare(`${right.package}@${right.version}`));
+const bundleFiles = (applicationId: string, packages: ReturnType<typeof fullClosure>) => {
+  const closure = canonicalJson(packages);
+  const sbom = canonicalJson({ components: packages.map((entry) => ({ name: entry.package, version: entry.version, hashes: [{
+    alg: entry.integrity.startsWith("sha512-") ? "SHA-512" : "SHA-256",
+    content: entry.integrity.startsWith("sha512-") ? Buffer.from(entry.integrity.slice(7), "base64").toString("hex") : entry.integrity.slice(7)
+  }] })) });
+  return [evidenceFile("application/k-nex.app.json", canonicalJson({ applicationId })), evidenceFile("application/pnpm-lock.yaml", `lock:${applicationId}\n`),
+    evidenceFile("evidence/pnpm-lock-runtime-closure.json", closure), evidenceFile("evidence/sbom.cdx.json", sbom)];
+};
 const releaseAuthority = createPackageReleaseManifestAuthority(releaseVerifier);
 const applicationAuthority = createApplicationBundleAuthority(releaseVerifier, releaseAuthority);
 const authority = () => createDeploymentEvidenceAuthority({ applicationBundleAuthority: applicationAuthority, packageReleaseAuthority: releaseAuthority, deploymentPublicKey: publicPem(deploymentKeys.publicKey), trustedDeploymentWorkflow: deploymentWorkflow });
 const supportManifest = {
   schemaVersion: 1, release: { version: "0.2.0", channel: "pre-v1", versioningPolicy: "semver-pre-v1", compatibilityPolicy: "exact-framework-tuple" }, framework: supportedFrameworkTuple,
   packages: [
-    { package: "@k-nex/module-sales", version: "1.0.0", role: "plugin", integrity: `sha512-${"a".repeat(86)}==`, peerCompatibility: supportedFrameworkTuple },
-    { package: "@k-nex/runtime", version: "1.0.0", role: "core", integrity: `sha512-${"d".repeat(86)}==`, peerCompatibility: supportedFrameworkTuple }
+    { package: "@k-nex/module-sales", version: "1.0.0", role: "plugin", integrity: sri("sales-current"), peerCompatibility: supportedFrameworkTuple },
+    { package: "@k-nex/runtime", version: "1.0.0", role: "core", integrity: sri("runtime-current"), peerCompatibility: supportedFrameworkTuple }
   ],
   supportWindow: { policy: "current-and-one-prior-minor", supportedReleases: ["0.2.0", "0.1.0"], securityFixes: "all-supported-releases" }
 } as const satisfies PackageReleaseManifest;
@@ -35,16 +54,16 @@ const patchManifest = {
   ...supportManifest,
   release: { ...supportManifest.release, version: "0.2.1" },
   packages: [
-    { ...supportManifest.packages[0], version: "1.0.1", integrity: `sha512-${"c".repeat(86)}==` },
-    { package: "@k-nex/contracts", version: "1.0.1", role: "core", integrity: `sha512-${"e".repeat(86)}==`, peerCompatibility: supportedFrameworkTuple }
+    { ...supportManifest.packages[0], version: "1.0.1", integrity: sri("sales-target") },
+    { package: "@k-nex/contracts", version: "1.0.1", role: "core", integrity: sri("contracts-target"), peerCompatibility: supportedFrameworkTuple }
   ],
   supportWindow: { ...supportManifest.supportWindow, supportedReleases: ["0.2.1", "0.1.0"] }
 } as const satisfies PackageReleaseManifest;
 const priorManifest = {
   ...supportManifest, release: { ...supportManifest.release, version: "0.1.0" },
   packages: [
-    { ...supportManifest.packages[0], version: "0.9.0", integrity: `sha512-${"b".repeat(86)}==` },
-    { ...supportManifest.packages[1], version: "0.9.0", integrity: `sha512-${"f".repeat(86)}==` }
+    { ...supportManifest.packages[0], version: "0.9.0", integrity: sri("sales-prior") },
+    { ...supportManifest.packages[1], version: "0.9.0", integrity: sri("runtime-prior") }
   ],
   supportWindow: { ...supportManifest.supportWindow, supportedReleases: ["0.1.0"] }
 } as const satisfies PackageReleaseManifest;
@@ -54,25 +73,33 @@ async function verifiedManifest(manifest: PackageReleaseManifest): Promise<Verif
   return releaseAuthority.verify(manifest, issueAttestation({ subjectDigest, sourceCommit: sha, workflowIdentity: releaseWorkflow, materials: [] }));
 }
 
-async function deployment(applicationId: "customer-alpha" | "customer-beta", release: "0.2.1" | "0.2.0" | "0.1.0", trusted: DeploymentEvidenceAuthority, deploymentNumber = 1, deployedAt = "2026-08-27T12:05:00.000Z", revisionOverride?: number) {
+async function deployment(applicationId: "customer-alpha" | "customer-beta", release: "0.2.1" | "0.2.0" | "0.1.0", trusted: DeploymentEvidenceAuthority, deploymentNumber = 1, deployedAt = "2026-08-27T12:05:00.000Z", revisionOverride?: number, observedPackages?: readonly { readonly package: string; readonly version: string; readonly integrity: string }[]) {
   const releaseManifest = release === "0.2.1" ? patchManifest : release === "0.2.0" ? supportManifest : priorManifest;
   const packageRelease = await verifiedManifest(releaseManifest);
   const packageReleaseDigest = releaseAuthority.read(packageRelease).digest;
-  const installedPackages = releaseManifest.packages.map(({ package: packageName, version, integrity }) => ({ package: packageName, version, integrity })).sort((left, right) => left.package.localeCompare(right.package));
+  const installedPackages = fullClosure(release, releaseManifest.packages.map(({ package: packageName, version, integrity }) => ({ package: packageName, version, integrity })));
   const migrationRevision = revisionOverride ?? (release === "0.1.0" ? 6 : release === "0.2.1" ? 8 : 7);
+  const files = bundleFiles(applicationId, installedPackages);
+  const byPath = new Map(files.map((entry) => [entry.path, entry]));
   const bundle = {
     schemaVersion: 1 as const, format: "k-nex-deployable-application-bundle/v1" as const, applicationId, sourceCommit: sha, release,
     releaseManifestDigest: packageReleaseDigest, closureDigest: `sha256:${createHash("sha256").update(canonicalJson(installedPackages)).digest("hex")}`,
-    frameworkDigest, migrationPlanDigest: digest("4"), targetMigrationRevision: migrationRevision, installedPackages, files: []
+    frameworkDigest, migrationPlanDigest: digest("4"), targetMigrationRevision: migrationRevision, installedPackages, files
   };
   const attestation = {
     subjectDigest: `sha256:${createHash("sha256").update(canonicalJson(bundle)).digest("hex")}`, sourceCommit: sha, workflowIdentity: releaseWorkflow,
-    materials: [{ name: "application-manifest", digest: digest("2") }, { name: "lockfile", digest: digest("3") }, { name: "resolved-graph-or-plan", digest: digest("4") }, { name: "sbom", digest: digest("5") }, { name: "package-release-manifest", digest: packageReleaseDigest }]
+    materials: [{ name: "application-manifest", digest: byPath.get("application/k-nex.app.json")!.digest }, { name: "lockfile", digest: byPath.get("application/pnpm-lock.yaml")!.digest },
+      { name: "lock-runtime-closure", digest: bundle.closureDigest }, { name: "resolved-graph-or-plan", digest: digest("4") },
+      { name: "sbom", digest: byPath.get("evidence/sbom.cdx.json")!.digest }, { name: "package-release-manifest", digest: packageReleaseDigest },
+      { name: "release-closure", digest: bundle.closureDigest }]
   };
   const inventory = observeRuntimeInventory({
     schemaVersion: 1, applicationId, repository: `rootkeystudio/${applicationId}`, environment: "production", platformRelease: release,
-    observedAt: "2026-08-27T12:00:00.000Z", artifactDigest: attestation.subjectDigest, releaseEvidence: { sourceCommit: sha, workflowIdentity: releaseWorkflow, manifestDigest: digest("2"), lockfileDigest: digest("3"), resolvedGraphDigest: digest("4"), frameworkDigest, sbomDigest: digest("5"), provenanceDigest: `sha256:${createHash("sha256").update(canonicalJson(attestation)).digest("hex")}` },
-    packages: releaseManifest.packages.map(({ package: packageName, version, integrity }) => ({ package: packageName, version, integrity })),
+    observedAt: "2026-08-27T12:00:00.000Z", artifactDigest: attestation.subjectDigest, releaseEvidence: { sourceCommit: sha, workflowIdentity: releaseWorkflow,
+      manifestDigest: byPath.get("application/k-nex.app.json")!.digest, lockfileDigest: byPath.get("application/pnpm-lock.yaml")!.digest,
+      resolvedGraphDigest: digest("4"), frameworkDigest, sbomDigest: byPath.get("evidence/sbom.cdx.json")!.digest,
+      provenanceDigest: `sha256:${createHash("sha256").update(canonicalJson(attestation)).digest("hex")}` },
+    packages: observedPackages ?? installedPackages,
     plugins: [{ id: "module.sales", package: "@k-nex/module-sales", version: release === "0.1.0" ? "0.9.0" : release === "0.2.1" ? "1.0.1" : "1.0.0", enabled: true }], migrationRevision,
     settings: [{ id: "sales.settings", schemaVersion: 1, revision: 1 }], templates: [{ id: "sales.page.tasks", templateVersion: 1, revision: 1 }], health: { status: "ready", checks: ["sales"] }
   });
@@ -131,8 +158,8 @@ describe("fleet evidence and patch propagation", () => {
     expect(fleet.affected("@k-nex/module-sales", "<1.0.1")).toHaveLength(2);
     const targets = [(await deployment("customer-alpha", "0.2.1", trusted)).applicationBundle, (await deployment("customer-beta", "0.2.1", trusted)).applicationBundle];
     expect(fleet.planSecurityPatch("@k-nex/module-sales", "<1.0.1", "1.0.1", await verifiedManifest(patchManifest), targets)).toEqual([
-      expect.objectContaining({ repository: "rootkeystudio/customer-alpha", targetIntegrity: `sha512-${"c".repeat(86)}==`, operations: ["update-lockfile", "plan-upgrade", "run-migrations", "deploy-and-receipt"] }),
-      expect.objectContaining({ repository: "rootkeystudio/customer-beta", targetIntegrity: `sha512-${"c".repeat(86)}==`, operations: ["update-lockfile", "plan-upgrade", "run-migrations", "deploy-and-receipt"] })
+      expect.objectContaining({ repository: "rootkeystudio/customer-alpha", targetIntegrity: sri("sales-target"), operations: ["update-lockfile", "plan-upgrade", "run-migrations", "deploy-and-receipt"] }),
+      expect.objectContaining({ repository: "rootkeystudio/customer-beta", targetIntegrity: sri("sales-target"), operations: ["update-lockfile", "plan-upgrade", "run-migrations", "deploy-and-receipt"] })
     ]);
   });
 
@@ -143,7 +170,8 @@ describe("fleet evidence and patch propagation", () => {
     const patched = await deployment("customer-alpha", "0.2.1", trusted, 2, "2026-08-27T13:05:00.000Z");
     const [plan] = fleet.planSecurityPatch("@k-nex/module-sales", "<1.0.1", "1.0.1", await verifiedManifest(patchManifest), [patched.applicationBundle]);
     expect(plan?.targetClosure).toEqual(patchManifest.packages.map(({ package: packageName, version, integrity }) => ({ package: packageName, version, integrity })).sort((left, right) => left.package.localeCompare(right.package)));
-    expect(plan?.targetDeploymentClosure.map(({ package: packageName }) => packageName)).toEqual(["@k-nex/contracts", "@k-nex/module-sales"]);
+    expect(plan?.targetDeploymentClosure.map(({ package: packageName }) => packageName)).toEqual(["@k-nex/contracts", "@k-nex/module-sales", "new-target-runtime", "semver"]);
+    expect(plan?.targetDeploymentClosure.some(({ package: packageName }) => packageName === "legacy-runtime")).toBe(false);
     expect(fleet.applySecurityPatch(plan!, patched.evidence).inventory.platformRelease).toBe("0.2.1");
     expect(fleet.affected("@k-nex/module-sales", "<1.0.1")).toHaveLength(0);
     expect(() => fleet.applySecurityPatch({ ...plan! }, patched.evidence)).toThrow("not issued");
@@ -157,6 +185,13 @@ describe("fleet evidence and patch propagation", () => {
     const unrelated = await deployment("customer-alpha", "0.2.1", trusted, 3, "2026-08-27T13:06:00.000Z", 9);
     const [plan] = fleet.planSecurityPatch("@k-nex/module-sales", "<1.0.1", "1.0.1", await verifiedManifest(patchManifest), [target.applicationBundle]);
     expect(() => fleet.applySecurityPatch(plan!, unrelated.evidence)).toThrow("complete verified target release transition");
+  });
+
+  it("rejects target observations that omit or preserve the wrong external lock dependency", async () => {
+    const trusted = authority();
+    const target = fullClosure("0.2.1", patchManifest.packages.map(({ package: packageName, version, integrity }) => ({ package: packageName, version, integrity })));
+    await expect(deployment("customer-alpha", "0.2.1", trusted, 2, "2026-08-27T13:05:00.000Z", 8, target.filter(({ package: packageName }) => packageName !== "new-target-runtime"))).rejects.toThrow("does not reconcile");
+    await expect(deployment("customer-alpha", "0.2.1", trusted, 2, "2026-08-27T13:05:00.000Z", 8, [...target, { package: "legacy-runtime", version: "1.0.0", integrity: sri("legacy") }])).rejects.toThrow("does not reconcile");
   });
 
   it("rejects a patch target absent from the trusted release manifest", async () => {

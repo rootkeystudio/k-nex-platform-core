@@ -1,21 +1,21 @@
 # Project Status
 
-- **Updated:** 2026-08-28
+- **Updated:** 2026-08-29
 - **Phase:** Phase 8 — Lifecycle, Application Factory, Release, and Fleet Safety
 - **Active task:** P8.10 — Platform-foundation closeout
-- **State:** Ready for phase review
+- **State:** In progress
 
 ## Last completed
 
-The stale packed declaration and shallow provenance checkout are fixed. The archive checker forces fresh TypeScript emits, CI fetches signed-source history, and the rebuilt release closure, deployment/Fleet evidence, and hosted attestations reconcile.
+Project-manager review found the 0.2.1 patch path still used synthetic target bundles and preserved the current external dependency closure. Remediation now binds application bundles and deployment verification to the exact complete lock/SBOM runtime closure.
 
 ## Validation
 
-Pinned Node 24.19.0 `pnpm gate:8` PASS: Gates 1–8; contracts 152, composition 84, runtime 237; five PostgreSQL proofs; 18 release artifacts; mutation tests and four Sigstore verifications. Hosted run 33202643344 PASS.
+Previous exact-head Gate 8 run 33204365892 PASS. Focused full-closure tests and replacement hosted target evidence are pending.
 
 ## Next
 
-Project-manager re-review of PR 23 after exact-head CI. Leave it open; do not merge or enable auto-merge.
+Generate and attest real Alpha/Beta 0.2.1 target applications, apply them through Fleet, then rerun Gate 8.
 
 ## Blockers
 

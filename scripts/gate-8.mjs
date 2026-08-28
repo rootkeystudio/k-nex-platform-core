@@ -38,36 +38,47 @@ const verifyHosted = (subject, bundle, predicateType) => JSON.parse(execFileSync
   "attestation", "verify", subject, "--bundle", bundle, "--repo", "rootkeystudio/k-nex-platform-core",
   "--predicate-type", predicateType, "--format", "json"
 ], { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 }));
-const evidenceLocations = {
-  "customer-alpha": { root: hostedRoot, manifest: "releases/0.2.0/package-release-manifest.json" },
-  "customer-beta": { root: resolve(hostedRoot, "customer-beta"), manifest: "releases/0.1.0/package-release-manifest.json" }
-};
 const applicationVerifier = createGitHubHostedAttestationVerifier({ repository: "rootkeystudio/k-nex-platform-core", workflow: "release-evidence.yml", predicateType: "https://k-nex.dev/provenance/v1" });
 const manifestVerifier = createGitHubHostedAttestationVerifier({ repository: "rootkeystudio/k-nex-platform-core", workflow: "release-evidence.yml", predicateType: "https://k-nex.dev/release-manifest/v1" });
 const releaseAuthority = createPackageReleaseManifestAuthority(manifestVerifier);
 const applicationAuthority = createApplicationBundleAuthority(applicationVerifier, releaseAuthority);
-const hostedTokens = new Map();
-for (const [customer, location] of Object.entries(evidenceLocations)) {
-  const bundlePath = resolve(location.root, `${customer}.application-bundle.json`);
-  const manifestPath = resolve(location.root, "release-manifest.json");
-  const applicationVerification = verifyHosted(bundlePath, resolve(location.root, "hosted/application/application-attestation.jsonl"), "https://k-nex.dev/provenance/v1");
-  const manifestVerification = verifyHosted(manifestPath, resolve(location.root, "hosted/manifest/manifest-attestation.jsonl"), "https://k-nex.dev/release-manifest/v1");
-  assert.equal(applicationVerification.length, 1); assert.equal(manifestVerification.length, 1);
-  const bundle = JSON.parse(readFileSync(bundlePath, "utf8"));
-  const manifest = readJson(location.manifest);
+const verifiedManifest = async (location, repositoryPath) => {
+  const manifestPath = resolve(location, "release-manifest.json");
+  const manifestVerification = verifyHosted(manifestPath, resolve(location, "hosted/manifest/manifest-attestation.jsonl"), "https://k-nex.dev/release-manifest/v1");
+  assert.equal(manifestVerification.length, 1);
+  const manifest = readJson(repositoryPath);
   assert.equal(canonicalJson(JSON.parse(readFileSync(manifestPath, "utf8"))), canonicalJson(manifest));
+  return releaseAuthority.verify(manifest, manifestVerification[0]);
+};
+const verifiedApplication = async (location, customer, release) => {
+  const bundlePath = resolve(location, `${customer}.application-bundle.json`);
+  const applicationVerification = verifyHosted(bundlePath, resolve(location, "hosted/application/application-attestation.jsonl"), "https://k-nex.dev/provenance/v1");
+  assert.equal(applicationVerification.length, 1);
+  const bundle = JSON.parse(readFileSync(bundlePath, "utf8"));
   for (const file of bundle.files) assert.equal(file.digest, sha256(Buffer.from(file.content, "base64")), `Deployable bundle file digest differs: ${file.path}`);
   assert.equal(bundle.closureDigest, sha256(canonicalJson(bundle.installedPackages)));
-  const release = await releaseAuthority.verify(manifest, manifestVerification[0]);
   const application = await applicationAuthority.verify(bundle, applicationVerification[0], release);
   const attestation = applicationAuthority.read(application).attestation;
   assertPhase8SourceRelease(root, attestation.sourceCommit);
-  hostedTokens.set(customer, { release, application, attestation, bundle, sbom: JSON.parse(readFileSync(resolve(location.root, "sbom.cdx.json"), "utf8")) });
-}
+  return { release, application, attestation, bundle, sbom: JSON.parse(readFileSync(resolve(location, "sbom.cdx.json"), "utf8")) };
+};
+const supportRelease = await verifiedManifest(hostedRoot, "releases/0.2.0/package-release-manifest.json");
+const priorRoot = resolve(hostedRoot, "customer-beta");
+const priorRelease = await verifiedManifest(priorRoot, "releases/0.1.0/package-release-manifest.json");
+const targetAlphaRoot = resolve(hostedRoot, "targets/customer-alpha");
+const targetBetaRoot = resolve(hostedRoot, "targets/customer-beta");
+const patchRelease = await verifiedManifest(targetAlphaRoot, "releases/0.2.1/package-release-manifest.json");
+const hostedTokens = new Map([
+  ["customer-alpha", await verifiedApplication(hostedRoot, "customer-alpha", supportRelease)],
+  ["customer-beta", await verifiedApplication(priorRoot, "customer-beta", priorRelease)]
+]);
+const targetTokens = new Map([
+  ["customer-alpha", await verifiedApplication(targetAlphaRoot, "customer-alpha", patchRelease)],
+  ["customer-beta", await verifiedApplication(targetBetaRoot, "customer-beta", patchRelease)]
+]);
 
 const sourceCommit = readJson("fixtures/customer-alpha/runtime-inventory.json").releaseEvidence.sourceCommit;
 assertPhase8SourceRelease(root, sourceCommit);
-const supportRelease = hostedTokens.get("customer-alpha").release;
 const deploymentKeys = generateKeyPairSync("ed25519");
 const deploymentAuthority = createDeploymentEvidenceAuthority({
   applicationBundleAuthority: applicationAuthority, packageReleaseAuthority: releaseAuthority,
@@ -102,12 +113,23 @@ for (const customer of ["customer-alpha", "customer-beta"]) {
 assert.deepEqual(fleet.list().map(({ inventory }) => inventory.platformRelease), ["0.2.0", "0.1.0"]);
 assert.deepEqual(fleet.affected("@k-nex/module-sales", "<1.0.1").map(({ inventory }) => inventory.applicationId), ["customer-alpha", "customer-beta"]);
 assert.deepEqual(fleet.affected("semver", "<7.8.6").map(({ inventory }) => inventory.applicationId), ["customer-alpha", "customer-beta"]);
-for (const customer of ["customer-alpha", "customer-beta"]) {
-  const patch = readJson(`fixtures/${customer}/security-patch-plan.json`);
-  assert.equal(patch.applicationId, customer);
-  assert.equal(patch.targetVersion, "1.0.1");
-  assert.deepEqual(patch.operations, ["update-lockfile", "plan-upgrade", "run-migrations", "deploy-and-receipt"]);
+const patches = fleet.planSecurityPatch("@k-nex/module-sales", "<1.0.1", "1.0.1", patchRelease, [...targetTokens.values()].map(({ application }) => application));
+for (const patch of patches) {
+  const customer = patch.applicationId;
+  assert.deepEqual(readJson(`fixtures/${customer}/security-patch-plan.json`), {
+    schemaVersion: 1, branch: `security/sales-1.0.1-${customer}`, title: `security: update Sales to 1.0.1 for ${customer}`, ...patch
+  });
+  const target = targetTokens.get(customer);
+  const inventory = RuntimeInventorySchema.parse(readJson(`fixtures/${customer}/security-target-runtime-inventory.json`));
+  const receipt = DeploymentReceiptSchema.parse(readJson(`fixtures/${customer}/security-target-deployment-receipt.json`));
+  const evidence = await deploymentAuthority.verify({
+    observe: async () => structuredClone(inventory), receipt: signDeploymentReceipt(receipt, deploymentKeys.privateKey.export({ format: "pem", type: "pkcs8" }).toString()),
+    applicationBundle: target.application, packageRelease: patchRelease
+  });
+  assert.equal(fleet.applySecurityPatch(patch, evidence).inventory.platformRelease, "0.2.1");
 }
+assert.deepEqual(fleet.list().map(({ inventory }) => inventory.platformRelease), ["0.2.1", "0.2.1"]);
+assert.deepEqual(fleet.affected("@k-nex/module-sales", "<1.0.1"), []);
 const priorUpgrade = readJson("fixtures/customer-beta/previous-release-upgrade.json");
 assert.deepEqual(priorUpgrade.platformRelease, { current: "0.1.0", target: "0.2.0" });
 assert.equal(priorUpgrade.reviewedMigrationIds.length, 8);

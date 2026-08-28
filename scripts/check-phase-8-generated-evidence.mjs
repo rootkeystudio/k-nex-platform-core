@@ -11,10 +11,14 @@ const paths = [
   "fixtures/customer-alpha/runtime-inventory.json",
   "fixtures/customer-alpha/deployment-receipt.json",
   "fixtures/customer-alpha/security-patch-plan.json",
+  "fixtures/customer-alpha/security-target-runtime-inventory.json",
+  "fixtures/customer-alpha/security-target-deployment-receipt.json",
   "fixtures/customer-alpha/restore-redeployment-proof.json",
   "fixtures/customer-beta/runtime-inventory.json",
   "fixtures/customer-beta/deployment-receipt.json",
   "fixtures/customer-beta/security-patch-plan.json",
+  "fixtures/customer-beta/security-target-runtime-inventory.json",
+  "fixtures/customer-beta/security-target-deployment-receipt.json",
   "fixtures/customer-beta/previous-release-upgrade.json",
   "docs/implementation/phase-8-fleet-evidence.json"
 ];

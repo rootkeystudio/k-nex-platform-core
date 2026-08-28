@@ -1,4 +1,5 @@
 import { createHash, sign, verify } from "node:crypto";
+import { valid as validSemver } from "semver";
 
 import { DeploymentReceiptSchema, PackageReleaseManifestSchema, RuntimeInventorySchema, canonicalJson, type DeploymentReceipt, type PackageReleaseManifest, type RuntimeInventory } from "@k-nex/contracts";
 
@@ -114,6 +115,40 @@ export interface ApplicationBundleAuthority {
   read(token: VerifiedApplicationBundle): Readonly<{ bundle: ApplicationBundle; digest: string; attestation: VerifiedHostedAttestation }>;
 }
 
+type RuntimePackage = ApplicationBundle["installedPackages"][number];
+
+function packageOrder(left: RuntimePackage, right: RuntimePackage): number {
+  return `${left.package}@${left.version}`.localeCompare(`${right.package}@${right.version}`);
+}
+
+function bundleFile(bundle: ApplicationBundle, path: string): ApplicationBundle["files"][number] | undefined {
+  return bundle.files.find((entry) => entry.path === path);
+}
+
+function fileContent(file: ApplicationBundle["files"][number] | undefined): string | undefined {
+  if (file === undefined) return undefined;
+  try { return Buffer.from(file.content, "base64").toString("utf8"); } catch { return undefined; }
+}
+
+function sbomPackages(content: string | undefined): readonly RuntimePackage[] | undefined {
+  if (content === undefined) return undefined;
+  let value: unknown;
+  try { value = JSON.parse(content); } catch { return undefined; }
+  const components = (value as { components?: unknown }).components;
+  if (!Array.isArray(components)) return undefined;
+  const packages: RuntimePackage[] = [];
+  for (const component of components) {
+    const entry = component as { name?: unknown; version?: unknown; hashes?: unknown };
+    const hash = Array.isArray(entry.hashes) && entry.hashes.length === 1 ? entry.hashes[0] as { alg?: unknown; content?: unknown } : undefined;
+    if (typeof entry.name !== "string" || typeof entry.version !== "string" || hash === undefined || typeof hash.content !== "string") return undefined;
+    const integrity = hash.alg === "SHA-512" && /^[0-9a-f]{128}$/u.test(hash.content) ? `sha512-${Buffer.from(hash.content, "hex").toString("base64")}` :
+      hash.alg === "SHA-256" && /^[0-9a-f]{64}$/u.test(hash.content) ? `sha256:${hash.content}` : undefined;
+    if (integrity === undefined) return undefined;
+    packages.push({ package: entry.name, version: entry.version, integrity });
+  }
+  return packages.sort(packageOrder);
+}
+
 export function createApplicationBundleAuthority(verifier: HostedAttestationVerifier, releases: PackageReleaseManifestAuthority): ApplicationBundleAuthority {
   const tokens = new WeakMap<object, Readonly<{ bundle: ApplicationBundle; digest: string; attestation: VerifiedHostedAttestation }>>();
   const authority: ApplicationBundleAuthority = {
@@ -122,19 +157,34 @@ export function createApplicationBundleAuthority(verifier: HostedAttestationVeri
       const release = releases.read(releaseToken);
       const digest = `sha256:${createHash("sha256").update(canonicalJson(bundle)).digest("hex")}`;
       const attestation = await verifier.verify(attestationInput);
-      const installed = [...bundle.installedPackages].sort((left, right) => left.package.localeCompare(right.package));
+      const installed = [...bundle.installedPackages].sort(packageOrder);
       const releasePackages = new Map(release.manifest.packages.map((entry) => [entry.package, entry]));
       const releaseFrameworkDigest = `sha256:${createHash("sha256").update(canonicalJson(release.manifest.framework)).digest("hex")}`;
       const packageMatchesRelease = (entry: ApplicationBundle["installedPackages"][number]): boolean => {
         const found = releasePackages.get(entry.package);
         return found !== undefined && found.version === entry.version && found.integrity === entry.integrity;
       };
+      const paths = new Set(bundle.files.map(({ path }) => path));
+      const filesValid = paths.size === bundle.files.length && bundle.files.every((file) =>
+        file.path.length > 0 && file.digest === `sha256:${createHash("sha256").update(Buffer.from(file.content, "base64")).digest("hex")}`
+      );
+      const lock = bundleFile(bundle, "application/pnpm-lock.yaml");
+      const sbom = bundleFile(bundle, "evidence/sbom.cdx.json");
+      const closure = bundleFile(bundle, "evidence/pnpm-lock-runtime-closure.json");
+      const materials = new Map(attestation.materials.map((entry) => [entry.name, entry.digest]));
+      let lockPackages: unknown;
+      try { lockPackages = JSON.parse(fileContent(closure) ?? ""); } catch { lockPackages = undefined; }
       if (bundle.schemaVersion !== 1 || bundle.format !== "k-nex-deployable-application-bundle/v1" || bundle.release !== release.manifest.release.version ||
         bundle.releaseManifestDigest !== release.digest || bundle.sourceCommit !== attestation.sourceCommit || attestation.subjectDigest !== digest ||
         bundle.closureDigest !== `sha256:${createHash("sha256").update(canonicalJson(installed)).digest("hex")}` || bundle.targetMigrationRevision < 0 ||
         bundle.frameworkDigest !== releaseFrameworkDigest || !/^sha256:[0-9a-f]{64}$/u.test(bundle.migrationPlanDigest) ||
-        installed.length === 0 || new Set(installed.map((entry) => entry.package)).size !== installed.length ||
-        installed.some((entry) => !entry.package.startsWith("@k-nex/") || !packageMatchesRelease(entry))) {
+        installed.length === 0 || new Set(installed.map((entry) => `${entry.package}@${entry.version}`)).size !== installed.length ||
+        installed.some((entry) => !/^@?[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)?$/u.test(entry.package) || validSemver(entry.version) === null ||
+          !/^(?:sha256:[0-9a-f]{64}|sha512-[A-Za-z0-9+/]{86}==)$/u.test(entry.integrity) || (entry.package.startsWith("@k-nex/") && !packageMatchesRelease(entry))) ||
+        !filesValid || lock === undefined || sbom === undefined || closure === undefined || canonicalJson(lockPackages) !== canonicalJson(installed) ||
+        canonicalJson(sbomPackages(fileContent(sbom))) !== canonicalJson(installed) || materials.get("lockfile") !== lock.digest ||
+        materials.get("sbom") !== sbom.digest || materials.get("release-closure") !== bundle.closureDigest ||
+        materials.get("lock-runtime-closure") !== bundle.closureDigest) {
         throw new Error("Hosted attestation does not bind a valid deployable application bundle.");
       }
       const token = Object.freeze({}) as VerifiedApplicationBundle;
@@ -216,8 +266,8 @@ export function createDeploymentEvidenceAuthority(input: {
       if (releaseAttestation.workflowIdentity !== inventory.releaseEvidence.workflowIdentity ||
         receipt.approvedBy.kind !== "workflow" || receipt.approvedBy.identity !== input.trustedDeploymentWorkflow) throw new Error("Deployment evidence workflow identity is not trusted.");
       const material = new Map(releaseAttestation.materials.map((entry) => [entry.name, entry.digest]));
-      const releasedPackages = [...application.bundle.installedPackages].sort((left, right) => left.package.localeCompare(right.package));
-      const observedPackages = inventory.packages.filter((entry) => entry.package.startsWith("@k-nex/")).sort((left, right) => left.package.localeCompare(right.package));
+      const releasedPackages = [...application.bundle.installedPackages].sort(packageOrder);
+      const observedPackages = [...inventory.packages].sort(packageOrder);
       if (releaseAttestation.subjectDigest !== inventory.artifactDigest || releaseAttestation.sourceCommit !== inventory.releaseEvidence.sourceCommit ||
         packageRelease.attestation.workflowIdentity !== releaseAttestation.workflowIdentity || packageRelease.attestation.sourceCommit !== releaseAttestation.sourceCommit ||
         packageRelease.manifest.release.version !== inventory.platformRelease || application.bundle.applicationId !== inventory.applicationId ||

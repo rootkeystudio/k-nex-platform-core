@@ -113,7 +113,7 @@ export class FleetRegistry {
       const current = inventory.packages.find((entry) => entry.package === packageName)!;
       if (gt(current.version, targetVersion, { loose: false })) throw new FleetEvidenceError("PATCH_INVALID", "Security patch target must not regress an affected deployment.");
       const targetClosure = Object.freeze([...targetRelease.packages].map(({ package: targetPackage, version, integrity }) => Object.freeze({ package: targetPackage, version, integrity })).sort((left, right) => left.package.localeCompare(right.package)));
-      const targetDeploymentClosure = Object.freeze([...inventory.packages.filter((entry) => !entry.package.startsWith("@k-nex/")), ...application.bundle.installedPackages].sort((left, right) => left.package.localeCompare(right.package)));
+      const targetDeploymentClosure = Object.freeze([...application.bundle.installedPackages].sort((left, right) => `${left.package}@${left.version}`.localeCompare(`${right.package}@${right.version}`)));
       const plan = Object.freeze({
         applicationId: inventory.applicationId,
         repository: inventory.repository,

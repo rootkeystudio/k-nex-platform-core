@@ -1,15 +1,14 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { generateKeyPairSync } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { salesUpgradeMigrations, salesUpgradeTargets } from "../modules/sales/dist/migrations.js";
-import { canonicalJson } from "../packages/contracts/dist/index.js";
 import {
-  FleetRegistry, planPluginUpgrade, runtimeInventoryDigest, runtimeInventoryStateDigest
+  FleetRegistry, createApplicationBundleAuthority, createDeploymentEvidenceAuthority, createGitHubHostedAttestationVerifier,
+  createPackageReleaseManifestAuthority, planPluginUpgrade, runtimeInventoryDigest, runtimeInventoryStateDigest, signDeploymentReceipt
 } from "../packages/runtime/dist/index.js";
-import { createFixtureDeploymentVerifier } from "./lib/fixture-deployment-authority.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 const read = (customer, name) => JSON.parse(readFileSync(resolve(repositoryRoot, "fixtures", customer, name), "utf8"));
@@ -19,27 +18,44 @@ const targetReleaseManifest = JSON.parse(readFileSync(resolve(repositoryRoot, "r
 const currentReleaseManifest = JSON.parse(readFileSync(resolve(repositoryRoot, "releases/0.1.0/package-release-manifest.json"), "utf8"));
 const patchReleaseManifest = JSON.parse(readFileSync(resolve(repositoryRoot, "releases/0.2.1/package-release-manifest.json"), "utf8"));
 const sourceCommit = read("customer-alpha", "runtime-inventory.json").releaseEvidence.sourceCommit;
-const verifier = createFixtureDeploymentVerifier(sourceCommit);
-const targetRelease = await verifier.verifyManifest(targetReleaseManifest);
-const currentRelease = await verifier.verifyManifest(currentReleaseManifest);
-const patchRelease = await verifier.verifyManifest(patchReleaseManifest);
-const fleet = new FleetRegistry(targetRelease, verifier.packageReleaseAuthority, verifier.applicationBundleAuthority, verifier.authority);
-for (const customer of customers) {
-  const inventory = read(customer, "runtime-inventory.json");
-  fleet.ingest(await verifier.verify(inventory, read(customer, "deployment-receipt.json"), inventory.platformRelease === "0.2.0" ? targetRelease : currentRelease));
-}
+const applicationVerifier = createGitHubHostedAttestationVerifier({ repository: "rootkeystudio/k-nex-platform-core", workflow: "release-evidence.yml", predicateType: "https://k-nex.dev/provenance/v1" });
+const manifestVerifier = createGitHubHostedAttestationVerifier({ repository: "rootkeystudio/k-nex-platform-core", workflow: "release-evidence.yml", predicateType: "https://k-nex.dev/release-manifest/v1" });
+const releaseAuthority = createPackageReleaseManifestAuthority(manifestVerifier);
+const applicationAuthority = createApplicationBundleAuthority(applicationVerifier, releaseAuthority);
+const verification = (path) => JSON.parse(readFileSync(resolve(repositoryRoot, path), "utf8"))[0];
+const supportRelease = await releaseAuthority.verify(targetReleaseManifest, verification("release-evidence/phase-8/hosted/manifest-verification.json"));
+const priorRelease = await releaseAuthority.verify(currentReleaseManifest, verification("release-evidence/phase-8/customer-beta/hosted/manifest-verification.json"));
+const patchRelease = await releaseAuthority.verify(patchReleaseManifest, verification("release-evidence/phase-8/targets/customer-alpha/hosted/manifest-verification.json"));
+const application = async (customer, target, release) => {
+  const base = target ? `release-evidence/phase-8/targets/${customer}` : `release-evidence/phase-8/${customer === "customer-alpha" ? "" : "customer-beta"}`;
+  const bundle = JSON.parse(readFileSync(resolve(repositoryRoot, base, `${customer}.application-bundle.json`), "utf8"));
+  return applicationAuthority.verify(bundle, verification(`${base}/hosted/application-verification.json`), release);
+};
+const currentApplications = new Map([
+  ["customer-alpha", await application("customer-alpha", false, supportRelease)],
+  ["customer-beta", await application("customer-beta", false, priorRelease)]
+]);
+const targetApplications = await Promise.all(customers.map((customer) => application(customer, true, patchRelease)));
+const deploymentKeys = generateKeyPairSync("ed25519");
+const privateKey = deploymentKeys.privateKey.export({ format: "pem", type: "pkcs8" }).toString();
+const deploymentAuthority = createDeploymentEvidenceAuthority({
+  applicationBundleAuthority: applicationAuthority, packageReleaseAuthority: releaseAuthority,
+  deploymentPublicKey: deploymentKeys.publicKey.export({ format: "pem", type: "spki" }).toString(),
+  trustedDeploymentWorkflow: `rootkeystudio/k-nex-platform-core/.github/workflows/deploy.yml@${sourceCommit}`
+});
+const verifiedDeployment = (customer, target) => deploymentAuthority.verify({
+  observe: async () => read(customer, target ? "security-target-runtime-inventory.json" : "runtime-inventory.json"),
+  receipt: signDeploymentReceipt(read(customer, target ? "security-target-deployment-receipt.json" : "deployment-receipt.json"), privateKey),
+  applicationBundle: target ? targetApplications[customers.indexOf(customer)] : currentApplications.get(customer),
+  packageRelease: target ? patchRelease : customer === "customer-alpha" ? supportRelease : priorRelease
+});
+const fleet = new FleetRegistry(supportRelease, releaseAuthority, applicationAuthority, deploymentAuthority);
+for (const customer of customers) fleet.ingest(await verifiedDeployment(customer, false));
 
 const deployments = fleet.list();
 assert.deepEqual(deployments.map(({ inventory }) => inventory.platformRelease), ["0.2.0", "0.1.0"]);
 const affected = fleet.affected("@k-nex/module-sales", "<1.0.1");
 assert.equal(affected.length, 2);
-const targetApplications = await Promise.all(customers.map(async (customer) => {
-  const inventory = read(customer, "runtime-inventory.json");
-  const patchByPackage = new Map(patchReleaseManifest.packages.map(({ package: packageName, version, integrity }) => [packageName, { package: packageName, version, integrity }]));
-  const targetLockPackages = inventory.packages.filter(({ package: packageName }) => packageName.startsWith("@k-nex/")).map(({ package: packageName }) => patchByPackage.get(packageName)).filter(Boolean);
-  const planDigest = `sha256:${createHash("sha256").update(canonicalJson({ applicationId: customer, targetRelease: "0.2.1", targetMigrationRevision: 8, targetLockPackages })).digest("hex")}`;
-  return verifier.verifyTargetApplication(inventory, patchRelease, targetLockPackages, 8, planDigest);
-}));
 const patches = fleet.planSecurityPatch("@k-nex/module-sales", "<1.0.1", "1.0.1", patchRelease, targetApplications);
 for (const patch of patches) {
   write(`fixtures/${patch.applicationId}/security-patch-plan.json`, {
@@ -49,6 +65,8 @@ for (const patch of patches) {
     ...patch
   });
 }
+for (const patch of patches) assert.equal(fleet.applySecurityPatch(patch, await verifiedDeployment(patch.applicationId, true)).inventory.platformRelease, "0.2.1");
+assert.deepEqual(fleet.list().map(({ inventory }) => inventory.platformRelease), ["0.2.1", "0.2.1"]);
 
 const upgradePlan = planPluginUpgrade({
   pluginId: "module.sales", currentVersion: "0.9.0", targetVersion: "1.0.0",
