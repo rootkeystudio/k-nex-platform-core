@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -31,6 +32,11 @@ function packageRoot(name, version) {
   if (name === "@k-nex/provider-realtime-socketio") return resolve(root, "packages/realtime-socketio");
   return resolve(root, "packages", name.replace("@k-nex/", ""));
 }
+
+const releasePackageRoots = [...new Set(releases.flatMap(({ packages }) => packages)
+  .filter(({ package: name }) => name !== "@k-nex/module-sales")
+  .map(({ package: name, version }) => packageRoot(name, version)))];
+execFileSync("pnpm", ["exec", "tsc", "-b", "--force", ...releasePackageRoots.map((directory) => resolve(directory, "tsconfig.json"))], { cwd: root, stdio: "inherit" });
 
 const archives = new Map();
 for (const filename of readdirSync(artifactDirectory).filter((name) => name.endsWith(".tgz")).sort()) {
