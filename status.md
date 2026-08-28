@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Release evidence now targets a deterministic, self-contained customer application bundle containing generated source, build output, frozen lock, release manifest, and every package in the exact closure. The workflow separately attests the canonical release manifest and downloads/verifies both hosted bundles.
+The release-evidence workflow is enabled on the Phase 8 PR branch so GitHub can issue and verify the required OIDC attestations before merge; its normal dispatch and release-tag triggers remain intact.
 
 ## Validation
 
-Deployable bundle generation PASS twice with byte-identical 1.2 MB subjects and predicates. Materials bind application manifest, lock, plan, SBOM, release manifest, full closure, generated tree, and build output.
+Local deterministic bundle validation PASS. Hosted GitHub attestation run will start from this pushed workflow commit and produce downloadable subject-bound bundles for final Gate 8 evidence.
 
 ## Next
 
