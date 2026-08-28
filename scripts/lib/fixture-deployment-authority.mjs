@@ -43,13 +43,13 @@ export function createFixtureDeploymentVerifier(sourceCommit) {
     };
     return applicationBundleAuthority.verify(bundle, issue(attestation), packageRelease);
   };
-  const verifyTargetApplication = async (inventory, packageRelease, installedPackages, targetMigrationRevision) => {
+  const verifyTargetApplication = async (inventory, packageRelease, installedPackages, targetMigrationRevision, migrationPlanDigest = inventory.releaseEvidence.resolvedGraphDigest) => {
     const release = packageReleaseAuthority.read(packageRelease);
     const sorted = [...installedPackages].filter(({ package: packageName }) => packageName.startsWith("@k-nex/")).sort((left, right) => left.package.localeCompare(right.package));
     return verifyApplicationBundle({
       schemaVersion: 1, format: "k-nex-deployable-application-bundle/v1", applicationId: inventory.applicationId, sourceCommit,
       release: release.manifest.release.version, releaseManifestDigest: release.digest, closureDigest: sha256(canonicalJson(sorted)),
-      frameworkDigest: sha256(canonicalJson(release.manifest.framework)), migrationPlanDigest: inventory.releaseEvidence.resolvedGraphDigest,
+      frameworkDigest: sha256(canonicalJson(release.manifest.framework)), migrationPlanDigest,
       targetMigrationRevision, installedPackages: sorted, files: []
     }, packageRelease);
   };

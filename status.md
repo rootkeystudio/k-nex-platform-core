@@ -11,7 +11,7 @@ The prior-release upgrade now boots immutable Sales 0.9.0, creates real customer
 
 ## Validation
 
-Continuous prior-release PostgreSQL proof PASS; packed release closure 18 PASS; contracts 152 PASS; runtime 237 PASS; runtime/contracts/Sales builds PASS; `git diff --check` PASS. Full Gate 8 awaits refreshed hosted evidence and regenerated final receipts.
+Continuous prior-release PostgreSQL proof PASS; packed release closure 18 PASS; frozen root/customer installs PASS; contracts 152 PASS; runtime 237 PASS; runtime/contracts/Sales builds PASS; `git diff --check` PASS. Full Gate 8 awaits refreshed hosted evidence and regenerated final receipts.
 
 ## Next
 

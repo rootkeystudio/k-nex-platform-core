@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { salesUpgradeMigrations, salesUpgradeTargets } from "../modules/sales/dist/migrations.js";
+import { canonicalJson } from "../packages/contracts/dist/index.js";
 import {
   FleetRegistry, planPluginUpgrade, runtimeInventoryDigest, runtimeInventoryStateDigest
 } from "../packages/runtime/dist/index.js";
@@ -33,8 +35,10 @@ const affected = fleet.affected("@k-nex/module-sales", "<1.0.1");
 assert.equal(affected.length, 2);
 const targetApplications = await Promise.all(customers.map(async (customer) => {
   const inventory = read(customer, "runtime-inventory.json");
-  const existing = read(customer, "security-patch-plan.json");
-  return verifier.verifyTargetApplication(inventory, patchRelease, existing.targetDeploymentClosure, existing.targetMigrationRevision ?? 8);
+  const patchByPackage = new Map(patchReleaseManifest.packages.map(({ package: packageName, version, integrity }) => [packageName, { package: packageName, version, integrity }]));
+  const targetLockPackages = inventory.packages.filter(({ package: packageName }) => packageName.startsWith("@k-nex/")).map(({ package: packageName }) => patchByPackage.get(packageName)).filter(Boolean);
+  const planDigest = `sha256:${createHash("sha256").update(canonicalJson({ applicationId: customer, targetRelease: "0.2.1", targetMigrationRevision: 8, targetLockPackages })).digest("hex")}`;
+  return verifier.verifyTargetApplication(inventory, patchRelease, targetLockPackages, 8, planDigest);
 }));
 const patches = fleet.planSecurityPatch("@k-nex/module-sales", "<1.0.1", "1.0.1", patchRelease, targetApplications);
 for (const patch of patches) {
