@@ -127,7 +127,7 @@ try {
 }
 
 for (const marker of [
-  "# Phase 8 Result", "**Decision:** **PLATFORM FOUNDATION ACCEPTED**", "P8_9_FLEET_EVIDENCE_PASS",
+  "# Phase 8 Result", "**Decision:** **READY FOR PHASE REVIEW**", "P8_9_FLEET_EVIDENCE_PASS",
   "Payload Import/Export", "CycloneDX", "signed provenance", "Customer Alpha", "Customer Beta", "DO NOT START DOMAIN EXPANSION"
 ]) assert.ok(result.includes(marker), `Phase 8 result is missing: ${marker}.`);
 for (const task of ["P8.1", "P8.2", "P8.3", "P8.4", "P8.5", "P8.6", "P8.7", "P8.8", "P8.9", "P8.10"]) {

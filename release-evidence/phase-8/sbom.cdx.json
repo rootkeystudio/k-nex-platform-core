@@ -2073,7 +2073,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "3392786beb4ded132a144eb61ad1311c8903a2652a30356b2efb49b0f96fa55898cfeff4f09ad8b111e1e71ea011e53a793d73b0eb62f2f0c29d557ff834c9cf"
+          "content": "22bff70fa83c79340f987c26f68f40915cbcc2aeb0c27c2ef90fd0d2b78a7a74f564142ee835a06a5a0d03aae9bad77ce620b90e90a29cec345c681852ca6834"
         }
       ],
       "name": "@k-nex/builder-puck",
@@ -2112,7 +2112,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "3024324ecd28ec1e7dcd500618600ce7782a545382415abc90f2f2fb502f14e6a171bb54e1e30f222b1e1287a689db4c42340a368b7b53a47429884cb7bb9441"
+          "content": "35b9085a63359a44c9c05d1e0baf5ced379e8284102b9a57a77b0ef3f71ac8978e989f2172d75936f2e827a920649df06ac1ae7a461b2775bdd9eafd4f236883"
         }
       ],
       "name": "@k-nex/module-sales",
@@ -2125,7 +2125,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "69e595952431c774d3fa8b69c0bc3644cf77bf8c57f5abe3859c3c29384cd6cc59efec444faf7d2637899f2e3d394aa538d4cd8ebaf29aec106f2c604f7b0a34"
+          "content": "873b7ead0c589d70ea102a628bcf8a5261c7d8c04c5fcc62fef8bd1e1bdbd3d404a267438ed2a5fba5575396351b0d56ceb5e32f827ef965a96c8191054c6c72"
         }
       ],
       "name": "@k-nex/payload-adapter",
@@ -2138,7 +2138,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "aa7a3aacbf27d2520e9fbb0f64532222786c73ff15a5bf854039ca99835ef6d6c3c206bd02a0b4dc866fd560b45fac8ce3d811ab1c5033de23e34d8060c00bcb"
+          "content": "8a76621b12dae490130a80cc34eceb37709f5ea2957c1af8e3d8c5e0d43ce7b4a8a4e8d7257d295697249976f463a17f3e2ce5f20e44bee5482540823a5de3c1"
         }
       ],
       "name": "@k-nex/runtime",
@@ -2164,7 +2164,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "a34b177ca3a50e3d3f11a02314d89078b816124642eb561761d7c38ce10c1b0a4f830432bbc7db95ab0b966912af1e01b631dbf8239a1624e70966f6985a82da"
+          "content": "328c46c1a86819f72f13f41e92a555d8b84ff1e46a7736fcecf864584dc6403169a8c6e19ae5535e17244a28b47eda5284e50d2f3f0728a5f9b8986375548bf5"
         }
       ],
       "name": "@k-nex/ui-builder-blocks",
@@ -2177,7 +2177,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "bfcd2f4b1e120e7031ab8e0d96528fe314221b368ade57f118e9ae48726e4bb1a150fcf43f3b7b26ab3723baad5189be46c67c4c15702ebdc6e609f9d61dabd2"
+          "content": "fb1dd2a179bc9164c344cd07e472c8ecc90703ebfb9d668f9e47d8b07786f76e9018cc09b02f8199ff83cb6e2b719e0f60d506d57fd31bf12d3040971d827d20"
         }
       ],
       "name": "@k-nex/ui-components",
@@ -2190,7 +2190,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "3badd3d02ada3a68c89bd3d5e4e62859d9d53de966fc51e0df7ed3fa6484aed9253d667f8aa77f34b8841677936089915711729b6b3591df3471d5fb6e816b9a"
+          "content": "945b12d8c1750ca5a4a7c7d09d936a71f3aa8afe892523cd0405e761484409eec275bb6fe85699e780a6e9474da624187cc53be2fae40ab1b22e3bbe650cf193"
         }
       ],
       "name": "@k-nex/ui-data",
@@ -2216,7 +2216,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "c3cc4931a5ea61163c12cf0d6a4f76b1d142635bf817785be4556d718a7b704b58ffadd825ccd125096fe6a3eef34a8dfb48848ab69ae7abd6dc8053e84b6de7"
+          "content": "cadfd2fa260dc4b714f1546ed4c945fe94c82c651bf47b2922250f3661a08c14057b454fe16673cfe6cb0bb297b535f7c88c18388e3b5be146add8a7601d5db1"
         }
       ],
       "name": "@k-nex/ui-forms",
@@ -2242,7 +2242,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "2341f2834e034773adc128c13a3f17cb21aea04edfca49db514db9a4c4e2408047683d5e45d6ce523d1312d5a8f7cdf9dbacd55a413f504d504357271308dc71"
+          "content": "5efe3567ce1c347fa98ab1d76afcbcd8e945ed4ded3c4acfa932e7107e471657348fa9f5372c341b7eb14ef925a6d730153d7de1065b33fa301c2797b48a01c6"
         }
       ],
       "name": "@k-nex/ui-runtime",
@@ -11565,7 +11565,7 @@
       "type": "application"
     }
   },
-  "serialNumber": "urn:uuid:00000000-0000-4000-8000-c639e11e60d1",
+  "serialNumber": "urn:uuid:00000000-0000-4000-8000-0bd06b8ce005",
   "specVersion": "1.6",
   "version": 1
 }

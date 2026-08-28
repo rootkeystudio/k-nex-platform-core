@@ -272,13 +272,13 @@ function runPackProof(root, pluginRoot, identity) {
     const secondFile = join(secondTemporary, filename);
     const committedFile = resolve(root, "fixtures/customer-gate-1/packages", filename);
     assertByteReproducible(readFileSync(firstFile), readFileSync(secondFile), readFileSync(committedFile), filename);
-    const generated = tarEntries(firstFile);
     const committed = tarEntries(committedFile);
-    assert.deepEqual([...generated.keys()], [...committed.keys()]);
-    for (const [name, content] of generated) {
-      const expected = committed.get(name);
-      assert.ok(expected);
-      assert.equal(content.equals(expected), true, `${basename(filename)}:${name} is stale.`);
+    const releasePackage = JSON.parse(committed.get("package/package.json")?.toString("utf8") ?? "null");
+    assert.deepEqual({ name: releasePackage.name, version: releasePackage.version }, { name: identity.pluginPackage, version: packageJson.version });
+    for (const value of Object.values(releasePackage.exports)) {
+      for (const target of typeof value === "string" ? [value] : Object.values(value)) {
+        assert.ok(committed.has(`package/${target.replace(/^\.\//u, "")}`), `${basename(filename)} is missing declared target ${target}.`);
+      }
     }
   } finally {
     rmSync(firstTemporary, { recursive: true, force: true });

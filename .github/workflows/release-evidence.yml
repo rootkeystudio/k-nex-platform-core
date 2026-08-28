@@ -3,7 +3,6 @@ name: Release evidence
 on:
   workflow_dispatch:
   push:
-    branches: ["codex/phase-8-lifecycle-application-factory"]
     tags: ["v*"]
 
 permissions:
@@ -72,5 +71,12 @@ jobs:
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: phase-8-hosted-release-evidence
-          path: release-evidence
+          path: |
+            release-evidence/customer-alpha.application-bundle.json
+            release-evidence/hosted
+            release-evidence/provenance-predicate.json
+            release-evidence/provenance.json
+            release-evidence/release-manifest-predicate.json
+            release-evidence/release-manifest.json
+            release-evidence/sbom.cdx.json
           if-no-files-found: error

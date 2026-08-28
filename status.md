@@ -3,19 +3,19 @@
 - **Updated:** 2026-08-28
 - **Phase:** Phase 8 — Lifecycle, Application Factory, Release, and Fleet Safety
 - **Active task:** P8.10 — Platform-foundation closeout
-- **State:** In progress
+- **State:** Ready for phase review
 
 ## Last completed
 
-The immutable Sales release snapshots now share the accepted Phase 7+ Pages/data-table ABI while preserving distinct prior migration and security behavior; all packed artifacts and frozen locks were regenerated from the final build.
+All PR 23 project-manager blockers are remediated. Hosted attestations, immutable Sales releases, application-factory staging, migration/lifecycle authority, and full-fleet transitions are reconciled with the final customer evidence.
 
 ## Validation
 
-Full Gate 8 attempt 1 passed Phase 0 generation/validation and broad suites, then failed closed when the immutable Sales snapshot lacked required `paginationModes`. Snapshot parity and closure checks now PASS; new hosted evidence is required for the changed subject.
+`pnpm gate:8` PASS: Gates 1–8; contracts 152, composition 84, runtime 235; five PostgreSQL proofs; 18-package release closure; generated evidence and Sigstore verification. Hosted run 33190357411 PASS. `pnpm audit --audit-level high` PASS (0 high/critical; 2 low, 3 moderate). `git diff --check` PASS.
 
 ## Next
 
-Regenerate hosted evidence for the corrected closure, refresh results, and rerun the complete Gate 8.
+Project-manager re-review of PR 23. Do not merge or enable auto-merge from the implementation side.
 
 ## Blockers
 

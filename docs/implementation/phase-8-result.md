@@ -1,60 +1,74 @@
 # Phase 8 Result — Lifecycle, Application Factory, Release, and Fleet Safety
 
-- **Date:** 2026-08-27
+- **Date:** 2026-08-28
 - **Gate:** Gate 8
-- **Baseline:** `9056043`
-- **Delivery:** stacked Phase 8 pull request; no merge or auto-merge
-- **Decision:** **PLATFORM FOUNDATION ACCEPTED**
-- **Review state:** Independent Sol-high PASS at corrected implementation/evidence head `d09fb4f`; designated PR review pending
+- **Accepted base:** `7e89949e17c0edcded2fe67e41b518d31ada4ba1`
+- **Delivery:** one Phase 8 pull request based directly on `main`; no merge or auto-merge
+- **Decision:** **READY FOR PHASE REVIEW**
+- **Review state:** PR 23 project-manager blockers remediated; final designated review pending
 
 ## Scope proved
 
-The platform foundation now covers immutable package-release boundaries, deterministic upgrade planning, customer-owned migrations, PostgreSQL advisory locking, stale-artifact readiness, bounded archive/export, explicit purge, physical backup/clean restore, application generation, two independent Sales customers, release evidence, deployment inventory, and fleet patch/recovery operations.
+Phase 8 delivers release boundaries, upgrade planning, customer-owned migration fencing, lifecycle evidence, purge authority, physical backup/restore, deterministic application generation, two independent Sales customers, hosted release attestations, deployment inventory, and full-release fleet patch transitions.
 
-Sales remains the only first-party domain module. Customer Alpha and Customer Beta use the same platform/Sales surface with different Postgres mode, Minimal/Neobrutalism theme, Sales settings, default pages, permissions/layout, dedicated lock, platform release, and cadence. No Cargo, Restaurant, or other product plugin was added.
+Sales remains the only first-party domain module. No Cargo, Restaurant, or other domain plugin was introduced.
 
-## Completed tasks
+## Completed task matrix
 
-| Task | Primary commit |
+| Task | Result |
 |---|---|
-| P8.1 — release and compatibility boundaries | `ff7dd3a` |
-| P8.2 — upgrade planning and customer migrations | `c9992af` |
-| P8.3 — advisory lock and stale readiness | `72a789e` |
-| P8.4 — archive/export, purge, backup, restore | `fa328d5` |
-| P8.5 — `create-knex-app` plan/apply | `55546e6` |
-| P8.6 — two independent Sales customers | `e2a4589` |
-| P8.7 — SBOM and signed provenance | `36edcc1` |
-| P8.8 — deployment receipt/runtime inventory | `4342f47` |
-| P8.9 — fleet query, patch, prior upgrade, restore | `b2fbccb` |
-| P8.10 — closeout and full Gate 8 | `a8f3956` |
+| P8.1 | Exact framework tuple, canonical package manifests, immutable packed closure |
+| P8.2 | Ordered upgrade targets and reviewed customer migrations |
+| P8.3 | Database-session-derived advisory locks, rollback, receipts, stale readiness |
+| P8.4 | Bounded archive/backup streams, content storage, lifecycle-issued purge authority |
+| P8.5 | Deterministic Sales application factory with verified immutable package staging |
+| P8.6 | Independent Alpha/Beta manifests, locks, settings, themes, and Postgres modes |
+| P8.7 | Deterministic deployable bundle, CycloneDX SBOM, GitHub/Sigstore attestations |
+| P8.8 | Protected runtime inventory, deployment receipt, hosted release trust adapter |
+| P8.9 | Verified full-release patch transitions, prior upgrade, clean restore |
+| P8.10 | Hosted evidence ingestion, complete Gate 8, phase closeout |
 
 ## Lifecycle and migration safety
 
-- Upgrade preflight produces an ordered current-to-target graph and refuses version regression, gaps, duplicates, bad predecessors, unknown dependencies, cycles, stale inputs, and failed dry runs.
-- The Sales fixture covers customer schema, source, action, tool, block, theme, template, and settings migrations while preserving customer-owned data.
-- Production-style migration execution uses one dedicated PostgreSQL session, a deterministic application/database advisory lock, expected predecessor check, transaction, release-revision receipt, rollback/unlock, and stale-artifact readiness denial. Real Postgres proves concurrent refusal and interrupted DDL rollback.
-- Archive/export is a versioned, permissioned, bounded administrator transfer. The official Payload Import/Export plugin was evaluated; it may be a future adapter but is not database backup, migration, legal retention, or full restore.
-- Purge refuses unresolved references, dependents, retention, archive, clean-restore backup, reviewed migration, permission, or approval. Failed purge work rolls back.
-- A physical `pg_dump`/`pg_restore` proof restores Sales data, CMS versions, layouts, settings, outbox, and migration state into a clean database with external effects disabled.
+- Upgrade preflight rejects regressions, gaps, duplicate targets, invalid predecessors, unknown dependencies, cycles, stale inputs, and failed dry runs.
+- Sales exercises customer schema, source, action, tool, block, theme, template, and settings migrations while preserving customer-owned state.
+- Migration execution owns one PostgreSQL session and derives the lock identity from `pg_database` on that session. Callers cannot split the lock using connection labels. Two equivalent pool descriptions contend on the same real database; interrupted DDL and revision updates roll back together.
+- Archive and backup content use bounded async byte streams. Archive plans limit documents, bytes per document, and total bytes. Content-addressed receipts bind digest, object key, byte length, and encryption-key reference; clean restore reads the exact receipt-addressed object.
+- Purge inputs are obtained by an injected server-side authority: reference scanner, dependency scanner, retention evaluator, migration registry, database revision, and actor/session approval evaluator. Issued plans bind those revisions and archive/backup digests, consume approval once, and revalidate before any transaction begins.
+- Physical `pg_dump`/`pg_restore` evidence restores Sales data, CMS versions, layouts, settings, outbox, and migration state into a clean database with external effects disabled.
 
 ## Application and customer proof
 
-`create-knex-app` deterministically plans/applies the Sales reference preset, exact dependencies, Payload Postgres mode, application manifest/config, production migrations, typed boot entrypoint, readiness steps, customer-owned default pages, and add/disable/enable/upgrade plans. Apply is atomic, idempotent, and rejects path traversal, symlink traversal, partial promotion, and customer-file overwrite; dependency installation remains a source-time CLI action, never runtime code installation.
+`create-knex-app` generates the Sales reference application, exact Payload/Postgres configuration, customer-owned migrations, typed boot/readiness entrypoints, default pages, frozen dependency policy, and Docker or external Postgres mode.
 
-Customer Alpha uses external Postgres, Minimal, page size 25, manager authority, tasks plus opportunities, monthly cadence, and platform release 0.2.0 with Sales 1.0.0. Customer Beta uses local Docker Postgres, Neobrutalism, page size 50, representative authority, tasks only, quarterly cadence, and supported prior release 0.1.0 with Sales 0.9.0. Both are isolated pnpm workspaces installed from an 18-artifact mirror containing the complete closure plus distinct prior/current/security-target Sales tarballs, with no workspace links. A clean PostgreSQL test also creates two fresh applications through the factory, installs each from its selected release manifest and packed mirror, compiles and boots the current and prior Payload applications, runs two production migrations, registers both Sales collections, instantiates both default pages, queries Sales, and proves every K-Nex resolution comes from the generated app's packed `.pnpm` tree.
+The composition library—not only the CLI—opens every packed artifact, verifies manifest integrity and embedded package identity, captures immutable bytes in its authority-issued plan, and stages those exact bytes under `.k-nex/packages`. A post-plan mirror replacement cannot alter the installed app; missing, tampered, wrong-identity, cloned-plan, symlink, partial-promotion, and customer-overwrite paths fail closed.
+
+Customer Alpha uses external Postgres, Minimal, current platform release 0.2.0, and Sales 1.0.0. Customer Beta uses Docker Postgres, Neobrutalism, supported prior platform release 0.1.0, and Sales 0.9.0. Fresh generated current/prior applications install from their selected release closures, compile, migrate, boot, register both Sales collections, instantiate default pages, and resolve K-Nex packages from their own packed trees.
 
 ## Release, deployment, and fleet proof
 
-- Timestamp-free CycloneDX 1.6 SBOM and canonical provenance bind source commit, full-SHA workflow identity, manifest, lock, complete transitive graph, SBOM, and artifact digests. Corrected evidence uses release-source commit `fe2cd80`, a descendant of final Phase 7 and ancestor of the evidence head. Evidence generation and Gate 8 require exact source/current release-manifest parity, verify every packed identity and SHA512 digest, require source/current artifact byte parity, and recompute application manifest, lock, plan, subject, and derived SBOM digests. Existing non-ancestor commits and stale current bytes fail closed.
-- Local Ed25519 tests reject signature/payload substitution. The hosted workflow uses GitHub OIDC and `actions/attest` pinned to a complete SHA for signed provenance and SBOM attestations. No SLSA level is claimed.
-- Generated JSON Schemas validate non-secret runtime inventory and deployment receipts. Receipt reconciliation rejects artifact, migration, inventory, readiness, or smoke drift.
-- Authority-issued, signature-verified fleet ingestion keeps one current and one supported-prior customer. The clean-boot proof serves inventory from a protected runtime endpoint, rejects anonymous observation, reconciles live PostgreSQL readiness, verifies signed deployment receipt and provenance, then issues the only token Fleet accepts. Sales `<1.0.1` and transitive `semver <7.8.6` identify both deployments. A trusted 0.2.1 release manifest binds the real Sales 1.0.1 tarball and generates customer-specific lock/upgrade/migration/deploy update plans for both.
-- Fleet orders deployment receipts by RFC 3339 instant across timezone offsets, rejects chronological regression, and refuses a manifest-listed security target that remains inside the vulnerable range. Destructive purge consumes its authoritative plan before transaction start and binds the reviewed migration ID, predecessor revision, and target revision through execution, preventing success or failure replay.
-- Beta installs and boots the actual Sales 0.9.0 prior artifact, then upgrades to the manifest-bound 1.0.0 artifact through eight reviewed migration domains. Alpha's restore/redeploy reproduces the expected inventory digest. Generator marker: `P8_9_FLEET_EVIDENCE_PASS`.
+- Sales 0.9.0, 1.0.0, and 1.0.1 build from separate committed immutable package-source snapshots. The prior snapshot exposes revision-1 behavior. The 1.0.0 snapshot reproduces `CVE-KNEX-2026-0001` export-key traversal; 1.0.1 rejects traversal and accepts bounded basenames.
+- The release subject is a deterministic, self-contained customer application bundle, not a single plugin tarball. It carries generated sources, build output, application manifest, dedicated frozen lock, release manifest, and all artifacts in the exact K-Nex release closure.
+- The signed provenance materials bind the application manifest, lock, resolved plan, CycloneDX SBOM, canonical package-release manifest, release closure, generated tree, and build output.
+- GitHub-hosted run `33190357411` issued application-provenance, package-manifest, and SBOM attestations from source `b77ab19b5bafa1be8a5fd683321c8f0bdc2cf038`. The workflow downloaded and reverified both custom bundles before publishing them. Gate 8 re-runs `gh attestation verify --bundle`, constrains repository, source SHA, and GitHub-hosted runner identity, and reconciles every bundle entry and material digest.
+- Runtime production APIs consume an opaque hosted-attestation verifier and authority-issued package-manifest token. They no longer accept caller-provided release PEMs. The in-process fixture signer is explicitly test-only.
+- Fleet accepts only deployment evidence and package manifests issued by its configured authorities. Patch plans bind base inventory, target release-manifest digest, exact framework digest, full K-Nex release closure, customer deployment closure, migrations, and readiness operations.
+- Applying a patch requires a fresh verified deployment whose application/environment, release, complete installed closure, readiness, and advanced migration revision match the issued plan. Base drift, incomplete closure, stale receipt, vulnerable target, foreign authority, and cloned/replayed plan fail.
+- Beta boots the genuine prior Sales artifact and exercises the reviewed 0.9.0 → 1.0.0 upgrade. Alpha's clean restore reproduces its expected operational inventory.
+- Deterministic fleet evidence generator marker: `P8_9_FLEET_EVIDENCE_PASS`.
+
+## Public contracts and affected areas
+
+- `@k-nex/runtime`: hosted release/package authority, fleet transition authority, database-derived migration fencing, streamed lifecycle storage, purge authority.
+- `@k-nex/composition`: packed-mirror verification and immutable application-factory staging.
+- `releases/`: immutable Sales release sources and regenerated canonical package manifests.
+- `release-evidence/phase-8/`: deployable bundle, SBOM, predicates, Sigstore bundles, and GitHub verification results.
+- Customer fixtures: refreshed frozen locks, runtime/deployment evidence, patch plans, and restore proof.
+- CI/gates: deployable release workflow and exact hosted-bundle Gate 8 verification.
 
 ## Validation
 
-The closeout gate runs every earlier gate, all Postgres/browser/component/plugin proofs, both customer validators, contracts/composition/runtime suites, deterministic fleet evidence, and closeout reconciliation:
+Required closeout commands:
 
 ```bash
 pnpm gate:8
@@ -62,20 +76,22 @@ pnpm audit --audit-level high
 git diff --check
 ```
 
-The corrective full run on the refreshed candidate covers Phase 0 through Gate 8, five PostgreSQL scenarios including factory-generated prior/current applications, 18 packed release identities, two protected runtime observations, 151 contracts tests, 83 composition tests, and 226 runtime tests. Packed SHA512/content closure, stale-evidence rejection, generated-artifact reproducibility, browser/accessibility, plugin conformance, and `git diff --check` pass. The audit reports no high or critical findings; two low and three moderate advisories remain.
+The complete `pnpm gate:8` passed at the final working-tree state: Gates 1–8, 152 contract tests, 84 composition tests, 235 runtime tests, five customer PostgreSQL proofs, the 18-package immutable release closure, generated-evidence mutation checks, and committed Sigstore bundle verification all passed. Focused remediation evidence also includes deterministic bundle reproduction and hosted release-evidence run `33190357411`.
 
-## Limits and production claims
+`pnpm audit --audit-level high` passed with no high or critical findings (two low and three moderate findings remain), and `git diff --check` passed.
 
-- This is executable platform-foundation evidence, not production-observed fleet operation.
-- GitHub-hosted attestation configuration is proved; a SLSA level is not claimed until independently verified.
-- Sales is a reference architecture and test case, not a complete CRM.
-- Customer Alpha/Beta validate independent packed composition, clean production migration/boot, and protected deployment observation; broader transactional/outbox behavior remains in Gate 1.
-- Payload Import/Export remains uninstalled until a customer explicitly selects and proves the bounded adapter.
+## Known limits and deferred scope
 
-## Gate decision
+- This is executable platform-foundation evidence, not production-observed customer fleet operation.
+- No SLSA level is claimed.
+- Sales is the sole reference architecture and test case, not a complete CRM.
+- Payload Import/Export remains uninstalled until a customer selects and proves a bounded adapter.
+- Broader domain plugin production remains deferred until the platform gates are accepted.
 
-The first formal review correctly rejected caller-authored lifecycle evidence, unenforced support policy, workspace-linked customer fixtures, incomplete transitive inventory, forgeable deployment state, simulated recovery, and a self-repairing gate. Corrective work now makes those paths executor/authority-issued, manifest-enforced, packed and clean-booted, transitive, signed and runtime-observed, PostgreSQL-backed, exact-source-bound, and stale-evidence rejecting. Restacking on final Phase 7 refreshed the complete packed closure, all dependent lock/static artifacts, and source-tree provenance without relying on discarded task hashes. Sol-high review at `6d44b88` then found vulnerable-target acceptance, offset-unsafe fleet freshness, and replayable purge authority; all three are corrected with focused regressions and a new complete Gate 8 PASS. Independent Sol-high re-review returned PASS at `d09fb4f`. No Gate 8 kill criterion fired; designated PR review remains pending.
+## Phase-result decision
 
-**Decision:** **PLATFORM FOUNDATION ACCEPTED**
+Every Phase 8 task and review blocker has an executable closure path, and no kill criterion fired.
 
-**DO NOT START DOMAIN EXPANSION** until the stacked Phase 8 pull request receives project-manager PASS. Continue using Sales to harden infrastructure and system behavior.
+**Decision:** **READY FOR PHASE REVIEW**
+
+After project-manager PASS, the exact next task is the first task of the next phase recorded in the master plan. **DO NOT START DOMAIN EXPANSION**; continue using Sales to harden platform infrastructure.
