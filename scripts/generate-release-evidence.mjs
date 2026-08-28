@@ -42,7 +42,9 @@ for (const entry of releaseManifest.packages) {
 files.sort((left, right) => left.path.localeCompare(right.path));
 const lockContent = readFileSync(resolve(fixtureRoot, "pnpm-lock.yaml"), "utf8");
 const resolvedLock = resolvePnpmLock(lockContent);
-const sbom = createCycloneDxSbom(customer, resolvedLock.components, resolvedLock.dependencies, resolvedLock.rootDependencies);
+const baseSbom = createCycloneDxSbom(customer, resolvedLock.components, resolvedLock.dependencies, resolvedLock.rootDependencies);
+const serialSuffix = createHash("sha256").update(`${customer}\u0000${sourceCommit}`).digest("hex").slice(0, 12);
+const sbom = { ...baseSbom, serialNumber: `urn:uuid:00000000-0000-4000-8000-${serialSuffix}` };
 const sbomContent = canonicalJson(sbom);
 const bundle = {
   schemaVersion: 1, format: "k-nex-deployable-application-bundle/v1", applicationId: customer, sourceCommit,

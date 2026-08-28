@@ -7,11 +7,11 @@
 
 ## Last completed
 
-The hosted evidence job now builds the root runtime authority before the customer fixture invokes its Gate 8 evidence hook, closing the clean-runner module-resolution failure from attempt 2.
+The deterministic CycloneDX release SBOM now includes its required stable `urn:uuid` serial number, satisfying GitHub's hosted SBOM-attestation format check.
 
 ## Validation
 
-Hosted attempt 2 passed frozen installation and failed closed before attestation because the root runtime build output was absent. The workflow dependency order is corrected.
+Hosted attempt 3 successfully issued and locally reverified both application and release-manifest OIDC bundles; it then failed closed on the missing CycloneDX serial before SBOM attestation. The schema gap is corrected.
 
 ## Next
 
