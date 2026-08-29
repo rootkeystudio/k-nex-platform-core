@@ -197,24 +197,33 @@ export class PostgresAppStorage {
 
   async exportBackup(applicationId: string, environment: string, appId: string): Promise<AppStorageBackup> {
     assertNamespace({ applicationId, environment, appId, schemaId: "backup.probe" });
-    const namespaces = await this.pool.query<NamespaceRow & { schema_id: string }>(
-      `select schema_id, schema_version, quota_bytes, used_bytes, revision from runtime_extension_storage_namespaces
-       where application_id=$1 and environment=$2 and app_id=$3 order by schema_id`,
-      [applicationId, environment, appId]
-    );
-    const records = await this.pool.query<RecordRow>(
-      `select schema_id, storage_key, value_json, value_bytes, revision from runtime_extension_storage_records
-       where application_id=$1 and environment=$2 and app_id=$3 order by schema_id, storage_key`,
-      [applicationId, environment, appId]
-    );
-    const body = {
-      schemaVersion: 1 as const, applicationId, environment, appId,
-      namespaces: namespaces.rows.map((namespace) => ({
-        schemaId: namespace.schema_id, schemaVersion: namespace.schema_version, quotaBytes: Number(namespace.quota_bytes), revision: namespace.revision,
-        records: records.rows.filter((record) => record.schema_id === namespace.schema_id).map((record) => this.record(record))
-      }))
-    };
-    return Object.freeze({ ...body, digest: await digest(body) });
+    const session = await this.pool.connect();
+    try {
+      await session.query("begin transaction isolation level repeatable read read only");
+      const namespaces = await session.query<NamespaceRow & { schema_id: string }>(
+        `select schema_id, schema_version, quota_bytes, used_bytes, revision from runtime_extension_storage_namespaces
+         where application_id=$1 and environment=$2 and app_id=$3 order by schema_id`,
+        [applicationId, environment, appId]
+      );
+      const records = await session.query<RecordRow>(
+        `select schema_id, storage_key, value_json, value_bytes, revision from runtime_extension_storage_records
+         where application_id=$1 and environment=$2 and app_id=$3 order by schema_id, storage_key`,
+        [applicationId, environment, appId]
+      );
+      const body = {
+        schemaVersion: 1 as const, applicationId, environment, appId,
+        namespaces: namespaces.rows.map((namespace) => ({
+          schemaId: namespace.schema_id, schemaVersion: namespace.schema_version, quotaBytes: Number(namespace.quota_bytes), revision: namespace.revision,
+          records: records.rows.filter((record) => record.schema_id === namespace.schema_id).map((record) => this.record(record))
+        }))
+      };
+      const backup = Object.freeze({ ...body, digest: await digest(body) });
+      await session.query("commit");
+      return backup;
+    } catch (error) {
+      try { await session.query("rollback"); } catch { /* preserve original error */ }
+      throw error;
+    } finally { session.release(); }
   }
 
   async restoreBackup(backup: AppStorageBackup): Promise<void> {

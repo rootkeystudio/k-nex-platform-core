@@ -27,6 +27,12 @@ function boot(connectionString) {
   });
 }
 
+function deferred() {
+  let resolve;
+  const promise = new Promise((complete) => { resolve = complete; });
+  return { promise, resolve };
+}
+
 test("proves revisioned, quota-limited, schema-validated, backed-up, cross-app isolated storage", { timeout: 180_000 }, async () => {
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("app_storage").withStartupTimeout(120_000).start();
   const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
@@ -67,6 +73,42 @@ test("proves revisioned, quota-limited, schema-validated, backed-up, cross-app i
     assert.equal(await storage.get(sales, "view.primary"), undefined);
     await storage.restoreBackup(backup);
     assert.deepEqual(await storage.get(sales, "view.primary"), backup.namespaces[0].records[0]);
+
+    const namespaceRead = deferred();
+    const mutationCommitted = deferred();
+    const snapshotPool = {
+      query: (...args) => pool.query(...args),
+      async connect() {
+        const client = await pool.connect();
+        return {
+          release: () => client.release(),
+          async query(statement, values) {
+            const result = await client.query(statement, values);
+            if (typeof statement === "string" && statement.includes("runtime_extension_storage_namespaces")) {
+              namespaceRead.resolve();
+              await mutationCommitted.promise;
+            }
+            return result;
+          }
+        };
+      }
+    };
+    const snapshotStorage = new PostgresAppStorage(snapshotPool, {
+      validate(schemaId, value) {
+        if (schemaId !== "sales.preferences" || typeof value !== "object" || value === null || Array.isArray(value) || typeof value.label !== "string") throw new Error("schema rejected");
+        return { label: value.label };
+      }
+    }, { assertSafe() {} });
+    const snapshotExport = snapshotStorage.exportBackup("customer-alpha", "production", "app.sales-assistant");
+    await namespaceRead.promise;
+    const beforeConcurrentWrite = await storage.get(sales, "view.primary");
+    await storage.put(sales, "view.primary", { label: "Concurrent" }, beforeConcurrentWrite.revision);
+    mutationCommitted.resolve();
+    const consistentSnapshot = await snapshotExport;
+    assert.equal(consistentSnapshot.namespaces[0].revision, backup.namespaces[0].revision);
+    assert.deepEqual(consistentSnapshot.namespaces[0].records, backup.namespaces[0].records, "backup namespace and records must come from one PostgreSQL snapshot");
+    await storage.restoreBackup(consistentSnapshot);
+    assert.deepEqual(await storage.get(sales, "view.primary"), consistentSnapshot.namespaces[0].records[0]);
 
     const now = { now: () => new Date("2026-08-29T10:00:00.000Z") };
     const tokens = new HmacExtensionCapabilityTokens(new Uint8Array(32).fill(4), now);

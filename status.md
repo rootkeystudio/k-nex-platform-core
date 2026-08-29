@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Fixed the review blocker that allowed a stale or expired worker claim to complete after the active execution fence transferred.
+Made Hot Application backups read namespace and record state from one PostgreSQL repeatable-read snapshot, with concurrent-mutation restore evidence.
 
 ## Validation
 
-Node 24.19.0: the focused payload-adapter worker-fence suite passed 3 tests covering immediate post-transfer rejection, expired-claim rejection, and exact completed-effect replay.
+Node 24.19.0: 2 focused payload-adapter snapshot tests and the real PostgreSQL app-storage journey passed, including a barrier-controlled concurrent mutation and restore.
 
 ## Next
 
@@ -19,4 +19,4 @@ Fix each review blocker with focused regression evidence, rerun the complete Gat
 
 ## Blockers
 
-Static lifecycle reconciliation; signed Hot Application manifest authority; durable quarantine and teardown; rollback authority; real process boundaries; continuous transition probes; consistent app-storage backup; deterministic Gate 9 and aligned ADR/result evidence.
+Static lifecycle reconciliation; signed Hot Application manifest authority; durable quarantine and teardown; rollback authority; real process boundaries; continuous transition probes; deterministic Gate 9 and aligned ADR/result evidence.
