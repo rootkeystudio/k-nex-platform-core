@@ -1,244 +1,158 @@
 # System Architecture
 
-## High-level model
+## Overview
 
 ```text
-machine-readable contracts and schemas
-        ↓
-trusted package catalog + exact package manifests
-        ↓
-create-k-nex-app / k-nex CLI
-        ↓
-deterministic resolved graph + static registries
-        ↓
-customer composition root (Payload + K-Nex + customer code)
-        ↓
-immutable customer artifact + signed provenance
-        ↓
-independent customer web/worker/realtime/storage/database deployment
+Customer Application
+  ├─ Stable Gateway / Reverse Proxy
+  ├─ Blue/Green K-Nex Host Generations
+  │    ├─ Next.js + Payload
+  │    ├─ Static Platform Plugin Registry
+  │    ├─ PluginManager API
+  │    ├─ Fixed App/Remote UI Hosts
+  │    └─ Host Capability Gateway
+  ├─ Worker / Outbox Process
+  ├─ Extension Runner Service
+  ├─ PostgreSQL
+  ├─ Object and Content-Addressed Artifact Storage
+  ├─ Optional Redis/Backplane
+  └─ Separate Deployment Supervisor
 ```
 
-## Physical platform packages
+Each customer has an independent instance of this logical system.
+
+## Static host plane
+
+The host generation contains:
 
 ```text
-@k-nex/contracts
-  IDs, schemas, actors, permissions, events, jobs,
-  source/action/block contracts, errors, health
-
-@k-nex/composition
-  resolver, compatibility, ordering, declared/actual inventory,
-  deterministic resolved graph
-
-@k-nex/runtime
-  capability-scoped services, actors, permissions,
-  events/outbox, jobs, audit, health/readiness
-
-@k-nex/payload-adapter
-  Payload contributions, authentication adaptation,
-  access, jobs, versions, migrations, config composition
-
-@k-nex/testing
-  contract suites, fixtures, failure injection
-
-@k-nex/cli
-  catalog, planning, generation, package/filesystem operations
+Payload/Next/framework tuple
+exact Platform Plugin packages
+static resolved graph and registration imports
+Payload collections, migrations, jobs, routes, native UI
+full executable Theme Packages and Builder/Provider code
 ```
 
-UI packages remain separate:
+It is immutable after boot. A host change creates a new blue/green generation.
+
+## Dynamic extension plane
+
+PostgreSQL and artifact storage track:
 
 ```text
-@k-nex/ui-contracts
-@k-nex/ui-runtime
-@k-nex/ui-shell
-@k-nex/ui-design-system-contracts
-@k-nex/ui-data-table
-@k-nex/ui-visualization-echarts
-@k-nex/builder-puck
-@k-nex/payload-builder-storage
+Hot Application catalog/install state
+verified app bundle generations
+Theme Skin generations
+active/rollback pointers
+settings and app storage
+activation/retirement receipts
+runtime extension revision
 ```
 
-A convenience facade may re-export stable entrypoints but cannot erase dependency-cruiser boundaries.
+A dynamic app cannot alter host config. The host contains generic route, artifact, runner, storage, capability, and remote UI adapters before installation.
 
-## Dependency direction
+## Control flow
+
+### Hot Application / Theme Skin
 
 ```text
-customer application
-  → modules/providers/themes/builder/customer extensions
-  → runtime/composition/UI adapters
-  → low-dependency contracts
+operator/API
+→ PluginManager plan
+→ catalog/artifact verify
+→ stage/warm
+→ atomic generation pointer transaction
+→ outbox/revision convergence
 ```
 
-Forbidden:
-
-- contracts importing Payload, Puck, Socket.IO, ECharts, TanStack Query/Table, or customer code;
-- core/composition importing business modules;
-- modules reading another module’s private table or source path;
-- browser exports importing server-only code;
-- plugins accessing capability services not declared in the resolved graph;
-- runtime data selecting executable imports.
-
-## Composition sources and precedence
-
-See [Contract governance](./28-contract-governance-and-determinism.md). In summary:
+### Platform Plugin
 
 ```text
-desired      k-nex.app.json
-installed    pnpm-lock.yaml + integrity
-self-declared released plugin manifest
-customer code hermetic k-nex.config.ts fingerprint
-executable   deterministic k-nex.resolved.json + static registries
-runtime      validated records/settings/publications
-deployed     signed artifact provenance + deployment receipt
+operator/API
+→ PluginManager impact plan
+→ authorized DeploymentSupervisor request
+→ build/pull/migrate/start/warm green
+→ gateway promotion
+→ drain/receipt
 ```
 
-A mismatch fails with diagnostics; it does not silently choose one layer.
-
-## Canonical registration lifecycle
+## Data authority
 
 ```text
-manifest
-contracts
-providers
-schema
-behavior
-jobs
-data-handlers
-ui
-admin
-validate
-freeze
+static business/CMS schema  Payload/Postgres collections
+Hot Application V1 data    platform-owned app document/KV storage
+runtime extension state    platform-owned lifecycle/generation tables
+artifacts                   immutable digest-addressed storage
 ```
 
-Source descriptors are contracts. Server source handlers bind later. React renderers bind in UI. `validate` compares declared and actual inventory and enforces collision, capability, bundle, and lifecycle rules. `freeze` makes the graph immutable.
+No app receives raw database credentials. Future richer dynamic objects require a separate explicit design.
 
-## Payload framework boundary
+## Execution authority
 
-Payload is the strategic V1 framework. The adapter composes explicit owned contributions:
+### Platform Plugin
+
+Runs as trusted host code from the verified customer image. Capability-scoped services and server authorization still apply, but this is not a malicious-code sandbox.
+
+### Hot Application
+
+Runs as an isolated capability client:
 
 ```text
-collections/globals/fields/indexes
-endpoints/access/hooks
-jobs and schedules
-admin/system components
-versions/drafts and migration integration
+server bundle → extension runner
+UI bundle     → Web Worker/equivalent remote UI realm
 ```
 
-K-Nex does not generic-deep-merge arbitrary Payload config. Ambiguous contribution categories require a deliberate adapter or fail.
+The host authorizes every capability invocation using app ID/generation and current actor/delegation.
 
-The Payload Postgres adapter is selected under application framework configuration. Hosted Postgres services use `DATABASE_URL`; they do not become separate persistence plugin families.
+### Theme Skin
 
-## Plugin boundary
+Parsed/validated data only. No executable realm.
 
-A plugin package exposes physically separated entrypoints:
+## Consistency
+
+All lifecycle changes use PostgreSQL revisions and transactional outbox:
 
 ```text
-./manifest    static JSON only
-./contracts   IDs, schemas, DTOs, tokens; browser/server neutral
-./server      Payload handlers, domain services, policies, jobs
-./browser     typed source/action/realtime clients
-./ui          React renderers and headless UI behavior
-./migrations  deterministic helpers/readiness
-./testing     fixtures and contract suite
+commit state/pointer/revision/receipt
+→ web/worker/runner/gateway/browser invalidation
+→ periodic revision recovery
 ```
 
-The manifest declares expected contributions. Runtime registration must match them.
+No process-local registry is the sole truth.
 
-## Capability-scoped services
-
-A plugin does not receive a universal service locator. Composition derives a typed and runtime-enforced service context from declared dependencies.
-
-```ts
-interface DriverServices {
-  logistics: LogisticsDomainService
-  realtime: RealtimeGateway
-}
-```
-
-Jobs receive similarly scoped services plus actor/correlation/idempotency/checkpoint APIs.
-
-## UI architecture
+## Routing
 
 ```text
-resolved plugin graph
-  → browser-safe UI/source/action registries
-  → surface/audience/permission filtering
-  → fixed shell + operational screens + canonical documents
-  → semantic primitives and installed theme profile
+native Platform Plugin routes  compiled into host generation
+Hot Application routes         fixed /apps/:appId/* dispatcher
+remote UI assets               verified generation-pinned route
+source/action/tool calls        fixed typed gateways
 ```
 
-Three separate builder boundaries:
+Unrestricted runtime route registration is not allowed.
+
+## Availability
+
+- Hot app/skin activation keeps the host and previous generation running.
+- Platform Plugin promotion keeps blue serving while green warms.
+- Incompatible migrations use maintenance-required flow.
+- Runner failure degrades one app, not the host.
+- Gateway, database, storage, and runner availability have explicit health/SLO policy in production work.
+
+## Security boundaries
 
 ```text
-BuilderEngineAdapter  engine conversion and editor bridge
-UiDocumentRuntime     validation, rendering, migrations, permissions
-UiDocumentRepository  Payload revisions and atomic publication
+customer-to-customer     separate data/secrets/deployment
+host-to-Hot Application runner and remote UI isolation
+web-to-Docker            separate deployment supervisor
+unverified-to-active     artifact verification and atomic activation
+actor-to-capability      current permission/record/field policy
+public-to-internal       distinct IDs/surfaces and gateways
 ```
 
-## Data-source architecture
-
-The gateway orchestrates independent stages:
+## Evidence boundaries
 
 ```text
-authenticate
-catalog/surface lookup
-authorize source and fields
-budget
-execute permitted projection
-validate source schema and output contract
-defensive redact
-cache policy
-observe and serialize RFC 9457 errors
+static host truth       image digest, lock, resolved graph, migrations, receipt
+runtime extension truth catalog/artifact digest, generation, pointer, receipt
+fleet truth             verified observed inventory, never manual assertion
 ```
-
-Generic components bind by output contract. Business data never lives in unrestricted shared UI state.
-
-## Runtime processes and realtime topology
-
-Potential processes:
-
-```text
-web
-worker
-scheduler/outbox processor
-optional dedicated realtime gateway
-```
-
-In-memory realtime is valid only when one process owns sockets and every publication path. Split processes or multiple web instances require Redis/backplane, an outbox relay, or another distributed provider.
-
-Durable business events are written transactionally. Reconstructible invalidations use revision/watermark plus reconnect/focus/periodic revalidation so message loss cannot leave clients permanently stale.
-
-## Data and migrations
-
-- Postgres is the only supported V1 adapter.
-- Customer repositories own final Payload migrations.
-- Migration execution uses a per-application/database advisory lock, expected predecessor revision, and stale-artifact readiness fence.
-- Schema-owning plugins can be disabled/re-enabled or explicitly purged in V1; retained-schema uninstall is not a general contract.
-
-## Release and fleet architecture
-
-Committed generated graph is deterministic and timestamp-free. CI produces separate evidence:
-
-```text
-source commit and workflow identity
-lockfile and manifest digests
-SBOM
-artifact/container digest
-signed provenance
-migration revision
-deployment receipt
-runtime inventory
-```
-
-Fleet state is derived from deployed evidence. A handwritten inventory may contain ownership/notes, but it is not authoritative for deployed versions.
-
-## Security and quality architecture
-
-- NIST SSDF guides secure development/release practices.
-- OWASP ASVS and API Security requirements map to tests.
-- External API errors use RFC 9457.
-- Supported web surfaces target WCAG 2.2 AA.
-- Trusted in-process packages require protected publishing, integrity, SBOM, provenance, and fleet impact analysis.
-
-## Validation sequence
-
-See [Executable POC gates](./30-executable-poc-gates.md). The sequence intentionally proves deterministic composition before data sources, realtime, builder, themes, lifecycle, or the second customer.

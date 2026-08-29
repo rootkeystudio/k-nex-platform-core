@@ -2,32 +2,79 @@
 
 ## Purpose
 
-`k-nex.app.json` is the desired, machine-editable composition of one customer application. The normative schema is `schemas/application-manifest.v1.schema.json`.
+`k-nex.app.json` is the non-secret source-controlled desired state for one customer's **static host application**. It is not a runtime package list and does not contain arbitrary executable URLs.
 
-It records non-secret source-controlled choices:
+## Static authority
+
+The manifest selects:
 
 ```text
 application identity and runtime tuple
-Payload Postgres adapter and local/external setup
-exact K-Nex plugin requests
-a selected provider for each replaceable single capability
-optional builder profiles and installed themes
-Docker/local infrastructure generation
-environment variable names
+Payload/Postgres adapter configuration
+exact Platform Plugin requests
+provider selections
+full Theme Package
+static build/deployment mode
+required environment names
 ```
 
-## Canonical example
+It reconciles with:
+
+```text
+package.json and frozen pnpm-lock.yaml
+installed package manifests and integrity
+hermetic k-nex.config.ts fingerprint
+.k-nex/generated resolved graph/registries
+customer-owned migrations
+release artifact and deployment receipt
+```
+
+A mismatch fails closed.
+
+## Dynamic extensions are separate
+
+Hot Applications and Theme Skins are installed from verified catalog artifacts after host boot. Their authoritative state is not a mutable executable section inside `k-nex.app.json`.
+
+Runtime records bind:
+
+```text
+extension class and identity/version
+catalog/publisher/source/release
+artifact/manifest/SBOM/provenance digest
+staged/active/rollback generation
+configuration/capability state
+activation/retirement receipt
+runtime extension revision
+```
+
+This separation preserves reviewable static host composition while allowing live app/skin activation.
+
+## Desired runtime extension policy
+
+A future optional source-controlled policy file may constrain runtime operations, for example:
+
+```text
+allowed official catalog keys/publishers
+allowed app/skin IDs or support channels
+maximum resource budgets
+network/secret/storage policy
+approval requirements
+auto-update policy
+```
+
+It may restrict runtime state but cannot assert that an artifact is installed/active or override observed receipts.
+
+## Platform Plugin example
+
+Illustrative only; generated schemas and canonical fixtures are normative:
 
 ```json
 {
-  "$schema": "./schemas/application-manifest.v1.schema.json",
   "schemaVersion": 1,
   "application": {
-    "id": "acme-cargo",
-    "name": "Acme Cargo",
-    "type": "customer-platform",
-    "defaultLocale": "tr",
-    "locales": ["tr", "en"]
+    "id": "customer-alpha",
+    "name": "Customer Alpha",
+    "type": "customer-platform"
   },
   "runtime": {
     "node": "24.19.0",
@@ -46,44 +93,17 @@ environment variable names
   },
   "plugins": [
     {
-      "id": "module.cms",
-      "package": "@k-nex/module-cms",
-      "version": "1.0.0",
-      "enabled": true
-    },
-    {
       "id": "module.sales",
       "package": "@k-nex/module-sales",
       "version": "1.0.0",
       "enabled": true
-    },
-    {
-      "id": "module.logistics.core",
-      "package": "@k-nex/module-logistics-core",
-      "version": "1.0.0",
-      "enabled": true
-    },
-    {
-      "id": "module.logistics.driver",
-      "package": "@k-nex/module-logistics-driver",
-      "version": "1.0.0",
-      "enabled": true
     }
   ],
-  "providers": {
-    "realtime.gateway": {
-      "plugin": "provider.realtime.socketio",
-      "package": "@k-nex/provider-realtime-socketio",
-      "version": "1.0.0",
-      "options": { "adapter": "memory" }
-    }
-  },
+  "providers": {},
   "themes": {
-    "admin": { "installed": ["theme.minimal"], "default": "theme.minimal" },
-    "public": { "installed": ["theme.neobrutalism"], "default": "theme.neobrutalism" }
-  },
-  "development": {
-    "database": { "mode": "docker-postgres", "serviceName": "postgres" }
+    "active": "minimal",
+    "package": "@k-nex/theme-minimal",
+    "version": "1.0.0"
   },
   "build": {
     "dockerfile": true,
@@ -91,88 +111,36 @@ environment variable names
     "validateGeneratedFilesInCI": true
   },
   "environment": {
-    "required": ["DATABASE_URL", "PAYLOAD_SECRET", "DRIVER_TOKEN_SIGNING_KEY"]
+    "required": ["DATABASE_URL", "PAYLOAD_SECRET"]
   }
 }
 ```
 
-Production values never appear in this file.
+Do not copy this prose example into a new contract. Use the generated application-manifest schema and fixtures.
 
-`builder` is optional. Backend-only and pre-builder applications omit it entirely; when present, it is an executable composition request and must resolve to an installed builder package.
+## Environment and secrets
 
-## Source-of-truth matrix
+The manifest records environment variable names and conditions only. Secret values remain in the customer deployment secret store.
 
-| Concern | Authority |
-|---|---|
-| Desired graph | `k-nex.app.json` |
-| Installed bytes/integrity | `pnpm-lock.yaml` |
-| Package claims | released static plugin manifest |
-| Customer code registrations | hermetic `k-nex.config.ts` fingerprint |
-| Executable graph | committed deterministic `k-nex.resolved.json` and registries |
-| Runtime configuration | validated database records |
-| Deployed truth | signed attestation, artifact digest, migration revision, deployment receipt |
+Hot Applications declare secret-reference names in their signed manifest. The host resolves approved references at invocation and never exposes values to remote UI, artifact, app storage, logs, receipts, or inventory.
 
-Every edge is checked; there is no silent winner.
+## Enabled state
 
-## Hermetic customer config
+A Platform Plugin's desired initial state may be source-controlled, but current effective state is reconciled with installed bytes, migration/configuration/dependency readiness, lifecycle revision, and runtime authorization.
 
-`k-nex.config.ts` can statically register customer extensions, policies, sources, actions, blocks, and overrides. During graph generation it cannot use network, current time, random IDs, secret/environment values, or ambient filesystem scanning to select contributions.
+A Hot Application/Skin's active generation is runtime state and cannot be selected by a raw package path in this manifest.
 
-Environment names can be declared. Environment values configure already-resolved handlers at runtime.
+## Determinism
 
-The target application compiler fingerprints all transitive customer config source and performs a second clean generation in CI. Gate 1 proves only an inert direct-file fingerprint without config execution or transitive import discovery; the broader compiler boundary remains design-only in ADR-0004.
+Committed static artifacts contain no wall-clock timestamp, host path, hostname, random identifier, or secret. Build/deployment/activation time belongs in signed evidence and receipts.
 
-## Deterministic resolved graph
+## Validation
 
-`.k-nex/generated/k-nex.resolved.json` records:
-
-```text
-schema/resolver version
-application ID
-exact package version + integrity + manifest digest
-plugin IDs and selected capabilities
-registration order and expected contributions
-Payload/Node/pnpm exact tuple
-environment variable names
-customer-config fingerprint
-```
-
-It does not contain build time, hostname, absolute paths, random identifiers, or secrets. Build metadata belongs to signed CI provenance and deployment receipts.
-
-## Generated registries
-
-```text
-plugin-registry.ts
-provider-registry.ts
-payload-contributions.ts
-data-source-registry.ts
-action-registry.ts
-ui-registry.ts
-theme-registry.ts
-environment-schema.ts
-k-nex.resolved.json
-```
-
-CI regenerates and compares bytes. Runtime verifies registry API version and actual registration inventory.
-
-## Presets
-
-A preset is expanded into explicit plugin/provider/theme choices before persistence. An application does not change because a preset recommendation later changes.
-
-## Lifecycle state
-
-The manifest can request installed/enabled or installed/disabled state when a plugin declares safe disable semantics. It cannot claim generic schema-owning retained-data uninstall. Purge is a separate migration/release operation, not a manifest boolean.
-
-## Validation invariants
-
-- IDs match canonical grammar.
-- Versions are exact in the application manifest.
-- Payload Postgres package/config matches lockfile.
-- Explicit single-capability provider selection exists.
-- plugin package name/version/manifest/integrity agree.
-- required dependencies are satisfied; optional packages never auto-install.
-- environment names derive exactly from the resolved graph.
-- generated graph/registries are current and deterministic.
-- customer config fingerprint matches.
-- no secret or dynamic package path exists.
-- runtime actual contributions match declared inventory.
+- only exact supported runtime/package-manager/framework tuples;
+- canonical unique plugin IDs/packages;
+- explicit provider selection;
+- Platform Plugin package version/integrity/manifest match;
+- no app/skin executable URL or arbitrary runtime package section;
+- required environment names only;
+- generated graph and clean double-generation match;
+- release artifact and runtime inventory reconcile.

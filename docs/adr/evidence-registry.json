@@ -104,6 +104,19 @@
         "docs/34-headless-component-system.md",
         "docs/implementation/phase-details-gates-6-8.md"
       ]
+    },
+    "0021": {
+      "level": "design-only",
+      "evidence": [
+        "docs/35-dynamic-applications-and-zero-downtime-delivery.md",
+        "docs/implementation/phase-9-dynamic-application-runtime.md"
+      ]
+    },
+    "0022": {
+      "level": "design-only",
+      "evidence": [
+        "docs/implementation/phase-10-rbac-and-authorization-control-plane.md"
+      ]
     }
   }
 }

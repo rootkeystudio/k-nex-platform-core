@@ -1,181 +1,244 @@
 # Deployment and Operations
 
-## Deployment model
+## Customer deployment model
 
 Each customer application is independently built, migrated, deployed, backed up, monitored, and upgraded.
 
 ```text
 customer repository
-  → frozen lockfile and deterministic resolved graph
-  → validation, tests, migration fixtures
-  → immutable artifact/container
-  → SBOM + signed provenance
-  → migration job with advisory lock/revision fence
-  → web/worker/realtime deployment
-  → deployment receipt + runtime inventory
+→ frozen lockfile and deterministic Platform Plugin graph
+→ validation/migration fixtures
+→ immutable image
+→ SBOM + signed provenance
+→ migration/readiness fence
+→ blue/green web/worker generations
+→ deployment receipt + protected inventory
 ```
 
-## Baseline resources
+Hot Applications and Theme Skins add a second artifact plane without mutating that host image:
 
 ```text
-customer Postgres database and credentials
-object storage boundary
-application/signing/integration secrets
-optional Redis namespace/instance
-customer domains/TLS
-backups and retention
-logs/metrics/traces/alerts by application/release
+signed catalog
+→ immutable bundle
+→ content-addressed artifact store
+→ isolated app/skin generation
+→ atomic active pointer
+→ activation receipt + runtime inventory
 ```
 
-Physical managed infrastructure can be shared by a provider, but logical credentials and data ownership remain customer-scoped.
-
-## Process topology
-
-Small application without realtime:
+## Reference resources
 
 ```text
-web + optional worker
-Postgres
-object storage
+stable gateway/reverse proxy
+blue and green K-Nex web generations
+worker/outbox process generations
+k-nex-extension-runner service/pool
+PostgreSQL
+object storage and extension artifact storage
+optional Redis/backplane by topology
+separate deployment supervisor
+secrets/backup/logs/metrics/traces/alerts
 ```
 
-Memory realtime:
+The main application has no Docker socket and no image build/publish credentials.
+
+## Continuous-availability definitions
+
+### Live activation
+
+Hot Application/Theme Skin generation changes without restarting the host. The old active generation remains authoritative until one activation transaction commits.
+
+### Zero-downtime deployment
+
+A full Platform Plugin release starts and warms a new host generation while the old generation serves traffic. The gateway promotes only after verification/readiness.
+
+### Maintenance-required
+
+A migration or topology change is incompatible with old/new overlap. K-Nex refuses the zero-downtime label and presents an explicit maintenance plan.
+
+No operation is considered zero downtime merely because a command returned successfully. Continuous external probes are evidence.
+
+## PluginManager and DeploymentSupervisor
+
+`PluginManager` handles extension plans and runtime lifecycle. It delegates full Platform Plugin release requests to `DeploymentSupervisor` through a narrow authenticated API.
+
+Deployment supervisor responsibilities:
 
 ```text
-one process owns HTTP/socket connections and every invalidation publication path
+resolve approved target release
+verify artifact/provenance/SBOM/inventory
+build or pull exact image
+check migration compatibility and backup policy
+obtain advisory lock/predecessor revision
+run expand migrations
+start target web/worker generation with zero traffic
+warm/readiness/authenticated/public smoke
+promote gateway target atomically
+drain old requests/jobs/sockets
+retain rollback generation
+emit deployment receipt
 ```
 
-Separate worker or multiple web instances:
+The supervisor may use Docker Engine behind an adapter, Docker Swarm, or another accepted container orchestrator. Docker Compose alone is a development topology, not a production availability guarantee.
+
+## Blue/green compatibility
+
+A no-outage Platform Plugin change requires:
 
 ```text
-web/worker/gateway
-  → Redis Socket.IO adapter or Postgres outbox relay
+old and new binaries can use the expanded schema concurrently
+no destructive rename/drop before old generation drains
+new readers tolerate old writers during overlap
+jobs/events are versioned/idempotent and leases prevent duplicate ownership
+new generation passes exact artifact/migration inventory
+realtime reconnect/resync is supported
+rollback remains data-compatible for the retained window
 ```
 
-Readiness rejects an incompatible memory topology.
-
-## Deterministic artifact and release evidence
-
-Committed generated files are timestamp-free. CI separately emits:
+Recommended migration sequence:
 
 ```text
-source commit and workflow identity
-manifest/resolved graph/lockfile digests
-package integrity and SBOM
-artifact/container digest
-signed build provenance
-migration revision
+release A→B: expand schema + dual-compatible code
+promote B and drain A
+later release: contract/drop obsolete schema after fleet evidence
 ```
 
-Deployment records:
+An operation that cannot satisfy overlap is maintenance-required.
+
+## Hot Application activation
 
 ```text
-application/environment
-artifact digest
-migration revision
-provider/process topology
-deployment time and approved actor/workflow
-smoke/readiness outcome
+plan and authorize
+background download
+verify signature/digests/SBOM/provenance/ABI/revocation
+securely extract into content-addressed store
+stage runner/UI generation
+warm with no traffic
+validate settings/capabilities/storage migration
+commit active pointer + revision + receipt + audit + outbox
+new calls/sessions use target generation
+drain old generation
 ```
 
-Runtime exposes a protected non-secret inventory endpoint. These records are authoritative for fleet queries.
+The artifact store retains exact prior generations for a bounded rollback window. Staged/unverified files are not public.
 
-## CI pipeline
+## Runner operations
+
+The extension runner is independently health-checked and resource-controlled:
 
 ```text
-checkout exact commit
-install frozen lockfile with restricted scripts
-architecture/schema/fixture checks
-k-nex generate --check and clean double-generation
-package integrity and declared/actual inventory checks
-lint/typecheck/unit/contract/security/accessibility tests
-real Postgres clean and previous-release migration tests
-builder/theme/source/realtime fixtures as their gates mature
-packed-package export/type checks
-build immutable artifact
-SBOM/provenance generation
-container/process smoke tests
+non-root/read-only root
+no Docker or DB credential
+no ambient host secrets
+network deny by default
+CPU/memory/time/concurrency quotas
+bounded IPC/input/output/logs
+generation-level quarantine and restart
 ```
 
-No floating customer dependency or lockfile rewrite.
+Runner crash affects app calls, not gateway/web availability. Persistent app data remains in platform-owned storage rather than runner local disk.
 
-## Reusable workflows
+## Remote UI delivery
 
-Reusable workflow calls must use a reviewed full commit SHA and explicit least-privilege inputs/secrets:
+Remote UI assets are content-addressed and generation-pinned. The host serves only verified assets with strict content types, CSP, integrity/cache headers, and no directory traversal.
 
-```yaml
-jobs:
-  validate:
-    uses: rootkeystudio/k-nex-workflows/.github/workflows/validate.yml@<full-commit-sha>
+The browser loads app UI in a Web Worker/equivalent isolated realm. App updates do not mutate host JavaScript chunks.
 
-  deploy:
-    needs: validate
-    permissions:
-      contents: read
-      id-token: write
-    uses: rootkeystudio/k-nex-workflows/.github/workflows/deploy.yml@<full-commit-sha>
-    with:
-      environment: production
-    secrets:
-      registry-token: ${{ secrets.REGISTRY_READ_TOKEN }}
+## Realtime and multi-process topology
+
+```text
+PostgreSQL transaction
+→ extension/deployment revision
+→ transactional outbox invalidation
+→ web/worker/runner/gateway/browser refresh
+→ periodic revision polling for lost-message convergence
 ```
 
-Use OIDC for cloud authentication where supported. Do not inherit every repository secret.
-
-## Deployment sequence
-
-1. verify approved artifact, provenance, SBOM, and exact inventory;
-2. validate environment/provider/process readiness;
-3. verify backup policy for migration risk;
-4. obtain migration advisory lock and predecessor revision;
-5. run customer-owned migration/backfill;
-6. deploy compatible web/worker/realtime order;
-7. drain/reconnect sockets;
-8. verify readiness and runtime inventory against artifact;
-9. run authenticated/public smoke and publication fixtures;
-10. emit deployment receipt and monitor.
+Socket clients reconnect/resubscribe/resync during host generation promotion. WebSocket delivery remains a hint, not business truth.
 
 ## Backup and restore
 
-Backups include business data plus CMS drafts/versions, workspace layouts, theme profiles, permissions/users, runtime settings, jobs/outbox/idempotency/audit according to policy. Object storage and specialized stores have explicit consistent backup or reproducibility classification.
-
-A backup is valid only after restore testing. Restore tests disable or redirect external integrations and verify migration/inventory, published renders, protected media, orphan reports, job/outbox replay safety, and authentication/signing behavior.
-
-## Fleet inventory
-
-Fleet state is generated from verifiable deployment evidence:
+Backups include:
 
 ```text
-application/repository/environment
-artifact/container digest
-source and workflow identity
-resolved graph + lockfile + SBOM digest
-Payload/core/plugin/provider/builder/theme versions
-migration revision
-backup/restore freshness
-runtime readiness
+business/CMS data
+roles/settings/layouts/theme profiles
+extension install and active-generation records
+Hot Application settings/storage
+artifact/catalog/provenance references
+outbox/idempotency/audit
+migration and deployment revisions
 ```
 
-A manual operations repository can store ownership, support tier, domains, and desired targets; it cannot override observed deployed versions.
+Extension artifacts are either backed up or reproducibly available by immutable digest with verified source. Restore verifies exact host release, active app/skin generations, settings/storage schemas, disabled/orphan state, runner readiness, and external integration safety.
 
-Fleet tooling must answer which deployed customers use an affected package/range and open customer-specific upgrade PRs.
+## Runtime and fleet inventory
 
-## Supply chain
+Protected inventory combines:
 
-Before production package distribution:
+```text
+host artifact/container digest
+static Platform Plugin graph and package integrity
+framework and migration revision
+active/rollback Hot Application generations and bundle digests
+active Theme Skin generations/profile revisions
+runner/gateway/deployment topology
+SBOM/provenance/deployment and activation receipts
+backup/restore freshness
+```
 
-- protected source and publishing workflows;
-- immutable exact package versions/integrity;
-- install-script review policy;
-- dependency/license/vulnerability scanning;
-- SBOM;
-- signed provenance from hosted build infrastructure;
-- signed/protected release identity;
-- artifact digest and deployment receipt;
-- incident/fleet impact workflow.
+Manual desired-state files cannot override observed deployed/active truth.
 
-Target: verifiable provenance equivalent to SLSA Build L2 before claiming that maturity.
+## CI and publication
 
-## Repository governance
+Platform release pipeline:
 
-`main` should be PR-only with required architecture-contract check, required owner review for contracts/schemas/ADRs/workflows, branch deletion restrictions, and protected release tags. CODEOWNERS and CI are source-controlled; GitHub branch/ruleset enforcement is a separate required repository setting.
+```text
+frozen install
+contracts/fixtures/generation checks
+lint/type/unit/security/accessibility
+real Postgres clean/upgrade/restore
+packed-package boundaries
+image build and smoke
+SBOM/provenance
+blue/green compatibility plan
+```
+
+Hot Application/skin publication pipeline:
+
+```text
+exact dependency install in protected builder
+bundle dependencies and inspect imports
+manifest/schema/conformance tests
+runner/remote UI/skin tests
+artifact digest + SBOM + provenance
+immutable release asset
+signed catalog update
+```
+
+Customer activation never rebuilds or installs dependencies.
+
+## Failure handling
+
+- Failed staged app/skin generation cannot affect active generation.
+- Failed green host generation cannot receive traffic.
+- Crash before pointer/traffic commit leaves old active.
+- Crash after commit converges from persisted revision.
+- Catalog revocation can block new activation and quarantine according to security policy.
+- Rollback is allowed only across declared compatible data state.
+- Maintenance operation needs backup, explicit approval, bounded outage procedure, and post-readiness receipt.
+
+## Required evidence
+
+```text
+continuous HTTP probe across compatible host promotion
+in-flight request/job drain and duplicate-effect checks
+socket reconnect/resync
+failed target and rollback
+incompatible migration refusal
+app generation activation/update/rollback races
+runner crash/OOM/timeout isolation
+remote UI asset/CSP failure
+backup/restore exact inventory
+web process Docker-socket denial
+```

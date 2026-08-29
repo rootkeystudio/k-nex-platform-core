@@ -1,152 +1,96 @@
 # K-Nex Implementation Master Plan — Codex Execution Contract
 
-- **Status:** active execution plan
-- **Scope:** Gates 0–8 and Gate 2A
-- **Execution authority:** `status.md` selects the active phase/task
+- **Status:** active
+- **Scope:** Gates 0–10 and Gate 2A
+- **Execution authority:** `status.md`
 - **Architecture authority:** generated contracts, accepted ADRs, and architecture documents
 - **Gate definitions:** [`../30-executable-poc-gates.md`](../30-executable-poc-gates.md)
-- **Official Payload plugin plan:** [`../32-payload-official-plugin-adoption-plan.md`](../32-payload-official-plugin-adoption-plan.md)
-- **Plugin platform direction:** [`../33-plugin-platform-hardening-and-reference-sales.md`](../33-plugin-platform-hardening-and-reference-sales.md)
-- **Component system direction:** [`../34-headless-component-system.md`](../34-headless-component-system.md)
-- **Detailed Phase 0 plan:** [`phase-0.md`](./phase-0.md)
-- **Detailed Gates 1–5 history/tasks:** [`phase-details-gates-1-7.md`](./phase-details-gates-1-7.md)
-- **Detailed Phase 2A plan:** [`phase-2a-agent-tools.md`](./phase-2a-agent-tools.md)
-- **Authoritative future Gates 6–8 plan:** [`phase-details-gates-6-8.md`](./phase-details-gates-6-8.md)
+- **Dynamic runtime direction:** [`../35-dynamic-applications-and-zero-downtime-delivery.md`](../35-dynamic-applications-and-zero-downtime-delivery.md)
+- **Phase 9 detail:** [`phase-9-dynamic-application-runtime.md`](./phase-9-dynamic-application-runtime.md)
+- **Phase 10 detail:** [`phase-10-rbac-and-authorization-control-plane.md`](./phase-10-rbac-and-authorization-control-plane.md)
 
-## 1. Purpose
+## 1. Purpose and precedence
 
-This is the single orchestration source for agentic implementation. It defines phase order, task IDs, handoff protocol, gate commands, and the exact detailed plan Codex must read.
-
-Resolve conflicts in this order:
+This is the orchestration source for agentic implementation. Resolve conflicts in this order:
 
 1. machine-readable contracts and generated schemas;
 2. accepted ADRs and evidence registry;
 3. architecture documents;
 4. this master plan;
-5. the linked detailed plan for the active gate;
-6. PR descriptions and implementation notes.
+5. the linked active phase plan;
+6. implementation notes and PR prose.
 
-The future Gate 6 and Gate 7 sections in `phase-details-gates-1-7.md` are superseded. Gates 6–8 are defined only in `phase-details-gates-6-8.md`.
+A plan is not evidence. A gate passes only through its named command and required real fixtures.
 
-## 2. Product focus freeze
+## 2. Current focus freeze
 
-Until Gate 8 passes:
+Gate 8 is accepted. The selected next sequence is:
 
 ```text
-first-party reference domain module: module.sales
-new first-party logistics/restaurant/inventory/budgeting modules: prohibited
-component behavior: platform-owned
-customer reuse fixtures: Sales-based only
+Phase 9   Dynamic Application Runtime and Zero-Downtime Delivery
+Phase 10  RBAC, Authorization, and Extension Bootstrap
 ```
 
-Do not implement Cargo, Restaurant, Driver, Dispatch, Live Tracking, QR Menu, Inventory, Budgeting, or another domain module to discover a missing platform abstraction. Improve the platform and the Sales reference module instead.
-
-## 3. One instruction to give Codex
+Until Gate 10 PASS:
 
 ```text
-Fetch the latest main branch. Read AGENTS.md, status.md,
-docs/implementation/codex-master-plan.md, and the detailed plan linked for the
-active phase. Work only inside that phase and in documented task order.
-
-Use one branch for the entire phase and one coherent commit per task. Update
-status.md in every task commit and run the task-specific acceptance commands.
-You may advance status.md between tasks within the same phase, but may not
-start the next phase.
-
-When the complete phase result and full gate pass, mark the phase Ready for
-review, open one pull request, and stop without merging or enabling auto-merge.
+module.sales remains the sole first-party domain reference
+no broad CRM/CMS implementation
+no logistics/restaurant/inventory/budgeting product module
+no public third-party marketplace launch
 ```
 
-## 4. Mandatory execution protocol
+Phase 9 may create one bounded Hot Application and one Theme Skin fixture. They prove runtime infrastructure and do not become new domain products.
 
-### Task selection
+## 3. Mandatory execution protocol
 
-Codex must:
-
-1. fetch latest `main`;
-2. read `AGENTS.md` and `status.md`;
-3. locate the exact active task in this plan;
-4. read the linked detailed phase plan and relevant ADRs;
-5. read gate-assigned official Payload plugin notes where applicable;
-6. implement tasks only in the active phase.
-
-If the active task is absent, ambiguous, already complete, or blocked, stop and report the inconsistency. Do not infer a nearby task.
-
-### Branch, commits, and pull request
+Before work:
 
 ```text
-branch:   codex/phase-<number>-<short-slug>
-commit:   one coherent task outcome
+fetch latest main
+read AGENTS.md and status.md
+read this plan, active detailed plan, related ADRs
+locate the exact active task
+```
+
+Work rules:
+
+- one branch and one final PR per phase;
+- one coherent commit per task;
+- update `status.md` in every task commit;
+- run task acceptance and affected repository checks;
+- advance only within the active phase after acceptance;
+- stop at `Ready for phase review` after the full gate and result pass;
+- implementation agents never merge or enable auto-merge;
+- project-manager review returns `PASS`, `REWORK`, `BLOCKED`, or `REJECT`.
+
+Branch/PR convention:
+
+```text
+branch:   codex/phase-<number>-<slug>
 PR title: <type>: complete Phase <number> <outcome>
 ```
 
-One phase uses one branch and one final PR. Each task remains a separate coherent commit so review and rework can target the exact layer.
+Stop for decision when an invariant cannot be met, a kill criterion fires, a persisted/public contract must change outside task scope, a new dependency family lacks a bounded spike, or a proposed shortcut weakens isolation, authorization, migration, release, or evidence.
 
-Every phase PR reports:
-
-```text
-completed task matrix
-architecture constraints preserved
-packages/files affected
-commands and CI runs
-failure/attack evidence
-known limitations
-phase result decision
-exact next phase/task
-```
-
-### Review boundary
-
-Codex must never:
-
-- merge its own pull request;
-- enable auto-merge;
-- start the next phase;
-- convert a kill criterion into a workaround without project-manager approval;
-- add a second domain module before Gate 8;
-- preserve obsolete pre-v1 APIs through aliases or compatibility shims.
-
-The reviewer returns `PASS`, `REWORK`, `BLOCKED`, or `REJECT`. Only project-manager PASS and merge authorize the next phase.
-
-### Official plugin and dependency boundary
-
-Do not install package catalogs preemptively. A dependency candidate is considered only when the active task has a real consumer and must be:
+## 4. Authoritative phase order
 
 ```text
-exact-pinned
-compatible with the frozen framework tuple
-kept behind K-Nex contracts
-covered by access/bundle/lifecycle/failure tests
-removable if the kill criteria fire
+Phase 0   contract freeze and repository governance             complete
+Phase 1   deterministic Payload composition                     complete
+Phase 2   authenticated sources and output contracts            complete
+Phase 2A  agent tools and safe execution                        complete
+Phase 3   transactional outbox and realtime convergence         complete
+Phase 4   builder engine kill-spike                              complete
+Phase 5   themes, UI runtime, atomic publication                complete
+Phase 6   plugin platform hardening and Sales reference         complete
+Phase 7   comprehensive headless components                     complete
+Phase 8   lifecycle, application factory, release/fleet safety  complete
+Phase 9   dynamic applications and zero-downtime delivery       active
+Phase 10  RBAC, authorization, extension bootstrap              planned
 ```
 
-## 5. Authoritative phase order
-
-```text
-Phase 0   contract freeze and repository governance
-   ↓
-Phase 1   minimal deterministic Payload composition
-   ↓
-Phase 2   authenticated data sources and output contracts
-   ↓
-Phase 2A  agent tool contracts and safe execution
-   ↓
-Phase 3   transactions, durable events, and realtime convergence
-   ↓
-Phase 4   builder engine kill-spike
-   ↓
-Phase 5   UI runtime, themes, and atomic CMS publication
-   ↓
-Phase 6   plugin platform hardening and Sales reference module
-   ↓
-Phase 7   comprehensive headless component system
-   ↓
-Phase 8   lifecycle, application factory, release, and fleet safety
-```
-
-A later phase starts only after the preceding phase result records GO/PASS and `status.md` names the next task.
-
-Required gate commands:
+Required commands:
 
 ```text
 pnpm phase:0
@@ -159,296 +103,194 @@ pnpm gate:5
 pnpm gate:6
 pnpm gate:7
 pnpm gate:8
+pnpm gate:9
+pnpm gate:10
 ```
 
-A gate command fails on the first missing requirement, requires no production secret, and is run by required CI at phase closeout.
+Do not add `gate:9` or `gate:10` as a marker-only command. It must fail unless the complete required evidence actually runs.
 
-## 6. Phase and task index
+## 5. Historical task index
 
-### Phase 0 — Contract Freeze and Repository Readiness
+### Phase 0 — Contract freeze
 
-Detailed plan: [`phase-0.md`](./phase-0.md)
+Detail: [`phase-0.md`](./phase-0.md)
 
 ```text
-P0.1  pinned repository toolchain                              complete
-P0.2  typed contract-authoring source                         complete
-P0.3  valid and invalid fixture corpus                        complete
-P0.4  executable repository validation                        complete
-P0.5  generation reproducibility                              complete
-P0.6  CI and repository governance                            complete
-P0.7  gate closeout and evidence promotion                    complete
+P0.1–P0.7  toolchain, typed contracts, fixtures, validation,
+           reproducibility, governance, closeout
 ```
 
-Result: [`phase-0-result.md`](./phase-0-result.md).
+### Phases 1–5
 
-### Phase 1 — Minimal Deterministic Payload Composition
-
-Detailed historical plan: [`phase-details-gates-1-7.md`](./phase-details-gates-1-7.md)
+Historical detail: [`phase-details-gates-1-7.md`](./phase-details-gates-1-7.md)
 
 ```text
-P1.1  framework tuple and fixture shell
-P1.2  static installed-package manifest loader
-P1.3  deterministic resolver
-P1.4  resolved graph and static registries
-P1.5  phased registration and inventory reconciliation
-P1.6  minimal Payload composition
-P1.7  customer-owned migration and Postgres boot
-P1.8  authenticated query and runtime inventory
-P1.9  failure corpus and closeout
+P1  resolver, static registries, Payload/Postgres boot
+P2  source gateway, record/field authorization, budgets/cache
+P2A explicit tools, approval/idempotency/audit, MCP adapter
+P3  outbox, processing, realtime topology and convergence
+P4  canonical document, Puck adapter, bundle/accessibility
+P5  theme ABI, atomic publication, deterministic layouts
 ```
 
-### Phase 2 — Authenticated Data Sources and Output Contracts
+### Phases 6–8
+
+Detail: [`phase-details-gates-6-8.md`](./phase-details-gates-6-8.md)
 
 ```text
-P2.1  canonical Metric and Table schemas
-P2.2  source descriptor and handler registration
-P2.3  staged source gateway
-P2.4  source/record/field authorization
-P2.5  bounded query semantics and budgets
-P2.6  safe cache classes
-P2.7  Sales proof sources
-P2.8  headless result states and query identity
-P2.9  benchmark, attack, and closeout
+P6  complete plugin authoring surface and Sales conformance
+P7  comprehensive components, forms, pages, DataTable, Puck
+P8  upgrade/lifecycle/restore, create-knex-app, provenance/fleet
 ```
 
-### Phase 2A — Agent Tool Contracts and Safe Execution
+## 6. Phase 9 — Dynamic Application Runtime and Zero-Downtime Delivery
 
-Detailed plan: [`phase-2a-agent-tools.md`](./phase-2a-agent-tools.md)
+Detail: [`phase-9-dynamic-application-runtime.md`](./phase-9-dynamic-application-runtime.md)
 
 ```text
-P2A.1  agent-tool descriptor and manifest contracts
-P2A.2  actor-filtered catalog
-P2A.3  registered actions and source/action bindings
-P2A.4  tool execution gateway
-P2A.5  delegation, approval, replay protection
-P2A.6  idempotency, budgets, audit
-P2A.7  official Payload MCP adapter evaluation
-P2A.8  Sales proof tools and deterministic client
-P2A.9  attack and closeout
+P9.1   extension classes, manifests, bundle/generation contracts
+P9.2   prebuilt bundle, signed catalog, secure verifier/store
+P9.3   persistent PluginManager state machine and operator hook
+P9.4   isolated server runner, host capabilities, app storage
+P9.5   Web Worker remote UI and fixed host routes
+P9.6   atomic activate/update/rollback and convergence
+P9.7   live Theme Skin bundles
+P9.8   Docker blue/green Platform Plugin strategy
+P9.9   unified manager API/status and attack corpus
+P9.10  Gate 9 closeout
 ```
 
-### Phase 3 — Transactions, Durable Events, and Realtime Convergence
+Outcome:
 
 ```text
-P3.1  event classes and outbox schema
-P3.2  atomicity and rollback silence
-P3.3  idempotent outbox processing
-P3.4  realtime gateway and Socket.IO memory mode
-P3.5  process-topology compatibility
-P3.6  worker-to-web publication path
-P3.7  source revisions and convergence
-P3.8  subscription security and backpressure
-P3.9  failure injection and closeout
+GO PHASE 10 RBAC AND AUTHORIZATION
+REWORK HOT APPLICATION OR ZERO-DOWNTIME DELIVERY
+REJECT HOST-PROCESS HOT INJECTION
 ```
 
-### Phase 4 — Builder Engine Kill-Spike
+## 7. Phase 10 — RBAC, Authorization, and Extension Bootstrap
+
+Detail: [`phase-10-rbac-and-authorization-control-plane.md`](./phase-10-rbac-and-authorization-control-plane.md)
 
 ```text
-P4.1  canonical UI document
-P4.2  editor-independent runtime
-P4.3  Puck adapter and round-trip
-P4.4  fixed shell and profile policy
-P4.5  static and authenticated data blocks
-P4.6  migrations and fallback
-P4.7  bundle/runtime boundaries
-P4.8  accessible keyboard operation
-P4.9  builder decision
+P10.1   owner, permission, role, grant, assignment, template contracts
+P10.2   platform registry and extension policy/template reconciliation
+P10.3   PostgreSQL authorization storage
+P10.4   effective authority resolver and cache identity
+P10.5   policy hooks across host/runner/manager/deployment boundaries
+P10.6   protected roles, first owner, role-template bootstrap
+P10.7   extension lifecycle and authorization-generation integration
+P10.8   live revision and revocation convergence
+P10.9   access and extension administration UI
+P10.10  Gate 10 closeout
 ```
 
-### Phase 5 — UI Runtime, Themes, and Atomic CMS Publication
+Outcome:
 
 ```text
-P5.1  small semantic primitive ABI
-P5.2  theme package/profile contracts
-P5.3  Minimal theme
-P5.4  Neobrutalism theme
-P5.5  UiDocumentRepository
-P5.6  atomic CMS page/document publication
-P5.7  deterministic workspace layout resolution
-P5.8  accessibility and visual acceptance
-P5.9  closeout
+GO SYSTEM SETTINGS AND FULL EXTENSION ADMINISTRATION PRODUCTIZATION
+REWORK AUTHORIZATION OR EXTENSION BOOTSTRAP
+REJECT USER-OPERATED LIVE INSTALL
 ```
 
-### Phase 6 — Plugin Platform Hardening and Sales Reference Module
+## 8. Cross-phase invariants
 
-Authoritative detail: [`phase-details-gates-6-8.md`](./phase-details-gates-6-8.md)
+### Determinism and supply chain
 
 ```text
-P6.1   complete plugin contribution taxonomy
-P6.2   plugin authoring and package-entrypoint API
-P6.3   settings, permissions, routes, and navigation
-P6.4   default page-template and seed semantics
-P6.5   standard browser query/action factories
-P6.6   component, Puck, route, and page registration
-P6.7   complete module.sales reference implementation
-P6.8   plugin conformance kit
-P6.9   install/enable/disable/re-enable proof
-P6.10  Gate 6 closeout and pre-v1 authoring freeze
+exact versions and frozen lockfiles
+canonical generated files
+no wall-clock/path/host/random/secret in committed generation
+immutable content-addressed artifacts
+secure extraction and no production install scripts
+SBOM, provenance, artifact/container digest, deployment receipt
 ```
 
-Gate outcome:
+### Static Platform Plugin boundary
 
 ```text
-GO PHASE 7
-REWORK PLUGIN AUTHORING CONTRACT
-REJECT GENERAL PLUGIN SURFACE
+boot-time Payload config and static imports
+complete declared-versus-actual registration
+schema/migrations through customer release
+host code only from verified immutable artifact
+no runtime mutation of frozen registry
 ```
 
-### Phase 7 — Comprehensive Headless Component System
+### Hot Application boundary
 
 ```text
-P7.1   component taxonomy, slots, and package boundaries
-P7.2   foundation/layout/content/feedback components
-P7.3   form and input family
-P7.4   navigation/disclosure/overlay family
-P7.5   data/content/editor adapters
-P7.6   standard DataTable/DataGrid system
-P7.7   page templates and Sales default pages
-P7.8   generic and Sales Puck block library
-P7.9   accessibility, SSR/hydration, theme matrix
-P7.10  performance, bundle, coverage audit, and closeout
+separate closed manifest and app.* identity
+prebuilt self-contained bundles
+isolated runner and capability-scoped RPC
+remote UI worker with allowlisted K-Nex components
+fixed host routes and generic app storage
+no raw DB/Docker/env/DOM/host import authority
+atomic generation pointer and rollback
 ```
 
-All 60 Component Gallery families require an explicit executable disposition. The small theme ABI remains small; compound behavior is platform-owned.
-
-Gate outcome:
+### Zero-downtime delivery
 
 ```text
-GO PHASE 8
-REWORK COMPONENT SYSTEM
-REDUCE COMPONENT COVERAGE WITH EXPLICIT DECISION
+stable gateway
+old healthy generation during warm-up
+expand-compatible migrations
+verified target readiness/inventory
+safe worker overlap/drain
+continuous external probes
+maintenance-required on incompatible change
 ```
 
-### Phase 8 — Lifecycle, Application Factory, Release, and Fleet Safety
+### Authorization
 
 ```text
-P8.1   package release and compatibility boundaries
-P8.2   upgrade planning and customer-owned migrations
-P8.3   migration lock and stale-artifact readiness fence
-P8.4   archive/export, purge, backup, and restore
-P8.5   create-knex-app and composition plan/apply
-P8.6   two independent Sales-only customer applications
-P8.7   SBOM and signed provenance
-P8.8   deployment receipts and runtime inventory
-P8.9   fleet query, patch propagation, prior-release upgrade, restore
-P8.10  platform-foundation closeout
+server/host capability authorization is authoritative
+role labels never authorize
+runtime content cannot create policy code
+current revisions/generation in cache and runner identity
+revocation reaches web, worker, runner, browser, realtime
 ```
 
-No Cargo or Restaurant module is added. Two Sales-based customers prove independent composition, theme/settings/layout differences, and release cadence.
-
-Gate outcome:
+### UI and accessibility
 
 ```text
-PLATFORM FOUNDATION ACCEPTED
-REWORK APPLICATION FACTORY OR LIFECYCLE
-DO NOT START DOMAIN EXPANSION
-```
-
-## 7. Cross-phase quality gates
-
-### Determinism
-
-```text
-exact direct dependencies and frozen lockfile
-canonical generated artifacts
-no time/path/host/random/secret in committed generation
-clean-tree and staged-path reproducibility
-idempotent plugin/template installation
-```
-
-### Security and authority
-
-```text
-server-side authorization
-capability-scoped services
-bounded inputs and resource use
-safe errors/logs/audit
-no secret in events/tools/settings/inventory/exports/evidence
-public/authenticated authority separated by ID
-runtime data cannot create executable contributions
-plugin UI cannot bypass source/action gateways
-```
-
-### Plugin completeness
-
-```text
-complete declared-versus-actual inventory
-Sales exercises every mandatory contribution category
-one plugin conformance command
-settings/routes/navigation/templates are versioned and typed
-component/Puck runtime parity
-lifecycle and migration fixtures
-```
-
-### Component quality
-
-```text
-style-agnostic K-Nex API
-small theme ABI plus compound platform components
-role/name/keyboard/focus contract
-SSR/hydration and portal behavior
-Minimal/Neobrutalism state matrix
-DataTable authorization/query integration
-bundle and performance budgets
-```
-
-### Package boundaries
-
-```text
-contracts import no framework/editor/model/protocol types
-browser exports import no server code
-modules import no customer/theme implementation
-third-party behavior engines remain behind adapters
-optional complex components remain tree-shakeable
+small theme ABI and platform-owned components
+remote UI does not execute arbitrary host React
+strict props/events and app-local error boundary
+keyboard/focus/SSR/CSP/forced-colors/motion evidence
 ```
 
 ### Evidence
 
 ```text
-real Postgres for migrations/transactions/lifecycle
-real Chromium for UI/focus/CSS/SSR behavior
-failure injection for durability and destructive operations
-packed-package tests
-previous-release upgrade and restore fixtures
-phase result states observed limitations only
+real PostgreSQL for transactional state/migrations/restore
+real Chromium for remote UI/admin/accessibility
+real multi-process runner/web/worker convergence
+real continuous-traffic Docker promotion proof
+failure injection at every lifecycle boundary
 ```
 
-## 8. Decision and stop protocol
+## 9. Dependency protocol
 
-Stop and request a decision when:
+Before adding a library:
 
-- an accepted invariant cannot be implemented without weakening it;
-- a persisted/public contract must change outside the active task;
-- a new dependency family is required without a bounded spike;
-- an official plugin/library requires private types to become K-Nex contracts;
-- a phase kill criterion is observed;
-- component coverage would force theme ABI expansion or duplicated behavior;
-- Sales cannot exercise a proposed generic plugin capability coherently;
-- another domain module appears necessary before the platform contract is complete.
+1. prove current dependencies cannot solve the active requirement cleanly;
+2. inspect official docs/source/types for the exact candidate version;
+3. assess maintenance, license, vulnerability, bundle/runtime, and isolation impact;
+4. keep implementation types behind K-Nex contracts;
+5. pin exact version and update lockfile;
+6. add only with a real active-task consumer and kill criteria.
 
-A decision request includes:
+Remote DOM/remote-component, bundler, archive, signature, runner, proxy, and orchestration libraries require bounded spikes rather than speculative adoption.
+
+## 10. Post-Gate 10 boundary
+
+The next roadmap layer is:
 
 ```text
-observed fact
-minimal reproduction
-contract/decision affected
-options and consequences
-recommended option
-work that remains valid
+system settings administration
+full Plugin Manager/theme administration
+official GitHub catalog operations
+Docker deployment/backup/health operations center
 ```
 
-## 9. Post-Gate 8 boundary
-
-Only after Gate 8 PASS may the production roadmap select the next domain/product expansion:
-
-```text
-full CRM
-CMS features
-logistics/driver/dispatch/live tracking
-restaurant/QR menu/inventory/budgeting
-AI assistant productization
-commerce/payments
-third-party plugin distribution
-```
-
-The selected module starts from the Sales structure and passes the same plugin and component conformance gates.
+CRM/CMS breadth begins only through a separate accepted product plan after the administration core is usable and evidenced.

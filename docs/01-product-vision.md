@@ -2,217 +2,156 @@
 
 ## Vision
 
-K-Nex is a software product line and application factory for repeatedly delivering customer-specific business applications without repeatedly rebuilding authentication, content management, modular backend behavior, UI composition, themes, operations, and project scaffolding.
+K-Nex is a software product line and application factory for repeatedly delivering customer-specific business applications without rebuilding authentication, content, modular behavior, UI composition, extension delivery, themes, authorization, and operations for every customer.
 
-Customer products may combine:
-
-```text
-CMS + Sales/CRM
-logistics + dispatch + driver + tracking
-restaurant + QR menu + inventory + budgeting
-agency + CMS + forms + proposals + reporting
-future vertical modules and customer extensions
-```
-
-Every customer receives an independent product with its own repository, Payload/Postgres data, object storage, secrets, deployment, migrations, visual language, content, extensions, and release schedule.
+Customer products may combine CMS, CRM/Sales, operations, analytics, and future vertical capabilities. Each customer owns an independent repository, Payload/Postgres data, storage, secrets, deployment, migrations, backups, visual language, content, extension state, and release schedule.
 
 ## Product equation
 
 ```text
-Payload application foundation
-+ versioned K-Nex contracts and trusted plugins
-+ deterministic manifest/CLI composition
-+ customer-owned design, data, extensions, and infrastructure
+Payload/Postgres application foundation
++ deterministic Platform Plugins
++ isolated live Hot Applications
++ live Theme Skins
++ customer-owned data/content/settings/authorization
++ immutable Docker delivery and verifiable operations
 = independently deployable customer product
 ```
 
 ## What K-Nex is
 
-- a conservative set of contracts and composition rules on top of Payload;
-- publishable modules, providers, builders, themes, integrations, and presets;
-- a CLI that creates and upgrades reviewable customer repositories;
-- style-agnostic module UI and semantic design contracts;
-- one canonical visual document architecture with separate CMS/workspace policies;
-- plugin-owned authenticated data sources for generic and domain-specific blocks;
-- a repeatable deployment and fleet-upgrade discipline without a shared runtime tenancy requirement.
+- a conservative platform and contract system on Payload;
+- exact-version reusable Platform Plugins, Hot Applications, Theme Skins, integrations, and presets;
+- a deterministic customer application compiler and release discipline;
+- a live application runtime with isolated server logic and remote UI;
+- a zero-downtime deployment path for compatible full-plugin releases;
+- a platform-owned component/data/form/page system and canonical visual document model;
+- a central authorization and administration control plane delivered after the runtime substrate;
+- an independently deployable customer product model rather than initial shared tenancy.
 
 ## What K-Nex is not
 
-- a shared multi-tenant database/runtime in V1;
-- a copied or patched platform core in every customer repository;
-- a generic ORM or database portability layer above Payload;
-- a runtime package marketplace;
-- arbitrary visual JavaScript, SQL, Payload queries, global CSS, or server URL composition;
-- a claim that every operational workflow belongs in drag-and-drop UI;
-- a promise that schema-owning plugins can be removed while their schema remains available;
-- an untrusted plugin sandbox.
+- a shared customer database/runtime in V1;
+- copied/patched core source per customer;
+- a database portability layer above Payload;
+- arbitrary NPM execution inside the running web process;
+- an assumption that every existing deep plugin can be hot-injected;
+- arbitrary visual JavaScript, SQL, Payload queries, host imports, global CSS, or unrestricted URLs;
+- an untrusted-code sandbox implemented only by TypeScript/package exports;
+- a promise that every database migration has zero downtime;
+- a generic retained-schema uninstall promise for schema-owning plugins.
+
+## Extension delivery classes
+
+### Platform Plugin
+
+Existing full packages may own Payload schema, migrations, services, routes, jobs, native UI, providers, builders, and executable themes. They are statically composed and frozen into the application artifact.
+
+Package add, upgrade, and removal build a new immutable release. A stable gateway and separate deployment supervisor can promote a compatible release blue/green while the old release continues serving.
+
+### Hot Application
+
+A signed `app.*` bundle uses fixed host contracts. It may contribute declarative screens/navigation/settings, isolated logic functions, remote UI, sources/actions/tools through fixed gateways, app storage, events/schedules through bounded host APIs, assets, localization, and permission/template descriptors.
+
+It cannot mutate host Payload config, import into the main Node process, use raw database/Docker credentials, inherit ambient secrets, or execute unrestricted network calls.
+
+### Theme Skin
+
+A signed `skin.*` artifact contains bounded tokens, palettes, recipes, scoped CSS, and approved assets. It activates as an immutable runtime generation. Full executable `theme.*` packages remain Platform Plugins.
+
+## Plugin Manager experience
+
+The product presents one extension catalog but clearly reports execution and availability:
+
+```text
+Hot Application / Theme Skin  Install live
+Platform Plugin               Install with live deployment when eligible
+Incompatible migration        Maintenance required
+```
+
+The manager downloads in the background, verifies immutable artifacts, stages and warms a generation, then atomically activates an app pointer or deployment traffic target. It never runs a package manager in the host process.
 
 ## Payload commitment
 
-Payload is the strategic V1 application framework. K-Nex uses Payload collections, access controls, request context, jobs, migrations, versions/drafts, admin integration, and the Postgres adapter.
+Payload remains the strategic V1 application framework for static collections, access controls, request context, jobs, versions/drafts, admin integration, migrations, and Postgres.
 
-The POC evaluates whether K-Nex can maintain deterministic plugin composition, source authorization, migrations, visual composition, and upgrades **on Payload** without deep framework forks. Replacing Payload would be a platform migration, not a provider switch.
+Hot Applications do not pretend Payload config is mutable. They use a separate runtime substrate and generic host capabilities. Replacing Payload remains a platform migration, not a provider switch.
 
 ## Customer ownership
 
-A customer application owns:
+A customer owns:
 
 ```text
 k-nex.app.json and exact lockfile
-hermetic k-nex.config.ts customer registrations
+bounded source-controlled customer registration
 brand assets and approved fonts
-customer UI blocks/overrides and true custom policies
-final migrations and previous-release fixtures
-CMS content, workspace layouts, theme profiles, runtime settings
+final Platform Plugin migrations and release fixtures
+CMS content, layouts, theme profiles/skins, settings
+roles/grants/assignments after Phase 10
+Hot Application storage and generation state
 deployment resources, secrets, backups, logs, alerts
-artifact release and migration cadence
+artifact and extension release cadence
 ```
 
-Shared packages own reusable behavior and public contracts.
-
-## Core boundary
-
-The platform is physically separated into low-dependency contracts, composition/resolver logic, runtime services, a Payload adapter, testing support, UI subsystems, and the CLI. A convenience `@k-nex/core` facade must not collapse these boundaries into ambient authority.
-
-Core-family packages do not contain Sales, logistics, restaurant, customer branding, Puck internals, ECharts options, Socket.IO types, or one customer’s conditionals.
-
-## Plugin ecosystem
-
-### Module
-
-Reusable horizontal or domain behavior, for example:
-
-```text
-module.cms
-module.sales
-module.logistics.core
-module.logistics.dispatch
-module.logistics.driver
-module.restaurant.core
-module.restaurant.qr-menu
-module.inventory
-module.budgeting
-```
-
-### Provider
-
-A genuinely replaceable infrastructure implementation, for example:
-
-```text
-provider.realtime.socketio
-provider.storage.s3
-provider.email.smtp
-```
-
-The Payload database adapter is scaffold/framework configuration, not a K-Nex provider.
-
-### Builder, theme, integration, preset
-
-```text
-builder.puck
-theme.minimal
-theme.neobrutalism
-integration.sales-logistics
-preset.logistics
-```
+Shared packages/artifacts own reusable behavior and versioned contracts.
 
 ## UI and data vision
 
-Enabled modules can contribute:
+Platform Plugins and Hot Applications can expose permission-aware navigation, screens/blocks, bounded sources/actions/tools, realtime invalidation, and explicit extension slots.
 
-```text
-permission-aware navigation
-fixed operational screens
-composable style-agnostic blocks
-authenticated data-source descriptors and handlers
-registered actions and UI state definitions
-realtime invalidation metadata
-explicit extension slots
-```
+Generic components consume stable output contracts. Raw Payload collections are not automatically builder sources. Hot Application UI composes allowlisted host components through a remote protocol; it does not execute arbitrary host React modules.
 
-Generic components consume stable contracts:
+## Fixed shell and runtime hosts
 
-```text
-Metric     ← metric.scalar@1
-DataTable  ← table.records@1
-Pie/Bar    ← series.category@1
-Line/Area  ← series.time@1
-```
+The fixed shell owns authentication, router, sidebar/top bar hosts, global dialogs/notifications, security/system screens, `/apps/:appId/*`, remote UI host, and app-local error boundaries.
 
-Raw Payload collections are not automatically builder sources.
-
-## Fixed shell and composable surfaces
-
-The application shell owns authentication, router, sidebar host, top bar, global dialogs/notifications, and security/system screens. Module navigation fills explicit slots.
-
-Initial composable surfaces:
-
-```text
-public CMS pages
-dashboards
-module overviews
-reports
-role/group workspaces
-personal dashboard customizations
-```
-
-Operational transaction screens remain module-owned in V1 and can expose controlled extension slots.
-
-## Builder profiles
-
-- **CMS:** explicit public-safe blocks/sources/actions, content metadata, localization, draft/preview/publish, public theme.
-- **Workspace:** authenticated data/actions, source filters, scoped layout assignments, realtime, admin theme.
-
-The engine may be shared, but authority-bearing public and workspace IDs are separate. A public action is never converted into an internal action by configuration.
-
-## Themes
-
-Theme packages contain executable schemas, tokens, recipes, structural styles, and migrations. Theme profiles contain validated adjustable values and publication history in the customer database.
-
-V1 exposes a small semantic primitive ABI. Complex table grids, date/calendar, maps, charts, rich text, command menus, and resizable dashboard layouts use separate versioned adapters.
+CMS/workspace canvases remain declarative. Public and authenticated authority IDs are separate.
 
 ## Build-time and runtime boundary
 
-Build-time:
+Build/release time:
 
 ```text
-packages and exact versions
-Payload adapter and generated config
-plugin/provider/builder/theme availability
-schema, routes, static registries, customer code
-process and infrastructure topology
+Platform Plugin packages/versions
+Payload config and customer migrations
+static registration and native UI
+process/infrastructure topology
+full Theme Packages
 ```
 
-Runtime:
+Runtime generation time:
 
 ```text
-business records and CMS content
-published layouts and theme profiles
-validated settings/features that do not alter executable composition
-user preferences and page filter state
+verified Hot Application bundles
+verified Theme Skins
+active generation pointers
+app metadata/settings/storage
+published content/layout/theme profiles
+roles and assignments after Phase 10
 ```
 
-Runtime values cannot choose package paths or modify schema composition.
+Runtime values cannot select arbitrary package paths or mutate host schema/imports.
 
 ## Success criteria
 
 K-Nex succeeds when it can:
 
-- generate two different customer repositories from explicit manifests;
-- release one shared fix and upgrade customers independently;
-- compose one plugin graph deterministically and reject invalid graphs before boot;
-- enforce source/record/field authorization even under direct client manipulation;
-- render the same canonical block under materially different themes;
-- recover clients after lost realtime messages through authoritative source fetches;
-- migrate, disable, re-enable, and explicitly purge without silent data loss;
-- identify every deployed customer affected by a package/security range through verifiable release evidence.
+- generate and upgrade independent customer applications deterministically;
+- install/update/rollback a signed Hot Application without host restart;
+- contain runner/UI failure to one application;
+- install/update/rollback a Theme Skin live;
+- promote a compatible full Platform Plugin release with continuous successful traffic;
+- refuse a false zero-downtime claim for incompatible migrations;
+- enforce source/record/field and host-capability authorization;
+- recover after lost realtime/activation invalidations;
+- restore exact static and runtime extension inventory;
+- identify every affected customer release through verifiable fleet evidence.
 
-## Constraints
+## Current roadmap boundary
 
-- TypeScript-first, exact dependencies, pnpm lockfiles.
-- Payload + Postgres in V1.
-- Trusted first-party/reviewed private packages only.
-- No runtime package installation.
-- WCAG 2.2 AA target for supported web surfaces.
-- Customer repositories own final migrations and deployments.
-- Public decisions remain design-only until the relevant executable POC gate passes.
+```text
+Gate 9   Dynamic Application Runtime and Zero-Downtime Delivery
+Gate 10  RBAC, Authorization, and Extension Bootstrap
+next     System Settings and Full Extension Administration
+then     explicit CRM/CMS productization decision
+```
