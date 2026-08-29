@@ -382,6 +382,7 @@ export const WorkerGenerationFenceSchema = z.strictObject({
 }).meta({ $id: "https://schemas.k-nex.dev/worker-generation-fence/v1.json", title: "K-Nex Worker Generation Fence v1" });
 
 export type ExtensionDeliveryClass = z.infer<typeof ExtensionDeliveryClassSchema>;
+export type ExtensionIdentity = z.infer<typeof ExtensionIdentitySchema>;
 export type ExtensionCapabilityRequest = z.infer<typeof ExtensionCapabilityRequestSchema>;
 export type ExtensionResourceBudget = z.infer<typeof ExtensionResourceBudgetSchema>;
 export type HotApplicationManifest = z.infer<typeof HotApplicationManifestSchema>;

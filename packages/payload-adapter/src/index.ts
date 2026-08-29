@@ -9,6 +9,7 @@ export * from "./mcp-adapter.js";
 export * from "./outbox-processor.js";
 export * from "./outbox-realtime-relay.js";
 export * from "./transactional-outbox.js";
+export * from "./runtime-extension-store.js";
 
 export type PayloadCompositionErrorCode =
   | "INVALID_DATABASE_URL"

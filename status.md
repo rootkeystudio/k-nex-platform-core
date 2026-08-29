@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-29
 - **Phase:** Phase 9 — Dynamic Application Runtime and Zero-Downtime Delivery
-- **Active task:** P9.3 — Persistent PluginManager state machine and operator boundary
+- **Active task:** P9.4 — Production per-generation server sandbox and capability-scoped host API
 - **State:** Ready to start
 
 ## Last completed
 
-P9.2 added deterministic normalized app/skin bundles, syntax-aware forbidden-module inspection, bounded file inventories and budgets, CycloneDX SBOMs, workflow-bound detached provenance, closed signed-catalog contracts and fixture, secure tar extraction, complete artifact verification, and verified-only content-addressed staging using the hardened `deliveryClass` discriminator.
+P9.3 added the class-specific PluginManager orchestration boundary, explicit trusted-automation authority, resumable revision/lease/idempotency coordination, static source/build delegation, protected authority-reverified runtime inventory, transactional lifecycle receipts/audit/outbox, global inventory revisions, and customer-owned PostgreSQL state migrations.
 
 ## Validation
 
-Node 24.19.0: `@k-nex/extension-bundler` build and 7 focused tests passed; `pnpm phase:0` passed across 22 packages with 43 tasks, including generated-schema/AJV validation, 152 contract tests, 25 architecture-tool tests, reproducibility, and docs validation.
+Node 24.19.0: contracts 152, extension bundler 7, runtime 241, and payload adapter 32 tests passed. The complete customer PostgreSQL suite passed 6/6, including serialization, concurrency budgets, lease recovery, atomic receipt/audit/outbox rollback, monotonic convergence, and forged-authority rejection. Exact-head `pnpm phase:0` passed across 22 packages and 43 tasks.
 
 ## Next
 
-Implement P9.3 only: persistent PluginManager lifecycle state, class-specific planning and static-change delegation, revision/lease/idempotency coordination, injected operation authority, audit/outbox integration, and protected runtime inventory.
+Implement P9.4 only: the production per-generation server sandbox, structured invocation protocol, capability gateway, namespaced storage, secret references, bounded network access, resource enforcement, health, and quarantine.
 
 ## Blockers
 

@@ -89,6 +89,8 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
         (select count(*)::int from payload_migrations where name = '20260826_000004_event_outbox') as outbox_migration_count,
         (select count(*)::int from payload_migrations where name = '20260826_000005_outbox_processor') as outbox_processor_migration_count,
         (select count(*)::int from payload_migrations where name = '20260827_000006_sales_opportunities') as opportunities_migration_count,
+        (select count(*)::int from payload_migrations where name = '20260829_000007_runtime_extensions') as runtime_extensions_migration_count,
+        to_regclass('public.runtime_extensions')::text as runtime_extensions,
         (select predecessor_revision from k_nex_migration_revision where id = 1) as predecessor_revision,
         (select revision from k_nex_migration_revision where id = 1) as revision
     `);
@@ -104,8 +106,10 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
       outbox_migration_count: 1,
       outbox_processor_migration_count: 1,
       opportunities_migration_count: 1,
-      predecessor_revision: 5,
-      revision: 6
+      runtime_extensions_migration_count: 1,
+      runtime_extensions: "runtime_extensions",
+      predecessor_revision: 6,
+      revision: 7
     }]);
 
     const outboxSchema = await runFixtureProcess("tests/outbox-schema.mjs", connectionString);
@@ -131,7 +135,7 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
     assert.equal(currentBoot.code, 0, `${currentBoot.stdout}\n${currentBoot.stderr}`);
     assert.match(currentBoot.stdout, /^READY$/m);
     const current = await query(connectionString, "select count(*)::int as count from payload_migrations");
-    assert.equal(current.rows[0].count, 6);
+    assert.equal(current.rows[0].count, 7);
 
     const authenticated = await runFixtureProcess("tests/authenticated-runtime.mjs", connectionString, {
       BOOT_KEY: "gate1-authenticated-runtime"

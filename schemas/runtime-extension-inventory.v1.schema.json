@@ -1,0 +1,468 @@
+{
+  "$defs": {
+    "__schema0": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "__schema1": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema10": {
+      "exclusiveMinimum": 0,
+      "maximum": 1000000000,
+      "type": "integer"
+    },
+    "__schema11": {
+      "pattern": "^[a-z][a-z0-9-]{2,127}$",
+      "type": "string"
+    },
+    "__schema12": {
+      "additionalProperties": false,
+      "properties": {
+        "applicationDigest": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "authority": {
+          "const": "static-build",
+          "type": "string"
+        },
+        "buildEvidenceDigest": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "compositionChangePlanDigest": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "generationId": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "imageDigest": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "migrationRevision": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "receiptId": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "sourceCommit": {
+          "$ref": "#/$defs/__schema13"
+        },
+        "version": {
+          "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+          "type": "string"
+        },
+        "workerFencingToken": {
+          "$ref": "#/$defs/__schema10"
+        }
+      },
+      "required": [
+        "authority",
+        "generationId",
+        "version",
+        "sourceCommit",
+        "compositionChangePlanDigest",
+        "buildEvidenceDigest",
+        "applicationDigest",
+        "imageDigest",
+        "migrationRevision",
+        "workerFencingToken",
+        "receiptId"
+      ],
+      "type": "object"
+    },
+    "__schema13": {
+      "pattern": "^[0-9a-f]{40}$",
+      "type": "string"
+    },
+    "__schema14": {
+      "maxLength": 128,
+      "pattern": "^app(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    },
+    "__schema15": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "activeGeneration": {
+              "$ref": "#/$defs/__schema16"
+            },
+            "disposition": {
+              "const": "active",
+              "type": "string"
+            },
+            "lastOperationId": {
+              "$ref": "#/$defs/__schema11"
+            },
+            "lastReceiptId": {
+              "$ref": "#/$defs/__schema11"
+            },
+            "revision": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "rollbackGeneration": {
+              "$ref": "#/$defs/__schema16"
+            },
+            "stateDigest": {
+              "$ref": "#/$defs/__schema4"
+            }
+          },
+          "required": [
+            "revision",
+            "lastOperationId",
+            "lastReceiptId",
+            "stateDigest",
+            "disposition",
+            "activeGeneration"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "disposition": {
+              "enum": [
+                "disabled",
+                "quarantined",
+                "retirement-pending"
+              ],
+              "type": "string"
+            },
+            "lastOperationId": {
+              "$ref": "#/$defs/__schema11"
+            },
+            "lastReceiptId": {
+              "$ref": "#/$defs/__schema11"
+            },
+            "retainedGeneration": {
+              "$ref": "#/$defs/__schema16"
+            },
+            "revision": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "stateDigest": {
+              "$ref": "#/$defs/__schema4"
+            }
+          },
+          "required": [
+            "revision",
+            "lastOperationId",
+            "lastReceiptId",
+            "stateDigest",
+            "disposition"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "disposition": {
+              "const": "removed",
+              "type": "string"
+            },
+            "lastOperationId": {
+              "$ref": "#/$defs/__schema11"
+            },
+            "lastReceiptId": {
+              "$ref": "#/$defs/__schema11"
+            },
+            "revision": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "stateDigest": {
+              "$ref": "#/$defs/__schema4"
+            }
+          },
+          "required": [
+            "revision",
+            "lastOperationId",
+            "lastReceiptId",
+            "stateDigest",
+            "disposition"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "__schema16": {
+      "additionalProperties": false,
+      "properties": {
+        "artifactDigest": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "authority": {
+          "const": "verified-bundle",
+          "type": "string"
+        },
+        "catalogDigest": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "generationId": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "manifestDigest": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "provenanceDigest": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "receiptId": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "sbomDigest": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "sourceCommit": {
+          "$ref": "#/$defs/__schema13"
+        },
+        "version": {
+          "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "authority",
+        "generationId",
+        "version",
+        "sourceCommit",
+        "artifactDigest",
+        "manifestDigest",
+        "catalogDigest",
+        "provenanceDigest",
+        "sbomDigest",
+        "receiptId"
+      ],
+      "type": "object"
+    },
+    "__schema17": {
+      "maxLength": 128,
+      "pattern": "^skin(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    },
+    "__schema2": {
+      "pattern": "^[a-z][a-z0-9-]{2,127}$",
+      "type": "string"
+    },
+    "__schema3": {
+      "pattern": "^[a-z][a-z0-9-]{1,63}$",
+      "type": "string"
+    },
+    "__schema4": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "__schema5": {
+      "maximum": 1000000000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "__schema6": {
+      "allOf": [
+        {
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
+        },
+        {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        }
+      ],
+      "maxLength": 64,
+      "type": "string"
+    },
+    "__schema7": {
+      "additionalProperties": false,
+      "properties": {
+        "hotApplications": {
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema15"
+          },
+          "maxProperties": 512,
+          "propertyNames": {
+            "$ref": "#/$defs/__schema14"
+          },
+          "type": "object"
+        },
+        "platformPlugins": {
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema9"
+          },
+          "maxProperties": 512,
+          "propertyNames": {
+            "$ref": "#/$defs/__schema8"
+          },
+          "type": "object"
+        },
+        "themeSkins": {
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema15"
+          },
+          "maxProperties": 512,
+          "propertyNames": {
+            "$ref": "#/$defs/__schema17"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "platformPlugins",
+        "hotApplications",
+        "themeSkins"
+      ],
+      "type": "object"
+    },
+    "__schema8": {
+      "maxLength": 128,
+      "pattern": "^(module|provider|builder|theme|integration|preset)(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    },
+    "__schema9": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "activeGeneration": {
+              "$ref": "#/$defs/__schema12"
+            },
+            "disposition": {
+              "const": "active",
+              "type": "string"
+            },
+            "lastOperationId": {
+              "$ref": "#/$defs/__schema11"
+            },
+            "lastReceiptId": {
+              "$ref": "#/$defs/__schema11"
+            },
+            "revision": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "rollbackGeneration": {
+              "$ref": "#/$defs/__schema12"
+            },
+            "stateDigest": {
+              "$ref": "#/$defs/__schema4"
+            }
+          },
+          "required": [
+            "revision",
+            "lastOperationId",
+            "lastReceiptId",
+            "stateDigest",
+            "disposition",
+            "activeGeneration"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "disposition": {
+              "enum": [
+                "disabled",
+                "quarantined",
+                "retirement-pending"
+              ],
+              "type": "string"
+            },
+            "lastOperationId": {
+              "$ref": "#/$defs/__schema11"
+            },
+            "lastReceiptId": {
+              "$ref": "#/$defs/__schema11"
+            },
+            "retainedGeneration": {
+              "$ref": "#/$defs/__schema12"
+            },
+            "revision": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "stateDigest": {
+              "$ref": "#/$defs/__schema4"
+            }
+          },
+          "required": [
+            "revision",
+            "lastOperationId",
+            "lastReceiptId",
+            "stateDigest",
+            "disposition"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "disposition": {
+              "const": "removed",
+              "type": "string"
+            },
+            "lastOperationId": {
+              "$ref": "#/$defs/__schema11"
+            },
+            "lastReceiptId": {
+              "$ref": "#/$defs/__schema11"
+            },
+            "revision": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "stateDigest": {
+              "$ref": "#/$defs/__schema4"
+            }
+          },
+          "required": [
+            "revision",
+            "lastOperationId",
+            "lastReceiptId",
+            "stateDigest",
+            "disposition"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "$id": "https://schemas.k-nex.dev/runtime-extension-inventory/v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "applicationId": {
+      "$ref": "#/$defs/__schema2"
+    },
+    "environment": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "extensions": {
+      "$ref": "#/$defs/__schema7"
+    },
+    "hostInventoryDigest": {
+      "$ref": "#/$defs/__schema4"
+    },
+    "observedAt": {
+      "$ref": "#/$defs/__schema6"
+    },
+    "revision": {
+      "$ref": "#/$defs/__schema5"
+    },
+    "schemaVersion": {
+      "$ref": "#/$defs/__schema1"
+    },
+    "stateDigest": {
+      "$ref": "#/$defs/__schema4"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "applicationId",
+    "environment",
+    "hostInventoryDigest",
+    "revision",
+    "observedAt",
+    "stateDigest",
+    "extensions"
+  ],
+  "title": "K-Nex Runtime Extension Inventory v1",
+  "type": "object"
+}

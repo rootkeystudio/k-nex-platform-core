@@ -16,6 +16,7 @@ export * from "./output-contracts.js";
 export * from "./package-release-manifest.js";
 export * from "./deployment-evidence.js";
 export * from "./extension-runtime.js";
+export * from "./runtime-extension-state.js";
 export * from "./plugin-manifest.js";
 export * from "./plugin-contribution-taxonomy.js";
 export * from "./plugin-contribution-descriptors.js";

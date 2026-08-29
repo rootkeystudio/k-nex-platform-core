@@ -3,7 +3,7 @@ import type { ErrorObject, ValidateFunction } from "ajv";
 export const fixtureSchemas = [
   "application", "plugin", "hot-application-manifest", "theme-skin-manifest", "extension-bundle-manifest",
   "extension-capability-request", "extension-resource-budget", "extension-install-plan", "extension-install-receipt",
-  "extension-generation", "migration-compatibility-plan", "remote-ui-isolation-profile", "runner-isolation-profile",
+  "extension-generation", "extension-lifecycle-event", "migration-compatibility-plan", "remote-ui-isolation-profile", "runner-isolation-profile", "runtime-extension-inventory",
   "static-composition-change-plan", "trusted-application-build-evidence", "worker-generation-fence", "zero-downtime-eligibility"
 ] as const;
 export type FixtureSchema = (typeof fixtureSchemas)[number];

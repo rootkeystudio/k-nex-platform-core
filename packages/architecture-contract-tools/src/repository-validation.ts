@@ -287,9 +287,11 @@ export function declaredFixtureSchema(value: unknown): FixtureSchema | undefined
   if (schema.endsWith("/extension-install-plan.v1.schema.json")) return "extension-install-plan";
   if (schema.endsWith("/extension-install-receipt.v1.schema.json")) return "extension-install-receipt";
   if (schema.endsWith("/extension-generation.v1.schema.json")) return "extension-generation";
+  if (schema.endsWith("/extension-lifecycle-event.v1.schema.json")) return "extension-lifecycle-event";
   if (schema.endsWith("/migration-compatibility-plan.v1.schema.json")) return "migration-compatibility-plan";
   if (schema.endsWith("/remote-ui-isolation-profile.v1.schema.json")) return "remote-ui-isolation-profile";
   if (schema.endsWith("/runner-isolation-profile.v1.schema.json")) return "runner-isolation-profile";
+  if (schema.endsWith("/runtime-extension-inventory.v1.schema.json")) return "runtime-extension-inventory";
   if (schema.endsWith("/static-composition-change-plan.v1.schema.json")) return "static-composition-change-plan";
   if (schema.endsWith("/trusted-application-build-evidence.v1.schema.json")) return "trusted-application-build-evidence";
   if (schema.endsWith("/worker-generation-fence.v1.schema.json")) return "worker-generation-fence";
@@ -381,16 +383,18 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
   const extensionInstallPlanSchema = await loadJson(root, "schemas/extension-install-plan.v1.schema.json", diagnostics);
   const extensionInstallReceiptSchema = await loadJson(root, "schemas/extension-install-receipt.v1.schema.json", diagnostics);
   const extensionGenerationSchema = await loadJson(root, "schemas/extension-generation.v1.schema.json", diagnostics);
+  const extensionLifecycleEventSchema = await loadJson(root, "schemas/extension-lifecycle-event.v1.schema.json", diagnostics);
   const migrationCompatibilityPlanSchema = await loadJson(root, "schemas/migration-compatibility-plan.v1.schema.json", diagnostics);
   const remoteUiIsolationProfileSchema = await loadJson(root, "schemas/remote-ui-isolation-profile.v1.schema.json", diagnostics);
   const runnerIsolationProfileSchema = await loadJson(root, "schemas/runner-isolation-profile.v1.schema.json", diagnostics);
+  const runtimeExtensionInventorySchema = await loadJson(root, "schemas/runtime-extension-inventory.v1.schema.json", diagnostics);
   const staticCompositionChangePlanSchema = await loadJson(root, "schemas/static-composition-change-plan.v1.schema.json", diagnostics);
   const trustedApplicationBuildEvidenceSchema = await loadJson(root, "schemas/trusted-application-build-evidence.v1.schema.json", diagnostics);
   const workerGenerationFenceSchema = await loadJson(root, "schemas/worker-generation-fence.v1.schema.json", diagnostics);
   const zeroDowntimeEligibilitySchema = await loadJson(root, "schemas/zero-downtime-eligibility.v1.schema.json", diagnostics);
   const expectedValue = await loadJson(root, "fixtures/contracts/expected-diagnostics.json", diagnostics);
   const extensionExpectedValue = await loadJson(root, "fixtures/extensions/expected-diagnostics.json", diagnostics);
-  if (registryValue === undefined || pluginSchema === undefined || applicationSchema === undefined || hotApplicationSchema === undefined || themeSkinSchema === undefined || extensionBundleSchema === undefined || extensionCapabilitySchema === undefined || extensionBudgetSchema === undefined || extensionInstallPlanSchema === undefined || extensionInstallReceiptSchema === undefined || extensionGenerationSchema === undefined || migrationCompatibilityPlanSchema === undefined || remoteUiIsolationProfileSchema === undefined || runnerIsolationProfileSchema === undefined || staticCompositionChangePlanSchema === undefined || trustedApplicationBuildEvidenceSchema === undefined || workerGenerationFenceSchema === undefined || zeroDowntimeEligibilitySchema === undefined || expectedValue === undefined || extensionExpectedValue === undefined) return sortDiagnostics(diagnostics);
+  if (registryValue === undefined || pluginSchema === undefined || applicationSchema === undefined || hotApplicationSchema === undefined || themeSkinSchema === undefined || extensionBundleSchema === undefined || extensionCapabilitySchema === undefined || extensionBudgetSchema === undefined || extensionInstallPlanSchema === undefined || extensionInstallReceiptSchema === undefined || extensionGenerationSchema === undefined || extensionLifecycleEventSchema === undefined || migrationCompatibilityPlanSchema === undefined || remoteUiIsolationProfileSchema === undefined || runnerIsolationProfileSchema === undefined || runtimeExtensionInventorySchema === undefined || staticCompositionChangePlanSchema === undefined || trustedApplicationBuildEvidenceSchema === undefined || workerGenerationFenceSchema === undefined || zeroDowntimeEligibilitySchema === undefined || expectedValue === undefined || extensionExpectedValue === undefined) return sortDiagnostics(diagnostics);
 
   const registry = registryValue as Registry;
   const expectedResult = validateExpectedDiagnostics(expectedValue);
@@ -414,9 +418,11 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
       "extension-install-plan": ajv.compile(extensionInstallPlanSchema as AnySchema),
       "extension-install-receipt": ajv.compile(extensionInstallReceiptSchema as AnySchema),
       "extension-generation": ajv.compile(extensionGenerationSchema as AnySchema),
+      "extension-lifecycle-event": ajv.compile(extensionLifecycleEventSchema as AnySchema),
       "migration-compatibility-plan": ajv.compile(migrationCompatibilityPlanSchema as AnySchema),
       "remote-ui-isolation-profile": ajv.compile(remoteUiIsolationProfileSchema as AnySchema),
       "runner-isolation-profile": ajv.compile(runnerIsolationProfileSchema as AnySchema),
+      "runtime-extension-inventory": ajv.compile(runtimeExtensionInventorySchema as AnySchema),
       "static-composition-change-plan": ajv.compile(staticCompositionChangePlanSchema as AnySchema),
       "trusted-application-build-evidence": ajv.compile(trustedApplicationBuildEvidenceSchema as AnySchema),
       "worker-generation-fence": ajv.compile(workerGenerationFenceSchema as AnySchema),
