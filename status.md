@@ -3,20 +3,20 @@
 - **Updated:** 2026-08-29
 - **Phase:** Phase 9 — Dynamic Application Runtime and Zero-Downtime Delivery
 - **Active task:** P9.10 — Gate 9 closeout
-- **State:** Ready for phase review
+- **State:** Blocked
 
 ## Last completed
 
-All Phase 9 tasks and hardening fixes are complete; the closeout artifact records the exact accepted base and executable evidence.
+Fresh Sol-high review completed at `b5ea518` and identified 15 release blockers across static cleanup/effect safety, Hot Application composition and restore proof, process isolation, rollback/build/catalog authority, runner and remote-UI confinement, Skin assets, and Gate 9 evidence.
 
 ## Validation
 
-Node 24.19.0: complete `pnpm gate:9` passed Gates 1–8, all Phase 9 package/browser suites, 10/10 customer PostgreSQL/Docker journeys, and 22 attacks backed by 12 exact proof groups.
+The pre-review `pnpm gate:9` passed on Node 24.19.0. Its evidence is insufficient for the reviewed requirements and must be replaced, then rerun on the final head.
 
 ## Next
 
-Run fresh Sol-high phase review, fix every blocker, rerun complete Gate 9 on the final head, and repeat until PASS. Then push or refresh the single Phase 9 PR; do not merge or enable auto-merge.
+Fix all 15 anchored review blockers in coherent commits, replace overstated result evidence, rerun complete Gate 9, and repeat fresh Sol-high review until PASS.
 
 ## Blockers
 
-None.
+Fresh Sol-high project-manager review: FAIL — 15 blockers at `b5ea518`.
