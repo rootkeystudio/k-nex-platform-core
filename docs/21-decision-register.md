@@ -2,6 +2,8 @@
 
 Decision status and evidence maturity are separate. See [ADR index](./adr/README.md) and machine-readable [evidence registry](./adr/evidence-registry.json).
 
+Existing decision IDs are immutable historical identities. New decisions append new IDs; an accepted ID is never reused for a different meaning.
+
 ## Accepted product decisions
 
 ### D-001 — Independent customer applications
@@ -18,7 +20,7 @@ No long-lived customer branches of one core repository.
 
 ### D-004 — Payload is strategic V1 framework
 
-Payload is not treated as a casually replaceable provider. The executable gates validate sustainable K-Nex composition on Payload.
+Payload is not treated as a casually replaceable provider. Executable gates validate sustainable K-Nex composition on Payload.
 
 ### D-005 — Plugin taxonomy
 
@@ -30,27 +32,27 @@ Direct domain dependency remains direct; realtime/storage/email/builder implemen
 
 ### D-007 — Build-time executable composition; runtime validated settings
 
-Runtime panel cannot install packages or change schema/import graph.
+Platform Plugin code/schema/import graph is build-time. Runtime settings cannot install Platform Plugin packages or mutate host executable composition.
 
 ### D-008 — Manifest plus hermetic customer config
 
-`k-nex.app.json` is desired graph; `k-nex.config.ts` is static source-controlled registration/fingerprint input within its proven boundary.
+`k-nex.app.json` is desired static host graph; `k-nex.config.ts` is static source-controlled registration/fingerprint input within its proven boundary.
 
 ### D-009 — CLI application compiler
 
-Plan/apply, exact package resolution, deterministic graph/registries, migration/reference/topology diagnostics.
+Plan/apply, exact Platform Plugin package resolution, deterministic graph/registries, migration/reference/topology diagnostics.
 
 ### D-010 — Deterministic generated graph committed
 
 No timestamps/paths/host/random/secrets; provenance and deployment metadata are separate signed evidence.
 
-### D-043 — Sales is the sole pre-v1 reference domain plugin
+### D-043 — Sales is the sole pre-v1 reference domain plugin through Gate 8
 
-Until Gate 8 passes, `module.sales` is the only first-party domain module used to shape and prove plugin contracts. Logistics, restaurant, inventory, budgeting, driver, dispatch, live-tracking, QR-menu, and similar modules are deferred product work.
+During the platform-foundation program through Gate 8, `module.sales` is the only first-party domain module used to shape and prove plugin contracts.
 
 ### D-044 — Platform gaps are solved through Sales before domain expansion
 
-A supported plugin contribution category is accepted only when Sales exercises it and the common conformance suite proves it. A second module may not be introduced merely to discover another missing platform abstraction.
+A supported plugin contribution category is accepted only when Sales exercises it and the common conformance suite proves it. A second domain module is not introduced merely to discover another generic gap.
 
 ## Accepted contract decisions
 
@@ -58,7 +60,7 @@ A supported plugin contribution category is accepted only when Sales exercises i
 
 Dot-separated namespaces, optional hyphen inside one semantic segment, package location independent.
 
-### D-012 — One plugin manifest schema and fixture system
+### D-012 — One Plugin Manifest schema and fixture system
 
 Machine-readable schema/fixtures are normative over copied prose snippets.
 
@@ -81,9 +83,9 @@ Undeclared contribution/capability access fails; no ambient plugin service locat
 
 Accepted can remain design-only; executable/production proof requires linked evidence.
 
-### D-045 — Complete plugin contribution taxonomy and conformance
+### D-045 — Complete Platform Plugin contribution taxonomy and conformance
 
-Settings, sources, actions, tools, events, jobs, realtime topics, components, blocks, routes, navigation, default pages, localization, lifecycle, and testing metadata are explicit contribution categories. Sales and one plugin conformance command define the reference implementation.
+Settings, sources, actions, tools, events, jobs, realtime topics, components, blocks, routes, navigation, default pages, localization, lifecycle, and testing metadata are explicit Platform Plugin contribution categories. Sales and one conformance command define the reference.
 
 ## Accepted data/runtime decisions
 
@@ -121,15 +123,15 @@ Durable integration/workflow requires transactional outbox. Reconstructible inva
 
 ### D-025 — Payload Postgres scaffold
 
-Postgres only in V1; customer owns final migrations.
+Postgres only in V1; customer owns final Platform Plugin migrations.
 
 ### D-041 — Explicit agent tools and safe execution gateway
 
-Plugins may explicitly expose selected registered sources/actions as typed agent tools. Discovery is actor/delegation-filtered, every invocation is reauthorized, writes require declared approval/idempotency, and runtime content cannot create tools. MCP is an interoperability adapter and cannot weaken K-Nex policy or become a persisted core contract.
+Plugins may expose selected registered sources/actions as typed tools. Discovery is actor/delegation-filtered, every invocation is reauthorized, writes require declared approval/idempotency, and runtime content cannot create tools. MCP is an adapter.
 
 ### D-042 — Official Payload plugins are bounded adapters
 
-Prefer official Payload plugins when they materially reduce implementation and maintenance work, but keep their types, schema, routes, domain assumptions, and lifecycle behind K-Nex/Payload adapters. Adoption is exact-pinned and gate-specific; no official plugin becomes a baseline dependency before executable evidence. `@payloadcms/plugin-mcp` is the accepted bounded MCP transport candidate; unrelated official plugin decisions remain gate-scoped.
+Prefer official Payload plugins when they reduce implementation/maintenance work, but keep their types, schema, routes, assumptions, and lifecycle behind K-Nex/Payload adapters. Adoption is exact-pinned and gate-specific.
 
 ## Accepted UI decisions
 
@@ -149,29 +151,29 @@ Static renderers can be shared; privileged and public source/action/block IDs ar
 
 Engine adapter, document runtime, and Payload repository are separate. Puck does not own persisted documents or runtime rendering.
 
-### D-030 — Theme package plus runtime profile
+### D-030 — Theme Package plus runtime profile
 
-Installed code package and validated database publication are separate; admin/public profiles independent.
+Installed executable theme package and validated database profile publication are separate; admin/public profiles are independent.
 
 ### D-031 — Small stable theme primitive ABI
 
-The theme ABI stays small. Complex DataTable/DataGrid, dates, tree, rich text, command, virtualization, map, chart, and advanced layout behavior is implemented by versioned platform adapters and styled through tokens/slots/recipes.
+The theme ABI stays small. Complex DataTable/DataGrid, dates, tree, rich text, command, virtualization, map, chart, and advanced layout behavior is implemented by platform adapters.
 
 ### D-032 — WCAG 2.2 AA target
 
-Evidence requires automated and manual keyboard/focus/drag/target/motion/high-contrast/screen-reader gates.
+Evidence requires scoped automated/manual keyboard, focus, drag alternative, target, motion, high-contrast, and screen-reader gates.
 
 ### D-046 — Comprehensive platform-owned headless component system
 
-K-Nex owns style-agnostic accessible components, data/form/page utilities, and Puck bridges. The Component Gallery list is the minimum coverage inventory, not an external API contract. Plugins use K-Nex components rather than third-party behavior engines where coverage exists.
+K-Nex owns style-agnostic accessible components, data/form/page utilities, and Puck bridges. Plugins use K-Nex components where coverage exists.
 
 ### D-047 — Standard plugin query/action and default-page composition
 
-Plugin browser UI uses platform-owned source-query/action-mutation factories and canonical result states. Default pages are immutable versioned templates instantiated idempotently into customer-owned documents; upgrades never overwrite customer edits.
+Platform Plugin browser UI uses platform source-query/action-mutation factories and canonical states. Default pages are immutable templates instantiated into customer-owned documents; upgrades do not overwrite edits.
 
 ## Accepted lifecycle/operations decisions
 
-### D-033 — Schema-owning V1 lifecycle is disable/re-enable or purge
+### D-033 — Schema-owning V1 Platform Plugin lifecycle is disable/re-enable or purge
 
 Retained-schema package uninstall is not a generic V1 promise; archive/export is explicit project work.
 
@@ -197,7 +199,7 @@ Depth/fields/page/points/bytes/time/concurrency/rate/cost bounded.
 
 ### D-039 — Security control mapping
 
-NIST SSDF, OWASP ASVS/API Security and K-Nex test IDs map requirements to evidence.
+NIST SSDF, OWASP ASVS/API Security, and K-Nex test IDs map requirements to evidence.
 
 ### D-040 — Independent falsifiable gates through platform foundation
 
@@ -205,65 +207,149 @@ Contract, composition, source, agent-tool, realtime, builder, UI/publication, pl
 
 ### D-048 — Two Sales-only customers prove reuse before vertical breadth
 
-The fleet/application-factory gate uses two independent customers with the same platform and Sales packages but different themes, settings, permissions, layouts, lockfiles, and release cadence. Cargo and Restaurant are not foundation fixtures.
+The Gate 8 factory/fleet proof uses two independent customers with the same platform/Sales packages but different themes, settings, permissions, layouts, lockfiles, and cadence.
+
+## Accepted post-Gate-8 extension-delivery decisions
+
+### D-049 — Platform Plugin, Hot Application, and Theme Skin are distinct classes
+
+The product may display one Plugin Manager, but manifests, plans, execution, lifecycle, receipts, and inventory identify the exact class. Platform Plugins retain existing IDs; Hot Applications use `app.*`; Theme Skins use `skin.*` after P9.1 contract acceptance.
+
+### D-050 — Full Platform Plugin composition remains static
+
+Payload schema, host services/routes/jobs/native UI/providers/builders/full themes remain exact build-time Platform Plugin contributions. The frozen host registry is not patched at runtime.
+
+### D-051 — Hot Applications use a separate isolated runtime
+
+A signed prebuilt Hot Application may activate live only through fixed host capabilities, isolated server runner, remote UI, fixed host routes, namespaced storage, and immutable generations. It cannot mutate host Payload config/imports.
+
+### D-052 — Theme Skins are live-installable data-only artifacts
+
+A Theme Skin contains bounded tokens, palettes, recipes, scoped CSS, and approved assets. A full executable `theme.*` remains a Platform Plugin.
+
+### D-053 — Production activation runs no host package manager or install scripts
+
+Dependencies are resolved/bundled in protected publication. The customer web/worker never runs npm/pnpm lifecycle scripts or imports downloaded code into its process.
+
+### D-054 — Official catalog entries bind immutable verified artifacts
+
+Publisher, source commit, immutable release asset, manifest/artifact/SBOM/provenance digests, compatibility, capability/permission impact, support, and revocation are verified before staging.
+
+### D-055 — PluginManager is an orchestration façade
+
+Catalog, artifact fetch/verification/store, planning/state, runner, remote UI, activation, deployment, traffic, authorization, audit/outbox, and inventory remain separable services. The manager is not a god class or generic package executor.
+
+### D-056 — Runtime extension activation is generation-based and atomic
+
+Hot Application/Theme Skin updates stage and warm immutable generations, atomically switch an active pointer, drain old calls, retain compatible rollback state, and converge through persisted revisions/outbox.
+
+### D-057 — Hot Application execution is capability-scoped and isolated
+
+The runner receives no raw Payload request, customer DB credential, Docker socket, ambient host secrets, broad filesystem, or unrestricted network. Node permission flags alone are not a security boundary.
+
+### D-058 — Remote UI is worker-isolated and host-rendered
+
+App UI runs in a Web Worker/equivalent realm and emits a K-Nex allowlisted component/event protocol. The host owns DOM, components, focus, accessibility, routing, theme, data gateways, and authorization.
+
+### D-059 — Initial Hot Application persistence is generic namespaced storage
+
+V1 starts with schema-validated quota-bound revisioned document/KV storage and bounded indexes. Arbitrary dynamic relational schema is deferred to a separate gate.
+
+### D-060 — Platform Plugin availability uses external blue/green delivery
+
+A stable gateway and separate deployment supervisor build/pull, migrate, start, warm, verify, promote, drain, and receipt a target host generation. The web application has no Docker socket.
+
+### D-061 — Zero downtime is compatibility-gated
+
+Only overlap-safe expand/contract changes are zero-downtime eligible. Incompatible/destructive migrations return `maintenance-required`; continuous external probes are required evidence.
+
+### D-062 — Dynamic runtime precedes customer RBAC
+
+Phase 9 proves the execution/delivery substrate behind a narrow injected operation-authorizer boundary. Phase 10 wires stable permissions, roles, extension templates, lifecycle generations, and user administration. No temporary role-label bypass is allowed.
+
+## Accepted Phase 10 authorization direction
+
+### D-063 — Permission IDs and policy, not role labels
+
+Platform/extension behavior requires stable permissions plus application/record/field policy. Mutable labels never authorize.
+
+### D-064 — Customer-owned normalized roles, grants, and explicit assignments
+
+Roles, per-permission grants, and active/revoked user/service assignments are PostgreSQL data with optimistic revisions and audit. Temporal assignments are deferred.
+
+### D-065 — Extension role templates are bounded defaults
+
+Platform Plugins and Hot Applications may provide same-owner templates; they never assign users or grant platform/foreign permissions. Customer edits use stored old-baseline comparison and explicit adoption.
+
+### D-066 — Authorization generations fence uninstall/reinstall
+
+Disable/re-enable and compatible update preserve one generation; uninstall retires it; reinstall receives a new generation. Old grants cannot reactivate without explicit reviewed reconciliation.
+
+### D-067 — Protected roles and first-owner safety
+
+Stable owner/security/extension-admin/user-admin/auditor roles have platform baselines. First-owner bootstrap is single-use and last-owner revocation fails closed.
+
+### D-068 — Effective and administrative authorization catalogs differ
+
+Authorization uses ready platform and enabled/current-generation extension descriptors/bindings. Diagnostic snapshots may show inactive/retired/orphaned entries without restoring authority.
 
 ## Provisional implementation choices
 
-- Exact Payload/Next/React/Node/pnpm compatibility tuple remains pinned per gate.
-- React Aria Components remains the preferred common interaction/accessibility foundation behind K-Nex components.
-- TanStack Table is the preferred DataTable/DataGrid state-engine candidate.
-- TanStack Virtual is the preferred large-list/table virtualization candidate.
-- TanStack Form and React Hook Form are bounded candidates for the Sales form spike; only one is adopted if it reduces complexity.
-- Lexical is the preferred rich-text adapter candidate and must remain behind a versioned K-Nex contract.
-- Official Payload Import/Export is evaluated in Gate 8 as a bounded transfer/archive adapter, not as backup or migration.
-- Payload Sentry is an optional deployment adapter while Pino/OpenTelemetry remain platform contracts.
-- Stripe and Ecommerce remain deferred explicit vertical accelerators.
-- Layout assignment/snapshot and constrained user patch representation remain the accepted workspace direction.
+- exact Payload/Next/React/Node/pnpm tuple remains pinned per gate;
+- React Aria remains the preferred interaction/accessibility foundation behind K-Nex components;
+- TanStack Table/Virtual remain preferred internal data/virtualization engines;
+- one form engine is chosen only through a real consumer spike;
+- Lexical remains a bounded rich-text candidate;
+- Remote DOM or equivalent is evaluated behind a K-Nex remote UI adapter in P9.5;
+- initial local runner may use child processes, but Gate 9 production proof requires enforceable separate service/container credentials and network boundaries;
+- a global extension/authorization revision is the conservative baseline before measured granular invalidation.
 
 ## Open product decisions
 
-- final first-party monorepo/package split after Gate 6 authoring freeze;
-- final private package scope/registry;
-- external distribution/license model;
-- first production deployment platform;
-- exact form engine after the Sales create/edit spike;
-- rich-text persisted-state and sanitization contract;
-- AI model-provider and conversation-retention policy;
-- whether any customer needs intra-customer tenant segmentation after Gate 8;
-- which real domain module follows the platform-foundation program;
-- whether any schema-owning compatibility package is worth supporting after V1.
+```text
+official catalog repository/signing/root-trust operations
+final extension bundle builder and archive/signature libraries
+remote UI engine after kill-spike
+local runner process pool versus per-app container implementation
+first managed/self-hosted Docker/orchestrator product
+public third-party marketplace certification/commercial model
+richer dynamic object/data model after generic app storage
+SSO/group/directory authority
+CRM/CMS product scope after extension administration core
+```
 
 ## Deferred product backlog
 
 ```text
+system settings and full extension/theme administration
+catalog publishing/revocation/operations center
 full CRM breadth
 CMS hierarchy/search/forms/redirect productization
-logistics, dispatch, driver, live tracking
-restaurant, QR menu, inventory, budgeting
+logistics/driver/dispatch/live tracking
+restaurant/QR menu/inventory/budgeting
 AI assistant productization
 commerce/payments
-third-party plugin marketplace
+public third-party marketplace
 ```
 
 ## Rejected approaches
 
-- initial shared tenant runtime/database;
-- Payload Multi-Tenant as customer-level isolation;
-- customer branches or copied core;
-- K-Nex ORM/database provider above Payload;
-- installing the complete Payload official plugin catalog by default;
-- Payload/plugin/library private types as persisted K-Nex contracts;
-- automatic raw collection exposure;
-- automatic exposure of all sources/actions/collections as AI tools;
-- direct model access to Payload, plugin services, or ambient service containers;
-- arbitrary builder JavaScript/SQL/query/CSS/imports;
-- WebSocket as sole business truth;
-- permanent ID aliases instead of migration;
-- ambient plugin service locator;
-- generic schema-owning retained-data uninstall promise;
-- timestamps inside committed deterministic graph;
-- manual fleet YAML as deployed truth;
-- parallel first-party domain modules before the Sales reference/conformance gate;
-- making every theme reimplement the entire component catalog;
-- allowing each plugin to create its own fetch/cache/table/form infrastructure where K-Nex provides one;
-- using Cargo and Restaurant modules merely to prove customer composition.
+```text
+shared customer database as initial isolation
+Payload Multi-Tenant as customer-level isolation
+customer branches/copied core
+K-Nex ORM above Payload
+runtime npm/pnpm install or downloaded host dynamic import
+web process Docker socket
+arbitrary Git branch as production catalog artifact
+Hot Application Payload collection/hook injection
+remote app React/DOM in host realm
+Node permission flags as sole sandbox
+false zero-downtime claim for incompatible migration
+role-label/superadmin-string authorization
+plugin-controlled user assignment
+runtime content creating executable policy/contribution
+permanent ID aliases
+WebSocket as business truth
+arbitrary builder JavaScript/SQL/import/network/global CSS
+```

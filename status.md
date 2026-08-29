@@ -1,21 +1,21 @@
 # Project Status
 
 - **Updated:** 2026-08-29
-- **Phase:** Post-Gate 8 — Roadmap Selection
-- **Active task:** Select and document the next productization phase
+- **Phase:** Phase 9 — Dynamic Application Runtime and Zero-Downtime Delivery
+- **Active task:** P9.1 — Freeze extension classes, manifests, bundle/generation contracts, and kill criteria
 - **State:** Ready to start
 
 ## Last completed
 
-Phase 8 is accepted. The platform foundation now has squash-safe lifecycle, application-factory, release-provenance, deployment-inventory, restore, and full-closure Fleet evidence while Sales remains the sole first-party reference domain.
+Project-manager review selected a Two-Path Extension Model before RBAC. Hot Applications and Theme Skins will stage verified immutable bundles and activate live through isolated generations; existing full Platform Plugins will use verified blue/green Docker delivery. Raw package-manager installation or downloaded-code injection into the main Payload/Next process is rejected. The prior RBAC plan is retained and adapted as Phase 10.
 
 ## Validation
 
-`pnpm gate:8` PASS with Node 24.19.0; contracts 152, composition 84, runtime 238, five PostgreSQL proofs, packed closure 18, no-`.git` squash snapshot regression, hosted run 33214953185 PASS, and exact-head Architecture Contracts run 33221512203 PASS on attempt 1.
+Gate 8 remains accepted on Node 24.19.0 with its PostgreSQL, browser, package, provenance, restore, and fleet evidence. This roadmap decision changes documentation only; no Phase 9 contract, package, migration, runner, remote UI, Docker supervisor, or executable gate has run yet.
 
 ## Next
 
-Choose and document the next productization phase before implementation. Do not begin domain expansion or add another first-party module until that roadmap decision is recorded.
+Implement P9.1 only: machine-readable Platform Plugin/Hot Application/Theme Skin taxonomy; `app.*` and `skin.*` identities; closed app/skin/bundle/generation, capability, budget, install-plan/receipt, and zero-downtime eligibility schemas; deterministic generation and invalid fixtures.
 
 ## Blockers
 

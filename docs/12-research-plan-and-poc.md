@@ -2,136 +2,122 @@
 
 ## Principle
 
-The architecture is validated through independent kill gates, not one small-platform implementation. The normative gate definitions are in [Executable Gates](./30-executable-poc-gates.md).
+K-Nex validates consequential assumptions through independent falsifiable gates. Gate definitions are normative in [Executable Gates](./30-executable-poc-gates.md); `status.md` selects the active task.
 
-The foundation program uses one domain reference module, `module.sales`, so every missing plugin/UI/lifecycle contract is solved once in the platform rather than independently inside multiple verticals.
-
-## Sequence
+## Accepted foundation
 
 ```text
-Gate 0   contract freeze and repository governance
-Gate 1   minimal deterministic Payload composition
-Gate 2   source authorization and output contracts
-Gate 2A  agent tool contracts and safe execution
-Gate 3   outbox and realtime convergence
-Gate 4   builder engine kill-spike
-Gate 5   UI themes, accessibility, atomic publication
-Gate 6   plugin platform hardening and complete Sales reference
-Gate 7   comprehensive headless component/data/form/page system
-Gate 8   lifecycle, application factory, release, and fleet safety
+Gate 0   contracts and repository governance                complete
+Gate 1   deterministic Payload/Postgres composition         complete
+Gate 2   source authorization/output contracts              complete
+Gate 2A  agent tools and safe execution                     complete
+Gate 3   outbox/realtime convergence                        complete
+Gate 4   builder kill-spike                                 complete
+Gate 5   themes/accessibility/atomic publication            complete
+Gate 6   plugin platform and Sales reference                complete
+Gate 7   comprehensive component system                     complete
+Gate 8   lifecycle/application factory/release/fleet safety complete
 ```
 
-Each gate has explicit exclusions so failure identifies the wrong assumption.
+## Active hypotheses
 
-## Reference customer slice
+### Gate 9 — Dynamic application runtime
 
-The same Sales-based vertical slice grows through the gates:
+Questions:
 
 ```text
-Gate 1
-  Payload + Postgres
-  module.sales
-  deterministic composition and migration
-
-Gate 2
-  sales.total-potential-revenue
-  sales.tasks
-  source/record/field authorization
-
-Gate 2A
-  sales.tools.search-tasks
-  sales.tools.create-task
-  safe catalog/gateway/MCP proof
-
-Gate 3
-  Sales durable events/outbox
-  realtime invalidation and convergence
-
-Gate 4
-  Sales static/authenticated blocks through canonical Puck adapter
-
-Gate 5
-  Sales-compatible runtime under Minimal/Neobrutalism
-  atomic CMS publication and workspace layout
-
-Gate 6
-  complete Sales plugin contribution matrix
-  settings/routes/navigation/default pages
-  plugin conformance command
-
-Gate 7
-  comprehensive component library
-  DataTable/forms/page templates/Puck blocks
-  complete Sales overview/tasks/opportunities/settings UI
-
-Gate 8
-  upgrade/lifecycle/restore
-  create-knex-app
-  two independent Sales-only customer compositions
-  release/fleet evidence
+Can an official app bundle download/verify without executing package code?
+Can server logic run outside the host with real capability isolation?
+Can remote UI remain useful and accessible without host-realm React/DOM authority?
+Can app/skin generations activate/update/rollback atomically without host restart?
+Can full Platform Plugins deploy blue/green with continuous successful traffic?
+Can incompatible migrations be detected and refused before a false promotion?
+Can all processes converge after lost activation/deployment invalidation?
+Can backup/restore reproduce exact host and dynamic extension inventory?
 ```
 
-## Domain expansion freeze
+Kill criteria are in the Phase 9 plan. Raw host-process package injection is not an experimental fallback.
 
-Before Gate 8 PASS, do not implement:
+### Gate 10 — RBAC and extension bootstrap
+
+Questions:
 
 ```text
-module.logistics.*
-module.restaurant.*
-module.inventory
-module.budgeting
-other first-party domain modules
+Can platform and extension permissions share one stable owner model?
+Can users edit mixed roles without role-label authorization?
+Can extensions offer role templates without assigning users or overwriting edits?
+Can disable hide noise and revoke authority while preserving data?
+Can uninstall/reinstall prevent retired grants from reactivating?
+Can revocation reach web, worker, runner, remote UI, and realtime?
+Can PluginManager/deployment operations be safely user-operated?
 ```
 
-Domain blueprints remain research/backlog context only. They do not select implementation work.
+## Twenty reference study
 
-This freeze prevents Cargo and Restaurant fixtures from inventing separate settings, query, component, page-template, lifecycle, and deployment patterns before the Sales reference contract is complete.
-
-## Component research
-
-The Component Gallery list is the minimum coverage inventory for Gate 7. React Aria, WAI-ARIA APG, TanStack Table/Virtual, form-engine candidates, and Lexical are evaluated as implementation engines behind K-Nex contracts.
-
-The theme ABI remains small. Component breadth is achieved through platform-owned compound components and adapters, not by requiring each theme to implement a separate component framework.
-
-See:
-
-- [Plugin platform hardening and Sales reference](./33-plugin-platform-hardening-and-reference-sales.md)
-- [Headless component system](./34-headless-component-system.md)
-
-## Two-customer proof
-
-Gate 8 creates two independent customer applications using the same platform and Sales packages but different:
+Twenty provides evidence for the architectural pattern, not a drop-in implementation:
 
 ```text
-themes/profiles
-Sales settings
-default-page selection
-permissions and layouts
-lockfiles and release cadence
+package/tarball resolution and secure extraction
+manifest-driven application synchronization
+metadata migration and cache/event refresh
+prebuilt application files
+logic execution through a separate driver/child process
+remote UI isolation
 ```
 
-This proves application-factory and fleet reuse without adding another domain module.
+K-Nex differs because its existing Platform Plugins are statically composed into Payload. Therefore the research explicitly separates Hot Applications from deep Platform Plugins.
 
-## Evidence discipline
+## Reference fixtures
 
-A gate result links:
+`module.sales` remains the sole first-party domain reference.
+
+Gate 9 may introduce:
 
 ```text
-implementation PR/commit
-contract and failure fixtures
-CI run
-benchmark where performance matters
-migration/restore fixture
-deployment receipt for production-observed evidence
+one bounded Hot Application fixture using Sales-compatible host contracts
+one Theme Skin fixture
+a test-only schema-less extension/runtime fixture
+a Docker blue/green customer topology
 ```
 
-Update `docs/adr/evidence-registry.json` only with real evidence. A document or mock interface is not executable proof.
+These prove infrastructure and do not authorize another domain product.
+
+## Required real evidence
+
+```text
+contract/schema generation and invalid fixture corpus
+protected hosted artifact/signature/provenance proof
+real process/container runner isolation
+real PostgreSQL activation/race/crash/restore
+real Chromium remote UI/CSP/accessibility/skin journeys
+real web/worker/runner revision convergence
+real Docker gateway blue/green continuous traffic
+failure injection before and after every commit/promotion boundary
+```
+
+Mocks may support unit tests but cannot satisfy the gate alone.
+
+## Development versus production
+
+Development may use a local watcher and unsigned source sync only under an explicit development mode. Production requires prebuilt immutable signed bundles and never runs package install scripts at activation.
 
 ## Immediate work
 
-- execute P6.1 by freezing the complete plugin contribution taxonomy;
-- complete Phase 6 entirely through the platform and `module.sales`, not another module;
-- make every supported plugin surface pass one conformance command before authorizing domain breadth;
-- keep the comprehensive component catalog in Gate 7 behind the small theme ABI;
-- defer customer generator/lifecycle/fleet proof to Gate 8;
-- do not select a new vertical or AI product until the foundation program passes.
+P9.1 freezes:
+
+```text
+extension class taxonomy
+app.* and skin.* identities
+Hot Application and Theme Skin manifests
+bundle/file/digest/provenance shape
+capability and resource budgets
+install plans/receipts/generations
+zero-downtime eligibility result
+invalid class-crossing fixtures
+```
+
+No runner, UI engine, proxy, package, or deployment implementation is selected before those contracts and kill criteria are accepted in code.
+
+## Expansion freeze
+
+Before Gate 10 PASS, do not begin broad CRM/CMS or another first-party vertical. The next product layer is system settings, full extension/theme administration, official catalog operations, and Docker operations center.

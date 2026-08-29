@@ -2,168 +2,189 @@
 
 ## Purpose
 
-K-Nex needs a stable domain-neutral platform family, but “core” must not become one package containing every cross-cutting service and ambient dependency.
+K-Nex separates deterministic host composition from dynamic isolated applications. “Core” must not become one package with every cross-cutting service, package manager, runner, deployment engine, and ambient authority.
 
-## Physical boundaries
+## Physical direction
 
 ```text
 @k-nex/contracts
-  schemas, IDs, actors, permissions, service tokens,
-  events, jobs, errors, contributions, source/UI contracts
+  IDs, manifests, bundles, generations, actors, permissions,
+  sources/actions/tools/events/jobs/UI/error/health contracts
 
 @k-nex/composition
-  resolver, provider selection, ordering, collision ownership,
-  declared-versus-actual inventory, deterministic graph
+  static Platform Plugin resolver, provider selection,
+  ordering/collisions, generated immutable graph/registries
 
 @k-nex/runtime
-  scoped services, actor/access integration, events/outbox,
-  jobs, audit, health/readiness, runtime inventory
+  registration freeze, gateways, outbox, jobs, audit,
+  lifecycle/revision/runtime inventory, PluginManager contracts
 
 @k-nex/payload-adapter
-  Payload contributions, authentication/access adaptation,
-  jobs, versions, migrations, config generation
+  static Payload collections/config/access/migrations/admin composition
+
+@k-nex/extension-runtime       created only with Phase 9 consumer
+  app generation registry, host capability gateway,
+  runner protocol, app storage, activation/drain/rollback
+
+@k-nex/remote-ui              created only with Phase 9 consumer
+  K-Nex remote component protocol and browser host adapter
+
+@k-nex/deployment             created only with Phase 9 consumer
+  deployment-supervisor contracts, blue/green traffic/migration plans
 
 @k-nex/testing
-  contract suites, fakes, clean Postgres fixtures,
-  failure-injection and compatibility fixtures
+  contracts, fakes, Postgres/Chromium/multi-process/Docker evidence
 ```
 
-`@k-nex/core` may be a supported facade for common public APIs; it must not expose internal mutable registries or make all packages depend on one monolith.
+A convenience facade cannot expose internal registries, Docker control, package fetching, or mutable global state.
 
-## Responsibilities
+## Platform Plugin composition
 
-### Contracts
-
-- canonical identity and manifest/application schemas;
-- actor, permission, event, job, source, action, block, error, health contracts;
-- no framework/engine implementation types.
-
-### Composition
-
-- normalized desired requests and exact package manifests;
-- formal capability/provider selection;
-- cycle/conflict/compatibility diagnostics;
-- canonical registration order;
-- immutable `k-nex.resolved.json`;
-- declared-versus-actual validation.
-
-### Runtime
-
-- phase lifecycle and freeze;
-- capability-scoped service contexts;
-- actor and authorization adapters;
-- event durability-class enforcement and outbox boundary;
-- jobs, audit, health, readiness, operational inventory;
-- no package-manager or runtime plugin discovery.
-
-### Payload adapter
-
-- owned collection/global/endpoint/job/admin contributions;
-- deliberate function composition;
-- duplicate slug/route/index checks;
-- request/auth/access/transaction propagation;
-- migration/type-generation integration;
-- no universal arbitrary deep merge.
-
-## Registration phases
-
-The only accepted sequence is defined in the machine-readable contract:
+Platform Plugins remain boot-time code:
 
 ```text
-manifest → contracts → providers → schema → behavior → jobs
-→ data-handlers → ui → admin → validate → freeze
+exact package and manifest
+→ deterministic resolved graph
+→ generated static imports
+→ phased registration
+→ Payload config/schema/migrations
+→ declared-versus-actual validation
+→ freeze
 ```
 
-Each phase exposes only its own API. A plugin cannot register a handler before declaring its descriptor or introduce a dependency during execution.
+No runtime data or PluginManager action mutates this graph in place.
 
-## Capability-scoped service context
+## Hot Application runtime
 
-Composition computes the service view for each plugin.
-
-```ts
-interface PluginRuntimeContext<TServices> {
-  readonly pluginId: PluginId
-  readonly services: TServices
-  readonly actorAdapter: ActorAdapter
-  readonly logger: StructuredLogger
-}
-```
-
-`TServices` is derived from the plugin’s resolved direct/capability dependencies. Runtime token access uses the same allowlist. A broad `ServiceContainer` is an internal composition detail, never handed to arbitrary plugin/job code.
-
-## Actor and authorization
-
-Common actor context supports user, driver, service, public-session, and system-job identities. Permission possession is necessary but does not replace domain record policy.
-
-The same domain policy is adapted to:
+Hot Applications are a separate execution plane:
 
 ```text
-Payload access
-HTTP actions and data sources
-jobs when actor scope matters
-files/exports
-realtime subscriptions
+signed prebuilt app bundle
+→ content-addressed verification/staging
+→ isolated runner generation
+→ remote UI generation
+→ bounded metadata/app-storage transaction
+→ atomic active-generation pointer
 ```
 
-## Events and jobs
+The host already contains generic `/apps/:appId/*` routes, extension slots, capability gateway, artifact route, and registry lookup. Installing an app changes data/generation state, not host imports or Payload config.
 
-Runtime distinguishes:
+## Theme Skin runtime
+
+Theme Skins are data-only artifacts. Runtime validates/scopes tokens, recipes, CSS, and assets and activates a generation/profile pointer. Full executable Theme Packages remain static Platform Plugins.
+
+## PluginManager boundary
+
+`PluginManager` orchestrates, but specialized services own behavior:
 
 ```text
-ephemeral-hint
-reconstructible-invalidation
-durable-integration
-durable-workflow
+catalog and artifact verification
+content-addressed staging
+plan/lease/idempotency state
+runner and remote UI generations
+activation/rollback/drain
+migration compatibility
+external deployment requests
+traffic promotion
+operation authorization
+audit/outbox/observability/inventory
 ```
 
-The latter two require transactional outbox or equivalent atomic durability. Jobs are schema-versioned, idempotent where effects can repeat, capability-scoped, cancellable/checkpointed where long-running, and observable.
+The manager has no generic `install(packageName)` that invokes a package manager. Requests identify a catalog artifact and an explicit extension class.
 
-Payload Jobs Queue is the initial implementation adapter, not a public plugin API.
+## Runner boundary
 
-## Error convention
+The extension runner is not part of the web module graph. It receives a signed generation reference, structured input, short-lived app/actor context, and capability handles.
 
-External HTTP APIs use RFC 9457 Problem Details with stable K-Nex `type`, `code`, `correlationId`, and bounded validation issues. Domain/application errors remain typed internally. Production serialization never returns stack traces, SQL, policy predicates, secret/provider values, or unauthorized resource existence.
+It receives no:
+
+```text
+raw req.payload
+Postgres connection string
+Docker socket
+host filesystem
+ambient process.env/NODE_OPTIONS
+unrestricted network
+broad service container
+```
+
+The initial local adapter may spawn child Node processes, but production security is expressed so a dedicated container/service can enforce credentials, filesystem, network, CPU, memory, and termination.
+
+## Remote UI boundary
+
+Remote UI worker code is not imported as a host React module. It emits a bounded K-Nex component/event tree. The browser host owns actual React components, DOM, focus, accessibility, routing, theme, source/action clients, and authorization.
+
+Third-party remote UI engines remain implementation details behind the K-Nex protocol adapter.
+
+## Deployment boundary
+
+Platform Plugin package operations are handled by a separate deployment supervisor:
+
+```text
+verified target release
+→ build/pull target image
+→ migration compatibility and advisory lock
+→ start/warm target generation
+→ readiness/inventory/smoke
+→ gateway promotion
+→ drain/rollback/receipt
+```
+
+The web process submits a bounded change request only after authorization. It never receives Docker control.
+
+## Capability-scoped contexts
+
+Platform Plugins receive services derived from their resolved manifest. Hot Applications receive an even narrower RPC capability set derived from the verified app manifest and current actor/delegation.
+
+A capability grant is necessary but does not replace permission, record, field, rate, network, secret, or data-scope policy.
+
+## Persistence
+
+Static Platform Plugin schema stays in customer-owned Payload/Postgres migrations. Hot Applications initially use platform-owned generic tables for:
+
+```text
+catalog/install/generation/receipt state
+manifest/settings/metadata
+namespaced schema-validated app documents/KV
+remote UI/navigation references
+outbox/audit/idempotency
+```
+
+Dynamic custom relational schema is not hidden inside the first app runtime.
 
 ## Health and inventory
 
 ```text
-liveness   process responds
-readiness  required config/providers/migration revision compatible
-health     degraded optional dependencies and backlog
-inventory  exact resolved and actual composition
+liveness    host/runner responds
+readiness   config/providers/migrations/artifacts compatible
+app health  active runner/UI generation passes probes
+inventory   static graph + active app/skin generations + artifact digests
+deployment  blue/green target and gateway truth
 ```
 
-Startup verifies actual package/manifest integrity, resolved graph, actual contributions, environment names, and migration revision. An older artifact fails readiness against a newer incompatible schema.
-
-## Customer extensions
-
-`k-nex.config.ts` exports static registered extensions through the same ownership, collision, capability, and bundle rules. Generation fingerprints its transitive source. It cannot vary graph composition by network, time, random values, secrets, or ambient filesystem discovery.
-
-## Relationship to UI
-
-Backend platform packages own registration and server handlers. Browser rendering remains in UI packages. Source descriptors/actions/blocks have serializable contract entrypoints; handlers and renderers are separate exports.
+Runtime inventory never treats database assertions as verified package/artifact identity.
 
 ## Non-responsibilities
 
-The platform family does not own:
+The platform family does not:
 
-- Sales, logistics, restaurant, CMS content, or customer domain policy;
-- customer theme/CSS/assets;
-- Puck, ECharts, TanStack, Zustand, or Socket.IO types as public contracts;
-- one concrete provider when a capability contract is justified;
-- final customer migrations;
-- a shared multi-customer runtime/control plane;
-- automatic package install or destructive lifecycle behavior.
+- own customer domain behavior or content;
+- execute arbitrary package scripts;
+- hot-add Payload collections/hooks;
+- expose Docker/database/host-secret authority to apps;
+- use Node permission flags as the only sandbox;
+- execute remote app React in the host realm;
+- promise zero downtime for incompatible migrations;
+- launch a public unreviewed marketplace in Phase 9.
 
-## Required tests
+## Required evidence
 
-- CLI and runtime resolve identical graph semantics.
-- deterministic graph/registries are byte-identical in clean runs.
-- undeclared contribution/capability access fails.
-- duplicate IDs/slugs/routes/providers identify both owners.
-- server-only code cannot enter browser exports.
-- scoped service contexts reject ambient access.
-- rollback emits no external event/invalidation.
-- durable event survives crash and duplicate processing.
-- clean and previous-release Postgres fixtures boot/migrate.
-- runtime inventory matches package integrity and actual registration.
+- static graph remains deterministic/frozen;
+- signed bundle verification and secure extraction;
+- isolated runner escape/resource failure corpus;
+- remote UI worker/CSP/accessibility proof;
+- atomic app generation activation/rollback/restore;
+- multi-process convergence;
+- continuous-traffic Docker blue/green proof;
+- maintenance-required refusal;
+- exact combined runtime inventory.

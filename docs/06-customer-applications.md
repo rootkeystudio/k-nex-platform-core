@@ -1,121 +1,147 @@
 # Customer Applications
 
-## Principle
+## Ownership model
 
-Each customer product is a separate repository and deployment. Shared K-Nex behavior arrives through exact-version packages; customer differences remain explicit in manifest, assets, themes, layouts, extensions, migrations, and infrastructure.
+Each customer application owns:
 
-## Customer repository owns
+```text
+repository and static application manifest
+exact lockfile and generated Platform Plugin graph
+Payload/Postgres database and migrations
+object storage and content-addressed extension artifacts
+secrets and network policy
+Hot Application/Theme Skin lifecycle state
+content, settings, layouts, theme profiles, app storage
+roles/grants/assignments after Phase 10
+web/worker/runner/gateway topology
+backups, observability, deployment and activation receipts
+release cadence
+```
+
+Customers do not receive long-lived branches of one shared core deployment.
+
+## Static desired state
+
+`k-nex.app.json` describes the reviewable host composition:
+
+```text
+application identity/runtime
+Payload database adapter
+Platform Plugin exact requests
+provider selections
+full Theme Package selection
+static build/deployment requirements
+required environment names
+```
+
+The frozen lockfile, package manifests, generated graph/registries, customer config fingerprint, and customer migrations reconcile that desired state into one immutable host artifact.
+
+## Dynamic observed state
+
+Hot Applications and Theme Skins are not arbitrary executable paths inside `k-nex.app.json`. Their authoritative customer state lives in PostgreSQL and verified artifact storage:
+
+```text
+catalog/release identity
+artifact/manifest/SBOM/provenance digests
+installed/staged/active/rollback generation
+configuration and capability grants
+app storage/profile references
+activation/retirement receipts
+runtime extension revision
+```
+
+Protected runtime inventory combines static and dynamic truth.
+
+## Why the sources differ
+
+Static Platform Plugins can change Payload config, schema, migrations, providers, and native host code, so source-controlled review and image delivery are required.
+
+Hot Applications and Theme Skins use a fixed preinstalled host ABI, so immutable verified generations can activate live without mutating the host artifact.
+
+Neither layer silently overrides the other.
+
+## Repository layout direction
 
 ```text
 k-nex.app.json
 k-nex.config.ts
-package.json + pnpm-lock.yaml
-.k-nex/generated/k-nex.resolved.json and static registries
-customer extensions and UI overrides
-brand assets and approved fonts
-CMS/workspace documents and theme profiles
-customer migrations and previous-release fixtures
-Docker/deployment configuration
-secrets, backups, monitoring, release cadence
+package.json
+pnpm-lock.yaml
+.k-nex/generated/
+src/payload.config.ts
+src/migrations/
+infrastructure/
+tests/
+release evidence inputs
 ```
 
-It does not contain a copied editable platform core.
+Runtime app/skin artifacts are referenced by digest and normally stored outside the Git working tree. A desired extension policy/export may be source-controlled later, but it cannot override observed activation receipts.
 
-## Default shape
+## Local development
+
+A local customer may use Docker Postgres, web, worker, extension runner, artifact store, and gateway. Development-only Hot Application sync can watch local source, build a bundle, and replace a dev generation.
+
+Development sync:
+
+- is explicitly disabled in production;
+- does not weaken production manifest/bundle schemas;
+- never becomes proof of signed catalog activation;
+- uses the same remote UI/runner/host capability interfaces where possible.
+
+## Production delivery
+
+### Hot Application / Theme Skin
 
 ```text
-client-acme-cargo/
-├── apps/platform/
-├── apps/driver/                 optional
-├── packages/customer-extensions/
-├── packages/customer-components/
-├── packages/customer-theme/
-├── migrations/
-├── tests/
-├── infra/
-├── .k-nex/generated/
-├── k-nex.app.json
-├── k-nex.config.ts
-├── package.json
-├── pnpm-lock.yaml
-└── Dockerfile / docker-compose.yml
+approved catalog request
+→ verify/stage/warm
+→ atomic generation activation
+→ revision convergence
+→ activation receipt
 ```
 
-## Composition example
+### Platform Plugin
 
 ```text
-module.cms
-module.sales
-module.visualization
-module.logistics.core
-module.logistics.dispatch
-module.logistics.driver
-provider.realtime.socketio
-builder.puck
-theme.minimal
-theme.neobrutalism
+approved source/package change
+→ deterministic host release
+→ migration compatibility plan
+→ blue/green start/warm/promotion
+→ deployment receipt
 ```
 
-The exact package names and versions are separately recorded and locked.
+## Customer customizations
 
-## Customer config
+Customer code requiring host Payload/schema/native UI belongs in the static customer release and follows Platform Plugin-class tests.
 
-`k-nex.config.ts` is executable customer code but composition-hermetic:
+Customer app-like logic/UI that fits the bounded runtime ABI may be published as a private Hot Application bundle and activated through the same verifier/runner path. It is never imported directly from mutable customer storage.
 
-```ts
-export default defineCustomerConfig({
-  extensions: [acmeShipmentNumberPolicy()],
-  ui: {
-    blocks: [acmeTrackingSummaryBlock],
-    rendererOverrides: {
-      'logistics.shipment-summary': AcmeShipmentSummary,
-    },
-  },
-})
-```
+## Backup and restore
 
-It may statically register customer policies, sources, actions, blocks, and overrides. It cannot use time, network, random IDs, secrets, or ambient filesystem discovery to change the plugin graph. The transitive source fingerprint is recorded in the resolved graph.
-
-## Customer-specific promotion rule
+A restore must reproduce:
 
 ```text
-first unique need       customer extension
-second similar need     compare real policies
-stable common behavior  reusable module/integration
-remaining differences   customer extension
+host artifact and migration revision
+static Platform Plugin graph
+active/rollback app and skin generations
+verified artifact references or backed-up bytes
+app settings/storage and theme profiles
+outbox/idempotency/audit
+roles and assignments when implemented
+runtime/deployment receipts
 ```
 
-Shared packages never branch on customer application ID.
+External integrations are disabled or redirected during restore proof.
 
-## UI and themes
+## Fleet operations
 
-Customer code owns final brand assets and exceptional renderer/primitive overrides. Modules remain style-agnostic. Installed theme profiles can change at runtime after validation/publication; installing theme code requires a release.
-
-Overrides rerun accessibility, source/action authorization, bundle, and compatibility tests.
-
-## Migrations and upgrades
-
-Each customer repository owns its final Payload migrations and upgrade fixtures. A package release provides notes/helpers, but only the final composition knows ordering and prior deployed state.
-
-One customer can upgrade while another remains on a supported prior package tuple. Generated upgrade PRs are deliberate per customer.
-
-## Release evidence
-
-A deployed customer release is identified by:
+Fleet metadata derives from signed host deployment receipts and runtime activation inventory. It can answer:
 
 ```text
-source commit
-resolved graph and lockfile digest
-SBOM
-artifact/container digest
-signed build provenance
-migration revision
-deployment receipt
-runtime inventory and readiness
+which customers run an affected Platform Plugin package/range
+which customers run an affected Hot Application/Skin version or digest
+which host/runtime ABI combinations are incompatible
+which activations/deployments lack fresh restore evidence
 ```
 
-Fleet tooling derives deployed versions from this evidence, not from a manually asserted list.
-
-## Isolation
-
-Each customer has independent database credentials, storage scope, secrets, cache/realtime namespace, domains, backups, logs, alerts, and deployment approvals. Separate deployment reduces cross-customer blast radius but does not replace authorization inside one customer application.
+Manual desired targets cannot falsify observed versions.

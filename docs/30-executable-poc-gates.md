@@ -2,304 +2,189 @@
 
 ## Principle
 
-A gate must be independently falsifiable. K-Nex will not build the entire platform and then try to infer which architectural assumption failed.
-
-A gate starts only after its predecessor's contract/evidence is stable enough. Failure causes a documented redesign or rejection; it does not get hidden by adding more features.
-
-The platform-foundation program deliberately uses `module.sales` as its only first-party domain module. Domain breadth is deferred until Gate 8.
+Each gate is independently falsifiable. Failure changes or rejects an assumption; it is not hidden by adding features. `module.sales` remains the sole first-party domain reference through the active core sequence.
 
 ## Gate 0 — Contract freeze and repository governance
 
-Deliver:
+Scope: canonical IDs, plugin/application schemas, fixtures, registration phases, output registry, ADR evidence, docs/schema/legacy checks, governance.
 
-```text
-canonical ID grammar
-plugin/application JSON Schemas
-one plugin fixture
-canonical registration phases
-output-contract registry
-ADR evidence registry
-docs/schema/legacy-symbol CI
-CODEOWNERS and PR checklist
-```
+Exit: clean validation; invalid fixtures fail; two clean generations are byte-identical.
 
-Exit:
+Kill/rework: active prose cannot be reconciled with normative contracts without changing accepted semantics.
 
-- validator passes in a clean checkout;
-- intentional legacy fixture fails;
-- two clean runs produce identical normalized schema/fixture outputs.
+## Gate 1 — Deterministic Payload composition
 
-Kill/rework criterion: prose examples cannot be made consistent with machine-readable contracts without changing accepted product semantics.
+Scope: one customer, Payload/Postgres, resolver/composition/adapter, Sales collection/query, generated registries, clean migration, boot inventory.
 
-## Gate 1 — Minimal deterministic composition
+Exit: identical inputs produce identical graph/files; graph matches package integrity/registration; undeclared contribution/capability fails; real Postgres boot passes.
+
+Kill/rework: deterministic composition or Payload integration requires a deep fork.
+
+## Gate 2 — Data sources, authorization, and output contracts
+
+Scope: Metric/Table, Sales sources, source/record/field authorization, required/optional fields, bounded queries, validation, cache, RFC 9457.
+
+Exit: manipulation denied; unauthorized data enters no result/cache/trace/error; cache isolation and budgets pass; required-authority failure is explicit.
+
+Kill/rework: safe cache/policy identity is inexpressible or validation cost is unacceptable.
+
+## Gate 2A — Agent tools and safe execution
+
+Scope: explicit tool descriptors, filtered discovery, source/action execution, reauthorization, approval, idempotency, budgets, audit, MCP adapter.
+
+Exit: only explicit tools; delegation cannot exceed principal; writes are approval/idempotency-safe; output is bounded/redacted/audited; MCP does not weaken policy.
+
+Kill/rework: tool bypasses source/action policy, retries duplicate effects, or protocol/model types enter core contracts.
+
+## Gate 3 — Transactions, outbox, and realtime convergence
+
+Scope: transactional outbox, leased idempotent processing, Socket.IO topology, worker-to-web relay, revisions/resync, failure injection.
+
+Exit: intent survives crash; rollback is silent; unsupported topology fails; clients converge after loss; subscriptions reauthorize.
+
+Kill/rework: durability/topology cannot be stated honestly or clients can remain indefinitely stale.
+
+## Gate 4 — Builder engine kill-spike
+
+Scope: canonical document, editor-independent runtime, Puck round-trip, fixed shell, public/workspace policy, missing fallback, bundle boundary, keyboard operation.
+
+Exit: no semantic loss; Puck types do not become persisted/module contracts; public/internal policy holds; runtime renders without editor; accessibility avoids deep fork.
+
+Kill/rework: mapping, fixed shell, or accessible operation requires a deep Puck fork.
+
+## Gate 5 — UI runtime, themes, and atomic publication
+
+Scope: small primitive ABI, Minimal/Neobrutalism, WCAG journeys, document repository, atomic page/document publish/rollback, deterministic layouts.
+
+Exit: same document under both themes; keyboard/focus/motion/high-contrast pass; failed/concurrent publication is safe; layout resolution is deterministic.
+
+## Gate 6 — Plugin platform and Sales reference
+
+Scope: complete contribution taxonomy, authoring/package boundaries, settings/permissions/routes/navigation/templates, query/action factories, UI/Puck, Sales reference, conformance, lifecycle.
+
+Exit: every supported category is machine-readable/reconciled; Sales exercises mandatory surfaces; templates preserve customer edits; one conformance command proves boundaries.
+
+Kill/rework: completeness requires ambient authority, duplicate stacks, runtime-created executable contributions, or multiple domain modules.
+
+## Gate 7 — Comprehensive headless components
+
+Scope: component family inventory, forms/navigation/overlays/media, DataTable/DataGrid, pages, Puck blocks, SSR/hydration, themes, accessibility, bundle/performance.
+
+Exit: every family has executable disposition; Sales uses K-Nex contracts; data table and state matrix preserve authority/accessibility; performance and bundle budgets pass.
+
+Kill/rework: themes become separate component frameworks or third-party types leak into K-Nex contracts.
+
+## Gate 8 — Lifecycle, application factory, release, and fleet safety
+
+Scope: package/release boundaries, upgrade/migrations, advisory lock/readiness fence, archive/purge/backup/restore, create-knex-app, two Sales customers, SBOM/provenance, deployment receipts, fleet patching.
+
+Exit: lifecycle preserves behavior/data; stale/concurrent migrations fail; purge requires evidence; customer generation/boot is exact; independent cadence and fleet impact/restore are proven.
+
+Kill/rework: customer upgrades cannot be deterministic/recoverable or destructive lifecycle/fleet truth remains ambiguous.
+
+## Gate 9 — Dynamic applications and zero-downtime extension delivery
 
 Scope:
 
 ```text
-one customer repository
-Payload + Postgres
-contracts + resolver + composition + Payload adapter
-one Sales module
-one collection
-one authenticated query
-generated registries and resolved graph
-one clean migration
-boot inventory
-```
-
-Excluded: Puck, themes, WebSocket, retained-schema uninstall, second customer.
-
-Exit:
-
-- two clean directories generate byte-identical artifacts;
-- graph matches package integrity and runtime registration;
-- undeclared contribution/capability access fails;
-- clean Postgres boot and migration pass.
-
-Kill/rework criterion: identical normalized inputs cannot produce identical graph/registries or Payload composition needs a deep framework fork.
-
-## Gate 2 — Data source, authorization, and output contracts
-
-Scope:
-
-```text
-metric.scalar@1
-table.records@1
-Sales metric and paginated table sources
-source/field/record authorization
-required/optional fields
-bounded sort/filter/page/query cost
-source-specific + canonical contract validation
-safe cache classes
-RFC 9457 errors
-```
-
-Exit:
-
-- source/field manipulation is denied;
-- no unauthorized value enters result, cache, trace, or error;
-- cache fixtures do not cross actor/policy boundaries;
-- representative validation/query budgets pass;
-- missing required authority creates explicit UI state.
-
-Kill/rework criterion: safe cache identity is not expressible or validation/projection cost is unacceptable at representative sizes.
-
-## Gate 2A — Agent tool contracts and safe execution
-
-Scope:
-
-```text
-explicit plugin tool descriptors
-actor/delegation-filtered catalog
-source-backed read tool
-action-backed write tool
-execution-time authorization
-approval and idempotency
-budgets, timeout, audit
-Payload MCP adapter
-deterministic scripted client
+Platform Plugin / Hot Application / Theme Skin taxonomy
+closed app/skin/bundle/generation contracts
+prebuilt deterministic bundle and signed catalog
+secure extraction, SBOM/provenance, content-addressed store
+persistent PluginManager state machine
+isolated extension runner and capability-scoped host API
+namespaced quota-bound app storage
+Web Worker remote UI and fixed /apps/:appId/* host routes
+atomic install/update/rollback and multi-process convergence
+live Theme Skin activation
+Docker blue/green Platform Plugin deployment
+continuous traffic and maintenance-required evidence
 ```
 
 Excluded:
 
 ```text
-LLM/provider selection
-prompt/conversation product
-autonomous loops
-agent-created tools
-unattended destructive operations
-durable asynchronous effects
+host-process pnpm/npm install or downloaded-code import
+hot Payload collection/hook injection
+public third-party marketplace launch
+arbitrary dynamic relational ORM
+end-user RBAC administration
+claim that every migration is zero downtime
 ```
 
 Exit:
 
-- only explicit static tools are discoverable;
-- discovery filtering and execution authorization both hold;
-- delegation cannot exceed principal authority;
-- writes are approval- and idempotency-safe;
-- output is valid, redacted, bounded, and audited;
-- MCP does not weaken K-Nex policy or leak protocol types.
+- signed official bundle downloads in background and tampering/revocation fails;
+- production activation runs no package manager/install scripts;
+- downloaded server code executes only in isolated runner with denied DB/Docker/env/network escape;
+- remote UI has no direct DOM/session/host-module authority and uses allowlisted K-Nex components;
+- app/skin generations activate, update, rollback, drain, and restore atomically without host restart;
+- web/worker/runner/browser converge after invalidation loss;
+- full Platform Plugin target builds/starts/warms while old generation serves;
+- compatible promotion records continuous successful external probes and exact inventory;
+- failed target never changes traffic;
+- incompatible migration produces `maintenance-required` before promotion;
+- web/admin process cannot access Docker socket.
 
-Kill/rework criterion: a tool bypasses source/action policy, runtime content creates tools, retries duplicate effects, or model/protocol types are required in core contracts.
+Kill/rework:
 
-## Gate 3 — Transactions, durable events, and realtime convergence
+- useful live app needs host Payload config mutation or host-realm code execution;
+- runner isolation depends only on TypeScript or Node flags;
+- activation can serve mixed/unverified generations;
+- continuous availability requires Docker authority in the application process;
+- static plugin schema/artifact mismatch can reach traffic.
+
+Decision:
+
+```text
+GO PHASE 10 RBAC AND AUTHORIZATION
+REWORK HOT APPLICATION OR ZERO-DOWNTIME DELIVERY
+REJECT HOST-PROCESS HOT INJECTION
+```
+
+## Gate 10 — RBAC, authorization, and extension bootstrap
 
 Scope:
 
 ```text
-transactional outbox
-leased idempotent processing
-reconstructible invalidation
-Socket.IO supported topology
-worker-to-web relay
-revision/watermark and resync
-failure injection
+platform/extension permission ownership
+normalized roles, generation-bound grants, explicit assignments
+extension permission/policy reconciliation
+versioned role templates and stored old baselines
+protected system roles and first-owner bootstrap
+effective/admin permission catalogs
+lifecycle dormancy and uninstall/reinstall fencing
+live revision/revocation across web/worker/runner/browser/realtime
+PluginManager and DeploymentSupervisor authorization
+access and extension administration UI
 ```
+
+Excluded: role inheritance, explicit deny, per-user direct grants, temporal assignments, full SSO, broad CRM/CMS.
 
 Exit:
 
-- durable intent survives crash and processes idempotently;
-- rollback exposes no event/invalidation;
-- unsupported topology fails closed;
-- clients converge after loss/reconnect;
-- subscription/session authorization is re-evaluated.
+- authorized admins see all platform/enabled-extension permissions;
+- roles can receive individual permissions or selected template permissions;
+- role labels/client input never authorize;
+- templates assign no users and never overwrite customer edits;
+- disable hides plugin-only noise and makes grants dormant while preserving data;
+- mixed roles keep unrelated authority and inactive assignments remain visible on subject detail;
+- retired-generation grants cannot reactivate after reinstall;
+- first-owner replay and last-owner revocation fail;
+- current permissions protect live install, deploy, rollback, settings, and lifecycle operations;
+- revocation reaches runner/realtime/browser and lost invalidation converges;
+- real PostgreSQL and Chromium journeys pass.
 
-Kill/rework criterion: topology/durability cannot be stated honestly or clients can remain indefinitely stale.
+Kill/rework: role labels or stale generation become authority, plugin controls assignments/platform grants, or user-operated live install cannot be safely authorized.
 
-## Gate 4 — Builder engine kill-spike
-
-Scope:
+Decision:
 
 ```text
-BuilderEngineAdapter
-canonical document round-trip
-fixed shell outside canvas
-static and authenticated blocks
-public/workspace policy separation
-missing-block fallback
-browser/server boundary
-keyboard operation
+GO SYSTEM SETTINGS AND FULL EXTENSION ADMINISTRATION PRODUCTIZATION
+REWORK AUTHORIZATION OR EXTENSION BOOTSTRAP
+REJECT USER-OPERATED LIVE INSTALL
 ```
-
-Exit:
-
-- canonical fixture round-trips without semantic loss;
-- Puck types/config do not enter module contracts or persisted documents;
-- public/internal binding policy is enforced;
-- runtime rendering works without editor initialization;
-- accessibility does not require a deep fork.
-
-Kill/rework criterion: canonical mapping, fixed-shell policy, or accessible operation requires maintaining a deep Puck fork.
-
-## Gate 5 — UI runtime, themes, and atomic CMS publication
-
-Scope:
-
-```text
-small semantic primitive ABI
-Minimal + Neobrutalism
-WCAG acceptance journeys
-UiDocumentRuntime/Repository split
-atomic page+document publish/rollback
-published layout snapshot + constrained patch
-```
-
-Exit:
-
-- same document renders under both themes without mutation;
-- keyboard/focus/target/motion/high-contrast journeys pass;
-- failed validation rolls back publication;
-- concurrent publication is ordered/idempotent;
-- layout resolution is deterministic and explainable.
-
-## Gate 6 — Plugin platform hardening and Sales reference module
-
-Scope:
-
-```text
-complete contribution taxonomy
-plugin authoring/package boundaries
-settings and permissions
-routes and navigation
-default page templates and seed semantics
-browser query/action factories
-component/Puck contribution contracts
-complete Sales reference plugin
-plugin conformance kit
-install/enable/disable/re-enable
-```
-
-No second domain module is allowed.
-
-Exit:
-
-- every supported contribution category is machine-readable and reconciled;
-- Sales exercises all mandatory categories;
-- default pages seed idempotently and upgrades do not overwrite customer edits;
-- plugin UI uses standard source/action/query/component contracts;
-- one clean conformance command proves package, runtime, UI, builder, and lifecycle boundaries;
-- a second module would require domain code, not a new platform mechanism.
-
-Kill/rework criterion: plugin completeness requires ambient authority, duplicate transport/UI stacks, runtime-created executable contributions, or multiple modules to define the same platform contract.
-
-## Gate 7 — Comprehensive headless component system
-
-Scope:
-
-```text
-Component Gallery 60-family coverage matrix
-K-Nex foundation/layout/content components
-forms and input family
-navigation/disclosure/overlays
-feedback/media/content adapters
-DataTable/DataGrid and query utilities
-page templates
-Sales default pages
-Puck component/block library
-SSR/hydration, accessibility, theme, bundle, and performance gates
-```
-
-The small theme ABI remains small. Compound behavior is platform-owned and styled through tokens/slots/recipes.
-
-Exit:
-
-- every Component Gallery family has an executable disposition;
-- Sales pages use only K-Nex components and standard query/action factories;
-- DataTable supports authorized pagination/filter/sort/selection/actions/realtime refetch;
-- Minimal and Neobrutalism render the same state matrix without behavior forks;
-- browser accessibility, SSR/hydration, bundle, and representative performance budgets pass;
-- plugins do not import theme packages or third-party behavior engines directly where K-Nex coverage exists.
-
-Kill/rework criterion: component coverage requires turning every theme into a separate component framework, leaks third-party types into K-Nex contracts, or cannot preserve authority/accessibility through the data and builder paths.
-
-## Gate 8 — Lifecycle, application factory, release, and fleet safety
-
-Scope:
-
-```text
-package release/compatibility boundaries
-upgrade planning and customer migrations
-migration advisory lock and readiness fence
-archive/export, purge, backup, restore
-create-knex-app and composition plan/apply
-two Sales-only customer applications
-SBOM and signed provenance
-deployment receipt/runtime inventory
-fleet query and security patch propagation
-previous-release upgrade fixture
-```
-
-Cargo and Restaurant modules are not introduced. Two independent Sales-based customers prove composition reuse with different themes, settings, permissions, layouts, lockfiles, and release cadence.
-
-Exit:
-
-- disable/re-enable/upgrade preserve declared behavior and data;
-- stale artifacts and concurrent migrations fail safely;
-- purge requires reference, backup, and migration evidence;
-- a clean customer app can be generated and booted from exact packages;
-- one customer upgrades while another stays on a supported prior release;
-- fleet inventory derives from verifiable deployed evidence;
-- a vulnerable range identifies every affected deployment;
-- backup restore reproduces the expected runtime inventory.
-
-Kill/rework criterion: independent customer upgrades cannot be made deterministic and recoverable, destructive lifecycle remains ambiguous, or fleet evidence depends on manually asserted state.
-
-## Post-Gate 8
-
-Only after Gate 8 project-manager PASS may the roadmap select a new domain/product module. Candidate work includes full CRM, CMS features, logistics, restaurant, inventory, budgeting, AI assistant productization, commerce, and third-party plugin distribution.
-
-The selected module begins from the Sales package structure and passes the same plugin/component conformance suites.
 
 ## Evidence promotion
 
-After a gate passes, update `docs/adr/evidence-registry.json` with links to:
-
-```text
-implementation commit/PR
-test fixture and CI run
-benchmark/failure injection
-migration/upgrade/restore fixture
-deployment receipt when production-observed
-```
-
-An accepted design remains `design-only` until its complete ADR scope has executable evidence.
+After a gate passes, link implementation PR/commit, fixtures, CI, failure injection, benchmark, migration/restore proof, and production-observed receipt where applicable. An accepted design remains `design-only` until its complete scope is executable.

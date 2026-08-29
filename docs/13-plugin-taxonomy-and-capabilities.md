@@ -1,178 +1,219 @@
-# Plugin Taxonomy and Capability Resolution
+# Extension Taxonomy and Capabilities
 
-## Plugin kinds
+## Product term versus execution class
+
+The administration product may call every installable item a “plugin,” but architecture, manifests, plans, receipts, and inventory use the exact class:
 
 ```text
-module       business or horizontal application behavior
-provider     genuinely replaceable infrastructure capability
-builder      visual editor engine adapter
-theme        executable presentation package and token/profile schema
-integration  reusable collaboration between modules/external systems
-preset       CLI composition recipe expanded before runtime
+platform-plugin
+hot-application
+theme-skin
+```
+
+Ambiguous class inference from package contents is forbidden.
+
+## Platform Plugin
+
+Canonical existing kinds:
+
+```text
+module
+provider
+builder
+theme
+integration
+preset
 ```
 
 Examples:
 
 ```text
 module.sales
-module.logistics.core
-module.logistics.driver
 provider.realtime.socketio
-provider.storage.s3
 builder.puck
-theme.neobrutalism
+theme.minimal
 integration.sales-logistics
-preset.logistics
+preset.sales
 ```
 
-The Payload database adapter is framework/scaffold configuration, not a K-Nex plugin.
+A Platform Plugin is trusted code compiled into a customer application release. It may provide deep host contributions, including Payload schema, migrations, services, native UI, providers, and jobs.
 
-## Identity
+## Hot Application
 
-Every plugin has independent identities:
+Canonical identity:
 
 ```text
-plugin ID       stable persisted product identity
-package name    registry location
-package version exact installed artifact
-manifest digest exact package self-description
+app.<namespace>[.<subsystem>]
 ```
 
-Canonical grammar is defined in `contracts/architecture-contracts.v1.json`. Dots express hierarchy; package names may remain kebab-case.
+A Hot Application is a signed prebuilt runtime bundle. It uses fixed host capabilities and runs server/UI code outside the host execution realm.
 
-## Static manifest
-
-All packages use the single schema and fixtures:
+Initial contribution categories:
 
 ```text
-schemas/plugin-manifest.v1.schema.json
-fixtures/plugin-manifests/
+metadata
+settings
+permissions
+roleTemplates
+navigation
+screens
+remoteComponents
+remoteBlocks
+sources
+actions
+tools
+logicFunctions
+eventSubscriptions
+schedules
+appStorageSchemas
+assets
+localization
+health
+testingMetadata
 ```
 
-The manifest includes:
+Each category has a closed descriptor and explicit owner. No category can map to arbitrary import, Payload config, SQL, or host service registration.
+
+## Theme Skin
+
+Canonical identity:
 
 ```text
-ID/kind/package/exact package version
-core/Payload/Node/Postgres compatibility
-provided capabilities
-required/optional/conflicting dependencies
-surfaces and environment names
-V1 lifecycle semantics
-expected contribution IDs by kind
+skin.<namespace>
 ```
 
-Resolution loads static metadata without executing server code.
+Contribution categories:
 
-## Capabilities
+```text
+tokens
+palettes
+recipes
+scopedCss
+assets
+profileCompatibility
+localization
+```
 
-A capability versions an interchangeable public contract, not a package implementation.
+No executable entrypoint exists.
+
+## Capability model
+
+### Platform Plugin capabilities
+
+Existing deterministic capability resolution remains for genuinely replaceable host providers:
 
 ```text
 realtime.gateway
 storage.objects
-notifications.sender
+email.delivery
 builder.engine
 ```
 
-Direct domain dependencies remain direct plugin dependencies.
+A single-cardinality capability requires explicit provider selection. Optional dependencies never auto-install.
 
-Rules:
+### Hot Application host capabilities
 
-- single-cardinality capability with multiple candidates requires explicit provider selection;
-- optional dependency never auto-installs;
-- prerelease version requires exact explicit request;
-- required cycles fail;
-- capability and package versions are independent;
-- resolver output is canonical and deterministic.
-
-## Resolver
-
-Input:
+An app requests a versioned bounded host ABI rather than importing another package:
 
 ```text
-normalized application manifest
-exact installed package manifests and integrity
-explicit provider choices
-hermetic customer registration fingerprint
-resolver/schema version
+records.query@1
+records.action@1
+app-storage.documents@1
+files.scoped@1
+events.scoped@1
+jobs.bounded@1
+secrets.references@1
+http.destinations@1
+ui.remote-components@1
 ```
 
-Output:
+Names are illustrative until P9.1 freezes exact IDs. A granted host capability remains constrained by current actor/delegation, app identity/generation, permission, record/field policy, quotas, and request budgets.
+
+A capability request declares:
 
 ```text
-.k-nex/generated/k-nex.resolved.json
-static import registries
-registration order
-environment names
-contribution inventory
-migration/readiness diagnostics
+capability ID/version range
+reason
+required/optional
+resource budget
+secret-reference names
+destination/storage scope
+surfaces
 ```
 
-The resolver does not choose from catalog ordering. A golden corpus proves provider ambiguity, optional activation, prerelease, version conflict, cycle, and diagnostic semantics.
+The installer shows impact before approval.
 
-## Registration phases
+## Dependency rules
+
+- A Platform Plugin has static direct/capability dependencies resolved into the host graph.
+- A Hot Application is executable-dependency self-contained and cannot auto-install another app/package.
+- App-to-app imports and direct storage access are forbidden initially.
+- An app may consume stable platform/public extension contracts through host capabilities.
+- A Theme Skin targets a supported skin ABI and installed theme/profile surface; it has no executable dependency graph.
+
+## Ownership and collisions
 
 ```text
-manifest
-contracts
-providers
-schema
-behavior
-jobs
-data-handlers
-ui
-admin
-validate
-freeze
+Platform Plugin contribution owner  existing plugin ID
+Hot Application contribution owner  app ID + immutable generation
+Theme Skin owner                     skin ID + immutable generation
 ```
 
-Descriptors are declared before executable handlers. During `validate`, actual contribution IDs and capability token access must match the manifest. Undeclared registration fails.
+IDs must use their owner's namespace. Collision diagnostics identify both owners and generations. Runtime content cannot claim another owner.
 
-## Trust
-
-Plugins execute as trusted in-process application code. Type/package boundaries are not a malicious-code sandbox.
-
-Production catalog requirements:
+## Execution and trust
 
 ```text
-first-party or explicitly reviewed packages
-protected publishing workflow
-exact versions and integrity
-reviewed install-script policy
-license/vulnerability checks
-SBOM and signed provenance
-server/browser bundle checks
-release and fleet inventory
+Platform Plugin  trusted in host release; customer blast radius
+Hot Application  treated as isolated capability client even if official
+Theme Skin       untrusted structured visual data
 ```
 
-## Package entrypoints
+Signing/review does not replace isolation. TypeScript/package exports are not a sandbox.
+
+## Lifecycle mapping
 
 ```text
-./manifest
-./contracts
-./server
-./browser
-./ui
-./migrations
-./testing
+Platform Plugin package add/update/remove
+  build and deploy immutable host generation
+
+Platform Plugin enabled state
+  runtime toggle only if code/schema already present and readiness permits
+
+Hot Application install/update
+  download/verify/stage/warm/activate immutable app generation
+
+Hot Application disable
+  revoke routing/execution while preserving reviewed state
+
+Hot Application uninstall
+  retire generation; archive/purge app storage by explicit policy
+
+Theme Skin install/update
+  verify/parse/preview/activate skin generation
 ```
 
-Contracts are serializable/neutral. Server handlers and React renderers are physically separate. Domain public APIs do not expose Puck, Socket.IO, ECharts, TanStack, Zustand, or Payload-internal implementation types unless the entrypoint is explicitly the Payload adapter.
+## Catalog classification
 
-## Canonical Sales example
-
-The normative example is `fixtures/plugin-manifests/valid/module.sales.json`:
+Each official catalog item declares:
 
 ```text
-module.sales
-  declares every executable contribution statically
-  registers required Sales sources, actions, and tools
-  owns Payload schema and data
-  targets the workspace surface
-  supports disable/re-enable
-  does not promise retained-schema uninstall in V1
+extension class
+identity/version
+publisher/source/release
+artifact/manifest/SBOM/provenance digests
+host ABI/framework compatibility
+requested capabilities/permissions/secrets/network/storage
+migration/rollback/no-outage eligibility
+support and revocation state
 ```
 
-## Diagnostics
+The catalog cannot reclassify an artifact after publication.
 
-`k-nex inspect` reports stable IDs, package versions/digests, capabilities, expected/actual contributions, source/action/block inventories, lifecycle policy, and stored references. Errors identify both owners and a concrete remediation.
+## Conformance
+
+A Platform Plugin uses the existing plugin conformance suite.
+
+A Hot Application conformance suite proves manifest/bundle, dependency closure, forbidden imports, runner isolation, capability enforcement, app storage, remote UI, activation/update/rollback, restore, and resource budgets.
+
+A Theme Skin conformance suite proves no executable content, CSS/asset scoping, tokens/recipes, accessibility/visual behavior, generation activation, and rollback.

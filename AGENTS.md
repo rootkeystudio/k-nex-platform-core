@@ -1,79 +1,157 @@
 # Repository Agent Rules
 
-These rules apply to the whole repository. Before changing anything, read this file, `status.md`, and the active plan under `docs/implementation/`.
+Read this file, `status.md`, the active detailed plan, the master plan, and related accepted ADRs before changing the repository.
 
 ## Scope and workflow
 
-- Work only inside the active phase recorded in `status.md` and follow its documented task order.
-- Follow the active implementation plan and accepted architecture contracts; do not invent a public or persisted contract inside an implementation task.
-- Use one branch and one pull request for the complete active phase. Do not push directly to `main`.
-- Keep each task as a coherent, reviewable commit and update `status.md` in that commit.
-- After a task's acceptance commands pass, an implementation agent may advance `status.md` to the next task **within the same phase** and continue on the same branch.
-- Do not advance to the next phase. When every task, phase result, and full phase gate pass, set the state to `Ready for phase review`, open or refresh the phase PR, and stop.
-- Implementation agents must not merge their own PR or enable auto-merge. Only the designated reviewer/project manager may issue PASS and merge.
-- Stop and report when requirements conflict, an accepted invariant cannot be met, a kill criterion fires, or the task needs an unplanned architecture decision.
-- Until Gate 8 passes, `module.sales` is the sole first-party reference domain module. Do not implement logistics, restaurant, inventory, budgeting, dispatch, driver, live-tracking, QR-menu, or another domain module to discover a missing platform abstraction.
+- Work only in the phase/task selected by `status.md` and follow documented task order.
+- Use one branch and one final PR for the complete phase; do not push directly to `main`.
+- Keep one coherent commit per task and update `status.md` in that commit.
+- Advance only to the next task inside the same phase after acceptance commands pass.
+- After all tasks, the result document, and the full gate pass, mark `Ready for phase review`, refresh/open the phase PR, and stop.
+- Implementation agents never merge or enable auto-merge. Only the designated reviewer/project manager may issue PASS and merge.
+- Stop and report a conflict, unplanned public/persisted decision, kill criterion, weakened invariant, or blocked acceptance proof.
+- During Phases 9–10, `module.sales` remains the sole first-party domain reference. Do not begin broad CRM/CMS or another vertical module.
+- Test-only Hot Applications/Theme Skins/providers may prove a generic active-phase mechanism only when explicitly required; they must not become second domain products.
 
 ## Engineering rules
 
-1. Monolithic and spaghetti code are forbidden. Keep modules cohesive, dependencies directed, and concerns clearly separated.
-2. Reuse stable behavior instead of duplicating it. Extract shared code when the reuse boundary is real; do not create speculative generic abstractions for hypothetical callers.
-3. Write the smallest clean implementation that fully delivers the requested behavior. Avoid unnecessary layers, configuration, indirection, and cleverness.
-4. Keep an expression on one line when it remains clear and readable. Do not compress separate steps or complex control flow merely to reduce line count.
-5. Use variable, function, type, and file names that are meaningful and concise.
-6. Until v1.0, do not preserve compatibility for unreleased APIs or paths. Remove obsolete code and update all callers, fixtures, tests, and docs atomically. Do not add aliases, shims, fallbacks, deprecation paths, or migrations solely to preserve pre-v1 behavior.
-7. Grow the product in working vertical layers. Start with the smallest end-to-end version, then add one capability at a time on top of a working baseline.
-8. Never trade a working product for unfinished complexity. A long-term design must still produce a usable, testable increment in the current phase.
-9. Prefer established, well-maintained, industry-standard libraries when they reduce complexity or improve reliability.
-10. Use existing project dependencies before adding packages or reimplementing common behavior. Check official documentation, source-facing types, and the exact installed/candidate version before assuming a capability is missing.
-11. Make durable architectural decisions. Do not merge a disposable stopgap that is knowingly intended to be replaced later.
-12. Solve generic plugin, component, query, builder, lifecycle, CLI, and fleet gaps in the platform and exercise them through Sales before creating domain breadth.
+1. Keep modules cohesive and dependencies directed. Monolithic/spaghetti code is forbidden.
+2. Build the smallest clean end-to-end increment that fully satisfies the active task.
+3. Reuse established project behavior; extract shared code only at a real reuse boundary.
+4. Do not create speculative abstractions or empty packages for future phases.
+5. Prefer meaningful concise names and straightforward control flow.
+6. Before v1, remove obsolete unreleased APIs and update all callers/fixtures/docs atomically; do not add compatibility aliases or shims.
+7. Prefer maintained industry-standard libraries when they reduce complexity, but keep their types behind K-Nex contracts.
+8. Check the exact installed/candidate version's official docs, source-facing types, license, maintenance, vulnerabilities, and runtime/bundle impact before adoption.
+9. Pin exact approved dependencies and use the frozen lockfile.
+10. Never trade a working product for unfinished complexity or knowingly merge a disposable stopgap.
+11. Solve plugin, application-runtime, component, lifecycle, authorization, deployment, CLI, and fleet gaps in the platform and exercise them through bounded reference fixtures.
+
+## Extension classes
+
+Every extension is exactly one class:
+
+```text
+Platform Plugin
+  existing module/provider/builder/theme/integration/preset package
+  trusted host/container code
+  static Payload/registration composition
+  add/upgrade/remove by immutable release
+
+Hot Application
+  app.* signed prebuilt bundle
+  isolated server runner and remote UI
+  no host Payload/config/import mutation
+  live generation activation
+
+Theme Skin
+  skin.* data-only tokens/recipes/scoped CSS/assets
+  no JavaScript or native primitive override
+  live generation activation
+```
+
+Do not make one manifest ambiguously behave as more than one class.
+
+## Production package and code rules
+
+- The web/worker process must never run `pnpm add`, `npm install`, package lifecycle scripts, or mutate `node_modules` for extension activation.
+- Downloaded code must never be imported into the main Payload/Next process.
+- Platform Plugin server/UI entrypoints remain static imports reconciled and frozen at boot.
+- Hot Application production dependencies are prebundled during publication.
+- Unverified/staged artifacts are neither executed nor served.
+- Runtime/database content cannot create executable entrypoints, policy code, host imports, or Payload collections/hooks.
+- Development-only live sync must be explicitly gated and cannot silently become a production path.
+
+## Hot Application isolation
+
+- Server code executes only through the extension runner boundary.
+- The runner receives no Docker socket, customer DB credential, raw `req.payload`, ambient host secrets, or broad service locator.
+- Host capabilities are allowlisted, versioned, actor/delegation-aware, budgeted, and runtime-enforced.
+- Network is denied by default and constrained by declared destination policy.
+- File access is confined to content-addressed generation assets and bounded temporary/app storage.
+- CPU, memory, time, input, output, logs, and concurrency are bounded.
+- Node permission flags are defense in depth, not the sole sandbox.
+- Runner crash, timeout, malformed IPC, or app failure must remain app-local.
+
+## Remote UI
+
+- Hot Application UI runs in a Web Worker or equivalent isolated realm.
+- It cannot directly access DOM, cookies, localStorage, host dynamic imports, or arbitrary network.
+- It emits only the K-Nex-owned remote component/event protocol.
+- The host maps allowlisted IDs to K-Nex components and owns semantics, focus, accessibility, routing, theme, data gateways, and authorization.
+- Fixed host routes/slots exist before app installation; no runtime Next route injection.
+- Third-party remote UI protocol/types remain behind an adapter and do not become persisted K-Nex contracts before a passing kill-spike.
+
+## Docker and zero-downtime delivery
+
+- The web/admin process never receives Docker socket or build/publish credentials.
+- A separate deployment supervisor/orchestrator performs Platform Plugin build/pull, migration, start, warm, promotion, drain, rollback, and receipt.
+- At least one old healthy generation serves during target warm-up.
+- Target traffic starts only after provenance, migration revision, readiness, authenticated smoke, and runtime inventory match.
+- Workers use lease/idempotency semantics and drain safely.
+- Realtime reconnects and resynchronizes.
+- Only expand-compatible overlap is labeled zero downtime; incompatible/destructive migration must return `maintenance-required`.
+- Continuous external probes are required evidence, not a best-effort claim.
+
+## Security and supply chain
+
+- Catalog source is a signed versioned index pointing to immutable artifacts, never an arbitrary branch.
+- Verify publisher/source/release/artifact/manifest/SBOM/provenance/compatibility/revocation before staging.
+- Secure extraction rejects traversal, symlinks, duplicate paths, decompression bombs, and count/size limits.
+- Content-addressed digests identify bundles and prior rollback generations.
+- Secrets are references, never bundle contents, logs, events, receipts, or browser data.
+- Use argument-array process execution; never concatenate shell commands.
+- The application process cannot act as a general package manager or Docker control plane.
+
+## Authority boundaries
+
+- Phase 9's operator API uses an injected authorizer with an explicit trusted automation identity; no role-name, localhost, header, or environment-string bypass.
+- Phase 10 replaces/wires that boundary to current RBAC permissions.
+- UI hiding never authorizes.
+- Role labels never authorize.
+- Hot Application host capabilities never exceed the current actor/delegation authority.
+- Every lifecycle/activation/traffic/authorization transition is expected-revision checked, idempotent, audited, and invalidated through outbox/revision convergence.
 
 ## Code boundaries
 
-- Preserve package and server/browser/editor boundaries defined by the architecture docs.
-- Do not expose third-party implementation types as K-Nex public or persisted contracts.
-- Do not edit generated artifacts by hand; change their authoring source and regenerate them.
-- Do not read or commit secrets. Use declared environment-variable names or secret references only.
-- Comments should explain non-obvious intent, constraints, or trade-offs, not restate the code.
-- Split files or functions when they contain independent responsibilities; do not split only to satisfy an arbitrary line count.
-- Plugin UI must use K-Nex source/action/query/component contracts where coverage exists; do not create a parallel transport, cache, table, form, or accessibility stack inside a module.
-- Themes own tokens, slots, recipes, and bounded structural CSS. They do not reimplement platform-owned compound component behavior.
-
-## Dependencies
-
-Before adding a dependency:
-
-1. Confirm the current dependency set cannot solve the requirement cleanly.
-2. Check official documentation and types for the exact installed/candidate version.
-3. Verify maintenance, license, security posture, bundle/runtime impact, and compatibility with current decisions.
-4. Prefer an adapter boundary when the library is an implementation detail.
-5. Pin the exact approved version and update the lockfile.
-6. Add the dependency only when the active task has a real consumer; do not create empty adapter packages or install a future catalog speculatively.
+- Contracts import no Payload/Next/React/editor/protocol/orchestrator implementation types.
+- Browser/remote UI exports import no server code.
+- Platform modules import no customer/theme implementation.
+- Do not hand-edit generated artifacts; change authoring source and regenerate.
+- Do not read or commit secrets.
+- Comments explain non-obvious constraints/trade-offs, not the code itself.
+- Plugin/UI code uses K-Nex source/action/query/component contracts where available; no parallel transport/cache/table/form/accessibility/authorization stack.
+- Themes own tokens/slots/recipes/scoped structural CSS; compound behavior stays platform-owned.
 
 ## Validation
 
-- Add or update tests for changed behavior and failure paths.
-- Run the acceptance commands from the active task plus affected repository checks.
-- Run the full phase gate before marking the phase ready for review.
-- Never claim completion when required validation was skipped or failed; record it as a blocker.
-- Keep diagnostics deterministic and actionable.
-- A named conformance/gate command must fail when required evidence did not actually run.
+- Add positive, failure, race, crash, replay, resource-budget, and security tests for changed behavior.
+- Run the active task commands plus affected earlier gates.
+- A named gate must fail if required real evidence did not run.
+- Use real Postgres for transaction/migration/activation/restore claims.
+- Use real Chromium for remote UI, CSP, focus, accessibility, and administration claims.
+- Use real multi-process runner/web/worker fixtures for convergence/isolation.
+- Use continuous external HTTP probes for zero-downtime claims.
+- Never claim completion when required validation was skipped or failed; record a blocker.
 
-## `status.md` protocol
+## `status.md`
 
-Every agent-authored commit that changes repository content must update `status.md` in the same commit.
+Every agent-authored repository commit updates `status.md` atomically. It is a snapshot, not a changelog, and remains at most 40 lines.
 
-`status.md` is a current snapshot, not a changelog:
+Record:
 
-- keep it at 40 lines or fewer;
-- replace stale information instead of appending history;
-- record phase, active task, state, last completed work, validation, next task, and blockers;
-- make **Last completed** describe the work included in that commit;
-- do not include verbose logs, secrets, speculative plans, or the hash of the commit being created;
-- use `None` when there is no blocker.
+```text
+phase
+active task
+state
+last completed work
+validation actually run
+next exact task
+blockers (`None` when absent)
+```
 
-Allowed task states inside an active phase:
+Allowed active-phase states:
 
 ```text
 Ready to start
@@ -82,19 +160,4 @@ Blocked
 Ready for phase review
 ```
 
-After one task passes, update the active task to the next task in the same phase. Do not use `Ready for phase review` until every task, the phase result, and the complete phase gate pass.
-
-After project-manager PASS, the reviewer updates the PR branch to the next phase/task and post-merge state, waits for required CI, and merges. `main` must not retain stale instructions such as “review and merge this phase”.
-
-A commit is incomplete when its implementation and `status.md` disagree.
-
-## Phase completion report
-
-At phase closeout, report:
-
-- completed task matrix;
-- files/packages and public contracts affected;
-- commands, tests, failure evidence, and CI result;
-- known limitations and deferred scope;
-- phase-result decision;
-- the exact next phase/task that would follow reviewer PASS.
+After project-manager PASS, the reviewer updates the branch to the next task/phase handoff, waits for required exact-head CI, and merges. `main` must not retain stale review instructions.

@@ -2,137 +2,230 @@
 
 ## Trust model
 
-Trusted executable code:
+### Trusted host code
 
 ```text
 platform packages
-first-party/reviewed plugins/themes/builders/providers
-customer code
+verified Platform Plugins in the customer image
 static generated registries
+customer source-controlled code
+separate deployment-supervisor implementation
 ```
 
-A compromised package can compromise one customer deployment. K-Nex V1 has no untrusted plugin sandbox.
+A compromised Platform Plugin can compromise one customer host generation. Exact packages, review, provenance, and customer isolation reduce but do not eliminate this blast radius.
 
-Untrusted structured input includes builder documents, theme/settings records, source/action parameters, public forms, uploads/imports, WebSocket subscription messages, manifests before validation, and external webhooks.
+### Isolated executable extension code
 
-## Customer isolation
+Hot Application bundles are treated as capability clients even when official. Signing proves provenance/identity; it does not grant host trust.
 
-Separate repository/database/storage/secrets/process/cache/backups/domain reduce cross-customer blast radius. They do not replace authorization among users in one customer.
+### Untrusted structured data
 
-## Server authorization
+```text
+Hot Application/Theme Skin manifests before verification
+remote UI trees/events
+app settings/storage values
+builder documents
+public forms/uploads/webhooks
+source/action inputs
+realtime messages
+catalog/network responses
+```
 
-Every source/action/file/export/subscription enforces actor permission plus domain record/field policy. UI hiding and actor-filtered discovery are only user experience.
+## Absolute boundaries
 
-Public sources/actions have separate IDs, narrow projections, rate/abuse/privacy policy, and cache class. Authenticated preview does not make an internal source publishable.
+Downloaded extension code must not execute in the main web/worker process. The application process must not expose:
 
-## Data-source pipeline
+```text
+Docker socket
+customer database credential
+host filesystem/module graph
+raw req.payload
+ambient process.env or host secrets
+unrestricted child process
+unrestricted outbound network
+arbitrary React/DOM execution
+```
+
+TypeScript types, package exports, ESM cache behavior, and Node permission flags are not sufficient sandbox boundaries.
+
+## Catalog and artifact supply chain
+
+Production installation begins from a signed versioned official catalog entry bound to:
+
+```text
+publisher and source repository/commit
+immutable release asset
+artifact/manifest/file/SBOM digests
+hosted-build provenance
+runtime ABI/framework compatibility
+capability/permission/secret/network/storage requests
+support and revocation state
+```
+
+Verification occurs before serving or execution. Secure extraction rejects path traversal, absolute paths, symlinks/hardlinks, duplicate/case-colliding paths, special devices, decompression bombs, excessive files/bytes/depth, and unsupported content types.
+
+Production activation never runs NPM/PNPM lifecycle scripts or resolves dependencies from the network. Dependencies are bundled in a protected publication workflow.
+
+## Isolated runner
+
+Reference controls:
+
+```text
+separate process/service/container boundary
+non-root and read-only root filesystem
+generation-specific code root and bounded temp
+no Docker/DB credentials
+minimal explicit environment
+short-lived app/actor/delegation token
+network deny by default and destination allowlist
+CPU/memory/wall-time/concurrency/input/output/log quotas
+structured schema-validated IPC/RPC
+termination/quarantine on violation
+```
+
+The host capability gateway reauthenticates each call; possession of an app token does not authorize arbitrary operations.
+
+## Host capabilities
+
+A Hot Application can only use declared versioned capabilities. Each call is bounded by:
+
+```text
+app ID and active generation
+principal/effective actor/delegation
+permission and record/field policy
+surface/audience
+resource/rate/concurrency budget
+storage/file/network/secret scope
+correlation and audit identity
+```
+
+No generic service locator or raw SQL API exists.
+
+## App storage
+
+Initial app storage is platform-owned and namespaced. It enforces closed schemas, canonical keys, optimistic revisions, quotas, bounded indexes/query controls, actor/app authorization, encryption/backup policy, and cross-app denial.
+
+Storage content cannot create executable entrypoints, routes, permissions, policies, or capabilities.
+
+## Remote UI
+
+Remote UI worker code cannot access DOM, cookie, localStorage, host module imports, or arbitrary network. It emits only allowlisted component IDs, strict props, and typed events.
+
+The host owns:
+
+```text
+React/K-Nex components
+DOM and portals
+focus/keyboard/accessibility
+theme and CSS boundary
+routing and external navigation policy
+source/action transport
+authorization and sensitive state clearing
+CSP/SRI/content-type/cache headers
+```
+
+Unknown components/events/props fail closed. Worker failure is app-local.
+
+## Platform Plugin delivery security
+
+A separate deployment supervisor owns Docker/build/pull/gateway authority. The web application submits a narrow authorized change request and observes receipts.
+
+Promotion requires:
+
+```text
+verified artifact/provenance/SBOM/static inventory
+migration advisory lock and expected revision
+expand/overlap compatibility
+new generation readiness and authenticated smoke
+continuous old-generation availability
+atomic gateway target update
+safe worker/socket drain
+post-promotion receipt/inventory
+```
+
+A compromised web process must not be able to create arbitrary containers, mount host paths, read other secrets, or route traffic to an unverified image.
+
+## Authorization
+
+Server/host capability authorization is authoritative. UI hiding, catalog filtering, role labels, remote component visibility, and client-provided scopes do not grant authority.
+
+Phase 9 uses an injected operation-authorizer boundary with explicit trusted automation identity. Phase 10 implements stable platform/extension permissions, roles, normalized grants, role templates, protected owner, lifecycle generations, and live revocation.
+
+Long-lived tokens do not carry authoritative permission arrays.
+
+## Data-source and action safety
 
 ```text
 authenticate
-lookup source/surface/audience
-authorize source and requested fields
-apply central query budget
-execute only permitted projection
-validate source-specific schema
-validate output contract
-defensively redact
-apply safe cache policy
-observe and serialize RFC 9457 problem details
+lookup exact active owner/generation/surface
+authorize source/action and fields
+apply budgets
+execute only permitted projection/effect
+validate exact output
+redact defensively
+cache only under safe identity
+observe and serialize bounded errors
 ```
 
-Unauthorized values must not enter cache, trace, log, validation error, or response.
+Unauthorized values must not enter app runner input/output, cache, trace, log, validation error, event, or browser.
 
-Bindings mark required versus optional fields. A missing required field produces explicit insufficient-permission state rather than a silently incomplete dashboard.
+## Network and secrets
 
-## Cache classifications
+- Secrets are declared references and resolved only for authorized server capability calls.
+- Secret values never enter bundles, app storage, remote UI, events, logs, receipts, inventory, or errors.
+- Outbound destinations are normalized and allowlisted; DNS/IP redirect/rebinding and private-network SSRF are denied according to policy.
+- Fetch size, redirects, methods, headers, duration, and concurrency are bounded.
+- Apps cannot open arbitrary listeners.
+
+## Realtime and events
+
+- every app subscription binds actor, app generation, typed params, and current policy;
+- disable/update/role revocation triggers reauthorization/termination;
+- durable facts use transactional outbox;
+- realtime is reconstructible invalidation plus refetch/revision resync;
+- cross-app wildcard channels are forbidden;
+- slow consumers and message buffers are bounded.
+
+## Availability and resource isolation
+
+A Hot Application cannot consume unbounded host resources. Per-app and global circuit breakers, queues, concurrency, quotas, timeout, and quarantine protect the host.
+
+A failed target host generation receives no traffic. At least one old healthy generation remains during zero-downtime warm-up. Maintenance-required operations are explicit rather than attempted unsafely.
+
+## Backup and incident response
+
+Backups/restore cover host release, app/skin generations, artifact references, app storage, settings, authorization, outbox/idempotency/audit, and migration/deployment revision.
+
+Catalog/artifact revocation supports:
 
 ```text
-no-store
-actor
-authorization-context
-public
+block new installs/updates
+warn or quarantine affected active generations according to severity
+fleet query by artifact/package/version/digest
+safe rollback or patched replacement
+incident audit and customer-specific plan
 ```
 
-Authorization-context cache requires a revision/fingerprint covering permissions, membership, policy inputs, impersonation, locale/timezone, selected fields, surface, and publication/feature revision. Role name alone is insufficient.
-
-## API budgets
-
-Central ceilings cover CSRF/origin, content type, body bytes, nesting/filter depth, selected fields, page/series/result bytes, timeout/cancellation, concurrency, rate/burst, and cost class. Plugin handlers can choose lower limits, not silently higher ones.
-
-## Builder and themes
-
-Builder documents allow registered IDs, versions, validated props/bindings/layout tokens only. No executable code, package paths, secrets, arbitrary SQL/Payload query, unrestricted fetch URL, HTML/CSS except explicitly sanitized bounded blocks.
-
-Theme IDs come from static registries. Tokens are typed/bounded and cannot inject CSS/functions/URLs/fonts. Customer code overrides are trusted code and rerun security/accessibility/bundle tests.
-
-## Realtime
-
-- authenticated origin-checked connection;
-- every subscription validates typed params and domain policy;
-- bounded connections/subscriptions/message/buffer/rate;
-- revocation and reauthorization;
-- reconstructible invalidation with revision/resync;
-- no sensitive wildcard channels;
-- memory adapter only in compatible topology;
-- durable business truth outside sockets.
-
-## Events/jobs
-
-Durable integration/workflow classes require transactional outbox and idempotent processing. Jobs receive capability-scoped services and least-privileged actor/system context. Secrets do not enter events/logs.
-
-## Files and network
-
-- validate content type/size/count and scan policy;
-- private/public storage classifications and bounded signed URLs;
-- constrained image/media processing;
-- no executable serving under unsafe types;
-- destination allowlists and SSRF protection for provider-owned network calls;
-- normalize generated/upload paths;
-- process execution uses argument arrays, not shell concatenation.
-
-## Supply chain
+## Mandatory failure corpus
 
 ```text
-protected source/publish workflows
-exact immutable versions and integrity
-reviewed/denied install scripts
-license/vulnerability scanning
-server/browser bundle leakage checks
-SBOM
-signed hosted-build provenance
-artifact/container and lockfile digests
-protected release identity
-deployment receipt and fleet impact query
+unsigned/tampered/downgraded/revoked artifact
+catalog publisher/source mismatch
+archive traversal/symlink/bomb/duplicate
+install script or host package-manager execution
+host dynamic import of downloaded code
+runner DB/Docker/env/filesystem/network escape
+forged/expired app token or generation
+undeclared host capability
+cross-app storage/secret/cache access
+remote UI DOM/cookie/host-import/arbitrary URL attempt
+unknown component/event/prop and malformed tree
+activation race/mixed generation/staged asset exposure
+runner crash/OOM/timeout and log/output flood
+lost revision invalidation
+web Docker control attempt
+unverified green traffic promotion
+incompatible migration labeled zero downtime
+rollback across incompatible data
+backup/restore generation mismatch
 ```
-
-Contract boundaries are not a malicious-code sandbox.
-
-## Control mapping
-
-Implementation maintains K-Nex control IDs mapped to:
-
-- NIST SSDF secure development/release practices;
-- OWASP ASVS 5.0 verification requirements;
-- OWASP API Security Top 10 2023, especially object/property authorization and resource consumption;
-- K-Nex-specific plugin/source/realtime/builder/migration/provenance tests.
-
-The mapping is evidence organization, not automatic certification.
-
-## Accessibility and security
-
-Supported web surfaces target WCAG 2.2 AA. Keyboard/focus/drag alternatives and semantic names also reduce security and operational error risk. Theme token checks alone are insufficient.
-
-## Mandatory failure tests
-
-- direct source/action/field request without authority;
-- cross-branch/driver record access;
-- public page bound to internal source/action;
-- cache identity crossing actors/policies;
-- forbidden realtime scope and revocation;
-- rollback followed by no event/invalidation;
-- commit/crash durable outbox recovery;
-- script/CSS/query/import/URL injection;
-- source output containing undeclared/unauthorized field;
-- package manifest/runtime inventory drift;
-- migration concurrency/stale artifact;
-- secret redaction and supply-chain artifact verification.
