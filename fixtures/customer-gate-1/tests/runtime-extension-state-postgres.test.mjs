@@ -8,9 +8,10 @@ import test from "node:test";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import pg from "pg";
 
-import { ArtifactVerifier, buildBundle, canonicalJson, CatalogClient, InMemoryCatalogCheckpointStore, sha256, VerifiedRemoteUiAssetService } from "@k-nex/extension-bundler";
-import { ActiveExtensionSecurityReconciler, PostgresRuntimeExtensionOutboxDispatcher, PostgresRuntimeExtensionStore, PostgresVerifiedArtifactStore } from "@k-nex/payload-adapter";
-import { DurableDynamicArtifactPipeline, DurableDynamicGenerationRuntime, PluginManager, ReferenceHotApplicationGenerationWarmer, RuntimeExtensionRevisionConsumer, TrustedAutomationOperationAuthorizer } from "@k-nex/runtime";
+import { ArtifactVerifier, buildBundle, canonicalJson, CatalogClient, InMemoryCatalogCheckpointStore, sha256 } from "@k-nex/extension-bundler";
+import { DockerHotApplicationSandboxSupervisor } from "@k-nex/extension-runner";
+import { ActiveExtensionSecurityReconciler, PostgresExtensionCapabilityAuthority, PostgresExtensionCapabilitySequenceStore, PostgresRuntimeExtensionOutboxDispatcher, PostgresRuntimeExtensionStore, PostgresVerifiedArtifactStore } from "@k-nex/payload-adapter";
+import { AuthoritativeHotApplicationRuntime, DurableDynamicArtifactPipeline, DurableDynamicGenerationRuntime, ExtensionCapabilityGateway, HmacExtensionCapabilityTokens, PluginManager, ReferenceHotApplicationGenerationWarmer, RuntimeExtensionRevisionConsumer, TrustedAutomationOperationAuthorizer } from "@k-nex/runtime";
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
 const fixtureDirectory = fileURLToPath(new URL("..", import.meta.url));
@@ -20,6 +21,15 @@ const publisherKeys = generateKeyPairSync("ed25519");
 const catalogKeys = generateKeyPairSync("ed25519");
 const publisher = { identity: "customer-gate-1-hot-app-publisher", publicKey: publisherKeys.publicKey.export({ type: "spki", format: "pem" }).toString() };
 const catalogSigner = { identity: "customer-gate-1-hot-app-catalog", publicKey: catalogKeys.publicKey.export({ type: "spki", format: "pem" }).toString() };
+const runnerIsolationProfile = {
+  schemaVersion: 1, scope: "production", profile: "os-container-per-generation-v1", isolation: "os-container-per-generation", workloadIdentity: "unique-non-root",
+  namespaces: { pid: "separate", mount: "separate", user: "separate", network: "separate" },
+  filesystem: { root: "read-only", code: "read-only", temporaryStorage: "bounded-tmpfs", hostMounts: "none" },
+  privileges: { linuxCapabilities: "dropped", noNewPrivileges: true, dockerSocket: "none", databaseCredential: "none", hostSecrets: "none" },
+  policy: { syscallProfile: digest("a"), macProfile: digest("b"), rawEgress: "denied", inboundListener: "denied", hostNetworkAdapter: "allowlisted-proxy-only" },
+  limits: { cpuMilliCores: 500, memoryMiB: 128, processes: 16, openFiles: 64, tempBytes: 1_048_576 },
+  rpc: { transport: "structured-host-rpc-only", schemaValidated: true, shortLivedGenerationActorIdentity: true }
+};
 
 function boot(connectionString) {
   return new Promise((resolve, reject) => {
@@ -117,10 +127,11 @@ function releaseDefinition(generation, version, marker, compatibility) {
     manifest: {
       schemaVersion: 1, deliveryClass: "hot-application", id: "app.sales-live", version, runtimeAbi: "1.0.0",
       entrypoints: { server: ["server/main.mjs"], ui: ["ui/main.mjs"] },
+      capabilities: [{ kind: "records", required: true, reason: "Read the bounded Hot Application fixture.", operations: ["query"], resources: [{ id: "sales.records", version: 1 }] }],
       resourceBudget: { maxBundleBytes: 1_048_576, maxAssetBytes: 262_144, maxStorageBytes: 1_048_576, maxMemoryMiB: 128, maxCpuMilliCores: 500, maxWallTimeMs: 5_000, maxInputBytes: 65_536, maxOutputBytes: 131_072, maxLogBytes: 65_536, maxConcurrency: 4 }
     },
     files: [
-      { path: "server/main.mjs", bytes: Buffer.from(`export default async ({ input }) => ({ marker: ${JSON.stringify(marker)}, generationId: input.generationId });\n`), contentType: "application/javascript" },
+      { path: "server/main.mjs", bytes: Buffer.from(`export default async ({ input, host }) => { const scope = await host.call("records.query", input); return { marker: ${JSON.stringify(marker)}, generationId: scope.generationId }; };\n`), contentType: "application/javascript" },
       { path: "ui/main.mjs", bytes: Buffer.from(`export default () => ({ type: "text", text: ${JSON.stringify(marker)} });\n`), contentType: "application/javascript" },
       { path: "assets/marker.txt", bytes: Buffer.from(marker), contentType: "text/plain" }
     ],
@@ -255,24 +266,10 @@ function plan(operationId, change, release) {
       artifactDigest: release.authority.artifactDigest, expectedRevision: change.expectedRevision,
       ...(change.currentGenerationId ? { currentGenerationId: change.currentGenerationId } : {}), targetGenerationId: release.generationId,
       approvalRequired: false, rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "hot-application", id: "app.sales-live",
-      availability: { outcome: "live-generation", activation: "atomic-generation-pointer" }, requiredCapabilities: [],
+      availability: { outcome: "live-generation", activation: "atomic-generation-pointer" }, requiredCapabilities: release.bundle.manifest.capabilities,
       resourceBudget: { maxBundleBytes: 1_048_576, maxAssetBytes: 262_144, maxStorageBytes: 1_048_576, maxMemoryMiB: 128, maxCpuMilliCores: 500, maxWallTimeMs: 5_000, maxInputBytes: 65_536, maxOutputBytes: 131_072, maxLogBytes: 65_536, maxConcurrency: 4 }
     }
   };
-}
-
-async function executeWithTestAdapter(artifacts, release) {
-  const source = await artifacts.runnerSource().load({ owner: release.stage.owner, artifactDigest: release.authority.artifactDigest, serverEntrypoint: "server/main.mjs" });
-  const moduleUrl = `data:text/javascript,${encodeURIComponent(source.source)}`;
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ["--input-type=module", "--eval", `const app = await import(${JSON.stringify(moduleUrl)}); process.stdout.write(JSON.stringify(await app.default({ input: { generationId: ${JSON.stringify(release.generationId)} } })));`], { stdio: ["ignore", "pipe", "pipe"] });
-    let output = "";
-    let errors = "";
-    child.stdout.setEncoding("utf8").on("data", (chunk) => { output += chunk; });
-    child.stderr.setEncoding("utf8").on("data", (chunk) => { errors += chunk; });
-    child.on("error", reject);
-    child.on("close", (code) => code === 0 ? resolve(JSON.parse(output)) : reject(new Error(errors)));
-  });
 }
 
 test("rejects SCN-12 activation races and SCN-13 stale operation replays in PostgreSQL", { timeout: 180_000 }, async () => {
@@ -392,24 +389,58 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     const consumers = ["web", "worker", "editor"].map((name) => [name, new RuntimeExtensionRevisionConsumer(new PostgresRuntimeExtensionStore(pool, clock, digest("7")), "customer-alpha", "production", identity)]);
     await Promise.all(consumers.map(([, consumer]) => consumer.poll()));
 
-    const remoteUi = new VerifiedRemoteUiAssetService(artifacts, { isActive: async ({ generationId, artifactDigest }) => (await storeB.observeActiveGeneration("customer-alpha", "production", identity)).generationId === generationId && byGeneration.get(generationId)?.authority.artifactDigest === artifactDigest });
+    const capabilityTokens = new HmacExtensionCapabilityTokens(new Uint8Array(32).fill(9), clock);
+    const runnerGateway = new ExtensionCapabilityGateway(capabilityTokens, {
+      "records.query": {
+        validateInput: (value) => value,
+        invoke: async (claims, input) => {
+          if (input && typeof input === "object" && input.delayMs === 500) await new Promise((resolve) => setTimeout(resolve, 500));
+          return { generationId: claims.generationId };
+        },
+        validateOutput: (value) => value
+      }
+    }, new PostgresExtensionCapabilityAuthority(pool, { reauthorize: () => true }, clock), new PostgresExtensionCapabilitySequenceStore(pool, clock), clock, {
+      maxInputBytes: 65_536, maxOutputBytes: 131_072, maxDepth: 12, maxCalls: 8
+    });
+    const dockerExecutions = [];
+    const runner = new DockerHotApplicationSandboxSupervisor(runnerGateway, { quarantine() {} }, {
+      started(identity) { dockerExecutions.push({ event: "started", generationId: identity.generationId }); },
+      stopped(identity) { dockerExecutions.push({ event: "stopped", generationId: identity.generationId }); }
+    }, artifacts.runnerSource());
+    const trafficRuntime = new AuthoritativeHotApplicationRuntime(storeB, artifacts, capabilityTokens, runner, {
+      applicationId: "customer-alpha", environment: "production", appId: "app.sales-live", serverEntrypoint: "server/main.mjs"
+    }, runnerIsolationProfile, "runtime-traffic-gateway");
+    let trafficSequence = 0;
+    const invokeTraffic = (input = {}) => trafficRuntime.invoke({
+      input,
+      actor: { principalId: "user:one", effectiveActorId: "user:one" },
+      correlationId: `traffic-correlation-${++trafficSequence}`
+    });
     const gateway = await listen(async (_request, response) => {
       try {
-        const active = await storeB.observeActiveGeneration("customer-alpha", "production", identity);
-        const release = byGeneration.get(active.generationId);
-        if (!release) return response.writeHead(503).end("generation unavailable");
-        const runner = await artifacts.runnerSource().load({ owner: release.stage.owner, artifactDigest: release.authority.artifactDigest, serverEntrypoint: "server/main.mjs" });
-        const ui = await remoteUi.read({ applicationId: "customer-alpha", environment: "production", appId: "app.sales-live", generationId: release.generationId, artifactDigest: release.authority.artifactDigest, path: "assets/marker.txt", fileDigest: release.bundle.manifest.files["assets/marker.txt"].digest });
-        response.end(JSON.stringify({ generationId: release.generationId, marker: Buffer.from(ui.body).toString("utf8"), runnerDigest: sha256(Buffer.from(runner.source)) }));
+        response.end(JSON.stringify(await invokeTraffic()));
       } catch { response.writeHead(500).end("gateway failure"); }
     });
     hosts.push(gateway);
     const update = await manager.plan(request("update", "1.1.0", installed.revisionAfter));
     await manager.stage(update.operationId);
-    const traffic = Array.from({ length: 24 }, () => fetch(`${gateway.url}/continuous`).then(async (response) => ({ status: response.status, body: JSON.parse(await response.text()) })));
-    const [updated, ...observations] = await Promise.all([manager.activate(update.operationId), ...traffic]);
+    const draining = invokeTraffic({ delayMs: 500 });
+    for (let attempt = 0; attempt < 100 && await storeA.liveGenerationLeaseCount("customer-alpha", "production", identity, installed.generationId) === 0; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(await storeA.liveGenerationLeaseCount("customer-alpha", "production", identity, installed.generationId), 1);
+    const traffic = Array.from({ length: 3 }, () => fetch(`${gateway.url}/continuous`).then(async (response) => {
+      const text = await response.text();
+      if (response.status !== 200) throw new Error(text);
+      return { status: response.status, body: JSON.parse(text) };
+    }));
+    const [updated, drained, ...observations] = await Promise.all([manager.activate(update.operationId), draining, ...traffic]);
     assert.equal(updated.previousGenerationId, installed.generationId);
     assert.deepEqual(await manager.activate(update.operationId), updated);
+    assert.deepEqual(drained, { marker: "sales-live-v1", generationId: installed.generationId });
+    assert.equal(await storeA.liveGenerationLeaseCount("customer-alpha", "production", identity, installed.generationId), 0);
+    assert.equal(dockerExecutions.some((execution) => execution.event === "started" && execution.generationId === installed.generationId), true);
+    assert.equal(dockerExecutions.some((execution) => execution.event === "stopped" && execution.generationId === installed.generationId), true);
     assert.equal(observations.every(({ status, body }) => status === 200 && byGeneration.get(body.generationId)?.marker === body.marker), true);
     assert.equal((await storeB.observeActiveGeneration("customer-alpha", "production", identity)).generationId, updated.generationId);
     await assert.rejects(manager.plan(request("update", "1.0.0", updated.revisionAfter)), { code: "PLAN_MISMATCH" });
@@ -444,7 +475,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       assert.equal(await pipeline.reverify(release.authority, { applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application", extensionId: "app.sales-live" }), true);
       assert.equal((await artifacts.read(release.authority.artifactDigest)).verified.artifactDigest, release.authority.artifactDigest);
     }
-    assert.deepEqual(await executeWithTestAdapter(artifacts, byGeneration.get(updated.generationId)), { marker: "sales-live-v2", generationId: updated.generationId });
+    assert.deepEqual(await invokeTraffic(), { marker: "sales-live-v2", generationId: updated.generationId });
 
     const rollback = await manager.plan(request("rollback", "1.0.0", updated.revisionAfter));
     const rolledBack = await manager.rollback(rollback.operationId);
@@ -453,7 +484,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     const rollbackTraffic = await fetch(`${gateway.url}/rollback`);
     assert.equal(rollbackTraffic.status, 200);
     assert.equal(JSON.parse(await rollbackTraffic.text()).generationId, installed.generationId);
-    assert.deepEqual(await executeWithTestAdapter(artifacts, byGeneration.get(installed.generationId)), { marker: "sales-live-v1", generationId: installed.generationId });
+    assert.deepEqual(await invokeTraffic(), { marker: "sales-live-v1", generationId: installed.generationId });
 
     const irreversibleUpdate = await manager.plan(request("update", "2.0.0", rolledBack.revisionAfter));
     await manager.stage(irreversibleUpdate.operationId);
@@ -469,7 +500,16 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     const uninstallPlan = await manager.plan(request("uninstall", "2.0.0", disabled.revisionAfter));
     const uninstalled = await manager.uninstall(uninstallPlan.operationId);
     assert.deepEqual(await manager.uninstall(uninstallPlan.operationId), uninstalled);
-    console.log('P9_RUNTIME_JOURNEY_EVIDENCE={"scenarios":["SCN-11","SCN-16"]}');
+    console.log(`P9_RUNTIME_JOURNEY_EVIDENCE=${JSON.stringify({
+      scenarios: ["SCN-11", "SCN-16"],
+      productionDockerExecution: {
+        runner: "DockerHotApplicationSandboxSupervisor",
+        image: "node:24.19.0-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43",
+        startedGenerationIds: [...new Set(dockerExecutions.filter((execution) => execution.event === "started").map((execution) => execution.generationId))],
+        stoppedGenerationIds: [...new Set(dockerExecutions.filter((execution) => execution.event === "stopped").map((execution) => execution.generationId))]
+      },
+      oldGenerationDrain: { generationId: installed.generationId, leaseObserved: true, completed: true }
+    })}`);
   } finally {
     await Promise.allSettled(hosts.map((host) => host.close()));
     await pool.end();

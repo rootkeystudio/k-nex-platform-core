@@ -3,20 +3,20 @@
 - **Updated:** 2026-08-29
 - **Phase:** Phase 9 — Dynamic Application Runtime and Zero-Downtime Delivery
 - **Active task:** P9.10 — Gate 9 closeout
-- **State:** Blocked
+- **State:** In progress
 
 ## Last completed
 
-Closed static post-commit replay risk. The durable operator now recovers the exact PostgreSQL deployment outbox receipt by expected revision, operation, and target generation before retrying a supervisor side effect; retained-generation rollback receipts use their own authoritative source/build identity instead of being falsely compared to the rollback request build.
+Replaced the test-only Hot Application traffic path with authoritative PostgreSQL generation resolution, exact drain leases, manifest-bound capabilities and budgets, a validated production isolation profile, and real Docker execution across update, restore, and rollback.
 
 ## Validation
 
-Node 24.19.0: runtime 284/284 and payload 32/32 passed; focused recovery test proves a committed promotion is replayed without a second supervisor call; the preceding real static PostgreSQL/Docker journey passed SCN-17/18/20/21 and all 9 crash-matrix entries; `git diff --check` passed.
+Node 24.19.0: contracts 155/155, architecture tools 25/25, bundler 19/19, runtime 289/289, payload 32/32, Docker runner 5/5, and the focused PostgreSQL runtime journey 3/3 passed. SCN-11/16 evidence records exact Docker generations and completed old-generation drain.
 
 ## Next
 
-Replace the test-only Hot Application execution path with production Docker isolation and real traffic/lease evidence, then rerun the complete Gate 9.
+Run the complete Gate 9, refresh the phase-result evidence on final HEAD, and request fresh Sol-high phase review.
 
 ## Blockers
 
-Production Hot Application path.
+None.

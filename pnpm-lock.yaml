@@ -31,6 +31,9 @@ importers:
       '@k-nex/extension-bundler':
         specifier: workspace:*
         version: link:../../packages/extension-bundler
+      '@k-nex/extension-runner':
+        specifier: workspace:*
+        version: link:../../packages/extension-runner
       '@k-nex/module-sales':
         specifier: file:packages/k-nex-module-sales-1.0.0.tgz
         version: file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz(@k-nex/contracts@packages+contracts)(@k-nex/payload-adapter@packages+payload-adapter)(@k-nex/runtime@packages+runtime)(@k-nex/ui-design-system-contracts@packages+ui-design-system-contracts)(@k-nex/ui-runtime@packages+ui-runtime)(react@19.2.8)

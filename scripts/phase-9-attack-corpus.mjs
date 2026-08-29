@@ -94,6 +94,18 @@ const staticProofName = "proves distinct customer binaries and deployment proces
 const runtimeJourneyName = "proves PostgreSQL-backed Hot Application install, update, restore, rollback, and execution through the durable runtime";
 const runtimeCoordinationName = "rejects SCN-12 activation races and SCN-13 stale operation replays in PostgreSQL";
 
+const assertRuntimeJourneyEvidence = (marker) => {
+  const docker = marker.productionDockerExecution;
+  const drain = marker.oldGenerationDrain;
+  assert.equal(docker?.runner, "DockerHotApplicationSandboxSupervisor", "P9 runtime journey did not prove Docker runner execution.");
+  assert.equal(docker?.image, "node:24.19.0-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43", "P9 runtime journey used an unapproved production runner image.");
+  assert.equal(typeof drain?.generationId, "string", "P9 runtime journey did not identify the drained old generation.");
+  assert.equal(drain.leaseObserved, true, "P9 runtime journey did not observe the old-generation lease.");
+  assert.equal(drain.completed, true, "P9 runtime journey did not prove old-generation drain completion.");
+  assert.equal(docker.startedGenerationIds?.includes(drain.generationId), true, "P9 runtime journey did not start the drained generation in Docker.");
+  assert.equal(docker.stoppedGenerationIds?.includes(drain.generationId), true, "P9 runtime journey did not stop the drained generation in Docker.");
+};
+
 const scenarios = [
   { id: "SCN-01", attack: "arbitrary repository/branch URL", expected: "reject unpinned source", evidence: [exactEvidence("static-composition-authority", "static source and trusted build authority rejects arbitrary repository and branch controls in a static source change")] },
   { id: "SCN-02", attack: "unsigned/tampered/downgraded/revoked bundle", expected: "reject verification failure", evidence: [exactEvidence("bundler-rejections", "extension bundler verifies the signed catalog and every provenance/release binding before stage"), exactEvidence("bundler-rejections", "extension bundler rejects expired, replayed, revoked, and downgraded signed catalog indexes")] },
@@ -184,6 +196,7 @@ export const runAttackCorpus = () => {
       if (required.marker) {
         const marker = result.markers?.[required.marker];
         assert.ok(marker, `${scenario.id}: exact runtime marker ${required.marker} was not emitted.`);
+        if (required.marker === "P9_RUNTIME_JOURNEY_EVIDENCE") assertRuntimeJourneyEvidence(marker);
         if (scenario.id !== "SCN-19") assert.equal(marker.scenarios?.includes(scenario.id), true, `${scenario.id}: ${required.marker} did not record the scenario outcome.`);
       }
       return { proof: required.proof, name: required.name, ...(required.marker ? { marker: required.marker } : {}) };

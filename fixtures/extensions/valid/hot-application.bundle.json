@@ -1,5 +1,6 @@
 {
   "$schema": "../../../schemas/extension-bundle-manifest.v1.schema.json",
+  "capabilities": [{ "kind": "records", "operations": ["query"], "reason": "Read assigned Sales tasks.", "required": true, "resources": [{ "id": "sales.tasks", "version": 1 }] }],
   "entrypoints": { "server": ["server/assistant.mjs"], "ui": ["ui/assistant.mjs"] },
   "files": {
     "server/assistant.mjs": { "bytes": 1024, "contentType": "application/javascript", "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },

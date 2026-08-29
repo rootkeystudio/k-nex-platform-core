@@ -1,4 +1,4 @@
-import { canonicalJson } from "@k-nex/contracts";
+import { canonicalJson, type HotApplicationManifest, type ThemeSkinManifest } from "@k-nex/contracts";
 import { randomUUID } from "node:crypto";
 
 import type {
@@ -15,6 +15,10 @@ import type {
 export interface DurableDynamicArtifact {
   readonly authority: VerifiedGenerationAuthority;
   readonly version: string;
+  /** Reverified manifest limits; never inferred from a database activation row. */
+  readonly resourceBudget?: HotApplicationManifest["resourceBudget"] | ThemeSkinManifest["resourceBudget"];
+  /** Reverified manifest grants; never supplied by a traffic caller. */
+  readonly capabilities?: Readonly<HotApplicationManifest["capabilities"]>;
   readonly compatibility: StagedGenerationActivation["compatibility"];
   readonly metadata: StagedGenerationActivation["metadata"];
   readonly settings: StagedGenerationActivation["settings"];
@@ -143,6 +147,11 @@ function same(left: unknown, right: unknown): boolean {
   return canonicalJson(left) === canonicalJson(right);
 }
 
+function matchesPlanDeclarations(plan: Exclude<PluginManagerPlan, { executionClass: "static-release" }>["plan"], artifact: DurableDynamicArtifact): boolean {
+  if (!artifact.resourceBudget || !same(plan.resourceBudget, artifact.resourceBudget)) return false;
+  return plan.deliveryClass === "theme-skin" || (artifact.capabilities !== undefined && same(plan.requiredCapabilities, artifact.capabilities));
+}
+
 function requireArtifact(
   artifact: DurableDynamicArtifact | undefined,
   owner: VerifiedGenerationAuthorityOwner,
@@ -177,7 +186,9 @@ export class DurableDynamicArtifactPipeline implements DynamicArtifactPipeline {
       generationId,
       input.plan.artifactDigest
     );
-    if (artifact.version !== input.plan.version) throw new Error("Verified durable artifact version differs from the plan.");
+    if (artifact.version !== input.plan.version || !matchesPlanDeclarations(input.plan, artifact)) {
+      throw new Error("Verified durable artifact declarations differ from the approved plan.");
+    }
     return artifact.authority;
   }
 
@@ -204,7 +215,7 @@ export class DurableDynamicGenerationRuntime implements DynamicGenerationRuntime
       input.authority.generationId,
       input.authority.artifactDigest
     );
-    if (!same(artifact.authority, input.authority) || artifact.version !== input.plan.plan.version) {
+    if (!same(artifact.authority, input.authority) || artifact.version !== input.plan.plan.version || !matchesPlanDeclarations(input.plan.plan, artifact)) {
       throw new Error("Prepared artifact no longer matches the verified operation authority.");
     }
     const readiness = await this.warmer.warm({ request: input.request, plan: input.plan, artifact });

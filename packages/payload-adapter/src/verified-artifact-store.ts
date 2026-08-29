@@ -187,7 +187,15 @@ export class PostgresVerifiedArtifactStore implements DurableDynamicArtifactStor
       verified.manifest.id !== binding.extension_id || verified.manifest.version !== binding.version) {
       fail("ARTIFACT_INVALID", "Stored dynamic binding no longer matches its reverified artifact bytes.");
     }
-    return Object.freeze({ authority: Object.freeze(authority), version: binding.version, ...binding.activation_json });
+    return Object.freeze({
+      ...binding.activation_json,
+      authority: Object.freeze(authority),
+      version: binding.version,
+      resourceBudget: Object.freeze({ ...verified.manifest.resourceBudget }),
+      ...(verified.manifest.deliveryClass === "hot-application" ? {
+        capabilities: Object.freeze(structuredClone(verified.manifest.capabilities))
+      } : {})
+    });
   }
 
   private async verified(artifactDigest: Digest, absentOk = false): Promise<VerifiedArtifact | undefined> {

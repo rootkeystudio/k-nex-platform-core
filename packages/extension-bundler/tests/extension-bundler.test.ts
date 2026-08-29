@@ -14,6 +14,7 @@ const extensionPublisher = { identity: "k-nex-extension-author", publicKey: exte
 const manifest: BundleBuildInput["manifest"] = {
   schemaVersion: 1, deliveryClass: "hot-application", id: "app.sales-fixture", version: "1.0.0", runtimeAbi: "1.0.0",
   entrypoints: { server: ["server/main.mjs"], ui: ["ui/main.mjs"] },
+  capabilities: [],
   resourceBudget: { maxBundleBytes: 1024 * 1024, maxAssetBytes: 1024, maxStorageBytes: 1024, maxMemoryMiB: 64, maxCpuMilliCores: 100, maxWallTimeMs: 1000, maxInputBytes: 1024, maxOutputBytes: 1024, maxLogBytes: 1024, maxConcurrency: 1 }
 };
 const files = [
@@ -99,7 +100,8 @@ describe("extension bundler", () => {
     expect(await store.stage(request)).toEqual(await store.stage(request));
     expect(store.read(sha256(bundle.artifact))?.verified.manifest.id).toBe(request.id);
 
-    await expect(new ArtifactVerifier(client, publishers).verify({ ...request, catalog: { ...catalog, signature: `A${catalog.signature.slice(1)}` } })).rejects.toThrow(/signature/u);
+    const alteredSignature = `${catalog.signature.startsWith("A") ? "B" : "A"}${catalog.signature.slice(1)}`;
+    await expect(new ArtifactVerifier(client, publishers).verify({ ...request, catalog: { ...catalog, signature: alteredSignature } })).rejects.toThrow(/signature/u);
     await expect(new ArtifactVerifier(client, publishers).verify({ ...request, artifact: Buffer.from("tampered") })).rejects.toThrow(/Artifact digest/u);
     const invalid = <K extends keyof CatalogEntry>(key: K, value: CatalogEntry[K]) => {
       const entry = catalog.payload.entries[0]!;

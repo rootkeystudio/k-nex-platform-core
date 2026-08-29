@@ -1,5 +1,6 @@
 {
   "$schema": "../../../schemas/extension-bundle-manifest.v1.schema.json",
+  "capabilities": [],
   "artifactDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "entrypoints": { "server": [], "ui": ["ui/app.mjs"] },
   "files": { "ui/app.mjs": { "bytes": 1, "contentType": "application/javascript", "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" } },
