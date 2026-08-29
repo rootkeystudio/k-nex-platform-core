@@ -96,7 +96,7 @@ describe("extension bundler", () => {
     expect((await verifier.verify(request)).manifest.id).toBe(request.id);
     const store = new VerifiedArtifactStore(verifier);
     expect(store.read(sha256(bundle.artifact))).toBeUndefined();
-    expect(await store.stage(request)).toBe(await store.stage(request));
+    expect(await store.stage(request)).toEqual(await store.stage(request));
     expect(store.read(sha256(bundle.artifact))?.verified.manifest.id).toBe(request.id);
 
     await expect(new ArtifactVerifier(client, publishers).verify({ ...request, catalog: { ...catalog, signature: `A${catalog.signature.slice(1)}` } })).rejects.toThrow(/signature/u);
@@ -171,10 +171,12 @@ describe("extension bundler", () => {
     const staged = await store.stageForOwner(owner, request);
     const source = store.runnerSource();
     expect(source.load({ owner, artifactDigest: staged.artifactDigest, serverEntrypoint: "server/main.mjs" }).source).toContain("export const run");
+    staged.verified.files.get("server/main.mjs")!.fill(0x20);
+    expect(source.load({ owner, artifactDigest: staged.artifactDigest, serverEntrypoint: "server/main.mjs" }).source).toContain("export const run");
     expect(() => source.load({ owner, artifactDigest: staged.artifactDigest, serverEntrypoint: "server/not-declared.mjs" })).toThrow(/declared/u);
     const entrypoint = store.read(staged.artifactDigest)!.verified.files.get("server/main.mjs")!;
     entrypoint.fill(0x20);
-    expect(() => source.load({ owner, artifactDigest: staged.artifactDigest, serverEntrypoint: "server/main.mjs" })).toThrow(/no longer matches/u);
+    expect(source.load({ owner, artifactDigest: staged.artifactDigest, serverEntrypoint: "server/main.mjs" }).source).toContain("export const run");
   });
 
   it("rejects unknown catalog fields and invalid delivery-class-to-ID bindings at the catalog boundary", async () => {

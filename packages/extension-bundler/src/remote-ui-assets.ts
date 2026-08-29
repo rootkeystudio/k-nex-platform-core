@@ -44,6 +44,14 @@ export const remoteUiContentSecurityPolicy = "default-src 'none'; script-src 'se
 
 function sha256(bytes: Uint8Array): Digest { return `sha256:${createHash("sha256").update(bytes).digest("hex")}`; }
 
+function contentType(path: string): "application/javascript" | "application/json" | "image/svg+xml" | "text/css" | "text/plain" {
+  if (path.endsWith(".mjs")) return "application/javascript";
+  if (path.endsWith(".json")) return "application/json";
+  if (path.endsWith(".svg")) return "image/svg+xml";
+  if (path.endsWith(".css")) return "text/css";
+  return "text/plain";
+}
+
 export function createRemoteUiWorkerBootstrapSource(applicationSource: string): string {
   return `const applicationSource=${JSON.stringify(applicationSource)};addEventListener("message",function connect(event){if(event.data?.type!=="k-nex-connect"||!event.ports?.[0])return;removeEventListener("message",connect);const url=URL.createObjectURL(new Blob([applicationSource],{type:"text/javascript"}));const worker=new Worker(url);worker.addEventListener("error",()=>worker.terminate());worker.postMessage({type:"connect"},[event.ports[0]]);});\n`;
 }
@@ -95,20 +103,25 @@ export class VerifiedRemoteUiAssetService {
     const manifest = staged.verified.manifest;
     if (manifest.deliveryClass !== "hot-application" || manifest.id !== request.appId) throw new RemoteUiAssetError("ARTIFACT_UNAVAILABLE", "Verified Remote UI artifact identity does not match.");
     const metadata = manifest.files[path.data];
-    const body = staged.verified.files.get(path.data);
-    if (!metadata || !body) throw new RemoteUiAssetError("ASSET_UNAVAILABLE", "Remote UI asset is not in the verified inventory.");
-    if (metadata.digest !== request.fileDigest) throw new RemoteUiAssetError("DIGEST_MISMATCH", "Remote UI asset digest does not match its route identity.");
+    const storedBody = staged.verified.files.get(path.data);
+    if (!metadata || !storedBody) throw new RemoteUiAssetError("ASSET_UNAVAILABLE", "Remote UI asset is not in the verified inventory.");
+    const body = Buffer.from(storedBody);
+    if (metadata.digest !== request.fileDigest || sha256(body) !== metadata.digest || body.byteLength !== metadata.bytes || contentType(path.data) !== metadata.contentType) {
+      throw new RemoteUiAssetError("DIGEST_MISMATCH", "Remote UI asset no longer matches its verified inventory.");
+    }
     return Object.freeze({ body, contentType: metadata.contentType });
   }
 
   private response(body: Buffer, contentType: string, digest: Digest): RemoteUiAssetResponse {
+    const immutableBody = Buffer.from(body);
+    if (sha256(immutableBody) !== digest) throw new RemoteUiAssetError("DIGEST_MISMATCH", "Remote UI response body no longer matches its digest.");
     const digestBytes = Buffer.from(digest.slice("sha256:".length), "hex").toString("base64");
     return Object.freeze({
       status: 200 as const,
       headers: Object.freeze({
         "cache-control": "public, max-age=31536000, immutable",
         "content-digest": `sha-256=:${digestBytes}:`,
-        "content-length": String(body.byteLength),
+        "content-length": String(immutableBody.byteLength),
         "access-control-allow-origin": "null",
         "content-security-policy": remoteUiContentSecurityPolicy,
         "content-type": `${contentType}; charset=utf-8`,
@@ -117,7 +130,7 @@ export class VerifiedRemoteUiAssetService {
         "referrer-policy": "no-referrer",
         "x-content-type-options": "nosniff"
       }),
-      body: Buffer.from(body)
+      body: immutableBody
     });
   }
 }

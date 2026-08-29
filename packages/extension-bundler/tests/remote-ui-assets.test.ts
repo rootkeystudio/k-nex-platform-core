@@ -41,5 +41,21 @@ describe("verified Remote UI assets", () => {
     await expect(service.readBootstrap({ ...request, fileDigest: `sha256:${"b".repeat(64)}`, bootstrapDigest })).rejects.toMatchObject({ code: "DIGEST_MISMATCH" });
     await expect(service.readBootstrap({ ...request, path: "ui/../secret.mjs", bootstrapDigest })).rejects.toMatchObject({ code: "REQUEST_INVALID" });
     await expect(new VerifiedRemoteUiAssetService({ read: () => undefined }, { isActive: async () => true }).readBootstrap({ ...request, bootstrapDigest })).rejects.toMatchObject({ code: "ARTIFACT_UNAVAILABLE" });
+    for (const metadata of [{ ...manifest.files["ui/main.mjs"], bytes: body.byteLength + 1 }, { ...manifest.files["ui/main.mjs"], contentType: "text/plain" }]) {
+      const inconsistent = { ...staged, verified: { ...staged.verified, manifest: { ...manifest, files: { "ui/main.mjs": metadata } } } };
+      await expect(new VerifiedRemoteUiAssetService({ read: () => inconsistent }, { isActive: async () => true }).readBootstrap({ ...request, bootstrapDigest })).rejects.toMatchObject({ code: "DIGEST_MISMATCH" });
+    }
+  });
+
+  it("copies stored bytes and rejects corrupted reader bytes before serving", async () => {
+    const original = Buffer.from(body);
+    const stored = { ...staged, verified: { ...staged.verified, files: new Map([["ui/main.mjs", original]]) } };
+    const service = new VerifiedRemoteUiAssetService({ read: () => stored }, { isActive: async () => true });
+    const bootstrap = Buffer.from(createRemoteUiWorkerBootstrapSource(original.toString("utf8")));
+    const response = await service.readBootstrap({ ...request, bootstrapDigest: sha256(bootstrap) });
+    original.fill(0x20);
+    expect(Buffer.from(response.body)).toEqual(bootstrap);
+    const corruptedBootstrap = Buffer.from(createRemoteUiWorkerBootstrapSource(original.toString("utf8")));
+    await expect(service.readBootstrap({ ...request, bootstrapDigest: sha256(corruptedBootstrap) })).rejects.toMatchObject({ code: "DIGEST_MISMATCH" });
   });
 });

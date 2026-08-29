@@ -32,6 +32,10 @@ export interface RemoteUiHostAdapter {
   action(targetId: string, input: JsonValue): JsonValue | Promise<JsonValue>;
 }
 
+export interface RemoteUiFrameOptions {
+  readonly allowInsecureDevelopmentOrigin?: boolean;
+}
+
 export class RemoteUiProtocolError extends Error {
   constructor(readonly code: "FRAME_INVALID" | "IDENTITY_MISMATCH" | "SEQUENCE_INVALID" | "BUDGET_EXCEEDED" | "COMPONENT_DENIED" | "PROP_INVALID" | "EVENT_DENIED" | "TARGET_DENIED" | "UNAUTHORIZED" | "SESSION_CLOSED", message: string) {
     super(message);
@@ -226,12 +230,15 @@ export class RemoteUiGenerationSessions {
   }
 }
 
-export function createOpaqueRemoteUiFrame(document: Document, session: RemoteUiHostSession, source: string, title: string): Readonly<{ iframe: HTMLIFrameElement; dispose(): void }> {
+export function createOpaqueRemoteUiFrame(document: Document, session: RemoteUiHostSession, source: string, title: string, options: RemoteUiFrameOptions = {}): Readonly<{ iframe: HTMLIFrameElement; dispose(): void }> {
   const url = new URL(source, document.location.href);
   const expected = new URL(session.identity.remoteUiFrameUrl, document.location.href);
   const framePath = /^\/api\/extensions\/apps\/(app\.[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*)\/assets\/([a-z][a-z0-9-]{2,127})\/sha256:[0-9a-f]{64}\/frame\.html$/u.exec(url.pathname);
-  const localDevelopment = url.protocol === "http:" && ["127.0.0.1", "localhost"].includes(url.hostname);
-  if (url.href !== expected.href || (!localDevelopment && url.protocol !== "https:") || url.origin === document.location.origin || url.username !== "" || url.password !== "" || url.search !== "" || url.hash !== "" || framePath?.[1] !== session.identity.appId || framePath[2] !== session.identity.generationId) {
+  if (options.allowInsecureDevelopmentOrigin && session.identity.environment !== "development") {
+    throw new TypeError("Insecure Remote UI origins are permitted only for development.");
+  }
+  const insecureDevelopmentOrigin = options.allowInsecureDevelopmentOrigin && url.protocol === "http:" && ["127.0.0.1", "localhost"].includes(url.hostname);
+  if (url.href !== expected.href || (!insecureDevelopmentOrigin && url.protocol !== "https:") || url.origin === document.location.origin || url.username !== "" || url.password !== "" || url.search !== "" || url.hash !== "" || framePath?.[1] !== session.identity.appId || framePath[2] !== session.identity.generationId) {
     throw new TypeError("Remote UI frame URL must be a generation-pinned credentialless extension origin.");
   }
   const iframe = document.createElement("iframe");

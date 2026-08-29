@@ -24,6 +24,13 @@ function ownerKey(owner: VerifiedArtifactGenerationOwner): string {
   return `${owner.applicationId}\0${owner.environment}\0${owner.deliveryClass}\0${owner.extensionId}\0${owner.generationId}`;
 }
 
+function copyStagedArtifact(staged: StagedArtifact): StagedArtifact {
+  return Object.freeze({
+    artifactDigest: staged.artifactDigest,
+    verified: Object.freeze({ ...staged.verified, files: new Map([...staged.verified.files].map(([path, bytes]) => [path, Buffer.from(bytes)])) })
+  });
+}
+
 export class VerifiedArtifactStore {
   readonly #verifier: ArtifactVerifier;
   readonly #staged = new Map<string, StagedArtifact>();
@@ -34,13 +41,16 @@ export class VerifiedArtifactStore {
   async stage(request: VerificationRequest): Promise<StagedArtifact> {
     const verified = await this.#verifier.verify(request);
     const existing = this.#staged.get(verified.artifactDigest);
-    if (existing) return existing;
-    const staged = Object.freeze({ artifactDigest: verified.artifactDigest, verified });
+    if (existing) return copyStagedArtifact(existing);
+    const staged = copyStagedArtifact({ artifactDigest: verified.artifactDigest, verified });
     this.#staged.set(verified.artifactDigest, staged);
-    return staged;
+    return copyStagedArtifact(staged);
   }
 
-  read(artifactDigest: Digest): StagedArtifact | undefined { return this.#staged.get(artifactDigest); }
+  read(artifactDigest: Digest): StagedArtifact | undefined {
+    const staged = this.#staged.get(artifactDigest);
+    return staged && copyStagedArtifact(staged);
+  }
 
   async stageForOwner(owner: VerifiedArtifactGenerationOwner, request: VerificationRequest): Promise<StagedArtifact> {
     if (owner.deliveryClass !== request.deliveryClass || owner.extensionId !== request.id) {

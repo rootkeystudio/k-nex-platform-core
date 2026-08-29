@@ -45,7 +45,7 @@ function element(node: RemoteUiNode): HTMLElement {
 }
 
 session = new RemoteUiHostSession({
-  sessionId: "remote-session-1", actorSessionId: "actor-session-1", applicationId: "customer-alpha", environment: "production",
+  sessionId: "remote-session-1", actorSessionId: "actor-session-1", applicationId: "customer-alpha", environment: "development",
   appId: "app.sales-assistant", generationId: "sales-generation-1", remoteUiFrameUrl: window.__K_NEX_REMOTE_FRAME_URL__, route: "/apps/sales-assistant", surface: "sales.assistant-screen",
   sources: new Set(["sales.tasks", "sales.heartbeat"]), actions: new Set(["sales.refresh"]), routes: new Set(["/apps/sales-assistant"]), assets: new Set()
 }, registry, {
@@ -63,11 +63,11 @@ session = new RemoteUiHostSession({
   action: async (targetId) => ({ targetId, changed: true })
 });
 try {
-  createOpaqueRemoteUiFrame(document, session, window.__K_NEX_REMOTE_HOSTILE_FRAME_URL__, "Hostile isolated application");
+  createOpaqueRemoteUiFrame(document, session, window.__K_NEX_REMOTE_HOSTILE_FRAME_URL__, "Hostile isolated application", { allowInsecureDevelopmentOrigin: true });
   throw new Error("Remote UI host accepted a hostile frame origin.");
 } catch (error) {
   if (!(error instanceof TypeError)) throw error;
   window.__K_NEX_REMOTE_HOSTILE_FRAME_REJECTED__ = true;
 }
-const remote = createOpaqueRemoteUiFrame(document, session, window.__K_NEX_REMOTE_FRAME_URL__, "Sales assistant isolated application");
+const remote = createOpaqueRemoteUiFrame(document, session, window.__K_NEX_REMOTE_FRAME_URL__, "Sales assistant isolated application", { allowInsecureDevelopmentOrigin: true });
 root.before(remote.iframe);

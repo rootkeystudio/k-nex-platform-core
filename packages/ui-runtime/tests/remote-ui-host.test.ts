@@ -54,6 +54,17 @@ describe("remote UI host session", () => {
     expect(() => createOpaqueRemoteUiFrame({ location: { href: "https://host.example/" } } as Document, session, attacker, "hostile frame")).toThrow("generation-pinned credentialless extension origin");
   });
 
+  it("requires HTTPS in production and permits loopback HTTP only with explicit development opt-in", () => {
+    const frameUrl = identity.remoteUiFrameUrl.replace("https://extensions.example", "http://localhost:4173");
+    const production = { ...identity, remoteUiFrameUrl: frameUrl };
+    expect(() => createOpaqueRemoteUiFrame({ location: { href: "https://host.example/" } } as Document, new RemoteUiHostSession(production, registry, adapter()), frameUrl, "implicit insecure production")).toThrow("generation-pinned credentialless extension origin");
+    expect(() => createOpaqueRemoteUiFrame({ location: { href: "https://host.example/" } } as Document, new RemoteUiHostSession(production, registry, adapter()), frameUrl, "insecure production", { allowInsecureDevelopmentOrigin: true })).toThrow("permitted only for development");
+    const iframe = { title: "", sandbox: { add() {} }, referrerPolicy: "", setAttribute() {}, addEventListener() {}, remove() {} };
+    const development = { ...production, environment: "development" };
+    expect(() => createOpaqueRemoteUiFrame({ location: { href: "https://host.example/" }, createElement: () => iframe } as unknown as Document, new RemoteUiHostSession(development, registry, adapter()), frameUrl, "development frame", { allowInsecureDevelopmentOrigin: true })).not.toThrow();
+    expect(() => createOpaqueRemoteUiFrame({ location: { href: "https://host.example/" } } as Document, new RemoteUiHostSession(development, registry, adapter()), frameUrl, "implicit development frame")).toThrow("generation-pinned credentialless extension origin");
+  });
+
   it("validates identity, sequence, registry, events, and declared source transport", async () => {
     const host = adapter();
     const session = new RemoteUiHostSession(identity, registry, host);
