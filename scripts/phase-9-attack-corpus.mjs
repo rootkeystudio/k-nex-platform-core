@@ -71,7 +71,7 @@ const proofs = [
     "returns maintenance-required without building or starting a target generation"
   ]),
   nodeProof("theme-skin-profile", "tests/theme-skin-profile-postgres.test.mjs", [
-    "publishes and rolls back Theme Profiles atomically against exact active skin generations"
+    "delivers Theme Skins from signed durable artifacts through PluginManager install, update, rollback, and restore"
   ]),
   browserProof("remote-ui-browser", "packages/ui-testing/scripts/remote-ui-browser.mjs", "P9_REMOTE_UI_BROWSER_PASS"),
   browserProof("theme-skin-browser", "packages/ui-testing/scripts/theme-skin-browser.mjs", "P9_THEME_SKIN_BROWSER_PASS")
