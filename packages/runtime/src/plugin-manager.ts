@@ -209,6 +209,21 @@ export interface ExtensionSecurityQuarantineReceipt {
   readonly occurredAt: string;
 }
 
+export type RunnerQuarantineReason = "INVOCATION_TIMEOUT" | "OUTPUT_BUDGET_EXCEEDED" | "PROTOCOL_VIOLATION" | "CONTAINER_FAILED" | "POLICY_UNAVAILABLE";
+
+/** Durable system quarantine for a terminal per-generation runner failure. */
+export interface ExtensionRunnerQuarantineReceipt {
+  readonly receiptId: string;
+  readonly quarantineTransitionId: string;
+  readonly disposition: "quarantined";
+  readonly reason: RunnerQuarantineReason;
+  readonly generationId: string;
+  readonly revisionBefore: number;
+  readonly revisionAfter: number;
+  readonly inventoryRevision: number;
+  readonly occurredAt: string;
+}
+
 export type ExtensionManagerReceipt = ExtensionActivationReceipt | ExtensionDispositionReceipt | StaticDeploymentReceipt;
 
 export interface ExtensionValidationReport {
@@ -292,6 +307,14 @@ export interface RuntimeExtensionStore {
     generationId: string;
     decision: ActiveGenerationSecurityDecision;
   }>): Promise<ExtensionSecurityQuarantineReceipt>;
+  quarantineRunnerGeneration(input: Readonly<{
+    applicationId: string;
+    environment: string;
+    appId: string;
+    generationId: string;
+    expectedRevision: number;
+    reason: RunnerQuarantineReason;
+  }>): Promise<ExtensionRunnerQuarantineReceipt>;
   observeActiveGeneration(applicationId: string, environment: string, extension: ExtensionIdentity): Promise<ActiveGenerationObservation>;
   acquireGenerationLease(input: Readonly<{ applicationId: string; environment: string; extension: ExtensionIdentity; generationId: string; holder: string; ttlMs: number }>): Promise<string>;
   releaseGenerationLease(leaseId: string): Promise<void>;

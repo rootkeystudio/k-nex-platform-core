@@ -10,7 +10,7 @@ import pg from "pg";
 
 import { ArtifactVerifier, buildBundle, canonicalJson, CatalogClient, InMemoryCatalogCheckpointStore, sha256 } from "@k-nex/extension-bundler";
 import { DockerHotApplicationSandboxSupervisor } from "@k-nex/extension-runner";
-import { ActiveExtensionSecurityReconciler, PostgresExtensionCapabilityAuthority, PostgresExtensionCapabilitySequenceStore, PostgresRuntimeExtensionOutboxDispatcher, PostgresRuntimeExtensionStore, PostgresVerifiedArtifactStore } from "@k-nex/payload-adapter";
+import { ActiveExtensionSecurityReconciler, PostgresExtensionCapabilityAuthority, PostgresExtensionCapabilitySequenceStore, PostgresRuntimeExtensionOutboxDispatcher, PostgresRuntimeExtensionStore, PostgresVerifiedArtifactStore, RuntimeStoreRunnerQuarantineAdapter } from "@k-nex/payload-adapter";
 import { AuthoritativeHotApplicationRuntime, DurableDynamicArtifactPipeline, DurableDynamicGenerationRuntime, ExtensionCapabilityGateway, HmacExtensionCapabilityTokens, PluginManager, ReferenceHotApplicationGenerationWarmer, RuntimeExtensionRevisionConsumer, TrustedAutomationOperationAuthorizer } from "@k-nex/runtime";
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
@@ -125,10 +125,11 @@ function releaseDefinition(generation, version, marker, compatibility) {
   const generationId = `app-sales-live-generation-${generation}`;
   const bundle = buildBundle({
     manifest: {
-      schemaVersion: 1, deliveryClass: "hot-application", id: "app.sales-live", version, runtimeAbi: "1.0.0",
+      schemaVersion: 1, deliveryClass: "hot-application", id: "app.sales-live", displayName: "Sales live", version, runtimeAbi: "1.0.0",
       entrypoints: { server: ["server/main.mjs"], ui: ["ui/main.mjs"] },
       capabilities: [{ kind: "records", required: true, reason: "Read the bounded Hot Application fixture.", operations: ["query"], resources: [{ id: "sales.records", version: 1 }] }],
-      resourceBudget: { maxBundleBytes: 1_048_576, maxAssetBytes: 262_144, maxStorageBytes: 1_048_576, maxMemoryMiB: 128, maxCpuMilliCores: 500, maxWallTimeMs: 5_000, maxInputBytes: 65_536, maxOutputBytes: 131_072, maxLogBytes: 65_536, maxConcurrency: 4 }
+      resourceBudget: { maxBundleBytes: 1_048_576, maxAssetBytes: 262_144, maxStorageBytes: 1_048_576, maxMemoryMiB: 128, maxCpuMilliCores: 500, maxWallTimeMs: 5_000, maxInputBytes: 65_536, maxOutputBytes: 131_072, maxLogBytes: 65_536, maxConcurrency: 4 },
+      settings: [], screens: [{ id: "sales.screen", route: "/apps/sales-live", entrypoint: "ui/main.mjs" }], navigation: [], sources: [], actions: [], tools: [], logicFunctions: [], eventSubscriptions: [], schedules: [], storageSchemas: [], assets: ["assets/marker.txt"], localization: [], healthChecks: []
     },
     files: [
       { path: "server/main.mjs", bytes: Buffer.from(`export default async ({ input, host }) => { const scope = await host.call("records.query", input); return { marker: ${JSON.stringify(marker)}, generationId: scope.generationId }; };\n`), contentType: "application/javascript" },
@@ -252,6 +253,40 @@ test("preserves accepted artifacts while reconciling fresh revocation decisions 
     await assert.rejects(storeB.quarantineActiveGeneration({ ...exact, decision: { ...decision, catalogDigest: digest("d"), catalogSequence: 8 } }), { code: "REVISION_CONFLICT" });
     assert.deepEqual((await pool.query("select (select count(*)::int from runtime_extension_security_receipts) receipts, (select count(*)::int from runtime_extension_security_audit) audits, (select count(*)::int from runtime_extension_outbox where event_json->>'eventType'='extension.security-quarantine') outbox")).rows, evidenceBeforeDifferent.rows);
     console.log('P9_ACCEPTED_ARTIFACT_SECURITY_EVIDENCE={"scenarios":["accepted-expiry","checkpoint-advance","altered-bytes","revocation","outbox","idempotent-replay","stale-race"]}');
+  } finally {
+    await pool.end();
+    await container.stop();
+  }
+});
+
+test("persists terminal runner quarantine, audit, and outbox evidence across a runner restart", { timeout: 180_000 }, async () => {
+  const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("runtime_runner_quarantine").withStartupTimeout(120_000).start();
+  const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
+  const now = new Date("2026-08-29T09:00:00.000Z");
+  const clock = { now: () => now };
+  const store = new PostgresRuntimeExtensionStore(pool, clock, digest("7"));
+  try {
+    await boot(container.getConnectionUri());
+    const change = stateRequest("app.sales-runner-quarantine", "runner-quarantine");
+    const warming = await prepareStateGeneration(store, change, digest("a"), "runner-quarantine-worker", now);
+    const activated = await store.activateGeneration(warming.operationId, warming.leaseToken);
+    const active = (await store.inventory(change.applicationId, change.environment)).extensions.hotApplications[change.extension.id].activeGeneration;
+    const request = {
+      applicationId: change.applicationId,
+      environment: change.environment,
+      appId: change.extension.id,
+      generationId: active.generationId,
+      expectedRevision: activated.revisionAfter,
+      reason: "INVOCATION_TIMEOUT"
+    };
+    const receipt = await store.quarantineRunnerGeneration(request);
+    assert.equal(receipt.reason, "INVOCATION_TIMEOUT");
+    assert.deepEqual(await store.quarantineRunnerGeneration(request), receipt);
+    assert.equal((await store.inventory(change.applicationId, change.environment)).extensions.hotApplications[change.extension.id].disposition, "quarantined");
+    const restartedAdapter = new RuntimeStoreRunnerQuarantineAdapter(new PostgresRuntimeExtensionStore(pool, clock, digest("7")));
+    assert.equal(await restartedAdapter.active({ applicationId: change.applicationId, environment: change.environment, appId: change.extension.id, generationId: active.generationId }), false);
+    assert.deepEqual((await pool.query("select reason, count(*)::int count from runtime_extension_runner_quarantine_receipts group by reason")).rows, [{ reason: "INVOCATION_TIMEOUT", count: 1 }]);
+    assert.deepEqual((await pool.query("select count(*)::int audits, (select count(*)::int from runtime_extension_outbox where event_json->>'operationPhase'='failed' and event_json->>'lifecycleState'='quarantined') outbox from runtime_extension_audit where event_json->>'operationPhase'='failed' and event_json->>'lifecycleState'='quarantined'")).rows, [{ audits: 1, outbox: 1 }]);
   } finally {
     await pool.end();
     await container.stop();
@@ -403,12 +438,13 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       maxInputBytes: 65_536, maxOutputBytes: 131_072, maxDepth: 12, maxCalls: 8
     });
     const dockerExecutions = [];
-    const runner = new DockerHotApplicationSandboxSupervisor(runnerGateway, { quarantine() {} }, {
+    const runnerQuarantine = new RuntimeStoreRunnerQuarantineAdapter(storeB);
+    const runner = new DockerHotApplicationSandboxSupervisor(runnerGateway, runnerQuarantine, runnerQuarantine, {
       started(identity) { dockerExecutions.push({ event: "started", generationId: identity.generationId }); },
       stopped(identity) { dockerExecutions.push({ event: "stopped", generationId: identity.generationId }); }
     }, artifacts.runnerSource());
     const trafficRuntime = new AuthoritativeHotApplicationRuntime(storeB, artifacts, capabilityTokens, runner, {
-      applicationId: "customer-alpha", environment: "production", appId: "app.sales-live", serverEntrypoint: "server/main.mjs"
+      applicationId: "customer-alpha", environment: "production", appId: "app.sales-live"
     }, runnerIsolationProfile, "runtime-traffic-gateway");
     let trafficSequence = 0;
     const invokeTraffic = (input = {}) => trafficRuntime.invoke({

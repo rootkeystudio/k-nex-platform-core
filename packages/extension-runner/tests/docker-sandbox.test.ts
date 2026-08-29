@@ -45,10 +45,11 @@ async function request(store: VerifiedArtifactStore, generationId: string, sourc
   const invocationId = `runner-invocation-${sequence}`;
   const target = identity(generationId, options.appId);
   const manifest = {
-    schemaVersion: 1 as const, deliveryClass: "hot-application" as const, id: target.appId, version: "1.0.0", runtimeAbi: "1.0.0",
+    schemaVersion: 1 as const, deliveryClass: "hot-application" as const, id: target.appId, displayName: "Runner fixture", version: "1.0.0", runtimeAbi: "1.0.0",
     entrypoints: { server: ["server/main.mjs"], ui: ["ui/main.mjs"] },
     capabilities: [],
-    resourceBudget: { maxBundleBytes: 1_048_576, maxAssetBytes: 1_024, maxStorageBytes: 1_024, maxMemoryMiB: 64, maxCpuMilliCores: 250, maxWallTimeMs: 10_000, maxInputBytes: 8_192, maxOutputBytes: 8_192, maxLogBytes: 8_192, maxConcurrency: 2 }
+    resourceBudget: { maxBundleBytes: 1_048_576, maxAssetBytes: 1_024, maxStorageBytes: 1_024, maxMemoryMiB: 64, maxCpuMilliCores: 250, maxWallTimeMs: 10_000, maxInputBytes: 8_192, maxOutputBytes: 8_192, maxLogBytes: 8_192, maxConcurrency: 2 },
+    settings: [], screens: [{ id: "runner.screen", route: "/apps/runner", entrypoint: "ui/main.mjs" }], navigation: [], sources: [], actions: [], tools: [], logicFunctions: [], eventSubscriptions: [], schedules: [], storageSchemas: [], assets: [], localization: [], healthChecks: []
   };
   const releaseSource = { repository: "https://github.com/k-nex/runner-fixtures", commit: "0123456789abcdef0123456789abcdef01234567" };
   const bundle = buildBundle({ manifest, files: [
@@ -89,6 +90,8 @@ function supervisor(observations: Record<string, Record<string, any>>, store: Ve
   const gateway = new ExtensionCapabilityGateway(tokens, { "records.query": queryHandler }, { reauthorize: () => true }, new InMemoryExtensionCapabilitySequenceStoreForTests(clock), clock, { maxInputBytes: 8_192, maxOutputBytes: 8_192, maxDepth: 12, maxCalls: 8 });
   return new DockerHotApplicationSandboxSupervisor(gateway, {
     quarantine(generation, reason) { quarantines.push(`${generation.generationId}:${reason}`); }
+  }, {
+    active() { return Promise.resolve(true); }
   }, {
     async started(generation, name) { observations[name] = await inspectContainer(name); started?.(generation, name); },
     stopped() {}

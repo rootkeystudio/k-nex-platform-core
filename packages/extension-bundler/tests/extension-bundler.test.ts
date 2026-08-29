@@ -12,10 +12,11 @@ const workflowIdentity = `${source.repository}/.github/workflows/release.yml@${s
 const extensionKeys = generateKeyPairSync("ed25519");
 const extensionPublisher = { identity: "k-nex-extension-author", publicKey: extensionKeys.publicKey.export({ type: "spki", format: "pem" }).toString() };
 const manifest: BundleBuildInput["manifest"] = {
-  schemaVersion: 1, deliveryClass: "hot-application", id: "app.sales-fixture", version: "1.0.0", runtimeAbi: "1.0.0",
+  schemaVersion: 1, deliveryClass: "hot-application", id: "app.sales-fixture", displayName: "Sales fixture", version: "1.0.0", runtimeAbi: "1.0.0",
   entrypoints: { server: ["server/main.mjs"], ui: ["ui/main.mjs"] },
   capabilities: [],
-  resourceBudget: { maxBundleBytes: 1024 * 1024, maxAssetBytes: 1024, maxStorageBytes: 1024, maxMemoryMiB: 64, maxCpuMilliCores: 100, maxWallTimeMs: 1000, maxInputBytes: 1024, maxOutputBytes: 1024, maxLogBytes: 1024, maxConcurrency: 1 }
+  resourceBudget: { maxBundleBytes: 1024 * 1024, maxAssetBytes: 1024, maxStorageBytes: 1024, maxMemoryMiB: 64, maxCpuMilliCores: 100, maxWallTimeMs: 1000, maxInputBytes: 1024, maxOutputBytes: 1024, maxLogBytes: 1024, maxConcurrency: 1 },
+  settings: [], screens: [{ id: "sales.screen", route: "/apps/sales-fixture", entrypoint: "ui/main.mjs" }], navigation: [], sources: [], actions: [], tools: [], logicFunctions: [], eventSubscriptions: [], schedules: [], storageSchemas: [], assets: [], localization: [], healthChecks: []
 };
 const files = [
   { path: "server/main.mjs", bytes: Buffer.from("export const run = () => 'ok';\n"), contentType: "application/javascript" as const },
@@ -66,6 +67,8 @@ describe("extension bundler", () => {
     expect(first.artifact.equals(second.artifact)).toBe(true);
     expect(first.manifest.payloadDigest).toBe(sha256(Buffer.from(canonicalJson(first.manifest.files))));
     expect(first.manifest.files).not.toHaveProperty(first.manifestPath);
+    expect(first.manifest).toMatchObject({ applicationManifest: { path: "schemas/hot-application-manifest.json", digest: sha256(Buffer.from(canonicalJson(manifest))) } });
+    expect(first.manifest.files).toHaveProperty("schemas/hot-application-manifest.json");
     expect(JSON.parse(first.sbom.toString("utf8"))).toMatchObject({ bomFormat: "CycloneDX", specVersion: "1.6" });
     expect(JSON.parse(first.provenance.toString("utf8"))).toMatchObject({ schemaVersion: 1, source, workflowIdentity, outputs: { payloadDigest: first.manifest.payloadDigest } });
     expect(() => buildBundle({ manifest, files, source: { ...source, commit: "not-a-commit" }, workflowIdentity })).toThrow();
@@ -131,6 +134,39 @@ describe("extension bundler", () => {
       const blockedClient = new CatalogClient({ [blocked.signer.identity]: blocked.signer.publicKey }, new InMemoryCatalogCheckpointStore());
       await expect(new ArtifactVerifier(blockedClient, publishers).verify({ ...request, catalog: blocked })).rejects.toThrow(/not currently installable/u);
     }
+  });
+
+  it("rejects a missing or divergent complete Hot Application manifest even when the envelope and catalog are resigned", async () => {
+    const { bundle, catalog, client, publishers, request } = release();
+    const mutate = (entries: Map<string, Buffer>) => createNormalizedTarGz([...entries].map(([path, bytes]) => ({ path, bytes })));
+    const entries = extractNormalizedTarGz(bundle.artifact);
+    entries.delete("schemas/hot-application-manifest.json");
+    const missing = mutate(entries);
+    const missingCatalog = signedCatalog({ ...catalog.payload.entries[0]!, artifactDigest: sha256(missing) });
+    await expect(new ArtifactVerifier(new CatalogClient({ [missingCatalog.signer.identity]: missingCatalog.signer.publicKey }, new InMemoryCatalogCheckpointStore()), publishers).verify({ ...request, catalog: missingCatalog, artifact: missing })).rejects.toThrow(/unmanifested|missing schemas\/hot-application-manifest/u);
+
+    const divergentEntries = extractNormalizedTarGz(bundle.artifact);
+    const applicationManifestPath = "schemas/hot-application-manifest.json";
+    const applicationManifest = Buffer.from(canonicalJson({ ...manifest, capabilities: [{ kind: "audit", required: true, reason: "Divergent authority.", operations: ["emit"] }] }));
+    divergentEntries.set(applicationManifestPath, applicationManifest);
+    const envelope = JSON.parse(divergentEntries.get("k-nex.app-bundle.json")!.toString("utf8"));
+    envelope.files[applicationManifestPath] = { ...envelope.files[applicationManifestPath], digest: sha256(applicationManifest), bytes: applicationManifest.byteLength };
+    envelope.applicationManifest.digest = sha256(applicationManifest);
+    envelope.payloadDigest = sha256(Buffer.from(canonicalJson(envelope.files)));
+    const sbom = JSON.parse(divergentEntries.get("sbom.cdx.json")!.toString("utf8"));
+    sbom.components.find((component: { name: string }) => component.name === applicationManifestPath).hashes[0].content = sha256(applicationManifest).slice("sha256:".length);
+    const sbomBytes = Buffer.from(canonicalJson(sbom));
+    divergentEntries.set("sbom.cdx.json", sbomBytes);
+    envelope.sbom.digest = sha256(sbomBytes);
+    const provenance = JSON.parse(bundle.provenance.toString("utf8"));
+    provenance.outputs = { ...provenance.outputs, payloadDigest: envelope.payloadDigest, sbomDigest: envelope.sbom.digest };
+    const provenanceBytes = Buffer.from(canonicalJson(provenance));
+    envelope.provenance.digest = sha256(provenanceBytes);
+    const envelopeBytes = Buffer.from(canonicalJson(envelope));
+    divergentEntries.set("k-nex.app-bundle.json", envelopeBytes);
+    const divergent = mutate(divergentEntries);
+    const divergentCatalog = signedCatalog({ ...catalog.payload.entries[0]!, artifactDigest: sha256(divergent), manifestDigest: sha256(envelopeBytes), sbomDigest: sha256(sbomBytes), provenanceDigest: sha256(provenanceBytes) });
+    await expect(new ArtifactVerifier(new CatalogClient({ [divergentCatalog.signer.identity]: divergentCatalog.signer.publicKey }, new InMemoryCatalogCheckpointStore()), publishers).verify({ ...request, catalog: divergentCatalog, artifact: divergent, provenance: provenanceBytes })).rejects.toThrow(/diverges/u);
   });
 
   it("verifies the committed public-key-only signed official catalog fixture", async () => {

@@ -578,6 +578,23 @@
           "maxLength": 512,
           "type": "string"
         },
+        "applicationManifest": {
+          "additionalProperties": false,
+          "properties": {
+            "digest": {
+              "$ref": "#/$defs/__schema2"
+            },
+            "path": {
+              "const": "schemas/hot-application-manifest.json",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "digest"
+          ],
+          "type": "object"
+        },
         "capabilities": {
           "items": {
             "$ref": "#/$defs/__schema12"
@@ -723,6 +740,7 @@
         "files",
         "sbom",
         "provenance",
+        "applicationManifest",
         "entrypoints",
         "capabilities",
         "resourceBudget"

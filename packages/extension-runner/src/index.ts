@@ -56,8 +56,15 @@ export interface RunnerHealth {
   readonly failures: number;
 }
 
+export type RunnerTerminalQuarantineReason = "INVOCATION_TIMEOUT" | "OUTPUT_BUDGET_EXCEEDED" | "PROTOCOL_VIOLATION" | "CONTAINER_FAILED" | "POLICY_UNAVAILABLE";
+
 export interface RunnerQuarantineSink {
-  quarantine(identity: RunnerGenerationIdentity, reason: RunnerInvocationError["code"]): void | Promise<void>;
+  quarantine(identity: RunnerGenerationIdentity, reason: RunnerTerminalQuarantineReason): void | Promise<void>;
+}
+
+/** Durable inventory is the authority; container labels only locate candidates. */
+export interface RunnerGenerationAuthority {
+  active(identity: RunnerGenerationIdentity): Promise<boolean>;
 }
 
 export interface RunnerObservationSink {
@@ -153,13 +160,19 @@ function isNoFileLimit(value: unknown, expected: number): boolean {
     (value as Record<string, unknown>).Name === "nofile" && (value as Record<string, unknown>).Soft === expected && (value as Record<string, unknown>).Hard === expected;
 }
 
+function isTerminalQuarantineReason(code: RunnerInvocationError["code"]): code is RunnerTerminalQuarantineReason {
+  return ["INVOCATION_TIMEOUT", "OUTPUT_BUDGET_EXCEEDED", "PROTOCOL_VIOLATION", "CONTAINER_FAILED", "POLICY_UNAVAILABLE"].includes(code);
+}
+
 export class DockerHotApplicationSandboxSupervisor {
   private readonly generations = new Map<string, GenerationState>();
   private readonly workloadUsers = new Map<number, string>();
+  private startup?: Promise<number>;
 
   constructor(
     private readonly gateway: ExtensionCapabilityGateway,
     private readonly quarantineSink: RunnerQuarantineSink,
+    private readonly authority: RunnerGenerationAuthority,
     private readonly observationSink: RunnerObservationSink,
     private readonly artifacts: VerifiedArtifactRunnerSource,
     private readonly isolationPolicy: DockerIsolationPolicy = defaultDockerIsolationPolicy,
@@ -173,6 +186,8 @@ export class DockerHotApplicationSandboxSupervisor {
     validateRequest(request);
     if (request.signal?.aborted) throw new RunnerInvocationError("INVOCATION_TIMEOUT", "Runner invocation was aborted.");
     const runnerIdentity = identity(request);
+    await this.start();
+    if (!await this.authority.active(runnerIdentity)) throw new RunnerInvocationError("GENERATION_QUARANTINED", "Runner generation is not authoritatively active.");
     this.gateway.assertInvocationIdentity(request.token, { ...runnerIdentity, invocationId: request.invocationId });
     let source: string;
     try { source = (await this.artifacts.load({ owner: { ...request.owner, generationId: request.generationId }, artifactDigest: request.artifactDigest, serverEntrypoint: request.serverEntrypoint })).source; } catch {
@@ -191,7 +206,7 @@ export class DockerHotApplicationSandboxSupervisor {
     } catch (error) {
       const normalized = error instanceof RunnerInvocationError ? error : new RunnerInvocationError("CONTAINER_FAILED", "Runner container failed.");
       state.failures += 1;
-      if (["INVOCATION_TIMEOUT", "OUTPUT_BUDGET_EXCEEDED", "PROTOCOL_VIOLATION", "CONTAINER_FAILED"].includes(normalized.code)) {
+      if (isTerminalQuarantineReason(normalized.code)) {
         state.quarantined = true;
         state.accepting = false;
         await this.quarantineSink.quarantine(resolved, normalized.code);
@@ -208,6 +223,12 @@ export class DockerHotApplicationSandboxSupervisor {
     validateIdentity(identity);
     const state = this.state(identity);
     return Object.freeze({ accepting: state.accepting, activeInvocations: state.active, quarantined: state.quarantined, failures: state.failures });
+  }
+
+  /** Reap only runner-marked containers whose exact generation is no longer durable authority. */
+  async start(): Promise<number> {
+    this.startup ??= this.reconcileStartupContainers();
+    return this.startup;
   }
 
   async drain(identity: RunnerGenerationIdentity, timeoutMs: number): Promise<Readonly<{ graceful: boolean; terminated: number }>> {
@@ -245,7 +266,7 @@ export class DockerHotApplicationSandboxSupervisor {
       : this.isolationPolicy.kind === "selinux" ? ["--security-opt", this.isolationPolicy.label] : [];
     const args = [
       "run", "--rm", "-i", "--name", containerName,
-      "--label", `k-nex.application=${request.applicationId}`, "--label", `k-nex.app=${request.appId}`, "--label", `k-nex.generation=${request.generationId}`,
+      "--label", "k-nex.runner=hot-application-v1", "--label", `k-nex.application=${request.applicationId}`, "--label", `k-nex.environment=${request.environment}`, "--label", `k-nex.app=${request.appId}`, "--label", `k-nex.generation=${request.generationId}`,
       "--network", "none", "--read-only", "--user", `${workloadUser}:${workloadUser}`, "--workdir", "/tmp",
       "--tmpfs", `/tmp:rw,noexec,nosuid,nodev,size=${request.limits.tempBytes},mode=700,uid=${workloadUser},gid=${workloadUser}`,
       "--cap-drop", "ALL", "--security-opt", "no-new-privileges=true", "--security-opt", `seccomp=${seccompPath}`, ...isolationOptions, "--pids-limit", String(request.limits.processes),
@@ -268,19 +289,22 @@ export class DockerHotApplicationSandboxSupervisor {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        cleanup();
         request.signal?.removeEventListener("abort", abort);
-        void this.kill(containerName);
-        reject(error);
+        void this.kill(containerName).then(
+          () => { cleanup(); reject(error); },
+          () => { cleanup(); reject(new RunnerInvocationError("CONTAINER_FAILED", "Runner container could not be forcibly terminated.")); }
+        );
       };
       const finish = (value: unknown) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        cleanup();
         request.signal?.removeEventListener("abort", abort);
         child.stdin.end();
-        void this.kill(containerName).then(() => resolve(value));
+        void this.kill(containerName).then(
+          () => { cleanup(); resolve(value); },
+          () => { cleanup(); reject(new RunnerInvocationError("CONTAINER_FAILED", "Runner container could not be forcibly terminated.")); }
+        );
       };
       const abort = () => fail(new RunnerInvocationError("INVOCATION_TIMEOUT", "Runner invocation was aborted."));
       request.signal?.addEventListener("abort", abort, { once: true });
@@ -407,6 +431,33 @@ export class DockerHotApplicationSandboxSupervisor {
     throw error ?? new Error("container inspect unavailable");
   }
 
+  private async reconcileStartupContainers(): Promise<number> {
+    const output = await this.dockerOutput(["ps", "-aq", "--filter", "label=k-nex.runner=hot-application-v1"]);
+    let terminated = 0;
+    for (const containerName of output.split(/\s+/u).filter(Boolean)) {
+      let labels: Record<string, unknown> | undefined;
+      try {
+        const inspected = await this.dockerJson(["inspect", containerName]) as unknown[];
+        labels = (inspected[0] as { Config?: { Labels?: Record<string, unknown> } } | undefined)?.Config?.Labels;
+      } catch {
+        continue;
+      }
+      const runnerIdentity = {
+        applicationId: labels?.["k-nex.application"],
+        environment: labels?.["k-nex.environment"],
+        appId: labels?.["k-nex.app"],
+        generationId: labels?.["k-nex.generation"]
+      };
+      if (labels?.["k-nex.runner"] !== "hot-application-v1" || !Object.values(runnerIdentity).every((value) => typeof value === "string")) continue;
+      try { validateIdentity(runnerIdentity as RunnerGenerationIdentity); } catch { continue; }
+      if (!await this.authority.active(runnerIdentity as RunnerGenerationIdentity)) {
+        await this.kill(containerName);
+        terminated += 1;
+      }
+    }
+    return terminated;
+  }
+
   private async dockerOperatingSystem(): Promise<string> {
     const value = await this.dockerOutput(["info", "--format", "{{.OperatingSystem}}"]);
     return value.trim();
@@ -427,11 +478,15 @@ export class DockerHotApplicationSandboxSupervisor {
   }
 
   private async kill(containerName: string): Promise<void> {
-    await new Promise<void>((resolve) => {
-      const child = spawn("docker", ["kill", containerName], { stdio: "ignore" });
-      child.once("error", () => resolve());
-      child.once("close", () => resolve());
-    });
+    try { await this.dockerOutput(["kill", containerName]); } catch { /* Docker may have already stopped --rm container. */ }
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      try { await this.dockerOutput(["rm", "-f", containerName]); return; } catch {
+        try { await this.dockerJson(["inspect", containerName]); }
+        catch { return; }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    }
+    throw new Error("docker container remained after forced termination");
   }
 }
 

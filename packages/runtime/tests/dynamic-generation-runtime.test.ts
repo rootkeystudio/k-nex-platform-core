@@ -31,6 +31,11 @@ const plan: Extract<PluginManagerPlan, { executionClass: "live-generation" }> = 
 };
 const artifact: DurableDynamicArtifact = {
   authority, version: "1.0.0",
+  hotApplicationManifest: {
+    schemaVersion: 1, deliveryClass: "hot-application", id: request.extension.id, displayName: "Sales assistant", version: "1.0.0", runtimeAbi: "1.0.0",
+    entrypoints: { server: ["server/main.mjs"], ui: ["ui/main.mjs"] }, capabilities: plan.plan.requiredCapabilities, resourceBudget: plan.plan.resourceBudget,
+    settings: [], screens: [{ id: "sales.screen", route: "/apps/sales-assistant", entrypoint: "ui/main.mjs" }], navigation: [], sources: [], actions: [], tools: [], logicFunctions: [], eventSubscriptions: [], schedules: [], storageSchemas: [], assets: [], localization: [], healthChecks: []
+  },
   capabilities: plan.plan.requiredCapabilities,
   resourceBudget: plan.plan.resourceBudget,
   compatibility: { status: "compatible", windowId: "rollback-window-1", closesAt: "2026-08-30T09:00:00.000Z", migrationDigest: digest("f"), dataRevision: 1 },
@@ -61,24 +66,28 @@ function inventory(active: ReturnType<typeof activeGeneration>) {
 
 function trafficRuntime(store: any, runner: any, tokens: any, productionArtifact: DurableDynamicArtifact) {
   return new AuthoritativeHotApplicationRuntime(store, { resolve: vi.fn(async ({ generationId }: { generationId: string }) => generationId === productionArtifact.authority.generationId ? productionArtifact : undefined) }, tokens, runner, {
-    applicationId: authority.applicationId, environment: authority.environment, appId: authority.extensionId, serverEntrypoint: "server/main.mjs"
+    applicationId: authority.applicationId, environment: authority.environment, appId: authority.extensionId
   }, productionProfile, "runtime-traffic-gateway");
 }
 
 describe("durable dynamic generation adapters", () => {
   it("joins runner, remote UI, storage, and fixed surfaces into one generation-bound health lease", async () => {
     const prepared: string[] = [];
+    const prepareServer = vi.fn(async () => { prepared.push("runner"); });
+    const prepareRemoteUi = vi.fn(async () => { prepared.push("remote-ui"); });
+    const prepareStorage = vi.fn(async () => { prepared.push("storage"); });
+    const prepareFixedSurfaces = vi.fn(async () => { prepared.push("surfaces"); });
     const warmer = new ReferenceHotApplicationGenerationWarmer({
-      runner: { prepareServer: async () => { prepared.push("runner"); } },
-      remoteUi: { prepareRemoteUi: async () => { prepared.push("remote-ui"); } },
-      storage: { prepareStorage: async () => { prepared.push("storage"); } },
-      surfaces: { prepareFixedSurfaces: async () => { prepared.push("surfaces"); } },
+      runner: { prepareServer }, remoteUi: { prepareRemoteUi }, storage: { prepareStorage }, surfaces: { prepareFixedSurfaces },
       clock: { now: () => new Date("2026-08-29T09:00:00.000Z") }
     });
 
     const readiness = await warmer.warm({ request, plan, artifact });
 
     expect(prepared).toEqual(["runner", "remote-ui", "storage", "surfaces"]);
+    for (const dependency of [prepareServer, prepareRemoteUi, prepareStorage, prepareFixedSurfaces]) {
+      expect(dependency).toHaveBeenCalledWith(expect.objectContaining({ manifest: artifact.hotApplicationManifest }));
+    }
     expect(readiness).toMatchObject({ generationId: authority.generationId, serverGenerationId: authority.generationId, uiGenerationId: authority.generationId, storageGenerationId: authority.generationId, readyAt: "2026-08-29T09:00:00.000Z" });
     expect(Date.parse(readiness.expiresAt)).toBe(Date.parse(readiness.readyAt) + 60_000);
   });
@@ -102,7 +111,7 @@ describe("durable dynamic generation adapters", () => {
   });
 
   it("rejects verified declarations that differ from the approved plan", async () => {
-    const artifacts = { resolve: vi.fn(async () => ({ ...artifact, capabilities: [] })) };
+    const artifacts = { resolve: vi.fn(async () => ({ ...artifact, hotApplicationManifest: { ...artifact.hotApplicationManifest!, capabilities: [] } })) };
     const pipeline = new DurableDynamicArtifactPipeline(artifacts);
     await expect(pipeline.stage({ plan: plan.plan, owner: { applicationId: authority.applicationId, environment: authority.environment, deliveryClass: authority.deliveryClass, extensionId: authority.extensionId } })).rejects.toThrow(/declarations/i);
   });
@@ -110,9 +119,7 @@ describe("durable dynamic generation adapters", () => {
   it("issues exact reverified manifest grants and intersects runner limits with the production profile", async () => {
     const active = activeGeneration();
     const productionArtifact: DurableDynamicArtifact = {
-      ...artifact,
-      capabilities: manifestCapabilities,
-      resourceBudget: plan.plan.resourceBudget
+      ...artifact
     };
     const leases: string[] = [];
     const store = {
@@ -134,7 +141,7 @@ describe("durable dynamic generation adapters", () => {
     })).resolves.toEqual({ generationId: authority.generationId, artifactDigest: authority.artifactDigest });
 
     expect(tokens.issue).toHaveBeenCalledWith(expect.objectContaining({ generationId: authority.generationId, grants: manifestCapabilities, ttlMs: 6_000, drainLeaseId: expect.stringMatching(/^lease-/u) }));
-    expect(runner.invoke).toHaveBeenCalledWith(expect.objectContaining({ generationId: authority.generationId, artifactDigest: authority.artifactDigest, limits: {
+    expect(runner.invoke).toHaveBeenCalledWith(expect.objectContaining({ generationId: authority.generationId, artifactDigest: authority.artifactDigest, serverEntrypoint: "server/main.mjs", limits: {
       cpuMilliCores: 300, memoryMiB: 64, processes: 3, openFiles: 32, tempBytes: 65_536,
       wallTimeMs: 5_000, inputBytes: 65_536, outputBytes: 131_072, logBytes: 65_536, maxConcurrency: 4
     } }));
@@ -149,7 +156,7 @@ describe("durable dynamic generation adapters", () => {
       releaseGenerationLease: vi.fn()
     };
     const runner = { invoke: vi.fn() };
-    const runtime = trafficRuntime(store, runner, { issue: vi.fn() }, { ...artifact, capabilities: manifestCapabilities, resourceBudget: plan.plan.resourceBudget });
+    const runtime = trafficRuntime(store, runner, { issue: vi.fn() }, artifact);
 
     await expect(runtime.invoke({ input: {}, actor: { principalId: "user:one", effectiveActorId: "user:one" }, correlationId: "traffic-correlation-2" })).rejects.toBe(leaseError);
     expect(store.acquireGenerationLease).toHaveBeenCalledTimes(1);
@@ -158,7 +165,7 @@ describe("durable dynamic generation adapters", () => {
 
   it("retries once against a new active pointer after a proven lease race", async () => {
     const nextAuthority = { ...authority, generationId: "sales-assistant-generation-2", artifactDigest: digest("9"), manifestDigest: digest("8"), catalogDigest: digest("7"), provenanceDigest: digest("6"), sbomDigest: digest("5") };
-    const nextArtifact: DurableDynamicArtifact = { ...artifact, authority: nextAuthority, capabilities: manifestCapabilities, resourceBudget: plan.plan.resourceBudget };
+    const nextArtifact: DurableDynamicArtifact = { ...artifact, authority: nextAuthority };
     const current = inventory(activeGeneration());
     const next = inventory(activeGeneration(nextAuthority));
     const store = {
@@ -167,10 +174,10 @@ describe("durable dynamic generation adapters", () => {
       releaseGenerationLease: vi.fn(async () => {})
     };
     const artifacts = { resolve: vi.fn(async ({ generationId }: { generationId: string }) => generationId === authority.generationId
-      ? { ...artifact, capabilities: manifestCapabilities, resourceBudget: plan.plan.resourceBudget } : nextArtifact) };
+      ? artifact : nextArtifact) };
     const runner = { invoke: vi.fn(async (input) => input.generationId) };
     const runtime = new AuthoritativeHotApplicationRuntime(store as any, artifacts, { issue: vi.fn(() => "capability-token") } as any, runner, {
-      applicationId: authority.applicationId, environment: authority.environment, appId: authority.extensionId, serverEntrypoint: "server/main.mjs"
+      applicationId: authority.applicationId, environment: authority.environment, appId: authority.extensionId
     }, productionProfile, "runtime-traffic-gateway");
 
     await expect(runtime.invoke({ input: {}, actor: { principalId: "user:one", effectiveActorId: "user:one" }, correlationId: "traffic-correlation-3" })).resolves.toBe(nextAuthority.generationId);
@@ -185,7 +192,7 @@ describe("durable dynamic generation adapters", () => {
       acquireGenerationLease: vi.fn(async () => "lease-00000000-0000-4000-8000-000000000000"),
       releaseGenerationLease: vi.fn(async (leaseId: string) => { released.push(leaseId); })
     };
-    const runtime = trafficRuntime(store, { invoke: vi.fn(async () => { throw runnerFailure; }) }, { issue: vi.fn(() => "capability-token") }, { ...artifact, capabilities: manifestCapabilities, resourceBudget: plan.plan.resourceBudget });
+    const runtime = trafficRuntime(store, { invoke: vi.fn(async () => { throw runnerFailure; }) }, { issue: vi.fn(() => "capability-token") }, artifact);
 
     await expect(runtime.invoke({ input: {}, actor: { principalId: "user:one", effectiveActorId: "user:one" }, correlationId: "traffic-correlation-4" })).rejects.toBe(runnerFailure);
     expect(released).toEqual(["lease-00000000-0000-4000-8000-000000000000"]);

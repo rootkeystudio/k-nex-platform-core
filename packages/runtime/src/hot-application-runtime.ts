@@ -11,13 +11,10 @@ import type { RuntimeExtensionStore } from "./plugin-manager.js";
 
 type ProductionRunnerIsolationProfile = Extract<RunnerIsolationProfile, { scope: "production" }>;
 type ActiveGeneration = NonNullable<ReturnType<AuthoritativeHotApplicationRuntime["active"]>>;
-type HotApplicationArtifact = DurableDynamicArtifact & Readonly<{
-  capabilities: Readonly<HotApplicationManifest["capabilities"]>;
-  resourceBudget: HotApplicationManifest["resourceBudget"];
-}>;
+type HotApplicationArtifact = DurableDynamicArtifact & Readonly<{ hotApplicationManifest: HotApplicationManifest }>;
 
 function isHotApplicationArtifact(artifact: DurableDynamicArtifact): artifact is HotApplicationArtifact {
-  return artifact.authority.deliveryClass === "hot-application" && artifact.capabilities !== undefined && artifact.resourceBudget !== undefined && "maxWallTimeMs" in artifact.resourceBudget;
+  return artifact.authority.deliveryClass === "hot-application" && artifact.hotApplicationManifest?.deliveryClass === "hot-application";
 }
 
 export interface HotApplicationServerInvocation {
@@ -63,14 +60,14 @@ export class AuthoritativeHotApplicationRuntime {
     private readonly artifacts: DurableDynamicArtifactStore,
     private readonly tokens: Pick<HmacExtensionCapabilityTokens, "issue">,
     private readonly runner: HotApplicationServerRunner,
-    private readonly identity: Readonly<{ applicationId: string; environment: string; appId: string; serverEntrypoint: string }>,
+    private readonly identity: Readonly<{ applicationId: string; environment: string; appId: string }>,
     profile: RunnerIsolationProfile,
     private readonly holder: string = "hot-application-traffic",
   ) {
     const parsed = RunnerIsolationProfileSchema.safeParse(profile);
     if (!parsed.success || parsed.data.scope !== "production" ||
       !/^[a-z][a-z0-9-]{2,127}$/u.test(identity.applicationId) || !/^[a-z][a-z0-9-]{1,63}$/u.test(identity.environment) ||
-      !/^app(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$/u.test(identity.appId) || !/^server\/[a-zA-Z0-9._/-]+\.mjs$/u.test(identity.serverEntrypoint) || identity.serverEntrypoint.includes("..") ||
+      !/^app(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$/u.test(identity.appId) ||
       !/^[A-Za-z0-9][A-Za-z0-9._:-]{2,159}$/u.test(holder)) {
       throw new TypeError("Hot Application traffic runtime identity or production isolation profile is invalid.");
     }
@@ -87,7 +84,7 @@ export class AuthoritativeHotApplicationRuntime {
       if (!artifact || !this.matches(active, artifact) || !isHotApplicationArtifact(artifact)) {
         throw new Error("The authoritative generation has no matching verified Hot Application bytes.");
       }
-      const ttlMs = Math.min(300_000, artifact.resourceBudget.maxWallTimeMs + 1_000);
+      const ttlMs = Math.min(300_000, artifact.hotApplicationManifest.resourceBudget.maxWallTimeMs + 1_000);
       let leaseId: string;
       try {
         leaseId = await this.store.acquireGenerationLease({
@@ -120,15 +117,17 @@ export class AuthoritativeHotApplicationRuntime {
           actor: request.actor,
           correlationId: request.correlationId,
           drainLeaseId: leaseId,
-          grants: artifact.capabilities,
+          grants: artifact.hotApplicationManifest.capabilities,
           ttlMs
         } satisfies ExtensionCapabilityTokenRequest);
-        const budget = artifact.resourceBudget;
+        const budget = artifact.hotApplicationManifest.resourceBudget;
+        const serverEntrypoint = artifact.hotApplicationManifest.entrypoints.server[0];
+        if (!serverEntrypoint) throw new Error("Verified Hot Application manifest declares no server entrypoint.");
         return await this.runner.invoke({
           owner,
           generationId: active.generationId,
           artifactDigest: active.artifactDigest as `sha256:${string}`,
-          serverEntrypoint: this.identity.serverEntrypoint,
+          serverEntrypoint,
           invocationId,
           token,
           input: request.input,

@@ -13,12 +13,14 @@ import type {
   ClaimOperationResult,
   ExtensionActivationReceipt,
   ExtensionDispositionReceipt,
+  ExtensionRunnerQuarantineReceipt,
   ExtensionSecurityQuarantineReceipt,
   ExtensionManagerReceipt,
   ExtensionOperationPhase,
   PluginManagerPlan,
   RuntimeExtensionOperation,
   RuntimeExtensionStore,
+  RunnerQuarantineReason,
   StagedGenerationActivation,
   VerifiedGenerationAuthority
 } from "@k-nex/runtime";
@@ -769,6 +771,68 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
     });
   }
 
+  async quarantineRunnerGeneration(input: Parameters<RuntimeExtensionStore["quarantineRunnerGeneration"]>[0]): Promise<ExtensionRunnerQuarantineReceipt> {
+    if (!/^[a-z][a-z0-9-]{2,127}$/u.test(input.applicationId) || !/^[a-z][a-z0-9-]{1,63}$/u.test(input.environment) ||
+      !/^app(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$/u.test(input.appId) || !validRecordId(input.generationId) ||
+      !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0 ||
+      !["INVOCATION_TIMEOUT", "OUTPUT_BUDGET_EXCEEDED", "PROTOCOL_VIOLATION", "CONTAINER_FAILED", "POLICY_UNAVAILABLE"].includes(input.reason)) {
+      fail("STATE_INVALID", "Runner quarantine request is invalid.");
+    }
+    const transition = await this.runnerQuarantineTransitionIds(input);
+    return this.transaction(async (session) => {
+      await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [canonicalJson([input.applicationId, input.environment, "hot-application", input.appId])]);
+      const replay = await session.query<{ receipt_json: ExtensionRunnerQuarantineReceipt }>(
+        `select receipt_json from runtime_extension_runner_quarantine_receipts where quarantine_digest=$1 for update`,
+        [transition.quarantineDigest]
+      );
+      if (replay.rows[0]) return Object.freeze({ ...replay.rows[0].receipt_json });
+      const stateResult = await session.query<ExtensionRow>(
+        `select *, 0::int as inventory_revision from runtime_extensions where application_id=$1 and environment=$2 and delivery_class='hot-application' and extension_id=$3 for update`,
+        [input.applicationId, input.environment, input.appId]
+      );
+      const state = stateResult.rows[0];
+      if (!state || state.revision !== input.expectedRevision) fail("REVISION_CONFLICT", "Runtime extension revision changed before runner quarantine.");
+      if (state.disposition !== "active" || state.active_generation_id !== input.generationId || !state.active_generation || !state.last_operation_id) {
+        fail("GENERATION_MISMATCH", "Runner quarantine no longer targets the active generation.");
+      }
+      const operationResult = await session.query<OperationRow>(`select * from runtime_extension_operations where operation_id=$1 for share`, [state.last_operation_id]);
+      const row = operationResult.rows[0];
+      if (!row || row.delivery_class !== "hot-application" || row.extension_id !== input.appId) fail("STATE_INVALID", "Runner quarantine cannot reconstruct its authoritative lifecycle evidence.");
+      const revision = state.revision + 1;
+      const inventoryRevision = await this.advanceInventoryRevision(session, input.applicationId, input.environment);
+      const updated = await session.query(
+        `update runtime_extensions set revision=$4, disposition='quarantined', active_generation_id=null, active_generation=null,
+           rollback_generation_id=null, rollback_generation=null, retained_generation=$5::jsonb, rollback_compatibility_json=null,
+           last_operation_id=$6, updated_at=now()
+         where application_id=$1 and environment=$2 and delivery_class='hot-application' and extension_id=$3 and revision=$7`,
+        [input.applicationId, input.environment, input.appId, revision, JSON.stringify(state.active_generation), transition.quarantineTransitionId, state.revision]
+      );
+      if (updated.rowCount !== 1) fail("REVISION_CONFLICT", "Runtime extension revision changed during runner quarantine.");
+      await session.query(
+        `update runtime_extension_generations set state='retired'
+         where application_id=$1 and environment=$2 and delivery_class='hot-application' and extension_id=$3 and generation_id=$4 and state='active'`,
+        [input.applicationId, input.environment, input.appId, input.generationId]
+      );
+      await session.query(
+        `delete from runtime_extension_generation_leases where application_id=$1 and environment=$2 and delivery_class='hot-application' and extension_id=$3`,
+        [input.applicationId, input.environment, input.appId]
+      );
+      const receipt: ExtensionRunnerQuarantineReceipt = Object.freeze({
+        receiptId: transition.receiptId,
+        quarantineTransitionId: transition.quarantineTransitionId,
+        disposition: "quarantined",
+        reason: input.reason,
+        generationId: input.generationId,
+        revisionBefore: state.revision,
+        revisionAfter: revision,
+        inventoryRevision,
+        occurredAt: timestamp(this.clock)
+      });
+      await this.writeRunnerQuarantineEvidence(session, row, input, transition, receipt);
+      return receipt;
+    });
+  }
+
   private async changeDisposition(
     id: string,
     token: string,
@@ -951,6 +1015,72 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
       auditId: `security-audit-${suffix}`,
       eventId: `security-event-${suffix}`
     });
+  }
+
+  private async runnerQuarantineTransitionIds(input: Parameters<RuntimeExtensionStore["quarantineRunnerGeneration"]>[0]) {
+    const quarantineDigest = await sha256(input);
+    const suffix = quarantineDigest.slice("sha256:".length, "sha256:".length + 32);
+    return Object.freeze({
+      quarantineDigest,
+      quarantineTransitionId: `runner-quarantine-${suffix}`,
+      receiptId: `runner-receipt-${suffix}`,
+      auditId: `runner-audit-${suffix}`,
+      eventId: `runner-event-${suffix}`
+    });
+  }
+
+  private async writeRunnerQuarantineEvidence(
+    session: RuntimeExtensionSession,
+    row: OperationRow,
+    input: Parameters<RuntimeExtensionStore["quarantineRunnerGeneration"]>[0],
+    ids: Readonly<{ quarantineDigest: string; quarantineTransitionId: string; receiptId: string; auditId: string; eventId: string }>,
+    receipt: ExtensionRunnerQuarantineReceipt
+  ): Promise<void> {
+    const event = ExtensionLifecycleEventSchema.parse({
+      schemaVersion: 1,
+      applicationId: input.applicationId,
+      environment: input.environment,
+      eventId: ids.eventId,
+      eventType: "extension.lifecycle-transition",
+      operationId: row.operation_id,
+      operation: row.operation_kind,
+      operationPhase: "failed",
+      lifecycleState: "quarantined",
+      expectedRevision: input.expectedRevision,
+      revision: receipt.revisionAfter,
+      inventoryRevision: receipt.inventoryRevision,
+      actor: row.authorization_json.actor,
+      receiptId: ids.receiptId,
+      auditId: ids.auditId,
+      idempotencyKey: row.request_json.idempotencyKey,
+      correlationId: row.request_json.correlationId,
+      occurredAt: receipt.occurredAt,
+      deliveryClass: "hot-application",
+      id: input.appId,
+      evidence: transitionEvidence(row, row.authority_json ?? undefined)
+    });
+    const eventJson = JSON.stringify(event);
+    await session.query(
+      `insert into runtime_extension_runner_quarantine_receipts
+       (receipt_id, quarantine_transition_id, application_id, environment, delivery_class, extension_id, generation_id, expected_revision, revision, inventory_revision, reason, quarantine_digest, receipt_json, event_json)
+       values ($1,$2,$3,$4,'hot-application',$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb)`,
+      [ids.receiptId, ids.quarantineTransitionId, input.applicationId, input.environment, input.appId, input.generationId,
+        input.expectedRevision, receipt.revisionAfter, receipt.inventoryRevision, input.reason, ids.quarantineDigest, JSON.stringify(receipt), eventJson]
+    );
+    await session.query(
+      `insert into runtime_extension_audit (audit_id, operation_id, application_id, environment, delivery_class, extension_id, revision, inventory_revision, event_json)
+       values ($1,$2,$3,$4,'hot-application',$5,$6,$7,$8::jsonb)`,
+      [ids.auditId, row.operation_id, input.applicationId, input.environment, input.appId, receipt.revisionAfter, receipt.inventoryRevision, eventJson]
+    );
+    await session.query(
+      `insert into runtime_extension_outbox (event_id, application_id, environment, delivery_class, extension_id, revision, inventory_revision, event_json)
+       values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)`,
+      [ids.eventId, input.applicationId, input.environment, "hot-application", input.appId, receipt.revisionAfter, receipt.inventoryRevision, eventJson]
+    );
+    await session.query(
+      `update runtime_extensions set last_receipt_id=$4, state_digest=$5 where application_id=$1 and environment=$2 and delivery_class='hot-application' and extension_id=$3`,
+      [input.applicationId, input.environment, input.appId, ids.receiptId, await sha256({ event, reason: input.reason })]
+    );
   }
 
   private async writeSecurityQuarantineEvidence(

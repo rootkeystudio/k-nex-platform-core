@@ -52,6 +52,7 @@ export const ExtensionSchemaPathSchema = z.string().max(256).regex(new RegExp(`^
 export const ExtensionBundlePathSchema = z.string().max(256).regex(new RegExp(`^(?:assets|locales|schemas|server|styles|ui)/${bundleSegment}(?:/${bundleSegment})*$`));
 export const HotApplicationServerEntrypointSchema = z.string().max(160).regex(new RegExp(`^server/${entrypointSegment}\\.mjs$`));
 export const HotApplicationUiEntrypointSchema = z.string().max(160).regex(new RegExp(`^ui/${entrypointSegment}\\.mjs$`));
+export const HotApplicationManifestArtifactPath = "schemas/hot-application-manifest.json" as const;
 export const ThemeSkinStylesheetSchema = z.string().max(160).regex(new RegExp(`^styles/${entrypointSegment}\\.css$`));
 export const ExtensionRouteSchema = z.string().max(160).regex(/^\/apps\/[a-z0-9][a-z0-9-]*(?:\/(?:[a-z0-9_-]+|:[a-z][a-z0-9]*))*$/u);
 export const ExtensionDestinationSchema = z.string().max(253).regex(/^https:\/\/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+(?::[0-9]{2,5})?$/u);
@@ -179,7 +180,7 @@ const bundleEvidenceShape = {
 
 export const ExtensionBundleManifestSchema = z.discriminatedUnion("deliveryClass", [
   z.strictObject({ "$schema": z.string().max(512).optional(), schemaVersion: z.literal(1), deliveryClass: z.literal("platform-plugin"), id: PluginIdSchema, version: ExactSemverSchema, delivery: z.literal("external-supervisor"), releaseManifestDigest: digestSchema, artifactDigest: digestSchema }),
-  z.strictObject({ "$schema": z.string().max(512).optional(), schemaVersion: z.literal(1), deliveryClass: z.literal("hot-application"), id: HotApplicationIdSchema, version: ExactSemverSchema, runtimeAbi: ExactSemverSchema, ...bundleEvidenceShape, entrypoints: z.strictObject({ server: uniqueArray(HotApplicationServerEntrypointSchema).max(extensionRuntimeCeilings.entrypoints), ui: uniqueArray(HotApplicationUiEntrypointSchema).min(1).max(extensionRuntimeCeilings.entrypoints) }), capabilities: uniqueArray(ExtensionCapabilityRequestSchema).max(extensionRuntimeCeilings.capabilities), resourceBudget: HotApplicationResourceBudgetSchema }),
+  z.strictObject({ "$schema": z.string().max(512).optional(), schemaVersion: z.literal(1), deliveryClass: z.literal("hot-application"), id: HotApplicationIdSchema, version: ExactSemverSchema, runtimeAbi: ExactSemverSchema, ...bundleEvidenceShape, applicationManifest: z.strictObject({ path: z.literal(HotApplicationManifestArtifactPath), digest: digestSchema }), entrypoints: z.strictObject({ server: uniqueArray(HotApplicationServerEntrypointSchema).max(extensionRuntimeCeilings.entrypoints), ui: uniqueArray(HotApplicationUiEntrypointSchema).min(1).max(extensionRuntimeCeilings.entrypoints) }), capabilities: uniqueArray(ExtensionCapabilityRequestSchema).max(extensionRuntimeCeilings.capabilities), resourceBudget: HotApplicationResourceBudgetSchema }),
   z.strictObject({ "$schema": z.string().max(512).optional(), schemaVersion: z.literal(1), deliveryClass: z.literal("theme-skin"), id: ThemeSkinIdSchema, version: ExactSemverSchema, runtimeAbi: ExactSemverSchema, ...bundleEvidenceShape, stylesheets: uniqueArray(ThemeSkinStylesheetSchema).min(1).max(8), resourceBudget: ThemeSkinResourceBudgetSchema })
 ]).meta({ $id: "https://schemas.k-nex.dev/extension-bundle-manifest/v1.json", title: "K-Nex Extension Bundle Manifest v1" });
 

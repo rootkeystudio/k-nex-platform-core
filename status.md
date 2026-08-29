@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Reconciled authoritative static deployment receipts into PluginManager operations and the unified revisioned Platform Plugin inventory with atomic audit/outbox evidence and exact replay checks.
+Bound the complete Hot Application manifest into the signed artifact inventory and made its reverified declarations authoritative for warm-up and invocation. Persisted terminal runner quarantine in the revisioned runtime inventory, awaited forced teardown, rejected quarantined generations after restart, and reconciled only exact runner-labeled orphan containers against durable authority.
 
 ## Validation
 
-Node 24.19.0: all 292 runtime and 37 payload-adapter tests passed; both packages build. Focused API tests cover promoted and rollback receipt reconciliation, exact replay, and mismatch rejection.
+Node 24.19.0: contracts, bundler, runtime, payload-adapter, extension-runner, and customer fixture builds passed; bundler 20, runtime 292, payload-adapter 40, and runner 8 tests passed. PostgreSQL runtime-state 4/4 and migration gate 1/1 passed, including signed-manifest divergence, durable quarantine/replay/restart, awaited SIGKILL, and orphan reaping evidence.
 
 ## Next
 
@@ -19,4 +19,4 @@ Fix each review blocker with focused regression evidence, rerun the complete Gat
 
 ## Blockers
 
-Signed Hot Application manifest authority; durable quarantine and teardown; rollback authority; real static-process and PluginManager/PostgreSQL proof; continuous transition probes; deterministic Gate 9 and aligned ADR/result evidence.
+Rollback authority; real static-process and PluginManager/PostgreSQL proof; continuous transition probes; deterministic Gate 9 and aligned ADR/result evidence.

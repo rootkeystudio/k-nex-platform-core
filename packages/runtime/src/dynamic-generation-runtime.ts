@@ -15,9 +15,9 @@ import type {
 export interface DurableDynamicArtifact {
   readonly authority: VerifiedGenerationAuthority;
   readonly version: string;
-  /** Reverified manifest limits; never inferred from a database activation row. */
-  readonly resourceBudget?: HotApplicationManifest["resourceBudget"] | ThemeSkinManifest["resourceBudget"];
-  /** Reverified manifest grants; never supplied by a traffic caller. */
+  /** Complete reverified Hot Application declaration; never inferred from an activation row. */
+  readonly hotApplicationManifest?: HotApplicationManifest;
+  readonly resourceBudget: HotApplicationManifest["resourceBudget"] | ThemeSkinManifest["resourceBudget"];
   readonly capabilities?: Readonly<HotApplicationManifest["capabilities"]>;
   readonly compatibility: StagedGenerationActivation["compatibility"];
   readonly metadata: StagedGenerationActivation["metadata"];
@@ -41,6 +41,7 @@ export interface HotApplicationGenerationWarmupInput {
   readonly request: ExtensionChangeRequest;
   readonly plan: Extract<PluginManagerPlan, { executionClass: "live-generation" }>;
   readonly artifact: DurableDynamicArtifact;
+  readonly manifest: HotApplicationManifest;
 }
 
 /**
@@ -69,12 +70,13 @@ export class ReferenceHotApplicationGenerationWarmer implements DynamicGeneratio
   }
 
   async warm(input: Parameters<DynamicGenerationWarmer["warm"]>[0]): Promise<GenerationReadinessLease> {
+    const manifest = input.artifact.hotApplicationManifest;
     if (input.plan.plan.deliveryClass !== "hot-application" || input.plan.generationId !== input.artifact.authority.generationId ||
       input.plan.plan.targetGenerationId !== input.artifact.authority.generationId || input.request.extension.deliveryClass !== "hot-application" ||
-      input.request.extension.id !== input.artifact.authority.extensionId) {
+      input.request.extension.id !== input.artifact.authority.extensionId || manifest?.deliveryClass !== "hot-application") {
       throw new Error("Hot Application warm-up identity does not match the immutable generation.");
     }
-    const preparation: HotApplicationGenerationWarmupInput = Object.freeze(input);
+    const preparation: HotApplicationGenerationWarmupInput = Object.freeze({ ...input, manifest });
     await this.dependencies.runner.prepareServer(preparation);
     await this.dependencies.remoteUi.prepareRemoteUi(preparation);
     await this.dependencies.storage.prepareStorage(preparation);
@@ -148,8 +150,9 @@ function same(left: unknown, right: unknown): boolean {
 }
 
 function matchesPlanDeclarations(plan: Exclude<PluginManagerPlan, { executionClass: "static-release" }>["plan"], artifact: DurableDynamicArtifact): boolean {
-  if (!artifact.resourceBudget || !same(plan.resourceBudget, artifact.resourceBudget)) return false;
-  return plan.deliveryClass === "theme-skin" || (artifact.capabilities !== undefined && same(plan.requiredCapabilities, artifact.capabilities));
+  if (plan.deliveryClass === "theme-skin") return same(plan.resourceBudget, artifact.resourceBudget);
+  const manifest = artifact.hotApplicationManifest;
+  return manifest?.deliveryClass === "hot-application" && same(plan.resourceBudget, manifest.resourceBudget) && same(plan.requiredCapabilities, manifest.capabilities);
 }
 
 function requireArtifact(

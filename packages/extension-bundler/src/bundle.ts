@@ -1,15 +1,15 @@
 import { createHash } from "node:crypto";
 
-import { canonicalJson, ExtensionBundleManifestSchema, type ExtensionBundleManifest } from "@k-nex/contracts";
+import { canonicalJson, ExtensionBundleManifestSchema, HotApplicationManifestArtifactPath, HotApplicationManifestSchema, type ExtensionBundleManifest, type HotApplicationManifest } from "@k-nex/contracts";
 import { initSync, parse } from "es-module-lexer";
 
 import { assertBundleInventory } from "./inventory.js";
 import { createNormalizedTarGz, type ArchiveEntry } from "./tar.js";
 import { HostedBuildProvenanceSchema, type Digest, type HostedBuildProvenance } from "./catalog.js";
 
-type BundleDraft = Omit<Extract<ExtensionBundleManifest, { deliveryClass: "hot-application" }>, "payloadDigest" | "files" | "sbom" | "provenance"> | Omit<Extract<ExtensionBundleManifest, { deliveryClass: "theme-skin" }>, "payloadDigest" | "files" | "sbom" | "provenance">;
+type ThemeSkinBundleDraft = Omit<Extract<ExtensionBundleManifest, { deliveryClass: "theme-skin" }>, "payloadDigest" | "files" | "sbom" | "provenance">;
 export type BuiltFile = Readonly<{ path: string; bytes: Uint8Array; contentType: "application/javascript" | "application/json" | "image/svg+xml" | "text/css" | "text/plain" }>;
-export type BundleBuildInput = Readonly<{ manifest: BundleDraft; files: readonly BuiltFile[]; source: HostedBuildProvenance["source"]; workflowIdentity: string }>;
+export type BundleBuildInput = Readonly<{ manifest: HotApplicationManifest | ThemeSkinBundleDraft; files: readonly BuiltFile[]; source: HostedBuildProvenance["source"]; workflowIdentity: string }>;
 export type BuiltBundle = Readonly<{ artifact: Buffer; manifest: ExtensionBundleManifest; manifestPath: "k-nex.app-bundle.json" | "k-nex.skin-bundle.json"; sbom: Buffer; provenance: Buffer }>;
 
 export function sha256(bytes: Uint8Array): Digest { return `sha256:${createHash("sha256").update(bytes).digest("hex")}`; }
@@ -31,7 +31,11 @@ function sbom(files: readonly BuiltFile[]): Buffer {
 }
 
 export function buildBundle(input: BundleBuildInput): BuiltBundle {
-  const files = [...input.files].map((file) => ({ ...file, bytes: Buffer.from(file.bytes) })).sort((left, right) => left.path.localeCompare(right.path));
+  const applicationManifest = input.manifest.deliveryClass === "hot-application" ? HotApplicationManifestSchema.parse(input.manifest) : undefined;
+  const files = [
+    ...input.files,
+    ...(applicationManifest ? [{ path: HotApplicationManifestArtifactPath, bytes: Buffer.from(canonicalJson(applicationManifest)), contentType: "application/json" as const }] : [])
+  ].map((file) => ({ ...file, bytes: Buffer.from(file.bytes) })).sort((left, right) => left.path.localeCompare(right.path));
   if (files.length === 0 || new Set(files.map((file) => file.path)).size !== files.length) throw new Error("Bundle files must be non-empty and unique.");
   if (files.some((file) => !/^(?:assets|locales|schemas|server|styles|ui)\//u.test(file.path) || file.path.split("/").at(-1) === "package.json")) throw new Error("Bundle files may not represent package metadata or lifecycle scripts.");
   inspectBundleImports(files);
@@ -40,7 +44,21 @@ export function buildBundle(input: BundleBuildInput): BuiltBundle {
   const payloadDigest = sha256(Buffer.from(canonicalJson(inventory)));
   const provenance = Buffer.from(canonicalJson(HostedBuildProvenanceSchema.parse({ schemaVersion: 1, source: input.source, workflowIdentity: input.workflowIdentity, outputs: { payloadDigest, sbomDigest: sha256(generatedSbom) } satisfies HostedBuildProvenance["outputs"] })));
   const manifestPath = input.manifest.deliveryClass === "hot-application" ? "k-nex.app-bundle.json" : "k-nex.skin-bundle.json";
-  const manifest = ExtensionBundleManifestSchema.parse({ ...input.manifest, payloadDigest, files: inventory, sbom: { path: "sbom.cdx.json", digest: sha256(generatedSbom) }, provenance: { reference: `https://github.com/k-nex/official-catalog/attestations/${sha256(provenance).slice("sha256:".length)}`, digest: sha256(provenance) } });
+  const manifest = ExtensionBundleManifestSchema.parse(applicationManifest ? {
+    schemaVersion: 1,
+    deliveryClass: "hot-application",
+    id: applicationManifest.id,
+    version: applicationManifest.version,
+    runtimeAbi: applicationManifest.runtimeAbi,
+    entrypoints: applicationManifest.entrypoints,
+    capabilities: applicationManifest.capabilities,
+    resourceBudget: applicationManifest.resourceBudget,
+    applicationManifest: { path: HotApplicationManifestArtifactPath, digest: sha256(Buffer.from(canonicalJson(applicationManifest))) },
+    payloadDigest,
+    files: inventory,
+    sbom: { path: "sbom.cdx.json", digest: sha256(generatedSbom) },
+    provenance: { reference: `https://github.com/k-nex/official-catalog/attestations/${sha256(provenance).slice("sha256:".length)}`, digest: sha256(provenance) }
+  } : { ...input.manifest, payloadDigest, files: inventory, sbom: { path: "sbom.cdx.json", digest: sha256(generatedSbom) }, provenance: { reference: `https://github.com/k-nex/official-catalog/attestations/${sha256(provenance).slice("sha256:".length)}`, digest: sha256(provenance) } });
   if (manifest.deliveryClass === "platform-plugin") throw new Error("The hot bundle builder cannot produce a Platform Plugin release.");
   assertBundleInventory(manifest);
   const manifestBytes = Buffer.from(canonicalJson(manifest));

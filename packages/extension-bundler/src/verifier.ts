@@ -1,4 +1,4 @@
-import { canonicalJson, ExtensionBundleManifestSchema, type ExtensionBundleManifest } from "@k-nex/contracts";
+import { canonicalJson, ExtensionBundleManifestSchema, HotApplicationManifestSchema, type ExtensionBundleManifest, type HotApplicationManifest } from "@k-nex/contracts";
 
 import { CatalogClient, type CatalogEntry, type Digest, type SignedCatalog, verifyHostedBuildProvenance } from "./catalog.js";
 import { inspectBundleImports, sha256 } from "./bundle.js";
@@ -6,7 +6,7 @@ import { assertBundleInventory } from "./inventory.js";
 import { extractNormalizedTarGz, type ExtractionLimits } from "./tar.js";
 
 export type VerificationRequest = Readonly<{ catalog: SignedCatalog; artifact: Uint8Array; provenance: Uint8Array; deliveryClass: "hot-application" | "theme-skin"; id: string; version: string; runtimeAbi: string }>;
-export type VerifiedArtifact = Readonly<{ entry: CatalogEntry; manifest: ExtensionBundleManifest; files: ReadonlyMap<string, Buffer>; artifactDigest: Digest }>;
+export type VerifiedArtifact = Readonly<{ entry: CatalogEntry; manifest: ExtensionBundleManifest; hotApplicationManifest?: HotApplicationManifest; files: ReadonlyMap<string, Buffer>; artifactDigest: Digest }>;
 export type ActiveReleaseIdentity = Readonly<{
   deliveryClass: "hot-application" | "theme-skin";
   id: string;
@@ -52,6 +52,22 @@ function verifySbom(bytes: Buffer, inventory: Readonly<Record<string, { digest: 
     const hashes = component && Array.isArray(component.hashes) ? component.hashes : [];
     if (!component || component.type !== "file" || !hashes.some((hash): hash is { alg: unknown; content: unknown } => !!hash && typeof hash === "object" && (hash as { alg?: unknown }).alg === "SHA-256" && (hash as { content?: unknown }).content === metadata.digest.slice("sha256:".length))) throw new Error(`SBOM does not bind ${path}.`);
   }
+}
+
+function same(left: unknown, right: unknown): boolean {
+  return canonicalJson(left) === canonicalJson(right);
+}
+
+function verifiedHotApplicationManifest(manifest: Extract<ExtensionBundleManifest, { deliveryClass: "hot-application" }>, files: ReadonlyMap<string, Buffer>): HotApplicationManifest {
+  const bytes = required(files, manifest.applicationManifest.path);
+  if (sha256(bytes) !== manifest.applicationManifest.digest) throw new Error("Hot Application manifest digest does not match the signed bundle envelope.");
+  let applicationManifest: HotApplicationManifest;
+  try { applicationManifest = HotApplicationManifestSchema.parse(JSON.parse(bytes.toString("utf8"))); } catch { throw new Error("Embedded Hot Application manifest is invalid."); }
+  if (applicationManifest.id !== manifest.id || applicationManifest.version !== manifest.version || applicationManifest.runtimeAbi !== manifest.runtimeAbi ||
+    !same(applicationManifest.entrypoints, manifest.entrypoints) || !same(applicationManifest.capabilities, manifest.capabilities) || !same(applicationManifest.resourceBudget, manifest.resourceBudget)) {
+    throw new Error("Embedded Hot Application manifest diverges from the signed bundle envelope.");
+  }
+  return applicationManifest;
 }
 
 export class ArtifactVerifier {
@@ -131,6 +147,7 @@ export class ArtifactVerifier {
       if (sha256(file) !== metadata.digest || file.byteLength !== metadata.bytes || contentType(path) !== metadata.contentType) throw new Error(`File inventory mismatch: ${path}`);
     }
     inspectBundleImports(Object.keys(inventory).filter((path) => path.endsWith(".mjs")).map((path) => ({ path, bytes: required(files, path) })));
-    return { entry, manifest, files, artifactDigest };
+    const hotApplicationManifest = manifest.deliveryClass === "hot-application" ? verifiedHotApplicationManifest(manifest, files) : undefined;
+    return { entry, manifest, ...(hotApplicationManifest ? { hotApplicationManifest } : {}), files, artifactDigest };
   }
 }
