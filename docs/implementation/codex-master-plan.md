@@ -7,6 +7,8 @@
 - **Gate definitions:** [`../30-executable-poc-gates.md`](../30-executable-poc-gates.md)
 - **Dynamic runtime direction:** [`../35-dynamic-applications-and-zero-downtime-delivery.md`](../35-dynamic-applications-and-zero-downtime-delivery.md)
 - **Phase 9 detail:** [`phase-9-dynamic-application-runtime.md`](./phase-9-dynamic-application-runtime.md)
+- **Mandatory Phase 9 review hardening:** [`phase-9-plan-review-hardening.md`](./phase-9-plan-review-hardening.md)
+- **Phase 9 decisions:** [`ADR-0021`](../adr/0021-dynamic-application-runtime-and-zero-downtime-delivery.md), [`ADR-0023`](../adr/0023-phase-9-production-isolation-and-static-delivery-hardening.md)
 - **Phase 10 detail:** [`phase-10-rbac-and-authorization-control-plane.md`](./phase-10-rbac-and-authorization-control-plane.md)
 
 ## 1. Purpose and precedence
@@ -17,7 +19,7 @@ This is the orchestration source for agentic implementation. Resolve conflicts i
 2. accepted ADRs and evidence registry;
 3. architecture documents;
 4. this master plan;
-5. the linked active phase plan;
+5. the linked active phase plan and mandatory review addenda;
 6. implementation notes and PR prose.
 
 A plan is not evidence. A gate passes only through its named command and required real fixtures.
@@ -42,6 +44,8 @@ no public third-party marketplace launch
 
 Phase 9 may create one bounded Hot Application and one Theme Skin fixture. They prove runtime infrastructure and do not become new domain products.
 
+P9.1 cannot start from the original plan alone. It must incorporate ADR-0023 and the mandatory Phase 9 review-hardening addendum into the first machine-readable contracts and failure corpus.
+
 ## 3. Mandatory execution protocol
 
 Before work:
@@ -49,7 +53,7 @@ Before work:
 ```text
 fetch latest main
 read AGENTS.md and status.md
-read this plan, active detailed plan, related ADRs
+read this plan, active detailed plan, mandatory active-phase addenda, related ADRs
 locate the exact active task
 ```
 
@@ -147,15 +151,17 @@ P8  upgrade/lifecycle/restore, create-knex-app, provenance/fleet
 
 Detail: [`phase-9-dynamic-application-runtime.md`](./phase-9-dynamic-application-runtime.md)
 
+Mandatory review correction: [`phase-9-plan-review-hardening.md`](./phase-9-plan-review-hardening.md). Every P9 task and Gate 9 acceptance applies both documents; the correction is not optional future work.
+
 ```text
-P9.1   extension classes, manifests, bundle/generation contracts
+P9.1   delivery classes, manifests, isolation/build/migration/fence contracts
 P9.2   prebuilt bundle, signed catalog, secure verifier/store
-P9.3   persistent PluginManager state machine and operator hook
-P9.4   isolated server runner, host capabilities, app storage
-P9.5   Web Worker remote UI and fixed host routes
+P9.3   persistent PluginManager state machine and operation authorizer
+P9.4   production per-generation runner sandbox, host capabilities, app storage
+P9.5   credentialless remote UI realm, MessagePort protocol, fixed host routes
 P9.6   atomic activate/update/rollback and convergence
 P9.7   live Theme Skin bundles
-P9.8   Docker blue/green Platform Plugin strategy
+P9.8   static source/build authority and Docker blue/green Platform Plugin delivery
 P9.9   unified manager API/status and attack corpus
 P9.10  Gate 9 closeout
 ```
@@ -212,32 +218,45 @@ SBOM, provenance, artifact/container digest, deployment receipt
 boot-time Payload config and static imports
 complete declared-versus-actual registration
 schema/migrations through customer release
+change starts from expected customer source commit
+exact target manifest/lock/graph/registries/migrations
+trusted customer-specific application/image attestation
 host code only from verified immutable artifact
-no runtime mutation of frozen registry
+no runtime mutation of frozen registry or DB-authored desired graph
 ```
 
-### Hot Application boundary
+### Hot Application server boundary
 
 ```text
 separate closed manifest and app.* identity
 prebuilt self-contained bundles
-isolated runner and capability-scoped RPC
-remote UI worker with allowlisted K-Nex components
-fixed host routes and generic app storage
-no raw DB/Docker/env/DOM/host import authority
+production OS/container sandbox per app generation
+cross-app/generation memory/file/token isolation
+capability-scoped RPC, short-lived identity, denied default egress
+no raw DB/Docker/env/host import authority
 atomic generation pointer and rollback
+```
+
+### Remote UI boundary
+
+```text
+opaque-origin or dedicated credentialless realm
+no customer cookies/tokens/browser storage/ambient network
+strict CSP and generation-pinned verified assets
+MessagePort-only K-Nex component/event protocol
+host-owned DOM/focus/accessibility/routing/data/authorization
 ```
 
 ### Zero-downtime delivery
 
 ```text
-stable gateway
-old healthy generation during warm-up
-expand-compatible migrations
-verified target readiness/inventory
-safe worker overlap/drain
+stable gateway and old healthy generation during warm-up
+online-expand/online-backfill before or during overlap
+post-retirement-contract only after rollback closes
+offline-required becomes maintenance-required
+verified target readiness/source/build/inventory
+passive green workers and PostgreSQL fencing-token transfer
 continuous external probes
-maintenance-required on incompatible change
 ```
 
 ### Authorization
@@ -256,15 +275,16 @@ revocation reaches web, worker, runner, browser, realtime
 small theme ABI and platform-owned components
 remote UI does not execute arbitrary host React
 strict props/events and app-local error boundary
-keyboard/focus/SSR/CSP/forced-colors/motion evidence
+keyboard/focus/origin/CSP/forced-colors/motion evidence
 ```
 
 ### Evidence
 
 ```text
-real PostgreSQL for transactional state/migrations/restore
-real Chromium for remote UI/admin/accessibility
-real multi-process runner/web/worker convergence
+real PostgreSQL for transactional state/migrations/worker fence/restore
+real Chromium for credentialless remote UI/admin/accessibility
+real isolated runner and cross-app/generation denial
+real customer source-change/build-attestation chain
 real continuous-traffic Docker promotion proof
 failure injection at every lifecycle boundary
 ```
@@ -280,7 +300,7 @@ Before adding a library:
 5. pin exact version and update lockfile;
 6. add only with a real active-task consumer and kill criteria.
 
-Remote DOM/remote-component, bundler, archive, signature, runner, proxy, and orchestration libraries require bounded spikes rather than speculative adoption.
+Remote UI, bundler, archive, signature, sandbox, proxy, builder, and orchestration libraries require bounded spikes rather than speculative adoption.
 
 ## 10. Post-Gate 10 boundary
 

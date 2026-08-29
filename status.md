@@ -7,7 +7,7 @@
 
 ## Last completed
 
-Independent project-manager review accepted the two-path Phase 9 direction but found and closed five pre-implementation ambiguities through ADR-0023 and the mandatory Phase 9 hardening addendum: credentialless remote UI isolation, production per-generation runner sandboxing, static customer source/build-attestation continuity for Platform Plugins, explicit migration phases/rollback windows, and blue/green worker-generation fencing. RBAC remains Phase 10.
+Independent project-manager review accepted the two-path Phase 9 direction and aligned its mandatory hardening across ADR-0023, the Phase 9 review addendum, agent rules, master plan, decision register, documentation index, and Gate 9: credentialless remote UI, production per-generation runner isolation, static customer source/build evidence for Platform Plugins, explicit migration phases/rollback windows, and blue/green worker-generation fencing. RBAC remains Phase 10.
 
 ## Validation
 
