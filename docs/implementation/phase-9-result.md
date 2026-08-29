@@ -32,29 +32,29 @@ Phase 9 delivers the accepted Two-Path Extension Model. Hot Applications and The
 - `@k-nex/extension-bundler`: deterministic archives, signed catalog and hosted provenance verification, immutable verified asset stores.
 - `@k-nex/extension-runner`: Docker-isolated Hot Application server execution and bounded host-capability RPC.
 - `@k-nex/runtime`: PluginManager, trusted source/build authority, deployment supervisor, atomic generation coordination, headless operator/status API.
-- `@k-nex/payload-adapter`: PostgreSQL lifecycle, activation, storage, Theme Profile, static deployment, worker-fence, effect, receipt, audit, and outbox authority.
+- `@k-nex/payload-adapter`: PostgreSQL lifecycle, durable verified artifacts and catalog checkpoints, activation, storage, Theme Profile, static deployment, worker-fence, effect, receipt, audit, and outbox authority.
 - Browser/UI: credentialless remote UI host and data-only Theme Skin activation.
-- Customer fixture: customer-owned migration revision 11 and real PostgreSQL/Docker acceptance journeys.
+- Customer fixture: customer-owned migration revision 13 and real PostgreSQL/Docker acceptance journeys.
 
 ## Validation and failure evidence
 
-Focused P9.9/P9.10 evidence at final task state:
+Final Phase 9 evidence on Node 24.19.0:
 
 ```text
 contracts and architecture-contract-tools: generated schemas current, parity-tested, and reproducible
-extension-bundler and extension-runner: full suites, including real Docker isolation
-runtime and payload-adapter: full unit/integration suites
+extension-bundler: 17 tests; extension-runner: 6 tests with real Docker isolation
+runtime: 277 tests; payload-adapter: 32 tests
 ui-runtime and ui-testing: full unit and real Chromium suites
-customer fixture: full PostgreSQL/Docker suite
-phase attack corpus: 22 required attacks backed by 12 exact proof groups
+customer fixture: 12/12 PostgreSQL/Docker tests
+phase attack corpus: 22 required attacks, 12 exact proof groups, 9 recovered state/process matrix entries
 phase:0 and Gates 1–8: passed transitively through Gate 9
 ```
 
 Chromium markers: `P9_REMOTE_UI_BROWSER_PASS` and `P9_THEME_SKIN_BROWSER_PASS`.
 
-The customer suite proves actual HTTP continuity across Hot Application update/rollback and two Git-backed, digest-pinned customer images that install different `module.sales` package versions. It deliberately fails green readiness, crashes PostgreSQL fence transfer, rejects stale worker completion, preserves one logical effect, blocks contract cleanup while rollback is open, resumes bounded backfill, restores active/rollback generations, and refuses offline migration as `maintenance-required` without changing traffic.
+The customer suite proves actual HTTP continuity across a durable Hot Application install/update/rollback and two Git-backed, digest-pinned customer images that install different `module.sales` package versions. It deletes and restores authoritative Hot Application bytes/state from a physical backup; rejects operation replay, pointer races, irreversible rollback, and forged database authority; deliberately fails green readiness; crashes PostgreSQL fence transfer; rejects stale worker completion; preserves one logical effect; blocks contract cleanup while rollback is open; resumes bounded backfill; and refuses offline migration as `maintenance-required` without changing traffic.
 
-At the final implementation head, `pnpm gate:9` passed Gates 1–8 and all mandatory Gate 9 class-specific tests. `scripts/gate-9.mjs` executes exact named Docker, PostgreSQL, Chromium, and unit proof groups and fails if a required proof is missing, skipped, renamed, or failing; it also enforces required schemas, Sales-only scope, and this result matrix.
+At the closeout head, `pnpm gate:9` passed Gates 0–8 and every mandatory Gate 9 class-specific proof. `scripts/gate-9.mjs` executes exact named Docker, PostgreSQL, Chromium, and unit evidence; PostgreSQL journeys emit scenario markers only after their assertions succeed; and the static journey emits each required crash-matrix key only after the corresponding process recovery. The gate fails if a proof or marker is missing, skipped, renamed, or failing, and also enforces required schemas, Sales-only scope, and this result matrix.
 
 ## Known limits and deferred scope
 
@@ -66,7 +66,7 @@ At the final implementation head, `pnpm gate:9` passed Gates 1–8 and all manda
 
 ## Phase-result decision
 
-Every Phase 9 task, acceptance journey, hardening amendment, and kill criterion has an executable closure path. No host-process code injection, live database-authored static graph, unsigned build, mixed generation, unfenced worker, or false zero-downtime path is accepted.
+Every Phase 9 task, acceptance journey, hardening amendment, and kill criterion has executable final-head evidence. No host-process code injection, live database-authored static graph, unsigned build, mixed generation, unfenced worker, stale catalog replay, mutable rollback image, persistent failed realm, network-capable Skin SVG, or false zero-downtime path is accepted.
 
 **Decision:** **READY FOR PHASE REVIEW**
 
