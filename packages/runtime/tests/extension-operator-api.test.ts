@@ -29,7 +29,7 @@ function harness() {
   const manager = {
     plan: vi.fn(), stage: vi.fn(), validate: vi.fn(async () => ({ operationId: dynamicOperation.operationId, executionClass: "live-generation", phase: "staged", valid: true, checks: ["verified-bundle"] })),
     operation: vi.fn(async (id: string) => operations.get(id)!), activate: vi.fn(async () => ({ operation: "install" })), rollback: vi.fn(async () => ({ operation: "rollback" })),
-    disable: vi.fn(async () => ({ operation: "disable" })), uninstall: vi.fn(async () => ({ operation: "uninstall" })), inventory: vi.fn(async () => inventory)
+    disable: vi.fn(async () => ({ operation: "disable" })), uninstall: vi.fn(async () => ({ operation: "uninstall" })), inventory: vi.fn(async () => inventory), completeStaticRelease: vi.fn(async () => ({ operation: "rollback" }))
   };
   const catalog = { list: vi.fn(async () => [
     { extension: { deliveryClass: "theme-skin", id: "skin.minimal-accent" }, version: "1.0.0", displayName: "Minimal Accent", support: "supported", review: "approved", security: "clear", revoked: false, availability: "live-generation" },
@@ -78,7 +78,16 @@ describe("ExtensionOperatorApi", () => {
     expect(value.staticReleases.validate).toHaveBeenCalledOnce();
     expect(value.staticReleases.execute).toHaveBeenCalledOnce();
     expect(value.staticReleases.rollback).toHaveBeenCalledOnce();
+    expect(value.manager.completeStaticRelease).toHaveBeenCalledWith("operation-static-release-rollback", { operation: "rollback" });
     await expect(value.api.disable(dynamicOperation.operationId)).rejects.toThrow("not authorized for this lifecycle action");
+  });
+
+  it("reconciles a promoted static receipt through the unified manager inventory path", async () => {
+    const value = harness();
+    const receipt = { operation: "promote", receiptId: "static-promotion-1" };
+    value.staticReleases.execute.mockResolvedValueOnce({ outcome: "promoted", receipt });
+    await expect(value.api.activate(staticOperation.operationId)).resolves.toEqual({ outcome: "promoted", receipt });
+    expect(value.manager.completeStaticRelease).toHaveBeenCalledWith(staticOperation.operationId, receipt);
   });
 
   it("combines reverified inventory with closed isolation, health, and fence observations", async () => {
@@ -148,6 +157,15 @@ describe("DurableStaticReleaseOperator", () => {
     const requests = { readRequest: vi.fn(async () => ({ ...request("builder-attested"), version: "1.0.0" })), requestDeployment: vi.fn(), recordDeployment: vi.fn(), recoverDeployment: vi.fn() };
     const value = new DurableStaticReleaseOperator(requests, { verifiedBuild: vi.fn() }, { read: vi.fn() }, {} as never, { acquire: vi.fn() });
     await expect(value.validate(operation)).rejects.toMatchObject({ code: "AUTHORITY_MISMATCH" } satisfies Partial<StaticReleaseOperatorError>);
+  });
+
+  it("rejects a deployed receipt that does not match its durable build authority", async () => {
+    const requests = {
+      readRequest: vi.fn(async () => ({ ...request("deployed"), receipt: { ...receipt, imageDigest: `sha256:${"0".repeat(64)}` } })),
+      requestDeployment: vi.fn(), recordDeployment: vi.fn(), recoverDeployment: vi.fn()
+    };
+    const value = new DurableStaticReleaseOperator(requests, { verifiedBuild: vi.fn() }, { read: vi.fn() }, {} as never, { acquire: vi.fn() });
+    await expect(value.execute(operation)).rejects.toMatchObject({ code: "AUTHORITY_MISMATCH" } satisfies Partial<StaticReleaseOperatorError>);
   });
 
   it("recovers a committed promotion before retrying the supervisor side effect", async () => {

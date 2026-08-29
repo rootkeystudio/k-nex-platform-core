@@ -77,6 +77,7 @@ class MemoryStore implements RuntimeExtensionStore {
   readonly transitions: string[] = [];
   inventoryValue: RuntimeExtensionInventory = emptyInventory();
   rollbackResult?: ExtensionActivationReceipt;
+  readonly staticReceipts: unknown[] = [];
   resumeCount = 0;
 
   async claimOperation(input: Parameters<RuntimeExtensionStore["claimOperation"]>[0]): Promise<ClaimOperationResult> {
@@ -123,6 +124,11 @@ class MemoryStore implements RuntimeExtensionStore {
   async rollbackGeneration(): Promise<ExtensionActivationReceipt> {
     if (!this.rollbackResult) throw new Error("unused");
     return this.rollbackResult;
+  }
+  async completeStaticRelease(_id: string, _token: string, receipt: Parameters<RuntimeExtensionStore["completeStaticRelease"]>[2]) {
+    this.staticReceipts.push(receipt);
+    this.operation = { ...this.operation!, phase: "completed", result: receipt };
+    return receipt;
   }
   async disableGeneration() {
     return { receiptId: "disable-receipt-1", operationId: this.operation!.operationId, operation: "disable" as const, disposition: "disabled" as const, revisionBefore: 1, revisionAfter: 2, inventoryRevision: 2, occurredAt: "2026-08-29T09:00:00.000Z" };
@@ -206,6 +212,32 @@ describe("PluginManager", () => {
     theme.deployments.request.mockResolvedValue({ status: "build-requested", buildRequestDigest: digest("9"), sourceCommit: "b".repeat(40) });
     await expect(theme.value.plan(themeRequest)).resolves.toMatchObject({ executionClass: "static-release" });
     expect(theme.artifacts.stage).not.toHaveBeenCalled();
+  });
+
+  it("reconciles only the exact authoritative static receipt and replays it without a second inventory write", async () => {
+    const runtime = manager();
+    const platformRequest: ExtensionChangeRequest = { ...request, extension: { deliveryClass: "platform-plugin", id: "module.sales" }, idempotencyKey: "install:module.sales:receipt" };
+    const platformPlan: ExtensionInstallPlan = {
+      schemaVersion: 1, planId: hotPlan.planId, operationId: hotPlan.operationId, operation: "install", version: "1.0.0",
+      artifactDigest: digest("a"), expectedRevision: 0, targetGenerationId: "customer-alpha-green-1", approvalRequired: false,
+      rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "platform-plugin", id: "module.sales",
+      availability: { outcome: "maintenance-required", reasons: ["destructive-migration"] }
+    };
+    runtime.planner.plan.mockImplementation(async (planning) => ({ plan: { ...platformPlan, operationId: planning.operationId }, sourceCommit: "b".repeat(40), generationId: "customer-alpha-green-1" }));
+    runtime.staticChanges.request.mockResolvedValue({ status: "source-change-ready", planDigest: digest("f"), targetSourceCommit: "b".repeat(40), change: staticChange });
+    runtime.deployments.request.mockResolvedValue({ status: "build-requested", buildRequestDigest: digest("9"), sourceCommit: "b".repeat(40) });
+    const plan = await runtime.value.plan(platformRequest);
+    const receipt = {
+      schemaVersion: 1, receiptId: "static-promotion-1", operation: "promote", applicationId: "customer-alpha", environment: "production",
+      activeGenerationId: "customer-alpha-green-1", previousGenerationId: "customer-alpha-blue-1", sourceCommit: "b".repeat(40),
+      compositionChangePlanDigest: digest("f"), buildEvidenceDigest: digest("d"), applicationDigest: digest("e"), imageDigest: digest("f"),
+      migrationRevision: 2, workerFencingToken: 2, promotionRevision: 1, revisionBefore: 0, revisionAfter: 1,
+      rollbackWindow: { state: "open", windowId: "window-1", closesAt: "2026-08-30T00:00:00.000Z" }, contractCleanup: "blocked", occurredAt: "2026-08-29T00:00:00.000Z"
+    } as const;
+    await expect(runtime.value.completeStaticRelease(plan.operationId, receipt)).resolves.toEqual(receipt);
+    await expect(runtime.value.completeStaticRelease(plan.operationId, receipt)).resolves.toEqual(receipt);
+    expect(runtime.store.staticReceipts).toEqual([receipt]);
+    await expect(runtime.value.completeStaticRelease(plan.operationId, { ...receipt, activeGenerationId: "customer-alpha-green-2" })).rejects.toMatchObject({ code: "INVALID_STATE" });
   });
 
   it("rejects planner mismatches and unverified inventory authority", async () => {

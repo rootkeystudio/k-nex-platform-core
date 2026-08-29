@@ -70,7 +70,7 @@ export interface ExtensionSystemStatus extends ExtensionRuntimeStatusObservation
   readonly inventory: RuntimeExtensionInventory;
 }
 
-type OperatorManager = Pick<PluginManager, "plan" | "stage" | "validate" | "operation" | "activate" | "rollback" | "disable" | "uninstall" | "inventory">;
+type OperatorManager = Pick<PluginManager, "plan" | "stage" | "validate" | "operation" | "activate" | "rollback" | "disable" | "uninstall" | "inventory" | "completeStaticRelease">;
 type OperatorMutationResult = ExtensionActivationReceipt | ExtensionDispositionReceipt | StaticDeploymentOutcome | StaticDeploymentReceipt;
 
 function validOwner(applicationId: string, environment: string): boolean {
@@ -114,25 +114,31 @@ export class ExtensionOperatorApi {
   async activate(operationId: string): Promise<OperatorMutationResult> {
     const operation = await this.manager.operation(operationId);
     this.assertOperation(operation, ["install", "update"]);
-    return operation.plan?.executionClass === "static-release" ? this.staticReleases.execute(operation) : this.manager.activate(operationId);
+    if (operation.plan?.executionClass !== "static-release") return this.manager.activate(operationId);
+    return this.reconcileStatic(operation, await this.staticReleases.execute(operation));
   }
 
   async rollback(operationId: string): Promise<OperatorMutationResult> {
     const operation = await this.manager.operation(operationId);
     this.assertOperation(operation, ["rollback"]);
-    return operation.plan?.executionClass === "static-release" ? this.staticReleases.rollback(operation) : this.manager.rollback(operationId);
+    if (operation.plan?.executionClass !== "static-release") return this.manager.rollback(operationId);
+    const receipt = await this.staticReleases.rollback(operation);
+    await this.manager.completeStaticRelease(operation.operationId, receipt);
+    return receipt;
   }
 
   async disable(operationId: string): Promise<OperatorMutationResult> {
     const operation = await this.manager.operation(operationId);
     this.assertOperation(operation, ["disable"]);
-    return operation.plan?.executionClass === "static-release" ? this.staticReleases.execute(operation) : this.manager.disable(operationId);
+    if (operation.plan?.executionClass !== "static-release") return this.manager.disable(operationId);
+    return this.reconcileStatic(operation, await this.staticReleases.execute(operation));
   }
 
   async uninstall(operationId: string): Promise<OperatorMutationResult> {
     const operation = await this.manager.operation(operationId);
     this.assertOperation(operation, ["uninstall"]);
-    return operation.plan?.executionClass === "static-release" ? this.staticReleases.execute(operation) : this.manager.uninstall(operationId);
+    if (operation.plan?.executionClass !== "static-release") return this.manager.uninstall(operationId);
+    return this.reconcileStatic(operation, await this.staticReleases.execute(operation));
   }
 
   async status(applicationId: string, environment: string): Promise<ExtensionSystemStatus> {
@@ -171,5 +177,10 @@ export class ExtensionOperatorApi {
 
   private assertOperation(operation: ExtensionOperationStatus, expected: readonly ExtensionChangeRequest["operation"][]): void {
     if (!expected.includes(operation.request.operation)) throw new TypeError(`Operation ${operation.operationId} is not authorized for this lifecycle action.`);
+  }
+
+  private async reconcileStatic(operation: ExtensionOperationStatus, outcome: StaticDeploymentOutcome): Promise<StaticDeploymentOutcome> {
+    if (outcome.outcome === "promoted") await this.manager.completeStaticRelease(operation.operationId, outcome.receipt);
+    return outcome;
   }
 }

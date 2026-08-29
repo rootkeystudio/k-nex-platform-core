@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Made Hot Application backups read namespace and record state from one PostgreSQL repeatable-read snapshot, with concurrent-mutation restore evidence.
+Reconciled authoritative static deployment receipts into PluginManager operations and the unified revisioned Platform Plugin inventory with atomic audit/outbox evidence and exact replay checks.
 
 ## Validation
 
-Node 24.19.0: 2 focused payload-adapter snapshot tests and the real PostgreSQL app-storage journey passed, including a barrier-controlled concurrent mutation and restore.
+Node 24.19.0: all 292 runtime and 37 payload-adapter tests passed; both packages build. Focused API tests cover promoted and rollback receipt reconciliation, exact replay, and mismatch rejection.
 
 ## Next
 
@@ -19,4 +19,4 @@ Fix each review blocker with focused regression evidence, rerun the complete Gat
 
 ## Blockers
 
-Static lifecycle reconciliation; signed Hot Application manifest authority; durable quarantine and teardown; rollback authority; real process boundaries; continuous transition probes; deterministic Gate 9 and aligned ADR/result evidence.
+Signed Hot Application manifest authority; durable quarantine and teardown; rollback authority; real static-process and PluginManager/PostgreSQL proof; continuous transition probes; deterministic Gate 9 and aligned ADR/result evidence.

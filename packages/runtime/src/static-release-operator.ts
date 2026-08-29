@@ -74,42 +74,42 @@ export class DurableStaticReleaseOperator implements StaticReleaseOperator {
   async execute(operation: ExtensionOperationStatus): Promise<StaticDeploymentOutcome> {
     if (operation.request.operation === "rollback") throw new StaticReleaseOperatorError("INVALID_OPERATION", "Static rollback must use the rollback operation path.");
     const request = await this.request(operation);
-    if (request.status === "deployed") return Object.freeze({ outcome: "promoted", receipt: this.deployedReceipt(request) });
+    if (request.status === "deployed") return Object.freeze({ outcome: "promoted", receipt: this.deployedReceipt(operation, request) });
     if (request.status !== "builder-attested" && request.status !== "deployment-requested") throw new StaticReleaseOperatorError("AUTHORITY_UNAVAILABLE", "Static release is not attested and ready for deployment.");
     const build = await this.build(operation, request);
     const dispatched = await this.requests.requestDeployment({ buildRequestDigest: request.buildRequestDigest, expectedVersion: request.version });
     this.assertRequest(operation, dispatched);
-    if (dispatched.status === "deployed") return Object.freeze({ outcome: "promoted", receipt: this.deployedReceipt(dispatched) });
+    if (dispatched.status === "deployed") return Object.freeze({ outcome: "promoted", receipt: this.deployedReceipt(operation, dispatched) });
     if (dispatched.status !== "deployment-requested") throw new StaticReleaseOperatorError("AUTHORITY_UNAVAILABLE", "Static release deployment request is unavailable.");
     const recovered = await this.recover(operation, dispatched, "promote");
-    if (recovered) return Object.freeze({ outcome: "promoted", receipt: this.deployedReceipt(recovered) });
+    if (recovered) return Object.freeze({ outcome: "promoted", receipt: this.deployedReceipt(operation, recovered) });
     const lease = await this.workerLeases.acquire(operation);
     const outcome = await this.supervisor.deploy({ build, generationId: operation.plan!.generationId, ...lease });
     if (outcome.outcome === "maintenance-required") return outcome;
     if (outcome.receipt.activeGenerationId !== operation.plan!.generationId) throw new StaticReleaseOperatorError("AUTHORITY_MISMATCH", "Deployment receipt promoted a generation other than the durable operation target.");
     const persisted = await this.requests.recordDeployment({ buildRequestDigest: dispatched.buildRequestDigest, expectedVersion: dispatched.version, receipt: outcome.receipt });
     this.assertRequest(operation, persisted);
-    return Object.freeze({ outcome: "promoted", receipt: this.deployedReceipt(persisted) });
+    return Object.freeze({ outcome: "promoted", receipt: this.deployedReceipt(operation, persisted) });
   }
 
   async rollback(operation: ExtensionOperationStatus): Promise<StaticDeploymentReceipt> {
     if (operation.request.operation !== "rollback") throw new StaticReleaseOperatorError("INVALID_OPERATION", "Static rollback requires a rollback operation.");
     const request = await this.request(operation);
-    if (request.status === "deployed") return this.rollbackReceipt(request);
+    if (request.status === "deployed") return this.rollbackReceipt(operation, request);
     if (request.status !== "builder-attested" && request.status !== "deployment-requested") throw new StaticReleaseOperatorError("AUTHORITY_UNAVAILABLE", "Static rollback is not backed by an attested durable release request.");
     await this.build(operation, request);
     const dispatched = await this.requests.requestDeployment({ buildRequestDigest: request.buildRequestDigest, expectedVersion: request.version });
     this.assertRequest(operation, dispatched);
-    if (dispatched.status === "deployed") return this.rollbackReceipt(dispatched);
+    if (dispatched.status === "deployed") return this.rollbackReceipt(operation, dispatched);
     if (dispatched.status !== "deployment-requested") throw new StaticReleaseOperatorError("AUTHORITY_UNAVAILABLE", "Static rollback deployment request is unavailable.");
     const recovered = await this.recover(operation, dispatched, "rollback");
-    if (recovered) return this.rollbackReceipt(recovered);
+    if (recovered) return this.rollbackReceipt(operation, recovered);
     const lease = await this.workerLeases.acquire(operation);
     const receipt = await this.supervisor.rollback({ applicationId: operation.request.applicationId, environment: operation.request.environment, ...lease });
     if (receipt.activeGenerationId !== operation.plan!.generationId) throw new StaticReleaseOperatorError("AUTHORITY_MISMATCH", "Rollback receipt promoted a generation other than the durable operation target.");
     const persisted = await this.requests.recordDeployment({ buildRequestDigest: dispatched.buildRequestDigest, expectedVersion: dispatched.version, receipt });
     this.assertRequest(operation, persisted);
-    return this.rollbackReceipt(persisted);
+    return this.rollbackReceipt(operation, persisted);
   }
 
   private async request(operation: ExtensionOperationStatus): Promise<DurableStaticReleaseRequest> {
@@ -143,9 +143,18 @@ export class DurableStaticReleaseOperator implements StaticReleaseOperator {
     }
   }
 
-  private deployedReceipt(request: DurableStaticReleaseRequest): StaticDeploymentReceipt {
+  private deployedReceipt(operation: ExtensionOperationStatus, request: DurableStaticReleaseRequest): StaticDeploymentReceipt {
     if (request.status !== "deployed" || !request.receipt) throw new StaticReleaseOperatorError("AUTHORITY_UNAVAILABLE", "Deployed static release request is missing its authoritative receipt.");
-    return request.receipt;
+    const plan = operation.plan;
+    const receipt = request.receipt;
+    if (!plan || plan.executionClass !== "static-release" || receipt.applicationId !== request.applicationId || receipt.environment !== request.environment ||
+      receipt.activeGenerationId !== plan.generationId || receipt.sourceCommit !== request.sourceCommit || receipt.compositionChangePlanDigest !== request.changePlanDigest ||
+      receipt.buildEvidenceDigest !== request.buildEvidenceDigest || receipt.applicationDigest !== request.applicationDigest || receipt.imageDigest !== request.imageDigest ||
+      receipt.migrationRevision !== request.migrationRevision || receipt.workerFencingToken !== request.workerFencingToken ||
+      receipt.operation !== (operation.request.operation === "rollback" ? "rollback" : "promote")) {
+      throw new StaticReleaseOperatorError("AUTHORITY_MISMATCH", "Static deployment receipt does not match the durable release authority.");
+    }
+    return receipt;
   }
 
   private async recover(operation: ExtensionOperationStatus, request: DurableStaticReleaseRequest, receiptOperation: "promote" | "rollback"): Promise<DurableStaticReleaseRequest | undefined> {
@@ -162,8 +171,8 @@ export class DurableStaticReleaseOperator implements StaticReleaseOperator {
     return recovered;
   }
 
-  private rollbackReceipt(request: DurableStaticReleaseRequest): StaticDeploymentReceipt {
-    const receipt = this.deployedReceipt(request);
+  private rollbackReceipt(operation: ExtensionOperationStatus, request: DurableStaticReleaseRequest): StaticDeploymentReceipt {
+    const receipt = this.deployedReceipt(operation, request);
     if (receipt.operation !== "rollback") throw new StaticReleaseOperatorError("AUTHORITY_MISMATCH", "A promotion receipt cannot satisfy a static rollback operation.");
     return receipt;
   }

@@ -8,6 +8,7 @@ import {
   type ExtensionLifecycleEvent,
   type ExtensionOperationPhase,
   type ExtensionOperationActor,
+  type StaticDeploymentReceipt,
   type StaticCompositionChangePlan,
   type RuntimeExtensionInventory
 } from "@k-nex/contracts";
@@ -208,7 +209,7 @@ export interface ExtensionSecurityQuarantineReceipt {
   readonly occurredAt: string;
 }
 
-export type ExtensionManagerReceipt = ExtensionActivationReceipt | ExtensionDispositionReceipt;
+export type ExtensionManagerReceipt = ExtensionActivationReceipt | ExtensionDispositionReceipt | StaticDeploymentReceipt;
 
 export interface ExtensionValidationReport {
   readonly operationId: string;
@@ -280,6 +281,7 @@ export interface RuntimeExtensionStore {
   refreshGenerationReadiness(input: Readonly<{ operationId: string; leaseToken: string; stage: StagedGenerationActivation }>): Promise<RuntimeExtensionOperation>;
   activateGeneration(operationId: string, leaseToken: string): Promise<ExtensionActivationReceipt>;
   rollbackGeneration(operationId: string, leaseToken: string): Promise<ExtensionActivationReceipt>;
+  completeStaticRelease(operationId: string, leaseToken: string, receipt: StaticDeploymentReceipt): Promise<StaticDeploymentReceipt>;
   disableGeneration(operationId: string, leaseToken: string): Promise<ExtensionDispositionReceipt>;
   uninstallGeneration(operationId: string, leaseToken: string): Promise<ExtensionDispositionReceipt>;
   quarantineActiveGeneration(input: Readonly<{
@@ -426,6 +428,19 @@ function assertFreshRollbackReadiness(stage: StagedGenerationActivation, authori
     !Number.isFinite(Date.parse(stage.readiness.readyAt)) || !Number.isFinite(Date.parse(stage.readiness.expiresAt)) ||
     Date.parse(stage.readiness.expiresAt) <= Date.now()) {
     throw new PluginManagerError("ARTIFACT_AUTHORITY_REJECTED", "Retained generation readiness is not fresh and generation-bound.");
+  }
+}
+
+function isStaticDeploymentReceipt(receipt: ExtensionManagerReceipt): receipt is StaticDeploymentReceipt {
+  return "activeGenerationId" in receipt && "compositionChangePlanDigest" in receipt && "buildEvidenceDigest" in receipt;
+}
+
+function assertStaticReceipt(operation: RuntimeExtensionOperation, receipt: StaticDeploymentReceipt): void {
+  const plan = operation.plan;
+  if (!plan || plan.executionClass !== "static-release" || receipt.applicationId !== operation.request.applicationId || receipt.environment !== operation.request.environment ||
+    receipt.activeGenerationId !== plan.generationId || receipt.sourceCommit !== plan.sourceChange.targetSourceCommit ||
+    receipt.compositionChangePlanDigest !== plan.sourceChange.planDigest || receipt.operation !== (operation.request.operation === "rollback" ? "rollback" : "promote")) {
+    throw new PluginManagerError("PLAN_MISMATCH", "Static deployment receipt does not bind the authorized operation plan.");
   }
 }
 
@@ -605,6 +620,23 @@ export class PluginManager {
     const stage = await this.generationRuntime.prepare({ request: current.request, plan: current.plan, authority });
     assertFreshRollbackReadiness(stage, authority, current.plan.plan.version);
     return this.store.rollbackGeneration(operationId, current.leaseToken);
+  }
+
+  async completeStaticRelease(operationId: string, receipt: StaticDeploymentReceipt): Promise<StaticDeploymentReceipt> {
+    const persisted = await this.store.readOperation(operationId);
+    if (!persisted) throw new PluginManagerError("OPERATION_NOT_FOUND", "Extension operation is unavailable.");
+    if (persisted.phase === "completed") {
+      if (!persisted.plan || persisted.plan.executionClass !== "static-release" || !persisted.result || !isStaticDeploymentReceipt(persisted.result) || canonicalJson(persisted.result) !== canonicalJson(receipt)) {
+        throw new PluginManagerError("INVALID_STATE", "Completed static release operation has a different persisted receipt.");
+      }
+      return persisted.result;
+    }
+    const current = await this.store.resumeOperation(operationId, this.workerId);
+    if (!current.plan || current.plan.executionClass !== "static-release" || !["source-change-ready", "build-attested", "zero-downtime-eligible", "rollback-window-open"].includes(current.phase)) {
+      throw new PluginManagerError("INVALID_STATE", "Static release operation is not ready for receipt reconciliation.");
+    }
+    assertStaticReceipt(current, receipt);
+    return this.store.completeStaticRelease(operationId, current.leaseToken, receipt);
   }
 
   async disable(operationId: string): Promise<ExtensionDispositionReceipt> {
