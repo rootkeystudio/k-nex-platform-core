@@ -1,0 +1,9 @@
+{
+  "name": "customer-alpha-static-release",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@k-nex/module-sales": "file:packages/k-nex-module-sales-1.0.0.tgz"
+  }
+}

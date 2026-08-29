@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Durable dynamic artifact/runtime adapters now bind staging and warming to verified generation authority, while PostgreSQL outbox dispatch plus independent runtime consumers prove notification and polling convergence.
+The static delivery proof now builds real Git-backed customer revisions, installs module.sales into two attested immutable images, and exercises PostgreSQL fencing, no-downtime promotion, rollback, outbox, and cleanup.
 
 ## Validation
 
-Node 24.19.0: runtime and Payload adapter builds passed; focused runtime 2/2 and PostgreSQL runtime state 1/1 passed. Full Gate 9 remains pending on the final review head.
+Node 24.19.0: customer fixture build passed; static deployment PostgreSQL/Docker proof 2/2 passed, including maintenance-required rejection. Full Gate 9 remains pending on the final review head.
 
 ## Next
 
