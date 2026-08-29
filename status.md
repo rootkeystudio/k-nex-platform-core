@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Hardened static delivery end to end: cleanup requires retired generations and a closed rollback window; effect claims are atomically fenced; rollback re-resolves immutable images; build keys are authority-bound; and distinct builder, deployer, supervisor, gateway, realtime, blue/green web, and blue/green worker processes recover from PostgreSQL authority across promotion, rollback, redeploy, and restart.
+Replaced Gate 9 semantic bookkeeping with exact named proof selection and machine-readable runtime outcomes. Every required attack now binds to the specific passing test that executes it; SCN-12/13 and SCN-11/16 require PostgreSQL markers, while SCN-17–21 require static runtime markers and all nine crash-matrix keys.
 
 ## Validation
 
-Runtime: 277 tests passed. Static PostgreSQL/Docker proof: 2 tests passed, including nine explicit process/state recovery observations and uninterrupted HTTP probes, on Node 24.19.0.
+`node scripts/phase-9-attack-corpus.mjs`: PASS, 22 exact scenarios, 12 proof groups, and 9 recovered process/state matrix entries on Node 24.19.0.
 
 ## Next
 
-Commit the falsifiable attack evidence mapping, update the closeout result, and rerun the full phase gate.
+Run the complete customer PostgreSQL suite and `pnpm gate:9`, update the phase result with final-head evidence, then request a fresh Sol-high review.
 
 ## Blockers
 

@@ -29,11 +29,22 @@ try {
   assert.fail(`Gate 9 attack corpus did not emit one machine-readable report: ${error.message}`);
 }
 assert.equal(evidence.status, "PASS", "Gate 9 attack corpus did not pass.");
-assert.equal(evidence.attacks.length, 22, "Gate 9 must execute all 22 named attacks.");
+assert.equal(evidence.scenarios.length, 22, "Gate 9 must execute all 22 named attack scenarios.");
 assert.ok(evidence.proofs.length > 0, "Gate 9 must execute named proofs.");
-for (const attack of evidence.attacks) {
-  assert.ok(Array.isArray(attack.proofs) && attack.proofs.length > 0, `Gate 9 attack lacks an executed proof: ${attack.attack}`);
-  assert.ok(attack.passed > 0, `Gate 9 attack has no passing exact proof: ${attack.attack}`);
+for (const scenario of evidence.scenarios) {
+  assert.match(scenario.id, /^SCN-\d{2}$/u, "Gate 9 scenario has no stable identifier.");
+  assert.ok(typeof scenario.expected === "string" && scenario.expected.length > 0, `Gate 9 scenario lacks an expected outcome: ${scenario.id}`);
+  assert.equal(scenario.outcome, "observed", `Gate 9 scenario did not observe its expected outcome: ${scenario.id}`);
+  assert.ok(Array.isArray(scenario.evidence) && scenario.evidence.length > 0, `Gate 9 scenario lacks executed evidence: ${scenario.id}`);
+  for (const observation of scenario.evidence) assert.ok(typeof observation.name === "string" && observation.name.length > 0, `Gate 9 scenario has no exact named test evidence: ${scenario.id}`);
+  if (scenario.id === "SCN-19") {
+    assert.equal(scenario.matrix.length, 9, "Gate 9 crash scenario must cover every required state/process boundary.");
+    for (const entry of scenario.matrix) {
+      assert.ok(entry.state && entry.process && entry.expected, "Gate 9 crash matrix entry is incomplete.");
+      assert.equal(entry.evidence, `${entry.state}:${entry.process}`, `Gate 9 crash matrix evidence is not exact: ${entry.state}/${entry.process}`);
+      assert.equal(entry.outcome, "recovered", `Gate 9 crash matrix entry was not recovered: ${entry.state}/${entry.process}`);
+    }
+  }
 }
 
 const modules = readdirSync(resolve(root, "modules"), { withFileTypes: true })
@@ -49,5 +60,5 @@ for (const marker of [
 ]) assert.ok(phaseResult.includes(marker), `Phase 9 result is missing: ${marker}`);
 for (let task = 1; task <= 10; task += 1) assert.ok(phaseResult.includes(`P9.${task}`), `Phase 9 result is missing task P9.${task}.`);
 
-console.log(JSON.stringify({ gate: "Gate 9", attacks: evidence.attacks.length, proofs: evidence.proofs.length, referenceModules: modules }, null, 2));
+console.log(JSON.stringify({ gate: "Gate 9", scenarios: evidence.scenarios.length, proofs: evidence.proofs.length, referenceModules: modules }, null, 2));
 console.log("GATE_9_PASS");
