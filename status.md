@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Bound the complete Hot Application manifest into the signed artifact inventory and made its reverified declarations authoritative for warm-up and invocation. Persisted terminal runner quarantine in the revisioned runtime inventory, awaited forced teardown, rejected quarantined generations after restart, and reconciled only exact runner-labeled orphan containers against durable authority.
+Removed the static rollback receipt bypass. Promotion receipts remain bound to their exact build request, while rollback receipt writes, reads, recovery, and re-verification now require every generation evidence field to match an earlier retained deployment receipt.
 
 ## Validation
 
-Node 24.19.0: contracts, bundler, runtime, payload-adapter, extension-runner, and customer fixture builds passed; bundler 20, runtime 292, payload-adapter 40, and runner 8 tests passed. PostgreSQL runtime-state 4/4 and migration gate 1/1 passed, including signed-manifest divergence, durable quarantine/replay/restart, awaited SIGKILL, and orphan reaping evidence.
+Node 24.19.0: payload-adapter build passed and all 40 tests passed. Focused rollback-authority regressions cover field-by-field mismatch, absent retained authority, persisted receipt reads, and crash-recovery receipt mismatch.
 
 ## Next
 
@@ -19,4 +19,4 @@ Fix each review blocker with focused regression evidence, rerun the complete Gat
 
 ## Blockers
 
-Rollback authority; real static-process and PluginManager/PostgreSQL proof; continuous transition probes; deterministic Gate 9 and aligned ADR/result evidence.
+Real static-process and PluginManager/PostgreSQL proof; continuous transition probes; deterministic Gate 9 and aligned ADR/result evidence.

@@ -49,6 +49,10 @@ interface ReleaseRequestRow {
   receipt_json: unknown | null;
 }
 
+interface DeploymentReceiptRow {
+  event_json: unknown;
+}
+
 function digest(value: unknown): string {
   return `sha256:${createHash("sha256").update(canonicalJson(value)).digest("hex")}`;
 }
@@ -71,7 +75,7 @@ function checkpoint(row: CheckpointRow): StaticCompositionCheckpoint {
   });
 }
 
-function releaseRequest(row: ReleaseRequestRow): DurableStaticReleaseRequest {
+function releaseRequest(row: ReleaseRequestRow, rollbackAuthority?: StaticDeploymentReceipt): DurableStaticReleaseRequest {
   const attested = row.status === "builder-attested" || row.status === "deployment-requested" || row.status === "deployed";
   const required = [row.build_evidence_digest, row.application_digest, row.image_digest];
   if (!/^sha256:[0-9a-f]{64}$/u.test(row.request_digest) || !row.application_id || !row.environment || !ExactSemverSchema.safeParse(row.version).success || !/^[0-9a-f]{40}$/u.test(row.source_commit) ||
@@ -87,11 +91,21 @@ function releaseRequest(row: ReleaseRequestRow): DurableStaticReleaseRequest {
     try { receipt = StaticDeploymentReceiptSchema.parse(row.receipt_json); }
     catch { throw new StaticReleaseAuthorityStoreError("AUTHORITY_MISMATCH", "Persisted static release receipt is invalid."); }
   }
-  if (receipt && (receipt.receiptId !== row.receipt_id || receipt.applicationId !== row.application_id || receipt.environment !== row.environment ||
+  const authority = receipt?.operation === "rollback"
+    ? rollbackAuthority
+    : receipt ? {
+      sourceCommit: row.source_commit,
+      compositionChangePlanDigest: row.change_plan_digest,
+      buildEvidenceDigest: row.build_evidence_digest,
+      applicationDigest: row.application_digest,
+      imageDigest: row.image_digest,
+      migrationRevision: row.migration_revision
+    } : undefined;
+  if (receipt && (!authority || receipt.receiptId !== row.receipt_id || receipt.applicationId !== row.application_id || receipt.environment !== row.environment ||
     receipt.activeGenerationId !== row.generation_id || receipt.workerFencingToken !== Number(row.worker_fencing_token) ||
-    (receipt.operation === "promote" && (receipt.sourceCommit !== row.source_commit || receipt.compositionChangePlanDigest !== row.change_plan_digest ||
-      receipt.buildEvidenceDigest !== row.build_evidence_digest || receipt.applicationDigest !== row.application_digest || receipt.imageDigest !== row.image_digest ||
-      receipt.migrationRevision !== row.migration_revision)))) {
+    receipt.sourceCommit !== authority.sourceCommit || receipt.compositionChangePlanDigest !== authority.compositionChangePlanDigest ||
+    receipt.buildEvidenceDigest !== authority.buildEvidenceDigest || receipt.applicationDigest !== authority.applicationDigest ||
+    receipt.imageDigest !== authority.imageDigest || receipt.migrationRevision !== authority.migrationRevision)) {
     throw new StaticReleaseAuthorityStoreError("AUTHORITY_MISMATCH", "Persisted static release receipt does not bind its durable request.");
   }
   return Object.freeze({
@@ -179,7 +193,7 @@ export class PostgresTrustedBuildDeploymentClient implements TrustedBuildDeploym
        returning ${releaseColumns}`,
       [buildRequestDigest, parsed.applicationId, parsed.environment, parsed.plugin.version, parsed.target.sourceCommit, change.planDigest, JSON.stringify(parsed), JSON.stringify(authorization)]
     );
-    const persisted = result.rows[0] ? releaseRequest(result.rows[0]) : await this.readRequest(buildRequestDigest);
+    const persisted = result.rows[0] ? await this.readReleaseRequest(result.rows[0]) : await this.readRequest(buildRequestDigest);
     if (!persisted || persisted.applicationId !== parsed.applicationId || persisted.environment !== parsed.environment || persisted.version !== parsed.plugin.version ||
       persisted.sourceCommit !== change.targetSourceCommit || persisted.changePlanDigest !== change.planDigest) {
       throw new StaticReleaseAuthorityStoreError("AUTHORITY_MISMATCH", "Durable build request conflicts with the authorized source change.");
@@ -191,7 +205,7 @@ export class PostgresTrustedBuildDeploymentClient implements TrustedBuildDeploym
     const result = await this.pool.query<ReleaseRequestRow>(
       `select ${releaseColumns} from runtime_static_release_requests where request_digest=$1`, [buildRequestDigest]
     );
-    return result.rows[0] ? releaseRequest(result.rows[0]) : undefined;
+    return result.rows[0] ? this.readReleaseRequest(result.rows[0]) : undefined;
   }
 
   async attestBuild(input: Readonly<{
@@ -208,7 +222,7 @@ export class PostgresTrustedBuildDeploymentClient implements TrustedBuildDeploym
        returning ${releaseColumns}`,
       [input.buildRequestDigest, input.expectedVersion, input.buildEvidenceDigest, input.applicationDigest, input.imageDigest, input.sourceCommit]
     );
-    const persisted = updated.rows[0] ? releaseRequest(updated.rows[0]) : await this.readRequest(input.buildRequestDigest);
+    const persisted = updated.rows[0] ? await this.readReleaseRequest(updated.rows[0]) : await this.readRequest(input.buildRequestDigest);
     if (!persisted || persisted.version !== input.expectedVersion || persisted.sourceCommit !== input.sourceCommit ||
       !["builder-attested", "deployment-requested", "deployed"].includes(persisted.status) || persisted.buildEvidenceDigest !== input.buildEvidenceDigest ||
       persisted.applicationDigest !== input.applicationDigest || persisted.imageDigest !== input.imageDigest) {
@@ -224,7 +238,7 @@ export class PostgresTrustedBuildDeploymentClient implements TrustedBuildDeploym
        returning ${releaseColumns}`,
       [input.buildRequestDigest, input.expectedVersion]
     );
-    const persisted = updated.rows[0] ? releaseRequest(updated.rows[0]) : await this.readRequest(input.buildRequestDigest);
+    const persisted = updated.rows[0] ? await this.readReleaseRequest(updated.rows[0]) : await this.readRequest(input.buildRequestDigest);
     if (!persisted || persisted.version !== input.expectedVersion || !["deployment-requested", "deployed"].includes(persisted.status)) {
       throw new StaticReleaseAuthorityStoreError("RELEASE_TRANSITION_CONFLICT", "Deployment request is stale or conflicts with the durable release request.");
     }
@@ -237,15 +251,36 @@ export class PostgresTrustedBuildDeploymentClient implements TrustedBuildDeploym
       throw new StaticReleaseAuthorityStoreError("RELEASE_TRANSITION_CONFLICT", "Only promotion or rollback receipts can complete a release request.");
     }
     const updated = await this.pool.query<ReleaseRequestRow>(
-      `update runtime_static_release_requests set status='deployed', generation_id=$3, migration_revision=$4, worker_fencing_token=$5, receipt_id=$6, receipt_json=$7::jsonb, updated_at=now()
-       where request_digest=$1 and version=$2 and status='deployment-requested' and application_id=$13 and environment=$14 and
-         ($15='rollback' or (source_commit=$8 and change_plan_digest=$9 and build_evidence_digest=$10 and application_digest=$11 and image_digest=$12))
-       returning ${releaseColumns}`,
-      [input.buildRequestDigest, input.expectedVersion, receipt.activeGenerationId, receipt.migrationRevision, receipt.workerFencingToken, receipt.receiptId,
-        JSON.stringify(receipt), receipt.sourceCommit, receipt.compositionChangePlanDigest, receipt.buildEvidenceDigest, receipt.applicationDigest, receipt.imageDigest,
-        receipt.applicationId, receipt.environment, receipt.operation]
+      receipt.operation === "promote"
+        ? `update runtime_static_release_requests set status='deployed', generation_id=$3, migration_revision=$4, worker_fencing_token=$5, receipt_id=$6, receipt_json=$7::jsonb, updated_at=now()
+           where request_digest=$1 and version=$2 and status='deployment-requested' and application_id=$13 and environment=$14 and
+             source_commit=$8 and change_plan_digest=$9 and build_evidence_digest=$10 and application_digest=$11 and image_digest=$12
+           returning ${releaseColumns}`
+        : `update runtime_static_release_requests set status='deployed', generation_id=$3, migration_revision=$4, worker_fencing_token=$5, receipt_id=$6, receipt_json=$7::jsonb, updated_at=now()
+           where request_digest=$1 and version=$2 and status='deployment-requested' and application_id=$8 and environment=$9 and
+             exists (
+               select 1 from runtime_static_deployments deployment
+               join runtime_static_deployment_outbox retained
+                 on retained.application_id=deployment.application_id and retained.environment=deployment.environment
+               where deployment.application_id=$8 and deployment.environment=$9 and deployment.revision=$10 and deployment.active_generation_id=$3 and
+                 deployment.active_generation->>'sourceCommit'=$11 and deployment.active_generation->>'compositionChangePlanDigest'=$12 and
+                 deployment.active_generation->>'buildEvidenceDigest'=$13 and deployment.active_generation->>'applicationDigest'=$14 and
+                 deployment.active_generation->>'imageDigest'=$15 and (deployment.active_generation->>'migrationRevision')::integer=$4 and
+                 retained.revision < $10 and retained.event_json->>'operation' in ('promote','rollback') and retained.event_json->>'activeGenerationId'=$3 and
+                 retained.event_json->>'sourceCommit'=$11 and retained.event_json->>'compositionChangePlanDigest'=$12 and
+                 retained.event_json->>'buildEvidenceDigest'=$13 and retained.event_json->>'applicationDigest'=$14 and
+                 retained.event_json->>'imageDigest'=$15 and (retained.event_json->>'migrationRevision')::integer=$4
+             )
+           returning ${releaseColumns}`,
+      receipt.operation === "promote"
+        ? [input.buildRequestDigest, input.expectedVersion, receipt.activeGenerationId, receipt.migrationRevision, receipt.workerFencingToken, receipt.receiptId,
+          JSON.stringify(receipt), receipt.sourceCommit, receipt.compositionChangePlanDigest, receipt.buildEvidenceDigest, receipt.applicationDigest, receipt.imageDigest,
+          receipt.applicationId, receipt.environment]
+        : [input.buildRequestDigest, input.expectedVersion, receipt.activeGenerationId, receipt.migrationRevision, receipt.workerFencingToken, receipt.receiptId,
+          JSON.stringify(receipt), receipt.applicationId, receipt.environment, receipt.revisionAfter, receipt.sourceCommit, receipt.compositionChangePlanDigest,
+          receipt.buildEvidenceDigest, receipt.applicationDigest, receipt.imageDigest]
     );
-    const persisted = updated.rows[0] ? releaseRequest(updated.rows[0]) : await this.readRequest(input.buildRequestDigest);
+    const persisted = updated.rows[0] ? await this.readReleaseRequest(updated.rows[0]) : await this.readRequest(input.buildRequestDigest);
     if (!persisted || persisted.version !== input.expectedVersion || persisted.status !== "deployed" || !persisted.receipt || !same(persisted.receipt, receipt)) {
       throw new StaticReleaseAuthorityStoreError("RELEASE_TRANSITION_CONFLICT", "Deployment receipt is stale or conflicts with the durable release request.");
     }
@@ -282,7 +317,42 @@ export class PostgresTrustedBuildDeploymentClient implements TrustedBuildDeploym
        where generation_id=$1 and version=$2 and source_commit=$3 and change_plan_digest=$4 and build_evidence_digest=$5 and application_digest=$6 and image_digest=$7 and migration_revision=$8 and worker_fencing_token=$9 and receipt_id=$10 and status='deployed'`,
       [authority.generationId, authority.version, authority.sourceCommit, authority.compositionChangePlanDigest, authority.buildEvidenceDigest, authority.applicationDigest, authority.imageDigest, authority.migrationRevision, authority.workerFencingToken, authority.receiptId]
     );
-    try { return result.rows.length === 1 && releaseRequest(result.rows[0]!).receipt?.receiptId === authority.receiptId; }
+    try {
+      const request = result.rows[0] && await this.readReleaseRequest(result.rows[0]);
+      return request?.receipt?.receiptId === authority.receiptId;
+    }
     catch { return false; }
+  }
+
+  private async readReleaseRequest(row: ReleaseRequestRow): Promise<DurableStaticReleaseRequest> {
+    if (row.receipt_json === null) return releaseRequest(row);
+    let receipt: StaticDeploymentReceipt;
+    try { receipt = StaticDeploymentReceiptSchema.parse(row.receipt_json); }
+    catch { throw new StaticReleaseAuthorityStoreError("AUTHORITY_MISMATCH", "Persisted static release receipt is invalid."); }
+    return releaseRequest(row, receipt.operation === "rollback" ? await this.retainedRollbackAuthority(receipt) : undefined);
+  }
+
+  private async retainedRollbackAuthority(receipt: StaticDeploymentReceipt): Promise<StaticDeploymentReceipt> {
+    const result = await this.pool.query<DeploymentReceiptRow>(
+      `select retained.event_json from runtime_static_deployment_outbox retained
+       where retained.application_id=$1 and retained.environment=$2 and retained.revision < $3 and
+         retained.event_json->>'operation' in ('promote','rollback') and retained.event_json->>'activeGenerationId'=$4 and
+         retained.event_json->>'sourceCommit'=$5 and retained.event_json->>'compositionChangePlanDigest'=$6 and
+         retained.event_json->>'buildEvidenceDigest'=$7 and retained.event_json->>'applicationDigest'=$8 and
+         retained.event_json->>'imageDigest'=$9 and (retained.event_json->>'migrationRevision')::integer=$10`,
+      [receipt.applicationId, receipt.environment, receipt.revisionAfter, receipt.activeGenerationId, receipt.sourceCommit,
+        receipt.compositionChangePlanDigest, receipt.buildEvidenceDigest, receipt.applicationDigest, receipt.imageDigest, receipt.migrationRevision]
+    );
+    for (const row of result.rows) {
+      try {
+        const authority = StaticDeploymentReceiptSchema.parse(row.event_json);
+        if (["promote", "rollback"].includes(authority.operation) && authority.activeGenerationId === receipt.activeGenerationId &&
+          authority.applicationId === receipt.applicationId && authority.environment === receipt.environment &&
+          authority.sourceCommit === receipt.sourceCommit && authority.compositionChangePlanDigest === receipt.compositionChangePlanDigest &&
+          authority.buildEvidenceDigest === receipt.buildEvidenceDigest && authority.applicationDigest === receipt.applicationDigest &&
+          authority.imageDigest === receipt.imageDigest && authority.migrationRevision === receipt.migrationRevision) return authority;
+      } catch { /* an invalid outbox event cannot establish retained authority */ }
+    }
+    throw new StaticReleaseAuthorityStoreError("AUTHORITY_MISMATCH", "Rollback receipt does not bind the retained generation authority.");
   }
 }
