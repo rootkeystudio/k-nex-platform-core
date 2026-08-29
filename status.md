@@ -3,20 +3,20 @@
 - **Updated:** 2026-08-29
 - **Phase:** Phase 9 — Dynamic Application Runtime and Zero-Downtime Delivery
 - **Active task:** P9.10 — Gate 9 closeout
-- **State:** Ready for phase review
+- **State:** In progress
 
 ## Last completed
 
-Completed P9.10 closeout with the durable Theme Skin proof bound into the exact attack corpus and every Phase 9 task, result artifact, inherited gate, and mandatory production journey passing together.
+Reopened P9.10 after the fresh Sol-high review found nine final-head correctness and evidence blockers.
 
 ## Validation
 
-Node 24.19.0: `pnpm gate:9` passed Gates 0–9, 19 bundler, 6 runner, 289 runtime, 32 payload, browser, and 14 PostgreSQL/Docker customer tests; `pnpm phase:9:attacks` passed 22 scenarios, 12 proof groups, and the 9-entry crash matrix.
+The earlier Node 24.19.0 Gate 9 pass is superseded for closeout purposes by the independent review. Its review-side Gate 9 run timed out in the static PostgreSQL journey after 13 customer tests passed and one was cancelled.
 
 ## Next
 
-Request a fresh Sol-high review of the complete Phase 9 diff, fix any blockers with final-head evidence, then refresh the single Phase 9 pull request without merging.
+Fix each review blocker with focused regression evidence, rerun the complete Gate 9 on the exact final tree, then request a new independent Sol-high review.
 
 ## Blockers
 
-None.
+Static lifecycle reconciliation and worker fencing; signed Hot Application manifest authority; durable quarantine and teardown; rollback authority; real process boundaries; continuous transition probes; consistent app-storage backup; deterministic Gate 9 and aligned ADR/result evidence.
