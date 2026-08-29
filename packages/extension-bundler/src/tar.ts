@@ -1,21 +1,25 @@
 import { gunzipSync, gzipSync } from "node:zlib";
 
 export type ArchiveEntry = Readonly<{ path: string; bytes: Uint8Array }>;
-export type ExtractionLimits = Readonly<{ maxCompressedBytes: number; maxFiles: number; maxFileBytes: number; maxTotalBytes: number }>;
+export type ExtractionLimits = Readonly<{ maxCompressedBytes: number; maxFiles: number; maxFileBytes: number; maxTotalBytes: number; maxPathDepth: number }>;
 
 export const defaultExtractionLimits: ExtractionLimits = Object.freeze({
   maxCompressedBytes: 32 * 1024 * 1024,
   maxFiles: 512,
   maxFileBytes: 64 * 1024 * 1024,
-  maxTotalBytes: 256 * 1024 * 1024
+  maxTotalBytes: 256 * 1024 * 1024,
+  maxPathDepth: 16
 });
 
 function fail(message: string): never { throw new Error(`Invalid extension archive: ${message}`); }
 
-function safePath(path: string): string {
-  if (!path || path.length > 256 || path.startsWith("/") || path.includes("\\") || path.split("/").some((segment) => !segment || segment === "." || segment === "..")) fail(`unsafe path ${JSON.stringify(path)}`);
+function safePath(path: string, maxPathDepth = Number.POSITIVE_INFINITY): string {
+  const segments = path.split("/");
+  if (!path || path.length > 256 || path.startsWith("/") || path.includes("\\") || segments.length > maxPathDepth || segments.some((segment) => !segment || segment === "." || segment === "..")) fail(`unsafe path ${JSON.stringify(path)}`);
   return path;
 }
+
+function casePath(path: string): string { return path.normalize("NFC").toLowerCase(); }
 
 function octal(bytes: Uint8Array): number {
   const text = Buffer.from(bytes).toString("ascii").replace(/\0.*$/u, "").trim();
@@ -46,6 +50,7 @@ function writeOctal(target: Uint8Array, offset: number, width: number, value: nu
 export function createNormalizedTarGz(entries: readonly ArchiveEntry[]): Buffer {
   const sorted = [...entries].map((entry) => ({ path: safePath(entry.path), bytes: Buffer.from(entry.bytes) })).sort((left, right) => left.path.localeCompare(right.path));
   if (new Set(sorted.map((entry) => entry.path)).size !== sorted.length) throw new Error("A normalized archive cannot contain duplicate paths.");
+  if (new Set(sorted.map((entry) => casePath(entry.path))).size !== sorted.length) throw new Error("A normalized archive cannot contain case-colliding paths.");
   const chunks: Buffer[] = [];
   for (const entry of sorted) {
     const header = Buffer.alloc(512);
@@ -74,6 +79,7 @@ export function extractNormalizedTarGz(archive: Uint8Array, limits: ExtractionLi
   let tar: Buffer;
   try { tar = gunzipSync(archive, { maxOutputLength: limits.maxTotalBytes + limits.maxFiles * 1024 + 1024 }); } catch { fail("gzip payload is invalid or exceeds decompression limit"); }
   const files = new Map<string, Buffer>();
+  const casePaths = new Set<string>();
   let offset = 0;
   let total = 0;
   while (offset < tar.length) {
@@ -86,7 +92,7 @@ export function extractNormalizedTarGz(archive: Uint8Array, limits: ExtractionLi
     if (header.subarray(257, 263).toString("ascii") !== "ustar\0") fail("unsupported tar format");
     if (header.subarray(345, 500).some((byte) => byte !== 0)) fail("tar path prefixes are not allowed");
     checksum(header);
-    const path = safePath(header.subarray(0, 100).toString("utf8").replace(/\0.*$/u, ""));
+    const path = safePath(header.subarray(0, 100).toString("utf8").replace(/\0.*$/u, ""), limits.maxPathDepth);
     const type = String.fromCharCode(header[156] ?? 0);
     if (type !== "\0" && type !== "0") fail(`unsupported tar entry type for ${path}`);
     const size = octal(header.subarray(124, 136));
@@ -98,7 +104,9 @@ export function extractNormalizedTarGz(archive: Uint8Array, limits: ExtractionLi
     const bodyEnd = bodyStart + size;
     if (bodyEnd > tar.length) fail(`truncated file: ${path}`);
     if (files.has(path)) fail(`duplicate path: ${path}`);
+    if (casePaths.has(casePath(path))) fail(`case-colliding path: ${path}`);
     files.set(path, Buffer.from(tar.subarray(bodyStart, bodyEnd)));
+    casePaths.add(casePath(path));
     offset = bodyEnd + ((512 - (size % 512)) % 512);
   }
   if (files.size === 0) fail("archive contains no files");

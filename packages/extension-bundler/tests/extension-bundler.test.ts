@@ -5,7 +5,7 @@ import { gunzipSync, gzipSync } from "node:zlib";
 import { canonicalJson } from "@k-nex/contracts";
 import { describe, expect, it } from "vitest";
 
-import { ArtifactVerifier, buildBundle, CatalogClient, createNormalizedTarGz, extractNormalizedTarGz, sha256, type BundleBuildInput, type CatalogEntry, type SignedCatalog, VerifiedArtifactStore, verifyHostedBuildProvenance } from "../src/index.js";
+import { ArtifactVerifier, buildBundle, CatalogClient, createNormalizedTarGz, defaultExtractionLimits, extractNormalizedTarGz, sha256, type BundleBuildInput, type CatalogEntry, type SignedCatalog, VerifiedArtifactStore, verifyHostedBuildProvenance } from "../src/index.js";
 
 const source = { repository: "https://github.com/k-nex/official-apps", commit: "0123456789abcdef0123456789abcdef01234567" };
 const workflowIdentity = `${source.repository}/.github/workflows/release.yml@${source.commit}`;
@@ -143,19 +143,23 @@ describe("extension bundler", () => {
     expect(() => client.read(bad)).toThrow(/Invalid official catalog/u);
   });
 
-  it("rejects traversal, links, duplicate paths, bombs, and every configured extraction bound", () => {
+  it("rejects traversal, links, colliding paths, bombs, and every configured extraction bound", () => {
     expect(() => extractNormalizedTarGz(rawTar([{ path: "../escape", bytes: Buffer.from("x") }]))).toThrow(/unsafe path/u);
     expect(() => extractNormalizedTarGz(rawTar([{ path: "link", bytes: Buffer.alloc(0), type: "2" }]))).toThrow(/unsupported tar entry/u);
     expect(() => extractNormalizedTarGz(rawTar([{ path: "hard", bytes: Buffer.alloc(0), type: "1" }]))).toThrow(/unsupported tar entry/u);
     expect(() => extractNormalizedTarGz(rawTar([{ path: "same", bytes: Buffer.from("x") }, { path: "same", bytes: Buffer.from("y") }]))).toThrow(/duplicate path/u);
+    expect(() => extractNormalizedTarGz(rawTar([{ path: "assets/Readme.txt", bytes: Buffer.from("x") }, { path: "assets/readme.txt", bytes: Buffer.from("y") }]))).toThrow(/case-colliding path/u);
+    expect(() => extractNormalizedTarGz(rawTar([{ path: "assets/K.txt", bytes: Buffer.from("x") }, { path: "assets/K.txt", bytes: Buffer.from("y") }]))).toThrow(/case-colliding path/u);
     expect(() => extractNormalizedTarGz(rawTar([{ path: "a\\b", bytes: Buffer.from("x") }]))).toThrow(/unsafe path/u);
-    expect(() => extractNormalizedTarGz(gzipSync(Buffer.alloc(4096)), { maxCompressedBytes: 1000, maxFiles: 1, maxFileBytes: 1, maxTotalBytes: 1 })).toThrow(/decompression/u);
+    expect(() => extractNormalizedTarGz(rawTar([{ path: Array.from({ length: defaultExtractionLimits.maxPathDepth + 1 }, () => "a").join("/"), bytes: Buffer.from("x") }]))).toThrow(/unsafe path/u);
+    expect(() => extractNormalizedTarGz(rawTar([{ path: "a/b/c", bytes: Buffer.from("x") }]), { maxCompressedBytes: 1024 * 1024, maxFiles: 1, maxFileBytes: 1, maxTotalBytes: 1, maxPathDepth: 2 })).toThrow(/unsafe path/u);
+    expect(() => extractNormalizedTarGz(gzipSync(Buffer.alloc(4096)), { maxCompressedBytes: 1000, maxFiles: 1, maxFileBytes: 1, maxTotalBytes: 1, maxPathDepth: 1 })).toThrow(/decompression/u);
     const archive = createNormalizedTarGz([{ path: "one", bytes: Buffer.from("12") }, { path: "two", bytes: Buffer.from("34") }]);
-    expect(() => extractNormalizedTarGz(archive, { maxCompressedBytes: 1024 * 1024, maxFiles: 1, maxFileBytes: 10, maxTotalBytes: 10000 })).toThrow(/file count/u);
-    expect(() => extractNormalizedTarGz(archive, { maxCompressedBytes: 1024 * 1024, maxFiles: 3, maxFileBytes: 1, maxTotalBytes: 10000 })).toThrow(/file exceeds/u);
-    expect(() => extractNormalizedTarGz(archive, { maxCompressedBytes: 1024 * 1024, maxFiles: 3, maxFileBytes: 10, maxTotalBytes: 3 })).toThrow(/total size/u);
+    expect(() => extractNormalizedTarGz(archive, { maxCompressedBytes: 1024 * 1024, maxFiles: 1, maxFileBytes: 10, maxTotalBytes: 10000, maxPathDepth: 1 })).toThrow(/file count/u);
+    expect(() => extractNormalizedTarGz(archive, { maxCompressedBytes: 1024 * 1024, maxFiles: 3, maxFileBytes: 1, maxTotalBytes: 10000, maxPathDepth: 1 })).toThrow(/file exceeds/u);
+    expect(() => extractNormalizedTarGz(archive, { maxCompressedBytes: 1024 * 1024, maxFiles: 3, maxFileBytes: 10, maxTotalBytes: 3, maxPathDepth: 1 })).toThrow(/total size/u);
     const compressed = gunzipSync(archive);
-    expect(() => extractNormalizedTarGz(gzipSync(compressed), { maxCompressedBytes: 1, maxFiles: 3, maxFileBytes: 10, maxTotalBytes: 10 })).toThrow(/compressed size/u);
+    expect(() => extractNormalizedTarGz(gzipSync(compressed), { maxCompressedBytes: 1, maxFiles: 3, maxFileBytes: 10, maxTotalBytes: 10, maxPathDepth: 1 })).toThrow(/compressed size/u);
     const invalidChecksum = Buffer.from(gunzipSync(archive));
     invalidChecksum[0] = 0x78;
     expect(() => extractNormalizedTarGz(gzipSync(invalidChecksum))).toThrow(/checksum/u);
