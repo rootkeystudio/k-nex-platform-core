@@ -34,25 +34,26 @@ Phase 9 delivers the accepted Two-Path Extension Model. Hot Applications and The
 - `@k-nex/runtime`: PluginManager, trusted source/build authority, deployment supervisor, atomic generation coordination, headless operator/status API.
 - `@k-nex/payload-adapter`: PostgreSQL lifecycle, durable verified artifacts and catalog checkpoints, activation, storage, Theme Profile, static deployment, worker-fence, effect, receipt, audit, and outbox authority.
 - Browser/UI: credentialless remote UI host and data-only Theme Skin activation.
-- Customer fixture: customer-owned migration revision 13 and real PostgreSQL/Docker acceptance journeys.
+- Customer fixture: customer-owned migration revision 18 and real PostgreSQL/Docker acceptance journeys.
 
 ## Validation and failure evidence
 
-Final Phase 9 evidence on Node 24.19.0:
+Final committed-tree Phase 9 evidence on Node 24.19.0:
 
 ```text
-contracts and architecture-contract-tools: generated schemas current, parity-tested, and reproducible
-extension-bundler: 19 tests; extension-runner: 6 tests with real Docker isolation
-runtime: 289 tests; payload-adapter: 32 tests
+contracts: 155 tests; architecture-contract-tools generated schemas current, parity-tested, and reproducible
+extension-bundler: 20 tests; extension-runner: 8 tests with real Docker isolation
+runtime: 292 tests; payload-adapter: 40 tests
 ui-runtime and ui-testing: full unit and real Chromium suites
-customer fixture: 14/14 PostgreSQL/Docker tests
+customer fixture: 15 PostgreSQL/Docker tests
 phase attack corpus: 22 required attacks, 12 exact proof groups, 9 recovered state/process matrix entries
 phase:0 and Gates 1–8: passed transitively through Gate 9
+pnpm gate:9: GATE_9_PASS
 ```
 
 Chromium markers: `P9_REMOTE_UI_BROWSER_PASS` and `P9_THEME_SKIN_BROWSER_PASS`.
 
-The customer suite proves actual HTTP continuity across a durable Hot Application install/update/rollback and two Git-backed, digest-pinned customer images that install different `module.sales` package versions. It deletes and restores authoritative Hot Application bytes/state from a physical backup; rejects operation replay, pointer races, irreversible rollback, and forged database authority; deliberately fails green readiness; crashes PostgreSQL fence transfer; rejects stale worker completion; preserves one logical effect; blocks contract cleanup while rollback is open; resumes bounded backfill; and refuses offline migration as `maintenance-required` without changing traffic.
+The real customer PostgreSQL/Docker journeys run continuous HTTP probes with zero failures. The Hot Application probe covers install, update, and rollback; the static Platform Plugin probe covers install, update, rollback, and re-promotion between two Git-backed, digest-pinned customer images containing different `module.sales` package versions. The journeys also delete and restore authoritative Hot Application bytes/state from a physical backup; reject operation replay, pointer races, irreversible rollback, and forged database authority; deliberately fail green readiness; crash PostgreSQL fence transfer; reject stale worker completion; preserve one logical effect; block contract cleanup while rollback is open; resume bounded backfill; and refuse offline migration as `maintenance-required` without changing traffic.
 
 At the closeout head, `pnpm gate:9` passed Gates 0–8 and every mandatory Gate 9 class-specific proof. `scripts/gate-9.mjs` executes exact named Docker, PostgreSQL, Chromium, and unit evidence; PostgreSQL journeys emit scenario markers only after their assertions succeed; and the static journey emits each required crash-matrix key only after the corresponding process recovery. The gate fails if a proof or marker is missing, skipped, renamed, or failing, and also enforces required schemas, Sales-only scope, and this result matrix.
 

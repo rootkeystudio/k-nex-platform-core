@@ -106,10 +106,26 @@
       ]
     },
     "0021": {
-      "level": "design-only",
+      "level": "executable-poc",
       "evidence": [
         "docs/35-dynamic-applications-and-zero-downtime-delivery.md",
-        "docs/implementation/phase-9-dynamic-application-runtime.md"
+        "docs/implementation/phase-9-dynamic-application-runtime.md",
+        "docs/implementation/phase-9-result.md",
+        "packages/contracts/src/extension-runtime.ts",
+        "packages/extension-bundler/src/verifier.ts",
+        "packages/extension-bundler/tests/extension-bundler.test.ts",
+        "packages/extension-runner/src/index.ts",
+        "packages/extension-runner/tests/docker-sandbox.test.ts",
+        "packages/runtime/src/plugin-manager.ts",
+        "packages/runtime/tests/plugin-manager.test.ts",
+        "packages/ui-runtime/tests/remote-ui-host.test.ts",
+        "packages/ui-testing/scripts/remote-ui-browser.mjs",
+        "packages/ui-testing/scripts/theme-skin-browser.mjs",
+        "fixtures/customer-gate-1/tests/runtime-extension-state-postgres.test.mjs",
+        "fixtures/customer-gate-1/tests/static-deployment-postgres.test.mjs",
+        "fixtures/customer-gate-1/tests/theme-skin-profile-postgres.test.mjs",
+        "scripts/phase-9-attack-corpus.mjs",
+        "scripts/gate-9.mjs"
       ]
     },
     "0022": {
@@ -119,9 +135,23 @@
       ]
     },
     "0023": {
-      "level": "design-only",
+      "level": "executable-poc",
       "evidence": [
-        "docs/implementation/phase-9-plan-review-hardening.md"
+        "docs/implementation/phase-9-dynamic-application-runtime.md",
+        "docs/implementation/phase-9-plan-review-hardening.md",
+        "docs/implementation/phase-9-result.md",
+        "packages/extension-runner/src/index.ts",
+        "packages/extension-runner/tests/docker-sandbox.test.ts",
+        "packages/runtime/src/static-composition-authority.ts",
+        "packages/runtime/src/static-deployment-supervisor.ts",
+        "packages/runtime/tests/static-composition-authority.test.ts",
+        "packages/runtime/tests/static-deployment-supervisor.test.ts",
+        "fixtures/customer-gate-1/static-deployment/topology-process.mjs",
+        "fixtures/customer-gate-1/tests/continuous-http-probe.mjs",
+        "fixtures/customer-gate-1/tests/runtime-extension-state-postgres.test.mjs",
+        "fixtures/customer-gate-1/tests/static-deployment-postgres.test.mjs",
+        "scripts/phase-9-attack-corpus.mjs",
+        "scripts/gate-9.mjs"
       ]
     }
   }
