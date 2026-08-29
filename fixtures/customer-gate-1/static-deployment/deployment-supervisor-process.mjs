@@ -25,6 +25,12 @@ async function docker(args) {
 
 async function json(path) { return JSON.parse(await readFile(path, "utf8")); }
 
+export function maintenanceRequired(migration) {
+  return migration?.steps?.some((step) => step.phase === "offline-required")
+    ? Object.freeze({ outcome: "maintenance-required", reasons: ["offline-migration"] })
+    : undefined;
+}
+
 class ArtifactProvider {
   constructor(builds) { this.builds = builds; }
 
@@ -270,8 +276,9 @@ export async function runDeploymentSupervisor({ event, ready }) {
     if (command.operation === "release-reverify") return { verified: await releases.reverify(command.authority) };
     if (command.operation === "validate-online-migration") return { completed: await migrations.runOnline(command.migration) };
     if (command.operation === "maintenance-required") {
-      if (!command.migration?.steps?.some((step) => step.phase === "offline-required")) throw commandError(409, "Maintenance refusal requires an offline migration plan.");
-      return { outcome: "maintenance-required", reasons: ["offline-migration"] };
+      const decision = maintenanceRequired(command.migration);
+      if (!decision) throw commandError(409, "Maintenance refusal requires an offline migration plan.");
+      return decision;
     }
     if (command.operation === "arm-gateway-failure") { generations.failGatewayOnce = true; return { armed: true }; }
     if (command.operation === "arm-health-failure") { generations.failHealthOnce = true; return { armed: true }; }

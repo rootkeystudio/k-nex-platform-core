@@ -20,6 +20,7 @@ import {
   TrustedAutomationOperationAuthorizer,
   TrustedStaticApplicationBuildAuthority
 } from "@k-nex/runtime";
+import { maintenanceRequired } from "../static-deployment/deployment-supervisor-process.mjs";
 import { startContinuousHttpProbe } from "./continuous-http-probe.mjs";
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
@@ -716,4 +717,9 @@ test("proves distinct customer binaries and deployment processes recover from Po
   assert.deepEqual([...crashEvidence].sort(), expectedCrashEvidence);
   assert.deepEqual([...scenarioEvidence].sort(), ["SCN-17", "SCN-18", "SCN-20", "SCN-21"]);
   console.log(`P9_STATIC_SCENARIO_EVIDENCE=${JSON.stringify({ crashMatrix: expectedCrashEvidence, scenarios: [...scenarioEvidence].sort(), continuousHttp: trafficProbe.summary() })}`);
+});
+
+test("returns maintenance-required without building or starting a target generation", () => {
+  assert.deepEqual(maintenanceRequired({ steps: [{ phase: "offline-required" }] }), { outcome: "maintenance-required", reasons: ["offline-migration"] });
+  assert.equal(maintenanceRequired({ steps: [{ phase: "online-expand" }] }), undefined);
 });

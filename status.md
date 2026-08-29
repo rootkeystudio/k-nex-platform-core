@@ -7,7 +7,7 @@
 
 ## Last completed
 
-Closed the project-manager review blockers with independently trusted customer builds, isolated web/admin denial, a process-owned deployment supervisor, real crash recovery, four-process generation convergence, and hostile Chromium protocol proof.
+Closed the project-manager review blockers with independently trusted customer builds, isolated web/admin denial, a process-owned deployment supervisor, real crash recovery, four-process generation convergence, hostile Chromium protocol proof, and the exact maintenance-required acceptance case.
 
 ## Validation
 
