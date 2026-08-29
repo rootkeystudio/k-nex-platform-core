@@ -12,6 +12,7 @@ import { ArtifactVerifier, buildBundle, canonicalJson, CatalogClient, InMemoryCa
 import { DockerHotApplicationSandboxSupervisor } from "@k-nex/extension-runner";
 import { ActiveExtensionSecurityReconciler, PostgresExtensionCapabilityAuthority, PostgresExtensionCapabilitySequenceStore, PostgresRuntimeExtensionOutboxDispatcher, PostgresRuntimeExtensionStore, PostgresVerifiedArtifactStore, RuntimeStoreRunnerQuarantineAdapter } from "@k-nex/payload-adapter";
 import { AuthoritativeHotApplicationRuntime, DurableDynamicArtifactPipeline, DurableDynamicGenerationRuntime, ExtensionCapabilityGateway, HmacExtensionCapabilityTokens, PluginManager, ReferenceHotApplicationGenerationWarmer, RuntimeExtensionRevisionConsumer, TrustedAutomationOperationAuthorizer } from "@k-nex/runtime";
+import { startContinuousHttpProbe } from "./continuous-http-probe.mjs";
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
 const fixtureDirectory = fileURLToPath(new URL("..", import.meta.url));
@@ -376,6 +377,8 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
   const storeA = new PostgresRuntimeExtensionStore(pool, clock, digest("7"));
   const storeB = new PostgresRuntimeExtensionStore(pool, clock, digest("7"));
   const hosts = [];
+  let trafficProbe;
+  let continuousHttp;
   try {
     await boot(container.getConnectionUri());
     const tables = await pool.query("select to_regclass('public.runtime_extension_artifacts')::text artifacts, to_regclass('public.runtime_extension_artifact_bindings')::text bindings");
@@ -414,15 +417,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       }
     }, storeA, pipeline, { request: async () => { throw new Error("Static delivery is not used."); } }, { request: async () => { throw new Error("Static delivery is not used."); }, reverify: async () => false }, new DurableDynamicGenerationRuntime(artifacts, warmer));
 
-    const install = await manager.plan(request("install", "1.0.0", 0));
-    await manager.stage(install.operationId);
-    assert.equal((await manager.validate(install.operationId)).valid, true);
-    const installed = await manager.activate(install.operationId);
-    assert.equal(installed.generationId, "app-sales-live-generation-1");
-    assert.deepEqual(await manager.activate(install.operationId), installed);
     const identity = { deliveryClass: "hot-application", id: "app.sales-live" };
-    const consumers = ["web", "worker", "editor"].map((name) => [name, new RuntimeExtensionRevisionConsumer(new PostgresRuntimeExtensionStore(pool, clock, digest("7")), "customer-alpha", "production", identity)]);
-    await Promise.all(consumers.map(([, consumer]) => consumer.poll()));
 
     const capabilityTokens = new HmacExtensionCapabilityTokens(new Uint8Array(32).fill(9), clock);
     const runnerGateway = new ExtensionCapabilityGateway(capabilityTokens, {
@@ -452,12 +447,32 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       actor: { principalId: "user:one", effectiveActorId: "user:one" },
       correlationId: `traffic-correlation-${++trafficSequence}`
     });
+    let applicationTrafficReady = false;
     const gateway = await listen(async (_request, response) => {
       try {
-        response.end(JSON.stringify(await invokeTraffic()));
-      } catch { response.writeHead(500).end("gateway failure"); }
+        response.end(JSON.stringify(applicationTrafficReady
+          ? await invokeTraffic()
+          : { marker: "host-baseline", generationId: "host-gateway-generation-0" }));
+      } catch (error) { response.writeHead(500, { "content-type": "application/json" }).end(JSON.stringify({ error: error.message })); }
     });
     hosts.push(gateway);
+    trafficProbe = startContinuousHttpProbe({
+      url: gateway.url, path: "/continuous", initialWindow: "install",
+      initialGenerations: ["host-gateway-generation-0", "app-sales-live-generation-1"]
+    });
+    await trafficProbe.waitForGeneration("install", "host-gateway-generation-0");
+
+    const install = await manager.plan(request("install", "1.0.0", 0));
+    await manager.stage(install.operationId);
+    assert.equal((await manager.validate(install.operationId)).valid, true);
+    const installed = await manager.activate(install.operationId);
+    applicationTrafficReady = true;
+    await trafficProbe.waitForGeneration("install", installed.generationId);
+    assert.equal(installed.generationId, "app-sales-live-generation-1");
+    assert.deepEqual(await manager.activate(install.operationId), installed);
+    const consumers = ["web", "worker", "editor"].map((name) => [name, new RuntimeExtensionRevisionConsumer(new PostgresRuntimeExtensionStore(pool, clock, digest("7")), "customer-alpha", "production", identity)]);
+    await Promise.all(consumers.map(([, consumer]) => consumer.poll()));
+
     const update = await manager.plan(request("update", "1.1.0", installed.revisionAfter));
     await manager.stage(update.operationId);
     const draining = invokeTraffic({ delayMs: 500 });
@@ -465,19 +480,16 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     assert.equal(await storeA.liveGenerationLeaseCount("customer-alpha", "production", identity, installed.generationId), 1);
-    const traffic = Array.from({ length: 3 }, () => fetch(`${gateway.url}/continuous`).then(async (response) => {
-      const text = await response.text();
-      if (response.status !== 200) throw new Error(text);
-      return { status: response.status, body: JSON.parse(text) };
-    }));
-    const [updated, drained, ...observations] = await Promise.all([manager.activate(update.operationId), draining, ...traffic]);
+    trafficProbe.transition("update", [installed.generationId, "app-sales-live-generation-2"]);
+    await trafficProbe.waitForGeneration("update", installed.generationId);
+    const [updated, drained] = await Promise.all([manager.activate(update.operationId), draining]);
+    await trafficProbe.waitForGeneration("update", updated.generationId);
     assert.equal(updated.previousGenerationId, installed.generationId);
     assert.deepEqual(await manager.activate(update.operationId), updated);
     assert.deepEqual(drained, { marker: "sales-live-v1", generationId: installed.generationId });
     assert.equal(await storeA.liveGenerationLeaseCount("customer-alpha", "production", identity, installed.generationId), 0);
     assert.equal(dockerExecutions.some((execution) => execution.event === "started" && execution.generationId === installed.generationId), true);
     assert.equal(dockerExecutions.some((execution) => execution.event === "stopped" && execution.generationId === installed.generationId), true);
-    assert.equal(observations.every(({ status, body }) => status === 200 && byGeneration.get(body.generationId)?.marker === body.marker), true);
     assert.equal((await storeB.observeActiveGeneration("customer-alpha", "production", identity)).generationId, updated.generationId);
     await assert.rejects(manager.plan(request("update", "1.0.0", updated.revisionAfter)), { code: "PLAN_MISMATCH" });
     assert.deepEqual(warmed, [
@@ -493,6 +505,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     await Promise.all(consumers.map(([, consumer]) => consumer.poll()));
     assert.deepEqual(consumers.map(([name, consumer]) => [name, consumer.snapshot().generationId]), [["web", updated.generationId], ["worker", updated.generationId], ["editor", updated.generationId]]);
 
+    await trafficProbe.pause();
     const beforeRestore = await manager.inventory("customer-alpha", "production");
     const uri = new URL(container.getConnectionUri());
     uri.hostname = "127.0.0.1";
@@ -513,14 +526,25 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     }
     assert.deepEqual(await invokeTraffic(), { marker: "sales-live-v2", generationId: updated.generationId });
 
+    trafficProbe.resume();
+    trafficProbe.transition("rollback", [updated.generationId, installed.generationId]);
+    await trafficProbe.waitForGeneration("rollback", updated.generationId);
     const rollback = await manager.plan(request("rollback", "1.0.0", updated.revisionAfter));
     const rolledBack = await manager.rollback(rollback.operationId);
+    await trafficProbe.waitForGeneration("rollback", rolledBack.generationId);
     assert.equal(rolledBack.generationId, installed.generationId);
     assert.deepEqual(await manager.rollback(rollback.operationId), rolledBack);
     const rollbackTraffic = await fetch(`${gateway.url}/rollback`);
     assert.equal(rollbackTraffic.status, 200);
     assert.equal(JSON.parse(await rollbackTraffic.text()).generationId, installed.generationId);
     assert.deepEqual(await invokeTraffic(), { marker: "sales-live-v1", generationId: installed.generationId });
+    await trafficProbe.stop();
+    trafficProbe.assertEvidence({
+      install: ["host-gateway-generation-0", "app-sales-live-generation-1"],
+      update: ["app-sales-live-generation-1", "app-sales-live-generation-2"],
+      rollback: ["app-sales-live-generation-2", "app-sales-live-generation-1"]
+    });
+    continuousHttp = trafficProbe.summary();
 
     const irreversibleUpdate = await manager.plan(request("update", "2.0.0", rolledBack.revisionAfter));
     await manager.stage(irreversibleUpdate.operationId);
@@ -544,9 +568,11 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
         startedGenerationIds: [...new Set(dockerExecutions.filter((execution) => execution.event === "started").map((execution) => execution.generationId))],
         stoppedGenerationIds: [...new Set(dockerExecutions.filter((execution) => execution.event === "stopped").map((execution) => execution.generationId))]
       },
-      oldGenerationDrain: { generationId: installed.generationId, leaseObserved: true, completed: true }
+      oldGenerationDrain: { generationId: installed.generationId, leaseObserved: true, completed: true },
+      continuousHttp
     })}`);
   } finally {
+    await trafficProbe?.stop();
     await Promise.allSettled(hosts.map((host) => host.close()));
     await pool.end();
     await container.stop();
