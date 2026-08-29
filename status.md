@@ -1,21 +1,21 @@
 # Project Status
 
-- **Updated:** 2026-08-29
+- **Updated:** 2026-08-30
 - **Phase:** Phase 9 — Dynamic Application Runtime and Zero-Downtime Delivery
 - **Active task:** P9.10 — Gate 9 closeout
-- **State:** Ready for phase review
+- **State:** In progress
 
 ## Last completed
 
-Closed the project-manager review blockers with independently trusted customer builds, isolated web/admin denial, a process-owned deployment supervisor, real crash recovery, four-process generation convergence, hostile Chromium protocol proof, and the exact maintenance-required acceptance case.
+Replaced the toy customer server with the real Payload/Next standalone runtime, removed control-plane files and excess web-role writes, authenticated and authority-bound supervisor commands, proved post-commit SIGKILL replay, split runtime consumers into real service/browser boundaries, and drove maintenance refusal from the persisted PluginManager plan.
 
 ## Validation
 
-Node 24.19.0: the static PostgreSQL/Docker journey, four-process runtime journey, and full Chromium suite passed after review hardening. Final-head `pnpm gate:9` passed with `GATE_9_PASS` and Gates 0–8 transitively green.
+Node 24.19.0: customer build, four-process runtime journey, full Chromium suite, syntax/diff checks, and the complete static PostgreSQL/Docker journey passed after review hardening. The final Gate 9 rerun is pending on the review-fix commit.
 
 ## Next
 
-P10.1 — Freeze owner, permission, role, grant, assignment, template, and revision contracts after project-manager PASS.
+Run the complete Gate 9 on the exact review-fix commit, then request a fresh Sol-high phase review.
 
 ## Blockers
 

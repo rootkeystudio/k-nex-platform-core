@@ -11,13 +11,20 @@ COPY package.json package-lock.json ./
 COPY packages ./packages
 RUN npm ci --legacy-peer-deps --ignore-scripts --no-audit --no-fund
 COPY src ./src
-COPY tsconfig.json ./
-COPY static-deployment ./static-deployment
+COPY static-deployment/tsconfig.next.json ./tsconfig.json
+COPY static-deployment/tsconfig.customer.json ./
+COPY static-deployment/next.config.mjs ./
+COPY static-deployment/app ./src/app
+COPY static-deployment/payload.config.ts ./src/static-payload.config.ts
+COPY static-deployment/static-runtime.ts ./src/static-runtime.ts
+COPY static-deployment/customer-application-gate.mjs ./customer-application-gate.mjs
+COPY static-deployment/release.json ./release.json
 # The release image must compile and execute the committed customer Payload
 # composition/registry gate before it can carry a static deployment attestation.
-RUN npm run build && node static-deployment/customer-application-gate.mjs
-RUN cp static-deployment/server.mjs static-deployment/healthcheck.mjs static-deployment/release.json static-deployment/web-admin-container.mjs ./
+RUN DATABASE_URL=postgres://fixture:fixture@127.0.0.1:5432/customer-alpha PAYLOAD_SECRET=fixture-static-customer-build npm run build && node customer-application-gate.mjs
+RUN mkdir -p .next/standalone/.next && cp -R .next/static .next/standalone/.next/static
+COPY static-deployment/healthcheck.mjs static-deployment/web-admin-container.mjs ./
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=100ms --timeout=1s --start-period=100ms --retries=5 CMD ["node", "healthcheck.mjs"]
-CMD ["node", "server.mjs"]
+CMD ["node", ".next/standalone/server.js"]

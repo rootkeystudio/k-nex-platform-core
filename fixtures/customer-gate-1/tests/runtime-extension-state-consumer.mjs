@@ -1,4 +1,4 @@
-import readline from "node:readline";
+import { createServer } from "node:http";
 
 import pg from "pg";
 
@@ -7,7 +7,7 @@ import { RuntimeExtensionRevisionConsumer } from "@k-nex/runtime";
 
 const configuration = JSON.parse(process.env.P9_RUNTIME_CONSUMER_CONFIGURATION ?? "{}");
 const required = ["databaseUrl", "role", "applicationId", "environment", "deliveryClass", "extensionId"];
-if (!required.every((key) => typeof configuration[key] === "string" && configuration[key].length > 0)) {
+if (!required.every((key) => typeof configuration[key] === "string" && configuration[key].length > 0) || !["web", "worker", "browser-host"].includes(configuration.role)) {
   throw new Error("Runtime extension consumer configuration is incomplete.");
 }
 
@@ -37,38 +37,60 @@ async function combinedGeneration() {
   };
 }
 
-async function execute(line) {
-  const command = JSON.parse(line);
-  if (command.type === "invalidate") {
-    emit("invalidated", { accepted: consumer.invalidate(command.invalidation.inventoryRevision) });
-    return;
-  }
-  if (command.type === "snapshot") {
-    emit("snapshot", { combinedGeneration: await combinedGeneration() });
-    return;
-  }
-  if (command.type === "poll") {
-    const changed = await consumer.poll();
-    emit("polled", { changed, combinedGeneration: await combinedGeneration() });
-    return;
-  }
-  if (command.type === "close") {
-    await pool.end();
-    emit("closed");
-    process.exit(0);
-  }
-  throw new Error("Runtime extension consumer command is invalid.");
+function respond(response, status, body, contentType = "application/json") {
+  response.writeHead(status, { "cache-control": "no-store", "content-type": contentType, "x-content-type-options": "nosniff" });
+  response.end(typeof body === "string" ? body : JSON.stringify(body));
 }
 
-const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
-let commands = Promise.resolve();
-input.on("line", (line) => {
-  commands = commands.then(() => execute(line)).catch(async (error) => {
-    process.stderr.write(`${error.stack ?? error}\n`);
-    await pool.end();
-    process.exitCode = 1;
-  });
+const browserDocument = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self'; worker-src 'self'; script-src 'self'"></head><body><main id="runtime-extension-host">Runtime extension host</main><script type="module" src="/runtime-extension-browser-host.mjs"></script></body></html>`;
+
+const browserHost = `
+const worker = new Worker('/runtime-extension-browser-worker.mjs', { type: 'module' });
+const channel = new MessageChannel(); let sequence = 0;
+worker.postMessage({ type: 'connect' }, [channel.port2]);
+window.runtimeExtensionState = (type) => new Promise((resolve, reject) => {
+  const expected = ++sequence;
+  const timeout = setTimeout(() => reject(new Error('Runtime extension browser host timed out.')), 5_000);
+  channel.port1.onmessage = ({ data }) => { if (data?.sequence === expected) { clearTimeout(timeout); resolve(data); } };
+  channel.port1.postMessage({ type, sequence: expected });
 });
+`;
+
+const browserWorker = `let port;
+self.onmessage = ({ data, ports }) => {
+  if (data?.type !== 'connect' || !ports[0]) return;
+  port = ports[0];
+  port.onmessage = async ({ data: command }) => {
+    if (!['snapshot', 'poll'].includes(command?.type) || !Number.isSafeInteger(command.sequence)) return;
+    const response = await fetch(command.type === 'poll' ? '/runtime-extension-state/poll' : '/runtime-extension-state', { method: command.type === 'poll' ? 'POST' : 'GET', credentials: 'same-origin' });
+    port.postMessage({ ...(await response.json()), sequence: command.sequence });
+  };
+  port.start();
+};`;
 
 await consumer.poll();
-emit("ready", { combinedGeneration: await combinedGeneration() });
+const server = createServer(async (request, response) => {
+  try {
+    const url = new URL(request.url ?? "/", "http://runtime-extension.local");
+    if (configuration.role === "browser-host" && request.method === "GET" && url.pathname === "/") return respond(response, 200, browserDocument, "text/html; charset=utf-8");
+    if (configuration.role === "browser-host" && request.method === "GET" && url.pathname === "/runtime-extension-browser-host.mjs") return respond(response, 200, browserHost, "text/javascript; charset=utf-8");
+    if (configuration.role === "browser-host" && request.method === "GET" && url.pathname === "/runtime-extension-browser-worker.mjs") return respond(response, 200, browserWorker, "text/javascript; charset=utf-8");
+    if (request.method === "GET" && url.pathname === "/runtime-extension-state") return respond(response, 200, { event: "snapshot", role: configuration.role, snapshot: consumer.snapshot(), combinedGeneration: await combinedGeneration() });
+    if (request.method === "POST" && url.pathname === "/runtime-extension-state/poll") {
+      const changed = await consumer.poll();
+      return respond(response, 200, { event: "polled", role: configuration.role, changed, snapshot: consumer.snapshot(), combinedGeneration: await combinedGeneration() });
+    }
+    if (request.method === "POST" && url.pathname === "/shutdown") {
+      respond(response, 200, { event: "closed" });
+      return void server.close(() => void pool.end().finally(() => process.exit(0)));
+    }
+    respond(response, 404, { error: "not-found" });
+  } catch (error) {
+    respond(response, 500, { error: error instanceof Error ? error.message : "runtime-extension-state-failed" });
+  }
+});
+
+await new Promise((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
+const address = server.address();
+if (address === null || typeof address === "string") throw new Error("Runtime extension consumer service failed to listen.");
+emit("ready", { url: `http://127.0.0.1:${address.port}`, combinedGeneration: await combinedGeneration() });

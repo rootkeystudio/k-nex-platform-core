@@ -25,7 +25,8 @@ const digestJson = (value) => sha256(canonicalJson(value));
 const sourceFiles = Object.freeze([
   "k-nex.app.json", "package.json", "package-lock.json", ".k-nex/generated/resolved-graph.json",
   "tsconfig.json", "src/boot.ts", "src/k-nex-readiness.ts", "src/k-nex-registry.ts", "src/payload.config.ts", "src/migrations/20260827_000001_sales_baseline.ts", "src/migrations/20260827_000002_knex_bootstrap.ts", "src/migrations/index.ts",
-  "static-deployment/Dockerfile", "static-deployment/customer-application-gate.mjs", "static-deployment/deployment-supervisor-process.mjs", "static-deployment/healthcheck.mjs", "static-deployment/release.json", "static-deployment/server.mjs", "static-deployment/topology-process.mjs", "static-deployment/web-admin-container.mjs",
+  "static-deployment/Dockerfile", "static-deployment/customer-application-gate.mjs", "static-deployment/deployment-supervisor-process.mjs", "static-deployment/healthcheck.mjs", "static-deployment/next.config.mjs", "static-deployment/payload.config.ts", "static-deployment/release.json", "static-deployment/static-runtime.ts", "static-deployment/topology-process.mjs", "static-deployment/tsconfig.customer.json", "static-deployment/tsconfig.next.json", "static-deployment/web-admin-container.mjs",
+  "static-deployment/app/layout.tsx", "static-deployment/app/page.tsx", "static-deployment/app/api/[...slug]/route.ts", "static-deployment/app/[endpoint]/route.ts",
   "static-deployment-migration.ts"
 ]);
 const event = async (name, detail = {}) => {
@@ -71,7 +72,7 @@ async function composition(sourceDirectory) {
   return {
     composition: {
       applicationManifestDigest: digests["k-nex.app.json"], lockfileDigest: digests["package-lock.json"], resolvedGraphDigest: digests[".k-nex/generated/resolved-graph.json"],
-      generatedRegistriesDigest: digestJson({ customerPayloadRegistry: Object.fromEntries(sourceFiles.filter((path) => path === "tsconfig.json" || path.startsWith("src/") || path === "static-deployment/customer-application-gate.mjs").map((path) => [path, digests[path]])), dockerfile: digests["static-deployment/Dockerfile"], healthcheck: digests["static-deployment/healthcheck.mjs"], server: digests["static-deployment/server.mjs"], topology: digests["static-deployment/topology-process.mjs"], supervisor: digests["static-deployment/deployment-supervisor-process.mjs"], webAdmin: digests["static-deployment/web-admin-container.mjs"] }),
+      generatedRegistriesDigest: digestJson({ customerPayloadRegistry: Object.fromEntries(sourceFiles.filter((path) => path === "tsconfig.json" || path.startsWith("src/") || path.startsWith("static-deployment/app/") || ["static-deployment/customer-application-gate.mjs", "static-deployment/next.config.mjs", "static-deployment/payload.config.ts", "static-deployment/static-runtime.ts", "static-deployment/tsconfig.customer.json", "static-deployment/tsconfig.next.json"].includes(path)).map((path) => [path, digests[path]])), dockerfile: digests["static-deployment/Dockerfile"], healthcheck: digests["static-deployment/healthcheck.mjs"], topology: digests["static-deployment/topology-process.mjs"], supervisor: digests["static-deployment/deployment-supervisor-process.mjs"], webAdmin: digests["static-deployment/web-admin-container.mjs"] }),
       packageClosureDigest: digests[salesTarball], migrationPlanDigest: digests["static-deployment-migration.ts"]
     },
     digests,

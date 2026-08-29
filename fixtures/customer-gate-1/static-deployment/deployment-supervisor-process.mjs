@@ -1,10 +1,10 @@
 import { createServer } from "node:http";
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import pg from "pg";
-import { canonicalJson } from "@k-nex/contracts";
+import { canonicalJson, ExtensionInstallPlanSchema, StaticCompositionChangePlanSchema } from "@k-nex/contracts";
 import { PostgresStaticDeploymentStore, PostgresTrustedBuildDeploymentClient } from "@k-nex/payload-adapter";
 import { DeploymentSupervisor, TrustedStaticApplicationBuildAuthority } from "@k-nex/runtime";
 
@@ -24,12 +24,6 @@ async function docker(args) {
 }
 
 async function json(path) { return JSON.parse(await readFile(path, "utf8")); }
-
-export function maintenanceRequired(migration) {
-  return migration?.steps?.some((step) => step.phase === "offline-required")
-    ? Object.freeze({ outcome: "maintenance-required", reasons: ["offline-migration"] })
-    : undefined;
-}
 
 class ArtifactProvider {
   constructor(builds) { this.builds = builds; }
@@ -170,7 +164,9 @@ class DockerGenerationHost {
       fetch(`${container.url}/public`), fetch(`${container.url}/authenticated`), fetch(`${container.url}/authenticated`, { headers: { "x-k-nex-smoke-auth": "trusted-smoke-token" } }),
       fetch(`${container.url}/inventory`), fetch(`${container.url}/schema-proof`), fetch(`${container.url}/least-privilege`)
     ]);
-    if (!publicSmoke.ok || unauthenticatedSmoke.status !== 401 || !authenticatedSmoke.ok || !inventory.ok || !schemaProof.ok || !leastPrivilege.ok) throw new Error("Generation smoke checks failed.");
+    if (!publicSmoke.ok || unauthenticatedSmoke.status !== 401 || !authenticatedSmoke.ok || !inventory.ok || !schemaProof.ok || !leastPrivilege.ok) {
+      throw new Error(`Generation smoke checks failed: ${canonicalJson({ public: publicSmoke.status, unauthenticated: unauthenticatedSmoke.status, authenticated: authenticatedSmoke.status, inventory: inventory.status, schema: schemaProof.status, leastPrivilege: leastPrivilege.status })}`);
+    }
     const [publicBody, authenticatedBody, inventoryBody, schemaBody, privilegeBody] = await Promise.all([publicSmoke.json(), authenticatedSmoke.json(), inventory.json(), schemaProof.json(), leastPrivilege.json()]);
     for (const body of [publicBody, authenticatedBody, inventoryBody]) {
       if (body.module !== "module.sales" || body.sourceCommit !== input.sourceCommit || body.applicationDigest !== input.applicationDigest || body.workerMode !== "passive") throw new Error("Generation inventory is not bound to the attested target.");
@@ -213,6 +209,7 @@ export async function runDeploymentSupervisor({ event, ready }) {
   const pool = new pg.Pool({ connectionString: required("DATABASE_URL"), max: 3 });
   const network = required("P9_DOCKER_NETWORK");
   const controlPort = Number(required("P9_CONTROL_PORT"));
+  const controlToken = required("P9_CONTROL_TOKEN");
   const gatewayUrl = required("P9_GATEWAY_URL");
   if (!Number.isInteger(controlPort)) throw new Error("Deployment supervisor requires a fixed control port.");
   const [greenBuild, blueBuild, trust] = await Promise.all([json(required("P9_BUILD_RESULT_PATH")), json(required("P9_BASE_BUILD_PATH")), json(required("P9_BUILDER_TRUST_POLICY_PATH"))]);
@@ -233,6 +230,14 @@ export async function runDeploymentSupervisor({ event, ready }) {
     if (!current || current.generation !== activeGenerationId) throw new Error("Stable process gateway has not consumed the atomic PostgreSQL promotion.");
   } };
   const supervisor = new DeploymentSupervisor(authority, artifacts, migrations, generations, store, gateway, realtime);
+  let crashAfterCommitOnce = false;
+
+  function authenticated(request) {
+    const supplied = request.headers.authorization?.replace(/^Bearer /u, "") ?? "";
+    const actual = Buffer.from(supplied);
+    const expected = Buffer.from(controlToken);
+    return actual.length === expected.length && timingSafeEqual(actual, expected);
+  }
 
   async function save(command, status, result, error) {
     await pool.query("update p9_static_deployment_commands set status=$2, result_json=$3::jsonb, error_code=$4, error_message=$5, updated_at=now() where command_id=$1", [command.commandId, status, result ? JSON.stringify(result) : null, error?.code ?? null, error?.message ?? null]);
@@ -245,13 +250,64 @@ export async function runDeploymentSupervisor({ event, ready }) {
     const row = inserted.rows[0] ?? (await pool.query("select command_digest, status, result_json from p9_static_deployment_commands where command_id=$1", [command.commandId])).rows[0];
     if (!inserted.rows[0] && row.command_digest !== digest) throw commandError(409, "Deployment command replay changed its operation, generation, or build binding.", "COMMAND_REPLAY_MISMATCH");
     if (!inserted.rows[0] && row.status === "succeeded") return { replay: row.result_json };
-    return { digest };
+    if (!inserted.rows[0]) await pool.query("update p9_static_deployment_commands set status='running', result_json=null, error_code=null, error_message=null, updated_at=now() where command_id=$1", [command.commandId]);
+    return { digest, recovering: !inserted.rows[0] && ["running", "failed"].includes(row.status) };
+  }
+  async function releaseContext(command) {
+    const request = await releases.readRequest(command.buildRequestDigest);
+    if (!request || !["builder-attested", "deployment-requested", "deployed"].includes(request.status) ||
+      request.applicationId !== command.applicationId || request.environment !== command.environment ||
+      request.sourceCommit !== greenBuild.change.targetSourceCommit || request.changePlanDigest !== greenBuild.change.planDigest ||
+      request.buildEvidenceDigest !== digestJson(greenBuild.evidence) || request.applicationDigest !== greenBuild.applicationDigest ||
+      request.imageDigest !== greenBuild.imageDigest) {
+      throw commandError(409, "Deployment command is not bound to the attested durable release authority.", "AUTHORITY_MISMATCH");
+    }
+    return request;
   }
   async function verified(command) {
-    const request = await releases.readRequest(command.buildRequestDigest);
-    if (!request || !["deployment-requested", "deployed"].includes(request.status) || request.applicationId !== command.applicationId || request.environment !== command.environment || request.sourceCommit !== greenBuild.change.targetSourceCommit || request.buildEvidenceDigest !== digestJson(greenBuild.evidence) || request.applicationDigest !== greenBuild.applicationDigest || request.imageDigest !== greenBuild.imageDigest) throw commandError(409, "Deployment command is not bound to the attested durable release authority.", "AUTHORITY_MISMATCH");
-    if (command.generationId !== "customer-alpha-green-12") throw commandError(409, "Promotion command generation does not match its trusted static release.", "AUTHORITY_MISMATCH");
+    const request = await releaseContext(command);
+    if (!["deployment-requested", "deployed"].includes(request.status) || command.generationId !== "customer-alpha-green-12") {
+      throw commandError(409, "Promotion command does not match its trusted static release.", "AUTHORITY_MISMATCH");
+    }
     return { request, build: authority.verify(greenBuild.change, greenBuild.evidence) };
+  }
+  async function maintenanceContext(command) {
+    const result = await pool.query(
+      "select operation_id, application_id, environment, delivery_class, extension_id, expected_revision, phase, authorization_json, plan_json from runtime_extension_operations where operation_id=$1",
+      [command.operationId]
+    );
+    const operation = result.rows[0];
+    if (!operation || operation.application_id !== command.applicationId || operation.environment !== command.environment ||
+      operation.delivery_class !== command.deliveryClass || operation.extension_id !== command.extensionId || operation.phase !== "source-change-ready" ||
+      operation.expected_revision !== command.expectedRevision) {
+      throw commandError(409, "Maintenance command does not bind the persisted runtime operation owner or revision.", "MAINTENANCE_OPERATION_MISMATCH");
+    }
+    let plan;
+    let sourceChange;
+    let change;
+    try {
+      plan = operation.plan_json;
+      if (plan?.executionClass !== "static-release" || plan.operationId !== operation.operation_id || plan.generationId !== command.generationId ||
+        plan.sourceChange?.status !== "source-change-ready" || plan.sourceChange?.targetSourceCommit !== plan.sourceChange?.change?.target?.sourceCommit) {
+        throw new Error("invalid static operation plan");
+      }
+      const install = ExtensionInstallPlanSchema.parse(plan.plan);
+      sourceChange = plan.sourceChange;
+      change = StaticCompositionChangePlanSchema.parse(sourceChange.change);
+      if (install.deliveryClass !== "platform-plugin" || install.id !== operation.extension_id || install.operationId !== operation.operation_id ||
+        install.expectedRevision !== operation.expected_revision || install.targetGenerationId !== command.generationId ||
+        change.applicationId !== operation.application_id || change.environment !== operation.environment || change.plugin.id !== operation.extension_id ||
+        change.plugin.version !== install.version || change.authority.requestDigest !== operation.authorization_json?.decisionId ||
+        sourceChange.planDigest !== digestJson(change)) {
+        throw new Error("static plan binding mismatch");
+      }
+      if (install.availability.outcome !== "maintenance-required" || !change.migration.steps.some((step) => step.phase === "offline-required" && step.availability === "maintenance-required")) {
+        throw new Error("online operation cannot be relabeled as maintenance");
+      }
+    } catch {
+      throw commandError(409, "Maintenance command is not bound to an offline-required persisted static plan.", "MAINTENANCE_OPERATION_MISMATCH");
+    }
+    return { plan, sourceChange, change };
   }
   async function receiptForRevision(owner, revision) {
     const row = await pool.query("select event_json from runtime_static_deployment_outbox where application_id=$1 and environment=$2 and revision=$3", [owner.applicationId, owner.environment, revision]);
@@ -261,7 +317,12 @@ export async function runDeploymentSupervisor({ event, ready }) {
   async function execute(command, recovering) {
     const owner = { applicationId: command.applicationId, environment: command.environment };
     if (command.operation === "bootstrap") {
-      if (command.generationId !== "customer-alpha-blue-11" || command.buildRequestDigest !== greenBuild.buildRequestDigest) throw commandError(409, "Bootstrap command is not bound to the approved static release context.");
+      await releaseContext(command);
+      if (command.generationId !== "customer-alpha-blue-11" || command.buildRequestDigest !== greenBuild.buildRequestDigest ||
+        command.compositionChangePlanDigest !== digestJson(greenBuild.change.change.base) ||
+        command.buildEvidenceDigest !== digestJson({ sourceCommit: blueBuild.sourceCommit, imageDigest: blueBuild.imageDigest })) {
+        throw commandError(409, "Bootstrap command is not bound to the approved static release context.", "AUTHORITY_MISMATCH");
+      }
       const blue = { generationId: command.generationId, sourceCommit: blueBuild.sourceCommit, compositionChangePlanDigest: command.compositionChangePlanDigest, buildEvidenceDigest: command.buildEvidenceDigest, applicationDigest: blueBuild.applicationDigest, imageDigest: blueBuild.imageDigest, imageReference: blueBuild.imageReference, migrationRevision: 11 };
       await store.initialize({ ...owner, generation: blue, workerOwner: command.workerOwner, workerFencingToken: 1, workerLeaseExpiresAt: command.workerLeaseExpiresAt });
       await generations.start({ ...owner, generationId: blue.generationId, imageReference: blue.imageReference, workerMode: "passive" });
@@ -274,15 +335,28 @@ export async function runDeploymentSupervisor({ event, ready }) {
       return request;
     }
     if (command.operation === "release-reverify") return { verified: await releases.reverify(command.authority) };
-    if (command.operation === "validate-online-migration") return { completed: await migrations.runOnline(command.migration) };
+    if (command.operation === "validate-online-migration") {
+      await releaseContext(command);
+      if (canonicalJson(command.migration) !== canonicalJson(greenBuild.change.change.migration)) throw Object.assign(new Error("Migration authority rejected an incompatible relabeled plan."), { code: "MIGRATION_LABEL_REJECTED" });
+      return { completed: await migrations.runOnline(greenBuild.change.change.migration) };
+    }
     if (command.operation === "maintenance-required") {
-      const decision = maintenanceRequired(command.migration);
-      if (!decision) throw commandError(409, "Maintenance refusal requires an offline migration plan.");
-      return decision;
+      await maintenanceContext(command);
+      return Object.freeze({ outcome: "maintenance-required", reasons: ["offline-migration"] });
     }
     if (command.operation === "arm-gateway-failure") { generations.failGatewayOnce = true; return { armed: true }; }
     if (command.operation === "arm-health-failure") { generations.failHealthOnce = true; return { armed: true }; }
+    if (command.operation === "arm-response-crash") { crashAfterCommitOnce = true; return { armed: true }; }
     if (command.operation === "cleanup") { await generations.close(); return { cleaned: true }; }
+    if (["restart", "recover", "close-rollback", "contract-cleanup", "rollback"].includes(command.operation)) await releaseContext(command);
+    if (["restart", "recover", "close-rollback", "contract-cleanup"].includes(command.operation)) {
+      const state = await store.read(owner);
+      const generationBound = state && [state.active.generationId, state.rollback?.generationId].includes(command.generationId);
+      const authorizedRestart = command.operation === "restart" && command.generationId === "customer-alpha-green-12";
+      if (!state || state.revision !== command.expectedRevision || (!generationBound && !authorizedRestart)) {
+        throw commandError(409, "Deployment command revision or generation binding is stale.", "REVISION_CONFLICT");
+      }
+    }
     if (command.operation === "restart") return generations.restart({ ...command, imageReference: command.generationId === "customer-alpha-blue-11" ? blueBuild.imageReference : greenBuild.imageReference });
     if (command.operation === "recover") { await supervisor.recover(owner); return { operation: "recover", generationId: (await store.read(owner))?.active.generationId }; }
     if (command.operation === "close-rollback") return supervisor.closeRollback(owner);
@@ -313,11 +387,13 @@ export async function runDeploymentSupervisor({ event, ready }) {
     const send = (status, value) => response.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(value));
     try {
       if (request.method !== "POST" || request.url !== "/commands") throw commandError(404, "Unknown deployment supervisor endpoint.");
+      if (!authenticated(request)) throw commandError(401, "Deployment supervisor command authentication failed.", "COMMAND_UNAUTHORIZED");
       const command = await requestBody(request);
       const started = await begin(command);
       if (started.replay) return send(200, started.replay);
       try {
-        const result = await execute(command, command.operation === "promote" && (await pool.query("select status from p9_static_deployment_commands where command_id=$1", [command.commandId])).rows[0]?.status === "failed");
+        const result = await execute(command, command.operation === "promote" && started.recovering === true);
+        if (crashAfterCommitOnce && command.operation === "promote" && result?.outcome === "promoted") process.kill(process.pid, "SIGKILL");
         const envelope = { commandId: command.commandId, commandDigest: started.digest, operation: command.operation, generationId: command.generationId, buildRequestDigest: command.buildRequestDigest, result };
         await save(command, "succeeded", envelope);
         return send(200, envelope);

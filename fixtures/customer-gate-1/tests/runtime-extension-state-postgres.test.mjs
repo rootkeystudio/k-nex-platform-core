@@ -7,11 +7,12 @@ import test from "node:test";
 
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import pg from "pg";
+import { chromium } from "playwright";
 
 import { ArtifactVerifier, buildBundle, canonicalJson, CatalogClient, InMemoryCatalogCheckpointStore, sha256 } from "@k-nex/extension-bundler";
 import { DockerHotApplicationSandboxSupervisor } from "@k-nex/extension-runner";
 import { ActiveExtensionSecurityReconciler, PostgresExtensionCapabilityAuthority, PostgresExtensionCapabilitySequenceStore, PostgresRuntimeExtensionOutboxDispatcher, PostgresRuntimeExtensionStore, PostgresVerifiedArtifactStore, RuntimeStoreRunnerQuarantineAdapter } from "@k-nex/payload-adapter";
-import { AuthoritativeHotApplicationRuntime, DurableDynamicArtifactPipeline, DurableDynamicGenerationRuntime, ExtensionCapabilityGateway, HmacExtensionCapabilityTokens, PluginManager, ReferenceHotApplicationGenerationWarmer, TrustedAutomationOperationAuthorizer } from "@k-nex/runtime";
+import { AuthoritativeHotApplicationRuntime, DurableDynamicArtifactPipeline, DurableDynamicGenerationRuntime, ExtensionCapabilityGateway, HmacExtensionCapabilityTokens, PluginManager, ReferenceHotApplicationGenerationWarmer, RuntimeExtensionRevisionConsumer, TrustedAutomationOperationAuthorizer } from "@k-nex/runtime";
 import { startContinuousHttpProbe } from "./continuous-http-probe.mjs";
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
@@ -47,7 +48,7 @@ function boot(connectionString) {
   });
 }
 
-function startRuntimeExtensionConsumer(connectionString, role) {
+function startRuntimeExtensionService(connectionString, role) {
   const child = spawn(process.execPath, ["tests/runtime-extension-state-consumer.mjs"], {
     cwd: fixtureDirectory,
     env: {
@@ -98,12 +99,34 @@ function startRuntimeExtensionConsumer(connectionString, role) {
   };
   return {
     role, child,
-    async ready() { return next("ready"); },
-    async command(command, event) { child.stdin.write(`${JSON.stringify(command)}\n`); return next(event); },
+    async ready() { const ready = await next("ready"); this.url = ready.url; return ready; },
+    async state(path, method = "GET") {
+      const response = await fetch(`${this.url}${path}`, { method });
+      if (!response.ok) throw new Error(`Runtime extension ${role} service failed: ${await response.text()}`);
+      return response.json();
+    },
     async close() {
       if (child.exitCode !== null) return;
-      await this.command({ type: "close" }, "closed");
+      try { await fetch(`${this.url}/shutdown`, { method: "POST" }); } catch {}
+      await new Promise((resolve) => child.once("close", resolve));
     }
+  };
+}
+
+async function combinedGeneration(pool, identity) {
+  const result = await pool.query(
+    `select g.generation_id, g.server_generation_id, g.ui_generation_id, g.storage_generation_id
+       from runtime_extensions e join runtime_extension_generations g
+         on g.application_id=e.application_id and g.environment=e.environment and g.delivery_class=e.delivery_class and g.extension_id=e.extension_id and g.generation_id=e.active_generation_id
+      where e.application_id='customer-alpha' and e.environment='production' and e.delivery_class=$1 and e.extension_id=$2`,
+    [identity.deliveryClass, identity.id]
+  );
+  const generation = result.rows[0];
+  return generation === undefined ? undefined : {
+    generationId: generation.generation_id,
+    serverGenerationId: generation.server_generation_id,
+    uiGenerationId: generation.ui_generation_id,
+    storageGenerationId: generation.storage_generation_id
   };
 }
 
@@ -438,6 +461,8 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
   const storeB = new PostgresRuntimeExtensionStore(pool, clock, digest("7"));
   const hosts = [];
   const consumerFleet = [];
+  let browser;
+  let browserContext;
   let trafficProbe;
   let continuousHttp;
   let lostInvalidationRecovery;
@@ -534,15 +559,38 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     assert.equal(installed.generationId, "app-sales-live-generation-1");
     assert.deepEqual(await manager.activate(install.operationId), installed);
     await trafficProbe.pause();
-    consumerFleet.push(...["web", "worker", "runner", "browser"].map((role) => startRuntimeExtensionConsumer(container.getConnectionUri(), role)));
-    const baselineConsumers = await Promise.all(consumerFleet.map((consumer) => consumer.ready()));
-    assert.equal(new Set(baselineConsumers.map((consumer) => consumer.pid)).size, 4, "web, worker, runner, and browser consumers must be distinct processes");
+    consumerFleet.push(...["web", "worker", "browser-host"].map((role) => startRuntimeExtensionService(container.getConnectionUri(), role)));
+    const [webService, workerService, browserHost] = consumerFleet;
+    const baselineServices = await Promise.all(consumerFleet.map((consumer) => consumer.ready()));
+    assert.equal(new Set(baselineServices.map((consumer) => consumer.pid)).size, 3, "web, worker, and browser host must be distinct service processes");
+    browser = await chromium.launch();
+    browserContext = await browser.newContext();
+    const browserPage = await browserContext.newPage();
+    await browserPage.goto(browserHost.url);
+    await browserPage.waitForFunction(() => typeof window.runtimeExtensionState === "function");
+    const runnerConsumer = new RuntimeExtensionRevisionConsumer(storeB, "customer-alpha", "production", identity);
+    const pollRunner = async () => {
+      const changed = await runnerConsumer.poll();
+      const invocation = await invokeTraffic();
+      return { role: "runner", changed, snapshot: runnerConsumer.snapshot(), combinedGeneration: await combinedGeneration(pool, identity), invocationGenerationId: invocation.generationId };
+    };
+    const runnerBaseline = await pollRunner();
+    const browserBaseline = await browserPage.evaluate(() => window.runtimeExtensionState("snapshot"));
+    assert.equal(await browserPage.evaluate(() => typeof globalThis.process), "undefined", "Chromium browser consumer received a Node process surface.");
+    assert.equal(Object.hasOwn(browserBaseline, "databaseUrl"), false, "Browser host exposed PostgreSQL credentials.");
+    const baselineConsumers = [
+      await webService.state("/runtime-extension-state"),
+      await workerService.state("/runtime-extension-state"),
+      runnerBaseline,
+      { ...browserBaseline, role: "browser" }
+    ];
     assert.deepEqual(baselineConsumers.map((consumer) => [consumer.role, consumer.snapshot.generationId, consumer.combinedGeneration.generationId, consumer.combinedGeneration.serverGenerationId, consumer.combinedGeneration.uiGenerationId, consumer.combinedGeneration.storageGenerationId]), [
       ["web", installed.generationId, installed.generationId, installed.generationId, installed.generationId, installed.generationId],
       ["worker", installed.generationId, installed.generationId, installed.generationId, installed.generationId, installed.generationId],
       ["runner", installed.generationId, installed.generationId, installed.generationId, installed.generationId, installed.generationId],
       ["browser", installed.generationId, installed.generationId, installed.generationId, installed.generationId, installed.generationId]
     ]);
+    assert.equal(runnerBaseline.invocationGenerationId, installed.generationId, "Runner consumer did not observe the generation through DockerHotApplicationSandboxSupervisor.");
     trafficProbe.resume();
 
     const update = await manager.plan(request("update", "1.1.0", installed.revisionAfter));
@@ -576,17 +624,28 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       if (delivery.status === "idle") break;
     }
     assert.equal(deliberatelyDroppedInvalidations > 0, true, "test must drop the PostgreSQL outbox invalidation before recovery polling");
-    const staleConsumers = await Promise.all(consumerFleet.map((consumer) => consumer.command({ type: "snapshot" }, "snapshot")));
+    const staleConsumers = [
+      await webService.state("/runtime-extension-state"),
+      await workerService.state("/runtime-extension-state"),
+      { role: "runner", snapshot: runnerConsumer.snapshot() },
+      { ...(await browserPage.evaluate(() => window.runtimeExtensionState("snapshot"))), role: "browser" }
+    ];
     assert.deepEqual(staleConsumers.map((consumer) => [consumer.role, consumer.snapshot.generationId]), [
       ["web", installed.generationId], ["worker", installed.generationId], ["runner", installed.generationId], ["browser", installed.generationId]
     ], "lost invalidations must leave each independently running consumer on the old revision");
-    const convergedConsumers = await Promise.all(consumerFleet.map((consumer) => consumer.command({ type: "poll" }, "polled")));
+    const convergedConsumers = [
+      await webService.state("/runtime-extension-state/poll", "POST"),
+      await workerService.state("/runtime-extension-state/poll", "POST"),
+      await pollRunner(),
+      { ...(await browserPage.evaluate(() => window.runtimeExtensionState("poll"))), role: "browser" }
+    ];
     assert.deepEqual(convergedConsumers.map((consumer) => [consumer.role, consumer.changed, consumer.snapshot.generationId, consumer.combinedGeneration.generationId, consumer.combinedGeneration.serverGenerationId, consumer.combinedGeneration.uiGenerationId, consumer.combinedGeneration.storageGenerationId]), [
       ["web", true, updated.generationId, updated.generationId, updated.generationId, updated.generationId, updated.generationId],
       ["worker", true, updated.generationId, updated.generationId, updated.generationId, updated.generationId, updated.generationId],
       ["runner", true, updated.generationId, updated.generationId, updated.generationId, updated.generationId, updated.generationId],
       ["browser", true, updated.generationId, updated.generationId, updated.generationId, updated.generationId, updated.generationId]
     ], "revision polling must recover every consumer to the exact combined server/UI/storage generation");
+    assert.equal(convergedConsumers[2].invocationGenerationId, updated.generationId, "Runner recovery bypassed the Docker generation path.");
     lostInvalidationRecovery = { roles: convergedConsumers.map((consumer) => consumer.role), droppedOutboxInvalidations: deliberatelyDroppedInvalidations, generationId: updated.generationId };
 
     await trafficProbe.pause();
@@ -658,6 +717,8 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     })}`);
   } finally {
     await trafficProbe?.stop();
+    await browserContext?.close();
+    await browser?.close();
     await Promise.allSettled(consumerFleet.map((consumer) => consumer.close()));
     await Promise.allSettled(hosts.map((host) => host.close()));
     await pool.end();

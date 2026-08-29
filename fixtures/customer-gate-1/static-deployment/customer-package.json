@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json && node dist/k-nex-readiness.js"
+    "build": "tsc -p tsconfig.customer.json && node dist/k-nex-readiness.js && next build",
+    "start": "next start"
   },
   "dependencies": {
     "@k-nex/builder-puck": "file:packages/k-nex-builder-puck-0.0.0.tgz",
@@ -32,6 +33,7 @@
   },
   "devDependencies": {
     "@types/node": "24.13.3",
+    "@types/react": "19.2.18",
     "typescript": "6.0.3"
   }
 }
