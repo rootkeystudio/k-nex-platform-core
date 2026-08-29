@@ -3,8 +3,35 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node dist/k-nex-readiness.js"
+  },
   "dependencies": {
-    "@k-nex/module-sales": "file:packages/k-nex-module-sales-1.0.0.tgz"
-    ,"pg": "8.20.0"
+    "@k-nex/builder-puck": "file:packages/k-nex-builder-puck-0.0.0.tgz",
+    "@k-nex/composition": "file:packages/k-nex-composition-0.0.0.tgz",
+    "@k-nex/contracts": "file:packages/k-nex-contracts-0.0.0.tgz",
+    "@k-nex/module-sales": "file:packages/k-nex-module-sales-1.0.0.tgz",
+    "@k-nex/payload-adapter": "file:packages/k-nex-payload-adapter-0.0.0.tgz",
+    "@k-nex/runtime": "file:packages/k-nex-runtime-0.0.0.tgz",
+    "@k-nex/theme-minimal": "file:packages/k-nex-theme-minimal-0.0.0.tgz",
+    "@k-nex/ui-builder-blocks": "file:packages/k-nex-ui-builder-blocks-0.0.0.tgz",
+    "@k-nex/ui-components": "file:packages/k-nex-ui-components-0.0.0.tgz",
+    "@k-nex/ui-data": "file:packages/k-nex-ui-data-0.0.0.tgz",
+    "@k-nex/ui-design-system-contracts": "file:packages/k-nex-ui-design-system-contracts-0.0.0.tgz",
+    "@k-nex/ui-forms": "file:packages/k-nex-ui-forms-0.0.0.tgz",
+    "@k-nex/ui-pages": "file:packages/k-nex-ui-pages-0.0.0.tgz",
+    "@k-nex/ui-runtime": "file:packages/k-nex-ui-runtime-0.0.0.tgz",
+    "@payloadcms/db-postgres": "3.88.0",
+    "@payloadcms/next": "3.88.0",
+    "graphql": "16.14.2",
+    "next": "16.3.1",
+    "payload": "3.88.0",
+    "pg": "8.20.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "typescript": "6.0.3"
   }
 }

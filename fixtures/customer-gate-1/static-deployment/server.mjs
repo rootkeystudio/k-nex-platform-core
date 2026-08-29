@@ -13,12 +13,22 @@ const applicationDigest = process.env.K_NEX_APPLICATION_DIGEST;
 const smokeToken = process.env.K_NEX_SMOKE_TOKEN;
 const databaseUrl = process.env.DATABASE_URL;
 const expectedSchemaRevision = Number(process.env.K_NEX_SCHEMA_REVISION);
+const processIdentity = process.env.K_NEX_WEB_PROCESS_IDENTITY;
 
-if (!databaseUrl || !Number.isSafeInteger(expectedSchemaRevision)) {
+if (!databaseUrl || !Number.isSafeInteger(expectedSchemaRevision) || !processIdentity) {
   throw new Error("Customer static binary requires its versioned least-privilege PostgreSQL authority.");
 }
 
 const pool = new pg.Pool({ connectionString: databaseUrl, max: 2 });
+const payloadConfig = await import("./dist/payload.config.js");
+const customerConfig = await payloadConfig.default;
+if (!customerConfig.collections.some(({ slug }) => slug === "sales-opportunities") || !customerConfig.collections.some(({ slug }) => slug === "sales-tasks")) {
+  throw new Error("Built customer Payload registry is incomplete.");
+}
+await pool.query(
+  "insert into p9_static_process_events (role, instance_id, event, generation_id, detail) values ('web',$1,'web-started',$2,$3::jsonb)",
+  [processIdentity, generation, JSON.stringify({ processId: process.pid, processIdentity, customerPayloadRegistry: true })]
+);
 
 function send(response, status, value) {
   response.writeHead(status, { "content-type": "application/json" });
@@ -54,6 +64,7 @@ createServer((request, response) => {
     if (request.url === "/authenticated" && request.headers["x-k-nex-smoke-auth"] !== smokeToken) return send(response, 401, { error: "authentication-required" });
     if (request.url === "/schema-proof") return send(response, 200, await schemaProof());
     if (request.url === "/least-privilege") return send(response, 200, await leastPrivilegeProof());
+    if (request.url === "/process-identity") return send(response, 200, { processIdentity, processId: process.pid, generation });
     return send(response, 200, {
       applicationDigest,
       generation,

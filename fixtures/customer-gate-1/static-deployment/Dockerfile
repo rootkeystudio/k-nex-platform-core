@@ -10,7 +10,13 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages ./packages
 RUN npm ci --legacy-peer-deps --ignore-scripts --no-audit --no-fund
-COPY static-deployment/server.mjs static-deployment/healthcheck.mjs static-deployment/release.json ./
+COPY src ./src
+COPY tsconfig.json ./
+COPY static-deployment ./static-deployment
+# The release image must compile and execute the committed customer Payload
+# composition/registry gate before it can carry a static deployment attestation.
+RUN npm run build && node static-deployment/customer-application-gate.mjs
+RUN cp static-deployment/server.mjs static-deployment/healthcheck.mjs static-deployment/release.json static-deployment/web-admin-container.mjs ./
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=100ms --timeout=1s --start-period=100ms --retries=5 CMD ["node", "healthcheck.mjs"]

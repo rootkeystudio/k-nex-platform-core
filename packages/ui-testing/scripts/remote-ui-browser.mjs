@@ -43,12 +43,22 @@ async function probes() {
     dynamicImport: await attempt(() => import('${hostOrigin}/host.js'))
   };
 }
+async function hostile(kind) {
+  if (kind === 'oversized') { port.postMessage({ schemaVersion: 1, sessionId: 'remote-session-1', appId: 'app.sales-assistant', generationId: 'sales-generation-1', sequence: ++outgoing, direction: 'realm-to-host', type: 'ready', padding: 'x'.repeat(270000) }); return; }
+  if (kind === 'depth') { let input = null; for (let depth = 0; depth < 32; depth += 1) input = [input]; send('request', { operation: 'source', requestId: 'hostile-depth', targetId: 'sales.tasks', input }); return; }
+  if (kind === 'rate') { for (let frame = 0; frame < 300; frame += 1) send('ready'); return; }
+  if (kind === 'replay') { const sequence = outgoing; port.postMessage({ schemaVersion: 1, sessionId: 'remote-session-1', appId: 'app.sales-assistant', generationId: 'sales-generation-1', sequence, direction: 'realm-to-host', type: 'ready' }); return; }
+  if (kind === 'mixed-generation') { port.postMessage({ schemaVersion: 1, sessionId: 'remote-session-1', appId: 'app.sales-assistant', generationId: 'sales-generation-2', sequence: ++outgoing, direction: 'realm-to-host', type: 'request', operation: 'source', requestId: 'hostile-mixed', targetId: 'sales.tasks', input: {} }); return; }
+  if (kind === 'navigation') { send('navigate', { route: '/apps/sales-assistant/hostile' }); return; }
+  if (kind === 'download') { await attempt(() => fetch(new URL('/download', self.location.href))); send('request', { operation: 'source', requestId: 'hostile-download', targetId: 'sales.download', input: {} }); }
+}
 function tree(probe, status = 'Ready') { return { nodeId: 'root', component: 'stack', props: { gap: 'medium' }, events: [], children: [
   { nodeId: 'title', component: 'heading', props: { level: 1, text: 'Sales assistant' }, events: [], children: [] },
   { nodeId: 'probe', component: 'text', props: { text: JSON.stringify(probe) }, events: [], children: [] },
   { nodeId: 'status', component: 'text', props: { text: status }, events: [], children: [] },
   { nodeId: 'refresh', component: 'button', props: { label: 'Refresh sales tasks' }, events: [{ event: 'press', handlerId: 'sales.refresh' }], children: [] },
-  { nodeId: 'break', component: 'button', props: { label: 'Trigger invalid application tree' }, events: [{ event: 'press', handlerId: 'sales.break' }], children: [] }
+  { nodeId: 'break', component: 'button', props: { label: 'Trigger invalid application tree' }, events: [{ event: 'press', handlerId: 'sales.break' }], children: [] },
+  ...['oversized', 'depth', 'rate', 'replay', 'mixed-generation', 'navigation', 'download'].map((kind) => ({ nodeId: 'attack-' + kind, component: 'button', props: { label: 'Hostile ' + kind }, events: [{ event: 'press', handlerId: 'sales.attack.' + kind }], children: [] }))
 ] }; }
 self.onmessage = async (event) => {
   if (event.data?.type !== 'connect' || !event.ports?.[0]) return;
@@ -58,6 +68,7 @@ self.onmessage = async (event) => {
     if (data.type === 'bootstrap') { const probe = await probes(); self.__probe = probe; send('ready'); send('render', { root: tree(probe) }); send('focus', { nodeId: 'refresh' }); heartbeat = setInterval(() => send('request', { operation: 'source', requestId: 'heartbeat-' + outgoing, targetId: 'sales.heartbeat', input: {} }), 20); }
     else if (data.type === 'event' && data.handlerId === 'sales.refresh') send('request', { operation: 'source', requestId: 'source-request-1', targetId: 'sales.tasks', input: {} });
     else if (data.type === 'event' && data.handlerId === 'sales.break') send('render', { root: { ...tree(self.__probe), component: 'script' } });
+    else if (data.type === 'event' && data.handlerId.startsWith('sales.attack.')) hostile(data.handlerId.slice('sales.attack.'.length));
     else if (data.type === 'response-ok' && data.requestId === 'source-request-1') send('render', { root: tree(self.__probe, 'Loaded ' + data.output.rows + ' tasks') });
     else if (data.type === 'dispose') { clearInterval(heartbeat); close(); }
   };
@@ -78,6 +89,7 @@ self.onmessage = async (event) => {
       response.writeHead(frameDocument.status, frameDocument.headers);
       response.end(frameDocument.body); return;
     }
+    if (request.url === "/download") { response.writeHead(200, { "content-disposition": "attachment; filename=hostile.txt", "content-type": "text/plain" }); response.end("hostile"); return; }
     if (request.url === bootstrapPath) { response.writeHead(200, { ...headers, "content-type": "text/javascript", "cache-control": "public,max-age=31536000,immutable" }); response.end(bootstrap); return; }
     response.writeHead(404); response.end();
   });
@@ -91,6 +103,7 @@ self.onmessage = async (event) => {
   hostServer.on("request", (request, response) => {
     if (request.url === "/host.js") { response.writeHead(200, { "content-type": "text/javascript", "x-content-type-options": "nosniff" }); response.end(hostScript); return; }
     if (request.url === "/authenticated") { authenticatedFetches += 1; response.writeHead(200, { "content-type": "application/json" }); response.end('{"secret":true}'); return; }
+    if (request.url === "/healthy") { response.writeHead(200, { "content-type": "application/json" }); response.end('{"healthy":true}'); return; }
     response.writeHead(200, { "content-type": "text/html", "set-cookie": "customer_session=protected; HttpOnly; SameSite=Lax" }); response.end(html);
   });
 
@@ -129,6 +142,26 @@ self.onmessage = async (event) => {
   assert.equal(await page.evaluate(() => window.__K_NEX_REMOTE_HEARTBEATS__), heartbeatsAtFailure, "remote realm heartbeat continued after protocol failure");
   assert.equal(await page.locator("iframe").count(), 0, "failed remote realm iframe remained attached");
   assert.deepEqual(pageErrors, []);
+  for (const attack of ["oversized", "depth", "rate", "replay", "mixed-generation", "navigation", "download"]) {
+    const attackPage = await context.newPage();
+    let downloads = 0;
+    attackPage.on("download", () => { downloads += 1; });
+    await attackPage.goto(hostOrigin);
+    await attackPage.waitForFunction(() => window.__K_NEX_REMOTE_READY__ === true);
+    await attackPage.getByRole("button", { name: `Hostile ${attack}` }).click();
+    await attackPage.getByRole("alert").waitFor();
+    assert.match(await attackPage.getByRole("alert").textContent(), /PROTOCOL_FAILURE/u, `${attack} did not fail closed`);
+    await attackPage.waitForTimeout(100);
+    assert.equal(await attackPage.locator("iframe").count(), 0, `${attack} left its remote realm attached`);
+    assert.equal(attackPage.url(), `${hostOrigin}/`, `${attack} navigated the host`);
+    assert.equal((await attackPage.evaluate(() => window.__K_NEX_REMOTE_SOURCE_TARGETS__ ?? [])).every((target) => target === "sales.heartbeat"), true, `${attack} reached an unauthorized source`);
+    assert.equal(await attackPage.evaluate(() => window.__K_NEX_REMOTE_ACTION_CALLS__ ?? 0), 0, `${attack} reached an unauthorized action`);
+    assert.equal(downloads, 0, `${attack} initiated a browser download`);
+    const health = await fetch(`${hostOrigin}/healthy`);
+    assert.equal(health.status, 200, `${attack} made the host unhealthy`);
+    await attackPage.close();
+  }
+  assert.equal(extensionRequests.includes("/download"), false, "remote realm reached the download endpoint despite connect-src denial");
   await context.close();
   process.stdout.write("P9_REMOTE_UI_BROWSER_PASS\n");
 } finally {

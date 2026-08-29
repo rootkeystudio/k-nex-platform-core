@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { execFile } from "node:child_process";
-import { createHash, generateKeyPairSync, sign } from "node:crypto";
+import { createHash, sign } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
@@ -8,6 +8,7 @@ import pg from "pg";
 import { canonicalJson } from "@k-nex/contracts";
 import { PostgresStaticCompositionCheckpointStore, PostgresStaticDeploymentStore, PostgresTrustedBuildDeploymentClient } from "@k-nex/payload-adapter";
 import { DeterministicStaticCompositionChangeAuthority } from "@k-nex/runtime";
+import { runDeploymentSupervisor } from "./deployment-supervisor-process.mjs";
 
 const execute = promisify(execFile);
 const role = process.env.P9_PROCESS_ROLE;
@@ -23,7 +24,8 @@ const sha256 = (value) => `sha256:${createHash("sha256").update(value).digest("h
 const digestJson = (value) => sha256(canonicalJson(value));
 const sourceFiles = Object.freeze([
   "k-nex.app.json", "package.json", "package-lock.json", ".k-nex/generated/resolved-graph.json",
-  "static-deployment/Dockerfile", "static-deployment/healthcheck.mjs", "static-deployment/release.json", "static-deployment/server.mjs", "static-deployment/topology-process.mjs",
+  "tsconfig.json", "src/boot.ts", "src/k-nex-readiness.ts", "src/k-nex-registry.ts", "src/payload.config.ts", "src/migrations/20260827_000001_sales_baseline.ts", "src/migrations/20260827_000002_knex_bootstrap.ts", "src/migrations/index.ts",
+  "static-deployment/Dockerfile", "static-deployment/customer-application-gate.mjs", "static-deployment/deployment-supervisor-process.mjs", "static-deployment/healthcheck.mjs", "static-deployment/release.json", "static-deployment/server.mjs", "static-deployment/topology-process.mjs", "static-deployment/web-admin-container.mjs",
   "static-deployment-migration.ts"
 ]);
 const event = async (name, detail = {}) => {
@@ -31,7 +33,7 @@ const event = async (name, detail = {}) => {
   const fence = await pool.query("select fencing_token, active_execution_generation from runtime_worker_generation_fences where application_id='customer-alpha' and environment='production'");
   await pool.query(
     "insert into p9_static_process_events (role, instance_id, event, generation_id, deployment_revision, fencing_token, detail) values ($1,$2,$3,$4,$5,$6,$7::jsonb)",
-    [role, instance, name, generation ?? deployment.rows[0]?.active_generation_id ?? null, deployment.rows[0]?.revision ?? null, fence.rows[0]?.fencing_token ?? null, JSON.stringify(detail)]
+    [role, instance, name, generation ?? deployment.rows[0]?.active_generation_id ?? null, deployment.rows[0]?.revision ?? null, fence.rows[0]?.fencing_token ?? null, JSON.stringify({ processId: process.pid, ...detail })]
   );
 };
 
@@ -69,7 +71,7 @@ async function composition(sourceDirectory) {
   return {
     composition: {
       applicationManifestDigest: digests["k-nex.app.json"], lockfileDigest: digests["package-lock.json"], resolvedGraphDigest: digests[".k-nex/generated/resolved-graph.json"],
-      generatedRegistriesDigest: digestJson({ dockerfile: digests["static-deployment/Dockerfile"], healthcheck: digests["static-deployment/healthcheck.mjs"], server: digests["static-deployment/server.mjs"], topology: digests["static-deployment/topology-process.mjs"] }),
+      generatedRegistriesDigest: digestJson({ customerPayloadRegistry: Object.fromEntries(sourceFiles.filter((path) => path === "tsconfig.json" || path.startsWith("src/") || path === "static-deployment/customer-application-gate.mjs").map((path) => [path, digests[path]])), dockerfile: digests["static-deployment/Dockerfile"], healthcheck: digests["static-deployment/healthcheck.mjs"], server: digests["static-deployment/server.mjs"], topology: digests["static-deployment/topology-process.mjs"], supervisor: digests["static-deployment/deployment-supervisor-process.mjs"], webAdmin: digests["static-deployment/web-admin-container.mjs"] }),
       packageClosureDigest: digests[salesTarball], migrationPlanDigest: digests["static-deployment-migration.ts"]
     },
     digests,
@@ -223,6 +225,8 @@ async function builder() {
   const resultPath = requiredPath("P9_BUILD_RESULT_PATH");
   const authorityResultPath = requiredPath("P9_AUTHORITY_RESULT_PATH");
   const artifactsDirectory = requiredPath("P9_ARTIFACTS_DIRECTORY");
+  const signingKeyPath = requiredPath("P9_BUILDER_SIGNING_KEY_PATH");
+  const trustPolicyPath = requiredPath("P9_BUILDER_TRUST_POLICY_PATH");
   const approvedDigest = process.env.P9_APPROVED_INPUT_DIGEST;
   const sourceResultDigest = process.env.P9_SOURCE_RESULT_DIGEST;
   if (!approvedDigest || !sourceResultDigest || await fileDigest(approvedPath) !== approvedDigest || await fileDigest(sourceResultPath) !== sourceResultDigest) throw new Error("Builder rejected altered fixed source/build inputs.");
@@ -257,7 +261,12 @@ async function builder() {
   const sbom = { bomFormat: "CycloneDX", components: [{ name: "@k-nex/module-sales", version: materials.pluginVersion, hashes: [{ alg: "SHA-256", content: materials.composition.packageClosureDigest.slice(7) }] }], sourceCommit: source.targetSourceCommit };
   const sbomPath = join(artifactsDirectory, `${source.targetSourceCommit}.sbom.json`);
   await writeJson(sbomPath, sbom);
-  const authority = { kind: "self-hosted-trusted", builderIdentity: "builder:k-nex-phase-9", trustPolicyDigest: digestJson({ policy: "fixture-static-builder: immutable source and Docker output" }), ref: "source-commit" };
+  const trustPolicy = await readJson(trustPolicyPath);
+  const signingKey = await readFile(signingKeyPath, "utf8");
+  const authority = trustPolicy.authority;
+  if (trustPolicy.builderIdentity !== "builder:k-nex-phase-9" || authority?.builderIdentity !== trustPolicy.builderIdentity || typeof trustPolicy.publicKey !== "string" || !trustPolicy.publicKey.includes("BEGIN PUBLIC KEY") || !signingKey.includes("BEGIN PRIVATE KEY")) {
+    throw new Error("Builder rejected an independently provisioned trust policy or signing identity.");
+  }
   const plan = {
     schemaVersion: 1, planId: "composition-plan-12", applicationId: approved.applicationId, environment: approved.environment, deliveryClass: "platform-plugin",
     plugin: { id: source.plugin.id, version: source.plugin.version, releaseManifestDigest: source.target.packageClosureDigest }, authority: { identity: approved.authority.identity, requestDigest: approved.authorization.decisionId },
@@ -274,9 +283,8 @@ async function builder() {
   const provenancePath = join(artifactsDirectory, `${source.targetSourceCommit}.provenance.json`);
   await writeJson(provenancePath, provenance);
   const statement = { schemaVersion: 1, applicationId: approved.applicationId, environment: approved.environment, sourceCommit: source.targetSourceCommit, authority, composition: source.target, sbomDigest: await fileDigest(sbomPath), provenanceDigest: await fileDigest(provenancePath), applicationSubject: { name: "customer-alpha.application.json", digest: applicationDigest }, imageSubject: { repository: "knex-p9-customer-alpha", digest: imageDigest } };
-  const keys = generateKeyPairSync("ed25519");
-  const evidence = { ...statement, signature: { algorithm: "ed25519", keyId: authority.builderIdentity, value: sign(null, Buffer.from(canonicalJson(statement)), keys.privateKey).toString("base64") } };
-  await writeJson(resultPath, { state: "built", sourceResultDigest, plan, evidence, publicKey: keys.publicKey.export({ type: "spki", format: "pem" }).toString(), applicationDigest, applicationPath, imageDigest, imageReference: `knex-p9-customer-alpha@${imageDigest}`, tag, sbom, sbomPath, provenance, provenancePath, composition: source.target, pluginVersion: source.plugin.version });
+  const evidence = { ...statement, signature: { algorithm: "ed25519", keyId: trustPolicy.builderIdentity, value: sign(null, Buffer.from(canonicalJson(statement)), signingKey).toString("base64") } };
+  await writeJson(resultPath, { state: "built", sourceResultDigest, plan, evidence, applicationDigest, applicationPath, imageDigest, imageReference: `knex-p9-customer-alpha@${imageDigest}`, tag, sbom, sbomPath, provenance, provenancePath, composition: source.target, pluginVersion: source.plugin.version });
   const authorized = await waitJson(authorityResultPath);
   if (authorized.checkpointId !== digestJson({ authority: approved.authority.identity, authorization: approved.authorization, request: staticChangeRequest(source, plan) }) || canonicalJson(authorized.change.change) !== canonicalJson(plan)) {
     throw new Error("Builder rejected an unbound source authority checkpoint.");
@@ -286,7 +294,7 @@ async function builder() {
   const deployment = await releases.request(change, approved.authorization);
   const evidenceDigest = digestJson(evidence);
   await releases.attestBuild({ buildRequestDigest: deployment.buildRequestDigest, expectedVersion: source.plugin.version, sourceCommit: source.targetSourceCommit, buildEvidenceDigest: evidenceDigest, applicationDigest, imageDigest });
-  const result = { state: "attested", sourceResultDigest, plan, checkpointId: authorized.checkpointId, change, evidence, publicKey: keys.publicKey.export({ type: "spki", format: "pem" }).toString(), evidenceDigest, buildRequestDigest: deployment.buildRequestDigest, applicationDigest, applicationPath, imageDigest, imageReference: `knex-p9-customer-alpha@${imageDigest}`, tag, sbom, sbomPath, provenance, provenancePath, composition: source.target, pluginVersion: source.plugin.version };
+  const result = { state: "attested", sourceResultDigest, plan, checkpointId: authorized.checkpointId, change, evidence, evidenceDigest, buildRequestDigest: deployment.buildRequestDigest, applicationDigest, applicationPath, imageDigest, imageReference: `knex-p9-customer-alpha@${imageDigest}`, tag, sbom, sbomPath, provenance, provenancePath, composition: source.target, pluginVersion: source.plugin.version };
   await writeJson(resultPath, result);
   await event("builder-built-and-attested", { sourceCommit: source.targetSourceCommit, imageDigest, applicationDigest, buildRequestDigest: deployment.buildRequestDigest, evidenceDigest });
   ready({ imageDigest, applicationDigest, buildRequestDigest: deployment.buildRequestDigest, buildResultDigest: await fileDigest(resultPath) });
@@ -300,7 +308,13 @@ async function observeAuthority() {
   let authority = await releases.readRequest(requestDigest);
   if (!authority || !["builder-attested", "deployment-requested", "deployed"].includes(authority.status)) throw new Error(`${role} process cannot recover an attested PostgreSQL release authority.`);
   if (role === "deployer" && authority.status === "builder-attested") {
+    const built = await readJson(requiredPath("P9_BUILD_RESULT_PATH"));
+    const image = JSON.parse((await execute("docker", ["image", "inspect", built.imageDigest], { maxBuffer: 1024 * 1024 })).stdout)[0];
+    if (image.Id !== authority.imageDigest || image.Config.Labels?.["org.opencontainers.image.revision"] !== authority.sourceCommit) {
+      throw new Error("Deployer rejected a local image that does not match the independently attested source authority.");
+    }
     authority = await releases.requestDeployment({ buildRequestDigest: requestDigest, expectedVersion: authority.version });
+    await event("deployer-artifact-reverified", { imageDigest: image.Id, sourceCommit: authority.sourceCommit, operation: "content-addressed-pull-reverify" });
   }
   const deployment = await pool.query("select revision, active_generation from runtime_static_deployments where application_id='customer-alpha' and environment='production'");
   const active = deployment.rows[0]?.active_generation;
@@ -403,7 +417,8 @@ async function webAdmin() {
 
 if (role === "source-authority") await sourceAuthority();
 else if (role === "builder") await builder();
-else if (role === "deployer" || role === "supervisor") await observeAuthority();
+else if (role === "deployer") await observeAuthority();
+else if (role === "supervisor") await runDeploymentSupervisor({ event, ready });
 else if (role === "worker") await worker();
 else if (role === "gateway") await gateway();
 else if (role === "realtime-client") await realtime();

@@ -9,6 +9,9 @@ declare global {
     __K_NEX_REMOTE_PROBE__?: Record<string, string>;
     __K_NEX_REMOTE_WINDOW_MESSAGES__?: number;
     __K_NEX_REMOTE_HEARTBEATS__?: number;
+    __K_NEX_REMOTE_SOURCE_CALLS__?: number;
+    __K_NEX_REMOTE_SOURCE_TARGETS__?: string[];
+    __K_NEX_REMOTE_ACTION_CALLS__?: number;
   }
 }
 
@@ -59,8 +62,8 @@ session = new RemoteUiHostSession({
   fallback(code) { root.replaceChildren(Object.assign(document.createElement("div"), { role: "alert", textContent: `Application unavailable: ${code}` })); },
   focus(nodeId) { root.querySelector<HTMLElement>(`[data-node-id="${nodeId}"]`)?.focus(); },
   navigate(route) { history.pushState(null, "", route); },
-  source: async (targetId) => { if (targetId === "sales.heartbeat") window.__K_NEX_REMOTE_HEARTBEATS__ = (window.__K_NEX_REMOTE_HEARTBEATS__ ?? 0) + 1; return { targetId, rows: 2 }; },
-  action: async (targetId) => ({ targetId, changed: true })
+  source: async (targetId) => { window.__K_NEX_REMOTE_SOURCE_CALLS__ = (window.__K_NEX_REMOTE_SOURCE_CALLS__ ?? 0) + 1; (window.__K_NEX_REMOTE_SOURCE_TARGETS__ ??= []).push(targetId); if (targetId === "sales.heartbeat") window.__K_NEX_REMOTE_HEARTBEATS__ = (window.__K_NEX_REMOTE_HEARTBEATS__ ?? 0) + 1; return { targetId, rows: 2 }; },
+  action: async (targetId) => { window.__K_NEX_REMOTE_ACTION_CALLS__ = (window.__K_NEX_REMOTE_ACTION_CALLS__ ?? 0) + 1; return { targetId, changed: true }; }
 });
 try {
   createOpaqueRemoteUiFrame(document, session, window.__K_NEX_REMOTE_HOSTILE_FRAME_URL__, "Hostile isolated application", { allowInsecureDevelopmentOrigin: true });
