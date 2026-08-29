@@ -1,12 +1,21 @@
 import { createHash, randomUUID } from "node:crypto";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 
+import type { VerifiedArtifactOwner, VerifiedArtifactRunnerSource } from "@k-nex/extension-bundler";
 import type { ExtensionCapabilityGateway, ExtensionCapabilityId } from "@k-nex/runtime";
 
+import { assertDockerSecurityPolicy, defaultDockerIsolationPolicy, runnerSeccompProfile, type DockerIsolationPolicy } from "./policy.js";
 import { runnerServiceSource } from "./service-source.js";
 
 export const extensionRunnerImage = "node:24.19.0-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43";
+
+export interface RunnerArtifactOwner extends VerifiedArtifactOwner {
+  readonly deliveryClass: "hot-application";
+}
 
 export interface RunnerGenerationIdentity {
   readonly applicationId: string;
@@ -28,10 +37,13 @@ export interface RunnerInvocationLimits {
   readonly maxConcurrency: number;
 }
 
-export interface RunnerInvocationRequest extends RunnerGenerationIdentity {
+export interface RunnerInvocationRequest {
+  readonly owner: RunnerArtifactOwner;
+  readonly generationId: string;
+  readonly artifactDigest: `sha256:${string}`;
+  readonly serverEntrypoint: string;
   readonly invocationId: string;
   readonly token: string;
-  readonly source: string;
   readonly input: unknown;
   readonly limits: RunnerInvocationLimits;
   readonly signal?: AbortSignal;
@@ -54,10 +66,14 @@ export interface RunnerObservationSink {
 }
 
 export class RunnerInvocationError extends Error {
-  constructor(readonly code: "RUNNER_UNAVAILABLE" | "GENERATION_DRAINING" | "GENERATION_QUARANTINED" | "CONCURRENCY_EXHAUSTED" | "INVOCATION_INVALID" | "INVOCATION_TIMEOUT" | "OUTPUT_BUDGET_EXCEEDED" | "PROTOCOL_VIOLATION" | "CONTAINER_FAILED" | "APPLICATION_FAILED", message: string) {
+  constructor(readonly code: "RUNNER_UNAVAILABLE" | "GENERATION_DRAINING" | "GENERATION_QUARANTINED" | "CONCURRENCY_EXHAUSTED" | "INVOCATION_INVALID" | "INVOCATION_TIMEOUT" | "OUTPUT_BUDGET_EXCEEDED" | "PROTOCOL_VIOLATION" | "POLICY_UNAVAILABLE" | "CONTAINER_FAILED" | "APPLICATION_FAILED", message: string) {
     super(message);
     this.name = "RunnerInvocationError";
   }
+}
+
+interface ResolvedRunnerInvocation extends RunnerInvocationRequest, RunnerGenerationIdentity {
+  readonly source: string;
 }
 
 interface GenerationState {
@@ -93,6 +109,10 @@ function generationKey(identity: RunnerGenerationIdentity): string {
   return `${identity.applicationId}/${identity.environment}/${identity.appId}/${identity.generationId}`;
 }
 
+function identity(request: RunnerInvocationRequest): RunnerGenerationIdentity {
+  return { applicationId: request.owner.applicationId, environment: request.owner.environment, appId: request.owner.extensionId, generationId: request.generationId };
+}
+
 function validateIdentity(identity: RunnerGenerationIdentity): void {
   if (!applicationPattern.test(identity.applicationId) || !environmentPattern.test(identity.environment) || !appPattern.test(identity.appId) || !recordPattern.test(identity.generationId)) {
     throw new TypeError("Runner generation identity is invalid.");
@@ -104,10 +124,12 @@ function jsonBytes(value: unknown): number {
 }
 
 function validateRequest(request: RunnerInvocationRequest): void {
-  validateIdentity(request);
+  const runnerIdentity = identity(request);
+  validateIdentity(runnerIdentity);
   const limits = request.limits;
   if (!recordPattern.test(request.invocationId) ||
-    request.token.length < 32 || request.token.length > 8192 || request.source.length < 1 || Buffer.byteLength(request.source) > 1_048_576 || jsonBytes(request.input) > limits.inputBytes ||
+    request.owner.deliveryClass !== "hot-application" || !/^sha256:[0-9a-f]{64}$/u.test(request.artifactDigest) || !/^server\/[a-zA-Z0-9._/-]+\.mjs$/u.test(request.serverEntrypoint) || request.serverEntrypoint.includes("..") ||
+    request.token.length < 32 || request.token.length > 8192 || jsonBytes(request.input) > limits.inputBytes ||
     !Number.isSafeInteger(limits.cpuMilliCores) || limits.cpuMilliCores < 1 || limits.cpuMilliCores > 2_000 ||
     !Number.isSafeInteger(limits.memoryMiB) || limits.memoryMiB < 16 || limits.memoryMiB > 512 ||
     !Number.isSafeInteger(limits.processes) || limits.processes < 1 || limits.processes > 256 ||
@@ -134,37 +156,46 @@ export class DockerHotApplicationSandboxSupervisor {
     private readonly gateway: ExtensionCapabilityGateway,
     private readonly quarantineSink: RunnerQuarantineSink,
     private readonly observationSink: RunnerObservationSink,
+    private readonly artifacts: VerifiedArtifactRunnerSource,
+    private readonly isolationPolicy: DockerIsolationPolicy = defaultDockerIsolationPolicy,
     private readonly image = extensionRunnerImage
   ) {
     if (!/^node:24\.19\.0-alpine@sha256:[0-9a-f]{64}$/u.test(image)) throw new TypeError("Runner image must be pinned to the approved Node release digest.");
+    assertDockerSecurityPolicy(isolationPolicy);
   }
 
   async invoke(request: RunnerInvocationRequest): Promise<unknown> {
     validateRequest(request);
     if (request.signal?.aborted) throw new RunnerInvocationError("INVOCATION_TIMEOUT", "Runner invocation was aborted.");
-    this.gateway.assertInvocationIdentity(request.token, request);
-    const state = this.state(request);
+    const runnerIdentity = identity(request);
+    this.gateway.assertInvocationIdentity(request.token, { ...runnerIdentity, invocationId: request.invocationId });
+    let source: string;
+    try { source = this.artifacts.load({ owner: { ...request.owner, generationId: request.generationId }, artifactDigest: request.artifactDigest, serverEntrypoint: request.serverEntrypoint }).source; } catch {
+      throw new RunnerInvocationError("INVOCATION_INVALID", "Runner artifact identity is not present in the verified inventory.");
+    }
+    const resolved = { ...request, ...runnerIdentity, source };
+    const state = this.state(runnerIdentity);
     if (state.quarantined) throw new RunnerInvocationError("GENERATION_QUARANTINED", "Runner generation is quarantined.");
     if (!state.accepting) throw new RunnerInvocationError("GENERATION_DRAINING", "Runner generation is draining.");
     if (state.active >= request.limits.maxConcurrency) throw new RunnerInvocationError("CONCURRENCY_EXHAUSTED", "Runner generation concurrency is exhausted.");
     state.active += 1;
-    const containerName = `k-nex-${request.appId.replaceAll(".", "-")}-${request.generationId}-${randomUUID().slice(0, 8)}`.slice(0, 120);
+    const containerName = `k-nex-${resolved.appId.replaceAll(".", "-")}-${resolved.generationId}-${randomUUID().slice(0, 8)}`.slice(0, 120);
     state.containers.add(containerName);
     try {
-      return await this.runContainer(request, containerName, state.workloadUser);
+      return await this.runContainer(resolved, containerName, state.workloadUser);
     } catch (error) {
       const normalized = error instanceof RunnerInvocationError ? error : new RunnerInvocationError("CONTAINER_FAILED", "Runner container failed.");
       state.failures += 1;
       if (["INVOCATION_TIMEOUT", "OUTPUT_BUDGET_EXCEEDED", "PROTOCOL_VIOLATION", "CONTAINER_FAILED"].includes(normalized.code)) {
         state.quarantined = true;
         state.accepting = false;
-        await this.quarantineSink.quarantine(request, normalized.code);
+        await this.quarantineSink.quarantine(resolved, normalized.code);
       }
       throw normalized;
     } finally {
       state.active -= 1;
       state.containers.delete(containerName);
-      await this.observationSink.stopped(request, containerName);
+      await this.observationSink.stopped(resolved, containerName);
     }
   }
 
@@ -200,22 +231,28 @@ export class DockerHotApplicationSandboxSupervisor {
     return state;
   }
 
-  private runContainer(request: RunnerInvocationRequest, containerName: string, workloadUser: number): Promise<unknown> {
+  private runContainer(request: ResolvedRunnerInvocation, containerName: string, workloadUser: number): Promise<unknown> {
+    const policyDirectory = mkdtempSync(join(tmpdir(), "k-nex-runner-seccomp-"));
+    const seccompPath = join(policyDirectory, "policy.json");
+    writeFileSync(seccompPath, runnerSeccompProfile, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    const isolationOptions = this.isolationPolicy.kind === "apparmor"
+      ? ["--security-opt", `apparmor=${this.isolationPolicy.profile}`]
+      : this.isolationPolicy.kind === "selinux" ? ["--security-opt", this.isolationPolicy.label] : [];
     const args = [
       "run", "--rm", "-i", "--name", containerName,
       "--label", `k-nex.application=${request.applicationId}`, "--label", `k-nex.app=${request.appId}`, "--label", `k-nex.generation=${request.generationId}`,
       "--network", "none", "--read-only", "--user", `${workloadUser}:${workloadUser}`, "--workdir", "/tmp",
       "--tmpfs", `/tmp:rw,noexec,nosuid,nodev,size=${request.limits.tempBytes},mode=700,uid=${workloadUser},gid=${workloadUser}`,
-      "--cap-drop", "ALL", "--security-opt", "no-new-privileges=true", "--pids-limit", String(request.limits.processes),
+      "--cap-drop", "ALL", "--security-opt", "no-new-privileges=true", "--security-opt", `seccomp=${seccompPath}`, ...isolationOptions, "--pids-limit", String(request.limits.processes),
       "--memory", `${request.limits.memoryMiB}m`, "--memory-swap", `${request.limits.memoryMiB}m`, "--cpus", String(request.limits.cpuMilliCores / 1000),
       "--ulimit", `nofile=${request.limits.openFiles}:${request.limits.openFiles}`, "--env", "HOME=/tmp", "--env", "NODE_NO_WARNINGS=1",
-      this.image, "node", "--permission", "-e", runnerServiceSource
+      this.image, "node", "--permission", "--experimental-vm-modules", "-e", runnerServiceSource
     ];
     const child = spawn("docker", args, { stdio: ["pipe", "pipe", "pipe"] });
-    return this.exchange(child, request, containerName);
+    return this.exchange(child, request, containerName, () => rmSync(policyDirectory, { recursive: true, force: true }));
   }
 
-  private exchange(child: ChildProcessWithoutNullStreams, request: RunnerInvocationRequest, containerName: string): Promise<unknown> {
+  private exchange(child: ChildProcessWithoutNullStreams, request: ResolvedRunnerInvocation, containerName: string, cleanup: () => void): Promise<unknown> {
     return new Promise((resolve, reject) => {
       let settled = false;
       let protocolBytes = 0;
@@ -226,6 +263,7 @@ export class DockerHotApplicationSandboxSupervisor {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        cleanup();
         request.signal?.removeEventListener("abort", abort);
         void this.kill(containerName);
         reject(error);
@@ -234,6 +272,7 @@ export class DockerHotApplicationSandboxSupervisor {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        cleanup();
         request.signal?.removeEventListener("abort", abort);
         child.stdin.end();
         void this.kill(containerName).then(() => resolve(value));
@@ -253,13 +292,16 @@ export class DockerHotApplicationSandboxSupervisor {
       const lines = createInterface({ input: child.stdout, crlfDelay: Infinity, terminal: false });
       lines.on("line", (line) => { void this.handleFrame(line, request, child, controller.signal, (bytes) => { logBytes += bytes; if (logBytes > request.limits.logBytes) fail(new RunnerInvocationError("OUTPUT_BUDGET_EXCEEDED", "Runner logs exceeded their budget.")); }, finish, fail); });
       child.once("spawn", () => {
-        Promise.resolve(this.observationSink.started(request, containerName)).then(() => {
+        Promise.resolve(this.inspectSecurity(containerName)).then(() => this.observationSink.started(request, containerName)).then(() => {
           child.stdin.write(`${JSON.stringify({ type: "invoke", schemaVersion: 1, invocationId: request.invocationId, generationId: request.generationId, token: request.token, source: request.source, input: request.input, maxInputBytes: request.limits.inputBytes, maxOutputBytes: request.limits.outputBytes })}\n`);
-        }).catch(() => fail(new RunnerInvocationError("CONTAINER_FAILED", "Runner container observation failed.")));
+        }).catch((error) => fail(error instanceof RunnerInvocationError ? error : new RunnerInvocationError("CONTAINER_FAILED", "Runner container observation failed.")));
       });
       child.once("close", (code) => {
         controller.abort();
-        if (!settled) fail(new RunnerInvocationError(code === 0 ? "PROTOCOL_VIOLATION" : "CONTAINER_FAILED", code === 0 ? "Runner exited without a result." : "Runner container exited unsuccessfully."));
+        if (!settled) {
+          const policyFailure = /(?:apparmor|selinux|seccomp|user\s*namespace|userns)/iu.test(stderr);
+          fail(new RunnerInvocationError(code === 0 ? "PROTOCOL_VIOLATION" : policyFailure ? "POLICY_UNAVAILABLE" : "CONTAINER_FAILED", code === 0 ? "Runner exited without a result." : policyFailure ? "Docker could not apply the required isolation policy." : "Runner container exited unsuccessfully."));
+        }
       });
     });
   }
@@ -302,6 +344,70 @@ export class DockerHotApplicationSandboxSupervisor {
     fail(new RunnerInvocationError("PROTOCOL_VIOLATION", "Runner emitted an invalid protocol frame."));
   }
 
+  private async inspectSecurity(containerName: string): Promise<void> {
+    let inspected: Record<string, unknown>;
+    try { inspected = await this.inspectRunningContainer(containerName); }
+    catch { throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker did not expose the launched container security state."); }
+    const host = inspected.HostConfig as Record<string, unknown> | undefined;
+    const securityOptions = host?.SecurityOpt;
+    const options = Array.isArray(securityOptions) ? securityOptions : [];
+    if (!options.includes("no-new-privileges=true") || !options.includes(`seccomp=${runnerSeccompProfile}`)) {
+      throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker did not apply the required custom seccomp policy.");
+    }
+    if (this.isolationPolicy.kind === "apparmor" && (!options.includes(`apparmor=${this.isolationPolicy.profile}`) || inspected.AppArmorProfile !== this.isolationPolicy.profile)) {
+      throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker did not apply the required AppArmor profile.");
+    }
+    if (this.isolationPolicy.kind === "selinux" && (!options.includes(this.isolationPolicy.label) || typeof inspected.ProcessLabel !== "string" || inspected.ProcessLabel.length === 0)) {
+      throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker did not apply the required SELinux label.");
+    }
+    const config = inspected.Config as Record<string, unknown> | undefined;
+    if (typeof config?.User !== "string" || !/^\d{5}:\d{5}$/u.test(config.User)) throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker did not apply the generation-specific non-root identity.");
+    if (this.isolationPolicy.kind === "virtual-machine") {
+      const operatingSystem = await this.dockerOperatingSystem();
+      if (operatingSystem !== this.isolationPolicy.operatingSystem || host?.UsernsMode === "host") {
+        throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker Desktop did not provide the approved VM and container user boundary.");
+      }
+      return;
+    }
+    const state = inspected.State as Record<string, unknown> | undefined;
+    const pid = state?.Pid;
+    if (typeof pid !== "number" || !Number.isSafeInteger(pid) || pid <= 0) throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker did not expose a running container PID for user-namespace verification.");
+    let uidMap: string;
+    try { uidMap = readFileSync(`/proc/${pid}/uid_map`, "utf8"); } catch { throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Host cannot verify the container user namespace."); }
+    if (/^\s*0\s+0\s+/u.test(uidMap)) throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker launched the runner without a remapped user namespace.");
+  }
+
+  private async inspectRunningContainer(containerName: string): Promise<Record<string, unknown>> {
+    let error: unknown;
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      try {
+        const value = await this.dockerJson(["inspect", containerName]);
+        if (Array.isArray(value) && value[0] && typeof value[0] === "object") return value[0] as Record<string, unknown>;
+      } catch (caught) { error = caught; }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    throw error ?? new Error("container inspect unavailable");
+  }
+
+  private async dockerOperatingSystem(): Promise<string> {
+    const value = await this.dockerOutput(["info", "--format", "{{.OperatingSystem}}"]);
+    return value.trim();
+  }
+
+  private async dockerJson(args: readonly string[]): Promise<unknown> {
+    return JSON.parse(await this.dockerOutput(args));
+  }
+
+  private dockerOutput(args: readonly string[]): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const child = spawn("docker", [...args], { stdio: ["ignore", "pipe", "ignore"] });
+      const output: Buffer[] = [];
+      child.stdout.on("data", (chunk: Buffer) => output.push(chunk));
+      child.once("error", reject);
+      child.once("close", (code) => code === 0 ? resolve(Buffer.concat(output).toString("utf8")) : reject(new Error("docker command failed")));
+    });
+  }
+
   private async kill(containerName: string): Promise<void> {
     await new Promise<void>((resolve) => {
       const child = spawn("docker", ["kill", containerName], { stdio: "ignore" });
@@ -312,3 +418,18 @@ export class DockerHotApplicationSandboxSupervisor {
 }
 
 export { runnerServiceSource } from "./service-source.js";
+export {
+  defaultDockerIsolationPolicy,
+  dockerAppArmorPolicy,
+  dockerSelinuxPolicy,
+  runnerAppArmorProfile,
+  runnerAppArmorProfileDigest,
+  runnerAppArmorProfileName,
+  runnerSeccompProfile,
+  runnerSeccompProfileDigest,
+  runnerSelinuxLabel,
+  runnerSelinuxPolicyDigest,
+  runnerVirtualMachineBoundary,
+  runnerVirtualMachineBoundaryDigest,
+  type DockerIsolationPolicy
+} from "./policy.js";

@@ -136,6 +136,19 @@ describe("extension bundler", () => {
     expect(new CatalogClient({ [fixture.signer.identity]: fixture.signer.publicKey }).read(fixture)).toHaveLength(1);
   });
 
+  it("binds runner code to the verified owner, generation, artifact, and declared entrypoint", () => {
+    const { client, request, publishers } = release();
+    const store = new VerifiedArtifactStore(new ArtifactVerifier(client, publishers));
+    const owner = { applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application" as const, extensionId: "app.sales-fixture", generationId: "sales-fixture-generation-1" };
+    const staged = store.stageForOwner(owner, request);
+    const source = store.runnerSource();
+    expect(source.load({ owner, artifactDigest: staged.artifactDigest, serverEntrypoint: "server/main.mjs" }).source).toContain("export const run");
+    expect(() => source.load({ owner, artifactDigest: staged.artifactDigest, serverEntrypoint: "server/not-declared.mjs" })).toThrow(/declared/u);
+    const entrypoint = store.read(staged.artifactDigest)!.verified.files.get("server/main.mjs")!;
+    entrypoint.fill(0x20);
+    expect(() => source.load({ owner, artifactDigest: staged.artifactDigest, serverEntrypoint: "server/main.mjs" })).toThrow(/no longer matches/u);
+  });
+
   it("rejects unknown catalog fields and invalid delivery-class-to-ID bindings at the catalog boundary", () => {
     const { catalog, client } = release();
     expect(() => client.read({ ...catalog, extra: true })).toThrow(/Invalid official catalog/u);

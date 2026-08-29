@@ -1,3 +1,4 @@
+export { canonicalJson } from "@k-nex/contracts";
 export * from "./bundle.js";
 export * from "./catalog.js";
 export * from "./inventory.js";

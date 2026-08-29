@@ -17,6 +17,7 @@
     "test:docker": "vitest run tests/docker-sandbox.test.ts"
   },
   "dependencies": {
+    "@k-nex/extension-bundler": "workspace:*",
     "@k-nex/runtime": "workspace:*"
   },
   "devDependencies": {

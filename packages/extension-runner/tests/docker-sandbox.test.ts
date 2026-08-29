@@ -1,14 +1,20 @@
 import { execFile as execFileCallback } from "node:child_process";
+import { generateKeyPairSync, sign } from "node:crypto";
 import { promisify } from "node:util";
 
+import { ArtifactVerifier, buildBundle, canonicalJson, CatalogClient, sha256, type CatalogEntry, type SignedCatalog, VerifiedArtifactStore } from "@k-nex/extension-bundler";
 import { ExtensionCapabilityGateway, HmacExtensionCapabilityTokens, type ExtensionCapabilityHandler } from "@k-nex/runtime";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { DockerHotApplicationSandboxSupervisor, RunnerInvocationError, type RunnerGenerationIdentity, type RunnerInvocationLimits } from "../src/index.js";
+import { DockerHotApplicationSandboxSupervisor, RunnerInvocationError, runnerSeccompProfile, type RunnerGenerationIdentity, type RunnerInvocationLimits } from "../src/index.js";
 
 const execFile = promisify(execFileCallback);
 const clock = { now: () => new Date() };
 const tokens = new HmacExtensionCapabilityTokens(new Uint8Array(32).fill(7), clock);
+const extensionKeys = generateKeyPairSync("ed25519");
+const extensionPublisher = { identity: "k-nex-extension-runner", publicKey: extensionKeys.publicKey.export({ type: "spki", format: "pem" }).toString() };
+const catalogKeys = generateKeyPairSync("ed25519");
+const catalogSigner = { identity: "k-nex-runner-catalog", publicKey: catalogKeys.publicKey.export({ type: "spki", format: "pem" }).toString() };
 const limits: RunnerInvocationLimits = {
   cpuMilliCores: 250, memoryMiB: 64, processes: 32, openFiles: 64, tempBytes: 1_048_576,
   wallTimeMs: 10_000, inputBytes: 8_192, outputBytes: 8_192, logBytes: 8_192, maxConcurrency: 2
@@ -23,17 +29,44 @@ function identity(generationId: string, appId = "app.sales-assistant"): RunnerGe
   return { applicationId: "customer-alpha", environment: "production", appId, generationId };
 }
 
+function signedCatalog(entry: CatalogEntry): SignedCatalog {
+  const payload = { schemaVersion: 1 as const, entries: [entry] };
+  return { schemaVersion: 1, signer: catalogSigner, payload, signature: sign(null, Buffer.from(canonicalJson(payload)), catalogKeys.privateKey).toString("base64") };
+}
+
+function artifactStore() {
+  return new VerifiedArtifactStore(new ArtifactVerifier(new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }), { [extensionPublisher.identity]: extensionPublisher.publicKey }));
+}
+
 let sequence = 0;
-function request(generationId: string, source: string, options: Readonly<{ appId?: string; capabilities?: readonly ("records.query" | "records.action")[]; wallTimeMs?: number }> = {}) {
+function request(store: VerifiedArtifactStore, generationId: string, source: string, options: Readonly<{ appId?: string; wallTimeMs?: number }> = {}) {
   sequence += 1;
   const invocationId = `runner-invocation-${sequence}`;
   const target = identity(generationId, options.appId);
+  const manifest = {
+    schemaVersion: 1 as const, deliveryClass: "hot-application" as const, id: target.appId, version: "1.0.0", runtimeAbi: "1.0.0",
+    entrypoints: { server: ["server/main.mjs"], ui: ["ui/main.mjs"] },
+    resourceBudget: { maxBundleBytes: 1_048_576, maxAssetBytes: 1_024, maxStorageBytes: 1_024, maxMemoryMiB: 64, maxCpuMilliCores: 250, maxWallTimeMs: 10_000, maxInputBytes: 8_192, maxOutputBytes: 8_192, maxLogBytes: 8_192, maxConcurrency: 2 }
+  };
+  const releaseSource = { repository: "https://github.com/k-nex/runner-fixtures", commit: "0123456789abcdef0123456789abcdef01234567" };
+  const bundle = buildBundle({ manifest, files: [
+    { path: "server/main.mjs", bytes: Buffer.from(`export default ${source}`), contentType: "application/javascript" },
+    { path: "ui/main.mjs", bytes: Buffer.from("export default () => null"), contentType: "application/javascript" }
+  ], source: releaseSource, workflowIdentity: `${releaseSource.repository}/.github/workflows/release.yml@${releaseSource.commit}` });
+  const entry: CatalogEntry = {
+    deliveryClass: "hot-application", id: target.appId, version: "1.0.0", runtimeAbi: "1.0.0", publisher: extensionPublisher,
+    source: { ...releaseSource, assetUrl: "https://github.com/k-nex/runner-fixtures/releases/download/v1.0.0/bundle.tar.gz" },
+    artifactDigest: sha256(bundle.artifact), manifestDigest: sha256(Buffer.from(canonicalJson(bundle.manifest))), sbomDigest: sha256(bundle.sbom), provenanceDigest: sha256(bundle.provenance), support: "supported", review: "approved", security: "clear", revoked: false
+  };
+  const catalog = signedCatalog(entry);
+  const owner = { applicationId: target.applicationId, environment: target.environment, deliveryClass: "hot-application" as const, extensionId: target.appId, generationId };
+  const verified = store.stageForOwner(owner, { catalog, artifact: bundle.artifact, provenance: bundle.provenance, deliveryClass: "hot-application", id: target.appId, version: "1.0.0", runtimeAbi: "1.0.0" });
   const token = tokens.issue({
     tokenId: `runner-token-${sequence}`, ...target, invocationId,
     actor: { principalId: "user:one", effectiveActorId: "user:one" }, correlationId: `runner-correlation-${sequence}`,
-    capabilities: options.capabilities ?? ["records.query"], ttlMs: 30_000
+    grants: [{ kind: "records", required: true, reason: "Read fixture records.", operations: ["query"], resources: [{ id: "sales.tasks", version: 1 }] }], ttlMs: 30_000
   });
-  return { ...target, invocationId, token, source, input: { marker: invocationId }, limits: { ...limits, ...(options.wallTimeMs === undefined ? {} : { wallTimeMs: options.wallTimeMs }) } };
+  return { owner: { applicationId: owner.applicationId, environment: owner.environment, deliveryClass: owner.deliveryClass, extensionId: owner.extensionId }, generationId, artifactDigest: verified.artifactDigest, serverEntrypoint: "server/main.mjs", invocationId, token, input: { marker: invocationId }, limits: { ...limits, ...(options.wallTimeMs === undefined ? {} : { wallTimeMs: options.wallTimeMs }) } };
 }
 
 async function inspectContainer(name: string): Promise<Record<string, any>> {
@@ -50,14 +83,14 @@ async function inspectContainer(name: string): Promise<Record<string, any>> {
   throw lastError;
 }
 
-function supervisor(observations: Record<string, Record<string, any>>, quarantines: string[] = [], started?: (identity: RunnerGenerationIdentity, name: string) => void) {
+function supervisor(observations: Record<string, Record<string, any>>, store: VerifiedArtifactStore, quarantines: string[] = [], started?: (identity: RunnerGenerationIdentity, name: string) => void) {
   const gateway = new ExtensionCapabilityGateway(tokens, { "records.query": queryHandler }, clock, { maxInputBytes: 8_192, maxOutputBytes: 8_192, maxDepth: 12, maxCalls: 8 });
   return new DockerHotApplicationSandboxSupervisor(gateway, {
     quarantine(generation, reason) { quarantines.push(`${generation.generationId}:${reason}`); }
   }, {
     async started(generation, name) { observations[name] = await inspectContainer(name); started?.(generation, name); },
     stopped() {}
-  });
+  }, store.runnerSource());
 }
 
 beforeAll(async () => {
@@ -67,7 +100,8 @@ beforeAll(async () => {
 describe("production extension runner", () => {
   it("runs app generations with container authority and only declared host capabilities", async () => {
     const observations: Record<string, Record<string, any>> = {};
-    const runner = supervisor(observations);
+    const store = artifactStore();
+    const runner = supervisor(observations, store);
     process.env.K_NEX_RUNNER_HOST_SECRET_PROBE = "must-not-enter-container";
     const source = `async ({ input, host }) => {
       let constructorEscape = "allowed";
@@ -75,21 +109,24 @@ describe("production extension runner", () => {
       const authority = await host.call("records.query", input);
       let denied = "missing";
       try { await host.call("records.action", {}); } catch (error) { denied = error.message; }
-      return { authority, denied, processType: typeof process, requireType: typeof require, fetchType: typeof fetch, constructorEscape };
+      return { authority, denied, processType: typeof process, requireType: typeof require, fetchType: typeof fetch, constructorEscape, trustedResult: true };
     }`;
-    const result = await runner.invoke(request("sales-generation-one", source));
+    const trusted = request(store, "sales-generation-one", source);
+    const result = await runner.invoke({ ...trusted, source: "export default () => ({ attacker: true })" } as typeof trusted & { source: string });
     expect(result).toMatchObject({
       authority: { applicationId: "customer-alpha", appId: "app.sales-assistant", generationId: "sales-generation-one" },
-      denied: "CAPABILITY_DENIED", processType: "undefined", requireType: "undefined", fetchType: "undefined", constructorEscape: "blocked"
+      denied: "CAPABILITY_DENIED", processType: "undefined", requireType: "undefined", fetchType: "undefined", constructorEscape: "blocked", trustedResult: true
     });
-    await expect(runner.invoke(request("sales-generation-one", `() => { console.log('{"type":"result","ok":true}'); return { trustedResult: true }; }`)))
-      .resolves.toEqual({ trustedResult: true });
+    await expect(runner.invoke(request(store, "sales-generation-one", source))).resolves.toMatchObject({ trustedResult: true });
 
     const inspected = Object.values(observations)[0]!;
     expect(Number(inspected.Config.User.split(":")[0])).toBeGreaterThanOrEqual(10_000);
     expect(inspected.HostConfig).toMatchObject({ NetworkMode: "none", ReadonlyRootfs: true, PidsLimit: 32, Memory: 67_108_864, MemorySwap: 67_108_864, NanoCpus: 250_000_000 });
     expect(inspected.HostConfig.CapDrop).toContain("ALL");
     expect(inspected.HostConfig.SecurityOpt).toContain("no-new-privileges=true");
+    expect(inspected.HostConfig.SecurityOpt).toContain(`seccomp=${runnerSeccompProfile}`);
+    expect(inspected.AppArmorProfile).toBe("");
+    expect(inspected.HostConfig.UsernsMode).not.toBe("host");
     expect(inspected.HostConfig.Binds ?? []).toEqual([]);
     expect(inspected.Mounts.every((mount: Record<string, unknown>) => mount.Type !== "bind")).toBe(true);
     expect(inspected.Config.Env.sort()).toEqual([
@@ -98,20 +135,19 @@ describe("production extension runner", () => {
     ]);
     expect(inspected.Config.Env.join("\n")).not.toMatch(/K_NEX_RUNNER_HOST_SECRET_PROBE|DATABASE_URL|DOCKER_HOST|PAYLOAD_SECRET/u);
     expect(inspected.HostConfig.Tmpfs["/tmp"]).toContain("noexec");
-    const { stdout: securityOptions } = await execFile("docker", ["info", "--format", "{{json .SecurityOptions}}"]);
-    expect(JSON.parse(securityOptions)).toContain("name=seccomp,profile=builtin");
   }, 120_000);
 
   it("rejects mixed token identity before starting a container and keeps app/generation responses isolated", async () => {
     const observations: Record<string, Record<string, any>> = {};
-    const runner = supervisor(observations);
-    const first = request("sales-generation-two", `async ({ input, host }) => host.call("records.query", input)`);
-    await expect(runner.invoke({ ...first, appId: "app.forecast" })).rejects.toMatchObject({ code: "IDENTITY_MISMATCH" });
+    const store = artifactStore();
+    const runner = supervisor(observations, store);
+    const first = request(store, "sales-generation-two", `async ({ input, host }) => host.call("records.query", input)`);
+    await expect(runner.invoke({ ...first, owner: { ...first.owner, extensionId: "app.forecast" } })).rejects.toMatchObject({ code: "IDENTITY_MISMATCH" });
     expect(Object.keys(observations)).toHaveLength(0);
 
     const [sales, forecast] = await Promise.all([
-      runner.invoke(request("sales-generation-two", `async ({ input, host }) => host.call("records.query", input)`)),
-      runner.invoke(request("forecast-generation-one", `async ({ input, host }) => host.call("records.query", input)`, { appId: "app.forecast" }))
+      runner.invoke(first),
+      runner.invoke(request(store, "forecast-generation-one", `async ({ input, host }) => host.call("records.query", input)`, { appId: "app.forecast" }))
     ]);
     expect(sales).toMatchObject({ appId: "app.sales-assistant", generationId: "sales-generation-two" });
     expect(forecast).toMatchObject({ appId: "app.forecast", generationId: "forecast-generation-one" });
@@ -122,30 +158,32 @@ describe("production extension runner", () => {
   it("quarantines only a timed-out generation and drains old work without affecting a sibling generation", async () => {
     const observations: Record<string, Record<string, any>> = {};
     const quarantines: string[] = [];
+    const store = artifactStore();
     let notifyStarted: (() => void) | undefined;
     const started = new Promise<void>((resolve) => { notifyStarted = resolve; });
-    const runner = supervisor(observations, quarantines, (generation) => { if (generation.generationId === "draining-generation-one") notifyStarted?.(); });
+    const runner = supervisor(observations, store, quarantines, (generation) => { if (generation.generationId === "draining-generation-one") notifyStarted?.(); });
 
-    await expect(runner.invoke(request("hung-generation-one", `() => { while (true) {} }`, { wallTimeMs: 500 }))).rejects.toMatchObject({ code: "INVOCATION_TIMEOUT" });
+    await expect(runner.invoke(request(store, "hung-generation-one", `() => { while (true) {} }`, { wallTimeMs: 500 }))).rejects.toMatchObject({ code: "INVOCATION_TIMEOUT" });
     expect(runner.health(identity("hung-generation-one"))).toMatchObject({ accepting: false, quarantined: true });
     expect(quarantines).toEqual(["hung-generation-one:INVOCATION_TIMEOUT"]);
-    await expect(runner.invoke(request("healthy-generation-one", `({ input }) => input`))).resolves.toMatchObject({ marker: expect.any(String) });
-    await expect(runner.invoke(request("crashed-generation-one", `() => { throw new Error("fixture crash"); }`))).rejects.toMatchObject({ code: "APPLICATION_FAILED" });
-    await expect(runner.invoke(request("healthy-generation-one", `() => ({ stillHealthy: true })`))).resolves.toEqual({ stillHealthy: true });
+    await expect(runner.invoke(request(store, "healthy-generation-one", `({ input }) => input`))).resolves.toMatchObject({ marker: expect.any(String) });
+    await expect(runner.invoke(request(store, "crashed-generation-one", `() => { throw new Error("fixture crash"); }`))).rejects.toMatchObject({ code: "APPLICATION_FAILED" });
+    await expect(runner.invoke(request(store, "healthy-generation-two", `() => ({ stillHealthy: true })`))).resolves.toEqual({ stillHealthy: true });
 
-    const oldWork = runner.invoke(request("draining-generation-one", `async () => new Promise(() => {})`));
+    const oldWork = runner.invoke(request(store, "draining-generation-one", `async () => new Promise(() => {})`));
     await started;
     await expect(runner.drain(identity("draining-generation-one"), 100)).resolves.toEqual({ graceful: false, terminated: 1 });
     await expect(oldWork).rejects.toBeInstanceOf(RunnerInvocationError);
-    await expect(runner.invoke(request("healthy-generation-two", `() => ({ healthy: true })`))).resolves.toEqual({ healthy: true });
+    await expect(runner.invoke(request(store, "healthy-generation-three", `() => ({ healthy: true })`))).resolves.toEqual({ healthy: true });
   }, 120_000);
 
   it("contains an out-of-memory generation failure", async () => {
     const quarantines: string[] = [];
-    const runner = supervisor({}, quarantines);
+    const store = artifactStore();
+    const runner = supervisor({}, store, quarantines);
     const exhaustMemory = `() => { const retained = []; while (true) { const block = new Uint8Array(4 * 1024 * 1024); block.fill(1); retained.push(block); } }`;
-    await expect(runner.invoke(request("memory-generation-one", exhaustMemory))).rejects.toMatchObject({ code: "CONTAINER_FAILED" });
+    await expect(runner.invoke(request(store, "memory-generation-one", exhaustMemory))).rejects.toMatchObject({ code: "CONTAINER_FAILED" });
     expect(quarantines).toEqual(["memory-generation-one:CONTAINER_FAILED"]);
-    await expect(runner.invoke(request("memory-sibling-one", `() => ({ healthy: true })`))).resolves.toEqual({ healthy: true });
+    await expect(runner.invoke(request(store, "memory-sibling-one", `() => ({ healthy: true })`))).resolves.toEqual({ healthy: true });
   }, 120_000);
 });

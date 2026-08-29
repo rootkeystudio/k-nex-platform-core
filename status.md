@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Sol-high lifecycle hardening checkpoints static source plans before mutation, re-verifies retained dynamic/static artifacts and readiness before rollback, and records rollback-window closure before destructive retirement.
+Sol-high runner hardening removes caller-supplied code, resolves only generation-bound verified artifact entrypoints, applies a pinned custom seccomp profile, and fails closed on native MAC/user-namespace or Docker Desktop VM-boundary evidence.
 
 ## Validation
 
-Node 24.19.0: runtime TypeScript build passed; focused manager, static composition, and deployment supervisor tests 21/21 passed. Full Gate 9 remains pending on the final review head.
+Node 24.19.0: extension bundler and runner builds passed; bundler 12/12 and runner 5/5 passed, including real Docker isolation, hostile source substitution, timeout, OOM, and cross-generation evidence. Full Gate 9 remains pending on the final review head.
 
 ## Next
 

@@ -21,8 +21,10 @@ const host = Object.freeze({ call(capability, payload) {
 } });
 async function execute() {
   const context = vm.createContext({ console: Object.freeze({ log: safeLog, info: safeLog, warn: safeLog, error: safeLog }) }, { name: invocation.generationId, codeGeneration: { strings: false, wasm: false } });
-  const script = new vm.Script('(' + invocation.source + ')', { filename: 'generation-entrypoint.js' });
-  const entrypoint = script.runInContext(context);
+  const module = new vm.SourceTextModule(invocation.source, { context, identifier: 'generation-entrypoint.mjs' });
+  await module.link(() => { throw new Error('IMPORTS_FORBIDDEN'); });
+  await module.evaluate();
+  const entrypoint = module.namespace.default || module.namespace.run;
   if (typeof entrypoint !== 'function') throw new Error('ENTRYPOINT_INVALID');
   context.__entrypoint = entrypoint;
   context.__input = invocation.input;

@@ -259,6 +259,9 @@ importers:
 
   packages/extension-runner:
     dependencies:
+      '@k-nex/extension-bundler':
+        specifier: workspace:*
+        version: link:../extension-bundler
       '@k-nex/runtime':
         specifier: workspace:*
         version: link:../runtime
