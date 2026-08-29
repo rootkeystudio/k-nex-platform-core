@@ -5,7 +5,7 @@ import { gunzipSync, gzipSync } from "node:zlib";
 import { canonicalJson } from "@k-nex/contracts";
 import { describe, expect, it } from "vitest";
 
-import { ArtifactVerifier, buildBundle, CatalogClient, createNormalizedTarGz, defaultExtractionLimits, extractNormalizedTarGz, sha256, type BundleBuildInput, type CatalogEntry, type SignedCatalog, VerifiedArtifactStore, verifyHostedBuildProvenance } from "../src/index.js";
+import { ArtifactVerifier, buildBundle, CatalogClient, createNormalizedTarGz, defaultExtractionLimits, extractNormalizedTarGz, InMemoryCatalogCheckpointStore, sha256, type BundleBuildInput, type CatalogEntry, type SignedCatalog, VerifiedArtifactStore, verifyHostedBuildProvenance } from "../src/index.js";
 
 const source = { repository: "https://github.com/k-nex/official-apps", commit: "0123456789abcdef0123456789abcdef01234567" };
 const workflowIdentity = `${source.repository}/.github/workflows/release.yml@${source.commit}`;
@@ -26,7 +26,7 @@ function signedCatalog(entry: CatalogEntry): SignedCatalog {
   const keys = generateKeyPairSync("ed25519");
   const publicKey = keys.publicKey.export({ type: "spki", format: "pem" }).toString();
   const signer = { identity: "k-nex-catalog", publicKey };
-  const payload = { schemaVersion: 1 as const, entries: [entry] };
+  const payload = { schemaVersion: 1 as const, sequence: 1, expiresAt: "2030-01-01T00:00:00.000Z", entries: [entry] };
   return { schemaVersion: 1, signer, payload, signature: sign(null, Buffer.from(canonicalJson(payload)), keys.privateKey).toString("base64") };
 }
 
@@ -38,7 +38,7 @@ function release() {
     artifactDigest: sha256(bundle.artifact), manifestDigest: sha256(Buffer.from(canonicalJson(bundle.manifest))), sbomDigest: sha256(bundle.sbom), provenanceDigest: sha256(bundle.provenance), support: "supported", review: "approved", security: "clear", revoked: false
   };
   const catalog = signedCatalog(entry);
-  const client = new CatalogClient({ [catalog.signer.identity]: catalog.signer.publicKey });
+  const client = new CatalogClient({ [catalog.signer.identity]: catalog.signer.publicKey }, new InMemoryCatalogCheckpointStore());
   const request = { catalog, artifact: bundle.artifact, provenance: bundle.provenance, deliveryClass: "hot-application" as const, id: entry.id, version: entry.version, runtimeAbi: entry.runtimeAbi };
   return { bundle, catalog, client, request, publishers: { [entry.publisher.identity]: entry.publisher.publicKey } };
 }
@@ -90,57 +90,85 @@ describe("extension bundler", () => {
     expect(() => buildBundle({ manifest: { ...skin, resourceBudget: { ...skin.resourceBudget, maxCssBytes: 1024 } }, source, workflowIdentity, files: [{ path: "styles/theme.css", bytes: Buffer.from("a{}"), contentType: "text/css" }, { path: "ui/evil.mjs", bytes: Buffer.from("export {}"), contentType: "application/javascript" }] })).toThrow(/executable JavaScript/u);
   });
 
-  it("verifies the signed catalog and every provenance/release binding before stage", () => {
+  it("verifies the signed catalog and every provenance/release binding before stage", async () => {
     const { client, request, bundle, catalog, publishers } = release();
     const verifier = new ArtifactVerifier(client, publishers);
-    expect(verifier.verify(request).manifest.id).toBe(request.id);
+    expect((await verifier.verify(request)).manifest.id).toBe(request.id);
     const store = new VerifiedArtifactStore(verifier);
     expect(store.read(sha256(bundle.artifact))).toBeUndefined();
-    expect(store.stage(request)).toBe(store.stage(request));
+    expect(await store.stage(request)).toBe(await store.stage(request));
     expect(store.read(sha256(bundle.artifact))?.verified.manifest.id).toBe(request.id);
 
-    expect(() => new ArtifactVerifier(client, publishers).verify({ ...request, catalog: { ...catalog, signature: `A${catalog.signature.slice(1)}` } })).toThrow(/signature/u);
-    expect(() => new ArtifactVerifier(client, publishers).verify({ ...request, artifact: Buffer.from("tampered") })).toThrow(/Artifact digest/u);
+    await expect(new ArtifactVerifier(client, publishers).verify({ ...request, catalog: { ...catalog, signature: `A${catalog.signature.slice(1)}` } })).rejects.toThrow(/signature/u);
+    await expect(new ArtifactVerifier(client, publishers).verify({ ...request, artifact: Buffer.from("tampered") })).rejects.toThrow(/Artifact digest/u);
     const invalid = <K extends keyof CatalogEntry>(key: K, value: CatalogEntry[K]) => {
       const entry = catalog.payload.entries[0]!;
       const modified = signedCatalog({ ...entry, [key]: value });
-      return new ArtifactVerifier(new CatalogClient({ [modified.signer.identity]: modified.signer.publicKey }), publishers).verify({ ...request, catalog: modified });
+      return new ArtifactVerifier(new CatalogClient({ [modified.signer.identity]: modified.signer.publicKey }, new InMemoryCatalogCheckpointStore()), publishers).verify({ ...request, catalog: modified });
     };
-    expect(() => invalid("manifestDigest", sha256(Buffer.from("wrong")))).toThrow(/Manifest digest/u);
-    expect(() => invalid("sbomDigest", sha256(Buffer.from("wrong")))).toThrow(/SBOM digest/u);
-    expect(() => new ArtifactVerifier(client, publishers).verify({ ...request, provenance: Buffer.from("{}") })).toThrow(/Provenance digest/u);
+    await expect(invalid("manifestDigest", sha256(Buffer.from("wrong")))).rejects.toThrow(/Manifest digest/u);
+    await expect(invalid("sbomDigest", sha256(Buffer.from("wrong")))).rejects.toThrow(/SBOM digest/u);
+    await expect(new ArtifactVerifier(client, publishers).verify({ ...request, provenance: Buffer.from("{}") })).rejects.toThrow(/Provenance digest/u);
     expect(() => verifyHostedBuildProvenance({ ...JSON.parse(bundle.provenance.toString("utf8")), workflowIdentity: `${source.repository}/.github/workflows/other.yml@${"a".repeat(40)}` }, catalog.payload.entries[0]!, bundle.manifest.payloadDigest as `sha256:${string}`)).toThrow(/Provenance/u);
-    expect(() => new ArtifactVerifier(client, publishers).verify({ ...request, version: "1.0.1" })).toThrow(/not in the official catalog/u);
-    expect(() => new ArtifactVerifier(client, publishers).verify({ ...request, runtimeAbi: "2.0.0" })).toThrow(/runtime ABI/u);
+    await expect(new ArtifactVerifier(client, publishers).verify({ ...request, version: "1.0.1" })).rejects.toThrow(/not in the official catalog/u);
+    await expect(new ArtifactVerifier(client, publishers).verify({ ...request, runtimeAbi: "2.0.0" })).rejects.toThrow(/runtime ABI/u);
     const unsupported = signedCatalog({ ...catalog.payload.entries[0]!, support: "unsupported" });
-    const unsupportedClient = new CatalogClient({ [unsupported.signer.identity]: unsupported.signer.publicKey });
-    expect(unsupportedClient.read(unsupported)).toHaveLength(1);
-    expect(() => new ArtifactVerifier(unsupportedClient, publishers).verify({ ...request, catalog: unsupported })).toThrow(/not currently installable/u);
+    const unsupportedClient = new CatalogClient({ [unsupported.signer.identity]: unsupported.signer.publicKey }, new InMemoryCatalogCheckpointStore());
+    expect(await unsupportedClient.read(unsupported)).toHaveLength(1);
+    await expect(new ArtifactVerifier(unsupportedClient, publishers).verify({ ...request, catalog: unsupported })).rejects.toThrow(/not currently installable/u);
     const revoked = signedCatalog({ ...catalog.payload.entries[0]!, revoked: true });
-    const revokedClient = new CatalogClient({ [revoked.signer.identity]: revoked.signer.publicKey });
-    expect(revokedClient.read(revoked)).toHaveLength(1);
-    expect(() => new ArtifactVerifier(revokedClient, publishers).verify({ ...request, catalog: revoked })).toThrow(/not currently installable/u);
-    expect(() => new ArtifactVerifier(client, {}).verify(request)).toThrow(/publisher/u);
+    const revokedClient = new CatalogClient({ [revoked.signer.identity]: revoked.signer.publicKey }, new InMemoryCatalogCheckpointStore());
+    expect(await revokedClient.read(revoked)).toHaveLength(1);
+    await expect(new ArtifactVerifier(revokedClient, publishers).verify({ ...request, catalog: revoked })).rejects.toThrow(/not currently installable/u);
+    await expect(new ArtifactVerifier(client, {}).verify(request)).rejects.toThrow(/publisher/u);
     for (const entry of [
       { ...catalog.payload.entries[0]!, review: "pending" as const },
       { ...catalog.payload.entries[0]!, security: "advisory" as const }
     ]) {
       const blocked = signedCatalog(entry);
-      const blockedClient = new CatalogClient({ [blocked.signer.identity]: blocked.signer.publicKey });
-      expect(() => new ArtifactVerifier(blockedClient, publishers).verify({ ...request, catalog: blocked })).toThrow(/not currently installable/u);
+      const blockedClient = new CatalogClient({ [blocked.signer.identity]: blocked.signer.publicKey }, new InMemoryCatalogCheckpointStore());
+      await expect(new ArtifactVerifier(blockedClient, publishers).verify({ ...request, catalog: blocked })).rejects.toThrow(/not currently installable/u);
     }
   });
 
-  it("verifies the committed public-key-only signed official catalog fixture", () => {
+  it("verifies the committed public-key-only signed official catalog fixture", async () => {
     const fixture = JSON.parse(readFileSync(new URL("../fixtures/official-catalog.json", import.meta.url), "utf8"));
-    expect(new CatalogClient({ [fixture.signer.identity]: fixture.signer.publicKey }).read(fixture)).toHaveLength(1);
+    expect(await new CatalogClient({ [fixture.signer.identity]: fixture.signer.publicKey }, new InMemoryCatalogCheckpointStore()).read(fixture)).toHaveLength(1);
   });
 
-  it("binds runner code to the verified owner, generation, artifact, and declared entrypoint", () => {
+  it("rejects expired, replayed, revoked, and downgraded signed catalog indexes", async () => {
+    const { catalog } = release();
+    const keys = generateKeyPairSync("ed25519");
+    const signer = { identity: "k-nex-checkpoint-catalog", publicKey: keys.publicKey.export({ type: "spki", format: "pem" }).toString() };
+    const signed = (sequence: number, expiresAt: string, entry: CatalogEntry) => {
+      const payload = { schemaVersion: 1 as const, sequence, expiresAt, entries: [entry] };
+      return { schemaVersion: 1 as const, signer, payload, signature: sign(null, Buffer.from(canonicalJson(payload)), keys.privateKey).toString("base64") };
+    };
+    const checkpoints = new InMemoryCatalogCheckpointStore();
+    const client = new CatalogClient({ [signer.identity]: signer.publicKey }, checkpoints, () => Date.parse("2030-01-01T00:00:00.000Z"));
+    const clear = catalog.payload.entries[0]!;
+    const fresh = signed(2, "2030-01-02T00:00:00.000Z", clear);
+    await expect(client.read(fresh)).resolves.toHaveLength(1);
+    const restarted = new CatalogClient({ [signer.identity]: signer.publicKey }, checkpoints, () => Date.parse("2030-01-01T00:00:00.000Z"));
+    await expect(restarted.read(signed(1, "2030-01-02T00:00:00.000Z", { ...clear, revoked: false }))).rejects.toThrow(/checkpoint|stale|replay/i);
+    await expect(restarted.read(signed(3, "2029-12-31T00:00:00.000Z", clear))).rejects.toThrow(/expired/i);
+    await expect(restarted.read(signed(3, "2030-01-02T00:00:00.000Z", { ...clear, revoked: true }))).resolves.toHaveLength(1);
+    await expect(restarted.read(signed(4, "2030-01-02T00:00:00.000Z", { ...clear, version: "0.9.0" }))).rejects.toThrow(/downgrade|rollback/i);
+    const racingHigh = new CatalogClient({ [signer.identity]: signer.publicKey }, checkpoints, () => Date.parse("2030-01-01T00:00:00.000Z"));
+    const racingLow = new CatalogClient({ [signer.identity]: signer.publicKey }, checkpoints, () => Date.parse("2030-01-01T00:00:00.000Z"));
+    const raced = await Promise.allSettled([
+      racingHigh.read(signed(6, "2030-01-02T00:00:00.000Z", { ...clear, version: "1.2.0" })),
+      racingLow.read(signed(5, "2030-01-02T00:00:00.000Z", { ...clear, version: "1.1.0" }))
+    ]);
+    expect(raced[0]?.status).toBe("fulfilled");
+    await expect(restarted.read(signed(5, "2030-01-02T00:00:00.000Z", { ...clear, version: "1.1.0" }))).rejects.toThrow(/checkpoint|stale|replay/i);
+  });
+
+  it("binds runner code to the verified owner, generation, artifact, and declared entrypoint", async () => {
     const { client, request, publishers } = release();
     const store = new VerifiedArtifactStore(new ArtifactVerifier(client, publishers));
     const owner = { applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application" as const, extensionId: "app.sales-fixture", generationId: "sales-fixture-generation-1" };
-    const staged = store.stageForOwner(owner, request);
+    const staged = await store.stageForOwner(owner, request);
     const source = store.runnerSource();
     expect(source.load({ owner, artifactDigest: staged.artifactDigest, serverEntrypoint: "server/main.mjs" }).source).toContain("export const run");
     expect(() => source.load({ owner, artifactDigest: staged.artifactDigest, serverEntrypoint: "server/not-declared.mjs" })).toThrow(/declared/u);
@@ -149,11 +177,11 @@ describe("extension bundler", () => {
     expect(() => source.load({ owner, artifactDigest: staged.artifactDigest, serverEntrypoint: "server/main.mjs" })).toThrow(/no longer matches/u);
   });
 
-  it("rejects unknown catalog fields and invalid delivery-class-to-ID bindings at the catalog boundary", () => {
+  it("rejects unknown catalog fields and invalid delivery-class-to-ID bindings at the catalog boundary", async () => {
     const { catalog, client } = release();
-    expect(() => client.read({ ...catalog, extra: true })).toThrow(/Invalid official catalog/u);
+    await expect(client.read({ ...catalog, extra: true })).rejects.toThrow(/Invalid official catalog/u);
     const bad = { ...catalog, payload: { ...catalog.payload, entries: [{ ...catalog.payload.entries[0]!, deliveryClass: "theme-skin", id: "app.wrong" }] } };
-    expect(() => client.read(bad)).toThrow(/Invalid official catalog/u);
+    await expect(client.read(bad)).rejects.toThrow(/Invalid official catalog/u);
   });
 
   it("rejects traversal, links, colliding paths, bombs, and every configured extraction bound", () => {

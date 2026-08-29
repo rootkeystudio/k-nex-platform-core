@@ -1,4 +1,4 @@
-import { canonicalJson, ResourceIdSchema, ThemeSkinManifestSchema, ThemeSkinProfileSelectionSchema, type ThemeSkinManifest, type ThemeSkinProfileSelection } from "@k-nex/contracts";
+import { assertSafeThemeSkinSvg, canonicalJson, ResourceIdSchema, ThemeSkinManifestSchema, ThemeSkinProfileSelectionSchema, type ThemeSkinManifest, type ThemeSkinProfileSelection } from "@k-nex/contracts";
 import postcss from "postcss";
 
 import { scopeThemeCss, themeRootSelector } from "./theme-css.js";
@@ -151,8 +151,7 @@ export function createThemeSkinGeneration(input: ThemeSkinGenerationInput): Them
     const expected = declaredAssets.get(path);
     assetBytes += asset.bytes.byteLength;
     if (!expected || asset.digest !== expected || !digest.test(asset.digest) || asset.contentType !== "image/svg+xml" || !path.endsWith(".svg")) throw new TypeError(`Theme Skin asset is invalid: ${path}.`);
-    const text = new TextDecoder().decode(asset.bytes);
-    if (/<(?:script|foreignObject)\b|\son[a-z]+\s*=|(?:href|src)\s*=\s*["'](?:https?:|data:|javascript:)/iu.test(text)) throw new TypeError(`Theme Skin SVG contains executable or remote content: ${path}.`);
+    try { assertSafeThemeSkinSvg(asset.bytes); } catch { throw new TypeError(`Theme Skin SVG contains executable or remote content: ${path}.`); }
     handles[path] = assetHandle(manifest, input.generationId, path, asset.digest);
   }
   if (assetBytes > manifest.resourceBudget.maxAssetBytes) throw new TypeError("Theme Skin assets exceed maxAssetBytes.");

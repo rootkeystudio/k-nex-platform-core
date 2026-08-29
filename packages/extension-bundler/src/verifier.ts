@@ -48,8 +48,8 @@ export class ArtifactVerifier {
     this.#limits = limits;
   }
 
-  verify(request: VerificationRequest): VerifiedArtifact {
-    const entry = this.#catalog.read(request.catalog).find((candidate) => candidate.deliveryClass === request.deliveryClass && candidate.id === request.id && candidate.version === request.version);
+  async verify(request: VerificationRequest): Promise<VerifiedArtifact> {
+    const entry = (await this.#catalog.read(request.catalog)).find((candidate) => candidate.deliveryClass === request.deliveryClass && candidate.id === request.id && candidate.version === request.version);
     if (!entry) throw new Error("Requested extension is not in the official catalog.");
     if (entry.support !== "supported" || entry.review !== "approved" || entry.security !== "clear" || entry.revoked) throw new Error("Catalog release is not currently installable.");
     if (this.#trustedExtensionPublishers.get(entry.publisher.identity) !== entry.publisher.publicKey) throw new Error("Extension publisher is not trusted.");

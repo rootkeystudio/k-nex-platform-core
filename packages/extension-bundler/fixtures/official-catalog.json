@@ -2,10 +2,12 @@
   "schemaVersion": 1,
   "signer": {
     "identity": "k-nex-official-catalog",
-    "publicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAC+FVfEZmiH31e9UKV0IhOWrfhcR04dTRO/c8FFMnMf0=\n-----END PUBLIC KEY-----\n"
+    "publicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA2STc7nKIYWiNDqJOBItgDmSJ3InJzNrYELwJ+L9zjoU=\n-----END PUBLIC KEY-----\n"
   },
   "payload": {
     "schemaVersion": 1,
+    "sequence": 1,
+    "expiresAt": "2030-01-01T00:00:00.000Z",
     "entries": [
       {
         "deliveryClass": "hot-application",
@@ -32,5 +34,5 @@
       }
     ]
   },
-  "signature": "S1bwhGs1+QAAj6o7cc4s1OIqQUD+DmK2xbyh1QJbfDCsuiko10idAqxwNvACc7a1gSI2RA+rHjv7RWnZ5FPuCA=="
+  "signature": "CuOEUIVriL0uM3CoAdDdJT+3esqtA8484MasH4LyVWHgunYeP2mNQisBhgRH/RVE5YDA4azB+O8CXDssMvdPBg=="
 }

@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import type { Digest } from "./catalog.js";
 import type { StagedArtifact } from "./store.js";
 
-export interface VerifiedRemoteUiArtifactReader { read(artifactDigest: Digest): StagedArtifact | undefined; }
+export interface VerifiedRemoteUiArtifactReader { read(artifactDigest: Digest): StagedArtifact | undefined | Promise<StagedArtifact | undefined>; }
 
 export interface RemoteUiGenerationAuthority {
   isActive(identity: Readonly<{ applicationId: string; environment: string; appId: string; generationId: string; artifactDigest: Digest }>): boolean | Promise<boolean>;
@@ -90,7 +90,7 @@ export class VerifiedRemoteUiAssetService {
       throw new RemoteUiAssetError("REQUEST_INVALID", "Remote UI asset request is invalid.");
     }
     if (!await this.authority.isActive(request)) throw new RemoteUiAssetError("GENERATION_INACTIVE", "Remote UI generation is not active.");
-    const staged = this.artifacts.read(request.artifactDigest);
+    const staged = await this.artifacts.read(request.artifactDigest);
     if (!staged || staged.verified.artifactDigest !== request.artifactDigest) throw new RemoteUiAssetError("ARTIFACT_UNAVAILABLE", "Verified Remote UI artifact is unavailable.");
     const manifest = staged.verified.manifest;
     if (manifest.deliveryClass !== "hot-application" || manifest.id !== request.appId) throw new RemoteUiAssetError("ARTIFACT_UNAVAILABLE", "Verified Remote UI artifact identity does not match.");

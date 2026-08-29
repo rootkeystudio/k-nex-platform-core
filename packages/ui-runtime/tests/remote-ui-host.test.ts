@@ -29,6 +29,25 @@ function adapter(): RemoteUiHostAdapter & { render: ReturnType<typeof vi.fn>; fa
 async function tick(): Promise<void> { await new Promise((resolve) => setTimeout(resolve, 10)); }
 
 describe("remote UI host session", () => {
+  it("removes the owned realm after a malformed frame", async () => {
+    const host = adapter();
+    const session = new RemoteUiHostSession(identity, registry, host);
+    let onLoad: (() => void) | undefined;
+    let removed = false;
+    let realmPort: MessagePort | undefined;
+    const iframe = {
+      title: "", sandbox: { add() {} }, referrerPolicy: "", contentWindow: { postMessage(_message: unknown, _origin: string, ports: readonly MessagePort[]) { realmPort = ports[0]; } },
+      setAttribute() {}, addEventListener(_type: string, listener: () => void) { onLoad = listener; }, remove() { removed = true; }
+    };
+    const frame = createOpaqueRemoteUiFrame({ location: { href: "https://host.example/" }, createElement: () => iframe } as unknown as Document, session, identity.remoteUiFrameUrl, "Sales assistant");
+    onLoad!();
+    realmPort!.postMessage({ schemaVersion: 1, sessionId: identity.sessionId, appId: identity.appId, generationId: identity.generationId, sequence: 1, direction: "realm-to-host", type: "render", root: { ...root, component: "script" } });
+    await tick();
+    expect(host.fallback).toHaveBeenCalledWith("PROTOCOL_FAILURE");
+    expect(removed).toBe(true);
+    frame.dispose();
+  });
+
   it("rejects an alternate origin even when its app and generation frame path match", () => {
     const session = new RemoteUiHostSession(identity, registry, adapter());
     const attacker = identity.remoteUiFrameUrl.replace("extensions.example", "attacker.example");

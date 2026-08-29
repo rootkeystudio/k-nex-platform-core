@@ -1,4 +1,5 @@
 import { canonicalJson } from "@k-nex/contracts";
+import { randomUUID } from "node:crypto";
 
 import type {
   DynamicArtifactPipeline,
@@ -30,6 +31,63 @@ export interface DynamicGenerationWarmer {
     plan: Exclude<PluginManagerPlan, { executionClass: "static-release" }>;
     artifact: DurableDynamicArtifact;
   }>): Promise<GenerationReadinessLease>;
+}
+
+export interface HotApplicationGenerationWarmupInput {
+  readonly request: ExtensionChangeRequest;
+  readonly plan: Extract<PluginManagerPlan, { executionClass: "live-generation" }>;
+  readonly artifact: DurableDynamicArtifact;
+}
+
+/**
+ * Each preparation dependency owns an authority boundary. The warmer joins the
+ * independently verified server, UI, storage, and fixed-host-surface checks
+ * into the one readiness lease that activation persists atomically.
+ */
+export interface HotApplicationGenerationWarmupDependencies {
+  readonly runner: Readonly<{ prepareServer(input: HotApplicationGenerationWarmupInput): Promise<void> }>;
+  readonly remoteUi: Readonly<{ prepareRemoteUi(input: HotApplicationGenerationWarmupInput): Promise<void> }>;
+  readonly storage: Readonly<{ prepareStorage(input: HotApplicationGenerationWarmupInput): Promise<void> }>;
+  readonly surfaces: Readonly<{ prepareFixedSurfaces(input: HotApplicationGenerationWarmupInput): Promise<void> }>;
+  readonly clock: Readonly<{ now(): Date }>;
+  readonly leaseTtlMs?: number;
+}
+
+/** Concrete reference warmer for a Hot Application immutable generation. */
+export class ReferenceHotApplicationGenerationWarmer implements DynamicGenerationWarmer {
+  private readonly leaseTtlMs: number;
+
+  constructor(private readonly dependencies: HotApplicationGenerationWarmupDependencies) {
+    this.leaseTtlMs = dependencies.leaseTtlMs ?? 60_000;
+    if (!Number.isSafeInteger(this.leaseTtlMs) || this.leaseTtlMs < 1_000 || this.leaseTtlMs > 300_000) {
+      throw new TypeError("Hot Application readiness lease duration is invalid.");
+    }
+  }
+
+  async warm(input: Parameters<DynamicGenerationWarmer["warm"]>[0]): Promise<GenerationReadinessLease> {
+    if (input.plan.plan.deliveryClass !== "hot-application" || input.plan.generationId !== input.artifact.authority.generationId ||
+      input.plan.plan.targetGenerationId !== input.artifact.authority.generationId || input.request.extension.deliveryClass !== "hot-application" ||
+      input.request.extension.id !== input.artifact.authority.extensionId) {
+      throw new Error("Hot Application warm-up identity does not match the immutable generation.");
+    }
+    const preparation: HotApplicationGenerationWarmupInput = Object.freeze(input);
+    await this.dependencies.runner.prepareServer(preparation);
+    await this.dependencies.remoteUi.prepareRemoteUi(preparation);
+    await this.dependencies.storage.prepareStorage(preparation);
+    await this.dependencies.surfaces.prepareFixedSurfaces(preparation);
+    const readyAt = this.dependencies.clock.now();
+    if (!(readyAt instanceof Date) || Number.isNaN(readyAt.valueOf())) throw new Error("Hot Application warm-up clock is invalid.");
+    const generationId = input.artifact.authority.generationId;
+    return Object.freeze({
+      generationId,
+      serverGenerationId: generationId,
+      uiGenerationId: generationId,
+      storageGenerationId: generationId,
+      leaseToken: `ready:${generationId}:${randomUUID()}`,
+      readyAt: readyAt.toISOString(),
+      expiresAt: new Date(readyAt.valueOf() + this.leaseTtlMs).toISOString()
+    });
+  }
 }
 
 function same(left: unknown, right: unknown): boolean {

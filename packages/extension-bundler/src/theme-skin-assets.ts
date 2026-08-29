@@ -1,4 +1,4 @@
-import { ExtensionBundlePathSchema } from "@k-nex/contracts";
+import { assertSafeThemeSkinSvg, ExtensionBundlePathSchema } from "@k-nex/contracts";
 
 import { sha256 } from "./bundle.js";
 import type { Digest } from "./catalog.js";
@@ -46,10 +46,7 @@ const generationPattern = /^[a-z][a-z0-9-]{2,127}$/u;
 const digestPattern = /^sha256:[0-9a-f]{64}$/u;
 
 function assertSafeSvg(body: Buffer): void {
-  const source = body.toString("utf8");
-  if (!/^\s*<svg\b/iu.test(source) || /<(?:script|foreignObject)\b|\son[a-z]+\s*=|(?:href|src)\s*=\s*["'](?:https?:|data:|javascript:)/iu.test(source)) {
-    throw new ThemeSkinAssetError("ASSET_UNSAFE", "Theme Skin SVG contains executable or remote content.");
-  }
+  try { assertSafeThemeSkinSvg(body); } catch { throw new ThemeSkinAssetError("ASSET_UNSAFE", "Theme Skin SVG contains executable or remote content."); }
 }
 
 export class VerifiedThemeSkinAssetService {

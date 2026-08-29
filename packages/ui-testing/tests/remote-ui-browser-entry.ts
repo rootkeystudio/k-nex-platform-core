@@ -8,6 +8,7 @@ declare global {
     __K_NEX_REMOTE_READY__?: boolean;
     __K_NEX_REMOTE_PROBE__?: Record<string, string>;
     __K_NEX_REMOTE_WINDOW_MESSAGES__?: number;
+    __K_NEX_REMOTE_HEARTBEATS__?: number;
   }
 }
 
@@ -46,7 +47,7 @@ function element(node: RemoteUiNode): HTMLElement {
 session = new RemoteUiHostSession({
   sessionId: "remote-session-1", actorSessionId: "actor-session-1", applicationId: "customer-alpha", environment: "production",
   appId: "app.sales-assistant", generationId: "sales-generation-1", remoteUiFrameUrl: window.__K_NEX_REMOTE_FRAME_URL__, route: "/apps/sales-assistant", surface: "sales.assistant-screen",
-  sources: new Set(["sales.tasks"]), actions: new Set(["sales.refresh"]), routes: new Set(["/apps/sales-assistant"]), assets: new Set()
+  sources: new Set(["sales.tasks", "sales.heartbeat"]), actions: new Set(["sales.refresh"]), routes: new Set(["/apps/sales-assistant"]), assets: new Set()
 }, registry, {
   authorize: async () => true,
   render(tree) {
@@ -58,7 +59,7 @@ session = new RemoteUiHostSession({
   fallback(code) { root.replaceChildren(Object.assign(document.createElement("div"), { role: "alert", textContent: `Application unavailable: ${code}` })); },
   focus(nodeId) { root.querySelector<HTMLElement>(`[data-node-id="${nodeId}"]`)?.focus(); },
   navigate(route) { history.pushState(null, "", route); },
-  source: async (targetId) => ({ targetId, rows: 2 }),
+  source: async (targetId) => { if (targetId === "sales.heartbeat") window.__K_NEX_REMOTE_HEARTBEATS__ = (window.__K_NEX_REMOTE_HEARTBEATS__ ?? 0) + 1; return { targetId, rows: 2 }; },
   action: async (targetId) => ({ targetId, changed: true })
 });
 try {

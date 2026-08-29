@@ -39,4 +39,16 @@ describe("verified Theme Skin assets", () => {
     await expect(new VerifiedThemeSkinAssetService({ read: () => unsafeStaged }, { isAvailable: async () => true }).read({ ...request, fileDigest: unsafeDigest })).rejects.toMatchObject({ code: "ASSET_UNSAFE" });
     await expect(new VerifiedThemeSkinAssetService({ read: () => undefined }, { isAvailable: async () => true }).read(request)).rejects.toMatchObject({ code: "ARTIFACT_UNAVAILABLE" });
   });
+
+  it.each([
+    '<svg><use href="//evil.test/icon.svg#x"/></svg>',
+    '<svg><use href="/assets/icon.svg#x"/></svg>',
+    '<svg><style>@import url("https://evil.test/theme.css");</style></svg>',
+    '<svg><path style="fill:url(https://evil.test/payload)"/></svg>'
+  ])("rejects SVG network references while serving: %s", async (unsafe) => {
+    const unsafeBytes = Buffer.from(unsafe);
+    const unsafeDigest = sha256(unsafeBytes);
+    const unsafeStaged = { ...staged, verified: { ...staged.verified, manifest: { ...manifest, files: { "assets/grid.svg": { ...manifest.files["assets/grid.svg"], digest: unsafeDigest, bytes: unsafeBytes.byteLength } } }, files: new Map([["assets/grid.svg", unsafeBytes]]) } };
+    await expect(new VerifiedThemeSkinAssetService({ read: () => unsafeStaged }, { isAvailable: async () => true }).read({ ...request, fileDigest: unsafeDigest })).rejects.toMatchObject({ code: "ASSET_UNSAFE" });
+  });
 });

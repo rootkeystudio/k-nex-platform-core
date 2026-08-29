@@ -148,6 +148,11 @@ function exactKeys(value: RunnerFrame, keys: readonly string[]): boolean {
   return Object.keys(value).sort().join("\0") === [...keys].sort().join("\0");
 }
 
+function isNoFileLimit(value: unknown, expected: number): boolean {
+  return typeof value === "object" && value !== null &&
+    (value as Record<string, unknown>).Name === "nofile" && (value as Record<string, unknown>).Soft === expected && (value as Record<string, unknown>).Hard === expected;
+}
+
 export class DockerHotApplicationSandboxSupervisor {
   private readonly generations = new Map<string, GenerationState>();
   private readonly workloadUsers = new Map<number, string>();
@@ -170,7 +175,7 @@ export class DockerHotApplicationSandboxSupervisor {
     const runnerIdentity = identity(request);
     this.gateway.assertInvocationIdentity(request.token, { ...runnerIdentity, invocationId: request.invocationId });
     let source: string;
-    try { source = this.artifacts.load({ owner: { ...request.owner, generationId: request.generationId }, artifactDigest: request.artifactDigest, serverEntrypoint: request.serverEntrypoint }).source; } catch {
+    try { source = (await this.artifacts.load({ owner: { ...request.owner, generationId: request.generationId }, artifactDigest: request.artifactDigest, serverEntrypoint: request.serverEntrypoint })).source; } catch {
       throw new RunnerInvocationError("INVOCATION_INVALID", "Runner artifact identity is not present in the verified inventory.");
     }
     const resolved = { ...request, ...runnerIdentity, source };
@@ -249,10 +254,10 @@ export class DockerHotApplicationSandboxSupervisor {
       this.image, "node", "--permission", "--experimental-vm-modules", "-e", runnerServiceSource
     ];
     const child = spawn("docker", args, { stdio: ["pipe", "pipe", "pipe"] });
-    return this.exchange(child, request, containerName, () => rmSync(policyDirectory, { recursive: true, force: true }));
+    return this.exchange(child, request, containerName, workloadUser, () => rmSync(policyDirectory, { recursive: true, force: true }));
   }
 
-  private exchange(child: ChildProcessWithoutNullStreams, request: ResolvedRunnerInvocation, containerName: string, cleanup: () => void): Promise<unknown> {
+  private exchange(child: ChildProcessWithoutNullStreams, request: ResolvedRunnerInvocation, containerName: string, workloadUser: number, cleanup: () => void): Promise<unknown> {
     return new Promise((resolve, reject) => {
       let settled = false;
       let protocolBytes = 0;
@@ -292,7 +297,7 @@ export class DockerHotApplicationSandboxSupervisor {
       const lines = createInterface({ input: child.stdout, crlfDelay: Infinity, terminal: false });
       lines.on("line", (line) => { void this.handleFrame(line, request, child, controller.signal, (bytes) => { logBytes += bytes; if (logBytes > request.limits.logBytes) fail(new RunnerInvocationError("OUTPUT_BUDGET_EXCEEDED", "Runner logs exceeded their budget.")); }, finish, fail); });
       child.once("spawn", () => {
-        Promise.resolve(this.inspectSecurity(containerName)).then(() => this.observationSink.started(request, containerName)).then(() => {
+        Promise.resolve(this.inspectSecurity(containerName, request.limits, workloadUser)).then(() => this.observationSink.started(request, containerName)).then(() => {
           child.stdin.write(`${JSON.stringify({ type: "invoke", schemaVersion: 1, invocationId: request.invocationId, generationId: request.generationId, token: request.token, source: request.source, input: request.input, maxInputBytes: request.limits.inputBytes, maxOutputBytes: request.limits.outputBytes })}\n`);
         }).catch((error) => fail(error instanceof RunnerInvocationError ? error : new RunnerInvocationError("CONTAINER_FAILED", "Runner container observation failed.")));
       });
@@ -344,12 +349,26 @@ export class DockerHotApplicationSandboxSupervisor {
     fail(new RunnerInvocationError("PROTOCOL_VIOLATION", "Runner emitted an invalid protocol frame."));
   }
 
-  private async inspectSecurity(containerName: string): Promise<void> {
+  private async inspectSecurity(containerName: string, limits: RunnerInvocationLimits, workloadUser: number): Promise<void> {
     let inspected: Record<string, unknown>;
     try { inspected = await this.inspectRunningContainer(containerName); }
     catch { throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker did not expose the launched container security state."); }
     const host = inspected.HostConfig as Record<string, unknown> | undefined;
-    const securityOptions = host?.SecurityOpt;
+    const config = inspected.Config as Record<string, unknown> | undefined;
+    const unavailable = (message: string): never => { throw new RunnerInvocationError("POLICY_UNAVAILABLE", message); };
+    if (!host || !config) throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker did not expose the container configuration.");
+    if (host.NetworkMode !== "none" || host.ReadonlyRootfs !== true || host.Privileged === true || host.PidsLimit !== limits.processes || host.Memory !== limits.memoryMiB * 1024 * 1024 || host.MemorySwap !== limits.memoryMiB * 1024 * 1024 || host.NanoCpus !== limits.cpuMilliCores * 1_000_000) unavailable("Docker did not apply the required network, root, privilege, or cgroup controls.");
+    if (!Array.isArray(host.CapDrop) || host.CapDrop.length !== 1 || host.CapDrop[0] !== "ALL" || (Array.isArray(host.CapAdd) && host.CapAdd.length > 0)) unavailable("Docker did not drop every Linux capability.");
+    if ((host.Binds != null && (!Array.isArray(host.Binds) || host.Binds.length !== 0)) || !Array.isArray(inspected.Mounts) || (inspected.Mounts as readonly Record<string, unknown>[]).some((mount) => mount.Type !== "tmpfs" || mount.Destination !== "/tmp")) unavailable("Docker exposed an unexpected mount.");
+    const tmpfs = host.Tmpfs as Record<string, unknown> | undefined;
+    const tmpSetting = tmpfs?.["/tmp"];
+    if (typeof tmpSetting !== "string" || ![`size=${limits.tempBytes}`, "noexec", "nosuid", "nodev", `uid=${workloadUser}`, `gid=${workloadUser}`].every((control) => tmpSetting.includes(control))) unavailable("Docker did not apply the bounded temporary filesystem.");
+    const env = config.Env;
+    const allowedEnvironment = new Set(["HOME=/tmp", "NODE_NO_WARNINGS=1", "NODE_VERSION=24.19.0", "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "YARN_VERSION=1.22.22"]);
+    if (!Array.isArray(env) || !env.includes("HOME=/tmp") || !env.includes("NODE_NO_WARNINGS=1") || env.some((entry) => typeof entry !== "string" || !allowedEnvironment.has(entry))) unavailable("Docker exposed an unexpected runner environment.");
+    const ulimits = host.Ulimits;
+    if (!Array.isArray(ulimits) || ulimits.length !== 1 || !isNoFileLimit(ulimits[0], limits.openFiles)) unavailable("Docker did not apply the open-file limit.");
+    const securityOptions = host.SecurityOpt;
     const options = Array.isArray(securityOptions) ? securityOptions : [];
     if (!options.includes("no-new-privileges=true") || !options.includes(`seccomp=${runnerSeccompProfile}`)) {
       throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker did not apply the required custom seccomp policy.");
@@ -360,11 +379,10 @@ export class DockerHotApplicationSandboxSupervisor {
     if (this.isolationPolicy.kind === "selinux" && (!options.includes(this.isolationPolicy.label) || typeof inspected.ProcessLabel !== "string" || inspected.ProcessLabel.length === 0)) {
       throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker did not apply the required SELinux label.");
     }
-    const config = inspected.Config as Record<string, unknown> | undefined;
-    if (typeof config?.User !== "string" || !/^\d{5}:\d{5}$/u.test(config.User)) throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker did not apply the generation-specific non-root identity.");
+    if (config?.User !== `${workloadUser}:${workloadUser}` || config.WorkingDir !== "/tmp" || config.Image !== this.image) throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker did not apply the generation-specific non-root identity.");
     if (this.isolationPolicy.kind === "virtual-machine") {
       const operatingSystem = await this.dockerOperatingSystem();
-      if (operatingSystem !== this.isolationPolicy.operatingSystem || host?.UsernsMode === "host") {
+      if (operatingSystem !== this.isolationPolicy.operatingSystem || host.UsernsMode === "host") {
         throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker Desktop did not provide the approved VM and container user boundary.");
       }
       return;

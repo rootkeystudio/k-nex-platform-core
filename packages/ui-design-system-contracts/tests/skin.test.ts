@@ -111,4 +111,13 @@ describe("live Theme Skin generations", () => {
     expect(() => createThemeSkinGeneration(skin({ stylesheets: { "styles/other.css": css } }))).toThrow(/inventory/);
     expect(() => createThemeSkinGeneration(skin({ manifest: { ...(skin().manifest as object), entrypoints: { ui: ["ui/theme.mjs"] } } }))).toThrow();
   });
+
+  it.each([
+    '<svg><use href="//evil.test/icon.svg#x"/></svg>',
+    '<svg><use href="/assets/icon.svg#x"/></svg>',
+    '<svg><style>@import url("https://evil.test/theme.css");</style></svg>',
+    '<svg><path style="fill:url(https://evil.test/payload)"/></svg>'
+  ])("rejects SVG network references at activation: %s", (unsafe) => {
+    expect(() => createThemeSkinGeneration(skin({ assets: { "assets/grid.svg": { digest: digest("a"), contentType: "image/svg+xml", bytes: new TextEncoder().encode(unsafe) } } }))).toThrow(/SVG.*remote|SVG.*unsafe/i);
+  });
 });

@@ -29,7 +29,7 @@ try {
   const hostAddress = hostServer.address(); if (hostAddress === null || typeof hostAddress === "string") throw new Error("Remote UI host server failed.");
   const hostOrigin = `http://127.0.0.1:${hostAddress.port}`;
 
-  const worker = `let port; let outgoing = 0; let incoming = 0;
+  const worker = `let port; let outgoing = 0; let incoming = 0; let heartbeat;
 const send = (type, body = {}) => port.postMessage({ schemaVersion: 1, sessionId: 'remote-session-1', appId: 'app.sales-assistant', generationId: 'sales-generation-1', sequence: ++outgoing, direction: 'realm-to-host', type, ...body });
 const attempt = async (work) => { try { await work(); return 'available'; } catch { return 'blocked'; } };
 async function probes() {
@@ -55,11 +55,11 @@ self.onmessage = async (event) => {
   port = event.ports[0]; self.onmessage = null;
   port.onmessage = async ({ data }) => {
     if (data.sequence !== ++incoming || data.appId !== 'app.sales-assistant' || data.generationId !== 'sales-generation-1') return;
-    if (data.type === 'bootstrap') { const probe = await probes(); self.__probe = probe; send('ready'); send('render', { root: tree(probe) }); send('focus', { nodeId: 'refresh' }); }
+    if (data.type === 'bootstrap') { const probe = await probes(); self.__probe = probe; send('ready'); send('render', { root: tree(probe) }); send('focus', { nodeId: 'refresh' }); heartbeat = setInterval(() => send('request', { operation: 'source', requestId: 'heartbeat-' + outgoing, targetId: 'sales.heartbeat', input: {} }), 20); }
     else if (data.type === 'event' && data.handlerId === 'sales.refresh') send('request', { operation: 'source', requestId: 'source-request-1', targetId: 'sales.tasks', input: {} });
     else if (data.type === 'event' && data.handlerId === 'sales.break') send('render', { root: { ...tree(self.__probe), component: 'script' } });
-    else if (data.type === 'response-ok') send('render', { root: tree(self.__probe, 'Loaded ' + data.output.rows + ' tasks') });
-    else if (data.type === 'dispose') close();
+    else if (data.type === 'response-ok' && data.requestId === 'source-request-1') send('render', { root: tree(self.__probe, 'Loaded ' + data.output.rows + ' tasks') });
+    else if (data.type === 'dispose') { clearInterval(heartbeat); close(); }
   };
   port.start();
 };`;
@@ -118,9 +118,16 @@ self.onmessage = async (event) => {
   assert.equal(await refresh.evaluate((element) => element === document.activeElement), true, "host-owned focus request did not target the semantic control");
   await refresh.click();
   await page.getByText("Loaded 2 tasks").waitFor();
+  await page.waitForFunction(() => (window.__K_NEX_REMOTE_HEARTBEATS__ ?? 0) >= 2);
+  const heartbeatsBeforeFailure = await page.evaluate(() => window.__K_NEX_REMOTE_HEARTBEATS__);
   await page.getByRole("button", { name: "Trigger invalid application tree" }).click();
   await page.getByRole("alert").waitFor();
   assert.match(await page.getByRole("alert").textContent(), /PROTOCOL_FAILURE/u);
+  const heartbeatsAtFailure = await page.evaluate(() => window.__K_NEX_REMOTE_HEARTBEATS__);
+  assert.equal(heartbeatsAtFailure >= heartbeatsBeforeFailure, true);
+  await page.waitForTimeout(100);
+  assert.equal(await page.evaluate(() => window.__K_NEX_REMOTE_HEARTBEATS__), heartbeatsAtFailure, "remote realm heartbeat continued after protocol failure");
+  assert.equal(await page.locator("iframe").count(), 0, "failed remote realm iframe remained attached");
   assert.deepEqual(pageErrors, []);
   await context.close();
   process.stdout.write("P9_REMOTE_UI_BROWSER_PASS\n");

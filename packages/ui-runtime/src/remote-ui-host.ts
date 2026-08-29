@@ -82,6 +82,7 @@ export class RemoteUiHostSession {
   private incomingSequence = 0;
   private outgoingSequence = 0;
   private closed = false;
+  private realmDisposer: (() => void) | undefined;
   private nodes: ReadonlyMap<string, RemoteUiNode> = new Map();
   private readonly requestTimes: number[] = [];
 
@@ -102,6 +103,12 @@ export class RemoteUiHostSession {
     this.send("bootstrap", { actorSessionId: this.identity.actorSessionId, route: this.identity.route, surface: this.identity.surface });
   }
 
+  /** The host owns the realm lifecycle; any terminal session state must tear it down. */
+  bindRealmDisposer(dispose: () => void): void {
+    if (this.realmDisposer || this.closed) fail("SESSION_CLOSED", "Remote UI realm cannot be bound after session closure.");
+    this.realmDisposer = dispose;
+  }
+
   dispatchEvent(nodeId: string, event: "press" | "change" | "submit" | "selection-change", payload: JsonValue): void {
     const binding = this.nodes.get(nodeId)?.events.find((candidate) => candidate.event === event);
     if (!binding) fail("EVENT_DENIED", "Remote UI event is not bound by the active tree.");
@@ -114,6 +121,9 @@ export class RemoteUiHostSession {
     this.closed = true;
     this.nodes = new Map();
     this.port?.close();
+    const disposeRealm = this.realmDisposer;
+    this.realmDisposer = undefined;
+    disposeRealm?.();
   }
 
   private async receive(value: unknown): Promise<void> {
@@ -236,5 +246,6 @@ export function createOpaqueRemoteUiFrame(document: Document, session: RemoteUiH
     iframe.contentWindow?.postMessage({ schemaVersion: 1, type: "k-nex-connect" }, "*", [channel.port2]);
   }, { once: true });
   iframe.src = url.href;
-  return Object.freeze({ iframe, dispose() { session.dispose(); iframe.remove(); } });
+  session.bindRealmDisposer(() => iframe.remove());
+  return Object.freeze({ iframe, dispose() { session.dispose(); } });
 }

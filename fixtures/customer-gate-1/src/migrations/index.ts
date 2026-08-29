@@ -9,6 +9,8 @@ import * as migration_20260829_000008_app_storage from "./20260829_000008_app_st
 import * as migration_20260829_000009_extension_activation from "./20260829_000009_extension_activation.js";
 import * as migration_20260829_000010_theme_skin_profiles from "./20260829_000010_theme_skin_profiles.js";
 import * as migration_20260829_000011_static_deployment from "./20260829_000011_static_deployment.js";
+import * as migration_20260829_000012_verified_artifacts from "./20260829_000012_verified_artifacts.js";
+import * as migration_20260829_000013_catalog_checkpoints from "./20260829_000013_catalog_checkpoints.js";
 
 import type { CustomerPayloadMigration } from "@k-nex/payload-adapter";
 
@@ -67,5 +69,15 @@ export const migrations: CustomerPayloadMigration[] = [
     up: migration_20260829_000011_static_deployment.up,
     down: migration_20260829_000011_static_deployment.down,
     name: "20260829_000011_static_deployment"
+  },
+  {
+    up: migration_20260829_000012_verified_artifacts.up,
+    down: migration_20260829_000012_verified_artifacts.down,
+    name: "20260829_000012_verified_artifacts"
+  },
+  {
+    up: migration_20260829_000013_catalog_checkpoints.up,
+    down: migration_20260829_000013_catalog_checkpoints.down,
+    name: "20260829_000013_catalog_checkpoints"
   }
 ];

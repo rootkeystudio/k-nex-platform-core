@@ -17,7 +17,7 @@ export interface VerifiedArtifactRunnerSource {
     owner: VerifiedArtifactGenerationOwner;
     artifactDigest: Digest;
     serverEntrypoint: string;
-  }>): Readonly<{ source: string }>;
+  }>): Readonly<{ source: string }> | Promise<Readonly<{ source: string }>>;
 }
 
 function ownerKey(owner: VerifiedArtifactGenerationOwner): string {
@@ -31,8 +31,8 @@ export class VerifiedArtifactStore {
 
   constructor(verifier: ArtifactVerifier) { this.#verifier = verifier; }
 
-  stage(request: VerificationRequest): StagedArtifact {
-    const verified = this.#verifier.verify(request);
+  async stage(request: VerificationRequest): Promise<StagedArtifact> {
+    const verified = await this.#verifier.verify(request);
     const existing = this.#staged.get(verified.artifactDigest);
     if (existing) return existing;
     const staged = Object.freeze({ artifactDigest: verified.artifactDigest, verified });
@@ -42,11 +42,11 @@ export class VerifiedArtifactStore {
 
   read(artifactDigest: Digest): StagedArtifact | undefined { return this.#staged.get(artifactDigest); }
 
-  stageForOwner(owner: VerifiedArtifactGenerationOwner, request: VerificationRequest): StagedArtifact {
+  async stageForOwner(owner: VerifiedArtifactGenerationOwner, request: VerificationRequest): Promise<StagedArtifact> {
     if (owner.deliveryClass !== request.deliveryClass || owner.extensionId !== request.id) {
       throw new Error("Verified artifact owner does not match the requested release.");
     }
-    const staged = this.stage(request);
+    const staged = await this.stage(request);
     const key = ownerKey(owner);
     const existing = this.#owners.get(key);
     if (existing !== undefined && existing !== staged.artifactDigest) {

@@ -92,7 +92,7 @@ export class ExtensionOperatorApi {
     if (new Set(identities).size !== identities.length) throw new TypeError("Catalog contains duplicate extension releases.");
     return Object.freeze(records
       .filter((record) => filter.deliveryClass === undefined || record.extension.deliveryClass === filter.deliveryClass)
-      .filter((record) => filter.includeUnavailable === true || (!record.revoked && record.review === "approved" && record.security !== "compromised" && record.support !== "unsupported"))
+      .filter((record) => filter.includeUnavailable === true || (!record.revoked && record.review === "approved" && record.security === "clear" && record.support !== "unsupported"))
       .sort((left, right) => `${left.extension.deliveryClass}:${left.extension.id}:${left.version}`.localeCompare(`${right.extension.deliveryClass}:${right.extension.id}:${right.version}`)));
   }
 

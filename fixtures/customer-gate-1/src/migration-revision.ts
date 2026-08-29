@@ -1,9 +1,9 @@
 import type { Payload } from "payload";
 
 export const applicationMigrationRevision = Object.freeze({
-  migrationName: "20260829_000011_static_deployment",
-  predecessor: 10,
-  current: 11
+  migrationName: "20260829_000013_catalog_checkpoints",
+  predecessor: 12,
+  current: 13
 });
 
 export class MigrationRevisionError extends Error {

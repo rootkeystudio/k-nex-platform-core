@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   DurableDynamicArtifactPipeline,
   DurableDynamicGenerationRuntime,
+  ReferenceHotApplicationGenerationWarmer,
   type DurableDynamicArtifact,
   type ExtensionChangeRequest,
   type PluginManagerPlan
@@ -34,6 +35,23 @@ const artifact: DurableDynamicArtifact = {
 };
 
 describe("durable dynamic generation adapters", () => {
+  it("joins runner, remote UI, storage, and fixed surfaces into one generation-bound health lease", async () => {
+    const prepared: string[] = [];
+    const warmer = new ReferenceHotApplicationGenerationWarmer({
+      runner: { prepareServer: async () => { prepared.push("runner"); } },
+      remoteUi: { prepareRemoteUi: async () => { prepared.push("remote-ui"); } },
+      storage: { prepareStorage: async () => { prepared.push("storage"); } },
+      surfaces: { prepareFixedSurfaces: async () => { prepared.push("surfaces"); } },
+      clock: { now: () => new Date("2026-08-29T09:00:00.000Z") }
+    });
+
+    const readiness = await warmer.warm({ request, plan, artifact });
+
+    expect(prepared).toEqual(["runner", "remote-ui", "storage", "surfaces"]);
+    expect(readiness).toMatchObject({ generationId: authority.generationId, serverGenerationId: authority.generationId, uiGenerationId: authority.generationId, storageGenerationId: authority.generationId, readyAt: "2026-08-29T09:00:00.000Z" });
+    expect(Date.parse(readiness.expiresAt)).toBe(Date.parse(readiness.readyAt) + 60_000);
+  });
+
   it("stages and warms only the durable artifact bound to the plan", async () => {
     const artifacts = { resolve: vi.fn(async () => artifact) };
     const warmer = { warm: vi.fn(async () => ({ generationId: authority.generationId, serverGenerationId: authority.generationId, uiGenerationId: authority.generationId, storageGenerationId: authority.generationId, leaseToken: "readiness:lease-1", readyAt: "2026-08-29T09:00:00.000Z", expiresAt: "2026-08-29T09:01:00.000Z" })) };

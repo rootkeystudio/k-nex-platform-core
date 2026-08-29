@@ -33,6 +33,7 @@ function harness() {
   };
   const catalog = { list: vi.fn(async () => [
     { extension: { deliveryClass: "theme-skin", id: "skin.minimal-accent" }, version: "1.0.0", displayName: "Minimal Accent", support: "supported", review: "approved", security: "clear", revoked: false, availability: "live-generation" },
+    { extension: { deliveryClass: "hot-application", id: "app.sales-advisory" }, version: "1.0.0", displayName: "Sales Advisory", support: "supported", review: "approved", security: "advisory", revoked: false, availability: "live-generation" },
     { extension: { deliveryClass: "hot-application", id: "app.sales-assistant" }, version: "1.0.0", displayName: "Sales Assistant", support: "supported", review: "approved", security: "compromised", revoked: true, availability: "live-generation" },
     { extension: { deliveryClass: "platform-plugin", id: "module.sales" }, version: "1.1.0", displayName: "Sales", support: "supported", review: "approved", security: "clear", revoked: false, availability: "static-release" }
   ] as const) };
@@ -52,7 +53,7 @@ describe("ExtensionOperatorApi", () => {
       expect.objectContaining({ extension: { deliveryClass: "platform-plugin", id: "module.sales" } }),
       expect.objectContaining({ extension: { deliveryClass: "theme-skin", id: "skin.minimal-accent" } })
     ]);
-    await expect(value.api.catalogList({ includeUnavailable: true, deliveryClass: "hot-application" })).resolves.toHaveLength(1);
+    await expect(value.api.catalogList({ includeUnavailable: true, deliveryClass: "hot-application" })).resolves.toHaveLength(2);
     await expect(value.api.catalogDetail({ deliveryClass: "platform-plugin", id: "module.sales" }, "1.1.0")).resolves.toMatchObject({ availability: "static-release" });
     await expect(value.api.catalogDetail({ deliveryClass: "platform-plugin", id: "module.sales" }, "latest")).rejects.toThrow();
     const records = await value.catalog.list();
