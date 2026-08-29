@@ -7,16 +7,16 @@
 
 ## Last completed
 
-Added durable PostgreSQL source checkpoints and release-request transitions, a concrete static supervisor operator, separately credentialed source/builder/deployer/supervisor/worker/gateway/realtime processes, restart recovery, exact receipt rebinding, and advisory-lock worker-effect fencing without fence-write authority.
+Closed static post-commit replay risk. The durable operator now recovers the exact PostgreSQL deployment outbox receipt by expected revision, operation, and target generation before retrying a supervisor side effect; retained-generation rollback receipts use their own authoritative source/build identity instead of being falsely compared to the rollback request build.
 
 ## Validation
 
-Node 24.19.0: runtime 283/283 and payload 32/32 passed; real static PostgreSQL/Docker journey passed with SCN-17/18/20/21 and all 9 crash-matrix entries; full customer PostgreSQL run passed 13/14 before exposing one stale migration-count assertion, whose focused rerun passed after correction; `git diff --check` passed.
+Node 24.19.0: runtime 284/284 and payload 32/32 passed; focused recovery test proves a committed promotion is replayed without a second supervisor call; the preceding real static PostgreSQL/Docker journey passed SCN-17/18/20/21 and all 9 crash-matrix entries; `git diff --check` passed.
 
 ## Next
 
-Reconcile retained-generation rollback receipts with durable operation authority, then replace the test-only Hot Application execution path with production Docker isolation and real traffic/lease evidence.
+Replace the test-only Hot Application execution path with production Docker isolation and real traffic/lease evidence, then rerun the complete Gate 9.
 
 ## Blockers
 
-Durable static rollback replay/reconciliation; production Hot Application path.
+Production Hot Application path.

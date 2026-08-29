@@ -88,9 +88,10 @@ function releaseRequest(row: ReleaseRequestRow): DurableStaticReleaseRequest {
     catch { throw new StaticReleaseAuthorityStoreError("AUTHORITY_MISMATCH", "Persisted static release receipt is invalid."); }
   }
   if (receipt && (receipt.receiptId !== row.receipt_id || receipt.applicationId !== row.application_id || receipt.environment !== row.environment ||
-    receipt.activeGenerationId !== row.generation_id || receipt.sourceCommit !== row.source_commit || receipt.compositionChangePlanDigest !== row.change_plan_digest ||
-    receipt.buildEvidenceDigest !== row.build_evidence_digest || receipt.applicationDigest !== row.application_digest || receipt.imageDigest !== row.image_digest ||
-    receipt.migrationRevision !== row.migration_revision || receipt.workerFencingToken !== Number(row.worker_fencing_token))) {
+    receipt.activeGenerationId !== row.generation_id || receipt.workerFencingToken !== Number(row.worker_fencing_token) ||
+    (receipt.operation === "promote" && (receipt.sourceCommit !== row.source_commit || receipt.compositionChangePlanDigest !== row.change_plan_digest ||
+      receipt.buildEvidenceDigest !== row.build_evidence_digest || receipt.applicationDigest !== row.application_digest || receipt.imageDigest !== row.image_digest ||
+      receipt.migrationRevision !== row.migration_revision)))) {
     throw new StaticReleaseAuthorityStoreError("AUTHORITY_MISMATCH", "Persisted static release receipt does not bind its durable request.");
   }
   return Object.freeze({
@@ -232,19 +233,46 @@ export class PostgresTrustedBuildDeploymentClient implements TrustedBuildDeploym
 
   async recordDeployment(input: Readonly<{ buildRequestDigest: string; expectedVersion: string; receipt: StaticDeploymentReceipt }>): Promise<DurableStaticReleaseRequest> {
     const receipt = StaticDeploymentReceiptSchema.parse(input.receipt);
+    if (receipt.operation !== "promote" && receipt.operation !== "rollback") {
+      throw new StaticReleaseAuthorityStoreError("RELEASE_TRANSITION_CONFLICT", "Only promotion or rollback receipts can complete a release request.");
+    }
     const updated = await this.pool.query<ReleaseRequestRow>(
       `update runtime_static_release_requests set status='deployed', generation_id=$3, migration_revision=$4, worker_fencing_token=$5, receipt_id=$6, receipt_json=$7::jsonb, updated_at=now()
-       where request_digest=$1 and version=$2 and status='deployment-requested' and source_commit=$8 and change_plan_digest=$9 and
-         build_evidence_digest=$10 and application_digest=$11 and image_digest=$12
+       where request_digest=$1 and version=$2 and status='deployment-requested' and application_id=$13 and environment=$14 and
+         ($15='rollback' or (source_commit=$8 and change_plan_digest=$9 and build_evidence_digest=$10 and application_digest=$11 and image_digest=$12))
        returning ${releaseColumns}`,
       [input.buildRequestDigest, input.expectedVersion, receipt.activeGenerationId, receipt.migrationRevision, receipt.workerFencingToken, receipt.receiptId,
-        JSON.stringify(receipt), receipt.sourceCommit, receipt.compositionChangePlanDigest, receipt.buildEvidenceDigest, receipt.applicationDigest, receipt.imageDigest]
+        JSON.stringify(receipt), receipt.sourceCommit, receipt.compositionChangePlanDigest, receipt.buildEvidenceDigest, receipt.applicationDigest, receipt.imageDigest,
+        receipt.applicationId, receipt.environment, receipt.operation]
     );
     const persisted = updated.rows[0] ? releaseRequest(updated.rows[0]) : await this.readRequest(input.buildRequestDigest);
     if (!persisted || persisted.version !== input.expectedVersion || persisted.status !== "deployed" || !persisted.receipt || !same(persisted.receipt, receipt)) {
       throw new StaticReleaseAuthorityStoreError("RELEASE_TRANSITION_CONFLICT", "Deployment receipt is stale or conflicts with the durable release request.");
     }
     return persisted;
+  }
+
+  async recoverDeployment(input: Readonly<{
+    buildRequestDigest: string;
+    expectedVersion: string;
+    expectedRevision: number;
+    targetGenerationId: string;
+    operation: "promote" | "rollback";
+  }>): Promise<DurableStaticReleaseRequest | undefined> {
+    const request = await this.readRequest(input.buildRequestDigest);
+    if (!request || request.version !== input.expectedVersion) return undefined;
+    if (request.status === "deployed") return request;
+    if (request.status !== "deployment-requested") return undefined;
+    const result = await this.pool.query<{ event_json: unknown }>(
+      `select event_json from runtime_static_deployment_outbox
+       where application_id=$1 and environment=$2 and revision=$3`,
+      [request.applicationId, request.environment, input.expectedRevision + 1]
+    );
+    let receipt: StaticDeploymentReceipt;
+    try { receipt = StaticDeploymentReceiptSchema.parse(result.rows[0]?.event_json); }
+    catch { return undefined; }
+    if (receipt.operation !== input.operation || receipt.revisionBefore !== input.expectedRevision || receipt.activeGenerationId !== input.targetGenerationId) return undefined;
+    return this.recordDeployment({ buildRequestDigest: input.buildRequestDigest, expectedVersion: input.expectedVersion, receipt });
   }
 
   async reverify(authority: StaticGenerationAuthority): Promise<boolean> {

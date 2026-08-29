@@ -129,7 +129,8 @@ describe("DurableStaticReleaseOperator", () => {
     const requests = {
       readRequest: vi.fn(async () => request("builder-attested")),
       requestDeployment: vi.fn(async () => request("deployment-requested")),
-      recordDeployment: vi.fn(async () => request("deployed"))
+      recordDeployment: vi.fn(async () => request("deployed")),
+      recoverDeployment: vi.fn(async () => undefined)
     };
     const builds = { verifiedBuild: vi.fn(async () => token) };
     const reader = { read: vi.fn(() => ({ change: { planDigest, targetSourceCommit: sourceCommit }, evidenceDigest: buildDigest, evidence: { applicationSubject: { digest: applicationDigest }, imageSubject: { digest: imageDigest } } })) };
@@ -144,9 +145,26 @@ describe("DurableStaticReleaseOperator", () => {
   });
 
   it("rejects a durable request that changes the persisted version or source authority", async () => {
-    const requests = { readRequest: vi.fn(async () => ({ ...request("builder-attested"), version: "1.0.0" })), requestDeployment: vi.fn(), recordDeployment: vi.fn() };
+    const requests = { readRequest: vi.fn(async () => ({ ...request("builder-attested"), version: "1.0.0" })), requestDeployment: vi.fn(), recordDeployment: vi.fn(), recoverDeployment: vi.fn() };
     const value = new DurableStaticReleaseOperator(requests, { verifiedBuild: vi.fn() }, { read: vi.fn() }, {} as never, { acquire: vi.fn() });
     await expect(value.validate(operation)).rejects.toMatchObject({ code: "AUTHORITY_MISMATCH" } satisfies Partial<StaticReleaseOperatorError>);
+  });
+
+  it("recovers a committed promotion before retrying the supervisor side effect", async () => {
+    const requests = {
+      readRequest: vi.fn(async () => request("deployment-requested")),
+      requestDeployment: vi.fn(async () => request("deployment-requested")),
+      recordDeployment: vi.fn(),
+      recoverDeployment: vi.fn(async () => request("deployed"))
+    };
+    const token = {};
+    const reader = { read: vi.fn(() => ({ change: { planDigest, targetSourceCommit: sourceCommit }, evidenceDigest: buildDigest, evidence: { applicationSubject: { digest: applicationDigest }, imageSubject: { digest: imageDigest } } })) };
+    const supervisor = { deploy: vi.fn(), rollback: vi.fn() };
+    const value = new DurableStaticReleaseOperator(requests, { verifiedBuild: vi.fn(async () => token) }, reader, supervisor as never, { acquire: vi.fn() });
+
+    await expect(value.execute(operation)).resolves.toEqual({ outcome: "promoted", receipt });
+    expect(requests.recoverDeployment).toHaveBeenCalledWith(expect.objectContaining({ expectedRevision: operation.request.expectedRevision, targetGenerationId: "customer-alpha-green-1", operation: "promote" }));
+    expect(supervisor.deploy).not.toHaveBeenCalled();
   });
 
   it("routes a rollback through the durable transition and persists its rollback receipt", async () => {
@@ -156,7 +174,8 @@ describe("DurableStaticReleaseOperator", () => {
     const requests = {
       readRequest: vi.fn(async () => request("builder-attested")),
       requestDeployment: vi.fn(async () => request("deployment-requested")),
-      recordDeployment: vi.fn(async () => ({ ...request("deployed"), workerFencingToken: 3, receipt: rollbackReceipt }))
+      recordDeployment: vi.fn(async () => ({ ...request("deployed"), workerFencingToken: 3, receipt: rollbackReceipt })),
+      recoverDeployment: vi.fn(async () => undefined)
     };
     const reader = { read: vi.fn(() => ({ change: { planDigest, targetSourceCommit: sourceCommit }, evidenceDigest: buildDigest, evidence: { applicationSubject: { digest: applicationDigest }, imageSubject: { digest: imageDigest } } })) };
     const supervisor = { deploy: vi.fn(), rollback: vi.fn(async () => rollbackReceipt) };
