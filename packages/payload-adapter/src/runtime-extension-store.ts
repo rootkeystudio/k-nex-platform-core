@@ -10,6 +10,8 @@ import {
 import type {
   ClaimOperationResult,
   ExtensionActivationReceipt,
+  ExtensionDispositionReceipt,
+  ExtensionManagerReceipt,
   ExtensionOperationPhase,
   PluginManagerPlan,
   RuntimeExtensionOperation,
@@ -61,6 +63,7 @@ interface OperationRow {
   lease_expires_at: Date | string;
   plan_json: PluginManagerPlan | null;
   authority_json: VerifiedGenerationAuthority | null;
+  result_json: ExtensionManagerReceipt | null;
 }
 
 interface ExtensionRow {
@@ -110,7 +113,8 @@ function operation(row: OperationRow): RuntimeExtensionOperation {
     phase: row.phase,
     leaseToken: row.lease_token,
     ...(row.plan_json ? { plan: Object.freeze(row.plan_json) } : {}),
-    ...(row.authority_json ? { authority: Object.freeze(row.authority_json) } : {})
+    ...(row.authority_json ? { authority: Object.freeze(row.authority_json) } : {}),
+    ...(row.result_json ? { result: Object.freeze(row.result_json) } : {})
   });
 }
 
@@ -552,6 +556,84 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
     });
   }
 
+  async disableGeneration(id: string, token: string): Promise<ExtensionDispositionReceipt> {
+    return this.changeDisposition(id, token, "disable", "disabled");
+  }
+
+  async uninstallGeneration(id: string, token: string): Promise<ExtensionDispositionReceipt> {
+    return this.changeDisposition(id, token, "uninstall", "removed");
+  }
+
+  private async changeDisposition(
+    id: string,
+    token: string,
+    operationKind: "disable" | "uninstall",
+    disposition: "disabled" | "removed"
+  ): Promise<ExtensionDispositionReceipt> {
+    return this.transaction(async (session) => {
+      const row = await this.lockOperation(session, id, token);
+      if (row.phase !== "planning" || row.operation_kind !== operationKind || row.plan_json?.executionClass !== "live-generation") {
+        fail("PHASE_CONFLICT", `Only a planned live-generation ${operationKind} can commit.`);
+      }
+      await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [identityKey(row)]);
+      const stateResult = await session.query<ExtensionRow>(
+        `select *, 0::int as inventory_revision from runtime_extensions where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4 for update`,
+        [row.application_id, row.environment, row.delivery_class, row.extension_id]
+      );
+      const state = stateResult.rows[0];
+      if (!state || state.revision !== row.expected_revision + 1) fail("REVISION_CONFLICT", `${operationKind} expected revision does not match the planned state.`);
+      if (operationKind === "disable" && (state.disposition !== "active" || !state.active_generation_id || !state.active_generation)) {
+        fail("STATE_INVALID", "Only an active extension can be disabled.");
+      }
+      if (operationKind === "uninstall" && state.disposition === "removed") fail("STATE_INVALID", "Removed extension cannot be uninstalled again.");
+      const previousGeneration = state.active_generation ?? state.retained_generation;
+      const previousGenerationId = previousGeneration && typeof previousGeneration["generationId"] === "string" ? previousGeneration["generationId"] : undefined;
+      const revision = state.revision + 1;
+      const inventoryRevision = await this.advanceInventoryRevision(session, row.application_id, row.environment);
+      const retained = disposition === "disabled" ? state.active_generation : null;
+      const updated = await session.query(
+        `update runtime_extensions set revision=$5, disposition=$6::varchar, active_generation_id=null, active_generation=null,
+           rollback_generation_id=null, rollback_generation=null, retained_generation=$7::jsonb, rollback_compatibility_json=null,
+           metadata_json=case when $6::varchar='removed' then '{}'::jsonb else metadata_json end,
+           settings_json=case when $6::varchar='removed' then '{}'::jsonb else settings_json end,
+           storage_schema_versions=case when $6::varchar='removed' then '{}'::jsonb else storage_schema_versions end,
+           last_operation_id=$8, updated_at=now()
+         where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4 and revision=$9`,
+        [row.application_id, row.environment, row.delivery_class, row.extension_id, revision, disposition, retained ? JSON.stringify(retained) : null, row.operation_id, state.revision]
+      );
+      if (updated.rowCount !== 1) fail("REVISION_CONFLICT", `Runtime extension changed before ${operationKind}.`);
+      await session.query(
+        `delete from runtime_extension_generation_leases where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4`,
+        [row.application_id, row.environment, row.delivery_class, row.extension_id]
+      );
+      if (disposition === "removed") {
+        await session.query(
+          `delete from runtime_extension_generations where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4`,
+          [row.application_id, row.environment, row.delivery_class, row.extension_id]
+        );
+      } else {
+        await session.query(
+          `update runtime_extension_generations set state='retired' where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4 and state in ('active','rollback')`,
+          [row.application_id, row.environment, row.delivery_class, row.extension_id]
+        );
+      }
+      const event = await this.writeTransitionEvidence(session, row, "completed", undefined, revision, inventoryRevision, disposition);
+      const receipt: ExtensionDispositionReceipt = Object.freeze({
+        receiptId: event.receiptId,
+        operationId: row.operation_id,
+        operation: operationKind,
+        disposition,
+        ...(previousGenerationId ? { previousGenerationId } : {}),
+        revisionBefore: state.revision,
+        revisionAfter: revision,
+        inventoryRevision,
+        occurredAt: event.occurredAt
+      });
+      await this.completeOperation(session, row, receipt);
+      return receipt;
+    });
+  }
+
   async readOperation(id: string): Promise<RuntimeExtensionOperation | undefined> {
     const result = await this.pool.query<OperationRow>(`select * from runtime_extension_operations where operation_id=$1`, [id]);
     return result.rows[0] ? operation(result.rows[0]) : undefined;
@@ -680,7 +762,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
     };
   }
 
-  private async completeOperation(session: RuntimeExtensionSession, row: OperationRow, receipt: ExtensionActivationReceipt): Promise<void> {
+  private async completeOperation(session: RuntimeExtensionSession, row: OperationRow, receipt: ExtensionManagerReceipt): Promise<void> {
     const completed = await session.query(
       `update runtime_extension_operations set phase='completed', result_json=$3::jsonb, updated_at=now() where operation_id=$1 and lease_token=$2 returning operation_id`,
       [row.operation_id, row.lease_token, JSON.stringify(receipt)]
@@ -712,7 +794,8 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
     phase: ExtensionOperationPhase,
     authority: VerifiedGenerationAuthority | undefined,
     revision: number,
-    inventoryRevision: number
+    inventoryRevision: number,
+    lifecycle?: ExtensionLifecycleEvent["lifecycleState"]
   ): Promise<ExtensionLifecycleEvent> {
     const { receiptId, auditId, eventId } = evidenceIds(row, revision);
     const event = ExtensionLifecycleEventSchema.parse({
@@ -724,7 +807,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
       operationId: row.operation_id,
       operation: row.operation_kind,
       operationPhase: phase,
-      lifecycleState: lifecycleState(phase),
+      lifecycleState: lifecycle ?? lifecycleState(phase),
       expectedRevision: revision - 1,
       revision,
       inventoryRevision,

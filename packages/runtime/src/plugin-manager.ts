@@ -154,6 +154,37 @@ export interface ExtensionActivationReceipt {
   readonly occurredAt: string;
 }
 
+export interface ExtensionDispositionReceipt {
+  readonly receiptId: string;
+  readonly operationId: string;
+  readonly operation: "disable" | "uninstall";
+  readonly disposition: "disabled" | "removed";
+  readonly previousGenerationId?: string;
+  readonly revisionBefore: number;
+  readonly revisionAfter: number;
+  readonly inventoryRevision: number;
+  readonly occurredAt: string;
+}
+
+export type ExtensionManagerReceipt = ExtensionActivationReceipt | ExtensionDispositionReceipt;
+
+export interface ExtensionValidationReport {
+  readonly operationId: string;
+  readonly executionClass: PluginManagerPlan["executionClass"];
+  readonly phase: ExtensionOperationPhase;
+  readonly valid: boolean;
+  readonly checks: readonly string[];
+}
+
+export interface ExtensionOperationStatus {
+  readonly operationId: string;
+  readonly request: ExtensionChangeRequest;
+  readonly actor: ExtensionOperationActor;
+  readonly phase: ExtensionOperationPhase;
+  readonly plan?: PluginManagerPlan;
+  readonly result?: ExtensionManagerReceipt;
+}
+
 export interface ActiveGenerationObservation {
   readonly revision: number;
   readonly inventoryRevision: number;
@@ -182,6 +213,7 @@ export interface RuntimeExtensionOperation {
   readonly leaseToken: string;
   readonly plan?: PluginManagerPlan;
   readonly authority?: VerifiedGenerationAuthority;
+  readonly result?: ExtensionManagerReceipt;
 }
 
 export type ClaimOperationResult =
@@ -199,6 +231,8 @@ export interface RuntimeExtensionStore {
   refreshGenerationReadiness(input: Readonly<{ operationId: string; leaseToken: string; stage: StagedGenerationActivation }>): Promise<RuntimeExtensionOperation>;
   activateGeneration(operationId: string, leaseToken: string): Promise<ExtensionActivationReceipt>;
   rollbackGeneration(operationId: string, leaseToken: string): Promise<ExtensionActivationReceipt>;
+  disableGeneration(operationId: string, leaseToken: string): Promise<ExtensionDispositionReceipt>;
+  uninstallGeneration(operationId: string, leaseToken: string): Promise<ExtensionDispositionReceipt>;
   observeActiveGeneration(applicationId: string, environment: string, extension: ExtensionIdentity): Promise<ActiveGenerationObservation>;
   acquireGenerationLease(input: Readonly<{ applicationId: string; environment: string; extension: ExtensionIdentity; generationId: string; holder: string; ttlMs: number }>): Promise<string>;
   releaseGenerationLease(leaseId: string): Promise<void>;
@@ -286,6 +320,7 @@ export class PluginManager {
     const operation = await this.store.resumeOperation(operationId, this.workerId);
     if (!operation.plan) throw new PluginManagerError("OPERATION_NOT_FOUND", "Planned extension operation is unavailable.");
     if (operation.plan.executionClass !== "live-generation") throw new PluginManagerError("WRONG_EXECUTION_CLASS", "Platform Plugin delivery is delegated to static source/build authority.");
+    if (!["install", "update"].includes(operation.request.operation)) throw new PluginManagerError("INVALID_STATE", "Only install and update operations stage a live generation.");
     if (!["planning", "downloading", "verified", "staged"].includes(operation.phase)) throw new PluginManagerError("INVALID_STATE", `Extension operation cannot stage from ${operation.phase}.`);
     const dynamicPlan = operation.plan;
     let current = operation;
@@ -309,9 +344,32 @@ export class PluginManager {
     return inventory;
   }
 
+  async operation(operationId: string): Promise<ExtensionOperationStatus> {
+    const operation = await this.store.readOperation(operationId);
+    if (!operation) throw new PluginManagerError("OPERATION_NOT_FOUND", "Extension operation is unavailable.");
+    return Object.freeze({
+      operationId: operation.operationId,
+      request: operation.request,
+      actor: operation.authorization.actor,
+      phase: operation.phase,
+      ...(operation.plan ? { plan: operation.plan } : {}),
+      ...(operation.result ? { result: operation.result } : {})
+    });
+  }
+
+  async validate(operationId: string): Promise<ExtensionValidationReport> {
+    const operation = await this.store.readOperation(operationId);
+    if (!operation?.plan) throw new PluginManagerError("OPERATION_NOT_FOUND", "Planned extension operation is unavailable.");
+    if (operation.plan.executionClass === "static-release") {
+      throw new PluginManagerError("WRONG_EXECUTION_CLASS", "Platform Plugin validation belongs to trusted source/build/deployment authority.");
+    }
+    const valid = operation.authority !== undefined && await this.artifacts.reverify(operation.authority);
+    return Object.freeze({ operationId, executionClass: "live-generation", phase: operation.phase, valid, checks: valid ? ["verified-bundle", "generation-authority"] : [] });
+  }
+
   async activate(operationId: string): Promise<ExtensionActivationReceipt> {
     let current = await this.store.resumeOperation(operationId, this.workerId);
-    if (!current.plan || current.plan.executionClass !== "live-generation" || !current.authority) {
+    if (!current.plan || current.plan.executionClass !== "live-generation" || !current.authority || !["install", "update"].includes(current.request.operation)) {
       throw new PluginManagerError("INVALID_STATE", "Only a verified live generation can be activated.");
     }
     if (!this.generationRuntime) throw new PluginManagerError("INVALID_STATE", "Live generation preparation is unavailable.");
@@ -336,6 +394,16 @@ export class PluginManager {
     return this.store.rollbackGeneration(operationId, current.leaseToken);
   }
 
+  async disable(operationId: string): Promise<ExtensionDispositionReceipt> {
+    const current = await this.dispositionOperation(operationId, "disable");
+    return this.store.disableGeneration(operationId, current.leaseToken);
+  }
+
+  async uninstall(operationId: string): Promise<ExtensionDispositionReceipt> {
+    const current = await this.dispositionOperation(operationId, "uninstall");
+    return this.store.uninstallGeneration(operationId, current.leaseToken);
+  }
+
   private async assertDynamicEntry(entry: RuntimeExtensionInventory["extensions"]["hotApplications"][string]): Promise<void> {
     if (entry.disposition !== "active") return;
     const generation = entry.activeGeneration;
@@ -355,5 +423,13 @@ export class PluginManager {
     let current = await this.store.resumeOperation(operation.operationId, this.workerId);
     if (current.phase === "planning") current = (await this.store.transition({ operationId: current.operationId, leaseToken: current.leaseToken, expectedPhase: "planning", phase: "source-change-required" })).operation;
     if (current.phase === "source-change-required") await this.store.transition({ operationId: current.operationId, leaseToken: current.leaseToken, expectedPhase: "source-change-required", phase: "source-change-ready" });
+  }
+
+  private async dispositionOperation(operationId: string, operation: "disable" | "uninstall"): Promise<RuntimeExtensionOperation> {
+    const current = await this.store.resumeOperation(operationId, this.workerId);
+    if (!current.plan || current.plan.executionClass !== "live-generation" || current.request.operation !== operation || current.phase !== "planning") {
+      throw new PluginManagerError("INVALID_STATE", `Extension ${operation} operation is not ready.`);
+    }
+    return current;
   }
 }

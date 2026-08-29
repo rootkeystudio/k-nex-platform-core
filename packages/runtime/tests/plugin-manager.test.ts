@@ -106,6 +106,12 @@ class MemoryStore implements RuntimeExtensionStore {
     };
   }
   async rollbackGeneration(): Promise<ExtensionActivationReceipt> { throw new Error("unused"); }
+  async disableGeneration() {
+    return { receiptId: "disable-receipt-1", operationId: this.operation!.operationId, operation: "disable" as const, disposition: "disabled" as const, revisionBefore: 1, revisionAfter: 2, inventoryRevision: 2, occurredAt: "2026-08-29T09:00:00.000Z" };
+  }
+  async uninstallGeneration() {
+    return { receiptId: "uninstall-receipt-1", operationId: this.operation!.operationId, operation: "uninstall" as const, disposition: "removed" as const, revisionBefore: 2, revisionAfter: 3, inventoryRevision: 3, occurredAt: "2026-08-29T09:00:00.000Z" };
+  }
   async observeActiveGeneration() { return { revision: 0, inventoryRevision: 0 }; }
   async acquireGenerationLease() { return "lease-00000000-0000-4000-8000-000000000000"; }
   async releaseGenerationLease() {}
@@ -195,5 +201,37 @@ describe("PluginManager", () => {
       }
     };
     await expect(runtime.value.inventory("customer-alpha", "production")).rejects.toMatchObject({ code: "ARTIFACT_AUTHORITY_REJECTED" });
+  });
+
+  it("exposes safe progress, validation, disable, and uninstall operations", async () => {
+    const runtime = manager();
+    const planned = await runtime.value.plan(request);
+    await runtime.value.stage(planned.operationId);
+    await expect(runtime.value.validate(planned.operationId)).resolves.toMatchObject({ valid: true, executionClass: "live-generation", checks: ["verified-bundle", "generation-authority"] });
+    const progress = await runtime.value.operation(planned.operationId);
+    expect(progress).toMatchObject({ operationId: planned.operationId, phase: "staged", actor: { kind: "trusted-automation" } });
+    expect(progress).not.toHaveProperty("leaseToken");
+
+    runtime.store.operation = { ...runtime.store.operation!, request: { ...request, operation: "disable" }, phase: "planning" };
+    await expect(runtime.value.disable(planned.operationId)).resolves.toMatchObject({ disposition: "disabled" });
+    runtime.store.operation = { ...runtime.store.operation!, request: { ...request, operation: "uninstall" }, phase: "planning" };
+    await expect(runtime.value.uninstall(planned.operationId)).resolves.toMatchObject({ disposition: "removed" });
+  });
+
+  it("stops before planning or persistence when operation authorization rejects", async () => {
+    const runtime = manager();
+    const blocked = new PluginManager(
+      "phase-9-worker",
+      { authorize: vi.fn(async () => { throw new Error("OPERATION_FORBIDDEN"); }) },
+      runtime.planner,
+      runtime.store,
+      runtime.artifacts,
+      runtime.staticChanges,
+      runtime.deployments,
+      runtime.generationRuntime
+    );
+    await expect(blocked.plan(request)).rejects.toThrow("OPERATION_FORBIDDEN");
+    expect(runtime.planner.plan).not.toHaveBeenCalled();
+    expect(runtime.store.operation).toBeUndefined();
   });
 });

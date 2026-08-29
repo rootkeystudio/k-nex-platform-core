@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
@@ -26,6 +27,16 @@ function boot(connectionString) {
     child.on("error", reject);
     child.on("close", (code) => code === 0 ? resolve() : reject(new Error(output)));
   });
+}
+
+async function listen(handler) {
+  const server = createServer(handler);
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  return { url: `http://127.0.0.1:${address.port}`, close: () => new Promise((resolve) => server.close(resolve)) };
 }
 
 function request(id, key, options = {}) {
@@ -96,6 +107,7 @@ test("proves persistent extension operation serialization, recovery, atomic evid
   const clock = { now: () => now };
   const storeA = new PostgresRuntimeExtensionStore(pool, clock, digest("7"), { leaseMs: 1_000, maxConcurrentOperations: 2 });
   const storeB = new PostgresRuntimeExtensionStore(pool, clock, digest("7"), { leaseMs: 1_000, maxConcurrentOperations: 2 });
+  const hosts = [];
   try {
     await boot(container.getConnectionUri());
     const tableShape = await pool.query("select to_regclass('public.runtime_extension_operations')::text operations, to_regclass('public.runtime_extension_outbox')::text outbox, to_regclass('public.runtime_extension_inventory_revisions')::text inventory_revisions");
@@ -185,14 +197,30 @@ test("proves persistent extension operation serialization, recovery, atomic evid
       })
     });
 
-    const traffic = Array.from({ length: 24 }, () => storeB.observeActiveGeneration("customer-alpha", "production", liveIdentity));
+    const generationHosts = new Map();
+    for (const generationId of [installed.generationId, update.authority.generationId]) {
+      const host = await listen((_request, response) => response.end(generationId));
+      hosts.push(host);
+      generationHosts.set(generationId, host.url);
+    }
+    const gateway = await listen(async (request, response) => {
+      try {
+        const observation = await storeB.observeActiveGeneration("customer-alpha", "production", liveIdentity);
+        const target = generationHosts.get(observation.generationId);
+        if (!target) { response.writeHead(503).end("generation unavailable"); return; }
+        const upstream = await fetch(`${target}${request.url}`);
+        response.writeHead(upstream.status).end(await upstream.text());
+      } catch { response.writeHead(500).end("gateway failure"); }
+    });
+    hosts.push(gateway);
+    const traffic = Array.from({ length: 24 }, () => fetch(`${gateway.url}/continuous`).then(async (response) => ({ status: response.status, generationId: await response.text() })));
     const [updated, ...observations] = await Promise.all([storeA.activateGeneration(update.operation.operationId, updateRecovered.leaseToken), ...traffic]);
     assert.equal(updated.previousGenerationId, installed.generationId);
     assert.equal(updated.rollback, "available");
     assert.deepEqual(updated.compatibility, {
       status: "compatible", windowId: "sales-window-2", closesAt: new Date(now.valueOf() + 86_339_999).toISOString(), migrationDigest: digest("2"), dataRevision: 2
     });
-    assert.equal(observations.every(({ generationId }) => [installed.generationId, updated.generationId].includes(generationId)), true);
+    assert.equal(observations.every(({ status, generationId }) => status === 200 && [installed.generationId, updated.generationId].includes(generationId)), true);
     assert.equal((await storeB.observeActiveGeneration("customer-alpha", "production", liveIdentity)).generationId, updated.generationId);
     const polledAfterLostInvalidation = await storeB.observeActiveGeneration("customer-alpha", "production", liveIdentity);
     for (const tracker of runtimeConsumers.values()) tracker.observe(polledAfterLostInvalidation);
@@ -233,6 +261,9 @@ test("proves persistent extension operation serialization, recovery, atomic evid
     assert.equal(rolledBack.generationId, installed.generationId);
     assert.equal(rolledBack.previousGenerationId, updated.generationId);
     assert.equal(rolledBack.compatibility.windowId, "sales-window-2");
+    const rollbackTraffic = await fetch(`${gateway.url}/rollback`);
+    assert.equal(rollbackTraffic.status, 200);
+    assert.equal(await rollbackTraffic.text(), installed.generationId);
     const retainedCompatibility = await pool.query(`select rollback_compatibility_json from runtime_extensions where application_id='customer-alpha' and environment='production' and extension_id='app.sales-live'`);
     assert.equal(retainedCompatibility.rows[0].rollback_compatibility_json.windowId, "sales-window-2");
 
@@ -253,6 +284,25 @@ test("proves persistent extension operation serialization, recovery, atomic evid
     await assert.rejects(storeA.rollbackGeneration(blockedPlan.operationId, blockedPlan.leaseToken), { code: "ROLLBACK_BLOCKED" });
     await storeA.transition({ operationId: blockedPlan.operationId, leaseToken: blockedPlan.leaseToken, expectedPhase: "planning", phase: "failed" });
 
+    const afterBlocked = await storeA.observeActiveGeneration("customer-alpha", "production", liveIdentity);
+    const disableRequest = request(liveIdentity.id, "disable:app.sales-live:1", { operation: "disable", version: "2.0.0", expectedRevision: afterBlocked.revision });
+    const disableClaim = await claim(storeA, disableRequest, digest("c"), "disable-worker");
+    const disablePlan = await storeA.savePlan(disableClaim.operation.operationId, disableClaim.operation.leaseToken, livePlan(disableClaim.operation.operationId, disableRequest, 3, "3"));
+    const disabled = await storeA.disableGeneration(disablePlan.operationId, disablePlan.leaseToken);
+    assert.deepEqual(disabled, await storeA.readOperation(disablePlan.operationId).then((operation) => operation.result));
+    assert.equal((await storeA.inventory("customer-alpha", "production")).extensions.hotApplications[liveIdentity.id].disposition, "disabled");
+    const disableEvent = await pool.query("select event_json->>'lifecycleState' lifecycle_state from runtime_extension_transition_receipts where receipt_id=$1", [disabled.receiptId]);
+    assert.deepEqual(disableEvent.rows, [{ lifecycle_state: "disabled" }]);
+
+    const uninstallRequest = request(liveIdentity.id, "uninstall:app.sales-live:1", { operation: "uninstall", version: "2.0.0", expectedRevision: disabled.revisionAfter });
+    const uninstallClaim = await claim(storeA, uninstallRequest, digest("d"), "uninstall-worker");
+    const uninstallPlan = await storeA.savePlan(uninstallClaim.operation.operationId, uninstallClaim.operation.leaseToken, livePlan(uninstallClaim.operation.operationId, uninstallRequest, 3, "3"));
+    const uninstalled = await storeA.uninstallGeneration(uninstallPlan.operationId, uninstallPlan.leaseToken);
+    assert.equal(uninstalled.disposition, "removed");
+    assert.equal((await storeA.inventory("customer-alpha", "production")).extensions.hotApplications[liveIdentity.id].disposition, "removed");
+    const removedEvidence = await pool.query("select count(*)::int generations, (select event_json->>'lifecycleState' from runtime_extension_transition_receipts where receipt_id=$1) lifecycle_state from runtime_extension_generations where extension_id=$2", [uninstalled.receiptId, liveIdentity.id]);
+    assert.deepEqual(removedEvidence.rows, [{ generations: 0, lifecycle_state: "removed" }]);
+
     const forged = { authority: "verified-bundle", generationId: "forecast-generation-1", version: "1.0.0", sourceCommit: "a".repeat(40), artifactDigest: digest("a"), manifestDigest: digest("b"), catalogDigest: digest("c"), provenanceDigest: digest("d"), sbomDigest: digest("e"), receiptId: "forged-receipt-1" };
     await pool.query("update runtime_extensions set disposition='active', active_generation_id=$1, active_generation=$2::jsonb where application_id='customer-alpha' and environment='production' and delivery_class='hot-application' and extension_id='app.forecast'", [forged.generationId, JSON.stringify(forged)]);
     const rawInventory = await storeA.inventory("customer-alpha", "production");
@@ -264,6 +314,7 @@ test("proves persistent extension operation serialization, recovery, atomic evid
     );
     await assert.rejects(manager.inventory("customer-alpha", "production"), { code: "ARTIFACT_AUTHORITY_REJECTED" });
   } finally {
+    await Promise.allSettled(hosts.map((host) => host.close()));
     await pool.end();
     await container.stop();
   }

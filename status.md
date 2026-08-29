@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-29
 - **Phase:** Phase 9 — Dynamic Application Runtime and Zero-Downtime Delivery
-- **Active task:** P9.9 — Unified manager API, status experience, and attack corpus
+- **Active task:** P9.10 — Gate 9 closeout
 - **State:** Ready to start
 
 ## Last completed
 
-P9.8 added exact-base deterministic source changes, Ed25519 trusted build authority, immutable app/image evidence, PostgreSQL deployment and worker-fence authority, blue/green supervision, compatible migration/backfill/contract phases, stable gateway convergence, drain/rollback/recovery, and Docker isolation proof.
+P9.9 added the closed headless operator/catalog/status API, persisted safe operation results, validated class-specific routing, dynamic disable/uninstall transitions, real HTTP update/rollback continuity, and an executable 22-attack evidence corpus spanning every required extension threat.
 
 ## Validation
 
-Node 24.19.0: contracts 155, architecture tools 25, runtime 252, and Payload adapter 32 tests passed. Contract generation is reproducible; docs validation passed. The ten-test customer PostgreSQL suite passed, including revision-11 boot, continuous Docker traffic, failed-green refusal, crash-atomic fence transfer, single-effect fencing, rollback, retirement, and maintenance-required proof.
+Node 24.19.0: runtime 257, Payload adapter 32, extension bundler 11, extension runner 4, and UI runtime 53 tests passed. Chromium remote UI and Skin proofs passed. All 22 attack mappings and the ten-test PostgreSQL suite passed, including continuous Hot Application and Docker traffic, restore, multi-process convergence, fencing, rollback, disable, and uninstall.
 
 ## Next
 
-Implement P9.9 only: unified catalog/plan/lifecycle/status API, complete operator journeys, and executable attack-corpus coverage across all three extension delivery classes.
+Implement P9.10 only: phase result, executable `gate:9`, mandatory evidence-falsification checks, full Gate 9 run, and phase closeout report.
 
 ## Blockers
 
