@@ -32,6 +32,21 @@ export interface StaticCompositionRepository {
   commit(expectedSourceCommit: string, change: StaticCompositionChangePlan): Promise<string>;
 }
 
+export interface StaticCompositionCheckpoint {
+  readonly checkpointId: string;
+  readonly applicationId: string;
+  readonly environment: string;
+  readonly expectedSourceCommit: string;
+  readonly change: StaticCompositionChangePlan;
+  readonly status: "planned" | "committed";
+}
+
+export interface StaticCompositionCheckpointStore {
+  read(checkpointId: string): Promise<StaticCompositionCheckpoint | undefined>;
+  save(checkpoint: StaticCompositionCheckpoint): Promise<StaticCompositionCheckpoint>;
+  commit(checkpointId: string): Promise<StaticCompositionCheckpoint>;
+}
+
 export interface StaticCompositionResolver {
   resolve(input: Readonly<{
     request: StaticCompositionChangeRequest;
@@ -55,13 +70,40 @@ export class DeterministicStaticCompositionChangeAuthority implements StaticComp
   constructor(
     private readonly identity: string,
     private readonly repository: StaticCompositionRepository,
-    private readonly resolver: StaticCompositionResolver
+    private readonly resolver: StaticCompositionResolver,
+    private readonly checkpoints: StaticCompositionCheckpointStore
   ) {
     if (!/^[A-Za-z0-9][A-Za-z0-9._:@/-]{2,159}$/u.test(identity)) throw new TypeError("Static composition authority identity is invalid.");
   }
 
   async request(request: StaticCompositionChangeRequest, authorization: OperationAuthorizationDecision): Promise<StaticCompositionChangeResult> {
     if (!/^[0-9a-f]{40}$/u.test(request.expectedSourceCommit)) throw new StaticCompositionAuthorityError("CHANGE_INVALID", "Expected customer source commit is invalid.");
+    const checkpointId = digest({ authority: this.identity, authorization, request });
+    const checkpoint = await this.checkpoints.read(checkpointId) ?? await this.createCheckpoint(checkpointId, request, authorization);
+    this.assertCheckpoint(checkpoint, checkpointId, request, authorization);
+    const current = await this.repository.current(request.applicationId, request.environment);
+    if (current.sourceCommit === checkpoint.change.target.sourceCommit && same(current.composition, checkpoint.change.target.composition)) {
+      const committed = checkpoint.status === "committed" ? checkpoint : await this.checkpoints.commit(checkpointId);
+      return this.result(committed);
+    }
+    if (current.sourceCommit !== request.expectedSourceCommit || !same(current.composition, checkpoint.change.base.composition)) {
+      throw new StaticCompositionAuthorityError("SOURCE_CONFLICT", "Customer source changed before the approved composition edit.");
+    }
+    try {
+      const committed = await this.repository.commit(request.expectedSourceCommit, checkpoint.change);
+      if (committed !== checkpoint.change.target.sourceCommit) throw new StaticCompositionAuthorityError("SOURCE_CONFLICT", "Customer source authority did not commit the exact resolved target.");
+    } catch (error) {
+      const recovered = await this.repository.current(request.applicationId, request.environment);
+      if (recovered.sourceCommit !== checkpoint.change.target.sourceCommit || !same(recovered.composition, checkpoint.change.target.composition)) throw error;
+    }
+    return this.result(await this.checkpoints.commit(checkpointId));
+  }
+
+  private async createCheckpoint(
+    checkpointId: string,
+    request: StaticCompositionChangeRequest,
+    authorization: OperationAuthorizationDecision
+  ): Promise<StaticCompositionCheckpoint> {
     const base = await this.repository.current(request.applicationId, request.environment);
     if (base.sourceCommit !== request.expectedSourceCommit) throw new StaticCompositionAuthorityError("SOURCE_CONFLICT", "Customer source changed before the approved composition edit.");
     let change: StaticCompositionChangePlan;
@@ -75,9 +117,43 @@ export class DeterministicStaticCompositionChangeAuthority implements StaticComp
       change.migration.applicationId !== request.applicationId || change.migration.environment !== request.environment) {
       throw new StaticCompositionAuthorityError("CHANGE_INVALID", "Static composition change does not bind the authorized request and exact source graph.");
     }
-    const committed = await this.repository.commit(request.expectedSourceCommit, change);
-    if (committed !== change.target.sourceCommit) throw new StaticCompositionAuthorityError("SOURCE_CONFLICT", "Customer source authority did not commit the exact resolved target.");
-    return Object.freeze({ status: "source-change-ready", planDigest: digest(change), targetSourceCommit: committed, change: Object.freeze(structuredClone(change)) });
+    return this.checkpoints.save(Object.freeze({
+      checkpointId,
+      applicationId: request.applicationId,
+      environment: request.environment,
+      expectedSourceCommit: request.expectedSourceCommit,
+      change: Object.freeze(structuredClone(change)),
+      status: "planned"
+    }));
+  }
+
+  private assertCheckpoint(
+    checkpoint: StaticCompositionCheckpoint,
+    checkpointId: string,
+    request: StaticCompositionChangeRequest,
+    authorization: OperationAuthorizationDecision
+  ): void {
+    if (checkpoint.checkpointId !== checkpointId || checkpoint.applicationId !== request.applicationId || checkpoint.environment !== request.environment ||
+      checkpoint.expectedSourceCommit !== request.expectedSourceCommit) {
+      throw new StaticCompositionAuthorityError("CHANGE_INVALID", "Persisted static composition checkpoint does not bind the authorized request.");
+    }
+    const change = checkpoint.change;
+    if (change.applicationId !== request.applicationId || change.environment !== request.environment || change.deliveryClass !== "platform-plugin" ||
+      change.plugin.id !== request.plan.id || change.plugin.version !== request.plan.version || change.plugin.releaseManifestDigest !== request.plan.artifactDigest ||
+      change.authority.identity !== this.identity || change.authority.requestDigest !== authorization.decisionId ||
+      change.base.sourceCommit !== request.expectedSourceCommit || change.target.sourceCommit !== change.migration.targetSourceCommit ||
+      change.base.sourceCommit !== change.migration.sourceCommit) {
+      throw new StaticCompositionAuthorityError("CHANGE_INVALID", "Persisted static composition checkpoint does not bind the authorized source graph.");
+    }
+  }
+
+  private result(checkpoint: StaticCompositionCheckpoint): StaticCompositionChangeResult {
+    return Object.freeze({
+      status: "source-change-ready",
+      planDigest: digest(checkpoint.change),
+      targetSourceCommit: checkpoint.change.target.sourceCommit,
+      change: Object.freeze(structuredClone(checkpoint.change))
+    });
   }
 }
 

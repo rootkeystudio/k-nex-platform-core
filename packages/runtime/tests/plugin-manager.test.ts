@@ -69,6 +69,7 @@ class MemoryStore implements RuntimeExtensionStore {
   operation?: RuntimeExtensionOperation;
   readonly transitions: string[] = [];
   inventoryValue!: RuntimeExtensionInventory;
+  rollbackResult?: ExtensionActivationReceipt;
 
   async claimOperation(input: Parameters<RuntimeExtensionStore["claimOperation"]>[0]): Promise<ClaimOperationResult> {
     if (this.operation) return { status: "replay", operation: this.operation };
@@ -109,7 +110,10 @@ class MemoryStore implements RuntimeExtensionStore {
       rollback: "unavailable", occurredAt: "2026-08-29T09:00:00.000Z"
     };
   }
-  async rollbackGeneration(): Promise<ExtensionActivationReceipt> { throw new Error("unused"); }
+  async rollbackGeneration(): Promise<ExtensionActivationReceipt> {
+    if (!this.rollbackResult) throw new Error("unused");
+    return this.rollbackResult;
+  }
   async disableGeneration() {
     return { receiptId: "disable-receipt-1", operationId: this.operation!.operationId, operation: "disable" as const, disposition: "disabled" as const, revisionBefore: 1, revisionAfter: 2, inventoryRevision: 2, occurredAt: "2026-08-29T09:00:00.000Z" };
   }
@@ -127,9 +131,9 @@ function manager(store = new MemoryStore(), reverify = true) {
   const artifacts = { stage: vi.fn(async () => authority), reverify: vi.fn(async () => reverify) };
   const staticChanges = { request: vi.fn() };
   const deployments = { request: vi.fn(), reverify: vi.fn(async () => reverify) };
-  const generationRuntime = { prepare: vi.fn(async () => ({
-    authority, version: "1.0.0",
-    readiness: { generationId: authority.generationId, serverGenerationId: authority.generationId, uiGenerationId: authority.generationId, storageGenerationId: authority.generationId, leaseToken: "readiness:lease-1", readyAt: "2026-08-29T09:00:00.000Z", expiresAt: "2026-08-29T09:01:00.000Z" },
+  const generationRuntime = { prepare: vi.fn(async ({ authority: preparedAuthority, plan }) => ({
+    authority: preparedAuthority, version: plan.plan.version,
+    readiness: { generationId: preparedAuthority.generationId, serverGenerationId: preparedAuthority.generationId, uiGenerationId: preparedAuthority.generationId, storageGenerationId: preparedAuthority.generationId, leaseToken: "readiness:lease-1", readyAt: "2026-08-29T09:00:00.000Z", expiresAt: "2026-08-30T09:01:00.000Z" },
     compatibility: { status: "compatible" as const, windowId: "rollback-window-1", closesAt: "2026-08-30T09:00:00.000Z", migrationDigest: digest("6"), dataRevision: 1 },
     metadata: {}, settings: {}, storageSchemaVersions: {}
   })) };
@@ -223,6 +227,74 @@ describe("PluginManager", () => {
     runtime.store.operation = { ...runtime.store.operation!, authority: { ...authority, environment: "staging" } };
     await expect(runtime.value.activate(planned.operationId)).rejects.toMatchObject({ code: "ARTIFACT_AUTHORITY_REJECTED" });
     expect(runtime.generationRuntime.prepare).not.toHaveBeenCalled();
+  });
+
+  it("reverifies and freshly warms the retained generation before the rollback pointer can change", async () => {
+    const retained = { ...authority, generationId: "sales-assistant-generation-0" };
+    const rollbackRequest: ExtensionChangeRequest = {
+      ...request,
+      operation: "rollback",
+      expectedRevision: 1,
+      idempotencyKey: "rollback:app.sales-assistant:1"
+    };
+    const runtime = manager();
+    runtime.planner.plan.mockResolvedValue({
+      plan: { ...hotPlan, operation: "rollback", expectedRevision: 1, targetGenerationId: retained.generationId },
+      sourceCommit: retained.sourceCommit,
+      generationId: retained.generationId
+    });
+    runtime.store.inventoryValue = {
+      schemaVersion: 1, applicationId: request.applicationId, environment: request.environment, hostInventoryDigest: digest("7"), revision: 1,
+      observedAt: "2026-08-29T09:00:00.000Z", stateDigest: digest("8"), extensions: {
+        platformPlugins: {}, themeSkins: {}, hotApplications: { "app.sales-assistant": {
+          disposition: "active", revision: 1, lastOperationId: "extension-operation-1", lastReceiptId: "extension-receipt-1", stateDigest: digest("9"),
+          activeGeneration: { authority: "verified-bundle", version: "1.0.0", receiptId: "extension-receipt-1", ...authority },
+          rollbackGeneration: { authority: "verified-bundle", version: "1.0.0", receiptId: "extension-receipt-0", ...retained }
+        } }
+      }
+    };
+    runtime.store.rollbackResult = {
+      receiptId: "rollback-receipt-1", operationId: "extension-operation-1", operation: "rollback", generationId: retained.generationId,
+      previousGenerationId: authority.generationId, revisionBefore: 1, revisionAfter: 2, inventoryRevision: 2,
+      compatibility: { status: "compatible", windowId: "rollback-window-1", closesAt: "2026-08-30T09:00:00.000Z", migrationDigest: digest("6"), dataRevision: 1 },
+      rollback: "available", occurredAt: "2026-08-29T09:00:00.000Z"
+    };
+    const planned = await runtime.value.plan(rollbackRequest);
+    await expect(runtime.value.rollback(planned.operationId)).resolves.toMatchObject({ generationId: retained.generationId });
+    expect(runtime.artifacts.reverify).toHaveBeenCalledWith(retained, expect.objectContaining({ extensionId: retained.extensionId }));
+    expect(runtime.generationRuntime.prepare).toHaveBeenCalledWith(expect.objectContaining({ authority: retained }));
+
+    runtime.artifacts.reverify.mockResolvedValueOnce(false);
+    runtime.store.operation = { ...runtime.store.operation!, phase: "planning" };
+    await expect(runtime.value.rollback(planned.operationId)).rejects.toMatchObject({ code: "ARTIFACT_AUTHORITY_REJECTED" });
+    expect(runtime.store.rollbackResult).toBeDefined();
+  });
+
+  it("rejects stale or mixed retained readiness before rollback pointer mutation", async () => {
+    const runtime = manager();
+    const retained = { ...authority, generationId: "sales-assistant-generation-0" };
+    runtime.store.operation = {
+      operationId: "extension-operation-rollback", request: { ...request, operation: "rollback", expectedRevision: 1 }, requestDigest: digest("1"),
+      authorization: { actor: { kind: "trusted-automation", identity: "github-actions:phase-9" }, decisionId: digest("2") }, phase: "planning", leaseToken: "lease-rollback",
+      plan: { executionClass: "live-generation", operationId: "extension-operation-rollback", plan: { ...hotPlan, operation: "rollback", expectedRevision: 1, targetGenerationId: retained.generationId }, sourceCommit: retained.sourceCommit, generationId: retained.generationId }
+    };
+    runtime.store.inventoryValue = {
+      schemaVersion: 1, applicationId: request.applicationId, environment: request.environment, hostInventoryDigest: digest("7"), revision: 1,
+      observedAt: "2026-08-29T09:00:00.000Z", stateDigest: digest("8"), extensions: {
+        platformPlugins: {}, themeSkins: {}, hotApplications: { "app.sales-assistant": {
+          disposition: "active", revision: 1, lastOperationId: "extension-operation-1", lastReceiptId: "extension-receipt-1", stateDigest: digest("9"),
+          activeGeneration: { authority: "verified-bundle", version: "1.0.0", receiptId: "extension-receipt-1", ...authority },
+          rollbackGeneration: { authority: "verified-bundle", version: "1.0.0", receiptId: "extension-receipt-0", ...retained }
+        } }
+      }
+    };
+    runtime.generationRuntime.prepare.mockResolvedValueOnce({
+      authority: retained, version: "1.0.0",
+      readiness: { generationId: retained.generationId, serverGenerationId: retained.generationId, uiGenerationId: authority.generationId, storageGenerationId: retained.generationId, leaseToken: "readiness:lease-1", readyAt: "2026-08-29T09:00:00.000Z", expiresAt: "2026-08-30T09:00:00.000Z" },
+      compatibility: { status: "compatible", windowId: "rollback-window-1", closesAt: "2026-08-30T09:00:00.000Z", migrationDigest: digest("6"), dataRevision: 1 }, metadata: {}, settings: {}, storageSchemaVersions: {}
+    });
+    await expect(runtime.value.rollback("extension-operation-rollback")).rejects.toMatchObject({ code: "ARTIFACT_AUTHORITY_REJECTED" });
+    expect(runtime.store.rollbackResult).toBeUndefined();
   });
 
   it("exposes safe progress, validation, disable, and uninstall operations", async () => {

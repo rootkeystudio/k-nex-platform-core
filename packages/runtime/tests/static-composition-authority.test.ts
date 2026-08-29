@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   DeterministicStaticCompositionChangeAuthority,
   TrustedStaticApplicationBuildAuthority,
+  type StaticCompositionCheckpoint,
   type StaticCompositionChangeRequest
 } from "../src/index.js";
 
@@ -37,13 +38,36 @@ const request: StaticCompositionChangeRequest = {
 };
 const authorization = { actor: { kind: "trusted-automation" as const, identity: "github-actions:phase-9" }, decisionId: fixture.authority.requestDigest };
 
+function checkpoints() {
+  const values = new Map<string, StaticCompositionCheckpoint>();
+  return {
+    values,
+    read: vi.fn(async (checkpointId: string) => values.get(checkpointId)),
+    save: vi.fn(async (checkpoint: StaticCompositionCheckpoint) => {
+      const existing = values.get(checkpoint.checkpointId);
+      if (existing) return existing;
+      values.set(checkpoint.checkpointId, checkpoint);
+      return checkpoint;
+    }),
+    commit: vi.fn(async (checkpointId: string) => {
+      const checkpoint = values.get(checkpointId);
+      if (!checkpoint) throw new Error("missing checkpoint");
+      const committed = { ...checkpoint, status: "committed" as const };
+      values.set(checkpointId, committed);
+      return committed;
+    })
+  };
+}
+
 describe("static source and trusted build authority", () => {
   it("commits only an exact-base deterministic customer source change", async () => {
     const commit = vi.fn(async () => fixture.target.sourceCommit);
+    const checkpoint = checkpoints();
     const authority = new DeterministicStaticCompositionChangeAuthority(
       fixture.authority.identity,
       { current: async () => ({ sourceCommit: fixture.base.sourceCommit, composition: fixture.base.composition }), commit },
-      { resolve: async () => fixture }
+      { resolve: async () => fixture },
+      checkpoint
     );
     const result = await authority.request(request, authorization);
     expect(result).toMatchObject({ status: "source-change-ready", targetSourceCommit: fixture.target.sourceCommit, change: fixture });
@@ -53,22 +77,80 @@ describe("static source and trusted build authority", () => {
     const stale = new DeterministicStaticCompositionChangeAuthority(
       fixture.authority.identity,
       { current: async () => ({ sourceCommit: "f".repeat(40), composition: fixture.base.composition }), commit },
-      { resolve: async () => fixture }
+      { resolve: async () => fixture },
+      checkpoints()
     );
     await expect(stale.request(request, authorization)).rejects.toMatchObject({ code: "SOURCE_CONFLICT" });
     const mismatched = new DeterministicStaticCompositionChangeAuthority(
       fixture.authority.identity,
       { current: async () => ({ sourceCommit: fixture.base.sourceCommit, composition: fixture.base.composition }), commit },
-      { resolve: async () => ({ ...fixture, plugin: { ...fixture.plugin, id: "module.other" } }) }
+      { resolve: async () => ({ ...fixture, plugin: { ...fixture.plugin, id: "module.other" } }) },
+      checkpoints()
     );
     await expect(mismatched.request(request, authorization)).rejects.toMatchObject({ code: "CHANGE_INVALID" });
+  });
+
+  it("persists a checkpoint before commit and recovers a commit that crashes before manager persistence", async () => {
+    const checkpoint = checkpoints();
+    let sourceCommit = fixture.base.sourceCommit;
+    let sourceComposition = fixture.base.composition;
+    const commit = vi.fn(async () => {
+      expect(checkpoint.save).toHaveBeenCalledOnce();
+      sourceCommit = fixture.target.sourceCommit;
+      sourceComposition = fixture.target.composition;
+      return sourceCommit;
+    });
+    const authority = new DeterministicStaticCompositionChangeAuthority(
+      fixture.authority.identity,
+      { current: async () => ({ sourceCommit, composition: sourceComposition }), commit },
+      { resolve: async () => fixture },
+      {
+        ...checkpoint,
+        commit: vi.fn(async () => { throw new Error("crash after source commit"); })
+      }
+    );
+    await expect(authority.request(request, authorization)).rejects.toThrow("crash after source commit");
+    expect(commit).toHaveBeenCalledOnce();
+
+    const recovered = new DeterministicStaticCompositionChangeAuthority(
+      fixture.authority.identity,
+      { current: async () => ({ sourceCommit, composition: sourceComposition }), commit },
+      { resolve: vi.fn(async () => fixture) },
+      checkpoint
+    );
+    await expect(recovered.request(request, authorization)).resolves.toMatchObject({ targetSourceCommit: fixture.target.sourceCommit });
+    expect(commit).toHaveBeenCalledOnce();
+    expect(checkpoint.commit).toHaveBeenCalledOnce();
+  });
+
+  it("serializes concurrent checkpoint recovery to one customer source commit", async () => {
+    const checkpoint = checkpoints();
+    let sourceCommit = fixture.base.sourceCommit;
+    let sourceComposition = fixture.base.composition;
+    let committedChanges = 0;
+    const commit = vi.fn(async (expected: string) => {
+      if (expected !== sourceCommit) throw new Error("source conflict");
+      committedChanges += 1;
+      sourceCommit = fixture.target.sourceCommit;
+      sourceComposition = fixture.target.composition;
+      return sourceCommit;
+    });
+    const authority = new DeterministicStaticCompositionChangeAuthority(
+      fixture.authority.identity,
+      { current: async () => ({ sourceCommit, composition: sourceComposition }), commit },
+      { resolve: async () => fixture },
+      checkpoint
+    );
+    await expect(Promise.all([authority.request(request, authorization), authority.request(request, authorization)])).resolves.toHaveLength(2);
+    expect(committedChanges).toBe(1);
   });
 
   it("accepts only signed build evidence bound to the exact source, graph, application, and image", async () => {
     const source = new DeterministicStaticCompositionChangeAuthority(
       fixture.authority.identity,
       { current: async () => ({ sourceCommit: fixture.base.sourceCommit, composition: fixture.base.composition }), commit: async () => fixture.target.sourceCommit },
-      { resolve: async () => fixture }
+      { resolve: async () => fixture },
+      checkpoints()
     );
     const change = await source.request(request, authorization);
     const keys = generateKeyPairSync("ed25519");

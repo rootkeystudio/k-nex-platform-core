@@ -88,8 +88,8 @@ function harness(build = trustedBuild()) {
     read: vi.fn(async () => snapshot()),
     readFence: vi.fn().mockResolvedValueOnce(fence(blue.generationId, 4, 0)).mockResolvedValue(fence(green.generationId, 5, 1)),
     promote: vi.fn(async () => { events.push("promote"); return receipt; }),
-    rollback: vi.fn(async () => receipt),
-    closeRollback: vi.fn(async () => receipt),
+    rollback: vi.fn(async () => { events.push("rollback"); return receipt; }),
+    closeRollback: vi.fn(async () => { events.push("close-rollback"); return receipt; }),
     assertContractCleanup: vi.fn(async () => undefined)
   };
   const artifacts: StaticApplicationArtifactProvider = {
@@ -97,6 +97,11 @@ function harness(build = trustedBuild()) {
       imageReference: `${build.evidence.imageSubject.repository}@${build.evidence.imageSubject.digest}`,
       applicationDigest: build.evidence.applicationSubject.digest,
       imageDigest: build.evidence.imageSubject.digest
+    })),
+    reverify: vi.fn(async (generation) => ({
+      imageReference: `${build.evidence.imageSubject.repository}@${generation.imageDigest}`,
+      applicationDigest: generation.applicationDigest,
+      imageDigest: generation.imageDigest
     }))
   };
   const migrations: StaticMigrationExecutor = {
@@ -112,7 +117,7 @@ function harness(build = trustedBuild()) {
   };
   const gateway: GatewayTrafficRouter = { converge: vi.fn(async () => { events.push("route-green"); }) };
   const realtime: StaticRealtimeConvergence = { reconnectAndResync: vi.fn(async () => { events.push("realtime-resync"); }) };
-  return { build, events, state, artifacts, migrations, generations, gateway, realtime, supervisor: new DeploymentSupervisor(build.authority, artifacts, migrations, generations, state, gateway, realtime) };
+  return { build, blue, green, events, state, artifacts, migrations, generations, gateway, realtime, supervisor: new DeploymentSupervisor(build.authority, artifacts, migrations, generations, state, gateway, realtime) };
 }
 
 describe("static deployment supervisor", () => {
@@ -141,5 +146,63 @@ describe("static deployment supervisor", () => {
     expect(value.state.promote).not.toHaveBeenCalled();
     expect(value.gateway.converge).not.toHaveBeenCalled();
     expect(value.events).toEqual(["migrate", "start-passive", "retire-green"]);
+  });
+
+  it("reverifies, starts, and freshly proves the retained immutable generation before static rollback state can switch", async () => {
+    const value = harness();
+    vi.mocked(value.state.read).mockResolvedValue(snapshot(value.green, value.blue, 1));
+    vi.mocked(value.state.readFence).mockReset().mockResolvedValueOnce(fence(value.green.generationId, 5, 1)).mockResolvedValue(fence(value.blue.generationId, 6, 2));
+    vi.mocked(value.state.rollback).mockImplementationOnce(async () => {
+      expect(value.generations.readiness).toHaveBeenCalledOnce();
+      value.events.push("rollback");
+      return { revisionAfter: 2 } as StaticDeploymentReceipt;
+    });
+    await expect(value.supervisor.rollback({ ...owner, workerOwner: "worker:phase-9-blue", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" }))
+      .resolves.toMatchObject({ revisionAfter: 2 });
+    expect(value.artifacts.reverify).toHaveBeenCalledWith(value.blue);
+    expect(value.generations.start).toHaveBeenCalledWith(expect.objectContaining({ generationId: value.blue.generationId, workerMode: "passive" }));
+    expect(value.state.rollback).toHaveBeenCalledWith(expect.objectContaining({ expectedRevision: 1, expectedFenceToken: 5 }));
+    expect(value.events).toEqual(["start-passive", "rollback", "activate-worker", "route-green", "realtime-resync", "drain-blue"]);
+  });
+
+  it("keeps the static pointer unchanged when retained artifact or readiness proof fails", async () => {
+    const value = harness();
+    vi.mocked(value.state.read).mockResolvedValue(snapshot(value.green, value.blue, 1));
+    vi.mocked(value.state.readFence).mockResolvedValue(fence(value.green.generationId, 5, 1));
+    vi.mocked(value.artifacts.reverify).mockResolvedValueOnce({ imageReference: "wrong", applicationDigest: digest("0"), imageDigest: value.blue.imageDigest });
+    await expect(value.supervisor.rollback({ ...owner, workerOwner: "worker:phase-9-blue", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" })).rejects.toMatchObject({ code: "ARTIFACT_MISMATCH" });
+    expect(value.state.rollback).not.toHaveBeenCalled();
+
+    vi.mocked(value.artifacts.reverify).mockResolvedValueOnce({ imageReference: "retained", applicationDigest: value.blue.applicationDigest, imageDigest: value.blue.imageDigest });
+    vi.mocked(value.generations.readiness).mockResolvedValueOnce({
+      generationId: value.blue.generationId, sourceCommit: value.blue.sourceCommit, applicationDigest: value.blue.applicationDigest, imageDigest: value.blue.imageDigest,
+      migrationRevision: value.blue.migrationRevision, completedMigrationSteps: [], publicSmoke: true, authenticatedSmoke: true, inventoryReconciled: true,
+      workerMode: "passive", gatewayCapacity: false, realtimeReady: true, observedAt: "2026-08-29T12:00:00.000Z"
+    });
+    await expect(value.supervisor.rollback({ ...owner, workerOwner: "worker:phase-9-blue", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" })).rejects.toMatchObject({ code: "READINESS_REJECTED" });
+    expect(value.state.rollback).not.toHaveBeenCalled();
+  });
+
+  it("records rollback-window retirement before draining and retries only the destructive work", async () => {
+    const value = harness();
+    vi.mocked(value.state.read).mockResolvedValue(snapshot(value.green, value.blue, 1));
+    vi.mocked(value.generations.drain).mockImplementationOnce(async () => {
+      value.events.push("drain-blue");
+      throw new Error("drain interrupted");
+    });
+    await expect(value.supervisor.closeRollback(owner)).rejects.toThrow("drain interrupted");
+    expect(value.events).toEqual(["close-rollback", "drain-blue"]);
+    await expect(value.supervisor.closeRollback(owner)).resolves.toMatchObject({ revisionAfter: 1 });
+    expect(value.state.closeRollback).toHaveBeenCalledOnce();
+    expect(value.events).toEqual(["close-rollback", "drain-blue", "drain-blue", "retire-green"]);
+  });
+
+  it("does not drain or retire when a concurrent rollback-window closure loses its expected revision", async () => {
+    const value = harness();
+    vi.mocked(value.state.read).mockResolvedValue(snapshot(value.green, value.blue, 1));
+    vi.mocked(value.state.closeRollback).mockRejectedValueOnce(new Error("revision conflict"));
+    await expect(value.supervisor.closeRollback(owner)).rejects.toThrow("revision conflict");
+    expect(value.generations.drain).not.toHaveBeenCalled();
+    expect(value.generations.retire).not.toHaveBeenCalled();
   });
 });

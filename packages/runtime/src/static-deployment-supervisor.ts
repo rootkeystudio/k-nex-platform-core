@@ -65,6 +65,11 @@ export interface StaticApplicationArtifactProvider {
     applicationDigest: string;
     imageDigest: string;
   }>>;
+  reverify(generation: StaticApplicationGeneration): Promise<Readonly<{
+    imageReference: string;
+    applicationDigest: string;
+    imageDigest: string;
+  }>>;
 }
 
 export interface StaticMigrationExecutor {
@@ -141,7 +146,28 @@ function ensureArtifact(
   }
 }
 
+function ensureRetainedArtifact(
+  value: Awaited<ReturnType<StaticApplicationArtifactProvider["reverify"]>>,
+  generation: StaticApplicationGeneration
+): void {
+  if (value.applicationDigest !== generation.applicationDigest || value.imageDigest !== generation.imageDigest) {
+    throw new StaticDeploymentSupervisorError("ARTIFACT_MISMATCH", "Retained artifact does not match the owner-bound immutable generation.");
+  }
+}
+
+function ensureReadiness(readiness: StaticPromotionReadiness, generation: StaticApplicationGeneration): void {
+  if (readiness.generationId !== generation.generationId || readiness.sourceCommit !== generation.sourceCommit ||
+    readiness.applicationDigest !== generation.applicationDigest || readiness.imageDigest !== generation.imageDigest ||
+    readiness.migrationRevision !== generation.migrationRevision || readiness.publicSmoke !== true || readiness.authenticatedSmoke !== true ||
+    readiness.inventoryReconciled !== true || readiness.workerMode !== "passive" || readiness.gatewayCapacity !== true || readiness.realtimeReady !== true ||
+    !Number.isFinite(Date.parse(readiness.observedAt))) {
+    throw new StaticDeploymentSupervisorError("READINESS_REJECTED", "Generation readiness does not prove the exact passive immutable target.");
+  }
+}
+
 export class DeploymentSupervisor {
+  private readonly retirementRetries = new Map<string, Readonly<{ generationId: string; receipt: StaticDeploymentReceipt }>>();
+
   constructor(
     private readonly builds: VerifiedStaticBuildReader,
     private readonly artifacts: StaticApplicationArtifactProvider,
@@ -181,6 +207,15 @@ export class DeploymentSupervisor {
         migrationRevision: change.migration.targetRevision,
         completedMigrationSteps
       });
+      ensureReadiness(readiness, {
+        generationId: input.generationId,
+        sourceCommit: change.target.sourceCommit,
+        compositionChangePlanDigest: verified.change.planDigest,
+        buildEvidenceDigest: verified.evidenceDigest,
+        applicationDigest: artifact.applicationDigest,
+        imageDigest: artifact.imageDigest,
+        migrationRevision: change.migration.targetRevision
+      });
     } catch (error) {
       try { await this.generations.retire(input.generationId); } catch { /* preserve readiness failure */ }
       throw error;
@@ -208,6 +243,26 @@ export class DeploymentSupervisor {
     const before = await this.requireState(owner);
     const fence = await this.requireFence(owner);
     if (!before.rollback) throw new StaticDeploymentSupervisorError("STATE_UNAVAILABLE", "No retained generation is available for rollback.");
+    const retained = before.rollback;
+    const artifact = await this.artifacts.reverify(retained);
+    ensureRetainedArtifact(artifact, retained);
+    let readiness: StaticPromotionReadiness;
+    try {
+      await this.generations.start({ ...owner, generationId: retained.generationId, imageReference: artifact.imageReference, workerMode: "passive" });
+      readiness = await this.generations.readiness({
+        ...owner,
+        generationId: retained.generationId,
+        sourceCommit: retained.sourceCommit,
+        applicationDigest: retained.applicationDigest,
+        imageDigest: retained.imageDigest,
+        migrationRevision: retained.migrationRevision,
+        completedMigrationSteps: []
+      });
+      ensureReadiness(readiness, retained);
+    } catch (error) {
+      try { await this.generations.retire(retained.generationId); } catch { /* preserve retained readiness failure */ }
+      throw error;
+    }
     const receipt = await this.state.rollback({
       ...owner,
       expectedRevision: before.revision,
@@ -216,9 +271,9 @@ export class DeploymentSupervisor {
       workerLeaseExpiresAt: input.workerLeaseExpiresAt
     });
     const rolledBackFence = await this.requireFence(owner);
-    await this.generations.activateWorker(before.rollback.generationId, rolledBackFence);
-    await this.gateway.converge({ ...owner, generationId: before.rollback.generationId, revision: receipt.revisionAfter });
-    await this.realtime.reconnectAndResync({ ...owner, previousGenerationId: before.active.generationId, activeGenerationId: before.rollback.generationId });
+    await this.generations.activateWorker(retained.generationId, rolledBackFence);
+    await this.gateway.converge({ ...owner, generationId: retained.generationId, revision: receipt.revisionAfter });
+    await this.realtime.reconnectAndResync({ ...owner, previousGenerationId: before.active.generationId, activeGenerationId: retained.generationId });
     await this.generations.drain(before.active.generationId);
     return receipt;
   }
@@ -232,10 +287,18 @@ export class DeploymentSupervisor {
 
   async closeRollback(owner: Owner): Promise<StaticDeploymentReceipt> {
     const current = await this.requireState(owner);
-    if (!current.rollback) throw new StaticDeploymentSupervisorError("STATE_UNAVAILABLE", "No retained generation is available to retire.");
-    await this.generations.drain(current.rollback.generationId);
-    await this.generations.retire(current.rollback.generationId);
-    return this.state.closeRollback({ ...owner, expectedRevision: current.revision, retiredGenerationId: current.rollback.generationId });
+    const key = `${owner.applicationId}:${owner.environment}`;
+    let pending = this.retirementRetries.get(key);
+    if (!pending) {
+      if (!current.rollback) throw new StaticDeploymentSupervisorError("STATE_UNAVAILABLE", "No retained generation is available to retire.");
+      const receipt = await this.state.closeRollback({ ...owner, expectedRevision: current.revision, retiredGenerationId: current.rollback.generationId });
+      pending = Object.freeze({ generationId: current.rollback.generationId, receipt });
+      this.retirementRetries.set(key, pending);
+    }
+    await this.generations.drain(pending.generationId);
+    await this.generations.retire(pending.generationId);
+    this.retirementRetries.delete(key);
+    return pending.receipt;
   }
 
   async runContractCleanup(owner: Owner, plan: MigrationCompatibilityPlan["plan"]): Promise<readonly string[]> {

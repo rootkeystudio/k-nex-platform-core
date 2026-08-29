@@ -295,6 +295,36 @@ function assertAuthorityOwner(authority: VerifiedGenerationAuthority, owner: Ver
   }
 }
 
+type ActiveDynamicGeneration =
+  | Extract<RuntimeExtensionInventory["extensions"]["hotApplications"][string], { disposition: "active" }>["activeGeneration"]
+  | Extract<RuntimeExtensionInventory["extensions"]["themeSkins"][string], { disposition: "active" }>["activeGeneration"];
+
+function authorityFromGeneration(generation: ActiveDynamicGeneration): VerifiedGenerationAuthority {
+  return Object.freeze({
+    applicationId: generation.applicationId,
+    environment: generation.environment,
+    deliveryClass: generation.deliveryClass,
+    extensionId: generation.extensionId,
+    generationId: generation.generationId,
+    sourceCommit: generation.sourceCommit,
+    artifactDigest: generation.artifactDigest,
+    manifestDigest: generation.manifestDigest,
+    catalogDigest: generation.catalogDigest,
+    provenanceDigest: generation.provenanceDigest,
+    sbomDigest: generation.sbomDigest
+  });
+}
+
+function assertFreshRollbackReadiness(stage: StagedGenerationActivation, authority: VerifiedGenerationAuthority, version: string): void {
+  if (canonicalJson(stage.authority) !== canonicalJson(authority) || stage.version !== version ||
+    stage.readiness.generationId !== authority.generationId || stage.readiness.serverGenerationId !== authority.generationId ||
+    stage.readiness.uiGenerationId !== authority.generationId || stage.readiness.storageGenerationId !== authority.generationId ||
+    !Number.isFinite(Date.parse(stage.readiness.readyAt)) || !Number.isFinite(Date.parse(stage.readiness.expiresAt)) ||
+    Date.parse(stage.readiness.expiresAt) <= Date.now()) {
+    throw new PluginManagerError("ARTIFACT_AUTHORITY_REJECTED", "Retained generation readiness is not fresh and generation-bound.");
+  }
+}
+
 export class PluginManager {
   constructor(
     private readonly workerId: string,
@@ -410,6 +440,9 @@ export class PluginManager {
       throw new PluginManagerError("INVALID_STATE", "Only a verified live generation can be activated.");
     }
     if (!this.generationRuntime) throw new PluginManagerError("INVALID_STATE", "Live generation preparation is unavailable.");
+    if (current.request.extension.deliveryClass === "platform-plugin") {
+      throw new PluginManagerError("WRONG_EXECUTION_CLASS", "Platform Plugin delivery does not use live generation rollback.");
+    }
     const owner = authorityOwner(current.request);
     assertAuthorityOwner(current.authority, owner);
     if (current.phase === "staged") {
@@ -430,6 +463,21 @@ export class PluginManager {
     if (!current.plan || current.plan.executionClass !== "live-generation" || current.request.operation !== "rollback" || current.phase !== "planning") {
       throw new PluginManagerError("INVALID_STATE", "Extension rollback operation is not ready.");
     }
+    if (!this.generationRuntime) throw new PluginManagerError("INVALID_STATE", "Live generation preparation is unavailable.");
+    const owner = authorityOwner(current.request);
+    const inventory = await this.store.inventory(current.request.applicationId, current.request.environment);
+    const entries = current.request.extension.deliveryClass === "hot-application" ? inventory.extensions.hotApplications : inventory.extensions.themeSkins;
+    const entry = entries[current.request.extension.id];
+    if (!entry || entry.disposition !== "active" || !entry.rollbackGeneration) {
+      throw new PluginManagerError("ARTIFACT_AUTHORITY_REJECTED", "No retained verified generation is available for rollback.");
+    }
+    const authority = authorityFromGeneration(entry.rollbackGeneration);
+    assertAuthorityOwner(authority, owner);
+    if (authority.generationId !== current.plan.generationId || !await this.artifacts.reverify(authority, owner)) {
+      throw new PluginManagerError("ARTIFACT_AUTHORITY_REJECTED", "Retained artifact authority could not be reverified.");
+    }
+    const stage = await this.generationRuntime.prepare({ request: current.request, plan: current.plan, authority });
+    assertFreshRollbackReadiness(stage, authority, current.plan.plan.version);
     return this.store.rollbackGeneration(operationId, current.leaseToken);
   }
 
@@ -448,20 +496,7 @@ export class PluginManager {
     owner: VerifiedGenerationAuthorityOwner
   ): Promise<void> {
     if (entry.disposition !== "active") return;
-    const generation = entry.activeGeneration;
-    const authority: VerifiedGenerationAuthority = {
-      applicationId: generation.applicationId,
-      environment: generation.environment,
-      deliveryClass: generation.deliveryClass,
-      extensionId: generation.extensionId,
-      generationId: generation.generationId,
-      sourceCommit: generation.sourceCommit,
-      artifactDigest: generation.artifactDigest,
-      manifestDigest: generation.manifestDigest,
-      catalogDigest: generation.catalogDigest,
-      provenanceDigest: generation.provenanceDigest,
-      sbomDigest: generation.sbomDigest
-    };
+    const authority = authorityFromGeneration(entry.activeGeneration);
     assertAuthorityOwner(authority, owner);
     if (!await this.artifacts.reverify(authority, owner)) throw new PluginManagerError("ARTIFACT_AUTHORITY_REJECTED", "Dynamic artifact authority could not be reverified.");
   }
