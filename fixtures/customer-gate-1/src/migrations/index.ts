@@ -11,6 +11,8 @@ import * as migration_20260829_000010_theme_skin_profiles from "./20260829_00001
 import * as migration_20260829_000011_static_deployment from "./20260829_000011_static_deployment.js";
 import * as migration_20260829_000012_verified_artifacts from "./20260829_000012_verified_artifacts.js";
 import * as migration_20260829_000013_catalog_checkpoints from "./20260829_000013_catalog_checkpoints.js";
+import * as migration_20260829_000014_theme_skin_verified_artifacts from "./20260829_000014_theme_skin_verified_artifacts.js";
+import * as migration_20260829_000015_extension_capability_authority from "./20260829_000015_extension_capability_authority.js";
 
 import type { CustomerPayloadMigration } from "@k-nex/payload-adapter";
 
@@ -79,5 +81,15 @@ export const migrations: CustomerPayloadMigration[] = [
     up: migration_20260829_000013_catalog_checkpoints.up,
     down: migration_20260829_000013_catalog_checkpoints.down,
     name: "20260829_000013_catalog_checkpoints"
+  },
+  {
+    up: migration_20260829_000014_theme_skin_verified_artifacts.up,
+    down: migration_20260829_000014_theme_skin_verified_artifacts.down,
+    name: "20260829_000014_theme_skin_verified_artifacts"
+  },
+  {
+    up: migration_20260829_000015_extension_capability_authority.up,
+    down: migration_20260829_000015_extension_capability_authority.down,
+    name: "20260829_000015_extension_capability_authority"
   }
 ];

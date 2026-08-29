@@ -3,7 +3,7 @@ import { generateKeyPairSync, sign } from "node:crypto";
 import { promisify } from "node:util";
 
 import { ArtifactVerifier, buildBundle, canonicalJson, CatalogClient, InMemoryCatalogCheckpointStore, sha256, type CatalogEntry, type SignedCatalog, VerifiedArtifactStore } from "@k-nex/extension-bundler";
-import { ExtensionCapabilityGateway, HmacExtensionCapabilityTokens, type ExtensionCapabilityHandler } from "@k-nex/runtime";
+import { ExtensionCapabilityGateway, HmacExtensionCapabilityTokens, InMemoryExtensionCapabilitySequenceStoreForTests, type ExtensionCapabilityHandler } from "@k-nex/runtime";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { DockerHotApplicationSandboxSupervisor, RunnerInvocationError, extensionRunnerImage, runnerSeccompProfile, type RunnerGenerationIdentity, type RunnerInvocationLimits } from "../src/index.js";
@@ -85,7 +85,7 @@ async function inspectContainer(name: string): Promise<Record<string, any>> {
 }
 
 function supervisor(observations: Record<string, Record<string, any>>, store: VerifiedArtifactStore, quarantines: string[] = [], started?: (identity: RunnerGenerationIdentity, name: string) => void) {
-  const gateway = new ExtensionCapabilityGateway(tokens, { "records.query": queryHandler }, clock, { maxInputBytes: 8_192, maxOutputBytes: 8_192, maxDepth: 12, maxCalls: 8 });
+  const gateway = new ExtensionCapabilityGateway(tokens, { "records.query": queryHandler }, { reauthorize: () => true }, new InMemoryExtensionCapabilitySequenceStoreForTests(clock), clock, { maxInputBytes: 8_192, maxOutputBytes: 8_192, maxDepth: 12, maxCalls: 8 });
   return new DockerHotApplicationSandboxSupervisor(gateway, {
     quarantine(generation, reason) { quarantines.push(`${generation.generationId}:${reason}`); }
   }, {

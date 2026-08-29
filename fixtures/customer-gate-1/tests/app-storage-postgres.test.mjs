@@ -7,7 +7,7 @@ import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import pg from "pg";
 
 import { createAppStorageCapabilityHandlers, PostgresAppStorage } from "@k-nex/payload-adapter";
-import { ExtensionCapabilityGateway, HmacExtensionCapabilityTokens } from "@k-nex/runtime";
+import { ExtensionCapabilityGateway, HmacExtensionCapabilityTokens, InMemoryExtensionCapabilitySequenceStoreForTests } from "@k-nex/runtime";
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
 const fixtureDirectory = fileURLToPath(new URL("..", import.meta.url));
@@ -75,7 +75,7 @@ test("proves revisioned, quota-limited, schema-validated, backed-up, cross-app i
       generationId: "sales-assistant-generation-1", invocationId: "storage-invocation-1", actor: { principalId: "user:one", effectiveActorId: "user:one" },
       correlationId: "storage-correlation-1", grants: [{ kind: "app-storage", required: true, reason: "Read saved sales assistant preferences.", operations: ["get"], schemaIds: ["sales.preferences"] }], ttlMs: 30_000
     });
-    const gateway = new ExtensionCapabilityGateway(tokens, createAppStorageCapabilityHandlers(storage), now, { maxInputBytes: 1024, maxOutputBytes: 2048, maxDepth: 8, maxCalls: 4 });
+    const gateway = new ExtensionCapabilityGateway(tokens, createAppStorageCapabilityHandlers(storage), { reauthorize: () => true }, new InMemoryExtensionCapabilitySequenceStoreForTests(now), now, { maxInputBytes: 1024, maxOutputBytes: 2048, maxDepth: 8, maxCalls: 4 });
     await assert.rejects(gateway.invoke({
       token, invocationId: "storage-invocation-1", generationId: "sales-assistant-generation-1", sequence: 1, capability: "app-storage.get",
       payload: { applicationId: "other-customer", appId: "app.forecast", schemaId: "sales.preferences", key: "view.primary" }, signal: new AbortController().signal

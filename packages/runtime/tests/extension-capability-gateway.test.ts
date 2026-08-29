@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   ExtensionCapabilityGateway,
   HmacExtensionCapabilityTokens,
+  InMemoryExtensionCapabilitySequenceStoreForTests,
   type ExtensionCapabilityHandler
 } from "../src/extension-capability-gateway.js";
 
@@ -21,7 +22,7 @@ const handler: ExtensionCapabilityHandler = {
 };
 
 function gateway() {
-  return new ExtensionCapabilityGateway(tokens, { "records.query": handler }, clock, { maxInputBytes: 1024, maxOutputBytes: 1024, maxDepth: 4, maxCalls: 2 });
+  return new ExtensionCapabilityGateway(tokens, { "records.query": handler }, { reauthorize: () => true }, new InMemoryExtensionCapabilitySequenceStoreForTests(clock), clock, { maxInputBytes: 1024, maxOutputBytes: 1024, maxDepth: 4, maxCalls: 2 });
 }
 
 describe("extension capability authority", () => {
@@ -56,7 +57,7 @@ describe("extension capability authority", () => {
       actor: { principalId: "user:one", effectiveActorId: "user:one" }, correlationId: "runner-correlation-2",
       grants: [{ kind: "records", required: true, reason: "Read assigned sales tasks.", operations: ["query"], resources: [{ id: "sales.tasks", version: 1 }] }], ttlMs: 30_000
     });
-    const calls = new ExtensionCapabilityGateway(tokens, { "records.query": handler, "records.action": handler }, clock, { maxInputBytes: 1024, maxOutputBytes: 1024, maxDepth: 4, maxCalls: 2 });
+    const calls = new ExtensionCapabilityGateway(tokens, { "records.query": handler, "records.action": handler }, { reauthorize: () => true }, new InMemoryExtensionCapabilitySequenceStoreForTests(clock), clock, { maxInputBytes: 1024, maxOutputBytes: 1024, maxDepth: 4, maxCalls: 2 });
     await expect(calls.invoke({ token: value, invocationId: "runner-invocation-2", generationId: "sales-assistant-generation-1", sequence: 1, capability: "records.action", payload: {}, signal: new AbortController().signal }))
       .rejects.toMatchObject({ code: "CAPABILITY_DENIED" });
     const [version, payload, signature] = value.split(".");
@@ -75,5 +76,15 @@ describe("extension capability authority", () => {
     });
     await expect(gateway().invoke({ token: value, invocationId: "runner-invocation-3", generationId: "sales-assistant-generation-1", sequence: 1, capability: "records.query", payload: {}, signal: new AbortController().signal }))
       .rejects.toMatchObject({ code: "CAPABILITY_DENIED" });
+  });
+
+  it("reauthorizes every invocation instead of treating token possession as authority", async () => {
+    let current = true;
+    const calls = new ExtensionCapabilityGateway(tokens, { "records.query": handler }, { reauthorize: () => current }, new InMemoryExtensionCapabilitySequenceStoreForTests(clock), clock, { maxInputBytes: 1024, maxOutputBytes: 1024, maxDepth: 4, maxCalls: 2 });
+    const value = token();
+    await calls.invoke({ token: value, invocationId: "runner-invocation-1", generationId: "sales-assistant-generation-1", sequence: 1, capability: "records.query", payload: {}, signal: new AbortController().signal });
+    current = false;
+    await expect(calls.invoke({ token: value, invocationId: "runner-invocation-1", generationId: "sales-assistant-generation-1", sequence: 2, capability: "records.query", payload: {}, signal: new AbortController().signal }))
+      .rejects.toMatchObject({ code: "AUTHORITY_DENIED" });
   });
 });

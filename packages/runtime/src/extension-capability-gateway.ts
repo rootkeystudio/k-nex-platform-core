@@ -30,6 +30,8 @@ export interface ExtensionCapabilityClaims {
   readonly invocationId: string;
   readonly actor: ExtensionActorIdentity;
   readonly correlationId: string;
+  /** A persisted lease acquired before a generation is superseded. */
+  readonly drainLeaseId?: string;
   readonly grants: readonly ExtensionCapabilityGrant[];
   readonly issuedAt: string;
   readonly expiresAt: string;
@@ -63,8 +65,25 @@ export interface ExtensionCapabilityHandler {
   validateOutput(value: unknown): unknown;
 }
 
+/**
+ * Resolves authority at the capability boundary. Tokens bind an invocation's
+ * identity and closed grants, but this port decides whether that identity is
+ * still current. Phase 10 supplies the durable policy implementation.
+ */
+export interface ExtensionCapabilityAuthority {
+  reauthorize(claims: ExtensionCapabilityClaims): boolean | Promise<boolean>;
+}
+
+/**
+ * Atomically advances one invocation's sequence. Production implementations
+ * must persist this state; the test adapter below is deliberately in-memory.
+ */
+export interface ExtensionCapabilitySequenceStore {
+  claim(claims: ExtensionCapabilityClaims, sequence: number, maxCalls: number): boolean | Promise<boolean>;
+}
+
 export class ExtensionCapabilityError extends Error {
-  constructor(readonly code: "TOKEN_INVALID" | "TOKEN_EXPIRED" | "IDENTITY_MISMATCH" | "CAPABILITY_DENIED" | "SEQUENCE_INVALID" | "PAYLOAD_INVALID" | "BUDGET_EXCEEDED", message: string) {
+  constructor(readonly code: "TOKEN_INVALID" | "TOKEN_EXPIRED" | "IDENTITY_MISMATCH" | "CAPABILITY_DENIED" | "AUTHORITY_DENIED" | "SEQUENCE_INVALID" | "PAYLOAD_INVALID" | "BUDGET_EXCEEDED", message: string) {
     super(message);
     this.name = "ExtensionCapabilityError";
   }
@@ -75,6 +94,7 @@ export interface ExtensionCapabilityClock { now(): Date; }
 const idPattern = /^[a-z][a-z0-9-]{2,127}$/u;
 const appIdPattern = /^app(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$/u;
 const actorPattern = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{2,159}$/u;
+const drainLeasePattern = /^lease-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/u;
 
 function fail(code: ExtensionCapabilityError["code"], message: string): never {
   throw new ExtensionCapabilityError(code, message);
@@ -91,11 +111,16 @@ function parseClaims(value: unknown): ExtensionCapabilityClaims {
   if (typeof value !== "object" || value === null || Array.isArray(value)) fail("TOKEN_INVALID", "Capability token claims are invalid.");
   const claims = value as Record<string, unknown>;
   const expectedKeys = ["actor", "appId", "applicationId", "correlationId", "environment", "expiresAt", "generationId", "grants", "invocationId", "issuedAt", "schemaVersion", "tokenId"];
-  if (Object.keys(claims).sort().join("\0") !== expectedKeys.sort().join("\0") || claims.schemaVersion !== 1 ||
+  const claimKeys = Object.keys(claims).sort().join("\0");
+  const normalKeys = expectedKeys.sort().join("\0");
+  const drainingKeys = [...expectedKeys, "drainLeaseId"].sort().join("\0");
+  if ((claimKeys !== normalKeys && claimKeys !== drainingKeys) || claims.schemaVersion !== 1 ||
     typeof claims.applicationId !== "string" || !idPattern.test(claims.applicationId) || typeof claims.environment !== "string" || !/^[a-z][a-z0-9-]{1,63}$/u.test(claims.environment) ||
     typeof claims.appId !== "string" || !appIdPattern.test(claims.appId) || typeof claims.generationId !== "string" || !idPattern.test(claims.generationId) ||
     typeof claims.invocationId !== "string" || !idPattern.test(claims.invocationId) || typeof claims.tokenId !== "string" || !idPattern.test(claims.tokenId) ||
-    typeof claims.correlationId !== "string" || !idPattern.test(claims.correlationId) || !Array.isArray(claims.grants) || claims.grants.length > 16 ||
+    typeof claims.correlationId !== "string" || !idPattern.test(claims.correlationId) ||
+    (claims.drainLeaseId !== undefined && (typeof claims.drainLeaseId !== "string" || !drainLeasePattern.test(claims.drainLeaseId))) ||
+    !Array.isArray(claims.grants) || claims.grants.length > 16 ||
     typeof claims.actor !== "object" || claims.actor === null || Array.isArray(claims.actor)) fail("TOKEN_INVALID", "Capability token claims are invalid.");
   const grants = claims.grants.map((grant) => {
     const parsed = ExtensionCapabilityRequestSchema.safeParse(grant);
@@ -187,12 +212,30 @@ export class HmacExtensionCapabilityTokens {
   }
 }
 
-export class ExtensionCapabilityGateway {
+/** Test-only sequence store. Never use this adapter in a web, worker, or gateway process. */
+export class InMemoryExtensionCapabilitySequenceStoreForTests implements ExtensionCapabilitySequenceStore {
   private readonly sequences = new Map<string, { sequence: number; expiresAt: number }>();
 
+  constructor(private readonly clock: ExtensionCapabilityClock) {}
+
+  claim(claims: ExtensionCapabilityClaims, sequence: number, maxCalls: number): boolean {
+    const now = this.clock.now().valueOf();
+    for (const [key, state] of this.sequences) if (state.expiresAt <= now) this.sequences.delete(key);
+    if (!Number.isSafeInteger(sequence) || sequence < 1 || sequence > maxCalls) return false;
+    const key = canonicalJson([claims.applicationId, claims.environment, claims.appId, claims.generationId, claims.invocationId, claims.tokenId, claims.issuedAt, claims.actor]);
+    const current = this.sequences.get(key)?.sequence ?? 0;
+    if (sequence !== current + 1) return false;
+    this.sequences.set(key, { sequence, expiresAt: parseTimestamp(claims.expiresAt) });
+    return true;
+  }
+}
+
+export class ExtensionCapabilityGateway {
   constructor(
     private readonly tokens: HmacExtensionCapabilityTokens,
     private readonly handlers: Readonly<Partial<Record<ExtensionCapabilityId, ExtensionCapabilityHandler>>>,
+    private readonly authority: ExtensionCapabilityAuthority,
+    private readonly sequences: ExtensionCapabilitySequenceStore,
     private readonly clock: ExtensionCapabilityClock,
     private readonly limits: Readonly<{ maxInputBytes: number; maxOutputBytes: number; maxDepth: number; maxCalls: number }>
   ) {
@@ -207,12 +250,10 @@ export class ExtensionCapabilityGateway {
     if (!claims.grants.some((grant) => grantAllowsCapability(grant, call.capability))) fail("CAPABILITY_DENIED", "Capability operation was not granted to this invocation.");
     const handler = this.handlers[call.capability];
     if (!handler) fail("CAPABILITY_DENIED", "Capability has no registered host handler.");
-    this.removeExpiredSequences();
-    const sequence = this.sequences.get(claims.tokenId)?.sequence ?? 0;
-    if (!Number.isSafeInteger(call.sequence) || call.sequence !== sequence + 1 || call.sequence > this.limits.maxCalls) fail("SEQUENCE_INVALID", "Capability sequence is missing, replayed, or outside its call budget.");
     boundedJson(call.payload, this.limits.maxInputBytes, this.limits.maxDepth);
     const input = handler.validateInput(call.payload);
-    this.sequences.set(claims.tokenId, { sequence: call.sequence, expiresAt: parseTimestamp(claims.expiresAt) });
+    if (!await this.authority.reauthorize(claims)) fail("AUTHORITY_DENIED", "Capability invocation no longer has current generation or actor authority.");
+    if (!await this.sequences.claim(claims, call.sequence, this.limits.maxCalls)) fail("SEQUENCE_INVALID", "Capability sequence is missing, replayed, or outside its call budget.");
     const output = handler.validateOutput(await handler.invoke(claims, input, call.signal));
     boundedJson(output, this.limits.maxOutputBytes, this.limits.maxDepth);
     return output;
@@ -224,10 +265,5 @@ export class ExtensionCapabilityGateway {
       fail("IDENTITY_MISMATCH", "Runner invocation identity does not match its token.");
     }
     return claims;
-  }
-
-  private removeExpiredSequences(): void {
-    const now = this.clock.now().valueOf();
-    for (const [tokenId, state] of this.sequences) if (state.expiresAt <= now) this.sequences.delete(tokenId);
   }
 }

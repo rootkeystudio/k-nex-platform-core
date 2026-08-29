@@ -90,6 +90,55 @@ export class ReferenceHotApplicationGenerationWarmer implements DynamicGeneratio
   }
 }
 
+export interface ThemeSkinGenerationWarmupInput {
+  readonly request: ExtensionChangeRequest;
+  readonly plan: Extract<PluginManagerPlan, { executionClass: "live-generation" }>;
+  readonly artifact: DurableDynamicArtifact;
+}
+
+export interface ThemeSkinGenerationWarmupDependencies {
+  /**
+   * The resolver owns parsing and validating the signed declarative skin. The
+   * generation runtime only records readiness after that boundary succeeds.
+   */
+  readonly skins: Readonly<{ prepareSkin(input: ThemeSkinGenerationWarmupInput): Promise<void> }>;
+  readonly clock: Readonly<{ now(): Date }>;
+  readonly leaseTtlMs?: number;
+}
+
+/** Concrete readiness warmer for data-only Theme Skin generations. */
+export class ReferenceThemeSkinGenerationWarmer implements DynamicGenerationWarmer {
+  private readonly leaseTtlMs: number;
+
+  constructor(private readonly dependencies: ThemeSkinGenerationWarmupDependencies) {
+    this.leaseTtlMs = dependencies.leaseTtlMs ?? 60_000;
+    if (!Number.isSafeInteger(this.leaseTtlMs) || this.leaseTtlMs < 1_000 || this.leaseTtlMs > 300_000) {
+      throw new TypeError("Theme Skin readiness lease duration is invalid.");
+    }
+  }
+
+  async warm(input: Parameters<DynamicGenerationWarmer["warm"]>[0]): Promise<GenerationReadinessLease> {
+    if (input.plan.plan.deliveryClass !== "theme-skin" || input.artifact.authority.deliveryClass !== "theme-skin" || input.plan.generationId !== input.artifact.authority.generationId ||
+      input.plan.plan.targetGenerationId !== input.artifact.authority.generationId || input.request.extension.deliveryClass !== "theme-skin" ||
+      input.request.extension.id !== input.artifact.authority.extensionId) {
+      throw new Error("Theme Skin warm-up identity does not match the immutable generation.");
+    }
+    await this.dependencies.skins.prepareSkin(Object.freeze(input));
+    const readyAt = this.dependencies.clock.now();
+    if (!(readyAt instanceof Date) || Number.isNaN(readyAt.valueOf())) throw new Error("Theme Skin warm-up clock is invalid.");
+    const generationId = input.artifact.authority.generationId;
+    return Object.freeze({
+      generationId,
+      serverGenerationId: generationId,
+      uiGenerationId: generationId,
+      storageGenerationId: generationId,
+      leaseToken: `ready:${generationId}:${randomUUID()}`,
+      readyAt: readyAt.toISOString(),
+      expiresAt: new Date(readyAt.valueOf() + this.leaseTtlMs).toISOString()
+    });
+  }
+}
+
 function same(left: unknown, right: unknown): boolean {
   return canonicalJson(left) === canonicalJson(right);
 }

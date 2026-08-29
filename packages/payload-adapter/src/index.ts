@@ -16,6 +16,7 @@ export * from "./static-deployment-store.js";
 export * from "./app-storage.js";
 export * from "./verified-artifact-store.js";
 export * from "./catalog-checkpoint-store.js";
+export * from "./extension-capability-authority.js";
 
 export type PayloadCompositionErrorCode =
   | "INVALID_DATABASE_URL"
