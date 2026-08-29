@@ -1,0 +1,7 @@
+{
+  "$schema": "../../../schemas/zero-downtime-eligibility.v1.schema.json",
+  "id": "module.sales",
+  "deliveryClass": "platform-plugin",
+  "result": { "outcome": "maintenance-required", "reasons": ["destructive-migration"] },
+  "schemaVersion": 1
+}

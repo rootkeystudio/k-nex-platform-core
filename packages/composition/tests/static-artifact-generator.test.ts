@@ -6,8 +6,8 @@ import { join } from "node:path";
 import { canonicalJson, type ApplicationManifest } from "@k-nex/contracts";
 import { describe, expect, it } from "vitest";
 
-import type { InstalledPluginManifest } from "../src/installed-plugin-loader.js";
-import type { ResolvedPluginGraph } from "../src/deterministic-resolver.js";
+import type { InstalledPlatformPluginManifest } from "../src/installed-plugin-loader.js";
+import type { ResolvedPlatformPluginGraph } from "../src/deterministic-resolver.js";
 import {
   fingerprintCustomerConfigSources,
   generatedArtifactPaths,
@@ -150,7 +150,7 @@ const installed = [
     },
     manifest: providerManifest
   }
-] satisfies readonly InstalledPluginManifest[];
+] satisfies readonly InstalledPlatformPluginManifest[];
 
 const resolvedGraph = {
   resolverVersion: "1.0.0" as const,
@@ -176,7 +176,7 @@ const resolvedGraph = {
   ],
   capabilityProviders: [{ capability: "storage.records", plugin: "provider.storage", version: "1.0.0" }],
   registrationOrder: ["provider.storage", "module.consumer"]
-} satisfies ResolvedPluginGraph;
+} satisfies ResolvedPlatformPluginGraph;
 
 const configSources = [
   { path: "src/customer-config.ts", content: "export const registration = { enabled: true };\n" },
@@ -185,8 +185,8 @@ const configSources = [
 
 type ArtifactInput = {
   applicationManifest: ApplicationManifest;
-  resolvedGraph: ResolvedPluginGraph;
-  installed: readonly InstalledPluginManifest[];
+  resolvedGraph: ResolvedPlatformPluginGraph;
+  installed: readonly InstalledPlatformPluginManifest[];
   customerConfigFingerprint: string;
   framework: typeof framework;
 };

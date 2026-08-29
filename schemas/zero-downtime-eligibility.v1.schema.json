@@ -1,0 +1,180 @@
+{
+  "$defs": {
+    "__schema0": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "__schema1": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema2": {
+      "const": "platform-plugin",
+      "type": "string"
+    },
+    "__schema3": {
+      "maxLength": 128,
+      "pattern": "^(module|provider|builder|theme|integration|preset)(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    },
+    "__schema4": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "checks": {
+              "additionalProperties": false,
+              "properties": {
+                "expandCompatibleMigration": {
+                  "const": true,
+                  "type": "boolean"
+                },
+                "inventoryMatch": {
+                  "const": true,
+                  "type": "boolean"
+                },
+                "oldGenerationHealthy": {
+                  "const": true,
+                  "type": "boolean"
+                },
+                "realtimeConvergence": {
+                  "const": true,
+                  "type": "boolean"
+                },
+                "rollbackCompatible": {
+                  "const": true,
+                  "type": "boolean"
+                },
+                "targetReadiness": {
+                  "const": true,
+                  "type": "boolean"
+                },
+                "workerDrain": {
+                  "const": true,
+                  "type": "boolean"
+                },
+                "writerReaderOverlap": {
+                  "const": true,
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "oldGenerationHealthy",
+                "expandCompatibleMigration",
+                "writerReaderOverlap",
+                "workerDrain",
+                "realtimeConvergence",
+                "targetReadiness",
+                "inventoryMatch",
+                "rollbackCompatible"
+              ],
+              "type": "object"
+            },
+            "outcome": {
+              "const": "zero-downtime-eligible",
+              "type": "string"
+            }
+          },
+          "required": [
+            "outcome",
+            "checks"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "outcome": {
+              "const": "maintenance-required",
+              "type": "string"
+            },
+            "reasons": {
+              "items": {
+                "$ref": "#/$defs/__schema5"
+              },
+              "maxItems": 5,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "outcome",
+            "reasons"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "outcome": {
+              "const": "unsupported",
+              "type": "string"
+            },
+            "reasons": {
+              "items": {
+                "$ref": "#/$defs/__schema6"
+              },
+              "maxItems": 4,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "outcome",
+            "reasons"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "__schema5": {
+      "enum": [
+        "destructive-migration",
+        "incompatible-overlap",
+        "readiness-unproven",
+        "inventory-mismatch",
+        "rollback-incompatible"
+      ],
+      "type": "string"
+    },
+    "__schema6": {
+      "enum": [
+        "supervisor-unavailable",
+        "gateway-unavailable",
+        "worker-overlap-unsafe",
+        "realtime-convergence-unavailable"
+      ],
+      "type": "string"
+    }
+  },
+  "$id": "https://schemas.k-nex.dev/zero-downtime-eligibility/v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "deliveryClass": {
+      "$ref": "#/$defs/__schema2"
+    },
+    "id": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "result": {
+      "$ref": "#/$defs/__schema4"
+    },
+    "schemaVersion": {
+      "$ref": "#/$defs/__schema1"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "deliveryClass",
+    "id",
+    "result"
+  ],
+  "title": "K-Nex Zero-Downtime Eligibility v1",
+  "type": "object"
+}

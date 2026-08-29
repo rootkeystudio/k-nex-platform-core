@@ -1,0 +1,14 @@
+{
+  "$schema": "../../../schemas/extension-bundle-manifest.v1.schema.json",
+  "files": { "styles/neobrutalism.css": { "bytes": 1024, "contentType": "text/css", "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" } },
+  "id": "skin.neobrutalism",
+  "deliveryClass": "theme-skin",
+  "payloadDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "provenance": { "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "reference": "https://github.com/rootkeystudio/k-nex-platform-core/attestations/skin-neobrutalism-1" },
+  "resourceBudget": { "maxAssetBytes": 131072, "maxBundleBytes": 1048576, "maxCssBytes": 65536 },
+  "runtimeAbi": "1.0.0",
+  "sbom": { "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "path": "sbom.cdx.json" },
+  "schemaVersion": 1,
+  "stylesheets": ["styles/neobrutalism.css"],
+  "version": "1.0.0"
+}

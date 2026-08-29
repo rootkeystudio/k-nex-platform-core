@@ -32,10 +32,10 @@ import {
   DelegatedToolCatalogPolicy,
   ToolGatewayError,
   ToolExecutionGateway,
-  createPluginLifecycleState,
+  createPlatformPluginLifecycleState,
   executeRegistration,
-  reconcilePluginAvailability,
-  scopePluginRegistration,
+  reconcilePlatformPluginAvailability,
+  scopePlatformPluginRegistration,
   type DataSourceHandler,
   type DataSourcePolicyService,
   type RegisteredDataSource,
@@ -82,14 +82,14 @@ function registration(scope = true) {
     }],
     registrations: [salesRegistration]
   });
-  const lifecycle = createPluginLifecycleState({
+  const lifecycle = createPlatformPluginLifecycleState({
     pluginId: manifest.id, catalogStatus: "supported",
     package: { status: "installed", name: manifest.package, version: manifest.version, integrity },
     enabled: true, configuration: { revision: 1, ready: true }, migration: { current: 1, required: 1, ready: true },
     dataState: "active", releaseStatus: "supported"
   });
   if (!scope) return raw;
-  return scopePluginRegistration(raw, [reconcilePluginAvailability(raw, lifecycle)]);
+  return scopePlatformPluginRegistration(raw, [reconcilePlatformPluginAvailability(raw, lifecycle)]);
 }
 
 describe("P2A.8 Sales tool proof", () => {

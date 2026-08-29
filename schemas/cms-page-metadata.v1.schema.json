@@ -5,6 +5,7 @@
       "type": "number"
     },
     "__schema1": {
+      "maxLength": 128,
       "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
       "type": "string"
     },

@@ -1,0 +1,16 @@
+{
+  "$schema": "../../../schemas/extension-bundle-manifest.v1.schema.json",
+  "artifactDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "entrypoints": { "server": [], "ui": ["ui/app.mjs"] },
+  "files": { "ui/app.mjs": { "bytes": 1, "contentType": "application/javascript", "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" } },
+  "id": "app.bad",
+  "deliveryClass": "hot-application",
+  "manifest": { "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "path": "k-nex.app-bundle.json" },
+  "payloadDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "provenance": { "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "reference": "https://github.com/rootkeystudio/k-nex-platform-core/attestations/app-bad-1" },
+  "resourceBudget": { "maxAssetBytes": 1, "maxBundleBytes": 1, "maxConcurrency": 1, "maxCpuMilliCores": 1, "maxInputBytes": 1, "maxLogBytes": 1, "maxMemoryMiB": 1, "maxOutputBytes": 1, "maxStorageBytes": 1, "maxWallTimeMs": 1 },
+  "runtimeAbi": "1.0.0",
+  "sbom": { "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "path": "sbom.cdx.json" },
+  "schemaVersion": 1,
+  "version": "1.0.0"
+}

@@ -10,14 +10,29 @@ import {
   CmsPageMetadataSchema,
   DurableEventEnvelopeSchema,
   EVENT_PAYLOAD_MAX_BYTES,
+  ExtensionBundleManifestSchema,
+  ExtensionCapabilityRequestSchema,
+  ExtensionGenerationSchema,
+  ExtensionInstallPlanSchema,
+  ExtensionInstallReceiptSchema,
+  ExtensionResourceBudgetSchema,
+  HotApplicationManifestSchema,
+  MigrationCompatibilityPlanSchema,
   MetricScalarSchema,
   PackageReleaseManifestSchema,
   RuntimeInventorySchema,
+  ThemeSkinManifestSchema,
+  RemoteUiIsolationProfileSchema,
+  RunnerIsolationProfileSchema,
+  StaticCompositionChangePlanSchema,
+  TrustedApplicationBuildEvidenceSchema,
+  WorkerGenerationFenceSchema,
   DeploymentReceiptSchema,
   PluginManifestSchema,
   TableRecordsSchema,
   ThemeProfileSchema,
   UiDocumentSchema,
+  ZeroDowntimeEligibilitySchema,
   architectureRegistry
 } from "@k-nex/contracts";
 import * as z from "zod";
@@ -35,6 +50,10 @@ function jsonSchema(schema: z.core.$ZodType): unknown {
   const metadata = descriptor?.value as { vendor?: unknown } | undefined;
   if (descriptor?.enumerable !== false || metadata?.vendor !== "zod") throw new TypeError("Zod JSON Schema output has unexpected metadata.");
   return { ...generated };
+}
+
+function identifiedJsonSchema(schema: z.core.$ZodType, id: string, title: string): unknown {
+  return { ...(jsonSchema(schema) as Record<string, unknown>), $id: id, title };
 }
 
 function secretFieldPattern(): string {
@@ -166,6 +185,21 @@ const primaryArtifacts = [
   { path: "schemas/action.v1.schema.json", value: jsonSchema(ActionDescriptorSchema) },
   { path: "schemas/agent-tool.v1.schema.json", value: jsonSchema(AgentToolDescriptorSchema) },
   { path: "schemas/plugin-manifest.v1.schema.json", value: pluginManifestJsonSchema() },
+  { path: "schemas/hot-application-manifest.v1.schema.json", value: jsonSchema(HotApplicationManifestSchema) },
+  { path: "schemas/theme-skin-manifest.v1.schema.json", value: jsonSchema(ThemeSkinManifestSchema) },
+  { path: "schemas/extension-bundle-manifest.v1.schema.json", value: jsonSchema(ExtensionBundleManifestSchema) },
+  { path: "schemas/extension-capability-request.v1.schema.json", value: identifiedJsonSchema(ExtensionCapabilityRequestSchema, "https://schemas.k-nex.dev/extension-capability-request/v1.json", "K-Nex Extension Capability Request v1") },
+  { path: "schemas/extension-resource-budget.v1.schema.json", value: jsonSchema(ExtensionResourceBudgetSchema) },
+  { path: "schemas/extension-install-plan.v1.schema.json", value: jsonSchema(ExtensionInstallPlanSchema) },
+  { path: "schemas/extension-install-receipt.v1.schema.json", value: jsonSchema(ExtensionInstallReceiptSchema) },
+  { path: "schemas/extension-generation.v1.schema.json", value: jsonSchema(ExtensionGenerationSchema) },
+  { path: "schemas/zero-downtime-eligibility.v1.schema.json", value: jsonSchema(ZeroDowntimeEligibilitySchema) },
+  { path: "schemas/remote-ui-isolation-profile.v1.schema.json", value: jsonSchema(RemoteUiIsolationProfileSchema) },
+  { path: "schemas/runner-isolation-profile.v1.schema.json", value: jsonSchema(RunnerIsolationProfileSchema) },
+  { path: "schemas/static-composition-change-plan.v1.schema.json", value: jsonSchema(StaticCompositionChangePlanSchema) },
+  { path: "schemas/trusted-application-build-evidence.v1.schema.json", value: jsonSchema(TrustedApplicationBuildEvidenceSchema) },
+  { path: "schemas/migration-compatibility-plan.v1.schema.json", value: jsonSchema(MigrationCompatibilityPlanSchema) },
+  { path: "schemas/worker-generation-fence.v1.schema.json", value: jsonSchema(WorkerGenerationFenceSchema) },
   { path: "schemas/package-release-manifest.v1.schema.json", value: jsonSchema(PackageReleaseManifestSchema) },
   { path: "schemas/runtime-inventory.v1.schema.json", value: jsonSchema(RuntimeInventorySchema) },
   { path: "schemas/deployment-receipt.v1.schema.json", value: jsonSchema(DeploymentReceiptSchema) },

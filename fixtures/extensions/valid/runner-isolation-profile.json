@@ -1,0 +1,14 @@
+{
+  "$schema": "../../../schemas/runner-isolation-profile.v1.schema.json",
+  "filesystem": { "code": "read-only", "hostMounts": "none", "root": "read-only", "temporaryStorage": "bounded-tmpfs" },
+  "isolation": "os-container-per-generation",
+  "limits": { "cpuMilliCores": 500, "memoryMiB": 128, "openFiles": 256, "processes": 32, "tempBytes": 1048576 },
+  "namespaces": { "mount": "separate", "network": "separate", "pid": "separate", "user": "separate" },
+  "policy": { "hostNetworkAdapter": "allowlisted-proxy-only", "inboundListener": "denied", "macProfile": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "rawEgress": "denied", "syscallProfile": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+  "privileges": { "databaseCredential": "none", "dockerSocket": "none", "hostSecrets": "none", "linuxCapabilities": "dropped", "noNewPrivileges": true },
+  "profile": "os-container-per-generation-v1",
+  "rpc": { "schemaValidated": true, "shortLivedGenerationActorIdentity": true, "transport": "structured-host-rpc-only" },
+  "schemaVersion": 1,
+  "scope": "production",
+  "workloadIdentity": "unique-non-root"
+}

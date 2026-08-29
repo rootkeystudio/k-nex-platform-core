@@ -14,7 +14,7 @@ import {
 import * as semver from "semver";
 import { actionToolCompatible, assertActionDefinition, type ActionDefinition, type ActionHandler } from "./action.js";
 import { dataSourceToolCompatible, type DataSourceHandler } from "./data-source-gateway.js";
-import type { InstalledPluginManifest, ResolvedPluginGraph } from "@k-nex/composition";
+import type { InstalledPlatformPluginManifest, ResolvedPlatformPluginGraph } from "@k-nex/composition";
 import {
   createRegistrationLifecycleAuthority,
   freezeRegistrationLifecycleAuthority,
@@ -105,8 +105,8 @@ export interface RegistrationResult {
   readonly bindings: Readonly<Record<BoundContributionKind, readonly RegisteredContribution[]>>;
 }
 export interface ExecuteRegistrationOptions {
-  readonly graph: ResolvedPluginGraph;
-  readonly installed: readonly InstalledPluginManifest[];
+  readonly graph: ResolvedPlatformPluginGraph;
+  readonly installed: readonly InstalledPlatformPluginManifest[];
   readonly registrations: readonly PluginRegistration[];
 }
 
@@ -146,7 +146,7 @@ function providedCapabilities(manifest: PluginManifest): ReadonlyMap<string, Rea
   }
   return provided;
 }
-function activeManifests(graph: ResolvedPluginGraph, installed: readonly InstalledPluginManifest[]): ReadonlyMap<string, PluginManifest> {
+function activeManifests(graph: ResolvedPlatformPluginGraph, installed: readonly InstalledPlatformPluginManifest[]): ReadonlyMap<string, PluginManifest> {
   const installedById = new Map(installed.map((entry) => [entry.manifest.id, entry]));
   const active = new Map<string, PluginManifest>();
   for (const node of graph.plugins) {

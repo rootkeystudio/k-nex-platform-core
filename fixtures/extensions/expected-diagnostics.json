@@ -1,0 +1,23 @@
+{
+  "fixtures/extensions/invalid/bundle.missing-provenance.json": { "code": "SCHEMA_INVALID", "schema": "extension-bundle-manifest", "validator": "json-schema" },
+  "fixtures/extensions/invalid/bundle.self-reference.json": { "code": "SCHEMA_INVALID", "schema": "extension-bundle-manifest", "validator": "json-schema" },
+  "fixtures/extensions/invalid/bundle.traversal-path.json": { "code": "SCHEMA_INVALID", "schema": "extension-bundle-manifest", "validator": "json-schema" },
+  "fixtures/extensions/invalid/build-evidence.branch-ref.json": { "code": "SCHEMA_INVALID", "schema": "trusted-application-build-evidence", "validator": "json-schema" },
+  "fixtures/extensions/invalid/capability.unsafe-network.json": { "code": "SCHEMA_INVALID", "schema": "extension-capability-request", "validator": "json-schema" },
+  "fixtures/extensions/invalid/generation.invalid-lifecycle.json": { "code": "SCHEMA_INVALID", "schema": "extension-generation", "validator": "json-schema" },
+  "fixtures/extensions/invalid/hot-application.forbidden-host-schema.json": { "code": "SCHEMA_INVALID", "schema": "hot-application-manifest", "validator": "json-schema" },
+  "fixtures/extensions/invalid/hot-application.kind-id-mismatch.json": { "code": "SCHEMA_INVALID", "schema": "hot-application-manifest", "validator": "json-schema" },
+  "fixtures/extensions/invalid/hot-application.resource-bound.json": { "code": "SCHEMA_INVALID", "schema": "hot-application-manifest", "validator": "json-schema" },
+  "fixtures/extensions/invalid/hot-application.unsafe-entrypoint.json": { "code": "SCHEMA_INVALID", "schema": "hot-application-manifest", "validator": "json-schema" },
+  "fixtures/extensions/invalid/install-plan.class-availability-mismatch.json": { "code": "SCHEMA_INVALID", "schema": "extension-install-plan", "validator": "json-schema" },
+  "fixtures/extensions/invalid/install-receipt.invalid-revision.json": { "code": "SCHEMA_INVALID", "schema": "extension-install-receipt", "validator": "json-schema" },
+  "fixtures/extensions/invalid/migration.unknown-phase.json": { "code": "SCHEMA_INVALID", "schema": "migration-compatibility-plan", "validator": "json-schema" },
+  "fixtures/extensions/invalid/remote-ui.credentialed-origin.json": { "code": "SCHEMA_INVALID", "schema": "remote-ui-isolation-profile", "validator": "json-schema" },
+  "fixtures/extensions/invalid/runner.production-child-process.json": { "code": "SCHEMA_INVALID", "schema": "runner-isolation-profile", "validator": "json-schema" },
+  "fixtures/extensions/invalid/static-change.branch-base.json": { "code": "SCHEMA_INVALID", "schema": "static-composition-change-plan", "validator": "json-schema" },
+  "fixtures/extensions/invalid/theme-skin.executable-entrypoint.json": { "code": "SCHEMA_INVALID", "schema": "theme-skin-manifest", "validator": "json-schema" },
+  "fixtures/extensions/invalid/theme-skin.primitive-override.json": { "code": "SCHEMA_INVALID", "schema": "theme-skin-manifest", "validator": "json-schema" },
+  "fixtures/extensions/invalid/theme-skin.unsafe-asset.json": { "code": "SCHEMA_INVALID", "schema": "theme-skin-manifest", "validator": "json-schema" },
+  "fixtures/extensions/invalid/worker-fence.non-monotonic-token.json": { "code": "SCHEMA_INVALID", "schema": "worker-generation-fence", "validator": "json-schema" },
+  "fixtures/extensions/invalid/zero-downtime.hot-application.json": { "code": "SCHEMA_INVALID", "schema": "zero-downtime-eligibility", "validator": "json-schema" }
+}

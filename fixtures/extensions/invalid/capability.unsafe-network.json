@@ -1,0 +1,8 @@
+{
+  "$schema": "../../../schemas/extension-capability-request.v1.schema.json",
+  "destinations": ["http://internal.example.com"],
+  "kind": "http-fetch",
+  "methods": ["GET"],
+  "reason": "Call an approved endpoint.",
+  "required": true
+}

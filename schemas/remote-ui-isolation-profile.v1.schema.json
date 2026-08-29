@@ -1,0 +1,208 @@
+{
+  "$defs": {
+    "__schema0": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "__schema1": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema10": {
+      "const": "denied",
+      "type": "string"
+    },
+    "__schema11": {
+      "const": "denied",
+      "type": "string"
+    },
+    "__schema12": {
+      "const": "denied",
+      "type": "string"
+    },
+    "__schema13": {
+      "additionalProperties": false,
+      "properties": {
+        "contentSecurityPolicy": {
+          "const": "default-src 'none'; script-src 'self'; connect-src 'none'; worker-src 'self'; img-src 'self'; style-src 'self'",
+          "type": "string"
+        },
+        "credentialsMode": {
+          "const": "omit",
+          "type": "string"
+        },
+        "crossOriginResourcePolicy": {
+          "const": "same-origin",
+          "type": "string"
+        },
+        "generationPinnedIntegrity": {
+          "const": true,
+          "type": "boolean"
+        },
+        "strictMime": {
+          "const": true,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "contentSecurityPolicy",
+        "crossOriginResourcePolicy",
+        "credentialsMode",
+        "generationPinnedIntegrity",
+        "strictMime"
+      ],
+      "type": "object"
+    },
+    "__schema14": {
+      "additionalProperties": false,
+      "properties": {
+        "authorization": {
+          "const": true,
+          "type": "boolean"
+        },
+        "depth": {
+          "const": true,
+          "type": "boolean"
+        },
+        "generation": {
+          "const": true,
+          "type": "boolean"
+        },
+        "rate": {
+          "const": true,
+          "type": "boolean"
+        },
+        "replay": {
+          "const": true,
+          "type": "boolean"
+        },
+        "schema": {
+          "const": true,
+          "type": "boolean"
+        },
+        "sequence": {
+          "const": true,
+          "type": "boolean"
+        },
+        "size": {
+          "const": true,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schema",
+        "generation",
+        "sequence",
+        "replay",
+        "size",
+        "depth",
+        "rate",
+        "authorization"
+      ],
+      "type": "object"
+    },
+    "__schema2": {
+      "const": "credentialless-remote-ui-v1",
+      "type": "string"
+    },
+    "__schema3": {
+      "enum": [
+        "opaque-origin-sandbox",
+        "dedicated-credentialless-origin"
+      ],
+      "type": "string"
+    },
+    "__schema4": {
+      "const": "transferred-message-port-only",
+      "type": "string"
+    },
+    "__schema5": {
+      "const": "none",
+      "type": "string"
+    },
+    "__schema6": {
+      "const": "none",
+      "type": "string"
+    },
+    "__schema7": {
+      "const": "denied",
+      "type": "string"
+    },
+    "__schema8": {
+      "const": "denied",
+      "type": "string"
+    },
+    "__schema9": {
+      "const": "denied",
+      "type": "string"
+    }
+  },
+  "$id": "https://schemas.k-nex.dev/remote-ui-isolation-profile/v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "ambientNetwork": {
+      "$ref": "#/$defs/__schema7"
+    },
+    "browserStorage": {
+      "$ref": "#/$defs/__schema6"
+    },
+    "channelChecks": {
+      "$ref": "#/$defs/__schema14"
+    },
+    "credentials": {
+      "$ref": "#/$defs/__schema5"
+    },
+    "directDom": {
+      "$ref": "#/$defs/__schema8"
+    },
+    "hostChannel": {
+      "$ref": "#/$defs/__schema4"
+    },
+    "hostDynamicImport": {
+      "$ref": "#/$defs/__schema9"
+    },
+    "popupTopNavigationDownload": {
+      "$ref": "#/$defs/__schema12"
+    },
+    "profile": {
+      "$ref": "#/$defs/__schema2"
+    },
+    "realm": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "responsePolicy": {
+      "$ref": "#/$defs/__schema13"
+    },
+    "schemaVersion": {
+      "$ref": "#/$defs/__schema1"
+    },
+    "serviceWorkers": {
+      "$ref": "#/$defs/__schema10"
+    },
+    "sharedWorkers": {
+      "$ref": "#/$defs/__schema11"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "profile",
+    "realm",
+    "hostChannel",
+    "credentials",
+    "browserStorage",
+    "ambientNetwork",
+    "directDom",
+    "hostDynamicImport",
+    "serviceWorkers",
+    "sharedWorkers",
+    "popupTopNavigationDownload",
+    "responsePolicy",
+    "channelChecks"
+  ],
+  "title": "K-Nex Remote UI Isolation Profile v1",
+  "type": "object"
+}

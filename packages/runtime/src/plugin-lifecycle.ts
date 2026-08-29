@@ -13,26 +13,26 @@ import {
   scopeRegistrationLifecycleAuthority
 } from "./registration-lifecycle-authority.js";
 
-export type PluginLifecycleErrorCode =
+export type PlatformPluginLifecycleErrorCode =
   | "INVALID_STATE" | "PACKAGE_MISMATCH" | "NOT_READY" | "OPERATION_UNSUPPORTED" | "REFERENCES_PRESENT";
 
-export class PluginLifecycleError extends Error {
-  constructor(readonly code: PluginLifecycleErrorCode, message: string) {
+export class PlatformPluginLifecycleError extends Error {
+  constructor(readonly code: PlatformPluginLifecycleErrorCode, message: string) {
     super(message);
-    this.name = "PluginLifecycleError";
+    this.name = "PlatformPluginLifecycleError";
   }
 }
 
-export interface PluginPackageIdentity {
+export interface PlatformPluginPackageIdentity {
   readonly name: string;
   readonly version: string;
   readonly integrity: string;
 }
 
-export interface PluginLifecycleState {
+export interface PlatformPluginLifecycleState {
   readonly pluginId: string;
   readonly catalogStatus: "supported" | "unsupported";
-  readonly package: { readonly status: "absent" } | ({ readonly status: "installed" } & PluginPackageIdentity);
+  readonly package: { readonly status: "absent" } | ({ readonly status: "installed" } & PlatformPluginPackageIdentity);
   readonly enabled: boolean;
   readonly configuration: { readonly revision: number; readonly ready: boolean };
   readonly migration: { readonly current: number; readonly required: number; readonly ready: boolean };
@@ -40,14 +40,14 @@ export interface PluginLifecycleState {
   readonly releaseStatus: "supported" | "unsupported";
 }
 
-export interface PluginInstallPlan {
+export interface PlatformPluginInstallPlan {
   readonly operation: "install" | "enable" | "noop";
-  readonly packageChange: PluginPackageIdentity | null;
+  readonly packageChange: PlatformPluginPackageIdentity | null;
   readonly requiresDeployment: true;
   readonly seedTemplateIds: readonly string[];
 }
 
-export interface PluginAvailability {
+export interface PlatformPluginAvailability {
   readonly pluginId: string;
   readonly enabled: boolean;
   readonly ready: boolean;
@@ -55,7 +55,7 @@ export interface PluginAvailability {
   readonly contributions: Readonly<Partial<Record<PluginContributionCategory, readonly string[]>>>;
 }
 
-export interface PluginReference {
+export interface PlatformPluginReference {
   readonly kind: "dependency" | "document" | "event" | "integration" | "job";
   readonly id: string;
   readonly pluginId: string;
@@ -67,7 +67,7 @@ const retainedWhileDisabled = new Set<PluginContributionCategory>([
 const authoritativeAvailability = new WeakSet<object>();
 const authoritativeRegistrations = new WeakSet<object>();
 const registrationAvailability = new WeakMap<object, {
-  readonly availability: ReadonlyMap<string, PluginAvailability>;
+  readonly availability: ReadonlyMap<string, PlatformPluginAvailability>;
   readonly unavailablePlugins: ReadonlySet<string>;
 }>();
 declare const scopedRegistrationBrand: unique symbol;
@@ -76,22 +76,22 @@ export interface ScopedRegistrationResult extends RegistrationResult {
   readonly [scopedRegistrationBrand]: true;
 }
 
-function fail(code: PluginLifecycleErrorCode, message: string): never {
-  throw new PluginLifecycleError(code, message);
+function fail(code: PlatformPluginLifecycleErrorCode, message: string): never {
+  throw new PlatformPluginLifecycleError(code, message);
 }
 
 function validRevision(value: number): boolean {
   return Number.isSafeInteger(value) && value >= 0;
 }
 
-function assertPackageIdentity(identity: PluginPackageIdentity): void {
+function assertPackageIdentity(identity: PlatformPluginPackageIdentity): void {
   if (!identity.name.startsWith("@") || identity.name.length > 214 || identity.version.length < 1 || identity.version.length > 128 ||
     !/^sha512-[A-Za-z0-9+/]+={0,2}$/u.test(identity.integrity)) {
     fail("INVALID_STATE", "Plugin package identity is invalid.");
   }
 }
 
-function assertState(state: PluginLifecycleState): void {
+function assertState(state: PlatformPluginLifecycleState): void {
   ResourceIdSchema.parse(state.pluginId);
   if (!validRevision(state.configuration.revision) || !validRevision(state.migration.current) || !validRevision(state.migration.required)) {
     fail("INVALID_STATE", "Plugin lifecycle revisions must be non-negative safe integers.");
@@ -103,7 +103,7 @@ function assertState(state: PluginLifecycleState): void {
   if (state.enabled && state.dataState === "retained") fail("INVALID_STATE", "Enabled plugin data cannot remain in retained state.");
 }
 
-export function createPluginLifecycleState(state: PluginLifecycleState): PluginLifecycleState {
+export function createPlatformPluginLifecycleState(state: PlatformPluginLifecycleState): PlatformPluginLifecycleState {
   assertState(state);
   return Object.freeze({
     ...state,
@@ -117,19 +117,19 @@ function parsedManifest(value: PluginManifest): PluginManifest {
   return PluginManifestSchema.parse(value);
 }
 
-export function pluginReadyForEnable(state: PluginLifecycleState): boolean {
+export function platformPluginReadyForEnable(state: PlatformPluginLifecycleState): boolean {
   assertState(state);
   return state.catalogStatus === "supported" && state.releaseStatus === "supported" &&
     state.package.status === "installed" && state.configuration.ready && state.migration.ready &&
     state.migration.current === state.migration.required;
 }
 
-export function planPluginInstall(input: {
+export function planPlatformPluginInstall(input: {
   readonly manifest: PluginManifest;
-  readonly package: PluginPackageIdentity;
-  readonly state?: PluginLifecycleState;
+  readonly package: PlatformPluginPackageIdentity;
+  readonly state?: PlatformPluginLifecycleState;
   readonly existingTemplateIds?: readonly string[];
-}): PluginInstallPlan {
+}): PlatformPluginInstallPlan {
   const manifest = parsedManifest(input.manifest);
   assertPackageIdentity(input.package);
   if (input.package.name !== manifest.package || input.package.version !== manifest.version) {
@@ -154,26 +154,26 @@ export function planPluginInstall(input: {
   });
 }
 
-export function disablePlugin(state: PluginLifecycleState, manifestValue: PluginManifest): PluginLifecycleState {
+export function disablePlatformPlugin(state: PlatformPluginLifecycleState, manifestValue: PluginManifest): PlatformPluginLifecycleState {
   const manifest = parsedManifest(manifestValue);
   assertState(state);
   if (state.pluginId !== manifest.id) fail("PACKAGE_MISMATCH", "Lifecycle state belongs to another plugin.");
   if (manifest.lifecycle.disable !== "supported") fail("OPERATION_UNSUPPORTED", `Plugin ${manifest.id} does not support disable.`);
-  return createPluginLifecycleState({ ...state, enabled: false, dataState: state.dataState === "none" ? "none" : "retained" });
+  return createPlatformPluginLifecycleState({ ...state, enabled: false, dataState: state.dataState === "none" ? "none" : "retained" });
 }
 
-export function reenablePlugin(state: PluginLifecycleState, manifestValue: PluginManifest): PluginLifecycleState {
+export function reenablePlatformPlugin(state: PlatformPluginLifecycleState, manifestValue: PluginManifest): PlatformPluginLifecycleState {
   const manifest = parsedManifest(manifestValue);
   assertState(state);
   if (state.pluginId !== manifest.id) fail("PACKAGE_MISMATCH", "Lifecycle state belongs to another plugin.");
   if (manifest.lifecycle.disable !== "supported") fail("OPERATION_UNSUPPORTED", `Plugin ${manifest.id} does not support re-enable.`);
-  if (!pluginReadyForEnable(state)) fail("NOT_READY", `Plugin ${manifest.id} is not ready to re-enable.`);
-  return createPluginLifecycleState({ ...state, enabled: true, dataState: state.dataState === "none" ? "none" : "active" });
+  if (!platformPluginReadyForEnable(state)) fail("NOT_READY", `Plugin ${manifest.id} is not ready to re-enable.`);
+  return createPlatformPluginLifecycleState({ ...state, enabled: true, dataState: state.dataState === "none" ? "none" : "active" });
 }
 
-export function reconcilePluginAvailability(registration: RegistrationResult, state: PluginLifecycleState): PluginAvailability {
+export function reconcilePlatformPluginAvailability(registration: RegistrationResult, state: PlatformPluginLifecycleState): PlatformPluginAvailability {
   assertState(state);
-  const ready = pluginReadyForEnable(state);
+  const ready = platformPluginReadyForEnable(state);
   const available = new Map<PluginContributionCategory, Set<string>>();
   for (const kind of pluginContributionCategoryKeys) {
     const ids = registration.contributions[kind]
@@ -200,7 +200,7 @@ export function assertExecutableRegistrationAuthority(registration: Registration
   }
 }
 
-export function pluginEnabledInRegistration(registration: ScopedRegistrationResult, pluginId: string): boolean {
+export function platformPluginEnabledInRegistration(registration: ScopedRegistrationResult, pluginId: string): boolean {
   assertExecutableRegistrationAuthority(registration);
   const scope = registrationAvailability.get(registration);
   if (scope?.unavailablePlugins.has(pluginId)) return false;
@@ -208,11 +208,11 @@ export function pluginEnabledInRegistration(registration: ScopedRegistrationResu
   return availability === undefined || availability.enabled && availability.ready;
 }
 
-export function scopePluginRegistration(
+export function scopePlatformPluginRegistration(
   registration: RegistrationResult,
-  availabilityValues: readonly PluginAvailability[]
+  availabilityValues: readonly PlatformPluginAvailability[]
 ): ScopedRegistrationResult {
-  const availability = new Map<string, PluginAvailability>();
+  const availability = new Map<string, PlatformPluginAvailability>();
   for (const value of availabilityValues) {
     if (!authoritativeAvailability.has(value)) fail("INVALID_STATE", `Plugin ${value.pluginId} availability is not authoritative.`);
     if (availability.has(value.pluginId)) fail("INVALID_STATE", `Plugin ${value.pluginId} has duplicate lifecycle availability.`);
@@ -264,9 +264,9 @@ export function scopePluginRegistration(
   return result;
 }
 
-export function scanPluginReferences(pluginId: string, references: readonly PluginReference[]): readonly PluginReference[] {
+export function scanPlatformPluginReferences(pluginId: string, references: readonly PlatformPluginReference[]): readonly PlatformPluginReference[] {
   ResourceIdSchema.parse(pluginId);
-  const found = new Map<string, PluginReference>();
+  const found = new Map<string, PlatformPluginReference>();
   for (const reference of references) {
     ResourceIdSchema.parse(reference.id);
     ResourceIdSchema.parse(reference.pluginId);
@@ -277,13 +277,13 @@ export function scanPluginReferences(pluginId: string, references: readonly Plug
   return Object.freeze([...found.entries()].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([, value]) => value));
 }
 
-export function assertPluginDestructiveOperationSafe(manifestValue: PluginManifest, references: readonly PluginReference[]): void {
+export function assertPlatformPluginDestructiveOperationSafe(manifestValue: PluginManifest, references: readonly PlatformPluginReference[]): void {
   const manifest = parsedManifest(manifestValue);
-  const found = scanPluginReferences(manifest.id, references);
+  const found = scanPlatformPluginReferences(manifest.id, references);
   if (found.length > 0) fail("REFERENCES_PRESENT", `Plugin ${manifest.id} has ${found.length} active reference(s).`);
 }
 
-export function assertPluginUninstallSupported(manifestValue: PluginManifest): void {
+export function assertPlatformPluginUninstallSupported(manifestValue: PluginManifest): void {
   const manifest = parsedManifest(manifestValue);
   if (manifest.lifecycle.uninstall !== "supported") fail("OPERATION_UNSUPPORTED", `Plugin ${manifest.id} does not support uninstall.`);
 }

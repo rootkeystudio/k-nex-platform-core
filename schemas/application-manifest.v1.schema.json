@@ -86,6 +86,7 @@
       "type": "array"
     },
     "__schema13": {
+      "maxLength": 128,
       "pattern": "^(module|provider|builder|theme|integration|preset)(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
       "type": "string"
     },
@@ -123,6 +124,7 @@
         "type": "object"
       },
       "propertyNames": {
+        "maxLength": 128,
         "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
         "type": "string"
       },

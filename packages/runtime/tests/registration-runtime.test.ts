@@ -2,7 +2,7 @@ import type { AgentToolDescriptor, DataSourceDefinition, PluginManifest } from "
 import { DataSourceDescriptorSchema, registrationPhases } from "@k-nex/contracts";
 import { describe, expect, it } from "vitest";
 
-import type { InstalledPluginManifest, ResolvedPluginGraph } from "@k-nex/composition";
+import type { InstalledPlatformPluginManifest, ResolvedPlatformPluginGraph } from "@k-nex/composition";
 import {
   definePluginRegistration,
   executeRegistration,
@@ -205,7 +205,7 @@ function consumerManifest(overrides: Partial<PluginManifest> = {}): PluginManife
   };
 }
 
-function installed(manifests: readonly PluginManifest[]): readonly InstalledPluginManifest[] {
+function installed(manifests: readonly PluginManifest[]): readonly InstalledPlatformPluginManifest[] {
   return manifests.map((manifest) => ({
     package: {
       name: manifest.package,
@@ -216,7 +216,7 @@ function installed(manifests: readonly PluginManifest[]): readonly InstalledPlug
   }));
 }
 
-function graph(): ResolvedPluginGraph {
+function graph(): ResolvedPlatformPluginGraph {
   return {
     resolverVersion: "1.0.0",
     plugins: [
@@ -378,7 +378,7 @@ function providerRegistration(capability = "storage.records"): PluginRegistratio
 function run(
   registrations: readonly PluginRegistration[],
   manifests: readonly PluginManifest[] = [providerManifest(), consumerManifest()],
-  resolvedGraph: ResolvedPluginGraph = graph()
+  resolvedGraph: ResolvedPlatformPluginGraph = graph()
 ) {
   return executeRegistration({ graph: resolvedGraph, installed: installed(manifests), registrations });
 }

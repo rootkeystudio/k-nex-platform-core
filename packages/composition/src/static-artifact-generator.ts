@@ -14,8 +14,8 @@ import {
 } from "@k-nex/contracts";
 import * as semver from "semver";
 
-import { resolvePluginGraph, type ResolvedPluginGraph, type ResolvedPluginNode } from "./deterministic-resolver.js";
-import type { InstalledPluginManifest } from "./installed-plugin-loader.js";
+import { resolvePlatformPluginGraph, type ResolvedPlatformPluginGraph, type ResolvedPlatformPluginNode } from "./deterministic-resolver.js";
+import type { InstalledPlatformPluginManifest } from "./installed-plugin-loader.js";
 
 const generatedArtifactPathValues = [
   ".k-nex/generated/k-nex.resolved.json",
@@ -32,8 +32,8 @@ export type StaticArtifactFrameworkTuple = SupportedFrameworkTuple;
 
 export interface StaticArtifactGenerationInput {
   readonly applicationManifest: ApplicationManifest;
-  readonly resolvedGraph: ResolvedPluginGraph;
-  readonly installed: readonly InstalledPluginManifest[];
+  readonly resolvedGraph: ResolvedPlatformPluginGraph;
+  readonly installed: readonly InstalledPlatformPluginManifest[];
   readonly framework: StaticArtifactFrameworkTuple;
   readonly customerConfigFingerprint: string;
 }
@@ -159,7 +159,7 @@ function normalizeEnvironment(manifest: PluginManifest): readonly string[] {
   return sortedUnique(manifest.environment?.map(({ name }) => name));
 }
 
-function normalizeNode(node: ResolvedPluginNode): ResolvedPluginNode {
+function normalizeNode(node: ResolvedPlatformPluginNode): ResolvedPlatformPluginNode {
   return {
     id: node.id,
     kind: node.kind,
@@ -171,7 +171,7 @@ function normalizeNode(node: ResolvedPluginNode): ResolvedPluginNode {
   };
 }
 
-function normalizeGraph(graph: ResolvedPluginGraph): ResolvedPluginGraph {
+function normalizeGraph(graph: ResolvedPlatformPluginGraph): ResolvedPlatformPluginGraph {
   return {
     resolverVersion: graph.resolverVersion,
     plugins: [...graph.plugins].map(normalizeNode).sort((left, right) => compareStrings(left.id, right.id)),
@@ -204,8 +204,8 @@ function validateFingerprint(fingerprint: string): void {
 
 function validatePluginCompatibility(
   framework: StaticArtifactFrameworkTuple,
-  graph: ResolvedPluginGraph,
-  installedById: ReadonlyMap<string, InstalledPluginManifest>
+  graph: ResolvedPlatformPluginGraph,
+  installedById: ReadonlyMap<string, InstalledPlatformPluginManifest>
 ): void {
   for (const node of graph.plugins) {
     const installed = installedById.get(node.id);
@@ -223,11 +223,11 @@ function validatePluginCompatibility(
 }
 
 function reconcileInstalled(
-  graph: ResolvedPluginGraph,
-  installed: readonly InstalledPluginManifest[]
-): ReadonlyMap<string, InstalledPluginManifest> {
-  const byId = new Map<string, InstalledPluginManifest>();
-  const byPackage = new Map<string, InstalledPluginManifest>();
+  graph: ResolvedPlatformPluginGraph,
+  installed: readonly InstalledPlatformPluginManifest[]
+): ReadonlyMap<string, InstalledPlatformPluginManifest> {
+  const byId = new Map<string, InstalledPlatformPluginManifest>();
+  const byPackage = new Map<string, InstalledPlatformPluginManifest>();
   for (const entry of installed) {
     const id = entry.manifest.id;
     if (byId.has(id) || byPackage.has(entry.package.name)) graphMismatch("Installed plugin identities must be unique.");
@@ -251,7 +251,7 @@ function reconcileInstalled(
   return byId;
 }
 
-function validateGraphReferences(graph: ResolvedPluginGraph): void {
+function validateGraphReferences(graph: ResolvedPlatformPluginGraph): void {
   const ids = new Set(graph.plugins.map(({ id }) => id));
   const order = graph.registrationOrder;
   if (new Set(order).size !== order.length || order.length !== ids.size || order.some((id) => !ids.has(id))) {
@@ -284,7 +284,7 @@ interface ResolvedPluginDocument {
   readonly environment: Readonly<{ readonly names: readonly string[] }>;
 }
 
-function pluginDocument(node: ResolvedPluginNode, installed: InstalledPluginManifest): ResolvedPluginDocument {
+function pluginDocument(node: ResolvedPlatformPluginNode, installed: InstalledPlatformPluginManifest): ResolvedPluginDocument {
   return {
     id: node.id,
     kind: node.kind,
@@ -339,7 +339,7 @@ export function generateStaticArtifacts(input: StaticArtifactGenerationInput): R
   validateFramework(input.framework);
   validateFingerprint(input.customerConfigFingerprint);
   const graph = normalizeGraph(input.resolvedGraph);
-  const expectedGraph = normalizeGraph(resolvePluginGraph({
+  const expectedGraph = normalizeGraph(resolvePlatformPluginGraph({
     plugins: input.applicationManifest.plugins,
     providers: input.applicationManifest.providers,
     installed: input.installed

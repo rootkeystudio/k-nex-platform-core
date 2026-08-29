@@ -1,0 +1,238 @@
+{
+  "$defs": {
+    "__schema0": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "__schema1": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema10": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "repository": {
+          "maxLength": 240,
+          "pattern": "^[A-Za-z0-9._/-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repository",
+        "digest"
+      ],
+      "type": "object"
+    },
+    "__schema11": {
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": {
+          "const": "ed25519",
+          "type": "string"
+        },
+        "keyId": {
+          "$ref": "#/$defs/__schema6"
+        },
+        "value": {
+          "pattern": "^[A-Za-z0-9+/]{86}==$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "algorithm",
+        "keyId",
+        "value"
+      ],
+      "type": "object"
+    },
+    "__schema2": {
+      "pattern": "^[a-z][a-z0-9-]{2,127}$",
+      "type": "string"
+    },
+    "__schema3": {
+      "pattern": "^[a-z][a-z0-9-]{1,63}$",
+      "type": "string"
+    },
+    "__schema4": {
+      "pattern": "^[0-9a-f]{40}$",
+      "type": "string"
+    },
+    "__schema5": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "github-hosted",
+              "type": "string"
+            },
+            "ref": {
+              "const": "source-commit",
+              "type": "string"
+            },
+            "repository": {
+              "pattern": "^[A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+$",
+              "type": "string"
+            },
+            "workflowPath": {
+              "maxLength": 256,
+              "pattern": "^\\.github\\/workflows\\/[A-Za-z0-9_.-]+\\.ya?ml$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "repository",
+            "workflowPath",
+            "ref"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "builderIdentity": {
+              "$ref": "#/$defs/__schema6"
+            },
+            "kind": {
+              "const": "self-hosted-trusted",
+              "type": "string"
+            },
+            "ref": {
+              "const": "source-commit",
+              "type": "string"
+            },
+            "trustPolicyDigest": {
+              "$ref": "#/$defs/__schema7"
+            }
+          },
+          "required": [
+            "kind",
+            "builderIdentity",
+            "trustPolicyDigest",
+            "ref"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "__schema6": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{2,511}$",
+      "type": "string"
+    },
+    "__schema7": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "__schema8": {
+      "additionalProperties": false,
+      "properties": {
+        "applicationManifestDigest": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "generatedRegistriesDigest": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "lockfileDigest": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "migrationPlanDigest": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "packageClosureDigest": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "resolvedGraphDigest": {
+          "$ref": "#/$defs/__schema7"
+        }
+      },
+      "required": [
+        "applicationManifestDigest",
+        "lockfileDigest",
+        "resolvedGraphDigest",
+        "generatedRegistriesDigest",
+        "packageClosureDigest",
+        "migrationPlanDigest"
+      ],
+      "type": "object"
+    },
+    "__schema9": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "name": {
+          "maxLength": 240,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "digest"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://schemas.k-nex.dev/trusted-application-build-evidence/v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "applicationId": {
+      "$ref": "#/$defs/__schema2"
+    },
+    "applicationSubject": {
+      "$ref": "#/$defs/__schema9"
+    },
+    "authority": {
+      "$ref": "#/$defs/__schema5"
+    },
+    "composition": {
+      "$ref": "#/$defs/__schema8"
+    },
+    "environment": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "imageSubject": {
+      "$ref": "#/$defs/__schema10"
+    },
+    "provenanceDigest": {
+      "$ref": "#/$defs/__schema7"
+    },
+    "sbomDigest": {
+      "$ref": "#/$defs/__schema7"
+    },
+    "schemaVersion": {
+      "$ref": "#/$defs/__schema1"
+    },
+    "signature": {
+      "$ref": "#/$defs/__schema11"
+    },
+    "sourceCommit": {
+      "$ref": "#/$defs/__schema4"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "applicationId",
+    "environment",
+    "sourceCommit",
+    "authority",
+    "composition",
+    "sbomDigest",
+    "provenanceDigest",
+    "applicationSubject",
+    "imageSubject",
+    "signature"
+  ],
+  "title": "K-Nex Trusted Application Build Evidence v1",
+  "type": "object"
+}

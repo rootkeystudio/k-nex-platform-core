@@ -1,0 +1,322 @@
+{
+  "$defs": {
+    "__schema0": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "__schema1": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema10": {
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema7"
+      },
+      "maxProperties": 16,
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "#/$defs/__schema11"
+      },
+      "type": "object"
+    },
+    "__schema11": {
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    },
+    "__schema12": {
+      "additionalProperties": false,
+      "properties": {
+        "accent": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "border": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "focusRing": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "surface": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "text": {
+          "$ref": "#/$defs/__schema11"
+        }
+      },
+      "type": "object"
+    },
+    "__schema13": {
+      "items": {
+        "$ref": "#/$defs/__schema14"
+      },
+      "maxItems": 8,
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "__schema14": {
+      "maxLength": 160,
+      "pattern": "^styles\\/[a-z0-9][a-z0-9._-]{0,119}\\.css$",
+      "type": "string"
+    },
+    "__schema15": {
+      "items": {
+        "$ref": "#/$defs/__schema16"
+      },
+      "maxItems": 8,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "__schema16": {
+      "additionalProperties": false,
+      "properties": {
+        "fromSchemaVersion": {
+          "maximum": 1000000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "renames": {
+          "items": {
+            "$ref": "#/$defs/__schema17"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "toSchemaVersion": {
+          "maximum": 1000000,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "fromSchemaVersion",
+        "toSchemaVersion",
+        "renames"
+      ],
+      "type": "object"
+    },
+    "__schema17": {
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "to": {
+          "$ref": "#/$defs/__schema8"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "type": "object"
+    },
+    "__schema18": {
+      "items": {
+        "$ref": "#/$defs/__schema19"
+      },
+      "maxItems": 512,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "__schema19": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 256,
+          "pattern": "^assets\\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,119}(?:\\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,119})*$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "digest"
+      ],
+      "type": "object"
+    },
+    "__schema2": {
+      "const": "theme-skin",
+      "type": "string"
+    },
+    "__schema20": {
+      "items": {
+        "$ref": "#/$defs/__schema21"
+      },
+      "maxItems": 32,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "__schema21": {
+      "additionalProperties": false,
+      "properties": {
+        "locale": {
+          "maxLength": 35,
+          "pattern": "^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 256,
+          "pattern": "^locales\\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,119}(?:\\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,119})*\\.json$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "locale",
+        "path"
+      ],
+      "type": "object"
+    },
+    "__schema22": {
+      "additionalProperties": false,
+      "properties": {
+        "maxAssetBytes": {
+          "maximum": 67108864,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "maxBundleBytes": {
+          "maximum": 268435456,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "maxCssBytes": {
+          "maximum": 524288,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "maxBundleBytes",
+        "maxAssetBytes",
+        "maxCssBytes"
+      ],
+      "type": "object"
+    },
+    "__schema3": {
+      "maxLength": 128,
+      "pattern": "^skin(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    },
+    "__schema4": {
+      "maxLength": 120,
+      "minLength": 1,
+      "type": "string"
+    },
+    "__schema5": {
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$",
+      "type": "string"
+    },
+    "__schema6": {
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "maximum": 1000000,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schemaVersion"
+      ],
+      "type": "object"
+    },
+    "__schema7": {
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema9"
+      },
+      "maxProperties": 128,
+      "propertyNames": {
+        "$ref": "#/$defs/__schema8"
+      },
+      "type": "object"
+    },
+    "__schema8": {
+      "pattern": "^--k-nex-[a-z0-9-]{1,80}$",
+      "type": "string"
+    },
+    "__schema9": {
+      "maxLength": 256,
+      "minLength": 1,
+      "pattern": "^(?![\\s\\S]*(?:@import|url\\s*\\(|javascript:|https?:|data:|[{};]))[\\s\\S]+$",
+      "type": "string"
+    }
+  },
+  "$id": "https://schemas.k-nex.dev/theme-skin-manifest/v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "assets": {
+      "$ref": "#/$defs/__schema18"
+    },
+    "deliveryClass": {
+      "$ref": "#/$defs/__schema2"
+    },
+    "displayName": {
+      "$ref": "#/$defs/__schema4"
+    },
+    "id": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "localization": {
+      "$ref": "#/$defs/__schema20"
+    },
+    "palettes": {
+      "$ref": "#/$defs/__schema10"
+    },
+    "profileCompatibility": {
+      "$ref": "#/$defs/__schema6"
+    },
+    "profileMigrations": {
+      "$ref": "#/$defs/__schema15"
+    },
+    "recipes": {
+      "$ref": "#/$defs/__schema12"
+    },
+    "resourceBudget": {
+      "$ref": "#/$defs/__schema22"
+    },
+    "runtimeAbi": {
+      "$ref": "#/$defs/__schema5"
+    },
+    "schemaVersion": {
+      "$ref": "#/$defs/__schema1"
+    },
+    "stylesheets": {
+      "$ref": "#/$defs/__schema13"
+    },
+    "tokens": {
+      "$ref": "#/$defs/__schema7"
+    },
+    "version": {
+      "$ref": "#/$defs/__schema5"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "deliveryClass",
+    "id",
+    "displayName",
+    "version",
+    "runtimeAbi",
+    "profileCompatibility",
+    "tokens",
+    "palettes",
+    "recipes",
+    "stylesheets",
+    "profileMigrations",
+    "assets",
+    "localization",
+    "resourceBudget"
+  ],
+  "title": "K-Nex Theme Skin Manifest v1",
+  "type": "object"
+}

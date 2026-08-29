@@ -1,4 +1,5 @@
 import { identityPatterns } from "./identity.js";
+import { extensionDeliveryClasses, extensionLifecycleStates, extensionRuntimeCeilings } from "./extension-runtime.js";
 import { lifecyclePolicy } from "./lifecycle.js";
 import { outputContracts } from "./output-contracts.js";
 import { registrationPhases, registrationRules } from "./registration-phases.js";
@@ -8,6 +9,8 @@ export const architectureRegistry = {
   schemaVersion: 1,
   identity: {
     pluginIdPattern: identityPatterns.plugin,
+    hotApplicationIdPattern: identityPatterns.hotApplication,
+    themeSkinIdPattern: identityPatterns.themeSkin,
     capabilityIdPattern: identityPatterns.capability,
     resourceIdPattern: identityPatterns.resource,
     outputContractIdPattern: identityPatterns.outputContract,
@@ -27,6 +30,8 @@ export const architectureRegistry = {
         "builder.puck",
         "theme.neobrutalism"
       ],
+      hotApplications: ["app.sales-assistant"],
+      themeSkins: ["skin.neobrutalism"],
       capabilities: ["realtime.gateway", "storage.objects", "builder.engine"],
       resources: ["sales.tasks", "sales.total-potential-revenue", "logistics.shipment.assign", "page.filters.date-range"]
     }
@@ -34,6 +39,17 @@ export const architectureRegistry = {
   registration: {
     phases: registrationPhases,
     rules: registrationRules
+  },
+  extensions: {
+    deliveryClasses: extensionDeliveryClasses,
+    lifecycleStates: extensionLifecycleStates,
+    runtimeCeilings: extensionRuntimeCeilings,
+    rules: [
+      "Platform Plugins remain static, release-composed host code.",
+      "Hot Applications use only app.* identities and isolated generation delivery.",
+      "Theme Skins use only skin.* identities and data-only generation delivery.",
+      "Runtime manifests do not declare Payload collections, globals, hooks, host routes, host services, packages, imports, SQL, database credentials, Docker access, or unrestricted network access."
+    ]
   },
   outputContracts,
   lifecycle: {

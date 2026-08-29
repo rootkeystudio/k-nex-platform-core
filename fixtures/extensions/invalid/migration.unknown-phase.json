@@ -1,0 +1,11 @@
+{
+  "$schema": "../../../schemas/migration-compatibility-plan.v1.schema.json",
+  "plan": {
+    "applicationId": "customer-alpha", "baseRevision": 8, "environment": "production", "planId": "migration-plan-9",
+    "rollbackWindow": { "contractCleanup": "blocked", "reason": "No compatible predecessor.", "state": "not-applicable" },
+    "sourceCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "steps": [{ "migrationDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "phase": "destructive", "stepId": "migration-destructive-9" }],
+    "targetRevision": 9, "targetSourceCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "schemaVersion": 1
+}

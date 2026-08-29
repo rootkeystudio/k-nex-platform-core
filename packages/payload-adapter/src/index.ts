@@ -1,6 +1,6 @@
 import { postgresAdapter } from "@payloadcms/db-postgres";
 import type { MigrateDownArgs, MigrateUpArgs } from "@payloadcms/db-postgres";
-import { assertExecutableRegistrationAuthority, pluginEnabledInRegistration, type ScopedRegistrationResult } from "@k-nex/runtime";
+import { assertExecutableRegistrationAuthority, platformPluginEnabledInRegistration, type ScopedRegistrationResult } from "@k-nex/runtime";
 import type { CollectionConfig, Config } from "payload";
 
 export * from "./data-source-authenticator.js";
@@ -146,7 +146,7 @@ export function composePayloadApplication(options: ComposePayloadApplicationOpti
         [contribution.pluginId, contribution.id]
       );
     }
-    collections.push(collectionForAvailability(value.collection, pluginEnabledInRegistration(options.registration, contribution.pluginId)));
+    collections.push(collectionForAvailability(value.collection, platformPluginEnabledInRegistration(options.registration, contribution.pluginId)));
     ownership.push({
       slug: value.collection.slug,
       pluginId: contribution.pluginId,

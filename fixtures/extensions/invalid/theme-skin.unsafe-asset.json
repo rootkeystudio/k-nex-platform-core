@@ -1,0 +1,4 @@
+{
+  "$schema": "../../../schemas/theme-skin-manifest.v1.schema.json",
+  "assets": [{ "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "path": "assets/../escape.svg" }], "displayName": "Bad Skin", "id": "skin.bad", "deliveryClass": "theme-skin", "localization": [], "palettes": { "skin.base": {} }, "profileCompatibility": { "schemaVersion": 1 }, "profileMigrations": [], "recipes": {}, "resourceBudget": { "maxAssetBytes": 1, "maxBundleBytes": 1, "maxCssBytes": 1 }, "runtimeAbi": "1.0.0", "schemaVersion": 1, "stylesheets": ["styles/skin.css"], "tokens": {}, "version": "1.0.0"
+}

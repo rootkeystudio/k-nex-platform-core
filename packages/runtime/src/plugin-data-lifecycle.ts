@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { PluginManifestSchema, ResourceIdSchema, assertJsonValue, canonicalJson, type JsonValue, type PluginManifest } from "@k-nex/contracts";
 
-import { scanPluginReferences, type PluginReference } from "./plugin-lifecycle.js";
+import { scanPlatformPluginReferences, type PlatformPluginReference } from "./plugin-lifecycle.js";
 
 export type PluginDataLifecycleDiagnosticCode =
   | "ACCESS_DENIED" | "ARCHIVE_REQUIRED" | "BACKUP_REQUIRED" | "DEPENDENCY_PRESENT" | "MIGRATION_REQUIRED"
@@ -166,7 +166,7 @@ interface BackupBinding extends EvidenceBinding {
 }
 
 export interface PluginPurgeAuthorityDependencies {
-  scanReferences(applicationId: string, pluginId: string): Promise<{ readonly revision: string; readonly references: readonly PluginReference[] }>;
+  scanReferences(applicationId: string, pluginId: string): Promise<{ readonly revision: string; readonly references: readonly PlatformPluginReference[] }>;
   scanDependents(applicationId: string, pluginId: string): Promise<{ readonly revision: string; readonly pluginIds: readonly string[] }>;
   evaluateRetention(applicationId: string, pluginId: string): Promise<{ readonly revision: string; readonly satisfied: boolean }>;
   currentMigrationRevision(applicationId: string): Promise<number>;
@@ -389,7 +389,7 @@ export function createPluginPurgeAuthority(dependencies: PluginPurgeAuthorityDep
       ]);
       const diagnostics: PluginDataLifecycleDiagnostic[] = [];
       if (manifest.lifecycle.purge !== "supported") diagnostics.push(issue("PURGE_UNSUPPORTED", "Plugin manifest does not support purge."));
-      const references = scanPluginReferences(manifest.id, referenceState.references);
+      const references = scanPlatformPluginReferences(manifest.id, referenceState.references);
       if (references.length > 0) diagnostics.push(issue("REFERENCE_PRESENT", `${references.length} active plugin reference(s) remain.`));
       const dependents = [...new Set(dependencyState.pluginIds)];
       for (const pluginId of dependents) ResourceIdSchema.parse(pluginId);
@@ -437,7 +437,7 @@ export async function executePluginPurge(plan: PluginPurgePlan, transaction: Pur
     binding.dependencies.scanReferences(plan.applicationId, plan.pluginId), binding.dependencies.scanDependents(plan.applicationId, plan.pluginId),
     binding.dependencies.evaluateRetention(plan.applicationId, plan.pluginId), binding.dependencies.currentMigrationRevision(plan.applicationId)
   ]);
-  if (references.revision !== binding.referenceRevision || scanPluginReferences(plan.pluginId, references.references).length > 0 ||
+  if (references.revision !== binding.referenceRevision || scanPlatformPluginReferences(plan.pluginId, references.references).length > 0 ||
     dependents.revision !== binding.dependencyRevision || dependents.pluginIds.length > 0 || retention.revision !== binding.retentionRevision ||
     !retention.satisfied || revision !== binding.migrationRevision) throw new Error("Plugin purge authority state changed after approval.");
   await transaction.begin();

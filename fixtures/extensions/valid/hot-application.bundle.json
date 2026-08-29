@@ -1,0 +1,17 @@
+{
+  "$schema": "../../../schemas/extension-bundle-manifest.v1.schema.json",
+  "entrypoints": { "server": ["server/assistant.mjs"], "ui": ["ui/assistant.mjs"] },
+  "files": {
+    "server/assistant.mjs": { "bytes": 1024, "contentType": "application/javascript", "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+    "ui/assistant.mjs": { "bytes": 2048, "contentType": "application/javascript", "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" }
+  },
+  "id": "app.sales-assistant",
+  "deliveryClass": "hot-application",
+  "payloadDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "provenance": { "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "reference": "https://github.com/rootkeystudio/k-nex-platform-core/attestations/app-sales-assistant-1" },
+  "resourceBudget": { "maxAssetBytes": 262144, "maxBundleBytes": 1048576, "maxConcurrency": 4, "maxCpuMilliCores": 500, "maxInputBytes": 65536, "maxLogBytes": 65536, "maxMemoryMiB": 128, "maxOutputBytes": 131072, "maxStorageBytes": 1048576, "maxWallTimeMs": 5000 },
+  "runtimeAbi": "1.0.0",
+  "sbom": { "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "path": "sbom.cdx.json" },
+  "schemaVersion": 1,
+  "version": "1.0.0"
+}

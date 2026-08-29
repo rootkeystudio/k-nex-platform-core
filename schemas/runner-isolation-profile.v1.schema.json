@@ -1,0 +1,280 @@
+{
+  "$defs": {
+    "__schema0": {
+      "additionalProperties": false,
+      "properties": {
+        "$schema": {
+          "maxLength": 512,
+          "type": "string"
+        },
+        "filesystem": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "read-only",
+              "type": "string"
+            },
+            "hostMounts": {
+              "const": "none",
+              "type": "string"
+            },
+            "root": {
+              "const": "read-only",
+              "type": "string"
+            },
+            "temporaryStorage": {
+              "const": "bounded-tmpfs",
+              "type": "string"
+            }
+          },
+          "required": [
+            "root",
+            "code",
+            "temporaryStorage",
+            "hostMounts"
+          ],
+          "type": "object"
+        },
+        "isolation": {
+          "const": "os-container-per-generation",
+          "type": "string"
+        },
+        "limits": {
+          "additionalProperties": false,
+          "properties": {
+            "cpuMilliCores": {
+              "maximum": 2000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "memoryMiB": {
+              "maximum": 512,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "openFiles": {
+              "maximum": 4096,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "processes": {
+              "maximum": 256,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "tempBytes": {
+              "maximum": 268435456,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "cpuMilliCores",
+            "memoryMiB",
+            "processes",
+            "openFiles",
+            "tempBytes"
+          ],
+          "type": "object"
+        },
+        "namespaces": {
+          "additionalProperties": false,
+          "properties": {
+            "mount": {
+              "const": "separate",
+              "type": "string"
+            },
+            "network": {
+              "const": "separate",
+              "type": "string"
+            },
+            "pid": {
+              "const": "separate",
+              "type": "string"
+            },
+            "user": {
+              "const": "separate",
+              "type": "string"
+            }
+          },
+          "required": [
+            "pid",
+            "mount",
+            "user",
+            "network"
+          ],
+          "type": "object"
+        },
+        "policy": {
+          "additionalProperties": false,
+          "properties": {
+            "hostNetworkAdapter": {
+              "const": "allowlisted-proxy-only",
+              "type": "string"
+            },
+            "inboundListener": {
+              "const": "denied",
+              "type": "string"
+            },
+            "macProfile": {
+              "$ref": "#/$defs/__schema1"
+            },
+            "rawEgress": {
+              "const": "denied",
+              "type": "string"
+            },
+            "syscallProfile": {
+              "$ref": "#/$defs/__schema1"
+            }
+          },
+          "required": [
+            "syscallProfile",
+            "macProfile",
+            "rawEgress",
+            "inboundListener",
+            "hostNetworkAdapter"
+          ],
+          "type": "object"
+        },
+        "privileges": {
+          "additionalProperties": false,
+          "properties": {
+            "databaseCredential": {
+              "const": "none",
+              "type": "string"
+            },
+            "dockerSocket": {
+              "const": "none",
+              "type": "string"
+            },
+            "hostSecrets": {
+              "const": "none",
+              "type": "string"
+            },
+            "linuxCapabilities": {
+              "const": "dropped",
+              "type": "string"
+            },
+            "noNewPrivileges": {
+              "const": true,
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "linuxCapabilities",
+            "noNewPrivileges",
+            "dockerSocket",
+            "databaseCredential",
+            "hostSecrets"
+          ],
+          "type": "object"
+        },
+        "profile": {
+          "const": "os-container-per-generation-v1",
+          "type": "string"
+        },
+        "rpc": {
+          "additionalProperties": false,
+          "properties": {
+            "schemaValidated": {
+              "const": true,
+              "type": "boolean"
+            },
+            "shortLivedGenerationActorIdentity": {
+              "const": true,
+              "type": "boolean"
+            },
+            "transport": {
+              "const": "structured-host-rpc-only",
+              "type": "string"
+            }
+          },
+          "required": [
+            "transport",
+            "schemaValidated",
+            "shortLivedGenerationActorIdentity"
+          ],
+          "type": "object"
+        },
+        "schemaVersion": {
+          "const": 1,
+          "type": "number"
+        },
+        "scope": {
+          "const": "production",
+          "type": "string"
+        },
+        "workloadIdentity": {
+          "const": "unique-non-root",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "scope",
+        "profile",
+        "isolation",
+        "workloadIdentity",
+        "namespaces",
+        "filesystem",
+        "privileges",
+        "policy",
+        "limits",
+        "rpc"
+      ],
+      "type": "object"
+    },
+    "__schema1": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "__schema2": {
+      "additionalProperties": false,
+      "properties": {
+        "$schema": {
+          "maxLength": 512,
+          "type": "string"
+        },
+        "isolation": {
+          "const": "same-user-child-process",
+          "type": "string"
+        },
+        "productionEvidence": {
+          "const": "forbidden",
+          "type": "string"
+        },
+        "profile": {
+          "const": "local-child-process-v1",
+          "type": "string"
+        },
+        "schemaVersion": {
+          "const": 1,
+          "type": "number"
+        },
+        "scope": {
+          "const": "development-test-only",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "scope",
+        "profile",
+        "isolation",
+        "productionEvidence"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://schemas.k-nex.dev/runner-isolation-profile/v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/__schema0"
+    },
+    {
+      "$ref": "#/$defs/__schema2"
+    }
+  ],
+  "title": "K-Nex Runner Isolation Profile v1"
+}

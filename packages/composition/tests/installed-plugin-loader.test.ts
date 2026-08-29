@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { supportedFrameworkTuple } from "@k-nex/contracts";
 import { describe, expect, it } from "vitest";
 
-import { loadInstalledPluginManifests, PluginManifestLoadError } from "../src/installed-plugin-loader.js";
+import { loadInstalledPlatformPluginManifests, PlatformPluginManifestLoadError } from "../src/installed-plugin-loader.js";
 
 const framework = {
   core: supportedFrameworkTuple.core,
@@ -186,11 +186,11 @@ async function exists(path: string): Promise<boolean> {
 async function expectLoadCode(fixture: ApplicationFixture, code: string, options?: Partial<{ framework: typeof framework }>): Promise<void> {
   let caught: unknown;
   try {
-    await loadInstalledPluginManifests(input(fixture, options));
+    await loadInstalledPlatformPluginManifests(input(fixture, options));
   } catch (error) {
     caught = error;
   }
-  expect(caught).toBeInstanceOf(PluginManifestLoadError);
+  expect(caught).toBeInstanceOf(PlatformPluginManifestLoadError);
   expect((caught as { code: string }).code).toBe(code);
 }
 
@@ -202,7 +202,7 @@ describe("installed plugin manifest loader", () => {
         { name: "@k-nex/plugin-alpha", id: "module.alpha" }
       ],
       async (fixture) => {
-        const records = await loadInstalledPluginManifests(input(fixture));
+        const records = await loadInstalledPlatformPluginManifests(input(fixture));
         expect(records.map(({ manifest }) => manifest.id)).toEqual(["module.alpha", "module.zeta"]);
         expect(records.map(({ package: installed }) => installed)).toEqual([
           { name: "@k-nex/plugin-alpha", version: "1.0.0", integrity },
@@ -302,7 +302,7 @@ describe("installed plugin manifest loader", () => {
 
   it("accepts an exact file tarball locked by integrity", async () => {
     await withApplication([{ name: "@k-nex/plugin-alpha", fileTarball: true }], async (fixture) => {
-      const result = loadInstalledPluginManifests(input(fixture));
+      const result = loadInstalledPlatformPluginManifests(input(fixture));
       expect(result).toHaveLength(1);
       expect(result[0]?.package).toEqual({ name: "@k-nex/plugin-alpha", version: "1.0.0", integrity });
     });
@@ -314,7 +314,7 @@ describe("installed plugin manifest loader", () => {
       fileTarball: true,
       lockResolvedVersion: "file:fixtures/app/packages/plugin-alpha.tgz(@k-nex/contracts@0.0.0)"
     }], async (fixture) => {
-      const result = loadInstalledPluginManifests(input(fixture));
+      const result = loadInstalledPlatformPluginManifests(input(fixture));
       expect(result[0]?.package.integrity).toBe(integrity);
     });
   });

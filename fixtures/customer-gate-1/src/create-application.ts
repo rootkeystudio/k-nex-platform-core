@@ -1,12 +1,12 @@
-import type { ResolvedPluginGraph } from "@k-nex/composition";
+import type { ResolvedPlatformPluginGraph } from "@k-nex/composition";
 import {
-  createPluginLifecycleState,
+  createPlatformPluginLifecycleState,
   executeRegistration,
-  reconcilePluginAvailability,
-  scopePluginRegistration,
+  reconcilePlatformPluginAvailability,
+  scopePlatformPluginRegistration,
   ToolCatalog,
-  type PluginAvailability,
-  type PluginLifecycleState,
+  type PlatformPluginAvailability,
+  type PlatformPluginLifecycleState,
   type RegistrationResult
 } from "@k-nex/runtime";
 import { PluginManifestSchema, type AgentToolDescriptor } from "@k-nex/contracts";
@@ -36,8 +36,8 @@ export interface CreateGate1ApplicationOptions {
 
 export interface Gate1Application extends ComposedPayloadApplication {
   readonly registration: RegistrationResult;
-  readonly salesAvailability: PluginAvailability;
-  readonly salesLifecycle: PluginLifecycleState;
+  readonly salesAvailability: PlatformPluginAvailability;
+  readonly salesLifecycle: PlatformPluginLifecycleState;
 }
 
 const usersCollection: CollectionConfig = {
@@ -54,7 +54,7 @@ export function createGate1Application(options: CreateGate1ApplicationOptions): 
   const providerPlugin = resolvedJson.plugins.find(({ id }) => id === providerManifest.id);
   if (!plugin || !providerPlugin) throw new Error("The Sales module or selected realtime provider is missing from the resolved graph.");
 
-  const graph: ResolvedPluginGraph = {
+  const graph: ResolvedPlatformPluginGraph = {
     resolverVersion: resolvedJson.resolverVersion,
     plugins: resolvedJson.plugins.map((entry) => ({
       id: entry.id,
@@ -80,7 +80,7 @@ export function createGate1Application(options: CreateGate1ApplicationOptions): 
     ]
   });
   const salesEnabled = options.salesEnabled ?? true;
-  const salesLifecycle = createPluginLifecycleState({
+  const salesLifecycle = createPlatformPluginLifecycleState({
     pluginId: manifest.id,
     catalogStatus: "supported",
     package: { status: "installed", name: plugin.package, version: plugin.version, integrity: plugin.integrity },
@@ -90,8 +90,8 @@ export function createGate1Application(options: CreateGate1ApplicationOptions): 
     dataState: salesEnabled ? "active" : "retained",
     releaseStatus: "supported"
   });
-  const salesAvailability = reconcilePluginAvailability(registration, salesLifecycle);
-  const scopedRegistration = scopePluginRegistration(registration, [salesAvailability]);
+  const salesAvailability = reconcilePlatformPluginAvailability(registration, salesLifecycle);
+  const scopedRegistration = scopePlatformPluginRegistration(registration, [salesAvailability]);
   const inventory = createGate1RuntimeInventory(scopedRegistration);
   const tools = scopedRegistration.contributions.tools
     .map(({ value }) => value as AgentToolDescriptor);

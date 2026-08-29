@@ -1,0 +1,10 @@
+{
+  "$schema": "../../../schemas/extension-bundle-manifest.v1.schema.json",
+  "artifactDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "delivery": "external-supervisor",
+  "id": "module.sales",
+  "deliveryClass": "platform-plugin",
+  "releaseManifestDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "schemaVersion": 1,
+  "version": "1.0.0"
+}

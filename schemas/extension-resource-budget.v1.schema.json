@@ -1,0 +1,145 @@
+{
+  "$defs": {
+    "__schema0": {
+      "additionalProperties": false,
+      "properties": {
+        "$schema": {
+          "maxLength": 512,
+          "type": "string"
+        },
+        "deliveryClass": {
+          "const": "hot-application",
+          "type": "string"
+        },
+        "limits": {
+          "additionalProperties": false,
+          "properties": {
+            "maxAssetBytes": {
+              "maximum": 67108864,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxBundleBytes": {
+              "maximum": 268435456,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxConcurrency": {
+              "maximum": 64,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxCpuMilliCores": {
+              "maximum": 2000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxInputBytes": {
+              "maximum": 1048576,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxLogBytes": {
+              "maximum": 1048576,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxMemoryMiB": {
+              "maximum": 512,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxOutputBytes": {
+              "maximum": 4194304,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxStorageBytes": {
+              "maximum": 268435456,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxWallTimeMs": {
+              "maximum": 30000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "maxBundleBytes",
+            "maxAssetBytes",
+            "maxStorageBytes",
+            "maxMemoryMiB",
+            "maxCpuMilliCores",
+            "maxWallTimeMs",
+            "maxInputBytes",
+            "maxOutputBytes",
+            "maxLogBytes",
+            "maxConcurrency"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "deliveryClass",
+        "limits"
+      ],
+      "type": "object"
+    },
+    "__schema1": {
+      "additionalProperties": false,
+      "properties": {
+        "$schema": {
+          "maxLength": 512,
+          "type": "string"
+        },
+        "deliveryClass": {
+          "const": "theme-skin",
+          "type": "string"
+        },
+        "limits": {
+          "additionalProperties": false,
+          "properties": {
+            "maxAssetBytes": {
+              "maximum": 67108864,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxBundleBytes": {
+              "maximum": 268435456,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxCssBytes": {
+              "maximum": 524288,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "maxBundleBytes",
+            "maxAssetBytes",
+            "maxCssBytes"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "deliveryClass",
+        "limits"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://schemas.k-nex.dev/extension-resource-budget/v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/__schema0"
+    },
+    {
+      "$ref": "#/$defs/__schema1"
+    }
+  ],
+  "title": "K-Nex Extension Resource Budget v1"
+}

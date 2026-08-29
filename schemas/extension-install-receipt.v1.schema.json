@@ -1,0 +1,610 @@
+{
+  "$defs": {
+    "__schema0": {
+      "additionalProperties": false,
+      "properties": {
+        "$schema": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "actor": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "artifactDigest": {
+          "$ref": "#/$defs/__schema6"
+        },
+        "availability": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "checks": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "expandCompatibleMigration": {
+                      "const": true,
+                      "type": "boolean"
+                    },
+                    "inventoryMatch": {
+                      "const": true,
+                      "type": "boolean"
+                    },
+                    "oldGenerationHealthy": {
+                      "const": true,
+                      "type": "boolean"
+                    },
+                    "realtimeConvergence": {
+                      "const": true,
+                      "type": "boolean"
+                    },
+                    "rollbackCompatible": {
+                      "const": true,
+                      "type": "boolean"
+                    },
+                    "targetReadiness": {
+                      "const": true,
+                      "type": "boolean"
+                    },
+                    "workerDrain": {
+                      "const": true,
+                      "type": "boolean"
+                    },
+                    "writerReaderOverlap": {
+                      "const": true,
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "oldGenerationHealthy",
+                    "expandCompatibleMigration",
+                    "writerReaderOverlap",
+                    "workerDrain",
+                    "realtimeConvergence",
+                    "targetReadiness",
+                    "inventoryMatch",
+                    "rollbackCompatible"
+                  ],
+                  "type": "object"
+                },
+                "outcome": {
+                  "const": "zero-downtime-eligible",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "outcome",
+                "checks"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "outcome": {
+                  "const": "maintenance-required",
+                  "type": "string"
+                },
+                "reasons": {
+                  "items": {
+                    "$ref": "#/$defs/__schema15"
+                  },
+                  "maxItems": 5,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "outcome",
+                "reasons"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "outcome": {
+                  "const": "unsupported",
+                  "type": "string"
+                },
+                "reasons": {
+                  "items": {
+                    "$ref": "#/$defs/__schema16"
+                  },
+                  "maxItems": 4,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "outcome",
+                "reasons"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "deliveryClass": {
+          "const": "platform-plugin",
+          "type": "string"
+        },
+        "generationId": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "id": {
+          "maxLength": 128,
+          "pattern": "^(module|provider|builder|theme|integration|preset)(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+          "type": "string"
+        },
+        "lifecycleState": {
+          "$ref": "#/$defs/__schema12"
+        },
+        "occurredAt": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "operation": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "operationId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "outcome": {
+          "$ref": "#/$defs/__schema13"
+        },
+        "planId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "previousGenerationId": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "receiptId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "revisionAfter": {
+          "$ref": "#/$defs/__schema9"
+        },
+        "revisionBefore": {
+          "$ref": "#/$defs/__schema9"
+        },
+        "rollback": {
+          "$ref": "#/$defs/__schema14"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "version": {
+          "$ref": "#/$defs/__schema5"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "receiptId",
+        "planId",
+        "operationId",
+        "operation",
+        "version",
+        "artifactDigest",
+        "actor",
+        "occurredAt",
+        "revisionBefore",
+        "revisionAfter",
+        "lifecycleState",
+        "outcome",
+        "rollback",
+        "deliveryClass",
+        "id",
+        "availability"
+      ],
+      "type": "object"
+    },
+    "__schema1": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "__schema10": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "__schema11": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "__schema12": {
+      "enum": [
+        "catalog-available",
+        "planning",
+        "downloading",
+        "verified",
+        "staged",
+        "waiting-configuration",
+        "waiting-approval",
+        "warming",
+        "active",
+        "disabled",
+        "update-available",
+        "rollback-available",
+        "quarantined",
+        "retirement-pending",
+        "removed"
+      ],
+      "type": "string"
+    },
+    "__schema13": {
+      "enum": [
+        "accepted",
+        "rejected",
+        "maintenance-required"
+      ],
+      "type": "string"
+    },
+    "__schema14": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "generationId": {
+              "$ref": "#/$defs/__schema3"
+            },
+            "status": {
+              "const": "available",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "generationId"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "reason": {
+              "maxLength": 240,
+              "minLength": 1,
+              "type": "string"
+            },
+            "status": {
+              "const": "unavailable",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "const": "not-requested",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "__schema15": {
+      "enum": [
+        "destructive-migration",
+        "incompatible-overlap",
+        "readiness-unproven",
+        "inventory-mismatch",
+        "rollback-incompatible"
+      ],
+      "type": "string"
+    },
+    "__schema16": {
+      "enum": [
+        "supervisor-unavailable",
+        "gateway-unavailable",
+        "worker-overlap-unsafe",
+        "realtime-convergence-unavailable"
+      ],
+      "type": "string"
+    },
+    "__schema17": {
+      "additionalProperties": false,
+      "properties": {
+        "$schema": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "actor": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "artifactDigest": {
+          "$ref": "#/$defs/__schema6"
+        },
+        "availability": {
+          "$ref": "#/$defs/__schema18"
+        },
+        "deliveryClass": {
+          "const": "hot-application",
+          "type": "string"
+        },
+        "generationId": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "id": {
+          "maxLength": 128,
+          "pattern": "^app(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+          "type": "string"
+        },
+        "lifecycleState": {
+          "$ref": "#/$defs/__schema12"
+        },
+        "occurredAt": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "operation": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "operationId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "outcome": {
+          "$ref": "#/$defs/__schema13"
+        },
+        "planId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "previousGenerationId": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "receiptId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "revisionAfter": {
+          "$ref": "#/$defs/__schema9"
+        },
+        "revisionBefore": {
+          "$ref": "#/$defs/__schema9"
+        },
+        "rollback": {
+          "$ref": "#/$defs/__schema14"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "version": {
+          "$ref": "#/$defs/__schema5"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "receiptId",
+        "planId",
+        "operationId",
+        "operation",
+        "version",
+        "artifactDigest",
+        "actor",
+        "occurredAt",
+        "revisionBefore",
+        "revisionAfter",
+        "lifecycleState",
+        "outcome",
+        "rollback",
+        "deliveryClass",
+        "id",
+        "availability"
+      ],
+      "type": "object"
+    },
+    "__schema18": {
+      "additionalProperties": false,
+      "properties": {
+        "activation": {
+          "const": "atomic-generation-pointer",
+          "type": "string"
+        },
+        "outcome": {
+          "const": "live-generation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "outcome",
+        "activation"
+      ],
+      "type": "object"
+    },
+    "__schema19": {
+      "additionalProperties": false,
+      "properties": {
+        "$schema": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "actor": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "artifactDigest": {
+          "$ref": "#/$defs/__schema6"
+        },
+        "availability": {
+          "$ref": "#/$defs/__schema18"
+        },
+        "deliveryClass": {
+          "const": "theme-skin",
+          "type": "string"
+        },
+        "generationId": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "id": {
+          "maxLength": 128,
+          "pattern": "^skin(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+          "type": "string"
+        },
+        "lifecycleState": {
+          "$ref": "#/$defs/__schema12"
+        },
+        "occurredAt": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "operation": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "operationId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "outcome": {
+          "$ref": "#/$defs/__schema13"
+        },
+        "planId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "previousGenerationId": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "receiptId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "revisionAfter": {
+          "$ref": "#/$defs/__schema9"
+        },
+        "revisionBefore": {
+          "$ref": "#/$defs/__schema9"
+        },
+        "rollback": {
+          "$ref": "#/$defs/__schema14"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "version": {
+          "$ref": "#/$defs/__schema5"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "receiptId",
+        "planId",
+        "operationId",
+        "operation",
+        "version",
+        "artifactDigest",
+        "actor",
+        "occurredAt",
+        "revisionBefore",
+        "revisionAfter",
+        "lifecycleState",
+        "outcome",
+        "rollback",
+        "deliveryClass",
+        "id",
+        "availability"
+      ],
+      "type": "object"
+    },
+    "__schema2": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema3": {
+      "pattern": "^[a-z][a-z0-9-]{2,127}$",
+      "type": "string"
+    },
+    "__schema4": {
+      "enum": [
+        "install",
+        "update",
+        "disable",
+        "rollback",
+        "uninstall"
+      ],
+      "type": "string"
+    },
+    "__schema5": {
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$",
+      "type": "string"
+    },
+    "__schema6": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "__schema7": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "identity": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "kind": {
+              "const": "trusted-automation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "identity"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "approvalId": {
+              "maxLength": 160,
+              "minLength": 1,
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 160,
+              "minLength": 1,
+              "type": "string"
+            },
+            "kind": {
+              "const": "actor",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "approvalId"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "__schema8": {
+      "allOf": [
+        {
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
+        },
+        {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        }
+      ],
+      "maxLength": 64,
+      "type": "string"
+    },
+    "__schema9": {
+      "maximum": 1000000000,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "$id": "https://schemas.k-nex.dev/extension-install-receipt/v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/__schema0"
+    },
+    {
+      "$ref": "#/$defs/__schema17"
+    },
+    {
+      "$ref": "#/$defs/__schema19"
+    }
+  ],
+  "title": "K-Nex Extension Install Receipt v1"
+}

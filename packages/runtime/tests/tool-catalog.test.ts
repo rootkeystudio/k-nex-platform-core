@@ -1,13 +1,13 @@
 import type { AgentToolDescriptor, DataSourceDefinition, PluginManifest } from "@k-nex/contracts";
 import { DataSourceDescriptorSchema } from "@k-nex/contracts";
-import type { InstalledPluginManifest, ResolvedPluginGraph } from "@k-nex/composition";
+import type { InstalledPlatformPluginManifest, ResolvedPlatformPluginGraph } from "@k-nex/composition";
 import { describe, expect, it } from "vitest";
 
 import {
   executeRegistration,
   type PluginRegistration
 } from "../src/registration-runtime.js";
-import { scopePluginRegistration } from "../src/plugin-lifecycle.js";
+import { scopePlatformPluginRegistration } from "../src/plugin-lifecycle.js";
 import {
   ToolCatalog,
   ToolCatalogError,
@@ -39,12 +39,12 @@ const manifest: PluginManifest = {
   contributions: { permissions: { "sales.tasks.read": "required" }, sources: { "sales.tasks": "required" }, tools: { "sales.tools.search": "required", "sales.tools.private": "required" } }
 };
 
-const installed: readonly InstalledPluginManifest[] = [{
+const installed: readonly InstalledPlatformPluginManifest[] = [{
   package: { name: manifest.package, version: manifest.version, integrity: "sha512-sales" },
   manifest
 }];
 
-const graph: ResolvedPluginGraph = {
+const graph: ResolvedPlatformPluginGraph = {
   resolverVersion: "1.0.0",
   plugins: [{
     id: manifest.id,
@@ -132,7 +132,7 @@ function registration(toolValues: readonly AgentToolDescriptor[] = [tool("sales.
     },
     dataHandlers: (context) => context.bind("sources", source.descriptor.id, () => undefined)
   };
-  return scopePluginRegistration(executeRegistration({ graph, installed, registrations: [plan] }), []);
+  return scopePlatformPluginRegistration(executeRegistration({ graph, installed, registrations: [plan] }), []);
 }
 
 const actor: ToolCatalogRequest["actor"] = {
@@ -220,7 +220,7 @@ describe("P2A.2 tool catalog", () => {
         tools: Array.from({ length: toolCatalogLimits.maxCatalogSize + 1 }, () => resolved.contributions.tools[0]!)
       }
     };
-    expect(() => new ToolCatalog(scopePluginRegistration(oversized, []), { isVisible: () => true })).toThrowError(expect.objectContaining({ code: "CATALOG_LIMIT_EXCEEDED" }));
+    expect(() => new ToolCatalog(scopePlatformPluginRegistration(oversized, []), { isVisible: () => true })).toThrowError(expect.objectContaining({ code: "CATALOG_LIMIT_EXCEEDED" }));
   });
 
   it("rejects malformed, undeclared, duplicate, and unbound tool registrations", () => {
@@ -267,7 +267,7 @@ describe("P2A.2 tool catalog", () => {
       ...tool("sales.tools.search"),
       invocation: { kind: "source", source: { id: otherSource.descriptor.id, version: 1 } }
     };
-    const otherInstalled: InstalledPluginManifest = {
+    const otherInstalled: InstalledPlatformPluginManifest = {
       package: { name: otherManifest.package, version: otherManifest.version, integrity: "sha512-other" },
       manifest: otherManifest
     };
@@ -280,7 +280,7 @@ describe("P2A.2 tool catalog", () => {
       required: [],
       optional: []
     } as const;
-    const crossGraph: ResolvedPluginGraph = {
+    const crossGraph: ResolvedPlatformPluginGraph = {
       ...graph,
       plugins: [otherNode, ...graph.plugins],
       registrationOrder: [otherManifest.id, manifest.id]

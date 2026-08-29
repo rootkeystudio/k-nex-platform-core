@@ -1,6 +1,12 @@
 import type { ErrorObject, ValidateFunction } from "ajv";
 
-export type FixtureSchema = "application" | "plugin";
+export const fixtureSchemas = [
+  "application", "plugin", "hot-application-manifest", "theme-skin-manifest", "extension-bundle-manifest",
+  "extension-capability-request", "extension-resource-budget", "extension-install-plan", "extension-install-receipt",
+  "extension-generation", "migration-compatibility-plan", "remote-ui-isolation-profile", "runner-isolation-profile",
+  "static-composition-change-plan", "trusted-application-build-evidence", "worker-generation-fence", "zero-downtime-eligibility"
+] as const;
+export type FixtureSchema = (typeof fixtureSchemas)[number];
 export type DiagnosticCode =
   | "DUPLICATE_PLUGIN_ID"
   | "IDENTITY_INVALID"
@@ -31,10 +37,7 @@ interface Registry {
   };
 }
 
-interface Validators {
-  application: ValidateFunction;
-  plugin: ValidateFunction;
-}
+type Validators = Partial<Record<FixtureSchema, ValidateFunction>>;
 
 function compare(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
@@ -147,6 +150,7 @@ export function validateFixtures(
     const semantic = semanticDiagnostic(fixture, registry, pluginCapabilities);
     if (semantic !== undefined) return semantic;
     const validate = validators[fixture.schema];
+    if (validate === undefined) throw new TypeError(`Missing AJV validator for fixture schema ${fixture.schema}.`);
     if (!validate(fixture.value)) {
       return diagnostic(fixture.fixturePath, "SCHEMA_INVALID", schemaPath(validate.errors), "Make the fixture conform to the generated closed JSON Schema.", "json-schema");
     }
