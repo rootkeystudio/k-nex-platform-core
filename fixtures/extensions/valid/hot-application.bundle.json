@@ -1,5 +1,6 @@
 {
   "$schema": "../../../schemas/extension-bundle-manifest.v1.schema.json",
+  "applicationManifest": { "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "path": "schemas/hot-application-manifest.json" },
   "capabilities": [{ "kind": "records", "operations": ["query"], "reason": "Read assigned Sales tasks.", "required": true, "resources": [{ "id": "sales.tasks", "version": 1 }] }],
   "entrypoints": { "server": ["server/assistant.mjs"], "ui": ["ui/assistant.mjs"] },
   "files": {
