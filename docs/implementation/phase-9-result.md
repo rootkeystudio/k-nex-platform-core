@@ -57,7 +57,7 @@ Chromium markers: `P9_REMOTE_UI_BROWSER_PASS` and `P9_THEME_SKIN_BROWSER_PASS`.
 
 The customer suite proves actual HTTP continuity across Hot Application update/rollback and digest-pinned Docker Platform Plugin promotion/rollback. It deliberately fails green readiness, crashes PostgreSQL fence transfer, rejects stale worker completion, preserves one logical effect, blocks contract cleanup while rollback is open, resumes bounded backfill, restores active/rollback generations, and refuses offline migration as `maintenance-required` without changing traffic.
 
-`pnpm gate:9` runs Gates 1–8 and all mandatory Gate 9 class-specific tests. `scripts/gate-9.mjs` fails if required schemas, real Docker/PostgreSQL/Chromium anchors, packed-boundary proof, attack mappings, Sales-only scope, or this result matrix are missing.
+At the final implementation head, `pnpm gate:9` passed Gates 1–8 and all mandatory Gate 9 class-specific tests. `scripts/gate-9.mjs` fails if required schemas, real Docker/PostgreSQL/Chromium anchors, packed-boundary proof, attack mappings, Sales-only scope, or this result matrix are missing.
 
 ## Known limits and deferred scope
 

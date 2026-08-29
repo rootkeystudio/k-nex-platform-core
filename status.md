@@ -11,7 +11,7 @@ P9.10 closed Gate 9, updated inherited gate callers for intentional pre-v1 API r
 
 ## Validation
 
-Node 24.19.0: Gate 2A, the 18-artifact packed release closure, and the Gate 9 verifier passed; runtime 257, Payload adapter 32, extension bundler 11, extension runner 4, and UI runtime 53 tests passed. Chromium remote UI and Skin proofs passed. All 22 attack mappings and the ten-test PostgreSQL suite passed, including continuous Hot Application and Docker traffic, restore, multi-process convergence, fencing, rollback, disable, and uninstall.
+Node 24.19.0: complete `pnpm gate:9` passed, including Gates 1–8, 18 immutable release artifacts, runtime 257, Payload adapter 32, extension bundler 11, extension runner 4, Chromium UI proofs, all 22 attack mappings, and 10/10 PostgreSQL journeys.
 
 ## Next
 
