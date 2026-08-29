@@ -66,4 +66,14 @@ describe("extension capability authority", () => {
     await expect(calls.invoke({ token: forged, invocationId: "runner-invocation-2", generationId: "sales-assistant-generation-1", sequence: 1, capability: "records.action", payload: {}, signal: new AbortController().signal }))
       .rejects.toMatchObject({ code: "TOKEN_INVALID" });
   });
+
+  it("issues a fail-closed token for an app that declares no host capabilities", async () => {
+    const value = tokens.issue({
+      tokenId: "capability-token-3", applicationId: "customer-alpha", environment: "production", appId: "app.sales-assistant",
+      generationId: "sales-assistant-generation-1", invocationId: "runner-invocation-3",
+      actor: { principalId: "user:one", effectiveActorId: "user:one" }, correlationId: "runner-correlation-3", grants: [], ttlMs: 30_000
+    });
+    await expect(gateway().invoke({ token: value, invocationId: "runner-invocation-3", generationId: "sales-assistant-generation-1", sequence: 1, capability: "records.query", payload: {}, signal: new AbortController().signal }))
+      .rejects.toMatchObject({ code: "CAPABILITY_DENIED" });
+  });
 });

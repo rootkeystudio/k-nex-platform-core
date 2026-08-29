@@ -95,7 +95,7 @@ function parseClaims(value: unknown): ExtensionCapabilityClaims {
     typeof claims.applicationId !== "string" || !idPattern.test(claims.applicationId) || typeof claims.environment !== "string" || !/^[a-z][a-z0-9-]{1,63}$/u.test(claims.environment) ||
     typeof claims.appId !== "string" || !appIdPattern.test(claims.appId) || typeof claims.generationId !== "string" || !idPattern.test(claims.generationId) ||
     typeof claims.invocationId !== "string" || !idPattern.test(claims.invocationId) || typeof claims.tokenId !== "string" || !idPattern.test(claims.tokenId) ||
-    typeof claims.correlationId !== "string" || !idPattern.test(claims.correlationId) || !Array.isArray(claims.grants) || claims.grants.length < 1 || claims.grants.length > 16 ||
+    typeof claims.correlationId !== "string" || !idPattern.test(claims.correlationId) || !Array.isArray(claims.grants) || claims.grants.length > 16 ||
     typeof claims.actor !== "object" || claims.actor === null || Array.isArray(claims.actor)) fail("TOKEN_INVALID", "Capability token claims are invalid.");
   const grants = claims.grants.map((grant) => {
     const parsed = ExtensionCapabilityRequestSchema.safeParse(grant);
