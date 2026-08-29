@@ -5,6 +5,7 @@ import * as migration_20260826_000004_event_outbox from "./20260826_000004_event
 import * as migration_20260826_000005_outbox_processor from "./20260826_000005_outbox_processor.js";
 import * as migration_20260827_000006_sales_opportunities from "./20260827_000006_sales_opportunities.js";
 import * as migration_20260829_000007_runtime_extensions from "./20260829_000007_runtime_extensions.js";
+import * as migration_20260829_000008_app_storage from "./20260829_000008_app_storage.js";
 
 import type { CustomerPayloadMigration } from "@k-nex/payload-adapter";
 
@@ -43,5 +44,10 @@ export const migrations: CustomerPayloadMigration[] = [
     up: migration_20260829_000007_runtime_extensions.up,
     down: migration_20260829_000007_runtime_extensions.down,
     name: "20260829_000007_runtime_extensions"
+  },
+  {
+    up: migration_20260829_000008_app_storage.up,
+    down: migration_20260829_000008_app_storage.down,
+    name: "20260829_000008_app_storage"
   }
 ];

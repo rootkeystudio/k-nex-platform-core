@@ -1,0 +1,27 @@
+{
+  "name": "@k-nex/extension-runner",
+  "version": "0.0.0",
+  "private": true,
+  "files": ["dist"],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "test:docker": "vitest run tests/docker-sandbox.test.ts"
+  },
+  "dependencies": {
+    "@k-nex/runtime": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "typescript": "6.0.3",
+    "vitest": "4.1.6"
+  }
+}
