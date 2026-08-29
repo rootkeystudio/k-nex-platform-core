@@ -484,6 +484,7 @@ export class PostgresStaticDeploymentStore {
     this.assertEffectInput(input);
     if (!digestPattern.test(input.resultDigest) || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(input.claimToken)) fail("INPUT_INVALID", "Worker effect completion claim is invalid.");
     return this.transaction(async (session) => {
+      await this.lock(session, input);
       const current = await session.query<EffectRow>(
         `select * from runtime_worker_effects where application_id=$1 and environment=$2 and effect_id=$3 for update`,
         [input.applicationId, input.environment, input.effectId]
@@ -494,11 +495,14 @@ export class PostgresStaticDeploymentStore {
         if (row.result_digest !== input.resultDigest) fail("EFFECT_CONFLICT", "Completed worker effect cannot be rebound to a different result.");
         return Object.freeze({ status: "already-completed" });
       }
+      const fence = await this.readFenceLocked(session, input);
+      if (!fence || fence.active_execution_generation !== input.generationId || Number(fence.fencing_token) !== input.fencingToken ||
+        new Date(fence.lease_expires_at).valueOf() <= this.clock.now().valueOf()) fail("FENCE_REJECTED", "Worker generation is passive, stale, or lease-expired.");
       if (row.generation_id !== input.generationId || Number(row.fencing_token) !== input.fencingToken) fail("FENCE_REJECTED", "Worker effect claim belongs to a different execution fence.");
-      if (row.claim_token !== input.claimToken || !row.claim_expires_at) fail("EFFECT_CONFLICT", "Worker effect claim is not owned by this worker.");
+      if (row.claim_token !== input.claimToken || !row.claim_expires_at || new Date(row.claim_expires_at).valueOf() <= this.clock.now().valueOf()) fail("EFFECT_CONFLICT", "Worker effect claim is not owned by this worker or has expired.");
       const updated = await session.query(
         `update runtime_worker_effects set state='completed', result_digest=$4, claim_owner=null, claim_token=null, claim_expires_at=null, updated_at=now()
-         where application_id=$1 and environment=$2 and effect_id=$3 and state='pending' and claim_token=$5 returning effect_id`,
+         where application_id=$1 and environment=$2 and effect_id=$3 and state='pending' and claim_token=$5 and claim_expires_at > now() returning effect_id`,
         [input.applicationId, input.environment, input.effectId, input.resultDigest, input.claimToken]
       );
       if (!updated.rows[0]) fail("EFFECT_CONFLICT", "Worker effect completion raced another owner.");

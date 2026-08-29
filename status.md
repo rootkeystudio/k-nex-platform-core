@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Reopened P9.10 after the fresh Sol-high review found nine final-head correctness and evidence blockers.
+Fixed the review blocker that allowed a stale or expired worker claim to complete after the active execution fence transferred.
 
 ## Validation
 
-The earlier Node 24.19.0 Gate 9 pass is superseded for closeout purposes by the independent review. Its review-side Gate 9 run timed out in the static PostgreSQL journey after 13 customer tests passed and one was cancelled.
+Node 24.19.0: the focused payload-adapter worker-fence suite passed 3 tests covering immediate post-transfer rejection, expired-claim rejection, and exact completed-effect replay.
 
 ## Next
 
@@ -19,4 +19,4 @@ Fix each review blocker with focused regression evidence, rerun the complete Gat
 
 ## Blockers
 
-Static lifecycle reconciliation and worker fencing; signed Hot Application manifest authority; durable quarantine and teardown; rollback authority; real process boundaries; continuous transition probes; consistent app-storage backup; deterministic Gate 9 and aligned ADR/result evidence.
+Static lifecycle reconciliation; signed Hot Application manifest authority; durable quarantine and teardown; rollback authority; real process boundaries; continuous transition probes; consistent app-storage backup; deterministic Gate 9 and aligned ADR/result evidence.
