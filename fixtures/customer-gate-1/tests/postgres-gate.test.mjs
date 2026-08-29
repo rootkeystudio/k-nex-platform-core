@@ -94,11 +94,16 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
         (select count(*)::int from payload_migrations where name = '20260829_000009_extension_activation') as extension_activation_migration_count,
         (select count(*)::int from payload_migrations where name = '20260829_000010_theme_skin_profiles') as theme_skin_profiles_migration_count,
         (select count(*)::int from payload_migrations where name = '20260829_000011_static_deployment') as static_deployment_migration_count,
+        (select count(*)::int from payload_migrations where name = '20260829_000012_verified_artifacts') as verified_artifacts_migration_count,
+        (select count(*)::int from payload_migrations where name = '20260829_000013_catalog_checkpoints') as catalog_checkpoints_migration_count,
         to_regclass('public.runtime_extensions')::text as runtime_extensions,
         to_regclass('public.runtime_extension_storage_records')::text as app_storage_records,
         to_regclass('public.runtime_theme_profile_publications')::text as theme_profile_publications,
         to_regclass('public.runtime_static_deployments')::text as static_deployments,
         to_regclass('public.runtime_worker_generation_fences')::text as worker_generation_fences,
+        to_regclass('public.runtime_extension_artifacts')::text as extension_artifacts,
+        to_regclass('public.runtime_extension_artifact_bindings')::text as extension_artifact_bindings,
+        to_regclass('public.runtime_catalog_checkpoints')::text as catalog_checkpoints,
         (select predecessor_revision from k_nex_migration_revision where id = 1) as predecessor_revision,
         (select revision from k_nex_migration_revision where id = 1) as revision
     `);
@@ -119,13 +124,18 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
       extension_activation_migration_count: 1,
       theme_skin_profiles_migration_count: 1,
       static_deployment_migration_count: 1,
+      verified_artifacts_migration_count: 1,
+      catalog_checkpoints_migration_count: 1,
       runtime_extensions: "runtime_extensions",
       app_storage_records: "runtime_extension_storage_records",
       theme_profile_publications: "runtime_theme_profile_publications",
       static_deployments: "runtime_static_deployments",
       worker_generation_fences: "runtime_worker_generation_fences",
-      predecessor_revision: 10,
-      revision: 11
+      extension_artifacts: "runtime_extension_artifacts",
+      extension_artifact_bindings: "runtime_extension_artifact_bindings",
+      catalog_checkpoints: "runtime_catalog_checkpoints",
+      predecessor_revision: 12,
+      revision: 13
     }]);
 
     const outboxSchema = await runFixtureProcess("tests/outbox-schema.mjs", connectionString);
@@ -151,7 +161,7 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
     assert.equal(currentBoot.code, 0, `${currentBoot.stdout}\n${currentBoot.stderr}`);
     assert.match(currentBoot.stdout, /^READY$/m);
     const current = await query(connectionString, "select count(*)::int as count from payload_migrations");
-    assert.equal(current.rows[0].count, 11);
+    assert.equal(current.rows[0].count, 13);
 
     const authenticated = await runFixtureProcess("tests/authenticated-runtime.mjs", connectionString, {
       BOOT_KEY: "gate1-authenticated-runtime"

@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Replaced Gate 9 semantic bookkeeping with exact named proof selection and machine-readable runtime outcomes. Every required attack now binds to the specific passing test that executes it; SCN-12/13 and SCN-11/16 require PostgreSQL markers, while SCN-17–21 require static runtime markers and all nine crash-matrix keys.
+Updated the customer-owned migration acceptance proof for the complete revision-13 chain. It now verifies migrations 12/13, durable artifact/binding/checkpoint tables, the 12→13 revision edge, and idempotent current-boot migration count instead of retaining revision-11 expectations.
 
 ## Validation
 
-`node scripts/phase-9-attack-corpus.mjs`: PASS, 22 exact scenarios, 12 proof groups, and 9 recovered process/state matrix entries on Node 24.19.0.
+Focused `tests/postgres-gate.test.mjs`: 1 passed on Node 24.19.0. The first full customer-suite run passed 11/12 tests and exposed only these stale revision expectations.
 
 ## Next
 
