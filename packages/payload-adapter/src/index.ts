@@ -13,6 +13,7 @@ export * from "./runtime-extension-store.js";
 export * from "./runtime-extension-outbox.js";
 export * from "./theme-profile-store.js";
 export * from "./static-deployment-store.js";
+export * from "./static-release-authority.js";
 export * from "./app-storage.js";
 export * from "./verified-artifact-store.js";
 export * from "./catalog-checkpoint-store.js";

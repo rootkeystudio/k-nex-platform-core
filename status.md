@@ -7,16 +7,16 @@
 
 ## Last completed
 
-Closed accepted-artifact and revocation reconciliation blocker. Immutable accepted bytes remain usable after catalog expiry/checkpoint advance but are reverified on every read; fresh signed security policy atomically quarantines the exact active generation with fenced, idempotent PostgreSQL receipt, audit, inventory, and shared-outbox evidence.
+Added durable PostgreSQL source checkpoints and release-request transitions, a concrete static supervisor operator, separately credentialed source/builder/deployer/supervisor/worker/gateway/realtime processes, restart recovery, exact receipt rebinding, and advisory-lock worker-effect fencing without fence-write authority.
 
 ## Validation
 
-Node 24.19.0: contracts, bundler, runtime, payload, and customer builds; contracts 155/155, bundler 19/19, runtime 280/280, payload 32/32; real PostgreSQL accepted-expiry, checkpoint, tamper, revocation, replay/race, outbox, runtime-state, and migration-chain journeys passed; `git diff --check` passed.
+Node 24.19.0: runtime 283/283 and payload 32/32 passed; real static PostgreSQL/Docker journey passed with SCN-17/18/20/21 and all 9 crash-matrix entries; full customer PostgreSQL run passed 13/14 before exposing one stale migration-count assertion, whose focused rerun passed after correction; `git diff --check` passed.
 
 ## Next
 
-Fix the remaining 2 review blockers in isolated commits, run targeted acceptance commands, then rerun the complete Gate 9 and a new Sol-high review.
+Reconcile retained-generation rollback receipts with durable operation authority, then replace the test-only Hot Application execution path with production Docker isolation and real traffic/lease evidence.
 
 ## Blockers
 
-Concrete static deployment adapters/process recovery; production Hot Application path.
+Durable static rollback replay/reconciliation; production Hot Application path.

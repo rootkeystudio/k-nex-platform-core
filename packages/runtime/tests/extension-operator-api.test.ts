@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import type { RuntimeExtensionInventory } from "@k-nex/contracts";
 import { describe, expect, it, vi } from "vitest";
 
-import { ExtensionOperatorApi, type ExtensionOperationStatus } from "../src/index.js";
+import { DurableStaticReleaseOperator, ExtensionOperatorApi, StaticReleaseOperatorError, type ExtensionOperationStatus } from "../src/index.js";
 
 const load = (path: string) => JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8"));
 const inventory = load("../../../fixtures/extensions/valid/runtime-extension-inventory.json") as RuntimeExtensionInventory;
@@ -92,5 +92,78 @@ describe("ExtensionOperatorApi", () => {
       health: [{ state: "healthy" }]
     });
     await expect(value.api.status("../../customer", "production")).rejects.toThrow("owner is invalid");
+  });
+});
+
+describe("DurableStaticReleaseOperator", () => {
+  const sourceCommit = "b".repeat(40);
+  const planDigest = `sha256:${"c".repeat(64)}`;
+  const buildDigest = `sha256:${"d".repeat(64)}`;
+  const applicationDigest = `sha256:${"e".repeat(64)}`;
+  const imageDigest = `sha256:${"f".repeat(64)}`;
+  const receipt = {
+    schemaVersion: 1, receiptId: "static-promotion-1", operation: "promote", applicationId: "customer-alpha", environment: "production",
+    activeGenerationId: "customer-alpha-green-1", previousGenerationId: "customer-alpha-blue-1", sourceCommit,
+    compositionChangePlanDigest: planDigest, buildEvidenceDigest: buildDigest, applicationDigest, imageDigest,
+    migrationRevision: 2, workerFencingToken: 2, promotionRevision: 1, revisionBefore: 0, revisionAfter: 1,
+    rollbackWindow: { state: "open", windowId: "window-1", closesAt: "2026-08-30T00:00:00.000Z" }, contractCleanup: "blocked", occurredAt: "2026-08-29T00:00:00.000Z"
+  } as const;
+  const operation = {
+    ...staticOperation,
+    plan: {
+      executionClass: "static-release", operationId: "operation-static-1", generationId: "customer-alpha-green-1",
+      plan: { version: "1.1.0" },
+      sourceChange: { planDigest, targetSourceCommit: sourceCommit },
+      deployment: { buildRequestDigest: `sha256:${"a".repeat(64)}`, sourceCommit }
+    }
+  } as unknown as ExtensionOperationStatus;
+  const request = (status: "builder-attested" | "deployment-requested" | "deployed") => ({
+    buildRequestDigest: operation.plan!.executionClass === "static-release" ? operation.plan.deployment.buildRequestDigest : "",
+    applicationId: "customer-alpha", environment: "production", version: "1.1.0", sourceCommit, changePlanDigest: planDigest, status,
+    buildEvidenceDigest: buildDigest, applicationDigest, imageDigest,
+    ...(status === "deployed" ? { generationId: "customer-alpha-green-1", migrationRevision: 2, workerFencingToken: 2, receipt } : {})
+  });
+
+  it("routes an attested durable release through the supervisor and persists the exact receipt", async () => {
+    const token = {};
+    const requests = {
+      readRequest: vi.fn(async () => request("builder-attested")),
+      requestDeployment: vi.fn(async () => request("deployment-requested")),
+      recordDeployment: vi.fn(async () => request("deployed"))
+    };
+    const builds = { verifiedBuild: vi.fn(async () => token) };
+    const reader = { read: vi.fn(() => ({ change: { planDigest, targetSourceCommit: sourceCommit }, evidenceDigest: buildDigest, evidence: { applicationSubject: { digest: applicationDigest }, imageSubject: { digest: imageDigest } } })) };
+    const supervisor = { deploy: vi.fn(async () => ({ outcome: "promoted", receipt })), rollback: vi.fn() };
+    const leases = { acquire: vi.fn(async () => ({ workerOwner: "supervisor:phase-9", workerLeaseExpiresAt: "2026-08-29T00:01:00.000Z" })) };
+    const value = new DurableStaticReleaseOperator(requests, builds, reader, supervisor as never, leases);
+
+    await expect(value.validate(operation)).resolves.toMatchObject({ valid: true, checks: expect.arrayContaining(["trusted-build", "exact-version"]) });
+    await expect(value.execute(operation)).resolves.toEqual({ outcome: "promoted", receipt });
+    expect(supervisor.deploy).toHaveBeenCalledWith({ build: token, generationId: "customer-alpha-green-1", workerOwner: "supervisor:phase-9", workerLeaseExpiresAt: "2026-08-29T00:01:00.000Z" });
+    expect(requests.recordDeployment).toHaveBeenCalledWith(expect.objectContaining({ expectedVersion: "1.1.0", receipt }));
+  });
+
+  it("rejects a durable request that changes the persisted version or source authority", async () => {
+    const requests = { readRequest: vi.fn(async () => ({ ...request("builder-attested"), version: "1.0.0" })), requestDeployment: vi.fn(), recordDeployment: vi.fn() };
+    const value = new DurableStaticReleaseOperator(requests, { verifiedBuild: vi.fn() }, { read: vi.fn() }, {} as never, { acquire: vi.fn() });
+    await expect(value.validate(operation)).rejects.toMatchObject({ code: "AUTHORITY_MISMATCH" } satisfies Partial<StaticReleaseOperatorError>);
+  });
+
+  it("routes a rollback through the durable transition and persists its rollback receipt", async () => {
+    const rollbackReceipt = { ...receipt, receiptId: "static-rollback-2", operation: "rollback", revisionBefore: 1, revisionAfter: 2, workerFencingToken: 3, promotionRevision: 2 } as const;
+    const rollbackOperation = { ...operation, request: { ...operation.request, operation: "rollback" } } as ExtensionOperationStatus;
+    const token = {};
+    const requests = {
+      readRequest: vi.fn(async () => request("builder-attested")),
+      requestDeployment: vi.fn(async () => request("deployment-requested")),
+      recordDeployment: vi.fn(async () => ({ ...request("deployed"), workerFencingToken: 3, receipt: rollbackReceipt }))
+    };
+    const reader = { read: vi.fn(() => ({ change: { planDigest, targetSourceCommit: sourceCommit }, evidenceDigest: buildDigest, evidence: { applicationSubject: { digest: applicationDigest }, imageSubject: { digest: imageDigest } } })) };
+    const supervisor = { deploy: vi.fn(), rollback: vi.fn(async () => rollbackReceipt) };
+    const value = new DurableStaticReleaseOperator(requests, { verifiedBuild: vi.fn(async () => token) }, reader, supervisor as never, { acquire: vi.fn(async () => ({ workerOwner: "supervisor:phase-9", workerLeaseExpiresAt: "2026-08-29T00:01:00.000Z" })) });
+
+    await expect(value.rollback(rollbackOperation)).resolves.toEqual(rollbackReceipt);
+    expect(supervisor.rollback).toHaveBeenCalledWith({ applicationId: "customer-alpha", environment: "production", workerOwner: "supervisor:phase-9", workerLeaseExpiresAt: "2026-08-29T00:01:00.000Z" });
+    expect(requests.recordDeployment).toHaveBeenCalledWith(expect.objectContaining({ expectedVersion: "1.1.0", receipt: rollbackReceipt }));
   });
 });

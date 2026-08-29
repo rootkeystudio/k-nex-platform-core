@@ -13,7 +13,7 @@ import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import pg from "pg";
 
 import { canonicalJson } from "@k-nex/contracts";
-import { PostgresStaticDeploymentStore } from "@k-nex/payload-adapter";
+import { PostgresStaticCompositionCheckpointStore, PostgresStaticDeploymentStore, PostgresTrustedBuildDeploymentClient } from "@k-nex/payload-adapter";
 import {
   DeploymentSupervisor,
   DeterministicStaticCompositionChangeAuthority,
@@ -408,11 +408,33 @@ class PostgresCompatibilityMigrations {
 }
 
 async function provisionStaticBinarySchema(pool) {
-  await pool.query("create table p9_static_overlap (id integer primary key, legacy_value text not null); insert into p9_static_overlap values (1,'one'),(2,'two'),(3,'three'); create table p9_static_migration_authority (authority_id text primary key, revision integer not null, last_step_id text not null); insert into p9_static_migration_authority values ('customer-alpha',11,'base-11'); create table p9_static_binary_observations (id bigserial primary key, generation_id text not null, binary_revision integer not null, database_role text not null, observed_step text not null, observed_at timestamptz not null default now()); create table p9_static_process_authority (authority_id text primary key, source_commit text not null, image_digest text not null); create table p9_static_process_routes (generation_id text primary key, url text not null); create table p9_static_process_events (id bigserial primary key, role text not null, instance_id text not null, event text not null, generation_id text, deployment_revision integer, fencing_token bigint, detail jsonb not null, observed_at timestamptz not null default now()); create table p9_static_external_effects (idempotency_key text primary key, result_digest text not null, delivered_at timestamptz not null default now())");
-  for (const [role, password] of [["p9_static_blue", "p9-static-blue-password"], ["p9_static_green", "p9-static-green-password"], ["p9_static_process", "p9-static-process-password"]]) {
+  await pool.query("create table p9_static_overlap (id integer primary key, legacy_value text not null); insert into p9_static_overlap values (1,'one'),(2,'two'),(3,'three'); create table p9_static_migration_authority (authority_id text primary key, revision integer not null, last_step_id text not null); insert into p9_static_migration_authority values ('customer-alpha',11,'base-11'); create table p9_static_binary_observations (id bigserial primary key, generation_id text not null, binary_revision integer not null, database_role text not null, observed_step text not null, observed_at timestamptz not null default now()); create table p9_static_process_routes (generation_id text primary key, url text not null); create table p9_static_process_events (id bigserial primary key, role text not null, instance_id text not null, event text not null, generation_id text, deployment_revision integer, fencing_token bigint, detail jsonb not null, observed_at timestamptz not null default now()); create table p9_static_external_effects (idempotency_key text primary key, result_digest text not null, delivered_at timestamptz not null default now())");
+  for (const [role, password] of [
+    ["p9_static_blue", "p9-static-blue-password"], ["p9_static_green", "p9-static-green-password"],
+    ["p9_static_source", "p9-static-source-password"], ["p9_static_builder", "p9-static-builder-password"],
+    ["p9_static_deployer", "p9-static-deployer-password"], ["p9_static_supervisor", "p9-static-supervisor-password"],
+    ["p9_static_worker", "p9-static-worker-password"], ["p9_static_gateway", "p9-static-gateway-password"],
+    ["p9_static_realtime", "p9-static-realtime-password"]
+  ]) {
     await pool.query(`create role ${role} login password '${password}' nosuperuser nocreatedb nocreaterole noinherit noreplication nobypassrls`);
   }
-  await pool.query("revoke create on schema public from public; grant usage on schema public to p9_static_blue, p9_static_green, p9_static_process; grant select, insert, update on p9_static_overlap, p9_static_migration_authority, p9_static_binary_observations to p9_static_blue, p9_static_green; grant usage, select on all sequences in schema public to p9_static_blue, p9_static_green; grant select on runtime_static_deployments, runtime_worker_generation_fences, runtime_static_deployment_outbox, runtime_worker_effects, p9_static_process_authority, p9_static_process_routes to p9_static_process; grant update on runtime_worker_generation_fences to p9_static_process; grant insert, update on runtime_worker_effects to p9_static_process; grant insert on p9_static_process_events to p9_static_process; grant usage, select on sequence p9_static_process_events_id_seq to p9_static_process");
+  await pool.query(`
+    revoke create on schema public from public;
+    grant usage on schema public to p9_static_blue, p9_static_green, p9_static_source, p9_static_builder, p9_static_deployer, p9_static_supervisor, p9_static_worker, p9_static_gateway, p9_static_realtime;
+    grant select, insert, update on p9_static_overlap, p9_static_migration_authority, p9_static_binary_observations to p9_static_blue, p9_static_green;
+    grant usage, select on all sequences in schema public to p9_static_blue, p9_static_green;
+    grant select on runtime_static_deployments, runtime_worker_generation_fences to p9_static_source, p9_static_builder, p9_static_deployer, p9_static_supervisor, p9_static_worker, p9_static_gateway, p9_static_realtime;
+    grant insert on p9_static_process_events to p9_static_source, p9_static_builder, p9_static_deployer, p9_static_supervisor, p9_static_worker, p9_static_gateway, p9_static_realtime;
+    grant usage, select on sequence p9_static_process_events_id_seq to p9_static_source, p9_static_builder, p9_static_deployer, p9_static_supervisor, p9_static_worker, p9_static_gateway, p9_static_realtime;
+    grant select on runtime_static_composition_checkpoints to p9_static_source;
+    grant select on runtime_static_release_requests to p9_static_builder, p9_static_deployer, p9_static_supervisor;
+    grant update (status, build_evidence_digest, application_digest, image_digest, updated_at) on runtime_static_release_requests to p9_static_builder;
+    grant update (status, updated_at) on runtime_static_release_requests to p9_static_deployer;
+    grant update (status, generation_id, migration_revision, worker_fencing_token, receipt_id, receipt_json, updated_at) on runtime_static_release_requests to p9_static_supervisor;
+    grant select on runtime_static_deployment_outbox to p9_static_supervisor;
+    grant select, insert, update on runtime_worker_effects to p9_static_worker;
+    grant select on p9_static_process_routes to p9_static_gateway, p9_static_realtime;
+  `);
 }
 
 function changePlan(baseCommit, targetCommit, base, target, now) {
@@ -436,12 +458,15 @@ function changePlan(baseCommit, targetCommit, base, target, now) {
   };
 }
 
-async function authorityChange(sourceDirectory, baseCommit, targetCommit, plan) {
-  const checkpoints = new Map();
+async function authorityChange(pool, sourceDirectory, baseCommit, targetCommit, plan) {
+  const checkpoints = new PostgresStaticCompositionCheckpointStore(pool);
   const authority = new DeterministicStaticCompositionChangeAuthority(
     plan.authority.identity,
     {
-      current: async () => ({ sourceCommit: await sourceCommit(sourceDirectory), composition: plan.base.composition }),
+      current: async () => {
+        const current = await sourceCommit(sourceDirectory);
+        return { sourceCommit: current, composition: current === targetCommit ? plan.target.composition : plan.base.composition };
+      },
       commit: async (expected, change) => {
         assert.equal(expected, baseCommit);
         assert.equal(change.target.sourceCommit, targetCommit);
@@ -451,17 +476,53 @@ async function authorityChange(sourceDirectory, baseCommit, targetCommit, plan) 
     },
     { resolve: async () => plan },
     {
-      read: async (id) => checkpoints.get(id),
-      save: async (checkpoint) => { checkpoints.set(checkpoint.checkpointId, checkpoint); return checkpoint; },
-      commit: async (id) => { const checkpoint = checkpoints.get(id); assert.ok(checkpoint); const committed = { ...checkpoint, status: "committed" }; checkpoints.set(id, committed); return committed; }
+      read: (id) => checkpoints.read(id),
+      save: (checkpoint) => checkpoints.save(checkpoint),
+      commit: async (id) => {
+        // The source commit is durable before the checkpoint transition. A process
+        // crash here must restart from PostgreSQL without issuing a second commit.
+        if (!authorityChange.crashed) { authorityChange.crashed = true; throw new Error("simulated source service crash after git commit"); }
+        return checkpoints.commit(id);
+      }
     }
   );
   const request = {
     applicationId: plan.applicationId, environment: plan.environment, expectedSourceCommit: baseCommit, generationId: "customer-alpha-green-12",
     plan: { schemaVersion: 1, planId: "sales-static-plan-12", operationId: "sales-static-operation-12", operation: "update", version: plan.plugin.version, artifactDigest: plan.plugin.releaseManifestDigest, expectedRevision: 0, currentGenerationId: "customer-alpha-blue-11", targetGenerationId: "customer-alpha-green-12", approvalRequired: true, rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "platform-plugin", id: "module.sales", availability: { outcome: "zero-downtime-eligible", checks: ["source-build-evidence", "migration-overlap", "worker-fence", "gateway-capacity", "rollback-window"] } }
   };
-  return authority.request(request, { actor: { kind: "trusted-automation", identity: "github-actions:phase-9" }, decisionId: plan.authority.requestDigest });
+  const authorization = { actor: { kind: "trusted-automation", identity: "github-actions:phase-9" }, decisionId: plan.authority.requestDigest };
+  await assert.rejects(authority.request(request, authorization), /source service crash/);
+  const recovered = new DeterministicStaticCompositionChangeAuthority(
+    plan.authority.identity,
+    {
+      current: async () => {
+        const current = await sourceCommit(sourceDirectory);
+        return { sourceCommit: current, composition: current === targetCommit ? plan.target.composition : plan.base.composition };
+      },
+      commit: async () => assert.fail("recovery must not duplicate the committed customer source change")
+    },
+    { resolve: async () => assert.fail("recovery must reuse the durable deterministic plan") },
+    checkpoints
+  );
+  const result = await recovered.request(request, authorization);
+  const checkpointId = digestJson({ authority: plan.authority.identity, authorization, request });
+  const committed = await checkpoints.read(checkpointId);
+  assert.ok(committed);
+  assert.deepEqual(await checkpoints.save(committed), committed, "replaying an identical committed checkpoint must be idempotent");
+  await assert.rejects(
+    checkpoints.save({ ...committed, change: { ...committed.change, target: { ...committed.change.target, sourceCommit: "c".repeat(40) } } }),
+    { code: "CHECKPOINT_CONFLICT" },
+    "a committed checkpoint must reject a different authority payload"
+  );
+  await assert.rejects(
+    recovered.request({ ...request, generationId: "customer-alpha-green-13" }, authorization),
+    { code: "SOURCE_CONFLICT" },
+    "a concurrent static operation on the old expected base must fail rather than overwrite the committed customer source"
+  );
+  return result;
 }
+
+authorityChange.crashed = false;
 
 async function verifiedBuild(change, target) {
   const keys = generateKeyPairSync("ed25519");
@@ -516,9 +577,12 @@ test("proves distinct customer binaries and deployment processes recover from Po
     await docker(["network", "connect", "--alias", "p9-postgres", network, postgres.getId()]);
     await gateway.start();
     const plan = changePlan(baseCommit, targetCommit, blueBuild, greenBuild, now);
-    const change = await authorityChange(sourceDirectory, baseCommit, targetCommit, plan);
+    const change = await authorityChange(pool, sourceDirectory, baseCommit, targetCommit, plan);
     assert.equal(await sourceCommit(sourceDirectory), targetCommit);
     const build = await verifiedBuild(change, greenBuild);
+    const deploymentClient = new PostgresTrustedBuildDeploymentClient(pool);
+    const deploymentRequest = await deploymentClient.request(change, { actor: { kind: "trusted-automation", identity: "github-actions:phase-9" }, decisionId: plan.authority.requestDigest });
+    assert.equal((await deploymentClient.request(change, { actor: { kind: "trusted-automation", identity: "github-actions:phase-9" }, decisionId: plan.authority.requestDigest })).buildRequestDigest, deploymentRequest.buildRequestDigest, "web retries must reuse one durable build/deployment request");
     const artifacts = new LocalArtifactProvider(new Map([[blueBuild.imageDigest, blueBuild], [greenBuild.imageDigest, greenBuild]]));
     generations = new DockerGenerationHost(network, gateway, artifacts, () => now, pool);
     generations.registerDatabaseAuthority("customer-alpha-blue-11", { role: "p9_static_blue", schemaRevision: 11, url: "postgresql://p9_static_blue:p9-static-blue-password@p9-postgres:5432/static_deployment" });
@@ -532,51 +596,80 @@ test("proves distinct customer binaries and deployment processes recover from Po
     const owner = { applicationId: "customer-alpha", environment: "production" };
     const leaseExpiresAt = new Date(now.valueOf() + 240_000).toISOString();
     await store.initialize({ ...owner, generation: blue, workerOwner: "worker:phase-9-blue", workerFencingToken: 1, workerLeaseExpiresAt: leaseExpiresAt });
-    await pool.query("insert into p9_static_process_authority values ('customer-alpha',$1,$2)", [targetCommit, greenBuild.imageDigest]);
     await generations.start({ ...owner, generationId: blue.generationId, imageReference: blueBuild.imageReference, workerMode: "passive" });
     await generations.readiness({ ...owner, generationId: blue.generationId, sourceCommit: baseCommit, applicationDigest: blueBuild.applicationDigest, imageDigest: blueBuild.imageDigest, migrationRevision: 11, completedMigrationSteps: [] });
     await gateway.converge({ ...owner, generationId: blue.generationId, revision: 0 });
-    const processDatabase = new URL(postgres.getConnectionUri());
-    processDatabase.username = "p9_static_process";
-    processDatabase.password = "p9-static-process-password";
-    const processBase = { DATABASE_URL: processDatabase.toString() };
-    let builderProcess = startTopologyProcess("builder", { ...processBase, P9_PROCESS_INSTANCE: "builder-1", P9_IMAGE_DIGEST: greenBuild.imageDigest, P9_SOURCE_COMMIT: targetCommit, P9_STAY_ALIVE: "1" });
+    const processBase = {
+      P9_BUILD_REQUEST_DIGEST: deploymentRequest.buildRequestDigest,
+      P9_BUILD_EVIDENCE_DIGEST: build.authority.read(build.token).evidenceDigest, P9_APPLICATION_DIGEST: greenBuild.applicationDigest,
+      P9_SOURCE_DIRECTORY: sourceDirectory, P9_SOURCE_COMMIT: targetCommit
+    };
+    const processCredentials = {
+      "source-authority": ["p9_static_source", "p9-static-source-password"], builder: ["p9_static_builder", "p9-static-builder-password"],
+      deployer: ["p9_static_deployer", "p9-static-deployer-password"], supervisor: ["p9_static_supervisor", "p9-static-supervisor-password"],
+      worker: ["p9_static_worker", "p9-static-worker-password"], gateway: ["p9_static_gateway", "p9-static-gateway-password"],
+      "realtime-client": ["p9_static_realtime", "p9-static-realtime-password"]
+    };
+    const processEnv = (role, extra) => {
+      const database = new URL(postgres.getConnectionUri());
+      [database.username, database.password] = processCredentials[role];
+      return { ...processBase, DATABASE_URL: database.toString(), ...extra };
+    };
+    const assertRoleDenied = async (role, statement) => {
+      const rolePool = new pg.Pool({ connectionString: processEnv(role, {}).DATABASE_URL });
+      try { await assert.rejects(rolePool.query(statement), /permission denied/u); }
+      finally { await rolePool.end(); }
+    };
+    await Promise.all([
+      assertRoleDenied("builder", "update runtime_static_release_requests set generation_id='forged'"),
+      assertRoleDenied("worker", "select * from runtime_static_release_requests"),
+      assertRoleDenied("gateway", "update runtime_worker_generation_fences set fencing_token=fencing_token+1"),
+      assertRoleDenied("source-authority", "update runtime_static_composition_checkpoints set status='committed'")
+    ]);
+    let sourceAuthorityProcess = startTopologyProcess("source-authority", processEnv("source-authority", { P9_PROCESS_INSTANCE: "source-authority-1", P9_STAY_ALIVE: "1" }));
+    topology.push(sourceAuthorityProcess);
+    await sourceAuthorityProcess.ready;
+    let builderProcess = startTopologyProcess("builder", processEnv("builder", { P9_PROCESS_INSTANCE: "builder-1", P9_IMAGE_DIGEST: greenBuild.imageDigest, P9_SOURCE_COMMIT: targetCommit, P9_STAY_ALIVE: "1" }));
     topology.push(builderProcess);
     await builderProcess.ready;
-    let deployerProcess = startTopologyProcess("deployer", { ...processBase, P9_PROCESS_INSTANCE: "deployer-1", P9_STAY_ALIVE: "1" });
+    let deployerProcess = startTopologyProcess("deployer", processEnv("deployer", { P9_PROCESS_INSTANCE: "deployer-1", P9_STAY_ALIVE: "1" }));
     topology.push(deployerProcess);
     await deployerProcess.ready;
-    let supervisorProcess = startTopologyProcess("supervisor", { ...processBase, P9_PROCESS_INSTANCE: "supervisor-1", P9_STAY_ALIVE: "1" });
+    let supervisorProcess = startTopologyProcess("supervisor", processEnv("supervisor", { P9_PROCESS_INSTANCE: "supervisor-1", P9_STAY_ALIVE: "1" }));
     topology.push(supervisorProcess);
     await supervisorProcess.ready;
-    let blueWorkerProcess = startTopologyProcess("worker", { ...processBase, P9_PROCESS_INSTANCE: "worker-blue-1", P9_PROCESS_GENERATION: blue.generationId, P9_EFFECT_ID: "process-worker-effect" });
+    let blueWorkerProcess = startTopologyProcess("worker", processEnv("worker", { P9_PROCESS_INSTANCE: "worker-blue-1", P9_PROCESS_GENERATION: blue.generationId, P9_EFFECT_ID: "process-worker-effect" }));
     topology.push(blueWorkerProcess);
     await blueWorkerProcess.ready;
-    let greenWorkerProcess = startTopologyProcess("worker", { ...processBase, P9_PROCESS_INSTANCE: "worker-green-1", P9_PROCESS_GENERATION: "customer-alpha-green-12", P9_EFFECT_ID: "process-worker-effect" });
+    let greenWorkerProcess = startTopologyProcess("worker", processEnv("worker", { P9_PROCESS_INSTANCE: "worker-green-1", P9_PROCESS_GENERATION: "customer-alpha-green-12", P9_EFFECT_ID: "process-worker-effect" }));
     topology.push(greenWorkerProcess);
     await greenWorkerProcess.ready;
     const gatewayPort = await nextPort();
-    let processGateway = startTopologyProcess("gateway", { ...processBase, P9_PROCESS_INSTANCE: "gateway-1", P9_CONTROL_PORT: String(gatewayPort) });
+    let processGateway = startTopologyProcess("gateway", processEnv("gateway", { P9_PROCESS_INSTANCE: "gateway-1", P9_CONTROL_PORT: String(gatewayPort) }));
     topology.push(processGateway);
     const processGatewayReady = await processGateway.ready;
     const processGatewayUrl = processGatewayReady.url;
-    let realtimeProcess = startTopologyProcess("realtime-client", { ...processBase, P9_PROCESS_INSTANCE: "realtime-1", P9_GATEWAY_URL: processGatewayUrl });
+    let realtimeProcess = startTopologyProcess("realtime-client", processEnv("realtime-client", { P9_PROCESS_INSTANCE: "realtime-1", P9_GATEWAY_URL: processGatewayUrl }));
     topology.push(realtimeProcess);
     await realtimeProcess.ready;
     await Promise.all([
-      waitForProcessEvent(pool, "builder", "builder-attested"), waitForProcessEvent(pool, "deployer", "deployer-recovered"),
+      waitForProcessEvent(pool, "source-authority", "source-recovered"), waitForProcessEvent(pool, "builder", "builder-attested"), waitForProcessEvent(pool, "deployer", "deployer-recovered"),
       waitForProcessEvent(pool, "supervisor", "supervisor-recovered"), waitForProcessEvent(pool, "worker", "worker-passive", 1),
       waitForProcessEvent(pool, "realtime-client", "realtime-resynced"), waitForProcessEvent(pool, "worker", "worker-effect-completed", 1, blueWorkerProcess)
     ]);
     await builderProcess.stop();
-    builderProcess = startTopologyProcess("builder", { ...processBase, P9_PROCESS_INSTANCE: "builder-2", P9_IMAGE_DIGEST: greenBuild.imageDigest, P9_SOURCE_COMMIT: targetCommit, P9_STAY_ALIVE: "1" });
+    builderProcess = startTopologyProcess("builder", processEnv("builder", { P9_PROCESS_INSTANCE: "builder-2", P9_IMAGE_DIGEST: greenBuild.imageDigest, P9_SOURCE_COMMIT: targetCommit, P9_STAY_ALIVE: "1" }));
     topology.push(builderProcess);
     await builderProcess.ready;
     await deployerProcess.stop();
-    deployerProcess = startTopologyProcess("deployer", { ...processBase, P9_PROCESS_INSTANCE: "deployer-2", P9_STAY_ALIVE: "1" });
+    deployerProcess = startTopologyProcess("deployer", processEnv("deployer", { P9_PROCESS_INSTANCE: "deployer-2", P9_STAY_ALIVE: "1" }));
     topology.push(deployerProcess);
     await deployerProcess.ready;
-    await Promise.all([waitForProcessEvent(pool, "builder", "builder-attested", 2), waitForProcessEvent(pool, "deployer", "deployer-recovered", 2)]);
+    await sourceAuthorityProcess.stop();
+    sourceAuthorityProcess = startTopologyProcess("source-authority", processEnv("source-authority", { P9_PROCESS_INSTANCE: "source-authority-2", P9_STAY_ALIVE: "1" }));
+    topology.push(sourceAuthorityProcess);
+    await sourceAuthorityProcess.ready;
+    await Promise.all([waitForProcessEvent(pool, "source-authority", "source-recovered", 2), waitForProcessEvent(pool, "builder", "builder-attested", 2), waitForProcessEvent(pool, "deployer", "deployer-recovered", 2)]);
     crashEvidence.add("source-attested:builder");
     crashEvidence.add("deployment-authorized:deployer");
     scenarioEvidence.add("SCN-21");
@@ -644,21 +737,29 @@ test("proves distinct customer binaries and deployment processes recover from Po
     assert.deepEqual(newBinarySchema, { databaseRole: "p9_static_green", schemaRevision: 12, values: ["ONE", "TWO", "THREE"] });
     crashEvidence.add("rollback-open:web-blue");
     await supervisorProcess.stop();
-    supervisorProcess = startTopologyProcess("supervisor", { ...processBase, P9_PROCESS_INSTANCE: "supervisor-2" });
+    supervisorProcess = startTopologyProcess("supervisor", processEnv("supervisor", { P9_PROCESS_INSTANCE: "supervisor-2" }));
     topology.push(supervisorProcess);
     await supervisorProcess.ready;
     await greenWorkerProcess.stop();
-    greenWorkerProcess = startTopologyProcess("worker", { ...processBase, P9_PROCESS_INSTANCE: "worker-green-2", P9_PROCESS_GENERATION: "customer-alpha-green-12", P9_EFFECT_ID: "process-worker-effect" });
+    greenWorkerProcess = startTopologyProcess("worker", processEnv("worker", { P9_PROCESS_INSTANCE: "worker-green-2", P9_PROCESS_GENERATION: "customer-alpha-green-12", P9_EFFECT_ID: "process-worker-effect" }));
     topology.push(greenWorkerProcess);
     await greenWorkerProcess.ready;
     await realtimeProcess.stop();
-    realtimeProcess = startTopologyProcess("realtime-client", { ...processBase, P9_PROCESS_INSTANCE: "realtime-2", P9_GATEWAY_URL: processGatewayUrl });
+    realtimeProcess = startTopologyProcess("realtime-client", processEnv("realtime-client", { P9_PROCESS_INSTANCE: "realtime-2", P9_GATEWAY_URL: processGatewayUrl }));
     topology.push(realtimeProcess);
     await realtimeProcess.ready;
     await Promise.all([
       waitForProcessEvent(pool, "supervisor", "supervisor-recovered", 2), waitForProcessEvent(pool, "worker", "worker-active"),
       waitForProcessEvent(pool, "realtime-client", "realtime-resynced", 2)
     ]);
+    const deployedAuthority = {
+      generationId: "customer-alpha-green-12", version: plan.plugin.version, sourceCommit: targetCommit,
+      compositionChangePlanDigest: change.planDigest, buildEvidenceDigest: build.authority.read(build.token).evidenceDigest,
+      applicationDigest: greenBuild.applicationDigest, imageDigest: greenBuild.imageDigest, migrationRevision: 12,
+      workerFencingToken: 2, receiptId: "static-promotion-1"
+    };
+    assert.equal(await deploymentClient.reverify(deployedAuthority), true, "a restarted supervisor must publish only the durable source/build/deployment authority");
+    assert.equal(await deploymentClient.reverify({ ...deployedAuthority, imageDigest: blueBuild.imageDigest }), false, "an arbitrary image cannot masquerade as a deployed static release");
     crashEvidence.add("promoted:supervisor");
     crashEvidence.add("promoted:worker-green");
     crashEvidence.add("promoted:realtime-client");
@@ -689,7 +790,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     await supervisor.recover(owner);
     assert.equal((await fetch(`${processGatewayUrl}/inventory`).then((response) => response.json())).generation, blue.generationId);
     await blueWorkerProcess.stop();
-    blueWorkerProcess = startTopologyProcess("worker", { ...processBase, P9_PROCESS_INSTANCE: "worker-blue-2", P9_PROCESS_GENERATION: blue.generationId, P9_EFFECT_ID: "process-worker-effect" });
+    blueWorkerProcess = startTopologyProcess("worker", processEnv("worker", { P9_PROCESS_INSTANCE: "worker-blue-2", P9_PROCESS_GENERATION: blue.generationId, P9_EFFECT_ID: "process-worker-effect" }));
     topology.push(blueWorkerProcess);
     await blueWorkerProcess.ready;
     await waitForProcessEvent(pool, "worker", "worker-active", 2);
@@ -709,7 +810,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     await pool.query("update runtime_static_deployments set transition_checkpoint=null where application_id=$1 and environment=$2", [owner.applicationId, owner.environment]);
     await processGateway.stop();
     await delay(100);
-    processGateway = startTopologyProcess("gateway", { ...processBase, P9_PROCESS_INSTANCE: "gateway-2", P9_CONTROL_PORT: String(gatewayPort) });
+    processGateway = startTopologyProcess("gateway", processEnv("gateway", { P9_PROCESS_INSTANCE: "gateway-2", P9_CONTROL_PORT: String(gatewayPort) }));
     topology.push(processGateway);
     await processGateway.ready;
     assert.equal((await fetch(`${processGatewayUrl}/probe`)).ok, true);

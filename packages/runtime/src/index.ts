@@ -33,4 +33,5 @@ export * from "./dynamic-generation-runtime.js";
 export * from "./runtime-extension-consumer.js";
 export * from "./extension-capability-gateway.js";
 export * from "./extension-network-capability.js";
+export * from "./static-release-operator.js";
 export * from "./extension-operator-api.js";

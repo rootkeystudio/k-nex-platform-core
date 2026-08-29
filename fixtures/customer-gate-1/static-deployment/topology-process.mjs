@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { promisify } from "node:util";
 import pg from "pg";
-import { PostgresStaticDeploymentStore } from "@k-nex/payload-adapter";
+import { PostgresStaticDeploymentStore, PostgresTrustedBuildDeploymentClient } from "@k-nex/payload-adapter";
 
 const execute = promisify(execFile);
 const role = process.env.P9_PROCESS_ROLE;
@@ -32,21 +32,59 @@ const stayAlive = () => {
 async function verifyBuilder() {
   const reference = process.env.P9_IMAGE_DIGEST;
   const sourceCommit = process.env.P9_SOURCE_COMMIT;
-  if (!reference || !sourceCommit) throw new Error("Builder process is missing immutable image/source authority.");
+  const requestDigest = process.env.P9_BUILD_REQUEST_DIGEST;
+  const evidenceDigest = process.env.P9_BUILD_EVIDENCE_DIGEST;
+  const applicationDigest = process.env.P9_APPLICATION_DIGEST;
+  if (!reference || !sourceCommit || !requestDigest || !evidenceDigest || !applicationDigest) throw new Error("Builder process is missing immutable source/build request authority.");
+  const releases = new PostgresTrustedBuildDeploymentClient(pool);
+  const request = await releases.readRequest(requestDigest);
+  if (!request || request.sourceCommit !== sourceCommit || !["build-requested", "builder-attested", "deployment-requested", "deployed"].includes(request.status)) {
+    throw new Error("Builder process rejected an unknown or conflicting durable build request.");
+  }
   const inspection = JSON.parse((await execute("docker", ["image", "inspect", reference], { maxBuffer: 1024 * 1024 })).stdout)[0];
   if (inspection.Id !== reference || inspection.Config.Labels["org.opencontainers.image.revision"] !== sourceCommit) {
     throw new Error("Builder process rejected image/source attestation.");
   }
+  await releases.attestBuild({ buildRequestDigest: requestDigest, expectedVersion: request.version, sourceCommit, buildEvidenceDigest: evidenceDigest, applicationDigest, imageDigest: inspection.Id });
   await event("builder-attested", { imageDigest: inspection.Id, sourceCommit });
   ready({ imageDigest: inspection.Id });
   stayAlive();
 }
 
+async function recoverSourceAuthority() {
+  const sourceDirectory = process.env.P9_SOURCE_DIRECTORY;
+  const sourceCommit = process.env.P9_SOURCE_COMMIT;
+  if (!sourceDirectory || !sourceCommit) throw new Error("Source authority process is missing its customer checkout identity.");
+  const checkpoint = await pool.query(
+    "select change_json->'target'->>'sourceCommit' target_source_commit from runtime_static_composition_checkpoints where application_id='customer-alpha' and environment='production' and status='committed' order by committed_at desc limit 1"
+  );
+  const head = (await execute("git", ["rev-parse", "HEAD"], { cwd: sourceDirectory })).stdout.trim();
+  if (checkpoint.rows.length !== 1 || checkpoint.rows[0].target_source_commit !== sourceCommit || head !== sourceCommit) {
+    throw new Error("Source authority process rejected a checkout not bound to the committed expected-base composition checkpoint.");
+  }
+  await event("source-recovered", { sourceCommit: head });
+  ready({ sourceCommit: head });
+  stayAlive();
+}
+
 async function observeAuthority() {
-  const authority = await pool.query("select source_commit, image_digest from p9_static_process_authority where authority_id='customer-alpha'");
-  if (authority.rows.length !== 1) throw new Error(`${role} process cannot recover a single PostgreSQL deployment authority.`);
-  await event(`${role}-recovered`, authority.rows[0]);
-  ready(authority.rows[0]);
+  const requestDigest = process.env.P9_BUILD_REQUEST_DIGEST;
+  if (!requestDigest) throw new Error(`${role} process is missing its durable release request identity.`);
+  const releases = new PostgresTrustedBuildDeploymentClient(pool);
+  let authority = await releases.readRequest(requestDigest);
+  if (!authority || !["builder-attested", "deployment-requested", "deployed"].includes(authority.status)) throw new Error(`${role} process cannot recover an attested PostgreSQL release authority.`);
+  if (role === "deployer" && authority.status === "builder-attested") {
+    authority = await releases.requestDeployment({ buildRequestDigest: requestDigest, expectedVersion: authority.version });
+  }
+  const deployment = await pool.query("select revision, active_generation from runtime_static_deployments where application_id='customer-alpha' and environment='production'");
+  const active = deployment.rows[0]?.active_generation;
+  if (role === "supervisor" && authority.status === "deployment-requested" && active?.sourceCommit === authority.sourceCommit && active?.imageDigest === authority.imageDigest) {
+    const receipt = await pool.query("select event_json from runtime_static_deployment_outbox where application_id='customer-alpha' and environment='production' and revision=$1", [deployment.rows[0].revision]);
+    if (receipt.rows.length !== 1) throw new Error("Supervisor process cannot recover the authoritative deployment receipt.");
+    authority = await releases.recordDeployment({ buildRequestDigest: requestDigest, expectedVersion: authority.version, receipt: receipt.rows[0].event_json });
+  }
+  await event(`${role}-recovered`, authority);
+  ready(authority);
   stayAlive();
 }
 
@@ -117,7 +155,8 @@ async function realtime() {
   setInterval(() => { tick().catch((error) => { process.stderr.write(`${error.stack}\n`); process.exitCode = 1; }); }, 40).unref();
 }
 
-if (role === "builder") await verifyBuilder();
+if (role === "source-authority") await recoverSourceAuthority();
+else if (role === "builder") await verifyBuilder();
 else if (role === "deployer" || role === "supervisor") await observeAuthority();
 else if (role === "worker") await worker();
 else if (role === "gateway") await gateway();

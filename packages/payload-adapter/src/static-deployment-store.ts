@@ -451,6 +451,7 @@ export class PostgresStaticDeploymentStore {
   async claimEffect(input: Owner & Readonly<{ effectId: string; generationId: string; fencingToken: number; claimantId: string; claimLeaseExpiresAt: string }>): Promise<Readonly<{ status: "claimed"; attempts: number; claimToken: string; externalIdempotencyKey: string }> | Readonly<{ status: "already-claimed" | "already-completed"; attempts: number; externalIdempotencyKey: string }>> {
     this.assertEffectInput(input);
     return this.transaction(async (session) => {
+      await this.lock(session, input);
       const fence = await this.assertActiveFence(session, input);
       this.assertEffectClaimLease(input, fence);
       const current = await session.query<EffectRow>(
@@ -570,7 +571,11 @@ export class PostgresStaticDeploymentStore {
   }
 
   private async assertActiveFence(session: RuntimeExtensionSession, input: Owner & Readonly<{ generationId: string; fencingToken: number }>): Promise<FenceRow> {
-    const fence = await this.readFenceLocked(session, input);
+    const result = await session.query<FenceRow>(
+      `select * from runtime_worker_generation_fences where application_id=$1 and environment=$2`,
+      [input.applicationId, input.environment]
+    );
+    const fence = result.rows[0];
     if (!fence || fence.active_execution_generation !== input.generationId || Number(fence.fencing_token) !== input.fencingToken ||
       new Date(fence.lease_expires_at).valueOf() <= this.clock.now().valueOf()) fail("FENCE_REJECTED", "Worker generation is passive, stale, or lease-expired.");
     return fence;
