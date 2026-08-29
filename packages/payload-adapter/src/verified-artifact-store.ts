@@ -202,7 +202,7 @@ export class PostgresVerifiedArtifactStore implements DurableDynamicArtifactStor
       fail("ARTIFACT_UNAVAILABLE", "Verified artifact bytes are unavailable.");
     }
     try {
-      const verified = await this.verifier.verify({ catalog: row.catalog_json as VerificationRequest["catalog"], artifact: row.artifact_bytes, provenance: row.provenance_bytes,
+      const verified = await this.verifier.verifyAccepted({ catalog: row.catalog_json as VerificationRequest["catalog"], artifact: row.artifact_bytes, provenance: row.provenance_bytes,
         deliveryClass: row.delivery_class, id: row.extension_id, version: row.version, runtimeAbi: row.runtime_abi });
       if (verified.artifactDigest !== artifactDigest) fail("ARTIFACT_INVALID", "Artifact bytes no longer match their content address.");
       return verified;

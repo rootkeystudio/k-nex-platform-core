@@ -1,4 +1,4 @@
-import { ExtensionLifecycleEventSchema } from "@k-nex/contracts";
+import { ExtensionLifecycleEventSchema, ExtensionSecurityQuarantineEventSchema } from "@k-nex/contracts";
 import type { RuntimeExtensionInvalidation } from "@k-nex/runtime";
 
 import type { RuntimeExtensionPool, RuntimeExtensionSession } from "./runtime-extension-store.js";
@@ -22,7 +22,9 @@ interface RuntimeExtensionOutboxRow {
 }
 
 function invalidation(row: RuntimeExtensionOutboxRow): RuntimeExtensionInvalidation {
-  const event = ExtensionLifecycleEventSchema.parse(row.event_json);
+  const event = (row.event_json as { eventType?: unknown }).eventType === "extension.security-quarantine"
+    ? ExtensionSecurityQuarantineEventSchema.parse(row.event_json)
+    : ExtensionLifecycleEventSchema.parse(row.event_json);
   if (event.applicationId !== row.application_id || event.environment !== row.environment || event.deliveryClass !== row.delivery_class ||
     event.id !== row.extension_id || event.inventoryRevision !== row.inventory_revision) {
     throw new Error("Runtime extension outbox event does not match its persisted invalidation identity.");

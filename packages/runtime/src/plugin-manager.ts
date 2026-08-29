@@ -178,6 +178,36 @@ export interface ExtensionDispositionReceipt {
   readonly occurredAt: string;
 }
 
+export interface ActiveGenerationSecurityDecision {
+  readonly catalogDigest: string;
+  readonly catalogSignerIdentity: string;
+  readonly catalogSequence: number;
+  readonly disposition: "revoked" | "compromised" | "unsupported";
+  readonly release: Readonly<{
+    deliveryClass: "hot-application" | "theme-skin";
+    id: string;
+    version: string;
+    sourceCommit: string;
+    artifactDigest: string;
+    manifestDigest: string;
+    provenanceDigest: string;
+    sbomDigest: string;
+  }>;
+}
+
+export interface ExtensionSecurityQuarantineReceipt {
+  readonly receiptId: string;
+  readonly securityTransitionId: string;
+  readonly disposition: "quarantined";
+  readonly reason: ActiveGenerationSecurityDecision["disposition"];
+  readonly generationId: string;
+  readonly revisionBefore: number;
+  readonly revisionAfter: number;
+  readonly inventoryRevision: number;
+  readonly catalogDigest: string;
+  readonly occurredAt: string;
+}
+
 export type ExtensionManagerReceipt = ExtensionActivationReceipt | ExtensionDispositionReceipt;
 
 export interface ExtensionValidationReport {
@@ -252,6 +282,14 @@ export interface RuntimeExtensionStore {
   rollbackGeneration(operationId: string, leaseToken: string): Promise<ExtensionActivationReceipt>;
   disableGeneration(operationId: string, leaseToken: string): Promise<ExtensionDispositionReceipt>;
   uninstallGeneration(operationId: string, leaseToken: string): Promise<ExtensionDispositionReceipt>;
+  quarantineActiveGeneration(input: Readonly<{
+    applicationId: string;
+    environment: string;
+    extension: Extract<ExtensionIdentity, { deliveryClass: "hot-application" | "theme-skin" }>;
+    expectedRevision: number;
+    generationId: string;
+    decision: ActiveGenerationSecurityDecision;
+  }>): Promise<ExtensionSecurityQuarantineReceipt>;
   observeActiveGeneration(applicationId: string, environment: string, extension: ExtensionIdentity): Promise<ActiveGenerationObservation>;
   acquireGenerationLease(input: Readonly<{ applicationId: string; environment: string; extension: ExtensionIdentity; generationId: string; holder: string; ttlMs: number }>): Promise<string>;
   releaseGenerationLease(leaseId: string): Promise<void>;

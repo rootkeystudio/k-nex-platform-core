@@ -92,14 +92,17 @@ export class CatalogClient {
     this.#trustedSigners = new Map(Object.entries(trustedSigners)); this.#checkpoints = checkpoints; this.#now = now;
   }
 
+  /**
+   * Validates a catalog retained with an already accepted immutable artifact.
+   * This deliberately does not make a historical acceptance depend on today's
+   * freshness, replay, or installability policy.
+   */
+  async readAcceptanceEvidence(input: unknown): Promise<readonly CatalogEntry[]> {
+    return this.signedEntries(input);
+  }
+
   async read(input: unknown): Promise<readonly CatalogEntry[]> {
-    const catalog = parseCatalog(input);
-    const trustedKey = this.#trustedSigners.get(catalog.signer.identity);
-    if (!trustedKey || trustedKey !== catalog.signer.publicKey) throw new Error("Catalog signer is not trusted.");
-    let publicKey;
-    try { publicKey = createPublicKey(catalog.signer.publicKey); } catch { throw new Error("Catalog signer key is invalid."); }
-    for (const entry of catalog.payload.entries) try { createPublicKey(entry.publisher.publicKey); } catch { throw new Error("Catalog extension publisher key is invalid."); }
-    if (!verify(null, Buffer.from(canonicalJson(catalog.payload)), publicKey, Buffer.from(catalog.signature, "base64"))) throw new Error("Official catalog signature is invalid.");
+    const { catalog, entries } = await this.signedCatalog(input);
     const expiry = Date.parse(catalog.payload.expiresAt);
     if (!Number.isFinite(expiry) || expiry <= this.#now()) throw new Error("Official catalog is expired.");
     const payloadDigest = `sha256:${createHash("sha256").update(canonicalJson(catalog.payload)).digest("hex")}` as Digest;
@@ -109,7 +112,7 @@ export class CatalogClient {
         throw new Error("Official catalog checkpoint is stale or replayed.");
       }
       const incomingHighest: Record<string, string> = {};
-      for (const entry of catalog.payload.entries) {
+      for (const entry of entries) {
         const key = `${entry.deliveryClass}:${entry.id}`;
         const incoming = incomingHighest[key];
         if (incoming === undefined || compareSemver(entry.version, incoming) > 0) incomingHighest[key] = entry.version;
@@ -121,9 +124,24 @@ export class CatalogClient {
         if (highest === undefined || compareSemver(incoming, highest) > 0) highestVersions[key] = incoming;
       }
       const next = freezeCheckpoint({ signerIdentity: catalog.signer.identity, sequence: catalog.payload.sequence, payloadDigest, highestVersions });
-      if (await this.#checkpoints.compareAndSet(previous, next)) return catalog.payload.entries;
+      if (await this.#checkpoints.compareAndSet(previous, next)) return entries;
     }
     throw new Error("Official catalog checkpoint changed repeatedly; refusing an unconfirmed catalog read.");
+  }
+
+  private async signedEntries(input: unknown): Promise<readonly CatalogEntry[]> {
+    return (await this.signedCatalog(input)).entries;
+  }
+
+  private async signedCatalog(input: unknown): Promise<Readonly<{ catalog: SignedCatalog; entries: readonly CatalogEntry[] }>> {
+    const catalog = parseCatalog(input);
+    const trustedKey = this.#trustedSigners.get(catalog.signer.identity);
+    if (!trustedKey || trustedKey !== catalog.signer.publicKey) throw new Error("Catalog signer is not trusted.");
+    let publicKey;
+    try { publicKey = createPublicKey(catalog.signer.publicKey); } catch { throw new Error("Catalog signer key is invalid."); }
+    for (const entry of catalog.payload.entries) try { createPublicKey(entry.publisher.publicKey); } catch { throw new Error("Catalog extension publisher key is invalid."); }
+    if (!verify(null, Buffer.from(canonicalJson(catalog.payload)), publicKey, Buffer.from(catalog.signature, "base64"))) throw new Error("Official catalog signature is invalid.");
+    return Object.freeze({ catalog, entries: catalog.payload.entries });
   }
 }
 

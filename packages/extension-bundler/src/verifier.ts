@@ -7,6 +7,23 @@ import { extractNormalizedTarGz, type ExtractionLimits } from "./tar.js";
 
 export type VerificationRequest = Readonly<{ catalog: SignedCatalog; artifact: Uint8Array; provenance: Uint8Array; deliveryClass: "hot-application" | "theme-skin"; id: string; version: string; runtimeAbi: string }>;
 export type VerifiedArtifact = Readonly<{ entry: CatalogEntry; manifest: ExtensionBundleManifest; files: ReadonlyMap<string, Buffer>; artifactDigest: Digest }>;
+export type ActiveReleaseIdentity = Readonly<{
+  deliveryClass: "hot-application" | "theme-skin";
+  id: string;
+  version: string;
+  sourceCommit: string;
+  artifactDigest: Digest;
+  manifestDigest: Digest;
+  provenanceDigest: Digest;
+  sbomDigest: Digest;
+}>;
+export type CurrentCatalogSecurityDecision = Readonly<{
+  catalogDigest: Digest;
+  catalogSignerIdentity: string;
+  catalogSequence: number;
+  release: ActiveReleaseIdentity;
+  disposition: "clear" | "revoked" | "compromised" | "unsupported";
+}>;
 
 function required(files: ReadonlyMap<string, Buffer>, path: string): Buffer {
   const value = files.get(path);
@@ -52,6 +69,40 @@ export class ArtifactVerifier {
     const entry = (await this.#catalog.read(request.catalog)).find((candidate) => candidate.deliveryClass === request.deliveryClass && candidate.id === request.id && candidate.version === request.version);
     if (!entry) throw new Error("Requested extension is not in the official catalog.");
     if (entry.support !== "supported" || entry.review !== "approved" || entry.security !== "clear" || entry.revoked) throw new Error("Catalog release is not currently installable.");
+    return this.verifyEntry(request, entry);
+  }
+
+  /** Revalidates immutable acceptance evidence without consulting live catalog policy. */
+  async verifyAccepted(request: VerificationRequest): Promise<VerifiedArtifact> {
+    const entry = (await this.#catalog.readAcceptanceEvidence(request.catalog)).find((candidate) => candidate.deliveryClass === request.deliveryClass && candidate.id === request.id && candidate.version === request.version);
+    if (!entry) throw new Error("Requested extension is not in the accepted catalog evidence.");
+    if (entry.support !== "supported" || entry.review !== "approved" || entry.security !== "clear" || entry.revoked) {
+      throw new Error("Accepted catalog evidence does not describe an installable release.");
+    }
+    return this.verifyEntry(request, entry);
+  }
+
+  /** Reads a fresh, replay-protected catalog and returns the security state of one exact release. */
+  async currentSecurityDecision(catalog: SignedCatalog, release: ActiveReleaseIdentity): Promise<CurrentCatalogSecurityDecision | undefined> {
+    const entry = (await this.#catalog.read(catalog)).find((candidate) => candidate.deliveryClass === release.deliveryClass && candidate.id === release.id && candidate.version === release.version);
+    if (!entry || entry.source.commit !== release.sourceCommit || entry.artifactDigest !== release.artifactDigest ||
+      entry.manifestDigest !== release.manifestDigest || entry.provenanceDigest !== release.provenanceDigest || entry.sbomDigest !== release.sbomDigest) {
+      return undefined;
+    }
+    if (this.#trustedExtensionPublishers.get(entry.publisher.identity) !== entry.publisher.publicKey) {
+      throw new Error("Extension publisher is not trusted.");
+    }
+    const disposition = entry.revoked ? "revoked" : entry.security === "compromised" ? "compromised" : entry.support === "unsupported" ? "unsupported" : "clear";
+    return Object.freeze({
+      catalogDigest: sha256(Buffer.from(canonicalJson(catalog))),
+      catalogSignerIdentity: catalog.signer.identity,
+      catalogSequence: catalog.payload.sequence,
+      release: Object.freeze({ ...release }),
+      disposition
+    });
+  }
+
+  private verifyEntry(request: VerificationRequest, entry: CatalogEntry): VerifiedArtifact {
     if (this.#trustedExtensionPublishers.get(entry.publisher.identity) !== entry.publisher.publicKey) throw new Error("Extension publisher is not trusted.");
     if (entry.runtimeAbi !== request.runtimeAbi) throw new Error("Catalog runtime ABI is incompatible.");
     const artifactDigest = sha256(request.artifact);

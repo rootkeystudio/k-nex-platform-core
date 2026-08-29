@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import {
   canonicalJson,
   ExtensionLifecycleEventSchema,
+  ExtensionSecurityQuarantineEventSchema,
   RuntimeExtensionInventorySchema,
   type ExtensionLifecycleEvent,
   type RuntimeExtensionInventory
@@ -11,6 +12,7 @@ import type {
   ClaimOperationResult,
   ExtensionActivationReceipt,
   ExtensionDispositionReceipt,
+  ExtensionSecurityQuarantineReceipt,
   ExtensionManagerReceipt,
   ExtensionOperationPhase,
   PluginManagerPlan,
@@ -645,6 +647,70 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
     return this.changeDisposition(id, token, "uninstall", "removed");
   }
 
+  async quarantineActiveGeneration(input: Parameters<RuntimeExtensionStore["quarantineActiveGeneration"]>[0]): Promise<ExtensionSecurityQuarantineReceipt> {
+    if (!validRecordId(input.generationId) || !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0 ||
+      input.extension.deliveryClass !== input.decision.release.deliveryClass || input.extension.id !== input.decision.release.id ||
+      input.generationId.length < 1 || !/^sha256:[0-9a-f]{64}$/u.test(input.decision.catalogDigest) ||
+      !Number.isSafeInteger(input.decision.catalogSequence) || input.decision.catalogSequence < 1 ||
+      !/^[a-z0-9][a-z0-9.-]{0,159}$/u.test(input.decision.catalogSignerIdentity) ||
+      !["revoked", "compromised", "unsupported"].includes(input.decision.disposition)) {
+      fail("STATE_INVALID", "Security quarantine decision is invalid.");
+    }
+    const transition = await this.securityTransitionIds(input);
+    return this.transaction(async (session) => {
+      await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [canonicalJson([input.applicationId, input.environment, input.extension.deliveryClass, input.extension.id])]);
+      const replay = await session.query<{ receipt_json: ExtensionSecurityQuarantineReceipt }>(
+        `select receipt_json from runtime_extension_security_receipts where decision_digest=$1 for update`,
+        [transition.decisionDigest]
+      );
+      if (replay.rows[0]) return Object.freeze({ ...replay.rows[0].receipt_json });
+      const stateResult = await session.query<ExtensionRow>(
+        `select *, 0::int as inventory_revision from runtime_extensions where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4 for update`,
+        [input.applicationId, input.environment, input.extension.deliveryClass, input.extension.id]
+      );
+      const state = stateResult.rows[0];
+      if (!state || state.revision !== input.expectedRevision) fail("REVISION_CONFLICT", "Runtime extension revision changed before security quarantine.");
+      if (state.disposition !== "active" || state.active_generation_id !== input.generationId || !state.active_generation) {
+        fail("GENERATION_MISMATCH", "Security quarantine no longer targets the active generation.");
+      }
+      this.assertSecurityDecisionMatchesActive(input, state.active_generation);
+      const revision = state.revision + 1;
+      const inventoryRevision = await this.advanceInventoryRevision(session, input.applicationId, input.environment);
+      const updated = await session.query(
+        `update runtime_extensions set revision=$5, disposition='quarantined', active_generation_id=null, active_generation=null,
+           rollback_generation_id=null, rollback_generation=null, retained_generation=$6::jsonb, rollback_compatibility_json=null,
+           last_operation_id=$7, updated_at=now()
+         where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4 and revision=$8`,
+        [input.applicationId, input.environment, input.extension.deliveryClass, input.extension.id, revision,
+          JSON.stringify(state.active_generation), transition.securityTransitionId, state.revision]
+      );
+      if (updated.rowCount !== 1) fail("REVISION_CONFLICT", "Runtime extension revision changed during security quarantine.");
+      await session.query(
+        `update runtime_extension_generations set state='retired'
+         where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4 and generation_id=$5 and state='active'`,
+        [input.applicationId, input.environment, input.extension.deliveryClass, input.extension.id, input.generationId]
+      );
+      await session.query(
+        `delete from runtime_extension_generation_leases where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4`,
+        [input.applicationId, input.environment, input.extension.deliveryClass, input.extension.id]
+      );
+      const receipt: ExtensionSecurityQuarantineReceipt = Object.freeze({
+        receiptId: transition.receiptId,
+        securityTransitionId: transition.securityTransitionId,
+        disposition: "quarantined",
+        reason: input.decision.disposition,
+        generationId: input.generationId,
+        revisionBefore: state.revision,
+        revisionAfter: revision,
+        inventoryRevision,
+        catalogDigest: input.decision.catalogDigest,
+        occurredAt: timestamp(this.clock)
+      });
+      await this.writeSecurityQuarantineEvidence(session, input, transition, receipt);
+      return receipt;
+    });
+  }
+
   private async changeDisposition(
     id: string,
     token: string,
@@ -795,6 +861,102 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
     const revision = result.rows[0]?.inventory_revision ?? 0;
     const inventory = { schemaVersion: 1 as const, applicationId, environment, hostInventoryDigest: this.hostInventoryDigest, revision, extensions };
     return RuntimeExtensionInventorySchema.parse({ ...inventory, observedAt: timestamp(this.clock), stateDigest: await sha256(inventory) });
+  }
+
+  private assertSecurityDecisionMatchesActive(
+    input: Parameters<RuntimeExtensionStore["quarantineActiveGeneration"]>[0],
+    active: Record<string, unknown>
+  ): void {
+    const release = input.decision.release;
+    if (active["generationId"] !== input.generationId || active["version"] !== release.version || active["sourceCommit"] !== release.sourceCommit ||
+      active["artifactDigest"] !== release.artifactDigest || active["manifestDigest"] !== release.manifestDigest ||
+      active["provenanceDigest"] !== release.provenanceDigest || active["sbomDigest"] !== release.sbomDigest ||
+      active["deliveryClass"] !== release.deliveryClass || active["extensionId"] !== release.id) {
+      fail("GENERATION_MISMATCH", "Current security decision does not bind the exact active immutable release.");
+    }
+  }
+
+  private async securityTransitionIds(input: Parameters<RuntimeExtensionStore["quarantineActiveGeneration"]>[0]) {
+    const decisionDigest = await sha256({
+      applicationId: input.applicationId,
+      environment: input.environment,
+      extension: input.extension,
+      expectedRevision: input.expectedRevision,
+      generationId: input.generationId,
+      decision: input.decision
+    });
+    const suffix = decisionDigest.slice("sha256:".length, "sha256:".length + 32);
+    return Object.freeze({
+      decisionDigest,
+      securityTransitionId: `security-quarantine-${suffix}`,
+      receiptId: `security-receipt-${suffix}`,
+      auditId: `security-audit-${suffix}`,
+      eventId: `security-event-${suffix}`
+    });
+  }
+
+  private async writeSecurityQuarantineEvidence(
+    session: RuntimeExtensionSession,
+    input: Parameters<RuntimeExtensionStore["quarantineActiveGeneration"]>[0],
+    ids: Readonly<{ decisionDigest: string; securityTransitionId: string; receiptId: string; auditId: string; eventId: string }>,
+    receipt: ExtensionSecurityQuarantineReceipt
+  ): Promise<void> {
+    const event = ExtensionSecurityQuarantineEventSchema.parse({
+      schemaVersion: 1,
+      eventId: ids.eventId,
+      eventType: "extension.security-quarantine",
+      securityTransitionId: ids.securityTransitionId,
+      receiptId: ids.receiptId,
+      auditId: ids.auditId,
+      applicationId: input.applicationId,
+      environment: input.environment,
+      deliveryClass: input.extension.deliveryClass,
+      id: input.extension.id,
+      expectedRevision: input.expectedRevision,
+      revision: receipt.revisionAfter,
+      inventoryRevision: receipt.inventoryRevision,
+      occurredAt: receipt.occurredAt,
+      evidence: {
+        catalogDigest: input.decision.catalogDigest,
+        catalogSignerIdentity: input.decision.catalogSignerIdentity,
+        catalogSequence: input.decision.catalogSequence,
+        disposition: input.decision.disposition,
+        version: input.decision.release.version,
+        sourceCommit: input.decision.release.sourceCommit,
+        artifactDigest: input.decision.release.artifactDigest,
+        manifestDigest: input.decision.release.manifestDigest,
+        provenanceDigest: input.decision.release.provenanceDigest,
+        sbomDigest: input.decision.release.sbomDigest,
+        generationId: input.generationId
+      }
+    });
+    const eventJson = JSON.stringify(event);
+    const receiptJson = JSON.stringify(receipt);
+    await session.query(
+      `insert into runtime_extension_security_receipts
+       (receipt_id, security_transition_id, application_id, environment, delivery_class, extension_id, generation_id, expected_revision, revision, inventory_revision, decision_digest, receipt_json, event_json)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb)`,
+      [ids.receiptId, ids.securityTransitionId, input.applicationId, input.environment, input.extension.deliveryClass, input.extension.id, input.generationId,
+        input.expectedRevision, receipt.revisionAfter, receipt.inventoryRevision, ids.decisionDigest, receiptJson, eventJson]
+    );
+    await session.query(
+      `insert into runtime_extension_security_audit
+       (audit_id, receipt_id, application_id, environment, delivery_class, extension_id, revision, inventory_revision, event_json)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)`,
+      [ids.auditId, ids.receiptId, input.applicationId, input.environment, input.extension.deliveryClass, input.extension.id,
+        receipt.revisionAfter, receipt.inventoryRevision, eventJson]
+    );
+    await session.query(
+      `insert into runtime_extension_outbox
+       (event_id, application_id, environment, delivery_class, extension_id, revision, inventory_revision, event_json)
+       values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)`,
+      [ids.eventId, input.applicationId, input.environment, input.extension.deliveryClass, input.extension.id,
+        receipt.revisionAfter, receipt.inventoryRevision, eventJson]
+    );
+    await session.query(
+      `update runtime_extensions set last_receipt_id=$5, state_digest=$6 where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4`,
+      [input.applicationId, input.environment, input.extension.deliveryClass, input.extension.id, ids.receiptId, await sha256(event)]
+    );
   }
 
   private async transaction<T>(work: (session: RuntimeExtensionSession) => Promise<T>): Promise<T> {

@@ -164,6 +164,23 @@ describe("extension bundler", () => {
     await expect(restarted.read(signed(5, "2030-01-02T00:00:00.000Z", { ...clear, version: "1.1.0" }))).rejects.toThrow(/checkpoint|stale|replay/i);
   });
 
+  it("revalidates accepted immutable bytes without applying later catalog freshness or checkpoint policy", async () => {
+    const { request, publishers, catalog } = release();
+    const keys = generateKeyPairSync("ed25519");
+    const signer = { identity: "k-nex-accepted-catalog", publicKey: keys.publicKey.export({ type: "spki", format: "pem" }).toString() };
+    const signed = (sequence: number, expiresAt: string) => {
+      const payload = { schemaVersion: 1 as const, sequence, expiresAt, entries: catalog.payload.entries };
+      return { schemaVersion: 1 as const, signer, payload, signature: sign(null, Buffer.from(canonicalJson(payload)), keys.privateKey).toString("base64") };
+    };
+    const accepted = signed(1, "2030-01-01T00:00:00.000Z");
+    const client = new CatalogClient({ [signer.identity]: signer.publicKey }, new InMemoryCatalogCheckpointStore(), () => Date.parse("2030-01-03T00:00:00.000Z"));
+    const verifier = new ArtifactVerifier(client, publishers);
+    await expect(verifier.verify({ ...request, catalog: accepted })).rejects.toThrow(/expired/u);
+    await expect(verifier.verifyAccepted({ ...request, catalog: accepted })).resolves.toMatchObject({ artifactDigest: request.catalog.payload.entries[0]!.artifactDigest });
+    await expect(client.read(signed(2, "2030-01-04T00:00:00.000Z"))).resolves.toHaveLength(1);
+    await expect(verifier.verifyAccepted({ ...request, catalog: accepted })).resolves.toMatchObject({ manifest: { id: request.id } });
+  });
+
   it("binds runner code to the verified owner, generation, artifact, and declared entrypoint", async () => {
     const { client, request, publishers } = release();
     const store = new VerifiedArtifactStore(new ArtifactVerifier(client, publishers));

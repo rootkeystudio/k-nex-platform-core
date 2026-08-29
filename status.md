@@ -7,16 +7,16 @@
 
 ## Last completed
 
-Closed durable Theme Skin delivery and per-call capability-authority blockers. Signed skins now stage, activate, update, rollback, restore, and render the recovered generation in Chromium; capability calls reauthorize current generation, drain lease, principal, and delegation while PostgreSQL preserves replay denial across gateway restart.
+Closed accepted-artifact and revocation reconciliation blocker. Immutable accepted bytes remain usable after catalog expiry/checkpoint advance but are reverified on every read; fresh signed security policy atomically quarantines the exact active generation with fenced, idempotent PostgreSQL receipt, audit, inventory, and shared-outbox evidence.
 
 ## Validation
 
-Node 24.19.0: runtime, payload, UI design-system, customer fixture builds; runtime 280/280, UI design-system 27/27, extension-runner 6/6; real PostgreSQL capability, app-storage, migration, and Theme Skin journeys passed; restored Theme Skin Chromium presentation passed; `git diff --check` passed.
+Node 24.19.0: contracts, bundler, runtime, payload, and customer builds; contracts 155/155, bundler 19/19, runtime 280/280, payload 32/32; real PostgreSQL accepted-expiry, checkpoint, tamper, revocation, replay/race, outbox, runtime-state, and migration-chain journeys passed; `git diff --check` passed.
 
 ## Next
 
-Fix the remaining 3 review blockers in isolated commits, run targeted acceptance commands, then rerun the complete Gate 9 and a new Sol-high review.
+Fix the remaining 2 review blockers in isolated commits, run targeted acceptance commands, then rerun the complete Gate 9 and a new Sol-high review.
 
 ## Blockers
 
-Concrete static deployment adapters/process recovery; production Hot Application path; accepted-artifact revocation reconciliation.
+Concrete static deployment adapters/process recovery; production Hot Application path.

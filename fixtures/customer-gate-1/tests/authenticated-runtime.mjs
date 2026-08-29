@@ -324,9 +324,9 @@ assert.deepEqual(inventory.plugins, [{
   actualContributions: {}
 }]);
 assert.deepEqual(inventory.migrationRevision, {
-  migrationName: "20260829_000015_extension_capability_authority",
-  predecessor: 14,
-  current: 15
+  migrationName: "20260829_000016_extension_security_quarantine",
+  predecessor: 15,
+  current: 16
 });
 const serializedInventory = JSON.stringify(inventory);
 for (const forbidden of [process.env.DATABASE_URL, process.env.PAYLOAD_SECRET, login.token, password, "gate1@example.test"]) {

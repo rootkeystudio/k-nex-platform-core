@@ -9,7 +9,7 @@ import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import pg from "pg";
 
 import { ArtifactVerifier, buildBundle, canonicalJson, CatalogClient, InMemoryCatalogCheckpointStore, sha256, VerifiedRemoteUiAssetService } from "@k-nex/extension-bundler";
-import { PostgresRuntimeExtensionOutboxDispatcher, PostgresRuntimeExtensionStore, PostgresVerifiedArtifactStore } from "@k-nex/payload-adapter";
+import { ActiveExtensionSecurityReconciler, PostgresRuntimeExtensionOutboxDispatcher, PostgresRuntimeExtensionStore, PostgresVerifiedArtifactStore } from "@k-nex/payload-adapter";
 import { DurableDynamicArtifactPipeline, DurableDynamicGenerationRuntime, PluginManager, ReferenceHotApplicationGenerationWarmer, RuntimeExtensionRevisionConsumer, TrustedAutomationOperationAuthorizer } from "@k-nex/runtime";
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
@@ -138,9 +138,18 @@ function releaseDefinition(generation, version, marker, compatibility) {
   };
 }
 
-function signedCatalog(entries) {
-  const payload = { schemaVersion: 1, sequence: 1, expiresAt: "2030-01-01T00:00:00.000Z", entries };
+function signedCatalog(entries, sequence = 1, expiresAt = "2030-01-01T00:00:00.000Z") {
+  const payload = { schemaVersion: 1, sequence, expiresAt, entries };
   return { schemaVersion: 1, signer: catalogSigner, payload, signature: sign(null, Buffer.from(canonicalJson(payload)), catalogKeys.privateKey).toString("base64") };
+}
+
+function securityEntry(id, state, security = "clear") {
+  return {
+    deliveryClass: "hot-application", id, version: "1.0.0", runtimeAbi: "1.0.0", publisher,
+    source: { repository: source.repository, commit: state.sourceCommit, assetUrl: `${source.repository}/releases/download/v1.0.0/${id}.tar.gz` },
+    artifactDigest: state.artifactDigest, manifestDigest: state.manifestDigest, provenanceDigest: state.provenanceDigest, sbomDigest: state.sbomDigest,
+    support: security === "unsupported" ? "unsupported" : "supported", review: "approved", security: security === "compromised" ? "compromised" : "clear", revoked: security === "revoked"
+  };
 }
 
 function verifiedRelease(release, catalog) {
@@ -159,6 +168,84 @@ function verifiedRelease(release, catalog) {
     }
   };
 }
+
+test("preserves accepted artifacts while reconciling fresh revocation decisions atomically in PostgreSQL", { timeout: 180_000 }, async () => {
+  const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("runtime_extension_security").withStartupTimeout(120_000).start();
+  const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
+  let now = new Date("2026-08-29T09:00:00.000Z");
+  const clock = { now: () => now };
+  const storeA = new PostgresRuntimeExtensionStore(pool, clock, digest("7"));
+  const storeB = new PostgresRuntimeExtensionStore(pool, clock, digest("7"));
+  try {
+    await boot(container.getConnectionUri());
+
+    const release = releaseDefinition(9, "1.0.0", "accepted-bytes", { status: "compatible", windowId: "accepted-window", closesAt: "2026-08-30T09:00:00.000Z", migrationDigest: digest("9"), dataRevision: 1 });
+    const acceptedCatalog = signedCatalog([release.entry], 1, "2026-08-29T09:01:00.000Z");
+    const checkpoints = new InMemoryCatalogCheckpointStore();
+    const verifier = new ArtifactVerifier(new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, checkpoints, () => now.valueOf()), { [publisher.identity]: publisher.publicKey });
+    const artifacts = new PostgresVerifiedArtifactStore(pool, verifier);
+    const acceptedRelease = verifiedRelease(release, acceptedCatalog);
+    await artifacts.stage(acceptedRelease.stage);
+    now = new Date("2026-08-29T09:02:00.000Z");
+    await verifier.currentSecurityDecision(signedCatalog([release.entry], 2, "2030-01-01T00:00:00.000Z"), {
+      deliveryClass: "hot-application", id: release.entry.id, version: release.version, sourceCommit: source.commit,
+      artifactDigest: release.entry.artifactDigest, manifestDigest: release.entry.manifestDigest, provenanceDigest: release.entry.provenanceDigest, sbomDigest: release.entry.sbomDigest
+    });
+    assert.equal((await artifacts.resolve({ owner: acceptedRelease.stage.owner, generationId: release.generationId, artifactDigest: release.entry.artifactDigest }))?.authority.generationId, release.generationId);
+    await pool.query("update runtime_extension_artifacts set artifact_bytes=set_byte(artifact_bytes, 0, (get_byte(artifact_bytes, 0)+1)%256) where artifact_digest=$1", [release.entry.artifactDigest]);
+    await assert.rejects(artifacts.read(release.entry.artifactDigest), { code: "ARTIFACT_INVALID" });
+
+    const change = stateRequest("app.sales-security", "security-reconcile");
+    const warming = await prepareStateGeneration(storeA, change, digest("a"), "security-worker", now);
+    const activated = await storeA.activateGeneration(warming.operationId, warming.leaseToken);
+    const extension = change.extension;
+    const active = (await storeA.inventory(change.applicationId, change.environment)).extensions.hotApplications[extension.id].activeGeneration;
+    const revocation = signedCatalog([securityEntry(extension.id, active, "revoked")], 5, "2030-01-01T00:00:00.000Z");
+    const reconciler = new ActiveExtensionSecurityReconciler(verifier, storeA);
+    const quarantined = await reconciler.reconcile({ applicationId: change.applicationId, environment: change.environment, extension, expectedRevision: activated.revisionAfter, catalog: revocation });
+    assert.equal(quarantined.status, "quarantined");
+    const replay = await reconciler.reconcile({ applicationId: change.applicationId, environment: change.environment, extension, expectedRevision: activated.revisionAfter, catalog: revocation });
+    assert.equal(replay.status, "quarantined");
+    assert.deepEqual(replay.receipt, quarantined.receipt);
+    assert.deepEqual((await pool.query("select count(*)::int receipts, (select count(*)::int from runtime_extension_security_audit) audits, (select count(*)::int from runtime_extension_outbox where event_json->>'eventType'='extension.security-quarantine') outbox from runtime_extension_security_receipts")).rows, [{ receipts: 1, audits: 1, outbox: 1 }]);
+    const dispatcher = new PostgresRuntimeExtensionOutboxDispatcher(pool);
+    for (;;) {
+      const dispatched = await dispatcher.dispatchNext({ publish: async () => {} });
+      if (dispatched.status === "idle") break;
+    }
+    assert.equal((await pool.query("select status from runtime_extension_outbox where event_json->>'eventType'='extension.security-quarantine'")).rows[0].status, "delivered");
+    const evidenceBeforeStale = await pool.query("select (select count(*)::int from runtime_extension_security_receipts) receipts, (select count(*)::int from runtime_extension_security_audit) audits, (select count(*)::int from runtime_extension_outbox where event_json->>'eventType'='extension.security-quarantine') outbox");
+    await assert.rejects(reconciler.reconcile({ applicationId: change.applicationId, environment: change.environment, extension, expectedRevision: activated.revisionAfter, catalog: signedCatalog([securityEntry(extension.id, active, "revoked")], 4, "2030-01-01T00:00:00.000Z") }), /checkpoint|stale|replay/i);
+    assert.deepEqual((await pool.query("select (select count(*)::int from runtime_extension_security_receipts) receipts, (select count(*)::int from runtime_extension_security_audit) audits, (select count(*)::int from runtime_extension_outbox where event_json->>'eventType'='extension.security-quarantine') outbox")).rows, evidenceBeforeStale.rows);
+
+    const raceChange = stateRequest("app.sales-security-race", "security-race");
+    const raceWarming = await prepareStateGeneration(storeA, raceChange, digest("b"), "security-race-worker", now);
+    const raceActivated = await storeA.activateGeneration(raceWarming.operationId, raceWarming.leaseToken);
+    const raceActive = (await storeA.inventory(raceChange.applicationId, raceChange.environment)).extensions.hotApplications[raceChange.extension.id].activeGeneration;
+    const decision = {
+      catalogDigest: digest("c"), catalogSignerIdentity: catalogSigner.identity, catalogSequence: 7, disposition: "compromised",
+      release: { deliveryClass: "hot-application", id: raceChange.extension.id, version: raceActive.version, sourceCommit: raceActive.sourceCommit, artifactDigest: raceActive.artifactDigest, manifestDigest: raceActive.manifestDigest, provenanceDigest: raceActive.provenanceDigest, sbomDigest: raceActive.sbomDigest }
+    };
+    const exact = { applicationId: raceChange.applicationId, environment: raceChange.environment, extension: raceChange.extension, expectedRevision: raceActivated.revisionAfter, generationId: raceActive.generationId, decision };
+    const race = await Promise.allSettled([
+      storeA.quarantineActiveGeneration(exact),
+      storeB.quarantineActiveGeneration({ ...exact, expectedRevision: exact.expectedRevision - 1 })
+    ]);
+    assert.deepEqual(race.map(({ status }) => status).sort(), ["fulfilled", "rejected"]);
+    const exactReceipt = race.find(({ status }) => status === "fulfilled").value;
+    assert.deepEqual(await storeA.quarantineActiveGeneration(exact), exactReceipt);
+    await assert.rejects(storeA.quarantineActiveGeneration({ ...exact, expectedRevision: exact.expectedRevision - 1 }), { code: "REVISION_CONFLICT" });
+    const stateAfterRace = await storeA.inventory(raceChange.applicationId, raceChange.environment);
+    assert.equal(stateAfterRace.extensions.hotApplications[raceChange.extension.id].disposition, "quarantined");
+    const evidenceBeforeDifferent = await pool.query("select (select count(*)::int from runtime_extension_security_receipts) receipts, (select count(*)::int from runtime_extension_security_audit) audits, (select count(*)::int from runtime_extension_outbox where event_json->>'eventType'='extension.security-quarantine') outbox");
+    await assert.rejects(storeB.quarantineActiveGeneration({ ...exact, decision: { ...decision, catalogDigest: digest("d"), catalogSequence: 8 } }), { code: "REVISION_CONFLICT" });
+    assert.deepEqual((await pool.query("select (select count(*)::int from runtime_extension_security_receipts) receipts, (select count(*)::int from runtime_extension_security_audit) audits, (select count(*)::int from runtime_extension_outbox where event_json->>'eventType'='extension.security-quarantine') outbox")).rows, evidenceBeforeDifferent.rows);
+    console.log('P9_ACCEPTED_ARTIFACT_SECURITY_EVIDENCE={"scenarios":["accepted-expiry","checkpoint-advance","altered-bytes","revocation","outbox","idempotent-replay","stale-race"]}');
+  } finally {
+    await pool.end();
+    await container.stop();
+  }
+});
 
 function plan(operationId, change, release) {
   return {

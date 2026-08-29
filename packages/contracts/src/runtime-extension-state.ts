@@ -76,6 +76,43 @@ export const ExtensionLifecycleEventSchema = z.discriminatedUnion("deliveryClass
   z.strictObject({ ...LifecycleEventBase, deliveryClass: z.literal("theme-skin"), id: ThemeSkinIdSchema, evidence: BundleTransitionEvidenceSchema })
 ]).meta({ $id: "https://schemas.k-nex.dev/extension-lifecycle-event/v1.json", title: "K-Nex Extension Lifecycle Event v1" });
 
+const SecurityQuarantineEvidenceSchema = z.strictObject({
+  catalogDigest: DigestSchema,
+  catalogSignerIdentity: z.string().min(1).max(160),
+  catalogSequence: PositiveRevisionSchema,
+  disposition: z.enum(["revoked", "compromised", "unsupported"]),
+  sourceCommit: FullShaSchema,
+  artifactDigest: DigestSchema,
+  manifestDigest: DigestSchema,
+  provenanceDigest: DigestSchema,
+  sbomDigest: DigestSchema,
+  generationId: RecordIdSchema,
+  version: z.string().regex(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u)
+});
+
+const SecurityQuarantineEventBase = {
+  "$schema": z.string().max(512).optional(),
+  schemaVersion: z.literal(1),
+  eventId: RecordIdSchema,
+  eventType: z.literal("extension.security-quarantine"),
+  securityTransitionId: RecordIdSchema,
+  receiptId: RecordIdSchema,
+  auditId: RecordIdSchema,
+  applicationId: ApplicationIdSchema,
+  environment: EnvironmentSchema,
+  expectedRevision: RevisionSchema,
+  revision: PositiveRevisionSchema,
+  inventoryRevision: PositiveRevisionSchema,
+  occurredAt: MillisecondTimestampSchema,
+  evidence: SecurityQuarantineEvidenceSchema
+} as const;
+
+/** A system security transition, deliberately separate from an operator lifecycle action. */
+export const ExtensionSecurityQuarantineEventSchema = z.discriminatedUnion("deliveryClass", [
+  z.strictObject({ ...SecurityQuarantineEventBase, deliveryClass: z.literal("hot-application"), id: HotApplicationIdSchema }),
+  z.strictObject({ ...SecurityQuarantineEventBase, deliveryClass: z.literal("theme-skin"), id: ThemeSkinIdSchema })
+]).meta({ $id: "https://schemas.k-nex.dev/extension-security-quarantine-event/v1.json", title: "K-Nex Extension Security Quarantine Event v1" });
+
 const BundleGenerationEvidenceBase = {
   authority: z.literal("verified-bundle"),
   applicationId: ApplicationIdSchema,
@@ -160,4 +197,5 @@ export const RuntimeExtensionInventorySchema = z.strictObject({
 export type ExtensionOperationActor = z.infer<typeof ExtensionOperationActorSchema>;
 export type ExtensionOperationPhase = z.infer<typeof ExtensionOperationPhaseSchema>;
 export type ExtensionLifecycleEvent = z.infer<typeof ExtensionLifecycleEventSchema>;
+export type ExtensionSecurityQuarantineEvent = z.infer<typeof ExtensionSecurityQuarantineEventSchema>;
 export type RuntimeExtensionInventory = z.infer<typeof RuntimeExtensionInventorySchema>;
