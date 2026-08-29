@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { generateKeyPairSync, sign } from "node:crypto";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -7,12 +8,18 @@ import test from "node:test";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import pg from "pg";
 
-import { PostgresRuntimeExtensionOutboxDispatcher, PostgresRuntimeExtensionStore } from "@k-nex/payload-adapter";
-import { PluginManager, RuntimeExtensionRevisionConsumer, TrustedAutomationOperationAuthorizer } from "@k-nex/runtime";
+import { ArtifactVerifier, buildBundle, canonicalJson, CatalogClient, InMemoryCatalogCheckpointStore, sha256, VerifiedRemoteUiAssetService } from "@k-nex/extension-bundler";
+import { PostgresRuntimeExtensionOutboxDispatcher, PostgresRuntimeExtensionStore, PostgresVerifiedArtifactStore } from "@k-nex/payload-adapter";
+import { DurableDynamicArtifactPipeline, DurableDynamicGenerationRuntime, PluginManager, ReferenceHotApplicationGenerationWarmer, RuntimeExtensionRevisionConsumer, TrustedAutomationOperationAuthorizer } from "@k-nex/runtime";
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
 const fixtureDirectory = fileURLToPath(new URL("..", import.meta.url));
 const digest = (character) => `sha256:${character.repeat(64)}`;
+const source = { repository: "https://github.com/k-nex/customer-gate-1-apps", commit: "0123456789abcdef0123456789abcdef01234567" };
+const publisherKeys = generateKeyPairSync("ed25519");
+const catalogKeys = generateKeyPairSync("ed25519");
+const publisher = { identity: "customer-gate-1-hot-app-publisher", publicKey: publisherKeys.publicKey.export({ type: "spki", format: "pem" }).toString() };
+const catalogSigner = { identity: "customer-gate-1-hot-app-catalog", publicKey: catalogKeys.publicKey.export({ type: "spki", format: "pem" }).toString() };
 
 function boot(connectionString) {
   return new Promise((resolve, reject) => {
@@ -39,300 +46,334 @@ async function listen(handler) {
   return { url: `http://127.0.0.1:${address.port}`, close: () => new Promise((resolve) => server.close(resolve)) };
 }
 
-function request(id, key, options = {}) {
+function request(operation, version, expectedRevision) {
   return {
-    applicationId: "customer-alpha", environment: "production", extension: { deliveryClass: "hot-application", id }, operation: options.operation ?? "install",
-    targetVersion: options.version ?? "1.0.0", expectedRevision: options.expectedRevision ?? 0, idempotencyKey: key, correlationId: `correlation-${id.replaceAll(".", "-")}`
+    applicationId: "customer-alpha", environment: "production", extension: { deliveryClass: "hot-application", id: "app.sales-live" }, operation,
+    targetVersion: version, expectedRevision, idempotencyKey: `${operation}:app.sales-live:${version}:${expectedRevision}`, correlationId: `runtime-state-${operation}-${version.replaceAll(".", "-")}`
   };
 }
 
-function claim(store, extensionRequest, requestDigest, workerId) {
-  return store.claimOperation({
-    request: extensionRequest, requestDigest, workerId,
-    authorization: { actor: { kind: "trusted-automation", identity: "github-actions:phase-9" }, decisionId: digest("9") }
-  });
+function stateRequest(id, key, options = {}) {
+  return {
+    applicationId: "customer-alpha", environment: "production", extension: { deliveryClass: "hot-application", id },
+    operation: options.operation ?? "install", targetVersion: options.version ?? "1.0.0", expectedRevision: options.expectedRevision ?? 0,
+    idempotencyKey: key, correlationId: `state-${id.replaceAll(".", "-")}`
+  };
 }
 
-function livePlan(operationId, extensionRequest, generation = 1, artifact = "a") {
-  const generationId = `${extensionRequest.extension.id.replaceAll(".", "-")}-generation-${generation}`;
+function statePlan(operationId, change, generation = 1) {
+  const generationId = `${change.extension.id.replaceAll(".", "-")}-generation-${generation}`;
   return {
     executionClass: "live-generation", operationId, sourceCommit: "a".repeat(40), generationId,
     plan: {
-      schemaVersion: 1, planId: `${extensionRequest.extension.id.replaceAll(".", "-")}-plan-${generation}`, operationId, operation: extensionRequest.operation, version: extensionRequest.targetVersion,
-      artifactDigest: digest(artifact), expectedRevision: extensionRequest.expectedRevision, targetGenerationId: generationId,
-      approvalRequired: false, rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "hot-application", id: extensionRequest.extension.id,
+      schemaVersion: 1, planId: `${generationId}-plan`, operationId, operation: change.operation, version: change.targetVersion,
+      artifactDigest: digest(String(generation)), expectedRevision: change.expectedRevision, targetGenerationId: generationId,
+      approvalRequired: false, rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "hot-application", id: change.extension.id,
       availability: { outcome: "live-generation", activation: "atomic-generation-pointer" }, requiredCapabilities: [],
       resourceBudget: { maxBundleBytes: 1_048_576, maxAssetBytes: 262_144, maxStorageBytes: 1_048_576, maxMemoryMiB: 128, maxCpuMilliCores: 500, maxWallTimeMs: 5_000, maxInputBytes: 65_536, maxOutputBytes: 131_072, maxLogBytes: 65_536, maxConcurrency: 4 }
     }
   };
 }
 
-function authority(extensionRequest, generationId, artifact = "a") {
+function stateAuthority(change, generationId, generation = 1) {
   return {
-    applicationId: extensionRequest.applicationId,
-    environment: extensionRequest.environment,
-    deliveryClass: extensionRequest.extension.deliveryClass,
-    extensionId: extensionRequest.extension.id,
-    generationId, sourceCommit: "a".repeat(40), artifactDigest: digest(artifact), manifestDigest: digest("b"),
-    catalogDigest: digest("c"), provenanceDigest: digest("d"), sbomDigest: digest("e")
+    applicationId: change.applicationId, environment: change.environment, deliveryClass: change.extension.deliveryClass,
+    extensionId: change.extension.id, generationId, sourceCommit: "a".repeat(40), artifactDigest: digest(String(generation)),
+    manifestDigest: digest("b"), catalogDigest: digest("c"), provenanceDigest: digest("d"), sbomDigest: digest("e")
   };
 }
 
-function activationStage(generationAuthority, version, now, compatibility) {
+function stateActivation(authority, now) {
   return {
-    authority: generationAuthority, version,
-    readiness: {
-      generationId: generationAuthority.generationId, serverGenerationId: generationAuthority.generationId,
-      uiGenerationId: generationAuthority.generationId, storageGenerationId: generationAuthority.generationId,
-      leaseToken: `ready:${generationAuthority.generationId}`, readyAt: now.toISOString(), expiresAt: new Date(now.valueOf() + 60_000).toISOString()
-    },
-    compatibility,
-    metadata: { navigation: `${generationAuthority.generationId}:navigation` },
-    settings: { locale: "en" },
-    storageSchemaVersions: { "sales.records": Number(generationAuthority.generationId.at(-1)) }
+    authority, version: "1.0.0",
+    readiness: { generationId: authority.generationId, serverGenerationId: authority.generationId, uiGenerationId: authority.generationId, storageGenerationId: authority.generationId, leaseToken: `ready:${authority.generationId}`, readyAt: now.toISOString(), expiresAt: new Date(now.valueOf() + 60_000).toISOString() },
+    compatibility: { status: "compatible", windowId: "state-window-1", closesAt: new Date(now.valueOf() + 86_400_000).toISOString(), migrationDigest: digest("1"), dataRevision: 1 },
+    metadata: {}, settings: {}, storageSchemaVersions: {}
   };
 }
 
-async function stageOperation(store, extensionRequest, requestDigest, workerId, generation, artifact) {
-  const claimed = await claim(store, extensionRequest, requestDigest, workerId);
+function claimState(store, change, requestDigest, workerId) {
+  return store.claimOperation({
+    request: change, requestDigest, workerId,
+    authorization: { actor: { kind: "trusted-automation", identity: "github-actions:phase-9" }, decisionId: digest("9") }
+  });
+}
+
+async function prepareStateGeneration(store, change, requestDigest, workerId, now) {
+  const claimed = await claimState(store, change, requestDigest, workerId);
   assert.equal(claimed.status, "claimed");
-  let operation = await store.savePlan(claimed.operation.operationId, claimed.operation.leaseToken, livePlan(claimed.operation.operationId, extensionRequest, generation, artifact));
+  let operation = await store.savePlan(claimed.operation.operationId, claimed.operation.leaseToken, statePlan(claimed.operation.operationId, change));
   operation = (await store.transition({ operationId: operation.operationId, leaseToken: operation.leaseToken, expectedPhase: "planning", phase: "downloading" })).operation;
-  const verified = authority(extensionRequest, operation.plan.generationId, artifact);
-  operation = (await store.transition({ operationId: operation.operationId, leaseToken: operation.leaseToken, expectedPhase: "downloading", phase: "verified", authority: verified })).operation;
-  operation = (await store.transition({ operationId: operation.operationId, leaseToken: operation.leaseToken, expectedPhase: "verified", phase: "staged", authority: verified })).operation;
-  return { operation, authority: verified };
+  const authority = stateAuthority(change, operation.plan.generationId);
+  operation = (await store.transition({ operationId: operation.operationId, leaseToken: operation.leaseToken, expectedPhase: "downloading", phase: "verified", authority })).operation;
+  operation = (await store.transition({ operationId: operation.operationId, leaseToken: operation.leaseToken, expectedPhase: "verified", phase: "staged", authority })).operation;
+  await store.stageGeneration({ operationId: operation.operationId, leaseToken: operation.leaseToken, stage: stateActivation(authority, now) });
+  return store.readOperation(operation.operationId);
 }
 
-test("proves persistent extension operation serialization, recovery, atomic evidence, and forged-authority rejection", { timeout: 180_000 }, async () => {
-  const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("runtime_extensions").withStartupTimeout(120_000).start();
+function releaseDefinition(generation, version, marker, compatibility) {
+  const generationId = `app-sales-live-generation-${generation}`;
+  const bundle = buildBundle({
+    manifest: {
+      schemaVersion: 1, deliveryClass: "hot-application", id: "app.sales-live", version, runtimeAbi: "1.0.0",
+      entrypoints: { server: ["server/main.mjs"], ui: ["ui/main.mjs"] },
+      resourceBudget: { maxBundleBytes: 1_048_576, maxAssetBytes: 262_144, maxStorageBytes: 1_048_576, maxMemoryMiB: 128, maxCpuMilliCores: 500, maxWallTimeMs: 5_000, maxInputBytes: 65_536, maxOutputBytes: 131_072, maxLogBytes: 65_536, maxConcurrency: 4 }
+    },
+    files: [
+      { path: "server/main.mjs", bytes: Buffer.from(`export default async ({ input }) => ({ marker: ${JSON.stringify(marker)}, generationId: input.generationId });\n`), contentType: "application/javascript" },
+      { path: "ui/main.mjs", bytes: Buffer.from(`export default () => ({ type: "text", text: ${JSON.stringify(marker)} });\n`), contentType: "application/javascript" },
+      { path: "assets/marker.txt", bytes: Buffer.from(marker), contentType: "text/plain" }
+    ],
+    source,
+    workflowIdentity: `${source.repository}/.github/workflows/release.yml@${source.commit}`
+  });
+  return {
+    generationId, version, marker, bundle, compatibility,
+    entry: {
+      deliveryClass: "hot-application", id: "app.sales-live", version, runtimeAbi: "1.0.0", publisher,
+      source: { ...source, assetUrl: `https://github.com/k-nex/customer-gate-1-apps/releases/download/${version}/app.sales-live.tar.gz` },
+      artifactDigest: sha256(bundle.artifact), manifestDigest: sha256(Buffer.from(canonicalJson(bundle.manifest))), sbomDigest: sha256(bundle.sbom), provenanceDigest: sha256(bundle.provenance),
+      support: "supported", review: "approved", security: "clear", revoked: false
+    }
+  };
+}
+
+function signedCatalog(entries) {
+  const payload = { schemaVersion: 1, sequence: 1, expiresAt: "2030-01-01T00:00:00.000Z", entries };
+  return { schemaVersion: 1, signer: catalogSigner, payload, signature: sign(null, Buffer.from(canonicalJson(payload)), catalogKeys.privateKey).toString("base64") };
+}
+
+function verifiedRelease(release, catalog) {
+  const authority = {
+    applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application", extensionId: "app.sales-live", generationId: release.generationId,
+    sourceCommit: source.commit, artifactDigest: release.entry.artifactDigest, manifestDigest: release.entry.manifestDigest, catalogDigest: sha256(Buffer.from(canonicalJson(catalog))), provenanceDigest: release.entry.provenanceDigest, sbomDigest: release.entry.sbomDigest
+  };
+  return {
+    ...release,
+    authority,
+    stage: {
+      owner: { applicationId: authority.applicationId, environment: authority.environment, deliveryClass: authority.deliveryClass, extensionId: authority.extensionId, generationId: authority.generationId },
+      verification: { catalog, artifact: release.bundle.artifact, provenance: release.bundle.provenance, deliveryClass: "hot-application", id: "app.sales-live", version: release.version, runtimeAbi: "1.0.0" },
+      authority,
+      activation: { compatibility: release.compatibility, metadata: { navigation: `${release.generationId}:navigation` }, settings: { locale: "en" }, storageSchemaVersions: { "sales.records": Number(release.generationId.at(-1)) } }
+    }
+  };
+}
+
+function plan(operationId, change, release) {
+  return {
+    executionClass: "live-generation", operationId, sourceCommit: release.authority.sourceCommit, generationId: release.generationId,
+    plan: {
+      schemaVersion: 1, planId: `${release.generationId}-plan`, operationId, operation: change.operation, version: change.targetVersion,
+      artifactDigest: release.authority.artifactDigest, expectedRevision: change.expectedRevision, targetGenerationId: release.generationId,
+      approvalRequired: false, rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "hot-application", id: "app.sales-live",
+      availability: { outcome: "live-generation", activation: "atomic-generation-pointer" }, requiredCapabilities: [],
+      resourceBudget: { maxBundleBytes: 1_048_576, maxAssetBytes: 262_144, maxStorageBytes: 1_048_576, maxMemoryMiB: 128, maxCpuMilliCores: 500, maxWallTimeMs: 5_000, maxInputBytes: 65_536, maxOutputBytes: 131_072, maxLogBytes: 65_536, maxConcurrency: 4 }
+    }
+  };
+}
+
+async function executeWithTestAdapter(artifacts, release) {
+  const source = await artifacts.runnerSource().load({ owner: release.stage.owner, artifactDigest: release.authority.artifactDigest, serverEntrypoint: "server/main.mjs" });
+  const moduleUrl = `data:text/javascript,${encodeURIComponent(source.source)}`;
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["--input-type=module", "--eval", `const app = await import(${JSON.stringify(moduleUrl)}); process.stdout.write(JSON.stringify(await app.default({ input: { generationId: ${JSON.stringify(release.generationId)} } })));`], { stdio: ["ignore", "pipe", "pipe"] });
+    let output = "";
+    let errors = "";
+    child.stdout.setEncoding("utf8").on("data", (chunk) => { output += chunk; });
+    child.stderr.setEncoding("utf8").on("data", (chunk) => { errors += chunk; });
+    child.on("error", reject);
+    child.on("close", (code) => code === 0 ? resolve(JSON.parse(output)) : reject(new Error(errors)));
+  });
+}
+
+test("rejects SCN-12 activation races and SCN-13 stale operation replays in PostgreSQL", { timeout: 180_000 }, async () => {
+  const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("runtime_coordination").withStartupTimeout(120_000).start();
   const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
   let now = new Date("2026-08-29T09:00:00.000Z");
   const clock = { now: () => now };
   const storeA = new PostgresRuntimeExtensionStore(pool, clock, digest("7"), { leaseMs: 1_000, maxConcurrentOperations: 2 });
   const storeB = new PostgresRuntimeExtensionStore(pool, clock, digest("7"), { leaseMs: 1_000, maxConcurrentOperations: 2 });
+  try {
+    await boot(container.getConnectionUri());
+    const firstRequest = stateRequest("app.sales-race", "install:app.sales-race:1");
+    const secondRequest = stateRequest("app.forecast", "install:app.forecast:1");
+    const first = await claimState(storeA, firstRequest, digest("1"), "worker-a");
+    assert.equal(first.status, "claimed");
+    assert.equal((await claimState(storeA, firstRequest, digest("1"), "worker-a")).status, "replay");
+    await assert.rejects(claimState(storeA, firstRequest, digest("2"), "worker-a"), { code: "IDEMPOTENCY_CONFLICT" });
+    await assert.rejects(claimState(storeB, stateRequest("app.sales-race", "install:app.sales-race:2"), digest("3"), "worker-b"), { code: "OPERATION_IN_PROGRESS" });
+    const second = await claimState(storeB, secondRequest, digest("4"), "worker-b");
+    assert.equal(second.status, "claimed");
+    await assert.rejects(claimState(storeB, stateRequest("app.pipeline", "install:app.pipeline:1"), digest("5"), "worker-b"), { code: "GLOBAL_BUDGET_EXHAUSTED" });
+
+    const firstSaved = await storeA.savePlan(first.operation.operationId, first.operation.leaseToken, statePlan(first.operation.operationId, firstRequest));
+    const secondSaved = await storeB.savePlan(second.operation.operationId, second.operation.leaseToken, statePlan(second.operation.operationId, secondRequest));
+    const racedPhase = await Promise.allSettled([
+      storeA.transition({ operationId: firstSaved.operationId, leaseToken: firstSaved.leaseToken, expectedPhase: "planning", phase: "downloading" }),
+      storeB.transition({ operationId: firstSaved.operationId, leaseToken: firstSaved.leaseToken, expectedPhase: "planning", phase: "downloading" })
+    ]);
+    assert.deepEqual(racedPhase.map(({ status }) => status).sort(), ["fulfilled", "rejected"]);
+    const evidenceBeforeInvalid = await pool.query("select (select count(*)::int from runtime_extension_transition_receipts) receipts, (select count(*)::int from runtime_extension_audit) audits, (select count(*)::int from runtime_extension_outbox) outbox");
+    await assert.rejects(storeA.transition({ operationId: firstSaved.operationId, leaseToken: firstSaved.leaseToken, expectedPhase: "downloading", phase: "completed" }), { code: "PHASE_CONFLICT" });
+    assert.deepEqual((await pool.query("select (select count(*)::int from runtime_extension_transition_receipts) receipts, (select count(*)::int from runtime_extension_audit) audits, (select count(*)::int from runtime_extension_outbox) outbox")).rows, evidenceBeforeInvalid.rows);
+
+    now = new Date(now.valueOf() + 1_001);
+    const resumed = await storeB.resumeOperation(firstSaved.operationId, "worker-recovery");
+    await assert.rejects(storeA.transition({ operationId: firstSaved.operationId, leaseToken: firstSaved.leaseToken, expectedPhase: "downloading", phase: "failed" }), { code: "LEASE_CONFLICT" });
+    await storeB.transition({ operationId: resumed.operationId, leaseToken: resumed.leaseToken, expectedPhase: "downloading", phase: "failed" });
+    const secondResumed = await storeB.resumeOperation(secondSaved.operationId, "worker-recovery");
+    await storeB.transition({ operationId: secondResumed.operationId, leaseToken: secondResumed.leaseToken, expectedPhase: "planning", phase: "failed" });
+
+    const activationRequest = stateRequest("app.sales-activation", "install:app.sales-activation:1");
+    const warming = await prepareStateGeneration(storeA, activationRequest, digest("6"), "activation-worker", now);
+    await pool.query("create function p9_fail_activation_race() returns trigger language plpgsql as $$ begin raise exception 'simulated crash before pointer commit'; end $$");
+    await pool.query("create trigger p9_fail_activation_race after update on runtime_extensions for each row when (new.active_generation_id='app-sales-activation-generation-1') execute function p9_fail_activation_race()");
+    await assert.rejects(storeA.activateGeneration(warming.operationId, warming.leaseToken), /simulated crash before pointer commit/);
+    assert.deepEqual((await pool.query("select active_generation_id from runtime_extensions where extension_id='app.sales-activation'")).rows, [{ active_generation_id: null }]);
+    await pool.query("drop trigger p9_fail_activation_race on runtime_extensions");
+    await pool.query("drop function p9_fail_activation_race()");
+    const racedActivation = await Promise.allSettled([
+      storeA.activateGeneration(warming.operationId, warming.leaseToken),
+      storeB.activateGeneration(warming.operationId, warming.leaseToken)
+    ]);
+    assert.deepEqual(racedActivation.map(({ status }) => status).sort(), ["fulfilled", "rejected"]);
+    assert.equal((await storeA.observeActiveGeneration("customer-alpha", "production", activationRequest.extension)).generationId, "app-sales-activation-generation-1");
+    assert.equal((await pool.query("select count(*)::int count from runtime_extension_transition_receipts where operation_id=$1 and event_json->>'operationPhase'='completed'", [warming.operationId])).rows[0].count, 1);
+    console.log('P9_RUNTIME_COORDINATION_EVIDENCE={"scenarios":["SCN-12","SCN-13"]}');
+  } finally {
+    await pool.end();
+    await container.stop();
+  }
+});
+
+test("proves PostgreSQL-backed Hot Application install, update, restore, rollback, and execution through the durable runtime", { timeout: 180_000 }, async () => {
+  const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("runtime_extensions").withStartupTimeout(120_000).start();
+  const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
+  const now = new Date();
+  const clock = { now: () => now };
+  const storeA = new PostgresRuntimeExtensionStore(pool, clock, digest("7"));
+  const storeB = new PostgresRuntimeExtensionStore(pool, clock, digest("7"));
   const hosts = [];
   try {
     await boot(container.getConnectionUri());
-    const tableShape = await pool.query("select to_regclass('public.runtime_extension_operations')::text operations, to_regclass('public.runtime_extension_outbox')::text outbox, to_regclass('public.runtime_extension_inventory_revisions')::text inventory_revisions");
-    assert.deepEqual(tableShape.rows, [{ operations: "runtime_extension_operations", outbox: "runtime_extension_outbox", inventory_revisions: "runtime_extension_inventory_revisions" }]);
+    const tables = await pool.query("select to_regclass('public.runtime_extension_artifacts')::text artifacts, to_regclass('public.runtime_extension_artifact_bindings')::text bindings");
+    assert.deepEqual(tables.rows, [{ artifacts: "runtime_extension_artifacts", bindings: "runtime_extension_artifact_bindings" }]);
 
-    const firstRequest = request("app.sales-assistant", "install:app.sales-assistant:1");
-    const secondRequest = request("app.forecast", "install:app.forecast:1");
-    const first = await claim(storeA, firstRequest, digest("1"), "worker-a");
-    assert.equal(first.status, "claimed");
-    assert.equal((await claim(storeA, firstRequest, digest("1"), "worker-a")).status, "replay");
-    await assert.rejects(claim(storeA, firstRequest, digest("2"), "worker-a"), { code: "IDEMPOTENCY_CONFLICT" });
-    await assert.rejects(claim(storeB, request("app.sales-assistant", "install:app.sales-assistant:2"), digest("3"), "worker-b"), { code: "OPERATION_IN_PROGRESS" });
+    const releaseDrafts = [
+      releaseDefinition(1, "1.0.0", "sales-live-v1", { status: "compatible", windowId: "sales-window-1", closesAt: "2026-08-30T09:00:00.000Z", migrationDigest: digest("1"), dataRevision: 1 }),
+      releaseDefinition(2, "1.1.0", "sales-live-v2", { status: "compatible", windowId: "sales-window-2", closesAt: "2026-08-30T09:59:59.000Z", migrationDigest: digest("2"), dataRevision: 2 }),
+      releaseDefinition(3, "2.0.0", "sales-live-v3", { status: "irreversible", decisionId: "sales-contract-cutover", reason: "The storage contract no longer supports generation 1.", migrationDigest: digest("3"), dataRevision: 3 })
+    ];
+    const catalog = signedCatalog(releaseDrafts.map((release) => release.entry));
+    const releases = releaseDrafts.map((release) => verifiedRelease(release, catalog));
+    const byVersion = new Map(releases.map((release) => [release.version, release]));
+    const byGeneration = new Map(releases.map((release) => [release.generationId, release]));
+    const verifier = new ArtifactVerifier(new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, new InMemoryCatalogCheckpointStore()), { [publisher.identity]: publisher.publicKey });
+    const artifacts = new PostgresVerifiedArtifactStore(pool, verifier);
+    await Promise.all(releases.map((release) => artifacts.stage(release.stage)));
+    const storedBytes = await pool.query("select artifact_digest, octet_length(artifact_bytes)::int artifact_bytes, octet_length(provenance_bytes)::int provenance_bytes from runtime_extension_artifacts order by artifact_digest");
+    assert.equal(storedBytes.rows.length, 3);
+    assert.equal(storedBytes.rows.every((row) => row.artifact_bytes > 0 && row.provenance_bytes > 0), true);
 
-    const second = await claim(storeB, secondRequest, digest("4"), "worker-b");
-    assert.equal(second.status, "claimed");
-    await assert.rejects(claim(storeB, request("app.pipeline", "install:app.pipeline:1"), digest("5"), "worker-b"), { code: "GLOBAL_BUDGET_EXHAUSTED" });
-
-    const firstSaved = await storeA.savePlan(first.operation.operationId, first.operation.leaseToken, livePlan(first.operation.operationId, firstRequest));
-    await storeB.savePlan(second.operation.operationId, second.operation.leaseToken, livePlan(second.operation.operationId, secondRequest));
-    const raced = await Promise.allSettled([
-      storeA.transition({ operationId: first.operation.operationId, leaseToken: firstSaved.leaseToken, expectedPhase: "planning", phase: "downloading" }),
-      storeB.transition({ operationId: first.operation.operationId, leaseToken: firstSaved.leaseToken, expectedPhase: "planning", phase: "downloading" })
-    ]);
-    assert.deepEqual(raced.map(({ status }) => status).sort(), ["fulfilled", "rejected"]);
-
-    const evidenceBeforeInvalid = await pool.query("select (select count(*)::int from runtime_extension_transition_receipts) receipts, (select count(*)::int from runtime_extension_audit) audits, (select count(*)::int from runtime_extension_outbox) outbox");
-    await assert.rejects(storeA.transition({ operationId: first.operation.operationId, leaseToken: firstSaved.leaseToken, expectedPhase: "downloading", phase: "completed" }), { code: "PHASE_CONFLICT" });
-    const evidenceAfterInvalid = await pool.query("select (select count(*)::int from runtime_extension_transition_receipts) receipts, (select count(*)::int from runtime_extension_audit) audits, (select count(*)::int from runtime_extension_outbox) outbox");
-    assert.deepEqual(evidenceAfterInvalid.rows, evidenceBeforeInvalid.rows);
-
-    now = new Date(now.valueOf() + 1_001);
-    const resumed = await storeB.resumeOperation(first.operation.operationId, "worker-recovery");
-    assert.notEqual(resumed.leaseToken, firstSaved.leaseToken);
-    await storeB.transition({ operationId: resumed.operationId, leaseToken: resumed.leaseToken, expectedPhase: "downloading", phase: "failed" });
-    const secondResumed = await storeB.resumeOperation(second.operation.operationId, "worker-b");
-    await storeB.transition({ operationId: secondResumed.operationId, leaseToken: secondResumed.leaseToken, expectedPhase: "planning", phase: "failed" });
-
-    const evidence = await pool.query("select (select count(*)::int from runtime_extension_transition_receipts) receipts, (select count(*)::int from runtime_extension_audit) audits, (select count(*)::int from runtime_extension_outbox) outbox, (select active_count from runtime_extension_operation_budget where application_id='customer-alpha' and environment='production') active_count");
-    assert.deepEqual(evidence.rows, [{ receipts: 5, audits: 5, outbox: 5, active_count: 0 }]);
-    const converged = await storeA.inventory("customer-alpha", "production");
-    assert.equal(converged.revision, 5);
-    assert.deepEqual(converged, await storeB.inventory("customer-alpha", "production"));
-
-    const liveIdentity = { deliveryClass: "hot-application", id: "app.sales-live" };
-    const installRequest = request(liveIdentity.id, "install:app.sales-live:1");
-    const install = await stageOperation(storeA, installRequest, digest("6"), "activation-worker", 1, "1");
-    await storeA.stageGeneration({
-      operationId: install.operation.operationId, leaseToken: install.operation.leaseToken,
-      stage: activationStage(install.authority, "1.0.0", now, {
-        status: "compatible", windowId: "sales-window-1", closesAt: new Date(now.valueOf() + 86_400_000).toISOString(), migrationDigest: digest("1"), dataRevision: 1
-      })
+    const warmed = [];
+    const warmer = new ReferenceHotApplicationGenerationWarmer({
+      runner: { prepareServer: async ({ artifact }) => { assert.match((await artifacts.runnerSource().load({ owner: { ...artifact.authority, generationId: artifact.authority.generationId }, artifactDigest: artifact.authority.artifactDigest, serverEntrypoint: "server/main.mjs" })).source, /export default async/u); warmed.push(`runner:${artifact.authority.generationId}`); } },
+      remoteUi: { prepareRemoteUi: async ({ artifact }) => { assert.ok((await artifacts.read(artifact.authority.artifactDigest))?.verified.files.get("ui/main.mjs")); warmed.push(`remote-ui:${artifact.authority.generationId}`); } },
+      storage: { prepareStorage: async ({ artifact }) => { assert.equal((await pool.query("select to_regclass('public.runtime_extension_storage_namespaces')::text storage")).rows[0].storage, "runtime_extension_storage_namespaces"); warmed.push(`storage:${artifact.authority.generationId}`); } },
+      surfaces: { prepareFixedSurfaces: async ({ artifact }) => { assert.match(`/apps/${artifact.authority.extensionId}/${artifact.authority.generationId}`, /^\/apps\/app\.sales-live\//u); warmed.push(`surfaces:${artifact.authority.generationId}`); } },
+      clock
     });
-    const installWarming = await storeA.readOperation(install.operation.operationId);
-    const installed = await storeA.activateGeneration(install.operation.operationId, installWarming.leaseToken);
+    const pipeline = new DurableDynamicArtifactPipeline(artifacts);
+    const manager = new PluginManager("activation-worker", new TrustedAutomationOperationAuthorizer("github-actions:phase-9"), {
+      plan: async (change) => {
+        const release = byVersion.get(change.targetVersion);
+        if (!release) throw new Error("Fixture release is unavailable.");
+        return { plan: plan("fixture-operation", change, release).plan, sourceCommit: release.authority.sourceCommit, generationId: release.generationId };
+      }
+    }, storeA, pipeline, { request: async () => { throw new Error("Static delivery is not used."); } }, { request: async () => { throw new Error("Static delivery is not used."); }, reverify: async () => false }, new DurableDynamicGenerationRuntime(artifacts, warmer));
+
+    const install = await manager.plan(request("install", "1.0.0", 0));
+    await manager.stage(install.operationId);
+    assert.equal((await manager.validate(install.operationId)).valid, true);
+    const installed = await manager.activate(install.operationId);
     assert.equal(installed.generationId, "app-sales-live-generation-1");
-    assert.equal((await storeA.observeActiveGeneration("customer-alpha", "production", liveIdentity)).generationId, installed.generationId);
-    const runtimeConsumers = new Map([
-      ["web", new RuntimeExtensionRevisionConsumer(new PostgresRuntimeExtensionStore(pool, clock, digest("7")), "customer-alpha", "production", liveIdentity)],
-      ["worker", new RuntimeExtensionRevisionConsumer(new PostgresRuntimeExtensionStore(pool, clock, digest("7")), "customer-alpha", "production", liveIdentity)],
-      ["editor", new RuntimeExtensionRevisionConsumer(new PostgresRuntimeExtensionStore(pool, clock, digest("7")), "customer-alpha", "production", liveIdentity)]
-    ]);
-    await Promise.all([...runtimeConsumers.values()].map((consumer) => consumer.poll()));
+    const identity = { deliveryClass: "hot-application", id: "app.sales-live" };
+    const consumers = ["web", "worker", "editor"].map((name) => [name, new RuntimeExtensionRevisionConsumer(new PostgresRuntimeExtensionStore(pool, clock, digest("7")), "customer-alpha", "production", identity)]);
+    await Promise.all(consumers.map(([, consumer]) => consumer.poll()));
 
-    const oldLease = await storeA.acquireGenerationLease({
-      applicationId: "customer-alpha", environment: "production", extension: liveIdentity, generationId: installed.generationId,
-      holder: "web-request-1", ttlMs: 120_000
-    });
-    const updateRequest = request(liveIdentity.id, "update:app.sales-live:2", { operation: "update", version: "1.1.0", expectedRevision: installed.revisionAfter });
-    const update = await stageOperation(storeA, updateRequest, digest("7"), "activation-worker", 2, "2");
-    await storeA.stageGeneration({
-      operationId: update.operation.operationId, leaseToken: update.operation.leaseToken,
-      stage: activationStage(update.authority, "1.1.0", now, {
-        status: "compatible", windowId: "sales-window-2", closesAt: new Date(now.valueOf() + 86_400_000).toISOString(), migrationDigest: digest("2"), dataRevision: 2
-      })
-    });
-    const updateWarming = await storeA.readOperation(update.operation.operationId);
-    await pool.query(`create function p9_fail_activation() returns trigger language plpgsql as $$ begin raise exception 'simulated crash before commit'; end $$`);
-    await pool.query(`create trigger p9_fail_activation after update on runtime_extensions for each row when (new.active_generation_id='app-sales-live-generation-2') execute function p9_fail_activation()`);
-    await assert.rejects(storeA.activateGeneration(update.operation.operationId, updateWarming.leaseToken), /simulated crash before commit/);
-    assert.equal((await storeB.observeActiveGeneration("customer-alpha", "production", liveIdentity)).generationId, installed.generationId);
-    await pool.query(`drop trigger p9_fail_activation on runtime_extensions`);
-    await pool.query(`drop function p9_fail_activation()`);
-    now = new Date(now.valueOf() + 60_001);
-    const updateRecovered = await storeB.resumeOperation(update.operation.operationId, "activation-recovery");
-    await assert.rejects(storeA.activateGeneration(update.operation.operationId, updateRecovered.leaseToken), { code: "READINESS_EXPIRED" });
-    await storeA.refreshGenerationReadiness({
-      operationId: update.operation.operationId, leaseToken: updateRecovered.leaseToken,
-      stage: activationStage(update.authority, "1.1.0", now, {
-        status: "compatible", windowId: "sales-window-2", closesAt: new Date(now.valueOf() + 86_339_999).toISOString(), migrationDigest: digest("2"), dataRevision: 2
-      })
-    });
-
-    const generationHosts = new Map();
-    for (const generationId of [installed.generationId, update.authority.generationId]) {
-      const host = await listen((_request, response) => response.end(generationId));
-      hosts.push(host);
-      generationHosts.set(generationId, host.url);
-    }
-    const gateway = await listen(async (request, response) => {
+    const remoteUi = new VerifiedRemoteUiAssetService(artifacts, { isActive: async ({ generationId, artifactDigest }) => (await storeB.observeActiveGeneration("customer-alpha", "production", identity)).generationId === generationId && byGeneration.get(generationId)?.authority.artifactDigest === artifactDigest });
+    const gateway = await listen(async (_request, response) => {
       try {
-        const observation = await storeB.observeActiveGeneration("customer-alpha", "production", liveIdentity);
-        const target = generationHosts.get(observation.generationId);
-        if (!target) { response.writeHead(503).end("generation unavailable"); return; }
-        const upstream = await fetch(`${target}${request.url}`);
-        response.writeHead(upstream.status).end(await upstream.text());
+        const active = await storeB.observeActiveGeneration("customer-alpha", "production", identity);
+        const release = byGeneration.get(active.generationId);
+        if (!release) return response.writeHead(503).end("generation unavailable");
+        const runner = await artifacts.runnerSource().load({ owner: release.stage.owner, artifactDigest: release.authority.artifactDigest, serverEntrypoint: "server/main.mjs" });
+        const ui = await remoteUi.read({ applicationId: "customer-alpha", environment: "production", appId: "app.sales-live", generationId: release.generationId, artifactDigest: release.authority.artifactDigest, path: "assets/marker.txt", fileDigest: release.bundle.manifest.files["assets/marker.txt"].digest });
+        response.end(JSON.stringify({ generationId: release.generationId, marker: Buffer.from(ui.body).toString("utf8"), runnerDigest: sha256(Buffer.from(runner.source)) }));
       } catch { response.writeHead(500).end("gateway failure"); }
     });
     hosts.push(gateway);
-    const traffic = Array.from({ length: 24 }, () => fetch(`${gateway.url}/continuous`).then(async (response) => ({ status: response.status, generationId: await response.text() })));
-    const [updated, ...observations] = await Promise.all([storeA.activateGeneration(update.operation.operationId, updateRecovered.leaseToken), ...traffic]);
+    const update = await manager.plan(request("update", "1.1.0", installed.revisionAfter));
+    await manager.stage(update.operationId);
+    const traffic = Array.from({ length: 24 }, () => fetch(`${gateway.url}/continuous`).then(async (response) => ({ status: response.status, body: JSON.parse(await response.text()) })));
+    const [updated, ...observations] = await Promise.all([manager.activate(update.operationId), ...traffic]);
     assert.equal(updated.previousGenerationId, installed.generationId);
-    assert.equal(updated.rollback, "available");
-    assert.deepEqual(updated.compatibility, {
-      status: "compatible", windowId: "sales-window-2", closesAt: new Date(now.valueOf() + 86_339_999).toISOString(), migrationDigest: digest("2"), dataRevision: 2
-    });
-    assert.equal(observations.every(({ status, generationId }) => status === 200 && [installed.generationId, updated.generationId].includes(generationId)), true);
-    assert.equal((await storeB.observeActiveGeneration("customer-alpha", "production", liveIdentity)).generationId, updated.generationId);
+    assert.equal(observations.every(({ status, body }) => status === 200 && byGeneration.get(body.generationId)?.marker === body.marker), true);
+    assert.equal((await storeB.observeActiveGeneration("customer-alpha", "production", identity)).generationId, updated.generationId);
+    assert.deepEqual(warmed, [
+      "runner:app-sales-live-generation-1", "remote-ui:app-sales-live-generation-1", "storage:app-sales-live-generation-1", "surfaces:app-sales-live-generation-1",
+      "runner:app-sales-live-generation-2", "remote-ui:app-sales-live-generation-2", "storage:app-sales-live-generation-2", "surfaces:app-sales-live-generation-2"
+    ]);
+
     const dispatcher = new PostgresRuntimeExtensionOutboxDispatcher(pool);
-    let dispatched = 0;
     for (;;) {
-      const delivery = await dispatcher.dispatchNext({
-        publish: async (invalidation) => {
-          dispatched += 1;
-          runtimeConsumers.get("web").invalidate(invalidation);
-        }
-      });
+      const delivery = await dispatcher.dispatchNext({ publish: async (invalidation) => consumers[0][1].invalidate(invalidation) });
       if (delivery.status === "idle") break;
     }
-    assert.ok(dispatched > 0);
-    assert.equal(runtimeConsumers.get("worker").snapshot().generationId, installed.generationId);
-    assert.equal(runtimeConsumers.get("editor").snapshot().generationId, installed.generationId);
-    await Promise.all([...runtimeConsumers.values()].map((consumer) => consumer.poll()));
-    assert.deepEqual([...runtimeConsumers.entries()].map(([name, consumer]) => [name, consumer.snapshot().generationId]), [
-      ["web", updated.generationId], ["worker", updated.generationId], ["editor", updated.generationId]
-    ]);
-    assert.equal(await storeA.liveGenerationLeaseCount("customer-alpha", "production", liveIdentity, installed.generationId), 1);
-    await assert.rejects(storeA.acquireGenerationLease({
-      applicationId: "customer-alpha", environment: "production", extension: liveIdentity, generationId: installed.generationId,
-      holder: "late-old-request", ttlMs: 30_000
-    }), { code: "GENERATION_MISMATCH" });
-    await storeA.releaseGenerationLease(oldLease);
-    assert.equal(await storeA.liveGenerationLeaseCount("customer-alpha", "production", liveIdentity, installed.generationId), 0);
+    await Promise.all(consumers.map(([, consumer]) => consumer.poll()));
+    assert.deepEqual(consumers.map(([name, consumer]) => [name, consumer.snapshot().generationId]), [["web", updated.generationId], ["worker", updated.generationId], ["editor", updated.generationId]]);
 
-    const beforeRestore = await storeA.inventory("customer-alpha", "production");
-    const liveBeforeRestore = beforeRestore.extensions.hotApplications[liveIdentity.id];
-    assert.equal(liveBeforeRestore.activeGeneration.generationId, updated.generationId);
-    assert.equal(liveBeforeRestore.rollbackGeneration.generationId, installed.generationId);
-    const artifactStore = new Set([installed.generationId, updated.generationId]);
-    const artifactBackup = new Set(artifactStore);
+    const beforeRestore = await manager.inventory("customer-alpha", "production");
     const uri = new URL(container.getConnectionUri());
     uri.hostname = "127.0.0.1";
     uri.port = "5432";
     const dumped = await container.exec(["pg_dump", "--format=custom", "--file=/tmp/p9-extension.dump", uri.toString()]);
     assert.equal(dumped.exitCode, 0, dumped.output);
-    await pool.query(`update runtime_extensions set metadata_json='{"corrupt":true}'::jsonb where application_id='customer-alpha' and environment='production' and extension_id='app.sales-live'`);
-    artifactStore.clear();
+    await pool.query("delete from runtime_extension_artifact_bindings where extension_id='app.sales-live'");
+    await pool.query("delete from runtime_extension_artifacts where extension_id='app.sales-live'");
+    await pool.query("update runtime_extensions set metadata_json='{\"corrupt\":true}'::jsonb where extension_id='app.sales-live'");
+    assert.equal(await artifacts.resolve({ owner: { applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application", extensionId: "app.sales-live" }, generationId: updated.generationId, artifactDigest: byGeneration.get(updated.generationId).authority.artifactDigest }), undefined);
+    await assert.rejects(manager.inventory("customer-alpha", "production"), { code: "ARTIFACT_AUTHORITY_REJECTED" });
     const restored = await container.exec(["pg_restore", "--clean", "--if-exists", "--no-owner", `--dbname=${uri.toString()}`, "/tmp/p9-extension.dump"]);
     assert.equal(restored.exitCode, 0, restored.output);
-    for (const generationId of artifactBackup) artifactStore.add(generationId);
-    assert.deepEqual(await storeA.inventory("customer-alpha", "production"), beforeRestore);
-    assert.deepEqual([...artifactStore].sort(), [installed.generationId, updated.generationId].sort());
+    assert.deepEqual(await manager.inventory("customer-alpha", "production"), beforeRestore);
+    for (const release of releases) {
+      assert.equal(await pipeline.reverify(release.authority, { applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application", extensionId: "app.sales-live" }), true);
+      assert.equal((await artifacts.read(release.authority.artifactDigest)).verified.artifactDigest, release.authority.artifactDigest);
+    }
+    assert.deepEqual(await executeWithTestAdapter(artifacts, byGeneration.get(updated.generationId)), { marker: "sales-live-v2", generationId: updated.generationId });
 
-    const rollbackRequest = request(liveIdentity.id, "rollback:app.sales-live:1", { operation: "rollback", version: "1.0.0", expectedRevision: updated.revisionAfter });
-    const rollbackClaim = await claim(storeA, rollbackRequest, digest("8"), "rollback-worker");
-    const rollbackPlan = await storeA.savePlan(rollbackClaim.operation.operationId, rollbackClaim.operation.leaseToken, livePlan(rollbackClaim.operation.operationId, rollbackRequest, 1, "1"));
-    const rolledBack = await storeA.rollbackGeneration(rollbackPlan.operationId, rollbackPlan.leaseToken);
+    const rollback = await manager.plan(request("rollback", "1.0.0", updated.revisionAfter));
+    const rolledBack = await manager.rollback(rollback.operationId);
     assert.equal(rolledBack.generationId, installed.generationId);
-    assert.equal(rolledBack.previousGenerationId, updated.generationId);
-    assert.equal(rolledBack.compatibility.windowId, "sales-window-2");
     const rollbackTraffic = await fetch(`${gateway.url}/rollback`);
     assert.equal(rollbackTraffic.status, 200);
-    assert.equal(await rollbackTraffic.text(), installed.generationId);
-    const retainedCompatibility = await pool.query(`select rollback_compatibility_json from runtime_extensions where application_id='customer-alpha' and environment='production' and extension_id='app.sales-live'`);
-    assert.equal(retainedCompatibility.rows[0].rollback_compatibility_json.windowId, "sales-window-2");
+    assert.equal(JSON.parse(await rollbackTraffic.text()).generationId, installed.generationId);
+    assert.deepEqual(await executeWithTestAdapter(artifacts, byGeneration.get(installed.generationId)), { marker: "sales-live-v1", generationId: installed.generationId });
 
-    const irreversibleRequest = request(liveIdentity.id, "update:app.sales-live:3", { operation: "update", version: "2.0.0", expectedRevision: rolledBack.revisionAfter });
-    const irreversible = await stageOperation(storeA, irreversibleRequest, digest("a"), "activation-worker", 3, "3");
-    await storeA.stageGeneration({
-      operationId: irreversible.operation.operationId, leaseToken: irreversible.operation.leaseToken,
-      stage: activationStage(irreversible.authority, "2.0.0", now, {
-        status: "irreversible", decisionId: "sales-contract-cutover", reason: "The storage contract no longer supports generation 1.", migrationDigest: digest("3"), dataRevision: 3
-      })
-    });
-    const irreversibleWarming = await storeA.readOperation(irreversible.operation.operationId);
-    const cutover = await storeA.activateGeneration(irreversible.operation.operationId, irreversibleWarming.leaseToken);
+    const irreversibleUpdate = await manager.plan(request("update", "2.0.0", rolledBack.revisionAfter));
+    await manager.stage(irreversibleUpdate.operationId);
+    const cutover = await manager.activate(irreversibleUpdate.operationId);
     assert.equal(cutover.rollback, "blocked-irreversible");
-    const blockedRequest = request(liveIdentity.id, "rollback:app.sales-live:blocked", { operation: "rollback", version: "1.0.0", expectedRevision: cutover.revisionAfter });
-    const blockedClaim = await claim(storeA, blockedRequest, digest("b"), "rollback-worker");
-    const blockedPlan = await storeA.savePlan(blockedClaim.operation.operationId, blockedClaim.operation.leaseToken, livePlan(blockedClaim.operation.operationId, blockedRequest, 1, "1"));
-    await assert.rejects(storeA.rollbackGeneration(blockedPlan.operationId, blockedPlan.leaseToken), { code: "ROLLBACK_BLOCKED" });
-    await storeA.transition({ operationId: blockedPlan.operationId, leaseToken: blockedPlan.leaseToken, expectedPhase: "planning", phase: "failed" });
+    const blockedRollback = await manager.plan(request("rollback", "1.0.0", cutover.revisionAfter));
+    const blockedOperation = await storeA.readOperation(blockedRollback.operationId);
+    await assert.rejects(storeA.rollbackGeneration(blockedOperation.operationId, blockedOperation.leaseToken), { code: "ROLLBACK_BLOCKED" });
+    await storeA.transition({ operationId: blockedOperation.operationId, leaseToken: blockedOperation.leaseToken, expectedPhase: "planning", phase: "failed" });
 
-    const afterBlocked = await storeA.observeActiveGeneration("customer-alpha", "production", liveIdentity);
-    const disableRequest = request(liveIdentity.id, "disable:app.sales-live:1", { operation: "disable", version: "2.0.0", expectedRevision: afterBlocked.revision });
-    const disableClaim = await claim(storeA, disableRequest, digest("c"), "disable-worker");
-    const disablePlan = await storeA.savePlan(disableClaim.operation.operationId, disableClaim.operation.leaseToken, livePlan(disableClaim.operation.operationId, disableRequest, 3, "3"));
-    const disabled = await storeA.disableGeneration(disablePlan.operationId, disablePlan.leaseToken);
-    assert.deepEqual(disabled, await storeA.readOperation(disablePlan.operationId).then((operation) => operation.result));
-    assert.equal((await storeA.inventory("customer-alpha", "production")).extensions.hotApplications[liveIdentity.id].disposition, "disabled");
-    const disableEvent = await pool.query("select event_json->>'lifecycleState' lifecycle_state from runtime_extension_transition_receipts where receipt_id=$1", [disabled.receiptId]);
-    assert.deepEqual(disableEvent.rows, [{ lifecycle_state: "disabled" }]);
-
-    const uninstallRequest = request(liveIdentity.id, "uninstall:app.sales-live:1", { operation: "uninstall", version: "2.0.0", expectedRevision: disabled.revisionAfter });
-    const uninstallClaim = await claim(storeA, uninstallRequest, digest("d"), "uninstall-worker");
-    const uninstallPlan = await storeA.savePlan(uninstallClaim.operation.operationId, uninstallClaim.operation.leaseToken, livePlan(uninstallClaim.operation.operationId, uninstallRequest, 3, "3"));
-    const uninstalled = await storeA.uninstallGeneration(uninstallPlan.operationId, uninstallPlan.leaseToken);
-    assert.equal(uninstalled.disposition, "removed");
-    assert.equal((await storeA.inventory("customer-alpha", "production")).extensions.hotApplications[liveIdentity.id].disposition, "removed");
-    const removedEvidence = await pool.query("select count(*)::int generations, (select event_json->>'lifecycleState' from runtime_extension_transition_receipts where receipt_id=$1) lifecycle_state from runtime_extension_generations where extension_id=$2", [uninstalled.receiptId, liveIdentity.id]);
-    assert.deepEqual(removedEvidence.rows, [{ generations: 0, lifecycle_state: "removed" }]);
-
-    const forged = { authority: "verified-bundle", applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application", extensionId: "app.sales-assistant", generationId: "forecast-generation-1", version: "1.0.0", sourceCommit: "a".repeat(40), artifactDigest: digest("a"), manifestDigest: digest("b"), catalogDigest: digest("c"), provenanceDigest: digest("d"), sbomDigest: digest("e"), receiptId: "forged-receipt-1" };
-    await pool.query("update runtime_extensions set disposition='active', active_generation_id=$1, active_generation=$2::jsonb where application_id='customer-alpha' and environment='production' and delivery_class='hot-application' and extension_id='app.forecast'", [forged.generationId, JSON.stringify(forged)]);
-    const rawInventory = await storeA.inventory("customer-alpha", "production");
-    assert.equal(rawInventory.extensions.hotApplications["app.forecast"].disposition, "active");
-    const manager = new PluginManager(
-      "authority-reader", new TrustedAutomationOperationAuthorizer("github-actions:phase-9"), { plan: async () => { throw new Error("unused"); } }, storeA,
-      { stage: async () => { throw new Error("unused"); }, reverify: async () => false }, { request: async () => { throw new Error("unused"); } },
-      { request: async () => { throw new Error("unused"); }, reverify: async () => false }
-    );
+    await pool.query("update runtime_extensions set active_generation=jsonb_set(active_generation, '{artifactDigest}', to_jsonb($1::text)) where extension_id='app.sales-live'", [digest("f")]);
     await assert.rejects(manager.inventory("customer-alpha", "production"), { code: "ARTIFACT_AUTHORITY_REJECTED" });
+    console.log('P9_RUNTIME_JOURNEY_EVIDENCE={"scenarios":["SCN-11","SCN-16"]}');
   } finally {
     await Promise.allSettled(hosts.map((host) => host.close()));
     await pool.end();
