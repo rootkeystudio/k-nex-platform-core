@@ -42,10 +42,10 @@ Final Phase 9 evidence on Node 24.19.0:
 
 ```text
 contracts and architecture-contract-tools: generated schemas current, parity-tested, and reproducible
-extension-bundler: 17 tests; extension-runner: 6 tests with real Docker isolation
-runtime: 277 tests; payload-adapter: 32 tests
+extension-bundler: 19 tests; extension-runner: 6 tests with real Docker isolation
+runtime: 289 tests; payload-adapter: 32 tests
 ui-runtime and ui-testing: full unit and real Chromium suites
-customer fixture: 12/12 PostgreSQL/Docker tests
+customer fixture: 14/14 PostgreSQL/Docker tests
 phase attack corpus: 22 required attacks, 12 exact proof groups, 9 recovered state/process matrix entries
 phase:0 and Gates 1–8: passed transitively through Gate 9
 ```
