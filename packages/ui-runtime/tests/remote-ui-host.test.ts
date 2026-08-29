@@ -2,11 +2,11 @@ import { MessageChannel } from "node:worker_threads";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { RemoteUiGenerationSessions, RemoteUiHostSession, type RemoteUiHostAdapter, type RemoteUiSessionIdentity } from "../src/remote-ui-host.js";
+import { createOpaqueRemoteUiFrame, RemoteUiGenerationSessions, RemoteUiHostSession, type RemoteUiHostAdapter, type RemoteUiSessionIdentity } from "../src/remote-ui-host.js";
 
 const identity: RemoteUiSessionIdentity = {
   sessionId: "remote-session-1", actorSessionId: "actor-session-1", applicationId: "customer-alpha", environment: "production",
-  appId: "app.sales-assistant", generationId: "sales-generation-1", route: "/apps/sales-assistant", surface: "sales.assistant-screen",
+  appId: "app.sales-assistant", generationId: "sales-generation-1", remoteUiFrameUrl: `https://extensions.example/api/extensions/apps/app.sales-assistant/assets/sales-generation-1/sha256:${"a".repeat(64)}/frame.html`, route: "/apps/sales-assistant", surface: "sales.assistant-screen",
   sources: new Set(["sales.tasks"]), actions: new Set(["sales.refresh"]), routes: new Set(["/apps/sales-assistant"]),
   assets: new Set([`asset:sha256:${"a".repeat(64)}`])
 };
@@ -29,6 +29,12 @@ function adapter(): RemoteUiHostAdapter & { render: ReturnType<typeof vi.fn>; fa
 async function tick(): Promise<void> { await new Promise((resolve) => setTimeout(resolve, 10)); }
 
 describe("remote UI host session", () => {
+  it("rejects an alternate origin even when its app and generation frame path match", () => {
+    const session = new RemoteUiHostSession(identity, registry, adapter());
+    const attacker = identity.remoteUiFrameUrl.replace("extensions.example", "attacker.example");
+    expect(() => createOpaqueRemoteUiFrame({ location: { href: "https://host.example/" } } as Document, session, attacker, "hostile frame")).toThrow("generation-pinned credentialless extension origin");
+  });
+
   it("validates identity, sequence, registry, events, and declared source transport", async () => {
     const host = adapter();
     const session = new RemoteUiHostSession(identity, registry, host);

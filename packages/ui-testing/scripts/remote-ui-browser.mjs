@@ -84,7 +84,9 @@ self.onmessage = async (event) => {
   await listen(extensionServer);
   const extensionAddress = extensionServer.address(); if (extensionAddress === null || typeof extensionAddress === "string") throw new Error("Remote UI extension server failed.");
   const extensionOrigin = `http://127.0.0.1:${extensionAddress.port}`;
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Remote UI proof</title></head><body><main id="root"></main><script>window.__K_NEX_REMOTE_FRAME_URL__=${JSON.stringify(`${extensionOrigin}${framePath}`)}</script><script type="module" src="/host.js"></script></body></html>`;
+  const frameUrl = `${extensionOrigin}${framePath}`;
+  const hostileFrameUrl = `${extensionOrigin.replace(/:\d+$/u, ":1")}${framePath}`;
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Remote UI proof</title></head><body><main id="root"></main><script>window.__K_NEX_REMOTE_FRAME_URL__=${JSON.stringify(frameUrl)};window.__K_NEX_REMOTE_HOSTILE_FRAME_URL__=${JSON.stringify(hostileFrameUrl)}</script><script type="module" src="/host.js"></script></body></html>`;
   hostServer.removeAllListeners("request");
   hostServer.on("request", (request, response) => {
     if (request.url === "/host.js") { response.writeHead(200, { "content-type": "text/javascript", "x-content-type-options": "nosniff" }); response.end(hostScript); return; }
@@ -101,13 +103,14 @@ self.onmessage = async (event) => {
   page.on("console", (message) => browserDiagnostics.push(`${message.type()}:${message.text()}`));
   page.on("requestfailed", (request) => browserDiagnostics.push(`${request.url()}: ${request.failure()?.errorText}`));
   await page.goto(hostOrigin);
-  await page.waitForFunction(() => window.__K_NEX_REMOTE_READY__ === true).catch((error) => { throw new Error(`Remote UI did not become ready: ${error.message}; requests=${extensionRequests.join(",")}; browser=${browserDiagnostics.join(" | ")}`); });
+  await page.waitForFunction(() => window.__K_NEX_REMOTE_READY__ === true).catch((error) => { throw new Error(`Remote UI did not become ready: ${error.message}; requests=${extensionRequests.join(",")}; page=${pageErrors.join(" | ")}; browser=${browserDiagnostics.join(" | ")}`); });
   const probe = await page.evaluate(() => window.__K_NEX_REMOTE_PROBE__);
   assert.deepEqual(probe, {
     document: "undefined", window: "undefined", localStorage: "undefined", sessionStorage: "undefined", sharedWorker: "undefined", serviceWorker: "undefined", popup: "undefined", top: "undefined",
     indexedDB: "blocked", cache: "unavailable", authenticatedFetch: "blocked", websocket: "blocked", dynamicImport: "blocked"
   });
   assert.equal(extensionDocumentCookie, undefined, "credentialless iframe sent extension-origin cookies");
+  assert.equal(await page.evaluate(() => window.__K_NEX_REMOTE_HOSTILE_FRAME_REJECTED__), true, "remote UI host accepted a hostile same-path frame origin");
   assert.equal(authenticatedFetches, 0, "remote realm reached an authenticated host endpoint");
   assert.equal(await page.evaluate(() => window.__K_NEX_REMOTE_WINDOW_MESSAGES__), 0, "remote app used ambient window messaging after channel transfer");
   assert.match(await page.getByRole("heading", { name: "Sales assistant" }).ariaSnapshot(), /heading "Sales assistant" \[level=1\]/);

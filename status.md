@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Sol-high review hardening now rejects case-colliding archive paths and excessive path depth under explicit extraction limits.
+Sol-high review hardening binds Remote UI frames to the host-authorized exact generation URL and rejects hostile same-path origins before transferring a MessagePort.
 
 ## Validation
 
-Node 24.19.0: `pnpm --filter @k-nex/extension-bundler test` passed 11 tests; package build passed. The prior full Gate 9 pass predates review hardening and will be rerun on the final review head.
+Node 24.19.0: UI Runtime passed 54 tests and build; UI Testing build passed; real Chromium emitted `P9_REMOTE_UI_BROWSER_PASS`. The prior full Gate 9 pass predates review hardening and will be rerun on the final review head.
 
 ## Next
 

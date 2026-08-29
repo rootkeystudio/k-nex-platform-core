@@ -12,6 +12,8 @@ export interface RemoteUiSessionIdentity {
   readonly environment: string;
   readonly appId: string;
   readonly generationId: string;
+  /** Host-authorized, verified, generation-pinned frame document URL. */
+  readonly remoteUiFrameUrl: string;
   readonly route: string;
   readonly surface: string;
   readonly sources: ReadonlySet<string>;
@@ -216,9 +218,10 @@ export class RemoteUiGenerationSessions {
 
 export function createOpaqueRemoteUiFrame(document: Document, session: RemoteUiHostSession, source: string, title: string): Readonly<{ iframe: HTMLIFrameElement; dispose(): void }> {
   const url = new URL(source, document.location.href);
+  const expected = new URL(session.identity.remoteUiFrameUrl, document.location.href);
   const framePath = /^\/api\/extensions\/apps\/(app\.[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*)\/assets\/([a-z][a-z0-9-]{2,127})\/sha256:[0-9a-f]{64}\/frame\.html$/u.exec(url.pathname);
   const localDevelopment = url.protocol === "http:" && ["127.0.0.1", "localhost"].includes(url.hostname);
-  if ((!localDevelopment && url.protocol !== "https:") || url.origin === document.location.origin || url.username !== "" || url.password !== "" || url.search !== "" || url.hash !== "" || framePath?.[1] !== session.identity.appId || framePath[2] !== session.identity.generationId) {
+  if (url.href !== expected.href || (!localDevelopment && url.protocol !== "https:") || url.origin === document.location.origin || url.username !== "" || url.password !== "" || url.search !== "" || url.hash !== "" || framePath?.[1] !== session.identity.appId || framePath[2] !== session.identity.generationId) {
     throw new TypeError("Remote UI frame URL must be a generation-pinned credentialless extension origin.");
   }
   const iframe = document.createElement("iframe");
