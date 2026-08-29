@@ -37,6 +37,7 @@ A plan or ADR at `design-only` is direction, not executable evidence.
 
 - [Master execution plan](./implementation/codex-master-plan.md)
 - [Phase 9 — Dynamic Application Runtime](./implementation/phase-9-dynamic-application-runtime.md)
+- [Mandatory Phase 9 project-manager review hardening](./implementation/phase-9-plan-review-hardening.md)
 - [Phase 10 — RBAC and Extension Bootstrap](./implementation/phase-10-rbac-and-authorization-control-plane.md)
 - [Executable gates](./30-executable-poc-gates.md)
 - [`status.md`](../status.md)
@@ -84,6 +85,7 @@ A plan or ADR at `design-only` is direction, not executable evidence.
 - [ADR index](./adr/README.md)
 - [ADR-0021 Dynamic Applications and Zero-Downtime Delivery](./adr/0021-dynamic-application-runtime-and-zero-downtime-delivery.md)
 - [ADR-0022 RBAC and Extension Role Templates](./adr/0022-rbac-authorization-and-extension-role-templates.md)
+- [ADR-0023 Phase 9 Production Isolation and Static Delivery Hardening](./adr/0023-phase-9-production-isolation-and-static-delivery-hardening.md)
 - [Machine-readable evidence registry](./adr/evidence-registry.json)
 
 ## Current sequence

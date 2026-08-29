@@ -117,6 +117,12 @@
       "evidence": [
         "docs/implementation/phase-10-rbac-and-authorization-control-plane.md"
       ]
+    },
+    "0023": {
+      "level": "design-only",
+      "evidence": [
+        "docs/implementation/phase-9-plan-review-hardening.md"
+      ]
     }
   }
 }

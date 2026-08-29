@@ -87,16 +87,19 @@ Kill/rework: customer upgrades cannot be deterministic/recoverable or destructiv
 Scope:
 
 ```text
-Platform Plugin / Hot Application / Theme Skin taxonomy
-closed app/skin/bundle/generation contracts
+Platform Plugin / Hot Application / Theme Skin delivery classes
+closed app/skin/bundle/generation/isolation contracts
 prebuilt deterministic bundle and signed catalog
 secure extraction, SBOM/provenance, content-addressed store
 persistent PluginManager state machine
-isolated extension runner and capability-scoped host API
+per-generation production runner sandbox and capability-scoped host API
 namespaced quota-bound app storage
-Web Worker remote UI and fixed /apps/:appId/* host routes
+credentialless/opaque-origin remote UI and fixed /apps/:appId/* host routes
 atomic install/update/rollback and multi-process convergence
 live Theme Skin activation
+static customer source-change and trusted application build authority
+closed migration compatibility phases and rollback windows
+PostgreSQL worker-generation fencing
 Docker blue/green Platform Plugin deployment
 continuous traffic and maintenance-required evidence
 ```
@@ -106,6 +109,10 @@ Excluded:
 ```text
 host-process pnpm/npm install or downloaded-code import
 hot Payload collection/hook injection
+same-origin credential-bearing remote app realm
+same-user child process as production sandbox
+runtime database state as Platform Plugin desired graph
+arbitrary image/tag or self-asserted build evidence
 public third-party marketplace launch
 arbitrary dynamic relational ORM
 end-user RBAC administration
@@ -116,23 +123,30 @@ Exit:
 
 - signed official bundle downloads in background and tampering/revocation fails;
 - production activation runs no package manager/install scripts;
-- downloaded server code executes only in isolated runner with denied DB/Docker/env/network escape;
-- remote UI has no direct DOM/session/host-module authority and uses allowlisted K-Nex components;
+- downloaded server code executes only in a per-generation OS/container sandbox with denied host, cross-app, DB, Docker, environment, filesystem, and raw-network escape;
+- remote UI has no host-origin credentials, browser storage, ambient network, direct DOM/session/host-module authority and communicates only through the bounded host channel;
 - app/skin generations activate, update, rollback, drain, and restore atomically without host restart;
 - web/worker/runner/browser converge after invalidation loss;
-- full Platform Plugin target builds/starts/warms while old generation serves;
-- compatible promotion records continuous successful external probes and exact inventory;
+- a Platform Plugin target starts from the expected customer source commit and produces exact lock/graph/application/image signed evidence;
+- full target builds/starts/warms while old generation serves;
+- compatible promotion uses only online-expand/online-backfill work and records continuous successful external probes plus exact inventory;
+- post-retirement contract work cannot execute while rollback remains open;
 - failed target never changes traffic;
-- incompatible migration produces `maintenance-required` before promotion;
-- web/admin process cannot access Docker socket.
+- incompatible/offline migration produces `maintenance-required` before promotion;
+- green workers remain passive until a persisted fencing-token transfer and stale owners cannot claim/complete effects;
+- web/admin process cannot write the customer repo, build images, or access Docker directly.
 
 Kill/rework:
 
 - useful live app needs host Payload config mutation or host-realm code execution;
-- runner isolation depends only on TypeScript or Node flags;
+- browser isolation leaves ambient host cookies, authenticated fetch, storage, or network;
+- production runner isolation depends only on TypeScript, Node flags, or a same-user child process;
 - activation can serve mixed/unverified generations;
-- continuous availability requires Docker authority in the application process;
-- static plugin schema/artifact mismatch can reach traffic.
+- a static plugin can deploy without exact source/lock/graph/application build evidence;
+- continuous availability requires Docker/source-builder authority in the application process;
+- static plugin schema/artifact mismatch can reach traffic;
+- blue/green workers can duplicate correctness-relevant effects;
+- contract/offline migration is mislabeled as zero downtime.
 
 Decision:
 

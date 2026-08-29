@@ -2,28 +2,29 @@
 
 ## Decision summary
 
-K-Nex will support a user experience in which an authorized operator can select an official extension, let the platform download and validate it in the background, and activate it without making the customer site unavailable.
+K-Nex supports a product experience in which an authorized operator selects an official extension, the platform downloads and validates it in the background, and the extension becomes available without making the customer site unavailable when its delivery class and migration compatibility permit.
 
-That outcome is delivered through **two execution paths**, not by mutating the main Node.js process:
+That outcome uses two execution paths, never live host-process package mutation:
 
 ```text
-Hot Application Bundle
-  signed prebuilt server/UI artifacts
-  isolated runner + remote UI
+Hot Application / Theme Skin
+  signed immutable artifact
+  isolated generation warm-up
+  atomic live pointer activation
   no host restart
 
-Platform Plugin Release
-  existing full K-Nex plugin package
-  new immutable container generation
-  blue/green traffic promotion
-  no user-visible outage when compatibility permits
+Platform Plugin
+  exact customer source/lock/graph change
+  signed customer-specific application/image build
+  blue/green generation warm-up
+  compatibility-gated traffic promotion
 ```
 
-A raw `pnpm add` followed by `import()` inside the running web process is not an accepted production mechanism. It would bypass the resolved graph, static registration, Payload config, SBOM/provenance, migration fence, rollback, multi-process consistency, and reliable unload boundaries.
+A raw `pnpm add` followed by `import()` in the active web/worker process is rejected. It would bypass the resolved graph, static registration, Payload config, SBOM/provenance, migration fence, rollback, multi-process consistency, and reliable unload boundaries.
 
-## Why the current plugin cannot be hot-injected
+## Why a full current plugin cannot be hot-injected
 
-The accepted plugin contract can contribute:
+The accepted Platform Plugin contract can contribute:
 
 ```text
 Payload collections and schema
@@ -36,33 +37,29 @@ browser components and Puck blocks
 theme/build/provider code
 ```
 
-Those contributions are currently composed before Payload boot, generated as static package imports, reconciled, and frozen. Payload collections and production migrations are part of the boot-time config. Therefore a full `module.sales`-style package is a **Platform Plugin**, not a hot application.
-
-This boundary is preserved rather than weakened.
+These contributions are composed before Payload boot, generated as static imports, reconciled, and frozen. Full `module.sales`-class code is therefore a **Platform Plugin**, not a Hot Application.
 
 ## Reference from Twenty
 
-Twenty's application installer resolves NPM or tarball packages, securely extracts them, reads a manifest, stores application files, applies metadata migrations, refreshes caches, and runs application logic through a separate execution driver. Its local logic-function driver launches child Node processes; it does not install arbitrary application dependencies into the main CRM module graph. This validates the product pattern—live application installation—while also showing that isolation and a metadata/runtime substrate are prerequisites.
+Twenty demonstrates a useful product pattern: resolve/download an immutable package, apply declarative metadata, store prebuilt files, and execute extension logic/UI behind separate boundaries. K-Nex adopts that product pattern behind K-Nex contracts; it does not copy Twenty internals or treat arbitrary application code as trusted host modules.
 
-K-Nex adopts the pattern, not Twenty's internal contracts.
+## Extension delivery classes
 
-## Extension classes
+| Delivery class | Identity | Availability path | Execution | May alter host Payload config? |
+|---|---|---|---|---:|
+| Platform Plugin | existing `module.*`, `provider.*`, `builder.*`, `theme.*`, `integration.*`, `preset.*` | customer release + compatible blue/green promotion | trusted host/container code | yes, through reviewed source/migration/release |
+| Hot Application | `app.*` | live immutable generation | per-generation server sandbox + credentialless remote UI | no |
+| Theme Skin | `skin.*` | live immutable generation | declarative parsed data | no |
 
-| Class | Identity | Can install live? | Execution | May alter host Payload config? |
-|---|---|---:|---|---:|
-| Platform Plugin | existing `module.*`, `provider.*`, `builder.*`, `theme.*`, `integration.*`, `preset.*` | through zero-downtime release | trusted host/container code | yes, through reviewed release/migration |
-| Hot Application | `app.*` | yes | isolated server runner + remote UI | no |
-| Theme Skin | `skin.*` | yes | declarative tokens/recipes/scoped CSS/assets | no |
-
-All three appear in the future Plugin Manager. Their lifecycle buttons and guarantees differ truthfully.
+The contract discriminator is `ExtensionDeliveryClass`; it does not overload existing `PluginManifest.kind`.
 
 ### Platform Plugin
 
-The existing exact-version K-Nex package. It may own schema and deep framework integration. Add, upgrade, or removal creates a new application release.
+The existing exact-version K-Nex package. It may own schema and deep framework integration. Add, upgrade, or removal creates a new customer source commit, application bundle/image, migration plan, and deployment receipt.
 
 ### Hot Application
 
-A signed, immutable, prebuilt bundle that uses fixed host capabilities. Initial V1 contributions are bounded to:
+A signed, immutable, prebuilt bundle using fixed host capabilities. Initial surfaces are bounded to:
 
 ```text
 declarative app metadata and settings
@@ -71,82 +68,46 @@ navigation and generic /apps/:appId/* routes
 remote UI screens/blocks using allowlisted K-Nex components
 isolated logic functions
 source/action/tool descriptors dispatched through fixed host gateways
-event subscriptions and schedules only through platform-owned contracts
-namespaced app document/KV storage with quota and schema validation
-assets and localization
-health/testing metadata
+event subscriptions and schedules through platform-owned contracts
+namespaced schema-validated quota-bound document/KV storage
+assets, localization, health, testing metadata
 ```
 
-It cannot add Payload collections/globals/hooks, native host routes, host process services, host React modules, unrestricted SQL, direct database credentials, Docker access, inherited environment variables, or arbitrary network access.
+It cannot add Payload collections/globals/hooks, native host routes, host process services, host React modules, unrestricted SQL, direct database credentials, Docker access, inherited environment values, or raw network.
 
 ### Theme Skin
 
-A live-installable subset containing only:
-
-```text
-bounded theme tokens
-palettes and recipe selections
-scoped validated CSS
-content-addressed static assets
-profile migration metadata expressible as data transforms
-```
-
-A full `theme.*` package with JavaScript token validators, React primitive overrides, or executable migrations remains a Platform Plugin release.
+A live-installable data-only visual artifact containing bounded tokens, palettes, recipes, scoped CSS, approved content-addressed assets, and data-only profile transformations. Full executable `theme.*` code remains a Platform Plugin.
 
 ## Artifact format
 
 Official catalog entries point to immutable GitHub Release assets or an equivalent protected artifact store. Runtime never clones a moving branch.
 
-A Hot Application Bundle contains:
+A Hot Application bundle contains:
 
 ```text
 k-nex.app-bundle.json
 server/*.mjs              prebuilt self-contained logic bundles
-ui/*.mjs                  prebuilt remote-UI worker bundles
+ui/*.mjs                  prebuilt remote-UI bundles
 assets/*                  bounded immutable assets
 schemas/*                 JSON Schema only
 sbom.cdx.json
 provenance/attestation reference
 ```
 
-The manifest binds:
+The manifest binds exact identity/version, runtime ABI, artifact/file digests, entrypoints, permissions/capabilities, isolation profiles, network/secret references, storage quotas/schemas, routes/navigation/settings/templates, resource budgets, and lifecycle compatibility.
 
-```text
-app ID and exact version
-K-Nex runtime ABI range
-artifact and file digests
-server/UI entrypoints
-permissions and requested host capabilities
-network and secret-reference requirements
-storage quota and schemas
-routes/navigation/settings/templates
-resource budgets
-upgrade/uninstall hooks expressed through supported contracts
-```
-
-Dependencies are bundled at publication time. Production installation runs no lifecycle scripts and no package manager inside the web container.
+Dependencies are bundled at publication. Customer activation runs no package manager or lifecycle script.
 
 ## Official catalog trust
 
-The official catalog is a signed, versioned index. A catalog entry is accepted only when it binds:
+The official catalog is a signed, versioned index. An entry binds publisher, source repository/commit, immutable release asset, manifest/artifact/SBOM digests, hosted-build provenance, compatibility, support, revocation, permissions/capabilities, and resource/security impact.
 
-```text
-publisher identity
-source repository and commit
-release asset digest
-bundle manifest digest
-SBOM digest
-hosted-build provenance
-review/support status
-compatibility range
-revocation/security status
-```
-
-The installer verifies the catalog signature, artifact digest, provenance, closed manifest schema, path safety, file count/size, entrypoint inventory, forbidden imports, capability requests, permissions, budgets, and current support state before staging.
+Verification covers catalog trust, digest/provenance, closed manifests, secure archive extraction, entrypoint inventory, forbidden imports, capability requests, budgets, downgrade, and support/revocation before staging.
 
 ## PluginManager architecture
 
-`PluginManager` is the stable orchestration façade, not a god service:
+`PluginManager` is a stable orchestration façade, not a god service or generic package executor:
 
 ```ts
 interface PluginManager {
@@ -154,7 +115,7 @@ interface PluginManager {
   stage(planId: string): Promise<StagedExtension>
   validate(stageId: string): Promise<ValidationReport>
   activate(stageId: string, expectedRevision: number): Promise<ActivationReceipt>
-  rollback(activationId: string): Promise<ActivationReceipt>
+  rollback(activationId: string, expectedRevision: number): Promise<ActivationReceipt>
   disable(extensionId: string, expectedRevision: number): Promise<void>
   uninstall(extensionId: string, expectedRevision: number): Promise<void>
 }
@@ -164,23 +125,19 @@ It delegates to:
 
 ```text
 CatalogClient
-ArtifactFetcher
-ArtifactVerifier
-ContentAddressedArtifactStore
-ExtensionPlanner
-HotApplicationSupervisor
-RemoteUiRegistry
-RuntimeExtensionRegistry
-MigrationCoordinator
-DeploymentSupervisor
-TrafficRouter
-AuthorizationHook
-Audit/Outbox/Observability
+ArtifactFetcher / ArtifactVerifier / ContentAddressedArtifactStore
+ExtensionPlanner / RuntimeExtensionStore
+HotApplicationSandboxSupervisor
+RemoteUiIsolationHost / RuntimeExtensionRegistry
+MigrationCoordinator / WorkerGenerationCoordinator
+StaticCompositionChangeAuthority / TrustedApplicationBuilder
+DeploymentSupervisor / TrafficRouter
+AuthorizationHook / Audit / Outbox / Observability / Inventory
 ```
 
-The main application never receives the Docker socket or registry publishing credentials.
+The main application never receives customer source-repository write credentials, builder/image-publish authority, Docker socket, or registry credentials.
 
-## Live install flow
+## Hot Application live install
 
 ```text
 operator requests app@version
@@ -189,125 +146,154 @@ operator requests app@version
 → background content-addressed download
 → signature/provenance/SBOM/manifest verification
 → static bundle inspection and quota checks
-→ stage server/UI generation
-→ start isolated runner generation with no traffic
-→ run bounded install validation and health probes
+→ stage server/UI/storage generation
+→ start isolated server sandbox with no traffic
+→ create credentialless remote-UI generation
+→ run bounded install validation/health
 → prepare metadata/storage transaction
-→ atomically commit active generation pointer + revision + audit + outbox
+→ atomically commit active generation pointer + revision + receipt + audit + outbox
 → browser/process registries refetch
 → new navigation/screens become visible
 ```
 
-Failure before activation deletes or quarantines the staged generation and does not affect the active one.
+Failure before activation quarantines/deletes the staged generation and does not affect the active one.
 
 ## Atomic update and rollback
-
-An update stages a new generation beside the active generation:
 
 ```text
 active generation N
 staged generation N+1
 → validate/warm N+1
-→ commit pointer N → N+1
-→ new calls use N+1
-→ drain in-flight N calls
-→ retain N for rollback window
+→ atomically commit pointer N → N+1
+→ new calls/sessions use N+1
+→ drain in-flight N work
+→ retain N and its compatible data window for rollback
 ```
 
-Rollback atomically restores the previous compatible pointer. Data changes must declare backward compatibility or a reviewed irreversible boundary; the manager cannot promise rollback when the extension's migration contract makes it impossible.
+UI, server logic, storage metadata, and assets are generation-pinned. Cross-generation calls/messages fail. Rollback restores only a declared compatible generation; irreversible data state closes rollback explicitly.
 
-## Isolated server runner
+## Production server sandbox
 
-The reference topology adds `k-nex-extension-runner` as a separate service or managed pool. Each execution receives only a capability-scoped invocation envelope and short-lived app token.
+Production Hot Application logic runs in an OS/container sandbox per app generation or an independently reviewed equivalent. A same-user child process is development/test-only.
 
-Reference restrictions:
+Minimum boundary:
 
 ```text
-non-root process
-read-only root filesystem
-per-invocation/workload temp directory
-no Docker socket
-no customer database credential
-no inherited host secrets or NODE_OPTIONS
-explicit secret references resolved by host capability
-network denied by default; reviewed destination policy
-CPU, memory, wall-time, payload, result, log, and concurrency budgets
-process/container termination on timeout or policy violation
-structured IPC/RPC only
+separate process/mount/user/network authority
+unique non-root workload identity
+read-only root and code; bounded tmpfs/temp
+no host mounts, runtime/Docker socket, DB credential, or host secret
+all capabilities dropped; no-new-privileges
+reviewed syscall/MAC policy
+cgroup CPU/memory/process/file limits
+raw egress denied; reviewed calls use host-owned policy adapter
+short-lived generation/actor/delegation token
+structured schema-validated RPC only
+termination/quarantine on timeout, OOM, protocol, or policy violation
 ```
 
-Node's permission model may be defense in depth, but it is not the security boundary. Process/container isolation, credentials, network policy, and the host API are the boundary.
+App generations cannot read another app/generation's memory, files, tokens, temporary state, logs, or responses.
 
 ## Host API and app storage
 
-A Hot Application does not receive `req.payload` or a generic service locator. It calls versioned host capabilities such as:
+A Hot Application receives neither `req.payload` nor a generic service locator. It calls versioned capabilities such as registered source/action gateways, namespaced app storage, scoped file handles, declared events/schedules, secret-reference resolution, policy-owned HTTP fetch, and structured audit.
+
+Every host call binds active app generation, principal/effective actor/delegation, permission/record/field policy, surface/audience, budget, storage/network/secret scope, correlation, and audit identity.
+
+Initial storage is platform-owned namespaced document/KV with closed schemas, optimistic revisions, quotas, bounded indexes/query controls, backup/restore, and cross-app denial. Dynamic custom relational schema is deferred.
+
+## Credentialless remote UI
+
+A Web Worker alone is not sufficient because lack of DOM does not automatically remove network, storage, or host-origin credential authority.
+
+The accepted production shape is:
 
 ```text
-records.query/action through registered gateways
-appStorage.get/put/query/delete
-files.read/write through scoped handles
-events.publish/subscribe through declared descriptors
-secrets.resolveReference for declared keys
-http.fetch through destination policy
-jobs.schedule through a bounded scheduler contract
-audit.emit structured application observation
+verified generation-pinned UI bytes
+→ opaque-origin sandbox or dedicated credentialless extension origin
+→ strict CSP/content/integrity policy
+→ Web Worker/equivalent isolated execution realm
+→ transferred MessagePort to K-Nex host
+→ allowlisted remote component/event protocol
 ```
 
-The initial data store is a platform-owned namespaced document/KV store with strict JSON Schemas, optimistic revisions, quotas, indexes from a bounded declaration, backup/restore inclusion, and no cross-app reads. Dynamic custom relational objects are a later explicit gate.
+The realm has no customer cookies/tokens, local/session storage, IndexedDB/cache authority, ambient network, Service Worker/SharedWorker, popup, top navigation, downloads, host imports, or arbitrary nested execution. `connect-src` is denied. Network/data operations are requested through the bounded host channel and server capability gateway.
 
-## Remote UI
+The host validates generation, sequence, replay, schema, size, depth, rate, actor/session, component, prop, event, route, source, action, and asset identity. The host owns actual React/K-Nex components, DOM, focus, accessibility, routing, theme, transport, authorization, and sensitive-state clearing.
 
-A Hot Application UI runs in a Web Worker or equivalent isolated realm and communicates through a K-Nex-owned remote component protocol.
+Fixed routes such as `/apps/:appId/*` exist before installation; no runtime Next/Payload route injection occurs.
+
+## Theme Skin activation
+
+Theme Skins use stage/verify/activate pointer semantics. CSS is AST-parsed/scoped; remote imports and unrestricted URLs are rejected; assets are rewritten to approved content-addressed handles; token/property/rule/byte/complexity and accessibility checks run before activation.
+
+A full executable Theme Package follows Platform Plugin delivery.
+
+## Static Platform Plugin source and build authority
+
+A Platform Plugin can feel one-click in the panel, but the authoritative operation remains a static customer application change:
 
 ```text
-worker bundle
-→ emits allowlisted component tree and typed events
-→ host maps IDs to installed K-Nex components
-→ host owns DOM, focus, accessibility, theme, navigation, data gateways
+select exact plugin release
+→ verify expected customer base source commit/graph
+→ deterministically update k-nex.app.json/package inputs
+→ resolve exact lock, package closure, graph, registries, migrations
+→ write auditable target source commit/change record
+→ run full gates
+→ trusted builder emits customer-specific application bundle/image
+→ sign source commit, builder/workflow, lock/graph, SBOM, package closure, bundle/image digest
+→ DeploymentSupervisor accepts only that issued candidate
 ```
 
-The worker receives no direct DOM, cookies, localStorage, host module imports, or arbitrary React component injection. Generic host routes such as `/apps/:appId/*` and fixed extension slots exist before installation, so a live app does not mutate Next.js routes.
+Live database state cannot invent the Platform Plugin graph. Arbitrary tags, images, uncommitted manifests, and self-asserted inventory are rejected. A configured self-hosted builder is allowed only when its trusted identity and full materials are bound in signed evidence; Gate 8 hosted evidence remains valid rather than weakened.
 
-Remote DOM/remote-component libraries may be evaluated behind a K-Nex adapter. Their wire types do not become persisted public contracts until the kill-spike passes.
+## Migration compatibility and rollback
 
-## Theme skin activation
+Every step is one of:
 
-Theme skins use the same stage/verify/activate pointer model. CSS is parsed and scoped, remote imports/URLs are rejected except content-addressed approved assets, token values are bounded, and accessibility/visual checks run before publication.
+```text
+online-expand
+  additive state usable by old and new binaries
 
-A skin can activate live because it contains no host JavaScript. A full executable theme package follows the Platform Plugin release path.
+online-backfill
+  resumable/checkpointed/idempotent work safe during overlap
+
+post-retirement-contract
+  removal/tightening only after old generation and rollback window retire
+
+offline-required
+  explicit maintenance; no zero-downtime claim
+```
+
+Old and new binaries must pass concurrently against expanded state. Readiness and receipts bind the exact migration compatibility window. Contract cleanup cannot execute while rollback remains open.
+
+## Worker generation fencing
+
+Green workers may start for health in passive mode but cannot claim jobs, outbox effects, schedules, or integrations before persisted activation.
+
+A PostgreSQL-backed `WorkerGenerationFence` binds application/environment, active execution generation, monotonic fencing token, lease owner/expiry, and promotion revision. Every claim/completion/checkpoint carries the current token; stale blue owners cannot claim or complete after transfer. Idempotency remains required but does not replace fencing.
 
 ## Zero-downtime Platform Plugin delivery
 
-For a full plugin, the customer site remains available through blue/green or rolling replacement:
-
 ```text
 stable gateway/reverse proxy
-blue web/worker generation serving traffic
-separate deploy supervisor builds/pulls green image
-verify artifact/provenance/inventory
-run expand-compatible migrations under advisory lock
-start green web/worker with zero traffic
-warm and run readiness/authenticated smoke
+blue web/active-worker generation serves
+separate source/build/deployment authority prepares green
+verify source/application/image provenance and inventory
+run online-expand under advisory lock
+start green web and passive green worker with no traffic/effects
+warm and run readiness/authenticated/public smoke
+transfer persisted worker fencing token
 atomically promote gateway to green
-reconnect/drain realtime and in-flight work
+reconnect/resync realtime and drain old work
 emit deployment receipt
-retire blue after rollback window
+retain compatible rollback generation/window
+later permit contract cleanup only after rollback closes
 ```
 
-Docker Compose alone is not treated as a zero-downtime orchestrator. The reference implementation uses a separate least-privileged deployment supervisor plus gateway, or a supported orchestrator such as Docker Swarm. The web/admin process never controls Docker directly.
+Docker Compose alone is not a zero-downtime orchestrator. The reference uses a separate least-privileged supervisor plus gateway or an accepted orchestrator. Web/admin receives no source-write, build, image-publish, or Docker authority.
 
-Zero downtime is accepted only when:
-
-```text
-at least one healthy old generation remains during warm-up
-migrations follow expand/contract compatibility
-old and new versions can overlap for the promotion window
-workers use lease/idempotency semantics
-realtime has reconnect/resync convergence
-readiness and inventory match the target artifact
-```
-
-A destructive or mutually incompatible migration produces `maintenance-required`; the UI cannot falsely label it zero downtime.
+Zero downtime is accepted only when old/new binaries can overlap, migrations are compatible, target source/build/inventory is exact, worker ownership is fenced, realtime converges, and continuous external probes record no unavailable interval. Otherwise the operation is `maintenance-required` or unsupported.
 
 ## Lifecycle states
 
@@ -329,60 +315,61 @@ retirement-pending
 removed
 ```
 
-Every transition is revision-checked, idempotent, audited, and observable. Runtime state never changes the artifact digest or manifest.
+Platform Plugin plans also expose source-change/build-attestation, migration phase, rollback-window, contract-cleanup, traffic-generation, and worker-fence state. Every transition is revision-checked, idempotent, audited, and observable.
 
 ## Security and failure principles
 
-- Fail closed on signature, digest, compatibility, capability, migration, or health mismatch.
-- Never execute install scripts.
-- Never import downloaded code into the host process.
-- Never expose Docker socket, raw database credentials, or ambient host secrets to an app.
-- Activation is one atomic pointer/revision transaction.
+- Fail closed on signature, digest, compatibility, isolation, capability, source/build, migration, fence, or health mismatch.
+- Never execute production install scripts or import downloaded code into host.
+- Never expose source-repository, builder, Docker, raw database, host-secret, or ambient browser-origin authority to app/web code.
+- Activation is one generation pointer/revision transaction; platform promotion uses exact source/build/traffic/fence receipts.
 - Lost invalidations converge through revision polling.
-- Runner crash affects only that app invocation/generation.
-- Catalog compromise is limited by artifact signature/provenance and revocation policy.
-- Rollback retains exact prior artifacts, metadata revision, and receipts.
-- Backup/restore includes active generation pointers, app storage, settings, permissions, and artifact references.
+- Runner/remote UI failure remains app-local.
+- Rollback retains exact prior artifacts, source/image identity, migration window, metadata, and receipts.
+- Backup/restore includes active pointers, app storage, settings, permissions, artifacts, source/build references, worker fence, and deployment/activation receipts.
 
 ## Product experience
 
-The operator sees one coherent Plugin Manager:
-
 ```text
 Install live             Hot Application / Theme Skin
-Install with live deploy Platform Plugin
-Requires maintenance     incompatible migration only
+Install with live deploy Platform Plugin when overlap-safe
+Requires maintenance     offline/incompatible migration/topology
 ```
 
-The UI shows the execution class, requested permissions/capabilities, data and network access, migration/rollback limits, expected activation path, and continuous-availability eligibility before approval.
+The UI shows delivery class, requested permissions/capabilities, data/network access, isolation profiles, static source/build impact, migration phases, rollback limits, worker fence, and availability eligibility before approval.
 
-## Non-goals for the first gate
+## Non-goals for Gate 9
 
 ```text
 arbitrary NPM package execution
 host-process dependency injection
 hot addition of Payload collections/hooks
-third-party public marketplace governance
+same-origin credential-bearing remote UI
+same-user child process as production sandbox
+runtime DB-authored Platform Plugin graph
+arbitrary target image/tag or self-asserted build evidence
+public third-party marketplace governance
 general dynamic relational ORM
 native remote React component execution in host
-automatic secret or network grants
 claiming every migration is zero downtime
 ```
 
 ## Required proof
 
-The dynamic-runtime gate must demonstrate:
-
 ```text
-signed bundle download and tamper rejection
+signed bundle download and tamper/revocation rejection
 no package manager/install script in production activation
-isolated server execution and denied host escape
-remote UI without DOM/host-module access
-atomic activate/update/rollback with concurrent requests
-multi-web/worker revision convergence
-runner crash and timeout containment
-hot theme skin activation
-blue/green full-plugin release with continuous HTTP probes
-maintenance-required refusal for incompatible migration
-backup/restore and exact runtime inventory
+per-generation server sandbox and host/cross-app escape denial
+credentialless remote UI and authenticated-fetch/storage/network denial
+MessagePort protocol/generation/replay bounds
+atomic app/skin activate/update/rollback with concurrent requests
+multi-web/worker/runner/browser revision convergence
+hot Theme Skin activation
+exact customer source commit → lock/graph → signed app/image evidence
+real old/new Postgres overlap across migration classes
+worker fencing and one logical side effect
+continuous-traffic Docker blue/green Platform Plugin promotion
+maintenance-required refusal for incompatible/offline migration
+rollback-window and post-retirement contract enforcement
+backup/restore and exact combined runtime inventory
 ```

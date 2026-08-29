@@ -293,6 +293,28 @@ Stable owner/security/extension-admin/user-admin/auditor roles have platform bas
 
 Authorization uses ready platform and enabled/current-generation extension descriptors/bindings. Diagnostic snapshots may show inactive/retired/orphaned entries without restoring authority.
 
+## Accepted Phase 9 project-manager hardening decisions
+
+### D-069 — Delivery class does not overload Plugin Manifest kind
+
+`ExtensionDeliveryClass` distinguishes Platform Plugin, Hot Application, and Theme Skin. `PluginManifest.kind` remains the existing module/provider/builder/theme/integration/preset taxonomy.
+
+### D-070 — Remote UI has no ambient host-origin authority
+
+A same-origin worker alone is insufficient. Production remote UI uses an opaque-origin sandbox or dedicated credentialless extension origin, strict CSP/content policy, and a transferred bounded host channel; customer credentials, browser storage, and ambient network are denied.
+
+### D-071 — Production app execution requires per-generation OS isolation
+
+A same-user child process is development/test-only. Gate 9 production execution uses an OS/container sandbox per app generation or equivalent, with cross-app/generation isolation, denied host/DB/Docker/secret mounts, denied default egress, and enforceable resource/security controls.
+
+### D-072 — Platform Plugin delivery preserves static source and build evidence
+
+A Platform Plugin change starts from an expected customer source commit, deterministically produces the exact target manifest/lock/graph/registries/migrations, and yields trusted customer-specific application/image attestations before DeploymentSupervisor may promote it. Runtime database state cannot become desired composition.
+
+### D-073 — Migration phases and worker generations are fenced
+
+Zero-downtime plans classify `online-expand`, `online-backfill`, `post-retirement-contract`, and `offline-required` work. Contract cleanup waits until rollback closes. Green workers start passive and gain correctness-relevant execution authority only through a persisted monotonic fencing-token transfer.
+
 ## Provisional implementation choices
 
 - exact Payload/Next/React/Node/pnpm tuple remains pinned per gate;
@@ -301,7 +323,7 @@ Authorization uses ready platform and enabled/current-generation extension descr
 - one form engine is chosen only through a real consumer spike;
 - Lexical remains a bounded rich-text candidate;
 - Remote DOM or equivalent is evaluated behind a K-Nex remote UI adapter in P9.5;
-- initial local runner may use child processes, but Gate 9 production proof requires enforceable separate service/container credentials and network boundaries;
+- child-process runner is development/test-only; Gate 9 production proof requires enforceable per-generation OS/container isolation;
 - a global extension/authorization revision is the conservative baseline before measured granular invalidation.
 
 ## Open product decisions
@@ -309,8 +331,9 @@ Authorization uses ready platform and enabled/current-generation extension descr
 ```text
 official catalog repository/signing/root-trust operations
 final extension bundle builder and archive/signature libraries
-remote UI engine after kill-spike
-local runner process pool versus per-app container implementation
+remote UI engine after credentialless-realm kill-spike
+production per-app container/sandbox implementation
+trusted GitHub-hosted and self-hosted build-authority adapters
 first managed/self-hosted Docker/orchestrator product
 public third-party marketplace certification/commercial model
 richer dynamic object/data model after generic app storage
@@ -340,6 +363,12 @@ Payload Multi-Tenant as customer-level isolation
 customer branches/copied core
 K-Nex ORM above Payload
 runtime npm/pnpm install or downloaded host dynamic import
+same-origin credential-bearing remote app realm
+same-user child process as production app sandbox
+runtime DB-authored Platform Plugin desired graph
+arbitrary/self-asserted target image or build evidence
+blue/green workers without generation fencing
+contract migration before rollback-window closure
 web process Docker socket
 arbitrary Git branch as production catalog artifact
 Hot Application Payload collection/hook injection
