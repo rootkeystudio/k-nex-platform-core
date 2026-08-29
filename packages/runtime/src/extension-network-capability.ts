@@ -92,10 +92,16 @@ export class BoundedExtensionNetworkCapability implements ExtensionCapabilityHan
     try { origin = new URL(value.path, value.destination).origin; } catch { throw new ExtensionNetworkError("REQUEST_INVALID", "Network capability URL is invalid."); }
     if (origin !== value.destination || !this.destinations.has(origin)) throw new ExtensionNetworkError("DESTINATION_DENIED", "Network destination is not allowlisted.");
     if (!this.methods.has(value.method)) throw new ExtensionNetworkError("METHOD_DENIED", "Network method is not allowlisted.");
+    const grants = context.grants.filter((grant) => grant.kind === "http-fetch");
+    if (!grants.some((grant) => grant.destinations.includes(origin))) throw new ExtensionNetworkError("DESTINATION_DENIED", "Network destination was not granted to this invocation.");
+    if (!grants.some((grant) => grant.destinations.includes(origin) && grant.methods.includes(value.method))) throw new ExtensionNetworkError("METHOD_DENIED", "Network method was not granted to this invocation.");
     const headers: Record<string, string> = { ...value.headers };
     let secret = "";
     if (value.secretReference !== undefined) {
       if (!this.secretReferences.has(value.secretReference)) throw new ExtensionNetworkError("SECRET_REFERENCE_DENIED", "Secret reference is not allowlisted.");
+      if (!context.grants.some((grant) => grant.kind === "secret-reference" && grant.references.includes(value.secretReference!))) {
+        throw new ExtensionNetworkError("SECRET_REFERENCE_DENIED", "Secret reference was not granted to this invocation.");
+      }
       const resolved = await this.secrets.resolve(value.secretReference, context);
       const header = resolved.header.toLowerCase();
       if (!/^(?:authorization|x-[a-z0-9-]{1,64})$/u.test(header) || resolved.value === "" || /[\r\n]/u.test(resolved.value)) throw new ExtensionNetworkError("SECRET_REFERENCE_DENIED", "Resolved secret binding is invalid.");

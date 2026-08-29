@@ -12,7 +12,7 @@ const token = () => tokens.issue({
   tokenId: "capability-token-1", applicationId: "customer-alpha", environment: "production", appId: "app.sales-assistant",
   generationId: "sales-assistant-generation-1", invocationId: "runner-invocation-1",
   actor: { principalId: "user:one", effectiveActorId: "user:one" }, correlationId: "runner-correlation-1",
-  capabilities: ["records.query"], ttlMs: 30_000
+  grants: [{ kind: "records", required: true, reason: "Read assigned sales tasks.", operations: ["query"], resources: [{ id: "sales.tasks", version: 1 }] }], ttlMs: 30_000
 });
 const handler: ExtensionCapabilityHandler = {
   validateInput(value) { if (typeof value !== "object" || value === null) throw new Error("invalid input"); return value; },
@@ -47,5 +47,23 @@ describe("extension capability authority", () => {
     clock.value = new Date("2026-08-29T10:00:31.000Z");
     await expect(gateway().invoke(base)).rejects.toMatchObject({ code: "TOKEN_EXPIRED" });
     clock.value = new Date("2026-08-29T10:00:00.000Z");
+  });
+
+  it("cryptographically binds closed contract grants and maps each callable ID to its exact operation", async () => {
+    const value = tokens.issue({
+      tokenId: "capability-token-2", applicationId: "customer-alpha", environment: "production", appId: "app.sales-assistant",
+      generationId: "sales-assistant-generation-1", invocationId: "runner-invocation-2",
+      actor: { principalId: "user:one", effectiveActorId: "user:one" }, correlationId: "runner-correlation-2",
+      grants: [{ kind: "records", required: true, reason: "Read assigned sales tasks.", operations: ["query"], resources: [{ id: "sales.tasks", version: 1 }] }], ttlMs: 30_000
+    });
+    const calls = new ExtensionCapabilityGateway(tokens, { "records.query": handler, "records.action": handler }, clock, { maxInputBytes: 1024, maxOutputBytes: 1024, maxDepth: 4, maxCalls: 2 });
+    await expect(calls.invoke({ token: value, invocationId: "runner-invocation-2", generationId: "sales-assistant-generation-1", sequence: 1, capability: "records.action", payload: {}, signal: new AbortController().signal }))
+      .rejects.toMatchObject({ code: "CAPABILITY_DENIED" });
+    const [version, payload, signature] = value.split(".");
+    const forgedClaims = JSON.parse(Buffer.from(payload!, "base64url").toString("utf8"));
+    forgedClaims.grants[0].operations.push("action");
+    const forged = `${version}.${Buffer.from(JSON.stringify(forgedClaims)).toString("base64url")}.${signature}`;
+    await expect(calls.invoke({ token: forged, invocationId: "runner-invocation-2", generationId: "sales-assistant-generation-1", sequence: 1, capability: "records.action", payload: {}, signal: new AbortController().signal }))
+      .rejects.toMatchObject({ code: "TOKEN_INVALID" });
   });
 });

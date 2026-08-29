@@ -1,5 +1,5 @@
 import { canonicalJson } from "@k-nex/contracts";
-import type { ExtensionCapabilityClaims, ExtensionCapabilityHandler, ExtensionCapabilityId } from "@k-nex/runtime";
+import { ExtensionCapabilityError, type ExtensionCapabilityClaims, type ExtensionCapabilityHandler, type ExtensionCapabilityId } from "@k-nex/runtime";
 
 import type { RuntimeExtensionPool, RuntimeExtensionSession } from "./runtime-extension-store.js";
 
@@ -296,9 +296,13 @@ function inputObject(value: unknown, keys: readonly string[]): Record<string, un
   return input;
 }
 
-function namespace(claims: ExtensionCapabilityClaims, input: Record<string, unknown>): AppStorageNamespace {
+function namespace(claims: ExtensionCapabilityClaims, input: Record<string, unknown>, operation: "get" | "put" | "query" | "delete"): AppStorageNamespace {
   if (typeof input.schemaId !== "string") throw new AppStorageError("NAMESPACE_NOT_FOUND", "App storage schema identity is required.");
-  return { applicationId: claims.applicationId, environment: claims.environment, appId: claims.appId, schemaId: input.schemaId };
+  const schemaId = input.schemaId;
+  if (!claims.grants.some((grant) => grant.kind === "app-storage" && grant.operations.includes(operation) && grant.schemaIds.includes(schemaId))) {
+    throw new ExtensionCapabilityError("CAPABILITY_DENIED", "App storage schema was not granted to this invocation.");
+  }
+  return { applicationId: claims.applicationId, environment: claims.environment, appId: claims.appId, schemaId };
 }
 
 export function createAppStorageCapabilityHandlers(storage: PostgresAppStorage): Readonly<Partial<Record<ExtensionCapabilityId, ExtensionCapabilityHandler>>> {
@@ -308,14 +312,14 @@ export function createAppStorageCapabilityHandlers(storage: PostgresAppStorage):
       const input = inputObject(value, ["schemaId", "key"]);
       if (typeof input.key !== "string") throw new AppStorageError("KEY_INVALID", "App storage key is invalid.");
       return input;
-    }, invoke: async (claims, input) => storage.get(namespace(claims, input as Record<string, unknown>), (input as Record<string, unknown>).key as string), validateOutput: output },
+    }, invoke: async (claims, input) => storage.get(namespace(claims, input as Record<string, unknown>, "get"), (input as Record<string, unknown>).key as string), validateOutput: output },
     "app-storage.put": { validateInput: (value) => {
       const input = inputObject(value, ["schemaId", "key", "value", "expectedRevision"]);
       if (typeof input.key !== "string" || !Number.isSafeInteger(input.expectedRevision) || Number(input.expectedRevision) < 0) throw new AppStorageError("KEY_INVALID", "App storage put input is invalid.");
       return input;
     }, invoke: async (claims, input) => {
       const data = input as Record<string, unknown>;
-      return storage.put(namespace(claims, data), data.key as string, data.value, data.expectedRevision as number);
+      return storage.put(namespace(claims, data, "put"), data.key as string, data.value, data.expectedRevision as number);
     }, validateOutput: output },
     "app-storage.query": { validateInput: (value) => {
       const input = inputObject(value, ["schemaId", "prefix", "limit"]);
@@ -323,7 +327,7 @@ export function createAppStorageCapabilityHandlers(storage: PostgresAppStorage):
       return input;
     }, invoke: async (claims, input) => {
       const data = input as Record<string, unknown>;
-      return storage.query(namespace(claims, data), data.prefix as string, data.limit as number);
+      return storage.query(namespace(claims, data, "query"), data.prefix as string, data.limit as number);
     }, validateOutput: output },
     "app-storage.delete": { validateInput: (value) => {
       const input = inputObject(value, ["schemaId", "key", "expectedRevision"]);
@@ -331,7 +335,7 @@ export function createAppStorageCapabilityHandlers(storage: PostgresAppStorage):
       return input;
     }, invoke: async (claims, input) => {
       const data = input as Record<string, unknown>;
-      await storage.delete(namespace(claims, data), data.key as string, data.expectedRevision as number);
+      await storage.delete(namespace(claims, data, "delete"), data.key as string, data.expectedRevision as number);
       return { deleted: true };
     }, validateOutput: output }
   });

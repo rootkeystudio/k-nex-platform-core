@@ -73,7 +73,7 @@ test("proves revisioned, quota-limited, schema-validated, backed-up, cross-app i
     const token = tokens.issue({
       tokenId: "storage-token-1", applicationId: "customer-alpha", environment: "production", appId: "app.sales-assistant",
       generationId: "sales-assistant-generation-1", invocationId: "storage-invocation-1", actor: { principalId: "user:one", effectiveActorId: "user:one" },
-      correlationId: "storage-correlation-1", capabilities: ["app-storage.get"], ttlMs: 30_000
+      correlationId: "storage-correlation-1", grants: [{ kind: "app-storage", required: true, reason: "Read saved sales assistant preferences.", operations: ["get"], schemaIds: ["sales.preferences"] }], ttlMs: 30_000
     });
     const gateway = new ExtensionCapabilityGateway(tokens, createAppStorageCapabilityHandlers(storage), now, { maxInputBytes: 1024, maxOutputBytes: 2048, maxDepth: 8, maxCalls: 4 });
     await assert.rejects(gateway.invoke({
@@ -85,6 +85,10 @@ test("proves revisioned, quota-limited, schema-validated, backed-up, cross-app i
       payload: { schemaId: "sales.preferences", key: "view.primary" }, signal: new AbortController().signal
     });
     assert.deepEqual(throughGateway, backup.namespaces[0].records[0], "capability storage must use token-bound namespace identity");
+    await assert.rejects(gateway.invoke({
+      token, invocationId: "storage-invocation-1", generationId: "sales-assistant-generation-1", sequence: 2, capability: "app-storage.get",
+      payload: { schemaId: "sales.private", key: "view.primary" }, signal: new AbortController().signal
+    }), { code: "CAPABILITY_DENIED" }, "a token for one manifest-declared storage schema must not read a sibling schema");
   } finally {
     await pool.end();
     await container.stop();

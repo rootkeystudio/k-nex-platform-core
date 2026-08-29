@@ -1,6 +1,10 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-import { canonicalJson } from "@k-nex/contracts";
+import {
+  canonicalJson,
+  ExtensionCapabilityRequestSchema,
+  type ExtensionCapabilityRequest
+} from "@k-nex/contracts";
 
 export const extensionCapabilityIds = [
   "records.query", "records.action", "app-storage.get", "app-storage.put", "app-storage.query", "app-storage.delete",
@@ -8,6 +12,7 @@ export const extensionCapabilityIds = [
 ] as const;
 
 export type ExtensionCapabilityId = typeof extensionCapabilityIds[number];
+export type ExtensionCapabilityGrant = ExtensionCapabilityRequest;
 
 export interface ExtensionActorIdentity {
   readonly principalId: string;
@@ -25,7 +30,7 @@ export interface ExtensionCapabilityClaims {
   readonly invocationId: string;
   readonly actor: ExtensionActorIdentity;
   readonly correlationId: string;
-  readonly capabilities: readonly ExtensionCapabilityId[];
+  readonly grants: readonly ExtensionCapabilityGrant[];
   readonly issuedAt: string;
   readonly expiresAt: string;
 }
@@ -70,7 +75,6 @@ export interface ExtensionCapabilityClock { now(): Date; }
 const idPattern = /^[a-z][a-z0-9-]{2,127}$/u;
 const appIdPattern = /^app(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$/u;
 const actorPattern = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{2,159}$/u;
-const capabilitySet = new Set<string>(extensionCapabilityIds);
 
 function fail(code: ExtensionCapabilityError["code"], message: string): never {
   throw new ExtensionCapabilityError(code, message);
@@ -86,14 +90,19 @@ function parseTimestamp(value: unknown): number {
 function parseClaims(value: unknown): ExtensionCapabilityClaims {
   if (typeof value !== "object" || value === null || Array.isArray(value)) fail("TOKEN_INVALID", "Capability token claims are invalid.");
   const claims = value as Record<string, unknown>;
-  const expectedKeys = ["actor", "appId", "applicationId", "capabilities", "correlationId", "environment", "expiresAt", "generationId", "invocationId", "issuedAt", "schemaVersion", "tokenId"];
+  const expectedKeys = ["actor", "appId", "applicationId", "correlationId", "environment", "expiresAt", "generationId", "grants", "invocationId", "issuedAt", "schemaVersion", "tokenId"];
   if (Object.keys(claims).sort().join("\0") !== expectedKeys.sort().join("\0") || claims.schemaVersion !== 1 ||
     typeof claims.applicationId !== "string" || !idPattern.test(claims.applicationId) || typeof claims.environment !== "string" || !/^[a-z][a-z0-9-]{1,63}$/u.test(claims.environment) ||
     typeof claims.appId !== "string" || !appIdPattern.test(claims.appId) || typeof claims.generationId !== "string" || !idPattern.test(claims.generationId) ||
     typeof claims.invocationId !== "string" || !idPattern.test(claims.invocationId) || typeof claims.tokenId !== "string" || !idPattern.test(claims.tokenId) ||
-    typeof claims.correlationId !== "string" || !idPattern.test(claims.correlationId) || !Array.isArray(claims.capabilities) || claims.capabilities.length > 16 ||
-    new Set(claims.capabilities).size !== claims.capabilities.length || claims.capabilities.some((capability) => typeof capability !== "string" || !capabilitySet.has(capability)) ||
+    typeof claims.correlationId !== "string" || !idPattern.test(claims.correlationId) || !Array.isArray(claims.grants) || claims.grants.length < 1 || claims.grants.length > 16 ||
     typeof claims.actor !== "object" || claims.actor === null || Array.isArray(claims.actor)) fail("TOKEN_INVALID", "Capability token claims are invalid.");
+  const grants = claims.grants.map((grant) => {
+    const parsed = ExtensionCapabilityRequestSchema.safeParse(grant);
+    if (!parsed.success) fail("TOKEN_INVALID", "Capability token grants are invalid.");
+    return parsed.data;
+  });
+  if (new Set(grants.map((grant) => canonicalJson(grant))).size !== grants.length) fail("TOKEN_INVALID", "Capability token grants must be unique.");
   const actor = claims.actor as Record<string, unknown>;
   const actorKeys = Object.keys(actor).sort().join("\0");
   if ((actorKeys !== "effectiveActorId\0principalId" && actorKeys !== "delegationId\0effectiveActorId\0principalId") ||
@@ -101,7 +110,26 @@ function parseClaims(value: unknown): ExtensionCapabilityClaims {
     (actor.delegationId !== undefined && (typeof actor.delegationId !== "string" || !actorPattern.test(actor.delegationId)))) fail("TOKEN_INVALID", "Capability token actor is invalid.");
   parseTimestamp(claims.issuedAt);
   parseTimestamp(claims.expiresAt);
-  return claims as unknown as ExtensionCapabilityClaims;
+  return { ...claims, grants } as unknown as ExtensionCapabilityClaims;
+}
+
+function grantAllowsCapability(grant: ExtensionCapabilityGrant, capability: ExtensionCapabilityId): boolean {
+  switch (capability) {
+    case "records.query": return grant.kind === "records" && grant.operations.includes("query");
+    case "records.action": return grant.kind === "records" && grant.operations.includes("action");
+    case "app-storage.get": return grant.kind === "app-storage" && grant.operations.includes("get");
+    case "app-storage.put": return grant.kind === "app-storage" && grant.operations.includes("put");
+    case "app-storage.query": return grant.kind === "app-storage" && grant.operations.includes("query");
+    case "app-storage.delete": return grant.kind === "app-storage" && grant.operations.includes("delete");
+    case "events.publish": return grant.kind === "events" && grant.operations.includes("publish");
+    case "events.subscribe": return grant.kind === "events" && grant.operations.includes("subscribe");
+    case "http-fetch.request": return grant.kind === "http-fetch";
+    case "files.read": return grant.kind === "files" && grant.operations.includes("read");
+    case "files.write": return grant.kind === "files" && grant.operations.includes("write");
+    case "jobs.schedule": return grant.kind === "jobs" && grant.operations.includes("schedule");
+    case "audit.emit": return grant.kind === "audit" && grant.operations.includes("emit");
+  }
+  return false;
 }
 
 function signature(secret: Uint8Array, payload: string): Buffer {
@@ -176,7 +204,7 @@ export class ExtensionCapabilityGateway {
   async invoke(call: ExtensionCapabilityCall): Promise<unknown> {
     const claims = this.tokens.verify(call.token);
     if (claims.invocationId !== call.invocationId || claims.generationId !== call.generationId) fail("IDENTITY_MISMATCH", "Capability invocation identity does not match its token.");
-    if (!claims.capabilities.includes(call.capability)) fail("CAPABILITY_DENIED", "Capability was not granted to this invocation.");
+    if (!claims.grants.some((grant) => grantAllowsCapability(grant, call.capability))) fail("CAPABILITY_DENIED", "Capability operation was not granted to this invocation.");
     const handler = this.handlers[call.capability];
     if (!handler) fail("CAPABILITY_DENIED", "Capability has no registered host handler.");
     this.removeExpiredSequences();
