@@ -7,11 +7,11 @@
 
 ## Last completed
 
-P9.10 added the executable Gate 9 composition and falsification verifier, closed all P9.1–P9.10 result evidence, and recorded the Phase 9 review decision without advancing implementation into Phase 10.
+P9.10 closed Gate 9 and repaired the inherited Gate 2A caller to use the intentional pre-v1 `scopePlatformPluginRegistration` API rename, keeping every prior gate executable from the Phase 9 head.
 
 ## Validation
 
-Node 24.19.0: Gate 9 verifier, runtime 257, Payload adapter 32, extension bundler 11, extension runner 4, and UI runtime 53 tests passed. Chromium remote UI and Skin proofs passed. All 22 attack mappings and the ten-test PostgreSQL suite passed, including continuous Hot Application and Docker traffic, restore, multi-process convergence, fencing, rollback, disable, and uninstall.
+Node 24.19.0: Gate 2A and the Gate 9 verifier passed; runtime 257, Payload adapter 32, extension bundler 11, extension runner 4, and UI runtime 53 tests passed. Chromium remote UI and Skin proofs passed. All 22 attack mappings and the ten-test PostgreSQL suite passed, including continuous Hot Application and Docker traffic, restore, multi-process convergence, fencing, rollback, disable, and uninstall.
 
 ## Next
 

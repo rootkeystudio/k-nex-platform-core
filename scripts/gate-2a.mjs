@@ -16,7 +16,7 @@ import {
   RegisteredToolRedactor,
   RegisteredToolTargetResolver,
   executeRegistration,
-  scopePluginRegistration
+  scopePlatformPluginRegistration
 } from "../packages/runtime/dist/index.js";
 import { pluginContributionCategoryKeys } from "../packages/contracts/dist/index.js";
 
@@ -328,7 +328,7 @@ function registration(descriptors) {
         id: value.invocation.source.id,
         value: { descriptor: { id: value.invocation.source.id, version: 1 } }
       }));
-  return scopePluginRegistration({
+  return scopePlatformPluginRegistration({
     phases: [],
     inventory: [{ id: owner, contributions: {}, capabilityAccess: [] }],
     contributions,
@@ -404,7 +404,7 @@ async function directOutputProbe() {
       ? { success: true, data: value }
       : { success: false, error: new Error("invalid input") } };
   let dispatches = 0;
-  const resolved = scopePluginRegistration(executeRegistration({
+  const resolved = scopePlatformPluginRegistration(executeRegistration({
     graph: {
       resolverVersion: "1.0.0",
       plugins: [{ id: "module.gate-2a", kind: "module", package: "@k-nex/gate-2a", version: "1.0.0", integrity: "sha512-gate-2a", required: [], optional: [] }],
