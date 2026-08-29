@@ -48,5 +48,6 @@ Evidence maturity is atomic per ADR: the recorded level applies only when every 
 | [0018](./0018-agent-tool-contracts-and-safe-execution.md) | Agent tool contracts and safe execution gateway | accepted | executable-poc |
 | [0019](./0019-official-payload-plugin-adoption-boundaries.md) | Official Payload plugins as bounded implementation adapters | accepted | design-only |
 | [0020](./0020-reference-sales-and-headless-component-system.md) | Sales reference plugin and platform-owned headless component system | accepted | design-only |
+| [0021](./0021-rbac-authorization-and-plugin-role-templates.md) | Central RBAC, platform/plugin policy ownership, and customer-owned role templates | accepted | design-only |
 
 An accepted design-only ADR directs implementation but is not a production-readiness claim. Consequential changes update the decision register, evidence registry, machine-readable contracts, fixtures, and tests.

@@ -1,17 +1,19 @@
 # K-Nex Implementation Master Plan — Codex Execution Contract
 
 - **Status:** active execution plan
-- **Scope:** Gates 0–8 and Gate 2A
+- **Scope:** Gates 0–9 and Gate 2A
 - **Execution authority:** `status.md` selects the active phase/task
 - **Architecture authority:** generated contracts, accepted ADRs, and architecture documents
 - **Gate definitions:** [`../30-executable-poc-gates.md`](../30-executable-poc-gates.md)
 - **Official Payload plugin plan:** [`../32-payload-official-plugin-adoption-plan.md`](../32-payload-official-plugin-adoption-plan.md)
 - **Plugin platform direction:** [`../33-plugin-platform-hardening-and-reference-sales.md`](../33-plugin-platform-hardening-and-reference-sales.md)
 - **Component system direction:** [`../34-headless-component-system.md`](../34-headless-component-system.md)
+- **Authorization direction:** [`../adr/0021-rbac-authorization-and-plugin-role-templates.md`](../adr/0021-rbac-authorization-and-plugin-role-templates.md)
 - **Detailed Phase 0 plan:** [`phase-0.md`](./phase-0.md)
 - **Detailed Gates 1–5 history/tasks:** [`phase-details-gates-1-7.md`](./phase-details-gates-1-7.md)
 - **Detailed Phase 2A plan:** [`phase-2a-agent-tools.md`](./phase-2a-agent-tools.md)
-- **Authoritative future Gates 6–8 plan:** [`phase-details-gates-6-8.md`](./phase-details-gates-6-8.md)
+- **Authoritative Gates 6–8 plan:** [`phase-details-gates-6-8.md`](./phase-details-gates-6-8.md)
+- **Authoritative Phase 9 plan:** [`phase-9-rbac-and-authorization-control-plane.md`](./phase-9-rbac-and-authorization-control-plane.md)
 
 ## 1. Purpose
 
@@ -26,20 +28,24 @@ Resolve conflicts in this order:
 5. the linked detailed plan for the active gate;
 6. PR descriptions and implementation notes.
 
-The future Gate 6 and Gate 7 sections in `phase-details-gates-1-7.md` are superseded. Gates 6–8 are defined only in `phase-details-gates-6-8.md`.
+The future Gate 6 and Gate 7 sections in `phase-details-gates-1-7.md` are superseded. Gates 6–8 are defined only in `phase-details-gates-6-8.md`. Phase 9 is defined only in `phase-9-rbac-and-authorization-control-plane.md`.
 
-## 2. Product focus freeze
+## 2. Current product focus freeze
 
-Until Gate 8 passes:
+Gate 8 is accepted. The selected next core-productization phase is Phase 9 authorization and plugin bootstrap.
+
+Until Gate 9 receives project-manager PASS:
 
 ```text
 first-party reference domain module: module.sales
-new first-party logistics/restaurant/inventory/budgeting modules: prohibited
-component behavior: platform-owned
-customer reuse fixtures: Sales-based only
+new CRM/CMS domain breadth: prohibited
+new logistics/restaurant/inventory/budgeting modules: prohibited
+runtime package installation: prohibited
+customer runtime deployment: Docker/container-first
+package add/upgrade/removal: immutable release/deployment only
 ```
 
-Do not implement Cargo, Restaurant, Driver, Dispatch, Live Tracking, QR Menu, Inventory, Budgeting, or another domain module to discover a missing platform abstraction. Improve the platform and the Sales reference module instead.
+Do not implement Cargo, Restaurant, Driver, Dispatch, Live Tracking, QR Menu, Inventory, Budgeting, broad CRM, broad CMS, or another domain module to discover a missing authorization/administration abstraction. Improve the platform and exercise it through Sales plus bounded test-only fixtures.
 
 ## 3. One instruction to give Codex
 
@@ -67,7 +73,7 @@ Codex must:
 2. read `AGENTS.md` and `status.md`;
 3. locate the exact active task in this plan;
 4. read the linked detailed phase plan and relevant ADRs;
-5. read gate-assigned official Payload plugin notes where applicable;
+5. read gate-assigned official plugin/dependency notes where applicable;
 6. implement tasks only in the active phase.
 
 If the active task is absent, ambiguous, already complete, or blocked, stop and report the inconsistency. Do not infer a nearby task.
@@ -103,7 +109,7 @@ Codex must never:
 - enable auto-merge;
 - start the next phase;
 - convert a kill criterion into a workaround without project-manager approval;
-- add a second domain module before Gate 8;
+- begin domain expansion while the active roadmap phase forbids it;
 - preserve obsolete pre-v1 APIs through aliases or compatibility shims.
 
 The reviewer returns `PASS`, `REWORK`, `BLOCKED`, or `REJECT`. Only project-manager PASS and merge authorize the next phase.
@@ -117,7 +123,7 @@ exact-pinned
 compatible with the frozen framework tuple
 kept behind K-Nex contracts
 covered by access/bundle/lifecycle/failure tests
-removable if the kill criteria fire
+removable if kill criteria fire
 ```
 
 ## 5. Authoritative phase order
@@ -142,6 +148,8 @@ Phase 6   plugin platform hardening and Sales reference module
 Phase 7   comprehensive headless component system
    ↓
 Phase 8   lifecycle, application factory, release, and fleet safety
+   ↓
+Phase 9   RBAC, authorization policy, and plugin bootstrap control plane
 ```
 
 A later phase starts only after the preceding phase result records GO/PASS and `status.md` names the next task.
@@ -159,6 +167,7 @@ pnpm gate:5
 pnpm gate:6
 pnpm gate:7
 pnpm gate:8
+pnpm gate:9
 ```
 
 A gate command fails on the first missing requirement, requires no production secret, and is run by required CI at phase closeout.
@@ -309,8 +318,6 @@ P7.9   accessibility, SSR/hydration, theme matrix
 P7.10  performance, bundle, coverage audit, and closeout
 ```
 
-All 60 Component Gallery families require an explicit executable disposition. The small theme ABI remains small; compound behavior is platform-owned.
-
 Gate outcome:
 
 ```text
@@ -320,6 +327,8 @@ REDUCE COMPONENT COVERAGE WITH EXPLICIT DECISION
 ```
 
 ### Phase 8 — Lifecycle, Application Factory, Release, and Fleet Safety
+
+Authoritative detail: [`phase-details-gates-6-8.md`](./phase-details-gates-6-8.md)
 
 ```text
 P8.1   package release and compatibility boundaries
@@ -334,14 +343,39 @@ P8.9   fleet query, patch propagation, prior-release upgrade, restore
 P8.10  platform-foundation closeout
 ```
 
-No Cargo or Restaurant module is added. Two Sales-based customers prove independent composition, theme/settings/layout differences, and release cadence.
-
 Gate outcome:
 
 ```text
 PLATFORM FOUNDATION ACCEPTED
 REWORK APPLICATION FACTORY OR LIFECYCLE
 DO NOT START DOMAIN EXPANSION
+```
+
+### Phase 9 — RBAC, Authorization, and Plugin Bootstrap
+
+Authoritative detail: [`phase-9-rbac-and-authorization-control-plane.md`](./phase-9-rbac-and-authorization-control-plane.md)
+
+```text
+P9.1   authorization, role, grant, template, bootstrap, cleanup contracts
+P9.2   role-template contribution and permission-policy binding
+P9.3   PostgreSQL/Payload authorization storage
+P9.4   active/admin catalogs and effective authority resolution
+P9.5   application/record/field policy hooks across platform boundaries
+P9.6   protected roles, first owner, and plugin-template bootstrap
+P9.7   live enable/disable/re-enable plus uninstall/purge integration
+P9.8   live authorization revision and convergence
+P9.9   system access administration UI
+P9.10  Sales/schema-less proof, attack corpus, and closeout
+```
+
+Phase 9 keeps Sales as the sole domain reference. It may add bounded test-only schema-less fixtures to prove lifecycle behavior but no new first-party domain product.
+
+Gate outcome:
+
+```text
+GO SYSTEM SETTINGS, PLUGIN/THEME ADMINISTRATION, AND DOCKER CATALOG
+REWORK RBAC OR PLUGIN BOOTSTRAP
+REJECT LIVE PREINSTALLED-PLUGIN ENABLE SEMANTICS
 ```
 
 ## 7. Cross-phase quality gates
@@ -353,20 +387,23 @@ exact direct dependencies and frozen lockfile
 canonical generated artifacts
 no time/path/host/random/secret in committed generation
 clean-tree and staged-path reproducibility
-idempotent plugin/template installation
+idempotent plugin/template/bootstrap operations
 ```
 
 ### Security and authority
 
 ```text
 server-side authorization
-capability-scoped services
+role labels never authorize
+capability-scoped policy services
+normalized revisioned grants and assignments
 bounded inputs and resource use
 safe errors/logs/audit
 no secret in events/tools/settings/inventory/exports/evidence
 public/authenticated authority separated by ID
-runtime data cannot create executable contributions
+runtime data cannot create executable contributions or policies
 plugin UI cannot bypass source/action gateways
+last-owner and stale-authority attacks fail closed
 ```
 
 ### Plugin completeness
@@ -375,7 +412,7 @@ plugin UI cannot bypass source/action gateways
 complete declared-versus-actual inventory
 Sales exercises every mandatory contribution category
 one plugin conformance command
-settings/routes/navigation/templates are versioned and typed
+settings/routes/navigation/templates/role templates are versioned and typed
 component/Puck runtime parity
 lifecycle and migration fixtures
 ```
@@ -405,9 +442,9 @@ optional complex components remain tree-shakeable
 ### Evidence
 
 ```text
-real Postgres for migrations/transactions/lifecycle
-real Chromium for UI/focus/CSS/SSR behavior
-failure injection for durability and destructive operations
+real Postgres for migrations/transactions/lifecycle/authorization
+real Chromium for UI/focus/CSS/SSR/admin behavior
+failure injection for durability, revocation, and destructive operations
 packed-package tests
 previous-release upgrade and restore fixtures
 phase result states observed limitations only
@@ -422,9 +459,10 @@ Stop and request a decision when:
 - a new dependency family is required without a bounded spike;
 - an official plugin/library requires private types to become K-Nex contracts;
 - a phase kill criterion is observed;
-- component coverage would force theme ABI expansion or duplicated behavior;
 - Sales cannot exercise a proposed generic plugin capability coherently;
-- another domain module appears necessary before the platform contract is complete.
+- another domain module appears necessary before the active core phase exits;
+- live enable requires code hot-loading or weakens migration/readiness fences;
+- authorization cleanup would silently delete customer-owned roles or assignments.
 
 A decision request includes:
 
@@ -437,18 +475,16 @@ recommended option
 work that remains valid
 ```
 
-## 9. Post-Gate 8 boundary
+## 9. Post-Gate 9 boundary
 
-Only after Gate 8 PASS may the production roadmap select the next domain/product expansion:
+Only after Gate 9 project-manager PASS may the roadmap begin the next administration/deployment phase:
 
 ```text
-full CRM
-CMS features
-logistics/driver/dispatch/live tracking
-restaurant/QR menu/inventory/budgeting
-AI assistant productization
-commerce/payments
-third-party plugin distribution
+system settings administration
+plugin and theme administration
+verified official GitHub package/theme catalog
+Docker release/build/deploy controller
+operations center and backup/deployment UI
 ```
 
-The selected module starts from the Sales structure and passes the same plugin and component conformance gates.
+CRM/CMS product breadth remains a separate explicit roadmap decision after the administration and deployment core is sufficiently complete. New modules start from the Sales package structure and pass the same plugin, component, lifecycle, authorization, and release gates.

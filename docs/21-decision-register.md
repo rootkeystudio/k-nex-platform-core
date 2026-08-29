@@ -18,7 +18,7 @@ No long-lived customer branches of one core repository.
 
 ### D-004 — Payload is strategic V1 framework
 
-Payload is not treated as a casually replaceable provider. The executable gates validate sustainable K-Nex composition on Payload.
+Payload is not treated as a casually replaceable provider. Executable gates validate sustainable K-Nex composition on Payload.
 
 ### D-005 — Plugin taxonomy
 
@@ -28,9 +28,9 @@ Module, provider, builder, theme, integration, preset. Payload database adapter 
 
 Direct domain dependency remains direct; realtime/storage/email/builder implementations can use capabilities.
 
-### D-007 — Build-time executable composition; runtime validated settings
+### D-007 — Build-time executable composition; runtime validated state
 
-Runtime panel cannot install packages or change schema/import graph.
+Runtime panels cannot install packages or change the schema/import graph. Validated settings, lifecycle, roles, grants, assignments, and publications may change at runtime within installed code.
 
 ### D-008 — Manifest plus hermetic customer config
 
@@ -44,13 +44,13 @@ Plan/apply, exact package resolution, deterministic graph/registries, migration/
 
 No timestamps/paths/host/random/secrets; provenance and deployment metadata are separate signed evidence.
 
-### D-043 — Sales is the sole pre-v1 reference domain plugin
+### D-043 — Sales remains the core roadmap domain reference
 
-Until Gate 8 passes, `module.sales` is the only first-party domain module used to shape and prove plugin contracts. Logistics, restaurant, inventory, budgeting, driver, dispatch, live-tracking, QR-menu, and similar modules are deferred product work.
+`module.sales` is the first-party domain module used to shape and prove plugin contracts while the active core roadmap freezes domain breadth. Logistics, restaurant, inventory, budgeting, driver, dispatch, live-tracking, QR-menu, and similar modules remain deferred product work.
 
 ### D-044 — Platform gaps are solved through Sales before domain expansion
 
-A supported plugin contribution category is accepted only when Sales exercises it and the common conformance suite proves it. A second module may not be introduced merely to discover another missing platform abstraction.
+A supported plugin contribution category is accepted only when Sales or a bounded non-domain test fixture exercises it and the common conformance suite proves it. A second domain module may not be introduced merely to discover another missing platform abstraction.
 
 ## Accepted contract decisions
 
@@ -83,7 +83,19 @@ Accepted can remain design-only; executable/production proof requires linked evi
 
 ### D-045 — Complete plugin contribution taxonomy and conformance
 
-Settings, sources, actions, tools, events, jobs, realtime topics, components, blocks, routes, navigation, default pages, localization, lifecycle, and testing metadata are explicit contribution categories. Sales and one plugin conformance command define the reference implementation.
+Settings, sources, actions, tools, events, jobs, realtime topics, components, blocks, routes, navigation, default pages, localization, lifecycle, and testing metadata are explicit contribution categories. Sales and one plugin conformance command define the reference implementation. Phase 9 adds bounded `roleTemplates` and migrates first-party fixtures atomically.
+
+### D-049 — Permission IDs and policy bindings, not role labels
+
+Protected platform/plugin behavior references stable permission IDs. Application, record, and field policy bindings are trusted executable source reconciled against static descriptors; role labels never authorize.
+
+### D-050 — Plugin role templates are bounded defaults
+
+A plugin may expose versioned role templates containing only its own permissions. Templates never assign users, never grant platform/foreign permissions, and instantiate customer-owned roles through platform-controlled idempotent bootstrap. Selected permissions may be copied once into an existing role without silently subscribing that role to future template updates.
+
+### D-055 — Authorization owner is explicitly platform or plugin
+
+Permission descriptors use a discriminated owner: trusted platform namespace `system`, or one plugin ID. `system.*` descriptors and protected-role baselines live in a static platform registry, not a fake `module.system` plugin. Plugin contributions cannot claim platform ownership.
 
 ## Accepted data/runtime decisions
 
@@ -125,11 +137,19 @@ Postgres only in V1; customer owns final migrations.
 
 ### D-041 — Explicit agent tools and safe execution gateway
 
-Plugins may explicitly expose selected registered sources/actions as typed agent tools. Discovery is actor/delegation-filtered, every invocation is reauthorized, writes require declared approval/idempotency, and runtime content cannot create tools. MCP is an interoperability adapter and cannot weaken K-Nex policy or become a persisted core contract.
+Plugins may explicitly expose selected registered sources/actions as typed agent tools. Discovery is actor/delegation-filtered, every invocation is reauthorized, writes require declared approval/idempotency, and runtime content cannot create tools. MCP is an adapter and cannot weaken K-Nex policy or become a persisted core contract.
 
 ### D-042 — Official Payload plugins are bounded adapters
 
-Prefer official Payload plugins when they materially reduce implementation and maintenance work, but keep their types, schema, routes, domain assumptions, and lifecycle behind K-Nex/Payload adapters. Adoption is exact-pinned and gate-specific; no official plugin becomes a baseline dependency before executable evidence. `@payloadcms/plugin-mcp` is the accepted bounded MCP transport candidate; unrelated official plugin decisions remain gate-scoped.
+Prefer official Payload plugins when they materially reduce implementation and maintenance work, but keep their types, schema, routes, domain assumptions, and lifecycle behind K-Nex/Payload adapters. Adoption is exact-pinned and gate-specific; no official plugin becomes a baseline dependency before executable evidence. `@payloadcms/plugin-mcp` is the accepted bounded MCP transport candidate; unrelated decisions remain gate-scoped.
+
+### D-051 — Customer-owned normalized roles, grants, and assignments
+
+Roles, per-permission grant rows, and user/service assignments live in the customer database with optimistic revisions, audit, and platform-owned subject validation. Plugin grants bind their active authorization generation. Plugin upgrades and re-enable preserve customer edits. Template adoptions retain a canonical old baseline snapshot plus digest for reproducible three-way comparison.
+
+### D-052 — Effective and administrative authorization catalogs are separate
+
+Authorization uses ready platform descriptors/bindings plus enabled/ready/current-generation plugin descriptors/bindings. Administration may also display persisted non-executable disabled/orphaned snapshots. Disabled plugin grants remain dormant and plugin-only roles are hidden by default without deleting customer data; assigned inactive roles remain visible on subject detail.
 
 ## Accepted UI decisions
 
@@ -199,13 +219,25 @@ Depth/fields/page/points/bytes/time/concurrency/rate/cost bounded.
 
 NIST SSDF, OWASP ASVS/API Security and K-Nex test IDs map requirements to evidence.
 
-### D-040 — Independent falsifiable gates through platform foundation
+### D-040 — Independent falsifiable gates through active core roadmap
 
-Contract, composition, source, agent-tool, realtime, builder, UI/publication, plugin-authoring, component-system, and application-factory/lifecycle proofs are separated.
+Contract, composition, source, agent-tool, realtime, builder, UI/publication, plugin-authoring, component-system, application-factory/lifecycle, and authorization proofs are separated.
 
 ### D-048 — Two Sales-only customers prove reuse before vertical breadth
 
-The fleet/application-factory gate uses two independent customers with the same platform and Sales packages but different themes, settings, permissions, layouts, lockfiles, and release cadence. Cargo and Restaurant are not foundation fixtures.
+The application-factory/fleet gate uses two independent customers with the same platform and Sales packages but different themes, settings, permissions, layouts, lockfiles, and cadence.
+
+### D-053 — Docker/container-first immutable package lifecycle
+
+V1 customer applications are container-first. Plugin package add, upgrade, and removal rebuild and redeploy a verified immutable release; running containers never download executable packages. A preinstalled plugin may enable/disable/re-enable live only when release, schema, migration, configuration, dependency, setup, and authorization readiness are current.
+
+### D-054 — Authorization cleanup follows plugin lifecycle safety
+
+Schema-owning removal remains explicit purge release/migration work. Schema-less removal may apply a verified revision-bound cleanup plan without DDL migration. Cleanup never blindly deletes assigned, mixed, or customer-edited roles; failure leaves retired-generation grants dormant.
+
+### D-056 — Plugin authorization generations fence uninstall/reinstall
+
+Disable/re-enable and compatible upgrades preserve one plugin authorization generation. Uninstall/purge retires it; later reinstall allocates a new generation. Plugin grants/templates/snapshots bind the generation, so failed cleanup cannot resurrect old authority. Explicit reviewed reconciliation is required to rebind retained old-generation state.
 
 ## Provisional implementation choices
 
@@ -214,28 +246,32 @@ The fleet/application-factory gate uses two independent customers with the same 
 - TanStack Table is the preferred DataTable/DataGrid state-engine candidate.
 - TanStack Virtual is the preferred large-list/table virtualization candidate.
 - TanStack Form and React Hook Form are bounded candidates for the Sales form spike; only one is adopted if it reduces complexity.
-- Lexical is the preferred rich-text adapter candidate and must remain behind a versioned K-Nex contract.
-- Official Payload Import/Export is evaluated in Gate 8 as a bounded transfer/archive adapter, not as backup or migration.
+- Lexical is the preferred rich-text adapter candidate and remains behind a versioned K-Nex contract.
+- Official Payload Import/Export remains a bounded transfer/archive candidate, not backup or migration.
 - Payload Sentry is an optional deployment adapter while Pino/OpenTelemetry remain platform contracts.
-- Stripe and Ecommerce remain deferred explicit vertical accelerators.
-- Layout assignment/snapshot and constrained user patch representation remain the accepted workspace direction.
+- Stripe and Ecommerce remain deferred vertical accelerators.
+- Layout assignment/snapshot and constrained user patch remain the accepted workspace direction.
+- A global authorization revision is the conservative Phase 9 baseline; granular invalidation may follow without changing persisted IDs.
 
 ## Open product decisions
 
-- final first-party monorepo/package split after Gate 6 authoring freeze;
 - final private package scope/registry;
 - external distribution/license model;
-- first production deployment platform;
-- exact form engine after the Sales create/edit spike;
+- first managed/self-hosted container platform and operations product;
+- exact form engine after a Sales create/edit spike;
 - rich-text persisted-state and sanitization contract;
 - AI model-provider and conversation-retention policy;
-- whether any customer needs intra-customer tenant segmentation after Gate 8;
-- which real domain module follows the platform-foundation program;
-- whether any schema-owning compatibility package is worth supporting after V1.
+- whether any customer needs intra-customer tenant segmentation;
+- which real domain product follows the authorization/administration core;
+- whether any schema-owning compatibility package is worth supporting after V1;
+- group/directory authority and group-scoped role assignment;
+- final SSO/identity-provider product scope.
 
 ## Deferred product backlog
 
 ```text
+system settings and plugin/theme administration
+verified GitHub package/theme catalog and Docker release controller
 full CRM breadth
 CMS hierarchy/search/forms/redirect productization
 logistics, dispatch, driver, live tracking
@@ -252,6 +288,7 @@ third-party plugin marketplace
 - customer branches or copied core;
 - K-Nex ORM/database provider above Payload;
 - installing the complete Payload official plugin catalog by default;
+- runtime package download/import;
 - Payload/plugin/library private types as persisted K-Nex contracts;
 - automatic raw collection exposure;
 - automatic exposure of all sources/actions/collections as AI tools;
@@ -263,7 +300,15 @@ third-party plugin marketplace
 - generic schema-owning retained-data uninstall promise;
 - timestamps inside committed deterministic graph;
 - manual fleet YAML as deployed truth;
-- parallel first-party domain modules before the Sales reference/conformance gate;
-- making every theme reimplement the entire component catalog;
-- allowing each plugin to create its own fetch/cache/table/form infrastructure where K-Nex provides one;
-- using Cargo and Restaurant modules merely to prove customer composition.
+- role-label authorization or a universal `superadmin` string bypass;
+- fake optional `module.system` ownership for fixed platform permissions;
+- plugin-controlled user assignment;
+- plugin templates granting platform or foreign-plugin permissions;
+- reusing plugin ID alone as uninstall/reinstall grant lineage;
+- embedding mutable permission arrays as the sole role-grant persistence model;
+- deleting customer roles/grants on ordinary plugin disable;
+- expiring/scheduled owner assignments;
+- parallel first-party domain modules before the active roadmap permits them;
+- making every theme reimplement the component catalog;
+- allowing each plugin to create its own transport/cache/table/form/authorization infrastructure;
+- using Cargo or Restaurant merely to prove customer composition.

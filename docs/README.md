@@ -1,8 +1,8 @@
 # K-Nex Architecture Documentation
 
-K-Nex is a Payload-based, manifest-driven application factory that composes trusted backend/UI plugins, authenticated data sources, output contracts, agent-tool capabilities, realtime infrastructure, visual CMS/workspace composition, and runtime-configurable installed themes into independently deployed customer products.
+K-Nex is a Payload-based, manifest-driven application factory that composes trusted backend/UI plugins, authenticated data sources, output contracts, agent-tool capabilities, realtime infrastructure, visual CMS/workspace composition, runtime-configurable installed themes, and customer-owned authorization into independently deployed products.
 
-The foundation program deliberately uses `module.sales` as its sole first-party reference domain plugin. New logistics, restaurant, inventory, budgeting, and similar modules are deferred until the plugin platform, component system, lifecycle, and customer-application factory gates pass.
+The accepted foundation through Gate 8 uses `module.sales` as its sole first-party domain reference. Phase 9 keeps Sales as the reference while completing RBAC, plugin policy hooks, role templates, first-owner bootstrap, lifecycle-aware dormant grants, and live authorization convergence before CRM/CMS product breadth.
 
 ## Normative order
 
@@ -25,7 +25,7 @@ Run `python3 scripts/validate_repository_contracts.py` before merging architectu
 4. [Module system](./04-module-system.md)
 5. [Customer applications](./06-customer-applications.md)
 
-## Composition, plugins, and lifecycle
+## Composition, plugins, lifecycle, and authorization
 
 1. [Plugin authoring quick start and tested examples](./plugin-authoring.md)
 2. [Plugin taxonomy and capabilities](./13-plugin-taxonomy-and-capabilities.md)
@@ -36,6 +36,7 @@ Run `python3 scripts/validate_repository_contracts.py` before merging architectu
 7. [Plugin lifecycle](./19-plugin-lifecycle-and-package-management.md)
 8. [Data, migrations, and versioning](./10-data-migrations-and-versioning.md)
 9. [Payload database selection](./23-database-adapters-and-runtime-providers.md)
+10. [ADR-0021: RBAC, policy hooks, and role templates](./adr/0021-rbac-authorization-and-plugin-role-templates.md)
 
 ## UI, components, builder, themes, and dynamic data
 
@@ -57,7 +58,7 @@ Run `python3 scripts/validate_repository_contracts.py` before merging architectu
 6. [Domain blueprints](./08-domain-blueprints.md)
 7. [Technology and package baseline](./26-technology-package-baseline.md)
 
-Domain blueprints are deferred product context. They do not authorize implementation before Gate 8.
+Domain blueprints are deferred product context. They do not authorize implementation while the active roadmap keeps domain expansion frozen.
 
 ## Review remediation and executable proof
 
@@ -77,11 +78,10 @@ Domain blueprints are deferred product context. They do not authorize implementa
 2. [Phase 0 — Contract freeze and repository readiness](./implementation/phase-0.md)
 3. [Phase 2A — Agent tool contracts and safe execution](./implementation/phase-2a-agent-tools.md)
 4. [Historical Gates 1–5 task catalog](./implementation/phase-details-gates-1-7.md)
-5. [Authoritative future Gates 6–8 task catalog](./implementation/phase-details-gates-6-8.md)
+5. [Authoritative Gates 6–8 task catalog](./implementation/phase-details-gates-6-8.md)
+6. [Phase 9 — RBAC, authorization, and plugin bootstrap](./implementation/phase-9-rbac-and-authorization-control-plane.md)
 
-The old future Gate 6–7 sections in `phase-details-gates-1-7.md` are superseded. Future execution uses `phase-details-gates-6-8.md`.
-
-Implementation plans are execution specifications. A phase plan does not prove completion; completion is recorded separately in a phase result document.
+Implementation plans are execution specifications. Completion is recorded separately in phase-result documents and the ADR evidence registry.
 
 ## Current accepted direction
 
@@ -90,41 +90,24 @@ Implementation plans are execution specifications. A phase plan does not prove c
 | Product | Separate customer repositories, databases, deployments, and release cadences | design-only |
 | Framework | Payload is the strategic V1 application framework | executable foundation |
 | Database | Payload Postgres adapter; Docker Postgres locally or external `DATABASE_URL` | executable foundation |
+| Deployment | Container-first customer runtime; immutable package releases | accepted design, Gate 8 release evidence |
 | Composition | Exact packages, canonical manifest, deterministic resolved graph/registries | executable-poc |
 | IDs | Hierarchical dot namespace, optional hyphen inside one segment | executable-poc for current pre-v1 grammar |
-| Reference plugin | `module.sales` is the only first-party domain module until Gate 8 | design-only |
-| Plugin authoring | Sales exercises every supported contribution category and passes one conformance suite | executable-poc |
-| Official Payload plugins | Gate-scoped bounded adapters; no automatic catalog install or contract ownership | bounded MCP subset executable; broader policy design-only |
-| Plugin lifecycle | Schema-owning V1 plugins prove disable/re-enable now; upgrade, archive/export, purge, backup, and restore remain Gate 8 | partial executable evidence |
+| Reference plugin | `module.sales` remains the core roadmap reference | executable-poc through Gates 6–8 |
+| Plugin authoring | Sales exercises the supported contribution surface and conformance suite | executable-poc |
+| Plugin lifecycle | Disable/re-enable, upgrade, purge, backup, restore, and fleet evidence | executable-poc |
 | Registration | `manifest → contracts → providers → schema → behavior → jobs → data-handlers → ui → admin → validate → freeze` | executable-poc |
 | Data sources | Plugin-owned bounded projections behind authenticated gateway | executable-poc |
 | Agent tools | Explicit source/action-backed tools; MCP is an adapter | executable-poc |
-| Realtime | Transactional outbox plus supported Socket.IO memory topology and convergence | executable-poc |
+| Realtime | Transactional outbox plus supported Socket.IO topology and convergence | executable-poc |
 | Builder | Puck behind canonical engine adapter; runtime/storage remain separate | executable-poc |
 | Themes | Small stable primitive ABI plus strict runtime profiles | executable-poc |
 | Atomic CMS publication | Revisioned page/document pairs, rollback, idempotency, and current-policy validation | executable-poc |
-| Components | Comprehensive platform-owned headless component system; themes style, not reimplement behavior | design-only |
-| Accessibility | WCAG 2.2 AA target for supported surfaces | partial executable evidence |
-| Application factory | `create-knex-app`, lifecycle, release/fleet proof in Gate 8 | design-only |
-| Supply chain | Exact integrity, SBOM, signed provenance, deployment receipt before production distribution | evidence pending |
-
-## Canonical examples
-
-```text
-module.sales
-provider.realtime.socketio
-builder.puck
-theme.minimal
-theme.neobrutalism
-sales.tasks
-sales.tools.create-task
-sales.page.overview
-sales.table.tasks
-metric.scalar@1
-table.records@1
-```
-
-Persisted IDs never use package paths. Package names may remain kebab-case.
+| Components | Comprehensive platform-owned headless component system | executable-poc |
+| Authorization | Central RBAC, plugin policy bindings, role templates, dormant grants, live revision | design-only; Phase 9 active |
+| Accessibility | WCAG 2.2 AA target for supported surfaces | executable proof surfaces, no product certification |
+| Application factory | `create-knex-app`, two customers, lifecycle, release/fleet proof | executable-poc |
+| Supply chain | Exact integrity, SBOM, signed provenance, deployment receipt | executable-poc; no SLSA level claimed |
 
 ## Immediate sequence
 
@@ -136,9 +119,10 @@ Gate 2A  agent tools and safe MCP execution                      complete
 Gate 3   outbox and realtime convergence                         complete
 Gate 4   builder kill-spike                                      complete
 Gate 5   themes, accessibility, atomic publication               complete
-Gate 6   plugin platform hardening + complete Sales reference    complete
-Gate 7   comprehensive headless component/data/form/page system active
-Gate 8   lifecycle + create-knex-app + release/fleet safety
+Gate 6   plugin platform hardening + Sales reference             complete
+Gate 7   comprehensive component/data/form/page system           complete
+Gate 8   lifecycle + application factory + release/fleet safety  complete
+Gate 9   RBAC + policy hooks + plugin role bootstrap              active
 ```
 
-Do not implement another first-party domain module before Gate 8. Missing capabilities are solved in the platform and exercised through Sales.
+Do not begin CRM/CMS breadth or another first-party domain module before Gate 9 project-manager PASS and a following roadmap decision. Missing authorization and administration capabilities are solved in the platform and exercised through Sales.

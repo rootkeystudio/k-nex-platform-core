@@ -1,6 +1,6 @@
 # Repository Agent Rules
 
-These rules apply to the whole repository. Before changing anything, read this file, `status.md`, and the active plan under `docs/implementation/`.
+These rules apply to the whole repository. Before changing anything, read this file, `status.md`, the active plan under `docs/implementation/`, and the related accepted ADRs.
 
 ## Scope and workflow
 
@@ -12,7 +12,8 @@ These rules apply to the whole repository. Before changing anything, read this f
 - Do not advance to the next phase. When every task, phase result, and full phase gate pass, set the state to `Ready for phase review`, open or refresh the phase PR, and stop.
 - Implementation agents must not merge their own PR or enable auto-merge. Only the designated reviewer/project manager may issue PASS and merge.
 - Stop and report when requirements conflict, an accepted invariant cannot be met, a kill criterion fires, or the task needs an unplanned architecture decision.
-- Until Gate 8 passes, `module.sales` is the sole first-party reference domain module. Do not implement logistics, restaurant, inventory, budgeting, dispatch, driver, live-tracking, QR-menu, or another domain module to discover a missing platform abstraction.
+- During Phase 9, `module.sales` remains the sole first-party domain reference. Do not begin CRM/CMS breadth or implement logistics, restaurant, inventory, budgeting, dispatch, driver, live-tracking, QR-menu, or another domain module to discover an authorization or administration abstraction.
+- A bounded test-only fixture may prove a generic platform property only when the active plan explicitly requires it; it must not become a second domain product.
 
 ## Engineering rules
 
@@ -27,9 +28,11 @@ These rules apply to the whole repository. Before changing anything, read this f
 9. Prefer established, well-maintained, industry-standard libraries when they reduce complexity or improve reliability.
 10. Use existing project dependencies before adding packages or reimplementing common behavior. Check official documentation, source-facing types, and the exact installed/candidate version before assuming a capability is missing.
 11. Make durable architectural decisions. Do not merge a disposable stopgap that is knowingly intended to be replaced later.
-12. Solve generic plugin, component, query, builder, lifecycle, CLI, and fleet gaps in the platform and exercise them through Sales before creating domain breadth.
+12. Solve generic plugin, component, query, builder, lifecycle, authorization, administration, CLI, and fleet gaps in the platform and exercise them through Sales before creating domain breadth.
+13. Role labels are presentation, never authority. Protected behavior uses stable permission IDs and current server-side policy decisions.
+14. Package add, upgrade, and removal are immutable release/deployment operations. Running containers never download or import new executable packages.
 
-## Code boundaries
+## Code and authority boundaries
 
 - Preserve package and server/browser/editor boundaries defined by the architecture docs.
 - Do not expose third-party implementation types as K-Nex public or persisted contracts.
@@ -37,8 +40,13 @@ These rules apply to the whole repository. Before changing anything, read this f
 - Do not read or commit secrets. Use declared environment-variable names or secret references only.
 - Comments should explain non-obvious intent, constraints, or trade-offs, not restate the code.
 - Split files or functions when they contain independent responsibilities; do not split only to satisfy an arbitrary line count.
-- Plugin UI must use K-Nex source/action/query/component contracts where coverage exists; do not create a parallel transport, cache, table, form, or accessibility stack inside a module.
+- Plugin UI must use K-Nex source/action/query/component contracts where coverage exists; do not create a parallel transport, cache, table, form, accessibility, or authorization stack inside a module.
 - Themes own tokens, slots, recipes, and bounded structural CSS. They do not reimplement platform-owned compound component behavior.
+- Runtime/database content cannot create executable contributions, permission policy hooks, role-template descriptors, package imports, or capability bindings.
+- Plugins cannot assign users, grant `system.*`, or mutate protected platform roles.
+- A plugin-owned grant is effective only with a current trusted descriptor and binding, lifecycle readiness, current revisions, and a matching active plugin authorization generation.
+- Disable/re-enable and compatible upgrades preserve a plugin authorization generation; uninstall/purge retires it. Reinstall must not reactivate retired-generation grants without explicit reviewed reconciliation.
+- Authorization cleanup must be release- and revision-bound, audited, replay-safe, and must not silently delete customer-owned mixed or assigned roles.
 
 ## Dependencies
 
@@ -59,6 +67,8 @@ Before adding a dependency:
 - Never claim completion when required validation was skipped or failed; record it as a blocker.
 - Keep diagnostics deterministic and actionable.
 - A named conformance/gate command must fail when required evidence did not actually run.
+- Security-relevant state changes require real PostgreSQL transaction/rollback evidence where the active plan requires it.
+- UI authority and lockout safeguards require real browser journeys where the active plan requires them.
 
 ## `status.md` protocol
 

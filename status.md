@@ -1,21 +1,21 @@
 # Project Status
 
 - **Updated:** 2026-08-29
-- **Phase:** Post-Gate 8 — Roadmap Selection
-- **Active task:** Select and document the next productization phase
+- **Phase:** Phase 9 — RBAC, Authorization, and Plugin Bootstrap
+- **Active task:** P9.1 — Freeze platform/plugin ownership, role, grant, template, generation, bootstrap, and cleanup-plan contracts
 - **State:** Ready to start
 
 ## Last completed
 
-Phase 8 is accepted. The platform foundation now has squash-safe lifecycle, application-factory, release-provenance, deployment-inventory, restore, and full-closure Fleet evidence while Sales remains the sole first-party reference domain.
+Project-manager review accepted and hardened the post-Gate-8 core roadmap. Phase 9 now distinguishes trusted `platform/system` authorization from plugin ownership, uses normalized generation-bound grants, reproducible role-template baselines, non-executable orphan diagnostics, non-expiring first-owner protection, ready preinstalled-plugin live lifecycle, and verified schema-less cleanup. Uninstall retires a plugin authorization generation so failed cleanup cannot resurrect old grants on reinstall; schema-owning removal remains purge/migration work.
 
 ## Validation
 
-`pnpm gate:8` PASS with Node 24.19.0; contracts 152, composition 84, runtime 238, five PostgreSQL proofs, packed closure 18, no-`.git` squash snapshot regression, hosted run 33214953185 PASS, and exact-head Architecture Contracts run 33221512203 PASS on attempt 1.
+Gate 8 remains accepted on Node 24.19.0 with its complete PostgreSQL, browser, package, provenance, restore, and fleet evidence. The Phase 9 roadmap selection changes documentation and decisions only; no Phase 9 package code, generated schema, migration, or executable gate has run yet.
 
 ## Next
 
-Choose and document the next productization phase before implementation. Do not begin domain expansion or add another first-party module until that roadmap decision is recorded.
+Implement P9.1 only: machine-readable platform/plugin owner, permission, role/grant/assignment/template/snapshot/generation, policy-binding, bootstrap, protected-owner, revision, and authorization-cleanup plan contracts with generated-schema parity and failure fixtures.
 
 ## Blockers
 

@@ -1,65 +1,75 @@
 # K-Nex Platform Core
 
-K-Nex is a Payload-based application factory for delivering independently deployed, customer-specific CMS, CRM, operations, analytics, and future vertical products from reusable, versioned packages.
+K-Nex is a Payload/PostgreSQL application factory for independently deployed customer CMS, CRM, operations, analytics, and future vertical products.
 
 ```text
 Payload + Postgres
-+ K-Nex contracts, composition, runtime, and plugins
-+ plugin-owned authenticated sources/actions/tools/events/UI
-+ canonical CMS/workspace documents and Puck adapter
-+ platform-owned headless components and installable themes
-+ customer-owned content, settings, migrations, and infrastructure
-+ application factory, release, restore, and fleet evidence
-= independently deployable customer product
++ deterministic K-Nex contracts/composition/runtime
++ trusted exact-version plugins, providers, themes, and builder adapters
++ authenticated sources, actions, tools, events, jobs, and UI
++ customer-owned roles, settings, content, layouts, migrations, and infrastructure
++ immutable container releases, restore evidence, and fleet inventory
+= independently deployable customer application
 ```
 
-K-Nex is not initially a shared multi-tenant SaaS. Each customer application owns a separate repository, database, storage boundary, secrets, deployment, migrations, themes, content, and release cadence.
+K-Nex is not initially a shared multi-tenant SaaS. Each customer application has its own repository, database, storage boundary, secrets, deployment, migrations, content, authorization state, and release cadence.
 
-## Foundation-program focus
+## Current status
 
-Until Gate 8 passes, the only first-party reference domain module is:
+The executable platform foundation through **Gate 8 is accepted**. The active roadmap is:
 
 ```text
-module.sales
+Phase 9 — RBAC, Authorization, and Plugin Bootstrap
 ```
 
-Sales is used to make the entire plugin system complete and repeatable:
+Phase 9 completes the administration/security core before CRM or CMS product breadth:
 
 ```text
-manifest and package boundaries
-Payload schema and migrations
-permissions and settings
-sources and output contracts
-actions and agent tools
-events, jobs, outbox, and realtime
-browser queries and mutations
-headless components and Puck blocks
-routes, navigation, and default pages
-lifecycle, upgrade, restore, and conformance tests
+stable plugin permission descriptors
+bounded application/record/field policy hooks
+customer-owned roles and normalized grants
+user/service role assignments
+versioned plugin role templates
+protected system roles and first-owner bootstrap
+disabled-plugin dormant authority
+live authorization revision and revocation
+schema-less cleanup versus schema-owning purge
+system access administration UI
 ```
 
-Logistics, restaurant, inventory, budgeting, dispatch, driver, live-tracking, QR-menu, commerce, and similar domains are deferred product work. Missing platform mechanisms are solved once through Sales before another domain module begins.
+`status.md` is the current execution source. The authoritative plan is [`docs/implementation/phase-9-rbac-and-authorization-control-plane.md`](./docs/implementation/phase-9-rbac-and-authorization-control-plane.md).
 
-See:
+## Deployment decision
 
-- [Plugin platform hardening and Sales reference](./docs/33-plugin-platform-hardening-and-reference-sales.md)
-- [Headless component system and data experience](./docs/34-headless-component-system.md)
+K-Nex V1 is **Docker/container-first**.
 
-## Strategic boundaries
+```text
+package add / upgrade / removal
+  → verified immutable release
+  → Docker image build
+  → migration/readiness plan
+  → container deployment
 
-- **Payload is the strategic V1 application framework.** K-Nex does not pretend framework neutrality.
-- **Postgres is selected through Payload.** K-Nex does not add another ORM or primary-database provider abstraction.
-- **Plugins are exact-version trusted packages.** Runtime data cannot download packages or create executable contributions.
-- **Customer applications consume shared packages.** They do not copy or patch platform core source.
-- **Server authorization is authoritative.** UI visibility, builder metadata, caches, agent catalogs, and realtime subscriptions never replace permission and record policy.
-- **Builder documents are declarative.** No arbitrary JavaScript, SQL, Payload query, package import, secret, unrestricted URL, or global CSS.
-- **Realtime invalidates and refetches.** Durable facts use transactional outbox semantics; WebSocket delivery is not business truth.
-- **One small theme ABI, broad platform components.** Themes supply tokens, slots, recipes, and bounded CSS; K-Nex owns complex component behavior.
-- **Pre-v1 obsolete paths are removed.** No compatibility shims are maintained for unreleased APIs.
+preinstalled plugin enable / disable / re-enable
+  → live PostgreSQL-backed lifecycle transaction when ready
+```
 
-## Current executable foundation
+Running containers never download or import executable packages. A future official GitHub package/theme catalog will produce release plans; it will not mutate a running process.
 
-The repository is no longer documentation-only. Accepted executable gates provide:
+Typical customer topology:
+
+```text
+web
+worker / outbox processor
+PostgreSQL
+object storage
+optional Redis/backplane according to topology
+backup, logs, metrics, traces, and deployment evidence
+```
+
+## Foundation evidence
+
+Accepted executable gates provide:
 
 ```text
 Gate 0
@@ -67,16 +77,16 @@ Gate 0
   deterministic generation, governance, and CI
 
 Gate 1
-  deterministic package resolution/composition,
-  static registries, Payload/Postgres migration and boot
+  exact package resolution/composition, static registries,
+  Payload/Postgres migration, boot, and runtime inventory
 
 Gate 2
-  authenticated source gateway, record/field authorization,
-  Metric/Table contracts, budgets, cache and safe errors
+  authenticated data-source gateway, record/field authorization,
+  Metric/Table contracts, budgets, caching, and RFC 9457 errors
 
 Gate 2A
-  explicit agent tools, approval/idempotency/audit,
-  bounded official Payload MCP transport adapter
+  explicit source/action-backed agent tools,
+  approval/idempotency/audit, bounded Payload MCP adapter
 
 Gate 3
   transactional outbox, leased idempotent processing,
@@ -84,189 +94,139 @@ Gate 3
 
 Gate 4
   canonical UiDocument, editor-independent runtime,
-  Puck adapter, fixed-shell policy, bundle/accessibility proof
+  Puck adapter, fixed-shell policy, accessibility/bundle boundaries
 
 Gate 5
-  semantic primitive ABI, Minimal and Neobrutalism themes,
-  atomic CMS publication/rollback, deterministic layouts,
-  real PostgreSQL and Chromium evidence
+  semantic theme ABI, Minimal and Neobrutalism,
+  atomic CMS page/document publication and deterministic layouts
+
+Gate 6
+  complete plugin contribution taxonomy, Sales reference plugin,
+  package boundaries, settings/routes/pages, plugin conformance
+
+Gate 7
+  comprehensive headless component/data/form/page system,
+  DataTable/DataGrid, Puck blocks, SSR/hydration, accessibility/performance
+
+Gate 8
+  upgrade/migration fencing, archive/purge/backup/restore,
+  create-knex-app, two independent customers, SBOM/provenance,
+  deployment receipts and full-closure fleet patch evidence
 ```
 
-Phase 6 / P6.1 is active; `status.md` is the current execution source.
+This is strong executable platform evidence, not a claim of a finished CRM/CMS product, a production-observed customer fleet, complete WCAG certification, or a SLSA level.
 
-This is a tested platform foundation, not a production-ready customer-delivery release.
+## Strategic boundaries
 
-## Canonical identity examples
+- **Payload is the strategic V1 application framework.** Replacing it would be a platform migration, not a provider switch.
+- **Postgres is the V1 primary database.** K-Nex does not add a parallel ORM/database abstraction.
+- **Plugins are trusted in-process code.** Package/type boundaries are not a malicious-code sandbox.
+- **Exact packages and immutable releases.** Runtime data cannot install packages or create executable contributions.
+- **Server authorization is authoritative.** UI hiding, role labels, cached catalogs, builder metadata, agent discovery, and realtime subscriptions do not grant authority.
+- **Roles are customer data; permissions are stable contracts.** Plugins may provide role templates but never assign users or grant platform permissions.
+- **Builder documents are declarative.** No arbitrary JavaScript, SQL, import path, secret, unrestricted server URL, or global CSS.
+- **Realtime invalidates and refetches.** Durable facts use transactional outbox semantics.
+- **One small theme ABI, broad platform components.** Themes style compound behavior; they do not reimplement it.
+- **Pre-v1 obsolete paths are removed.** No compatibility shim is kept for unreleased APIs.
+
+## Reference plugin
+
+`module.sales` remains the sole first-party domain reference during Phase 9. It exercises:
 
 ```text
-module.sales
-provider.realtime.socketio
-builder.puck
-theme.minimal
-theme.neobrutalism
-sales.tasks
-sales.task.create
-sales.tools.create-task
-sales.page.overview
-sales.table.tasks
-metric.scalar@1
-table.records@1
+schema and customer migrations
+permissions and settings
+sources and actions
+agent tools
+events, jobs, outbox, and realtime
+browser queries and mutations
+components and Puck blocks
+routes, navigation, and default pages
+lifecycle, upgrade, restore, and conformance
+Phase 9 role templates and policy hooks
 ```
 
-Dots express namespace hierarchy. Package names are deployment locations, for example `@k-nex/module-sales`.
+Sales is a platform reference and test harness, not yet a complete commercial CRM.
 
 ## Package direction
-
-Existing and planned package boundaries include:
 
 ```text
 @k-nex/contracts
 @k-nex/composition
 @k-nex/runtime
 @k-nex/payload-adapter
+@k-nex/provider-realtime-socketio
 @k-nex/ui-runtime
-@k-nex/builder-puck
 @k-nex/ui-design-system-contracts
-@k-nex/theme-minimal
-@k-nex/theme-neobrutalism
-@k-nex/payload-builder-storage
-
-created only when a real consumer exists:
 @k-nex/ui-components
 @k-nex/ui-data
 @k-nex/ui-forms
 @k-nex/ui-pages
 @k-nex/ui-builder-blocks
 @k-nex/ui-testing
-@k-nex/plugin-testing
-@k-nex/cli
+@k-nex/builder-puck
+@k-nex/payload-builder-storage
+@k-nex/theme-minimal
+@k-nex/theme-neobrutalism
+@k-nex/module-sales
 ```
 
-No empty package is created merely because it appears in the target architecture.
+A package is added only when an active task has a real consumer. Third-party framework, editor, protocol, and behavior-engine types remain behind K-Nex contracts and adapters.
 
-## Plugin contribution model
-
-A complete plugin may explicitly contribute:
+## Composition and sources of truth
 
 ```text
-schema and migrations
-services and permissions
-settings
-sources and actions
-agent tools
-events, jobs, and realtime topics
-components and Puck blocks
-routes, navigation, and default page templates
-localization
-health, audit, lifecycle, and testing metadata
-```
-
-Every contribution is statically declared, executable bindings are reconciled declared-versus-actual, and database/CMS content cannot create executable code paths.
-
-Sales will become the reference implementation and must pass one clean conformance command before a second module is authorized.
-
-## Component system
-
-The Component Gallery's 60 component families are the minimum coverage inventory, supplemented by K-Nex-specific data, form, page, and builder utilities.
-
-The architecture is layered:
-
-```text
-small stable theme primitive ABI
-→ platform-owned style-agnostic accessible components
-→ data/form/page utilities
-→ plugin compositions and canonical Puck blocks
-→ theme tokens, recipes, slots, and customer overrides
-```
-
-Priority product components include:
-
-```text
-QueryBoundary and canonical result states
-Pagination, search, filter, facets, and sorting
-semantic Table and explicit DataGrid mode
-DataTable with column/selection/action utilities
-forms and server-problem mapping
-page templates
-rich-text and visualization adapters
-Puck bridges over the same runtime components
-```
-
-Style-agnostic components may include structural CSS needed for semantics, focus, overlays, virtualization, reduced motion, and forced colors. They do not include brand presentation or arbitrary persisted CSS.
-
-## Application composition
-
-A generated customer repository is governed by:
-
-```text
-k-nex.app.json                 desired composition
-k-nex.config.ts                bounded source-controlled registration input
-package.json + pnpm-lock.yaml  installed bytes and integrity
-.k-nex/generated/              deterministic graph and registries
+k-nex.app.json                 desired non-secret composition
+package.json + pnpm-lock.yaml  installed exact bytes and integrity
+released plugin manifests      static package claims
+k-nex.config.ts                bounded source-controlled extensions
+.k-nex/generated/              deterministic resolved graph and registries
+customer database              roles, settings, content, layouts, publications
 customer migrations            final schema/data evolution
-runtime records                content, layouts, theme profiles, settings
-signed release evidence        provenance and deployment receipt
+signed release evidence        artifact provenance and closure
+runtime inventory/receipt      observed deployed truth
 ```
 
-The final `create-knex-app` product is Gate 8 work. Planned behavior includes exact plugin/theme selection, local Docker or external Postgres, deterministic installation, migration/readiness planning, and initial default-page instantiation. Do not assume the user-facing CLI is complete before that gate passes.
+A mismatch fails closed; layers do not silently override one another.
 
-## Immediate roadmap
+## Commands
 
-```text
-Gate 5   themes, accessibility, atomic publication, layouts      complete
+The root `package.json` contains the authoritative commands. Current accepted foundation validation is:
 
-Gate 6   plugin platform hardening + complete Sales reference    active
-         contribution taxonomy and authoring API
-         standard query/action/page/Puck contracts
-         plugin conformance command
-
-Gate 7   comprehensive headless component system
-         DataTable/forms/pages/Puck blocks
-         complete Sales reference UI
-
-Gate 8   upgrade/lifecycle/backup/restore
-         create-knex-app
-         two independent Sales-based customer applications
-         SBOM/provenance/deployment/fleet proof
+```bash
+pnpm install --frozen-lockfile
+pnpm gate:8
+pnpm audit --audit-level high
+git diff --check
 ```
 
-Only after Gate 8 project-manager PASS may the roadmap select the next domain product.
-
-## Contract governance
-
-Machine-readable contracts are normative:
-
-```text
-contracts/architecture-contracts.v1.json
-contracts/generated-contracts.v1.json
-schemas/
-fixtures/
-docs/adr/evidence-registry.json
-```
-
-Use the commands defined by the active phase; generated artifacts are changed only through their authoring source. ADR decision status and evidence maturity are separate.
+Phase 9 will add `pnpm gate:9` only when its complete executable acceptance path exists.
 
 ## Documentation
 
 Start with [the documentation index](./docs/README.md).
 
-Execution sources:
+Execution:
 
-- [Master execution plan](./docs/implementation/codex-master-plan.md)
-- [Future Gates 6–8 task plan](./docs/implementation/phase-details-gates-6-8.md)
-- [`status.md`](./status.md)
 - [`AGENTS.md`](./AGENTS.md)
+- [`status.md`](./status.md)
+- [Master execution plan](./docs/implementation/codex-master-plan.md)
+- [Phase 9 plan](./docs/implementation/phase-9-rbac-and-authorization-control-plane.md)
 
-Architecture foundations:
+Architecture and decisions:
 
-- [Contract governance and determinism](./docs/28-contract-governance-and-determinism.md)
-- [Runtime security and reliability gates](./docs/29-runtime-security-reliability-and-quality-gates.md)
+- [Product vision](./docs/01-product-vision.md)
+- [System architecture](./docs/02-system-architecture.md)
+- [Plugin lifecycle](./docs/19-plugin-lifecycle-and-package-management.md)
+- [Runtime security and reliability](./docs/29-runtime-security-reliability-and-quality-gates.md)
 - [Executable gates](./docs/30-executable-poc-gates.md)
 - [Decision register](./docs/21-decision-register.md)
+- [ADR index](./docs/adr/README.md)
+- [ADR-0021 authorization decision](./docs/adr/0021-rbac-authorization-and-plugin-role-templates.md)
 
-## Repository status
+## Roadmap boundary
 
-The repository contains executable contracts, packages, fixtures, real PostgreSQL and browser proofs, failure injection, and detailed future plans. It is still pre-v1 and not production ready. Plugin lifecycle/upgrade/restore, the comprehensive component catalog, the application factory, signed release evidence, and multi-customer fleet operations remain future gates.
+Before Gate 9 PASS, do not begin CRM/CMS breadth or another first-party domain module. The next planned productization layer after Gate 9 is system settings, plugin/theme administration, an official GitHub package/theme catalog, and a Docker release controller.
 
 ## License
 

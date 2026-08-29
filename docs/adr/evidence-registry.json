@@ -1,20 +1,66 @@
 {
   "schemaVersion": 1,
-  "levels": ["design-only", "executable-poc", "production-observed", "superseded"],
+  "levels": [
+    "design-only",
+    "executable-poc",
+    "production-observed",
+    "superseded"
+  ],
   "records": {
-    "0001": { "level": "design-only", "evidence": [] },
-    "0002": { "level": "design-only", "evidence": [] },
-    "0003": { "level": "design-only", "evidence": [] },
-    "0004": { "level": "design-only", "evidence": [] },
-    "0005": { "level": "design-only", "evidence": [] },
-    "0006": { "level": "design-only", "evidence": [] },
-    "0007": { "level": "design-only", "evidence": [] },
-    "0008": { "level": "design-only", "evidence": [] },
-    "0009": { "level": "superseded", "evidence": ["docs/adr/0011-payload-database-adapter-selected-at-scaffold.md"] },
-    "0010": { "level": "design-only", "evidence": [] },
-    "0011": { "level": "design-only", "evidence": [] },
-    "0012": { "level": "design-only", "evidence": [] },
-    "0013": { "level": "design-only", "evidence": [] },
+    "0001": {
+      "level": "design-only",
+      "evidence": []
+    },
+    "0002": {
+      "level": "design-only",
+      "evidence": []
+    },
+    "0003": {
+      "level": "design-only",
+      "evidence": []
+    },
+    "0004": {
+      "level": "design-only",
+      "evidence": []
+    },
+    "0005": {
+      "level": "design-only",
+      "evidence": []
+    },
+    "0006": {
+      "level": "design-only",
+      "evidence": []
+    },
+    "0007": {
+      "level": "design-only",
+      "evidence": []
+    },
+    "0008": {
+      "level": "design-only",
+      "evidence": []
+    },
+    "0009": {
+      "level": "superseded",
+      "evidence": [
+        "docs/adr/0011-payload-database-adapter-selected-at-scaffold.md"
+      ]
+    },
+    "0010": {
+      "level": "design-only",
+      "evidence": []
+    },
+    "0011": {
+      "level": "design-only",
+      "evidence": []
+    },
+    "0012": {
+      "level": "design-only",
+      "evidence": []
+    },
+    "0013": {
+      "level": "design-only",
+      "evidence": []
+    },
     "0014": {
       "level": "executable-poc",
       "evidence": [
@@ -50,7 +96,12 @@
         "scripts/gate-8.mjs"
       ]
     },
-    "0016": { "level": "design-only", "evidence": ["docs/adr/0016-payload-strategic-v1-framework.md"] },
+    "0016": {
+      "level": "design-only",
+      "evidence": [
+        "docs/adr/0016-payload-strategic-v1-framework.md"
+      ]
+    },
     "0017": {
       "level": "executable-poc",
       "evidence": [
@@ -103,6 +154,13 @@
         "docs/33-plugin-platform-hardening-and-reference-sales.md",
         "docs/34-headless-component-system.md",
         "docs/implementation/phase-details-gates-6-8.md"
+      ]
+    },
+    "0021": {
+      "level": "design-only",
+      "evidence": [
+        "docs/adr/0021-rbac-authorization-and-plugin-role-templates.md",
+        "docs/implementation/phase-9-rbac-and-authorization-control-plane.md"
       ]
     }
   }

@@ -1,15 +1,16 @@
 # Domain Blueprints — Deferred Product Backlog
 
-These blueprints describe possible future module boundaries. They are **not active implementation plans**, do not select a gate task, and are not customer fixtures for the platform-foundation program.
+These blueprints describe possible future module boundaries. They are **not active implementation plans**, do not select a gate task, and are not customer fixtures for the active core program.
 
-Until Gate 8 passes:
+During Phase 9:
 
 ```text
 implemented first-party reference domain module: module.sales
+new CRM/CMS breadth: prohibited
 new logistics/restaurant/inventory/budgeting modules: prohibited
 ```
 
-Missing plugin, component, query, page, lifecycle, CLI, or fleet capabilities are solved through the platform and the Sales reference module first.
+Missing permission, role-template, policy, administration, plugin, component, query, page, lifecycle, CLI, or fleet capabilities are solved through the platform and Sales first. Bounded test-only fixtures may prove generic lifecycle behavior only when the active plan explicitly requires them; they are not product modules.
 
 ## Logistics graph — future candidate
 
@@ -77,23 +78,32 @@ Public menu sources must never expose internal cost, supplier, margin, or stock-
 ## Cross-domain rules
 
 - Modules own their facts and public contracts.
-- One module does not read another module’s private Payload collection.
+- One module does not read another module's private Payload collection.
 - Immediate behavior uses a service/command contract; completed facts use events.
 - Substantial optional collaboration belongs in an integration plugin.
 - Customer-specific policy begins in the customer repository.
 - Generic Metric/Table/Chart blocks consume output contracts, not domain storage.
 - Realtime transport never owns domain truth.
 - Public and workspace sources/actions use separate authority-specific IDs.
-- Every future module starts from the Sales package layout and passes the Gate 6–8 conformance suites.
+- Plugins declare stable permission IDs and bounded policy hooks; role names never authorize.
+- Plugin role templates may grant only same-owner permissions and never assign users.
+- Every future module starts from the Sales package layout and passes plugin, component, lifecycle, authorization, release, and customer-upgrade conformance.
 
 ## Preconditions for selecting a blueprint
 
-A real product/customer requirement may select one blueprint only after:
+The foundation gates are complete:
 
 ```text
 Gate 6  plugin authoring contract and Sales conformance PASS
 Gate 7  comprehensive component/data/form/page system PASS
-Gate 8  lifecycle, create-knex-app, release/fleet proof PASS
+Gate 8  lifecycle, application factory, release/fleet proof PASS
 ```
 
-The selected vertical receives a new bounded product plan. The blueprint itself is not sufficient authorization to write the module.
+The current required precondition is:
+
+```text
+Gate 9  RBAC, plugin policy hooks, protected roles,
+        role-template bootstrap, live revocation, and lifecycle integration PASS
+```
+
+After Gate 9, the roadmap first selects the necessary system settings, plugin/theme administration, and Docker catalog/deployment work. A real vertical begins only through a separate accepted product plan with an identified customer/product requirement. This blueprint alone is not authorization to write a module.

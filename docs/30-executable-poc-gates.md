@@ -6,7 +6,7 @@ A gate must be independently falsifiable. K-Nex will not build the entire platfo
 
 A gate starts only after its predecessor's contract/evidence is stable enough. Failure causes a documented redesign or rejection; it does not get hidden by adding more features.
 
-The platform-foundation program deliberately uses `module.sales` as its only first-party domain module. Domain breadth is deferred until Gate 8.
+The platform-foundation program deliberately uses `module.sales` as its only first-party domain module. Phase 9 continues that rule while completing the authorization and administration core.
 
 ## Gate 0 — Contract freeze and repository governance
 
@@ -250,7 +250,7 @@ Exit:
 - browser accessibility, SSR/hydration, bundle, and representative performance budgets pass;
 - plugins do not import theme packages or third-party behavior engines directly where K-Nex coverage exists.
 
-Kill/rework criterion: component coverage requires turning every theme into a separate component framework, leaks third-party types into K-Nex contracts, or cannot preserve authority/accessibility through the data and builder paths.
+Kill/rework criterion: component coverage requires turning every theme into a separate component framework, leaks third-party types into K-Nex contracts, or cannot preserve authority/accessibility through data and builder paths.
 
 ## Gate 8 — Lifecycle, application factory, release, and fleet safety
 
@@ -280,15 +280,69 @@ Exit:
 - one customer upgrades while another stays on a supported prior release;
 - fleet inventory derives from verifiable deployed evidence;
 - a vulnerable range identifies every affected deployment;
-- backup restore reproduces the expected runtime inventory.
+- backup restore reproduces expected runtime inventory.
 
-Kill/rework criterion: independent customer upgrades cannot be made deterministic and recoverable, destructive lifecycle remains ambiguous, or fleet evidence depends on manually asserted state.
+Kill/rework criterion: independent customer upgrades cannot be deterministic and recoverable, destructive lifecycle remains ambiguous, or fleet evidence depends on manually asserted state.
 
-## Post-Gate 8
+## Gate 9 — RBAC, authorization policy, and plugin bootstrap
 
-Only after Gate 8 project-manager PASS may the roadmap select a new domain/product module. Candidate work includes full CRM, CMS features, logistics, restaurant, inventory, budgeting, AI assistant productization, commerce, and third-party plugin distribution.
+Scope:
 
-The selected module begins from the Sales package structure and passes the same plugin/component conformance suites.
+```text
+normalized customer-owned roles, generation-bound grants, and assignments
+plugin-owned permission descriptors and bounded policy bindings
+versioned plugin role templates and stored old-baseline snapshots
+protected system roles and one-time non-expiring first-owner bootstrap
+effective and administrative permission catalogs
+disabled-plugin dormant grants and default-hidden UI
+plugin authorization generation preserved across disable/upgrade
+plugin authorization generation retired on uninstall/purge
+live preinstalled-plugin enable/disable/re-enable
+live authorization revision and revocation
+schema-less verified cleanup and reinstall fence
+schema-owning purge boundary
+Sales application/record/field proof
+real PostgreSQL, multi-process, and Chromium evidence
+```
+
+Excluded:
+
+```text
+runtime package installation
+Docker build/deploy controller
+GitHub marketplace/catalog UI
+role inheritance or explicit deny
+per-user direct grants
+group assignment without a real directory authority
+CRM/CMS product breadth
+```
+
+Exit:
+
+- every enabled and ready plugin permission is visible to authorized administrators;
+- administrators can add active plugin permissions to new or existing customer roles;
+- role labels never authorize and client-forged permission/scope/subject input fails;
+- normalized grants and assignments are revisioned, auditable, and customer-owned;
+- role templates bootstrap idempotently, assign no users, preserve edits, and retain reproducible old baselines;
+- disabled plugin-only permissions/roles are hidden by default while grants remain dormant;
+- inactive assigned roles remain visible on the administered subject;
+- mixed roles keep unrelated authority when one plugin is disabled;
+- role/grant/assignment and ready-plugin lifecycle changes apply without container restart;
+- HTTP, cache, worker, browser, and realtime authority converge after revocation or lost invalidation;
+- first-owner replay, owner expiry, and last-owner removal fail closed;
+- compatible upgrade and disable/re-enable preserve the plugin authorization generation;
+- schema-less removal retires the generation and uses verified cleanup;
+- cleanup failure followed by reinstall cannot reactivate old-generation grants;
+- schema-owning generic uninstall remains refused;
+- Sales and a bounded test-only schema-less fixture pass the complete proof.
+
+Kill/rework criterion: role labels or client input become authority, plugin disable requires destructive role deletion, live enable weakens release/migration readiness, old authority survives revocation indefinitely, uninstall/reinstall can resurrect retired grants, or safe customer-owned template evolution cannot be expressed.
+
+## Post-Gate 9
+
+After Gate 9 project-manager PASS, the next roadmap may implement system settings, plugin/theme administration, an official GitHub package/theme catalog, and a Docker release controller. Package bytes remain immutable release inputs.
+
+CRM/CMS and new vertical products remain separate explicit roadmap decisions. New modules begin from the Sales package structure and pass the same plugin, component, lifecycle, authorization, and release gates.
 
 ## Evidence promotion
 
