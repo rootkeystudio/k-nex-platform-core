@@ -1,0 +1,146 @@
+{
+  "$defs": {
+    "__schema0": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "__schema1": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema10": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    },
+    "__schema11": {
+      "$ref": "#/$defs/__schema10"
+    },
+    "__schema12": {
+      "pattern": "^[a-z][a-z0-9-]{2,127}$",
+      "type": "string"
+    },
+    "__schema13": {
+      "allOf": [
+        {
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
+        },
+        {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        }
+      ],
+      "maxLength": 64,
+      "type": "string"
+    },
+    "__schema14": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "__schema2": {
+      "pattern": "^theme-profile-event-[0-9a-f]{32}$",
+      "type": "string"
+    },
+    "__schema3": {
+      "const": "theme-profile.publication",
+      "type": "string"
+    },
+    "__schema4": {
+      "enum": [
+        "publish",
+        "rollback"
+      ],
+      "type": "string"
+    },
+    "__schema5": {
+      "pattern": "^[a-z][a-z0-9-]{2,127}$",
+      "type": "string"
+    },
+    "__schema6": {
+      "pattern": "^[a-z][a-z0-9-]{1,63}$",
+      "type": "string"
+    },
+    "__schema7": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    },
+    "__schema8": {
+      "maximum": 999999999,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "__schema9": {
+      "maximum": 1000000000,
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "$id": "https://schemas.k-nex.dev/theme-profile-publication-event/v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "activeRevisionId": {
+      "$ref": "#/$defs/__schema10"
+    },
+    "applicationId": {
+      "$ref": "#/$defs/__schema5"
+    },
+    "environment": {
+      "$ref": "#/$defs/__schema6"
+    },
+    "eventId": {
+      "$ref": "#/$defs/__schema2"
+    },
+    "eventType": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "occurredAt": {
+      "$ref": "#/$defs/__schema13"
+    },
+    "operation": {
+      "$ref": "#/$defs/__schema4"
+    },
+    "previousRevisionId": {
+      "$ref": "#/$defs/__schema11"
+    },
+    "profileId": {
+      "$ref": "#/$defs/__schema7"
+    },
+    "revisionAfter": {
+      "$ref": "#/$defs/__schema9"
+    },
+    "revisionBefore": {
+      "$ref": "#/$defs/__schema8"
+    },
+    "schemaVersion": {
+      "$ref": "#/$defs/__schema1"
+    },
+    "skinGenerationId": {
+      "$ref": "#/$defs/__schema12"
+    },
+    "stateDigest": {
+      "$ref": "#/$defs/__schema14"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "eventId",
+    "eventType",
+    "operation",
+    "applicationId",
+    "environment",
+    "profileId",
+    "revisionBefore",
+    "revisionAfter",
+    "activeRevisionId",
+    "occurredAt",
+    "stateDigest"
+  ],
+  "title": "K-Nex Theme Profile Publication Event v1",
+  "type": "object"
+}

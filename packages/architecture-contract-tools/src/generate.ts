@@ -34,6 +34,7 @@ import {
   PluginManifestSchema,
   TableRecordsSchema,
   ThemeProfileSchema,
+  ThemeProfilePublicationEventSchema,
   UiDocumentSchema,
   ZeroDowntimeEligibilitySchema,
   architectureRegistry
@@ -175,6 +176,12 @@ function themeProfileJsonSchema(): unknown {
   const stringValue = valueDefinition?.anyOf?.find((candidate: Record<string, unknown>) => candidate.type === "string");
   if (stringValue === undefined) throw new TypeError("Generated theme token string definition is missing.");
   stringValue.pattern = "^(?![\\s\\S]*(?:[hH][tT][tT][pP][sS]?:\\/\\/|[dD][aA][tT][aA]:|[jJ][aA][vV][aA][sS][cC][rR][iI][pP][tT]:|@[iI][mM][pP][oO][rR][tT]|[uU][rR][lL]\\s*\\(|[{};]))[\\s\\S]+$";
+  const skin = referencedDefinition(generated, "skin");
+  const skinValues = skin.properties?.values as Record<string, any> | undefined;
+  const skinValueReference = skinValues?.additionalProperties?.$ref as string | undefined;
+  const skinValueDefinition = skinValueReference?.startsWith("#/$defs/") ? generated.$defs?.[skinValueReference.slice("#/$defs/".length)] : undefined;
+  if (skinValueDefinition === undefined) throw new TypeError("Generated Theme Skin token string definition is missing.");
+  skinValueDefinition.pattern = stringValue.pattern;
   return generated;
 }
 
@@ -214,6 +221,7 @@ const primaryArtifacts = [
   { path: "schemas/metric-scalar.v1.schema.json", value: jsonSchema(MetricScalarSchema) },
   { path: "schemas/table-records.v1.schema.json", value: jsonSchema(TableRecordsSchema) },
   { path: "schemas/theme-profile.v1.schema.json", value: themeProfileJsonSchema() },
+  { path: "schemas/theme-profile-publication-event.v1.schema.json", value: jsonSchema(ThemeProfilePublicationEventSchema) },
   { path: "schemas/ui-document.v1.schema.json", value: uiDocumentJsonSchema() },
   { path: "schemas/cms-page-metadata.v1.schema.json", value: cmsPageMetadataJsonSchema() }
 ] satisfies readonly Artifact[];

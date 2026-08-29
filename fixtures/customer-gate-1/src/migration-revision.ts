@@ -1,9 +1,9 @@
 import type { Payload } from "payload";
 
 export const applicationMigrationRevision = Object.freeze({
-  migrationName: "20260829_000009_extension_activation",
-  predecessor: 8,
-  current: 9
+  migrationName: "20260829_000010_theme_skin_profiles",
+  predecessor: 9,
+  current: 10
 });
 
 export class MigrationRevisionError extends Error {

@@ -19,6 +19,16 @@ describe("ThemeProfileSchema", () => {
     expect(ThemeProfileSchema.parse(validProfile)).toEqual(validProfile);
   });
 
+  it("binds an optional data-only skin to an exact generation and safe overrides", () => {
+    const skinned = {
+      ...validProfile,
+      skin: { id: "skin.neobrutalism", generationId: "skin-generation-1", version: "1.0.0", palette: "skin.bright", values: { "--k-nex-surface": "#fff200" } }
+    };
+    expect(ThemeProfileSchema.parse(skinned)).toEqual(skinned);
+    expect(ThemeProfileSchema.safeParse({ ...skinned, skin: { ...skinned.skin, id: "theme.neobrutalism" } }).success).toBe(false);
+    expect(ThemeProfileSchema.safeParse({ ...skinned, skin: { ...skinned.skin, values: { "--k-nex-surface": "url(https://evil.test/x)" } } }).success).toBe(false);
+  });
+
   it.each([
     ["unknown profile field", { ...validProfile, className: "brand" }],
     ["non-theme package", { ...validProfile, themeId: "module.sales" }],

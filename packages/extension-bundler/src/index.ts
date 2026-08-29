@@ -4,4 +4,5 @@ export * from "./inventory.js";
 export * from "./remote-ui-assets.js";
 export * from "./store.js";
 export * from "./tar.js";
+export * from "./theme-skin-assets.js";
 export * from "./verifier.js";

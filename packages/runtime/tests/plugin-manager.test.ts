@@ -146,7 +146,7 @@ describe("PluginManager", () => {
     expect(runtime.store.transitions.at(-1)).toBe("staged->warming");
   });
 
-  it("delegates Platform Plugin plans to source and trusted-build authorities", async () => {
+  it("delegates module and executable theme Platform Plugins to source and trusted-build authorities", async () => {
     const runtime = manager();
     const platformRequest: ExtensionChangeRequest = { ...request, extension: { deliveryClass: "platform-plugin", id: "module.sales" }, idempotencyKey: "install:module.sales:1" };
     const platformPlan: ExtensionInstallPlan = {
@@ -167,6 +167,14 @@ describe("PluginManager", () => {
     expect(runtime.store.transitions.at(-1)).toBe("source-change-required->source-change-ready");
     expect(runtime.staticChanges.request).toHaveBeenCalledOnce();
     expect(runtime.deployments.request).toHaveBeenCalledOnce();
+
+    const theme = manager();
+    const themeRequest: ExtensionChangeRequest = { ...request, extension: { deliveryClass: "platform-plugin", id: "theme.minimal" }, idempotencyKey: "install:theme.minimal:1" };
+    theme.planner.plan.mockResolvedValue({ plan: { ...platformPlan, id: "theme.minimal" }, sourceCommit: "b".repeat(40), generationId: "customer-alpha-green-1" });
+    theme.staticChanges.request.mockResolvedValue({ status: "source-change-ready", planDigest: digest("f"), targetSourceCommit: "b".repeat(40) });
+    theme.deployments.request.mockResolvedValue({ status: "build-requested", buildRequestDigest: digest("9"), sourceCommit: "b".repeat(40) });
+    await expect(theme.value.plan(themeRequest)).resolves.toMatchObject({ executionClass: "static-release" });
+    expect(theme.artifacts.stage).not.toHaveBeenCalled();
   });
 
   it("rejects planner mismatches and unverified inventory authority", async () => {

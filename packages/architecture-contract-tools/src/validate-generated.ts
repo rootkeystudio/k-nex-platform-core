@@ -24,6 +24,7 @@ import {
   TableRecordsSchema,
   ThemeSkinManifestSchema,
   ThemeProfileSchema,
+  ThemeProfilePublicationEventSchema,
   RemoteUiIsolationProfileSchema,
   RemoteUiFrameSchema,
   RunnerIsolationProfileSchema,
@@ -137,6 +138,7 @@ for (const relativePath of [
   "schemas/metric-scalar.v1.schema.json",
   "schemas/table-records.v1.schema.json",
   "schemas/theme-profile.v1.schema.json",
+  "schemas/theme-profile-publication-event.v1.schema.json",
   "schemas/ui-document.v1.schema.json",
   "schemas/cms-page-metadata.v1.schema.json",
   "fixtures/actions/valid/complete.json",
@@ -164,10 +166,14 @@ for (const relativePath of [
   "fixtures/cms-page-metadata/invalid/control-character.json",
   "fixtures/cms-page-metadata/invalid/title-too-long.json",
   "fixtures/theme-profiles/valid/public-minimal.json",
+  "fixtures/theme-profiles/valid/public-minimal-skin.json",
+  "fixtures/theme-profiles/valid/public-skin-publication-event.json",
   "fixtures/theme-profiles/invalid/non-theme-id.json",
   "fixtures/theme-profiles/invalid/unsafe-url.json",
   "fixtures/theme-profiles/invalid/unsafe-key.json",
   "fixtures/theme-profiles/invalid/too-many-overrides.json",
+  "fixtures/theme-profiles/invalid/unsafe-skin.json",
+  "fixtures/theme-profiles/invalid/publication-event-unsafe-generation.json",
   "fixtures/plugin-manifests/valid/module.sales.json",
   "fixtures/plugin-manifests/invalid/empty-category.json",
   "fixtures/plugin-manifests/invalid/invalid-requirement.json",
@@ -185,6 +191,7 @@ const eventSchema = await load<AnySchema>("schemas/event.v1.schema.json");
 const metricSchema = await load<AnySchema>("schemas/metric-scalar.v1.schema.json");
 const tableSchema = await load<AnySchema>("schemas/table-records.v1.schema.json");
 const themeProfileSchema = await load<AnySchema>("schemas/theme-profile.v1.schema.json");
+const themeProfilePublicationEventSchema = await load<AnySchema>("schemas/theme-profile-publication-event.v1.schema.json");
 const uiDocumentSchema = await load<AnySchema>("schemas/ui-document.v1.schema.json");
 const cmsPageMetadataSchema = await load<AnySchema>("schemas/cms-page-metadata.v1.schema.json");
 const validatePlugin = ajv.compile(pluginSchema);
@@ -195,6 +202,7 @@ const validateEvent = ajv.compile(eventSchema);
 const validateMetric = ajv.compile(metricSchema);
 const validateTable = ajv.compile(tableSchema);
 const validateThemeProfile = ajv.compile(themeProfileSchema);
+const validateThemeProfilePublicationEvent = ajv.compile(themeProfilePublicationEventSchema);
 const validateUiDocument = ajv.compile(uiDocumentSchema);
 const validateCmsPageMetadata = ajv.compile(cmsPageMetadataSchema);
 
@@ -240,6 +248,9 @@ if (!generatedContracts.artifacts.includes("schemas/ui-document.v1.schema.json")
 }
 if (!generatedContracts.artifacts.includes("schemas/theme-profile.v1.schema.json")) {
   throw new Error("Generated artifact inventory is missing schemas/theme-profile.v1.schema.json.");
+}
+if (!generatedContracts.artifacts.includes("schemas/theme-profile-publication-event.v1.schema.json")) {
+  throw new Error("Generated artifact inventory is missing schemas/theme-profile-publication-event.v1.schema.json.");
 }
 if (!generatedContracts.artifacts.includes("schemas/cms-page-metadata.v1.schema.json")) {
   throw new Error("Generated artifact inventory is missing schemas/cms-page-metadata.v1.schema.json.");
@@ -383,16 +394,29 @@ if (ThemeProfileSchema.safeParse(unsafeThemeProfile).success || validateThemePro
 }
 const themeProfileFixtures = [
   { path: "fixtures/theme-profiles/valid/public-minimal.json", valid: true },
+  { path: "fixtures/theme-profiles/valid/public-minimal-skin.json", valid: true },
   { path: "fixtures/theme-profiles/invalid/non-theme-id.json", valid: false },
   { path: "fixtures/theme-profiles/invalid/unsafe-url.json", valid: false },
   { path: "fixtures/theme-profiles/invalid/unsafe-key.json", valid: false },
-  { path: "fixtures/theme-profiles/invalid/too-many-overrides.json", valid: false }
+  { path: "fixtures/theme-profiles/invalid/too-many-overrides.json", valid: false },
+  { path: "fixtures/theme-profiles/invalid/unsafe-skin.json", valid: false }
 ] as const;
 for (const fixture of themeProfileFixtures) {
   const value = await load(fixture.path);
   const zodValid = ThemeProfileSchema.safeParse(value).success;
   const jsonSchemaValid = validateThemeProfile(value);
   if (fixture.valid && (!zodValid || !jsonSchemaValid)) throw new Error(`Valid ${fixture.path} must pass both Zod and generated JSON Schema validation: ${ajv.errorsText(validateThemeProfile.errors)}`);
+  if (!fixture.valid && (zodValid || jsonSchemaValid)) throw new Error(`Invalid ${fixture.path} must fail both Zod and generated JSON Schema validation.`);
+}
+
+for (const fixture of [
+  { path: "fixtures/theme-profiles/valid/public-skin-publication-event.json", valid: true },
+  { path: "fixtures/theme-profiles/invalid/publication-event-unsafe-generation.json", valid: false }
+] as const) {
+  const value = await load(fixture.path);
+  const zodValid = ThemeProfilePublicationEventSchema.safeParse(value).success;
+  const jsonSchemaValid = validateThemeProfilePublicationEvent(value);
+  if (fixture.valid && (!zodValid || !jsonSchemaValid)) throw new Error(`Valid ${fixture.path} must pass both Zod and generated JSON Schema validation: ${ajv.errorsText(validateThemeProfilePublicationEvent.errors)}`);
   if (!fixture.valid && (zodValid || jsonSchemaValid)) throw new Error(`Invalid ${fixture.path} must fail both Zod and generated JSON Schema validation.`);
 }
 

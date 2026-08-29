@@ -11,21 +11,71 @@
       "type": "string"
     },
     "__schema10": {
+      "additionalProperties": false,
+      "properties": {
+        "generationId": {
+          "pattern": "^[a-z][a-z0-9-]{2,127}$",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "pattern": "^skin(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+          "type": "string"
+        },
+        "palette": {
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+          "type": "string"
+        },
+        "values": {
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema12"
+          },
+          "maxProperties": 128,
+          "propertyNames": {
+            "$ref": "#/$defs/__schema11"
+          },
+          "type": "object"
+        },
+        "version": {
+          "$ref": "#/$defs/__schema4"
+        }
+      },
+      "required": [
+        "id",
+        "generationId",
+        "version",
+        "palette",
+        "values"
+      ],
+      "type": "object"
+    },
+    "__schema11": {
+      "pattern": "^--k-nex-[a-z0-9-]{1,80}$",
+      "type": "string"
+    },
+    "__schema12": {
+      "maxLength": 256,
+      "minLength": 1,
+      "pattern": "^(?![\\s\\S]*(?:[hH][tT][tT][pP][sS]?:\\/\\/|[dD][aA][tT][aA]:|[jJ][aA][vV][aA][sS][cC][rR][iI][pP][tT]:|@[iI][mM][pP][oO][rR][tT]|[uU][rR][lL]\\s*\\(|[{};]))[\\s\\S]+$",
+      "type": "string"
+    },
+    "__schema13": {
       "oneOf": [
         {
           "additionalProperties": false,
           "properties": {
             "createdAt": {
-              "$ref": "#/$defs/__schema13"
+              "$ref": "#/$defs/__schema16"
             },
             "id": {
-              "$ref": "#/$defs/__schema11"
+              "$ref": "#/$defs/__schema14"
             },
             "number": {
-              "$ref": "#/$defs/__schema12"
+              "$ref": "#/$defs/__schema15"
             },
             "previousRevisionId": {
-              "$ref": "#/$defs/__schema14"
+              "$ref": "#/$defs/__schema17"
             },
             "state": {
               "const": "draft",
@@ -44,19 +94,19 @@
           "additionalProperties": false,
           "properties": {
             "createdAt": {
-              "$ref": "#/$defs/__schema13"
+              "$ref": "#/$defs/__schema16"
             },
             "id": {
-              "$ref": "#/$defs/__schema11"
-            },
-            "number": {
-              "$ref": "#/$defs/__schema12"
-            },
-            "previousRevisionId": {
               "$ref": "#/$defs/__schema14"
             },
+            "number": {
+              "$ref": "#/$defs/__schema15"
+            },
+            "previousRevisionId": {
+              "$ref": "#/$defs/__schema17"
+            },
             "publishedAt": {
-              "$ref": "#/$defs/__schema13"
+              "$ref": "#/$defs/__schema16"
             },
             "state": {
               "const": "published",
@@ -76,19 +126,19 @@
           "additionalProperties": false,
           "properties": {
             "archivedAt": {
-              "$ref": "#/$defs/__schema13"
+              "$ref": "#/$defs/__schema16"
             },
             "createdAt": {
-              "$ref": "#/$defs/__schema13"
+              "$ref": "#/$defs/__schema16"
             },
             "id": {
-              "$ref": "#/$defs/__schema11"
+              "$ref": "#/$defs/__schema14"
             },
             "number": {
-              "$ref": "#/$defs/__schema12"
+              "$ref": "#/$defs/__schema15"
             },
             "previousRevisionId": {
-              "$ref": "#/$defs/__schema14"
+              "$ref": "#/$defs/__schema17"
             },
             "state": {
               "const": "archived",
@@ -106,18 +156,18 @@
         }
       ]
     },
-    "__schema11": {
+    "__schema14": {
       "maxLength": 128,
       "minLength": 1,
       "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
       "type": "string"
     },
-    "__schema12": {
+    "__schema15": {
       "maximum": 1000000,
       "minimum": 1,
       "type": "integer"
     },
-    "__schema13": {
+    "__schema16": {
       "allOf": [
         {
           "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
@@ -129,8 +179,8 @@
       "maxLength": 64,
       "type": "string"
     },
-    "__schema14": {
-      "$ref": "#/$defs/__schema11"
+    "__schema17": {
+      "$ref": "#/$defs/__schema14"
     },
     "__schema2": {
       "enum": [
@@ -218,10 +268,13 @@
       "$ref": "#/$defs/__schema5"
     },
     "revision": {
-      "$ref": "#/$defs/__schema10"
+      "$ref": "#/$defs/__schema13"
     },
     "schemaVersion": {
       "$ref": "#/$defs/__schema0"
+    },
+    "skin": {
+      "$ref": "#/$defs/__schema10"
     },
     "surface": {
       "$ref": "#/$defs/__schema2"
