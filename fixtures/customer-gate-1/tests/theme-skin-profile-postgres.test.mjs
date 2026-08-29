@@ -12,6 +12,10 @@ const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b5
 const fixtureDirectory = fileURLToPath(new URL("..", import.meta.url));
 const digest = (character) => `sha256:${character.repeat(64)}`;
 const skinAuthority = (generation) => ({
+  applicationId: "customer-alpha",
+  environment: "production",
+  deliveryClass: "theme-skin",
+  extensionId: "skin.neobrutalism",
   generationId: `skin-generation-${generation}`,
   sourceCommit: "a".repeat(40),
   artifactDigest: digest(String(generation)),

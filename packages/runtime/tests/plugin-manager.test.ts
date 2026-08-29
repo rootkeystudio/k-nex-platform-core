@@ -52,6 +52,10 @@ const hotPlan: ExtensionInstallPlan = {
 };
 
 const authority: VerifiedGenerationAuthority = {
+  applicationId: "customer-alpha",
+  environment: "production",
+  deliveryClass: "hot-application",
+  extensionId: "app.sales-assistant",
   generationId: "sales-assistant-generation-1",
   sourceCommit: "a".repeat(40),
   artifactDigest: digest("a"),
@@ -139,7 +143,8 @@ describe("PluginManager", () => {
     expect(planned.executionClass).toBe("live-generation");
     await expect(runtime.value.stage(planned.operationId)).resolves.toEqual(authority);
     expect(runtime.store.transitions).toEqual(["planning->downloading", "downloading->verified", "verified->staged"]);
-    expect(runtime.artifacts.reverify).toHaveBeenCalledWith(authority);
+    expect(runtime.artifacts.stage).toHaveBeenCalledWith({ plan: hotPlan, owner: { applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application", extensionId: "app.sales-assistant" } });
+    expect(runtime.artifacts.reverify).toHaveBeenCalledWith(authority, { applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application", extensionId: "app.sales-assistant" });
     await expect(runtime.value.plan(request)).resolves.toBe(planned);
     expect(runtime.planner.plan).toHaveBeenCalledTimes(1);
     runtime.store.operation = { ...runtime.store.operation!, phase: "failed" };
@@ -201,6 +206,23 @@ describe("PluginManager", () => {
       }
     };
     await expect(runtime.value.inventory("customer-alpha", "production")).rejects.toMatchObject({ code: "ARTIFACT_AUTHORITY_REJECTED" });
+  });
+
+  it("rejects an otherwise-valid authority copied to another extension owner", async () => {
+    const runtime = manager();
+    runtime.artifacts.stage.mockResolvedValue({ ...authority, extensionId: "app.forecast" });
+    const planned = await runtime.value.plan(request);
+    await expect(runtime.value.stage(planned.operationId)).rejects.toMatchObject({ code: "ARTIFACT_AUTHORITY_REJECTED" });
+    expect(runtime.artifacts.reverify).not.toHaveBeenCalled();
+  });
+
+  it("rejects owner substitution before activating a previously staged generation", async () => {
+    const runtime = manager();
+    const planned = await runtime.value.plan(request);
+    await runtime.value.stage(planned.operationId);
+    runtime.store.operation = { ...runtime.store.operation!, authority: { ...authority, environment: "staging" } };
+    await expect(runtime.value.activate(planned.operationId)).rejects.toMatchObject({ code: "ARTIFACT_AUTHORITY_REJECTED" });
+    expect(runtime.generationRuntime.prepare).not.toHaveBeenCalled();
   });
 
   it("exposes safe progress, validation, disable, and uninstall operations", async () => {

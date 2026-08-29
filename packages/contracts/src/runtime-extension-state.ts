@@ -76,8 +76,10 @@ export const ExtensionLifecycleEventSchema = z.discriminatedUnion("deliveryClass
   z.strictObject({ ...LifecycleEventBase, deliveryClass: z.literal("theme-skin"), id: ThemeSkinIdSchema, evidence: BundleTransitionEvidenceSchema })
 ]).meta({ $id: "https://schemas.k-nex.dev/extension-lifecycle-event/v1.json", title: "K-Nex Extension Lifecycle Event v1" });
 
-const BundleGenerationEvidenceSchema = z.strictObject({
+const BundleGenerationEvidenceBase = {
   authority: z.literal("verified-bundle"),
+  applicationId: ApplicationIdSchema,
+  environment: EnvironmentSchema,
   generationId: RecordIdSchema,
   version: z.string().regex(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u),
   sourceCommit: FullShaSchema,
@@ -87,6 +89,18 @@ const BundleGenerationEvidenceSchema = z.strictObject({
   provenanceDigest: DigestSchema,
   sbomDigest: DigestSchema,
   receiptId: RecordIdSchema
+} as const;
+
+const HotApplicationGenerationEvidenceSchema = z.strictObject({
+  ...BundleGenerationEvidenceBase,
+  deliveryClass: z.literal("hot-application"),
+  extensionId: HotApplicationIdSchema
+});
+
+const ThemeSkinGenerationEvidenceSchema = z.strictObject({
+  ...BundleGenerationEvidenceBase,
+  deliveryClass: z.literal("theme-skin"),
+  extensionId: ThemeSkinIdSchema
 });
 
 const PlatformGenerationEvidenceSchema = z.strictObject({
@@ -118,7 +132,8 @@ function runtimeEntry<T extends z.core.$ZodType>(generation: T) {
 }
 
 const PlatformRuntimeEntrySchema = runtimeEntry(PlatformGenerationEvidenceSchema);
-const BundleRuntimeEntrySchema = runtimeEntry(BundleGenerationEvidenceSchema);
+const HotApplicationRuntimeEntrySchema = runtimeEntry(HotApplicationGenerationEvidenceSchema);
+const ThemeSkinRuntimeEntrySchema = runtimeEntry(ThemeSkinGenerationEvidenceSchema);
 
 function boundedRecord<K extends z.core.$ZodType<string>, V extends z.core.$ZodType>(key: K, value: V) {
   return z.record(key, value).check((context) => {
@@ -137,8 +152,8 @@ export const RuntimeExtensionInventorySchema = z.strictObject({
   stateDigest: DigestSchema,
   extensions: z.strictObject({
     platformPlugins: boundedRecord(PluginIdSchema, PlatformRuntimeEntrySchema),
-    hotApplications: boundedRecord(HotApplicationIdSchema, BundleRuntimeEntrySchema),
-    themeSkins: boundedRecord(ThemeSkinIdSchema, BundleRuntimeEntrySchema)
+    hotApplications: boundedRecord(HotApplicationIdSchema, HotApplicationRuntimeEntrySchema),
+    themeSkins: boundedRecord(ThemeSkinIdSchema, ThemeSkinRuntimeEntrySchema)
   })
 }).meta({ $id: "https://schemas.k-nex.dev/runtime-extension-inventory/v1.json", title: "K-Nex Runtime Extension Inventory v1" });
 

@@ -172,6 +172,13 @@ function identityKey(row: Pick<OperationRow, "application_id" | "environment" | 
   return canonicalJson([row.application_id, row.environment, row.delivery_class, row.extension_id]);
 }
 
+function assertAuthorityOwner(row: Pick<OperationRow, "application_id" | "environment" | "delivery_class" | "extension_id">, authority: VerifiedGenerationAuthority): void {
+  if (row.delivery_class === "platform-plugin" || authority.applicationId !== row.application_id || authority.environment !== row.environment ||
+    authority.deliveryClass !== row.delivery_class || authority.extensionId !== row.extension_id) {
+    fail("GENERATION_MISMATCH", "Verified generation authority belongs to a different runtime extension owner.");
+  }
+}
+
 function transitionEvidence(row: OperationRow, authority: VerifiedGenerationAuthority | undefined) {
   const plan = row.plan_json;
   if (!plan) fail("STATE_INVALID", "A lifecycle transition requires a persisted plan.");
@@ -343,6 +350,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
       const row = await this.lockOperation(session, input.operationId, input.leaseToken);
       if (row.phase !== input.expectedPhase) fail("PHASE_CONFLICT", "Runtime extension operation phase changed.");
       if (!allowedTransitions[row.phase].includes(input.phase)) fail("PHASE_CONFLICT", `Runtime extension transition ${row.phase} -> ${input.phase} is invalid.`);
+      if (input.authority) assertAuthorityOwner(row, input.authority);
       const updated = await session.query<OperationRow>(
         `update runtime_extension_operations set phase=$3, authority_json=coalesce($4::jsonb, authority_json), updated_at=now()
          where operation_id=$1 and lease_token=$2 returning *`,
@@ -366,6 +374,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
       }
       const stage = input.stage;
       assertStage(stage, this.clock.now());
+      assertAuthorityOwner(row, stage.authority);
       if (canonicalJson(stage.authority) !== canonicalJson(row.authority_json) || stage.version !== row.plan_json.plan.version) {
         fail("GENERATION_MISMATCH", "Prepared generation authority differs from the verified operation authority.");
       }
@@ -411,6 +420,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
         fail("PHASE_CONFLICT", "Only a warming live generation can refresh readiness.");
       }
       assertStage(input.stage, this.clock.now());
+      assertAuthorityOwner(row, input.stage.authority);
       if (canonicalJson(input.stage.authority) !== canonicalJson(row.authority_json) || input.stage.version !== row.plan_json.plan.version) {
         fail("GENERATION_MISMATCH", "Refreshed generation authority differs from the verified operation authority.");
       }
@@ -436,6 +446,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
       if (row.phase !== "warming" || row.plan_json?.executionClass !== "live-generation" || !row.authority_json || !["install", "update"].includes(row.operation_kind)) {
         fail("PHASE_CONFLICT", "Only a warming live generation can activate.");
       }
+      assertAuthorityOwner(row, row.authority_json);
       const identity = identityKey(row);
       await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [identity]);
       const stateResult = await session.query<ExtensionRow>(
@@ -453,6 +464,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
         generation.ui_generation_id !== generation.generation_id || generation.storage_generation_id !== generation.generation_id) {
         fail("GENERATION_MISMATCH", "Staged server, UI, storage, and extension revisions do not form one generation.");
       }
+      assertAuthorityOwner(row, generation.authority_json);
       if (!generation.readiness_expires_at || new Date(generation.readiness_expires_at).valueOf() <= this.clock.now().valueOf()) {
         fail("READINESS_EXPIRED", "Generation readiness expired before activation.");
       }
@@ -750,6 +762,10 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
   private bundleGenerationEvidence(generation: GenerationRow, receiptId: string) {
     return {
       authority: "verified-bundle" as const,
+      applicationId: generation.authority_json.applicationId,
+      environment: generation.authority_json.environment,
+      deliveryClass: generation.authority_json.deliveryClass,
+      extensionId: generation.authority_json.extensionId,
       generationId: generation.generation_id,
       version: generation.version,
       sourceCommit: generation.authority_json.sourceCommit,

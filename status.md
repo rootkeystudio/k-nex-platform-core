@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Sol-high review hardening binds Remote UI frames to the host-authorized exact generation URL and rejects hostile same-path origins before transferring a MessagePort.
+Sol-high review hardening owner-binds verified Hot Application and Theme Skin authority through staging, persistence, activation, inventory, and re-verification.
 
 ## Validation
 
-Node 24.19.0: UI Runtime passed 54 tests and build; UI Testing build passed; real Chromium emitted `P9_REMOTE_UI_BROWSER_PASS`. The prior full Gate 9 pass predates review hardening and will be rerun on the final review head.
+Node 24.19.0: contracts 155, runtime 259, Payload adapter 32; all builds passed; generated contracts validated and reproduced; two focused PostgreSQL authority/profile journeys passed. Full Gate 9 remains pending on the final review head.
 
 ## Next
 

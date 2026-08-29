@@ -105,6 +105,10 @@ export interface StaticGenerationAuthority {
 }
 
 export interface VerifiedGenerationAuthority {
+  readonly applicationId: string;
+  readonly environment: string;
+  readonly deliveryClass: "hot-application" | "theme-skin";
+  readonly extensionId: string;
   readonly generationId: string;
   readonly sourceCommit: string;
   readonly artifactDigest: string;
@@ -196,8 +200,15 @@ export interface DynamicGenerationRuntime {
 }
 
 export interface DynamicArtifactPipeline {
-  stage(plan: Exclude<ExtensionInstallPlan, { deliveryClass: "platform-plugin" }>): Promise<VerifiedGenerationAuthority>;
-  reverify(authority: VerifiedGenerationAuthority): Promise<boolean>;
+  stage(input: Readonly<{ plan: Exclude<ExtensionInstallPlan, { deliveryClass: "platform-plugin" }>; owner: VerifiedGenerationAuthorityOwner }>): Promise<VerifiedGenerationAuthority>;
+  reverify(authority: VerifiedGenerationAuthority, owner: VerifiedGenerationAuthorityOwner): Promise<boolean>;
+}
+
+export interface VerifiedGenerationAuthorityOwner {
+  readonly applicationId: string;
+  readonly environment: string;
+  readonly deliveryClass: "hot-application" | "theme-skin";
+  readonly extensionId: string;
 }
 
 export type PluginManagerPlan =
@@ -265,6 +276,25 @@ function assertPlanMatches(request: ExtensionChangeRequest, plan: ExtensionInsta
   }
 }
 
+function authorityOwner(request: ExtensionChangeRequest): VerifiedGenerationAuthorityOwner {
+  if (request.extension.deliveryClass === "platform-plugin") {
+    throw new PluginManagerError("WRONG_EXECUTION_CLASS", "Platform Plugin delivery does not use live generation authority.");
+  }
+  return Object.freeze({
+    applicationId: request.applicationId,
+    environment: request.environment,
+    deliveryClass: request.extension.deliveryClass,
+    extensionId: request.extension.id
+  });
+}
+
+function assertAuthorityOwner(authority: VerifiedGenerationAuthority, owner: VerifiedGenerationAuthorityOwner): void {
+  if (authority.applicationId !== owner.applicationId || authority.environment !== owner.environment ||
+    authority.deliveryClass !== owner.deliveryClass || authority.extensionId !== owner.extensionId) {
+    throw new PluginManagerError("ARTIFACT_AUTHORITY_REJECTED", "Verified generation authority belongs to a different extension owner.");
+  }
+}
+
 export class PluginManager {
   constructor(
     private readonly workerId: string,
@@ -325,17 +355,23 @@ export class PluginManager {
     const dynamicPlan = operation.plan;
     let current = operation;
     if (current.phase === "planning") current = (await this.store.transition({ operationId, leaseToken: current.leaseToken, expectedPhase: "planning", phase: "downloading" })).operation;
-    const authority = current.authority ?? await this.artifacts.stage(dynamicPlan.plan);
+    const owner = authorityOwner(current.request);
+    const authority = current.authority ?? await this.artifacts.stage({ plan: dynamicPlan.plan, owner });
+    assertAuthorityOwner(authority, owner);
     if (current.phase === "downloading") current = (await this.store.transition({ operationId, leaseToken: current.leaseToken, expectedPhase: "downloading", phase: "verified", authority })).operation;
-    if (!await this.artifacts.reverify(authority)) throw new PluginManagerError("ARTIFACT_AUTHORITY_REJECTED", "Staged artifact authority could not be reverified.");
+    if (!await this.artifacts.reverify(authority, owner)) throw new PluginManagerError("ARTIFACT_AUTHORITY_REJECTED", "Staged artifact authority could not be reverified.");
     if (current.phase === "verified") await this.store.transition({ operationId, leaseToken: current.leaseToken, expectedPhase: "verified", phase: "staged", authority });
     return authority;
   }
 
   async inventory(applicationId: string, environment: string): Promise<RuntimeExtensionInventory> {
     const inventory = await this.store.inventory(applicationId, environment);
-    for (const entry of Object.values(inventory.extensions.hotApplications)) await this.assertDynamicEntry(entry);
-    for (const entry of Object.values(inventory.extensions.themeSkins)) await this.assertDynamicEntry(entry);
+    for (const [extensionId, entry] of Object.entries(inventory.extensions.hotApplications)) {
+      await this.assertDynamicEntry(entry, { applicationId, environment, deliveryClass: "hot-application", extensionId });
+    }
+    for (const [extensionId, entry] of Object.entries(inventory.extensions.themeSkins)) {
+      await this.assertDynamicEntry(entry, { applicationId, environment, deliveryClass: "theme-skin", extensionId });
+    }
     for (const entry of Object.values(inventory.extensions.platformPlugins)) {
       if (entry.disposition === "active" && !await this.deployments.reverify(entry.activeGeneration)) {
         throw new PluginManagerError("ARTIFACT_AUTHORITY_REJECTED", "Static build authority could not be reverified.");
@@ -363,7 +399,8 @@ export class PluginManager {
     if (operation.plan.executionClass === "static-release") {
       throw new PluginManagerError("WRONG_EXECUTION_CLASS", "Platform Plugin validation belongs to trusted source/build/deployment authority.");
     }
-    const valid = operation.authority !== undefined && await this.artifacts.reverify(operation.authority);
+    const owner = authorityOwner(operation.request);
+    const valid = operation.authority !== undefined && (assertAuthorityOwner(operation.authority, owner), await this.artifacts.reverify(operation.authority, owner));
     return Object.freeze({ operationId, executionClass: "live-generation", phase: operation.phase, valid, checks: valid ? ["verified-bundle", "generation-authority"] : [] });
   }
 
@@ -373,12 +410,14 @@ export class PluginManager {
       throw new PluginManagerError("INVALID_STATE", "Only a verified live generation can be activated.");
     }
     if (!this.generationRuntime) throw new PluginManagerError("INVALID_STATE", "Live generation preparation is unavailable.");
+    const owner = authorityOwner(current.request);
+    assertAuthorityOwner(current.authority, owner);
     if (current.phase === "staged") {
-      if (!await this.artifacts.reverify(current.authority)) throw new PluginManagerError("ARTIFACT_AUTHORITY_REJECTED", "Staged artifact authority could not be reverified.");
+      if (!await this.artifacts.reverify(current.authority, owner)) throw new PluginManagerError("ARTIFACT_AUTHORITY_REJECTED", "Staged artifact authority could not be reverified.");
       const stage = await this.generationRuntime.prepare({ request: current.request, plan: current.plan, authority: current.authority });
       current = (await this.store.stageGeneration({ operationId, leaseToken: current.leaseToken, stage })).operation;
     } else if (current.phase === "warming") {
-      if (!await this.artifacts.reverify(current.authority)) throw new PluginManagerError("ARTIFACT_AUTHORITY_REJECTED", "Warming artifact authority could not be reverified.");
+      if (!await this.artifacts.reverify(current.authority, owner)) throw new PluginManagerError("ARTIFACT_AUTHORITY_REJECTED", "Warming artifact authority could not be reverified.");
       const stage = await this.generationRuntime.prepare({ request: current.request, plan: current.plan, authority: current.authority });
       current = await this.store.refreshGenerationReadiness({ operationId, leaseToken: current.leaseToken, stage });
     }
@@ -404,10 +443,17 @@ export class PluginManager {
     return this.store.uninstallGeneration(operationId, current.leaseToken);
   }
 
-  private async assertDynamicEntry(entry: RuntimeExtensionInventory["extensions"]["hotApplications"][string]): Promise<void> {
+  private async assertDynamicEntry(
+    entry: RuntimeExtensionInventory["extensions"]["hotApplications"][string] | RuntimeExtensionInventory["extensions"]["themeSkins"][string],
+    owner: VerifiedGenerationAuthorityOwner
+  ): Promise<void> {
     if (entry.disposition !== "active") return;
     const generation = entry.activeGeneration;
-    if (!await this.artifacts.reverify({
+    const authority: VerifiedGenerationAuthority = {
+      applicationId: generation.applicationId,
+      environment: generation.environment,
+      deliveryClass: generation.deliveryClass,
+      extensionId: generation.extensionId,
       generationId: generation.generationId,
       sourceCommit: generation.sourceCommit,
       artifactDigest: generation.artifactDigest,
@@ -415,7 +461,9 @@ export class PluginManager {
       catalogDigest: generation.catalogDigest,
       provenanceDigest: generation.provenanceDigest,
       sbomDigest: generation.sbomDigest
-    })) throw new PluginManagerError("ARTIFACT_AUTHORITY_REJECTED", "Dynamic artifact authority could not be reverified.");
+    };
+    assertAuthorityOwner(authority, owner);
+    if (!await this.artifacts.reverify(authority, owner)) throw new PluginManagerError("ARTIFACT_AUTHORITY_REJECTED", "Dynamic artifact authority could not be reverified.");
   }
 
   private async checkpointStaticPlan(operation: RuntimeExtensionOperation): Promise<void> {

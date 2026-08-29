@@ -67,8 +67,12 @@ function livePlan(operationId, extensionRequest, generation = 1, artifact = "a")
   };
 }
 
-function authority(generationId, artifact = "a") {
+function authority(extensionRequest, generationId, artifact = "a") {
   return {
+    applicationId: extensionRequest.applicationId,
+    environment: extensionRequest.environment,
+    deliveryClass: extensionRequest.extension.deliveryClass,
+    extensionId: extensionRequest.extension.id,
     generationId, sourceCommit: "a".repeat(40), artifactDigest: digest(artifact), manifestDigest: digest("b"),
     catalogDigest: digest("c"), provenanceDigest: digest("d"), sbomDigest: digest("e")
   };
@@ -94,7 +98,7 @@ async function stageOperation(store, extensionRequest, requestDigest, workerId, 
   assert.equal(claimed.status, "claimed");
   let operation = await store.savePlan(claimed.operation.operationId, claimed.operation.leaseToken, livePlan(claimed.operation.operationId, extensionRequest, generation, artifact));
   operation = (await store.transition({ operationId: operation.operationId, leaseToken: operation.leaseToken, expectedPhase: "planning", phase: "downloading" })).operation;
-  const verified = authority(operation.plan.generationId, artifact);
+  const verified = authority(extensionRequest, operation.plan.generationId, artifact);
   operation = (await store.transition({ operationId: operation.operationId, leaseToken: operation.leaseToken, expectedPhase: "downloading", phase: "verified", authority: verified })).operation;
   operation = (await store.transition({ operationId: operation.operationId, leaseToken: operation.leaseToken, expectedPhase: "verified", phase: "staged", authority: verified })).operation;
   return { operation, authority: verified };
@@ -303,7 +307,7 @@ test("proves persistent extension operation serialization, recovery, atomic evid
     const removedEvidence = await pool.query("select count(*)::int generations, (select event_json->>'lifecycleState' from runtime_extension_transition_receipts where receipt_id=$1) lifecycle_state from runtime_extension_generations where extension_id=$2", [uninstalled.receiptId, liveIdentity.id]);
     assert.deepEqual(removedEvidence.rows, [{ generations: 0, lifecycle_state: "removed" }]);
 
-    const forged = { authority: "verified-bundle", generationId: "forecast-generation-1", version: "1.0.0", sourceCommit: "a".repeat(40), artifactDigest: digest("a"), manifestDigest: digest("b"), catalogDigest: digest("c"), provenanceDigest: digest("d"), sbomDigest: digest("e"), receiptId: "forged-receipt-1" };
+    const forged = { authority: "verified-bundle", applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application", extensionId: "app.sales-assistant", generationId: "forecast-generation-1", version: "1.0.0", sourceCommit: "a".repeat(40), artifactDigest: digest("a"), manifestDigest: digest("b"), catalogDigest: digest("c"), provenanceDigest: digest("d"), sbomDigest: digest("e"), receiptId: "forged-receipt-1" };
     await pool.query("update runtime_extensions set disposition='active', active_generation_id=$1, active_generation=$2::jsonb where application_id='customer-alpha' and environment='production' and delivery_class='hot-application' and extension_id='app.forecast'", [forged.generationId, JSON.stringify(forged)]);
     const rawInventory = await storeA.inventory("customer-alpha", "production");
     assert.equal(rawInventory.extensions.hotApplications["app.forecast"].disposition, "active");

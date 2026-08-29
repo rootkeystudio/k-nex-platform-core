@@ -188,15 +188,27 @@
     "__schema16": {
       "additionalProperties": false,
       "properties": {
+        "applicationId": {
+          "$ref": "#/$defs/__schema2"
+        },
         "artifactDigest": {
           "$ref": "#/$defs/__schema4"
         },
         "authority": {
-          "const": "verified-bundle",
-          "type": "string"
+          "$ref": "#/$defs/__schema17"
         },
         "catalogDigest": {
           "$ref": "#/$defs/__schema4"
+        },
+        "deliveryClass": {
+          "const": "hot-application",
+          "type": "string"
+        },
+        "environment": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "extensionId": {
+          "$ref": "#/$defs/__schema14"
         },
         "generationId": {
           "$ref": "#/$defs/__schema11"
@@ -217,12 +229,13 @@
           "$ref": "#/$defs/__schema13"
         },
         "version": {
-          "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
-          "type": "string"
+          "$ref": "#/$defs/__schema18"
         }
       },
       "required": [
         "authority",
+        "applicationId",
+        "environment",
         "generationId",
         "version",
         "sourceCommit",
@@ -231,11 +244,21 @@
         "catalogDigest",
         "provenanceDigest",
         "sbomDigest",
-        "receiptId"
+        "receiptId",
+        "deliveryClass",
+        "extensionId"
       ],
       "type": "object"
     },
     "__schema17": {
+      "const": "verified-bundle",
+      "type": "string"
+    },
+    "__schema18": {
+      "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+      "type": "string"
+    },
+    "__schema19": {
       "maxLength": 128,
       "pattern": "^skin(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
       "type": "string"
@@ -243,6 +266,176 @@
     "__schema2": {
       "pattern": "^[a-z][a-z0-9-]{2,127}$",
       "type": "string"
+    },
+    "__schema20": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "activeGeneration": {
+              "$ref": "#/$defs/__schema21"
+            },
+            "disposition": {
+              "const": "active",
+              "type": "string"
+            },
+            "lastOperationId": {
+              "$ref": "#/$defs/__schema11"
+            },
+            "lastReceiptId": {
+              "$ref": "#/$defs/__schema11"
+            },
+            "revision": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "rollbackGeneration": {
+              "$ref": "#/$defs/__schema21"
+            },
+            "stateDigest": {
+              "$ref": "#/$defs/__schema4"
+            }
+          },
+          "required": [
+            "revision",
+            "lastOperationId",
+            "lastReceiptId",
+            "stateDigest",
+            "disposition",
+            "activeGeneration"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "disposition": {
+              "enum": [
+                "disabled",
+                "quarantined",
+                "retirement-pending"
+              ],
+              "type": "string"
+            },
+            "lastOperationId": {
+              "$ref": "#/$defs/__schema11"
+            },
+            "lastReceiptId": {
+              "$ref": "#/$defs/__schema11"
+            },
+            "retainedGeneration": {
+              "$ref": "#/$defs/__schema21"
+            },
+            "revision": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "stateDigest": {
+              "$ref": "#/$defs/__schema4"
+            }
+          },
+          "required": [
+            "revision",
+            "lastOperationId",
+            "lastReceiptId",
+            "stateDigest",
+            "disposition"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "disposition": {
+              "const": "removed",
+              "type": "string"
+            },
+            "lastOperationId": {
+              "$ref": "#/$defs/__schema11"
+            },
+            "lastReceiptId": {
+              "$ref": "#/$defs/__schema11"
+            },
+            "revision": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "stateDigest": {
+              "$ref": "#/$defs/__schema4"
+            }
+          },
+          "required": [
+            "revision",
+            "lastOperationId",
+            "lastReceiptId",
+            "stateDigest",
+            "disposition"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "__schema21": {
+      "additionalProperties": false,
+      "properties": {
+        "applicationId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "artifactDigest": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "authority": {
+          "$ref": "#/$defs/__schema17"
+        },
+        "catalogDigest": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "deliveryClass": {
+          "const": "theme-skin",
+          "type": "string"
+        },
+        "environment": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "extensionId": {
+          "$ref": "#/$defs/__schema19"
+        },
+        "generationId": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "manifestDigest": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "provenanceDigest": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "receiptId": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "sbomDigest": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "sourceCommit": {
+          "$ref": "#/$defs/__schema13"
+        },
+        "version": {
+          "$ref": "#/$defs/__schema18"
+        }
+      },
+      "required": [
+        "authority",
+        "applicationId",
+        "environment",
+        "generationId",
+        "version",
+        "sourceCommit",
+        "artifactDigest",
+        "manifestDigest",
+        "catalogDigest",
+        "provenanceDigest",
+        "sbomDigest",
+        "receiptId",
+        "deliveryClass",
+        "extensionId"
+      ],
+      "type": "object"
     },
     "__schema3": {
       "pattern": "^[a-z][a-z0-9-]{1,63}$",
@@ -294,11 +487,11 @@
         },
         "themeSkins": {
           "additionalProperties": {
-            "$ref": "#/$defs/__schema15"
+            "$ref": "#/$defs/__schema20"
           },
           "maxProperties": 512,
           "propertyNames": {
-            "$ref": "#/$defs/__schema17"
+            "$ref": "#/$defs/__schema19"
           },
           "type": "object"
         }
