@@ -131,7 +131,7 @@
         "names": []
       },
       "id": "module.sales",
-      "integrity": "sha512-0i7EHWzgSgTOcM2Wo5yEO0kxOrgxZEKEYmMt99ePaK6R7gGXBDLJIiRV9nwKdY0S6sakioSSEdHnmUx1siHMpw==",
+      "integrity": "sha512-qDm4VY2AEG8m7578O+LYPVjJqZ3iCR/i53sxRhCKqW2VdXEao80aSVt+NrgvayDLpnA/6vT6dAs+0TR8klqo+g==",
       "kind": "module",
       "lifecycle": {
         "disable": "supported",
@@ -152,7 +152,7 @@
         "names": []
       },
       "id": "provider.realtime.socketio",
-      "integrity": "sha512-1AcAhPuIPKRi2JCft6dJPiLcN9as1r69/FXvYcKHDy6l3yFslwALsb2uvPxa6+e5UTYazv0Nr2SyDVJYwaCugw==",
+      "integrity": "sha512-U0EHH5c1wuehYok+qms1r6HOKRR1NcSzAepoB0GbLJc8t1+3hY73CwXuu6uK4ZEO5yhSsTJW7lTOOGaMEn/RiA==",
       "kind": "provider",
       "lifecycle": {
         "disable": "supported",

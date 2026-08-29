@@ -346,6 +346,9 @@ importers:
         specifier: 7.8.5
         version: 7.8.5
     devDependencies:
+      '@types/node':
+        specifier: 24.13.3
+        version: 24.13.3
       '@types/semver':
         specifier: 7.8.0
         version: 7.8.0
@@ -1611,7 +1614,7 @@ packages:
     resolution: {integrity: sha512-4JQNk+3mVzK3xh2rqd6RB4J46qUR19azEHBneZyTZM+c456qOrbbM/5xcR8huNCCcbVt7+UmizG6GuUvPvKUYg==}
 
   '@k-nex/module-sales@file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz':
-    resolution: {integrity: sha512-0i7EHWzgSgTOcM2Wo5yEO0kxOrgxZEKEYmMt99ePaK6R7gGXBDLJIiRV9nwKdY0S6sakioSSEdHnmUx1siHMpw==, tarball: file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz}
+    resolution: {integrity: sha512-qDm4VY2AEG8m7578O+LYPVjJqZ3iCR/i53sxRhCKqW2VdXEao80aSVt+NrgvayDLpnA/6vT6dAs+0TR8klqo+g==, tarball: file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz}
     version: 1.0.0
     peerDependencies:
       '@k-nex/contracts': 0.0.0
@@ -1642,7 +1645,7 @@ packages:
         optional: true
 
   '@k-nex/provider-realtime-socketio@file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz':
-    resolution: {integrity: sha512-1AcAhPuIPKRi2JCft6dJPiLcN9as1r69/FXvYcKHDy6l3yFslwALsb2uvPxa6+e5UTYazv0Nr2SyDVJYwaCugw==, tarball: file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz}
+    resolution: {integrity: sha512-U0EHH5c1wuehYok+qms1r6HOKRR1NcSzAepoB0GbLJc8t1+3hY73CwXuu6uK4ZEO5yhSsTJW7lTOOGaMEn/RiA==, tarball: file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz}
     version: 1.0.0
     peerDependencies:
       '@k-nex/contracts': 0.0.0

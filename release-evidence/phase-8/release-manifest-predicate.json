@@ -1,0 +1,7 @@
+{
+  "closureDigest": "sha256:b87cfa0947614df400d009df0cd2cbdf38d3a27d6acdc8c01cc77611c981c701",
+  "release": "0.2.0",
+  "schemaVersion": 1,
+  "sourceCommit": "1b85599d919482a16885a922d816d7a3a1006082",
+  "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@1b85599d919482a16885a922d816d7a3a1006082"
+}

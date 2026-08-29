@@ -20,3 +20,8 @@ export * from "./source-convergence.js";
 export * from "./plugin-settings.js";
 export * from "./page-template.js";
 export * from "./plugin-lifecycle.js";
+export * from "./upgrade-planner.js";
+export * from "./migration-fence.js";
+export * from "./plugin-data-lifecycle.js";
+export * from "./deployment-evidence.js";
+export * from "./fleet.js";

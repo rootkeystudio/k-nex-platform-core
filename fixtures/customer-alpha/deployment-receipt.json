@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "deploymentId": "deploy:customer-alpha:2026.08",
+  "applicationId": "customer-alpha",
+  "environment": "production",
+  "deployedAt": "2026-08-27T12:05:00.000Z",
+  "approvedBy": {
+    "kind": "workflow",
+    "identity": "rootkeystudio/k-nex-platform-core/.github/workflows/deploy.yml@1b85599d919482a16885a922d816d7a3a1006082"
+  },
+  "artifactDigest": "sha256:31fb0e7d4d515670a69af8fd2df965f3fdf2b2ae10ab6db2ad83fbd2900344a3",
+  "inventoryDigest": "sha256:6a750f217a4b5d2d0ee8234defbeaf2a10c812688a22649835cb60df611aebcd",
+  "migrationRevision": 7,
+  "smoke": {
+    "status": "passed",
+    "checks": [
+      "authenticated-sales",
+      "public-shell"
+    ]
+  },
+  "readiness": "ready"
+}

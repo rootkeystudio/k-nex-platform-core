@@ -34,7 +34,22 @@
         "schemas/plugin-manifest.v1.schema.json"
       ]
     },
-    "0015": { "level": "design-only", "evidence": ["docs/29-runtime-security-reliability-and-quality-gates.md"] },
+    "0015": {
+      "level": "executable-poc",
+      "evidence": [
+        ".github/workflows/release-evidence.yml",
+        "docs/implementation/phase-8-result.md",
+        "fixtures/customer-gate-1/tests/backup-restore-postgres.test.mjs",
+        "fixtures/customer-gate-1/tests/migration-fence-postgres.test.mjs",
+        "packages/runtime/src/deployment-evidence.ts",
+        "packages/runtime/src/fleet.ts",
+        "packages/runtime/src/migration-fence.ts",
+        "packages/runtime/tests/deployment-evidence.test.ts",
+        "packages/runtime/tests/fleet.test.ts",
+        "packages/runtime/tests/migration-fence.test.ts",
+        "scripts/gate-8.mjs"
+      ]
+    },
     "0016": { "level": "design-only", "evidence": ["docs/adr/0016-payload-strategic-v1-framework.md"] },
     "0017": {
       "level": "executable-poc",

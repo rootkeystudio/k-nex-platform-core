@@ -2,6 +2,7 @@
   "name": "@k-nex/runtime",
   "version": "0.0.0",
   "private": true,
+  "files": ["dist"],
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -20,6 +21,7 @@
     "semver": "7.8.5"
   },
   "devDependencies": {
+    "@types/node": "24.13.3",
     "@types/semver": "7.8.0",
     "typescript": "6.0.3",
     "vitest": "4.1.6"

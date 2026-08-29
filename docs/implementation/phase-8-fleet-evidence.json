@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "deployments": [
+    {
+      "applicationId": "customer-alpha",
+      "platformRelease": "0.2.0",
+      "deploymentId": "deploy:customer-alpha:2026.08",
+      "inventoryDigest": "sha256:6a750f217a4b5d2d0ee8234defbeaf2a10c812688a22649835cb60df611aebcd"
+    },
+    {
+      "applicationId": "customer-beta",
+      "platformRelease": "0.1.0",
+      "deploymentId": "deploy:customer-beta:2026.06",
+      "inventoryDigest": "sha256:46a82639cedd53911bb9a6a4461592dee9b89c56ec9e9298ae9500115531cf48"
+    }
+  ],
+  "vulnerability": {
+    "package": "@k-nex/module-sales",
+    "affectedRange": "<1.0.1",
+    "targetVersion": "1.0.1",
+    "affectedApplications": [
+      "customer-alpha",
+      "customer-beta"
+    ]
+  },
+  "generatedPatchUpdates": [
+    {
+      "applicationId": "customer-alpha",
+      "repository": "rootkeystudio/customer-alpha",
+      "baseInventoryDigest": "sha256:6a750f217a4b5d2d0ee8234defbeaf2a10c812688a22649835cb60df611aebcd"
+    },
+    {
+      "applicationId": "customer-beta",
+      "repository": "rootkeystudio/customer-beta",
+      "baseInventoryDigest": "sha256:46a82639cedd53911bb9a6a4461592dee9b89c56ec9e9298ae9500115531cf48"
+    }
+  ],
+  "previousReleaseUpgrade": {
+    "applicationId": "customer-beta",
+    "postgresProof": "previous-release-upgrade-postgres.test.mjs",
+    "stepCount": 8
+  },
+  "restore": {
+    "applicationId": "customer-alpha",
+    "postgresProof": "backup-restore-postgres.test.mjs",
+    "expectedOperationalInventoryDigest": "sha256:8989b001a879716a4cf7e6d643bd3d98cf144fd1a08283e5adf125a5dcdf0f8c"
+  }
+}

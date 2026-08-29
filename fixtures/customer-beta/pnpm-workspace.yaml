@@ -1,0 +1,31 @@
+packages:
+  - "."
+
+allowBuilds:
+  "cpu-features@0.0.10": false
+  "esbuild@0.18.20": true
+  "esbuild@0.25.12": true
+  "esbuild@0.28.2": true
+  "protobufjs@7.6.5": false
+  "sharp@0.35.3": true
+  "ssh2@1.17.0": false
+
+peerDependencyRules:
+  allowedVersions:
+    "@modelcontextprotocol/sdk": "1.26.0 || 1.30.0"
+
+overrides:
+  "@k-nex/builder-puck": "file:../customer-gate-1/packages/k-nex-builder-puck-0.0.0.tgz"
+  "@k-nex/composition": "file:../customer-gate-1/packages/k-nex-composition-0.0.0.tgz"
+  "@k-nex/contracts": "file:../customer-gate-1/packages/k-nex-contracts-0.0.0.tgz"
+  "@k-nex/module-sales": "file:../customer-gate-1/packages/k-nex-module-sales-0.9.0.tgz"
+  "@k-nex/payload-adapter": "file:../customer-gate-1/packages/k-nex-payload-adapter-0.0.0.tgz"
+  "@k-nex/runtime": "file:../customer-gate-1/packages/k-nex-runtime-0.0.0.tgz"
+  "@k-nex/theme-neobrutalism": "file:../customer-gate-1/packages/k-nex-theme-neobrutalism-0.0.0.tgz"
+  "@k-nex/ui-builder-blocks": "file:../customer-gate-1/packages/k-nex-ui-builder-blocks-0.0.0.tgz"
+  "@k-nex/ui-components": "file:../customer-gate-1/packages/k-nex-ui-components-0.0.0.tgz"
+  "@k-nex/ui-data": "file:../customer-gate-1/packages/k-nex-ui-data-0.0.0.tgz"
+  "@k-nex/ui-design-system-contracts": "file:../customer-gate-1/packages/k-nex-ui-design-system-contracts-0.0.0.tgz"
+  "@k-nex/ui-forms": "file:../customer-gate-1/packages/k-nex-ui-forms-0.0.0.tgz"
+  "@k-nex/ui-pages": "file:../customer-gate-1/packages/k-nex-ui-pages-0.0.0.tgz"
+  "@k-nex/ui-runtime": "file:../customer-gate-1/packages/k-nex-ui-runtime-0.0.0.tgz"

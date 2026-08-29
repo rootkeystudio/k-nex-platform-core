@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "platformRelease": {
+    "current": "0.1.0",
+    "target": "0.2.0"
+  },
+  "packageRelease": {
+    "current": "0.9.0",
+    "target": "1.0.0"
+  },
+  "expectedPredecessorMigrationRevision": 6,
+  "targetMigrationRevision": 7,
+  "reviewedMigrationIds": [
+    "sales.migration.customer-schema.v2",
+    "sales.migration.source.v2",
+    "sales.migration.action.v2",
+    "sales.migration.tool.v2",
+    "sales.migration.block.v2",
+    "sales.migration.theme.v2",
+    "sales.migration.template.v2",
+    "sales.migration.settings.v2"
+  ],
+  "preservedArtifacts": [
+    "sales.action",
+    "sales.block",
+    "sales.customer-schema",
+    "sales.settings",
+    "sales.source",
+    "sales.template",
+    "sales.theme",
+    "sales.tool"
+  ],
+  "postgresProof": {
+    "test": "fixtures/customer-gate-1/tests/previous-release-upgrade-postgres.test.mjs",
+    "database": "postgres:17.6",
+    "execution": "required-by-customer-postgres-suite"
+  }
+}

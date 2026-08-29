@@ -1,0 +1,32 @@
+{
+  "planVersion": 1,
+  "preset": "sales-reference",
+  "composition": {
+    "plugins": [
+      "module.sales@1.0.0"
+    ],
+    "theme": "minimal@0.0.0",
+    "databaseAdapter": "postgres"
+  },
+  "migration": {
+    "owner": "customer",
+    "action": "review-and-apply",
+    "expectedPredecessorRevision": 0
+  },
+  "readiness": [
+    "exact-package-inventory",
+    "migration-revision",
+    "sales-registration",
+    "default-pages"
+  ],
+  "defaultPages": [
+    "sales.page.tasks",
+    "sales.page.opportunities"
+  ],
+  "lifecyclePlans": [
+    "add",
+    "disable",
+    "enable",
+    "upgrade"
+  ]
+}

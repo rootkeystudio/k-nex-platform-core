@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "application": {
+    "id": "customer-alpha",
+    "name": "Customer Alpha",
+    "type": "customer-platform"
+  },
+  "runtime": {
+    "node": "24.19.0",
+    "packageManager": "pnpm",
+    "packageManagerVersion": "11.9.0",
+    "deploymentMode": "container"
+  },
+  "framework": {
+    "payload": {
+      "database": {
+        "adapter": "postgres",
+        "package": "@payloadcms/db-postgres",
+        "connectionEnvironmentVariable": "DATABASE_URL"
+      }
+    }
+  },
+  "plugins": [
+    {
+      "id": "module.sales",
+      "package": "@k-nex/module-sales",
+      "version": "1.0.0",
+      "enabled": true
+    }
+  ],
+  "providers": {},
+  "themes": {
+    "active": "minimal",
+    "package": "@k-nex/theme-minimal",
+    "version": "0.0.0"
+  },
+  "development": {
+    "database": {
+      "mode": "external"
+    }
+  },
+  "build": {
+    "dockerfile": false,
+    "commitGeneratedRegistries": true,
+    "validateGeneratedFilesInCI": true
+  },
+  "environment": {
+    "required": [
+      "DATABASE_URL",
+      "PAYLOAD_SECRET"
+    ]
+  }
+}
