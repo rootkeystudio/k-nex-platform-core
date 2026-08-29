@@ -324,9 +324,9 @@ assert.deepEqual(inventory.plugins, [{
   actualContributions: {}
 }]);
 assert.deepEqual(inventory.migrationRevision, {
-  migrationName: "20260829_000008_app_storage",
-  predecessor: 7,
-  current: 8
+  migrationName: "20260829_000009_extension_activation",
+  predecessor: 8,
+  current: 9
 });
 const serializedInventory = JSON.stringify(inventory);
 for (const forbidden of [process.env.DATABASE_URL, process.env.PAYLOAD_SECRET, login.token, password, "gate1@example.test"]) {

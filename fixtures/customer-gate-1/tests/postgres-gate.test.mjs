@@ -91,6 +91,7 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
         (select count(*)::int from payload_migrations where name = '20260827_000006_sales_opportunities') as opportunities_migration_count,
         (select count(*)::int from payload_migrations where name = '20260829_000007_runtime_extensions') as runtime_extensions_migration_count,
         (select count(*)::int from payload_migrations where name = '20260829_000008_app_storage') as app_storage_migration_count,
+        (select count(*)::int from payload_migrations where name = '20260829_000009_extension_activation') as extension_activation_migration_count,
         to_regclass('public.runtime_extensions')::text as runtime_extensions,
         to_regclass('public.runtime_extension_storage_records')::text as app_storage_records,
         (select predecessor_revision from k_nex_migration_revision where id = 1) as predecessor_revision,
@@ -110,10 +111,11 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
       opportunities_migration_count: 1,
       runtime_extensions_migration_count: 1,
       app_storage_migration_count: 1,
+      extension_activation_migration_count: 1,
       runtime_extensions: "runtime_extensions",
       app_storage_records: "runtime_extension_storage_records",
-      predecessor_revision: 7,
-      revision: 8
+      predecessor_revision: 8,
+      revision: 9
     }]);
 
     const outboxSchema = await runFixtureProcess("tests/outbox-schema.mjs", connectionString);
@@ -139,7 +141,7 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
     assert.equal(currentBoot.code, 0, `${currentBoot.stdout}\n${currentBoot.stderr}`);
     assert.match(currentBoot.stdout, /^READY$/m);
     const current = await query(connectionString, "select count(*)::int as count from payload_migrations");
-    assert.equal(current.rows[0].count, 8);
+    assert.equal(current.rows[0].count, 9);
 
     const authenticated = await runFixtureProcess("tests/authenticated-runtime.mjs", connectionString, {
       BOOT_KEY: "gate1-authenticated-runtime"

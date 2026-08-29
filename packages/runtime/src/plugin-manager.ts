@@ -104,6 +104,56 @@ export interface VerifiedGenerationAuthority {
   readonly sbomDigest: string;
 }
 
+export type ExtensionActivationJson = null | boolean | number | string | readonly ExtensionActivationJson[] | Readonly<{ [key: string]: ExtensionActivationJson }>;
+
+export type ExtensionRollbackCompatibility =
+  | Readonly<{ status: "compatible"; windowId: string; closesAt: string; migrationDigest: string; dataRevision: number }>
+  | Readonly<{ status: "irreversible"; decisionId: string; reason: string; migrationDigest: string; dataRevision: number }>;
+
+export interface GenerationReadinessLease {
+  readonly generationId: string;
+  readonly leaseToken: string;
+  readonly readyAt: string;
+  readonly expiresAt: string;
+  readonly serverGenerationId: string;
+  readonly uiGenerationId: string;
+  readonly storageGenerationId: string;
+}
+
+export interface StagedGenerationActivation {
+  readonly authority: VerifiedGenerationAuthority;
+  readonly version: string;
+  readonly readiness: GenerationReadinessLease;
+  readonly compatibility: ExtensionRollbackCompatibility;
+  readonly metadata: Readonly<Record<string, ExtensionActivationJson>>;
+  readonly settings: Readonly<Record<string, ExtensionActivationJson>>;
+  readonly storageSchemaVersions: Readonly<Record<string, number>>;
+}
+
+export interface ExtensionActivationReceipt {
+  readonly receiptId: string;
+  readonly operationId: string;
+  readonly operation: "install" | "update" | "rollback";
+  readonly generationId: string;
+  readonly previousGenerationId?: string;
+  readonly revisionBefore: number;
+  readonly revisionAfter: number;
+  readonly inventoryRevision: number;
+  readonly compatibility: ExtensionRollbackCompatibility;
+  readonly rollback: "available" | "unavailable" | "blocked-irreversible";
+  readonly occurredAt: string;
+}
+
+export interface ActiveGenerationObservation {
+  readonly revision: number;
+  readonly inventoryRevision: number;
+  readonly generationId?: string;
+}
+
+export interface DynamicGenerationRuntime {
+  prepare(input: Readonly<{ request: ExtensionChangeRequest; plan: Exclude<PluginManagerPlan, { executionClass: "static-release" }>; authority: VerifiedGenerationAuthority }>): Promise<StagedGenerationActivation>;
+}
+
 export interface DynamicArtifactPipeline {
   stage(plan: Exclude<ExtensionInstallPlan, { deliveryClass: "platform-plugin" }>): Promise<VerifiedGenerationAuthority>;
   reverify(authority: VerifiedGenerationAuthority): Promise<boolean>;
@@ -135,6 +185,14 @@ export interface RuntimeExtensionStore {
   transition(input: Readonly<{ operationId: string; leaseToken: string; expectedPhase: ExtensionOperationPhase; phase: ExtensionOperationPhase; authority?: VerifiedGenerationAuthority }>): Promise<Readonly<{ operation: RuntimeExtensionOperation; event: ExtensionLifecycleEvent }>>;
   readOperation(operationId: string): Promise<RuntimeExtensionOperation | undefined>;
   inventory(applicationId: string, environment: string): Promise<RuntimeExtensionInventory>;
+  stageGeneration(input: Readonly<{ operationId: string; leaseToken: string; stage: StagedGenerationActivation }>): Promise<Readonly<{ operation: RuntimeExtensionOperation; event: ExtensionLifecycleEvent }>>;
+  refreshGenerationReadiness(input: Readonly<{ operationId: string; leaseToken: string; stage: StagedGenerationActivation }>): Promise<RuntimeExtensionOperation>;
+  activateGeneration(operationId: string, leaseToken: string): Promise<ExtensionActivationReceipt>;
+  rollbackGeneration(operationId: string, leaseToken: string): Promise<ExtensionActivationReceipt>;
+  observeActiveGeneration(applicationId: string, environment: string, extension: ExtensionIdentity): Promise<ActiveGenerationObservation>;
+  acquireGenerationLease(input: Readonly<{ applicationId: string; environment: string; extension: ExtensionIdentity; generationId: string; holder: string; ttlMs: number }>): Promise<string>;
+  releaseGenerationLease(leaseId: string): Promise<void>;
+  liveGenerationLeaseCount(applicationId: string, environment: string, extension: ExtensionIdentity, generationId: string): Promise<number>;
 }
 
 export class PluginManagerError extends Error {
@@ -171,7 +229,8 @@ export class PluginManager {
     private readonly store: RuntimeExtensionStore,
     private readonly artifacts: DynamicArtifactPipeline,
     private readonly staticChanges: StaticCompositionChangeAuthority,
-    private readonly deployments: TrustedBuildDeploymentClient
+    private readonly deployments: TrustedBuildDeploymentClient,
+    private readonly generationRuntime?: DynamicGenerationRuntime
   ) {
     if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{2,159}$/u.test(workerId)) throw new TypeError("PluginManager worker identity is invalid.");
   }
@@ -232,6 +291,33 @@ export class PluginManager {
       }
     }
     return inventory;
+  }
+
+  async activate(operationId: string): Promise<ExtensionActivationReceipt> {
+    let current = await this.store.resumeOperation(operationId, this.workerId);
+    if (!current.plan || current.plan.executionClass !== "live-generation" || !current.authority) {
+      throw new PluginManagerError("INVALID_STATE", "Only a verified live generation can be activated.");
+    }
+    if (!this.generationRuntime) throw new PluginManagerError("INVALID_STATE", "Live generation preparation is unavailable.");
+    if (current.phase === "staged") {
+      if (!await this.artifacts.reverify(current.authority)) throw new PluginManagerError("ARTIFACT_AUTHORITY_REJECTED", "Staged artifact authority could not be reverified.");
+      const stage = await this.generationRuntime.prepare({ request: current.request, plan: current.plan, authority: current.authority });
+      current = (await this.store.stageGeneration({ operationId, leaseToken: current.leaseToken, stage })).operation;
+    } else if (current.phase === "warming") {
+      if (!await this.artifacts.reverify(current.authority)) throw new PluginManagerError("ARTIFACT_AUTHORITY_REJECTED", "Warming artifact authority could not be reverified.");
+      const stage = await this.generationRuntime.prepare({ request: current.request, plan: current.plan, authority: current.authority });
+      current = await this.store.refreshGenerationReadiness({ operationId, leaseToken: current.leaseToken, stage });
+    }
+    if (current.phase !== "warming") throw new PluginManagerError("INVALID_STATE", `Extension operation cannot activate from ${current.phase}.`);
+    return this.store.activateGeneration(operationId, current.leaseToken);
+  }
+
+  async rollback(operationId: string): Promise<ExtensionActivationReceipt> {
+    const current = await this.store.resumeOperation(operationId, this.workerId);
+    if (!current.plan || current.plan.executionClass !== "live-generation" || current.request.operation !== "rollback" || current.phase !== "planning") {
+      throw new PluginManagerError("INVALID_STATE", "Extension rollback operation is not ready.");
+    }
+    return this.store.rollbackGeneration(operationId, current.leaseToken);
   }
 
   private async assertDynamicEntry(entry: RuntimeExtensionInventory["extensions"]["hotApplications"][string]): Promise<void> {

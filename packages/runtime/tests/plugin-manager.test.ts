@@ -6,6 +6,7 @@ import {
   TrustedAutomationOperationAuthorizer,
   type ClaimOperationResult,
   type ExtensionChangeRequest,
+  type ExtensionActivationReceipt,
   type PluginManagerPlan,
   type RuntimeExtensionOperation,
   type RuntimeExtensionStore,
@@ -89,6 +90,23 @@ class MemoryStore implements RuntimeExtensionStore {
 
   async readOperation(): Promise<RuntimeExtensionOperation | undefined> { return this.operation; }
   async inventory(): Promise<RuntimeExtensionInventory> { return this.inventoryValue; }
+  async stageGeneration(input: Parameters<RuntimeExtensionStore["stageGeneration"]>[0]) {
+    return this.transition({ operationId: input.operationId, leaseToken: input.leaseToken, expectedPhase: "staged", phase: "warming", authority: input.stage.authority });
+  }
+  async refreshGenerationReadiness(): Promise<RuntimeExtensionOperation> { return this.operation!; }
+  async activateGeneration(): Promise<ExtensionActivationReceipt> {
+    return {
+      receiptId: "activation-receipt-1", operationId: this.operation!.operationId, operation: "install",
+      generationId: authority.generationId, revisionBefore: 5, revisionAfter: 6, inventoryRevision: 6,
+      compatibility: { status: "compatible", windowId: "rollback-window-1", closesAt: "2026-08-30T09:00:00.000Z", migrationDigest: digest("6"), dataRevision: 1 },
+      rollback: "unavailable", occurredAt: "2026-08-29T09:00:00.000Z"
+    };
+  }
+  async rollbackGeneration(): Promise<ExtensionActivationReceipt> { throw new Error("unused"); }
+  async observeActiveGeneration() { return { revision: 0, inventoryRevision: 0 }; }
+  async acquireGenerationLease() { return "lease-00000000-0000-4000-8000-000000000000"; }
+  async releaseGenerationLease() {}
+  async liveGenerationLeaseCount() { return 0; }
 }
 
 function manager(store = new MemoryStore(), reverify = true) {
@@ -96,7 +114,13 @@ function manager(store = new MemoryStore(), reverify = true) {
   const artifacts = { stage: vi.fn(async () => authority), reverify: vi.fn(async () => reverify) };
   const staticChanges = { request: vi.fn() };
   const deployments = { request: vi.fn(), reverify: vi.fn(async () => reverify) };
-  return { value: new PluginManager("phase-9-worker", new TrustedAutomationOperationAuthorizer("github-actions:phase-9"), planner, store, artifacts, staticChanges, deployments), store, planner, artifacts, staticChanges, deployments };
+  const generationRuntime = { prepare: vi.fn(async () => ({
+    authority, version: "1.0.0",
+    readiness: { generationId: authority.generationId, serverGenerationId: authority.generationId, uiGenerationId: authority.generationId, storageGenerationId: authority.generationId, leaseToken: "readiness:lease-1", readyAt: "2026-08-29T09:00:00.000Z", expiresAt: "2026-08-29T09:01:00.000Z" },
+    compatibility: { status: "compatible" as const, windowId: "rollback-window-1", closesAt: "2026-08-30T09:00:00.000Z", migrationDigest: digest("6"), dataRevision: 1 },
+    metadata: {}, settings: {}, storageSchemaVersions: {}
+  })) };
+  return { value: new PluginManager("phase-9-worker", new TrustedAutomationOperationAuthorizer("github-actions:phase-9"), planner, store, artifacts, staticChanges, deployments, generationRuntime), store, planner, artifacts, staticChanges, deployments, generationRuntime };
 }
 
 describe("PluginManager", () => {
@@ -111,6 +135,15 @@ describe("PluginManager", () => {
     expect(runtime.planner.plan).toHaveBeenCalledTimes(1);
     runtime.store.operation = { ...runtime.store.operation!, phase: "failed" };
     await expect(runtime.value.stage(planned.operationId)).rejects.toMatchObject({ code: "INVALID_STATE" });
+  });
+
+  it("warms and atomically activates the staged generation", async () => {
+    const runtime = manager();
+    const planned = await runtime.value.plan(request);
+    await runtime.value.stage(planned.operationId);
+    await expect(runtime.value.activate(planned.operationId)).resolves.toMatchObject({ generationId: authority.generationId, revisionAfter: 6 });
+    expect(runtime.generationRuntime.prepare).toHaveBeenCalledOnce();
+    expect(runtime.store.transitions.at(-1)).toBe("staged->warming");
   });
 
   it("delegates Platform Plugin plans to source and trusted-build authorities", async () => {
