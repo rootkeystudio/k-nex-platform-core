@@ -30,6 +30,17 @@ const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, mil
 const sha256 = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 const digestJson = (value) => sha256(canonicalJson(value));
 
+async function deliverExternalEffect(pool, idempotencyKey, payload) {
+  const resultDigest = sha256(payload);
+  const inserted = await pool.query(
+    "insert into p9_static_external_effects (idempotency_key, result_digest) values ($1,$2) on conflict (idempotency_key) do nothing returning result_digest",
+    [idempotencyKey, resultDigest]
+  );
+  const recorded = inserted.rows[0] ?? (await pool.query("select result_digest from p9_static_external_effects where idempotency_key=$1", [idempotencyKey])).rows[0];
+  assert.ok(recorded, "The external idempotency sink must retain the first accepted effect.");
+  return { duplicate: inserted.rows.length === 0, resultDigest: recorded.result_digest };
+}
+
 function startTopologyProcess(role, env) {
   const child = spawn(process.execPath, [topologyProcess], {
     cwd: fixtureDirectory,
@@ -397,7 +408,7 @@ class PostgresCompatibilityMigrations {
 }
 
 async function provisionStaticBinarySchema(pool) {
-  await pool.query("create table p9_static_overlap (id integer primary key, legacy_value text not null); insert into p9_static_overlap values (1,'one'),(2,'two'),(3,'three'); create table p9_static_migration_authority (authority_id text primary key, revision integer not null, last_step_id text not null); insert into p9_static_migration_authority values ('customer-alpha',11,'base-11'); create table p9_static_binary_observations (id bigserial primary key, generation_id text not null, binary_revision integer not null, database_role text not null, observed_step text not null, observed_at timestamptz not null default now()); create table p9_static_process_authority (authority_id text primary key, source_commit text not null, image_digest text not null); create table p9_static_process_routes (generation_id text primary key, url text not null); create table p9_static_process_events (id bigserial primary key, role text not null, instance_id text not null, event text not null, generation_id text, deployment_revision integer, fencing_token bigint, detail jsonb not null, observed_at timestamptz not null default now())");
+  await pool.query("create table p9_static_overlap (id integer primary key, legacy_value text not null); insert into p9_static_overlap values (1,'one'),(2,'two'),(3,'three'); create table p9_static_migration_authority (authority_id text primary key, revision integer not null, last_step_id text not null); insert into p9_static_migration_authority values ('customer-alpha',11,'base-11'); create table p9_static_binary_observations (id bigserial primary key, generation_id text not null, binary_revision integer not null, database_role text not null, observed_step text not null, observed_at timestamptz not null default now()); create table p9_static_process_authority (authority_id text primary key, source_commit text not null, image_digest text not null); create table p9_static_process_routes (generation_id text primary key, url text not null); create table p9_static_process_events (id bigserial primary key, role text not null, instance_id text not null, event text not null, generation_id text, deployment_revision integer, fencing_token bigint, detail jsonb not null, observed_at timestamptz not null default now()); create table p9_static_external_effects (idempotency_key text primary key, result_digest text not null, delivered_at timestamptz not null default now())");
   for (const [role, password] of [["p9_static_blue", "p9-static-blue-password"], ["p9_static_green", "p9-static-green-password"], ["p9_static_process", "p9-static-process-password"]]) {
     await pool.query(`create role ${role} login password '${password}' nosuperuser nocreatedb nocreaterole noinherit noreplication nobypassrls`);
   }
@@ -476,7 +487,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
   const pool = new pg.Pool({ connectionString: postgres.getConnectionUri() });
   const network = `knex-p9-${randomUUID()}`;
   const gateway = new StableGateway();
-  const now = new Date("2026-08-29T12:00:00.000Z");
+  let now = new Date("2026-08-29T12:00:00.000Z");
   const probeFailures = [];
   const crashEvidence = new Set();
   const scenarioEvidence = new Set();
@@ -589,6 +600,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     const effectLeaseExpiresAt = new Date(now.valueOf() + 120_000).toISOString();
     await assert.rejects(store.claimEffect({ ...owner, effectId: "sales-external-effect", generationId: "customer-alpha-green-12", fencingToken: 2, claimantId: "worker:phase-9-green-a", claimLeaseExpiresAt: effectLeaseExpiresAt }), { code: "FENCE_REJECTED" });
     const blueEffect = await store.claimEffect({ ...owner, effectId: "sales-external-effect", generationId: blue.generationId, fencingToken: 1, claimantId: "worker:phase-9-blue", claimLeaseExpiresAt: effectLeaseExpiresAt });
+    assert.equal((await deliverExternalEffect(pool, blueEffect.externalIdempotencyKey, "sales external effect")).duplicate, false);
     await assert.rejects(supervisor.deploy({ build: build.token, generationId: "customer-alpha-failed-12", workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: leaseExpiresAt }), /failed health checks/);
     assert.equal(gateway.active(), blue.generationId);
 
@@ -603,8 +615,17 @@ test("proves distinct customer binaries and deployment processes recover from Po
 
     const inFlightBlue = fetch(`${gateway.url()}/slow`).then((response) => response.json());
     await delay(30);
-    const promoted = await supervisor.deploy({ build: build.token, generationId: "customer-alpha-green-12", workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: leaseExpiresAt });
-    assert.equal(promoted.outcome, "promoted");
+    const converge = gateway.converge.bind(gateway);
+    let failPostCommitGateway = true;
+    gateway.converge = async (input) => {
+      if (failPostCommitGateway) throw new Error("simulated post-commit gateway crash");
+      return converge(input);
+    };
+    await assert.rejects(supervisor.deploy({ build: build.token, generationId: "customer-alpha-green-12", workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: leaseExpiresAt }), /simulated post-commit gateway crash/);
+    assert.equal((await store.read(owner)).active.generationId, "customer-alpha-green-12");
+    assert.deepEqual((await store.read(owner)).transitionCheckpoint.completedSteps, ["activate-worker"]);
+    failPostCommitGateway = false;
+    await supervisor.recover(owner);
     assert.equal((await inFlightBlue).generation, blue.generationId);
     assert.equal(gateway.active(), "customer-alpha-green-12");
     assert.equal((await store.readFence(owner)).activeExecutionGeneration, "customer-alpha-green-12");
@@ -641,16 +662,18 @@ test("proves distinct customer binaries and deployment processes recover from Po
     crashEvidence.add("promoted:supervisor");
     crashEvidence.add("promoted:worker-green");
     crashEvidence.add("promoted:realtime-client");
-    await assert.rejects(store.completeEffect({ ...owner, effectId: "sales-external-effect", generationId: blue.generationId, fencingToken: 1, claimToken: blueEffect.claimToken, resultDigest: sha256("blue completion") }), { code: "FENCE_REJECTED" });
-    const greenClaims = await Promise.all([
-      store.claimEffect({ ...owner, effectId: "sales-external-effect", generationId: "customer-alpha-green-12", fencingToken: 2, claimantId: "worker:phase-9-green-a", claimLeaseExpiresAt: effectLeaseExpiresAt }),
-      store.claimEffect({ ...owner, effectId: "sales-external-effect", generationId: "customer-alpha-green-12", fencingToken: 2, claimantId: "worker:phase-9-green-b", claimLeaseExpiresAt: effectLeaseExpiresAt })
-    ]);
-    assert.deepEqual(greenClaims.map((claim) => claim.status).sort(), ["already-claimed", "claimed"]);
-    const greenEffect = greenClaims.find((claim) => claim.status === "claimed");
-    assert.ok(greenEffect?.claimToken);
-    await assert.rejects(store.completeEffect({ ...owner, effectId: "sales-external-effect", generationId: "customer-alpha-green-12", fencingToken: 2, claimToken: "00000000-0000-4000-8000-000000000001", resultDigest: sha256("green completion") }), { code: "EFFECT_CONFLICT" });
-    await store.completeEffect({ ...owner, effectId: "sales-external-effect", generationId: "customer-alpha-green-12", fencingToken: 2, claimToken: greenEffect.claimToken, resultDigest: sha256("green completion") });
+    const liveBlueClaim = await store.claimEffect({ ...owner, effectId: "sales-external-effect", generationId: "customer-alpha-green-12", fencingToken: 2, claimantId: "worker:phase-9-green-a", claimLeaseExpiresAt: effectLeaseExpiresAt });
+    assert.equal(liveBlueClaim.status, "already-claimed", "Fence transfer must not reassign a live blue claim to green.");
+    assert.equal(liveBlueClaim.externalIdempotencyKey, blueEffect.externalIdempotencyKey);
+    now = new Date(now.valueOf() + 121_000);
+    const greenEffect = await store.claimEffect({ ...owner, effectId: "sales-external-effect", generationId: "customer-alpha-green-12", fencingToken: 2, claimantId: "worker:phase-9-green-a", claimLeaseExpiresAt: new Date(now.valueOf() + 60_000).toISOString() });
+    assert.equal(greenEffect.status, "claimed");
+    assert.equal(greenEffect.externalIdempotencyKey, blueEffect.externalIdempotencyKey, "Retries across a fence retain the external identity.");
+    const reconciled = await deliverExternalEffect(pool, greenEffect.externalIdempotencyKey, "sales external effect");
+    assert.equal(reconciled.duplicate, true, "The observable external sink must reject the replay even when the old database completion is stale.");
+    await assert.rejects(store.completeEffect({ ...owner, effectId: "sales-external-effect", generationId: blue.generationId, fencingToken: 1, claimToken: blueEffect.claimToken, resultDigest: reconciled.resultDigest }), { code: "FENCE_REJECTED" });
+    await store.completeEffect({ ...owner, effectId: "sales-external-effect", generationId: "customer-alpha-green-12", fencingToken: 2, claimToken: greenEffect.claimToken, resultDigest: reconciled.resultDigest });
+    assert.equal((await pool.query("select count(*)::int count from p9_static_external_effects where idempotency_key=$1", [blueEffect.externalIdempotencyKey])).rows[0].count, 1);
     scenarioEvidence.add("SCN-18");
     const overlap = await Promise.all([pool.query("select array_agg(legacy_value order by id) values from p9_static_overlap"), pool.query("select array_agg(expanded_value order by id) values from p9_static_overlap"), fetch(`${gateway.url()}/new-binary`).then((response) => response.json())]);
     assert.deepEqual(overlap[0].rows[0].values, ["one", "two", "three"]);
@@ -680,7 +703,10 @@ test("proves distinct customer binaries and deployment processes recover from Po
     assert.equal((await pool.query("select count(*)::int count from information_schema.columns where table_name='p9_static_overlap' and column_name='legacy_value'")).rows[0].count, 0);
     assert.equal(realtimeEvents.length, 3);
     const outbox = await pool.query("select revision, event_json->>'operation' operation from runtime_static_deployment_outbox order by revision");
-    assert.deepEqual(outbox.rows, [{ revision: 1, operation: "promote" }, { revision: 2, operation: "rollback" }, { revision: 3, operation: "promote" }, { revision: 4, operation: "close-rollback" }]);
+    assert.deepEqual(outbox.rows, [{ revision: 1, operation: "promote" }, { revision: 2, operation: "rollback" }, { revision: 3, operation: "promote" }, { revision: 4, operation: "reserve-rollback-retirement" }, { revision: 5, operation: "close-rollback" }]);
+    await pool.query("update runtime_static_deployments set transition_checkpoint=$1::jsonb where application_id=$2 and environment=$3", [JSON.stringify({ kind: "promote", revision: 4, activeGenerationId: "customer-alpha-green-12", previousGenerationId: blue.generationId, completedSteps: ["converge-gateway"] }), owner.applicationId, owner.environment]);
+    await assert.rejects(store.read(owner), { code: "INPUT_INVALID" }, "forged or out-of-order recovery checkpoints must fail closed");
+    await pool.query("update runtime_static_deployments set transition_checkpoint=null where application_id=$1 and environment=$2", [owner.applicationId, owner.environment]);
     await processGateway.stop();
     await delay(100);
     processGateway = startTopologyProcess("gateway", { ...processBase, P9_PROCESS_INSTANCE: "gateway-2", P9_CONTROL_PORT: String(gatewayPort) });
@@ -721,7 +747,7 @@ test("returns maintenance-required without building or starting a target generat
     { resolve: async () => { throw new Error("must not resolve"); } },
     { runOnline: async () => { throw new Error("must not migrate"); }, runPostRetirement: async () => [] },
     { start: async () => { starts += 1; }, readiness: async () => { throw new Error("must not probe"); }, activateWorker: async () => undefined, drain: async () => undefined, retire: async () => undefined },
-    { read: async () => undefined, readFence: async () => undefined, promote: async () => { throw new Error("must not promote"); }, rollback: async () => { throw new Error("unused"); }, closeRollback: async () => { throw new Error("unused"); }, assertContractCleanup: async () => undefined },
+    { read: async () => undefined, readFence: async () => undefined, promote: async () => { throw new Error("must not promote"); }, rollback: async () => { throw new Error("unused"); }, reserveRollbackRetirement: async () => { throw new Error("unused"); }, closeRollback: async () => { throw new Error("unused"); }, completeTransitionStep: async () => { throw new Error("unused"); }, assertContractCleanup: async () => undefined },
     { converge: async () => { throw new Error("must not route"); } }, { reconnectAndResync: async () => { throw new Error("must not reconnect"); } }
   );
   assert.deepEqual(await supervisor.deploy({ build: {}, generationId: "customer-alpha-green-12", workerOwner: "worker:green", workerLeaseExpiresAt: new Date(Date.now() + 60_000).toISOString() }), { outcome: "maintenance-required", reasons: ["offline-migration"] });

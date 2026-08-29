@@ -88,12 +88,16 @@ function harness(build = trustedBuild()) {
     migrationRevision: fixture.migration.targetRevision
   };
   const receipt = { revisionAfter: 1 } as StaticDeploymentReceipt;
+  let current = snapshot();
+  const checkpoint = (kind: "promote" | "rollback" | "retire-rollback", activeGenerationId: string, previousGenerationId: string, revision: number) => ({ kind, activeGenerationId, previousGenerationId, revision, completedSteps: [] as const });
   const state: StaticDeploymentState = {
-    read: vi.fn(async () => snapshot()),
+    read: vi.fn(async () => current),
     readFence: vi.fn().mockResolvedValueOnce(fence(blue.generationId, 4, 0)).mockResolvedValue(fence(green.generationId, 5, 1)),
-    promote: vi.fn(async () => { events.push("promote"); return receipt; }),
-    rollback: vi.fn(async () => { events.push("rollback"); return receipt; }),
+    promote: vi.fn(async () => { events.push("promote"); current = { ...snapshot(green, blue, 1), transitionCheckpoint: checkpoint("promote", green.generationId, blue.generationId, 1) }; return receipt; }),
+    rollback: vi.fn(async () => { events.push("rollback"); current = { ...snapshot(blue, green, 2), transitionCheckpoint: checkpoint("rollback", blue.generationId, green.generationId, 2) }; return receipt; }),
+    reserveRollbackRetirement: vi.fn(async () => { const retained = current.rollback ?? blue; events.push("reserve-retirement"); current = { ...snapshot(current.active, retained, current.revision + 1), rollbackWindow: { state: "retirement-reserved" }, transitionCheckpoint: checkpoint("retire-rollback", current.active.generationId, retained.generationId, current.revision + 1) }; return { revisionAfter: current.revision } as StaticDeploymentReceipt; }),
     closeRollback: vi.fn(async () => { events.push("close-rollback"); return receipt; }),
+    completeTransitionStep: vi.fn(async () => undefined),
     assertContractCleanup: vi.fn(async () => undefined)
   };
   const artifacts: StaticApplicationArtifactProvider = {
@@ -163,6 +167,10 @@ describe("static deployment supervisor", () => {
       value.events.push("rollback");
       return { revisionAfter: 2 } as StaticDeploymentReceipt;
     });
+    vi.mocked(value.state.read).mockResolvedValueOnce(snapshot(value.green, value.blue, 1)).mockResolvedValue({
+      ...snapshot(value.blue, value.green, 2),
+      transitionCheckpoint: { kind: "rollback", activeGenerationId: value.blue.generationId, previousGenerationId: value.green.generationId, revision: 2, completedSteps: [] }
+    });
     await expect(value.supervisor.rollback({ ...owner, workerOwner: "worker:phase-9-blue", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" }))
       .resolves.toMatchObject({ revisionAfter: 2 });
     expect(value.artifacts.reverify).toHaveBeenCalledWith(value.blue);
@@ -206,53 +214,47 @@ describe("static deployment supervisor", () => {
     expect(value.state.rollback).not.toHaveBeenCalled();
   });
 
-  it("keeps contract cleanup blocked until the retained generation has drained and retired", async () => {
+  it("atomically reserves the retained inactive generation before draining it", async () => {
     const value = harness();
-    vi.mocked(value.state.read).mockResolvedValue(snapshot(value.green, value.blue, 1));
-    let releaseDrain: (() => void) | undefined;
-    let releaseRetire: (() => void) | undefined;
-    vi.mocked(value.generations.drain).mockImplementationOnce(async () => new Promise<void>((resolve) => {
-      releaseDrain = resolve;
-    }));
-    vi.mocked(value.generations.retire).mockImplementationOnce(async () => new Promise<void>((resolve) => {
-      releaseRetire = resolve;
-    }));
-    const closing = value.supervisor.closeRollback(owner);
-    await new Promise((resolve) => setImmediate(resolve));
-    expect(value.state.closeRollback).not.toHaveBeenCalled();
-    releaseDrain?.();
-    await new Promise((resolve) => setImmediate(resolve));
-    expect(value.state.closeRollback).not.toHaveBeenCalled();
-    releaseRetire?.();
-    await expect(closing).resolves.toMatchObject({ revisionAfter: 1 });
-    expect(value.events).toEqual(["close-rollback"]);
+    const open = snapshot(value.green, value.blue, 1);
+    const reserved = {
+      ...snapshot(value.green, value.blue, 2), rollbackWindow: { state: "retirement-reserved" },
+      transitionCheckpoint: { kind: "retire-rollback" as const, activeGenerationId: value.green.generationId, previousGenerationId: value.blue.generationId, revision: 2, completedSteps: [] }
+    };
+    vi.mocked(value.state.read).mockResolvedValueOnce(open).mockResolvedValue(reserved);
+    await value.supervisor.closeRollback(owner);
+    expect(value.state.reserveRollbackRetirement).toHaveBeenCalledWith({ ...owner, expectedRevision: 1, retiredGenerationId: value.blue.generationId });
+    expect(value.events).toEqual(["reserve-retirement", "drain-blue", "retire-green", "close-rollback"]);
   });
 
-  it("does not persist closure when retained-generation retirement fails", async () => {
+  it("recovery idempotently finishes every post-commit promotion step", async () => {
     const value = harness();
-    vi.mocked(value.state.read).mockResolvedValue(snapshot(value.green, value.blue, 1));
-    vi.mocked(value.generations.retire).mockRejectedValueOnce(new Error("retire interrupted"));
-    await expect(value.supervisor.closeRollback(owner)).rejects.toThrow("retire interrupted");
-    expect(value.state.closeRollback).not.toHaveBeenCalled();
+    vi.mocked(value.state.read).mockResolvedValue({
+      ...snapshot(value.green, value.blue, 1),
+      transitionCheckpoint: { kind: "promote", activeGenerationId: value.green.generationId, previousGenerationId: value.blue.generationId, revision: 1, completedSteps: [] }
+    });
+    vi.mocked(value.state.readFence).mockResolvedValue(fence(value.green.generationId, 5, 1));
+    await value.supervisor.recover(owner);
+    expect(value.events).toEqual(["activate-worker", "route-green", "realtime-resync", "drain-blue"]);
+    expect(value.state.completeTransitionStep).toHaveBeenCalledTimes(4);
   });
 
-  it("does not drain or retire when a concurrent rollback-window closure loses its expected revision", async () => {
+  it("restores active worker and gateway authority after a settled process restart", async () => {
     const value = harness();
     vi.mocked(value.state.read).mockResolvedValue(snapshot(value.green, value.blue, 1));
-    vi.mocked(value.state.closeRollback).mockRejectedValueOnce(new Error("revision conflict"));
-    await expect(value.supervisor.closeRollback(owner)).rejects.toThrow("revision conflict");
-    expect(value.generations.drain).toHaveBeenCalledOnce();
-    expect(value.generations.retire).toHaveBeenCalledOnce();
+    vi.mocked(value.state.readFence).mockResolvedValue(fence(value.green.generationId, 5, 1));
+    await value.supervisor.recover(owner);
+    expect(value.events).toEqual(["activate-worker", "route-green"]);
   });
 
-  it("allows idempotent retry after retirement succeeds but persistence is interrupted", async () => {
+  it("never drains a retained generation that became active during retirement recovery", async () => {
     const value = harness();
-    vi.mocked(value.state.read).mockResolvedValue(snapshot(value.green, value.blue, 1));
-    vi.mocked(value.state.closeRollback).mockRejectedValueOnce(new Error("closure interrupted"));
-    await expect(value.supervisor.closeRollback(owner)).rejects.toThrow("closure interrupted");
-    await expect(value.supervisor.closeRollback(owner)).resolves.toMatchObject({ revisionAfter: 1 });
-    expect(value.generations.drain).toHaveBeenCalledTimes(2);
-    expect(value.generations.retire).toHaveBeenCalledTimes(2);
-    expect(value.state.closeRollback).toHaveBeenCalledTimes(2);
+    vi.mocked(value.state.read).mockResolvedValue({
+      ...snapshot(value.blue, value.green, 2), rollbackWindow: { state: "retirement-reserved" },
+      transitionCheckpoint: { kind: "retire-rollback", activeGenerationId: value.blue.generationId, previousGenerationId: value.blue.generationId, revision: 2, completedSteps: [] }
+    });
+    await expect(value.supervisor.recover(owner)).rejects.toMatchObject({ code: "STATE_UNAVAILABLE" });
+    expect(value.generations.drain).not.toHaveBeenCalled();
+    expect(value.generations.retire).not.toHaveBeenCalled();
   });
 });

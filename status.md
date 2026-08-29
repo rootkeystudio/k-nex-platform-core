@@ -7,16 +7,16 @@
 
 ## Last completed
 
-Closed the planner/generation binding, completed-operation idempotency, and active-version downgrade blockers. Plans bind the claimed operation and exact inventory generations, fresh install/update targets cannot reuse active/rollback generations, and all five completed mutations replay persisted receipts without lease rotation or duplicate effects.
+Closed rollback-retirement fencing, worker-effect fencing, and post-commit static recovery blockers. Retirement is revision-reserved before drain, checkpoints are ordered and generation-bound, settled restarts restore worker/gateway authority, and a stable external idempotency identity prevents duplicate observable effects across fence transfer.
 
 ## Validation
 
-Node 24.19.0: runtime and payload-adapter builds passed; PluginManager 12/12 focused tests passed; the real PostgreSQL runtime suite passed 2/2 with SCN-11/12/13/16 evidence, lost-response replays, and active-version downgrade rejection; `git diff --check` passed.
+Node 24.19.0: contracts 155/155 tests, runtime/payload builds, static supervisor 10/10 tests, generated-contract validation, and real PostgreSQL/Docker static suite 2/2 passed with SCN-17/18/20/21 plus nine crash-matrix entries; `git diff --check` passed.
 
 ## Next
 
-Fix the remaining 8 review blockers in isolated commits, run targeted acceptance commands, then rerun the complete Gate 9 and a new Sol-high review.
+Fix the remaining 5 review blockers in isolated commits, run targeted acceptance commands, then rerun the complete Gate 9 and a new Sol-high review.
 
 ## Blockers
 
-Theme Skin production delivery; concrete static deployment adapters and crash recovery; rollback-window and worker-effect fencing; complete post-commit recovery; production Hot Application path; durable per-call capability authority and replay protection; revocation reconciliation.
+Theme Skin production delivery; concrete static deployment adapters/process recovery; production Hot Application path; durable per-call capability authority and replay protection; revocation reconciliation.

@@ -405,6 +405,13 @@ const staticDeploymentReceiptBase = {
 export const StaticDeploymentReceiptSchema = z.discriminatedUnion("operation", [
   z.strictObject({
     ...staticDeploymentReceiptBase,
+    operation: z.literal("reserve-rollback-retirement"),
+    retiredGenerationId: recordIdSchema,
+    rollbackWindow: z.strictObject({ state: z.literal("retirement-reserved"), windowId: recordIdSchema, closesAt: MillisecondTimestampSchema, reservedAt: MillisecondTimestampSchema }),
+    contractCleanup: z.literal("blocked")
+  }),
+  z.strictObject({
+    ...staticDeploymentReceiptBase,
     operation: z.enum(["promote", "rollback"]),
     previousGenerationId: recordIdSchema,
     rollbackWindow: z.strictObject({ state: z.literal("open"), windowId: recordIdSchema, closesAt: MillisecondTimestampSchema }),

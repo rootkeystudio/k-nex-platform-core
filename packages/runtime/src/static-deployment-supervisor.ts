@@ -33,7 +33,18 @@ export interface StaticDeploymentSnapshot {
   readonly active: StaticApplicationGeneration;
   readonly rollback?: StaticApplicationGeneration;
   readonly rollbackWindow: Readonly<Record<string, unknown>>;
+  readonly transitionCheckpoint?: StaticDeploymentTransitionCheckpoint;
   readonly stateDigest: string;
+}
+
+export type StaticDeploymentTransitionStep = "activate-worker" | "converge-gateway" | "reconnect-realtime" | "drain-previous" | "drain-retained" | "retire-retained";
+
+export interface StaticDeploymentTransitionCheckpoint {
+  readonly kind: "promote" | "rollback" | "retire-rollback";
+  readonly revision: number;
+  readonly activeGenerationId: string;
+  readonly previousGenerationId: string;
+  readonly completedSteps: readonly StaticDeploymentTransitionStep[];
 }
 
 export interface StaticPromotionReadiness {
@@ -131,7 +142,9 @@ export interface StaticDeploymentState {
     workerOwner: string;
     workerLeaseExpiresAt: string;
   }>): Promise<StaticDeploymentReceipt>;
+  reserveRollbackRetirement(input: Owner & Readonly<{ expectedRevision: number; retiredGenerationId: string }>): Promise<StaticDeploymentReceipt>;
   closeRollback(input: Owner & Readonly<{ expectedRevision: number; retiredGenerationId: string }>): Promise<StaticDeploymentReceipt>;
+  completeTransitionStep(input: Owner & Readonly<{ expectedRevision: number; step: StaticDeploymentTransitionStep }>): Promise<void>;
   assertContractCleanup(owner: Owner): Promise<void>;
 }
 
@@ -233,11 +246,7 @@ export class DeploymentSupervisor {
       build: input.build,
       readiness
     });
-    const promotedFence = await this.requireFence(owner);
-    await this.generations.activateWorker(input.generationId, promotedFence);
-    await this.gateway.converge({ ...owner, generationId: input.generationId, revision: receipt.revisionAfter });
-    await this.realtime.reconnectAndResync({ ...owner, previousGenerationId: before.active.generationId, activeGenerationId: input.generationId });
-    await this.generations.drain(before.active.generationId);
+    await this.finishPostCommit(owner);
     return Object.freeze({ outcome: "promoted", receipt });
   }
 
@@ -273,26 +282,40 @@ export class DeploymentSupervisor {
       workerOwner: input.workerOwner,
       workerLeaseExpiresAt: input.workerLeaseExpiresAt
     });
-    const rolledBackFence = await this.requireFence(owner);
-    await this.generations.activateWorker(retained.generationId, rolledBackFence);
-    await this.gateway.converge({ ...owner, generationId: retained.generationId, revision: receipt.revisionAfter });
-    await this.realtime.reconnectAndResync({ ...owner, previousGenerationId: before.active.generationId, activeGenerationId: retained.generationId });
-    await this.generations.drain(before.active.generationId);
+    await this.finishPostCommit(owner);
     return receipt;
   }
 
   async recover(owner: Owner): Promise<void> {
-    const current = await this.requireState(owner);
-    const fence = await this.requireFence(owner);
-    await this.generations.activateWorker(current.active.generationId, fence);
-    await this.gateway.converge({ ...owner, generationId: current.active.generationId, revision: current.revision });
+    const before = await this.requireState(owner);
+    const checkpoint = before.transitionCheckpoint;
+    const steps = checkpoint?.kind === "retire-rollback" ? ["drain-retained", "retire-retained"] : ["activate-worker", "converge-gateway", "reconnect-realtime", "drain-previous"];
+    const hadPendingTransition = checkpoint !== undefined && checkpoint.completedSteps.length < steps.length;
+    await this.finishPostCommit(owner);
+    if (!hadPendingTransition) {
+      const current = await this.requireState(owner);
+      const fence = await this.requireFence(owner);
+      await this.generations.activateWorker(current.active.generationId, fence);
+      await this.gateway.converge({ ...owner, generationId: current.active.generationId, revision: current.revision });
+    }
   }
 
   async closeRollback(owner: Owner): Promise<StaticDeploymentReceipt> {
-    const current = await this.requireState(owner);
-    if (!current.rollback) throw new StaticDeploymentSupervisorError("STATE_UNAVAILABLE", "No retained generation is available to retire.");
-    await this.generations.drain(current.rollback.generationId);
-    await this.generations.retire(current.rollback.generationId);
+    let current = await this.requireState(owner);
+    if (current.rollbackWindow.state === "closed") {
+      const retiredGenerationId = current.rollbackWindow.retiredGenerationId;
+      if (typeof retiredGenerationId !== "string") throw new StaticDeploymentSupervisorError("STATE_UNAVAILABLE", "Closed rollback state is missing its retired generation identity.");
+      return this.state.closeRollback({ ...owner, expectedRevision: current.revision, retiredGenerationId });
+    }
+    if (current.rollbackWindow.state === "open") {
+      if (!current.rollback) throw new StaticDeploymentSupervisorError("STATE_UNAVAILABLE", "No retained generation is available to retire.");
+      await this.state.reserveRollbackRetirement({ ...owner, expectedRevision: current.revision, retiredGenerationId: current.rollback.generationId });
+      current = await this.requireState(owner);
+    }
+    if (current.rollbackWindow.state !== "retirement-reserved" || !current.rollback) {
+      throw new StaticDeploymentSupervisorError("STATE_UNAVAILABLE", "No retained generation is reserved for retirement.");
+    }
+    await this.finishPostCommit(owner);
     return this.state.closeRollback({ ...owner, expectedRevision: current.revision, retiredGenerationId: current.rollback.generationId });
   }
 
@@ -315,5 +338,29 @@ export class DeploymentSupervisor {
     const value = await this.state.readFence(owner);
     if (!value) throw new StaticDeploymentSupervisorError("STATE_UNAVAILABLE", "Static worker fence is unavailable.");
     return value;
+  }
+
+  private async finishPostCommit(owner: Owner): Promise<void> {
+    let current = await this.requireState(owner);
+    const checkpoint = current.transitionCheckpoint;
+    if (!checkpoint) return;
+    const complete = async (step: StaticDeploymentTransitionStep, work: () => Promise<void>) => {
+      if (checkpoint.completedSteps.includes(step)) return;
+      await work();
+      await this.state.completeTransitionStep({ ...owner, expectedRevision: checkpoint.revision, step });
+      current = await this.requireState(owner);
+    };
+    if (checkpoint.kind === "retire-rollback") {
+      if (current.active.generationId === checkpoint.previousGenerationId) {
+        throw new StaticDeploymentSupervisorError("STATE_UNAVAILABLE", "Reserved rollback generation became active and cannot be retired.");
+      }
+      await complete("drain-retained", () => this.generations.drain(checkpoint.previousGenerationId));
+      await complete("retire-retained", () => this.generations.retire(checkpoint.previousGenerationId));
+      return;
+    }
+    await complete("activate-worker", async () => this.generations.activateWorker(checkpoint.activeGenerationId, await this.requireFence(owner)));
+    await complete("converge-gateway", () => this.gateway.converge({ ...owner, generationId: checkpoint.activeGenerationId, revision: checkpoint.revision }));
+    await complete("reconnect-realtime", () => this.realtime.reconnectAndResync({ ...owner, previousGenerationId: checkpoint.previousGenerationId, activeGenerationId: checkpoint.activeGenerationId }));
+    await complete("drain-previous", () => this.generations.drain(checkpoint.previousGenerationId));
   }
 }

@@ -12,6 +12,8 @@ import {
 import type {
   StaticApplicationGeneration,
   StaticDeploymentSnapshot,
+  StaticDeploymentTransitionCheckpoint,
+  StaticDeploymentTransitionStep,
   StaticPromotionReadiness,
   VerifiedStaticApplicationBuild,
   VerifiedStaticBuildReader
@@ -44,6 +46,7 @@ interface DeploymentRow {
   rollback_generation_id: string | null;
   rollback_generation: StaticApplicationGeneration | null;
   rollback_window: Record<string, unknown>;
+  transition_checkpoint: StaticDeploymentTransitionCheckpoint | null;
   state_digest: string;
 }
 
@@ -111,15 +114,41 @@ function same(left: unknown, right: unknown): boolean {
   return canonicalJson(left) === canonicalJson(right);
 }
 
+function checkpoint(value: StaticDeploymentTransitionCheckpoint | null, row: DeploymentRow): StaticDeploymentTransitionCheckpoint | null {
+  if (value === null) return null;
+  const allowed: Record<StaticDeploymentTransitionCheckpoint["kind"], readonly StaticDeploymentTransitionStep[]> = {
+    promote: ["activate-worker", "converge-gateway", "reconnect-realtime", "drain-previous"],
+    rollback: ["activate-worker", "converge-gateway", "reconnect-realtime", "drain-previous"],
+    "retire-rollback": ["drain-retained", "retire-retained"]
+  };
+  if (!value || !["promote", "rollback", "retire-rollback"].includes(value.kind) || value.revision !== row.revision ||
+    !generationPattern.test(value.activeGenerationId) || !generationPattern.test(value.previousGenerationId) ||
+    value.activeGenerationId !== row.active_generation_id || value.previousGenerationId !== row.rollback_generation_id ||
+    !Array.isArray(value.completedSteps) || value.completedSteps.some((step, index) => step !== allowed[value.kind][index])) {
+    fail("INPUT_INVALID", "Static deployment transition checkpoint is invalid.");
+  }
+  return value;
+}
+
 function snapshot(owner: Owner, row: DeploymentRow): StaticDeploymentSnapshot {
+  const transitionCheckpoint = checkpoint(row.transition_checkpoint, row);
   return Object.freeze({
     ...owner,
     revision: row.revision,
     active: Object.freeze(structuredClone(row.active_generation)),
     ...(row.rollback_generation ? { rollback: Object.freeze(structuredClone(row.rollback_generation)) } : {}),
     rollbackWindow: Object.freeze(structuredClone(row.rollback_window)),
+    ...(transitionCheckpoint ? { transitionCheckpoint: Object.freeze(structuredClone(transitionCheckpoint)) } : {}),
     stateDigest: row.state_digest
   });
+}
+
+function stateForDigest(row: Readonly<Pick<DeploymentRow, "revision" | "active_generation" | "rollback_generation" | "rollback_window" | "transition_checkpoint">>): Record<string, unknown> {
+  return { revision: row.revision, active: row.active_generation, rollback: row.rollback_generation, rollbackWindow: row.rollback_window, transitionCheckpoint: row.transition_checkpoint };
+}
+
+function effectIdempotencyKey(input: Owner & Readonly<{ effectId: string }>): string {
+  return `${input.applicationId}:${input.environment}:${input.effectId}`;
 }
 
 export class PostgresStaticDeploymentStore {
@@ -139,12 +168,12 @@ export class PostgresStaticDeploymentStore {
     this.assertWorkerLease(input.workerOwner, input.workerLeaseExpiresAt);
     return this.transaction(async (session) => {
       await this.lock(session, input);
-      const state = { revision: 0, active: input.generation, rollback: null, rollbackWindow: { state: "not-applicable", contractCleanup: "blocked" } };
+      const state = { revision: 0, active: input.generation, rollback: null, rollbackWindow: { state: "not-applicable", contractCleanup: "blocked" }, transitionCheckpoint: null };
       const stateDigest = await sha256(state);
       await session.query(
         `insert into runtime_static_deployments (
-           application_id, environment, revision, active_generation_id, active_generation, rollback_window, state_digest
-         ) values ($1,$2,0,$3,$4::jsonb,$5::jsonb,$6) on conflict do nothing`,
+           application_id, environment, revision, active_generation_id, active_generation, rollback_window, transition_checkpoint, state_digest
+         ) values ($1,$2,0,$3,$4::jsonb,$5::jsonb,null,$6) on conflict do nothing`,
         [input.applicationId, input.environment, input.generation.generationId, JSON.stringify(input.generation), JSON.stringify(state.rollbackWindow), stateDigest]
       );
       await session.query(
@@ -201,6 +230,7 @@ export class PostgresStaticDeploymentStore {
       const current = await this.readLocked(session, input);
       const fence = await this.readFenceLocked(session, input);
       if (!current || current.revision !== input.expectedRevision) fail("REVISION_CONFLICT", "Static deployment revision changed before promotion.");
+      if (current.rollback_window.state === "retirement-reserved") fail("REVISION_CONFLICT", "Static deployment cannot replace a generation while rollback retirement is reserved.");
       if (current.active_generation.sourceCommit !== change.base.sourceCommit || current.active_generation.migrationRevision !== change.migration.baseRevision) {
         fail("EVIDENCE_MISMATCH", "Static deployment no longer matches the authorized base source and migration revision.");
       }
@@ -211,7 +241,6 @@ export class PostgresStaticDeploymentStore {
       const revision = current.revision + 1;
       const token = Number(fence.fencing_token) + 1;
       const rollbackWindow = change.migration.rollbackWindow;
-      const stateDigest = await sha256({ revision, active: generation, rollback: current.active_generation, rollbackWindow });
       const receipt = StaticDeploymentReceiptSchema.parse({
         schemaVersion: 1,
         receiptId: `static-promotion-${revision}`,
@@ -234,7 +263,7 @@ export class PostgresStaticDeploymentStore {
         contractCleanup: "blocked",
         occurredAt: timestamp(this.clock)
       });
-      await this.commitTransition(session, input, current, fence, generation, current.active_generation, rollbackWindow, receipt, input.workerOwner, input.workerLeaseExpiresAt, stateDigest);
+      await this.commitTransition(session, input, current, fence, generation, current.active_generation, rollbackWindow, receipt, input.workerOwner, input.workerLeaseExpiresAt);
       return Object.freeze(receipt);
     });
   }
@@ -258,7 +287,6 @@ export class PostgresStaticDeploymentStore {
       const revision = current.revision + 1;
       const token = Number(fence.fencing_token) + 1;
       const target = current.rollback_generation;
-      const stateDigest = await sha256({ revision, active: target, rollback: current.active_generation, rollbackWindow: current.rollback_window });
       const receipt = StaticDeploymentReceiptSchema.parse({
         schemaVersion: 1,
         receiptId: `static-rollback-${revision}`,
@@ -281,7 +309,7 @@ export class PostgresStaticDeploymentStore {
         contractCleanup: "blocked",
         occurredAt: timestamp(this.clock)
       });
-      await this.commitTransition(session, input, current, fence, target, current.active_generation, current.rollback_window, receipt, input.workerOwner, input.workerLeaseExpiresAt, stateDigest);
+      await this.commitTransition(session, input, current, fence, target, current.active_generation, current.rollback_window, receipt, input.workerOwner, input.workerLeaseExpiresAt);
       return Object.freeze(receipt);
     });
   }
@@ -292,15 +320,18 @@ export class PostgresStaticDeploymentStore {
       await this.lock(session, input);
       const current = await this.readLocked(session, input);
       const fence = await this.readFenceLocked(session, input);
-      if (!current || current.revision !== input.expectedRevision) fail("REVISION_CONFLICT", "Static deployment revision changed before rollback closure.");
-      if (!current.rollback_generation || current.rollback_generation_id !== input.retiredGenerationId || current.rollback_window.state !== "open") {
-        fail("CONTRACT_CLEANUP_BLOCKED", "The retained rollback generation has not been explicitly retired.");
+      if (!current) fail("REVISION_CONFLICT", "Static deployment is unavailable for rollback closure.");
+      if (current.rollback_window.state === "closed") return this.readCloseReceipt(session, input, current);
+      if (current.revision !== input.expectedRevision) fail("REVISION_CONFLICT", "Static deployment revision changed before rollback closure.");
+      if (!current.rollback_generation || current.rollback_generation_id !== input.retiredGenerationId || current.rollback_window.state !== "retirement-reserved" ||
+        !current.transition_checkpoint?.completedSteps.includes("drain-retained") || !current.transition_checkpoint.completedSteps.includes("retire-retained")) {
+        fail("CONTRACT_CLEANUP_BLOCKED", "The retained rollback generation has not been drained and retired under its reservation.");
       }
       if (!fence) fail("FENCE_REJECTED", "Worker execution fence is unavailable.");
       const revision = current.revision + 1;
       const closedAt = timestamp(this.clock);
-      const rollbackWindow = { state: "closed", windowId: current.rollback_window.windowId, closedAt, contractCleanup: "eligible" };
-      const stateDigest = await sha256({ revision, active: current.active_generation, rollback: null, rollbackWindow });
+      const rollbackWindow = { state: "closed", windowId: current.rollback_window.windowId, closedAt, retiredGenerationId: input.retiredGenerationId, contractCleanup: "eligible" };
+      const stateDigest = await sha256({ revision, active: current.active_generation, rollback: null, rollbackWindow, transitionCheckpoint: null });
       const receipt = StaticDeploymentReceiptSchema.parse({
         schemaVersion: 1,
         receiptId: `static-rollback-close-${revision}`,
@@ -325,13 +356,75 @@ export class PostgresStaticDeploymentStore {
       });
       const updated = await session.query(
         `update runtime_static_deployments set revision=$3, rollback_generation_id=null, rollback_generation=null,
-           rollback_window=$4::jsonb, state_digest=$5, updated_at=now()
+           rollback_window=$4::jsonb, transition_checkpoint=null, state_digest=$5, updated_at=now()
          where application_id=$1 and environment=$2 and revision=$6 returning revision`,
         [input.applicationId, input.environment, revision, JSON.stringify(rollbackWindow), stateDigest, current.revision]
       );
       if (!updated.rows[0]) fail("REVISION_CONFLICT", "Static deployment changed before rollback closure commit.");
       await this.outbox(session, input, receipt);
       return Object.freeze(receipt);
+    });
+  }
+
+  async reserveRollbackRetirement(input: Owner & Readonly<{ expectedRevision: number; retiredGenerationId: string }>): Promise<StaticDeploymentReceipt> {
+    assertOwner(input); assertRevision(input.expectedRevision);
+    return this.transaction(async (session) => {
+      await this.lock(session, input);
+      const current = await this.readLocked(session, input);
+      const fence = await this.readFenceLocked(session, input);
+      if (!current || !fence) fail("FENCE_REJECTED", "Static deployment authority is unavailable for rollback retirement.");
+      if (current.rollback_window.state === "retirement-reserved" && current.rollback_generation_id === input.retiredGenerationId) {
+        return this.readReserveReceipt(session, input, current);
+      }
+      if (current.revision !== input.expectedRevision) fail("REVISION_CONFLICT", "Static deployment revision changed before rollback retirement reservation.");
+      if (!current.rollback_generation || current.rollback_generation_id !== input.retiredGenerationId || current.rollback_window.state !== "open" || current.active_generation_id === input.retiredGenerationId) {
+        fail("CONTRACT_CLEANUP_BLOCKED", "Only the retained inactive rollback generation can be reserved for retirement.");
+      }
+      const revision = current.revision + 1;
+      const reservedAt = timestamp(this.clock);
+      const rollbackWindow = { state: "retirement-reserved", windowId: current.rollback_window.windowId, closesAt: current.rollback_window.closesAt, reservedAt, contractCleanup: "blocked" };
+      const checkpoint: StaticDeploymentTransitionCheckpoint = { kind: "retire-rollback", revision, activeGenerationId: current.active_generation_id, previousGenerationId: input.retiredGenerationId, completedSteps: [] };
+      const stateDigest = await sha256({ revision, active: current.active_generation, rollback: current.rollback_generation, rollbackWindow, transitionCheckpoint: checkpoint });
+      const receipt = StaticDeploymentReceiptSchema.parse({
+        schemaVersion: 1, receiptId: `static-rollback-retirement-reserve-${revision}`, operation: "reserve-rollback-retirement",
+        applicationId: input.applicationId, environment: input.environment, activeGenerationId: current.active_generation_id,
+        retiredGenerationId: input.retiredGenerationId, sourceCommit: current.active_generation.sourceCommit,
+        compositionChangePlanDigest: current.active_generation.compositionChangePlanDigest, buildEvidenceDigest: current.active_generation.buildEvidenceDigest,
+        applicationDigest: current.active_generation.applicationDigest, imageDigest: current.active_generation.imageDigest,
+        migrationRevision: current.active_generation.migrationRevision, workerFencingToken: Number(fence.fencing_token), promotionRevision: fence.promotion_revision,
+        revisionBefore: current.revision, revisionAfter: revision,
+        rollbackWindow: { state: "retirement-reserved", windowId: current.rollback_window.windowId, closesAt: current.rollback_window.closesAt, reservedAt }, contractCleanup: "blocked", occurredAt: reservedAt
+      });
+      const updated = await session.query(
+        `update runtime_static_deployments set revision=$3, rollback_window=$4::jsonb, transition_checkpoint=$5::jsonb, state_digest=$6, updated_at=now()
+         where application_id=$1 and environment=$2 and revision=$7 returning revision`,
+        [input.applicationId, input.environment, revision, JSON.stringify(rollbackWindow), JSON.stringify(checkpoint), stateDigest, current.revision]
+      );
+      if (!updated.rows[0]) fail("REVISION_CONFLICT", "Static deployment changed before rollback retirement reservation commit.");
+      await this.outbox(session, input, receipt);
+      return Object.freeze(receipt);
+    });
+  }
+
+  async completeTransitionStep(input: Owner & Readonly<{ expectedRevision: number; step: StaticDeploymentTransitionStep }>): Promise<void> {
+    assertOwner(input); assertRevision(input.expectedRevision);
+    return this.transaction(async (session) => {
+      await this.lock(session, input);
+      const current = await this.readLocked(session, input);
+      if (!current || current.revision !== input.expectedRevision || !current.transition_checkpoint) fail("REVISION_CONFLICT", "Static deployment transition checkpoint changed before completion.");
+      const checkpoint = current.transition_checkpoint;
+      if (checkpoint.completedSteps.includes(input.step)) return;
+      const allowed = checkpoint.kind === "retire-rollback" ? ["drain-retained", "retire-retained"] : ["activate-worker", "converge-gateway", "reconnect-realtime", "drain-previous"];
+      if (input.step !== allowed[checkpoint.completedSteps.length]) fail("INPUT_INVALID", "Transition step is out of order for the persisted deployment checkpoint.");
+      const completedSteps = [...checkpoint.completedSteps, input.step] as StaticDeploymentTransitionStep[];
+      const updatedCheckpoint = { ...checkpoint, completedSteps } as StaticDeploymentTransitionCheckpoint;
+      const stateDigest = await sha256(stateForDigest({ ...current, transition_checkpoint: updatedCheckpoint }));
+      const updated = await session.query(
+        `update runtime_static_deployments set transition_checkpoint=$3::jsonb, state_digest=$4, updated_at=now()
+         where application_id=$1 and environment=$2 and revision=$5 returning revision`,
+        [input.applicationId, input.environment, JSON.stringify(updatedCheckpoint), stateDigest, input.expectedRevision]
+      );
+      if (!updated.rows[0]) fail("REVISION_CONFLICT", "Static deployment transition checkpoint changed during completion.");
     });
   }
 
@@ -355,7 +448,7 @@ export class PostgresStaticDeploymentStore {
     });
   }
 
-  async claimEffect(input: Owner & Readonly<{ effectId: string; generationId: string; fencingToken: number; claimantId: string; claimLeaseExpiresAt: string }>): Promise<Readonly<{ status: "claimed"; attempts: number; claimToken: string }> | Readonly<{ status: "already-claimed" | "already-completed"; attempts: number }>> {
+  async claimEffect(input: Owner & Readonly<{ effectId: string; generationId: string; fencingToken: number; claimantId: string; claimLeaseExpiresAt: string }>): Promise<Readonly<{ status: "claimed"; attempts: number; claimToken: string; externalIdempotencyKey: string }> | Readonly<{ status: "already-claimed" | "already-completed"; attempts: number; externalIdempotencyKey: string }>> {
     this.assertEffectInput(input);
     return this.transaction(async (session) => {
       const fence = await this.assertActiveFence(session, input);
@@ -365,10 +458,11 @@ export class PostgresStaticDeploymentStore {
         [input.applicationId, input.environment, input.effectId]
       );
       const row = current.rows[0];
-      if (row?.state === "completed") return Object.freeze({ status: "already-completed", attempts: row.attempts });
-      if (row && row.generation_id === input.generationId && Number(row.fencing_token) === input.fencingToken &&
-        row.claim_expires_at && new Date(row.claim_expires_at).valueOf() > this.clock.now().valueOf()) {
-        return Object.freeze({ status: "already-claimed", attempts: row.attempts });
+      const externalIdempotencyKey = effectIdempotencyKey(input);
+      if (row?.state === "completed") return Object.freeze({ status: "already-completed", attempts: row.attempts, externalIdempotencyKey });
+      if (row && row.claim_expires_at && new Date(row.claim_expires_at).valueOf() > this.clock.now().valueOf()) {
+        // A live claim remains with its original fence while that generation drains. It is never reassigned by a promotion.
+        return Object.freeze({ status: "already-claimed", attempts: row.attempts, externalIdempotencyKey });
       }
       const claimToken = globalThis.crypto.randomUUID();
       const updated = row ? await session.query<EffectRow>(
@@ -381,7 +475,7 @@ export class PostgresStaticDeploymentStore {
          values ($1,$2,$3,$4,$5,$6,$7,$8) returning *`,
         [input.applicationId, input.environment, input.effectId, input.generationId, input.fencingToken, input.claimantId, claimToken, input.claimLeaseExpiresAt]
       );
-      return Object.freeze({ status: "claimed", attempts: updated.rows[0]!.attempts, claimToken });
+      return Object.freeze({ status: "claimed", attempts: updated.rows[0]!.attempts, claimToken, externalIdempotencyKey });
     });
   }
 
@@ -389,7 +483,6 @@ export class PostgresStaticDeploymentStore {
     this.assertEffectInput(input);
     if (!digestPattern.test(input.resultDigest) || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(input.claimToken)) fail("INPUT_INVALID", "Worker effect completion claim is invalid.");
     return this.transaction(async (session) => {
-      await this.assertActiveFence(session, input);
       const current = await session.query<EffectRow>(
         `select * from runtime_worker_effects where application_id=$1 and environment=$2 and effect_id=$3 for update`,
         [input.applicationId, input.environment, input.effectId]
@@ -400,8 +493,8 @@ export class PostgresStaticDeploymentStore {
         if (row.result_digest !== input.resultDigest) fail("EFFECT_CONFLICT", "Completed worker effect cannot be rebound to a different result.");
         return Object.freeze({ status: "already-completed" });
       }
-      if (row.generation_id !== input.generationId || Number(row.fencing_token) !== input.fencingToken) fail("FENCE_REJECTED", "Worker effect claim belongs to a stale execution fence.");
-      if (row.claim_token !== input.claimToken || !row.claim_expires_at || new Date(row.claim_expires_at).valueOf() <= this.clock.now().valueOf()) fail("EFFECT_CONFLICT", "Worker effect claim is not owned by this worker or has expired.");
+      if (row.generation_id !== input.generationId || Number(row.fencing_token) !== input.fencingToken) fail("FENCE_REJECTED", "Worker effect claim belongs to a different execution fence.");
+      if (row.claim_token !== input.claimToken || !row.claim_expires_at) fail("EFFECT_CONFLICT", "Worker effect claim is not owned by this worker.");
       const updated = await session.query(
         `update runtime_worker_effects set state='completed', result_digest=$4, claim_owner=null, claim_token=null, claim_expires_at=null, updated_at=now()
          where application_id=$1 and environment=$2 and effect_id=$3 and state='pending' and claim_token=$5 returning effect_id`,
@@ -505,16 +598,23 @@ export class PostgresStaticDeploymentStore {
     rollbackWindow: Record<string, unknown>,
     receipt: StaticDeploymentReceipt,
     workerOwner: string,
-    workerLeaseExpiresAt: string,
-    stateDigest: string
+    workerLeaseExpiresAt: string
   ): Promise<void> {
     const revision = receipt.revisionAfter;
     const token = receipt.workerFencingToken;
+    const checkpoint: StaticDeploymentTransitionCheckpoint = {
+      kind: receipt.operation === "promote" ? "promote" : "rollback",
+      revision,
+      activeGenerationId: active.generationId,
+      previousGenerationId: rollback.generationId,
+      completedSteps: []
+    };
+    const stateDigest = await sha256({ revision, active, rollback, rollbackWindow, transitionCheckpoint: checkpoint });
     const updated = await session.query(
       `update runtime_static_deployments set revision=$3, active_generation_id=$4, active_generation=$5::jsonb,
-         rollback_generation_id=$6, rollback_generation=$7::jsonb, rollback_window=$8::jsonb, state_digest=$9, updated_at=now()
-       where application_id=$1 and environment=$2 and revision=$10 returning revision`,
-      [owner.applicationId, owner.environment, revision, active.generationId, JSON.stringify(active), rollback.generationId, JSON.stringify(rollback), JSON.stringify(rollbackWindow), stateDigest, current.revision]
+         rollback_generation_id=$6, rollback_generation=$7::jsonb, rollback_window=$8::jsonb, transition_checkpoint=$9::jsonb, state_digest=$10, updated_at=now()
+       where application_id=$1 and environment=$2 and revision=$11 returning revision`,
+      [owner.applicationId, owner.environment, revision, active.generationId, JSON.stringify(active), rollback.generationId, JSON.stringify(rollback), JSON.stringify(rollbackWindow), JSON.stringify(checkpoint), stateDigest, current.revision]
     );
     if (!updated.rows[0]) fail("REVISION_CONFLICT", "Static deployment changed before promotion commit.");
     const transferred = await session.query(
@@ -533,6 +633,30 @@ export class PostgresStaticDeploymentStore {
        values ($1,$2,$3,$4,$5::jsonb)`,
       [receipt.receiptId, owner.applicationId, owner.environment, receipt.revisionAfter, JSON.stringify(receipt)]
     );
+  }
+
+  private async readReserveReceipt(session: RuntimeExtensionSession, owner: Owner, current: DeploymentRow): Promise<StaticDeploymentReceipt> {
+    const result = await session.query<{ event_json: unknown }>(
+      `select event_json from runtime_static_deployment_outbox where application_id=$1 and environment=$2 and revision=$3`,
+      [owner.applicationId, owner.environment, current.revision]
+    );
+    try {
+      const receipt = StaticDeploymentReceiptSchema.parse(result.rows[0]?.event_json);
+      if (receipt.operation !== "reserve-rollback-retirement") throw new Error("wrong receipt");
+      return Object.freeze(receipt);
+    } catch { fail("REVISION_CONFLICT", "Rollback retirement reservation is missing its authoritative receipt."); }
+  }
+
+  private async readCloseReceipt(session: RuntimeExtensionSession, owner: Owner, current: DeploymentRow): Promise<StaticDeploymentReceipt> {
+    const result = await session.query<{ event_json: unknown }>(
+      `select event_json from runtime_static_deployment_outbox where application_id=$1 and environment=$2 and revision=$3`,
+      [owner.applicationId, owner.environment, current.revision]
+    );
+    try {
+      const receipt = StaticDeploymentReceiptSchema.parse(result.rows[0]?.event_json);
+      if (receipt.operation !== "close-rollback") throw new Error("wrong receipt");
+      return Object.freeze(receipt);
+    } catch { fail("REVISION_CONFLICT", "Rollback closure is missing its authoritative receipt."); }
   }
 
   private async lock(session: RuntimeExtensionSession, owner: Owner): Promise<void> {

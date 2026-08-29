@@ -12,6 +12,7 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
       "rollback_generation_id" varchar(128),
       "rollback_generation" jsonb,
       "rollback_window" jsonb NOT NULL,
+      "transition_checkpoint" jsonb,
       "state_digest" varchar(71) NOT NULL,
       "updated_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
       PRIMARY KEY ("application_id", "environment"),
@@ -21,6 +22,7 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
       ),
       CONSTRAINT "runtime_static_deployments_rollback_pair_check" CHECK (("rollback_generation_id" IS NULL)=("rollback_generation" IS NULL)),
       CONSTRAINT "runtime_static_deployments_rollback_window_check" CHECK (jsonb_typeof("rollback_window")='object'),
+      CONSTRAINT "runtime_static_deployments_transition_checkpoint_check" CHECK ("transition_checkpoint" IS NULL OR jsonb_typeof("transition_checkpoint")='object'),
       CONSTRAINT "runtime_static_deployments_state_digest_check" CHECK ("state_digest" ~ '^sha256:[0-9a-f]{64}$')
     );
 

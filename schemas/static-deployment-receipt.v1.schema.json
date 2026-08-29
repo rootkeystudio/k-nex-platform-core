@@ -38,6 +38,137 @@
           "$ref": "#/$defs/__schema10"
         },
         "operation": {
+          "const": "reserve-rollback-retirement",
+          "type": "string"
+        },
+        "promotionRevision": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "receiptId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "retiredGenerationId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "revisionAfter": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "revisionBefore": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "rollbackWindow": {
+          "additionalProperties": false,
+          "properties": {
+            "closesAt": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "reservedAt": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "state": {
+              "const": "retirement-reserved",
+              "type": "string"
+            },
+            "windowId": {
+              "$ref": "#/$defs/__schema3"
+            }
+          },
+          "required": [
+            "state",
+            "windowId",
+            "closesAt",
+            "reservedAt"
+          ],
+          "type": "object"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "sourceCommit": {
+          "$ref": "#/$defs/__schema6"
+        },
+        "workerFencingToken": {
+          "$ref": "#/$defs/__schema9"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "receiptId",
+        "applicationId",
+        "environment",
+        "activeGenerationId",
+        "sourceCommit",
+        "compositionChangePlanDigest",
+        "buildEvidenceDigest",
+        "applicationDigest",
+        "imageDigest",
+        "migrationRevision",
+        "workerFencingToken",
+        "promotionRevision",
+        "revisionBefore",
+        "revisionAfter",
+        "occurredAt",
+        "operation",
+        "retiredGenerationId",
+        "rollbackWindow",
+        "contractCleanup"
+      ],
+      "type": "object"
+    },
+    "__schema1": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "__schema10": {
+      "allOf": [
+        {
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
+        },
+        {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        }
+      ],
+      "maxLength": 64,
+      "type": "string"
+    },
+    "__schema11": {
+      "additionalProperties": false,
+      "properties": {
+        "$schema": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "activeGenerationId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "applicationDigest": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "applicationId": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "buildEvidenceDigest": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "compositionChangePlanDigest": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "contractCleanup": {
+          "const": "blocked",
+          "type": "string"
+        },
+        "environment": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "imageDigest": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "migrationRevision": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "occurredAt": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "operation": {
           "enum": [
             "promote",
             "rollback"
@@ -114,23 +245,7 @@
       ],
       "type": "object"
     },
-    "__schema1": {
-      "maxLength": 512,
-      "type": "string"
-    },
-    "__schema10": {
-      "allOf": [
-        {
-          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
-        },
-        {
-          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
-        }
-      ],
-      "maxLength": 64,
-      "type": "string"
-    },
-    "__schema11": {
+    "__schema12": {
       "additionalProperties": false,
       "properties": {
         "$schema": {
@@ -284,6 +399,9 @@
     },
     {
       "$ref": "#/$defs/__schema11"
+    },
+    {
+      "$ref": "#/$defs/__schema12"
     }
   ],
   "title": "K-Nex Static Deployment Receipt v1"
