@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Replaced the toy customer server with the real Payload/Next standalone runtime, removed control-plane files and excess web-role writes, authenticated and authority-bound supervisor commands, proved post-commit SIGKILL replay, split runtime consumers into real service/browser boundaries, and drove maintenance refusal from the persisted PluginManager plan.
+Hardened the continuous HTTP overlap proof for loaded repeat runs after replacing the toy customer server with real Payload/Next, authority-binding supervisor commands, splitting runtime consumers into real service/browser boundaries, and driving maintenance refusal from the persisted PluginManager plan.
 
 ## Validation
 
-Node 24.19.0: customer build, four-process runtime journey, full Chromium suite, syntax/diff checks, and the complete static PostgreSQL/Docker journey passed after review hardening. The final Gate 9 rerun is pending on the review-fix commit.
+Node 24.19.0: focused static PostgreSQL/Docker passes, and the real Hot Application PostgreSQL/Docker journey passed three consecutive stress runs with bounded five-second requests and a twelve-second generation-observation window. The full Gate 9 rerun is pending.
 
 ## Next
 

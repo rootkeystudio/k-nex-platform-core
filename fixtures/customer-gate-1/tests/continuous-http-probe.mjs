@@ -1,4 +1,6 @@
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+const requestTimeoutMs = 5_000;
+const generationObservationMs = 12_000;
 
 export function startContinuousHttpProbe({ url, path = "/", initialWindow, initialGenerations, generation = (body) => body.generationId ?? body.generation, intervalMs = 15 }) {
   const samples = [];
@@ -20,7 +22,7 @@ export function startContinuousHttpProbe({ url, path = "/", initialWindow, initi
       if (paused) { await delay(intervalMs); continue; }
       pending = (async () => {
         try {
-          const response = await fetch(`${url}${path}`, { signal: AbortSignal.timeout(1_000) });
+          const response = await fetch(`${url}${path}`, { signal: AbortSignal.timeout(requestTimeoutMs) });
           const body = await response.json();
           const generationId = generation(body);
           const allowed = windows.get(currentWindow) ?? [];
@@ -37,11 +39,12 @@ export function startContinuousHttpProbe({ url, path = "/", initialWindow, initi
   })();
 
   const waitForGeneration = async (name, generationId) => {
-    for (let attempt = 0; attempt < 100; attempt += 1) {
+    for (let attempt = 0; attempt < Math.ceil(generationObservationMs / intervalMs); attempt += 1) {
       if (samples.some((sample) => sample.window === name && sample.generationId === generationId)) return;
       await delay(intervalMs);
     }
-    throw new Error(`Continuous HTTP probe did not observe ${generationId} during ${name}.`);
+    const observed = samples.filter((sample) => sample.window === name).map((sample) => `${sample.status}:${sample.generationId}`).join(", ") || "none";
+    throw new Error(`Continuous HTTP probe did not observe ${generationId} during ${name}; observed ${observed}; failures ${failures.join(", ") || "none"}.`);
   };
 
   return {
