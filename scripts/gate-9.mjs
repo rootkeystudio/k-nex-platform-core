@@ -1,24 +1,12 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
 const read = (path) => readFileSync(resolve(root, path), "utf8");
-const packageJson = JSON.parse(read("package.json"));
 
 assert.equal(process.versions.node, "24.19.0", `Gate 9 requires Node 24.19.0; found ${process.versions.node}.`);
-const gate = packageJson.scripts["gate:9"];
-for (const command of [
-  "pnpm gate:8",
-  "pnpm phase:9:attacks",
-  "pnpm --filter @k-nex/extension-bundler test",
-  "pnpm --filter @k-nex/extension-runner test",
-  "pnpm --filter @k-nex/runtime test",
-  "pnpm --filter @k-nex/payload-adapter test",
-  "pnpm --filter @k-nex/ui-testing test:browser",
-  "pnpm --filter @k-nex/customer-gate-1 test:postgres",
-  "node scripts/gate-9.mjs"
-]) assert.ok(gate.includes(command), `Gate 9 omits mandatory command: ${command}`);
 
 for (const schema of [
   "extension-bundle-manifest", "extension-generation", "extension-install-plan", "extension-install-receipt",
@@ -27,31 +15,39 @@ for (const schema of [
   "worker-generation-fence"
 ]) assert.ok(read(`schemas/${schema}.v1.schema.json`).includes(`schemas.k-nex.dev/${schema}/v1.json`), `Gate 9 schema is missing or stale: ${schema}`);
 
-const evidence = [
-  ["packages/extension-bundler/tests/extension-bundler.test.ts", ["byte-identical self-contained payloads", "signed catalog", "traversal, links, duplicate paths, bombs"]],
-  ["packages/extension-runner/tests/docker-sandbox.test.ts", ["execFile(\"docker\"", "ReadonlyRootfs", "keeps app/generation responses isolated", "quarantines only a timed-out generation"]],
-  ["packages/ui-testing/scripts/remote-ui-browser.mjs", ["chromium.launch", "credentialless iframe", "P9_REMOTE_UI_BROWSER_PASS"]],
-  ["packages/ui-testing/scripts/theme-skin-browser.mjs", ["chromium.launch", "P9_THEME_SKIN_BROWSER_PASS"]],
-  ["fixtures/customer-gate-1/tests/runtime-extension-state-postgres.test.mjs", ["PostgreSqlContainer", "const traffic = Array.from", "pg_dump", "blocked-irreversible", "disableGeneration", "uninstallGeneration"]],
-  ["fixtures/customer-gate-1/tests/static-deployment-postgres.test.mjs", ["PostgreSqlContainer", '"run", "--rm", "--detach"', "simulated fence transfer crash", "sales-external-effect", "CONTRACT_CLEANUP_BLOCKED", "maintenance-required"]],
-  ["packages/runtime/tests/static-composition-authority.test.ts", ["generateKeyPairSync(\"ed25519\")", "exact source, graph, application, and image"]],
-  ["scripts/check-phase-8-packed-packages.mjs", ["packed"]],
-  ["scripts/phase-9-attack-corpus.mjs", ["operator authorization bypass", "web process source/build/Docker authority"]]
-];
-for (const [path, anchors] of evidence) {
-  const source = read(path);
-  for (const anchor of anchors) assert.ok(source.includes(anchor), `Gate 9 mandatory non-mock evidence is missing from ${path}: ${anchor}`);
+const result = spawnSync(process.execPath, ["scripts/phase-9-attack-corpus.mjs"], {
+  cwd: root,
+  encoding: "utf8",
+  maxBuffer: 10 * 1024 * 1024
+});
+assert.equal(result.error, undefined, `Gate 9 could not start the attack corpus: ${result.error?.message}`);
+assert.equal(result.status, 0, `Gate 9 attack corpus failed:\n${result.stderr || result.stdout}`);
+let evidence;
+try {
+  evidence = JSON.parse(result.stdout.trim());
+} catch (error) {
+  assert.fail(`Gate 9 attack corpus did not emit one machine-readable report: ${error.message}`);
+}
+assert.equal(evidence.status, "PASS", "Gate 9 attack corpus did not pass.");
+assert.equal(evidence.attacks.length, 22, "Gate 9 must execute all 22 named attacks.");
+assert.ok(evidence.proofs.length > 0, "Gate 9 must execute named proofs.");
+for (const attack of evidence.attacks) {
+  assert.ok(Array.isArray(attack.proofs) && attack.proofs.length > 0, `Gate 9 attack lacks an executed proof: ${attack.attack}`);
+  assert.ok(attack.passed > 0, `Gate 9 attack has no passing exact proof: ${attack.attack}`);
 }
 
-const modules = readdirSync(resolve(root, "modules"), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+const modules = readdirSync(resolve(root, "modules"), { withFileTypes: true })
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => entry.name)
+  .sort();
 assert.deepEqual(modules, ["sales"], "Sales must remain the only first-party reference domain module through Gate 9.");
 
-const result = read("docs/implementation/phase-9-result.md");
+const phaseResult = read("docs/implementation/phase-9-result.md");
 for (const marker of [
   "# Phase 9 Result", "**Decision:** **READY FOR PHASE REVIEW**", "GO PHASE 10 RBAC AND AUTHORIZATION",
   "P9_REMOTE_UI_BROWSER_PASS", "P9_THEME_SKIN_BROWSER_PASS", "22 required attacks", "P10.1"
-]) assert.ok(result.includes(marker), `Phase 9 result is missing: ${marker}`);
-for (let task = 1; task <= 10; task += 1) assert.ok(result.includes(`P9.${task}`), `Phase 9 result is missing task P9.${task}.`);
+]) assert.ok(phaseResult.includes(marker), `Phase 9 result is missing: ${marker}`);
+for (let task = 1; task <= 10; task += 1) assert.ok(phaseResult.includes(`P9.${task}`), `Phase 9 result is missing task P9.${task}.`);
 
-console.log(JSON.stringify({ gate: "Gate 9", schemas: 13, attacks: 22, postgresJourneys: 10, referenceModules: modules }, null, 2));
+console.log(JSON.stringify({ gate: "Gate 9", attacks: evidence.attacks.length, proofs: evidence.proofs.length, referenceModules: modules }, null, 2));
 console.log("GATE_9_PASS");

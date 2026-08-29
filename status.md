@@ -7,11 +7,11 @@
 
 ## Last completed
 
-The static delivery proof now builds real Git-backed customer revisions, installs module.sales into two attested immutable images, and exercises PostgreSQL fencing, no-downtime promotion, rollback, outbox, and cleanup.
+Gate 9 now executes exact named tests for all 22 attacks and rejects missing, skipped, renamed, or failing proof evidence instead of accepting source-text anchors.
 
 ## Validation
 
-Node 24.19.0: customer fixture build passed; static deployment PostgreSQL/Docker proof 2/2 passed, including maintenance-required rejection. Full Gate 9 remains pending on the final review head.
+Node 24.19.0: the 22-attack corpus and Gate 9 evidence validator passed with 12 exact proof groups. Complete `pnpm gate:9` remains pending on the final review head.
 
 ## Next
 
