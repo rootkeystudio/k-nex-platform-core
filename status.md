@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Hardened the continuous HTTP overlap proof for loaded repeat runs after replacing the toy customer server with real Payload/Next, authority-binding supervisor commands, splitting runtime consumers into real service/browser boundaries, and driving maintenance refusal from the persisted PluginManager plan.
+Bound Gate 9's maintenance-refusal requirement to an executable evidence marker in the real PostgreSQL/Docker static-deployment journey, replacing its stale expectation for a deleted helper test.
 
 ## Validation
 
-Node 24.19.0: focused static PostgreSQL/Docker passes, and the real Hot Application PostgreSQL/Docker journey passed three consecutive stress runs with bounded five-second requests and a twelve-second generation-observation window. The full Gate 9 rerun is pending.
+Node 24.19.0: the corrected Phase 9 attack corpus passed all 22 scenarios, including the real static PostgreSQL/Docker journey's maintenance-refusal and zero-downtime evidence. The prior full Gate 9 reached this final corpus after Gates 0-8 and the direct runtime/static journeys passed.
 
 ## Next
 
-Run the complete Gate 9 on the exact review-fix commit, then request a fresh Sol-high phase review.
+Run complete Gate 9 on the exact evidence-correction commit.
 
 ## Blockers
 

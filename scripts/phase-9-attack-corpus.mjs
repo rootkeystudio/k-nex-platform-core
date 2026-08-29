@@ -20,7 +20,7 @@ const run = (command, args, options = {}) => {
 };
 
 const vitestProof = (id, filter, file, names) => ({ id, runner: "vitest", filter, file, names });
-const nodeProof = (id, file, names) => ({ id, runner: "node:test", file, names });
+const nodeProof = (id, file, names, expectedMarkers = {}) => ({ id, runner: "node:test", file, names, expectedMarkers });
 const browserProof = (id, script, marker) => ({ id, runner: "chromium", script, marker });
 
 const proofs = [
@@ -67,9 +67,16 @@ const proofs = [
     "proves PostgreSQL-backed Hot Application install, update, restore, rollback, and execution through the durable runtime"
   ]),
   nodeProof("static-deployment", "tests/static-deployment-postgres.test.mjs", [
-    "proves distinct customer binaries and deployment processes recover from PostgreSQL authority",
-    "returns maintenance-required without building or starting a target generation"
-  ]),
+    "proves distinct customer binaries and deployment processes recover from PostgreSQL authority"
+  ], {
+    P9_MAINTENANCE_REFUSAL_EVIDENCE: {
+      durablePlan: true,
+      onlineRelabelRejected: true,
+      stateUnchanged: true,
+      durableAudit: true,
+      outcome: "maintenance-required"
+    }
+  }),
   nodeProof("theme-skin-profile", "tests/theme-skin-profile-postgres.test.mjs", [
     "delivers Theme Skins from signed durable artifacts through PluginManager install, update, rollback, and restore"
   ]),
@@ -162,6 +169,9 @@ const parseTap = (proof, output) => {
     } catch (error) {
       assert.fail(`${proof.id}: invalid ${marker} JSON evidence: ${error.message}`);
     }
+  }
+  for (const [marker, expected] of Object.entries(proof.expectedMarkers)) {
+    assert.deepEqual(markers[marker], expected, `${proof.id}: required ${marker} evidence did not match.`);
   }
   return { id: proof.id, runner: proof.runner, passed: pass, names: proof.names, markers };
 };
