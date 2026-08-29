@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-29
 - **Phase:** Phase 9 — Dynamic Application Runtime and Zero-Downtime Delivery
-- **Active task:** P9.2 — Signed bundle builder, official catalog, and verifier
+- **Active task:** P9.3 — Persistent PluginManager state machine and operator boundary
 - **State:** Ready to start
 
 ## Last completed
 
-P9.1 froze `ExtensionDeliveryClass` without overloading Platform Plugin kinds; bounded app/skin manifests, capabilities, budgets, bundles, generations, plans and receipts; added closed credentialless remote-UI, production runner, static source/build authority, migration compatibility, worker fence, and zero-downtime contracts with generated schemas and failure fixtures; aligned static lifecycle and Sales proofs to explicit Platform Plugin APIs; and removed circular archive self-digests by separating embedded payload inventory from catalog-owned artifact and manifest digests.
+P9.2 added deterministic normalized app/skin bundles, syntax-aware forbidden-module inspection, bounded file inventories and budgets, CycloneDX SBOMs, workflow-bound detached provenance, closed signed-catalog contracts and fixture, secure tar extraction, complete artifact verification, and verified-only content-addressed staging using the hardened `deliveryClass` discriminator.
 
 ## Validation
 
-Node 24.19.0: contract and architecture-tool builds; deterministic generation; 152 contract tests; generated-schema/AJV repository validation; 25 architecture-tool tests; reproducibility; 238 runtime tests; docs validation; Sales proofs; and `pnpm phase:0` passed after the digest correction.
+Node 24.19.0: `@k-nex/extension-bundler` build and 7 focused tests passed; `pnpm phase:0` passed across 22 packages with 43 tasks, including generated-schema/AJV validation, 152 contract tests, 25 architecture-tool tests, reproducibility, and docs validation.
 
 ## Next
 
-Implement P9.2 only: deterministic prebuilt bundles, signed immutable catalog verification, secure extraction, provenance/SBOM/import checks, and verified content-addressed staging.
+Implement P9.3 only: persistent PluginManager lifecycle state, class-specific planning and static-change delegation, revision/lease/idempotency coordination, injected operation authority, audit/outbox integration, and protected runtime inventory.
 
 ## Blockers
 
