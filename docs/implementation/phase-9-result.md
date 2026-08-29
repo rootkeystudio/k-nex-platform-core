@@ -2,7 +2,7 @@
 
 - **Date:** 2026-08-29
 - **Gate:** Gate 9
-- **Accepted base:** `73d1888c6b2929773604f7048810893233162ee9`
+- **Accepted base:** `73d18886c36db5fc5c0d05a1d8e44dc784e460cc`
 - **Delivery:** one Phase 9 branch and pull request; no merge or auto-merge
 - **Decision:** **READY FOR PHASE REVIEW**
 - **Review state:** final Sol-high review and designated project-manager review pending
@@ -41,23 +41,20 @@ Phase 9 delivers the accepted Two-Path Extension Model. Hot Applications and The
 Focused P9.9/P9.10 evidence at final task state:
 
 ```text
-contracts: 155 tests
-architecture-contract-tools: 25 tests; generated schemas current and reproducible
-extension-bundler: 11 tests
-extension-runner: 4 real Docker isolation tests
-runtime: 257 tests
-payload-adapter: 32 tests
-ui-runtime: 53 tests
-customer PostgreSQL suite: 10/10 journeys
-phase attack corpus: 22 required attacks
-phase:0: 45/45 tasks
+contracts and architecture-contract-tools: generated schemas current, parity-tested, and reproducible
+extension-bundler and extension-runner: full suites, including real Docker isolation
+runtime and payload-adapter: full unit/integration suites
+ui-runtime and ui-testing: full unit and real Chromium suites
+customer fixture: full PostgreSQL/Docker suite
+phase attack corpus: 22 required attacks backed by 12 exact proof groups
+phase:0 and Gates 1–8: passed transitively through Gate 9
 ```
 
 Chromium markers: `P9_REMOTE_UI_BROWSER_PASS` and `P9_THEME_SKIN_BROWSER_PASS`.
 
-The customer suite proves actual HTTP continuity across Hot Application update/rollback and digest-pinned Docker Platform Plugin promotion/rollback. It deliberately fails green readiness, crashes PostgreSQL fence transfer, rejects stale worker completion, preserves one logical effect, blocks contract cleanup while rollback is open, resumes bounded backfill, restores active/rollback generations, and refuses offline migration as `maintenance-required` without changing traffic.
+The customer suite proves actual HTTP continuity across Hot Application update/rollback and two Git-backed, digest-pinned customer images that install different `module.sales` package versions. It deliberately fails green readiness, crashes PostgreSQL fence transfer, rejects stale worker completion, preserves one logical effect, blocks contract cleanup while rollback is open, resumes bounded backfill, restores active/rollback generations, and refuses offline migration as `maintenance-required` without changing traffic.
 
-At the final implementation head, `pnpm gate:9` passed Gates 1–8 and all mandatory Gate 9 class-specific tests. `scripts/gate-9.mjs` fails if required schemas, real Docker/PostgreSQL/Chromium anchors, packed-boundary proof, attack mappings, Sales-only scope, or this result matrix are missing.
+At the final implementation head, `pnpm gate:9` passed Gates 1–8 and all mandatory Gate 9 class-specific tests. `scripts/gate-9.mjs` executes exact named Docker, PostgreSQL, Chromium, and unit proof groups and fails if a required proof is missing, skipped, renamed, or failing; it also enforces required schemas, Sales-only scope, and this result matrix.
 
 ## Known limits and deferred scope
 
