@@ -293,6 +293,7 @@ export function declaredFixtureSchema(value: unknown): FixtureSchema | undefined
   if (schema.endsWith("/runner-isolation-profile.v1.schema.json")) return "runner-isolation-profile";
   if (schema.endsWith("/runtime-extension-inventory.v1.schema.json")) return "runtime-extension-inventory";
   if (schema.endsWith("/static-composition-change-plan.v1.schema.json")) return "static-composition-change-plan";
+  if (schema.endsWith("/static-deployment-receipt.v1.schema.json")) return "static-deployment-receipt";
   if (schema.endsWith("/trusted-application-build-evidence.v1.schema.json")) return "trusted-application-build-evidence";
   if (schema.endsWith("/worker-generation-fence.v1.schema.json")) return "worker-generation-fence";
   if (schema.endsWith("/zero-downtime-eligibility.v1.schema.json")) return "zero-downtime-eligibility";
@@ -389,12 +390,13 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
   const runnerIsolationProfileSchema = await loadJson(root, "schemas/runner-isolation-profile.v1.schema.json", diagnostics);
   const runtimeExtensionInventorySchema = await loadJson(root, "schemas/runtime-extension-inventory.v1.schema.json", diagnostics);
   const staticCompositionChangePlanSchema = await loadJson(root, "schemas/static-composition-change-plan.v1.schema.json", diagnostics);
+  const staticDeploymentReceiptSchema = await loadJson(root, "schemas/static-deployment-receipt.v1.schema.json", diagnostics);
   const trustedApplicationBuildEvidenceSchema = await loadJson(root, "schemas/trusted-application-build-evidence.v1.schema.json", diagnostics);
   const workerGenerationFenceSchema = await loadJson(root, "schemas/worker-generation-fence.v1.schema.json", diagnostics);
   const zeroDowntimeEligibilitySchema = await loadJson(root, "schemas/zero-downtime-eligibility.v1.schema.json", diagnostics);
   const expectedValue = await loadJson(root, "fixtures/contracts/expected-diagnostics.json", diagnostics);
   const extensionExpectedValue = await loadJson(root, "fixtures/extensions/expected-diagnostics.json", diagnostics);
-  if (registryValue === undefined || pluginSchema === undefined || applicationSchema === undefined || hotApplicationSchema === undefined || themeSkinSchema === undefined || extensionBundleSchema === undefined || extensionCapabilitySchema === undefined || extensionBudgetSchema === undefined || extensionInstallPlanSchema === undefined || extensionInstallReceiptSchema === undefined || extensionGenerationSchema === undefined || extensionLifecycleEventSchema === undefined || migrationCompatibilityPlanSchema === undefined || remoteUiIsolationProfileSchema === undefined || runnerIsolationProfileSchema === undefined || runtimeExtensionInventorySchema === undefined || staticCompositionChangePlanSchema === undefined || trustedApplicationBuildEvidenceSchema === undefined || workerGenerationFenceSchema === undefined || zeroDowntimeEligibilitySchema === undefined || expectedValue === undefined || extensionExpectedValue === undefined) return sortDiagnostics(diagnostics);
+  if (registryValue === undefined || pluginSchema === undefined || applicationSchema === undefined || hotApplicationSchema === undefined || themeSkinSchema === undefined || extensionBundleSchema === undefined || extensionCapabilitySchema === undefined || extensionBudgetSchema === undefined || extensionInstallPlanSchema === undefined || extensionInstallReceiptSchema === undefined || extensionGenerationSchema === undefined || extensionLifecycleEventSchema === undefined || migrationCompatibilityPlanSchema === undefined || remoteUiIsolationProfileSchema === undefined || runnerIsolationProfileSchema === undefined || runtimeExtensionInventorySchema === undefined || staticCompositionChangePlanSchema === undefined || staticDeploymentReceiptSchema === undefined || trustedApplicationBuildEvidenceSchema === undefined || workerGenerationFenceSchema === undefined || zeroDowntimeEligibilitySchema === undefined || expectedValue === undefined || extensionExpectedValue === undefined) return sortDiagnostics(diagnostics);
 
   const registry = registryValue as Registry;
   const expectedResult = validateExpectedDiagnostics(expectedValue);
@@ -424,6 +426,7 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
       "runner-isolation-profile": ajv.compile(runnerIsolationProfileSchema as AnySchema),
       "runtime-extension-inventory": ajv.compile(runtimeExtensionInventorySchema as AnySchema),
       "static-composition-change-plan": ajv.compile(staticCompositionChangePlanSchema as AnySchema),
+      "static-deployment-receipt": ajv.compile(staticDeploymentReceiptSchema as AnySchema),
       "trusted-application-build-evidence": ajv.compile(trustedApplicationBuildEvidenceSchema as AnySchema),
       "worker-generation-fence": ajv.compile(workerGenerationFenceSchema as AnySchema),
       "zero-downtime-eligibility": ajv.compile(zeroDowntimeEligibilitySchema as AnySchema)

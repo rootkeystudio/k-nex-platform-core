@@ -8,6 +8,7 @@ import * as migration_20260829_000007_runtime_extensions from "./20260829_000007
 import * as migration_20260829_000008_app_storage from "./20260829_000008_app_storage.js";
 import * as migration_20260829_000009_extension_activation from "./20260829_000009_extension_activation.js";
 import * as migration_20260829_000010_theme_skin_profiles from "./20260829_000010_theme_skin_profiles.js";
+import * as migration_20260829_000011_static_deployment from "./20260829_000011_static_deployment.js";
 
 import type { CustomerPayloadMigration } from "@k-nex/payload-adapter";
 
@@ -61,5 +62,10 @@ export const migrations: CustomerPayloadMigration[] = [
     up: migration_20260829_000010_theme_skin_profiles.up,
     down: migration_20260829_000010_theme_skin_profiles.down,
     name: "20260829_000010_theme_skin_profiles"
+  },
+  {
+    up: migration_20260829_000011_static_deployment.up,
+    down: migration_20260829_000011_static_deployment.down,
+    name: "20260829_000011_static_deployment"
   }
 ];

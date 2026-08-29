@@ -11,6 +11,7 @@ export * from "./outbox-realtime-relay.js";
 export * from "./transactional-outbox.js";
 export * from "./runtime-extension-store.js";
 export * from "./theme-profile-store.js";
+export * from "./static-deployment-store.js";
 export * from "./app-storage.js";
 
 export type PayloadCompositionErrorCode =

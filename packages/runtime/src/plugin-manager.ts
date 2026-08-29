@@ -8,6 +8,7 @@ import {
   type ExtensionLifecycleEvent,
   type ExtensionOperationPhase,
   type ExtensionOperationActor,
+  type StaticCompositionChangePlan,
   type RuntimeExtensionInventory
 } from "@k-nex/contracts";
 
@@ -64,10 +65,19 @@ export interface StaticCompositionChangeResult {
   readonly planDigest: string;
   readonly targetSourceCommit: string;
   readonly status: "source-change-ready";
+  readonly change: StaticCompositionChangePlan;
+}
+
+export interface StaticCompositionChangeRequest {
+  readonly applicationId: string;
+  readonly environment: string;
+  readonly expectedSourceCommit: string;
+  readonly generationId: string;
+  readonly plan: Extract<ExtensionInstallPlan, { deliveryClass: "platform-plugin" }>;
 }
 
 export interface StaticCompositionChangeAuthority {
-  request(plan: Extract<ExtensionInstallPlan, { deliveryClass: "platform-plugin" }>, authorization: OperationAuthorizationDecision): Promise<StaticCompositionChangeResult>;
+  request(request: StaticCompositionChangeRequest, authorization: OperationAuthorizationDecision): Promise<StaticCompositionChangeResult>;
 }
 
 export interface TrustedDeploymentRequest {
@@ -255,7 +265,13 @@ export class PluginManager {
     const operationId = claimedOperation.operationId;
     let result: PluginManagerPlan;
     if (parsed.deliveryClass === "platform-plugin") {
-      const sourceChange = await this.staticChanges.request(parsed, authorization);
+      const sourceChange = await this.staticChanges.request({
+        applicationId: request.applicationId,
+        environment: request.environment,
+        expectedSourceCommit: planned.sourceCommit,
+        generationId: planned.generationId,
+        plan: parsed
+      }, authorization);
       const deployment = await this.deployments.request(sourceChange, authorization);
       result = Object.freeze({ executionClass: "static-release", operationId, plan: parsed, generationId: planned.generationId, sourceChange, deployment });
     } else {

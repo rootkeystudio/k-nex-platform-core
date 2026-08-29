@@ -382,6 +382,43 @@ export const WorkerGenerationFenceSchema = z.strictObject({
   mode: z.literal("active")
 }).meta({ $id: "https://schemas.k-nex.dev/worker-generation-fence/v1.json", title: "K-Nex Worker Generation Fence v1" });
 
+const staticDeploymentReceiptBase = {
+  "$schema": z.string().max(512).optional(),
+  schemaVersion: z.literal(1),
+  receiptId: recordIdSchema,
+  applicationId: applicationIdSchema,
+  environment: environmentSchema,
+  activeGenerationId: recordIdSchema,
+  sourceCommit: fullShaSchema,
+  compositionChangePlanDigest: digestSchema,
+  buildEvidenceDigest: digestSchema,
+  applicationDigest: digestSchema,
+  imageDigest: digestSchema,
+  migrationRevision: revisionSchema,
+  workerFencingToken: z.number().finite().int().positive().max(Number.MAX_SAFE_INTEGER),
+  promotionRevision: revisionSchema,
+  revisionBefore: revisionSchema,
+  revisionAfter: revisionSchema,
+  occurredAt: MillisecondTimestampSchema
+} as const;
+
+export const StaticDeploymentReceiptSchema = z.discriminatedUnion("operation", [
+  z.strictObject({
+    ...staticDeploymentReceiptBase,
+    operation: z.enum(["promote", "rollback"]),
+    previousGenerationId: recordIdSchema,
+    rollbackWindow: z.strictObject({ state: z.literal("open"), windowId: recordIdSchema, closesAt: MillisecondTimestampSchema }),
+    contractCleanup: z.literal("blocked")
+  }),
+  z.strictObject({
+    ...staticDeploymentReceiptBase,
+    operation: z.literal("close-rollback"),
+    retiredGenerationId: recordIdSchema,
+    rollbackWindow: z.strictObject({ state: z.literal("closed"), windowId: recordIdSchema, closedAt: MillisecondTimestampSchema }),
+    contractCleanup: z.literal("eligible")
+  })
+]).meta({ $id: "https://schemas.k-nex.dev/static-deployment-receipt/v1.json", title: "K-Nex Static Deployment Receipt v1" });
+
 export type ExtensionDeliveryClass = z.infer<typeof ExtensionDeliveryClassSchema>;
 export type ExtensionIdentity = z.infer<typeof ExtensionIdentitySchema>;
 export type ExtensionCapabilityRequest = z.infer<typeof ExtensionCapabilityRequestSchema>;
@@ -399,3 +436,4 @@ export type StaticCompositionChangePlan = z.infer<typeof StaticCompositionChange
 export type TrustedApplicationBuildEvidence = z.infer<typeof TrustedApplicationBuildEvidenceSchema>;
 export type MigrationCompatibilityPlan = z.infer<typeof MigrationCompatibilityPlanSchema>;
 export type WorkerGenerationFence = z.infer<typeof WorkerGenerationFenceSchema>;
+export type StaticDeploymentReceipt = z.infer<typeof StaticDeploymentReceiptSchema>;

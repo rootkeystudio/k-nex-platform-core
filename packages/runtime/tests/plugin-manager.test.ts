@@ -1,6 +1,8 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it, vi } from "vitest";
 
-import type { ExtensionInstallPlan, RuntimeExtensionInventory } from "@k-nex/contracts";
+import type { ExtensionInstallPlan, RuntimeExtensionInventory, StaticCompositionChangePlan } from "@k-nex/contracts";
 import {
   PluginManager,
   TrustedAutomationOperationAuthorizer,
@@ -14,6 +16,7 @@ import {
 } from "../src/index.js";
 
 const digest = (character: string) => `sha256:${character.repeat(64)}`;
+const staticChange = JSON.parse(readFileSync(new URL("../../../fixtures/extensions/valid/static-composition-change-plan.json", import.meta.url), "utf8")) as StaticCompositionChangePlan;
 
 const request: ExtensionChangeRequest = {
   applicationId: "customer-alpha",
@@ -156,7 +159,7 @@ describe("PluginManager", () => {
       availability: { outcome: "maintenance-required", reasons: ["destructive-migration"] }
     };
     runtime.planner.plan.mockResolvedValue({ plan: platformPlan, sourceCommit: "b".repeat(40), generationId: "customer-alpha-green-1" });
-    runtime.staticChanges.request.mockResolvedValue({ status: "source-change-ready", planDigest: digest("f"), targetSourceCommit: "b".repeat(40) });
+    runtime.staticChanges.request.mockResolvedValue({ status: "source-change-ready", planDigest: digest("f"), targetSourceCommit: "b".repeat(40), change: staticChange });
     runtime.deployments.request.mockResolvedValue({ status: "build-requested", buildRequestDigest: digest("9"), sourceCommit: "b".repeat(40) });
     await expect(runtime.value.plan(platformRequest)).resolves.toMatchObject({ executionClass: "static-release" });
     expect(runtime.store.transitions).toEqual(["planning->source-change-required", "source-change-required->source-change-ready"]);
@@ -171,7 +174,7 @@ describe("PluginManager", () => {
     const theme = manager();
     const themeRequest: ExtensionChangeRequest = { ...request, extension: { deliveryClass: "platform-plugin", id: "theme.minimal" }, idempotencyKey: "install:theme.minimal:1" };
     theme.planner.plan.mockResolvedValue({ plan: { ...platformPlan, id: "theme.minimal" }, sourceCommit: "b".repeat(40), generationId: "customer-alpha-green-1" });
-    theme.staticChanges.request.mockResolvedValue({ status: "source-change-ready", planDigest: digest("f"), targetSourceCommit: "b".repeat(40) });
+    theme.staticChanges.request.mockResolvedValue({ status: "source-change-ready", planDigest: digest("f"), targetSourceCommit: "b".repeat(40), change: staticChange });
     theme.deployments.request.mockResolvedValue({ status: "build-requested", buildRequestDigest: digest("9"), sourceCommit: "b".repeat(40) });
     await expect(theme.value.plan(themeRequest)).resolves.toMatchObject({ executionClass: "static-release" });
     expect(theme.artifacts.stage).not.toHaveBeenCalled();

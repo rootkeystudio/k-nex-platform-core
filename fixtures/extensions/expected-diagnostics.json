@@ -17,6 +17,7 @@
   "fixtures/extensions/invalid/runner.production-child-process.json": { "code": "SCHEMA_INVALID", "schema": "runner-isolation-profile", "validator": "json-schema" },
   "fixtures/extensions/invalid/runtime-inventory.disabled-active-pointer.json": { "code": "SCHEMA_INVALID", "schema": "runtime-extension-inventory", "validator": "json-schema" },
   "fixtures/extensions/invalid/static-change.branch-base.json": { "code": "SCHEMA_INVALID", "schema": "static-composition-change-plan", "validator": "json-schema" },
+  "fixtures/extensions/invalid/static-deployment.open-cleanup.json": { "code": "SCHEMA_INVALID", "schema": "static-deployment-receipt", "validator": "json-schema" },
   "fixtures/extensions/invalid/theme-skin.executable-entrypoint.json": { "code": "SCHEMA_INVALID", "schema": "theme-skin-manifest", "validator": "json-schema" },
   "fixtures/extensions/invalid/theme-skin.primitive-override.json": { "code": "SCHEMA_INVALID", "schema": "theme-skin-manifest", "validator": "json-schema" },
   "fixtures/extensions/invalid/theme-skin.unsafe-asset.json": { "code": "SCHEMA_INVALID", "schema": "theme-skin-manifest", "validator": "json-schema" },

@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-29
 - **Phase:** Phase 9 — Dynamic Application Runtime and Zero-Downtime Delivery
-- **Active task:** P9.8 — Static source/build authority and zero-downtime Platform Plugin delivery
+- **Active task:** P9.9 — Unified manager API, status experience, and attack corpus
 - **State:** Ready to start
 
 ## Last completed
 
-P9.7 added strict data-only Theme Skin generations, AST-scoped CSS, accessibility and immutable verified-asset enforcement, exact profile/generation resolution, atomic draft-safe PostgreSQL publication/rollback with outbox convergence, browser visual/accessibility proof, and executable `theme.*` routing through Platform Plugin delivery.
+P9.8 added exact-base deterministic source changes, Ed25519 trusted build authority, immutable app/image evidence, PostgreSQL deployment and worker-fence authority, blue/green supervision, compatible migration/backfill/contract phases, stable gateway convergence, drain/rollback/recovery, and Docker isolation proof.
 
 ## Validation
 
-Node 24.19.0: contracts 155, architecture tools 25, runtime 247, Payload adapter 32, design-system 21, and extension-bundler 11 tests passed. Chromium passed the component, remote-UI, and Theme Skin matrices. The eight-test customer PostgreSQL suite passed, including revision-10 boot/upgrade and profile crash rollback, exact-generation refusal, concurrent old/new-only reads, and rollback.
+Node 24.19.0: contracts 155, architecture tools 25, runtime 252, and Payload adapter 32 tests passed. Contract generation is reproducible; docs validation passed. The ten-test customer PostgreSQL suite passed, including revision-11 boot, continuous Docker traffic, failed-green refusal, crash-atomic fence transfer, single-effect fencing, rollback, retirement, and maintenance-required proof.
 
 ## Next
 
-Implement P9.8 only: trusted source/build authority and real Docker blue/green Platform Plugin delivery with migration, worker-fence, routing, drain, realtime, rollback, and maintenance-required evidence.
+Implement P9.9 only: unified catalog/plan/lifecycle/status API, complete operator journeys, and executable attack-corpus coverage across all three extension delivery classes.
 
 ## Blockers
 

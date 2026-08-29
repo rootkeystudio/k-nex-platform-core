@@ -18,6 +18,7 @@
     "schemas/remote-ui-frame.v1.schema.json",
     "schemas/runner-isolation-profile.v1.schema.json",
     "schemas/static-composition-change-plan.v1.schema.json",
+    "schemas/static-deployment-receipt.v1.schema.json",
     "schemas/trusted-application-build-evidence.v1.schema.json",
     "schemas/migration-compatibility-plan.v1.schema.json",
     "schemas/worker-generation-fence.v1.schema.json",

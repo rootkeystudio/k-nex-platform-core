@@ -1,0 +1,27 @@
+{
+  "$schema": "../../../schemas/static-deployment-receipt.v1.schema.json",
+  "activeGenerationId": "customer-alpha-green-9",
+  "applicationDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "applicationId": "customer-alpha",
+  "buildEvidenceDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "compositionChangePlanDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "contractCleanup": "eligible",
+  "environment": "production",
+  "imageDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "migrationRevision": 9,
+  "occurredAt": "2026-08-29T10:00:00.000Z",
+  "operation": "promote",
+  "previousGenerationId": "customer-alpha-blue-8",
+  "promotionRevision": 9,
+  "receiptId": "static-promotion-9",
+  "revisionAfter": 9,
+  "revisionBefore": 8,
+  "rollbackWindow": {
+    "closesAt": "2026-09-05T08:00:00.000Z",
+    "state": "open",
+    "windowId": "rollback-window-9"
+  },
+  "schemaVersion": 1,
+  "sourceCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "workerFencingToken": 9
+}
