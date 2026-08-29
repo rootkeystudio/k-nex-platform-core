@@ -31,6 +31,7 @@
     "gate:6": "pnpm gate:5 && pnpm plugin:check:test && pnpm plugin:check modules/sales && node scripts/gate-6.mjs",
     "gate:7": "pnpm gate:6 && pnpm --filter @k-nex/ui-components test && pnpm --filter @k-nex/ui-components test:browser && pnpm --filter @k-nex/ui-data test && pnpm --filter @k-nex/ui-forms test && pnpm --filter @k-nex/ui-pages test && pnpm --filter @k-nex/ui-builder-blocks test && pnpm --filter @k-nex/ui-testing test && node scripts/gate-7.mjs",
     "gate:8": "pnpm gate:7 && pnpm --filter @k-nex/contracts test && pnpm --filter @k-nex/composition test && pnpm --filter @k-nex/runtime test && node scripts/check-phase-8-packed-packages.mjs && node --test scripts/check-phase-8-generated-evidence.test.mjs && node scripts/check-phase-8-generated-evidence.mjs && node scripts/gate-8.mjs",
+    "gate:9": "pnpm gate:8 && pnpm phase:9:attacks && pnpm --filter @k-nex/extension-bundler test && pnpm --filter @k-nex/extension-runner test && pnpm --filter @k-nex/runtime test && pnpm --filter @k-nex/payload-adapter test && pnpm --filter @k-nex/ui-testing test:browser && pnpm --filter @k-nex/customer-gate-1 test:postgres && node scripts/gate-9.mjs",
     "phase:9:attacks": "node scripts/phase-9-attack-corpus.mjs",
     "phase:0": "pnpm contracts:generate && pnpm contracts:generated-clean && pnpm contracts:validate && pnpm contracts:test && pnpm contracts:reproducibility && pnpm docs:validate"
   },
