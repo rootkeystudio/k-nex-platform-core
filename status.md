@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Completed the PostgreSQL-backed Hot Application runtime journey with real signed artifact bytes, verified runner/UI/storage/surface warming, continuous install/update traffic, backup/delete/restore, compatible rollback, irreversible rollback denial, forged-authority rejection, operation idempotency conflicts, lease fencing, crash-before-pointer recovery, and a single activation winner.
+Hardened static delivery end to end: cleanup requires retired generations and a closed rollback window; effect claims are atomically fenced; rollback re-resolves immutable images; build keys are authority-bound; and distinct builder, deployer, supervisor, gateway, realtime, blue/green web, and blue/green worker processes recover from PostgreSQL authority across promotion, rollback, redeploy, and restart.
 
 ## Validation
 
-`pnpm --filter @k-nex/customer-gate-1 exec node --test --test-concurrency=1 tests/runtime-extension-state-postgres.test.mjs`: 2 passed on Node 24.19.0.
+Runtime: 277 tests passed. Static PostgreSQL/Docker proof: 2 tests passed, including nine explicit process/state recovery observations and uninterrupted HTTP probes, on Node 24.19.0.
 
 ## Next
 
-Commit static deployment safety and real process evidence, then replace Gate 9 semantic bookkeeping and rerun the full phase gate.
+Commit the falsifiable attack evidence mapping, update the closeout result, and rerun the full phase gate.
 
 ## Blockers
 

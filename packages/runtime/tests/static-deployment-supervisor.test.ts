@@ -28,6 +28,7 @@ const blue: StaticApplicationGeneration = {
   buildEvidenceDigest: digest("2"),
   applicationDigest: digest("3"),
   imageDigest: digest("4"),
+  imageReference: `k-nex/customer-alpha@${digest("4")}`,
   migrationRevision: fixture.migration.baseRevision
 };
 const owner = { applicationId: fixture.applicationId, environment: fixture.environment };
@@ -68,7 +69,9 @@ function trustedBuild(change = fixture): Readonly<{ authority: TrustedStaticAppl
     signature: { algorithm: "ed25519" as const, keyId: "builder:k-nex-phase-9", value: sign(null, Buffer.from(canonicalJson(statement)), keys.privateKey).toString("base64") }
   };
   const result: StaticCompositionChangeResult = { status: "source-change-ready", planDigest: digest("9"), targetSourceCommit: change.target.sourceCommit, change };
-  const authority = new TrustedStaticApplicationBuildAuthority({ "builder:k-nex-phase-9": keys.publicKey.export({ type: "spki", format: "pem" }).toString() });
+  const authority = new TrustedStaticApplicationBuildAuthority({
+    "builder:k-nex-phase-9": { publicKey: keys.publicKey.export({ type: "spki", format: "pem" }).toString(), authority: statement.authority }
+  });
   return { authority, token: authority.verify(result, evidence), evidence, result };
 }
 
@@ -81,6 +84,7 @@ function harness(build = trustedBuild()) {
     buildEvidenceDigest: digest("b"),
     applicationDigest: fixture.target.applicationSubjectDigest,
     imageDigest: fixture.target.imageSubjectDigest,
+    imageReference: `k-nex/customer-alpha@${fixture.target.imageSubjectDigest}`,
     migrationRevision: fixture.migration.targetRevision
   };
   const receipt = { revisionAfter: 1 } as StaticDeploymentReceipt;
@@ -96,12 +100,14 @@ function harness(build = trustedBuild()) {
     resolve: vi.fn(async () => ({
       imageReference: `${build.evidence.imageSubject.repository}@${build.evidence.imageSubject.digest}`,
       applicationDigest: build.evidence.applicationSubject.digest,
-      imageDigest: build.evidence.imageSubject.digest
+      imageDigest: build.evidence.imageSubject.digest,
+      runtimeImageDigest: build.evidence.imageSubject.digest
     })),
     reverify: vi.fn(async (generation) => ({
       imageReference: `${build.evidence.imageSubject.repository}@${generation.imageDigest}`,
       applicationDigest: generation.applicationDigest,
-      imageDigest: generation.imageDigest
+      imageDigest: generation.imageDigest,
+      runtimeImageDigest: generation.imageDigest
     }))
   };
   const migrations: StaticMigrationExecutor = {
@@ -169,11 +175,11 @@ describe("static deployment supervisor", () => {
     const value = harness();
     vi.mocked(value.state.read).mockResolvedValue(snapshot(value.green, value.blue, 1));
     vi.mocked(value.state.readFence).mockResolvedValue(fence(value.green.generationId, 5, 1));
-    vi.mocked(value.artifacts.reverify).mockResolvedValueOnce({ imageReference: "wrong", applicationDigest: digest("0"), imageDigest: value.blue.imageDigest });
+    vi.mocked(value.artifacts.reverify).mockResolvedValueOnce({ imageReference: "wrong", applicationDigest: digest("0"), imageDigest: value.blue.imageDigest, runtimeImageDigest: value.blue.imageDigest });
     await expect(value.supervisor.rollback({ ...owner, workerOwner: "worker:phase-9-blue", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" })).rejects.toMatchObject({ code: "ARTIFACT_MISMATCH" });
     expect(value.state.rollback).not.toHaveBeenCalled();
 
-    vi.mocked(value.artifacts.reverify).mockResolvedValueOnce({ imageReference: "retained", applicationDigest: value.blue.applicationDigest, imageDigest: value.blue.imageDigest });
+    vi.mocked(value.artifacts.reverify).mockResolvedValueOnce({ imageReference: value.blue.imageReference, applicationDigest: value.blue.applicationDigest, imageDigest: value.blue.imageDigest, runtimeImageDigest: value.blue.imageDigest });
     vi.mocked(value.generations.readiness).mockResolvedValueOnce({
       generationId: value.blue.generationId, sourceCommit: value.blue.sourceCommit, applicationDigest: value.blue.applicationDigest, imageDigest: value.blue.imageDigest,
       migrationRevision: value.blue.migrationRevision, completedMigrationSteps: [], publicSmoke: true, authenticatedSmoke: true, inventoryReconciled: true,
@@ -183,18 +189,51 @@ describe("static deployment supervisor", () => {
     expect(value.state.rollback).not.toHaveBeenCalled();
   });
 
-  it("records rollback-window retirement before draining and retries only the destructive work", async () => {
+  it("rejects a retained artifact that resolves its attested digest through a mutable image reference", async () => {
     const value = harness();
     vi.mocked(value.state.read).mockResolvedValue(snapshot(value.green, value.blue, 1));
-    vi.mocked(value.generations.drain).mockImplementationOnce(async () => {
-      value.events.push("drain-blue");
-      throw new Error("drain interrupted");
+    vi.mocked(value.state.readFence).mockResolvedValue(fence(value.green.generationId, 5, 1));
+    vi.mocked(value.artifacts.reverify).mockResolvedValueOnce({
+      imageReference: "attacker:latest",
+      applicationDigest: value.blue.applicationDigest,
+      imageDigest: value.blue.imageDigest,
+      runtimeImageDigest: value.blue.imageDigest
     });
-    await expect(value.supervisor.closeRollback(owner)).rejects.toThrow("drain interrupted");
-    expect(value.events).toEqual(["close-rollback", "drain-blue"]);
-    await expect(value.supervisor.closeRollback(owner)).resolves.toMatchObject({ revisionAfter: 1 });
-    expect(value.state.closeRollback).toHaveBeenCalledOnce();
-    expect(value.events).toEqual(["close-rollback", "drain-blue", "drain-blue", "retire-green"]);
+
+    await expect(value.supervisor.rollback({ ...owner, workerOwner: "worker:phase-9-blue", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" }))
+      .rejects.toMatchObject({ code: "ARTIFACT_MISMATCH" });
+    expect(value.generations.start).not.toHaveBeenCalled();
+    expect(value.state.rollback).not.toHaveBeenCalled();
+  });
+
+  it("keeps contract cleanup blocked until the retained generation has drained and retired", async () => {
+    const value = harness();
+    vi.mocked(value.state.read).mockResolvedValue(snapshot(value.green, value.blue, 1));
+    let releaseDrain: (() => void) | undefined;
+    let releaseRetire: (() => void) | undefined;
+    vi.mocked(value.generations.drain).mockImplementationOnce(async () => new Promise<void>((resolve) => {
+      releaseDrain = resolve;
+    }));
+    vi.mocked(value.generations.retire).mockImplementationOnce(async () => new Promise<void>((resolve) => {
+      releaseRetire = resolve;
+    }));
+    const closing = value.supervisor.closeRollback(owner);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(value.state.closeRollback).not.toHaveBeenCalled();
+    releaseDrain?.();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(value.state.closeRollback).not.toHaveBeenCalled();
+    releaseRetire?.();
+    await expect(closing).resolves.toMatchObject({ revisionAfter: 1 });
+    expect(value.events).toEqual(["close-rollback"]);
+  });
+
+  it("does not persist closure when retained-generation retirement fails", async () => {
+    const value = harness();
+    vi.mocked(value.state.read).mockResolvedValue(snapshot(value.green, value.blue, 1));
+    vi.mocked(value.generations.retire).mockRejectedValueOnce(new Error("retire interrupted"));
+    await expect(value.supervisor.closeRollback(owner)).rejects.toThrow("retire interrupted");
+    expect(value.state.closeRollback).not.toHaveBeenCalled();
   });
 
   it("does not drain or retire when a concurrent rollback-window closure loses its expected revision", async () => {
@@ -202,7 +241,18 @@ describe("static deployment supervisor", () => {
     vi.mocked(value.state.read).mockResolvedValue(snapshot(value.green, value.blue, 1));
     vi.mocked(value.state.closeRollback).mockRejectedValueOnce(new Error("revision conflict"));
     await expect(value.supervisor.closeRollback(owner)).rejects.toThrow("revision conflict");
-    expect(value.generations.drain).not.toHaveBeenCalled();
-    expect(value.generations.retire).not.toHaveBeenCalled();
+    expect(value.generations.drain).toHaveBeenCalledOnce();
+    expect(value.generations.retire).toHaveBeenCalledOnce();
+  });
+
+  it("allows idempotent retry after retirement succeeds but persistence is interrupted", async () => {
+    const value = harness();
+    vi.mocked(value.state.read).mockResolvedValue(snapshot(value.green, value.blue, 1));
+    vi.mocked(value.state.closeRollback).mockRejectedValueOnce(new Error("closure interrupted"));
+    await expect(value.supervisor.closeRollback(owner)).rejects.toThrow("closure interrupted");
+    await expect(value.supervisor.closeRollback(owner)).resolves.toMatchObject({ revisionAfter: 1 });
+    expect(value.generations.drain).toHaveBeenCalledTimes(2);
+    expect(value.generations.retire).toHaveBeenCalledTimes(2);
+    expect(value.state.closeRollback).toHaveBeenCalledTimes(2);
   });
 });

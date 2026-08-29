@@ -48,6 +48,9 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
       "generation_id" varchar(128) NOT NULL,
       "fencing_token" bigint NOT NULL,
       "attempts" integer DEFAULT 1 NOT NULL,
+      "claim_owner" varchar(160),
+      "claim_token" uuid,
+      "claim_expires_at" timestamp(3) with time zone,
       "result_digest" varchar(71),
       "updated_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
       "created_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
@@ -57,7 +60,10 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
       CONSTRAINT "runtime_worker_effects_state_check" CHECK ("state" IN ('pending','completed')),
       CONSTRAINT "runtime_worker_effects_token_check" CHECK ("fencing_token" BETWEEN 1 AND 9007199254740991),
       CONSTRAINT "runtime_worker_effects_attempts_check" CHECK ("attempts" BETWEEN 1 AND 1000000),
-      CONSTRAINT "runtime_worker_effects_result_check" CHECK (("state"='completed')=("result_digest" IS NOT NULL) AND ("result_digest" IS NULL OR "result_digest" ~ '^sha256:[0-9a-f]{64}$'))
+      CONSTRAINT "runtime_worker_effects_result_check" CHECK (("state"='completed')=("result_digest" IS NOT NULL) AND ("result_digest" IS NULL OR "result_digest" ~ '^sha256:[0-9a-f]{64}$')),
+      CONSTRAINT "runtime_worker_effects_claim_check" CHECK (
+        ("state"='pending')=("claim_owner" IS NOT NULL AND "claim_token" IS NOT NULL AND "claim_expires_at" IS NOT NULL)
+      )
     );
 
     CREATE TABLE "runtime_static_deployment_outbox" (

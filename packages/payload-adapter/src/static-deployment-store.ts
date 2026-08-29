@@ -60,6 +60,9 @@ interface EffectRow {
   generation_id: string;
   fencing_token: string | number;
   attempts: number;
+  claim_owner: string | null;
+  claim_token: string | null;
+  claim_expires_at: Date | string | null;
   result_digest: string | null;
 }
 
@@ -79,6 +82,7 @@ function assertOwner(owner: Owner): void {
 function assertGeneration(value: StaticApplicationGeneration): void {
   if (!generationPattern.test(value.generationId) || !/^[0-9a-f]{40}$/u.test(value.sourceCommit) ||
     ![value.compositionChangePlanDigest, value.buildEvidenceDigest, value.applicationDigest, value.imageDigest].every((item) => digestPattern.test(item)) ||
+    !/^[A-Za-z0-9._/-]+@sha256:[0-9a-f]{64}$/u.test(value.imageReference) || !value.imageReference.endsWith(`@${value.imageDigest}`) ||
     !Number.isSafeInteger(value.migrationRevision) || value.migrationRevision < 0 || value.migrationRevision > 1_000_000_000) {
     fail("INPUT_INVALID", "Static application generation evidence is invalid.");
   }
@@ -351,32 +355,39 @@ export class PostgresStaticDeploymentStore {
     });
   }
 
-  async claimEffect(input: Owner & Readonly<{ effectId: string; generationId: string; fencingToken: number }>): Promise<Readonly<{ status: "claimed" | "already-completed"; attempts: number }>> {
+  async claimEffect(input: Owner & Readonly<{ effectId: string; generationId: string; fencingToken: number; claimantId: string; claimLeaseExpiresAt: string }>): Promise<Readonly<{ status: "claimed"; attempts: number; claimToken: string }> | Readonly<{ status: "already-claimed" | "already-completed"; attempts: number }>> {
     this.assertEffectInput(input);
     return this.transaction(async (session) => {
-      await this.assertActiveFence(session, input);
+      const fence = await this.assertActiveFence(session, input);
+      this.assertEffectClaimLease(input, fence);
       const current = await session.query<EffectRow>(
         `select * from runtime_worker_effects where application_id=$1 and environment=$2 and effect_id=$3 for update`,
         [input.applicationId, input.environment, input.effectId]
       );
       const row = current.rows[0];
       if (row?.state === "completed") return Object.freeze({ status: "already-completed", attempts: row.attempts });
+      if (row && row.generation_id === input.generationId && Number(row.fencing_token) === input.fencingToken &&
+        row.claim_expires_at && new Date(row.claim_expires_at).valueOf() > this.clock.now().valueOf()) {
+        return Object.freeze({ status: "already-claimed", attempts: row.attempts });
+      }
+      const claimToken = globalThis.crypto.randomUUID();
       const updated = row ? await session.query<EffectRow>(
-        `update runtime_worker_effects set generation_id=$4, fencing_token=$5, attempts=attempts+1, updated_at=now()
+        `update runtime_worker_effects set generation_id=$4, fencing_token=$5, claim_owner=$6, claim_token=$7, claim_expires_at=$8,
+           attempts=attempts+1, updated_at=now()
          where application_id=$1 and environment=$2 and effect_id=$3 returning *`,
-        [input.applicationId, input.environment, input.effectId, input.generationId, input.fencingToken]
+        [input.applicationId, input.environment, input.effectId, input.generationId, input.fencingToken, input.claimantId, claimToken, input.claimLeaseExpiresAt]
       ) : await session.query<EffectRow>(
-        `insert into runtime_worker_effects (application_id, environment, effect_id, generation_id, fencing_token)
-         values ($1,$2,$3,$4,$5) returning *`,
-        [input.applicationId, input.environment, input.effectId, input.generationId, input.fencingToken]
+        `insert into runtime_worker_effects (application_id, environment, effect_id, generation_id, fencing_token, claim_owner, claim_token, claim_expires_at)
+         values ($1,$2,$3,$4,$5,$6,$7,$8) returning *`,
+        [input.applicationId, input.environment, input.effectId, input.generationId, input.fencingToken, input.claimantId, claimToken, input.claimLeaseExpiresAt]
       );
-      return Object.freeze({ status: "claimed", attempts: updated.rows[0]!.attempts });
+      return Object.freeze({ status: "claimed", attempts: updated.rows[0]!.attempts, claimToken });
     });
   }
 
-  async completeEffect(input: Owner & Readonly<{ effectId: string; generationId: string; fencingToken: number; resultDigest: string }>): Promise<Readonly<{ status: "completed" | "already-completed" }>> {
+  async completeEffect(input: Owner & Readonly<{ effectId: string; generationId: string; fencingToken: number; claimToken: string; resultDigest: string }>): Promise<Readonly<{ status: "completed" | "already-completed" }>> {
     this.assertEffectInput(input);
-    if (!digestPattern.test(input.resultDigest)) fail("INPUT_INVALID", "Worker effect result digest is invalid.");
+    if (!digestPattern.test(input.resultDigest) || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(input.claimToken)) fail("INPUT_INVALID", "Worker effect completion claim is invalid.");
     return this.transaction(async (session) => {
       await this.assertActiveFence(session, input);
       const current = await session.query<EffectRow>(
@@ -390,10 +401,11 @@ export class PostgresStaticDeploymentStore {
         return Object.freeze({ status: "already-completed" });
       }
       if (row.generation_id !== input.generationId || Number(row.fencing_token) !== input.fencingToken) fail("FENCE_REJECTED", "Worker effect claim belongs to a stale execution fence.");
+      if (row.claim_token !== input.claimToken || !row.claim_expires_at || new Date(row.claim_expires_at).valueOf() <= this.clock.now().valueOf()) fail("EFFECT_CONFLICT", "Worker effect claim is not owned by this worker or has expired.");
       const updated = await session.query(
-        `update runtime_worker_effects set state='completed', result_digest=$4, updated_at=now()
-         where application_id=$1 and environment=$2 and effect_id=$3 and state='pending' returning effect_id`,
-        [input.applicationId, input.environment, input.effectId, input.resultDigest]
+        `update runtime_worker_effects set state='completed', result_digest=$4, claim_owner=null, claim_token=null, claim_expires_at=null, updated_at=now()
+         where application_id=$1 and environment=$2 and effect_id=$3 and state='pending' and claim_token=$5 returning effect_id`,
+        [input.applicationId, input.environment, input.effectId, input.resultDigest, input.claimToken]
       );
       if (!updated.rows[0]) fail("EFFECT_CONFLICT", "Worker effect completion raced another owner.");
       return Object.freeze({ status: "completed" });
@@ -437,6 +449,7 @@ export class PostgresStaticDeploymentStore {
       buildEvidenceDigest: await sha256(evidence),
       applicationDigest: evidence.applicationSubject.digest,
       imageDigest: evidence.imageSubject.digest,
+      imageReference: `${evidence.imageSubject.repository}@${evidence.imageSubject.digest}`,
       migrationRevision: change.migration.targetRevision
     });
   }
@@ -452,6 +465,15 @@ export class PostgresStaticDeploymentStore {
   private assertEffectInput(input: Owner & Readonly<{ effectId: string; generationId: string; fencingToken: number }>): void {
     assertOwner(input); assertFenceToken(input.fencingToken);
     if (!generationPattern.test(input.generationId) || !/^[a-z][a-z0-9-]{2,127}$/u.test(input.effectId)) fail("INPUT_INVALID", "Worker effect identity is invalid.");
+  }
+
+  private assertEffectClaimLease(input: Readonly<{ claimantId: string; claimLeaseExpiresAt: string }>, fence: FenceRow): void {
+    const expiresAt = new Date(input.claimLeaseExpiresAt).valueOf();
+    const fenceExpiresAt = new Date(fence.lease_expires_at).valueOf();
+    const now = this.clock.now().valueOf();
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:@/-]{2,159}$/u.test(input.claimantId) || Number.isNaN(expiresAt) || expiresAt <= now || expiresAt > fenceExpiresAt || expiresAt - now > 300_000) {
+      fail("EFFECT_CONFLICT", "Worker effect claim lease is invalid or exceeds active worker authority.");
+    }
   }
 
   private async assertActiveFence(session: RuntimeExtensionSession, input: Owner & Readonly<{ generationId: string; fencingToken: number }>): Promise<FenceRow> {

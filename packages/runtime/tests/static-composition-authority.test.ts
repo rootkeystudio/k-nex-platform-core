@@ -90,6 +90,16 @@ describe("static source and trusted build authority", () => {
     await expect(mismatched.request(request, authorization)).rejects.toMatchObject({ code: "CHANGE_INVALID" });
   });
 
+  it("rejects arbitrary repository and branch controls in a static source change", async () => {
+    const authority = new DeterministicStaticCompositionChangeAuthority(
+      fixture.authority.identity,
+      { current: async () => ({ sourceCommit: fixture.base.sourceCommit, composition: fixture.base.composition }), commit: async () => fixture.target.sourceCommit },
+      { resolve: async () => ({ ...fixture, target: { ...fixture.target, repositoryUrl: "https://attacker.invalid/customer.git", branch: "main" } }) },
+      checkpoints()
+    );
+    await expect(authority.request(request, authorization)).rejects.toMatchObject({ code: "CHANGE_INVALID" });
+  });
+
   it("persists a checkpoint before commit and recovers a commit that crashes before manager persistence", async () => {
     const checkpoint = checkpoints();
     let sourceCommit = fixture.base.sourceCommit;
@@ -174,11 +184,51 @@ describe("static source and trusted build authority", () => {
         value: sign(null, Buffer.from(canonicalJson(statement)), keys.privateKey).toString("base64")
       }
     };
-    const authority = new TrustedStaticApplicationBuildAuthority({ "builder:k-nex-phase-9": keys.publicKey.export({ type: "spki", format: "pem" }).toString() });
+    const authority = new TrustedStaticApplicationBuildAuthority({
+      "builder:k-nex-phase-9": { publicKey: keys.publicKey.export({ type: "spki", format: "pem" }).toString(), authority: statement.authority }
+    });
     const token = authority.verify(change, evidence);
     expect(authority.read(token)).toMatchObject({ evidence: statement, change });
     expect(() => authority.verify(change, { ...evidence, imageSubject: { ...evidence.imageSubject, digest: digest("9") } })).toThrowError(expect.objectContaining({ code: "BUILD_EVIDENCE_INVALID" }));
-    expect(() => new TrustedStaticApplicationBuildAuthority({ "builder:other": keys.publicKey.export({ type: "spki", format: "pem" }).toString() }).verify(change, evidence))
+    expect(() => new TrustedStaticApplicationBuildAuthority({ "builder:other": { publicKey: keys.publicKey.export({ type: "spki", format: "pem" }).toString(), authority: statement.authority } }).verify(change, evidence))
       .toThrowError(expect.objectContaining({ code: "BUILD_EVIDENCE_INVALID" }));
+  });
+
+  it("rejects a valid signature whose trusted key is not authorized for the claimed builder identity", async () => {
+    const source = new DeterministicStaticCompositionChangeAuthority(
+      fixture.authority.identity,
+      { current: async () => ({ sourceCommit: fixture.base.sourceCommit, composition: fixture.base.composition }), commit: async () => fixture.target.sourceCommit },
+      { resolve: async () => fixture },
+      checkpoints()
+    );
+    const change = await source.request(request, authorization);
+    const builder = generateKeyPairSync("ed25519");
+    const unrelated = generateKeyPairSync("ed25519");
+    const statement = {
+      schemaVersion: 1 as const,
+      applicationId: fixture.applicationId,
+      environment: fixture.environment,
+      sourceCommit: fixture.target.sourceCommit,
+      authority: { kind: "self-hosted-trusted" as const, builderIdentity: "builder:k-nex-phase-9", trustPolicyDigest: digest("1"), ref: "source-commit" as const },
+      composition: fixture.target.composition,
+      sbomDigest: digest("2"),
+      provenanceDigest: digest("3"),
+      applicationSubject: { name: "customer-alpha-application.tar.gz", digest: fixture.target.applicationSubjectDigest },
+      imageSubject: { repository: "k-nex/customer-alpha", digest: fixture.target.imageSubjectDigest }
+    };
+    const evidence = {
+      ...statement,
+      signature: {
+        algorithm: "ed25519" as const,
+        keyId: "builder:unrelated",
+        value: sign(null, Buffer.from(canonicalJson(statement)), unrelated.privateKey).toString("base64")
+      }
+    };
+    const authority = new TrustedStaticApplicationBuildAuthority({
+      "builder:k-nex-phase-9": { publicKey: builder.publicKey.export({ type: "spki", format: "pem" }).toString(), authority: statement.authority },
+      "builder:unrelated": { publicKey: unrelated.publicKey.export({ type: "spki", format: "pem" }).toString(), authority: { ...statement.authority, builderIdentity: "builder:unrelated" } }
+    });
+
+    expect(() => authority.verify(change, evidence)).toThrowError(expect.objectContaining({ code: "BUILD_EVIDENCE_INVALID" }));
   });
 });

@@ -159,9 +159,9 @@ export class DeterministicStaticCompositionChangeAuthority implements StaticComp
 
 export class TrustedStaticApplicationBuildAuthority {
   readonly #evidence = new WeakMap<object, Readonly<{ change: StaticCompositionChangeResult; evidence: TrustedApplicationBuildEvidence; evidenceDigest: string }>>();
-  readonly #keys: ReadonlyMap<string, string>;
+  readonly #keys: ReadonlyMap<string, Readonly<{ publicKey: string; authority: TrustedApplicationBuildEvidence["authority"] }>>;
 
-  constructor(keys: Readonly<Record<string, string>>) {
+  constructor(keys: Readonly<Record<string, Readonly<{ publicKey: string; authority: TrustedApplicationBuildEvidence["authority"] }>>>) {
     this.#keys = new Map(Object.entries(keys));
     if (this.#keys.size === 0) throw new TypeError("At least one trusted application builder key is required.");
   }
@@ -173,7 +173,7 @@ export class TrustedStaticApplicationBuildAuthority {
     const key = this.#keys.get(evidence.signature.keyId);
     const { signature, ...statement } = evidence;
     let signatureValid = false;
-    try { signatureValid = key !== undefined && verify(null, Buffer.from(canonicalJson(statement)), key, Buffer.from(signature.value, "base64")); } catch { signatureValid = false; }
+    try { signatureValid = key !== undefined && same(key.authority, evidence.authority) && verify(null, Buffer.from(canonicalJson(statement)), key.publicKey, Buffer.from(signature.value, "base64")); } catch { signatureValid = false; }
     const plan = change.change;
     if (!signatureValid || evidence.applicationId !== plan.applicationId || evidence.environment !== plan.environment ||
       evidence.sourceCommit !== plan.target.sourceCommit || !same(evidence.composition, plan.target.composition) ||

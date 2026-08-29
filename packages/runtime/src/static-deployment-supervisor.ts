@@ -22,6 +22,7 @@ export interface StaticApplicationGeneration {
   readonly buildEvidenceDigest: string;
   readonly applicationDigest: string;
   readonly imageDigest: string;
+  readonly imageReference: string;
   readonly migrationRevision: number;
 }
 
@@ -64,11 +65,13 @@ export interface StaticApplicationArtifactProvider {
     imageReference: string;
     applicationDigest: string;
     imageDigest: string;
+    runtimeImageDigest: string;
   }>>;
   reverify(generation: StaticApplicationGeneration): Promise<Readonly<{
     imageReference: string;
     applicationDigest: string;
     imageDigest: string;
+    runtimeImageDigest: string;
   }>>;
 }
 
@@ -150,7 +153,7 @@ function ensureRetainedArtifact(
   value: Awaited<ReturnType<StaticApplicationArtifactProvider["reverify"]>>,
   generation: StaticApplicationGeneration
 ): void {
-  if (value.applicationDigest !== generation.applicationDigest || value.imageDigest !== generation.imageDigest) {
+  if (value.imageReference !== generation.imageReference || value.applicationDigest !== generation.applicationDigest || value.imageDigest !== generation.imageDigest || value.runtimeImageDigest !== generation.imageDigest) {
     throw new StaticDeploymentSupervisorError("ARTIFACT_MISMATCH", "Retained artifact does not match the owner-bound immutable generation.");
   }
 }
@@ -166,8 +169,6 @@ function ensureReadiness(readiness: StaticPromotionReadiness, generation: Static
 }
 
 export class DeploymentSupervisor {
-  private readonly retirementRetries = new Map<string, Readonly<{ generationId: string; receipt: StaticDeploymentReceipt }>>();
-
   constructor(
     private readonly builds: VerifiedStaticBuildReader,
     private readonly artifacts: StaticApplicationArtifactProvider,
@@ -197,6 +198,7 @@ export class DeploymentSupervisor {
     const completedMigrationSteps = await this.migrations.runOnline(change.migration);
     let readiness: StaticPromotionReadiness;
     try {
+      if (artifact.runtimeImageDigest !== artifact.imageDigest) throw new StaticDeploymentSupervisorError("ARTIFACT_MISMATCH", "Artifact provider did not resolve the attested image bytes.");
       await this.generations.start({ ...owner, generationId: input.generationId, imageReference: artifact.imageReference, workerMode: "passive" });
       readiness = await this.generations.readiness({
         ...owner,
@@ -214,6 +216,7 @@ export class DeploymentSupervisor {
         buildEvidenceDigest: verified.evidenceDigest,
         applicationDigest: artifact.applicationDigest,
         imageDigest: artifact.imageDigest,
+        imageReference: artifact.imageReference,
         migrationRevision: change.migration.targetRevision
       });
     } catch (error) {
@@ -287,18 +290,10 @@ export class DeploymentSupervisor {
 
   async closeRollback(owner: Owner): Promise<StaticDeploymentReceipt> {
     const current = await this.requireState(owner);
-    const key = `${owner.applicationId}:${owner.environment}`;
-    let pending = this.retirementRetries.get(key);
-    if (!pending) {
-      if (!current.rollback) throw new StaticDeploymentSupervisorError("STATE_UNAVAILABLE", "No retained generation is available to retire.");
-      const receipt = await this.state.closeRollback({ ...owner, expectedRevision: current.revision, retiredGenerationId: current.rollback.generationId });
-      pending = Object.freeze({ generationId: current.rollback.generationId, receipt });
-      this.retirementRetries.set(key, pending);
-    }
-    await this.generations.drain(pending.generationId);
-    await this.generations.retire(pending.generationId);
-    this.retirementRetries.delete(key);
-    return pending.receipt;
+    if (!current.rollback) throw new StaticDeploymentSupervisorError("STATE_UNAVAILABLE", "No retained generation is available to retire.");
+    await this.generations.drain(current.rollback.generationId);
+    await this.generations.retire(current.rollback.generationId);
+    return this.state.closeRollback({ ...owner, expectedRevision: current.revision, retiredGenerationId: current.rollback.generationId });
   }
 
   async runContractCleanup(owner: Owner, plan: MigrationCompatibilityPlan["plan"]): Promise<readonly string[]> {
