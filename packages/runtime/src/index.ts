@@ -29,6 +29,8 @@ export * from "./deployment-evidence.js";
 export * from "./fleet.js";
 export * from "./plugin-manager.js";
 export * from "./extension-revision-tracker.js";
+export * from "./dynamic-generation-runtime.js";
+export * from "./runtime-extension-consumer.js";
 export * from "./extension-capability-gateway.js";
 export * from "./extension-network-capability.js";
 export * from "./extension-operator-api.js";

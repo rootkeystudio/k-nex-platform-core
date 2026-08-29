@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Sol-high runner hardening removes caller-supplied code, resolves only generation-bound verified artifact entrypoints, applies a pinned custom seccomp profile, and fails closed on native MAC/user-namespace or Docker Desktop VM-boundary evidence.
+Durable dynamic artifact/runtime adapters now bind staging and warming to verified generation authority, while PostgreSQL outbox dispatch plus independent runtime consumers prove notification and polling convergence.
 
 ## Validation
 
-Node 24.19.0: extension bundler and runner builds passed; bundler 12/12 and runner 5/5 passed, including real Docker isolation, hostile source substitution, timeout, OOM, and cross-generation evidence. Full Gate 9 remains pending on the final review head.
+Node 24.19.0: runtime and Payload adapter builds passed; focused runtime 2/2 and PostgreSQL runtime state 1/1 passed. Full Gate 9 remains pending on the final review head.
 
 ## Next
 

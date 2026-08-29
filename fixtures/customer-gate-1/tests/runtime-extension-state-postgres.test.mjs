@@ -7,8 +7,8 @@ import test from "node:test";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import pg from "pg";
 
-import { PostgresRuntimeExtensionStore } from "@k-nex/payload-adapter";
-import { ExtensionRevisionTracker, PluginManager, TrustedAutomationOperationAuthorizer } from "@k-nex/runtime";
+import { PostgresRuntimeExtensionOutboxDispatcher, PostgresRuntimeExtensionStore } from "@k-nex/payload-adapter";
+import { PluginManager, RuntimeExtensionRevisionConsumer, TrustedAutomationOperationAuthorizer } from "@k-nex/runtime";
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
 const fixtureDirectory = fileURLToPath(new URL("..", import.meta.url));
@@ -168,9 +168,12 @@ test("proves persistent extension operation serialization, recovery, atomic evid
     const installed = await storeA.activateGeneration(install.operation.operationId, installWarming.leaseToken);
     assert.equal(installed.generationId, "app-sales-live-generation-1");
     assert.equal((await storeA.observeActiveGeneration("customer-alpha", "production", liveIdentity)).generationId, installed.generationId);
-    const runtimeConsumers = new Map(["web", "worker", "runner", "browser"].map((name) => [name, new ExtensionRevisionTracker()]));
-    const installedObservation = await storeA.observeActiveGeneration("customer-alpha", "production", liveIdentity);
-    for (const tracker of runtimeConsumers.values()) tracker.observe(installedObservation);
+    const runtimeConsumers = new Map([
+      ["web", new RuntimeExtensionRevisionConsumer(new PostgresRuntimeExtensionStore(pool, clock, digest("7")), "customer-alpha", "production", liveIdentity)],
+      ["worker", new RuntimeExtensionRevisionConsumer(new PostgresRuntimeExtensionStore(pool, clock, digest("7")), "customer-alpha", "production", liveIdentity)],
+      ["editor", new RuntimeExtensionRevisionConsumer(new PostgresRuntimeExtensionStore(pool, clock, digest("7")), "customer-alpha", "production", liveIdentity)]
+    ]);
+    await Promise.all([...runtimeConsumers.values()].map((consumer) => consumer.poll()));
 
     const oldLease = await storeA.acquireGenerationLease({
       applicationId: "customer-alpha", environment: "production", extension: liveIdentity, generationId: installed.generationId,
@@ -226,10 +229,23 @@ test("proves persistent extension operation serialization, recovery, atomic evid
     });
     assert.equal(observations.every(({ status, generationId }) => status === 200 && [installed.generationId, updated.generationId].includes(generationId)), true);
     assert.equal((await storeB.observeActiveGeneration("customer-alpha", "production", liveIdentity)).generationId, updated.generationId);
-    const polledAfterLostInvalidation = await storeB.observeActiveGeneration("customer-alpha", "production", liveIdentity);
-    for (const tracker of runtimeConsumers.values()) tracker.observe(polledAfterLostInvalidation);
-    assert.deepEqual([...runtimeConsumers.entries()].map(([name, tracker]) => [name, tracker.snapshot().generationId]), [
-      ["web", updated.generationId], ["worker", updated.generationId], ["runner", updated.generationId], ["browser", updated.generationId]
+    const dispatcher = new PostgresRuntimeExtensionOutboxDispatcher(pool);
+    let dispatched = 0;
+    for (;;) {
+      const delivery = await dispatcher.dispatchNext({
+        publish: async (invalidation) => {
+          dispatched += 1;
+          runtimeConsumers.get("web").invalidate(invalidation);
+        }
+      });
+      if (delivery.status === "idle") break;
+    }
+    assert.ok(dispatched > 0);
+    assert.equal(runtimeConsumers.get("worker").snapshot().generationId, installed.generationId);
+    assert.equal(runtimeConsumers.get("editor").snapshot().generationId, installed.generationId);
+    await Promise.all([...runtimeConsumers.values()].map((consumer) => consumer.poll()));
+    assert.deepEqual([...runtimeConsumers.entries()].map(([name, consumer]) => [name, consumer.snapshot().generationId]), [
+      ["web", updated.generationId], ["worker", updated.generationId], ["editor", updated.generationId]
     ]);
     assert.equal(await storeA.liveGenerationLeaseCount("customer-alpha", "production", liveIdentity, installed.generationId), 1);
     await assert.rejects(storeA.acquireGenerationLease({
