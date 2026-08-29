@@ -258,8 +258,9 @@ export const RemoteUiIsolationProfileSchema = z.strictObject({
   sharedWorkers: z.literal("denied"),
   popupTopNavigationDownload: z.literal("denied"),
   responsePolicy: z.strictObject({
-    contentSecurityPolicy: z.literal("default-src 'none'; script-src 'self'; connect-src 'none'; worker-src 'self'; img-src 'self'; style-src 'self'"),
-    crossOriginResourcePolicy: z.literal("same-origin"),
+    contentSecurityPolicy: z.literal("default-src 'none'; script-src 'self'; connect-src 'none'; worker-src blob:; img-src 'self'; style-src 'self'"),
+    crossOriginResourcePolicy: z.literal("cross-origin"),
+    opaqueOriginCors: z.literal("null"),
     credentialsMode: z.literal("omit"),
     generationPinnedIntegrity: z.literal(true),
     strictMime: z.literal(true)

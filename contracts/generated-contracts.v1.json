@@ -15,6 +15,7 @@
     "schemas/extension-generation.v1.schema.json",
     "schemas/zero-downtime-eligibility.v1.schema.json",
     "schemas/remote-ui-isolation-profile.v1.schema.json",
+    "schemas/remote-ui-frame.v1.schema.json",
     "schemas/runner-isolation-profile.v1.schema.json",
     "schemas/static-composition-change-plan.v1.schema.json",
     "schemas/trusted-application-build-evidence.v1.schema.json",

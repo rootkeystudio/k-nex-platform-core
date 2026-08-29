@@ -10,7 +10,7 @@
   "popupTopNavigationDownload": "denied",
   "profile": "credentialless-remote-ui-v1",
   "realm": "opaque-origin-sandbox",
-  "responsePolicy": { "contentSecurityPolicy": "default-src 'none'; script-src 'self'; connect-src 'none'; worker-src 'self'; img-src 'self'; style-src 'self'", "credentialsMode": "omit", "crossOriginResourcePolicy": "same-origin", "generationPinnedIntegrity": true, "strictMime": true },
+  "responsePolicy": { "contentSecurityPolicy": "default-src 'none'; script-src 'self'; connect-src 'none'; worker-src blob:; img-src 'self'; style-src 'self'", "credentialsMode": "omit", "crossOriginResourcePolicy": "cross-origin", "generationPinnedIntegrity": true, "opaqueOriginCors": "null", "strictMime": true },
   "schemaVersion": 1,
   "serviceWorkers": "denied",
   "sharedWorkers": "denied"

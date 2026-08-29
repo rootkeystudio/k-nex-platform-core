@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-08-29
 - **Phase:** Phase 9 — Dynamic Application Runtime and Zero-Downtime Delivery
-- **Active task:** P9.5 — Credentialless remote UI realm and fixed host surfaces
+- **Active task:** P9.6 — Atomic activation, update, rollback, and convergence
 - **State:** Ready to start
 
 ## Last completed
 
-P9.4 added the pinned per-invocation container runner and per-generation supervisor, short-lived app/generation/actor capability tokens, schema- and sequence-checked RPC gateway, token-bound PostgreSQL app storage with backup/restore, host-only secret injection for bounded HTTPS access, resource enforcement, health, quarantine, and drain containment.
+P9.5 added the closed Remote UI frame contract, generation-bound/replay- and budget-fenced MessagePort host, fixed app route/navigation/slot resolution, declared source/action/component/event/asset authority, generation drain, SRI-pinned verified worker bootstrap/asset serving, opaque credentialless realm, semantic focus/error handling, and real Chromium attack proof. The pre-v1 response profile now uses opaque-origin CORS plus cross-origin CORP and a Blob worker because same-origin CORP blocked verified code in an opaque sandbox.
 
 ## Validation
 
-Node 24.19.0: runtime 245 and payload adapter 32 tests passed. The real Docker runner suite passed 4/4 with non-root/read-only/no-network/no-mount/seccomp/cgroup evidence plus token mixing, undeclared capability, timeout, crash, OOM, quarantine, and drain attacks. The complete customer PostgreSQL suite passed 7/7. Exact-head `pnpm phase:0` passed across 22 packages and 45 tasks.
+Node 24.19.0: contracts 154, extension bundler 9, UI runtime 53, and UI testing 8 tests passed. Real Chromium passed credential/cookie/storage/network/WebSocket/import/DOM/navigation/worker isolation, semantic focus, data bridge, and malformed-tree fallback proof. Exact-head `pnpm phase:0` passed across 22 packages and 45 tasks.
 
 ## Next
 
-Implement P9.5 only: the credentialless remote UI realm, bounded transferred protocol, fixed app routes/surfaces, generation-pinned assets, host-owned semantics and accessibility, and real Chromium attack proof.
+Implement P9.6 only: atomic active-generation switching, staged metadata/storage commit, health and drain leases, rollback compatibility windows, receipts/audit/outbox, revision convergence, and restore fidelity.
 
 ## Blockers
 

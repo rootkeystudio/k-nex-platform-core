@@ -723,6 +723,9 @@ importers:
       '@k-nex/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@k-nex/extension-bundler':
+        specifier: workspace:*
+        version: link:../extension-bundler
       '@k-nex/module-sales':
         specifier: workspace:*
         version: link:../../modules/sales

@@ -24,7 +24,7 @@
       "additionalProperties": false,
       "properties": {
         "contentSecurityPolicy": {
-          "const": "default-src 'none'; script-src 'self'; connect-src 'none'; worker-src 'self'; img-src 'self'; style-src 'self'",
+          "const": "default-src 'none'; script-src 'self'; connect-src 'none'; worker-src blob:; img-src 'self'; style-src 'self'",
           "type": "string"
         },
         "credentialsMode": {
@@ -32,12 +32,16 @@
           "type": "string"
         },
         "crossOriginResourcePolicy": {
-          "const": "same-origin",
+          "const": "cross-origin",
           "type": "string"
         },
         "generationPinnedIntegrity": {
           "const": true,
           "type": "boolean"
+        },
+        "opaqueOriginCors": {
+          "const": "null",
+          "type": "string"
         },
         "strictMime": {
           "const": true,
@@ -47,6 +51,7 @@
       "required": [
         "contentSecurityPolicy",
         "crossOriginResourcePolicy",
+        "opaqueOriginCors",
         "credentialsMode",
         "generationPinnedIntegrity",
         "strictMime"
