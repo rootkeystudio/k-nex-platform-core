@@ -165,7 +165,8 @@ function plan(operationId, change, release) {
     executionClass: "live-generation", operationId, sourceCommit: release.authority.sourceCommit, generationId: release.generationId,
     plan: {
       schemaVersion: 1, planId: `${release.generationId}-plan`, operationId, operation: change.operation, version: change.targetVersion,
-      artifactDigest: release.authority.artifactDigest, expectedRevision: change.expectedRevision, targetGenerationId: release.generationId,
+      artifactDigest: release.authority.artifactDigest, expectedRevision: change.expectedRevision,
+      ...(change.currentGenerationId ? { currentGenerationId: change.currentGenerationId } : {}), targetGenerationId: release.generationId,
       approvalRequired: false, rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "hot-application", id: "app.sales-live",
       availability: { outcome: "live-generation", activation: "atomic-generation-pointer" }, requiredCapabilities: [],
       resourceBudget: { maxBundleBytes: 1_048_576, maxAssetBytes: 262_144, maxStorageBytes: 1_048_576, maxMemoryMiB: 128, maxCpuMilliCores: 500, maxWallTimeMs: 5_000, maxInputBytes: 65_536, maxOutputBytes: 131_072, maxLogBytes: 65_536, maxConcurrency: 4 }
@@ -237,7 +238,8 @@ test("rejects SCN-12 activation races and SCN-13 stale operation replays in Post
       storeA.activateGeneration(warming.operationId, warming.leaseToken),
       storeB.activateGeneration(warming.operationId, warming.leaseToken)
     ]);
-    assert.deepEqual(racedActivation.map(({ status }) => status).sort(), ["fulfilled", "rejected"]);
+    assert.deepEqual(racedActivation.map(({ status }) => status), ["fulfilled", "fulfilled"]);
+    assert.deepEqual(racedActivation[0].value, racedActivation[1].value);
     assert.equal((await storeA.observeActiveGeneration("customer-alpha", "production", activationRequest.extension)).generationId, "app-sales-activation-generation-1");
     assert.equal((await pool.query("select count(*)::int count from runtime_extension_transition_receipts where operation_id=$1 and event_json->>'operationPhase'='completed'", [warming.operationId])).rows[0].count, 1);
     console.log('P9_RUNTIME_COORDINATION_EVIDENCE={"scenarios":["SCN-12","SCN-13"]}');
@@ -289,7 +291,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       plan: async (change) => {
         const release = byVersion.get(change.targetVersion);
         if (!release) throw new Error("Fixture release is unavailable.");
-        return { plan: plan("fixture-operation", change, release).plan, sourceCommit: release.authority.sourceCommit, generationId: release.generationId };
+        return { plan: plan(change.operationId, change, release).plan, sourceCommit: release.authority.sourceCommit, generationId: release.generationId };
       }
     }, storeA, pipeline, { request: async () => { throw new Error("Static delivery is not used."); } }, { request: async () => { throw new Error("Static delivery is not used."); }, reverify: async () => false }, new DurableDynamicGenerationRuntime(artifacts, warmer));
 
@@ -298,6 +300,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     assert.equal((await manager.validate(install.operationId)).valid, true);
     const installed = await manager.activate(install.operationId);
     assert.equal(installed.generationId, "app-sales-live-generation-1");
+    assert.deepEqual(await manager.activate(install.operationId), installed);
     const identity = { deliveryClass: "hot-application", id: "app.sales-live" };
     const consumers = ["web", "worker", "editor"].map((name) => [name, new RuntimeExtensionRevisionConsumer(new PostgresRuntimeExtensionStore(pool, clock, digest("7")), "customer-alpha", "production", identity)]);
     await Promise.all(consumers.map(([, consumer]) => consumer.poll()));
@@ -319,8 +322,10 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     const traffic = Array.from({ length: 24 }, () => fetch(`${gateway.url}/continuous`).then(async (response) => ({ status: response.status, body: JSON.parse(await response.text()) })));
     const [updated, ...observations] = await Promise.all([manager.activate(update.operationId), ...traffic]);
     assert.equal(updated.previousGenerationId, installed.generationId);
+    assert.deepEqual(await manager.activate(update.operationId), updated);
     assert.equal(observations.every(({ status, body }) => status === 200 && byGeneration.get(body.generationId)?.marker === body.marker), true);
     assert.equal((await storeB.observeActiveGeneration("customer-alpha", "production", identity)).generationId, updated.generationId);
+    await assert.rejects(manager.plan(request("update", "1.0.0", updated.revisionAfter)), { code: "PLAN_MISMATCH" });
     assert.deepEqual(warmed, [
       "runner:app-sales-live-generation-1", "remote-ui:app-sales-live-generation-1", "storage:app-sales-live-generation-1", "surfaces:app-sales-live-generation-1",
       "runner:app-sales-live-generation-2", "remote-ui:app-sales-live-generation-2", "storage:app-sales-live-generation-2", "surfaces:app-sales-live-generation-2"
@@ -357,6 +362,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     const rollback = await manager.plan(request("rollback", "1.0.0", updated.revisionAfter));
     const rolledBack = await manager.rollback(rollback.operationId);
     assert.equal(rolledBack.generationId, installed.generationId);
+    assert.deepEqual(await manager.rollback(rollback.operationId), rolledBack);
     const rollbackTraffic = await fetch(`${gateway.url}/rollback`);
     assert.equal(rollbackTraffic.status, 200);
     assert.equal(JSON.parse(await rollbackTraffic.text()).generationId, installed.generationId);
@@ -366,13 +372,16 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     await manager.stage(irreversibleUpdate.operationId);
     const cutover = await manager.activate(irreversibleUpdate.operationId);
     assert.equal(cutover.rollback, "blocked-irreversible");
-    const blockedRollback = await manager.plan(request("rollback", "1.0.0", cutover.revisionAfter));
-    const blockedOperation = await storeA.readOperation(blockedRollback.operationId);
-    await assert.rejects(storeA.rollbackGeneration(blockedOperation.operationId, blockedOperation.leaseToken), { code: "ROLLBACK_BLOCKED" });
-    await storeA.transition({ operationId: blockedOperation.operationId, leaseToken: blockedOperation.leaseToken, expectedPhase: "planning", phase: "failed" });
 
     await pool.query("update runtime_extensions set active_generation=jsonb_set(active_generation, '{artifactDigest}', to_jsonb($1::text)) where extension_id='app.sales-live'", [digest("f")]);
     await assert.rejects(manager.inventory("customer-alpha", "production"), { code: "ARTIFACT_AUTHORITY_REJECTED" });
+
+    const disablePlan = await manager.plan(request("disable", "2.0.0", cutover.revisionAfter));
+    const disabled = await manager.disable(disablePlan.operationId);
+    assert.deepEqual(await manager.disable(disablePlan.operationId), disabled);
+    const uninstallPlan = await manager.plan(request("uninstall", "2.0.0", disabled.revisionAfter));
+    const uninstalled = await manager.uninstall(uninstallPlan.operationId);
+    assert.deepEqual(await manager.uninstall(uninstallPlan.operationId), uninstalled);
     console.log('P9_RUNTIME_JOURNEY_EVIDENCE={"scenarios":["SCN-11","SCN-16"]}');
   } finally {
     await Promise.allSettled(hosts.map((host) => host.close()));

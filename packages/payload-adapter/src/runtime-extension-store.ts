@@ -40,7 +40,7 @@ export interface RuntimeExtensionClock {
 }
 
 export class RuntimeExtensionStoreError extends Error {
-  constructor(readonly code: "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "OPERATION_IN_PROGRESS" | "OPERATION_NOT_FOUND" | "LEASE_CONFLICT" | "PHASE_CONFLICT" | "GLOBAL_BUDGET_EXHAUSTED" | "GENERATION_MISMATCH" | "READINESS_EXPIRED" | "ROLLBACK_BLOCKED" | "STATE_INVALID", message: string) {
+  constructor(readonly code: "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "OPERATION_IN_PROGRESS" | "OPERATION_NOT_FOUND" | "LEASE_CONFLICT" | "PHASE_CONFLICT" | "GLOBAL_BUDGET_EXHAUSTED" | "GENERATION_MISMATCH" | "VERSION_DOWNGRADE" | "READINESS_EXPIRED" | "ROLLBACK_BLOCKED" | "STATE_INVALID", message: string) {
     super(message);
     this.name = "RuntimeExtensionStoreError";
   }
@@ -133,6 +133,31 @@ function validRecordId(value: string): boolean {
   return /^[a-z][a-z0-9-]{2,127}$/u.test(value);
 }
 
+function compareSemver(left: string, right: string): number {
+  const parse = (version: string) => {
+    const [core, prerelease] = version.split("-", 2);
+    return { core: core!.split(".").map(Number), prerelease: prerelease?.split(".") ?? [] };
+  };
+  const a = parse(left);
+  const b = parse(right);
+  for (let index = 0; index < 3; index += 1) {
+    if (a.core[index]! !== b.core[index]!) return a.core[index]! < b.core[index]! ? -1 : 1;
+  }
+  if (a.prerelease.length === 0 || b.prerelease.length === 0) return a.prerelease.length === b.prerelease.length ? 0 : a.prerelease.length === 0 ? 1 : -1;
+  for (let index = 0; index < Math.max(a.prerelease.length, b.prerelease.length); index += 1) {
+    const aPart = a.prerelease[index];
+    const bPart = b.prerelease[index];
+    if (aPart === undefined || bPart === undefined) return aPart === undefined ? -1 : 1;
+    if (aPart === bPart) continue;
+    const aNumber = /^\d+$/u.test(aPart);
+    const bNumber = /^\d+$/u.test(bPart);
+    if (aNumber && bNumber) return Number(aPart) < Number(bPart) ? -1 : 1;
+    if (aNumber !== bNumber) return aNumber ? -1 : 1;
+    return aPart < bPart ? -1 : 1;
+  }
+  return 0;
+}
+
 function assertStage(stage: StagedGenerationActivation, now: Date): void {
   const readiness = stage.readiness;
   const readyAt = new Date(readiness.readyAt);
@@ -176,6 +201,34 @@ function assertAuthorityOwner(row: Pick<OperationRow, "application_id" | "enviro
   if (row.delivery_class === "platform-plugin" || authority.applicationId !== row.application_id || authority.environment !== row.environment ||
     authority.deliveryClass !== row.delivery_class || authority.extensionId !== row.extension_id) {
     fail("GENERATION_MISMATCH", "Verified generation authority belongs to a different runtime extension owner.");
+  }
+}
+
+function stateCurrentGenerationId(state: ExtensionRow): string | undefined {
+  if (state.active_generation_id) return state.active_generation_id;
+  const retained = state.retained_generation?.["generationId"];
+  return typeof retained === "string" ? retained : undefined;
+}
+
+function assertPlanIdentity(row: OperationRow, plan: PluginManagerPlan, state: ExtensionRow): void {
+  const planned = plan.plan;
+  const currentGenerationId = stateCurrentGenerationId(state);
+  if (plan.operationId !== row.operation_id || planned.operationId !== row.operation_id || planned.operation !== row.operation_kind ||
+    planned.deliveryClass !== row.delivery_class || planned.id !== row.extension_id || planned.expectedRevision !== row.expected_revision ||
+    planned.currentGenerationId !== currentGenerationId || planned.targetGenerationId !== plan.generationId) {
+    fail("GENERATION_MISMATCH", "Persisted plan does not bind this operation to the current inventory generation.");
+  }
+  if (!planned.targetGenerationId) fail("GENERATION_MISMATCH", "Persisted plan has no target generation identity.");
+  if (["install", "update"].includes(row.operation_kind)) {
+    if (planned.targetGenerationId === state.active_generation_id || planned.targetGenerationId === state.rollback_generation_id) {
+      fail("GENERATION_MISMATCH", "Install and update target generations must be fresh.");
+    }
+  } else if (row.operation_kind === "rollback") {
+    if (!state.active_generation_id || planned.targetGenerationId !== state.rollback_generation_id) {
+      fail("GENERATION_MISMATCH", "Rollback plan must target the retained inventory generation.");
+    }
+  } else if (planned.targetGenerationId !== currentGenerationId) {
+    fail("GENERATION_MISMATCH", "Disposition plan must remain bound to the active inventory generation.");
   }
 }
 
@@ -264,8 +317,8 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
         `insert into runtime_extension_inventory_revisions (application_id, environment, revision) values ($1, $2, 0) on conflict do nothing`,
         [request.applicationId, request.environment]
       );
-      const state = await session.query<{ revision: number }>(
-        `select revision from runtime_extensions where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4 for update`,
+      const state = await session.query<ExtensionRow>(
+        `select * from runtime_extensions where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4 for update`,
         [request.applicationId, request.environment, request.extension.deliveryClass, request.extension.id]
       );
       const replay = await session.query<OperationRow>(
@@ -278,6 +331,10 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
       }
 
       if (state.rows[0]?.revision !== request.expectedRevision) fail("REVISION_CONFLICT", "Runtime extension revision differs from the requested revision.");
+      const activeVersion = state.rows[0]?.active_generation?.["version"];
+      if (["install", "update"].includes(request.operation) && typeof activeVersion === "string" && compareSemver(request.targetVersion, activeVersion) < 0) {
+        fail("VERSION_DOWNGRADE", "Install and update cannot downgrade the active extension version.");
+      }
 
       const active = await session.query<{ operation_id: string }>(
         `select operation_id from runtime_extension_operations where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4 and phase not in ('completed','failed') for update`,
@@ -320,6 +377,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
       const result = await session.query<OperationRow>(`select * from runtime_extension_operations where operation_id=$1 for update`, [id]);
       const row = result.rows[0];
       if (!row) fail("OPERATION_NOT_FOUND", "Runtime extension operation is unavailable.");
+      if (["completed", "failed"].includes(row.phase)) return operation(row);
       const now = this.clock.now();
       if (new Date(row.lease_expires_at).valueOf() > now.valueOf() && row.lease_owner !== workerId) fail("LEASE_CONFLICT", "Runtime extension operation has a live lease.");
       const token = randomUUID();
@@ -334,6 +392,13 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
   async savePlan(id: string, token: string, plan: PluginManagerPlan): Promise<RuntimeExtensionOperation> {
     return this.transaction(async (session) => {
       const row = await this.lockOperation(session, id, token);
+      const state = await session.query<ExtensionRow>(
+        `select *, 0::int as inventory_revision from runtime_extensions where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4 for update`,
+        [row.application_id, row.environment, row.delivery_class, row.extension_id]
+      );
+      const current = state.rows[0];
+      if (!current || current.revision !== row.expected_revision) fail("REVISION_CONFLICT", "Runtime extension revision changed before planning.");
+      assertPlanIdentity(row, plan, current);
       const updated = await session.query<OperationRow>(
         `update runtime_extension_operations set plan_json=$3::jsonb, updated_at=now() where operation_id=$1 and lease_token=$2 returning *`,
         [id, token, JSON.stringify(plan)]
@@ -442,6 +507,8 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
 
   async activateGeneration(id: string, token: string): Promise<ExtensionActivationReceipt> {
     return this.transaction(async (session) => {
+      const replay = await this.completedReceipt(session, id, ["install", "update"]);
+      if (replay) return replay as ExtensionActivationReceipt;
       const row = await this.lockOperation(session, id, token);
       if (row.phase !== "warming" || row.plan_json?.executionClass !== "live-generation" || !row.authority_json || !["install", "update"].includes(row.operation_kind)) {
         fail("PHASE_CONFLICT", "Only a warming live generation can activate.");
@@ -510,6 +577,8 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
 
   async rollbackGeneration(id: string, token: string): Promise<ExtensionActivationReceipt> {
     return this.transaction(async (session) => {
+      const replay = await this.completedReceipt(session, id, ["rollback"]);
+      if (replay) return replay as ExtensionActivationReceipt;
       const row = await this.lockOperation(session, id, token);
       if (row.phase !== "planning" || row.operation_kind !== "rollback" || row.plan_json?.executionClass !== "live-generation") {
         fail("PHASE_CONFLICT", "Only a planned live-generation rollback can commit.");
@@ -583,6 +652,8 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
     disposition: "disabled" | "removed"
   ): Promise<ExtensionDispositionReceipt> {
     return this.transaction(async (session) => {
+      const replay = await this.completedReceipt(session, id, [operationKind]);
+      if (replay) return replay as ExtensionDispositionReceipt;
       const row = await this.lockOperation(session, id, token);
       if (row.phase !== "planning" || row.operation_kind !== operationKind || row.plan_json?.executionClass !== "live-generation") {
         fail("PHASE_CONFLICT", `Only a planned live-generation ${operationKind} can commit.`);
@@ -747,6 +818,20 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
     if (!row) fail("OPERATION_NOT_FOUND", "Runtime extension operation is unavailable.");
     if (row.lease_token !== token || new Date(row.lease_expires_at).valueOf() <= this.clock.now().valueOf()) fail("LEASE_CONFLICT", "Runtime extension operation lease is stale.");
     return row;
+  }
+
+  private async completedReceipt(
+    session: RuntimeExtensionSession,
+    id: string,
+    expectedOperations: readonly RuntimeExtensionOperation["request"]["operation"][]
+  ): Promise<ExtensionManagerReceipt | undefined> {
+    const result = await session.query<OperationRow>(`select * from runtime_extension_operations where operation_id=$1 for update`, [id]);
+    const row = result.rows[0];
+    if (!row || row.phase !== "completed") return undefined;
+    if (!row.result_json || !expectedOperations.includes(row.operation_kind) || row.result_json.operation !== row.operation_kind) {
+      fail("STATE_INVALID", "Completed runtime extension operation has no matching persisted receipt.");
+    }
+    return row.result_json;
   }
 
   private async advanceInventoryRevision(session: RuntimeExtensionSession, applicationId: string, environment: string): Promise<number> {

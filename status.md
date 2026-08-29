@@ -7,16 +7,16 @@
 
 ## Last completed
 
-Closed the remote-UI artifact integrity and production-origin blockers from the Sol-high review. Stored/returned bytes are copied, digest/size/MIME are revalidated immediately before serving, and insecure loopback origins now require an explicit development-only opt-in.
+Closed the planner/generation binding, completed-operation idempotency, and active-version downgrade blockers. Plans bind the claimed operation and exact inventory generations, fresh install/update targets cannot reuse active/rollback generations, and all five completed mutations replay persisted receipts without lease rotation or duplicate effects.
 
 ## Validation
 
-Node 24.19.0: extension-bundler 18/18 tests and build passed; ui-runtime 56/56 tests and build passed; the complete UI browser matrix passed including Remote UI and Theme Skin markers; `git diff --check` passed.
+Node 24.19.0: runtime and payload-adapter builds passed; PluginManager 12/12 focused tests passed; the real PostgreSQL runtime suite passed 2/2 with SCN-11/12/13/16 evidence, lost-response replays, and active-version downgrade rejection; `git diff --check` passed.
 
 ## Next
 
-Fix the remaining 11 review blockers in isolated commits, run targeted acceptance commands, then rerun the complete Gate 9 and a new Sol-high review.
+Fix the remaining 8 review blockers in isolated commits, run targeted acceptance commands, then rerun the complete Gate 9 and a new Sol-high review.
 
 ## Blockers
 
-Theme Skin production delivery; concrete static deployment adapters and crash recovery; rollback-window and worker-effect fencing; complete post-commit recovery; production Hot Application path; durable per-call capability authority and replay protection; exact planner/generation binding; completed-operation idempotency; active-version downgrade prevention; revocation reconciliation.
+Theme Skin production delivery; concrete static deployment adapters and crash recovery; rollback-window and worker-effect fencing; complete post-commit recovery; production Hot Application path; durable per-call capability authority and replay protection; revocation reconciliation.

@@ -11,6 +11,7 @@ import {
   type StaticCompositionChangePlan,
   type RuntimeExtensionInventory
 } from "@k-nex/contracts";
+import { compare as compareSemver } from "semver";
 
 export type ExtensionManagerOperation = "install" | "update" | "disable" | "rollback" | "uninstall";
 export type { ExtensionOperationPhase } from "@k-nex/contracts";
@@ -24,6 +25,13 @@ export interface ExtensionChangeRequest {
   readonly expectedRevision: number;
   readonly idempotencyKey: string;
   readonly correlationId: string;
+}
+
+/** The planner receives the immutable operation and the inventory generation it must bind. */
+export interface ExtensionPlanningRequest extends ExtensionChangeRequest {
+  readonly operationId: string;
+  readonly currentGenerationId?: string;
+  readonly rollbackGenerationId?: string;
 }
 
 export interface OperationAuthorizationRequest {
@@ -58,7 +66,7 @@ export class TrustedAutomationOperationAuthorizer implements ExtensionOperationA
 }
 
 export interface ExtensionPlanner {
-  plan(request: ExtensionChangeRequest): Promise<Readonly<{ plan: ExtensionInstallPlan; sourceCommit: string; generationId: string }>>;
+  plan(request: ExtensionPlanningRequest): Promise<Readonly<{ plan: ExtensionInstallPlan; sourceCommit: string; generationId: string }>>;
 }
 
 export interface StaticCompositionChangeResult {
@@ -269,10 +277,68 @@ async function digest(value: unknown): Promise<string> {
   return `sha256:${Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
-function assertPlanMatches(request: ExtensionChangeRequest, plan: ExtensionInstallPlan): void {
+interface InventoryGenerationState {
+  readonly revision: number;
+  readonly currentGenerationId?: string;
+  readonly rollbackGenerationId?: string;
+  readonly currentVersion?: string;
+}
+
+function inventoryGenerationState(inventory: RuntimeExtensionInventory, request: ExtensionChangeRequest): InventoryGenerationState {
+  const entries = request.extension.deliveryClass === "platform-plugin" ? inventory.extensions.platformPlugins
+    : request.extension.deliveryClass === "hot-application" ? inventory.extensions.hotApplications : inventory.extensions.themeSkins;
+  const entry = entries[request.extension.id];
+  if (!entry) return Object.freeze({ revision: 0 });
+  if (entry.disposition === "removed") return Object.freeze({ revision: entry.revision });
+  if (entry.disposition !== "active") return Object.freeze({
+    revision: entry.revision,
+    ...(entry.retainedGeneration ? { currentGenerationId: entry.retainedGeneration.generationId, currentVersion: entry.retainedGeneration.version } : {})
+  });
+  return Object.freeze({
+    revision: entry.revision,
+    currentGenerationId: entry.activeGeneration.generationId,
+    currentVersion: entry.activeGeneration.version,
+    ...(entry.rollbackGeneration ? { rollbackGenerationId: entry.rollbackGeneration.generationId } : {})
+  });
+}
+
+function assertNoActiveDowngrade(request: ExtensionChangeRequest, inventory: InventoryGenerationState): void {
+  if (["install", "update"].includes(request.operation) && inventory.currentVersion && compareSemver(request.targetVersion, inventory.currentVersion) < 0) {
+    throw new PluginManagerError("PLAN_MISMATCH", "Install and update cannot downgrade the active extension version.");
+  }
+}
+
+function assertInventoryCanPlan(request: ExtensionChangeRequest, inventory: InventoryGenerationState): void {
+  assertNoActiveDowngrade(request, inventory);
+  if (request.operation === "rollback" && (!inventory.currentGenerationId || !inventory.rollbackGenerationId)) {
+    throw new PluginManagerError("PLAN_MISMATCH", "Rollback requires an active generation and a retained generation in current inventory.");
+  }
+}
+
+function assertPlanMatches(
+  request: ExtensionChangeRequest,
+  plan: ExtensionInstallPlan,
+  operationId: string,
+  plannerGenerationId: string,
+  inventory: InventoryGenerationState
+): void {
   if (plan.deliveryClass !== request.extension.deliveryClass || plan.id !== request.extension.id || plan.operation !== request.operation ||
-    plan.version !== request.targetVersion || plan.expectedRevision !== request.expectedRevision) {
+    plan.version !== request.targetVersion || plan.expectedRevision !== request.expectedRevision || plan.operationId !== operationId ||
+    plan.currentGenerationId !== inventory.currentGenerationId || plan.targetGenerationId !== plannerGenerationId || inventory.revision !== request.expectedRevision) {
     throw new PluginManagerError("PLAN_MISMATCH", "Planner output does not match the authorized extension request.");
+  }
+  if (!plan.targetGenerationId) throw new PluginManagerError("PLAN_MISMATCH", "Planner output has no target generation identity.");
+  if (["install", "update"].includes(request.operation)) {
+    if (plan.targetGenerationId === inventory.currentGenerationId || plan.targetGenerationId === inventory.rollbackGenerationId) {
+      throw new PluginManagerError("PLAN_MISMATCH", "Install and update target generations must be fresh.");
+    }
+    assertInventoryCanPlan(request, inventory);
+  } else if (request.operation === "rollback") {
+    if (!inventory.currentGenerationId || plan.targetGenerationId !== inventory.rollbackGenerationId) {
+      throw new PluginManagerError("PLAN_MISMATCH", "Rollback must target the retained generation from current inventory.");
+    }
+  } else if (plan.targetGenerationId !== inventory.currentGenerationId) {
+    throw new PluginManagerError("PLAN_MISMATCH", "Disposition must remain bound to the active inventory generation.");
   }
 }
 
@@ -343,19 +409,37 @@ export class PluginManager {
     if (!validRequest(request)) throw new PluginManagerError("INVALID_REQUEST", "Extension change request is invalid.");
     const requestDigest = await digest(request);
     const authorization = await this.authorizer.authorize({ ...request, requestDigest });
-    const claim = await this.store.claimOperation({ request, requestDigest, authorization, workerId: this.workerId });
+    let claim: ClaimOperationResult;
+    try {
+      claim = await this.store.claimOperation({ request, requestDigest, authorization, workerId: this.workerId });
+    } catch (error) {
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "VERSION_DOWNGRADE") {
+        throw new PluginManagerError("PLAN_MISMATCH", "Install and update cannot downgrade the active extension version.");
+      }
+      throw error;
+    }
     if (claim.status === "replay" && claim.operation.plan) {
       await this.checkpointStaticPlan(claim.operation);
       return claim.operation.plan;
     }
+    if (claim.status === "replay" && ["completed", "failed"].includes(claim.operation.phase)) {
+      throw new PluginManagerError("INVALID_STATE", "Only the same unfinished operation may resume planning.");
+    }
     const claimedOperation = claim.status === "replay" ? await this.store.resumeOperation(claim.operation.operationId, this.workerId) : claim.operation;
+    const inventory = inventoryGenerationState(await this.store.inventory(request.applicationId, request.environment), request);
+    assertInventoryCanPlan(request, inventory);
 
-    const planned = await this.planner.plan(request);
+    const planned = await this.planner.plan(Object.freeze({
+      ...request,
+      operationId: claimedOperation.operationId,
+      ...(inventory.currentGenerationId ? { currentGenerationId: inventory.currentGenerationId } : {}),
+      ...(inventory.rollbackGenerationId ? { rollbackGenerationId: inventory.rollbackGenerationId } : {})
+    }));
     const parsed = ExtensionInstallPlanSchema.parse(planned.plan);
     if (!/^[0-9a-f]{40}$/u.test(planned.sourceCommit) || !/^[a-z][a-z0-9-]{2,127}$/u.test(planned.generationId)) {
       throw new PluginManagerError("PLAN_MISMATCH", "Planner source or generation authority is invalid.");
     }
-    assertPlanMatches(request, parsed);
+    assertPlanMatches(request, parsed, claimedOperation.operationId, planned.generationId, inventory);
     const operationId = claimedOperation.operationId;
     let result: PluginManagerPlan;
     if (parsed.deliveryClass === "platform-plugin") {
@@ -435,6 +519,8 @@ export class PluginManager {
   }
 
   async activate(operationId: string): Promise<ExtensionActivationReceipt> {
+    const replay = await this.completedReceipt(operationId, ["install", "update"]);
+    if (replay) return replay as ExtensionActivationReceipt;
     let current = await this.store.resumeOperation(operationId, this.workerId);
     if (!current.plan || current.plan.executionClass !== "live-generation" || !current.authority || !["install", "update"].includes(current.request.operation)) {
       throw new PluginManagerError("INVALID_STATE", "Only a verified live generation can be activated.");
@@ -459,6 +545,8 @@ export class PluginManager {
   }
 
   async rollback(operationId: string): Promise<ExtensionActivationReceipt> {
+    const replay = await this.completedReceipt(operationId, ["rollback"]);
+    if (replay) return replay as ExtensionActivationReceipt;
     const current = await this.store.resumeOperation(operationId, this.workerId);
     if (!current.plan || current.plan.executionClass !== "live-generation" || current.request.operation !== "rollback" || current.phase !== "planning") {
       throw new PluginManagerError("INVALID_STATE", "Extension rollback operation is not ready.");
@@ -482,11 +570,15 @@ export class PluginManager {
   }
 
   async disable(operationId: string): Promise<ExtensionDispositionReceipt> {
+    const replay = await this.completedReceipt(operationId, ["disable"]);
+    if (replay) return replay as ExtensionDispositionReceipt;
     const current = await this.dispositionOperation(operationId, "disable");
     return this.store.disableGeneration(operationId, current.leaseToken);
   }
 
   async uninstall(operationId: string): Promise<ExtensionDispositionReceipt> {
+    const replay = await this.completedReceipt(operationId, ["uninstall"]);
+    if (replay) return replay as ExtensionDispositionReceipt;
     const current = await this.dispositionOperation(operationId, "uninstall");
     return this.store.uninstallGeneration(operationId, current.leaseToken);
   }
@@ -514,5 +606,15 @@ export class PluginManager {
       throw new PluginManagerError("INVALID_STATE", `Extension ${operation} operation is not ready.`);
     }
     return current;
+  }
+
+  private async completedReceipt(operationId: string, expectedOperations: readonly ExtensionManagerOperation[]): Promise<ExtensionManagerReceipt | undefined> {
+    const operation = await this.store.readOperation(operationId);
+    if (!operation) throw new PluginManagerError("OPERATION_NOT_FOUND", "Extension operation is unavailable.");
+    if (operation.phase !== "completed") return undefined;
+    if (!expectedOperations.includes(operation.request.operation) || !operation.result || operation.result.operation !== operation.request.operation) {
+      throw new PluginManagerError("INVALID_STATE", "Completed extension operation has no matching persisted receipt.");
+    }
+    return operation.result;
   }
 }
