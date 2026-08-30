@@ -88,6 +88,12 @@ function harness(build = trustedBuild(), now = new Date("2026-08-29T12:00:00.000
     migrationRevision: fixture.migration.targetRevision
   };
   const receipt = { revisionAfter: 1 } as StaticDeploymentReceipt;
+  const rejectedReservation = {
+    ...owner,
+    generationId: green.generationId,
+    reservationId: "11111111-1111-4111-8111-111111111111",
+    reservedAt: "2026-08-29T12:00:00.000Z"
+  };
   let current = snapshot();
   const checkpoint = (kind: "promote" | "rollback" | "retire-rollback", activeGenerationId: string, previousGenerationId: string, revision: number) => ({ kind, activeGenerationId, previousGenerationId, revision, completedSteps: [] as const });
   const state: StaticDeploymentState = {
@@ -96,6 +102,12 @@ function harness(build = trustedBuild(), now = new Date("2026-08-29T12:00:00.000
     promote: vi.fn(async () => { events.push("promote"); current = { ...snapshot(green, blue, 1), transitionCheckpoint: checkpoint("promote", green.generationId, blue.generationId, 1) }; return receipt; }),
     rollback: vi.fn(async () => { events.push("rollback"); current = { ...snapshot(blue, green, 2), transitionCheckpoint: checkpoint("rollback", blue.generationId, green.generationId, 2) }; return receipt; }),
     reserveRollbackRetirement: vi.fn(async () => { const retained = current.rollback ?? blue; events.push("reserve-retirement"); current = { ...snapshot(current.active, retained, current.revision + 1), rollbackWindow: { state: "retirement-reserved" }, transitionCheckpoint: checkpoint("retire-rollback", current.active.generationId, retained.generationId, current.revision + 1) }; return { revisionAfter: current.revision } as StaticDeploymentReceipt; }),
+    reserveRejectedGenerationRetirement: vi.fn(async ({ generationId }) => {
+      if (current.active.generationId === generationId || current.rollback?.generationId === generationId) return undefined;
+      events.push("reserve-rejected");
+      return { ...rejectedReservation, generationId };
+    }),
+    completeRejectedGenerationRetirement: vi.fn(async () => { events.push("complete-rejected"); }),
     closeRollback: vi.fn(async () => { events.push("close-rollback"); return receipt; }),
     completeTransitionStep: vi.fn(async () => undefined),
     assertContractCleanup: vi.fn(async () => undefined)
@@ -127,7 +139,7 @@ function harness(build = trustedBuild(), now = new Date("2026-08-29T12:00:00.000
   };
   const gateway: GatewayTrafficRouter = { converge: vi.fn(async () => { events.push("route-green"); }) };
   const realtime: StaticRealtimeConvergence = { reconnectAndResync: vi.fn(async () => { events.push("realtime-resync"); }) };
-  return { build, blue, green, events, state, artifacts, migrations, generations, gateway, realtime, supervisor: new DeploymentSupervisor(build.authority, artifacts, migrations, generations, state, gateway, realtime, { now: () => now }) };
+  return { build, blue, green, rejectedReservation, events, state, artifacts, migrations, generations, gateway, realtime, supervisor: new DeploymentSupervisor(build.authority, artifacts, migrations, generations, state, gateway, realtime, { now: () => now }) };
 }
 
 describe("static deployment supervisor", () => {
@@ -196,7 +208,7 @@ describe("static deployment supervisor", () => {
     await expect(value.supervisor.deploy({ build: value.build.token, generationId: "customer-alpha-green-9", workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" })).rejects.toThrow("green failed");
     expect(value.state.promote).not.toHaveBeenCalled();
     expect(value.gateway.converge).not.toHaveBeenCalled();
-    expect(value.events).toEqual(["migrate", "start-passive", "retire-green"]);
+    expect(value.events).toEqual(["migrate", "start-passive", "reserve-rejected", "retire-green", "complete-rejected"]);
   });
 
   it("retires a ready passive target when promotion rejects without committing it", async () => {
@@ -205,8 +217,10 @@ describe("static deployment supervisor", () => {
     vi.mocked(value.state.promote).mockRejectedValueOnce(failure);
 
     await expect(value.supervisor.deploy({ build: value.build.token, generationId: value.green.generationId, workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" })).rejects.toBe(failure);
-    expect(value.generations.retire).toHaveBeenCalledWith(value.green.generationId);
-    expect(value.events).toEqual(["migrate", "start-passive", "retire-green"]);
+    expect(value.state.reserveRejectedGenerationRetirement).toHaveBeenCalledWith({ ...owner, generationId: value.green.generationId });
+    expect(value.generations.retire).toHaveBeenCalledWith(value.rejectedReservation);
+    expect(value.state.completeRejectedGenerationRetirement).toHaveBeenCalledWith(value.rejectedReservation);
+    expect(value.events).toEqual(["migrate", "start-passive", "reserve-rejected", "retire-green", "complete-rejected"]);
   });
 
   it.each([
@@ -215,8 +229,10 @@ describe("static deployment supervisor", () => {
   ])("keeps a target that a concurrent promotion already committed as %s", async (_state, committed) => {
     const value = harness();
     const failure = new Error("stale promotion revision");
+    const protectedState = committed(value);
+    expect([protectedState.active.generationId, protectedState.rollback?.generationId]).toContain(value.green.generationId);
     vi.mocked(value.state.promote).mockImplementationOnce(async () => {
-      vi.mocked(value.state.read).mockResolvedValue(committed(value));
+      vi.mocked(value.state.reserveRejectedGenerationRetirement).mockResolvedValueOnce(undefined);
       throw failure;
     });
 
@@ -231,14 +247,27 @@ describe("static deployment supervisor", () => {
     vi.mocked(value.generations.retire).mockRejectedValueOnce(new Error("retirement unavailable"));
 
     await expect(value.supervisor.deploy({ build: value.build.token, generationId: value.green.generationId, workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" })).rejects.toBe(promotionFailure);
-    expect(value.generations.retire).toHaveBeenCalledWith(value.green.generationId);
+    expect(value.generations.retire).toHaveBeenCalledWith(value.rejectedReservation);
+    expect(value.state.completeRejectedGenerationRetirement).not.toHaveBeenCalled();
   });
 
-  it("preserves a promotion error without retiring when authoritative reconciliation fails", async () => {
+  it("retires a re-created passive target even when its durable tombstone was already completed", async () => {
+    const value = harness();
+    const promotionFailure = new Error("generation identity tombstoned");
+    const completed = { ...value.rejectedReservation, completedAt: "2026-08-29T12:01:00.000Z" };
+    vi.mocked(value.state.promote).mockRejectedValueOnce(promotionFailure);
+    vi.mocked(value.state.reserveRejectedGenerationRetirement).mockResolvedValueOnce(completed);
+
+    await expect(value.supervisor.deploy({ build: value.build.token, generationId: value.green.generationId, workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" })).rejects.toBe(promotionFailure);
+    expect(value.generations.retire).toHaveBeenCalledWith(completed);
+    expect(value.state.completeRejectedGenerationRetirement).toHaveBeenCalledWith(completed);
+  });
+
+  it("preserves a promotion error without retiring when durable reservation fails", async () => {
     const value = harness();
     const promotionFailure = new Error("promotion rejected");
     vi.mocked(value.state.promote).mockRejectedValueOnce(promotionFailure);
-    vi.mocked(value.state.read).mockResolvedValueOnce(snapshot()).mockRejectedValueOnce(new Error("state unavailable"));
+    vi.mocked(value.state.reserveRejectedGenerationRetirement).mockRejectedValueOnce(new Error("state unavailable"));
 
     await expect(value.supervisor.deploy({ build: value.build.token, generationId: value.green.generationId, workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" })).rejects.toBe(promotionFailure);
     expect(value.generations.retire).not.toHaveBeenCalled();
@@ -265,7 +294,7 @@ describe("static deployment supervisor", () => {
     expect(value.events).toEqual(["start-passive", "rollback", "activate-worker", "route-green", "realtime-resync", "drain-blue"]);
   });
 
-  it("keeps the static pointer unchanged when retained artifact or readiness proof fails", async () => {
+  it("keeps the pointer and retained rollback target when artifact or readiness proof fails", async () => {
     const value = harness();
     vi.mocked(value.state.read).mockResolvedValue(snapshot(value.green, value.blue, 1));
     vi.mocked(value.state.readFence).mockResolvedValue(fence(value.green.generationId, 5, 1));
@@ -281,6 +310,8 @@ describe("static deployment supervisor", () => {
     });
     await expect(value.supervisor.rollback({ ...owner, workerOwner: "worker:phase-9-blue", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" })).rejects.toMatchObject({ code: "READINESS_REJECTED" });
     expect(value.state.rollback).not.toHaveBeenCalled();
+    expect(value.state.reserveRejectedGenerationRetirement).not.toHaveBeenCalled();
+    expect(value.generations.retire).not.toHaveBeenCalled();
   });
 
   it("rejects a retained artifact that resolves its attested digest through a mutable image reference", async () => {

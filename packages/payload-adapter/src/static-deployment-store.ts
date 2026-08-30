@@ -15,6 +15,7 @@ import type {
   StaticDeploymentSnapshot,
   StaticDeploymentTransitionCheckpoint,
   StaticDeploymentTransitionStep,
+  StaticGenerationRetirementReservation,
   StaticPromotionReadiness,
   VerifiedStaticApplicationBuild,
   VerifiedStaticBuildReader
@@ -68,6 +69,16 @@ interface EffectRow {
   claim_token: string | null;
   claim_expires_at: Date | string | null;
   result_digest: string | null;
+}
+
+interface RetirementRow {
+  application_id: string;
+  environment: string;
+  generation_id: string;
+  reservation_id: string;
+  state: "reserved" | "completed";
+  reserved_at: Date | string;
+  completed_at: Date | string | null;
 }
 
 interface Owner { readonly applicationId: string; readonly environment: string; }
@@ -235,6 +246,7 @@ export class PostgresStaticDeploymentStore {
       const current = await this.readLocked(session, input);
       const fence = await this.readFenceLocked(session, input);
       if (!current || current.revision !== input.expectedRevision) fail("REVISION_CONFLICT", "Static deployment revision changed before promotion.");
+      if (await this.readRetirementLocked(session, input, input.generationId)) fail("REVISION_CONFLICT", "Target static generation is reserved or tombstoned for retirement.");
       if (current.rollback_window.state === "retirement-reserved") fail("REVISION_CONFLICT", "Static deployment cannot replace a generation while rollback retirement is reserved.");
       if (current.active_generation.sourceCommit !== change.base.sourceCommit || current.active_generation.migrationRevision !== change.migration.baseRevision) {
         fail("EVIDENCE_MISMATCH", "Static deployment no longer matches the authorized base source and migration revision.");
@@ -410,6 +422,53 @@ export class PostgresStaticDeploymentStore {
       if (!updated.rows[0]) fail("REVISION_CONFLICT", "Static deployment changed before rollback retirement reservation commit.");
       await this.outbox(session, input, receipt);
       return Object.freeze(receipt);
+    });
+  }
+
+  async reserveRejectedGenerationRetirement(input: Owner & Readonly<{ generationId: string }>): Promise<StaticGenerationRetirementReservation | undefined> {
+    assertOwner(input);
+    if (!generationPattern.test(input.generationId)) fail("INPUT_INVALID", "Rejected static generation identity is invalid.");
+    return this.transaction(async (session) => {
+      await this.lock(session, input);
+      const current = await this.readLocked(session, input);
+      if (!current) fail("REVISION_CONFLICT", "Static deployment is unavailable for rejected-generation retirement.");
+      const existing = await this.readRetirementLocked(session, input, input.generationId);
+      if (current.active_generation_id === input.generationId || current.rollback_generation_id === input.generationId) {
+        if (existing) fail("EVIDENCE_MISMATCH", "A protected static generation also has a retirement tombstone.");
+        return undefined;
+      }
+      if (existing) return this.retirement(existing);
+      const reservationId = globalThis.crypto.randomUUID();
+      const reservedAt = timestamp(this.clock);
+      const inserted = await session.query<RetirementRow>(
+        `insert into runtime_static_generation_retirements (
+           application_id, environment, generation_id, reservation_id, reserved_at
+         ) values ($1,$2,$3,$4,$5) returning *`,
+        [input.applicationId, input.environment, input.generationId, reservationId, reservedAt]
+      );
+      return this.retirement(inserted.rows[0]!);
+    });
+  }
+
+  async completeRejectedGenerationRetirement(input: StaticGenerationRetirementReservation): Promise<void> {
+    assertOwner(input);
+    if (!generationPattern.test(input.generationId) || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(input.reservationId)) {
+      fail("INPUT_INVALID", "Rejected static generation retirement reservation is invalid.");
+    }
+    return this.transaction(async (session) => {
+      await this.lock(session, input);
+      const current = await this.readLocked(session, input);
+      const existing = await this.readRetirementLocked(session, input, input.generationId);
+      if (!current || !existing || existing.reservation_id !== input.reservationId) fail("REVISION_CONFLICT", "Rejected-generation retirement reservation changed before completion.");
+      if (current.active_generation_id === input.generationId || current.rollback_generation_id === input.generationId) fail("EVIDENCE_MISMATCH", "A protected static generation cannot complete retirement.");
+      if (existing.state === "completed") return;
+      const completedAt = timestamp(this.clock);
+      const updated = await session.query(
+        `update runtime_static_generation_retirements set state='completed', completed_at=$5, updated_at=now()
+         where application_id=$1 and environment=$2 and generation_id=$3 and reservation_id=$4 and state='reserved' returning generation_id`,
+        [input.applicationId, input.environment, input.generationId, input.reservationId, completedAt]
+      );
+      if (!updated.rows[0]) fail("REVISION_CONFLICT", "Rejected-generation retirement reservation changed during completion.");
     });
   }
 
@@ -693,6 +752,31 @@ export class PostgresStaticDeploymentStore {
       [owner.applicationId, owner.environment]
     );
     return result.rows[0];
+  }
+
+  private async readRetirementLocked(session: RuntimeExtensionSession, owner: Owner, generationId: string): Promise<RetirementRow | undefined> {
+    const result = await session.query<RetirementRow>(
+      `select * from runtime_static_generation_retirements where application_id=$1 and environment=$2 and generation_id=$3 for update`,
+      [owner.applicationId, owner.environment, generationId]
+    );
+    return result.rows[0];
+  }
+
+  private retirement(row: RetirementRow): StaticGenerationRetirementReservation {
+    const reservedAt = new Date(row.reserved_at).toISOString();
+    const completedAt = row.completed_at ? new Date(row.completed_at).toISOString() : undefined;
+    if (!generationPattern.test(row.generation_id) || !["reserved", "completed"].includes(row.state) || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(row.reservation_id) ||
+      !Number.isFinite(Date.parse(reservedAt)) || (row.state === "completed") !== (completedAt !== undefined)) {
+      fail("EVIDENCE_MISMATCH", "Rejected-generation retirement evidence is invalid.");
+    }
+    return Object.freeze({
+      applicationId: row.application_id,
+      environment: row.environment,
+      generationId: row.generation_id,
+      reservationId: row.reservation_id,
+      reservedAt,
+      ...(completedAt ? { completedAt } : {})
+    });
   }
 
   private async transaction<T>(work: (session: RuntimeExtensionSession) => Promise<T>): Promise<T> {

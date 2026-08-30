@@ -314,7 +314,7 @@ async function startIsolatedWebAdminContainer({ network, imageId, databaseUrl, o
 }
 
 async function provisionStaticBinarySchema(pool) {
-  await pool.query("create table p9_static_overlap (id integer primary key, legacy_value text not null); insert into p9_static_overlap values (1,'one'),(2,'two'),(3,'three'); create table p9_static_migration_authority (authority_id text primary key, revision integer not null, last_step_id text not null); insert into p9_static_migration_authority values ('customer-alpha',11,'base-11'); create table p9_static_binary_observations (id bigserial primary key, generation_id text not null, binary_revision integer not null, database_role text not null, observed_step text not null, observed_at timestamptz not null default now()); create table p9_static_process_routes (generation_id text primary key, url text not null); create table p9_static_process_events (id bigserial primary key, role text not null, instance_id text not null, event text not null, generation_id text, deployment_revision integer, fencing_token bigint, detail jsonb not null, observed_at timestamptz not null default now()); create table p9_static_deployment_commands (command_id text primary key, command_digest text not null, command_json jsonb not null, status text not null check (status in ('running','succeeded','failed')), result_json jsonb, error_code text, error_message text, updated_at timestamptz not null default now()); create table p9_static_external_effects (idempotency_key text primary key, result_digest text not null, delivered_at timestamptz not null default now())");
+  await pool.query("create table p9_static_overlap (id integer primary key, legacy_value text not null); insert into p9_static_overlap values (1,'one'),(2,'two'),(3,'three'); create table p9_static_migration_authority (authority_id text primary key, revision integer not null, last_step_id text not null); insert into p9_static_migration_authority values ('customer-alpha',11,'base-11'); create table p9_static_binary_observations (id bigserial primary key, generation_id text not null, binary_revision integer not null, database_role text not null, observed_step text not null, observed_at timestamptz not null default now()); create table p9_static_process_routes (application_id text not null, environment text not null, generation_id text not null, url text not null, primary key (application_id, environment, generation_id)); create table p9_static_process_events (id bigserial primary key, role text not null, instance_id text not null, event text not null, generation_id text, deployment_revision integer, fencing_token bigint, detail jsonb not null, observed_at timestamptz not null default now()); create table p9_static_deployment_commands (command_id text primary key, command_digest text not null, command_json jsonb not null, status text not null check (status in ('running','succeeded','failed')), result_json jsonb, error_code text, error_message text, updated_at timestamptz not null default now()); create table p9_static_external_effects (idempotency_key text primary key, result_digest text not null, delivered_at timestamptz not null default now())");
   for (const [role, password] of [
     ["p9_static_blue", "p9-static-blue-password"], ["p9_static_green", "p9-static-green-password"],
     ["p9_static_source", "p9-static-source-password"], ["p9_static_builder", "p9-static-builder-password"],
@@ -351,6 +351,7 @@ async function provisionStaticBinarySchema(pool) {
     grant update (status, updated_at) on runtime_static_release_requests to p9_static_deployer;
     grant update (status, generation_id, migration_revision, worker_fencing_token, receipt_id, receipt_json, updated_at) on runtime_static_release_requests to p9_static_supervisor;
     grant insert, update on runtime_static_deployments, runtime_worker_generation_fences, runtime_static_deployment_outbox to p9_static_supervisor;
+    grant select, insert, update on runtime_static_generation_retirements to p9_static_supervisor;
     grant select on runtime_static_deployment_outbox to p9_static_supervisor;
     grant select, insert, update on p9_static_deployment_commands, p9_static_process_routes to p9_static_supervisor;
     grant select, insert, update on runtime_worker_effects to p9_static_worker;
@@ -716,6 +717,31 @@ test("proves distinct customer binaries and deployment processes recover from Po
     }
     await assert.rejects(supervisorCommand(supervisorUrl, { commandId: "migration-label-reject-12", operation: "validate-online-migration", ...owner, generationId: "customer-alpha-green-12", buildRequestDigest: deploymentRequest.buildRequestDigest, expectedRevision: 0, migration: relabeledMigration }), { code: "MIGRATION_LABEL_REJECTED" });
     await supervisorCommand(supervisorUrl, { commandId: "bootstrap-blue-11", operation: "bootstrap", ...owner, generationId: blue.generationId, buildRequestDigest: greenBuild.buildRequestDigest, compositionChangePlanDigest: blue.compositionChangePlanDigest, buildEvidenceDigest: blue.buildEvidenceDigest, workerOwner: "worker:phase-9-blue", workerLeaseExpiresAt: leaseExpiresAt });
+    const alphaRoute = (await pool.query(
+      "select url from p9_static_process_routes where application_id=$1 and environment=$2 and generation_id=$3",
+      [owner.applicationId, owner.environment, blue.generationId]
+    )).rows[0].url;
+    await pool.query(
+      "insert into p9_static_process_routes (application_id, environment, generation_id, url) values ($1,$2,$3,$4)",
+      ["customer-bravo", owner.environment, blue.generationId, "http://127.0.0.1:9"]
+    );
+    assert.deepEqual(
+      (await pool.query(
+        "select application_id, url from p9_static_process_routes where environment=$1 and generation_id=$2 order by application_id",
+        [owner.environment, blue.generationId]
+      )).rows,
+      [{ application_id: owner.applicationId, url: alphaRoute }, { application_id: "customer-bravo", url: "http://127.0.0.1:9" }],
+      "Different owners may use the same generation ID without overwriting either route."
+    );
+    assert.equal(
+      (await fetch(`${processGatewayUrl}/public`).then((response) => response.json())).generation,
+      blue.generationId,
+      "The stable gateway must resolve the route through the deployment owner, not generation ID alone."
+    );
+    await pool.query(
+      "delete from p9_static_process_routes where application_id=$1 and environment=$2 and generation_id=$3",
+      ["customer-bravo", owner.environment, blue.generationId]
+    );
     trafficProbe = startContinuousHttpProbe({
       url: processGatewayUrl, path: "/public", initialWindow: "install", initialGenerations: [blue.generationId],
       generation: (body) => body.generation
@@ -764,12 +790,12 @@ test("proves distinct customer binaries and deployment processes recover from Po
     const blueEffect = await store.claimEffect({ ...owner, effectId: "sales-external-effect", generationId: blue.generationId, fencingToken: 1, claimantId: "worker:phase-9-blue", claimLeaseExpiresAt: effectLeaseExpiresAt });
     assert.equal((await deliverExternalEffect(pool, blueEffect.externalIdempotencyKey, "sales external effect")).duplicate, false);
     await supervisorCommand(supervisorUrl, { commandId: "arm-failed-green-12", operation: "arm-health-failure" });
-    await assert.rejects(supervisorCommand(supervisorUrl, { commandId: "failed-green-12", operation: "promote", ...owner, generationId: "customer-alpha-green-12", buildRequestDigest: deploymentRequest.buildRequestDigest, expectedRevision: 0, workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: leaseExpiresAt }), /failed health checks/);
+    await assert.rejects(supervisorCommand(supervisorUrl, { commandId: "failed-green-12", operation: "promote", ...owner, generationId: "customer-alpha-green-health-12", buildRequestDigest: deploymentRequest.buildRequestDigest, expectedRevision: 0, workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: leaseExpiresAt }), /failed health checks/);
     assert.equal((await store.read(owner)).active.generationId, blue.generationId);
 
     await pool.query("create function p9_fail_fence_transfer() returns trigger language plpgsql as $$ begin if new.fencing_token=2 then raise exception 'simulated fence transfer crash'; end if; return new; end $$");
     await pool.query("create trigger p9_fail_fence_transfer before update on runtime_worker_generation_fences for each row execute function p9_fail_fence_transfer()");
-    await assert.rejects(supervisorCommand(supervisorUrl, { commandId: "fence-crash-green-12", operation: "promote", ...owner, generationId: "customer-alpha-green-12", buildRequestDigest: deploymentRequest.buildRequestDigest, expectedRevision: 0, workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: leaseExpiresAt }), /simulated fence transfer crash/);
+    await assert.rejects(supervisorCommand(supervisorUrl, { commandId: "fence-crash-green-12", operation: "promote", ...owner, generationId: "customer-alpha-green-fence-12", buildRequestDigest: deploymentRequest.buildRequestDigest, expectedRevision: 0, workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: leaseExpiresAt }), /simulated fence transfer crash/);
     assert.equal((await store.read(owner)).active.generationId, blue.generationId);
     assert.equal((await store.readFence(owner)).fencingToken, 1);
     await supervisorCommand(supervisorUrl, { commandId: "restart-green-after-fence-crash", operation: "restart", ...owner, generationId: "customer-alpha-green-12", buildRequestDigest: deploymentRequest.buildRequestDigest, expectedRevision: 0, sourceCommit: targetCommit, applicationDigest: greenBuild.applicationDigest, imageDigest: greenBuild.imageDigest, migrationRevision: 12, completedMigrationSteps: ["migration-expand-12", "migration-backfill-12"] });
@@ -829,7 +855,10 @@ test("proves distinct customer binaries and deployment processes recover from Po
     await supervisorCommand(supervisorUrl, { commandId: "recover-promote-green-12", operation: "recover", ...owner, generationId: "customer-alpha-green-12", buildRequestDigest: deploymentRequest.buildRequestDigest, expectedRevision: 1 });
     assert.equal((await fetch(`${processGatewayUrl}/inventory`).then((response) => response.json())).generation, "customer-alpha-green-12");
     const [oldBinarySchema, newBinarySchema] = await Promise.all([
-      pool.query("select url from p9_static_process_routes where generation_id=$1", [blue.generationId]).then(({ rows }) => fetch(`${rows[0].url}/schema-proof`).then((response) => response.json())),
+      pool.query(
+        "select url from p9_static_process_routes where application_id=$1 and environment=$2 and generation_id=$3",
+        [owner.applicationId, owner.environment, blue.generationId]
+      ).then(({ rows }) => fetch(`${rows[0].url}/schema-proof`).then((response) => response.json())),
       fetch(`${processGatewayUrl}/schema-proof`).then((response) => response.json())
     ]);
     assert.deepEqual(oldBinarySchema, { databaseRole: "p9_static_blue", schemaRevision: 12, values: ["one", "two", "three"] });
@@ -990,7 +1019,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
       deployment: (await pool.query("select revision, active_generation_id, active_generation, rollback_generation_id, rollback_generation, rollback_window, transition_checkpoint from runtime_static_deployments order by application_id, environment")).rows,
       fence: (await pool.query("select active_execution_generation, fencing_token, lease_owner, lease_expires_at, promotion_revision from runtime_worker_generation_fences order by application_id, environment")).rows,
       outbox: (await pool.query("select revision, event_json from runtime_static_deployment_outbox order by revision")).rows,
-      routes: (await pool.query("select generation_id, url from p9_static_process_routes order by generation_id")).rows,
+      routes: (await pool.query("select application_id, environment, generation_id, url from p9_static_process_routes order by application_id, environment, generation_id")).rows,
       containers: (await docker(["ps", "--all", "--filter", `label=p9-fixture=${network}`, "--format", "{{.Names}}"])).stdout.trim().split("\n").filter(Boolean).sort(),
       traffic: await fetch(`${processGatewayUrl}/p9-authority`).then((response) => response.json())
     });

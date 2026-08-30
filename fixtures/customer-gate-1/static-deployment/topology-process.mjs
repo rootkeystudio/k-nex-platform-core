@@ -378,7 +378,10 @@ async function gateway() {
         response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ generation: current.active_generation_id, revision: current.revision }));
         return;
       }
-      const target = await pool.query("select url from p9_static_process_routes where generation_id=$1", [current.active_generation_id]);
+      const target = await pool.query(
+        "select url from p9_static_process_routes where application_id=$1 and environment=$2 and generation_id=$3",
+        ["customer-alpha", "production", current.active_generation_id]
+      );
       if (!target.rows[0]) throw new Error("Active generation has no registered target.");
       const upstream = await fetch(`${target.rows[0].url}${request.url}`, { headers: request.headers });
       response.writeHead(upstream.status, { "content-type": upstream.headers.get("content-type") ?? "text/plain" });

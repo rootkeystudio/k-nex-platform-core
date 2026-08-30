@@ -42,6 +42,24 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
       CONSTRAINT "runtime_worker_generation_fences_revision_check" CHECK ("promotion_revision" BETWEEN 0 AND 1000000000)
     );
 
+    CREATE TABLE "runtime_static_generation_retirements" (
+      "application_id" varchar(128) NOT NULL,
+      "environment" varchar(64) NOT NULL,
+      "generation_id" varchar(128) NOT NULL,
+      "reservation_id" uuid NOT NULL,
+      "state" varchar(16) DEFAULT 'reserved' NOT NULL,
+      "reserved_at" timestamp(3) with time zone NOT NULL,
+      "completed_at" timestamp(3) with time zone,
+      "updated_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
+      PRIMARY KEY ("application_id", "environment", "generation_id"),
+      CONSTRAINT "runtime_static_generation_retirements_reservation_key" UNIQUE ("reservation_id"),
+      CONSTRAINT "runtime_static_generation_retirements_owner_fk" FOREIGN KEY ("application_id", "environment")
+        REFERENCES "runtime_static_deployments" ("application_id", "environment") ON DELETE cascade,
+      CONSTRAINT "runtime_static_generation_retirements_generation_check" CHECK ("generation_id" ~ '^[a-z][a-z0-9-]{2,127}$'),
+      CONSTRAINT "runtime_static_generation_retirements_state_check" CHECK ("state" IN ('reserved','completed')),
+      CONSTRAINT "runtime_static_generation_retirements_completion_check" CHECK (("state"='completed')=("completed_at" IS NOT NULL))
+    );
+
     CREATE TABLE "runtime_worker_effects" (
       "application_id" varchar(128) NOT NULL,
       "environment" varchar(64) NOT NULL,
@@ -93,6 +111,7 @@ export async function down({ db }: MigrateDownArgs): Promise<void> {
   await db.execute(sql`
     DROP TABLE "runtime_static_deployment_outbox";
     DROP TABLE "runtime_worker_effects";
+    DROP TABLE "runtime_static_generation_retirements";
     DROP TABLE "runtime_worker_generation_fences";
     DROP TABLE "runtime_static_deployments";
     UPDATE "k_nex_migration_revision" SET "predecessor_revision"=9, "revision"=10 WHERE "id"=1;

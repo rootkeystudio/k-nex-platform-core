@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Centralized strict SemVer 2.0.0 grammar across contracts, runtime state, catalog/plan schemas, generated artifacts, and static-release persistence; malformed prerelease/build identifiers now fail at every boundary.
+Added durable owner-scoped reservations and one-shot tombstones before rejected-generation cleanup; promotion and cleanup now serialize under one owner lock, while process identities, routes, drains, and retirement are owner/environment scoped.
 
 ## Validation
 
-Node 24.19.0: contracts tests passed (176); extension-bundler tests passed (20); payload-adapter tests passed (42); architecture tests/validation passed (26 plus generated/Ajv/repository checks); focused real Postgres static-release SemVer constraint proof passed; affected builds and `git diff --check` passed. No Docker containers remain.
+Node 24.19.0: runtime static-supervisor tests passed (19); payload-adapter tests passed (42); focused real PostgreSQL retirement race/owner-isolation proof passed; real Docker static deployment, crash recovery, continuous traffic, and same-ID cross-owner route proof passed; focused P0/P1/P2 audit and `git diff --check` passed. No Docker containers or fixture networks remain.
 
 ## Next
 
-Add a durable owner-scoped rejected-generation retirement fence, then continue the remaining Ultra lifecycle/security findings in atomic tasks.
+Close the remaining Ultra SemVer complexity/length findings, then continue Theme Skin parser, authority, accessibility, lifecycle, and recipe-bound corrections in atomic tasks.
 
 ## Blockers
 
