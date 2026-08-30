@@ -240,6 +240,9 @@ describe("extension bundler", () => {
     await expect(client.read({ ...catalog, extra: true })).rejects.toThrow(/Invalid official catalog/u);
     const bad = { ...catalog, payload: { ...catalog.payload, entries: [{ ...catalog.payload.entries[0]!, deliveryClass: "theme-skin", id: "app.wrong" }] } };
     await expect(client.read(bad)).rejects.toThrow(/Invalid official catalog/u);
+    for (const version of ["1.0.0-01", "1.0.0-alpha..1", "1.0.0-.", "1.0.0+build..1"]) {
+      await expect(client.read({ ...catalog, payload: { ...catalog.payload, entries: [{ ...catalog.payload.entries[0]!, version }] } })).rejects.toThrow(/Invalid official catalog/u);
+    }
   });
 
   it("rejects traversal, links, colliding paths, bombs, and every configured extraction bound", () => {

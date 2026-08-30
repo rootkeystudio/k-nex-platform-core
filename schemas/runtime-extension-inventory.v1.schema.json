@@ -46,11 +46,10 @@
           "$ref": "#/$defs/__schema11"
         },
         "sourceCommit": {
-          "$ref": "#/$defs/__schema13"
+          "$ref": "#/$defs/__schema14"
         },
         "version": {
-          "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
-          "type": "string"
+          "$ref": "#/$defs/__schema13"
         },
         "workerFencingToken": {
           "$ref": "#/$defs/__schema10"
@@ -72,21 +71,25 @@
       "type": "object"
     },
     "__schema13": {
-      "pattern": "^[0-9a-f]{40}$",
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:(?:0|[1-9][0-9]*)|(?:[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))(?:\\.(?:(?:0|[1-9][0-9]*)|(?:[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
       "type": "string"
     },
     "__schema14": {
+      "pattern": "^[0-9a-f]{40}$",
+      "type": "string"
+    },
+    "__schema15": {
       "maxLength": 128,
       "pattern": "^app(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
       "type": "string"
     },
-    "__schema15": {
+    "__schema16": {
       "oneOf": [
         {
           "additionalProperties": false,
           "properties": {
             "activeGeneration": {
-              "$ref": "#/$defs/__schema16"
+              "$ref": "#/$defs/__schema17"
             },
             "disposition": {
               "const": "active",
@@ -102,7 +105,7 @@
               "$ref": "#/$defs/__schema10"
             },
             "rollbackGeneration": {
-              "$ref": "#/$defs/__schema16"
+              "$ref": "#/$defs/__schema17"
             },
             "stateDigest": {
               "$ref": "#/$defs/__schema4"
@@ -136,7 +139,7 @@
               "$ref": "#/$defs/__schema11"
             },
             "retainedGeneration": {
-              "$ref": "#/$defs/__schema16"
+              "$ref": "#/$defs/__schema17"
             },
             "revision": {
               "$ref": "#/$defs/__schema10"
@@ -185,7 +188,7 @@
         }
       ]
     },
-    "__schema16": {
+    "__schema17": {
       "additionalProperties": false,
       "properties": {
         "applicationId": {
@@ -195,7 +198,7 @@
           "$ref": "#/$defs/__schema4"
         },
         "authority": {
-          "$ref": "#/$defs/__schema17"
+          "$ref": "#/$defs/__schema18"
         },
         "catalogDigest": {
           "$ref": "#/$defs/__schema4"
@@ -208,7 +211,7 @@
           "$ref": "#/$defs/__schema3"
         },
         "extensionId": {
-          "$ref": "#/$defs/__schema14"
+          "$ref": "#/$defs/__schema15"
         },
         "generationId": {
           "$ref": "#/$defs/__schema11"
@@ -226,10 +229,10 @@
           "$ref": "#/$defs/__schema4"
         },
         "sourceCommit": {
-          "$ref": "#/$defs/__schema13"
+          "$ref": "#/$defs/__schema14"
         },
         "version": {
-          "$ref": "#/$defs/__schema18"
+          "$ref": "#/$defs/__schema13"
         }
       },
       "required": [
@@ -250,12 +253,8 @@
       ],
       "type": "object"
     },
-    "__schema17": {
-      "const": "verified-bundle",
-      "type": "string"
-    },
     "__schema18": {
-      "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+      "const": "verified-bundle",
       "type": "string"
     },
     "__schema19": {
@@ -382,7 +381,7 @@
           "$ref": "#/$defs/__schema4"
         },
         "authority": {
-          "$ref": "#/$defs/__schema17"
+          "$ref": "#/$defs/__schema18"
         },
         "catalogDigest": {
           "$ref": "#/$defs/__schema4"
@@ -413,10 +412,10 @@
           "$ref": "#/$defs/__schema4"
         },
         "sourceCommit": {
-          "$ref": "#/$defs/__schema13"
+          "$ref": "#/$defs/__schema14"
         },
         "version": {
-          "$ref": "#/$defs/__schema18"
+          "$ref": "#/$defs/__schema13"
         }
       },
       "required": [
@@ -467,11 +466,11 @@
       "properties": {
         "hotApplications": {
           "additionalProperties": {
-            "$ref": "#/$defs/__schema15"
+            "$ref": "#/$defs/__schema16"
           },
           "maxProperties": 512,
           "propertyNames": {
-            "$ref": "#/$defs/__schema14"
+            "$ref": "#/$defs/__schema15"
           },
           "type": "object"
         },

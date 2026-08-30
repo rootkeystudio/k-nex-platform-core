@@ -55,6 +55,22 @@ describe("P0.4 executable repository validation", () => {
     expect(diagnostics.map(({ code }) => code)).toEqual(["SCHEMA_INVALID"]);
   });
 
+  it("keeps generated extension-plan SemVer grammar aligned with contracts", async () => {
+    const ajv = new Ajv2020({ allErrors: true, strict: true });
+    addFormatsModule.default(ajv);
+    const schema = JSON.parse(await readFile(resolve(repositoryRoot, "schemas/extension-install-plan.v1.schema.json"), "utf8")) as AnySchema;
+    const validate = ajv.compile(schema);
+    const plan = {
+      schemaVersion: 1, planId: "plan-semver-1", operationId: "operation-semver-1", operation: "install", version: "1.0.0-rc.1+build.2",
+      artifactDigest: `sha256:${"a".repeat(64)}`, expectedRevision: 0, approvalRequired: false, rollback: { available: false, reason: "not-requested" },
+      deliveryClass: "platform-plugin", id: "module.sales", availability: { outcome: "maintenance-required", reasons: ["destructive-migration"] }
+    };
+    expect(validate(plan), ajv.errorsText(validate.errors)).toBe(true);
+    for (const version of ["1.0.0-01", "1.0.0-alpha..1", "1.0.0-.", "1.0.0+build..1"]) {
+      expect(validate({ ...plan, version }), version).toBe(false);
+    }
+  });
+
   it("collects multiple simultaneous evidence diagnostics deterministically", () => {
     const diagnostics = validateEvidenceRegistry(
       { levels: ["design-only"], records: { "9999": { level: "unknown", evidence: ["missing.txt"] } } },

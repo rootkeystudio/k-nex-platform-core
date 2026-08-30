@@ -18,6 +18,9 @@ describe("exact SemVer precedence", () => {
 
   it("uses the existing exact-version grammar as its input boundary", () => {
     expect(ExactSemverSchema.safeParse("1.0.0-9007199254740993+build.2").success).toBe(true);
+    for (const version of ["1.0.0-01", "1.0.0-alpha..1", "1.0.0-.", "1.0.0+build..1"]) {
+      expect(ExactSemverSchema.safeParse(version).success, version).toBe(false);
+    }
     expect(() => compareExactSemverPrecedence("1.0", "1.0.0")).toThrow(/invalid/u);
   });
 });

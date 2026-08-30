@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import {
   canonicalJson,
   compareExactSemverPrecedence,
+  ExactSemverSchema,
   ExtensionLifecycleEventSchema,
   ExtensionSecurityQuarantineEventSchema,
   RuntimeExtensionInventorySchema,
@@ -151,7 +152,7 @@ function assertStage(stage: StagedGenerationActivation, now: Date): void {
     readyAt.valueOf() > now.valueOf() || expiresAt.valueOf() <= now.valueOf() || expiresAt.valueOf() - now.valueOf() > 300_000) {
     fail("READINESS_EXPIRED", "Generation readiness lease is invalid or expired.");
   }
-  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u.test(stage.version)) fail("STATE_INVALID", "Generation version is invalid.");
+  if (!ExactSemverSchema.safeParse(stage.version).success) fail("STATE_INVALID", "Generation version is invalid.");
   const activationBytes = new TextEncoder().encode(canonicalJson({ metadata: stage.metadata, settings: stage.settings, storageSchemaVersions: stage.storageSchemaVersions })).byteLength;
   if (Object.keys(stage.metadata).length > 128 || Object.keys(stage.settings).length > 128 || Object.keys(stage.storageSchemaVersions).length > 128 || activationBytes > 131_072 ||
     Object.values(stage.storageSchemaVersions).some((revision) => !Number.isSafeInteger(revision) || revision < 1 || revision > 1_000_000_000)) {

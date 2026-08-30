@@ -14,7 +14,11 @@ export const identityPatterns = {
   outputContract: "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+@[1-9][0-9]*$"
 } as const;
 
-export const exactSemverPattern = "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$";
+const semverNumericIdentifierPattern = "(?:0|[1-9][0-9]*)";
+const semverNonNumericIdentifierPattern = "(?:[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)";
+const semverPrereleaseIdentifierPattern = `(?:${semverNumericIdentifierPattern}|${semverNonNumericIdentifierPattern})`;
+
+export const exactSemverPattern = `^${semverNumericIdentifierPattern}\\.${semverNumericIdentifierPattern}\\.${semverNumericIdentifierPattern}(?:-${semverPrereleaseIdentifierPattern}(?:\\.${semverPrereleaseIdentifierPattern})*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$`;
 
 export const PluginIdSchema = z.string().max(128).regex(new RegExp(identityPatterns.plugin));
 export const HotApplicationIdSchema = z.string().max(128).regex(new RegExp(identityPatterns.hotApplication));

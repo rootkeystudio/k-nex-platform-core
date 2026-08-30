@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { HotApplicationConcreteRouteSchema, HotApplicationManifestSchema, ThemeSkinTokenValueSchema, hotApplicationHostRouteTemplate, matchHotApplicationRoute } from "../src/extension-runtime.js";
+import { ExtensionInstallPlanSchema, HotApplicationConcreteRouteSchema, HotApplicationManifestSchema, ThemeSkinTokenValueSchema, hotApplicationHostRouteTemplate, matchHotApplicationRoute } from "../src/extension-runtime.js";
 
 const manifest = {
   schemaVersion: 1, deliveryClass: "hot-application", id: "app.foo.bar", displayName: "Dotted routes", version: "1.0.0", runtimeAbi: "1.0.0",
@@ -42,5 +42,20 @@ describe("Theme Skin token values", () => {
 
   it.each(["#ABCDE", "#A1B2C3D", "6px 6px 0 #111111"])("rejects invalid literal length or composition: %s", (value) => {
     expect(ThemeSkinTokenValueSchema.safeParse(value).success).toBe(false);
+  });
+});
+
+describe("Extension install plan versions", () => {
+  const plan = {
+    schemaVersion: 1, planId: "plan-semver-1", operationId: "operation-semver-1", operation: "install", version: "1.0.0-rc.1+build.2",
+    artifactDigest: `sha256:${"a".repeat(64)}`, expectedRevision: 0, approvalRequired: false, rollback: { available: false, reason: "not-requested" },
+    deliveryClass: "platform-plugin", id: "module.sales", availability: { outcome: "maintenance-required", reasons: ["destructive-migration"] }
+  } as const;
+
+  it("uses exact SemVer for every planned release", () => {
+    expect(ExtensionInstallPlanSchema.safeParse(plan).success).toBe(true);
+    for (const version of ["1.0.0-01", "1.0.0-alpha..1", "1.0.0-.", "1.0.0+build..1"]) {
+      expect(ExtensionInstallPlanSchema.safeParse({ ...plan, version }).success, version).toBe(false);
+    }
   });
 });

@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Closed Theme Skin value and CSS authority: disjoint bounded tokens, strict Zod/JSON Schema parity, host-owned accessibility guards, contrast-safe styling, and rejection of executable, occluding, or network-capable CSS.
+Centralized strict SemVer 2.0.0 grammar across contracts, runtime state, catalog/plan schemas, generated artifacts, and static-release persistence; malformed prerelease/build identifiers now fail at every boundary.
 
 ## Validation
 
-Node 24.19.0: contracts build/test passed (175); UI design-system build/test passed (56 plus boundary check); architecture build/validation/test passed (25 plus generated/Ajv/repository checks); real Chromium Theme Skin proof passed; focused durable Postgres backup/restore proof passed; `git diff --check` and independent focused review passed. No Docker containers remain.
+Node 24.19.0: contracts tests passed (176); extension-bundler tests passed (20); payload-adapter tests passed (42); architecture tests/validation passed (26 plus generated/Ajv/repository checks); focused real Postgres static-release SemVer constraint proof passed; affected builds and `git diff --check` passed. No Docker containers remain.
 
 ## Next
 
-Correct strict exact-SemVer grammar, then continue the remaining Ultra lifecycle/security findings in atomic tasks.
+Add a durable owner-scoped rejected-generation retirement fence, then continue the remaining Ultra lifecycle/security findings in atomic tasks.
 
 ## Blockers
 

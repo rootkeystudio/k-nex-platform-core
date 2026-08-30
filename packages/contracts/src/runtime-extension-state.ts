@@ -5,7 +5,7 @@ import {
   ExtensionLifecycleStateSchema,
   ExtensionOperationKindSchema
 } from "./extension-runtime.js";
-import { HotApplicationIdSchema, PluginIdSchema, ThemeSkinIdSchema } from "./identity.js";
+import { ExactSemverSchema, HotApplicationIdSchema, PluginIdSchema, ThemeSkinIdSchema } from "./identity.js";
 
 const DigestSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/u);
 const FullShaSchema = z.string().regex(/^[0-9a-f]{40}$/u);
@@ -87,7 +87,7 @@ const SecurityQuarantineEvidenceSchema = z.strictObject({
   provenanceDigest: DigestSchema,
   sbomDigest: DigestSchema,
   generationId: RecordIdSchema,
-  version: z.string().regex(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u)
+  version: ExactSemverSchema
 });
 
 const SecurityQuarantineEventBase = {
@@ -118,7 +118,7 @@ const BundleGenerationEvidenceBase = {
   applicationId: ApplicationIdSchema,
   environment: EnvironmentSchema,
   generationId: RecordIdSchema,
-  version: z.string().regex(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u),
+  version: ExactSemverSchema,
   sourceCommit: FullShaSchema,
   artifactDigest: DigestSchema,
   manifestDigest: DigestSchema,
@@ -143,7 +143,7 @@ const ThemeSkinGenerationEvidenceSchema = z.strictObject({
 const PlatformGenerationEvidenceSchema = z.strictObject({
   authority: z.literal("static-build"),
   generationId: RecordIdSchema,
-  version: z.string().regex(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u),
+  version: ExactSemverSchema,
   sourceCommit: FullShaSchema,
   compositionChangePlanDigest: DigestSchema,
   buildEvidenceDigest: DigestSchema,
