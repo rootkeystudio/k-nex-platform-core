@@ -20,7 +20,9 @@ function close(server) { return new Promise((resolve) => server.close(resolve));
 
 export async function startHotApplicationFixedRouteHost({ store, artifacts, applicationId, environment, extension }) {
   const directory = await mkdtemp(join(tmpdir(), "knex-p9-fixed-route-"));
+  let scriptBuilds = 0;
   await build({ entryPoints: [new URL("./hot-application-fixed-route-browser-entry.ts", import.meta.url).pathname], bundle: true, format: "esm", outfile: join(directory, "host-route.js") });
+  scriptBuilds += 1;
   const hostScript = await readFile(join(directory, "host-route.js"));
   let extensionOrigin;
   const routeRequests = [];
@@ -110,7 +112,7 @@ export async function startHotApplicationFixedRouteHost({ store, artifacts, appl
     url: `http://127.0.0.1:${hostAddress.port}`,
     routeRequests,
     routeErrors,
-    scriptBuilds: 1,
+    get scriptBuilds() { return scriptBuilds; },
     async close() { await Promise.all([close(hostServer), close(extensionServer)]); await rm(directory, { recursive: true, force: true }); }
   });
 }

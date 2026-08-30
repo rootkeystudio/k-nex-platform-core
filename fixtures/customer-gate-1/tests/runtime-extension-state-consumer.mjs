@@ -7,7 +7,7 @@ import { RuntimeExtensionRevisionConsumer } from "@k-nex/runtime";
 
 const configuration = JSON.parse(process.env.P9_RUNTIME_CONSUMER_CONFIGURATION ?? "{}");
 const required = ["databaseUrl", "role", "applicationId", "environment", "deliveryClass", "extensionId"];
-if (!required.every((key) => typeof configuration[key] === "string" && configuration[key].length > 0) || !["web", "worker", "browser-host"].includes(configuration.role)) {
+if (!required.every((key) => typeof configuration[key] === "string" && configuration[key].length > 0) || !["web", "worker", "runner", "browser-host"].includes(configuration.role)) {
   throw new Error("Runtime extension consumer configuration is incomplete.");
 }
 

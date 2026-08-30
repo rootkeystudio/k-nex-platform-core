@@ -104,6 +104,8 @@ const runtimeCoordinationName = "rejects SCN-12 activation races and SCN-13 stal
 const assertRuntimeJourneyEvidence = (marker) => {
   const docker = marker.productionDockerExecution;
   const drain = marker.oldGenerationDrain;
+  const fixedRoute = marker.fixedRouteAuthority;
+  const recovery = marker.lostInvalidationRecovery;
   assert.equal(docker?.runner, "DockerHotApplicationSandboxSupervisor", "P9 runtime journey did not prove Docker runner execution.");
   assert.equal(docker?.image, "node:24.19.0-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43", "P9 runtime journey used an unapproved production runner image.");
   assert.equal(typeof drain?.generationId, "string", "P9 runtime journey did not identify the drained old generation.");
@@ -111,6 +113,20 @@ const assertRuntimeJourneyEvidence = (marker) => {
   assert.equal(drain.completed, true, "P9 runtime journey did not prove old-generation drain completion.");
   assert.equal(docker.startedGenerationIds?.includes(drain.generationId), true, "P9 runtime journey did not start the drained generation in Docker.");
   assert.equal(docker.stoppedGenerationIds?.includes(drain.generationId), true, "P9 runtime journey did not stop the drained generation in Docker.");
+  assert.deepEqual(
+    { startedBeforeInstall: fixedRoute?.startedBeforeInstall, preInstallStatus: fixedRoute?.preInstallStatus, scriptBuilds: fixedRoute?.scriptBuilds },
+    { startedBeforeInstall: true, preInstallStatus: 404, scriptBuilds: 1 },
+    "P9 runtime journey did not prove one route host existed before installation."
+  );
+  assert.equal(fixedRoute?.scriptDigests?.length, 3, "P9 runtime journey did not sample the host script before install, after update, and after rollback.");
+  assert.equal(fixedRoute.scriptDigests.every((digest) => /^sha256:[0-9a-f]{64}$/u.test(digest)), true, "P9 runtime journey emitted an invalid host script digest.");
+  assert.equal(new Set(fixedRoute.scriptDigests).size, 1, "P9 runtime journey rebuilt or mutated the customer host script during the app lifecycle.");
+  assert.deepEqual(recovery?.roles, ["web", "worker", "runner", "browser"], "P9 runtime journey did not prove all four runtime consumer roles.");
+  assert.deepEqual(recovery?.processes?.map(({ role }) => role), recovery.roles, "P9 runtime journey process identities did not match the consumer roles.");
+  const processIds = recovery?.processes?.map(({ pid }) => pid) ?? [];
+  assert.equal(processIds.every(Number.isSafeInteger), true, "P9 runtime journey emitted an invalid consumer process identity.");
+  assert.equal(new Set(processIds).size, 4, "P9 runtime journey did not use four distinct consumer processes.");
+  assert.equal(processIds.includes(recovery?.testParentPid), false, "P9 runtime journey ran a consumer in the node:test parent process.");
 };
 
 const scenarios = [

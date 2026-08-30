@@ -12,7 +12,7 @@ import { chromium } from "playwright";
 import { ArtifactVerifier, buildBundle, canonicalJson, CatalogClient, InMemoryCatalogCheckpointStore, sha256 } from "@k-nex/extension-bundler";
 import { DockerHotApplicationSandboxSupervisor } from "@k-nex/extension-runner";
 import { ActiveExtensionSecurityReconciler, PostgresExtensionCapabilityAuthority, PostgresExtensionCapabilitySequenceStore, PostgresRuntimeExtensionOutboxDispatcher, PostgresRuntimeExtensionStore, PostgresVerifiedArtifactStore, RuntimeStoreRunnerQuarantineAdapter } from "@k-nex/payload-adapter";
-import { AuthoritativeHotApplicationRuntime, DurableDynamicArtifactPipeline, DurableDynamicGenerationRuntime, ExtensionCapabilityGateway, HmacExtensionCapabilityTokens, PluginManager, ReferenceHotApplicationGenerationWarmer, RuntimeExtensionRevisionConsumer, TrustedAutomationOperationAuthorizer } from "@k-nex/runtime";
+import { AuthoritativeHotApplicationRuntime, DurableDynamicArtifactPipeline, DurableDynamicGenerationRuntime, ExtensionCapabilityGateway, HmacExtensionCapabilityTokens, PluginManager, ReferenceHotApplicationGenerationWarmer, TrustedAutomationOperationAuthorizer } from "@k-nex/runtime";
 import { startContinuousHttpProbe } from "./continuous-http-probe.mjs";
 import { startHotApplicationFixedRouteHost } from "./hot-application-fixed-route-host.mjs";
 
@@ -114,21 +114,10 @@ function startRuntimeExtensionService(connectionString, role) {
   };
 }
 
-async function combinedGeneration(pool, identity) {
-  const result = await pool.query(
-    `select g.generation_id, g.server_generation_id, g.ui_generation_id, g.storage_generation_id
-       from runtime_extensions e join runtime_extension_generations g
-         on g.application_id=e.application_id and g.environment=e.environment and g.delivery_class=e.delivery_class and g.extension_id=e.extension_id and g.generation_id=e.active_generation_id
-      where e.application_id='customer-alpha' and e.environment='production' and e.delivery_class=$1 and e.extension_id=$2`,
-    [identity.deliveryClass, identity.id]
-  );
-  const generation = result.rows[0];
-  return generation === undefined ? undefined : {
-    generationId: generation.generation_id,
-    serverGenerationId: generation.server_generation_id,
-    uiGenerationId: generation.ui_generation_id,
-    storageGenerationId: generation.storage_generation_id
-  };
+async function fixedRouteScriptDigest(host) {
+  const response = await fetch(`${host.url}/host-route.js`);
+  assert.equal(response.status, 200, "the immutable customer host script must remain available");
+  return sha256(Buffer.from(await response.arrayBuffer()));
 }
 
 async function listen(handler) {
@@ -467,7 +456,6 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
   let trafficProbe;
   let continuousHttp;
   let lostInvalidationRecovery;
-  let runnerConsumer;
   try {
     await boot(container.getConnectionUri());
     const tables = await pool.query("select to_regclass('public.runtime_extension_artifacts')::text artifacts, to_regclass('public.runtime_extension_artifact_bindings')::text bindings");
@@ -550,6 +538,12 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       initialGenerations: ["host-gateway-generation-0", "app-sales-live-generation-1"]
     });
     await trafficProbe.waitForGeneration("install", "host-gateway-generation-0");
+    const fixedRouteHost = await startHotApplicationFixedRouteHost({ store: storeA, artifacts, applicationId: "customer-alpha", environment: "production", extension: identity });
+    hosts.push(fixedRouteHost);
+    const preInstallRoute = await fetch(`${fixedRouteHost.url}/apps/sales-live/activity`);
+    assert.equal(preInstallRoute.status, 404, "the immutable customer route host must exist and fail closed before app installation");
+    assert.equal(fixedRouteHost.scriptBuilds, 1, "the customer fixed route must be built exactly once before app installation");
+    const preInstallHostScriptDigest = await fixedRouteScriptDigest(fixedRouteHost);
 
     const install = await manager.plan(request("install", "1.0.0", 0));
     await manager.stage(install.operationId);
@@ -560,14 +554,12 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     await trafficProbe.waitForGeneration("install", installed.generationId);
     assert.equal(installed.generationId, "app-sales-live-generation-1");
     assert.deepEqual(await manager.activate(install.operationId), installed);
-    const fixedRouteHost = await startHotApplicationFixedRouteHost({ store: storeA, artifacts, applicationId: "customer-alpha", environment: "production", extension: identity });
-    hosts.push(fixedRouteHost);
-    assert.equal(fixedRouteHost.scriptBuilds, 1, "the customer fixed route must be installed once before app activation changes");
     await trafficProbe.pause();
-    consumerFleet.push(...["web", "worker", "browser-host"].map((role) => startRuntimeExtensionService(container.getConnectionUri(), role)));
-    const [webService, workerService, browserHost] = consumerFleet;
+    consumerFleet.push(...["web", "worker", "runner", "browser-host"].map((role) => startRuntimeExtensionService(container.getConnectionUri(), role)));
+    const [webService, workerService, runnerService, browserHost] = consumerFleet;
     const baselineServices = await Promise.all(consumerFleet.map((consumer) => consumer.ready()));
-    assert.equal(new Set(baselineServices.map((consumer) => consumer.pid)).size, 3, "web, worker, and browser host must be distinct service processes");
+    assert.equal(new Set(baselineServices.map((consumer) => consumer.pid)).size, 4, "web, worker, runner, and browser host must be distinct service processes");
+    assert.equal(baselineServices.every((consumer) => consumer.pid !== process.pid), true, "runtime consumers must not run in the node:test parent process");
     browser = await chromium.launch();
     browserContext = await browser.newContext();
     const browserPage = await browserContext.newPage();
@@ -581,14 +573,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     assert.equal(installedRoute?.status(), 200, `the preinstalled /apps/:appId/* route must host an installed app: ${fixedRouteHost.routeErrors.join(" | ")}`);
     await routePage.getByRole("heading", { name: "sales-live-v1" }).waitFor({ timeout: 5_000 }).catch(async (error) => { throw new Error(`${error.message}; route=${await routePage.content()}; diagnostics=${routeDiagnostics.join(" | ")}`); });
     assert.deepEqual(await routePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__), { appId: "app.sales-live", generationId: installed.generationId, route: "/apps/sales-live/activity", actorSessionId: "customer-session-1" });
-    runnerConsumer = new RuntimeExtensionRevisionConsumer(storeB, "customer-alpha", "production", identity, { intervalMs: 200 });
-    runnerConsumer.start();
-    const pollRunner = async () => {
-      const changed = await runnerConsumer.poll();
-      const invocation = await invokeTraffic();
-      return { role: "runner", changed, snapshot: runnerConsumer.snapshot(), combinedGeneration: await combinedGeneration(pool, identity), invocationGenerationId: invocation.generationId };
-    };
-    const runnerBaseline = await pollRunner();
+    const runnerBaseline = await runnerService.state("/runtime-extension-state");
     const browserBaseline = await browserPage.evaluate(() => window.runtimeExtensionState("snapshot"));
     assert.equal(await browserPage.evaluate(() => typeof globalThis.process), "undefined", "Chromium browser consumer received a Node process surface.");
     assert.equal(Object.hasOwn(browserBaseline, "databaseUrl"), false, "Browser host exposed PostgreSQL credentials.");
@@ -604,7 +589,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       ["runner", installed.generationId, installed.generationId, installed.generationId, installed.generationId, installed.generationId],
       ["browser", installed.generationId, installed.generationId, installed.generationId, installed.generationId, installed.generationId]
     ]);
-    assert.equal(runnerBaseline.invocationGenerationId, installed.generationId, "Runner consumer did not observe the generation through DockerHotApplicationSandboxSupervisor.");
+    assert.equal((await invokeTraffic()).generationId, installed.generationId, "DockerHotApplicationSandboxSupervisor did not execute the runner consumer's observed generation.");
     trafficProbe.resume();
 
     const update = await manager.plan(request("update", "1.1.0", installed.revisionAfter));
@@ -631,6 +616,8 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     await routePage.getByRole("heading", { name: "sales-live-v2" }).waitFor();
     assert.deepEqual(await routePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__), { appId: "app.sales-live", generationId: updated.generationId, route: "/apps/sales-live/activity", actorSessionId: "customer-session-1" });
     assert.equal(fixedRouteHost.routeRequests.at(-1)?.hadSession, true, "the updated fixed route lost its customer host session");
+    const updatedHostScriptDigest = await fixedRouteScriptDigest(fixedRouteHost);
+    assert.equal(updatedHostScriptDigest, preInstallHostScriptDigest, "the customer host script changed during app update");
     assert.deepEqual(warmed, [
       "runner:app-sales-live-generation-1", "remote-ui:app-sales-live-generation-1", "storage:app-sales-live-generation-1", "surfaces:app-sales-live-generation-1",
       "runner:app-sales-live-generation-2", "remote-ui:app-sales-live-generation-2", "storage:app-sales-live-generation-2", "surfaces:app-sales-live-generation-2"
@@ -648,7 +635,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       convergedConsumers = [
         await webService.state("/runtime-extension-state"),
         await workerService.state("/runtime-extension-state"),
-        { role: "runner", snapshot: runnerConsumer.snapshot(), combinedGeneration: await combinedGeneration(pool, identity), invocationGenerationId: (await invokeTraffic()).generationId },
+        await runnerService.state("/runtime-extension-state"),
         { ...(await browserPage.evaluate(() => window.runtimeExtensionState("snapshot"))), role: "browser" }
       ];
       if (convergedConsumers.every((consumer) => consumer.snapshot.generationId === updated.generationId)) break;
@@ -661,8 +648,14 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       ["runner", updated.generationId, updated.generationId, updated.generationId, updated.generationId, updated.generationId],
       ["browser", updated.generationId, updated.generationId, updated.generationId, updated.generationId, updated.generationId]
     ], "autonomous revision polling must recover every consumer to the exact combined server/UI/storage generation");
-    assert.equal(convergedConsumers[2].invocationGenerationId, updated.generationId, "Runner recovery bypassed the Docker generation path.");
-    lostInvalidationRecovery = { roles: convergedConsumers.map((consumer) => consumer.role), droppedOutboxInvalidations: deliberatelyDroppedInvalidations, generationId: updated.generationId };
+    assert.equal((await invokeTraffic()).generationId, updated.generationId, "Runner recovery bypassed the Docker generation path.");
+    lostInvalidationRecovery = {
+      roles: convergedConsumers.map((consumer) => consumer.role),
+      processes: baselineServices.map(({ role, pid }) => ({ role: role === "browser-host" ? "browser" : role, pid })),
+      testParentPid: process.pid,
+      droppedOutboxInvalidations: deliberatelyDroppedInvalidations,
+      generationId: updated.generationId
+    };
 
     await trafficProbe.pause();
     const beforeRestore = await manager.inventory("customer-alpha", "production");
@@ -699,6 +692,8 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     assert.deepEqual(await routePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__), { appId: "app.sales-live", generationId: rolledBack.generationId, route: "/apps/sales-live/activity", actorSessionId: "customer-session-1" });
     assert.equal(fixedRouteHost.routeRequests.every((request) => request.route === "/apps/sales-live/activity"), true, "the customer host did not use the declared fixed catch-all route");
     assert.equal(fixedRouteHost.scriptBuilds, 1, "the customer host rebuilt its fixed route during install, update, or rollback");
+    const rolledBackHostScriptDigest = await fixedRouteScriptDigest(fixedRouteHost);
+    assert.equal(rolledBackHostScriptDigest, preInstallHostScriptDigest, "the customer host script changed during app rollback");
     const rollbackTraffic = await fetch(`${gateway.url}/rollback`);
     assert.equal(rollbackTraffic.status, 200);
     assert.equal(JSON.parse(await rollbackTraffic.text()).generationId, installed.generationId);
@@ -734,12 +729,17 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
         stoppedGenerationIds: [...new Set(dockerExecutions.filter((execution) => execution.event === "stopped").map((execution) => execution.generationId))]
       },
       oldGenerationDrain: { generationId: installed.generationId, leaseObserved: true, completed: true },
+      fixedRouteAuthority: {
+        startedBeforeInstall: true,
+        preInstallStatus: preInstallRoute.status,
+        scriptBuilds: fixedRouteHost.scriptBuilds,
+        scriptDigests: [preInstallHostScriptDigest, updatedHostScriptDigest, rolledBackHostScriptDigest]
+      },
       lostInvalidationRecovery,
       continuousHttp
     })}`);
   } finally {
     await trafficProbe?.stop();
-    runnerConsumer?.stop();
     await browserContext?.close();
     await browser?.close();
     await Promise.allSettled(consumerFleet.map((consumer) => consumer.close()));

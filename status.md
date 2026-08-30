@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Imported the Sol-ultra repository review dossier while P9.10 remains reopened for the fixed-route and runner-process evidence gaps found by Sol-high.
+Remediated both P9.10 review blockers with a pre-install fixed-route host whose served script digest remains identical through update and rollback, plus four autonomous child-process consumers.
 
 ## Validation
 
-The previous exact-head Gate 9 passed; its closeout review found two evidence gaps that are now under remediation.
+Node 24.19.0: all four focused PostgreSQL/runtime tests passed, including the fixed-route and four-process journey in 29 seconds; complete Gate 9 remains pending on the remediation commit.
 
 ## Next
 
-Validate the pre-existing fixed-route host and four-process convergence proof, then rerun complete Gate 9 and Sol-high review.
+Commit the focused remediation, rerun complete Gate 9 on exact HEAD, then request fresh Sol-high review.
 
 ## Blockers
 
