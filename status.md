@@ -7,7 +7,7 @@
 
 ## Last completed
 
-Gate 9 CI now provisions the approved AppArmor profile and Docker user-namespace remapping on Linux, explicitly selects that policy for the full gate, and keeps the local Docker Desktop VM boundary. The setup grants only the remapped Ryuk root UID audited Docker-socket ACL access so real Testcontainers PostgreSQL proofs remain executable; Hot Application containers still forbid every Docker-socket mount.
+Gate 9 CI now provisions the approved AppArmor profile and Docker user-namespace remapping on Linux, explicitly selects that policy for the full gate, and keeps the local Docker Desktop VM boundary. The setup grants only the remapped Ryuk root UID audited Docker-socket ACL access so real Testcontainers PostgreSQL proofs remain executable; the persistent Sol Ultra review returned PASS.
 
 ## Validation
 
@@ -15,7 +15,7 @@ Node 24.19.0 / pnpm 11.9.0: runner build; runner unit 6/6; real Docker runner 5/
 
 ## Next
 
-Obtain persistent Sol Ultra PASS for the corrected Linux Gate 9 isolation wiring, push PR #28, and require exact-head `validate` to prove AppArmor/userns/Ryuk enforcement before Phase 9 closeout.
+Push PR #28 and require exact-head `validate` to prove AppArmor/userns/Ryuk enforcement before Phase 9 closeout.
 
 ## Blockers
 
