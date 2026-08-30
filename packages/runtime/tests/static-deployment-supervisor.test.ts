@@ -26,7 +26,7 @@ const blue: StaticApplicationGeneration = {
   sourceCommit: fixture.base.sourceCommit,
   compositionChangePlanDigest: digest("1"),
   buildEvidenceDigest: digest("2"),
-  applicationDigest: digest("3"),
+  applicationDigest: fixture.migration.rollbackWindow.state === "open" ? fixture.migration.rollbackWindow.previousApplicationDigest : digest("3"),
   imageDigest: digest("4"),
   imageReference: `k-nex/customer-alpha@${digest("4")}`,
   migrationRevision: fixture.migration.baseRevision
@@ -75,7 +75,7 @@ function trustedBuild(change = fixture): Readonly<{ authority: TrustedStaticAppl
   return { authority, token: authority.verify(result, evidence), evidence, result };
 }
 
-function harness(build = trustedBuild()) {
+function harness(build = trustedBuild(), now = new Date("2026-08-29T12:00:00.000Z")) {
   const events: string[] = [];
   const green: StaticApplicationGeneration = {
     generationId: "customer-alpha-green-9",
@@ -127,7 +127,7 @@ function harness(build = trustedBuild()) {
   };
   const gateway: GatewayTrafficRouter = { converge: vi.fn(async () => { events.push("route-green"); }) };
   const realtime: StaticRealtimeConvergence = { reconnectAndResync: vi.fn(async () => { events.push("realtime-resync"); }) };
-  return { build, blue, green, events, state, artifacts, migrations, generations, gateway, realtime, supervisor: new DeploymentSupervisor(build.authority, artifacts, migrations, generations, state, gateway, realtime) };
+  return { build, blue, green, events, state, artifacts, migrations, generations, gateway, realtime, supervisor: new DeploymentSupervisor(build.authority, artifacts, migrations, generations, state, gateway, realtime, { now: () => now }) };
 }
 
 describe("static deployment supervisor", () => {
@@ -166,6 +166,28 @@ describe("static deployment supervisor", () => {
     expect(value.artifacts.resolve).not.toHaveBeenCalled();
     expect(value.generations.start).not.toHaveBeenCalled();
     expect(value.gateway.converge).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["does not retain the active application digest", { previousApplicationDigest: digest("0") }],
+    ["has already expired", { closesAt: "2026-08-29T11:59:59.999Z" }]
+  ])("rejects a rollback window that %s before migrations or generation-host work", async (_reason, override) => {
+    const build = trustedBuild({
+      ...fixture,
+      migration: {
+        ...fixture.migration,
+        rollbackWindow: { ...fixture.migration.rollbackWindow, ...override }
+      }
+    });
+    const value = harness(build);
+
+    await expect(value.supervisor.deploy({ build: build.token, generationId: "customer-alpha-green-9", workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" }))
+      .rejects.toMatchObject({ code: "READINESS_REJECTED" });
+    expect(value.artifacts.resolve).not.toHaveBeenCalled();
+    expect(value.migrations.runOnline).not.toHaveBeenCalled();
+    expect(value.generations.start).not.toHaveBeenCalled();
+    expect(value.generations.readiness).not.toHaveBeenCalled();
+    expect(value.state.promote).not.toHaveBeenCalled();
   });
 
   it("keeps blue traffic authoritative when green readiness fails", async () => {

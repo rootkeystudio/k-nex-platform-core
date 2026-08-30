@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Centralized exact SemVer precedence for catalog, planning, and durable runtime-state downgrade checks; comparisons now ignore build metadata and preserve arbitrarily large numeric identifier precision.
+Bound static promotion rollback windows to the currently active application digest and the durable store clock, with an early supervisor preflight before artifact, migration, or generation side effects.
 
 ## Validation
 
-Node 24.19.0: contracts build/tests passed (23 files, 168 tests); extension-bundler tests passed (3 files, 20 tests); focused runtime downgrade test passed; payload-adapter build/tests passed (42 tests); real PostgreSQL downgrade regression passed; `git diff --check` passed. No Docker containers remain.
+Node 24.19.0: runtime and payload-adapter builds passed; focused supervisor tests passed (13); focused store tests passed (3); real PostgreSQL rollback-window proof passed with rejected-state invariance; `git diff --check` passed. No fixture/Testcontainers containers remain.
 
 ## Next
 
-Bind static rollback-window truth to durable store-clock state, then address the remaining Ultra lifecycle/security findings in atomic tasks.
+Close Theme Skin value/CSS authority gaps and strict exact-SemVer grammar, then continue the remaining Ultra lifecycle/security findings in atomic tasks.
 
 ## Blockers
 

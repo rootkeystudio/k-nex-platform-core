@@ -9,6 +9,7 @@ import {
   type TrustedApplicationBuildEvidence,
   type WorkerGenerationFence
 } from "@k-nex/contracts";
+import { hasLiveStaticPromotionRollbackWindow } from "@k-nex/runtime";
 import type {
   StaticApplicationGeneration,
   StaticDeploymentSnapshot,
@@ -241,10 +242,12 @@ export class PostgresStaticDeploymentStore {
       if (!fence || Number(fence.fencing_token) !== input.expectedFenceToken || fence.active_execution_generation !== current.active_generation_id) {
         fail("FENCE_REJECTED", "Worker execution authority changed before promotion.");
       }
-      if (change.migration.rollbackWindow.state !== "open") fail("READINESS_REJECTED", "Zero-downtime promotion requires an explicit compatible rollback window.");
+      const rollbackWindow = change.migration.rollbackWindow;
+      if (rollbackWindow.state !== "open" || !hasLiveStaticPromotionRollbackWindow(current.active_generation, rollbackWindow, this.clock.now())) {
+        fail("READINESS_REJECTED", "Promotion rollback window does not retain the active application and remain open.");
+      }
       const revision = current.revision + 1;
       const token = Number(fence.fencing_token) + 1;
-      const rollbackWindow = change.migration.rollbackWindow;
       const receipt = StaticDeploymentReceiptSchema.parse({
         schemaVersion: 1,
         receiptId: await receiptId(input, "promote", revision),

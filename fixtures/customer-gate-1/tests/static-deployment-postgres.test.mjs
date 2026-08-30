@@ -593,6 +593,70 @@ test("proves distinct customer binaries and deployment processes recover from Po
     const blue = { generationId: "customer-alpha-blue-11", sourceCommit: baseCommit, compositionChangePlanDigest: digestJson(plan.base), buildEvidenceDigest: digestJson({ sourceCommit: baseCommit, imageDigest: blueBuild.imageDigest }), applicationDigest: blueBuild.applicationDigest, imageDigest: blueBuild.imageDigest, imageReference: blueBuild.imageReference, migrationRevision: 11 };
     const owner = { applicationId: "customer-alpha", environment: "production" };
     const leaseExpiresAt = new Date(now.valueOf() + 299_000).toISOString();
+    const rollbackValidationOwner = { applicationId: "customer-delta", environment: "production" };
+    const rollbackValidationPlan = structuredClone(plan);
+    rollbackValidationPlan.applicationId = rollbackValidationOwner.applicationId;
+    rollbackValidationPlan.environment = rollbackValidationOwner.environment;
+    rollbackValidationPlan.migration.applicationId = rollbackValidationOwner.applicationId;
+    rollbackValidationPlan.migration.environment = rollbackValidationOwner.environment;
+    const rollbackValidationEvidence = structuredClone(build.evidence);
+    rollbackValidationEvidence.applicationId = rollbackValidationOwner.applicationId;
+    rollbackValidationEvidence.environment = rollbackValidationOwner.environment;
+    const rollbackValidationBuilds = new Map();
+    const rollbackValidationStore = new PostgresStaticDeploymentStore(pool, { now: () => now }, {
+      read(token) {
+        const verified = rollbackValidationBuilds.get(token);
+        assert.ok(verified, "Rollback-window validation must use a verified static build token.");
+        return verified;
+      }
+    });
+    const rollbackValidationGeneration = {
+      generationId: "customer-delta-blue-11", sourceCommit: rollbackValidationPlan.base.sourceCommit,
+      compositionChangePlanDigest: digestJson(rollbackValidationPlan.base), buildEvidenceDigest: digestJson({ applicationId: rollbackValidationOwner.applicationId, sourceCommit: rollbackValidationPlan.base.sourceCommit }),
+      applicationDigest: rollbackValidationPlan.migration.rollbackWindow.previousApplicationDigest, imageDigest: blueBuild.imageDigest,
+      imageReference: blueBuild.imageReference, migrationRevision: rollbackValidationPlan.migration.baseRevision
+    };
+    const rollbackValidationReadiness = {
+      generationId: "customer-delta-green-12", sourceCommit: rollbackValidationPlan.target.sourceCommit,
+      applicationDigest: rollbackValidationEvidence.applicationSubject.digest, imageDigest: rollbackValidationEvidence.imageSubject.digest,
+      migrationRevision: rollbackValidationPlan.migration.targetRevision,
+      completedMigrationSteps: rollbackValidationPlan.migration.steps.filter((step) => step.phase === "online-expand" || step.phase === "online-backfill").map((step) => step.stepId),
+      publicSmoke: true, authenticatedSmoke: true, inventoryReconciled: true, workerMode: "passive", gatewayCapacity: true, realtimeReady: true, observedAt: now.toISOString()
+    };
+    const rollbackValidationSnapshot = async () => Object.freeze({
+      deployment: (await pool.query("select revision, active_generation_id, rollback_generation_id, rollback_window from runtime_static_deployments where application_id=$1 and environment=$2", [rollbackValidationOwner.applicationId, rollbackValidationOwner.environment])).rows,
+      fence: (await pool.query("select active_execution_generation, fencing_token, promotion_revision from runtime_worker_generation_fences where application_id=$1 and environment=$2", [rollbackValidationOwner.applicationId, rollbackValidationOwner.environment])).rows,
+      outbox: (await pool.query("select event_id, revision, event_json from runtime_static_deployment_outbox where application_id=$1 and environment=$2 order by revision", [rollbackValidationOwner.applicationId, rollbackValidationOwner.environment])).rows
+    });
+    const rollbackValidationToken = (rollbackWindow) => {
+      const validationPlan = structuredClone(rollbackValidationPlan);
+      validationPlan.migration.rollbackWindow = rollbackWindow;
+      const token = {};
+      rollbackValidationBuilds.set(token, {
+        change: { status: "source-change-ready", planDigest: digestJson(validationPlan), targetSourceCommit: validationPlan.target.sourceCommit, change: validationPlan },
+        evidence: rollbackValidationEvidence,
+        evidenceDigest: digestJson(rollbackValidationEvidence)
+      });
+      return token;
+    };
+    await rollbackValidationStore.initialize({ ...rollbackValidationOwner, generation: rollbackValidationGeneration, workerOwner: "worker:p9-rollback-validation", workerFencingToken: 1, workerLeaseExpiresAt: leaseExpiresAt });
+    for (const rollbackWindow of [
+      { ...rollbackValidationPlan.migration.rollbackWindow, previousApplicationDigest: greenBuild.applicationDigest },
+      { ...rollbackValidationPlan.migration.rollbackWindow, closesAt: new Date(now.valueOf() - 1).toISOString() }
+    ]) {
+      const beforeRollbackRejection = await rollbackValidationSnapshot();
+      await assert.rejects(
+        rollbackValidationStore.promote({ ...rollbackValidationOwner, expectedRevision: 0, expectedFenceToken: 1, generationId: rollbackValidationReadiness.generationId, workerOwner: "worker:p9-rollback-validation", workerLeaseExpiresAt: leaseExpiresAt, build: rollbackValidationToken(rollbackWindow), readiness: rollbackValidationReadiness }),
+        { code: "READINESS_REJECTED" }
+      );
+      assert.deepEqual(await rollbackValidationSnapshot(), beforeRollbackRejection, "Rejected rollback-window evidence must not move the pointer, revision, worker fence, or outbox.");
+    }
+    const rollbackValidationReceipt = await rollbackValidationStore.promote({
+      ...rollbackValidationOwner, expectedRevision: 0, expectedFenceToken: 1, generationId: rollbackValidationReadiness.generationId,
+      workerOwner: "worker:p9-rollback-validation", workerLeaseExpiresAt: leaseExpiresAt,
+      build: rollbackValidationToken(rollbackValidationPlan.migration.rollbackWindow), readiness: rollbackValidationReadiness
+    });
+    assert.equal(rollbackValidationReceipt.revisionAfter, 1, "A rollback window bound to the active application and future store clock must promote.");
     const concurrentBuilds = new Map();
     const concurrentStore = new PostgresStaticDeploymentStore(pool, { now: () => now }, {
       read(token) {

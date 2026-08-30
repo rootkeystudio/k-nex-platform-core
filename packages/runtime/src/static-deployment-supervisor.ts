@@ -152,6 +152,20 @@ export type StaticDeploymentOutcome =
   | Readonly<{ outcome: "promoted"; receipt: StaticDeploymentReceipt }>
   | Readonly<{ outcome: "maintenance-required"; reasons: readonly ["offline-migration"] }>;
 
+export interface StaticDeploymentClock {
+  now(): Date;
+}
+
+export function hasLiveStaticPromotionRollbackWindow(
+  active: Pick<StaticApplicationGeneration, "applicationDigest">,
+  rollbackWindow: MigrationCompatibilityPlan["plan"]["rollbackWindow"],
+  now: Date
+): boolean {
+  if (rollbackWindow.state !== "open" || rollbackWindow.previousApplicationDigest !== active.applicationDigest) return false;
+  const closesAt = Date.parse(rollbackWindow.closesAt);
+  return Number.isFinite(now.valueOf()) && Number.isFinite(closesAt) && closesAt > now.valueOf();
+}
+
 function ensureArtifact(
   value: Awaited<ReturnType<StaticApplicationArtifactProvider["resolve"]>>,
   evidence: TrustedApplicationBuildEvidence
@@ -189,7 +203,8 @@ export class DeploymentSupervisor {
     private readonly generations: StaticGenerationHost,
     private readonly state: StaticDeploymentState,
     private readonly gateway: GatewayTrafficRouter,
-    private readonly realtime: StaticRealtimeConvergence
+    private readonly realtime: StaticRealtimeConvergence,
+    private readonly clock: StaticDeploymentClock = { now: () => new Date() }
   ) {}
 
   async deploy(input: Readonly<{
@@ -205,6 +220,9 @@ export class DeploymentSupervisor {
     }
     const owner = { applicationId: change.applicationId, environment: change.environment };
     const before = await this.requireState(owner);
+    if (!hasLiveStaticPromotionRollbackWindow(before.active, change.migration.rollbackWindow, this.clock.now())) {
+      throw new StaticDeploymentSupervisorError("READINESS_REJECTED", "Promotion rollback window does not retain the active application and remain open.");
+    }
     const fence = await this.requireFence(owner);
     const artifact = await this.artifacts.resolve(verified.evidence);
     ensureArtifact(artifact, verified.evidence);
