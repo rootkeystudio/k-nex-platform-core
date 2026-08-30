@@ -387,6 +387,16 @@ test("proves distinct customer binaries and deployment processes recover from Po
     try { await operation(); }
     catch (error) { cleanupFailures.push(new Error(`${name}: ${error.message}`, { cause: error })); }
   };
+  const removeLabeledContainer = async (name) => {
+    try { await docker(["rm", "--force", name]); return; }
+    catch (error) { if (!/removal of container .* is already in progress/u.test(error.message)) throw error; }
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const present = await docker(["inspect", name]).then(() => true).catch(() => false);
+      if (!present) return;
+      await delay(100);
+    }
+    throw new Error(`Container ${name} remained after Docker reported removal in progress.`);
+  };
   try {
     postgres = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("static_deployment").withLabels({ "p9-fixture": network }).withStartupTimeout(120_000).start();
     sourceDirectory = await prepareCustomerSource();
@@ -902,7 +912,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     await cleanup("PostgreSQL pool", () => pool?.end());
     await cleanup("PostgreSQL container", () => postgres?.stop());
     const labeledContainers = await docker(["ps", "--all", "--filter", `label=p9-fixture=${network}`, "--format", "{{.Names}}"]).then(({ stdout }) => stdout.trim().split("\n").filter(Boolean));
-    for (const name of labeledContainers) await cleanup(`labeled container ${name}`, () => docker(["rm", "--force", name]));
+    for (const name of labeledContainers) await cleanup(`labeled container ${name}`, () => removeLabeledContainer(name));
     if (networkCreated) await cleanup("fixture network", () => docker(["network", "rm", network]));
     const labeledImages = new Set((await docker(["image", "ls", "--filter", `label=p9-fixture=${network}`, "--format", "{{.ID}}"]).then(({ stdout }) => stdout.trim().split("\n").filter(Boolean))));
     for (const imageId of labeledImages) await cleanup(`labeled image ${imageId}`, () => docker(["image", "rm", "--force", imageId]));
