@@ -199,6 +199,51 @@ describe("static deployment supervisor", () => {
     expect(value.events).toEqual(["migrate", "start-passive", "retire-green"]);
   });
 
+  it("retires a ready passive target when promotion rejects without committing it", async () => {
+    const value = harness();
+    const failure = new Error("promotion rejected");
+    vi.mocked(value.state.promote).mockRejectedValueOnce(failure);
+
+    await expect(value.supervisor.deploy({ build: value.build.token, generationId: value.green.generationId, workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" })).rejects.toBe(failure);
+    expect(value.generations.retire).toHaveBeenCalledWith(value.green.generationId);
+    expect(value.events).toEqual(["migrate", "start-passive", "retire-green"]);
+  });
+
+  it.each([
+    ["active", (value: ReturnType<typeof harness>) => snapshot(value.green, value.blue, 1)],
+    ["retained", (value: ReturnType<typeof harness>) => snapshot(value.blue, value.green, 1)]
+  ])("keeps a target that a concurrent promotion already committed as %s", async (_state, committed) => {
+    const value = harness();
+    const failure = new Error("stale promotion revision");
+    vi.mocked(value.state.promote).mockImplementationOnce(async () => {
+      vi.mocked(value.state.read).mockResolvedValue(committed(value));
+      throw failure;
+    });
+
+    await expect(value.supervisor.deploy({ build: value.build.token, generationId: value.green.generationId, workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" })).rejects.toBe(failure);
+    expect(value.generations.retire).not.toHaveBeenCalled();
+  });
+
+  it("preserves a promotion error when passive-target retirement fails after reconciliation", async () => {
+    const value = harness();
+    const promotionFailure = new Error("promotion rejected");
+    vi.mocked(value.state.promote).mockRejectedValueOnce(promotionFailure);
+    vi.mocked(value.generations.retire).mockRejectedValueOnce(new Error("retirement unavailable"));
+
+    await expect(value.supervisor.deploy({ build: value.build.token, generationId: value.green.generationId, workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" })).rejects.toBe(promotionFailure);
+    expect(value.generations.retire).toHaveBeenCalledWith(value.green.generationId);
+  });
+
+  it("preserves a promotion error without retiring when authoritative reconciliation fails", async () => {
+    const value = harness();
+    const promotionFailure = new Error("promotion rejected");
+    vi.mocked(value.state.promote).mockRejectedValueOnce(promotionFailure);
+    vi.mocked(value.state.read).mockResolvedValueOnce(snapshot()).mockRejectedValueOnce(new Error("state unavailable"));
+
+    await expect(value.supervisor.deploy({ build: value.build.token, generationId: value.green.generationId, workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" })).rejects.toBe(promotionFailure);
+    expect(value.generations.retire).not.toHaveBeenCalled();
+  });
+
   it("reverifies, starts, and freshly proves the retained immutable generation before static rollback state can switch", async () => {
     const value = harness();
     vi.mocked(value.state.read).mockResolvedValue(snapshot(value.green, value.blue, 1));

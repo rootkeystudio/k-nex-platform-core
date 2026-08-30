@@ -254,16 +254,22 @@ export class DeploymentSupervisor {
       try { await this.generations.retire(input.generationId); } catch { /* preserve readiness failure */ }
       throw error;
     }
-    const receipt = await this.state.promote({
-      ...owner,
-      expectedRevision: before.revision,
-      expectedFenceToken: fence.fencingToken,
-      generationId: input.generationId,
-      workerOwner: input.workerOwner,
-      workerLeaseExpiresAt: input.workerLeaseExpiresAt,
-      build: input.build,
-      readiness
-    });
+    let receipt: StaticDeploymentReceipt;
+    try {
+      receipt = await this.state.promote({
+        ...owner,
+        expectedRevision: before.revision,
+        expectedFenceToken: fence.fencingToken,
+        generationId: input.generationId,
+        workerOwner: input.workerOwner,
+        workerLeaseExpiresAt: input.workerLeaseExpiresAt,
+        build: input.build,
+        readiness
+      });
+    } catch (error) {
+      await this.retireRejectedPromotion(owner, input.generationId);
+      throw error;
+    }
     await this.finishPostCommit(owner);
     return Object.freeze({ outcome: "promoted", receipt });
   }
@@ -356,6 +362,12 @@ export class DeploymentSupervisor {
     const value = await this.state.readFence(owner);
     if (!value) throw new StaticDeploymentSupervisorError("STATE_UNAVAILABLE", "Static worker fence is unavailable.");
     return value;
+  }
+
+  private async retireRejectedPromotion(owner: Owner, generationId: string): Promise<void> {
+    const current = await this.state.read(owner).catch(() => undefined);
+    if (!current || current.active.generationId === generationId || current.rollback?.generationId === generationId) return;
+    await this.generations.retire(generationId).catch(() => undefined);
   }
 
   private async finishPostCommit(owner: Owner): Promise<void> {

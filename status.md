@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Bound static promotion rollback windows to the currently active application digest and the durable store clock, with an early supervisor preflight before artifact, migration, or generation side effects.
+Reconciled failed static promotion commits before cleanup: passive targets are retired only when authoritative state proves they are neither active nor retained, while uncertain or concurrent committed targets are preserved.
 
 ## Validation
 
-Node 24.19.0: runtime and payload-adapter builds passed; focused supervisor tests passed (13); focused store tests passed (3); real PostgreSQL rollback-window proof passed with rejected-state invariance; `git diff --check` passed. No fixture/Testcontainers containers remain.
+Node 24.19.0: runtime build passed; focused static deployment supervisor tests passed (18), covering rejected promotion cleanup, concurrent active/retained wins, reconciliation failure, and cleanup failure; `git diff --check` passed. No Docker containers remain.
 
 ## Next
 
