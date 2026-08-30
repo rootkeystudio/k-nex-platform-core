@@ -66,6 +66,10 @@ describe("P0.4 executable repository validation", () => {
       deliveryClass: "platform-plugin", id: "module.sales", availability: { outcome: "maintenance-required", reasons: ["destructive-migration"] }
     };
     expect(validate(plan), ajv.errorsText(validate.errors)).toBe(true);
+    const maxVersion = `1.0.0+${"a".repeat(58)}`;
+    expect(maxVersion).toHaveLength(64);
+    expect(validate({ ...plan, version: maxVersion }), ajv.errorsText(validate.errors)).toBe(true);
+    expect(validate({ ...plan, version: `${maxVersion}a` })).toBe(false);
     for (const version of ["1.0.0-01", "1.0.0-alpha..1", "1.0.0-.", "1.0.0+build..1"]) {
       expect(validate({ ...plan, version }), version).toBe(false);
     }

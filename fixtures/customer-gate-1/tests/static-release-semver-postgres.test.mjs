@@ -36,7 +36,12 @@ test("static release persistence accepts exact SemVer and rejects malformed iden
   );
   try {
     await boot(container.getConnectionUri());
+    const maxVersion = `1.0.0+${"a".repeat(58)}`;
+    const oversizedVersion = `${maxVersion}a`;
+    assert.equal(maxVersion.length, 64);
     await assert.doesNotReject(insert("1.0.0-rc.1+build.2"));
+    await assert.doesNotReject(insert(maxVersion));
+    await assert.rejects(insert(oversizedVersion), /value too long for type character varying\(64\)/u);
     for (const version of ["1.0.0-01", "1.0.0-alpha..1", "1.0.0-.", "1.0.0+build..1"]) {
       await assert.rejects(insert(version), /runtime_static_release_requests_version_check/);
     }

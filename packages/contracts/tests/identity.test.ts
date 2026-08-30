@@ -1,6 +1,11 @@
+import { performance } from "node:perf_hooks";
+
 import { describe, expect, it } from "vitest";
 
-import { ExactSemverSchema, compareExactSemverPrecedence } from "../src/identity.js";
+import { ExactSemverSchema, compareExactSemverPrecedence, exactSemverPattern } from "../src/identity.js";
+
+const maxVersion = `1.0.0+${"a".repeat(58)}`;
+const oversizedVersion = `${maxVersion}a`;
 
 describe("exact SemVer precedence", () => {
   it("ignores build metadata and returns equality for identical release precedence", () => {
@@ -18,9 +23,21 @@ describe("exact SemVer precedence", () => {
 
   it("uses the existing exact-version grammar as its input boundary", () => {
     expect(ExactSemverSchema.safeParse("1.0.0-9007199254740993+build.2").success).toBe(true);
+    expect(maxVersion).toHaveLength(64);
+    expect(ExactSemverSchema.safeParse(maxVersion).success).toBe(true);
+    expect(ExactSemverSchema.safeParse(oversizedVersion).success).toBe(false);
     for (const version of ["1.0.0-01", "1.0.0-alpha..1", "1.0.0-.", "1.0.0+build..1"]) {
       expect(ExactSemverSchema.safeParse(version).success, version).toBe(false);
     }
     expect(() => compareExactSemverPrecedence("1.0", "1.0.0")).toThrow(/invalid/u);
+    expect(compareExactSemverPrecedence(maxVersion, maxVersion)).toBe(0);
+    expect(() => compareExactSemverPrecedence(oversizedVersion, "1.0.0")).toThrow(/invalid/u);
+  });
+
+  it("rejects adversarial invalid prerelease input without quadratic backtracking", () => {
+    const input = `1.0.0-${"a".repeat(50_000)}!`;
+    const startedAt = performance.now();
+    expect(new RegExp(exactSemverPattern, "u").test(input)).toBe(false);
+    expect(performance.now() - startedAt).toBeLessThan(1_000);
   });
 });

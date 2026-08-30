@@ -15,7 +15,7 @@ export const identityPatterns = {
 } as const;
 
 const semverNumericIdentifierPattern = "(?:0|[1-9][0-9]*)";
-const semverNonNumericIdentifierPattern = "(?:[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)";
+const semverNonNumericIdentifierPattern = "(?:[0-9]*[A-Za-z-][0-9A-Za-z-]*)";
 const semverPrereleaseIdentifierPattern = `(?:${semverNumericIdentifierPattern}|${semverNonNumericIdentifierPattern})`;
 
 export const exactSemverPattern = `^${semverNumericIdentifierPattern}\\.${semverNumericIdentifierPattern}\\.${semverNumericIdentifierPattern}(?:-${semverPrereleaseIdentifierPattern}(?:\\.${semverPrereleaseIdentifierPattern})*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$`;
@@ -26,7 +26,7 @@ export const ThemeSkinIdSchema = z.string().max(128).regex(new RegExp(identityPa
 export const CapabilityIdSchema = z.string().max(128).regex(new RegExp(identityPatterns.capability));
 export const ResourceIdSchema = z.string().max(128).regex(new RegExp(identityPatterns.resource));
 export const OutputContractIdSchema = z.string().max(160).regex(new RegExp(identityPatterns.outputContract));
-export const ExactSemverSchema = z.string().regex(new RegExp(exactSemverPattern));
+export const ExactSemverSchema = z.string().max(64).regex(new RegExp(exactSemverPattern));
 
 /**
  * Compares exact-version precedence without converting numeric identifiers to

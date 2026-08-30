@@ -59,6 +59,12 @@ describe("ExtensionOperatorApi", () => {
     const records = await value.catalog.list();
     value.catalog.list.mockResolvedValueOnce([...records, records[0]]);
     await expect(value.api.catalogList({ includeUnavailable: true })).rejects.toThrow("duplicate extension releases");
+
+    const maxVersion = `1.0.0+${"a".repeat(58)}`;
+    value.catalog.list.mockResolvedValueOnce([{ ...records[0]!, version: maxVersion }]);
+    await expect(value.api.catalogList({ includeUnavailable: true })).resolves.toEqual([expect.objectContaining({ version: maxVersion })]);
+    value.catalog.list.mockResolvedValueOnce([{ ...records[0]!, version: `${maxVersion}a` }]);
+    await expect(value.api.catalogList({ includeUnavailable: true })).rejects.toThrow();
   });
 
   it("routes live and static lifecycle calls through their owning authority", async () => {

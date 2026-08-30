@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Added durable owner-scoped reservations and one-shot tombstones before rejected-generation cleanup; promotion and cleanup now serialize under one owner lock, while process identities, routes, drains, and retirement are owner/environment scoped.
+Closed exact SemVer grammar and persistence parity: prerelease matching is linear-time, exact versions are bounded to 64 characters across authoring/generated/runtime/catalog boundaries, and the static-release database enforces the same limit.
 
 ## Validation
 
-Node 24.19.0: runtime static-supervisor tests passed (19); payload-adapter tests passed (42); focused real PostgreSQL retirement race/owner-isolation proof passed; real Docker static deployment, crash recovery, continuous traffic, and same-ID cross-owner route proof passed; focused P0/P1/P2 audit and `git diff --check` passed. No Docker containers or fixture networks remain.
+Node 24.19.0: contracts tests passed (177); extension-bundler tests passed (20); runtime operator tests passed (9); architecture tests/validation passed (26 plus generated/Ajv/repository checks); customer fixture build and focused real PostgreSQL 64/65-character persistence proof passed; adversarial 50k-character regex regression and focused P0/P1/P2 audit passed. No Docker containers remain.
 
 ## Next
 
-Close the remaining Ultra SemVer complexity/length findings, then continue Theme Skin parser, authority, accessibility, lifecycle, and recipe-bound corrections in atomic tasks.
+Continue the remaining Ultra Theme Skin parser, authority, accessibility, lifecycle, and recipe-bound corrections in atomic tasks.
 
 ## Blockers
 

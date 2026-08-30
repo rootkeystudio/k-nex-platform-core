@@ -40,7 +40,7 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
       "created_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
       "updated_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
       CONSTRAINT "runtime_static_release_requests_digest_check" CHECK ("request_digest" ~ '^sha256:[0-9a-f]{64}$' AND "source_commit" ~ '^[0-9a-f]{40}$' AND "change_plan_digest" ~ '^sha256:[0-9a-f]{64}$'),
-      CONSTRAINT "runtime_static_release_requests_version_check" CHECK ("version" ~ '^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:(?:0|[1-9][0-9]*)|(?:[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))(?:\\.(?:(?:0|[1-9][0-9]*)|(?:[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$'),
+      CONSTRAINT "runtime_static_release_requests_version_check" CHECK ("version" ~ '^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:(?:0|[1-9][0-9]*)|(?:[0-9]*[A-Za-z-][0-9A-Za-z-]*))(?:\\.(?:(?:0|[1-9][0-9]*)|(?:[0-9]*[A-Za-z-][0-9A-Za-z-]*)))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$'),
       CONSTRAINT "runtime_static_release_requests_json_check" CHECK (jsonb_typeof("change_json")='object' AND jsonb_typeof("authorization_json")='object' AND ("receipt_json" IS NULL OR jsonb_typeof("receipt_json")='object')),
       CONSTRAINT "runtime_static_release_requests_status_check" CHECK ("status" IN ('build-requested','builder-attested','deployment-requested','deployed','rejected')),
       CONSTRAINT "runtime_static_release_requests_attestation_check" CHECK (
