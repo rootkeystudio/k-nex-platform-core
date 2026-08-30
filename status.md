@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Scoped Remote UI active generations, session admission, and draining to the complete application/environment/app owner identity so one tenant cannot replace or retire another tenant's sessions.
+Serialized every app-storage namespace mutation with full-app restore by taking the same application advisory lock before the namespace lock; a real PostgreSQL barrier test proves deterministic post-restore writes.
 
 ## Validation
 
-Node 24.19.0: `pnpm contracts:test` passed (45 tasks); `pnpm --filter @k-nex/ui-runtime test` passed (10 files, 59 tests); `git diff --check` passed.
+Node 24.19.0: payload-adapter tests passed (8 files, 40 tests); real Testcontainers/PostgreSQL app-storage race proof passed (1 test); `git diff --check` passed.
 
 ## Next
 
-Complete the app-storage restore/mutation serialization remediation, then continue the persistent Phase 9 Sol Ultra review-fix loop.
+Unify the signed Hot Application manifest route contract with fixed-route ownership and parameter resolution, then continue the Sol Ultra review-fix loop.
 
 ## Blockers
 

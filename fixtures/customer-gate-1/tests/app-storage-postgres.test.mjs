@@ -110,6 +110,57 @@ test("proves revisioned, quota-limited, schema-validated, backed-up, cross-app i
     await storage.restoreBackup(consistentSnapshot);
     assert.deepEqual(await storage.get(sales, "view.primary"), consistentSnapshot.namespaces[0].records[0]);
 
+    const restoreLockHeld = deferred();
+    const releaseRestore = deferred();
+    const mutationLockAttempted = deferred();
+    const restoreStorage = new PostgresAppStorage({
+      query: (...args) => pool.query(...args),
+      async connect() {
+        const client = await pool.connect();
+        return {
+          release: () => client.release(),
+          async query(statement, values) {
+            const result = await client.query(statement, values);
+            if (typeof statement === "string" && statement.includes("pg_advisory_xact_lock")) {
+              restoreLockHeld.resolve();
+              await releaseRestore.promise;
+            }
+            return result;
+          }
+        };
+      }
+    }, { validate: (_schemaId, value) => value }, { assertSafe() {} });
+    const mutationStorage = new PostgresAppStorage({
+      query: (...args) => pool.query(...args),
+      async connect() {
+        const client = await pool.connect();
+        return {
+          release: () => client.release(),
+          query(statement, values) {
+            if (typeof statement === "string" && statement.includes("pg_advisory_xact_lock")) mutationLockAttempted.resolve();
+            return client.query(statement, values);
+          }
+        };
+      }
+    }, { validate: (_schemaId, value) => value }, { assertSafe() {} });
+    const restore = restoreStorage.restoreBackup(consistentSnapshot);
+    await restoreLockHeld.promise;
+    const mutation = mutationStorage.put(sales, "view.primary", { label: "After restore" }, consistentSnapshot.namespaces[0].records[0].revision);
+    await mutationLockAttempted.promise;
+    try {
+      assert.equal(await Promise.race([
+        mutation.then(() => true, () => true),
+        new Promise((resolve) => setTimeout(() => resolve(false), 25))
+      ]), false, "mutation must wait for restore's application lock");
+    } finally {
+      releaseRestore.resolve();
+    }
+    const mutationRecord = await mutation;
+    await restore;
+    assert.equal(mutationRecord.revision, consistentSnapshot.namespaces[0].records[0].revision + 1);
+    assert.deepEqual(mutationRecord.value, { label: "After restore" });
+    assert.deepEqual(await storage.get(sales, "view.primary"), mutationRecord, "mutation must apply after restored state, never be lost beneath restore");
+
     const now = { now: () => new Date("2026-08-29T10:00:00.000Z") };
     const tokens = new HmacExtensionCapabilityTokens(new Uint8Array(32).fill(4), now);
     const token = tokens.issue({
@@ -126,7 +177,7 @@ test("proves revisioned, quota-limited, schema-validated, backed-up, cross-app i
       token, invocationId: "storage-invocation-1", generationId: "sales-assistant-generation-1", sequence: 1, capability: "app-storage.get",
       payload: { schemaId: "sales.preferences", key: "view.primary" }, signal: new AbortController().signal
     });
-    assert.deepEqual(throughGateway, backup.namespaces[0].records[0], "capability storage must use token-bound namespace identity");
+    assert.deepEqual(throughGateway, mutationRecord, "capability storage must use token-bound namespace identity");
     await assert.rejects(gateway.invoke({
       token, invocationId: "storage-invocation-1", generationId: "sales-assistant-generation-1", sequence: 2, capability: "app-storage.get",
       payload: { schemaId: "sales.private", key: "view.primary" }, signal: new AbortController().signal

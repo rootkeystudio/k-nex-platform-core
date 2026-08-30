@@ -95,6 +95,7 @@ export class PostgresAppStorage {
       throw new TypeError("App storage namespace limits are invalid.");
     }
     await this.transaction(async (session) => {
+      await this.lockApplication(session, namespace);
       await this.lockNamespace(session, namespace);
       const current = await this.readNamespace(session, namespace, true);
       if (!current) {
@@ -127,6 +128,7 @@ export class PostgresAppStorage {
     this.secretGuard.assertSafe(validated);
     const bytes = valueBytes(validated);
     return this.transaction(async (session) => {
+      await this.lockApplication(session, namespace);
       await this.lockNamespace(session, namespace);
       const state = await this.readNamespace(session, namespace, true);
       if (!state) fail("NAMESPACE_NOT_FOUND", "App storage namespace is unavailable.");
@@ -160,6 +162,7 @@ export class PostgresAppStorage {
     assertNamespace(namespace);
     this.assertKey(key);
     await this.transaction(async (session) => {
+      await this.lockApplication(session, namespace);
       await this.lockNamespace(session, namespace);
       const state = await this.readNamespace(session, namespace, true);
       if (!state) fail("NAMESPACE_NOT_FOUND", "App storage namespace is unavailable.");
@@ -232,8 +235,7 @@ export class PostgresAppStorage {
     assertNamespace({ applicationId: backup.applicationId, environment: backup.environment, appId: backup.appId, schemaId: "backup.probe" });
     if (!Array.isArray(backup.namespaces) || backup.namespaces.length > 16) fail("BACKUP_INVALID", "App storage backup namespace inventory is invalid.");
     await this.transaction(async (session) => {
-      const appLock = canonicalJson([backup.applicationId, backup.environment, backup.appId]);
-      await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [appLock]);
+      await this.lockApplication(session, backup);
       await session.query(
         `delete from runtime_extension_storage_namespaces where application_id=$1 and environment=$2 and app_id=$3`,
         [backup.applicationId, backup.environment, backup.appId]
@@ -283,6 +285,10 @@ export class PostgresAppStorage {
 
   private async lockNamespace(session: RuntimeExtensionSession, namespace: AppStorageNamespace): Promise<void> {
     await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [canonicalJson([namespace.applicationId, namespace.environment, namespace.appId, namespace.schemaId])]);
+  }
+
+  private async lockApplication(session: RuntimeExtensionSession, namespace: Pick<AppStorageNamespace, "applicationId" | "environment" | "appId">): Promise<void> {
+    await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [canonicalJson([namespace.applicationId, namespace.environment, namespace.appId])]);
   }
 
   private async readNamespace(session: RuntimeExtensionSession, namespace: AppStorageNamespace, lock: boolean): Promise<NamespaceRow | undefined> {
