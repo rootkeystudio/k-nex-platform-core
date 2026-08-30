@@ -1,3 +1,6 @@
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
+
 import { describe, expect, it, vi } from "vitest";
 
 import { DockerHotApplicationSandboxSupervisor, RunnerInvocationError, type RunnerGenerationIdentity } from "../src/index.js";
@@ -81,5 +84,46 @@ describe("runner startup reconciliation", () => {
     supervisor.dockerOutput = vi.fn(async () => "");
     await expect(supervisor.invoke(request())).rejects.toMatchObject({ code: "GENERATION_QUARANTINED" });
     expect(authority.admit).toHaveBeenCalledWith(orphan, drainLeaseId);
+  });
+
+  it("reaps the docker CLI before container cleanup when timeout wins before spawn", async () => {
+    vi.useFakeTimers();
+    try {
+      const supervisor = runner({ active: async () => false, admit: async () => true }) as any;
+      const events: string[] = [];
+      const child = Object.assign(new EventEmitter(), {
+        stdin: new PassThrough(),
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        kill: vi.fn((signal: string) => {
+          events.push(`cli:${signal}`);
+          child.emit("close", 137);
+          return true;
+        })
+      });
+      child.on("close", () => { events.push("cli:close"); });
+      const cleanup = vi.fn(() => { events.push("policy"); });
+      supervisor.kill = vi.fn(async () => { events.push("container"); });
+      const invocation = { ...request(), ...orphan, source: "export default () => null" };
+      const outcome = supervisor.exchange(child, invocation, "runner-before-spawn", 10_000, cleanup);
+      const rejection = expect(outcome).rejects.toMatchObject({ code: "INVOCATION_TIMEOUT" });
+      const observed = outcome.catch((error: RunnerInvocationError) => {
+        events.push(`settled:${error.code}`);
+        return error;
+      });
+
+      await vi.advanceTimersByTimeAsync(1);
+      await Promise.all([rejection, observed]);
+      expect(events).toEqual(["cli:SIGKILL", "cli:close", "container", "policy", "settled:INVOCATION_TIMEOUT"]);
+
+      child.stdout.write('{"type":"result"}\n');
+      child.emit("error", new Error("late docker error"));
+      child.emit("close", 0);
+      await Promise.resolve();
+      expect(cleanup).toHaveBeenCalledTimes(1);
+      expect(supervisor.kill).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -285,31 +285,45 @@ export class DockerHotApplicationSandboxSupervisor {
   private exchange(child: ChildProcessWithoutNullStreams, request: ResolvedRunnerInvocation, containerName: string, workloadUser: number, cleanup: () => void): Promise<unknown> {
     return new Promise((resolve, reject) => {
       let settled = false;
+      let closed = false;
+      let resolveClose!: () => void;
+      const close = new Promise<void>((resolveClosePromise) => { resolveClose = resolveClosePromise; });
       let protocolBytes = 0;
       let logBytes = 0;
       let stderr = "";
       const controller = new AbortController();
-      const fail = (error: RunnerInvocationError) => {
+      const settle = (result: { readonly value: unknown } | { readonly error: RunnerInvocationError }) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
         request.signal?.removeEventListener("abort", abort);
-        void this.kill(containerName).then(
-          () => { cleanup(); reject(error); },
-          () => { cleanup(); reject(new RunnerInvocationError("CONTAINER_FAILED", "Runner container could not be forcibly terminated.")); }
-        );
-      };
-      const finish = (value: unknown) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        request.signal?.removeEventListener("abort", abort);
+        controller.abort();
+        lines.close();
         child.stdin.end();
-        void this.kill(containerName).then(
-          () => { cleanup(); resolve(value); },
-          () => { cleanup(); reject(new RunnerInvocationError("CONTAINER_FAILED", "Runner container could not be forcibly terminated.")); }
-        );
+        void (async () => {
+          let cleanupFailed = false;
+          try {
+            if (!closed) {
+              child.kill("SIGKILL");
+              await close;
+            }
+            await this.kill(containerName);
+          } catch {
+            cleanupFailed = true;
+          } finally {
+            try { cleanup(); } catch { cleanupFailed = true; }
+          }
+          if (cleanupFailed) {
+            reject(new RunnerInvocationError("CONTAINER_FAILED", "Runner container could not be forcibly terminated."));
+          } else if ("error" in result) {
+            reject(result.error);
+          } else {
+            resolve(result.value);
+          }
+        })();
       };
+      const fail = (error: RunnerInvocationError) => settle({ error });
+      const finish = (value: unknown) => settle({ value });
       const abort = () => fail(new RunnerInvocationError("INVOCATION_TIMEOUT", "Runner invocation was aborted."));
       request.signal?.addEventListener("abort", abort, { once: true });
       const timer = setTimeout(() => fail(new RunnerInvocationError("INVOCATION_TIMEOUT", "Runner invocation exceeded its wall-time budget.")), request.limits.wallTimeMs);
@@ -330,6 +344,8 @@ export class DockerHotApplicationSandboxSupervisor {
         }).catch((error) => fail(error instanceof RunnerInvocationError ? error : new RunnerInvocationError("CONTAINER_FAILED", "Runner container observation failed.")));
       });
       child.once("close", (code) => {
+        closed = true;
+        resolveClose();
         controller.abort();
         if (!settled) {
           const policyFailure = /(?:apparmor|selinux|seccomp|user\s*namespace|userns)/iu.test(stderr);
@@ -348,6 +364,7 @@ export class DockerHotApplicationSandboxSupervisor {
     finish: (value: unknown) => void,
     fail: (error: RunnerInvocationError) => void
   ): Promise<void> {
+    if (signal.aborted) return;
     let frame: RunnerFrame;
     try { frame = JSON.parse(line) as RunnerFrame; } catch { fail(new RunnerInvocationError("PROTOCOL_VIOLATION", "Runner emitted malformed JSON.")); return; }
     if (frame.type === "log" && exactKeys(frame, ["type", "schemaVersion", "invocationId", "generationId", "text"]) && frame.schemaVersion === 1 && frame.invocationId === request.invocationId && frame.generationId === request.generationId && typeof frame.text === "string") {
@@ -357,8 +374,10 @@ export class DockerHotApplicationSandboxSupervisor {
     if (frame.type === "capability-request" && exactKeys(frame, ["type", "schemaVersion", "invocationId", "generationId", "sequence", "capability", "payload", "token"]) && frame.schemaVersion === 1 && frame.invocationId === request.invocationId && frame.generationId === request.generationId && frame.token === request.token && Number.isSafeInteger(frame.sequence) && typeof frame.capability === "string") {
       try {
         const output = await this.gateway.invoke({ token: frame.token, invocationId: request.invocationId, generationId: request.generationId, sequence: frame.sequence!, capability: frame.capability as ExtensionCapabilityId, payload: frame.payload, signal });
+        if (signal.aborted) return;
         child.stdin.write(`${JSON.stringify({ type: "capability-response", schemaVersion: 1, invocationId: request.invocationId, generationId: request.generationId, sequence: frame.sequence, ok: true, output, error: null })}\n`);
       } catch (error) {
+        if (signal.aborted) return;
         const code = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : "CAPABILITY_FAILED";
         child.stdin.write(`${JSON.stringify({ type: "capability-response", schemaVersion: 1, invocationId: request.invocationId, generationId: request.generationId, sequence: frame.sequence, ok: false, output: null, error: { code } })}\n`);
       }

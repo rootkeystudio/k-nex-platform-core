@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Added Gate 9 CI bootstrap for the exact digest-pinned runner image: after Docker restarts with user namespace remapping, CI reads the image only from the authoring source, pulls it, and verifies its local digest inspection. A focused AppArmor Docker runner preflight now fails before the full gate when that boundary is unavailable.
+Hardened the Docker runner terminal path: it now aborts capability work, reaps the original `docker run` CLI before exact-name container cleanup, and removes the per-invocation policy directory once. A Docker-free lifecycle regression proves timeout cleanup order and late-event no-ops.
 
 ## Validation
 
-Local Node 24.19.0 / pnpm 11.9.0: `node --check scripts/setup-gate-9-linux-isolation.mjs`; `pnpm --filter @k-nex/extension-runner build`; runner unit tests 6/6; `git diff --check`. Linux Docker restart/setup and AppArmor preflight require GitHub's Ubuntu runner and were not run locally.
+Local Node 24.19.0 / pnpm 11.9.0: `pnpm --filter @k-nex/extension-runner test` (7/7); `pnpm --filter @k-nex/extension-runner build`. Linux Docker isolation proof remains GitHub Ubuntu-only.
 
 ## Next
 
