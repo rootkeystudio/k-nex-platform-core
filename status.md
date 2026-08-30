@@ -7,7 +7,7 @@
 
 ## Last completed
 
-Exact-head CI proved the Linux isolation setup and Gate 5 correction, then exposed Phase 0's full-repository validator using Vitest's 5-second unit default under concurrent CI load. That integration proof now has the same explicit 30-second bound as the existing repository reproducibility proof; no retry or production change was added.
+Exact-head CI proved the Linux isolation setup and Gate 5 correction, then exposed Phase 0's full-repository validator using Vitest's 5-second unit default under concurrent CI load. That integration proof now has the existing 30-second repository-proof bound; the persistent Sol Ultra review returned PASS.
 
 ## Validation
 
@@ -15,7 +15,7 @@ Node 24.19.0 / pnpm 11.9.0: architecture-contract-tools 26/26 passed three times
 
 ## Next
 
-Obtain persistent Sol Ultra PASS for the Phase 0 timeout correction, push PR #28, and rerun exact-head `validate` through full Gate 9.
+Push PR #28 and rerun exact-head `validate` through full Gate 9.
 
 ## Blockers
 
