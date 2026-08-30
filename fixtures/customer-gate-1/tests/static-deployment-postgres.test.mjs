@@ -30,6 +30,8 @@ const topologyProcess = join(staticDeploymentDirectory, "topology-process.mjs");
 const npm = join(dirname(process.execPath), "npm");
 const run = promisify(execFile);
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+const WEB_ADMIN_READY_TIMEOUT_MS = 30_000;
+const WEB_ADMIN_PROBE_TIMEOUT_MS = 1_000;
 const sha256 = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 const digestJson = (value) => sha256(canonicalJson(value));
 const operatorPackages = Object.freeze([
@@ -317,17 +319,26 @@ async function startIsolatedWebAdminContainer({ network, imageId, databaseUrl, o
   assert.equal(inspection.HostConfig.CapDrop.includes("ALL"), true);
   assert.equal(inspection.HostConfig.SecurityOpt.includes("no-new-privileges"), true);
   assert.equal(inspection.Mounts.length, 0, "The actual web/admin process must not receive source or artifact mounts.");
-  assert.equal(inspection.Config.Env.some((entry) => /^(DOCKER_HOST|GITHUB_TOKEN|SOURCE_WRITE_TOKEN|P9_SOURCE_DIRECTORY|P9_ARTIFACTS_DIRECTORY|P9_BUILDER_SIGNING_KEY_PATH)=/u.test(entry)), false);
+  assert.equal(inspection.Config.Env.some((entry) => /^(DOCKER_HOST|GITHUB_TOKEN|SOURCE_WRITE_TOKEN|P9_SOURCE_DIRECTORY|P9_ARTIFACTS_DIRECTORY|P9_BUILDER_SIGNING_KEY_PATH|P9_CONTROL_TOKEN)=/u.test(entry)), false);
   const url = `http://127.0.0.1:${port}`;
   let proof;
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    const response = await fetch(`${url}/p9-admin-isolation`).catch(() => undefined);
+  const readyBy = Date.now() + WEB_ADMIN_READY_TIMEOUT_MS;
+  while (Date.now() < readyBy) {
+    const remaining = readyBy - Date.now();
+    const response = await fetch(`${url}/p9-admin-isolation`, { signal: AbortSignal.timeout(Math.min(WEB_ADMIN_PROBE_TIMEOUT_MS, remaining)) }).catch(() => undefined);
     if (response?.ok) { proof = await response.json(); break; }
-    await delay(100);
+    await delay(Math.min(100, Math.max(0, readyBy - Date.now())));
   }
   if (!proof) {
     const logs = await docker(["logs", name]).then(({ stdout, stderr }) => `${stdout}${stderr}`).catch((error) => error.message);
-    assert.fail(`The isolated web/admin process did not become ready: ${logs}`);
+    const state = await docker(["inspect", name]).then(({ stdout }) => {
+      const inspection = JSON.parse(stdout)[0]?.State;
+      return inspection && {
+        status: inspection.Status, running: inspection.Running, oomKilled: inspection.OOMKilled,
+        exitCode: inspection.ExitCode, error: inspection.Error, startedAt: inspection.StartedAt, finishedAt: inspection.FinishedAt
+      };
+    }).catch((error) => ({ inspectError: error.message }));
+    assert.fail(`The isolated web/admin process did not become ready within ${WEB_ADMIN_READY_TIMEOUT_MS}ms: ${canonicalJson({ state, logs })}`);
   }
   assert.deepEqual(proof && { inventoryReadable: proof.inventoryReadable, deploymentTableDenied: proof.deploymentTableDenied, sourceWriteDenied: proof.sourceWriteDenied, buildDenied: proof.buildDenied, dockerDenied: proof.dockerDenied, supervisorDenied: proof.supervisorDenied, controlPlaneAbsent: proof.controlPlaneAbsent }, {
     inventoryReadable: true, deploymentTableDenied: true, sourceWriteDenied: true, buildDenied: true, dockerDenied: true, supervisorDenied: true, controlPlaneAbsent: true
@@ -441,6 +452,8 @@ test("proves distinct customer binaries and deployment processes recover from Po
     await docker(["network", "create", "--label", `p9-fixture=${network}`, network]);
     networkCreated = true;
     await docker(["network", "connect", "--alias", "p9-postgres", network, postgres.getId()]);
+    const networkInspection = JSON.parse((await docker(["network", "inspect", network])).stdout)[0];
+    const networkGateway = networkInspection.IPAM.Config[0].Gateway;
     const managedRequest = {
       applicationId: "customer-alpha", environment: "production", extension: { deliveryClass: "platform-plugin", id: "module.sales" },
       operation: "update", targetVersion: "1.0.1", expectedRevision: 0,
@@ -490,6 +503,9 @@ test("proves distinct customer binaries and deployment processes recover from Po
       const environment = { ...processBase, DATABASE_URL: database.toString(), ...extra };
       if (role !== "builder") delete environment.P9_BUILDER_SIGNING_KEY_PATH;
       if (role === "supervisor") {
+        // Linux owns the bridge gateway. Docker Desktop cannot bind that VM address,
+        // so its short-lived random-port test endpoint is bearer-token guarded.
+        environment.P9_CONTROL_BIND_ADDRESS = process.platform === "linux" ? networkGateway : "0.0.0.0";
         environment.P9_CONTROL_TOKEN = supervisorControlToken;
         delete environment.P9_SOURCE_DIRECTORY;
         delete environment.P9_EXPECTED_BASE_COMMIT;
@@ -594,8 +610,6 @@ test("proves distinct customer binaries and deployment processes recover from Po
     );
     const deploymentRequest = await deploymentClient.readRequest(greenBuild.buildRequestDigest);
     assert.ok(deploymentRequest, "The builder-owned durable request must exist before isolated web/admin planning.");
-    const networkInspection = JSON.parse((await docker(["network", "inspect", network])).stdout)[0];
-    const networkGateway = networkInspection.IPAM.Config[0].Gateway;
     const webAdminDatabase = new URL(processEnv("web-admin", {}).DATABASE_URL);
     webAdminDatabase.hostname = "p9-postgres";
     webAdminDatabase.port = "5432";
@@ -608,7 +622,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
         request: managedRequest, authorization, installPlan, sourceCommit: baseCommit, generationId: "customer-alpha-green-12",
         sourceChange: change, deployment: deploymentRequest
       },
-      supervisorUrl: `http://${networkGateway}:${supervisorPort}`
+      supervisorUrl: process.platform === "linux" ? `http://${networkGateway}:${supervisorPort}` : `http://host.docker.internal:${supervisorPort}`
     });
     const initiated = await fetch(`${webAdminContainer.url}/p9-change-request`, { method: "POST" });
     const initiatedBody = await initiated.json();

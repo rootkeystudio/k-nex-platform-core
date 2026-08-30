@@ -710,9 +710,11 @@ export async function runDeploymentSupervisor({ event, ready }) {
       }
     } catch (error) { return send(error.status ?? 500, { error: error.message, code: error.code ?? "SUPERVISOR_FAILURE" }); }
   });
-  await new Promise((resolve, reject) => { server.once("error", reject); server.listen(controlPort, "127.0.0.1", resolve); });
+  const controlBindAddress = process.env.P9_CONTROL_BIND_ADDRESS ?? "127.0.0.1";
+  await new Promise((resolve, reject) => { server.once("error", reject); server.listen(controlPort, controlBindAddress, resolve); });
   const owner = { applicationId: "customer-alpha", environment: "production" };
   if (await store.read(owner)) await supervisor.recover(owner, { workerLeaseDurationMs: generations.workerLeaseMs });
   await event("supervisor-recovered", { controlPort, processId: process.pid });
-  ready({ url: `http://127.0.0.1:${server.address().port}` });
+  const controlUrlHost = controlBindAddress === "0.0.0.0" ? "127.0.0.1" : controlBindAddress;
+  ready({ url: `http://${controlUrlHost}:${server.address().port}` });
 }

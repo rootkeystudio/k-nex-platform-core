@@ -7,11 +7,11 @@
 
 ## Last completed
 
-CI run 33333075806 failed in the clean-checkout Docker runner preflight because it built only `@k-nex/extension-runner`; its workspace dependencies `@k-nex/runtime` and `@k-nex/extension-bundler` therefore had no emitted declarations. The preflight now recursively builds `@k-nex/extension-runner...`, including its dependency graph in pnpm topological order, while retaining the real Docker test and AppArmor environment.
+CI run 33333228792 reached 15/16 real customer-gate-1 PostgreSQL journeys, including Hot Application traffic, then exposed a Linux-only static web/admin proof deadlock: the container was given the Docker bridge gateway while the authenticated supervisor listened only on host loopback. The fixture now exposes a test-only bridge-bound listener guarded by the existing bearer token; web/admin must receive a real `401` within five seconds, and its bounded readiness failure reports Docker state (including OOM) and logs.
 
 ## Validation
 
-Local Node 24.19.0 / pnpm 11.9.0: `pnpm --filter '@k-nex/extension-runner...' -r build` (5 workspace packages); `pnpm --filter @k-nex/extension-runner test:docker` (5/5); Ruby YAML parse; `git diff --check`. Linux Docker isolation proof remains GitHub Ubuntu-only.
+Local Node 24.19.0: `node --check` for the static test, supervisor, and web/admin container; `node --test --test-concurrency=1 tests/static-deployment-postgres.test.mjs` (1/1, 245.7s), including real PostgreSQL/Docker traffic, crash recovery, rollback, and maintenance refusal. Exact-head Linux CI is pending.
 
 ## Next
 

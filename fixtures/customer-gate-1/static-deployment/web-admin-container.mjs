@@ -28,13 +28,13 @@ const proof = await (async () => {
   const dockerDenied = await rejected(() => execute("docker", ["build", "."], { cwd: "/app", timeout: 5_000 }));
   let supervisorDenied = false;
   try {
-    const response = await fetch(`${supervisorUrl}/commands`, { method: "POST", headers: { authorization: "Bearer absent-supervisor-token", "content-type": "application/json" }, body: "{}" });
+    const response = await fetch(`${supervisorUrl}/commands`, { method: "POST", headers: { authorization: "Bearer absent-supervisor-token", "content-type": "application/json" }, body: "{}", signal: AbortSignal.timeout(5_000) });
     supervisorDenied = response.status === 401;
-  } catch { supervisorDenied = true; }
+  } catch { supervisorDenied = false; }
   const controlPlaneAbsent = (await Promise.all([
     "deployment-supervisor-process.mjs", "topology-process.mjs", "Dockerfile"
   ].map((path) => rejected(() => access(`/app/${path}`))))).every(Boolean);
-  if (!inventoryReadable || !deploymentTableDenied || !sourceWriteDenied || !buildDenied || !dockerDenied || !supervisorDenied || !controlPlaneAbsent) throw new Error("Web/admin isolation or database-connectivity proof failed.");
+  if (!inventoryReadable || !deploymentTableDenied || !sourceWriteDenied || !buildDenied || !dockerDenied || !supervisorDenied || !controlPlaneAbsent) throw new Error(`Web/admin isolation or database-connectivity proof failed: ${canonicalJson({ inventoryReadable, deploymentTableDenied, sourceWriteDenied, buildDenied, dockerDenied, supervisorDenied, controlPlaneAbsent })}`);
   return Object.freeze({ inventoryReadable, deploymentTableDenied, sourceWriteDenied, buildDenied, dockerDenied, supervisorDenied, controlPlaneAbsent, processId: process.pid });
 })();
 
