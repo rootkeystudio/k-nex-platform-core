@@ -339,9 +339,18 @@ export class DockerHotApplicationSandboxSupervisor {
       const lines = createInterface({ input: child.stdout, crlfDelay: Infinity, terminal: false });
       lines.on("line", (line) => { void this.handleFrame(line, request, child, controller.signal, (bytes) => { logBytes += bytes; if (logBytes > request.limits.logBytes) fail(new RunnerInvocationError("OUTPUT_BUDGET_EXCEEDED", "Runner logs exceeded their budget.")); }, finish, fail); });
       child.once("spawn", () => {
-        Promise.resolve(this.inspectSecurity(containerName, request.limits, workloadUser)).then(() => this.observationSink.started(request, containerName)).then(() => {
-          child.stdin.write(`${JSON.stringify({ type: "invoke", schemaVersion: 1, invocationId: request.invocationId, generationId: request.generationId, token: request.token, source: request.source, input: request.input, maxInputBytes: request.limits.inputBytes, maxOutputBytes: request.limits.outputBytes })}\n`);
-        }).catch((error) => fail(error instanceof RunnerInvocationError ? error : new RunnerInvocationError("CONTAINER_FAILED", "Runner container observation failed.")));
+        void (async () => {
+          try {
+            await this.inspectSecurity(containerName, request.limits, workloadUser);
+            if (controller.signal.aborted) return;
+            await this.observationSink.started(request, containerName);
+            if (controller.signal.aborted) return;
+            child.stdin.write(`${JSON.stringify({ type: "invoke", schemaVersion: 1, invocationId: request.invocationId, generationId: request.generationId, token: request.token, source: request.source, input: request.input, maxInputBytes: request.limits.inputBytes, maxOutputBytes: request.limits.outputBytes })}\n`);
+          } catch (error) {
+            if (controller.signal.aborted) return;
+            fail(error instanceof RunnerInvocationError ? error : new RunnerInvocationError("CONTAINER_FAILED", "Runner container observation failed."));
+          }
+        })();
       });
       child.once("close", (code) => {
         closed = true;

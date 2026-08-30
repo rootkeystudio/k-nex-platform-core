@@ -86,6 +86,45 @@ describe("runner startup reconciliation", () => {
     expect(authority.admit).toHaveBeenCalledWith(orphan, drainLeaseId);
   });
 
+  it("does not write an invoke frame when deferred inspection resolves after timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const supervisor = runner({ active: async () => false, admit: async () => true }) as any;
+      let resolveInspection!: () => void;
+      const inspection = new Promise<void>((resolve) => { resolveInspection = resolve; });
+      const child = Object.assign(new EventEmitter(), {
+        stdin: new PassThrough(),
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        kill: vi.fn(() => true)
+      });
+      const writes: string[] = [];
+      child.stdin.on("data", (chunk: Buffer) => { writes.push(chunk.toString("utf8")); });
+      const started = vi.fn(async () => {});
+      supervisor.inspectSecurity = vi.fn(() => inspection);
+      supervisor.observationSink = { started, async stopped() {} };
+      supervisor.kill = vi.fn(async () => {});
+      const cleanup = vi.fn();
+      const invocation = { ...request(), ...orphan, source: "export default () => null" };
+      const outcome = supervisor.exchange(child, invocation, "runner-deferred-inspection", 10_000, cleanup);
+
+      child.emit("spawn");
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(1);
+      resolveInspection();
+      await Promise.resolve();
+
+      expect(started).not.toHaveBeenCalled();
+      expect(writes).toEqual([]);
+      child.emit("close", 137);
+      await expect(outcome).rejects.toMatchObject({ code: "INVOCATION_TIMEOUT" });
+      expect(cleanup).toHaveBeenCalledTimes(1);
+      expect(supervisor.kill).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("reaps the docker CLI before container cleanup when timeout wins before spawn", async () => {
     vi.useFakeTimers();
     try {
@@ -97,7 +136,6 @@ describe("runner startup reconciliation", () => {
         stderr: new PassThrough(),
         kill: vi.fn((signal: string) => {
           events.push(`cli:${signal}`);
-          child.emit("close", 137);
           return true;
         })
       });
@@ -113,6 +151,10 @@ describe("runner startup reconciliation", () => {
       });
 
       await vi.advanceTimersByTimeAsync(1);
+      expect(events).toEqual(["cli:SIGKILL"]);
+      expect(cleanup).not.toHaveBeenCalled();
+      expect(supervisor.kill).not.toHaveBeenCalled();
+      child.emit("close", 137);
       await Promise.all([rejection, observed]);
       expect(events).toEqual(["cli:SIGKILL", "cli:close", "container", "policy", "settled:INVOCATION_TIMEOUT"]);
 
