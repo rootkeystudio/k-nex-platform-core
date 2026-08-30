@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Closed the runner-isolation proof rejection race: the forced drain promise receives its expected rejection handler before container termination, so Vitest no longer reports an asynchronously handled rejection after all five assertions pass. Production runner behavior is unchanged. Persistent Sol Ultra review returned `PASS`.
+Gate 9 attack corpus now passes all 22 required scenarios across 12 exact proof groups, including real PostgreSQL, Docker runner/static delivery, continuous HTTP, multi-process, and Chromium evidence. The pull-request workflow now runs `pnpm gate:9` instead of stopping at Gate 8, with a bounded 45-minute job timeout.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: extension runner build/full Docker tests passed (5); the exact Gate 9 JSON proof reproduced the pre-fix warning/exit once, then passed 12/12 consecutive post-fix runs; diff checks passed. No task container/process remains.
+Node 24.19.0 / pnpm 11.9.0: full Phase 9 attack corpus passed (`status: PASS`; 22 scenarios, 12 proof groups); workflow YAML parsed successfully; diff checks passed. Prior exact runner proof passed 12/12 after the reviewed rejection fix. No task container/process remains.
 
 ## Next
 
-Rerun the complete Phase 9 attack corpus and isolate any next exact blocker without weakening required evidence.
+Obtain persistent Sol Ultra PASS for exact Gate 9 CI wiring, push PR #28, and require the new exact-head `validate` check to pass before Phase 9 closeout.
 
 ## Blockers
 

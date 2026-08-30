@@ -15,7 +15,7 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -32,8 +32,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Install browser proofs
         run: pnpm exec playwright install --with-deps chromium
-      - name: Run Phase 0 through Gate 8
-        run: pnpm gate:8
+      - name: Run Phase 0 through Gate 9
+        run: pnpm gate:9
       - name: Verify exact-head repository evidence
         run: |
           pnpm audit --audit-level high
