@@ -134,6 +134,7 @@ export class PostgresThemeProfileStore {
       if (current.draft_revision_id === profile.revision.id && current.draft_profile && canonicalJson(current.draft_profile) !== canonicalJson(profile)) {
         fail("DRAFT_CONFLICT", "A different draft already owns this immutable revision identity.");
       }
+      await this.assertSkinGeneration(session, owner, profile);
       const updated = await session.query<PublicationRow>(
         `update runtime_theme_profile_publications set draft_revision_id=$4, draft_profile=$5::jsonb, updated_at=now()
          where application_id=$1 and environment=$2 and profile_id=$3 returning *`,

@@ -83,11 +83,21 @@ function request(operation, version, expectedRevision) {
 }
 
 function profile(state, revision, generation, version, previousRevisionId) {
+  const revisionNumber = Number(revision.split("-").at(-1));
   return {
     schemaVersion: 1, id: "theme-profile.public-skin", surface: "public", themeId: "theme.minimal", themeVersion: "1.0.0", palette: "light", mode: "light", values: {},
-    skin: { id: "skin.neobrutalism", generationId: generation, version, palette: "skin.bright", values: {} },
-    revision: { id: revision, number: revision.endsWith("-1") ? 1 : 2, createdAt: "2026-08-29T09:00:00.000Z", ...(previousRevisionId ? { previousRevisionId } : {}), state, ...(state === "published" ? { publishedAt: "2026-08-29T09:01:00.000Z" } : {}) }
+    ...(generation && version ? { skin: { id: "skin.neobrutalism", generationId: generation, version, palette: "skin.bright", values: {} } } : {}),
+    revision: { id: revision, number: revisionNumber, createdAt: "2026-08-29T09:00:00.000Z", ...(previousRevisionId ? { previousRevisionId } : {}), state, ...(state === "published" ? { publishedAt: "2026-08-29T09:01:00.000Z" } : {}) }
   };
+}
+
+async function waitForLockWaiters(pool, count) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const result = await pool.query("select count(*)::int count from pg_stat_activity where datname=current_database() and wait_event_type='Lock'");
+    if (result.rows[0]?.count >= count) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Timed out waiting for ${count} PostgreSQL lock waiters.`);
 }
 
 async function assertRestoredSkinBrowser(resolved, themeProfile, assetBytes) {
@@ -155,7 +165,7 @@ test("delivers Theme Skins from signed durable artifacts through PluginManager i
   const clock = { now: () => new Date() };
   try {
     await boot(container.getConnectionUri());
-    const releases = [releaseDefinition(1, "1.0.0", "#0088cc"), releaseDefinition(2, "1.1.0", "#0099cc")];
+    const releases = [releaseDefinition(1, "1.0.0", "#0088cc"), releaseDefinition(2, "1.1.0", "#0099cc"), releaseDefinition(3, "1.2.0", "#0088cc")];
     const catalog = signedCatalog(releases.map((release) => release.entry));
     const verifier = new ArtifactVerifier(new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, new InMemoryCatalogCheckpointStore()), { [publisher.identity]: publisher.publicKey });
     const artifacts = new PostgresVerifiedArtifactStore(pool, verifier);
@@ -230,7 +240,89 @@ test("delivers Theme Skins from signed durable artifacts through PluginManager i
     assert.equal(rolledBack.generationId, releases[0].generationId);
     const profileRollback = await profiles.rollback({ applicationId: "customer-alpha", environment: "production", profileId: first.id, expectedRevision: 2 });
     assert.equal(profileRollback.skinGenerationId, releases[0].generationId);
-    console.log('P9_THEME_SKIN_DURABLE_EVIDENCE={"scenarios":["signed-install-update-rollback","forged-row","altered-bytes","wrong-generation","restore-restart","restored-chromium-presentation"]}');
+
+    const disable = await recoveredManager.plan(request("disable", "1.0.0", rolledBack.revisionAfter));
+    await assert.rejects(recoveredManager.disable(disable.operationId), { code: "REFERENCE_CONFLICT" });
+
+    const noSkin2 = profile("published", "theme-skin.no-skin-2", undefined, undefined, first.revision.id);
+    await profiles.stageDraft({ applicationId: "customer-alpha", environment: "production", profile: profile("draft", noSkin2.revision.id, undefined, undefined, first.revision.id) });
+    await profiles.publish({ applicationId: "customer-alpha", environment: "production", expectedRevision: profileRollback.revisionAfter, profile: noSkin2 });
+    await assert.rejects(recoveredManager.disable(disable.operationId), { code: "REFERENCE_CONFLICT" });
+    const noSkin3 = profile("published", "theme-skin.no-skin-3", undefined, undefined, noSkin2.revision.id);
+    await profiles.stageDraft({ applicationId: "customer-alpha", environment: "production", profile: profile("draft", noSkin3.revision.id, undefined, undefined, noSkin2.revision.id) });
+    await profiles.publish({ applicationId: "customer-alpha", environment: "production", expectedRevision: 4, profile: noSkin3 });
+
+    const skin4 = profile("published", "theme-skin.race-skin-4", releases[0].generationId, releases[0].version, noSkin3.revision.id);
+    const extensionLock = await pool.connect();
+    let extensionLockOpen = false;
+    try {
+      await extensionLock.query("begin");
+      extensionLockOpen = true;
+      await extensionLock.query(
+        `select 1 from runtime_extensions where application_id=$1 and environment=$2 and delivery_class='theme-skin' and extension_id=$3 for update`,
+        ["customer-alpha", "production", "skin.neobrutalism"]
+      );
+      const staging = profiles.stageDraft({ applicationId: "customer-alpha", environment: "production", profile: profile("draft", skin4.revision.id, releases[0].generationId, releases[0].version, noSkin3.revision.id) });
+      await waitForLockWaiters(pool, 1);
+      const disposition = recoveredManager.disable(disable.operationId);
+      await waitForLockWaiters(pool, 2);
+      await extensionLock.query("commit");
+      extensionLockOpen = false;
+      const outcomes = await Promise.allSettled([staging, disposition]);
+      assert.equal(outcomes.filter((outcome) => outcome.status === "fulfilled").length, 1, "Exactly one draft stage/disposition race participant must commit.");
+      assert.equal(outcomes[0]?.status, "fulfilled", "The queued draft stage must commit before the competing disposition scans references.");
+      assert.equal(outcomes[1]?.status, "rejected");
+      if (outcomes[1]?.status === "rejected") assert.equal(outcomes[1].reason?.code, "REFERENCE_CONFLICT");
+    } finally {
+      if (extensionLockOpen) await extensionLock.query("rollback");
+      extensionLock.release();
+    }
+    const danglingReference = await pool.query(
+      `select count(*)::int count from runtime_theme_profile_publications p
+       where p.application_id=$1 and p.environment=$2 and (
+         p.active_profile->'skin'->>'id'=$3 or p.previous_profile->'skin'->>'id'=$3 or p.draft_profile->'skin'->>'id'=$3
+       ) and not exists (
+         select 1 from runtime_extensions e join runtime_extension_generations g
+           on g.application_id=e.application_id and g.environment=e.environment and g.delivery_class=e.delivery_class
+             and g.extension_id=e.extension_id and g.generation_id=e.active_generation_id
+         where e.application_id=p.application_id and e.environment=p.environment and e.delivery_class='theme-skin' and e.extension_id=$3
+           and e.disposition='active' and g.state='active'
+       )`,
+      ["customer-alpha", "production", "skin.neobrutalism"]
+    );
+    assert.equal(danglingReference.rows[0]?.count, 0, "Concurrent draft staging and disposition committed an unavailable Theme Skin reference.");
+
+    await profiles.publish({ applicationId: "customer-alpha", environment: "production", expectedRevision: 5, profile: skin4 });
+    await assert.rejects(recoveredManager.disable(disable.operationId), { code: "REFERENCE_CONFLICT" });
+    const noSkin5 = profile("published", "theme-skin.no-skin-5", undefined, undefined, skin4.revision.id);
+    await profiles.stageDraft({ applicationId: "customer-alpha", environment: "production", profile: profile("draft", noSkin5.revision.id, undefined, undefined, skin4.revision.id) });
+    await profiles.publish({ applicationId: "customer-alpha", environment: "production", expectedRevision: 6, profile: noSkin5 });
+    await assert.rejects(recoveredManager.disable(disable.operationId), { code: "REFERENCE_CONFLICT" });
+    const noSkin6 = profile("published", "theme-skin.no-skin-6", undefined, undefined, noSkin5.revision.id);
+    await profiles.stageDraft({ applicationId: "customer-alpha", environment: "production", profile: profile("draft", noSkin6.revision.id, undefined, undefined, noSkin5.revision.id) });
+    await profiles.publish({ applicationId: "customer-alpha", environment: "production", expectedRevision: 7, profile: noSkin6 });
+    const disabled = await recoveredManager.disable(disable.operationId);
+    assert.equal(disabled.disposition, "disabled");
+
+    const reinstalled = await recoveredManager.plan(request("install", "1.2.0", disabled.revisionAfter));
+    await recoveredManager.stage(reinstalled.operationId);
+    const reactivated = await recoveredManager.activate(reinstalled.operationId);
+    const skin7 = profile("published", "theme-skin.uninstall-skin-7", releases[2].generationId, releases[2].version, noSkin6.revision.id);
+    await profiles.stageDraft({ applicationId: "customer-alpha", environment: "production", profile: profile("draft", skin7.revision.id, releases[2].generationId, releases[2].version, noSkin6.revision.id) });
+    const uninstall = await recoveredManager.plan(request("uninstall", "1.2.0", reactivated.revisionAfter));
+    await assert.rejects(recoveredManager.uninstall(uninstall.operationId), { code: "REFERENCE_CONFLICT" });
+    await profiles.publish({ applicationId: "customer-alpha", environment: "production", expectedRevision: 8, profile: skin7 });
+    await assert.rejects(recoveredManager.uninstall(uninstall.operationId), { code: "REFERENCE_CONFLICT" });
+    const noSkin8 = profile("published", "theme-skin.no-skin-8", undefined, undefined, skin7.revision.id);
+    await profiles.stageDraft({ applicationId: "customer-alpha", environment: "production", profile: profile("draft", noSkin8.revision.id, undefined, undefined, skin7.revision.id) });
+    await profiles.publish({ applicationId: "customer-alpha", environment: "production", expectedRevision: 9, profile: noSkin8 });
+    await assert.rejects(recoveredManager.uninstall(uninstall.operationId), { code: "REFERENCE_CONFLICT" });
+    const noSkin9 = profile("published", "theme-skin.no-skin-9", undefined, undefined, noSkin8.revision.id);
+    await profiles.stageDraft({ applicationId: "customer-alpha", environment: "production", profile: profile("draft", noSkin9.revision.id, undefined, undefined, noSkin8.revision.id) });
+    await profiles.publish({ applicationId: "customer-alpha", environment: "production", expectedRevision: 10, profile: noSkin9 });
+    const uninstalled = await recoveredManager.uninstall(uninstall.operationId);
+    assert.equal(uninstalled.disposition, "removed");
+    console.log('P9_THEME_SKIN_DURABLE_EVIDENCE={"scenarios":["signed-install-update-rollback","forged-row","altered-bytes","wrong-generation","restore-restart","restored-chromium-presentation","profile-reference-disposition","draft-disposition-race"]}');
   } finally {
     await pool.end();
     await container.stop();

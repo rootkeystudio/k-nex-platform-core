@@ -47,7 +47,7 @@ export interface RuntimeExtensionClock {
 }
 
 export class RuntimeExtensionStoreError extends Error {
-  constructor(readonly code: "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "OPERATION_IN_PROGRESS" | "OPERATION_NOT_FOUND" | "LEASE_CONFLICT" | "PHASE_CONFLICT" | "GLOBAL_BUDGET_EXHAUSTED" | "GENERATION_MISMATCH" | "VERSION_DOWNGRADE" | "READINESS_EXPIRED" | "ROLLBACK_BLOCKED" | "STATE_INVALID", message: string) {
+  constructor(readonly code: "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "OPERATION_IN_PROGRESS" | "OPERATION_NOT_FOUND" | "LEASE_CONFLICT" | "PHASE_CONFLICT" | "GLOBAL_BUDGET_EXHAUSTED" | "GENERATION_MISMATCH" | "VERSION_DOWNGRADE" | "READINESS_EXPIRED" | "ROLLBACK_BLOCKED" | "REFERENCE_CONFLICT" | "STATE_INVALID", message: string) {
     super(message);
     this.name = "RuntimeExtensionStoreError";
   }
@@ -834,6 +834,16 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
         fail("STATE_INVALID", "Only an active extension can be disabled.");
       }
       if (operationKind === "uninstall" && state.disposition === "removed") fail("STATE_INVALID", "Removed extension cannot be uninstalled again.");
+      if (row.delivery_class === "theme-skin") {
+        const reference = await session.query<{ profile_id: string }>(
+          `select profile_id from runtime_theme_profile_publications
+           where application_id=$1 and environment=$2 and (
+             active_profile->'skin'->>'id'=$3 or previous_profile->'skin'->>'id'=$3 or draft_profile->'skin'->>'id'=$3
+           ) limit 1`,
+          [row.application_id, row.environment, row.extension_id]
+        );
+        if (reference.rows[0]) fail("REFERENCE_CONFLICT", "Theme Skin is still referenced by a durable Theme Profile revision.");
+      }
       const previousGeneration = state.active_generation ?? state.retained_generation;
       const previousGenerationId = previousGeneration && typeof previousGeneration["generationId"] === "string" ? previousGeneration["generationId"] : undefined;
       const revision = state.revision + 1;
