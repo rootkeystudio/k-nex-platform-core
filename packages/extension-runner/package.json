@@ -13,7 +13,7 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "test": "vitest run",
+    "test": "vitest run tests/policy.test.ts tests/runner-reconciliation.test.ts",
     "test:docker": "vitest run tests/docker-sandbox.test.ts"
   },
   "dependencies": {

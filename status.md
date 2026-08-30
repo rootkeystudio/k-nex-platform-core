@@ -3,19 +3,19 @@
 - **Updated:** 2026-08-30
 - **Phase:** Phase 9 — Dynamic Application Runtime and Zero-Downtime Delivery
 - **Active task:** P9.10 — Gate 9 closeout
-- **State:** Ready for phase review
+- **State:** In progress
 
 ## Last completed
 
-Completed P9.10 remediation with a pre-install fixed-route host whose served script remains identical through update and rollback, plus four autonomous child-process consumers.
+Separated environment-independent runner tests from the production Docker sandbox proof; generic Gate 8 CI no longer requires Docker Desktop, while Gate 9 still executes the real Docker attack corpus.
 
 ## Validation
 
-Node 24.19.0: all executable Gate 9 proofs passed; the terminal check rejected only the intentionally in-progress closeout decision before this review-ready commit.
+Node 24.19.0: `pnpm --filter @k-nex/extension-runner test` passed (2 files, 3 tests); `test:docker` and the Gate 9 attack-corpus invocation remain unchanged.
 
 ## Next
 
-Run complete Gate 9 on this exact closeout head, request fresh Sol-high blocking review, then open the Phase 9 pull request if it passes.
+Complete and commit the Hot Application route identity/ownership remediation, then continue the Phase 9 Sol Ultra review-fix loop.
 
 ## Blockers
 
