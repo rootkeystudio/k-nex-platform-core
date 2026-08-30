@@ -7,7 +7,7 @@
 
 ## Last completed
 
-Closed the runner-isolation proof rejection race: the forced drain promise receives its expected rejection handler before container termination, so Vitest no longer reports an asynchronously handled rejection after all five assertions pass. Production runner behavior is unchanged.
+Closed the runner-isolation proof rejection race: the forced drain promise receives its expected rejection handler before container termination, so Vitest no longer reports an asynchronously handled rejection after all five assertions pass. Production runner behavior is unchanged. Persistent Sol Ultra review returned `PASS`.
 
 ## Validation
 
@@ -15,7 +15,7 @@ Node 24.19.0 / pnpm 11.9.0: extension runner build/full Docker tests passed (5);
 
 ## Next
 
-Obtain persistent Sol Ultra PASS for the runner proof fix, then rerun the complete Phase 9 attack corpus and isolate any next exact blocker.
+Rerun the complete Phase 9 attack corpus and isolate any next exact blocker without weakening required evidence.
 
 ## Blockers
 
