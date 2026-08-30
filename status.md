@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Made all static deployment lifecycle receipt/outbox IDs deterministic and owner-scoped so independent tenants can commit the same per-owner revision without a global primary-key collision.
+Moved static runtime-image attestation ahead of online migrations and generation startup so mismatched runtime bytes cannot mutate customer state before rejection.
 
 ## Validation
 
-Node 24.19.0: Payload adapter build and 42 unit tests passed; real PostgreSQL concurrent two-owner promotion journey passed (1 test), proving distinct receipt/outbox IDs at revision one; `git diff --check` passed. Testcontainers left no containers or fixture networks.
+Node 24.19.0: runtime build passed; focused static deployment supervisor tests passed (1 file, 11 tests), including zero migration/generation calls on runtime-image mismatch; `git diff --check` passed.
 
 ## Next
 

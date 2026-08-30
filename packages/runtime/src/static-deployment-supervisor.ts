@@ -208,10 +208,10 @@ export class DeploymentSupervisor {
     const fence = await this.requireFence(owner);
     const artifact = await this.artifacts.resolve(verified.evidence);
     ensureArtifact(artifact, verified.evidence);
+    if (artifact.runtimeImageDigest !== artifact.imageDigest) throw new StaticDeploymentSupervisorError("ARTIFACT_MISMATCH", "Artifact provider did not resolve the attested image bytes.");
     const completedMigrationSteps = await this.migrations.runOnline(change.migration);
     let readiness: StaticPromotionReadiness;
     try {
-      if (artifact.runtimeImageDigest !== artifact.imageDigest) throw new StaticDeploymentSupervisorError("ARTIFACT_MISMATCH", "Artifact provider did not resolve the attested image bytes.");
       await this.generations.start({ ...owner, generationId: input.generationId, imageReference: artifact.imageReference, workerMode: "passive" });
       readiness = await this.generations.readiness({
         ...owner,

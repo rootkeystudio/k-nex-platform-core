@@ -139,6 +139,25 @@ describe("static deployment supervisor", () => {
     expect(value.state.promote).toHaveBeenCalledWith(expect.objectContaining({ build: value.build.token, expectedFenceToken: 4, expectedRevision: 0 }));
   });
 
+  it("rejects a runtime image mismatch before migrations or generation-host work", async () => {
+    const value = harness();
+    vi.mocked(value.artifacts.resolve).mockResolvedValueOnce({
+      imageReference: `${value.build.evidence.imageSubject.repository}@${value.build.evidence.imageSubject.digest}`,
+      applicationDigest: value.build.evidence.applicationSubject.digest,
+      imageDigest: value.build.evidence.imageSubject.digest,
+      runtimeImageDigest: digest("0")
+    });
+
+    await expect(value.supervisor.deploy({ build: value.build.token, generationId: "customer-alpha-green-9", workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" }))
+      .rejects.toMatchObject({ code: "ARTIFACT_MISMATCH" });
+    expect(value.migrations.runOnline).not.toHaveBeenCalled();
+    expect(value.generations.start).not.toHaveBeenCalled();
+    expect(value.generations.readiness).not.toHaveBeenCalled();
+    expect(value.generations.activateWorker).not.toHaveBeenCalled();
+    expect(value.generations.drain).not.toHaveBeenCalled();
+    expect(value.generations.retire).not.toHaveBeenCalled();
+  });
+
   it("returns maintenance-required before resolving artifacts, migrations, or green containers", async () => {
     const build = trustedBuild({ ...fixture, migration: { ...fixture.migration, steps: [{ stepId: "migration-offline-9", phase: "offline-required", migrationDigest: digest("c"), availability: "maintenance-required" }] } });
     const value = harness(build);
