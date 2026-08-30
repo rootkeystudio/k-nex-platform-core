@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { HotApplicationManifestSchema } from "@k-nex/contracts";
 import { resolveHotApplicationFixedRoute, resolveHotApplicationNavigation, resolveHotApplicationRoute, resolveHotApplicationSlot } from "../src/hot-application-surfaces.js";
 
 const registration = {
@@ -8,6 +9,17 @@ const registration = {
   navigation: [{ id: "sales.assistant", title: "Sales assistant", route: "/apps/sales-assistant" }],
   slots: [{ slotId: "sales.task-detail", contributionId: "sales.assistant-summary" }]
 };
+
+const dottedManifest = {
+  schemaVersion: 1, deliveryClass: "hot-application", id: "app.foo.bar", displayName: "Dotted routes", version: "1.0.0", runtimeAbi: "1.0.0",
+  entrypoints: { server: [], ui: ["ui/main.mjs"] }, capabilities: [],
+  resourceBudget: { maxBundleBytes: 1, maxAssetBytes: 1, maxStorageBytes: 1, maxMemoryMiB: 1, maxCpuMilliCores: 1, maxWallTimeMs: 1, maxInputBytes: 1, maxOutputBytes: 1, maxLogBytes: 1, maxConcurrency: 1 },
+  settings: [], screens: [
+    { id: "foo.home", route: "/apps/foo.bar", entrypoint: "ui/main.mjs" },
+    { id: "foo.task", route: "/apps/foo.bar/tasks/:taskid", entrypoint: "ui/main.mjs" }
+  ],
+  navigation: [], sources: [], actions: [], tools: [], logicFunctions: [], eventSubscriptions: [], schedules: [], storageSchemas: [], assets: [], localization: [], healthChecks: []
+} as const;
 
 describe("fixed Hot Application surfaces", () => {
   it("resolves active routes, navigation, and extension slots without runtime route injection", () => {
@@ -25,8 +37,9 @@ describe("fixed Hot Application surfaces", () => {
   });
 
   it("keeps dotted application IDs distinct from hyphenated IDs", () => {
+    const manifest = HotApplicationManifestSchema.parse(dottedManifest);
     const dotted = {
-      ...registration, appId: "app.foo.bar", routes: ["/apps/foo.bar"],
+      ...registration, appId: manifest.id, routes: manifest.screens.map(({ route }) => route),
       navigation: [{ id: "foo.bar", title: "Dotted", route: "/apps/foo.bar" }]
     };
     const hyphenated = {
@@ -35,8 +48,11 @@ describe("fixed Hot Application surfaces", () => {
     };
 
     expect(resolveHotApplicationRoute("/apps/foo.bar", [dotted, hyphenated]).appId).toBe("app.foo.bar");
+    expect(resolveHotApplicationRoute("/apps/foo.bar/tasks/42", [dotted]).route).toBe("/apps/foo.bar/tasks/42");
     expect(resolveHotApplicationFixedRoute("foo.bar", undefined, [dotted, hyphenated]).appId).toBe("app.foo.bar");
     expect(resolveHotApplicationFixedRoute("foo-bar", undefined, [dotted, hyphenated]).appId).toBe("app.foo-bar");
+    expect(() => resolveHotApplicationRoute("/apps/foo.bar/tasks/..", [dotted])).toThrow();
+    expect(() => resolveHotApplicationRoute("/apps/foo.bar/tasks/%2e%2e", [dotted])).toThrow();
   });
 
   it("rejects routes that only share an application ID prefix", () => {

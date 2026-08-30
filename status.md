@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Serialized every app-storage namespace mutation with full-app restore by taking the same application advisory lock before the namespace lock; a real PostgreSQL barrier test proves deterministic post-restore writes.
+Unified the signed Hot Application manifest and UI resolver on one contracts-owned route grammar with dotted owner identity, exact boundaries, safe one-segment parameters, and traversal rejection.
 
 ## Validation
 
-Node 24.19.0: payload-adapter tests passed (8 files, 40 tests); real Testcontainers/PostgreSQL app-storage race proof passed (1 test); `git diff --check` passed.
+Node 24.19.0: contract generation passed (23 tasks); contracts tests passed (22 files, 156 tests); UI runtime tests passed (10 files, 59 tests); repository contract validation and `git diff --check` passed.
 
 ## Next
 
-Unify the signed Hot Application manifest route contract with fixed-route ownership and parameter resolution, then continue the Sol Ultra review-fix loop.
+Complete durable drain-lease runner admission across cutover, then remediate stale Remote UI retirement timers and operation-lease renewal.
 
 ## Blockers
 
