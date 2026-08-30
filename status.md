@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Separated environment-independent runner tests from the production Docker sandbox proof; generic Gate 8 CI no longer requires Docker Desktop, while Gate 9 still executes the real Docker attack corpus.
+Made Hot Application route identity injective by preserving dotted app-ID suffixes and enforcing exact route-segment ownership; dot/hyphen and prefix collisions now have regression coverage.
 
 ## Validation
 
-Node 24.19.0: `pnpm --filter @k-nex/extension-runner test` passed (2 files, 3 tests); `test:docker` and the Gate 9 attack-corpus invocation remain unchanged.
+Node 24.19.0: `pnpm build` passed (22 packages); `pnpm --filter @k-nex/ui-runtime test` passed (10 files, 58 tests); `git diff --check` passed.
 
 ## Next
 
-Complete and commit the Hot Application route identity/ownership remediation, then continue the Phase 9 Sol Ultra review-fix loop.
+Resolve each blocking finding from the persistent Phase 9 Sol Ultra review, then run the exact-head Gate 9 and CI proofs.
 
 ## Blockers
 
