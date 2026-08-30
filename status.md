@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Addressed the Phase 9 review's runtime-consumer and host-surface blockers with lifecycle-owned non-overlapping polling and a real fixed Hot Application route that resolves durable active-generation authority and verified Remote UI assets.
+Addressed the remaining Phase 9 review blockers with an in-image least-privilege operator, distinct digest-pinned release workers, supervisor restart rediscovery, bounded passive-worker readiness, and fail-closed labeled Docker teardown.
 
 ## Validation
 
-Node 24.19.0: runtime tests passed 294/294, UI runtime tests passed 56/56, customer fixture build passed, and the exact PostgreSQL Hot Application journey passed with Chromium install/update/rollback plus autonomous web/worker/runner/browser convergence after 12 dropped invalidations.
+Node 24.19.0: the exact static PostgreSQL/Docker journey passed in 195 seconds with all four static scenarios, nine crash-matrix entries, continuous install/update/rollback/re-promotion traffic, durable maintenance refusal, and zero residual labeled containers, images, or networks.
 
 ## Next
 
-Complete the remaining static lifecycle, least-privilege operator, immutable worker, and deterministic Docker cleanup review blockers, then rerun Gate 9.
+Run affected repository checks and the complete Gate 9 on the committed review-fix head, then request a fresh Sol-high blocking review.
 
 ## Blockers
 

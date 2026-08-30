@@ -24,6 +24,7 @@ import { startContinuousHttpProbe } from "./continuous-http-probe.mjs";
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
 const fixtureDirectory = fileURLToPath(new URL("..", import.meta.url));
+const repositoryRoot = join(fixtureDirectory, "..", "..");
 const staticDeploymentDirectory = join(fixtureDirectory, "static-deployment");
 const topologyProcess = join(staticDeploymentDirectory, "topology-process.mjs");
 const npm = join(dirname(process.execPath), "npm");
@@ -211,6 +212,11 @@ async function prepareCustomerSource() {
   await cp(join(fixtureDirectory, "..", "customer-alpha", "src"), join(sourceDirectory, "src"), { recursive: true });
   await cp(join(fixtureDirectory, "..", "customer-alpha", "tsconfig.json"), join(sourceDirectory, "tsconfig.json"));
   await cp(join(fixtureDirectory, "packages"), join(sourceDirectory, "packages"), { recursive: true });
+  const operatorPackages = join(sourceDirectory, "static-deployment", "operator-packages");
+  await mkdir(operatorPackages, { recursive: true });
+  for (const name of ["contracts", "composition", "extension-bundler", "runtime", "payload-adapter"]) {
+    await command("pnpm", ["pack", "--pack-destination", operatorPackages], join(repositoryRoot, "packages", name));
+  }
   await cp(join(fixtureDirectory, "src", "migrations", "20260829_000011_static_deployment.ts"), join(sourceDirectory, "static-deployment-migration.ts"));
   await resolveLock(sourceDirectory);
   await git(sourceDirectory, ["init", "--quiet"]);
@@ -227,31 +233,39 @@ async function sourceMaterials(sourceDirectory) {
   const paths = [
     "k-nex.app.json", "package.json", "package-lock.json", ".k-nex/generated/resolved-graph.json",
     "tsconfig.json", "src/boot.ts", "src/k-nex-readiness.ts", "src/k-nex-registry.ts", "src/payload.config.ts", "src/migrations/20260827_000001_sales_baseline.ts", "src/migrations/20260827_000002_knex_bootstrap.ts", "src/migrations/index.ts",
-    "static-deployment/Dockerfile", "static-deployment/customer-application-gate.mjs", "static-deployment/deployment-supervisor-process.mjs", "static-deployment/healthcheck.mjs", "static-deployment/next.config.mjs", "static-deployment/payload.config.ts", "static-deployment/release.json", "static-deployment/static-runtime.ts", "static-deployment/topology-process.mjs", "static-deployment/tsconfig.customer.json", "static-deployment/tsconfig.next.json", "static-deployment/web-admin-container.mjs",
+    "static-deployment/Dockerfile", "static-deployment/customer-application-gate.mjs", "static-deployment/deployment-supervisor-process.mjs", "static-deployment/healthcheck.mjs", "static-deployment/next.config.mjs", "static-deployment/payload.config.ts", "static-deployment/release-worker.mjs", "static-deployment/release.json", "static-deployment/static-runtime.ts", "static-deployment/topology-process.mjs", "static-deployment/tsconfig.customer.json", "static-deployment/tsconfig.next.json", "static-deployment/web-admin-container.mjs",
     "static-deployment/app/layout.tsx", "static-deployment/app/page.tsx", "static-deployment/app/api/[...slug]/route.ts", "static-deployment/app/[endpoint]/route.ts",
     "static-deployment-migration.ts", salesTarball
   ];
+  paths.push(
+    "static-deployment/operator-packages/k-nex-contracts-0.0.0.tgz",
+    "static-deployment/operator-packages/k-nex-composition-0.0.0.tgz",
+    "static-deployment/operator-packages/k-nex-extension-bundler-0.0.0.tgz",
+    "static-deployment/operator-packages/k-nex-runtime-0.0.0.tgz",
+    "static-deployment/operator-packages/k-nex-payload-adapter-0.0.0.tgz"
+  );
   const digests = Object.fromEntries(await Promise.all(paths.map(async (path) => [path, await fileDigest(join(sourceDirectory, path))])));
   const composition = {
     applicationManifestDigest: digests["k-nex.app.json"],
     lockfileDigest: digests["package-lock.json"],
     resolvedGraphDigest: digests[".k-nex/generated/resolved-graph.json"],
-    generatedRegistriesDigest: digestJson({ customerPayloadRegistry: Object.fromEntries(paths.filter((path) => path === "tsconfig.json" || path.startsWith("src/") || path.startsWith("static-deployment/app/") || ["static-deployment/customer-application-gate.mjs", "static-deployment/next.config.mjs", "static-deployment/payload.config.ts", "static-deployment/static-runtime.ts", "static-deployment/tsconfig.customer.json", "static-deployment/tsconfig.next.json"].includes(path)).map((path) => [path, digests[path]])), dockerfile: digests["static-deployment/Dockerfile"], healthcheck: digests["static-deployment/healthcheck.mjs"], topology: digests["static-deployment/topology-process.mjs"], supervisor: digests["static-deployment/deployment-supervisor-process.mjs"], webAdmin: digests["static-deployment/web-admin-container.mjs"] }),
+    generatedRegistriesDigest: digestJson({ customerPayloadRegistry: Object.fromEntries(paths.filter((path) => path === "tsconfig.json" || path.startsWith("src/") || path.startsWith("static-deployment/app/") || ["static-deployment/customer-application-gate.mjs", "static-deployment/next.config.mjs", "static-deployment/payload.config.ts", "static-deployment/release-worker.mjs", "static-deployment/static-runtime.ts", "static-deployment/tsconfig.customer.json", "static-deployment/tsconfig.next.json"].includes(path)).map((path) => [path, digests[path]])), dockerfile: digests["static-deployment/Dockerfile"], healthcheck: digests["static-deployment/healthcheck.mjs"], topology: digests["static-deployment/topology-process.mjs"], supervisor: digests["static-deployment/deployment-supervisor-process.mjs"], webAdmin: digests["static-deployment/web-admin-container.mjs"] }),
     packageClosureDigest: digests[salesTarball],
     migrationPlanDigest: digests["static-deployment-migration.ts"]
   };
   return { composition, digests, paths, pluginVersion: JSON.parse(await readFile(join(sourceDirectory, "static-deployment", "release.json"), "utf8")).plugin.version };
 }
 
-async function prepareBaseImage(sourceDirectory, commit, artifactsDirectory) {
+async function prepareBaseImage(sourceDirectory, commit, artifactsDirectory, fixtureLabel, trackedImages) {
   const materials = await sourceMaterials(sourceDirectory);
   const applicationBundle = Buffer.from(canonicalJson({ sourceCommit: commit, files: materials.digests }));
   const applicationPath = join(artifactsDirectory, `${commit}.application.json`);
   await writeFile(applicationPath, applicationBundle);
   const applicationDigest = sha256(applicationBundle);
   const tag = `knex-p9-customer-alpha:${commit.slice(0, 12)}`;
+  trackedImages.push({ tag });
   await docker(["build", "--pull=false", "--file", "static-deployment/Dockerfile", "--tag", tag,
-    "--build-arg", `K_NEX_SOURCE_COMMIT=${commit}`, "--build-arg", `K_NEX_APPLICATION_DIGEST=${applicationDigest}`, "."], { cwd: sourceDirectory });
+    "--build-arg", `K_NEX_SOURCE_COMMIT=${commit}`, "--build-arg", `K_NEX_APPLICATION_DIGEST=${applicationDigest}`, "--build-arg", `K_NEX_FIXTURE_LABEL=${fixtureLabel}`, "."], { cwd: sourceDirectory });
   const inspection = JSON.parse((await docker(["image", "inspect", tag])).stdout)[0];
   const imageDigest = inspection.Id;
   assert.match(imageDigest, /^sha256:[0-9a-f]{64}$/u);
@@ -260,13 +274,13 @@ async function prepareBaseImage(sourceDirectory, commit, artifactsDirectory) {
   return { applicationDigest, applicationPath, imageDigest, imageReference: `knex-p9-customer-alpha@${imageDigest}`, tag };
 }
 
-async function startIsolatedWebAdminContainer({ network, imageId, databaseUrl }) {
+async function startIsolatedWebAdminContainer({ network, imageId, databaseUrl, operator, supervisorUrl }) {
   const name = `knex-p9-web-admin-${randomUUID().slice(0, 8)}`;
   await docker([
-    "run", "--rm", "--detach", "--name", name, "--network", network,
+    "run", "--detach", "--name", name, "--network", network, "--label", `p9-fixture=${network}`, "--label", "p9-role=web-admin",
     "--user", "65534:65534", "--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=16m",
     "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--pids-limit", "64", "--memory", "128m", "--cpus", "0.5",
-    "--publish", "127.0.0.1::3001", "--env", "HOME=/tmp", "--env", `DATABASE_URL=${databaseUrl}`, "--env", "P9_WEB_ADMIN_PORT=3001",
+    "--publish", "127.0.0.1::3001", "--env", "HOME=/tmp", "--env", `DATABASE_URL=${databaseUrl}`, "--env", "P9_WEB_ADMIN_PORT=3001", "--env", `P9_OPERATOR_CONFIGURATION=${JSON.stringify(operator)}`, "--env", `P9_SUPERVISOR_URL=${supervisorUrl}`,
     imageId, "node", "web-admin-container.mjs"
   ]);
   const port = (await docker(["port", name, "3001/tcp"])).stdout.trim().match(/127\.0\.0\.1:(\d+)$/u)?.[1];
@@ -280,15 +294,19 @@ async function startIsolatedWebAdminContainer({ network, imageId, databaseUrl })
   assert.equal(inspection.Config.Env.some((entry) => /^(DOCKER_HOST|GITHUB_TOKEN|SOURCE_WRITE_TOKEN|P9_SOURCE_DIRECTORY|P9_ARTIFACTS_DIRECTORY|P9_BUILDER_SIGNING_KEY_PATH)=/u.test(entry)), false);
   const url = `http://127.0.0.1:${port}`;
   let proof;
-  for (let attempt = 0; attempt < 50; attempt += 1) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
     const response = await fetch(`${url}/p9-admin-isolation`).catch(() => undefined);
     if (response?.ok) { proof = await response.json(); break; }
-    await delay(50);
+    await delay(100);
   }
-  assert.deepEqual(proof && { deploymentTableDenied: proof.deploymentTableDenied, sourceWriteDenied: proof.sourceWriteDenied, buildDenied: proof.buildDenied, dockerDenied: proof.dockerDenied, controlPlaneAbsent: proof.controlPlaneAbsent }, {
-    deploymentTableDenied: true, sourceWriteDenied: true, buildDenied: true, dockerDenied: true, controlPlaneAbsent: true
+  if (!proof) {
+    const logs = await docker(["logs", name]).then(({ stdout, stderr }) => `${stdout}${stderr}`).catch((error) => error.message);
+    assert.fail(`The isolated web/admin process did not become ready: ${logs}`);
+  }
+  assert.deepEqual(proof && { inventoryReadable: proof.inventoryReadable, deploymentTableDenied: proof.deploymentTableDenied, sourceWriteDenied: proof.sourceWriteDenied, buildDenied: proof.buildDenied, dockerDenied: proof.dockerDenied, supervisorDenied: proof.supervisorDenied, controlPlaneAbsent: proof.controlPlaneAbsent }, {
+    inventoryReadable: true, deploymentTableDenied: true, sourceWriteDenied: true, buildDenied: true, dockerDenied: true, supervisorDenied: true, controlPlaneAbsent: true
   }, "The real isolated web/admin process must execute and reject source-write, build, Docker, and deployment-table attempts.");
-  return { name, processId: proof.processId, url, stop: () => docker(["rm", "--force", name]).catch(() => undefined) };
+  return { name, processId: proof.processId, url, stop: () => docker(["rm", "--force", name]) };
 }
 
 async function provisionStaticBinarySchema(pool) {
@@ -308,6 +326,7 @@ async function provisionStaticBinarySchema(pool) {
     grant usage on schema public to p9_static_blue, p9_static_green, p9_static_source, p9_static_builder, p9_static_deployer, p9_static_supervisor, p9_static_worker, p9_static_gateway, p9_static_realtime, p9_static_web_admin;
     grant create on schema public to p9_static_supervisor;
     grant select on p9_static_overlap, p9_static_migration_authority to p9_static_blue, p9_static_green;
+    grant select on runtime_worker_generation_fences to p9_static_blue, p9_static_green;
     grant insert on p9_static_binary_observations to p9_static_blue, p9_static_green;
     grant usage, select on all sequences in schema public to p9_static_blue, p9_static_green;
     grant insert on p9_static_process_events to p9_static_blue, p9_static_green;
@@ -335,18 +354,18 @@ async function provisionStaticBinarySchema(pool) {
     -- may renew only its lease: it cannot transfer the active generation/token.
     grant update (lease_expires_at, updated_at) on runtime_worker_generation_fences to p9_static_worker;
     grant select on p9_static_process_routes to p9_static_gateway, p9_static_realtime;
-    grant select on runtime_extension_inventory_revisions to p9_static_web_admin;
+    grant select, insert, update on runtime_extensions, runtime_extension_inventory_revisions, runtime_extension_operations, runtime_extension_operation_budget, runtime_extension_transition_receipts, runtime_extension_audit, runtime_extension_outbox to p9_static_web_admin;
   `);
 }
 
 test("proves distinct customer binaries and deployment processes recover from PostgreSQL authority", { timeout: 300_000 }, async () => {
   supervisorControlToken = sha256(randomUUID());
-  const postgres = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("static_deployment").withStartupTimeout(120_000).start();
-  const sourceDirectory = await prepareCustomerSource();
-  const artifactsDirectory = await mkdtemp(join(tmpdir(), "knex-p9-static-artifacts-"));
-  const builderTrustDirectory = await mkdtemp(join(tmpdir(), "knex-p9-static-builder-trust-"));
-  const pool = new pg.Pool({ connectionString: postgres.getConnectionUri() });
   const network = `knex-p9-${randomUUID()}`;
+  let postgres;
+  let sourceDirectory;
+  let artifactsDirectory;
+  let builderTrustDirectory;
+  let pool;
   // The PostgreSQL effect-claim predicate uses database `now()`, so the fixture
   // clock must share that wall-clock window rather than a historical timestamp.
   let now = new Date();
@@ -358,15 +377,24 @@ test("proves distinct customer binaries and deployment processes recover from Po
   const topology = [];
   const builtImages = [];
   let networkCreated = false;
+  const cleanupFailures = [];
+  const cleanup = async (name, operation) => {
+    try { await operation(); }
+    catch (error) { cleanupFailures.push(new Error(`${name}: ${error.message}`, { cause: error })); }
+  };
   try {
+    postgres = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("static_deployment").withStartupTimeout(120_000).start();
+    sourceDirectory = await prepareCustomerSource();
+    artifactsDirectory = await mkdtemp(join(tmpdir(), "knex-p9-static-artifacts-"));
+    builderTrustDirectory = await mkdtemp(join(tmpdir(), "knex-p9-static-builder-trust-"));
+    pool = new pg.Pool({ connectionString: postgres.getConnectionUri() });
     const baseCommit = await sourceCommit(sourceDirectory);
-    const blueBuild = await prepareBaseImage(sourceDirectory, baseCommit, artifactsDirectory);
+    const blueBuild = await prepareBaseImage(sourceDirectory, baseCommit, artifactsDirectory, network, builtImages);
     const baseBuildPath = join(artifactsDirectory, "base-build.json");
     await writeFile(baseBuildPath, `${canonicalJson({ ...blueBuild, sourceCommit: baseCommit })}\n`);
-    builtImages.push(blueBuild);
     await boot(postgres.getConnectionUri());
     await provisionStaticBinarySchema(pool);
-    await docker(["network", "create", network]);
+    await docker(["network", "create", "--label", `p9-fixture=${network}`, network]);
     networkCreated = true;
     await docker(["network", "connect", "--alias", "p9-postgres", network, postgres.getId()]);
     const managedRequest = {
@@ -409,7 +437,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
       P9_SOURCE_DIRECTORY: sourceDirectory, P9_EXPECTED_BASE_COMMIT: baseCommit, P9_APPROVED_INPUT_PATH: approvedInputPath,
       P9_APPROVED_INPUT_DIGEST: approvedInputDigest, P9_SOURCE_RESULT_PATH: sourceResultPath, P9_BUILD_RESULT_PATH: buildResultPath,
       P9_AUTHORITY_RESULT_PATH: authorityResultPath, P9_ARTIFACTS_DIRECTORY: artifactsDirectory,
-      P9_BASE_BUILD_PATH: baseBuildPath, P9_BUILDER_SIGNING_KEY_PATH: builderSigningKeyPath, P9_BUILDER_TRUST_POLICY_PATH: builderTrustPolicyPath
+      P9_BASE_BUILD_PATH: baseBuildPath, P9_BUILDER_SIGNING_KEY_PATH: builderSigningKeyPath, P9_BUILDER_TRUST_POLICY_PATH: builderTrustPolicyPath, P9_FIXTURE_LABEL: network
     };
     const processEnv = (role, extra) => {
       const database = new URL(postgres.getConnectionUri());
@@ -438,6 +466,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     assert.notEqual(baseCommit, targetCommit);
     assert.equal((await git(sourceDirectory, ["show", "--format=", "--name-only", targetCommit])).stdout.includes("k-nex.app.json"), true);
     assert.equal((await git(sourceDirectory, ["show", "--format=", "--name-only", targetCommit])).stdout.includes("package-lock.json"), true);
+    builtImages.push({ tag: `knex-p9-customer-alpha:${targetCommit.slice(0, 12)}` });
     let builderProcess = startTopologyProcess("builder", processEnv("builder", { P9_PROCESS_INSTANCE: "builder-1", P9_SOURCE_RESULT_DIGEST: sourceReady.sourceResultDigest, P9_STAY_ALIVE: "1", P9_READY_TIMEOUT_MS: "120000" }));
     topology.push(builderProcess);
     const builderReady = await builderProcess.ready;
@@ -449,7 +478,6 @@ test("proves distinct customer binaries and deployment processes recover from Po
     const durableCheckpoint = await pool.query("select checkpoint_id, status, expected_source_commit, change_digest from runtime_static_composition_checkpoints");
     assert.deepEqual(durableCheckpoint.rows, [{ checkpoint_id: greenBuild.checkpointId, status: "committed", expected_source_commit: baseCommit, change_digest: greenBuild.change.planDigest }]);
     await waitForProcessEvent(pool, "source-authority", "source-change-authorized");
-    builtImages.push(greenBuild);
     assert.notEqual(blueBuild.imageDigest, greenBuild.imageDigest);
     assert.notEqual(blueBuild.applicationDigest, greenBuild.applicationDigest);
     const plan = greenBuild.change.change;
@@ -484,21 +512,21 @@ test("proves distinct customer binaries and deployment processes recover from Po
     topology.push(supervisorProcess);
     supervisorUrl = (await supervisorProcess.ready).url;
     assert.equal((await fetch(`${supervisorUrl}/commands`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status, 401, "The supervisor must reject unauthenticated loopback callers.");
-    // The web/admin boundary owns an operator API and a PluginManager only. It
-    // gets the immutable source result back from the separate source authority,
-    // but never receives source, builder, Docker, or deployment credentials.
+    // The controller reconnects to the operation planned by the isolated
+    // web/admin process, while all release execution remains supervisor-owned.
     const managedStore = new PostgresRuntimeExtensionStore(pool, { now: () => now }, sha256("p9-static-web-admin-inventory"));
     const deploymentBoundary = new SupervisorDeploymentClient(supervisorUrl);
     const staticReleases = new SupervisorStaticReleaseOperator(supervisorUrl);
+    const installPlan = {
+      schemaVersion: 1, planId: "sales-static-plan-12", operation: "update", version: plan.plugin.version,
+      artifactDigest: plan.plugin.releaseManifestDigest, expectedRevision: 0, targetGenerationId: "customer-alpha-green-12",
+      approvalRequired: true, rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "platform-plugin", id: "module.sales",
+      availability: { outcome: "zero-downtime-eligible", checks: { oldGenerationHealthy: true, expandCompatibleMigration: true, writerReaderOverlap: true, workerDrain: true, realtimeConvergence: true, targetReadiness: true, inventoryMatch: true, rollbackCompatible: true } }
+    };
     const manager = new PluginManager(
       "p9-web-admin",
       new TrustedAutomationOperationAuthorizer("github-actions:phase-9"),
-      { plan: async (request) => ({ plan: managedRequest.operation === "update" ? {
-        schemaVersion: 1, planId: "sales-static-plan-12", operationId: request.operationId, operation: "update", version: plan.plugin.version,
-        artifactDigest: plan.plugin.releaseManifestDigest, expectedRevision: 0, targetGenerationId: "customer-alpha-green-12",
-        approvalRequired: true, rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "platform-plugin", id: "module.sales",
-        availability: { outcome: "zero-downtime-eligible", checks: { oldGenerationHealthy: true, expandCompatibleMigration: true, writerReaderOverlap: true, workerDrain: true, realtimeConvergence: true, targetReadiness: true, inventoryMatch: true, rollbackCompatible: true } }
-      } : assert.fail("Unexpected static manager operation"), sourceCommit: baseCommit, generationId: "customer-alpha-green-12" }) },
+      { plan: async (request) => ({ plan: managedRequest.operation === "update" ? { ...installPlan, operationId: request.operationId } : assert.fail("Unexpected static manager operation"), sourceCommit: baseCommit, generationId: "customer-alpha-green-12" }) },
       managedStore,
       { stage: async () => assert.fail("Platform Plugin delivery must not stage a live artifact."), reverify: async () => false },
       { request: async () => change },
@@ -510,10 +538,33 @@ test("proves distinct customer binaries and deployment processes recover from Po
       staticReleases,
       { observe: async () => ({ runnerIsolation: JSON.parse(await readFile(join(fixtureDirectory, "..", "extensions", "valid", "runner-isolation-profile.json"), "utf8")), remoteUiIsolation: JSON.parse(await readFile(join(fixtureDirectory, "..", "extensions", "valid", "remote-ui-isolation-profile.json"), "utf8")), health: [] }) }
     );
+    const deploymentRequest = await deploymentClient.readRequest(greenBuild.buildRequestDigest);
+    assert.ok(deploymentRequest, "The builder-owned durable request must exist before isolated web/admin planning.");
+    const networkInspection = JSON.parse((await docker(["network", "inspect", network])).stdout)[0];
+    const networkGateway = networkInspection.IPAM.Config[0].Gateway;
+    const webAdminDatabase = new URL(processEnv("web-admin", {}).DATABASE_URL);
+    webAdminDatabase.hostname = "p9-postgres";
+    webAdminDatabase.port = "5432";
+    webAdminContainer = await startIsolatedWebAdminContainer({
+      network,
+      imageId: greenBuild.imageDigest,
+      databaseUrl: webAdminDatabase.toString(),
+      operator: {
+        workerId: "p9-web-admin", automationIdentity: "github-actions:phase-9", hostInventoryDigest: sha256("p9-static-web-admin-inventory"),
+        request: managedRequest, authorization, installPlan, sourceCommit: baseCommit, generationId: "customer-alpha-green-12",
+        sourceChange: change, deployment: deploymentRequest
+      },
+      supervisorUrl: `http://${networkGateway}:${supervisorPort}`
+    });
+    const initiated = await fetch(`${webAdminContainer.url}/p9-change-request`, { method: "POST" });
+    const initiatedBody = await initiated.json();
+    assert.equal(initiated.status, 202, `The actual isolated web/admin client must initiate only its authorized change request: ${initiatedBody.error ?? "unknown error"}`);
+    assert.match(initiatedBody.operationId, /^operation-[0-9a-f]{32}$/u);
+    assert.equal(initiatedBody.executionClass, "static-release");
     const managedPlan = await operatorApi.plan(managedRequest);
     assert.equal(managedPlan.executionClass, "static-release");
-    const deploymentRequest = managedPlan.deployment;
-    assert.equal(deploymentRequest.buildRequestDigest, greenBuild.buildRequestDigest, "PluginManager must reuse the builder-owned durable request.");
+    assert.equal(managedPlan.operationId, initiatedBody.operationId, "The controller must resume the exact operation durably planned inside the isolated web/admin image.");
+    assert.equal(managedPlan.deployment.buildRequestDigest, greenBuild.buildRequestDigest, "PluginManager must reuse the builder-owned durable request.");
     assert.equal((await operatorApi.plan(managedRequest)).operationId, managedPlan.operationId, "web retries must reuse one durable PluginManager operation and release request");
     const relabeledMigration = { ...plan.migration, steps: plan.migration.steps.map((step) => step.stepId === "migration-expand-12" ? { ...step, stepId: "migration-expand-renamed-12" } : step) };
     const store = new PostgresStaticDeploymentStore(pool, { now: () => now }, build.authority);
@@ -540,25 +591,14 @@ test("proves distinct customer binaries and deployment processes recover from Po
       assertRoleDenied("source-authority", "update runtime_static_composition_checkpoints set change_json='{}'::jsonb"),
       assertRoleDenied("web-admin", "select * from runtime_static_release_requests")
     ]);
-    webAdminContainer = await startIsolatedWebAdminContainer({
-      network,
-      imageId: greenBuild.imageDigest,
-      databaseUrl: processEnv("web-admin", {}).DATABASE_URL.replace("127.0.0.1", "p9-postgres")
-    });
-    let blueWorkerProcess = startTopologyProcess("worker", processEnv("worker", { P9_PROCESS_INSTANCE: "worker-blue-1", P9_PROCESS_GENERATION: blue.generationId, P9_EFFECT_ID: "process-worker-effect" }));
-    topology.push(blueWorkerProcess);
-    await blueWorkerProcess.ready;
-    let greenWorkerProcess = startTopologyProcess("worker", processEnv("worker", { P9_PROCESS_INSTANCE: "worker-green-1", P9_PROCESS_GENERATION: "customer-alpha-green-12", P9_EFFECT_ID: "process-worker-effect" }));
-    topology.push(greenWorkerProcess);
-    await greenWorkerProcess.ready;
     let realtimeProcess = startTopologyProcess("realtime-client", processEnv("realtime-client", { P9_PROCESS_INSTANCE: "realtime-1", P9_GATEWAY_URL: processGatewayUrl }));
     topology.push(realtimeProcess);
     await realtimeProcess.ready;
     await Promise.all([
       waitForProcessEvent(pool, "source-authority", "source-committed"), waitForProcessEvent(pool, "builder", "builder-built-and-attested"), waitForProcessEvent(pool, "deployer", "deployer-recovered"),
       waitForProcessEvent(pool, "deployer", "deployer-artifact-reverified"),
-      waitForProcessEvent(pool, "supervisor", "supervisor-recovered"), waitForProcessEvent(pool, "worker", "worker-passive", 1),
-      waitForProcessEvent(pool, "realtime-client", "realtime-resynced"), waitForProcessEvent(pool, "worker", "worker-effect-completed", 1, blueWorkerProcess)
+      waitForProcessEvent(pool, "supervisor", "supervisor-recovered"), waitForProcessEvent(pool, "release-worker", "worker-passive", 1),
+      waitForProcessEvent(pool, "realtime-client", "realtime-resynced")
     ]);
     await builderProcess.stop();
     builderProcess = startTopologyProcess("builder", processEnv("builder", { P9_PROCESS_INSTANCE: "builder-2", P9_STAY_ALIVE: "1" }));
@@ -627,6 +667,11 @@ test("proves distinct customer binaries and deployment processes recover from Po
     assert.equal((await inFlightBlue).generation, blue.generationId);
     assert.equal((await fetch(`${processGatewayUrl}/p9-authority`).then((response) => response.json())).generation, "customer-alpha-green-12");
     assert.equal((await store.readFence(owner)).activeExecutionGeneration, "customer-alpha-green-12");
+    await waitForProcessEvent(pool, "release-worker", "worker-activated", 1);
+    await waitForProcessEvent(pool, "release-worker", "worker-drained", 1);
+    const releaseWorkerEvidence = await pool.query("select event, generation_id, fencing_token, detail from p9_static_process_events where role='release-worker' and event in ('worker-activated','worker-drained') order by id");
+    assert.equal(releaseWorkerEvidence.rows.some((row) => row.event === "worker-activated" && row.generation_id === "customer-alpha-green-12" && Number(row.fencing_token) === 2 && row.detail.sourceCommit === targetCommit && row.detail.applicationDigest === greenBuild.applicationDigest && row.detail.imageDigest === greenBuild.imageDigest && row.detail.module === "module.sales"), true, "The supervisor must activate the green worker packaged in the exact attested release image after fence transfer.");
+    assert.equal(releaseWorkerEvidence.rows.some((row) => row.event === "worker-drained" && row.generation_id === blue.generationId && row.detail.sourceCommit === baseCommit && row.detail.applicationDigest === blueBuild.applicationDigest && row.detail.imageDigest === blueBuild.imageDigest && row.detail.module === "module.sales"), true, "The supervisor must drain the prior worker binary instead of treating host checkout processes as workers.");
     await supervisorCommand(supervisorUrl, { commandId: "recover-promote-green-12", operation: "recover", ...owner, generationId: "customer-alpha-green-12", buildRequestDigest: deploymentRequest.buildRequestDigest, expectedRevision: 1 });
     assert.equal((await fetch(`${processGatewayUrl}/inventory`).then((response) => response.json())).generation, "customer-alpha-green-12");
     const [oldBinarySchema, newBinarySchema] = await Promise.all([
@@ -641,16 +686,12 @@ test("proves distinct customer binaries and deployment processes recover from Po
     supervisorProcess = startTopologyProcess("supervisor", processEnv("supervisor", { P9_PROCESS_INSTANCE: "supervisor-3", P9_CONTROL_PORT: String(supervisorPort), P9_DOCKER_NETWORK: network, P9_DOCKER_NAMESPACE: network, P9_GATEWAY_URL: processGatewayUrl, P9_STAY_ALIVE: "1" }));
     topology.push(supervisorProcess);
     supervisorUrl = (await supervisorProcess.ready).url;
-    await greenWorkerProcess.stop();
-    greenWorkerProcess = startTopologyProcess("worker", processEnv("worker", { P9_PROCESS_INSTANCE: "worker-green-2", P9_PROCESS_GENERATION: "customer-alpha-green-12", P9_EFFECT_ID: "process-worker-effect" }));
-    topology.push(greenWorkerProcess);
-    await greenWorkerProcess.ready;
     await realtimeProcess.stop();
     realtimeProcess = startTopologyProcess("realtime-client", processEnv("realtime-client", { P9_PROCESS_INSTANCE: "realtime-2", P9_GATEWAY_URL: processGatewayUrl }));
     topology.push(realtimeProcess);
     await realtimeProcess.ready;
     await Promise.all([
-      waitForProcessEvent(pool, "supervisor", "supervisor-recovered", 3), waitForProcessEvent(pool, "worker", "worker-active"),
+      waitForProcessEvent(pool, "supervisor", "supervisor-recovered", 3), waitForProcessEvent(pool, "release-worker", "worker-activated", 1),
       waitForProcessEvent(pool, "realtime-client", "realtime-resynced", 2)
     ]);
     const deployedAuthority = {
@@ -690,11 +731,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     assert.equal((await fetch(`${processGatewayUrl}/p9-authority`).then((response) => response.json())).generation, blue.generationId);
     await supervisorCommand(supervisorUrl, { commandId: "recover-rollback-blue-12", operation: "recover", ...owner, generationId: blue.generationId, buildRequestDigest: deploymentRequest.buildRequestDigest, expectedRevision: 2 });
     assert.equal((await fetch(`${processGatewayUrl}/inventory`).then((response) => response.json())).generation, blue.generationId);
-    await blueWorkerProcess.stop();
-    blueWorkerProcess = startTopologyProcess("worker", processEnv("worker", { P9_PROCESS_INSTANCE: "worker-blue-2", P9_PROCESS_GENERATION: blue.generationId, P9_EFFECT_ID: "process-worker-effect" }));
-    topology.push(blueWorkerProcess);
-    await blueWorkerProcess.ready;
-    await waitForProcessEvent(pool, "worker", "worker-active", 2);
+    await waitForProcessEvent(pool, "release-worker", "worker-activated", 2);
     crashEvidence.add("rolled-back:worker-blue");
     trafficProbe.transition("re-promotion", [blue.generationId, "customer-alpha-green-12"]);
     await trafficProbe.waitForGeneration("re-promotion", blue.generationId);
@@ -836,17 +873,25 @@ test("proves distinct customer binaries and deployment processes recover from Po
     await waitForProcessEvent(pool, "gateway", "gateway-recovered", 2);
     crashEvidence.add("post-transition:gateway");
   } finally {
-    await trafficProbe?.stop();
-    if (supervisorUrl) await supervisorCommand(supervisorUrl, { commandId: "fixture-cleanup-12", operation: "cleanup" }).catch(() => undefined);
-    await Promise.allSettled(topology.map((process) => process.stop()));
-    await webAdminContainer?.stop();
-    await Promise.allSettled(builtImages.map(({ tag }) => docker(["image", "rm", "--force", tag])));
-    await pool.end();
-    await postgres.stop();
-    if (networkCreated) await docker(["network", "rm", network]);
-    await rm(sourceDirectory, { recursive: true, force: true });
-    await rm(artifactsDirectory, { recursive: true, force: true });
-    await rm(builderTrustDirectory, { recursive: true, force: true });
+    await cleanup("continuous traffic probe", () => trafficProbe?.stop());
+    for (const process of topology) await cleanup(`topology process ${process.output().slice(0, 80)}`, () => process.stop());
+    await cleanup("isolated web/admin container", () => webAdminContainer?.stop());
+    const labeledContainers = await docker(["ps", "--all", "--filter", `label=p9-fixture=${network}`, "--format", "{{.Names}}"]).then(({ stdout }) => stdout.trim().split("\n").filter(Boolean));
+    for (const name of labeledContainers) await cleanup(`labeled container ${name}`, () => docker(["rm", "--force", name]));
+    await cleanup("PostgreSQL pool", () => pool?.end());
+    await cleanup("PostgreSQL container", () => postgres?.stop());
+    if (networkCreated) await cleanup("fixture network", () => docker(["network", "rm", network]));
+    const labeledImages = new Set((await docker(["image", "ls", "--filter", `label=p9-fixture=${network}`, "--format", "{{.ID}}"]).then(({ stdout }) => stdout.trim().split("\n").filter(Boolean))));
+    for (const imageId of labeledImages) await cleanup(`labeled image ${imageId}`, () => docker(["image", "rm", "--force", imageId]));
+    const presentTags = new Set((await docker(["image", "ls", "--format", "{{.Repository}}:{{.Tag}}"]).then(({ stdout }) => stdout.trim().split("\n").filter(Boolean))));
+    for (const { tag } of builtImages) if (presentTags.has(tag)) await cleanup(`tracked image ${tag}`, () => docker(["image", "rm", "--force", tag]));
+    if (sourceDirectory) await cleanup("source fixture directory", () => rm(sourceDirectory, { recursive: true, force: true }));
+    if (artifactsDirectory) await cleanup("artifact fixture directory", () => rm(artifactsDirectory, { recursive: true, force: true }));
+    if (builderTrustDirectory) await cleanup("builder trust fixture directory", () => rm(builderTrustDirectory, { recursive: true, force: true }));
+    await cleanup("zero labeled containers assertion", async () => assert.equal((await docker(["ps", "--all", "--filter", `label=p9-fixture=${network}`, "--format", "{{.ID}}"]).then(({ stdout }) => stdout.trim())).length, 0));
+    await cleanup("zero labeled images assertion", async () => assert.equal((await docker(["image", "ls", "--filter", `label=p9-fixture=${network}`, "--format", "{{.ID}}"]).then(({ stdout }) => stdout.trim())).length, 0));
+    await cleanup("zero labeled networks assertion", async () => assert.equal((await docker(["network", "ls", "--filter", `label=p9-fixture=${network}`, "--format", "{{.ID}}"]).then(({ stdout }) => stdout.trim())).length, 0));
+    if (cleanupFailures.length) throw new AggregateError(cleanupFailures, "Phase 9 static deployment fixture cleanup failed.");
   }
   trafficProbe.assertEvidence({
     install: ["customer-alpha-blue-11"],

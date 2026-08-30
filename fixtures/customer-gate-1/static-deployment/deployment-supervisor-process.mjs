@@ -121,6 +121,7 @@ class DockerGenerationHost {
     if (workerMode !== "passive") throw new Error("Static generation workers must begin passive.");
     const database = this.database(generationId);
     const name = `knex-p9-${this.namespace}-${generationId}`;
+    const workerName = `${name}-worker`;
     let imageId = await this.artifacts.imageId(imageReference);
     let port;
     try {
@@ -131,7 +132,7 @@ class DockerGenerationHost {
       const identity = `web-${generationId}-${crypto.randomUUID()}`;
       const failHealth = this.failHealthOnce;
       this.failHealthOnce = false;
-      await docker(["run", "--rm", "--detach", "--name", name, "--network", this.network, "--label", `p9-fixture=${this.namespace}`,
+      await docker(["run", "--rm", "--detach", "--name", name, "--network", this.network, "--label", `p9-fixture=${this.namespace}`, "--label", "p9-role=release-web",
         "--user", "65534:65534", "--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=16m",
         "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--pids-limit", "128", "--memory", "512m", "--cpus", "1",
         "--publish", "127.0.0.1::3000", "--env", `K_NEX_GENERATION=${generationId}`, "--env", `K_NEX_WEB_PROCESS_IDENTITY=${identity}`, "--env", "K_NEX_WORKER_MODE=passive", "--env", "K_NEX_SMOKE_TOKEN=trusted-smoke-token", "--env", "PAYLOAD_SECRET=p9-static-payload-secret",
@@ -141,7 +142,41 @@ class DockerGenerationHost {
       port = (await docker(["port", name, "3000/tcp"])).stdout.trim().match(/127\.0\.0\.1:(\d+)$/u)?.[1];
     }
     if (!port) throw new Error("Docker did not publish a loopback port.");
-    const container = { name, imageId, url: `http://127.0.0.1:${port}` };
+    const workerControlToken = sha256(`${this.namespace}:${generationId}:release-worker-control`);
+    let workerPort;
+    try {
+      const inspection = JSON.parse((await docker(["inspect", workerName])).stdout)[0];
+      if (inspection.Image !== imageId) throw new Error("A retained worker does not match its content-addressed release image.");
+      workerPort = (await docker(["port", workerName, "3002/tcp"])).stdout.trim().match(/127\.0\.0\.1:(\d+)$/u)?.[1];
+      const status = workerPort && await fetch(`http://127.0.0.1:${workerPort}/status`).then((response) => response.ok ? response.json() : undefined);
+      if (!status || status.mode !== "passive") {
+        await docker(["rm", "--force", workerName]);
+        workerPort = undefined;
+      }
+    } catch {
+      workerPort = undefined;
+    }
+    if (!workerPort) {
+      await docker(["run", "--rm", "--detach", "--name", workerName, "--network", this.network, "--label", `p9-fixture=${this.namespace}`, "--label", "p9-role=release-worker",
+        "--user", "65534:65534", "--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=16m",
+        "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--pids-limit", "64", "--memory", "128m", "--cpus", "0.5",
+        "--publish", "127.0.0.1::3002", "--env", `K_NEX_GENERATION=${generationId}`, "--env", `K_NEX_IMAGE_DIGEST=${imageId}`, "--env", `K_NEX_WORKER_CONTROL_TOKEN=${workerControlToken}`, "--env", "P9_RELEASE_WORKER_PORT=3002", "--env", `DATABASE_URL=${database.url}`,
+        imageId, "node", "release-worker.mjs"
+      ]);
+      workerPort = (await docker(["port", workerName, "3002/tcp"])).stdout.trim().match(/127\.0\.0\.1:(\d+)$/u)?.[1];
+    }
+    if (!workerPort) throw new Error("Docker did not publish the release worker control port.");
+    let workerReady = false;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const status = await fetch(`http://127.0.0.1:${workerPort}/status`).then((response) => response.ok ? response.json() : undefined).catch(() => undefined);
+      if (status?.mode === "passive" && status.generationId === generationId && status.imageDigest === imageId) { workerReady = true; break; }
+      await delay(100);
+    }
+    if (!workerReady) {
+      const logs = await docker(["logs", workerName]).then(({ stdout, stderr }) => `${stdout}${stderr}`).catch((error) => error.message);
+      throw new Error(`Release worker ${generationId} did not become passive and ready: ${logs}`);
+    }
+    const container = { name, workerName, imageId, url: `http://127.0.0.1:${port}`, workerUrl: `http://127.0.0.1:${workerPort}`, workerControlToken };
     this.containers.set(generationId, container);
     await this.pool.query("insert into p9_static_process_routes values ($1,$2) on conflict (generation_id) do update set url=excluded.url", [generationId, container.url]);
   }
@@ -160,28 +195,47 @@ class DockerGenerationHost {
       const logs = await docker(["logs", container.name]).then(({ stdout, stderr }) => `${stdout}${stderr}`).catch((error) => error.message);
       throw new Error(`Green generation ${input.generationId} failed health checks: ${logs}`);
     }
-    const [publicSmoke, unauthenticatedSmoke, authenticatedSmoke, inventory, schemaProof, leastPrivilege] = await Promise.all([
+    const [publicSmoke, unauthenticatedSmoke, authenticatedSmoke, inventory, schemaProof, leastPrivilege, worker] = await Promise.all([
       fetch(`${container.url}/public`), fetch(`${container.url}/authenticated`), fetch(`${container.url}/authenticated`, { headers: { "x-k-nex-smoke-auth": "trusted-smoke-token" } }),
-      fetch(`${container.url}/inventory`), fetch(`${container.url}/schema-proof`), fetch(`${container.url}/least-privilege`)
+      fetch(`${container.url}/inventory`), fetch(`${container.url}/schema-proof`), fetch(`${container.url}/least-privilege`), fetch(`${container.workerUrl}/status`)
     ]);
-    if (!publicSmoke.ok || unauthenticatedSmoke.status !== 401 || !authenticatedSmoke.ok || !inventory.ok || !schemaProof.ok || !leastPrivilege.ok) {
-      throw new Error(`Generation smoke checks failed: ${canonicalJson({ public: publicSmoke.status, unauthenticated: unauthenticatedSmoke.status, authenticated: authenticatedSmoke.status, inventory: inventory.status, schema: schemaProof.status, leastPrivilege: leastPrivilege.status })}`);
+    if (!publicSmoke.ok || unauthenticatedSmoke.status !== 401 || !authenticatedSmoke.ok || !inventory.ok || !schemaProof.ok || !leastPrivilege.ok || !worker.ok) {
+      throw new Error(`Generation smoke checks failed: ${canonicalJson({ public: publicSmoke.status, unauthenticated: unauthenticatedSmoke.status, authenticated: authenticatedSmoke.status, inventory: inventory.status, schema: schemaProof.status, leastPrivilege: leastPrivilege.status, worker: worker.status })}`);
     }
-    const [publicBody, authenticatedBody, inventoryBody, schemaBody, privilegeBody] = await Promise.all([publicSmoke.json(), authenticatedSmoke.json(), inventory.json(), schemaProof.json(), leastPrivilege.json()]);
+    const [publicBody, authenticatedBody, inventoryBody, schemaBody, privilegeBody, workerBody] = await Promise.all([publicSmoke.json(), authenticatedSmoke.json(), inventory.json(), schemaProof.json(), leastPrivilege.json(), worker.json()]);
     for (const body of [publicBody, authenticatedBody, inventoryBody]) {
       if (body.module !== "module.sales" || body.sourceCommit !== input.sourceCommit || body.applicationDigest !== input.applicationDigest || body.workerMode !== "passive") throw new Error("Generation inventory is not bound to the attested target.");
     }
     if (schemaBody.databaseRole !== database.role || schemaBody.schemaRevision < database.schemaRevision || privilegeBody.rejected !== true) throw new Error("Generation schema or least-privilege proof failed.");
+    if (workerBody.mode !== "passive" || workerBody.generationId !== input.generationId || workerBody.sourceCommit !== input.sourceCommit || workerBody.applicationDigest !== input.applicationDigest || workerBody.imageDigest !== input.imageDigest || workerBody.module !== "module.sales") throw new Error("Release worker is not the exact passive attested module.sales image.");
     const inspection = JSON.parse((await docker(["inspect", container.name])).stdout)[0];
-    if (inspection.Image !== container.imageId || inspection.HostConfig.NetworkMode !== this.network || !inspection.HostConfig.ReadonlyRootfs || !inspection.HostConfig.CapDrop.includes("ALL") || !inspection.HostConfig.SecurityOpt.includes("no-new-privileges") || inspection.Mounts.some((mount) => mount.Type === "bind" || String(mount.Source).includes("docker.sock"))) throw new Error("Generation container isolation does not match the accepted profile.");
+    const workerInspection = JSON.parse((await docker(["inspect", container.workerName])).stdout)[0];
+    if ([inspection, workerInspection].some((item) => item.Image !== container.imageId || item.HostConfig.NetworkMode !== this.network || !item.HostConfig.ReadonlyRootfs || !item.HostConfig.CapDrop.includes("ALL") || !item.HostConfig.SecurityOpt.includes("no-new-privileges") || item.Mounts.some((mount) => mount.Type === "bind" || String(mount.Source).includes("docker.sock")))) throw new Error("Generation container isolation does not match the accepted profile.");
     return { ...input, publicSmoke: true, authenticatedSmoke: true, inventoryReconciled: true, workerMode: "passive", gatewayCapacity: true, realtimeReady: true, observedAt: this.now().toISOString() };
   }
 
-  async activateWorker() {}
-  async drain() {}
+  async workerCommand(generationId, path, payload = {}) {
+    const container = await this.discover(generationId);
+    if (!container) throw new Error(`Release worker ${generationId} is not running.`);
+    const response = await fetch(`${container.workerUrl}${path}`, { method: "POST", headers: { "content-type": "application/json", "x-p9-worker-control": container.workerControlToken }, body: JSON.stringify(payload) });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error ?? `Release worker ${path} failed.`);
+    return result;
+  }
+  async activateWorker(generationId, fence) {
+    const result = await this.workerCommand(generationId, "/activate", { fencingToken: fence.fencingToken, promotionRevision: fence.promotionRevision });
+    if (result.mode !== "active" || result.generationId !== generationId || result.fencingToken !== fence.fencingToken) throw new Error("Release worker activation did not bind the persisted fencing authority.");
+  }
+  async drain(generationId) {
+    const result = await this.workerCommand(generationId, "/drain");
+    if (result.mode !== "drained" || result.generationId !== generationId) throw new Error("Release worker drain did not complete.");
+  }
   async retire(generationId) {
-    const container = this.containers.get(generationId);
-    if (container) await docker(["rm", "--force", container.name]).catch(() => undefined);
+    const container = await this.discover(generationId);
+    if (container) {
+      await docker(["rm", "--force", container.workerName]);
+      await docker(["rm", "--force", container.name]);
+    }
     this.containers.delete(generationId);
   }
   async restart(input) {
@@ -189,7 +243,33 @@ class DockerGenerationHost {
     await this.start({ generationId: input.generationId, imageReference: input.imageReference, workerMode: "passive" });
     return this.readiness(input);
   }
-  async close() { await Promise.all([...this.containers.keys()].map((generationId) => this.retire(generationId))); }
+  async close() { for (const generationId of [...this.containers.keys()]) await this.retire(generationId); }
+
+  async discover(generationId) {
+    const retained = this.containers.get(generationId);
+    if (retained) return retained;
+    const name = `knex-p9-${this.namespace}-${generationId}`;
+    const workerName = `${name}-worker`;
+    try {
+      const [webInspection, workerInspection, webPort, workerPort] = await Promise.all([
+        docker(["inspect", name]).then(({ stdout }) => JSON.parse(stdout)[0]),
+        docker(["inspect", workerName]).then(({ stdout }) => JSON.parse(stdout)[0]),
+        docker(["port", name, "3000/tcp"]).then(({ stdout }) => stdout.trim().match(/127\.0\.0\.1:(\d+)$/u)?.[1]),
+        docker(["port", workerName, "3002/tcp"]).then(({ stdout }) => stdout.trim().match(/127\.0\.0\.1:(\d+)$/u)?.[1])
+      ]);
+      if (!webPort || !workerPort || webInspection.Image !== workerInspection.Image || webInspection.Config.Labels?.["p9-fixture"] !== this.namespace || workerInspection.Config.Labels?.["p9-fixture"] !== this.namespace) {
+        throw new Error("Retained release generation identity is invalid.");
+      }
+      const container = {
+        name, workerName, imageId: webInspection.Image, url: `http://127.0.0.1:${webPort}`, workerUrl: `http://127.0.0.1:${workerPort}`,
+        workerControlToken: sha256(`${this.namespace}:${generationId}:release-worker-control`)
+      };
+      this.containers.set(generationId, container);
+      return container;
+    } catch {
+      return undefined;
+    }
+  }
 }
 
 function commandError(status, message, code = "COMMAND_REJECTED") {
