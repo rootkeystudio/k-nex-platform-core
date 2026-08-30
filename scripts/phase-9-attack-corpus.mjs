@@ -79,7 +79,25 @@ const proofs = [
   }),
   nodeProof("theme-skin-profile", "tests/theme-skin-profile-postgres.test.mjs", [
     "delivers Theme Skins from signed durable artifacts through PluginManager install, update, rollback, and restore"
-  ]),
+  ], {
+    P9_THEME_SKIN_DURABLE_EVIDENCE: {
+      scenarios: [
+        "signed-install-update-rollback",
+        "forged-row",
+        "altered-bytes",
+        "wrong-generation-artifact-file-digest",
+        "restore-pool-reconstruction",
+        "verified-asset-route-chromium-presentation",
+        "corrupt-rollback-route-denial",
+        "deleted-rollback-binding-route-denial",
+        "profile-reference-disposition",
+        "draft-disposition-race",
+        "disabled-retained-route",
+        "deleted-disabled-binding-route-denial",
+        "removed-asset-route-denial"
+      ]
+    }
+  }),
   browserProof("remote-ui-browser", "packages/ui-testing/scripts/remote-ui-browser.mjs", "P9_REMOTE_UI_BROWSER_PASS"),
   browserProof("theme-skin-browser", "packages/ui-testing/scripts/theme-skin-browser.mjs", "P9_THEME_SKIN_BROWSER_PASS")
 ];

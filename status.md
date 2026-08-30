@@ -7,11 +7,11 @@
 
 ## Last completed
 
-P9.10c wired immutable Theme Skin asset serving to the asynchronous PostgreSQL verified-artifact reader. Restored state now proves active, rollback, and disabled-retained generation authority through HTTP and real Chromium while unrelated, mismatched, and removed assets fail closed.
+P9.10c wired immutable Theme Skin asset serving to a binding-aware asynchronous PostgreSQL reader and a compiled fixed-route host. Restored state proves active, rollback, and disabled-retained authority through HTTP/Chromium; corrupted bytes, deleted bindings, mismatches, and removed assets fail closed. Gate 9 now requires the exact durable evidence marker.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: extension bundler build/tests passed (24); payload adapter build/tests passed (49); customer fixture build and focused real PostgreSQL/HTTP/Chromium Theme Skin test passed (`P9_THEME_SKIN_DURABLE_EVIDENCE`); diff whitespace checks passed. Testcontainers process/container cleanup completed; no task container or process remains.
+Node 24.19.0 / pnpm 11.9.0: extension bundler build/tests passed (24); payload adapter build/tests passed (49); customer fixture build and focused real PostgreSQL/HTTP/Chromium Theme Skin test passed with exact `P9_THEME_SKIN_DURABLE_EVIDENCE`; attack-corpus syntax and diff checks passed. Full attack corpus reaches a pre-existing Hot Application migration-compatibility failure before the Skin proof; no task container/process remains.
 
 ## Next
 

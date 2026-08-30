@@ -4,7 +4,15 @@ import { sha256 } from "./bundle.js";
 import type { Digest } from "./catalog.js";
 import type { StagedArtifact } from "./store.js";
 
-export interface VerifiedThemeSkinArtifactReader { read(artifactDigest: Digest): Promise<StagedArtifact | undefined>; }
+export interface VerifiedThemeSkinArtifactReader {
+  readThemeSkin(identity: Readonly<{
+    applicationId: string;
+    environment: string;
+    skinId: string;
+    generationId: string;
+    artifactDigest: Digest;
+  }>): Promise<StagedArtifact | undefined>;
+}
 
 export interface ThemeSkinGenerationAuthority {
   isAvailable(identity: Readonly<{
@@ -60,7 +68,7 @@ export class VerifiedThemeSkinAssetService {
       throw new ThemeSkinAssetError("REQUEST_INVALID", "Theme Skin asset request is invalid.");
     }
     if (!await this.authority.isAvailable(request)) throw new ThemeSkinAssetError("GENERATION_UNAVAILABLE", "Theme Skin generation is neither active nor retained.");
-    const staged = await this.artifacts.read(request.artifactDigest);
+    const staged = await this.artifacts.readThemeSkin(request);
     if (!staged || staged.verified.artifactDigest !== request.artifactDigest) throw new ThemeSkinAssetError("ARTIFACT_UNAVAILABLE", "Verified Theme Skin artifact is unavailable.");
     const manifest = staged.verified.manifest;
     if (manifest.deliveryClass !== "theme-skin" || manifest.id !== request.skinId) throw new ThemeSkinAssetError("ARTIFACT_UNAVAILABLE", "Verified Theme Skin artifact identity does not match.");

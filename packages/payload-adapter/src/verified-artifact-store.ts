@@ -137,6 +137,27 @@ export class PostgresVerifiedArtifactStore implements DurableDynamicArtifactStor
     return verified ? Object.freeze({ artifactDigest, verified }) : undefined;
   }
 
+  async readThemeSkin(identity: Readonly<{
+    applicationId: string;
+    environment: string;
+    skinId: string;
+    generationId: string;
+    artifactDigest: Digest;
+  }>): Promise<StagedArtifact | undefined> {
+    const binding = await this.binding({
+      applicationId: identity.applicationId,
+      environment: identity.environment,
+      deliveryClass: "theme-skin",
+      extensionId: identity.skinId,
+      generationId: identity.generationId
+    }, identity.artifactDigest);
+    if (!binding) return undefined;
+    const verified = await this.verified(identity.artifactDigest, true);
+    if (!verified) return undefined;
+    await this.durable(binding, verified, await this.catalogDigest(identity.artifactDigest));
+    return Object.freeze({ artifactDigest: identity.artifactDigest, verified });
+  }
+
   async loadThemeSkin(authority: VerifiedGenerationAuthority): Promise<Readonly<{
     authority: VerifiedGenerationAuthority;
     bundleManifest: unknown;
