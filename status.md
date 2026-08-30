@@ -1,21 +1,21 @@
 # Project Status
 
-- **Updated:** 2026-08-30
+- **Updated:** 2026-08-31
 - **Phase:** Phase 9 — Dynamic Application Runtime and Zero-Downtime Delivery
 - **Active task:** P9.10 — Gate 9 closeout
 - **State:** In progress
 
 ## Last completed
 
-CI run 33333228792 reached 15/16 real customer-gate-1 PostgreSQL journeys, including Hot Application traffic, then exposed a Linux-only static web/admin proof deadlock: the container was given the Docker bridge gateway while the authenticated supervisor listened only on host loopback. The fixture now exposes a test-only bridge-bound listener guarded by the existing bearer token; web/admin must receive a real `401` within five seconds, and its bounded readiness failure reports Docker state (including OOM) and logs.
+P9.10 static Platform Plugin lifecycle review is PASS. Disable retains the exact static generation and serializes real Sales action/outbox admission with the lifecycle transition. Schema-owning `module.sales` uninstall fails before claim; supported schema-less uninstall requires a fresh, composed, signed static release. Planner policy runs only after authorization and before claim. Forged live Platform uninstall plans fail inertly. Empty migration plans require equal revisions in Zod and generated Ajv schemas.
 
 ## Validation
 
-Local Node 24.19.0: `node --check` for the static test, supervisor, and web/admin container; `node --test --test-concurrency=1 tests/static-deployment-postgres.test.mjs` (1/1, 245.7s), including real PostgreSQL/Docker traffic, crash recovery, rollback, and maintenance refusal. Exact-head Linux CI is pending.
+Local Node 24.19.0: runtime 331/331 plus focused 17/17, contracts 185/185, payload-adapter 49/49, architecture-contract-tools 26/26, relevant builds, generated validation/reproducibility, and `git diff --check` pass. Isolated real PostgreSQL proofs pass for restricted-role real Sales handler/outbox (1/1), deterministic Sales/disable advisory-lock race (1/1), and customer migration/handler/outbox boot (1/1). Full Gate 9 integrity fixture and exact-head Linux CI remain phase-end validation only.
 
 ## Next
 
-Rerun exact-head CI `validate` through full Gate 9.
+Close the fresh dynamic rollback-readiness authority gap, then continue the remaining Phase 9 review blockers in order.
 
 ## Blockers
 

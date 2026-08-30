@@ -356,8 +356,12 @@ const MigrationCompatibilityPlanBodySchema = z.strictObject({
   targetSourceCommit: fullShaSchema,
   baseRevision: revisionSchema,
   targetRevision: revisionSchema,
-  steps: uniqueArray(MigrationCompatibilityStepSchema).min(1).max(128),
+  steps: uniqueArray(MigrationCompatibilityStepSchema).max(128),
   rollbackWindow: RollbackWindowSchema
+}).superRefine((plan, context) => {
+  if (plan.steps.length === 0 && plan.baseRevision !== plan.targetRevision) {
+    context.addIssue({ code: "custom", path: ["steps"], message: "A migration-free compatibility plan cannot change the database revision." });
+  }
 });
 
 export const MigrationCompatibilityPlanSchema = z.strictObject({

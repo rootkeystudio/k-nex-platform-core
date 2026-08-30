@@ -12,7 +12,7 @@ const execute = promisify(execFile);
 const sha256 = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 const digestJson = (value) => sha256(canonicalJson(value));
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
-const greenGenerationIds = new Set(["customer-alpha-green-partial-12", "customer-alpha-green-worker-only-12", "customer-alpha-green-reserved-crash-12", "customer-alpha-green-health-12", "customer-alpha-green-fence-12", "customer-alpha-green-12"]);
+const greenGenerationIds = new Set(["customer-alpha-green-partial-12", "customer-alpha-green-worker-only-12", "customer-alpha-green-reserved-crash-12", "customer-alpha-green-health-12", "customer-alpha-green-fence-12", "customer-alpha-green-12", "customer-alpha-provider-uninstall-13"]);
 
 function required(name) {
   const value = process.env[name];
@@ -296,6 +296,10 @@ class DockerGenerationHost {
     if (inspection.Image !== container.imageId || workerInspection.Image !== container.imageId ||
       !exactIsolationProfile(inspection, this.network, { pidsLimit: 128, memory: 512 * 1024 * 1024, nanoCpus: 1_000_000_000 }) ||
       !exactIsolationProfile(workerInspection, this.network, { pidsLimit: 64, memory: 128 * 1024 * 1024, nanoCpus: 500_000_000 })) throw new Error("Generation container isolation does not match the accepted profile.");
+    await this.pool.query(
+      "insert into p9_static_process_events (role, instance_id, event, generation_id, detail) values ('supervisor',$1,'generation-readiness',$2,$3::jsonb)",
+      [`supervisor-${process.pid}`, input.generationId, JSON.stringify({ migrationRevision: input.migrationRevision, completedMigrationSteps: input.completedMigrationSteps })]
+    );
     return { ...input, publicSmoke: true, authenticatedSmoke: true, inventoryReconciled: true, workerMode: "passive", gatewayCapacity: true, realtimeReady: true, observedAt: this.now().toISOString() };
   }
 

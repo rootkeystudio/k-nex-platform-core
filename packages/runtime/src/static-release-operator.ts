@@ -151,7 +151,9 @@ export class DurableStaticReleaseOperator implements StaticReleaseOperator {
       receipt.activeGenerationId !== plan.generationId || receipt.sourceCommit !== request.sourceCommit || receipt.compositionChangePlanDigest !== request.changePlanDigest ||
       receipt.buildEvidenceDigest !== request.buildEvidenceDigest || receipt.applicationDigest !== request.applicationDigest || receipt.imageDigest !== request.imageDigest ||
       receipt.migrationRevision !== request.migrationRevision || receipt.workerFencingToken !== request.workerFencingToken ||
-      receipt.operation !== (operation.request.operation === "rollback" ? "rollback" : "promote")) {
+      receipt.operation !== (operation.request.operation === "rollback" ? "rollback" : "promote") ||
+      (operation.request.operation === "uninstall" &&
+        (receipt.previousGenerationId !== plan.plan.currentGenerationId || receipt.activeGenerationId === receipt.previousGenerationId))) {
       throw new StaticReleaseOperatorError("AUTHORITY_MISMATCH", "Static deployment receipt does not match the durable release authority.");
     }
     return receipt;

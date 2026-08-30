@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { execFile } from "node:child_process";
 import { createHash, sign } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import pg from "pg";
@@ -76,9 +76,11 @@ async function composition(sourceDirectory) {
   const pkg = await readJson(join(sourceDirectory, "package.json"));
   const salesTarball = pkg.dependencies?.["@k-nex/module-sales"]?.replace("file:", "");
   if (salesTarball !== "packages/k-nex-module-sales-1.0.1.tgz" && salesTarball !== "packages/k-nex-module-sales-1.0.0.tgz") throw new Error("Customer package closure is not an approved module.sales archive.");
-  const digests = Object.fromEntries(await Promise.all([...sourceFiles, salesTarball].map(async (path) => [path, await fileDigest(join(sourceDirectory, path))])));
+  const providerTarball = pkg.dependencies?.["@k-nex/provider-realtime-socketio"]?.replace("file:", "");
+  if (providerTarball && providerTarball !== "packages/k-nex-provider-realtime-socketio-1.0.0.tgz") throw new Error("Customer package closure contains an unapproved realtime provider archive.");
+  const digests = Object.fromEntries(await Promise.all([...sourceFiles, salesTarball, ...(providerTarball ? ["src/k-nex-provider-registry.ts", providerTarball] : [])].map(async (path) => [path, await fileDigest(join(sourceDirectory, path))])));
   const pluginVersion = (await readJson(join(sourceDirectory, "static-deployment/release.json"))).plugin.version;
-  const packageClosure = [{ name: "@k-nex/module-sales", version: pluginVersion, path: salesTarball }, ...operatorPackages]
+  const packageClosure = [{ name: "@k-nex/module-sales", version: pluginVersion, path: salesTarball }, ...(providerTarball ? [{ name: "@k-nex/provider-realtime-socketio", version: "1.0.0", path: providerTarball }] : []), ...operatorPackages]
     .map((item) => ({ ...item, digest: digests[item.path] }));
   return {
     composition: {
@@ -98,20 +100,29 @@ async function regenerateLockAndGraph(sourceDirectory) {
   const lock = await readJson(join(sourceDirectory, "package-lock.json"));
   const sales = lock.packages?.["node_modules/@k-nex/module-sales"];
   if (!sales) throw new Error("Approved module.sales was absent from the regenerated lock.");
-  await writeJson(join(sourceDirectory, ".k-nex", "generated", "resolved-graph.json"), { packageLockVersion: lock.lockfileVersion, moduleSales: { version: sales.version, resolved: sales.resolved, integrity: sales.integrity } });
+  const provider = lock.packages?.["node_modules/@k-nex/provider-realtime-socketio"];
+  await writeJson(join(sourceDirectory, ".k-nex", "generated", "resolved-graph.json"), {
+    packageLockVersion: lock.lockfileVersion,
+    moduleSales: { version: sales.version, resolved: sales.resolved, integrity: sales.integrity },
+    ...(provider ? { providerRealtimeSocketio: { version: provider.version, resolved: provider.resolved, integrity: provider.integrity } } : {})
+  });
 }
 
-function staticChangeRequest(source, plan) {
+function staticChangeRequest(source, plan, approved) {
+  const operation = approved.operation ?? "update";
+  const generationId = approved.generationId ?? "customer-alpha-green-12";
+  const sequence = approved.releaseSequence ?? 12;
   return {
     applicationId: source.applicationId,
     environment: source.environment,
     expectedSourceCommit: source.expectedBase,
-    generationId: "customer-alpha-green-12",
+    generationId,
     plan: {
-      schemaVersion: 1, planId: "sales-static-plan-12", operationId: "sales-static-operation-12", operation: "update",
-      version: plan.plugin.version, artifactDigest: plan.plugin.releaseManifestDigest, expectedRevision: 0,
-      targetGenerationId: "customer-alpha-green-12", approvalRequired: true, rollback: { available: true, windowSeconds: 86_400 },
-      deliveryClass: "platform-plugin", id: "module.sales",
+      schemaVersion: 1, planId: `platform-static-plan-${sequence}`, operationId: `platform-static-operation-${sequence}`, operation,
+      version: plan.plugin.version, artifactDigest: plan.plugin.releaseManifestDigest, expectedRevision: approved.expectedRevision ?? 0,
+      ...(approved.currentGenerationId ? { currentGenerationId: approved.currentGenerationId } : {}),
+      targetGenerationId: generationId, approvalRequired: true, rollback: { available: true, windowSeconds: 86_400 },
+      deliveryClass: "platform-plugin", id: approved.plugin.id,
       availability: { outcome: "zero-downtime-eligible", checks: { oldGenerationHealthy: true, expandCompatibleMigration: true, writerReaderOverlap: true, workerDrain: true, realtimeConvergence: true, targetReadiness: true, inventoryMatch: true, rollbackCompatible: true } }
     }
   };
@@ -120,7 +131,7 @@ function staticChangeRequest(source, plan) {
 async function authorizeSourceChange(sourceDirectory, approved, source, buildResultPath, authorityResultPath) {
   const built = await waitJson(buildResultPath);
   if (!["built", "attested"].includes(built.state) || built.sourceResultDigest !== await fileDigest(requiredPath("P9_SOURCE_RESULT_PATH"))) throw new Error("Source authority rejected unbound builder materials.");
-  const request = staticChangeRequest(source, built.plan);
+  const request = staticChangeRequest(source, built.plan, approved);
   const checkpoints = new PostgresStaticCompositionCheckpointStore(pool);
   const checkpointId = digestJson({ authority: approved.authority.identity, authorization: approved.authorization, request });
   const existing = await checkpoints.read(checkpointId);
@@ -172,7 +183,7 @@ async function authorizeSourceChange(sourceDirectory, approved, source, buildRes
     throw new Error("Conflicting source checkpoint was accepted.");
   } catch (error) { if (error.code !== "CHECKPOINT_CONFLICT") throw error; }
   try {
-    await recovered.request({ ...request, generationId: "customer-alpha-green-13" }, approved.authorization);
+    await recovered.request({ ...request, generationId: `${request.generationId}-conflict` }, approved.authorization);
     throw new Error("Stale-base concurrent source change was accepted.");
   } catch (error) { if (error.code !== "SOURCE_CONFLICT") throw error; }
   await writeJson(authorityResultPath, { checkpointId, change });
@@ -191,7 +202,9 @@ async function sourceAuthority() {
   if (!approvedDigest || !/^[0-9a-f]{40}$/u.test(expectedBase ?? "")) throw new Error("Source authority requires fixed approved input and expected base digests.");
   if (await fileDigest(approvedPath) !== approvedDigest) throw new Error("Source authority rejected altered approved input.");
   const approved = await readJson(approvedPath);
-  if (approved.applicationId !== "customer-alpha" || approved.environment !== "production" || approved.plugin?.id !== "module.sales" || approved.plugin?.version !== "1.0.1" || approved.plugin?.packageSpec !== "file:packages/k-nex-module-sales-1.0.1.tgz") {
+  const salesUpdate = approved.plugin?.id === "module.sales" && approved.plugin?.version === "1.0.1" && approved.plugin?.packageSpec === "file:packages/k-nex-module-sales-1.0.1.tgz" && (approved.operation ?? "update") === "update";
+  const providerUninstall = approved.plugin?.id === "provider.realtime.socketio" && approved.plugin?.version === "1.0.0" && approved.plugin?.packageSpec === "file:packages/k-nex-provider-realtime-socketio-1.0.0.tgz" && approved.operation === "uninstall";
+  if (approved.applicationId !== "customer-alpha" || approved.environment !== "production" || (!salesUpdate && !providerUninstall)) {
     throw new Error("Source authority rejected an unapproved static composition request.");
   }
   const head = await sourceCommit(sourceDirectory);
@@ -200,25 +213,35 @@ async function sourceAuthority() {
     const manifestPath = join(sourceDirectory, "k-nex.app.json");
     const manifest = await readJson(manifestPath);
     const plugin = manifest.plugins?.find((candidate) => candidate.id === approved.plugin.id);
-    if (!plugin) throw new Error("Approved module.sales is absent from the customer manifest.");
-    plugin.version = approved.plugin.version;
+    if (!plugin) throw new Error("Approved Platform Plugin is absent from the customer manifest.");
+    if (providerUninstall) {
+      manifest.plugins = manifest.plugins.filter((candidate) => candidate.id !== approved.plugin.id);
+      delete manifest.providers["realtime.gateway"];
+    } else plugin.version = approved.plugin.version;
     await writeJson(manifestPath, manifest);
     const packagePath = join(sourceDirectory, "package.json");
     const pkg = await readJson(packagePath);
-    pkg.dependencies["@k-nex/module-sales"] = approved.plugin.packageSpec;
+    if (providerUninstall) delete pkg.dependencies["@k-nex/provider-realtime-socketio"];
+    else pkg.dependencies["@k-nex/module-sales"] = approved.plugin.packageSpec;
     await writeJson(packagePath, pkg);
+    if (providerUninstall) await rm(join(sourceDirectory, "src", "k-nex-provider-registry.ts"));
     const releasePath = join(sourceDirectory, "static-deployment", "release.json");
-    const release = await readJson(releasePath);
-    release.plugin.version = approved.plugin.version;
-    await writeJson(releasePath, release);
+    if (!providerUninstall) {
+      const release = await readJson(releasePath);
+      release.plugin.version = approved.plugin.version;
+      await writeJson(releasePath, release);
+    }
     await regenerateLockAndGraph(sourceDirectory);
-    await git(sourceDirectory, ["add", "k-nex.app.json", "package.json", "package-lock.json", ".k-nex/generated/resolved-graph.json", "static-deployment/release.json"]);
-    await git(sourceDirectory, ["commit", "--quiet", "-m", "customer: update module.sales to 1.0.1"]);
+    await git(sourceDirectory, ["add", "--all", "k-nex.app.json", "package.json", "package-lock.json", ".k-nex/generated/resolved-graph.json", "src/k-nex-provider-registry.ts", ...(providerUninstall ? [] : ["static-deployment/release.json"])]);
+    await git(sourceDirectory, ["commit", "--quiet", "-m", providerUninstall ? "customer: uninstall realtime provider" : "customer: update module.sales to 1.0.1"]);
     const targetSourceCommit = await sourceCommit(sourceDirectory);
     const target = await composition(sourceDirectory);
-    const result = { schemaVersion: 1, applicationId: approved.applicationId, environment: approved.environment, expectedBase, targetSourceCommit, base: base.composition, target: target.composition, plugin: { id: approved.plugin.id, version: target.pluginVersion }, approvedInputDigest: approvedDigest };
+    const result = { schemaVersion: 1, applicationId: approved.applicationId, environment: approved.environment, expectedBase, targetSourceCommit, base: base.composition, target: target.composition, plugin: { id: approved.plugin.id, version: approved.plugin.version }, approvedInputDigest: approvedDigest };
     await writeJson(resultPath, result);
-    await event("source-committed", { expectedBase, targetSourceCommit, approvedInputDigest: approvedDigest, mutated: ["k-nex.app.json", "package.json", "package-lock.json", ".k-nex/generated/resolved-graph.json", "static-deployment/release.json"] });
+    await event("source-committed", {
+      expectedBase, targetSourceCommit, approvedInputDigest: approvedDigest,
+      mutated: ["k-nex.app.json", "package.json", "package-lock.json", ".k-nex/generated/resolved-graph.json", providerUninstall ? "src/k-nex-provider-registry.ts" : "static-deployment/release.json"]
+    });
     ready({ sourceCommit: targetSourceCommit, sourceResultDigest: await fileDigest(resultPath) });
     await authorizeSourceChange(sourceDirectory, approved, result, buildResultPath, authorityResultPath);
   } else {
@@ -282,16 +305,18 @@ async function builder() {
   if (trustPolicy.builderIdentity !== "builder:k-nex-phase-9" || authority?.builderIdentity !== trustPolicy.builderIdentity || typeof trustPolicy.publicKey !== "string" || !trustPolicy.publicKey.includes("BEGIN PUBLIC KEY") || !signingKey.includes("BEGIN PRIVATE KEY")) {
     throw new Error("Builder rejected an independently provisioned trust policy or signing identity.");
   }
+  const sequence = approved.releaseSequence ?? 12;
+  const migrationFree = approved.operation === "uninstall" && approved.plugin.id === "provider.realtime.socketio";
   const plan = {
-    schemaVersion: 1, planId: "composition-plan-12", applicationId: approved.applicationId, environment: approved.environment, deliveryClass: "platform-plugin",
+    schemaVersion: 1, planId: `composition-plan-${sequence}`, applicationId: approved.applicationId, environment: approved.environment, deliveryClass: "platform-plugin",
     plugin: { id: source.plugin.id, version: source.plugin.version, releaseManifestDigest: source.target.packageClosureDigest }, authority: { identity: approved.authority.identity, requestDigest: approved.authorization.decisionId },
     base: { sourceCommit: source.expectedBase, composition: source.base }, target: { sourceCommit: source.targetSourceCommit, composition: source.target, applicationSubjectDigest: applicationDigest, imageSubjectDigest: imageDigest },
-    migration: { planId: "migration-plan-12", applicationId: approved.applicationId, environment: approved.environment, sourceCommit: source.expectedBase, targetSourceCommit: source.targetSourceCommit, baseRevision: 11, targetRevision: 12,
-      steps: [
+    migration: { planId: `migration-plan-${sequence}`, applicationId: approved.applicationId, environment: approved.environment, sourceCommit: source.expectedBase, targetSourceCommit: source.targetSourceCommit, baseRevision: migrationFree ? 12 : 11, targetRevision: 12,
+      steps: migrationFree ? [] : [
         { stepId: "migration-expand-12", phase: "online-expand", migrationDigest: source.target.migrationPlanDigest, overlapSafe: true },
         { stepId: "migration-backfill-12", phase: "online-backfill", migrationDigest: source.target.migrationPlanDigest, resumable: true, idempotent: true, checkpointSchemaDigest: source.target.migrationPlanDigest },
         { stepId: "migration-contract-12", phase: "post-retirement-contract", migrationDigest: source.target.migrationPlanDigest, requiresOldGenerationRetired: true, requiresRollbackWindowClosed: true }
-      ], rollbackWindow: { state: "open", windowId: "rollback-window-12", previousApplicationDigest: approved.baseApplicationDigest, closesAt: approved.rollbackClosesAt, contractCleanup: "blocked" }
+      ], rollbackWindow: { state: "open", windowId: `rollback-window-${sequence}`, previousApplicationDigest: approved.baseApplicationDigest, closesAt: approved.rollbackClosesAt, contractCleanup: "blocked" }
     }, status: "source-change-ready"
   };
   const provenance = { applicationDigest, imageDigest, sourceCommit: source.targetSourceCommit, composition: source.target, builder: "fixture-static-builder" };
@@ -301,7 +326,7 @@ async function builder() {
   const evidence = { ...statement, signature: { algorithm: "ed25519", keyId: trustPolicy.builderIdentity, value: sign(null, Buffer.from(canonicalJson(statement)), signingKey).toString("base64") } };
   await writeJson(resultPath, { state: "built", sourceResultDigest, plan, evidence, applicationDigest, applicationPath, imageDigest, imageReference: `knex-p9-customer-alpha@${imageDigest}`, tag, sbom, sbomPath, provenance, provenancePath, composition: source.target, pluginVersion: source.plugin.version });
   const authorized = await waitJson(authorityResultPath);
-  if (authorized.checkpointId !== digestJson({ authority: approved.authority.identity, authorization: approved.authorization, request: staticChangeRequest(source, plan) }) || canonicalJson(authorized.change.change) !== canonicalJson(plan)) {
+  if (authorized.checkpointId !== digestJson({ authority: approved.authority.identity, authorization: approved.authorization, request: staticChangeRequest(source, plan, approved) }) || canonicalJson(authorized.change.change) !== canonicalJson(plan)) {
     throw new Error("Builder rejected an unbound source authority checkpoint.");
   }
   const change = authorized.change;
@@ -383,7 +408,12 @@ async function gateway() {
         ["customer-alpha", "production", current.active_generation_id]
       );
       if (!target.rows[0]) throw new Error("Active generation has no registered target.");
-      const upstream = await fetch(`${target.rows[0].url}${request.url}`, { headers: request.headers });
+      const method = request.method ?? "GET";
+      const upstream = await fetch(`${target.rows[0].url}${request.url}`, {
+        method,
+        headers: request.headers,
+        ...(method === "GET" || method === "HEAD" ? {} : { body: request, duplex: "half" })
+      });
       response.writeHead(upstream.status, { "content-type": upstream.headers.get("content-type") ?? "text/plain" });
       response.end(Buffer.from(await upstream.arrayBuffer()));
     } catch (error) {

@@ -158,6 +158,18 @@ function referencedDefinition(schema: Record<string, any>, property: string): Re
   return definition;
 }
 
+function migrationCompatibilityPlanJsonSchema(): unknown {
+  const generated = jsonSchema(MigrationCompatibilityPlanSchema) as Record<string, any>;
+  referencedDefinition(generated, "plan").kNexMigrationRevisionChangeRequiresSteps = true;
+  return generated;
+}
+
+function staticCompositionChangePlanJsonSchema(): unknown {
+  const generated = jsonSchema(StaticCompositionChangePlanSchema) as Record<string, any>;
+  referencedDefinition(generated, "migration").kNexMigrationRevisionChangeRequiresSteps = true;
+  return generated;
+}
+
 function cmsPageMetadataJsonSchema(): unknown {
   const generated = jsonSchema(CmsPageMetadataSchema) as Record<string, any>;
   const canonicalTextPattern = "^(?!\\s)(?![\\s\\S]*\\s$)(?![\\s\\S]*[\\u0000-\\u001f\\u007f-\\u009f])[\\s\\S]+$";
@@ -198,10 +210,10 @@ const primaryArtifacts = [
   { path: "schemas/remote-ui-isolation-profile.v1.schema.json", value: jsonSchema(RemoteUiIsolationProfileSchema) },
   { path: "schemas/remote-ui-frame.v1.schema.json", value: jsonSchema(RemoteUiFrameSchema) },
   { path: "schemas/runner-isolation-profile.v1.schema.json", value: jsonSchema(RunnerIsolationProfileSchema) },
-  { path: "schemas/static-composition-change-plan.v1.schema.json", value: jsonSchema(StaticCompositionChangePlanSchema) },
+  { path: "schemas/static-composition-change-plan.v1.schema.json", value: staticCompositionChangePlanJsonSchema() },
   { path: "schemas/static-deployment-receipt.v1.schema.json", value: jsonSchema(StaticDeploymentReceiptSchema) },
   { path: "schemas/trusted-application-build-evidence.v1.schema.json", value: jsonSchema(TrustedApplicationBuildEvidenceSchema) },
-  { path: "schemas/migration-compatibility-plan.v1.schema.json", value: jsonSchema(MigrationCompatibilityPlanSchema) },
+  { path: "schemas/migration-compatibility-plan.v1.schema.json", value: migrationCompatibilityPlanJsonSchema() },
   { path: "schemas/worker-generation-fence.v1.schema.json", value: jsonSchema(WorkerGenerationFenceSchema) },
   { path: "schemas/package-release-manifest.v1.schema.json", value: jsonSchema(PackageReleaseManifestSchema) },
   { path: "schemas/runtime-inventory.v1.schema.json", value: jsonSchema(RuntimeInventorySchema) },

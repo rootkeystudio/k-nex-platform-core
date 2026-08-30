@@ -1,7 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import pg from "pg";
-import { getPayload } from "payload";
+import { sql } from "@payloadcms/db-postgres";
+import { createPayloadRequest, getPayload } from "payload";
+import { salesTaskCreateHandler } from "@k-nex/module-sales/server";
+import { activePayloadPostgresTransaction, runtimeExtensionIdentityKey } from "@k-nex/payload-adapter";
 
 import config from "@payload-config";
 
@@ -25,7 +28,7 @@ async function initializeRuntime() {
     "insert into p9_static_process_events (role, instance_id, event, generation_id, detail) values ('web',$1,'web-started',$2,$3::jsonb)",
     [processIdentity, generation, JSON.stringify({ processId: process.pid, processIdentity, customerPayloadRegistry: true, payloadNextRuntime: true })]
   );
-  return { applicationDigest, expectedSchemaRevision, generation, pluginVersion: release.plugin.version, pool, processIdentity, smokeToken, sourceCommit };
+  return { applicationDigest, expectedSchemaRevision, generation, payload, pluginVersion: release.plugin.version, pool, processIdentity, smokeToken, sourceCommit };
 }
 
 function runtime() {
@@ -54,6 +57,42 @@ async function leastPrivilegeProof() {
   catch (error) { return { rejected: typeof error === "object" && error !== null && "code" in error && error.code === "42501" }; }
 }
 
+async function salesOperationProof(request: Request) {
+  const { payload, pool } = await runtime();
+  const payloadRequest = await createPayloadRequest({ config: payload.config, request });
+  const transactionID = await payloadRequest.payload.db.beginTransaction();
+  if (transactionID === null || transactionID === undefined) throw new Error("Sales action proof could not open a Payload transaction.");
+  payloadRequest.transactionID = transactionID;
+  try {
+    const transaction = await activePayloadPostgresTransaction(payloadRequest);
+    await transaction.execute(sql`select pg_advisory_xact_lock(hashtextextended(${runtimeExtensionIdentityKey({
+      applicationId: "customer-alpha",
+      environment: "production",
+      deliveryClass: "platform-plugin",
+      extensionId: "module.sales"
+    })}, 0))`);
+    const lifecycle = await transaction.execute(sql`select disposition from p9_static_sales_lifecycle_authority`);
+    if (lifecycle.rows[0]?.disposition !== "active") {
+      await payloadRequest.payload.db.rollbackTransaction(transactionID);
+      return { authorized: false };
+    }
+    const task = await salesTaskCreateHandler({
+      actor: { principal: { kind: "service", id: "p9-static-sales-proof" }, effectiveActor: { kind: "service", id: "p9-static-sales-proof" } },
+      request: payloadRequest,
+      authorizationContext: { permissionFingerprint: "p9-static-sales-proof" },
+      input: await request.json(),
+      idempotencyKey: request.headers.get("x-idempotency-key") ?? "p9-static-sales-action",
+      signal: request.signal
+    });
+    await payloadRequest.payload.db.commitTransaction(transactionID);
+    const role = await pool.query("select current_user database_role");
+    return { authorized: true, databaseRole: role.rows[0]?.database_role, task };
+  } catch (error) {
+    await payloadRequest.payload.db.rollbackTransaction(transactionID);
+    throw error;
+  }
+}
+
 function json(status: number, value: unknown) {
   return Response.json(value, { status });
 }
@@ -66,6 +105,16 @@ export async function handleStaticRuntimeRequest(request: Request) {
   if (path === "/authenticated" && request.headers.get("x-k-nex-smoke-auth") !== smokeToken) return json(401, { error: "authentication-required" });
   if (path === "/schema-proof") return json(200, await schemaProof());
   if (path === "/least-privilege") return json(200, await leastPrivilegeProof());
+  if (path === "/sales-operation") {
+    if (request.method !== "POST") return json(405, { error: "method-not-allowed" });
+    try {
+      const proof = await salesOperationProof(request);
+      return json(proof.authorized ? 200 : 403, proof);
+    } catch (error) {
+      console.error("P9_SALES_OPERATION_FAILURE", error);
+      return json(500, { error: error instanceof Error ? { name: error.name, message: error.message } : { name: "Error", message: "Unknown Sales operation failure." } });
+    }
+  }
   if (path === "/process-identity") return json(200, { processIdentity, processId: process.pid, generation, payloadNextRuntime: true });
   return json(200, { applicationDigest, generation, module: "module.sales", path, payloadNextRuntime: true, pluginVersion, sourceCommit, workerMode: process.env.K_NEX_WORKER_MODE });
 }

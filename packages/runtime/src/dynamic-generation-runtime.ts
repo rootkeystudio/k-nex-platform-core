@@ -4,9 +4,9 @@ import { randomUUID } from "node:crypto";
 import type {
   DynamicArtifactPipeline,
   DynamicGenerationRuntime,
+  DynamicPluginManagerPlan,
   ExtensionChangeRequest,
   GenerationReadinessLease,
-  PluginManagerPlan,
   StagedGenerationActivation,
   VerifiedGenerationAuthority,
   VerifiedGenerationAuthorityOwner
@@ -32,14 +32,14 @@ export interface DurableDynamicArtifactStore {
 export interface DynamicGenerationWarmer {
   warm(input: Readonly<{
     request: ExtensionChangeRequest;
-    plan: Exclude<PluginManagerPlan, { executionClass: "static-release" }>;
+    plan: DynamicPluginManagerPlan;
     artifact: DurableDynamicArtifact;
   }>): Promise<GenerationReadinessLease>;
 }
 
 export interface HotApplicationGenerationWarmupInput {
   readonly request: ExtensionChangeRequest;
-  readonly plan: Extract<PluginManagerPlan, { executionClass: "live-generation" }>;
+  readonly plan: DynamicPluginManagerPlan;
   readonly artifact: DurableDynamicArtifact;
   readonly manifest: HotApplicationManifest;
 }
@@ -98,7 +98,7 @@ export class ReferenceHotApplicationGenerationWarmer implements DynamicGeneratio
 
 export interface ThemeSkinGenerationWarmupInput {
   readonly request: ExtensionChangeRequest;
-  readonly plan: Extract<PluginManagerPlan, { executionClass: "live-generation" }>;
+  readonly plan: DynamicPluginManagerPlan;
   readonly artifact: DurableDynamicArtifact;
 }
 
@@ -149,7 +149,7 @@ function same(left: unknown, right: unknown): boolean {
   return canonicalJson(left) === canonicalJson(right);
 }
 
-function matchesPlanDeclarations(plan: Exclude<PluginManagerPlan, { executionClass: "static-release" }>["plan"], artifact: DurableDynamicArtifact): boolean {
+function matchesPlanDeclarations(plan: DynamicPluginManagerPlan["plan"], artifact: DurableDynamicArtifact): boolean {
   if (plan.deliveryClass === "theme-skin") return same(plan.resourceBudget, artifact.resourceBudget);
   const manifest = artifact.hotApplicationManifest;
   return manifest?.deliveryClass === "hot-application" && same(plan.resourceBudget, manifest.resourceBudget) && same(plan.requiredCapabilities, manifest.capabilities);

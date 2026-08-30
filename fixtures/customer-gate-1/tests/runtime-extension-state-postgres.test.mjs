@@ -495,6 +495,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     });
     const pipeline = new DurableDynamicArtifactPipeline(artifacts);
     const manager = new PluginManager("activation-worker", new TrustedAutomationOperationAuthorizer("github-actions:phase-9"), {
+      validate: async () => undefined,
       plan: async (change) => {
         const release = byVersion.get(change.targetVersion);
         if (!release) throw new Error("Fixture release is unavailable.");

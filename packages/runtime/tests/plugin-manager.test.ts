@@ -147,7 +147,7 @@ class MemoryStore implements RuntimeExtensionStore {
 }
 
 function manager(store = new MemoryStore(), reverify = true) {
-  const planner = { plan: vi.fn(async (planning) => ({
+  const planner = { validate: vi.fn(async () => undefined), plan: vi.fn(async (planning) => ({
     plan: { ...hotPlan, operationId: planning.operationId, operation: planning.operation, version: planning.targetVersion, expectedRevision: planning.expectedRevision, ...(planning.currentGenerationId ? { currentGenerationId: planning.currentGenerationId } : {}) },
     sourceCommit: "a".repeat(40), generationId: "sales-assistant-generation-1"
   })) };
@@ -179,6 +179,20 @@ describe("PluginManager", () => {
     expect(runtime.planner.plan).toHaveBeenCalledTimes(1);
     runtime.store.operation = { ...runtime.store.operation!, phase: "failed" };
     await expect(runtime.value.stage(planned.operationId)).rejects.toMatchObject({ code: "INVALID_STATE" });
+  });
+
+  it("runs mandatory lifecycle policy validation before claiming an operation", async () => {
+    const runtime = manager();
+    const claimOperation = vi.spyOn(runtime.store, "claimOperation");
+    runtime.planner.validate.mockRejectedValueOnce(Object.assign(new Error("Plugin module.sales does not support uninstall."), { code: "OPERATION_UNSUPPORTED" }));
+    await expect(runtime.value.plan({
+      ...request, extension: { deliveryClass: "platform-plugin", id: "module.sales" }, operation: "uninstall",
+      idempotencyKey: "uninstall:module.sales:unsupported", correlationId: "uninstall-module-sales-unsupported"
+    })).rejects.toMatchObject({ code: "OPERATION_UNSUPPORTED" });
+    expect(runtime.planner.validate).toHaveBeenCalledWith(expect.objectContaining({ operation: "uninstall", extension: { deliveryClass: "platform-plugin", id: "module.sales" } }));
+    expect(claimOperation).not.toHaveBeenCalled();
+    expect(runtime.store.operation).toBeUndefined();
+    expect(runtime.planner.plan).not.toHaveBeenCalled();
   });
 
   it("warms and atomically activates the staged generation", async () => {
@@ -219,6 +233,104 @@ describe("PluginManager", () => {
     theme.deployments.request.mockResolvedValue({ status: "build-requested", buildRequestDigest: digest("9"), sourceCommit: "b".repeat(40) });
     await expect(theme.value.plan(themeRequest)).resolves.toMatchObject({ executionClass: "static-release" });
     expect(theme.artifacts.stage).not.toHaveBeenCalled();
+  });
+
+  it("keeps Platform Plugin disable on the current application generation without source/build work", async () => {
+    const runtime = manager();
+    const platformRequest: ExtensionChangeRequest = {
+      ...request,
+      extension: { deliveryClass: "platform-plugin", id: "module.sales" },
+      operation: "disable",
+      targetVersion: "1.0.1",
+      expectedRevision: 4,
+      idempotencyKey: "disable:module.sales:4",
+      correlationId: "disable-module-sales-4"
+    };
+    runtime.store.inventoryValue = {
+      schemaVersion: 1, applicationId: request.applicationId, environment: request.environment, hostInventoryDigest: digest("7"), revision: 4,
+      observedAt: "2026-08-29T09:00:00.000Z", stateDigest: digest("8"), extensions: {
+        hotApplications: {}, themeSkins: {}, platformPlugins: {
+          "module.sales": {
+            disposition: "active", revision: 4, lastOperationId: "extension-operation-previous", lastReceiptId: "extension-receipt-previous", stateDigest: digest("9"),
+            activeGeneration: {
+              authority: "static-build", generationId: "customer-alpha-green-12", version: "1.0.1", sourceCommit: "b".repeat(40),
+              compositionChangePlanDigest: digest("a"), buildEvidenceDigest: digest("b"), applicationDigest: digest("c"), imageDigest: digest("d"),
+              migrationRevision: 12, workerFencingToken: 2, receiptId: "static-receipt-previous"
+            }
+          }
+        }
+      }
+    };
+    const disablePlan: ExtensionInstallPlan = {
+      schemaVersion: 1, planId: "sales-disable-4", operationId: "placeholder", operation: "disable", version: "1.0.1", artifactDigest: digest("a"),
+      expectedRevision: 4, currentGenerationId: "customer-alpha-green-12", targetGenerationId: "customer-alpha-green-12", approvalRequired: true,
+      rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "platform-plugin", id: "module.sales",
+      availability: { outcome: "zero-downtime-eligible", checks: { oldGenerationHealthy: true, expandCompatibleMigration: true, writerReaderOverlap: true, workerDrain: true, realtimeConvergence: true, targetReadiness: true, inventoryMatch: true, rollbackCompatible: true } }
+    };
+    runtime.planner.plan.mockImplementation(async (planning) => ({
+      plan: { ...disablePlan, operationId: planning.operationId }, sourceCommit: "b".repeat(40), generationId: disablePlan.targetGenerationId!
+    }));
+    const planned = await runtime.value.plan(platformRequest);
+    expect(planned).toMatchObject({ executionClass: "live-generation", generationId: "customer-alpha-green-12" });
+    await expect(runtime.value.disable(planned.operationId)).resolves.toMatchObject({ disposition: "disabled" });
+    expect(runtime.staticChanges.request).not.toHaveBeenCalled();
+    expect(runtime.deployments.request).not.toHaveBeenCalled();
+
+    const freshGeneration = manager();
+    freshGeneration.store.inventoryValue = runtime.store.inventoryValue;
+    freshGeneration.planner.plan.mockImplementation(async (planning) => ({
+      plan: { ...disablePlan, operationId: planning.operationId, targetGenerationId: "customer-alpha-disable-13" }, sourceCommit: "c".repeat(40), generationId: "customer-alpha-disable-13"
+    }));
+    await expect(freshGeneration.value.plan(platformRequest)).rejects.toMatchObject({ code: "PLAN_MISMATCH" });
+  });
+
+  it("requires a fresh static release generation for a supported Platform Plugin uninstall", async () => {
+    const runtime = manager();
+    const platformRequest: ExtensionChangeRequest = {
+      ...request, extension: { deliveryClass: "platform-plugin", id: "provider.schema-less" }, operation: "uninstall", targetVersion: "1.0.1",
+      expectedRevision: 4, idempotencyKey: "uninstall:provider.schema-less:4", correlationId: "uninstall-schema-less-4"
+    };
+    runtime.store.inventoryValue = {
+      schemaVersion: 1, applicationId: request.applicationId, environment: request.environment, hostInventoryDigest: digest("7"), revision: 4,
+      observedAt: "2026-08-29T09:00:00.000Z", stateDigest: digest("8"), extensions: { hotApplications: {}, themeSkins: {}, platformPlugins: {
+        "provider.schema-less": { disposition: "active", revision: 4, lastOperationId: "extension-operation-previous", lastReceiptId: "extension-receipt-previous", stateDigest: digest("9"), activeGeneration: {
+          authority: "static-build", generationId: "customer-alpha-green-12", version: "1.0.1", sourceCommit: "b".repeat(40),
+          compositionChangePlanDigest: digest("a"), buildEvidenceDigest: digest("b"), applicationDigest: digest("c"), imageDigest: digest("d"), migrationRevision: 12,
+          workerFencingToken: 2, receiptId: "static-receipt-previous"
+        } }
+      } }
+    };
+    const uninstallPlan: ExtensionInstallPlan = {
+      schemaVersion: 1, planId: "schema-less-uninstall-5", operationId: "placeholder", operation: "uninstall", version: "1.0.1", artifactDigest: digest("a"),
+      expectedRevision: 4, currentGenerationId: "customer-alpha-green-12", targetGenerationId: "customer-alpha-uninstall-13", approvalRequired: true,
+      rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "platform-plugin", id: "provider.schema-less",
+      availability: { outcome: "zero-downtime-eligible", checks: { oldGenerationHealthy: true, expandCompatibleMigration: true, writerReaderOverlap: true, workerDrain: true, realtimeConvergence: true, targetReadiness: true, inventoryMatch: true, rollbackCompatible: true } }
+    };
+    runtime.planner.plan.mockImplementation(async (planning) => ({ plan: { ...uninstallPlan, operationId: planning.operationId }, sourceCommit: "c".repeat(40), generationId: "customer-alpha-uninstall-13" }));
+    runtime.staticChanges.request.mockResolvedValue({ status: "source-change-ready", planDigest: digest("e"), targetSourceCommit: "c".repeat(40), change: staticChange });
+    runtime.deployments.request.mockResolvedValue({ status: "build-requested", buildRequestDigest: digest("f"), sourceCommit: "c".repeat(40) });
+    await expect(runtime.value.plan(platformRequest)).resolves.toMatchObject({ executionClass: "static-release", generationId: "customer-alpha-uninstall-13" });
+
+    const sameGeneration = manager();
+    sameGeneration.store.inventoryValue = runtime.store.inventoryValue;
+    sameGeneration.planner.plan.mockImplementation(async (planning) => ({ plan: { ...uninstallPlan, operationId: planning.operationId, targetGenerationId: "customer-alpha-green-12" }, sourceCommit: "c".repeat(40), generationId: "customer-alpha-green-12" }));
+    await expect(sameGeneration.value.plan(platformRequest)).rejects.toMatchObject({ code: "PLAN_MISMATCH" });
+  });
+
+  it("rejects a forged live-generation Platform Plugin uninstall at execution", async () => {
+    const runtime = manager();
+    runtime.store.operation = {
+      operationId: "extension-operation-forged-uninstall",
+      request: { ...request, extension: { deliveryClass: "platform-plugin", id: "provider.schema-less" }, operation: "uninstall" },
+      requestDigest: digest("1"), authorization: { actor: { kind: "trusted-automation", identity: "github-actions:phase-9" }, decisionId: digest("2") },
+      phase: "planning", leaseToken: "forged-lease",
+      plan: {
+        executionClass: "live-generation", operationId: "extension-operation-forged-uninstall", sourceCommit: "b".repeat(40), generationId: "customer-alpha-uninstall-13",
+        plan: { ...hotPlan, deliveryClass: "platform-plugin", id: "provider.schema-less", operation: "uninstall", operationId: "extension-operation-forged-uninstall", currentGenerationId: "customer-alpha-green-12", targetGenerationId: "customer-alpha-uninstall-13", availability: { outcome: "maintenance-required", reasons: ["destructive-migration"] } }
+      } as unknown as PluginManagerPlan
+    };
+    await expect(runtime.value.uninstall(runtime.store.operation.operationId)).rejects.toMatchObject({ code: "WRONG_EXECUTION_CLASS" });
+    expect(runtime.store.resumeCount).toBe(1);
   });
 
   it("reconciles only the exact authoritative static receipt and replays it without a second inventory write", async () => {
@@ -427,11 +539,13 @@ describe("PluginManager", () => {
     }
   });
 
-  it("stops before planning or persistence when operation authorization rejects", async () => {
+  it("rejects authorization before policy validation or operation claiming", async () => {
     const runtime = manager();
+    const authorizer = { authorize: vi.fn(async () => { throw new Error("OPERATION_FORBIDDEN"); }) };
+    const claimOperation = vi.spyOn(runtime.store, "claimOperation");
     const blocked = new PluginManager(
       "phase-9-worker",
-      { authorize: vi.fn(async () => { throw new Error("OPERATION_FORBIDDEN"); }) },
+      authorizer,
       runtime.planner,
       runtime.store,
       runtime.artifacts,
@@ -441,7 +555,12 @@ describe("PluginManager", () => {
       runtime.clock
     );
     await expect(blocked.plan(request)).rejects.toThrow("OPERATION_FORBIDDEN");
+    expect(authorizer.authorize).toHaveBeenCalledOnce();
+    expect(runtime.planner.validate).not.toHaveBeenCalled();
     expect(runtime.planner.plan).not.toHaveBeenCalled();
+    expect(claimOperation).not.toHaveBeenCalled();
     expect(runtime.store.operation).toBeUndefined();
+    expect(runtime.store.transitions).toEqual([]);
+    expect(runtime.store.staticReceipts).toEqual([]);
   });
 });

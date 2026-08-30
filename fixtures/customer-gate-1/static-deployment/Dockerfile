@@ -15,6 +15,7 @@ LABEL p9-fixture=${K_NEX_FIXTURE_LABEL}
 ENV K_NEX_SOURCE_COMMIT=${K_NEX_SOURCE_COMMIT}
 ENV K_NEX_APPLICATION_DIGEST=${K_NEX_APPLICATION_DIGEST}
 COPY src ./src
+COPY k-nex.app.json ./
 COPY static-deployment/tsconfig.next.json ./tsconfig.json
 COPY static-deployment/tsconfig.customer.json ./
 COPY static-deployment/next.config.mjs ./

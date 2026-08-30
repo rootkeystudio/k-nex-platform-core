@@ -70,6 +70,7 @@
     },
     "__schema13": {
       "additionalProperties": false,
+      "kNexMigrationRevisionChangeRequiresSteps": true,
       "properties": {
         "applicationId": {
           "$ref": "#/$defs/__schema3"
@@ -84,100 +85,13 @@
           "$ref": "#/$defs/__schema2"
         },
         "rollbackWindow": {
-          "oneOf": [
-            {
-              "additionalProperties": false,
-              "properties": {
-                "closesAt": {
-                  "$ref": "#/$defs/__schema16"
-                },
-                "contractCleanup": {
-                  "const": "blocked",
-                  "type": "string"
-                },
-                "previousApplicationDigest": {
-                  "$ref": "#/$defs/__schema7"
-                },
-                "state": {
-                  "const": "open",
-                  "type": "string"
-                },
-                "windowId": {
-                  "$ref": "#/$defs/__schema2"
-                }
-              },
-              "required": [
-                "state",
-                "windowId",
-                "previousApplicationDigest",
-                "closesAt",
-                "contractCleanup"
-              ],
-              "type": "object"
-            },
-            {
-              "additionalProperties": false,
-              "properties": {
-                "closedAt": {
-                  "$ref": "#/$defs/__schema16"
-                },
-                "contractCleanup": {
-                  "const": "eligible",
-                  "type": "string"
-                },
-                "state": {
-                  "const": "closed",
-                  "type": "string"
-                },
-                "windowId": {
-                  "$ref": "#/$defs/__schema2"
-                }
-              },
-              "required": [
-                "state",
-                "windowId",
-                "closedAt",
-                "contractCleanup"
-              ],
-              "type": "object"
-            },
-            {
-              "additionalProperties": false,
-              "properties": {
-                "contractCleanup": {
-                  "const": "blocked",
-                  "type": "string"
-                },
-                "reason": {
-                  "maxLength": 240,
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "state": {
-                  "const": "not-applicable",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "state",
-                "reason",
-                "contractCleanup"
-              ],
-              "type": "object"
-            }
-          ]
+          "$ref": "#/$defs/__schema17"
         },
         "sourceCommit": {
           "$ref": "#/$defs/__schema10"
         },
         "steps": {
-          "items": {
-            "$ref": "#/$defs/__schema15"
-          },
-          "maxItems": 128,
-          "minItems": 1,
-          "type": "array",
-          "uniqueItems": true
+          "$ref": "#/$defs/__schema15"
         },
         "targetRevision": {
           "$ref": "#/$defs/__schema14"
@@ -205,6 +119,14 @@
       "type": "integer"
     },
     "__schema15": {
+      "items": {
+        "$ref": "#/$defs/__schema16"
+      },
+      "maxItems": 128,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "__schema16": {
       "oneOf": [
         {
           "additionalProperties": false,
@@ -326,7 +248,91 @@
         }
       ]
     },
-    "__schema16": {
+    "__schema17": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "closesAt": {
+              "$ref": "#/$defs/__schema18"
+            },
+            "contractCleanup": {
+              "const": "blocked",
+              "type": "string"
+            },
+            "previousApplicationDigest": {
+              "$ref": "#/$defs/__schema7"
+            },
+            "state": {
+              "const": "open",
+              "type": "string"
+            },
+            "windowId": {
+              "$ref": "#/$defs/__schema2"
+            }
+          },
+          "required": [
+            "state",
+            "windowId",
+            "previousApplicationDigest",
+            "closesAt",
+            "contractCleanup"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "closedAt": {
+              "$ref": "#/$defs/__schema18"
+            },
+            "contractCleanup": {
+              "const": "eligible",
+              "type": "string"
+            },
+            "state": {
+              "const": "closed",
+              "type": "string"
+            },
+            "windowId": {
+              "$ref": "#/$defs/__schema2"
+            }
+          },
+          "required": [
+            "state",
+            "windowId",
+            "closedAt",
+            "contractCleanup"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "contractCleanup": {
+              "const": "blocked",
+              "type": "string"
+            },
+            "reason": {
+              "maxLength": 240,
+              "minLength": 1,
+              "type": "string"
+            },
+            "state": {
+              "const": "not-applicable",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state",
+            "reason",
+            "contractCleanup"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "__schema18": {
       "allOf": [
         {
           "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
@@ -338,7 +344,7 @@
       "maxLength": 64,
       "type": "string"
     },
-    "__schema17": {
+    "__schema19": {
       "const": "source-change-ready",
       "type": "string"
     },
@@ -455,7 +461,7 @@
       "$ref": "#/$defs/__schema1"
     },
     "status": {
-      "$ref": "#/$defs/__schema17"
+      "$ref": "#/$defs/__schema19"
     },
     "target": {
       "$ref": "#/$defs/__schema12"

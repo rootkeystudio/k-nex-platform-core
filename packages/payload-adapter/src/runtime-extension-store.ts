@@ -175,8 +175,24 @@ function operationId(requestDigest: string): string {
   return `operation-${requestDigest.slice("sha256:".length, "sha256:".length + 32)}`;
 }
 
+export interface RuntimeExtensionIdentity {
+  readonly applicationId: string;
+  readonly environment: string;
+  readonly deliveryClass: "platform-plugin" | "hot-application" | "theme-skin";
+  readonly extensionId: string;
+}
+
+export function runtimeExtensionIdentityKey(identity: RuntimeExtensionIdentity): string {
+  return canonicalJson([identity.applicationId, identity.environment, identity.deliveryClass, identity.extensionId]);
+}
+
 function identityKey(row: Pick<OperationRow, "application_id" | "environment" | "delivery_class" | "extension_id">): string {
-  return canonicalJson([row.application_id, row.environment, row.delivery_class, row.extension_id]);
+  return runtimeExtensionIdentityKey({
+    applicationId: row.application_id,
+    environment: row.environment,
+    deliveryClass: row.delivery_class,
+    extensionId: row.extension_id
+  });
 }
 
 function assertAuthorityOwner(row: Pick<OperationRow, "application_id" | "environment" | "delivery_class" | "extension_id">, authority: VerifiedGenerationAuthority): void {
@@ -201,6 +217,13 @@ function assertPlanIdentity(row: OperationRow, plan: PluginManagerPlan, state: E
     fail("GENERATION_MISMATCH", "Persisted plan does not bind this operation to the current inventory generation.");
   }
   if (!planned.targetGenerationId) fail("GENERATION_MISMATCH", "Persisted plan has no target generation identity.");
+  if ((row.delivery_class === "platform-plugin" && row.operation_kind === "disable") !==
+      (plan.executionClass === "live-generation" && planned.deliveryClass === "platform-plugin")) {
+    fail("GENERATION_MISMATCH", "Platform Plugin execution class does not match its lifecycle operation.");
+  }
+  if (row.delivery_class !== "platform-plugin" && plan.executionClass !== "live-generation") {
+    fail("GENERATION_MISMATCH", "Dynamic extension operation cannot use static release authority.");
+  }
   if (["install", "update"].includes(row.operation_kind)) {
     if (planned.targetGenerationId === state.active_generation_id || planned.targetGenerationId === state.rollback_generation_id) {
       fail("GENERATION_MISMATCH", "Install and update target generations must be fresh.");
@@ -209,12 +232,16 @@ function assertPlanIdentity(row: OperationRow, plan: PluginManagerPlan, state: E
     if (!state.active_generation_id || planned.targetGenerationId !== state.rollback_generation_id) {
       fail("GENERATION_MISMATCH", "Rollback plan must target the retained inventory generation.");
     }
+  } else if (row.delivery_class === "platform-plugin" && row.operation_kind === "uninstall") {
+    if (!currentGenerationId || planned.targetGenerationId === currentGenerationId || planned.targetGenerationId === state.rollback_generation_id) {
+      fail("GENERATION_MISMATCH", "Static uninstall plan must target a fresh application generation.");
+    }
   } else if (planned.targetGenerationId !== currentGenerationId) {
-    fail("GENERATION_MISMATCH", "Disposition plan must remain bound to the active inventory generation.");
+    fail("GENERATION_MISMATCH", "Disable plan must remain bound to the active inventory generation.");
   }
 }
 
-function transitionEvidence(row: OperationRow, authority: VerifiedGenerationAuthority | undefined, staticReceipt?: StaticDeploymentReceipt) {
+function transitionEvidence(row: OperationRow, authority: VerifiedGenerationAuthority | undefined, staticReceipt?: StaticDeploymentReceipt, staticGeneration?: Record<string, unknown>) {
   const plan = row.plan_json;
   if (!plan) fail("STATE_INVALID", "A lifecycle transition requires a persisted plan.");
   if (plan.executionClass === "static-release") {
@@ -228,6 +255,19 @@ function transitionEvidence(row: OperationRow, authority: VerifiedGenerationAuth
         applicationDigest: staticReceipt.applicationDigest,
         imageDigest: staticReceipt.imageDigest
       } : {})
+    };
+  }
+  if (row.delivery_class === "platform-plugin") {
+    if (!staticGeneration || typeof staticGeneration["sourceCommit"] !== "string" || typeof staticGeneration["compositionChangePlanDigest"] !== "string" || typeof staticGeneration["generationId"] !== "string") {
+      fail("STATE_INVALID", "Runtime-only Platform Plugin transition is missing its retained static generation evidence.");
+    }
+    return {
+      sourceCommit: staticGeneration["sourceCommit"],
+      compositionChangePlanDigest: staticGeneration["compositionChangePlanDigest"],
+      generationId: staticGeneration["generationId"],
+      ...(typeof staticGeneration["buildEvidenceDigest"] === "string" ? { buildEvidenceDigest: staticGeneration["buildEvidenceDigest"] } : {}),
+      ...(typeof staticGeneration["applicationDigest"] === "string" ? { applicationDigest: staticGeneration["applicationDigest"] } : {}),
+      ...(typeof staticGeneration["imageDigest"] === "string" ? { imageDigest: staticGeneration["imageDigest"] } : {})
     };
   }
   return {
@@ -392,7 +432,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
       );
       const saved = updated.rows[0];
       if (!saved) fail("LEASE_CONFLICT", "Runtime extension plan lease changed.");
-      await this.appendTransition(session, saved, "planning", undefined);
+      await this.appendTransition(session, saved, "planning", undefined, current.active_generation ?? undefined);
       return operation(saved);
     });
   }
@@ -642,7 +682,9 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
       const plan = row.plan_json;
       if (receipt.applicationId !== row.application_id || receipt.environment !== row.environment || receipt.activeGenerationId !== plan.generationId ||
         receipt.sourceCommit !== plan.sourceChange.targetSourceCommit || receipt.compositionChangePlanDigest !== plan.sourceChange.planDigest ||
-        receipt.operation !== (row.operation_kind === "rollback" ? "rollback" : "promote")) {
+        receipt.operation !== (row.operation_kind === "rollback" ? "rollback" : "promote") ||
+        (row.operation_kind === "uninstall" &&
+          (receipt.previousGenerationId !== plan.plan.currentGenerationId || receipt.activeGenerationId === receipt.previousGenerationId))) {
         fail("GENERATION_MISMATCH", "Static deployment receipt does not bind the planned runtime operation.");
       }
       const identity = identityKey(row);
@@ -823,6 +865,9 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
       if (row.phase !== "planning" || row.operation_kind !== operationKind || row.plan_json?.executionClass !== "live-generation") {
         fail("PHASE_CONFLICT", `Only a planned live-generation ${operationKind} can commit.`);
       }
+      if (row.delivery_class === "platform-plugin" && operationKind === "uninstall") {
+        fail("PHASE_CONFLICT", "Platform Plugin uninstall requires static source/build authority.");
+      }
       await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [identityKey(row)]);
       const stateResult = await session.query<ExtensionRow>(
         `select *, 0::int as inventory_revision from runtime_extensions where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4 for update`,
@@ -875,7 +920,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
           [row.application_id, row.environment, row.delivery_class, row.extension_id]
         );
       }
-      const event = await this.writeTransitionEvidence(session, row, "completed", undefined, revision, inventoryRevision, disposition);
+      const event = await this.writeTransitionEvidence(session, row, "completed", undefined, revision, inventoryRevision, disposition, undefined, previousGeneration ?? undefined);
       const receipt: ExtensionDispositionReceipt = Object.freeze({
         receiptId: event.receiptId,
         operationId: row.operation_id,
@@ -1238,7 +1283,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
     );
   }
 
-  private async appendTransition(session: RuntimeExtensionSession, row: OperationRow, phase: ExtensionOperationPhase, authority: VerifiedGenerationAuthority | undefined): Promise<ExtensionLifecycleEvent> {
+  private async appendTransition(session: RuntimeExtensionSession, row: OperationRow, phase: ExtensionOperationPhase, authority: VerifiedGenerationAuthority | undefined, staticGeneration?: Record<string, unknown>): Promise<ExtensionLifecycleEvent> {
     const identity = identityKey(row);
     await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [identity]);
     const state = await session.query<{ revision: number }>(
@@ -1249,7 +1294,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
     const revision = state.rows[0]?.revision;
     if (!revision) fail("STATE_INVALID", "Runtime extension revision update failed.");
     const inventoryRevision = await this.advanceInventoryRevision(session, row.application_id, row.environment);
-    return this.writeTransitionEvidence(session, row, phase, authority, revision, inventoryRevision);
+    return this.writeTransitionEvidence(session, row, phase, authority, revision, inventoryRevision, undefined, undefined, staticGeneration);
   }
 
   private async writeTransitionEvidence(
@@ -1260,7 +1305,8 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
     revision: number,
     inventoryRevision: number,
     lifecycle?: ExtensionLifecycleEvent["lifecycleState"],
-    staticReceipt?: StaticDeploymentReceipt
+    staticReceipt?: StaticDeploymentReceipt,
+    staticGeneration?: Record<string, unknown>
   ): Promise<ExtensionLifecycleEvent> {
     const ids = evidenceIds(row, revision);
     const receiptId = staticReceipt?.receiptId ?? ids.receiptId;
@@ -1286,7 +1332,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
       occurredAt: timestamp(this.clock),
       deliveryClass: row.delivery_class,
       id: row.extension_id,
-      evidence: transitionEvidence(row, authority ?? row.authority_json ?? undefined, staticReceipt)
+      evidence: transitionEvidence(row, authority ?? row.authority_json ?? undefined, staticReceipt, staticGeneration)
     });
     const eventJson = JSON.stringify(event);
     await session.query(

@@ -67,6 +67,7 @@ export class TrustedAutomationOperationAuthorizer implements ExtensionOperationA
 }
 
 export interface ExtensionPlanner {
+  validate(request: ExtensionChangeRequest): Promise<void>;
   plan(request: ExtensionPlanningRequest): Promise<Readonly<{ plan: ExtensionInstallPlan; sourceCommit: string; generationId: string }>>;
 }
 
@@ -250,7 +251,7 @@ export interface ActiveGenerationObservation {
 }
 
 export interface DynamicGenerationRuntime {
-  prepare(input: Readonly<{ request: ExtensionChangeRequest; plan: Exclude<PluginManagerPlan, { executionClass: "static-release" }>; authority: VerifiedGenerationAuthority }>): Promise<StagedGenerationActivation>;
+  prepare(input: Readonly<{ request: ExtensionChangeRequest; plan: DynamicPluginManagerPlan; authority: VerifiedGenerationAuthority }>): Promise<StagedGenerationActivation>;
 }
 
 export interface DynamicArtifactPipeline {
@@ -265,8 +266,17 @@ export interface VerifiedGenerationAuthorityOwner {
   readonly extensionId: string;
 }
 
+export type DynamicPluginManagerPlan = Readonly<{
+  executionClass: "live-generation";
+  operationId: string;
+  plan: Exclude<ExtensionInstallPlan, { deliveryClass: "platform-plugin" }>;
+  sourceCommit: string;
+  generationId: string;
+}>;
+
 export type PluginManagerPlan =
-  | Readonly<{ executionClass: "live-generation"; operationId: string; plan: Exclude<ExtensionInstallPlan, { deliveryClass: "platform-plugin" }>; sourceCommit: string; generationId: string }>
+  | DynamicPluginManagerPlan
+  | Readonly<{ executionClass: "live-generation"; operationId: string; plan: Extract<ExtensionInstallPlan, { deliveryClass: "platform-plugin" }> & { operation: "disable" }; sourceCommit: string; generationId: string }>
   | Readonly<{ executionClass: "static-release"; operationId: string; plan: Extract<ExtensionInstallPlan, { deliveryClass: "platform-plugin" }>; generationId: string; sourceChange: StaticCompositionChangeResult; deployment: TrustedDeploymentRequest }>;
 
 export interface RuntimeExtensionOperation {
@@ -401,8 +411,12 @@ function assertPlanMatches(
     if (!inventory.currentGenerationId || plan.targetGenerationId !== inventory.rollbackGenerationId) {
       throw new PluginManagerError("PLAN_MISMATCH", "Rollback must target the retained generation from current inventory.");
     }
+  } else if (request.extension.deliveryClass === "platform-plugin" && request.operation === "uninstall") {
+    if (!inventory.currentGenerationId || plan.targetGenerationId === inventory.currentGenerationId || plan.targetGenerationId === inventory.rollbackGenerationId) {
+      throw new PluginManagerError("PLAN_MISMATCH", "Static uninstall must target a fresh application generation.");
+    }
   } else if (plan.targetGenerationId !== inventory.currentGenerationId) {
-    throw new PluginManagerError("PLAN_MISMATCH", "Disposition must remain bound to the active inventory generation.");
+    throw new PluginManagerError("PLAN_MISMATCH", "Disable must remain bound to the active inventory generation.");
   }
 }
 
@@ -464,9 +478,18 @@ function assertStaticReceipt(operation: RuntimeExtensionOperation, receipt: Stat
   const plan = operation.plan;
   if (!plan || plan.executionClass !== "static-release" || receipt.applicationId !== operation.request.applicationId || receipt.environment !== operation.request.environment ||
     receipt.activeGenerationId !== plan.generationId || receipt.sourceCommit !== plan.sourceChange.targetSourceCommit ||
-    receipt.compositionChangePlanDigest !== plan.sourceChange.planDigest || receipt.operation !== (operation.request.operation === "rollback" ? "rollback" : "promote")) {
+    receipt.compositionChangePlanDigest !== plan.sourceChange.planDigest || receipt.operation !== (operation.request.operation === "rollback" ? "rollback" : "promote") ||
+    (operation.request.operation === "uninstall" &&
+      (receipt.previousGenerationId !== plan.plan.currentGenerationId || receipt.activeGenerationId === receipt.previousGenerationId))) {
     throw new PluginManagerError("PLAN_MISMATCH", "Static deployment receipt does not bind the authorized operation plan.");
   }
+}
+
+function dynamicPlan(plan: PluginManagerPlan): DynamicPluginManagerPlan {
+  if (plan.executionClass !== "live-generation" || plan.plan.deliveryClass === "platform-plugin") {
+    throw new PluginManagerError("WRONG_EXECUTION_CLASS", "Platform Plugin delivery does not use dynamic generation authority.");
+  }
+  return plan as DynamicPluginManagerPlan;
 }
 
 export class PluginManager {
@@ -488,6 +511,7 @@ export class PluginManager {
     if (!validRequest(request)) throw new PluginManagerError("INVALID_REQUEST", "Extension change request is invalid.");
     const requestDigest = await digest(request);
     const authorization = await this.authorizer.authorize({ ...request, requestDigest });
+    await this.planner.validate(Object.freeze({ ...request }));
     let claim: ClaimOperationResult;
     try {
       claim = await this.store.claimOperation({ request, requestDigest, authorization, workerId: this.workerId });
@@ -522,15 +546,19 @@ export class PluginManager {
     const operationId = claimedOperation.operationId;
     let result: PluginManagerPlan;
     if (parsed.deliveryClass === "platform-plugin") {
-      const sourceChange = await this.staticChanges.request({
-        applicationId: request.applicationId,
-        environment: request.environment,
-        expectedSourceCommit: planned.sourceCommit,
-        generationId: planned.generationId,
-        plan: parsed
-      }, authorization);
-      const deployment = await this.deployments.request(sourceChange, authorization);
-      result = Object.freeze({ executionClass: "static-release", operationId, plan: parsed, generationId: planned.generationId, sourceChange, deployment });
+      if (parsed.operation === "disable") {
+        result = Object.freeze({ executionClass: "live-generation", operationId, plan: { ...parsed, operation: "disable" as const }, sourceCommit: planned.sourceCommit, generationId: planned.generationId });
+      } else {
+        const sourceChange = await this.staticChanges.request({
+          applicationId: request.applicationId,
+          environment: request.environment,
+          expectedSourceCommit: planned.sourceCommit,
+          generationId: planned.generationId,
+          plan: parsed
+        }, authorization);
+        const deployment = await this.deployments.request(sourceChange, authorization);
+        result = Object.freeze({ executionClass: "static-release", operationId, plan: parsed, generationId: planned.generationId, sourceChange, deployment });
+      }
     } else {
       result = Object.freeze({ executionClass: "live-generation", operationId, plan: parsed, sourceCommit: planned.sourceCommit, generationId: planned.generationId });
     }
@@ -545,11 +573,11 @@ export class PluginManager {
     if (operation.plan.executionClass !== "live-generation") throw new PluginManagerError("WRONG_EXECUTION_CLASS", "Platform Plugin delivery is delegated to static source/build authority.");
     if (!["install", "update"].includes(operation.request.operation)) throw new PluginManagerError("INVALID_STATE", "Only install and update operations stage a live generation.");
     if (!["planning", "downloading", "verified", "staged"].includes(operation.phase)) throw new PluginManagerError("INVALID_STATE", `Extension operation cannot stage from ${operation.phase}.`);
-    const dynamicPlan = operation.plan;
+    const livePlan = dynamicPlan(operation.plan);
     let current = operation;
     if (current.phase === "planning") current = (await this.store.transition({ operationId, leaseToken: current.leaseToken, expectedPhase: "planning", phase: "downloading" })).operation;
     const owner = authorityOwner(current.request);
-    const authority = current.authority ?? await this.artifacts.stage({ plan: dynamicPlan.plan, owner });
+    const authority = current.authority ?? await this.artifacts.stage({ plan: livePlan.plan, owner });
     assertAuthorityOwner(authority, owner);
     if (current.phase === "downloading") current = (await this.store.transition({ operationId, leaseToken: current.leaseToken, expectedPhase: "downloading", phase: "verified", authority })).operation;
     if (!await this.artifacts.reverify(authority, owner)) throw new PluginManagerError("ARTIFACT_AUTHORITY_REJECTED", "Staged artifact authority could not be reverified.");
@@ -608,15 +636,16 @@ export class PluginManager {
     if (current.request.extension.deliveryClass === "platform-plugin") {
       throw new PluginManagerError("WRONG_EXECUTION_CLASS", "Platform Plugin delivery does not use live generation rollback.");
     }
+    const livePlan = dynamicPlan(current.plan);
     const owner = authorityOwner(current.request);
     assertAuthorityOwner(current.authority, owner);
     if (current.phase === "staged") {
       if (!await this.artifacts.reverify(current.authority, owner)) throw new PluginManagerError("ARTIFACT_AUTHORITY_REJECTED", "Staged artifact authority could not be reverified.");
-      const stage = await this.generationRuntime.prepare({ request: current.request, plan: current.plan, authority: current.authority });
+      const stage = await this.generationRuntime.prepare({ request: current.request, plan: livePlan, authority: current.authority });
       current = (await this.store.stageGeneration({ operationId, leaseToken: current.leaseToken, stage })).operation;
     } else if (current.phase === "warming") {
       if (!await this.artifacts.reverify(current.authority, owner)) throw new PluginManagerError("ARTIFACT_AUTHORITY_REJECTED", "Warming artifact authority could not be reverified.");
-      const stage = await this.generationRuntime.prepare({ request: current.request, plan: current.plan, authority: current.authority });
+      const stage = await this.generationRuntime.prepare({ request: current.request, plan: livePlan, authority: current.authority });
       current = await this.store.refreshGenerationReadiness({ operationId, leaseToken: current.leaseToken, stage });
     }
     if (current.phase !== "warming") throw new PluginManagerError("INVALID_STATE", `Extension operation cannot activate from ${current.phase}.`);
@@ -631,6 +660,7 @@ export class PluginManager {
       throw new PluginManagerError("INVALID_STATE", "Extension rollback operation is not ready.");
     }
     if (!this.generationRuntime) throw new PluginManagerError("INVALID_STATE", "Live generation preparation is unavailable.");
+    const livePlan = dynamicPlan(current.plan);
     const owner = authorityOwner(current.request);
     const inventory = await this.store.inventory(current.request.applicationId, current.request.environment);
     const entries = current.request.extension.deliveryClass === "hot-application" ? inventory.extensions.hotApplications : inventory.extensions.themeSkins;
@@ -643,7 +673,7 @@ export class PluginManager {
     if (authority.generationId !== current.plan.generationId || !await this.artifacts.reverify(authority, owner)) {
       throw new PluginManagerError("ARTIFACT_AUTHORITY_REJECTED", "Retained artifact authority could not be reverified.");
     }
-    const stage = await this.generationRuntime.prepare({ request: current.request, plan: current.plan, authority });
+    const stage = await this.generationRuntime.prepare({ request: current.request, plan: livePlan, authority });
     assertFreshRollbackReadiness(stage, authority, current.plan.plan.version, this.clock.now());
     return this.store.rollbackGeneration(operationId, current.leaseToken);
   }
@@ -700,6 +730,9 @@ export class PluginManager {
     const current = await this.store.resumeOperation(operationId, this.workerId);
     if (!current.plan || current.plan.executionClass !== "live-generation" || current.request.operation !== operation || current.phase !== "planning") {
       throw new PluginManagerError("INVALID_STATE", `Extension ${operation} operation is not ready.`);
+    }
+    if (current.request.extension.deliveryClass === "platform-plugin" && operation === "uninstall") {
+      throw new PluginManagerError("WRONG_EXECUTION_CLASS", "Platform Plugin uninstall requires static source/build authority.");
     }
     return current;
   }

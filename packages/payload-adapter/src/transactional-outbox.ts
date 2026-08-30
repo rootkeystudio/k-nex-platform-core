@@ -9,16 +9,16 @@ export interface WriteTransactionalOutboxEventArgs {
   readonly retentionUntil: string;
 }
 
-async function activeTransactionDb(req: PayloadRequest): Promise<NonNullable<PostgresAdapter["sessions"]>[string]["db"]> {
+export async function activePayloadPostgresTransaction(req: PayloadRequest): Promise<NonNullable<PostgresAdapter["sessions"]>[string]["db"]> {
   const transactionId = await req.transactionID;
   if (transactionId === undefined || transactionId === null) {
-    throw new Error("Transactional outbox requires an active Payload transaction.");
+    throw new Error("An active Payload transaction is required.");
   }
 
   const adapter = req.payload.db as unknown as PostgresAdapter;
   const session = adapter.sessions?.[String(transactionId)];
   if (session?.db === undefined || session.db === null) {
-    throw new Error("Transactional outbox requires an active Postgres transaction session.");
+    throw new Error("An active Postgres transaction session from Payload is required.");
   }
   return session.db;
 }
@@ -34,7 +34,7 @@ export async function writeTransactionalOutboxEvent({
     throw new Error("Transactional outbox retentionUntil must be strictly after event.occurredAt.");
   }
 
-  const db = await activeTransactionDb(req);
+  const db = await activePayloadPostgresTransaction(req);
   const actor = parsedEvent.actor;
   await db.execute(sql`
     INSERT INTO "k_nex_outbox" (

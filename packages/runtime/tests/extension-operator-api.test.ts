@@ -24,7 +24,7 @@ const operationFor = (operation: "rollback" | "disable" | "uninstall", execution
 }) as unknown as ExtensionOperationStatus;
 
 function harness() {
-  const lifecycleOperations = [operationFor("disable"), operationFor("uninstall"), operationFor("rollback", "static-release")];
+  const lifecycleOperations = [operationFor("disable"), operationFor("uninstall"), operationFor("uninstall", "static-release"), operationFor("rollback", "static-release")];
   const operations = new Map([dynamicOperation, staticOperation, ...lifecycleOperations].map((operation) => [operation.operationId, operation]));
   const manager = {
     plan: vi.fn(), stage: vi.fn(), validate: vi.fn(async () => ({ operationId: dynamicOperation.operationId, executionClass: "live-generation", phase: "staged", valid: true, checks: ["verified-bundle"] })),
@@ -80,9 +80,10 @@ describe("ExtensionOperatorApi", () => {
 
     await expect(value.api.validate(staticOperation.operationId)).resolves.toMatchObject({ executionClass: "static-release" });
     await expect(value.api.activate(staticOperation.operationId)).resolves.toEqual({ outcome: "maintenance-required", reasons: ["offline-migration"] });
+    await expect(value.api.uninstall("operation-static-release-uninstall")).resolves.toEqual({ outcome: "maintenance-required", reasons: ["offline-migration"] });
     await value.api.rollback("operation-static-release-rollback");
     expect(value.staticReleases.validate).toHaveBeenCalledOnce();
-    expect(value.staticReleases.execute).toHaveBeenCalledOnce();
+    expect(value.staticReleases.execute).toHaveBeenCalledTimes(2);
     expect(value.staticReleases.rollback).toHaveBeenCalledOnce();
     expect(value.manager.completeStaticRelease).toHaveBeenCalledWith("operation-static-release-rollback", { operation: "rollback" });
     await expect(value.api.disable(dynamicOperation.operationId)).rejects.toThrow("not authorized for this lifecycle action");
@@ -172,6 +173,25 @@ describe("DurableStaticReleaseOperator", () => {
     };
     const value = new DurableStaticReleaseOperator(requests, { verifiedBuild: vi.fn() }, { read: vi.fn() }, {} as never, { acquire: vi.fn() });
     await expect(value.execute(operation)).rejects.toMatchObject({ code: "AUTHORITY_MISMATCH" } satisfies Partial<StaticReleaseOperatorError>);
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["wrong", "customer-alpha-other-1"],
+    ["same as active", "customer-alpha-green-1"]
+  ])("rejects a supported static uninstall with %s previous-generation authority", async (_case, previousGenerationId) => {
+    const uninstallReceipt = { ...receipt, previousGenerationId };
+    const uninstallOperation = {
+      ...operation,
+      request: { ...operation.request, extension: { deliveryClass: "platform-plugin", id: "provider.schema-less" }, operation: "uninstall" },
+      plan: { ...operation.plan, plan: { version: "1.1.0", currentGenerationId: "customer-alpha-blue-1" } }
+    } as unknown as ExtensionOperationStatus;
+    const requests = {
+      readRequest: vi.fn(async () => ({ ...request("deployed"), receipt: uninstallReceipt })),
+      requestDeployment: vi.fn(), recordDeployment: vi.fn(), recoverDeployment: vi.fn()
+    };
+    const value = new DurableStaticReleaseOperator(requests, { verifiedBuild: vi.fn() }, { read: vi.fn() }, {} as never, { acquire: vi.fn() });
+    await expect(value.execute(uninstallOperation)).rejects.toMatchObject({ code: "AUTHORITY_MISMATCH" } satisfies Partial<StaticReleaseOperatorError>);
   });
 
   it("recovers a committed promotion before retrying the supervisor side effect", async () => {

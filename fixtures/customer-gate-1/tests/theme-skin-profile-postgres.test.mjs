@@ -199,6 +199,7 @@ test("delivers Theme Skins from signed durable artifacts through PluginManager i
     const extensionStore = new PostgresRuntimeExtensionStore(pool, clock, sha256(Buffer.from("theme-skin-store")));
     const byVersion = new Map(releases.map((release) => [release.version, release]));
     const planner = {
+      validate: async () => undefined,
       plan: async (change) => {
         const release = byVersion.get(change.targetVersion); if (!release) throw new Error("Theme Skin release is unavailable.");
         return { sourceCommit: source.commit, generationId: release.generationId, plan: {

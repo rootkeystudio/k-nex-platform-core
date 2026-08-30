@@ -8,6 +8,7 @@ import addFormatsModule from "ajv-formats";
 
 import { fixtureSchemas, type FixtureInput, type FixtureSchema, validateFixtures } from "./fixture-validation.js";
 import { registerPluginContributionOwnershipKeyword } from "./plugin-contribution-ownership.js";
+import { registerMigrationRevisionKeyword } from "./migration-compatibility-plan.js";
 
 export type RepositoryDiagnosticCode =
   | "ADR_EVIDENCE_INVALID"
@@ -407,6 +408,7 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormatsModule.default(ajv);
   registerPluginContributionOwnershipKeyword(ajv);
+  registerMigrationRevisionKeyword(ajv);
   let validators: Partial<Record<FixtureSchema, ValidateFunction>>;
   try {
     validators = {

@@ -43,7 +43,10 @@ const operationStore = new PostgresRuntimeExtensionStore(pool, operationClock, o
 const manager = new PluginManager(
   operator.workerId,
   new TrustedAutomationOperationAuthorizer(operator.automationIdentity),
-  { plan: async (request) => ({ plan: { ...operator.installPlan, operationId: request.operationId }, sourceCommit: operator.sourceCommit, generationId: operator.generationId }) },
+  {
+    validate: async (request) => { if (canonicalJson(request) !== canonicalJson(operator.request)) throw new Error("Web/admin preclaim policy rejected an unexpected operation."); },
+    plan: async (request) => ({ plan: { ...operator.installPlan, operationId: request.operationId }, sourceCommit: operator.sourceCommit, generationId: operator.generationId })
+  },
   operationStore,
   { stage: async () => { throw new Error("Static web/admin planning cannot stage runtime artifacts."); }, reverify: async () => false },
   { request: async (request, decision) => {

@@ -40,11 +40,13 @@ import { Ajv2020, type AnySchema, type ValidateFunction } from "ajv/dist/2020.js
 import addFormatsModule from "ajv-formats";
 
 import { registerPluginContributionOwnershipKeyword } from "./plugin-contribution-ownership.js";
+import { registerMigrationRevisionKeyword } from "./migration-compatibility-plan.js";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 addFormatsModule.default(ajv);
 registerPluginContributionOwnershipKeyword(ajv);
+registerMigrationRevisionKeyword(ajv);
 ajv.addKeyword({
   keyword: "kNexMaxCanonicalBytes",
   type: "object",
@@ -501,6 +503,39 @@ for (const path of extensionValidFixtures) {
   const zodValid = extensionSchemas[name].authoring.safeParse(value).success;
   const jsonSchemaValid = extensionValidators[name](value);
   if (!zodValid || !jsonSchemaValid) throw new Error(`Valid ${path} must pass both Zod and generated JSON Schema validation: ${ajv.errorsText(extensionValidators[name].errors)}`);
+}
+
+const migrationFreePlan = structuredClone(await load<Record<string, any>>("fixtures/extensions/valid/migration-compatibility-plan.json"));
+migrationFreePlan.plan.steps = [];
+migrationFreePlan.plan.baseRevision = 12;
+migrationFreePlan.plan.targetRevision = 12;
+const migrationPlanValidator = extensionValidators["migration-compatibility-plan"];
+if (!MigrationCompatibilityPlanSchema.safeParse(migrationFreePlan).success || !migrationPlanValidator(migrationFreePlan)) {
+  throw new Error(`Migration-free same-revision plan must pass both Zod and generated JSON Schema validation: ${ajv.errorsText(migrationPlanValidator.errors)}`);
+}
+
+const staticMigrationFreePlan = structuredClone(await load<Record<string, any>>("fixtures/extensions/valid/static-composition-change-plan.json"));
+staticMigrationFreePlan.migration.steps = [];
+staticMigrationFreePlan.migration.baseRevision = 12;
+staticMigrationFreePlan.migration.targetRevision = 12;
+const staticCompositionPlanValidator = extensionValidators["static-composition-change-plan"];
+if (!StaticCompositionChangePlanSchema.safeParse(staticMigrationFreePlan).success || !staticCompositionPlanValidator(staticMigrationFreePlan)) {
+  throw new Error(`Static migration-free same-revision plan must pass both Zod and generated JSON Schema validation: ${ajv.errorsText(staticCompositionPlanValidator.errors)}`);
+}
+
+for (const [baseRevision, targetRevision] of [[12, 13], [13, 12]] as const) {
+  const standalone = structuredClone(migrationFreePlan);
+  standalone.plan.baseRevision = baseRevision;
+  standalone.plan.targetRevision = targetRevision;
+  const embedded = structuredClone(staticMigrationFreePlan);
+  embedded.migration.baseRevision = baseRevision;
+  embedded.migration.targetRevision = targetRevision;
+  if (MigrationCompatibilityPlanSchema.safeParse(standalone).success || migrationPlanValidator(standalone)) {
+    throw new Error(`Empty standalone migration plan ${baseRevision}->${targetRevision} must fail both Zod and generated JSON Schema validation.`);
+  }
+  if (StaticCompositionChangePlanSchema.safeParse(embedded).success || staticCompositionPlanValidator(embedded)) {
+    throw new Error(`Empty embedded migration plan ${baseRevision}->${targetRevision} must fail both Zod and generated JSON Schema validation.`);
+  }
 }
 
 const themeSkinManifest = await load<Record<string, unknown>>("fixtures/extensions/valid/theme-skin.manifest.json");
