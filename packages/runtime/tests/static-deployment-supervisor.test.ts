@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   DeploymentSupervisor,
+  StaticDeploymentEffectNotDispatchedError,
   TrustedStaticApplicationBuildAuthority,
   type GatewayTrafficRouter,
   type StaticApplicationGeneration,
@@ -96,10 +97,14 @@ function harness(build = trustedBuild(), now = new Date("2026-08-29T12:00:00.000
   };
   const retainedReservation = { ...rejectedReservation, generationId: blue.generationId, reservationId: "22222222-2222-4222-8222-222222222222" };
   let current = snapshot();
+  let workerHealthy = false;
   const checkpoint = (kind: "promote" | "rollback" | "retire-rollback", activeGenerationId: string, previousGenerationId: string, revision: number) => ({ kind, activeGenerationId, previousGenerationId, revision, completedSteps: [] as const });
+  let pendingRecovery: Awaited<ReturnType<StaticDeploymentState["readWorkerRecoveryActivation"]>>;
+  const recoveryTicket = () => ({ ...owner, generationId: current.active.generationId, revision: current.revision, fencingToken: 5, promotionRevision: 1, leaseOwner: "worker:phase-9", executionLeaseDurationMs: 1_000, recoveryId: "33333333-3333-4333-8333-333333333333", recoveryExpiresAt: "2026-08-29T12:01:00.000Z" } as const);
   const state: StaticDeploymentState = {
     read: vi.fn(async () => current),
     readFence: vi.fn().mockResolvedValueOnce(fence(blue.generationId, 4, 0)).mockResolvedValue(fence(green.generationId, 5, 1)),
+    isWorkerFenceLive: vi.fn(async () => true),
     promote: vi.fn(async () => { events.push("promote"); current = { ...snapshot(green, blue, 1), transitionCheckpoint: checkpoint("promote", green.generationId, blue.generationId, 1) }; return receipt; }),
     rollback: vi.fn(async () => { events.push("rollback"); current = { ...snapshot(blue, green, 2), transitionCheckpoint: checkpoint("rollback", blue.generationId, green.generationId, 2) }; return { revisionAfter: 2 } as StaticDeploymentReceipt; }),
     reserveRollbackRetirement: vi.fn(async () => {
@@ -121,7 +126,7 @@ function harness(build = trustedBuild(), now = new Date("2026-08-29T12:00:00.000
       const transition = current.transitionCheckpoint!;
       const reservationExpiresAt = "2026-08-29T12:01:00.000Z";
       current = { ...current, transitionCheckpoint: { ...transition, reservedStep: step, reservationId, reservationExpiresAt } };
-      return { ...owner, generationId: ["activate-worker", "converge-gateway", "reconnect-realtime"].includes(step) ? transition.activeGenerationId : transition.previousGenerationId, activeGenerationId: transition.activeGenerationId, revision: expectedRevision, fencingToken: 5, checkpointKind: transition.kind, step, reservationId, reservationExpiresAt };
+      return { ...owner, generationId: ["activate-worker", "converge-gateway", "reconnect-realtime"].includes(step) ? transition.activeGenerationId : transition.previousGenerationId, activeGenerationId: transition.activeGenerationId, revision: expectedRevision, fencingToken: 5, promotionRevision: 1, leaseOwner: "worker:phase-9", checkpointKind: transition.kind, step, reservationId, reservationExpiresAt };
     }),
     releaseTransitionStep: vi.fn(async (ticket) => {
       const transition = current.transitionCheckpoint!;
@@ -136,6 +141,11 @@ function harness(build = trustedBuild(), now = new Date("2026-08-29T12:00:00.000
       current = { ...current, transitionCheckpoint: { ...unreserved, completedSteps: [...transition.completedSteps, ticket.step] } };
     }),
     assertTransitionTicket: vi.fn(async () => undefined),
+    reserveWorkerRecoveryActivation: vi.fn(async () => pendingRecovery ??= recoveryTicket()),
+    readWorkerRecoveryActivation: vi.fn(async () => pendingRecovery),
+    expireWorkerRecoveryActivation: vi.fn(async () => false),
+    completeWorkerRecoveryActivation: vi.fn(async () => { pendingRecovery = undefined; }),
+    assertWorkerRecoveryActivation: vi.fn(async () => undefined),
     assertContractCleanup: vi.fn(async () => undefined)
   };
   const artifacts: StaticApplicationArtifactProvider = {
@@ -159,22 +169,106 @@ function harness(build = trustedBuild(), now = new Date("2026-08-29T12:00:00.000
   const generations: StaticGenerationHost = {
     start: vi.fn(async () => { events.push("start-passive"); }),
     readiness: vi.fn(async (input) => ({ ...input, publicSmoke: true, authenticatedSmoke: true, inventoryReconciled: true, workerMode: "passive", gatewayCapacity: true, realtimeReady: true, observedAt: "2026-08-29T12:00:00.000Z" })),
-    activateWorker: vi.fn(async () => { events.push("activate-worker"); }),
+    activateWorker: vi.fn(async () => { workerHealthy = true; events.push("activate-worker"); }),
+    hasHealthyActiveWorker: vi.fn(async () => workerHealthy),
+    recoverActiveWorker: vi.fn(async () => { workerHealthy = true; events.push("recover-active-worker"); }),
     drain: vi.fn(async () => { events.push("drain-blue"); }),
     retire: vi.fn(async () => { events.push("retire-green"); })
   };
   const gateway: GatewayTrafficRouter = { converge: vi.fn(async () => { events.push("route-green"); }) };
   const realtime: StaticRealtimeConvergence = { reconnectAndResync: vi.fn(async () => { events.push("realtime-resync"); }) };
-  return { build, blue, green, rejectedReservation, events, state, artifacts, migrations, generations, gateway, realtime, setCurrent: (next: StaticDeploymentSnapshot) => { current = next; }, supervisor: new DeploymentSupervisor(build.authority, artifacts, migrations, generations, state, gateway, realtime, { now: () => now }) };
+  return { build, blue, green, rejectedReservation, events, state, artifacts, migrations, generations, gateway, realtime, setCurrent: (next: StaticDeploymentSnapshot) => { current = next; }, setWorkerHealthy: (healthy: boolean) => { workerHealthy = healthy; }, supervisor: new DeploymentSupervisor(build.authority, artifacts, migrations, generations, state, gateway, realtime, { now: () => now }) };
 }
 
 describe("static deployment supervisor", () => {
+  it("leaves a settled healthy exact worker untouched during recovery", async () => {
+    const value = harness();
+    vi.mocked(value.generations.hasHealthyActiveWorker).mockResolvedValue(true);
+    await value.supervisor.recover(owner);
+    expect(value.state.reserveWorkerRecoveryActivation).not.toHaveBeenCalled();
+    expect(value.generations.recoverActiveWorker).not.toHaveBeenCalled();
+  });
+
+  it("rechecks the exact fence after the host health probe before taking the no-op path", async () => {
+    const value = harness();
+    vi.mocked(value.generations.hasHealthyActiveWorker).mockResolvedValueOnce(true);
+    vi.mocked(value.state.isWorkerFenceLive).mockResolvedValueOnce(false);
+    await value.supervisor.recover(owner);
+    expect(value.generations.hasHealthyActiveWorker.mock.invocationCallOrder[0]).toBeLessThan(value.state.isWorkerFenceLive.mock.invocationCallOrder[0]!);
+    expect(value.state.reserveWorkerRecoveryActivation).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a recovery activation ticket durable when its accepted host response is lost", async () => {
+    const value = harness();
+    vi.mocked(value.generations.recoverActiveWorker).mockRejectedValueOnce(new Error("activation response lost"));
+    vi.mocked(value.generations.hasHealthyActiveWorker).mockResolvedValueOnce(false).mockResolvedValue(true);
+
+    await expect(value.supervisor.recover(owner)).rejects.toThrow("activation response lost");
+    expect(value.state.completeWorkerRecoveryActivation).not.toHaveBeenCalled();
+
+    await value.supervisor.recover(owner);
+    expect(value.state.reserveWorkerRecoveryActivation).toHaveBeenCalledTimes(1);
+    expect(value.state.completeWorkerRecoveryActivation).toHaveBeenCalledTimes(1);
+  });
+
+  it("expires a response-lost recovery claim before a healthy late restart takes the no-op path", async () => {
+    const value = harness();
+    vi.mocked(value.state.expireWorkerRecoveryActivation).mockResolvedValueOnce(true);
+    vi.mocked(value.generations.hasHealthyActiveWorker).mockResolvedValue(true);
+
+    await value.supervisor.recover(owner);
+
+    expect(value.state.expireWorkerRecoveryActivation).toHaveBeenCalled();
+    expect(value.state.reserveWorkerRecoveryActivation).not.toHaveBeenCalled();
+  });
+
+  it("recovers an activated worker before later post-commit steps continue", async () => {
+    const value = harness();
+    value.setCurrent({
+      ...snapshot(value.green, value.blue, 1),
+      transitionCheckpoint: {
+        kind: "promote", activeGenerationId: value.green.generationId, previousGenerationId: value.blue.generationId, revision: 1,
+        completedSteps: ["activate-worker"]
+      }
+    });
+
+    await value.supervisor.recover(owner);
+
+    expect(value.events).toEqual(["recover-active-worker", "route-green", "realtime-resync", "drain-blue"]);
+  });
+
+  it("rechecks worker liveness after post-commit steps close a probe-to-finish race", async () => {
+    const value = harness();
+    value.setCurrent({
+      ...snapshot(value.green, value.blue, 1),
+      transitionCheckpoint: {
+        kind: "promote", activeGenerationId: value.green.generationId, previousGenerationId: value.blue.generationId, revision: 1,
+        completedSteps: ["activate-worker"]
+      }
+    });
+    vi.mocked(value.generations.hasHealthyActiveWorker).mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+
+    await value.supervisor.recover(owner);
+
+    expect(value.events).toEqual(["route-green", "realtime-resync", "drain-blue", "recover-active-worker"]);
+  });
+
   it("promotes only an attested immutable image after online migration and passive readiness", async () => {
     const value = harness();
     await expect(value.supervisor.deploy({ build: value.build.token, generationId: "customer-alpha-green-9", workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" }))
       .resolves.toMatchObject({ outcome: "promoted" });
     expect(value.events).toEqual(["migrate", "start-passive", "promote", "activate-worker", "route-green", "realtime-resync", "drain-blue"]);
     expect(value.state.promote).toHaveBeenCalledWith(expect.objectContaining({ build: value.build.token, expectedFenceToken: 4, expectedRevision: 0 }));
+  });
+
+  it("recovers a worker that dies during successful deploy post-commit steps before returning", async () => {
+    const value = harness();
+    vi.mocked(value.gateway.converge).mockImplementationOnce(async () => { value.events.push("route-green"); value.setWorkerHealthy(false); });
+
+    await expect(value.supervisor.deploy({ build: value.build.token, generationId: "customer-alpha-green-9", workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" }))
+      .resolves.toMatchObject({ outcome: "promoted" });
+
+    expect(value.events).toEqual(["migrate", "start-passive", "promote", "activate-worker", "route-green", "realtime-resync", "drain-blue", "recover-active-worker"]);
   });
 
   it("rejects a runtime image mismatch before migrations or generation-host work", async () => {
@@ -331,12 +425,13 @@ describe("static deployment supervisor", () => {
     const value = harness();
     value.setCurrent(snapshot(value.green, value.blue, 1));
     vi.mocked(value.state.readFence).mockReset().mockResolvedValueOnce(fence(value.green.generationId, 5, 1)).mockResolvedValue(fence(value.blue.generationId, 6, 2));
+    vi.mocked(value.gateway.converge).mockImplementationOnce(async () => { value.events.push("route-green"); value.setWorkerHealthy(false); });
     await expect(value.supervisor.rollback({ ...owner, workerOwner: "worker:phase-9-blue", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" }))
       .resolves.toMatchObject({ revisionAfter: 2 });
     expect(value.artifacts.reverify).toHaveBeenCalledWith(value.blue);
     expect(value.generations.start).toHaveBeenCalledWith(expect.objectContaining({ generationId: value.blue.generationId, workerMode: "passive" }));
     expect(value.state.rollback).toHaveBeenCalledWith(expect.objectContaining({ expectedRevision: 1, expectedFenceToken: 5 }));
-    expect(value.events).toEqual(["start-passive", "rollback", "activate-worker", "route-green", "realtime-resync", "drain-blue"]);
+    expect(value.events).toEqual(["start-passive", "rollback", "activate-worker", "route-green", "realtime-resync", "drain-blue", "recover-active-worker"]);
   });
 
   it("keeps the pointer and retained rollback target when artifact or readiness proof fails", async () => {
@@ -473,6 +568,50 @@ describe("static deployment supervisor", () => {
     expect(waiter.wait).toHaveBeenCalledOnce();
   });
 
+  it("retains a transition claim after an accepted effect loses its response", async () => {
+    const value = harness();
+    value.setCurrent({
+      ...snapshot(value.green, value.blue, 1),
+      transitionCheckpoint: {
+        kind: "promote", activeGenerationId: value.green.generationId, previousGenerationId: value.blue.generationId, revision: 1,
+        completedSteps: ["activate-worker"]
+      }
+    });
+    vi.mocked(value.gateway.converge).mockImplementationOnce(async () => {
+      value.events.push("gateway-effect-accepted");
+      throw new Error("gateway response lost after acceptance");
+    });
+
+    await expect(value.supervisor.recover(owner)).rejects.toThrow("gateway response lost after acceptance");
+    expect(value.events).toEqual(["recover-active-worker", "gateway-effect-accepted"]);
+    expect(value.state.releaseTransitionStep).not.toHaveBeenCalled();
+    expect((await value.state.read(owner))?.transitionCheckpoint).toMatchObject({ reservedStep: "converge-gateway" });
+
+    const waiter = { wait: vi.fn(async () => undefined) };
+    const concurrent = new DeploymentSupervisor(value.build.authority, value.artifacts, value.migrations, value.generations, value.state, value.gateway, value.realtime, { now: () => new Date("2026-08-29T12:00:00.000Z") }, waiter);
+    vi.mocked(value.state.reserveTransitionStep).mockReset().mockRejectedValue(new Error("live transition claim"));
+    await expect(concurrent.recover(owner)).rejects.toThrow("live transition claim");
+    expect(value.state.reserveTransitionStep).toHaveBeenCalledTimes(71);
+    expect(waiter.wait).toHaveBeenCalledTimes(70);
+    expect(value.gateway.converge).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases a transition claim only when the boundary proves no effect was dispatched", async () => {
+    const value = harness();
+    value.setCurrent({
+      ...snapshot(value.green, value.blue, 1),
+      transitionCheckpoint: {
+        kind: "promote", activeGenerationId: value.green.generationId, previousGenerationId: value.blue.generationId, revision: 1,
+        completedSteps: ["activate-worker"]
+      }
+    });
+    vi.mocked(value.gateway.converge).mockRejectedValueOnce(new StaticDeploymentEffectNotDispatchedError("gateway request was not dispatched"));
+
+    await expect(value.supervisor.recover(owner)).rejects.toThrow("gateway request was not dispatched");
+    expect(value.state.releaseTransitionStep).toHaveBeenCalledOnce();
+    expect((await value.state.read(owner))?.transitionCheckpoint).not.toHaveProperty("reservedStep");
+  });
+
   it("recovers bounded pending generation retirements before checkpoint work", async () => {
     const value = harness();
     value.setCurrent(snapshot(value.green, value.blue, 1));
@@ -482,12 +621,58 @@ describe("static deployment supervisor", () => {
     expect(value.state.completeGenerationRetirement).toHaveBeenCalledWith(value.rejectedReservation);
   });
 
+  it("continues bounded retirement recovery through 32-plus-1 pages", async () => {
+    const value = harness();
+    value.setCurrent(snapshot(value.green, value.blue, 1));
+    const reservations = Array.from({ length: 33 }, (_, index) => ({
+      ...value.rejectedReservation,
+      generationId: `customer-alpha-retired-${index + 10}`,
+      reservationId: `12345678-1234-4abc-8def-${String(index + 10).padStart(12, "0")}`
+    }));
+    vi.mocked(value.state.listPendingGenerationRetirements)
+      .mockResolvedValueOnce(reservations.slice(0, 32))
+      .mockResolvedValueOnce(reservations.slice(32))
+      .mockResolvedValueOnce([]);
+
+    await value.supervisor.recover(owner);
+    expect(value.state.listPendingGenerationRetirements).toHaveBeenCalledTimes(3);
+    expect(value.generations.retire).toHaveBeenCalledTimes(33);
+    expect(value.state.completeGenerationRetirement).toHaveBeenCalledTimes(33);
+  });
+
+  it("fails closed when pending retirement recovery exceeds its total bound", async () => {
+    const value = harness();
+    value.setCurrent({
+      ...snapshot(value.green, value.blue, 1),
+      transitionCheckpoint: { kind: "promote", activeGenerationId: value.green.generationId, previousGenerationId: value.blue.generationId, revision: 1, completedSteps: ["activate-worker"] }
+    });
+    const page = (offset: number) => Array.from({ length: 32 }, (_, index) => ({
+      ...value.rejectedReservation,
+      generationId: `customer-alpha-retired-${offset + index + 10}`,
+      reservationId: `12345678-1234-4abc-8def-${String(offset + index + 10).padStart(12, "0")}`
+    }));
+    vi.mocked(value.state.listPendingGenerationRetirements)
+      .mockResolvedValueOnce(page(0))
+      .mockResolvedValueOnce(page(32))
+      .mockResolvedValueOnce(page(64))
+      .mockResolvedValueOnce(page(96))
+      .mockResolvedValueOnce([{
+        ...value.rejectedReservation,
+        generationId: "customer-alpha-retired-overflow-138",
+        reservationId: "12345678-1234-4abc-8def-000000000138"
+      }]);
+
+    await expect(value.supervisor.recover(owner)).rejects.toMatchObject({ code: "STATE_UNAVAILABLE" });
+    expect(value.generations.retire).toHaveBeenCalledTimes(128);
+    expect(value.gateway.converge).not.toHaveBeenCalled();
+  });
+
   it("does not repeat settled transition effects after a process restart", async () => {
     const value = harness();
     value.setCurrent(snapshot(value.green, value.blue, 1));
     vi.mocked(value.state.readFence).mockResolvedValue(fence(value.green.generationId, 5, 1));
     await value.supervisor.recover(owner);
-    expect(value.events).toEqual([]);
+    expect(value.events).toEqual(["recover-active-worker"]);
   });
 
   it("never drains a retained generation that became active during retirement recovery", async () => {

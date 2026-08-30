@@ -59,6 +59,61 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
       CONSTRAINT "runtime_static_generation_retirements_state_check" CHECK ("state" IN ('reserved','completed')),
       CONSTRAINT "runtime_static_generation_retirements_completion_check" CHECK (("state"='completed')=("completed_at" IS NOT NULL))
     );
+    CREATE INDEX "runtime_static_generation_retirements_pending_idx"
+      ON "runtime_static_generation_retirements" ("application_id", "environment", "reserved_at", "generation_id")
+      WHERE "state"='reserved';
+
+    CREATE TABLE "runtime_static_worker_activations" (
+      "application_id" varchar(128) NOT NULL,
+      "environment" varchar(64) NOT NULL,
+      "generation_id" varchar(128) NOT NULL,
+      "deployment_revision" integer NOT NULL,
+      "fencing_token" bigint NOT NULL,
+      "promotion_revision" integer NOT NULL,
+      "lease_owner" varchar(160) NOT NULL,
+      "execution_lease_duration_ms" integer NOT NULL,
+      "recovery_id" uuid PRIMARY KEY NOT NULL,
+      "state" varchar(16) DEFAULT 'reserved' NOT NULL,
+      "recovery_expires_at" timestamp(3) with time zone NOT NULL,
+      "reserved_at" timestamp(3) with time zone NOT NULL,
+      "completed_at" timestamp(3) with time zone,
+      "updated_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
+      CONSTRAINT "runtime_static_worker_activations_owner_fk" FOREIGN KEY ("application_id", "environment")
+        REFERENCES "runtime_static_deployments" ("application_id", "environment") ON DELETE cascade,
+      CONSTRAINT "runtime_static_worker_activations_generation_check" CHECK ("generation_id" ~ '^[a-z][a-z0-9-]{2,127}$'),
+      CONSTRAINT "runtime_static_worker_activations_revision_check" CHECK ("deployment_revision" BETWEEN 0 AND 1000000000 AND "promotion_revision" BETWEEN 0 AND 1000000000),
+      CONSTRAINT "runtime_static_worker_activations_token_check" CHECK ("fencing_token" BETWEEN 1 AND 9007199254740991),
+      CONSTRAINT "runtime_static_worker_activations_lease_duration_check" CHECK ("execution_lease_duration_ms" BETWEEN 1000 AND 300000),
+      CONSTRAINT "runtime_static_worker_activations_state_check" CHECK ("state" IN ('reserved','completed','expired')),
+      CONSTRAINT "runtime_static_worker_activations_completion_check" CHECK (("state"='completed')=("completed_at" IS NOT NULL))
+    );
+    CREATE UNIQUE INDEX "runtime_static_worker_activations_live_owner_idx"
+      ON "runtime_static_worker_activations" ("application_id", "environment") WHERE "state"='reserved';
+    CREATE INDEX "runtime_static_worker_activations_owner_idx"
+      ON "runtime_static_worker_activations" ("application_id", "environment");
+
+    CREATE TABLE "runtime_static_worker_recovery_outbox" (
+      "event_id" uuid PRIMARY KEY NOT NULL,
+      "application_id" varchar(128) NOT NULL,
+      "environment" varchar(64) NOT NULL,
+      "recovery_id" uuid UNIQUE NOT NULL,
+      "deployment_revision" integer NOT NULL,
+      "promotion_revision" integer NOT NULL,
+      "generation_id" varchar(128) NOT NULL,
+      "previous_fencing_token" bigint NOT NULL,
+      "previous_lease_owner" varchar(160) NOT NULL,
+      "fencing_token" bigint NOT NULL,
+      "lease_owner" varchar(160) NOT NULL,
+      "execution_lease_duration_ms" integer NOT NULL,
+      "event_json" jsonb NOT NULL,
+      "created_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
+      CONSTRAINT "runtime_static_worker_recovery_outbox_owner_fk" FOREIGN KEY ("application_id", "environment") REFERENCES "runtime_static_deployments" ("application_id", "environment") ON DELETE cascade,
+      CONSTRAINT "runtime_static_worker_recovery_outbox_activation_fk" FOREIGN KEY ("recovery_id") REFERENCES "runtime_static_worker_activations" ("recovery_id") ON DELETE restrict,
+      CONSTRAINT "runtime_static_worker_recovery_outbox_token_check" CHECK ("previous_fencing_token" BETWEEN 1 AND 9007199254740991 AND "fencing_token" BETWEEN 1 AND 9007199254740991),
+      CONSTRAINT "runtime_static_worker_recovery_outbox_lease_duration_check" CHECK ("execution_lease_duration_ms" BETWEEN 1000 AND 300000),
+      CONSTRAINT "runtime_static_worker_recovery_outbox_revision_check" CHECK ("deployment_revision" BETWEEN 0 AND 1000000000 AND "promotion_revision" BETWEEN 0 AND 1000000000),
+      CONSTRAINT "runtime_static_worker_recovery_outbox_event_check" CHECK (jsonb_typeof("event_json")='object')
+    );
 
     CREATE TABLE "runtime_worker_effects" (
       "application_id" varchar(128) NOT NULL,
@@ -111,6 +166,8 @@ export async function down({ db }: MigrateDownArgs): Promise<void> {
   await db.execute(sql`
     DROP TABLE "runtime_static_deployment_outbox";
     DROP TABLE "runtime_worker_effects";
+    DROP TABLE "runtime_static_worker_recovery_outbox";
+    DROP TABLE "runtime_static_worker_activations";
     DROP TABLE "runtime_static_generation_retirements";
     DROP TABLE "runtime_worker_generation_fences";
     DROP TABLE "runtime_static_deployments";

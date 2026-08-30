@@ -374,6 +374,9 @@ async function provisionStaticBinarySchema(pool) {
     grant update (status, generation_id, migration_revision, worker_fencing_token, receipt_id, receipt_json, updated_at) on runtime_static_release_requests to p9_static_supervisor;
     grant insert, update on runtime_static_deployments, runtime_worker_generation_fences, runtime_static_deployment_outbox to p9_static_supervisor;
     grant select, insert, update on runtime_static_generation_retirements to p9_static_supervisor;
+    grant select, insert, update on runtime_static_worker_activations to p9_static_supervisor;
+    grant select on runtime_static_worker_activations to p9_static_worker;
+    grant select, insert on runtime_static_worker_recovery_outbox to p9_static_supervisor;
     grant select on runtime_static_deployment_outbox to p9_static_supervisor;
     grant select, insert, update on p9_static_deployment_commands to p9_static_supervisor;
     grant select, insert, update, delete on p9_static_process_routes to p9_static_supervisor;
@@ -403,6 +406,8 @@ test("proves distinct customer binaries and deployment processes recover from Po
   let trafficProbe;
   let webAdminContainer;
   let supervisorUrl;
+  let weakProfileVolumeName;
+  let attackerNetwork;
   const topology = [];
   const builtImages = [];
   let networkCreated = false;
@@ -476,7 +481,8 @@ test("proves distinct customer binaries and deployment processes recover from Po
       P9_SOURCE_DIRECTORY: sourceDirectory, P9_EXPECTED_BASE_COMMIT: baseCommit, P9_APPROVED_INPUT_PATH: approvedInputPath,
       P9_APPROVED_INPUT_DIGEST: approvedInputDigest, P9_SOURCE_RESULT_PATH: sourceResultPath, P9_BUILD_RESULT_PATH: buildResultPath,
       P9_AUTHORITY_RESULT_PATH: authorityResultPath, P9_ARTIFACTS_DIRECTORY: artifactsDirectory,
-      P9_BASE_BUILD_PATH: baseBuildPath, P9_BUILDER_SIGNING_KEY_PATH: builderSigningKeyPath, P9_BUILDER_TRUST_POLICY_PATH: builderTrustPolicyPath, P9_FIXTURE_LABEL: network
+      P9_BASE_BUILD_PATH: baseBuildPath, P9_BUILDER_SIGNING_KEY_PATH: builderSigningKeyPath, P9_BUILDER_TRUST_POLICY_PATH: builderTrustPolicyPath,
+      P9_FIXTURE_LABEL: network, P9_WORKER_CLOCK_SKEW_MS: "60000"
     };
     const processEnv = (role, extra) => {
       const database = new URL(postgres.getConnectionUri());
@@ -614,6 +620,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     assert.equal((await operatorApi.plan(managedRequest)).operationId, managedPlan.operationId, "web retries must reuse one durable PluginManager operation and release request");
     const relabeledMigration = { ...plan.migration, steps: plan.migration.steps.map((step) => step.stepId === "migration-expand-12" ? { ...step, stepId: "migration-expand-renamed-12" } : step) };
     const store = new PostgresStaticDeploymentStore(pool, { now: () => now }, build.authority);
+    const liveStore = new PostgresStaticDeploymentStore(pool, { now: () => new Date() }, build.authority);
     const blue = { generationId: "customer-alpha-blue-11", sourceCommit: baseCommit, compositionChangePlanDigest: digestJson(plan.base), buildEvidenceDigest: digestJson({ sourceCommit: baseCommit, imageDigest: blueBuild.imageDigest }), applicationDigest: blueBuild.applicationDigest, imageDigest: blueBuild.imageDigest, imageReference: blueBuild.imageReference, migrationRevision: 11 };
     const owner = { applicationId: "customer-alpha", environment: "production" };
     const leaseExpiresAt = new Date(now.valueOf() + 299_000).toISOString();
@@ -808,9 +815,13 @@ test("proves distinct customer binaries and deployment processes recover from Po
     crashEvidence.add("source-attested:builder");
     crashEvidence.add("deployment-authorized:deployer");
     scenarioEvidence.add("SCN-21");
-    const effectLeaseExpiresAt = new Date(now.valueOf() + 120_000).toISOString();
-    await assert.rejects(store.claimEffect({ ...owner, effectId: "sales-external-effect", generationId: "customer-alpha-green-12", fencingToken: 2, claimantId: "worker:phase-9-green-a", claimLeaseExpiresAt: effectLeaseExpiresAt }), { code: "FENCE_REJECTED" });
-    const blueEffect = await store.claimEffect({ ...owner, effectId: "sales-external-effect", generationId: blue.generationId, fencingToken: 1, claimantId: "worker:phase-9-blue", claimLeaseExpiresAt: effectLeaseExpiresAt });
+    const blueFenceBeforeEffect = await liveStore.readFence(owner);
+    await liveStore.renewWorkerFence({
+      ...owner, generationId: blue.generationId, fencingToken: blueFenceBeforeEffect.fencingToken, owner: blueFenceBeforeEffect.lease.owner,
+      expectedPromotionRevision: blueFenceBeforeEffect.promotionRevision, leaseDurationMs: 240_000
+    });
+    await assert.rejects(liveStore.claimEffect({ ...owner, effectId: "sales-external-effect", generationId: "customer-alpha-green-12", fencingToken: 2, claimantId: "worker:phase-9-green-a", claimLeaseDurationMs: 239_000 }), { code: "FENCE_REJECTED" });
+    const blueEffect = await liveStore.claimEffect({ ...owner, effectId: "sales-external-effect", generationId: blue.generationId, fencingToken: 1, claimantId: "worker:phase-9-blue", claimLeaseDurationMs: 239_000 });
     assert.equal((await deliverExternalEffect(pool, blueEffect.externalIdempotencyKey, "sales external effect")).duplicate, false);
     const partialOwnerId = createHash("sha256").update(`${owner.applicationId}:${owner.environment}`).digest("hex").slice(0, 16);
     const promotionCommand = (commandId, generationId) => ({
@@ -920,8 +931,15 @@ test("proves distinct customer binaries and deployment processes recover from Po
       effectId: "packaged-worker-effect", payload: "packaged worker external effect", delayMs: 15_000
     });
     await waitForProcessEvent(pool, "release-worker", "worker-effect-started", 1);
+    const packagedEffectClaim = (await pool.query(
+      "select detail from p9_static_process_events where role='release-worker' and event='worker-effect-started' and generation_id=$1 order by id desc limit 1",
+      [blue.generationId]
+    )).rows[0]?.detail;
+    assert.equal(packagedEffectClaim?.claimLeaseDurationMs, 19_000, "The bounded 15-second effect must hold a DB-clock claim long enough to prevent concurrent replay before dispatch.");
+    assert.equal(packagedEffectClaim?.fixtureClockSkewMs, 60_000, "A packaged worker with a sixty-second local clock skew must still claim the effect after its database-authorized renewal.");
     const inFlightBlue = fetch(`${processGatewayUrl}/slow`).then((response) => response.json());
     await delay(30);
+    await supervisorCommand(supervisorUrl, { commandId: "arm-transition-worker-loss-green-12", operation: "arm-transition-worker-loss" });
     await supervisorCommand(supervisorUrl, { commandId: "arm-post-commit-gateway-crash", operation: "arm-gateway-failure" });
     await supervisorCommand(supervisorUrl, { commandId: "arm-post-commit-response-crash", operation: "arm-response-crash" });
     trafficProbe.transition("update", [blue.generationId, "customer-alpha-green-12"]);
@@ -929,6 +947,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     await assert.rejects(operatorApi.activate(managedPlan.operationId), /simulated post-commit gateway crash/);
     assert.equal((await store.read(owner)).active.generationId, "customer-alpha-green-12");
     assert.deepEqual((await store.read(owner)).transitionCheckpoint.completedSteps, ["activate-worker"]);
+    assert.equal((await pool.query("select count(*)::int count from p9_static_process_events where event='transition-worker-lost-before-activation' and generation_id=$1", ["customer-alpha-green-12"])).rows[0].count, 1, "The transition ticket must rebuild an exact passive worker lost after fence transfer and before activation.");
     await assert.rejects(operatorApi.activate(managedPlan.operationId), /fetch failed|other side closed|socket/u);
     if (supervisorProcess.child.exitCode === null && supervisorProcess.child.signalCode === null) await new Promise((resolve) => supervisorProcess.child.once("exit", resolve));
     assert.equal((await pool.query("select status from p9_static_deployment_commands where command_id=$1", [`promote-${managedPlan.operationId}`])).rows[0].status, "running", "SIGKILL after commit must leave an in-flight durable command for recovery.");
@@ -973,6 +992,160 @@ test("proves distinct customer binaries and deployment processes recover from Po
     });
     assert.equal((await fetch(`${processGatewayUrl}/inventory`).then((response) => response.json())).generation, "customer-alpha-green-12");
     assert.equal((await docker(["inspect", greenWorkerName])).stdout.length > 0, true);
+    const preRecoveryFence = await liveStore.readFence(owner);
+    assert.equal(preRecoveryFence.fencingToken, 2);
+    await docker(["rm", "--force", greenWorkerName]);
+    await assertDockerContainerAbsent(greenWorkerName, "Killed settled active worker remained present.");
+    await pool.query("update runtime_worker_generation_fences set lease_expires_at=now()+interval '500 milliseconds' where application_id=$1 and environment=$2", [owner.applicationId, owner.environment]);
+    await delay(800);
+    await supervisorCommand(supervisorUrl, { commandId: "recover-killed-green-worker-12", operation: "recover", ...owner, generationId: "customer-alpha-green-12", buildRequestDigest: deploymentRequest.buildRequestDigest, expectedRevision: 1 });
+    const recoveredGreenPort = (await docker(["port", greenWorkerName, "3002/tcp"])).stdout.trim().match(/127\.0\.0\.1:(\d+)$/u)?.[1];
+    assert.ok(recoveredGreenPort, "Recovered active worker must publish its control port.");
+    const recoveredGreen = await fetch(`http://127.0.0.1:${recoveredGreenPort}/status`).then((response) => response.json());
+    assert.equal(recoveredGreen.mode, "active", "Recovery must activate the exact replacement worker only through its durable ticket.");
+    assert.equal(recoveredGreen.fencingToken, 3, "Replacement must advance the fence instead of sharing authority with a possible zombie worker.");
+    const forcedLeaseExpiry = new Date(Date.now() + 1_000);
+    await pool.query("update runtime_worker_generation_fences set lease_expires_at=$3 where application_id=$1 and environment=$2", [owner.applicationId, owner.environment, forcedLeaseExpiry.toISOString()]);
+    await delay(2_200);
+    const renewals = await pool.query(
+      "select detail from p9_static_process_events where role='release-worker' and event='worker-fence-renewed' and generation_id=$1 and fencing_token=3 order by id",
+      ["customer-alpha-green-12"]
+    );
+    assert.ok(renewals.rows.length >= 3, "The replacement active worker must renew before activation and across two bounded heartbeat windows.");
+    const recoveredFence = await liveStore.readFence(owner);
+    assert.equal(renewals.rows.every((row) => row.detail.leaseOwner === recoveredFence.lease.owner && row.detail.promotionRevision === 1 && typeof row.detail.expiresAt === "string"), true);
+    assert.match(recoveredFence.lease.owner, /^static-recovery:/u);
+    assert.ok(Date.parse(recoveredFence.lease.expiresAt) > forcedLeaseExpiry.valueOf(), "A live worker heartbeat must extend beyond the deliberately elapsed short lease window.");
+    assert.ok(Date.parse(recoveredFence.lease.expiresAt) <= Date.now() + 2_000, "Frequent heartbeat must not bank one-second leases into a longer stale-authority window.");
+    const activationRows = await pool.query(
+      "select generation_id, deployment_revision, fencing_token, promotion_revision, lease_owner, state, completed_at is not null completed from runtime_static_worker_activations where application_id=$1 and environment=$2 order by reserved_at desc limit 1",
+      [owner.applicationId, owner.environment]
+    );
+    assert.deepEqual(activationRows.rows, [{ generation_id: "customer-alpha-green-12", deployment_revision: 1, fencing_token: "3", promotion_revision: 1, lease_owner: recoveredFence.lease.owner, state: "completed", completed: true }]);
+    assert.deepEqual((await pool.query(
+      "select previous_fencing_token, fencing_token, lease_owner, event_json->>'recoveryId' recovery_id from runtime_static_worker_recovery_outbox where application_id=$1 and environment=$2 and fencing_token=3",
+      [owner.applicationId, owner.environment]
+    )).rows, [{ previous_fencing_token: "2", fencing_token: "3", lease_owner: recoveredFence.lease.owner, recovery_id: recoveredFence.lease.owner.slice("static-recovery:".length) }]);
+    await assert.rejects(liveStore.claimEffect({ ...owner, effectId: "zombie-green-effect", generationId: "customer-alpha-green-12", fencingToken: 2, claimantId: "worker:zombie-green", claimLeaseDurationMs: 500 }), { code: "FENCE_REJECTED" });
+    const recoveredEffect = await supervisorCommand(supervisorUrl, {
+      commandId: "recovered-green-worker-effect", operation: "worker-effect", ...owner, generationId: "customer-alpha-green-12", expectedRevision: 1,
+      effectId: "recovered-green-effect", payload: "recovered worker effect", delayMs: 0
+    });
+    assert.equal(recoveredEffect.result.status, "completed", "The recovered, renewed worker must retain effect authority.");
+    const recoveryCountBeforeNoop = (await pool.query("select count(*)::int count from runtime_static_worker_activations where application_id=$1 and environment=$2", [owner.applicationId, owner.environment])).rows[0].count;
+    await supervisorCommand(supervisorUrl, { commandId: "recover-healthy-green-worker-12", operation: "recover", ...owner, generationId: "customer-alpha-green-12", buildRequestDigest: deploymentRequest.buildRequestDigest, expectedRevision: 1 });
+    assert.equal((await liveStore.readFence(owner)).fencingToken, 3, "A healthy exact worker must not churn its fence token.");
+    assert.equal((await pool.query("select count(*)::int count from runtime_static_worker_activations where application_id=$1 and environment=$2", [owner.applicationId, owner.environment])).rows[0].count, recoveryCountBeforeNoop);
+
+    const greenHeartbeatRejectionsBefore = (await pool.query(
+      "select count(*)::int count from p9_static_process_events where role='release-worker' and event='worker-heartbeat-rejected' and generation_id=$1 and fencing_token=3",
+      ["customer-alpha-green-12"]
+    )).rows[0].count;
+    await pool.query("update runtime_worker_generation_fences set lease_expires_at=now()-interval '1 second' where application_id=$1 and environment=$2", [owner.applicationId, owner.environment]);
+    let greenHeartbeatRejections = greenHeartbeatRejectionsBefore;
+    for (let attempt = 0; attempt < 100 && greenHeartbeatRejections === greenHeartbeatRejectionsBefore; attempt += 1) {
+      await delay(100);
+      greenHeartbeatRejections = (await pool.query(
+        "select count(*)::int count from p9_static_process_events where role='release-worker' and event='worker-heartbeat-rejected' and generation_id=$1 and fencing_token=3",
+        ["customer-alpha-green-12"]
+      )).rows[0].count;
+    }
+    assert.equal(greenHeartbeatRejections, greenHeartbeatRejectionsBefore + 1, "The exact Green fence epoch must emit one heartbeat rejection.");
+    assert.equal((await fetch(`http://127.0.0.1:${recoveredGreenPort}/status`).then((response) => response.json())).mode, "passive", "Rejected renewal must self-fence the local worker.");
+    await assert.rejects(supervisorCommand(supervisorUrl, {
+      commandId: "self-fenced-green-worker-effect", operation: "worker-effect", ...owner, generationId: "customer-alpha-green-12", expectedRevision: 1,
+      effectId: "self-fenced-green-effect", payload: "must not execute", delayMs: 0
+    }), /Only the active fenced release worker/u);
+    await supervisorCommand(supervisorUrl, { commandId: "recover-self-fenced-green-worker-12", operation: "recover", ...owner, generationId: "customer-alpha-green-12", buildRequestDigest: deploymentRequest.buildRequestDigest, expectedRevision: 1 });
+    assert.equal((await liveStore.readFence(owner)).fencingToken, 4);
+
+    await docker(["rm", "--force", greenWorkerName]);
+    const greenWorkerControlToken = sha256(`${network}:${owner.applicationId}:${owner.environment}:customer-alpha-green-12:release-worker-control`);
+    await docker(["run", "--rm", "--detach", "--name", greenWorkerName, "--network", network, "--label", `p9-fixture=${network}`, "--label", "p9-role=release-worker",
+      "--user", "65534:65534", "--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=16m", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--ipc", "private", "--cgroupns", "private", "--pids-limit", "64", "--memory", "128m", "--memory-swap", "256m", "--cpus", "0.5",
+      "--publish", "127.0.0.1::3002", "--env", "K_NEX_GENERATION=customer-alpha-green-12", "--env", `K_NEX_IMAGE_DIGEST=${blueBuild.imageDigest}`, "--env", `K_NEX_WORKER_CONTROL_TOKEN=${greenWorkerControlToken}`,
+      "--env", "P9_RELEASE_WORKER_PORT=3002", "--env", "P9_WORKER_HEARTBEAT_MS=250", "--env", "P9_WORKER_LEASE_MS=1000", "--env", "DATABASE_URL=postgresql://p9_static_worker:p9-static-worker-password@p9-postgres:5432/static_deployment",
+      blueBuild.imageDigest, "node", "release-worker.mjs"]);
+    let tamperedWorkerPort;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      tamperedWorkerPort = (await docker(["port", greenWorkerName, "3002/tcp"])).stdout.trim().match(/127\.0\.0\.1:(\d+)$/u)?.[1];
+      const status = tamperedWorkerPort && await fetch(`http://127.0.0.1:${tamperedWorkerPort}/status`).then((response) => response.ok ? response.json() : undefined).catch(() => undefined);
+      if (status?.mode === "passive") break;
+      await delay(100);
+    }
+    assert.ok(tamperedWorkerPort, "Tampered retained worker fixture did not become observable.");
+    assert.equal(JSON.parse((await docker(["inspect", greenWorkerName])).stdout)[0].Image, blueBuild.imageDigest);
+    await supervisorCommand(supervisorUrl, { commandId: "recover-tampered-green-worker-12", operation: "recover", ...owner, generationId: "customer-alpha-green-12", buildRequestDigest: deploymentRequest.buildRequestDigest, expectedRevision: 1 });
+    const exactRecoveredPort = (await docker(["port", greenWorkerName, "3002/tcp"])).stdout.trim().match(/127\.0\.0\.1:(\d+)$/u)?.[1];
+    assert.ok(exactRecoveredPort, "Exact worker recreation must publish a control port.");
+    const exactRecovered = await fetch(`http://127.0.0.1:${exactRecoveredPort}/status`).then((response) => response.json());
+    assert.deepEqual({ mode: exactRecovered.mode, fencingToken: exactRecovered.fencingToken, sourceCommit: exactRecovered.sourceCommit, applicationDigest: exactRecovered.applicationDigest, imageDigest: exactRecovered.imageDigest }, {
+      mode: "active", fencingToken: 5, sourceCommit: targetCommit, applicationDigest: greenBuild.applicationDigest, imageDigest: greenBuild.imageDigest
+    }, "Recovery must reject a same-name retained worker from the wrong immutable image and recreate exact authority.");
+    assert.equal(JSON.parse((await docker(["inspect", greenWorkerName])).stdout)[0].Image, greenBuild.imageDigest);
+
+    await docker(["rm", "--force", greenWorkerName]);
+    weakProfileVolumeName = `knex-p9-weak-profile-${randomUUID()}`;
+    await docker(["volume", "create", "--label", `p9-fixture=${network}`, weakProfileVolumeName]);
+    await docker(["run", "--rm", "--detach", "--name", greenWorkerName, "--network", network, "--label", `p9-fixture=${network}`, "--label", "p9-role=release-worker",
+      "--user", "0:0", "--cap-add", "SYS_ADMIN", "--pid", "host", "--ipc", "host", "--uts", "host", "--cgroupns", "host", "--device-cgroup-rule", "c 1:3 rwm", "--pids-limit", "128", "--memory", "256m", "--memory-swap", "-1", "--cpus", "1", "--mount", `type=volume,source=${weakProfileVolumeName},target=/weak`,
+      "--publish", "127.0.0.1::3002", "--env", "K_NEX_GENERATION=customer-alpha-green-12", "--env", `K_NEX_IMAGE_DIGEST=${greenBuild.imageDigest}`, "--env", `K_NEX_WORKER_CONTROL_TOKEN=${greenWorkerControlToken}`,
+      "--env", "P9_RELEASE_WORKER_PORT=3002", "--env", "P9_WORKER_HEARTBEAT_MS=250", "--env", "P9_WORKER_LEASE_MS=1000", "--env", "DATABASE_URL=postgresql://p9_static_worker:p9-static-worker-password@p9-postgres:5432/static_deployment",
+      greenBuild.imageDigest, "node", "release-worker.mjs"]);
+    let weakProfilePort;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      weakProfilePort = (await docker(["port", greenWorkerName, "3002/tcp"])).stdout.trim().match(/127\.0\.0\.1:(\d+)$/u)?.[1];
+      const status = weakProfilePort && await fetch(`http://127.0.0.1:${weakProfilePort}/status`).then((response) => response.ok ? response.json() : undefined).catch(() => undefined);
+      if (status?.mode === "passive") break;
+      await delay(100);
+    }
+    assert.ok(weakProfilePort, "Weak-profile retained worker fixture did not become observable.");
+    const weakInspection = JSON.parse((await docker(["inspect", greenWorkerName])).stdout)[0];
+    assert.equal(weakInspection.Config.User, "0:0");
+    assert.equal(weakInspection.HostConfig.ReadonlyRootfs, false);
+    assert.ok(weakInspection.HostConfig.CapAdd.includes("CAP_SYS_ADMIN"));
+    assert.equal(weakInspection.HostConfig.PidMode, "host");
+    assert.equal(weakInspection.HostConfig.IpcMode, "host");
+    assert.equal(weakInspection.HostConfig.UTSMode, "host");
+    assert.equal(weakInspection.HostConfig.CgroupnsMode, "host");
+    assert.equal(weakInspection.HostConfig.MemorySwap, -1);
+    assert.deepEqual(weakInspection.HostConfig.DeviceCgroupRules, ["c 1:3 rwm"]);
+    assert.ok(weakInspection.Mounts.some((mount) => mount.Type === "volume"));
+    await supervisorCommand(supervisorUrl, { commandId: "recover-weak-profile-green-worker-12", operation: "recover", ...owner, generationId: "customer-alpha-green-12", buildRequestDigest: deploymentRequest.buildRequestDigest, expectedRevision: 1 });
+    const profileRecovered = JSON.parse((await docker(["inspect", greenWorkerName])).stdout)[0];
+    const profileRecoveredPort = (await docker(["port", greenWorkerName, "3002/tcp"])).stdout.trim().match(/127\.0\.0\.1:(\d+)$/u)?.[1];
+    assert.ok(profileRecoveredPort);
+    assert.equal((await fetch(`http://127.0.0.1:${profileRecoveredPort}/status`).then((response) => response.json())).fencingToken, 6);
+    assert.equal(profileRecovered.Config.User, "65534:65534");
+    assert.equal(profileRecovered.HostConfig.ReadonlyRootfs, true);
+    assert.equal(profileRecovered.HostConfig.PidsLimit, 64);
+    assert.equal(profileRecovered.HostConfig.Memory, 128 * 1024 * 1024);
+    assert.equal(profileRecovered.HostConfig.MemorySwap, 256 * 1024 * 1024);
+    assert.equal(profileRecovered.HostConfig.NanoCpus, 500_000_000);
+    assert.equal(profileRecovered.HostConfig.PidMode, "");
+    assert.equal(profileRecovered.HostConfig.IpcMode, "private");
+    assert.equal(profileRecovered.HostConfig.UTSMode, "");
+    assert.equal(profileRecovered.HostConfig.CgroupnsMode, "private");
+    assert.notEqual(profileRecovered.HostConfig.OomKillDisable, true);
+    assert.equal(profileRecovered.HostConfig.DeviceCgroupRules, null);
+    assert.match(profileRecovered.HostConfig.Tmpfs["/tmp"], /noexec/u);
+    assert.equal(profileRecovered.HostConfig.CapAdd, null);
+    assert.equal(profileRecovered.Mounts.some((mount) => mount.Type === "volume" || mount.Type === "bind"), false);
+    await docker(["volume", "rm", weakProfileVolumeName]);
+    weakProfileVolumeName = undefined;
+    attackerNetwork = `knex-p9-attacker-${randomUUID()}`;
+    await docker(["network", "create", "--label", `p9-fixture=${network}`, attackerNetwork]);
+    await docker(["network", "connect", attackerNetwork, greenWorkerName]);
+    assert.deepEqual(Object.keys(JSON.parse((await docker(["inspect", greenWorkerName])).stdout)[0].NetworkSettings.Networks).sort(), [network, attackerNetwork].sort());
+    await supervisorCommand(supervisorUrl, { commandId: "recover-attacker-network-green-worker-12", operation: "recover", ...owner, generationId: "customer-alpha-green-12", buildRequestDigest: deploymentRequest.buildRequestDigest, expectedRevision: 1 });
+    const attackerRecovered = JSON.parse((await docker(["inspect", greenWorkerName])).stdout)[0];
+    assert.notEqual(attackerRecovered.Id, profileRecovered.Id, "Recovery must replace, not retain, a worker attached to an attacker network.");
+    assert.deepEqual(Object.keys(attackerRecovered.NetworkSettings.Networks), [network], "Recovery must recreate a worker attached to any non-authorized network.");
+    assert.equal(Object.values(JSON.parse((await docker(["network", "inspect", attackerNetwork])).stdout)[0].Containers ?? {}).some((container) => container.Name === greenWorkerName || container.Name === `/${greenWorkerName}`), false, "Recovery must disconnect the replaced worker from the attacker network.");
+    await docker(["network", "rm", attackerNetwork]);
+    attackerNetwork = undefined;
+    const activeGreenFence = await liveStore.readFence(owner);
+    assert.equal(activeGreenFence.fencingToken, 7);
     await waitForProcessEvent(pool, "release-worker", "worker-activated", 1);
     await waitForProcessEvent(pool, "release-worker", "worker-drained", 1);
     assert.equal((await packagedWorkerEffect).result.status, "stale-completion-rejected", "Fence transfer must reject the packaged blue worker's stale database completion after its external delivery settles.");
@@ -1021,17 +1194,18 @@ test("proves distinct customer binaries and deployment processes recover from Po
     crashEvidence.add("promoted:supervisor");
     crashEvidence.add("promoted:worker-green");
     crashEvidence.add("promoted:realtime-client");
-    const liveBlueClaim = await store.claimEffect({ ...owner, effectId: "sales-external-effect", generationId: "customer-alpha-green-12", fencingToken: 2, claimantId: "worker:phase-9-green-a", claimLeaseExpiresAt: effectLeaseExpiresAt });
+    await pool.query("update runtime_worker_effects set claim_expires_at=now()+interval '30 seconds' where application_id=$1 and environment=$2 and effect_id='sales-external-effect'", [owner.applicationId, owner.environment]);
+    const liveBlueClaim = await liveStore.claimEffect({ ...owner, effectId: "sales-external-effect", generationId: "customer-alpha-green-12", fencingToken: activeGreenFence.fencingToken, claimantId: "worker:phase-9-green-a", claimLeaseDurationMs: 500 });
     assert.equal(liveBlueClaim.status, "already-claimed", "Fence transfer must not reassign a live blue claim to green.");
     assert.equal(liveBlueClaim.externalIdempotencyKey, blueEffect.externalIdempotencyKey);
-    now = new Date(now.valueOf() + 121_000);
-    const greenEffect = await store.claimEffect({ ...owner, effectId: "sales-external-effect", generationId: "customer-alpha-green-12", fencingToken: 2, claimantId: "worker:phase-9-green-a", claimLeaseExpiresAt: new Date(now.valueOf() + 60_000).toISOString() });
+    await pool.query("update runtime_worker_effects set claim_expires_at=now()-interval '1 second' where application_id=$1 and environment=$2 and effect_id='sales-external-effect'", [owner.applicationId, owner.environment]);
+    const greenEffect = await liveStore.claimEffect({ ...owner, effectId: "sales-external-effect", generationId: "customer-alpha-green-12", fencingToken: activeGreenFence.fencingToken, claimantId: "worker:phase-9-green-a", claimLeaseDurationMs: 500 });
     assert.equal(greenEffect.status, "claimed");
     assert.equal(greenEffect.externalIdempotencyKey, blueEffect.externalIdempotencyKey, "Retries across a fence retain the external identity.");
     const reconciled = await deliverExternalEffect(pool, greenEffect.externalIdempotencyKey, "sales external effect");
     assert.equal(reconciled.duplicate, true, "The observable external sink must reject the replay even when the old database completion is stale.");
-    await assert.rejects(store.completeEffect({ ...owner, effectId: "sales-external-effect", generationId: blue.generationId, fencingToken: 1, claimToken: blueEffect.claimToken, resultDigest: reconciled.resultDigest }), { code: "FENCE_REJECTED" });
-    await store.completeEffect({ ...owner, effectId: "sales-external-effect", generationId: "customer-alpha-green-12", fencingToken: 2, claimToken: greenEffect.claimToken, resultDigest: reconciled.resultDigest });
+    await assert.rejects(liveStore.completeEffect({ ...owner, effectId: "sales-external-effect", generationId: blue.generationId, fencingToken: 1, claimToken: blueEffect.claimToken, resultDigest: reconciled.resultDigest }), { code: "FENCE_REJECTED" });
+    await liveStore.completeEffect({ ...owner, effectId: "sales-external-effect", generationId: "customer-alpha-green-12", fencingToken: activeGreenFence.fencingToken, claimToken: greenEffect.claimToken, resultDigest: reconciled.resultDigest });
     assert.equal((await pool.query("select count(*)::int count from p9_static_external_effects where idempotency_key=$1", [blueEffect.externalIdempotencyKey])).rows[0].count, 1);
     scenarioEvidence.add("SCN-18");
     const overlap = await Promise.all([pool.query("select array_agg(legacy_value order by id) values from p9_static_overlap"), pool.query("select array_agg(expanded_value order by id) values from p9_static_overlap"), fetch(`${processGatewayUrl}/new-binary`).then((response) => response.json())]);
@@ -1072,16 +1246,21 @@ test("proves distinct customer binaries and deployment processes recover from Po
     const blueRetirementTicket = await store.reserveTransitionStep({ ...owner, expectedRevision: 4, step: "drain-retained", reservationId: randomUUID() });
     const blueWorkerControlToken = sha256(`${network}:${owner.applicationId}:${owner.environment}:${blue.generationId}:release-worker-control`);
     const assertStaleDrainRejected = async (field, ticket) => {
+      const before = await fetch(`http://127.0.0.1:${blueWorkerPort}/status`).then((value) => value.json());
       const response = await fetch(`http://127.0.0.1:${blueWorkerPort}/drain`, {
         method: "POST",
         headers: { "content-type": "application/json", "x-p9-worker-control": blueWorkerControlToken },
         body: JSON.stringify(ticket)
       });
       assert.equal(response.status, 409, `A stale ${field} ticket field must be rejected by the release worker.`);
-      assert.equal((await fetch(`http://127.0.0.1:${blueWorkerPort}/status`).then((value) => value.json())).mode, "drained", `Rejecting stale ${field} must not change the worker mode.`);
+      assert.deepEqual(await fetch(`http://127.0.0.1:${blueWorkerPort}/status`).then((value) => value.json()), before, `Rejecting stale ${field} must not change worker state.`);
     };
     const staleTickets = [
       ["fencing token", { ...blueRetirementTicket, fencingToken: blueRetirementTicket.fencingToken - 1 }],
+      ["deployment revision", { ...blueRetirementTicket, revision: blueRetirementTicket.revision - 1 }],
+      ["promotion revision", { ...blueRetirementTicket, promotionRevision: blueRetirementTicket.promotionRevision - 1 }],
+      ["lease owner", { ...blueRetirementTicket, leaseOwner: `${blueRetirementTicket.leaseOwner}-forged` }],
+      ["missing lease owner", (({ leaseOwner: _leaseOwner, ...ticket }) => ticket)(blueRetirementTicket)],
       ["checkpoint kind", { ...blueRetirementTicket, checkpointKind: "rollback" }],
       ["step", { ...blueRetirementTicket, step: "drain-previous" }],
       ["reservation", { ...blueRetirementTicket, reservationId: randomUUID() }],
@@ -1246,6 +1425,10 @@ test("proves distinct customer binaries and deployment processes recover from Po
     await cleanup("PostgreSQL container", () => postgres?.stop());
     const labeledContainers = await docker(["ps", "--all", "--filter", `label=p9-fixture=${network}`, "--format", "{{.Names}}"]).then(({ stdout }) => stdout.trim().split("\n").filter(Boolean));
     for (const name of labeledContainers) await cleanup(`labeled container ${name}`, () => removeLabeledContainer(name));
+    if (attackerNetwork) await cleanup("attacker network", () => docker(["network", "rm", attackerNetwork]));
+    const labeledVolumes = await docker(["volume", "ls", "--filter", `label=p9-fixture=${network}`, "--format", "{{.Name}}"]).then(({ stdout }) => stdout.trim().split("\n").filter(Boolean));
+    for (const name of labeledVolumes) await cleanup(`labeled volume ${name}`, () => docker(["volume", "rm", "--force", name]));
+    weakProfileVolumeName = undefined;
     if (networkCreated) await cleanup("fixture network", () => docker(["network", "rm", network]));
     const labeledImages = new Set((await docker(["image", "ls", "--filter", `label=p9-fixture=${network}`, "--format", "{{.ID}}"]).then(({ stdout }) => stdout.trim().split("\n").filter(Boolean))));
     for (const imageId of labeledImages) await cleanup(`labeled image ${imageId}`, () => docker(["image", "rm", "--force", imageId]));
@@ -1257,6 +1440,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     await cleanup("zero labeled containers assertion", async () => assert.equal((await docker(["ps", "--all", "--filter", `label=p9-fixture=${network}`, "--format", "{{.ID}}"]).then(({ stdout }) => stdout.trim())).length, 0));
     await cleanup("zero labeled images assertion", async () => assert.equal((await docker(["image", "ls", "--filter", `label=p9-fixture=${network}`, "--format", "{{.ID}}"]).then(({ stdout }) => stdout.trim())).length, 0));
     await cleanup("zero labeled networks assertion", async () => assert.equal((await docker(["network", "ls", "--filter", `label=p9-fixture=${network}`, "--format", "{{.ID}}"]).then(({ stdout }) => stdout.trim())).length, 0));
+    await cleanup("zero labeled volumes assertion", async () => assert.equal((await docker(["volume", "ls", "--filter", `label=p9-fixture=${network}`, "--format", "{{.Name}}"]).then(({ stdout }) => stdout.trim())).length, 0));
     if (cleanupFailures.length) throw new AggregateError(cleanupFailures, "Phase 9 static deployment fixture cleanup failed.");
   }
   trafficProbe.assertEvidence({

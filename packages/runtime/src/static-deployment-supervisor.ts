@@ -15,6 +15,14 @@ export class StaticDeploymentSupervisorError extends Error {
   }
 }
 
+/** Boundary proof that an external transition effect was never dispatched. */
+export class StaticDeploymentEffectNotDispatchedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "StaticDeploymentEffectNotDispatchedError";
+  }
+}
+
 export interface StaticApplicationGeneration {
   readonly generationId: string;
   readonly sourceCommit: string;
@@ -83,10 +91,31 @@ export interface StaticDeploymentTransitionTicket extends StaticGenerationIdenti
   readonly activeGenerationId: string;
   readonly revision: number;
   readonly fencingToken: number;
+  readonly promotionRevision: number;
+  readonly leaseOwner: string;
   readonly checkpointKind: StaticDeploymentTransitionCheckpoint["kind"];
   readonly step: StaticDeploymentTransitionStep;
   readonly reservationId: string;
   readonly reservationExpiresAt: string;
+}
+
+/** One-shot authority for recovering the already-active release worker. */
+export interface StaticWorkerRecoveryActivationTicket extends StaticGenerationIdentity {
+  readonly revision: number;
+  readonly fencingToken: number;
+  readonly promotionRevision: number;
+  readonly leaseOwner: string;
+  readonly executionLeaseDurationMs: number;
+  readonly recoveryId: string;
+  readonly recoveryExpiresAt: string;
+}
+
+export interface StaticWorkerRecoveryProbe extends StaticGenerationIdentity {
+  readonly sourceCommit: string;
+  readonly applicationDigest: string;
+  readonly imageDigest: string;
+  readonly imageReference: string;
+  readonly fencingToken: number;
 }
 
 export interface VerifiedStaticBuildReader {
@@ -137,6 +166,10 @@ export interface StaticGenerationHost {
   }>): Promise<StaticPromotionReadiness>;
   /** Verify ticket immediately before worker mode changes. */
   activateWorker(ticket: StaticDeploymentTransitionTicket): Promise<void>;
+  /** A healthy exact worker avoids an unnecessary recovery-fence epoch. */
+  hasHealthyActiveWorker(probe: StaticWorkerRecoveryProbe): Promise<boolean>;
+  /** Verify recovery authority immediately before recreating or activating the settled worker. */
+  recoverActiveWorker(ticket: StaticWorkerRecoveryActivationTicket): Promise<void>;
   /** Verify ticket immediately before draining work. */
   drain(ticket: StaticDeploymentTransitionTicket): Promise<void>;
   /** Verify reservation, then ticket when present, immediately before destruction. */
@@ -158,6 +191,7 @@ interface Owner { readonly applicationId: string; readonly environment: string; 
 export interface StaticDeploymentState {
   read(owner: Owner): Promise<StaticDeploymentSnapshot | undefined>;
   readFence(owner: Owner): Promise<WorkerGenerationFence | undefined>;
+  isWorkerFenceLive(owner: Owner, expected: WorkerGenerationFence): Promise<boolean>;
   promote(input: Owner & Readonly<{
     expectedRevision: number;
     expectedFenceToken: number;
@@ -183,6 +217,11 @@ export interface StaticDeploymentState {
   releaseTransitionStep(input: StaticDeploymentTransitionTicket): Promise<void>;
   completeTransitionStep(input: StaticDeploymentTransitionTicket): Promise<void>;
   assertTransitionTicket(input: StaticDeploymentTransitionTicket, retirement?: StaticGenerationRetirementReservation): Promise<void>;
+  reserveWorkerRecoveryActivation(input: Owner & Readonly<{ expectedRevision: number; expectedFencingToken: number; expectedPromotionRevision: number; generationId: string; executionLeaseDurationMs: number; initialActivation?: boolean }>): Promise<StaticWorkerRecoveryActivationTicket>;
+  readWorkerRecoveryActivation(owner: Owner): Promise<StaticWorkerRecoveryActivationTicket | undefined>;
+  expireWorkerRecoveryActivation(owner: Owner): Promise<boolean>;
+  completeWorkerRecoveryActivation(input: StaticWorkerRecoveryActivationTicket): Promise<void>;
+  assertWorkerRecoveryActivation(input: StaticWorkerRecoveryActivationTicket): Promise<void>;
   assertContractCleanup(owner: Owner): Promise<void>;
 }
 
@@ -317,6 +356,7 @@ export class DeploymentSupervisor {
       throw error;
     }
     await this.finishPostCommit(owner);
+    await this.recoverActiveWorkerIfSafe(owner, {});
     return Object.freeze({ outcome: "promoted", receipt });
   }
 
@@ -349,12 +389,42 @@ export class DeploymentSupervisor {
       workerLeaseExpiresAt: input.workerLeaseExpiresAt
     });
     await this.finishPostCommit(owner);
+    await this.recoverActiveWorkerIfSafe(owner, {});
     return receipt;
   }
 
-  async recover(owner: Owner): Promise<void> {
+  async recover(owner: Owner, options: Readonly<{ initialActivation?: boolean; workerLeaseDurationMs?: number }> = {}): Promise<void> {
     await this.recoverPendingGenerationRetirements(owner);
+    await this.recoverActiveWorkerIfSafe(owner, options);
     await this.finishPostCommit(owner);
+    await this.recoverActiveWorkerIfSafe(owner, options);
+  }
+
+  private async recoverActiveWorkerIfSafe(owner: Owner, options: Readonly<{ initialActivation?: boolean; workerLeaseDurationMs?: number }>): Promise<boolean> {
+    const current = await this.requireState(owner);
+    const checkpoint = current.transitionCheckpoint;
+    if (checkpoint?.reservedStep || (checkpoint && checkpoint.kind !== "retire-rollback" && checkpoint.completedSteps[0] !== "activate-worker")) return false;
+    const fence = await this.requireFence(owner);
+    const pending = await this.state.readWorkerRecoveryActivation(owner);
+    if (pending) {
+      if (pending.generationId !== current.active.generationId || pending.revision !== current.revision || pending.fencingToken !== fence.fencingToken ||
+        pending.promotionRevision !== fence.promotionRevision || pending.leaseOwner !== fence.lease.owner) {
+        throw new StaticDeploymentSupervisorError("STATE_UNAVAILABLE", "Pending worker recovery no longer matches the active deployment fence.");
+      }
+      if (!(await this.generations.hasHealthyActiveWorker({ ...owner, ...current.active, fencingToken: pending.fencingToken })) || !(await this.state.isWorkerFenceLive(owner, fence))) {
+        await this.generations.recoverActiveWorker(pending);
+      }
+      await this.state.completeWorkerRecoveryActivation(pending);
+      return true;
+    }
+    await this.state.expireWorkerRecoveryActivation(owner);
+    if (await this.generations.hasHealthyActiveWorker({ ...owner, ...current.active, fencingToken: fence.fencingToken }) && await this.state.isWorkerFenceLive(owner, fence)) return true;
+    const ticket = await this.state.reserveWorkerRecoveryActivation({ ...owner, ...options, executionLeaseDurationMs: options.workerLeaseDurationMs ?? 1_000, expectedRevision: current.revision, expectedFencingToken: fence.fencingToken, expectedPromotionRevision: fence.promotionRevision, generationId: current.active.generationId });
+    // A worker may have switched mode before a process died. An error leaves
+    // the durable claim until expiry; a later recovery replays this ticket.
+    await this.generations.recoverActiveWorker(ticket);
+    await this.state.completeWorkerRecoveryActivation(ticket);
+    return true;
   }
 
   async closeRollback(owner: Owner): Promise<StaticDeploymentReceipt> {
@@ -421,9 +491,20 @@ export class DeploymentSupervisor {
   }
 
   private async recoverPendingGenerationRetirements(owner: Owner): Promise<void> {
-    for (const reservation of await this.state.listPendingGenerationRetirements({ ...owner, limit: 32 })) {
-      await this.generations.retire({ reservation });
-      await this.state.completeGenerationRetirement(reservation);
+    const pageSize = 32;
+    const maximum = 128;
+    let recovered = 0;
+    while (true) {
+      const page = await this.state.listPendingGenerationRetirements({ ...owner, limit: pageSize });
+      if (page.length === 0) return;
+      if (page.length > pageSize || recovered + page.length > maximum) {
+        throw new StaticDeploymentSupervisorError("STATE_UNAVAILABLE", "Pending static generation retirements exceed the bounded recovery limit.");
+      }
+      for (const reservation of page) {
+        await this.generations.retire({ reservation });
+        await this.state.completeGenerationRetirement(reservation);
+      }
+      recovered += page.length;
     }
   }
 
@@ -456,7 +537,11 @@ export class DeploymentSupervisor {
           await this.generations.drain(ticket);
         }
       } catch (error) {
-        await this.state.releaseTransitionStep(ticket).catch(() => undefined);
+        if (error instanceof StaticDeploymentEffectNotDispatchedError) {
+          await this.state.releaseTransitionStep(ticket);
+        }
+        // Ambiguous failures retain the durable claim because the boundary may
+        // have accepted the effect before its response was lost.
         throw error;
       }
       await this.state.completeTransitionStep(ticket);

@@ -354,7 +354,7 @@ async function worker() {
     const active = fence.rows[0]?.active_execution_generation === generation;
     await event(active ? "worker-active" : "worker-passive", { active });
     if (active && effectId && !effectHandled) {
-      const claim = await store.claimEffect({ applicationId: "customer-alpha", environment: "production", effectId, generationId: generation, fencingToken: Number(fence.rows[0].fencing_token), claimantId: instance, claimLeaseExpiresAt: new Date(Date.now() + 120_000).toISOString() });
+      const claim = await store.claimEffect({ applicationId: "customer-alpha", environment: "production", effectId, generationId: generation, fencingToken: Number(fence.rows[0].fencing_token), claimantId: instance, claimLeaseDurationMs: 120_000 });
       if (claim.status === "claimed") {
         const resultDigest = `sha256:${createHash("sha256").update(`${effectId}:${generation}`).digest("hex")}`;
         await event("worker-effect-authorized", { effectId, claimToken: claim.claimToken });

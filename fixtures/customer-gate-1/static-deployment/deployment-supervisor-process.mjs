@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import pg from "pg";
 import { canonicalJson, ExtensionInstallPlanSchema, StaticCompositionChangePlanSchema } from "@k-nex/contracts";
 import { PostgresStaticDeploymentStore, PostgresTrustedBuildDeploymentClient } from "@k-nex/payload-adapter";
-import { DeploymentSupervisor, TrustedStaticApplicationBuildAuthority } from "@k-nex/runtime";
+import { DeploymentSupervisor, StaticDeploymentEffectNotDispatchedError, TrustedStaticApplicationBuildAuthority } from "@k-nex/runtime";
 
 const execute = promisify(execFile);
 const sha256 = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
@@ -39,6 +39,24 @@ async function removeContainer(name) {
     await delay(100);
   }
   throw new Error(`Container ${name} remained after retirement.`);
+}
+
+function exactIsolationProfile(container, network, { pidsLimit, memory, nanoCpus }) {
+  const tmpfs = new Set(String(container?.HostConfig?.Tmpfs?.["/tmp"] ?? "").toLowerCase().split(",").filter(Boolean));
+  const exactTmpfs = ["rw", "noexec", "nosuid", "nodev"].every((flag) => tmpfs.has(flag)) &&
+    [...tmpfs].some((flag) => flag === "size=16m" || flag === "size=16777216");
+  const mounts = container?.Mounts ?? [];
+  const networks = Object.keys(container?.NetworkSettings?.Networks ?? {});
+  return Boolean(container?.Config?.User === "65534:65534" && container?.HostConfig?.NetworkMode === network &&
+    networks.length === 1 && networks[0] === network &&
+    container.HostConfig.ReadonlyRootfs === true && container.HostConfig.Privileged === false && container.HostConfig.PidsLimit === pidsLimit &&
+    container.HostConfig.Memory === memory && container.HostConfig.MemorySwap === memory * 2 && container.HostConfig.NanoCpus === nanoCpus && exactTmpfs &&
+    container.HostConfig.PidMode === "" && container.HostConfig.IpcMode === "private" && container.HostConfig.UTSMode === "" &&
+    container.HostConfig.CgroupnsMode === "private" && container.HostConfig.OomKillDisable !== true && !container.HostConfig.DeviceCgroupRules?.length &&
+    container.HostConfig.CapDrop?.length === 1 && container.HostConfig.CapDrop[0] === "ALL" && !container.HostConfig.CapAdd?.length &&
+    container.HostConfig.SecurityOpt?.length === 1 && container.HostConfig.SecurityOpt[0] === "no-new-privileges" &&
+    !container.HostConfig.Binds?.length && !container.HostConfig.Devices?.length && !container.HostConfig.DeviceRequests?.length &&
+    !mounts.some((mount) => mount.Type !== "tmpfs" || mount.Destination !== "/tmp" || String(mount.Source).includes("docker.sock")));
 }
 
 async function json(path) { return JSON.parse(await readFile(path, "utf8")); }
@@ -127,7 +145,15 @@ class DockerGenerationHost {
   constructor({ network, artifacts, pool, now, transitionAuthority }) {
     this.network = network; this.namespace = required("P9_DOCKER_NAMESPACE"); this.artifacts = artifacts; this.pool = pool; this.now = now; this.transitionAuthority = transitionAuthority;
     this.containers = new Map(); this.failGatewayOnce = false; this.failHealthOnce = false; this.failWorkerStartOnce = false;
-    this.failReadinessOnce = false; this.failWebAfterWorkerStartOnce = false; this.crashAfterRetirementReservationOnce = false;
+    this.failReadinessOnce = false; this.failWebAfterWorkerStartOnce = false; this.crashAfterRetirementReservationOnce = false; this.loseTransitionWorkerOnce = false;
+    this.workerHeartbeatMs = Number(process.env.P9_WORKER_HEARTBEAT_MS ?? "250");
+    this.workerLeaseMs = Number(process.env.P9_WORKER_LEASE_MS ?? "1000");
+    this.workerClockSkewMs = Number(process.env.P9_WORKER_CLOCK_SKEW_MS ?? "0");
+    if (!Number.isInteger(this.workerHeartbeatMs) || this.workerHeartbeatMs < 100 || this.workerHeartbeatMs > 30_000 ||
+      !Number.isInteger(this.workerLeaseMs) || this.workerLeaseMs < 1_000 || this.workerLeaseMs > 300_000 || this.workerHeartbeatMs >= this.workerLeaseMs ||
+      !Number.isInteger(this.workerClockSkewMs) || Math.abs(this.workerClockSkewMs) > 300_000) {
+      throw new Error("Fixture worker heartbeat and lease settings are invalid.");
+    }
   }
 
   key({ applicationId, environment, generationId }) { return `${applicationId}:${environment}:${generationId}`; }
@@ -156,15 +182,16 @@ class DockerGenerationHost {
     let port;
     try {
       const inspection = JSON.parse((await docker(["inspect", name])).stdout)[0];
-      if (inspection.Image !== imageId) throw new Error("A retained container does not match its content-addressed image.");
+      if (inspection.Image !== imageId || !exactIsolationProfile(inspection, this.network, { pidsLimit: 128, memory: 512 * 1024 * 1024, nanoCpus: 1_000_000_000 })) throw new Error("A retained container does not match its immutable image and isolation profile.");
       port = (await docker(["port", name, "3000/tcp"])).stdout.trim().match(/127\.0\.0\.1:(\d+)$/u)?.[1];
     } catch {
+      await removeContainer(name);
       const identity = `web-${generationId}-${crypto.randomUUID()}`;
       const failHealth = this.failHealthOnce;
       this.failHealthOnce = false;
       await docker(["run", "--rm", "--detach", "--name", name, "--network", this.network, "--label", `p9-fixture=${this.namespace}`, "--label", "p9-role=release-web",
         "--user", "65534:65534", "--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=16m",
-        "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--pids-limit", "128", "--memory", "512m", "--cpus", "1",
+        "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--ipc", "private", "--cgroupns", "private", "--pids-limit", "128", "--memory", "512m", "--memory-swap", "1g", "--cpus", "1",
         "--publish", "127.0.0.1::3000", "--env", `K_NEX_GENERATION=${generationId}`, "--env", `K_NEX_WEB_PROCESS_IDENTITY=${identity}`, "--env", "K_NEX_WORKER_MODE=passive", "--env", "K_NEX_SMOKE_TOKEN=trusted-smoke-token", "--env", "PAYLOAD_SECRET=p9-static-payload-secret",
         "--env", `DATABASE_URL=${database.url}`, "--env", `K_NEX_SCHEMA_REVISION=${database.schemaRevision}`,
         "--env", `K_NEX_FAIL_HEALTH=${failHealth ? "1" : "0"}`, imageId
@@ -184,21 +211,22 @@ class DockerGenerationHost {
     let workerPort;
     try {
       const inspection = JSON.parse((await docker(["inspect", workerName])).stdout)[0];
-      if (inspection.Image !== imageId) throw new Error("A retained worker does not match its content-addressed release image.");
+      if (inspection.Image !== imageId || !exactIsolationProfile(inspection, this.network, { pidsLimit: 64, memory: 128 * 1024 * 1024, nanoCpus: 500_000_000 })) throw new Error("A retained worker does not match its immutable release image and isolation profile.");
       workerPort = (await docker(["port", workerName, "3002/tcp"])).stdout.trim().match(/127\.0\.0\.1:(\d+)$/u)?.[1];
       const status = workerPort && await fetch(`http://127.0.0.1:${workerPort}/status`).then((response) => response.ok ? response.json() : undefined);
-      if (!status || status.mode !== "passive") {
+      if (!status || status.mode !== "passive" || status.fencingToken !== undefined) {
         await docker(["rm", "--force", workerName]);
         workerPort = undefined;
       }
     } catch {
+      await removeContainer(workerName);
       workerPort = undefined;
     }
     if (!workerPort) {
       await docker(["run", "--rm", "--detach", "--name", workerName, "--network", this.network, "--label", `p9-fixture=${this.namespace}`, "--label", "p9-role=release-worker",
         "--user", "65534:65534", "--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=16m",
-        "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--pids-limit", "64", "--memory", "128m", "--cpus", "0.5",
-        "--publish", "127.0.0.1::3002", "--env", `K_NEX_GENERATION=${generationId}`, "--env", `K_NEX_IMAGE_DIGEST=${imageId}`, "--env", `K_NEX_WORKER_CONTROL_TOKEN=${workerControlToken}`, "--env", "P9_RELEASE_WORKER_PORT=3002", "--env", `DATABASE_URL=${this.workerDatabaseUrl()}`,
+        "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--ipc", "private", "--cgroupns", "private", "--pids-limit", "64", "--memory", "128m", "--memory-swap", "256m", "--cpus", "0.5",
+        "--publish", "127.0.0.1::3002", "--env", `K_NEX_GENERATION=${generationId}`, "--env", `K_NEX_IMAGE_DIGEST=${imageId}`, "--env", `K_NEX_WORKER_CONTROL_TOKEN=${workerControlToken}`, "--env", "P9_RELEASE_WORKER_PORT=3002", "--env", `P9_WORKER_HEARTBEAT_MS=${this.workerHeartbeatMs}`, "--env", `P9_WORKER_LEASE_MS=${this.workerLeaseMs}`, "--env", `P9_WORKER_CLOCK_SKEW_MS=${this.workerClockSkewMs}`, "--env", `DATABASE_URL=${this.workerDatabaseUrl()}`,
         imageId, "node", "release-worker.mjs"
       ]);
       workerPort = (await docker(["port", workerName, "3002/tcp"])).stdout.trim().match(/127\.0\.0\.1:(\d+)$/u)?.[1];
@@ -265,7 +293,9 @@ class DockerGenerationHost {
     if (workerBody.mode !== "passive" || workerBody.generationId !== input.generationId || workerBody.sourceCommit !== input.sourceCommit || workerBody.applicationDigest !== input.applicationDigest || workerBody.imageDigest !== input.imageDigest || workerBody.module !== "module.sales") throw new Error("Release worker is not the exact passive attested module.sales image.");
     const inspection = JSON.parse((await docker(["inspect", container.name])).stdout)[0];
     const workerInspection = JSON.parse((await docker(["inspect", container.workerName])).stdout)[0];
-    if ([inspection, workerInspection].some((item) => item.Image !== container.imageId || item.HostConfig.NetworkMode !== this.network || !item.HostConfig.ReadonlyRootfs || !item.HostConfig.CapDrop.includes("ALL") || !item.HostConfig.SecurityOpt.includes("no-new-privileges") || item.Mounts.some((mount) => mount.Type === "bind" || String(mount.Source).includes("docker.sock")))) throw new Error("Generation container isolation does not match the accepted profile.");
+    if (inspection.Image !== container.imageId || workerInspection.Image !== container.imageId ||
+      !exactIsolationProfile(inspection, this.network, { pidsLimit: 128, memory: 512 * 1024 * 1024, nanoCpus: 1_000_000_000 }) ||
+      !exactIsolationProfile(workerInspection, this.network, { pidsLimit: 64, memory: 128 * 1024 * 1024, nanoCpus: 500_000_000 })) throw new Error("Generation container isolation does not match the accepted profile.");
     return { ...input, publicSmoke: true, authenticatedSmoke: true, inventoryReconciled: true, workerMode: "passive", gatewayCapacity: true, realtimeReady: true, observedAt: this.now().toISOString() };
   }
 
@@ -279,12 +309,73 @@ class DockerGenerationHost {
     return result;
   }
   async activateWorker(ticket) {
+    await this.transitionAuthority.assertTransitionTicket(ticket);
+    const probe = await this.activeProbe(ticket);
+    if (this.loseTransitionWorkerOnce) {
+      this.loseTransitionWorkerOnce = false;
+      const workerName = `${this.name(ticket)}-worker`;
+      await removeContainer(workerName);
+      this.containers.delete(this.key(ticket));
+      await this.pool.query(
+        "insert into p9_static_process_events (role, instance_id, event, generation_id, fencing_token, detail) values ('supervisor',$1,'transition-worker-lost-before-activation',$2,$3,$4::jsonb)",
+        [`supervisor-${process.pid}`, ticket.generationId, ticket.fencingToken, JSON.stringify({ reservationId: ticket.reservationId })]
+      );
+    }
+    if (await this.hasExactWorker(probe, "active", ticket.fencingToken)) return;
+    if (!(await this.hasExactWorker(probe, "passive"))) {
+      await this.transitionAuthority.assertTransitionTicket(ticket);
+      this.containers.delete(this.key(ticket));
+      await this.start({ ...ticket, imageReference: probe.imageReference, workerMode: "passive" });
+      if (!(await this.hasExactWorker(probe, "passive"))) throw new Error("Recovered transition worker is not the exact passive immutable generation.");
+    }
+    await this.transitionAuthority.assertTransitionTicket(ticket);
     const result = await this.workerCommand(ticket, "/activate", ticket);
     if (result.mode !== "active" || result.generationId !== ticket.generationId || result.fencingToken !== ticket.fencingToken) throw new Error("Release worker activation did not bind the persisted transition authority.");
   }
-  async activateInitialWorker(generationId, fence) {
-    const result = await this.workerCommand({ applicationId: fence.applicationId, environment: fence.environment, generationId }, "/activate-bootstrap", { fencingToken: fence.fencingToken, promotionRevision: fence.promotionRevision });
-    if (result.mode !== "active" || result.generationId !== generationId || result.fencingToken !== fence.fencingToken) throw new Error("Release worker bootstrap activation did not bind the persisted fencing authority.");
+  async recoverActiveWorker(ticket) {
+    await this.transitionAuthority.assertWorkerRecoveryActivation(ticket);
+    const probe = await this.activeProbe(ticket);
+    if (await this.hasHealthyActiveWorker(probe)) return;
+    if (!(await this.hasExactWorker(probe, "passive"))) {
+      await this.transitionAuthority.assertWorkerRecoveryActivation(ticket);
+      this.containers.delete(this.key(ticket));
+      await this.start({ ...ticket, imageReference: probe.imageReference, workerMode: "passive" });
+      if (!(await this.hasExactWorker(probe, "passive"))) throw new Error("Recovered release worker is not the exact passive immutable generation.");
+    }
+    await this.transitionAuthority.assertWorkerRecoveryActivation(ticket);
+    const result = await this.workerCommand(ticket, "/activate-recovery", ticket);
+    if (result.mode !== "active" || result.generationId !== ticket.generationId || result.fencingToken !== ticket.fencingToken) throw new Error("Release worker recovery activation did not bind persisted authority.");
+  }
+  async hasHealthyActiveWorker(probe) {
+    return this.hasExactWorker(probe, "active", probe.fencingToken);
+  }
+  async hasExactWorker(probe, expectedMode, expectedFencingToken) {
+    let container;
+    try { container = await this.discover(probe); } catch { return false; }
+    if (!container || container.imageId !== probe.imageDigest) return false;
+    try {
+      const [worker, web, webInspection, workerInspection] = await Promise.all([
+        fetch(`${container.workerUrl}/status`).then((response) => response.ok ? response.json() : undefined),
+        fetch(`${container.url}/inventory`).then((response) => response.ok ? response.json() : undefined),
+        docker(["inspect", container.name]).then(({ stdout }) => JSON.parse(stdout)[0]),
+        docker(["inspect", container.workerName]).then(({ stdout }) => JSON.parse(stdout)[0])
+      ]);
+      const isolated = webInspection?.Image === probe.imageDigest && workerInspection?.Image === probe.imageDigest &&
+        exactIsolationProfile(webInspection, this.network, { pidsLimit: 128, memory: 512 * 1024 * 1024, nanoCpus: 1_000_000_000 }) &&
+        exactIsolationProfile(workerInspection, this.network, { pidsLimit: 64, memory: 128 * 1024 * 1024, nanoCpus: 500_000_000 });
+      return Boolean(isolated && worker?.mode === expectedMode && worker.generationId === probe.generationId && worker.fencingToken === expectedFencingToken &&
+        worker.sourceCommit === probe.sourceCommit && worker.applicationDigest === probe.applicationDigest && worker.imageDigest === probe.imageDigest && worker.module === "module.sales" &&
+        web?.generation === probe.generationId && web?.sourceCommit === probe.sourceCommit && web?.applicationDigest === probe.applicationDigest && web?.module === "module.sales");
+    } catch { return false; }
+  }
+  async activeProbe(input) {
+    const row = await this.pool.query(
+      "select active_generation from runtime_static_deployments where application_id=$1 and environment=$2 and active_generation_id=$3",
+      [input.applicationId, input.environment, input.generationId]
+    );
+    const active = row.rows[0]?.active_generation;
+    if (!active || typeof active.imageReference !== "string" || typeof active.sourceCommit !== "string" || typeof active.applicationDigest !== "string" || typeof active.imageDigest !== "string") throw new Error("Active static worker recovery is missing immutable generation evidence.");
+    return { applicationId: input.applicationId, environment: input.environment, generationId: input.generationId, sourceCommit: active.sourceCommit, applicationDigest: active.applicationDigest, imageDigest: active.imageDigest, imageReference: active.imageReference, fencingToken: input.fencingToken };
   }
   async executeEffect(input, effect) {
     return this.workerCommand(input, "/execute", effect);
@@ -420,7 +511,7 @@ export async function runDeploymentSupervisor({ event, ready }) {
   const releases = new PostgresTrustedBuildDeploymentClient(pool);
   const gateway = { converge: async (ticket) => {
     await store.assertTransitionTicket(ticket);
-    if (generations.failGatewayOnce) { generations.failGatewayOnce = false; throw new Error("simulated post-commit gateway crash"); }
+    if (generations.failGatewayOnce) { generations.failGatewayOnce = false; throw new StaticDeploymentEffectNotDispatchedError("simulated post-commit gateway crash"); }
     const route = await pool.query(
       "select url from p9_static_process_routes where application_id=$1 and environment=$2 and generation_id=$3",
       [ticket.applicationId, ticket.environment, ticket.generationId]
@@ -531,7 +622,7 @@ export async function runDeploymentSupervisor({ event, ready }) {
       await store.initialize({ ...owner, generation: blue, workerOwner: command.workerOwner, workerFencingToken: 1, workerLeaseExpiresAt: command.workerLeaseExpiresAt });
       await generations.start({ ...owner, generationId: blue.generationId, imageReference: blue.imageReference, workerMode: "passive" });
       await generations.readiness({ ...owner, generationId: blue.generationId, sourceCommit: blue.sourceCommit, applicationDigest: blue.applicationDigest, imageDigest: blue.imageDigest, migrationRevision: 11, completedMigrationSteps: [] });
-      await generations.activateInitialWorker(blue.generationId, await store.readFence(owner));
+      await supervisor.recover(owner, { initialActivation: true, workerLeaseDurationMs: generations.workerLeaseMs });
       return { operation: "bootstrap", generationId: blue.generationId, revision: 0 };
     }
     if (command.operation === "release-request") {
@@ -560,6 +651,7 @@ export async function runDeploymentSupervisor({ event, ready }) {
     if (command.operation === "arm-worker-start-failure") { generations.failWorkerStartOnce = true; return { armed: true }; }
     if (command.operation === "arm-readiness-failure") { generations.failReadinessOnce = true; return { armed: true }; }
     if (command.operation === "arm-worker-only-survivor") { generations.failWebAfterWorkerStartOnce = true; return { armed: true }; }
+    if (command.operation === "arm-transition-worker-loss") { generations.loseTransitionWorkerOnce = true; return { armed: true }; }
     if (command.operation === "arm-retirement-reservation-crash") { generations.crashAfterRetirementReservationOnce = true; return { armed: true }; }
     if (command.operation === "arm-response-crash") { crashAfterCommitOnce = true; return { armed: true }; }
     if (command.operation === "cleanup") { await generations.close(); return { cleaned: true }; }
@@ -573,7 +665,7 @@ export async function runDeploymentSupervisor({ event, ready }) {
       }
     }
     if (command.operation === "restart") return generations.restart({ ...command, imageReference: command.generationId === "customer-alpha-blue-11" ? blueBuild.imageReference : greenBuild.imageReference });
-    if (command.operation === "recover") { await supervisor.recover(owner); return { operation: "recover", generationId: (await store.read(owner))?.active.generationId }; }
+    if (command.operation === "recover") { await supervisor.recover(owner, { workerLeaseDurationMs: generations.workerLeaseMs }); return { operation: "recover", generationId: (await store.read(owner))?.active.generationId }; }
     if (command.operation === "close-rollback") return supervisor.closeRollback(owner);
     if (command.operation === "contract-cleanup") return { completed: await supervisor.runContractCleanup(owner, greenBuild.change.change.migration) };
     if (command.operation === "rollback") {
@@ -586,7 +678,7 @@ export async function runDeploymentSupervisor({ event, ready }) {
     const state = await store.read(owner);
     if (!state) throw commandError(409, "Static deployment is not initialized.");
     if (recovering && state.active.generationId === command.generationId && state.revision === command.expectedRevision + 1) {
-      await supervisor.recover(owner);
+      await supervisor.recover(owner, { workerLeaseDurationMs: generations.workerLeaseMs });
       const receipt = await receiptForRevision(owner, state.revision);
       if (request.status === "deployment-requested") await releases.recordDeployment({ buildRequestDigest: request.buildRequestDigest, expectedVersion: request.version, receipt });
       return { outcome: "promoted", receipt, recovered: true };
@@ -620,7 +712,7 @@ export async function runDeploymentSupervisor({ event, ready }) {
   });
   await new Promise((resolve, reject) => { server.once("error", reject); server.listen(controlPort, "127.0.0.1", resolve); });
   const owner = { applicationId: "customer-alpha", environment: "production" };
-  if (await store.read(owner)) await supervisor.recover(owner);
+  if (await store.read(owner)) await supervisor.recover(owner, { workerLeaseDurationMs: generations.workerLeaseMs });
   await event("supervisor-recovered", { controlPort, processId: process.pid });
   ready({ url: `http://127.0.0.1:${server.address().port}` });
 }

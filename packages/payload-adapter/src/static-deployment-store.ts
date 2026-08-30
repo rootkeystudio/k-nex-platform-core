@@ -17,6 +17,7 @@ import type {
   StaticDeploymentTransitionStep,
   StaticDeploymentTransitionTicket,
   StaticGenerationRetirementReservation,
+  StaticWorkerRecoveryActivationTicket,
   StaticPromotionReadiness,
   VerifiedStaticApplicationBuild,
   VerifiedStaticBuildReader
@@ -88,6 +89,30 @@ interface TransitionAuthorityRow extends DeploymentRow, FenceRow {
   retirement_generation_id: string | null;
 }
 
+interface WorkerRecoveryActivationRow {
+  application_id: string;
+  environment: string;
+  generation_id: string;
+  deployment_revision: number;
+  fencing_token: string | number;
+  promotion_revision: number;
+  lease_owner: string;
+  execution_lease_duration_ms: number;
+  recovery_id: string;
+  state: "reserved" | "completed" | "expired";
+  recovery_expires_at: Date | string;
+  reserved_at: Date | string;
+  completed_at: Date | string | null;
+}
+
+interface WorkerRecoveryAuthorityRow extends WorkerRecoveryActivationRow, DeploymentRow {
+  live_fencing_token: string | number;
+  live_lease_owner: string;
+  lease_expires_at: Date | string;
+  live_promotion_revision: number;
+  active_execution_generation: string;
+}
+
 interface Owner { readonly applicationId: string; readonly environment: string; }
 
 const digestPattern = /^sha256:[0-9a-f]{64}$/u;
@@ -116,6 +141,13 @@ function assertRevision(value: number): void {
 
 function assertFenceToken(value: number): void {
   if (!Number.isSafeInteger(value) || value < 1 || value >= Number.MAX_SAFE_INTEGER) fail("FENCE_REJECTED", "Worker fencing token is invalid.");
+}
+
+function nextFenceToken(value: string | number): number {
+  const current = Number(value);
+  assertFenceToken(current);
+  if (current >= Number.MAX_SAFE_INTEGER - 1) fail("FENCE_REJECTED", "Worker fencing token space is exhausted.");
+  return current + 1;
 }
 
 function timestamp(clock: RuntimeExtensionClock): string {
@@ -168,6 +200,17 @@ function assertCompletedCheckpoint(value: StaticDeploymentTransitionCheckpoint |
     : ["activate-worker", "converge-gateway", "reconnect-realtime", "drain-previous"];
   if (value.completedSteps.length !== allowed.length) {
     fail("REVISION_CONFLICT", "Static deployment has an incomplete transition checkpoint.");
+  }
+}
+
+function assertWorkerRecoveryCheckpoint(value: StaticDeploymentTransitionCheckpoint | null): void {
+  if (!value || value.kind === "retire-rollback" || value.completedSteps[0] === "activate-worker") return;
+  fail("REVISION_CONFLICT", "Static worker recovery cannot bypass pending worker activation.");
+}
+
+function assertRecoveryId(value: string): void {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value)) {
+    fail("INPUT_INVALID", "Static worker recovery identity is invalid.");
   }
 }
 
@@ -250,6 +293,17 @@ export class PostgresStaticDeploymentStore {
     return result.rows[0] ? this.fence(owner, result.rows[0]) : undefined;
   }
 
+  async isWorkerFenceLive(owner: Owner, expected: WorkerGenerationFence): Promise<boolean> {
+    assertOwner(owner); assertFenceToken(expected.fencingToken); assertRevision(expected.promotionRevision);
+    const result = await this.pool.query<{ live: boolean }>(
+      `select exists(select 1 from runtime_worker_generation_fences
+         where application_id=$1 and environment=$2 and active_execution_generation=$3 and fencing_token=$4
+           and lease_owner=$5 and promotion_revision=$6 and lease_expires_at>now()) as live`,
+      [owner.applicationId, owner.environment, expected.activeExecutionGeneration, expected.fencingToken, expected.lease.owner, expected.promotionRevision]
+    );
+    return result.rows[0]?.live === true;
+  }
+
   async promote(input: Owner & Readonly<{
     expectedRevision: number;
     expectedFenceToken: number;
@@ -271,7 +325,9 @@ export class PostgresStaticDeploymentStore {
       const current = await this.readLocked(session, input);
       const fence = await this.readFenceLocked(session, input);
       if (!current || current.revision !== input.expectedRevision) fail("REVISION_CONFLICT", "Static deployment revision changed before promotion.");
+      await this.assertNoLiveWorkerRecovery(session, input);
       assertNoReservedStep(current.transition_checkpoint);
+      assertCompletedCheckpoint(current.transition_checkpoint);
       if (await this.readRetirementLocked(session, input, input.generationId)) fail("REVISION_CONFLICT", "Target static generation is reserved or tombstoned for retirement.");
       if (current.rollback_window.state === "retirement-reserved") fail("REVISION_CONFLICT", "Static deployment cannot replace a generation while rollback retirement is reserved.");
       if (current.active_generation.sourceCommit !== change.base.sourceCommit || current.active_generation.migrationRevision !== change.migration.baseRevision) {
@@ -285,7 +341,7 @@ export class PostgresStaticDeploymentStore {
         fail("READINESS_REJECTED", "Promotion rollback window does not retain the active application and remain open.");
       }
       const revision = current.revision + 1;
-      const token = Number(fence.fencing_token) + 1;
+      const token = nextFenceToken(fence.fencing_token);
       const receipt = StaticDeploymentReceiptSchema.parse({
         schemaVersion: 1,
         receiptId: await receiptId(input, "promote", revision),
@@ -326,12 +382,14 @@ export class PostgresStaticDeploymentStore {
       const current = await this.readLocked(session, input);
       const fence = await this.readFenceLocked(session, input);
       if (!current || current.revision !== input.expectedRevision) fail("REVISION_CONFLICT", "Static deployment revision changed before rollback.");
+      await this.assertNoLiveWorkerRecovery(session, input);
       assertNoReservedStep(current.transition_checkpoint);
+      assertCompletedCheckpoint(current.transition_checkpoint);
       if (!current.rollback_generation || !current.rollback_generation_id || current.rollback_window.state !== "open") fail("ROLLBACK_UNAVAILABLE", "No compatible static generation is retained for rollback.");
       if (new Date(String(current.rollback_window.closesAt)).valueOf() <= this.clock.now().valueOf()) fail("ROLLBACK_UNAVAILABLE", "Static deployment rollback window has expired.");
       if (!fence || Number(fence.fencing_token) !== input.expectedFenceToken || fence.active_execution_generation !== current.active_generation_id) fail("FENCE_REJECTED", "Worker execution authority changed before rollback.");
       const revision = current.revision + 1;
-      const token = Number(fence.fencing_token) + 1;
+      const token = nextFenceToken(fence.fencing_token);
       const target = current.rollback_generation;
       const receipt = StaticDeploymentReceiptSchema.parse({
         schemaVersion: 1,
@@ -368,6 +426,7 @@ export class PostgresStaticDeploymentStore {
       const fence = await this.readFenceLocked(session, input);
       if (!current) fail("REVISION_CONFLICT", "Static deployment is unavailable for rollback closure.");
       if (current.rollback_window.state === "closed") return this.readCloseReceipt(session, input, current);
+      await this.assertNoLiveWorkerRecovery(session, input);
       if (current.revision !== input.expectedRevision) fail("REVISION_CONFLICT", "Static deployment revision changed before rollback closure.");
       assertNoReservedStep(current.transition_checkpoint);
       assertCompletedCheckpoint(current.transition_checkpoint);
@@ -428,6 +487,7 @@ export class PostgresStaticDeploymentStore {
         if (!existing) fail("REVISION_CONFLICT", "Rollback retirement reservation is missing its durable tombstone.");
         return this.retirement(existing);
       }
+      await this.assertNoLiveWorkerRecovery(session, input);
       if (current.revision !== input.expectedRevision) fail("REVISION_CONFLICT", "Static deployment revision changed before rollback retirement reservation.");
       assertNoReservedStep(current.transition_checkpoint);
       assertCompletedCheckpoint(current.transition_checkpoint);
@@ -556,6 +616,7 @@ export class PostgresStaticDeploymentStore {
       const current = await this.readLocked(session, input);
       const fence = await this.readFenceLocked(session, input);
       if (!current || current.revision !== input.expectedRevision || !current.transition_checkpoint || !fence) fail("REVISION_CONFLICT", "Static deployment transition checkpoint changed before reservation.");
+      await this.assertNoLiveWorkerRecovery(session, input);
       const checkpoint = current.transition_checkpoint;
       const allowed = checkpoint.kind === "retire-rollback" ? ["drain-retained", "retire-retained"] : ["activate-worker", "converge-gateway", "reconnect-realtime", "drain-previous"];
       if (checkpoint.reservedStep && (checkpoint.reservedStep !== input.step || checkpoint.reservationId !== input.reservationId) && Date.parse(checkpoint.reservationExpiresAt!) > this.clock.now().valueOf()) {
@@ -569,6 +630,8 @@ export class PostgresStaticDeploymentStore {
         activeGenerationId: checkpoint.activeGenerationId,
         revision: checkpoint.revision,
         fencingToken: Number(fence.fencing_token),
+        promotionRevision: fence.promotion_revision,
+        leaseOwner: fence.lease_owner,
         checkpointKind: checkpoint.kind,
         step: input.step,
         reservationId: input.reservationId,
@@ -672,25 +735,202 @@ export class PostgresStaticDeploymentStore {
     }
   }
 
-  async renewWorkerFence(input: Owner & Readonly<{ generationId: string; fencingToken: number; owner: string; expiresAt: string }>): Promise<WorkerGenerationFence> {
-    assertOwner(input); assertFenceToken(input.fencingToken); this.assertWorkerLease(input.owner, input.expiresAt);
+  async reserveWorkerRecoveryActivation(owner: Owner & Readonly<{ expectedRevision: number; expectedFencingToken: number; expectedPromotionRevision: number; generationId: string; executionLeaseDurationMs: number; initialActivation?: boolean }>): Promise<StaticWorkerRecoveryActivationTicket> {
+    assertOwner(owner); assertRevision(owner.expectedRevision); assertFenceToken(owner.expectedFencingToken); assertRevision(owner.expectedPromotionRevision);
+    this.assertWorkerLeaseDuration(owner.executionLeaseDurationMs);
+    if (!generationPattern.test(owner.generationId)) fail("INPUT_INVALID", "Static worker recovery generation is invalid.");
     return this.transaction(async (session) => {
+      await this.lock(session, owner);
+      const current = await this.readLocked(session, owner);
+      const fence = await this.readFenceLocked(session, owner);
+      if (!current || !fence) fail("REVISION_CONFLICT", "Static worker recovery authority is unavailable.");
+      assertNoReservedStep(current.transition_checkpoint);
+      assertWorkerRecoveryCheckpoint(current.transition_checkpoint);
+      const now = await this.databaseNow(session);
+      const existing = await this.readLiveWorkerRecoveryLocked(session, owner);
+      const sameDeployment = current.revision === owner.expectedRevision && current.active_generation_id === owner.generationId && fence.promotion_revision === owner.expectedPromotionRevision;
+      if (existing && sameDeployment && new Date(existing.recovery_expires_at).valueOf() > now.valueOf()) {
+        this.assertRecoveryAuthority(existing, current, fence);
+        if (existing.execution_lease_duration_ms !== owner.executionLeaseDurationMs) fail("FENCE_REJECTED", "Static worker recovery lease configuration changed during activation.");
+        return this.recoveryTicket(existing);
+      }
+      if (!sameDeployment || Number(fence.fencing_token) !== owner.expectedFencingToken) fail("REVISION_CONFLICT", "Static worker recovery probe is stale.");
+      if (existing) {
+        await session.query(
+          `update runtime_static_worker_activations set state='expired', updated_at=now()
+           where application_id=$1 and environment=$2 and recovery_id=$3 and state='reserved'`,
+          [owner.applicationId, owner.environment, existing.recovery_id]
+        );
+      }
+      const recoveryId = globalThis.crypto.randomUUID();
+      const leaseOwner = `static-recovery:${recoveryId}`;
+      const recoveryExpiresAt = new Date(now.valueOf() + 60_000).toISOString();
+      const initialActivation = owner.initialActivation === true && current.revision === 0 && Number(fence.fencing_token) === 1 &&
+        new Date(fence.lease_expires_at).valueOf() > now.valueOf() && !(await this.hasWorkerRecoveryHistoryLocked(session, owner));
+      const nextFence = initialActivation ? Number(fence.fencing_token) : nextFenceToken(fence.fencing_token);
+      const leaseExpiresAt = initialActivation && new Date(fence.lease_expires_at).valueOf() > Date.parse(recoveryExpiresAt)
+        ? new Date(fence.lease_expires_at).toISOString()
+        : recoveryExpiresAt;
+      const updatedFence = await session.query<FenceRow>(
+        `update runtime_worker_generation_fences set fencing_token=$3, lease_owner=$4, lease_expires_at=$5, updated_at=now()
+         where application_id=$1 and environment=$2 and fencing_token=$6 and promotion_revision=$7 returning *`,
+        [owner.applicationId, owner.environment, nextFence, leaseOwner, leaseExpiresAt, Number(fence.fencing_token), fence.promotion_revision]
+      );
+      if (!updatedFence.rows[0]) fail("FENCE_REJECTED", "Static worker recovery fence changed before takeover.");
+      const inserted = await session.query<WorkerRecoveryActivationRow>(
+        `insert into runtime_static_worker_activations (
+           application_id, environment, generation_id, deployment_revision, fencing_token, promotion_revision, lease_owner,
+           execution_lease_duration_ms, recovery_id, recovery_expires_at, reserved_at
+         ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning *`,
+        [owner.applicationId, owner.environment, current.active_generation_id, current.revision, nextFence, fence.promotion_revision,
+          leaseOwner, owner.executionLeaseDurationMs, recoveryId, recoveryExpiresAt, now.toISOString()]
+      );
+      await session.query(
+        `insert into runtime_static_worker_recovery_outbox (
+           event_id, application_id, environment, recovery_id, deployment_revision, promotion_revision, generation_id,
+           previous_fencing_token, previous_lease_owner, fencing_token, lease_owner, execution_lease_duration_ms, event_json
+         ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb)`,
+        [recoveryId, owner.applicationId, owner.environment, recoveryId, current.revision, fence.promotion_revision, current.active_generation_id,
+          Number(fence.fencing_token), fence.lease_owner, nextFence, leaseOwner, owner.executionLeaseDurationMs,
+          JSON.stringify({ eventId: recoveryId, recoveryId, applicationId: owner.applicationId, environment: owner.environment, deploymentRevision: current.revision,
+            promotionRevision: fence.promotion_revision, generationId: current.active_generation_id, previousFencingToken: Number(fence.fencing_token), previousLeaseOwner: fence.lease_owner,
+            fencingToken: nextFence, leaseOwner, executionLeaseDurationMs: owner.executionLeaseDurationMs })]
+      );
+      return this.recoveryTicket(inserted.rows[0]!);
+    });
+  }
+
+  async completeWorkerRecoveryActivation(input: StaticWorkerRecoveryActivationTicket): Promise<void> {
+    this.assertRecoveryTicketInput(input);
+    return this.transaction(async (session) => {
+      await this.lock(session, input);
+      const current = await this.readLocked(session, input);
+      const fence = await this.readFenceLocked(session, input);
+      const row = await this.readWorkerRecoveryLocked(session, input);
+      if (!row) fail("REVISION_CONFLICT", "Static worker recovery authority changed before completion.");
+      if (row.state === "completed") {
+        if (row.recovery_id !== input.recoveryId || row.generation_id !== input.generationId || row.deployment_revision !== input.revision ||
+          Number(row.fencing_token) !== input.fencingToken || row.promotion_revision !== input.promotionRevision || row.lease_owner !== input.leaseOwner ||
+          row.execution_lease_duration_ms !== input.executionLeaseDurationMs || new Date(row.recovery_expires_at).toISOString() !== input.recoveryExpiresAt) fail("FENCE_REJECTED", "Static worker recovery completion is stale.");
+        return;
+      }
+      if (!current || !fence) fail("REVISION_CONFLICT", "Static worker recovery authority changed before completion.");
+      this.assertRecoveryTicketValue(input, row, current, fence);
+      const updated = await session.query(
+        `update runtime_static_worker_activations set state='completed', completed_at=now(), updated_at=now()
+         where application_id=$1 and environment=$2 and recovery_id=$3 and state='reserved' and recovery_expires_at>now() returning recovery_id`,
+        [input.applicationId, input.environment, input.recoveryId]
+      );
+      if (!updated.rows[0]) fail("FENCE_REJECTED", "Static worker recovery authority expired before completion.");
+      const activated = await session.query(
+        `update runtime_worker_generation_fences set lease_expires_at=now()+($7::integer*interval '1 millisecond'), updated_at=now()
+         where application_id=$1 and environment=$2 and active_execution_generation=$3 and fencing_token=$4 and lease_owner=$5
+           and promotion_revision=$6 and lease_expires_at>now() returning fencing_token`,
+        [input.applicationId, input.environment, input.generationId, input.fencingToken, input.leaseOwner, input.promotionRevision, input.executionLeaseDurationMs]
+      );
+      if (!activated.rows[0]) fail("FENCE_REJECTED", "Static worker recovery execution lease changed before completion.");
+    });
+  }
+
+  async readWorkerRecoveryActivation(owner: Owner): Promise<StaticWorkerRecoveryActivationTicket | undefined> {
+    assertOwner(owner);
+    const result = await this.pool.query<WorkerRecoveryAuthorityRow>(
+      `select a.*, d.*, f.active_execution_generation, f.fencing_token as live_fencing_token, f.lease_owner as live_lease_owner,
+              f.lease_expires_at, f.promotion_revision as live_promotion_revision
+       from runtime_static_worker_activations a
+       join runtime_static_deployments d using (application_id, environment)
+       join runtime_worker_generation_fences f using (application_id, environment)
+       where a.application_id=$1 and a.environment=$2 and a.state='reserved'
+         and a.recovery_expires_at>now() and f.lease_expires_at>now()
+       order by a.reserved_at desc limit 1`,
+      [owner.applicationId, owner.environment]
+    );
+    const row = result.rows[0];
+    if (!row) return undefined;
+    const fence: FenceRow = {
+      active_execution_generation: row.active_execution_generation,
+      fencing_token: row.live_fencing_token,
+      lease_owner: row.live_lease_owner,
+      lease_expires_at: row.lease_expires_at,
+      promotion_revision: row.live_promotion_revision
+    };
+    this.assertRecoveryAuthority(row, row as DeploymentRow, fence);
+    return this.recoveryTicket(row);
+  }
+
+  async expireWorkerRecoveryActivation(owner: Owner): Promise<boolean> {
+    assertOwner(owner);
+    return this.transaction(async (session) => {
+      await this.lock(session, owner);
+      const expired = await session.query(
+        `update runtime_static_worker_activations set state='expired', updated_at=now()
+         where application_id=$1 and environment=$2 and state='reserved' and recovery_expires_at<=now()
+         returning recovery_id`,
+        [owner.applicationId, owner.environment]
+      );
+      return expired.rows.length === 1;
+    });
+  }
+
+  async assertWorkerRecoveryActivation(input: StaticWorkerRecoveryActivationTicket): Promise<void> {
+    this.assertRecoveryTicketInput(input);
+    const result = await this.pool.query<WorkerRecoveryAuthorityRow>(
+      `select a.*, d.*, f.active_execution_generation, f.fencing_token as live_fencing_token, f.lease_owner as live_lease_owner,
+              f.lease_expires_at, f.promotion_revision as live_promotion_revision
+       from runtime_static_worker_activations a
+       join runtime_static_deployments d using (application_id, environment)
+       join runtime_worker_generation_fences f using (application_id, environment)
+       where a.application_id=$1 and a.environment=$2 and a.recovery_id=$3 and a.state='reserved'
+         and a.recovery_expires_at>now() and f.lease_expires_at>now()`,
+      [input.applicationId, input.environment, input.recoveryId]
+    );
+    const row = result.rows[0];
+    if (!row) fail("FENCE_REJECTED", "Static worker recovery authority is unavailable.");
+    const current = row as DeploymentRow;
+    const fence: FenceRow = {
+      active_execution_generation: row.active_execution_generation,
+      fencing_token: row.live_fencing_token,
+      lease_owner: row.live_lease_owner,
+      lease_expires_at: row.lease_expires_at,
+      promotion_revision: row.live_promotion_revision
+    };
+    this.assertRecoveryTicketValue(input, row, current, fence);
+  }
+
+  async renewWorkerFence(input: Owner & Readonly<{ generationId: string; fencingToken: number; owner: string; expectedPromotionRevision: number; leaseDurationMs: number }>): Promise<WorkerGenerationFence> {
+    assertOwner(input); assertFenceToken(input.fencingToken); assertRevision(input.expectedPromotionRevision); this.assertWorkerLeaseRenewal(input.owner, input.leaseDurationMs);
+    return this.transaction(async (session) => {
+      await this.lock(session, input);
+      const current = await this.readFenceLocked(session, input);
+      const databaseNow = await this.databaseNow(session);
+      if (!current || current.active_execution_generation !== input.generationId || Number(current.fencing_token) !== input.fencingToken ||
+        current.lease_owner !== input.owner || current.promotion_revision !== input.expectedPromotionRevision ||
+        new Date(current.lease_expires_at).valueOf() <= databaseNow.valueOf()) {
+        fail("FENCE_REJECTED", "Worker fence renewal authority is stale or expired.");
+      }
+      const requestedExpiry = databaseNow.valueOf() + input.leaseDurationMs;
+      if (requestedExpiry <= new Date(current.lease_expires_at).valueOf()) {
+        return this.fence(input, current);
+      }
       const result = await session.query<FenceRow>(
-        `update runtime_worker_generation_fences set lease_expires_at=$6, updated_at=now()
-         where application_id=$1 and environment=$2 and active_execution_generation=$3 and fencing_token=$4 and lease_owner=$5 returning *`,
-        [input.applicationId, input.environment, input.generationId, input.fencingToken, input.owner, input.expiresAt]
+        `update runtime_worker_generation_fences set lease_expires_at=now()+($6::integer*interval '1 millisecond'), updated_at=now()
+         where application_id=$1 and environment=$2 and active_execution_generation=$3 and fencing_token=$4 and lease_owner=$5
+           and promotion_revision=$7 and lease_expires_at>now()
+           and lease_expires_at<now()+($6::integer*interval '1 millisecond') returning *`,
+        [input.applicationId, input.environment, input.generationId, input.fencingToken, input.owner, input.leaseDurationMs, input.expectedPromotionRevision]
       );
       if (!result.rows[0]) fail("FENCE_REJECTED", "Worker fence renewal authority is stale.");
       return this.fence(input, result.rows[0]);
     });
   }
 
-  async claimEffect(input: Owner & Readonly<{ effectId: string; generationId: string; fencingToken: number; claimantId: string; claimLeaseExpiresAt: string }>): Promise<Readonly<{ status: "claimed"; attempts: number; claimToken: string; externalIdempotencyKey: string }> | Readonly<{ status: "already-claimed" | "already-completed"; attempts: number; externalIdempotencyKey: string }>> {
+  async claimEffect(input: Owner & Readonly<{ effectId: string; generationId: string; fencingToken: number; claimantId: string; claimLeaseDurationMs: number }>): Promise<Readonly<{ status: "claimed"; attempts: number; claimToken: string; externalIdempotencyKey: string }> | Readonly<{ status: "already-claimed" | "already-completed"; attempts: number; externalIdempotencyKey: string }>> {
     this.assertEffectInput(input);
     return this.transaction(async (session) => {
       await this.lock(session, input);
-      const fence = await this.assertActiveFence(session, input);
-      this.assertEffectClaimLease(input, fence);
+      const databaseNow = await this.databaseNow(session);
+      const fence = await this.assertActiveFence(session, input, databaseNow);
+      const claimLeaseExpiresAt = this.effectClaimExpiresAt(input, fence, databaseNow);
       const current = await session.query<EffectRow>(
         `select * from runtime_worker_effects where application_id=$1 and environment=$2 and effect_id=$3 for update`,
         [input.applicationId, input.environment, input.effectId]
@@ -698,7 +938,7 @@ export class PostgresStaticDeploymentStore {
       const row = current.rows[0];
       const externalIdempotencyKey = effectIdempotencyKey(input);
       if (row?.state === "completed") return Object.freeze({ status: "already-completed", attempts: row.attempts, externalIdempotencyKey });
-      if (row && row.claim_expires_at && new Date(row.claim_expires_at).valueOf() > this.clock.now().valueOf()) {
+      if (row && row.claim_expires_at && new Date(row.claim_expires_at).valueOf() > databaseNow.valueOf()) {
         // A live claim remains with its original fence while that generation drains. It is never reassigned by a promotion.
         return Object.freeze({ status: "already-claimed", attempts: row.attempts, externalIdempotencyKey });
       }
@@ -707,11 +947,11 @@ export class PostgresStaticDeploymentStore {
         `update runtime_worker_effects set generation_id=$4, fencing_token=$5, claim_owner=$6, claim_token=$7, claim_expires_at=$8,
            attempts=attempts+1, updated_at=now()
          where application_id=$1 and environment=$2 and effect_id=$3 returning *`,
-        [input.applicationId, input.environment, input.effectId, input.generationId, input.fencingToken, input.claimantId, claimToken, input.claimLeaseExpiresAt]
+        [input.applicationId, input.environment, input.effectId, input.generationId, input.fencingToken, input.claimantId, claimToken, claimLeaseExpiresAt]
       ) : await session.query<EffectRow>(
         `insert into runtime_worker_effects (application_id, environment, effect_id, generation_id, fencing_token, claim_owner, claim_token, claim_expires_at)
          values ($1,$2,$3,$4,$5,$6,$7,$8) returning *`,
-        [input.applicationId, input.environment, input.effectId, input.generationId, input.fencingToken, input.claimantId, claimToken, input.claimLeaseExpiresAt]
+        [input.applicationId, input.environment, input.effectId, input.generationId, input.fencingToken, input.claimantId, claimToken, claimLeaseExpiresAt]
       );
       return Object.freeze({ status: "claimed", attempts: updated.rows[0]!.attempts, claimToken, externalIdempotencyKey });
     });
@@ -722,6 +962,7 @@ export class PostgresStaticDeploymentStore {
     if (!digestPattern.test(input.resultDigest) || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(input.claimToken)) fail("INPUT_INVALID", "Worker effect completion claim is invalid.");
     return this.transaction(async (session) => {
       await this.lock(session, input);
+      const databaseNow = await this.databaseNow(session);
       const current = await session.query<EffectRow>(
         `select * from runtime_worker_effects where application_id=$1 and environment=$2 and effect_id=$3 for update`,
         [input.applicationId, input.environment, input.effectId]
@@ -734,9 +975,9 @@ export class PostgresStaticDeploymentStore {
       }
       const fence = await this.readFenceLocked(session, input);
       if (!fence || fence.active_execution_generation !== input.generationId || Number(fence.fencing_token) !== input.fencingToken ||
-        new Date(fence.lease_expires_at).valueOf() <= this.clock.now().valueOf()) fail("FENCE_REJECTED", "Worker generation is passive, stale, or lease-expired.");
+        new Date(fence.lease_expires_at).valueOf() <= databaseNow.valueOf()) fail("FENCE_REJECTED", "Worker generation is passive, stale, or lease-expired.");
       if (row.generation_id !== input.generationId || Number(row.fencing_token) !== input.fencingToken) fail("FENCE_REJECTED", "Worker effect claim belongs to a different execution fence.");
-      if (row.claim_token !== input.claimToken || !row.claim_expires_at || new Date(row.claim_expires_at).valueOf() <= this.clock.now().valueOf()) fail("EFFECT_CONFLICT", "Worker effect claim is not owned by this worker or has expired.");
+      if (row.claim_token !== input.claimToken || !row.claim_expires_at || new Date(row.claim_expires_at).valueOf() <= databaseNow.valueOf()) fail("EFFECT_CONFLICT", "Worker effect claim is not owned by this worker or has expired.");
       const updated = await session.query(
         `update runtime_worker_effects set state='completed', result_digest=$4, claim_owner=null, claim_token=null, claim_expires_at=null, updated_at=now()
          where application_id=$1 and environment=$2 and effect_id=$3 and state='pending' and claim_token=$5 and claim_expires_at > now() returning effect_id`,
@@ -797,28 +1038,43 @@ export class PostgresStaticDeploymentStore {
     }
   }
 
+  private assertWorkerLeaseRenewal(owner: string, leaseDurationMs: number): void {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:@/-]{2,159}$/u.test(owner)) {
+      fail("FENCE_REJECTED", "Worker execution lease is invalid.");
+    }
+    this.assertWorkerLeaseDuration(leaseDurationMs);
+  }
+
+  private assertWorkerLeaseDuration(leaseDurationMs: number): void {
+    if (!Number.isSafeInteger(leaseDurationMs) || leaseDurationMs < 1_000 || leaseDurationMs > 300_000) fail("FENCE_REJECTED", "Worker execution lease duration is invalid.");
+  }
+
+  private async databaseNow(session: RuntimeExtensionSession): Promise<Date> {
+    const result = await session.query<{ now: Date | string }>("select now() as now");
+    const raw = result.rows[0]?.now;
+    const value = raw === undefined ? Number.NaN : new Date(raw).valueOf();
+    if (!Number.isFinite(value)) fail("FENCE_REJECTED", "Database clock is unavailable for worker authority.");
+    return new Date(value);
+  }
+
   private assertEffectInput(input: Owner & Readonly<{ effectId: string; generationId: string; fencingToken: number }>): void {
     assertOwner(input); assertFenceToken(input.fencingToken);
     if (!generationPattern.test(input.generationId) || !/^[a-z][a-z0-9-]{2,127}$/u.test(input.effectId)) fail("INPUT_INVALID", "Worker effect identity is invalid.");
   }
 
-  private assertEffectClaimLease(input: Readonly<{ claimantId: string; claimLeaseExpiresAt: string }>, fence: FenceRow): void {
-    const expiresAt = new Date(input.claimLeaseExpiresAt).valueOf();
+  private effectClaimExpiresAt(input: Readonly<{ claimantId: string; claimLeaseDurationMs: number }>, fence: FenceRow, now: Date): string {
     const fenceExpiresAt = new Date(fence.lease_expires_at).valueOf();
-    const now = this.clock.now().valueOf();
-    if (!/^[A-Za-z0-9][A-Za-z0-9._:@/-]{2,159}$/u.test(input.claimantId) || Number.isNaN(expiresAt) || expiresAt <= now || expiresAt > fenceExpiresAt || expiresAt - now > 300_000) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:@/-]{2,159}$/u.test(input.claimantId) || !Number.isSafeInteger(input.claimLeaseDurationMs) ||
+      input.claimLeaseDurationMs < 250 || input.claimLeaseDurationMs > 300_000 || now.valueOf() + input.claimLeaseDurationMs > fenceExpiresAt) {
       fail("EFFECT_CONFLICT", "Worker effect claim lease is invalid or exceeds active worker authority.");
     }
+    return new Date(now.valueOf() + input.claimLeaseDurationMs).toISOString();
   }
 
-  private async assertActiveFence(session: RuntimeExtensionSession, input: Owner & Readonly<{ generationId: string; fencingToken: number }>): Promise<FenceRow> {
-    const result = await session.query<FenceRow>(
-      `select * from runtime_worker_generation_fences where application_id=$1 and environment=$2`,
-      [input.applicationId, input.environment]
-    );
-    const fence = result.rows[0];
+  private async assertActiveFence(session: RuntimeExtensionSession, input: Owner & Readonly<{ generationId: string; fencingToken: number }>, now: Date): Promise<FenceRow> {
+    const fence = await this.readFenceLocked(session, input);
     if (!fence || fence.active_execution_generation !== input.generationId || Number(fence.fencing_token) !== input.fencingToken ||
-      new Date(fence.lease_expires_at).valueOf() <= this.clock.now().valueOf()) fail("FENCE_REJECTED", "Worker generation is passive, stale, or lease-expired.");
+      new Date(fence.lease_expires_at).valueOf() <= now.valueOf()) fail("FENCE_REJECTED", "Worker generation is passive, stale, or lease-expired.");
     return fence;
   }
 
@@ -828,6 +1084,7 @@ export class PostgresStaticDeploymentStore {
       : checkpoint.previousGenerationId;
     if (!fence || input.activeGenerationId !== checkpoint.activeGenerationId || input.generationId !== expectedGenerationId ||
       input.revision !== checkpoint.revision || input.checkpointKind !== checkpoint.kind || input.fencingToken !== Number(fence.fencing_token) ||
+      input.promotionRevision !== fence.promotion_revision || input.leaseOwner !== fence.lease_owner ||
       fence.active_execution_generation !== checkpoint.activeGenerationId || checkpoint.reservationId !== input.reservationId ||
       checkpoint.reservedStep !== input.step || checkpoint.reservationExpiresAt !== input.reservationExpiresAt || Date.parse(input.reservationExpiresAt) <= this.clock.now().valueOf()) {
       fail("FENCE_REJECTED", "Static deployment transition authority is stale.");
@@ -837,7 +1094,8 @@ export class PostgresStaticDeploymentStore {
   private fence(owner: Owner, row: FenceRow): WorkerGenerationFence {
     return WorkerGenerationFenceSchema.parse({
       schemaVersion: 1,
-      ...owner,
+      applicationId: owner.applicationId,
+      environment: owner.environment,
       activeExecutionGeneration: row.active_execution_generation,
       fencingToken: Number(row.fencing_token),
       lease: { owner: row.lease_owner, expiresAt: new Date(row.lease_expires_at).toISOString() },
@@ -943,6 +1201,87 @@ export class PostgresStaticDeploymentStore {
       [owner.applicationId, owner.environment, generationId]
     );
     return result.rows[0];
+  }
+
+  private async readLiveWorkerRecoveryLocked(session: RuntimeExtensionSession, owner: Owner): Promise<WorkerRecoveryActivationRow | undefined> {
+    const result = await session.query<WorkerRecoveryActivationRow>(
+      `select * from runtime_static_worker_activations
+       where application_id=$1 and environment=$2 and state='reserved'
+       order by reserved_at desc limit 1 for update`,
+      [owner.applicationId, owner.environment]
+    );
+    return result.rows[0];
+  }
+
+  private async hasWorkerRecoveryHistoryLocked(session: RuntimeExtensionSession, owner: Owner): Promise<boolean> {
+    const result = await session.query<{ exists: boolean }>(
+      `select exists(select 1 from runtime_static_worker_activations where application_id=$1 and environment=$2) as exists`,
+      [owner.applicationId, owner.environment]
+    );
+    return result.rows[0]?.exists === true;
+  }
+
+  private async assertNoLiveWorkerRecovery(session: RuntimeExtensionSession, owner: Owner): Promise<void> {
+    const row = await this.readLiveWorkerRecoveryLocked(session, owner);
+    if (row && new Date(row.recovery_expires_at).valueOf() > (await this.databaseNow(session)).valueOf()) {
+      fail("REVISION_CONFLICT", "Static worker recovery activation is still in progress.");
+    }
+  }
+
+  private async readWorkerRecoveryLocked(session: RuntimeExtensionSession, input: StaticWorkerRecoveryActivationTicket): Promise<WorkerRecoveryActivationRow | undefined> {
+    const result = await session.query<WorkerRecoveryActivationRow>(
+      `select * from runtime_static_worker_activations where application_id=$1 and environment=$2 and recovery_id=$3 for update`,
+      [input.applicationId, input.environment, input.recoveryId]
+    );
+    return result.rows[0];
+  }
+
+  private assertRecoveryAuthority(row: WorkerRecoveryActivationRow, current: DeploymentRow, fence: FenceRow): void {
+    if (row.generation_id !== current.active_generation_id || row.deployment_revision !== current.revision ||
+      Number(row.fencing_token) !== Number(fence.fencing_token) || row.promotion_revision !== fence.promotion_revision ||
+      row.lease_owner !== fence.lease_owner || fence.active_execution_generation !== current.active_generation_id) {
+      fail("FENCE_REJECTED", "Static worker recovery authority no longer matches the active deployment.");
+    }
+  }
+
+  private assertRecoveryTicketInput(input: StaticWorkerRecoveryActivationTicket): void {
+    assertOwner(input); assertRevision(input.revision); assertFenceToken(input.fencingToken); assertRevision(input.promotionRevision);
+    if (!generationPattern.test(input.generationId) || !/^[A-Za-z0-9][A-Za-z0-9._:@/-]{2,159}$/u.test(input.leaseOwner) ||
+      !Number.isFinite(Date.parse(input.recoveryExpiresAt))) fail("INPUT_INVALID", "Static worker recovery ticket is invalid.");
+    this.assertWorkerLeaseDuration(input.executionLeaseDurationMs);
+    assertRecoveryId(input.recoveryId);
+  }
+
+  private assertRecoveryTicketValue(input: StaticWorkerRecoveryActivationTicket, row: WorkerRecoveryActivationRow, current: DeploymentRow, fence: FenceRow): void {
+    this.assertRecoveryAuthority(row, current, fence);
+    if (row.state !== "reserved" || row.recovery_id !== input.recoveryId || row.generation_id !== input.generationId ||
+      row.deployment_revision !== input.revision || Number(row.fencing_token) !== input.fencingToken ||
+      row.promotion_revision !== input.promotionRevision || row.lease_owner !== input.leaseOwner || row.execution_lease_duration_ms !== input.executionLeaseDurationMs ||
+      new Date(row.recovery_expires_at).toISOString() !== input.recoveryExpiresAt ||
+      !Number.isFinite(Date.parse(input.recoveryExpiresAt))) {
+      fail("FENCE_REJECTED", "Static worker recovery authority is stale.");
+    }
+  }
+
+  private recoveryTicket(row: WorkerRecoveryActivationRow): StaticWorkerRecoveryActivationTicket {
+    if (!generationPattern.test(row.generation_id) || !["reserved", "completed", "expired"].includes(row.state) ||
+      !Number.isSafeInteger(row.deployment_revision) || !Number.isSafeInteger(Number(row.fencing_token)) ||
+      !Number.isSafeInteger(row.promotion_revision) || !Number.isSafeInteger(row.execution_lease_duration_ms) || row.execution_lease_duration_ms < 1_000 || row.execution_lease_duration_ms > 300_000 || !/^[A-Za-z0-9][A-Za-z0-9._:@/-]{2,159}$/u.test(row.lease_owner)) {
+      fail("EVIDENCE_MISMATCH", "Static worker recovery record is invalid.");
+    }
+    assertRecoveryId(row.recovery_id);
+    return Object.freeze({
+      applicationId: row.application_id,
+      environment: row.environment,
+      generationId: row.generation_id,
+      revision: row.deployment_revision,
+      fencingToken: Number(row.fencing_token),
+      promotionRevision: row.promotion_revision,
+      leaseOwner: row.lease_owner,
+      executionLeaseDurationMs: row.execution_lease_duration_ms,
+      recoveryId: row.recovery_id,
+      recoveryExpiresAt: new Date(row.recovery_expires_at).toISOString()
+    });
   }
 
   private retirement(row: RetirementRow): StaticGenerationRetirementReservation {

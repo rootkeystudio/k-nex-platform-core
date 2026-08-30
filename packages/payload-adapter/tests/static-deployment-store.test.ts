@@ -33,6 +33,7 @@ function completionHarness(overrides: Readonly<{
   };
   const query = vi.fn(async <T extends object>(text: string) => {
     if (["begin", "commit", "rollback"].includes(text) || text.startsWith("select pg_advisory_xact_lock")) return { rows: [] as T[] };
+    if (text === "select now() as now") return { rows: [{ now }] as T[] };
     if (text.includes("from runtime_worker_effects") && text.startsWith("select")) return { rows: [effect] as T[] };
     if (text.includes("from runtime_worker_generation_fences")) return { rows: [fence] as T[] };
     if (text.startsWith("update runtime_worker_effects")) return { rows: [{ effect_id: "effect-9" }] as T[] };
@@ -103,7 +104,7 @@ describe("PostgresStaticDeploymentStore.assertTransitionTicket", () => {
 
     const ticket = {
       ...owner, generationId: "customer-alpha-blue-8", activeGenerationId: "customer-alpha-green-9", revision: 1,
-      fencingToken: 5, checkpointKind: "promote", step: "drain-previous", reservationId, reservationExpiresAt
+      fencingToken: 5, promotionRevision: 1, leaseOwner: "worker:green", checkpointKind: "promote", step: "drain-previous", reservationId, reservationExpiresAt
     } as const;
     await expect(store.assertTransitionTicket(ticket)).resolves.toBeUndefined();
     const statement = query.mock.calls[0]?.[0] as string;
@@ -143,6 +144,7 @@ describe("PostgresStaticDeploymentStore.assertTransitionTicket", () => {
       if (["begin", "commit", "rollback"].includes(text) || text.startsWith("select pg_advisory_xact_lock")) return { rows: [] };
       if (text.startsWith("select * from runtime_static_deployments")) return { rows: [row] };
       if (text.startsWith("select * from runtime_worker_generation_fences")) return { rows: [fence] };
+      if (text.startsWith("select * from runtime_static_worker_activations")) return { rows: [] };
       if (text.includes("from runtime_static_deployments d join runtime_worker_generation_fences")) return { rows: [{ ...row, ...fence }] };
       if (text.startsWith("update runtime_static_deployments")) {
         row.transition_checkpoint = JSON.parse(values?.[2] as string);
@@ -193,7 +195,7 @@ describe("PostgresStaticDeploymentStore.assertTransitionTicket", () => {
     const store = new PostgresStaticDeploymentStore({ query } as unknown as RuntimeExtensionPool, { now: () => now }, { read: vi.fn() } as never);
     const ticket = {
       ...owner, generationId: retire ? "customer-alpha-blue-8" : "customer-alpha-green-9", activeGenerationId: "customer-alpha-green-9", revision: 1,
-      fencingToken: 5, checkpointKind: retire ? "retire-rollback" : "promote", step, reservationId, reservationExpiresAt
+      fencingToken: 5, promotionRevision: 1, leaseOwner: "worker:green", checkpointKind: retire ? "retire-rollback" : "promote", step, reservationId, reservationExpiresAt
     } as const;
     row.transition_checkpoint = { ...row.transition_checkpoint, reservationId: "87654321-1234-4abc-8def-123456789abc" };
     const retirement = retire ? { ...owner, generationId: "customer-alpha-blue-8", reservationId, reservedAt: "2026-08-29T12:00:00.000Z" } : undefined;
