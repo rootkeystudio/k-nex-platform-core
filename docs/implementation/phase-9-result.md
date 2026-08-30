@@ -4,8 +4,8 @@
 - **Gate:** Gate 9
 - **Accepted base:** `73d18886c36db5fc5c0d05a1d8e44dc784e460cc`
 - **Delivery:** one Phase 9 branch and pull request; no merge or auto-merge
-- **Decision:** **READY FOR PHASE REVIEW**
-- **Review state:** review blockers remediated; fresh exact-head Sol-high review and designated project-manager review pending
+- **Decision:** **IN PROGRESS**
+- **Review state:** static build-readiness harness adjustment and exact-head revalidation in progress
 
 ## Scope proved
 
@@ -71,8 +71,8 @@ At the closeout head, `pnpm gate:9` passed Gates 0–8 and every mandatory Gate 
 
 Every Phase 9 task, acceptance journey, hardening amendment, and kill criterion has executable final-head evidence. No host-process code injection, live database-authored static graph, unsigned build, mixed generation, unfenced worker, stale catalog replay, mutable rollback image, persistent failed realm, network-capable Skin SVG, or false zero-downtime path is accepted.
 
-**Decision:** **READY FOR PHASE REVIEW**
+**Decision:** **IN PROGRESS**
 
-Gate decision: **GO PHASE 10 RBAC AND AUTHORIZATION**.
+Gate decision: **PENDING EXACT-HEAD REVALIDATION**.
 
 After project-manager PASS, the exact next task is **P10.1 — Freeze owner, role, grant, assignment, template, and revision contracts**. Do not start domain expansion; continue using Sales and the Gate 9 extension fixtures to harden platform authorization.

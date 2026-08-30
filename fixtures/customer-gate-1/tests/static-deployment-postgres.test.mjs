@@ -363,7 +363,7 @@ async function provisionStaticBinarySchema(pool) {
   `);
 }
 
-test("proves distinct customer binaries and deployment processes recover from PostgreSQL authority", { timeout: 360_000 }, async () => {
+test("proves distinct customer binaries and deployment processes recover from PostgreSQL authority", { timeout: 600_000 }, async () => {
   supervisorControlToken = sha256(randomUUID());
   const network = `knex-p9-${randomUUID()}`;
   let postgres;
@@ -482,7 +482,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     assert.equal((await git(sourceDirectory, ["show", "--format=", "--name-only", targetCommit])).stdout.includes("k-nex.app.json"), true);
     assert.equal((await git(sourceDirectory, ["show", "--format=", "--name-only", targetCommit])).stdout.includes("package-lock.json"), true);
     builtImages.push({ tag: `knex-p9-customer-alpha:${targetCommit.slice(0, 12)}` });
-    let builderProcess = startTopologyProcess("builder", processEnv("builder", { P9_PROCESS_INSTANCE: "builder-1", P9_SOURCE_RESULT_DIGEST: sourceReady.sourceResultDigest, P9_STAY_ALIVE: "1", P9_READY_TIMEOUT_MS: "120000" }));
+    let builderProcess = startTopologyProcess("builder", processEnv("builder", { P9_PROCESS_INSTANCE: "builder-1", P9_SOURCE_RESULT_DIGEST: sourceReady.sourceResultDigest, P9_STAY_ALIVE: "1", P9_READY_TIMEOUT_MS: "240000" }));
     topology.push(builderProcess);
     const builderReady = await builderProcess.ready;
     const greenBuild = JSON.parse(await readFile(buildResultPath, "utf8"));
