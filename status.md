@@ -11,7 +11,7 @@ Hardened the Docker runner terminal path: it now aborts capability work, reaps t
 
 ## Validation
 
-Local Node 24.16.0 / pnpm 11.9.0 (engine-strict disabled; project requires 24.19.0): `pnpm --filter @k-nex/extension-runner test` (8/8); `pnpm --filter @k-nex/extension-runner build`; `git diff --check`. Linux Docker isolation proof remains GitHub Ubuntu-only.
+Local Node 24.19.0 / pnpm 11.9.0: `pnpm --filter @k-nex/extension-runner test` (8/8); `pnpm --filter @k-nex/extension-runner build`; `git diff --check`. Linux Docker isolation proof remains GitHub Ubuntu-only.
 
 ## Next
 
