@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   defaultDockerIsolationPolicy,
   dockerAppArmorPolicy,
+  dockerIsolationPolicyFromEnvironment,
   dockerSelinuxPolicy,
   runnerAppArmorProfile,
   runnerAppArmorProfileDigest,
@@ -25,5 +26,11 @@ describe("runner Docker security policy", () => {
     expect(dockerSelinuxPolicy).toEqual({ kind: "selinux", label: runnerSelinuxLabel, digest: runnerSelinuxPolicyDigest });
     expect(digest(runnerSelinuxLabel)).toBe(runnerSelinuxPolicyDigest);
     expect(defaultDockerIsolationPolicy).toMatchObject({ kind: "virtual-machine", operatingSystem: "Docker Desktop" });
+  });
+
+  it("accepts only the explicit Linux CI AppArmor selection", () => {
+    expect(dockerIsolationPolicyFromEnvironment(undefined)).toBe(defaultDockerIsolationPolicy);
+    expect(dockerIsolationPolicyFromEnvironment("apparmor")).toBe(dockerAppArmorPolicy);
+    expect(() => dockerIsolationPolicyFromEnvironment("selinux")).toThrow("unsupported");
   });
 });

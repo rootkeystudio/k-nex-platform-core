@@ -1090,7 +1090,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     weakProfileVolumeName = `knex-p9-weak-profile-${randomUUID()}`;
     await docker(["volume", "create", "--label", `p9-fixture=${network}`, weakProfileVolumeName]);
     await docker(["run", "--rm", "--detach", "--name", greenWorkerName, "--network", network, "--label", `p9-fixture=${network}`, "--label", "p9-role=release-worker",
-      "--user", "0:0", "--cap-add", "SYS_ADMIN", "--pid", "host", "--ipc", "host", "--uts", "host", "--cgroupns", "host", "--device-cgroup-rule", "c 1:3 rwm", "--pids-limit", "128", "--memory", "256m", "--memory-swap", "-1", "--cpus", "1", "--mount", `type=volume,source=${weakProfileVolumeName},target=/weak`,
+      "--user", "0:0", "--userns", "host", "--cap-add", "SYS_ADMIN", "--pid", "host", "--ipc", "host", "--uts", "host", "--cgroupns", "host", "--device-cgroup-rule", "c 1:3 rwm", "--pids-limit", "128", "--memory", "256m", "--memory-swap", "-1", "--cpus", "1", "--mount", `type=volume,source=${weakProfileVolumeName},target=/weak`,
       "--publish", "127.0.0.1::3002", "--env", "K_NEX_GENERATION=customer-alpha-green-12", "--env", `K_NEX_IMAGE_DIGEST=${greenBuild.imageDigest}`, "--env", `K_NEX_WORKER_CONTROL_TOKEN=${greenWorkerControlToken}`,
       "--env", "P9_RELEASE_WORKER_PORT=3002", "--env", "P9_WORKER_HEARTBEAT_MS=250", "--env", "P9_WORKER_LEASE_MS=1000", "--env", "DATABASE_URL=postgresql://p9_static_worker:p9-static-worker-password@p9-postgres:5432/static_deployment",
       greenBuild.imageDigest, "node", "release-worker.mjs"]);
@@ -1104,6 +1104,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     assert.ok(weakProfilePort, "Weak-profile retained worker fixture did not become observable.");
     const weakInspection = JSON.parse((await docker(["inspect", greenWorkerName])).stdout)[0];
     assert.equal(weakInspection.Config.User, "0:0");
+    assert.equal(weakInspection.HostConfig.UsernsMode, "host");
     assert.equal(weakInspection.HostConfig.ReadonlyRootfs, false);
     assert.ok(weakInspection.HostConfig.CapAdd.includes("CAP_SYS_ADMIN"));
     assert.equal(weakInspection.HostConfig.PidMode, "host");
@@ -1119,6 +1120,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     assert.ok(profileRecoveredPort);
     assert.equal((await fetch(`http://127.0.0.1:${profileRecoveredPort}/status`).then((response) => response.json())).fencingToken, 6);
     assert.equal(profileRecovered.Config.User, "65534:65534");
+    assert.notEqual(profileRecovered.HostConfig.UsernsMode, "host");
     assert.equal(profileRecovered.HostConfig.ReadonlyRootfs, true);
     assert.equal(profileRecovered.HostConfig.PidsLimit, 64);
     assert.equal(profileRecovered.HostConfig.Memory, 128 * 1024 * 1024);

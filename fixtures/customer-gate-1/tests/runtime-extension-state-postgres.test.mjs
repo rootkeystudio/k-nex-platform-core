@@ -10,7 +10,7 @@ import pg from "pg";
 import { chromium } from "playwright";
 
 import { ArtifactVerifier, buildBundle, canonicalJson, CatalogClient, InMemoryCatalogCheckpointStore, sha256 } from "@k-nex/extension-bundler";
-import { DockerHotApplicationSandboxSupervisor } from "@k-nex/extension-runner";
+import { DockerHotApplicationSandboxSupervisor, dockerIsolationPolicyFromEnvironment } from "@k-nex/extension-runner";
 import { ActiveExtensionSecurityReconciler, PostgresExtensionCapabilityAuthority, PostgresExtensionCapabilitySequenceStore, PostgresRuntimeExtensionOutboxDispatcher, PostgresRuntimeExtensionStore, PostgresVerifiedArtifactStore, RuntimeStoreRunnerQuarantineAdapter } from "@k-nex/payload-adapter";
 import { AuthoritativeHotApplicationRuntime, DurableDynamicArtifactPipeline, DurableDynamicGenerationRuntime, ExtensionCapabilityGateway, HmacExtensionCapabilityTokens, PluginManager, ReferenceHotApplicationGenerationWarmer, TrustedAutomationOperationAuthorizer } from "@k-nex/runtime";
 import { startContinuousHttpProbe } from "./continuous-http-probe.mjs";
@@ -538,7 +538,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     const runner = new DockerHotApplicationSandboxSupervisor(runnerGateway, runnerQuarantine, runnerAuthority, {
       started(identity) { dockerExecutions.push({ event: "started", generationId: identity.generationId }); },
       stopped(identity) { dockerExecutions.push({ event: "stopped", generationId: identity.generationId }); }
-    }, artifacts.runnerSource());
+    }, artifacts.runnerSource(), dockerIsolationPolicyFromEnvironment(process.env.K_NEX_RUNNER_ISOLATION_POLICY));
     const trafficRuntime = new AuthoritativeHotApplicationRuntime(storeB, artifacts, capabilityTokens, runner, {
       applicationId: "customer-alpha", environment: "production", appId: "app.sales-live"
     }, runnerIsolationProfile, "runtime-traffic-gateway");

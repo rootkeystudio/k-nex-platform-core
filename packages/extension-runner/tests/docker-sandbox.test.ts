@@ -6,13 +6,14 @@ import { ArtifactVerifier, buildBundle, canonicalJson, CatalogClient, InMemoryCa
 import { ExtensionCapabilityGateway, HmacExtensionCapabilityTokens, InMemoryExtensionCapabilitySequenceStoreForTests, type ExtensionCapabilityHandler } from "@k-nex/runtime";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { DockerHotApplicationSandboxSupervisor, RunnerInvocationError, extensionRunnerImage, runnerSeccompProfile, type RunnerGenerationIdentity, type RunnerInvocationLimits } from "../src/index.js";
+import { DockerHotApplicationSandboxSupervisor, RunnerInvocationError, dockerIsolationPolicyFromEnvironment, extensionRunnerImage, runnerAppArmorProfileName, runnerSeccompProfile, type RunnerGenerationIdentity, type RunnerInvocationLimits } from "../src/index.js";
 
 const execFile = promisify(execFileCallback);
 const clock = { now: () => new Date() };
 const tokens = new HmacExtensionCapabilityTokens(new Uint8Array(32).fill(7), clock);
 const extensionKeys = generateKeyPairSync("ed25519");
 const extensionPublisher = { identity: "k-nex-extension-runner", publicKey: extensionKeys.publicKey.export({ type: "spki", format: "pem" }).toString() };
+const isolationPolicy = dockerIsolationPolicyFromEnvironment(process.env.K_NEX_RUNNER_ISOLATION_POLICY);
 const catalogKeys = generateKeyPairSync("ed25519");
 const catalogSigner = { identity: "k-nex-runner-catalog", publicKey: catalogKeys.publicKey.export({ type: "spki", format: "pem" }).toString() };
 const limits: RunnerInvocationLimits = {
@@ -97,7 +98,7 @@ function supervisor(observations: Record<string, Record<string, any>>, store: Ve
   }, {
     async started(generation, name) { observations[name] = await inspectContainer(name); started?.(generation, name); },
     stopped() {}
-  }, store.runnerSource());
+  }, store.runnerSource(), isolationPolicy);
 }
 
 beforeAll(async () => {
@@ -166,7 +167,10 @@ describe("production extension runner", () => {
     expect(inspected.HostConfig.CapDrop).toContain("ALL");
     expect(inspected.HostConfig.SecurityOpt).toContain("no-new-privileges=true");
     expect(inspected.HostConfig.SecurityOpt).toContain(`seccomp=${runnerSeccompProfile}`);
-    expect(inspected.AppArmorProfile).toBe("");
+    if (isolationPolicy.kind === "apparmor") {
+      expect(inspected.HostConfig.SecurityOpt).toContain(`apparmor=${runnerAppArmorProfileName}`);
+      expect(inspected.AppArmorProfile).toBe(runnerAppArmorProfileName);
+    } else expect(inspected.AppArmorProfile).toBe("");
     expect(inspected.HostConfig.UsernsMode).not.toBe("host");
     expect(inspected.HostConfig.Binds ?? []).toEqual([]);
     expect(inspected.Mounts.every((mount: Record<string, unknown>) => mount.Type !== "bind")).toBe(true);

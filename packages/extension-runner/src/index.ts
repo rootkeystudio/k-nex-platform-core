@@ -498,6 +498,7 @@ export { runnerServiceSource } from "./service-source.js";
 export {
   defaultDockerIsolationPolicy,
   dockerAppArmorPolicy,
+  dockerIsolationPolicyFromEnvironment,
   dockerSelinuxPolicy,
   runnerAppArmorProfile,
   runnerAppArmorProfileDigest,

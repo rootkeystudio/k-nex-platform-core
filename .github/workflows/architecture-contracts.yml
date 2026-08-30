@@ -30,10 +30,14 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Configure Gate 9 Linux runner isolation
+        run: node scripts/setup-gate-9-linux-isolation.mjs
       - name: Install browser proofs
         run: pnpm exec playwright install --with-deps chromium
       - name: Run Phase 0 through Gate 9
         run: pnpm gate:9
+        env:
+          K_NEX_RUNNER_ISOLATION_POLICY: apparmor
       - name: Verify exact-head repository evidence
         run: |
           pnpm audit --audit-level high

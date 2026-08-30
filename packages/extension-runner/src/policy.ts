@@ -25,11 +25,12 @@ export const runnerAppArmorProfile = String.raw`# This policy must be loaded by 
 
 profile k-nex-extension-runner flags=(attach_disconnected,mediate_deleted) {
   #include <abstractions/base>
+  file,
   deny /proc/** w,
   deny /sys/** w,
   deny /run/** w,
 }`;
-export const runnerAppArmorProfileDigest = "sha256:6f708e61834119404df0e4ae5c743580dbb4327e2025c71771bfae7817e0ebe0";
+export const runnerAppArmorProfileDigest = "sha256:258d1e7e322b0dd4d9394ddc97e356e191076a89609cd07395fe5ac9656a1814";
 export const runnerAppArmorProfileName = "k-nex-extension-runner";
 
 export const dockerAppArmorPolicy: DockerIsolationPolicy = Object.freeze({
@@ -49,6 +50,13 @@ export const defaultDockerIsolationPolicy: DockerIsolationPolicy = Object.freeze
   boundary: runnerVirtualMachineBoundary,
   digest: runnerVirtualMachineBoundaryDigest
 });
+
+/** CI must select a host policy explicitly; local Docker Desktop retains its VM boundary. */
+export function dockerIsolationPolicyFromEnvironment(value: string | undefined): DockerIsolationPolicy {
+  if (value === undefined) return defaultDockerIsolationPolicy;
+  if (value === "apparmor") return dockerAppArmorPolicy;
+  throw new TypeError("Runner Docker isolation policy selection is unsupported.");
+}
 
 function digest(value: string): string {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
