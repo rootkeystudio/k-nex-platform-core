@@ -28,6 +28,8 @@ Read this file, `status.md`, the active detailed plan, the master plan, mandator
 9. Pin exact approved dependencies and use the frozen lockfile.
 10. Never trade a working product for unfinished complexity or knowingly merge a disposable stopgap.
 11. Solve plugin, application-runtime, component, lifecycle, authorization, deployment, CLI, and fleet gaps in the platform and exercise them through bounded reference fixtures.
+12. Never assume a package capability or project constraint; read the related documentation, package README, or current Context7 documentation whenever unsure.
+13. Before implementing or creating a plugin, check the official Payload documentation for an existing official package.
 
 ## Extension delivery classes
 
