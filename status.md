@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Passed the complete Gate 9 on committed head `6990fe2`, including Gates 0-8, all Phase 9 package/browser/customer journeys, 22 attacks, 12 exact proof groups, and the executable maintenance-refusal evidence.
+Corrected the static journey teardown so it stops the manually attached PostgreSQL container before removing its Phase 9 Docker network, preventing empty-network leaks and eventual Docker subnet exhaustion.
 
 ## Validation
 
-Node 24.19.0: `pnpm gate:9` passed on `6990fe2` with 155 contract, 84 composition, 292 runtime, 20 bundler, 8 runner, 40 payload-adapter, and 14 customer PostgreSQL/Docker tests plus all Chromium and attack-corpus proofs.
+Node 24.19.0: `pnpm gate:9` passed on `6990fe2`. The corrected focused static PostgreSQL/Docker journey passed in 208.8s, emitted both required markers, removed its own network, and left only the pre-existing attached Phase 9 network untouched.
 
 ## Next
 
-Commit the refreshed phase result, rerun complete Gate 9 on that exact closeout commit, then request a fresh Sol-high review.
+Commit the teardown correction, rerun complete Gate 9 on the exact commit, then request a fresh Sol-high review.
 
 ## Blockers
 

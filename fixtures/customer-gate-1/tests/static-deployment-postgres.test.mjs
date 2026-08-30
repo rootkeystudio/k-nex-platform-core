@@ -357,6 +357,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
   let supervisorUrl;
   const topology = [];
   const builtImages = [];
+  let networkCreated = false;
   try {
     const baseCommit = await sourceCommit(sourceDirectory);
     const blueBuild = await prepareBaseImage(sourceDirectory, baseCommit, artifactsDirectory);
@@ -366,6 +367,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     await boot(postgres.getConnectionUri());
     await provisionStaticBinarySchema(pool);
     await docker(["network", "create", network]);
+    networkCreated = true;
     await docker(["network", "connect", "--alias", "p9-postgres", network, postgres.getId()]);
     const managedRequest = {
       applicationId: "customer-alpha", environment: "production", extension: { deliveryClass: "platform-plugin", id: "module.sales" },
@@ -838,10 +840,10 @@ test("proves distinct customer binaries and deployment processes recover from Po
     if (supervisorUrl) await supervisorCommand(supervisorUrl, { commandId: "fixture-cleanup-12", operation: "cleanup" }).catch(() => undefined);
     await Promise.allSettled(topology.map((process) => process.stop()));
     await webAdminContainer?.stop();
-    await docker(["network", "rm", network]).catch(() => undefined);
     await Promise.allSettled(builtImages.map(({ tag }) => docker(["image", "rm", "--force", tag])));
     await pool.end();
     await postgres.stop();
+    if (networkCreated) await docker(["network", "rm", network]);
     await rm(sourceDirectory, { recursive: true, force: true });
     await rm(artifactsDirectory, { recursive: true, force: true });
     await rm(builderTrustDirectory, { recursive: true, force: true });
