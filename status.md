@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Made Hot Application route identity injective by preserving dotted app-ID suffixes and enforcing exact route-segment ownership; dot/hyphen and prefix collisions now have regression coverage.
+Scoped Remote UI active generations, session admission, and draining to the complete application/environment/app owner identity so one tenant cannot replace or retire another tenant's sessions.
 
 ## Validation
 
-Node 24.19.0: `pnpm build` passed (22 packages); `pnpm --filter @k-nex/ui-runtime test` passed (10 files, 58 tests); `git diff --check` passed.
+Node 24.19.0: `pnpm contracts:test` passed (45 tasks); `pnpm --filter @k-nex/ui-runtime test` passed (10 files, 59 tests); `git diff --check` passed.
 
 ## Next
 
-Resolve each blocking finding from the persistent Phase 9 Sol Ultra review, then run the exact-head Gate 9 and CI proofs.
+Complete the app-storage restore/mutation serialization remediation, then continue the persistent Phase 9 Sol Ultra review-fix loop.
 
 ## Blockers
 

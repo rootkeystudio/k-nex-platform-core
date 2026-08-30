@@ -22,6 +22,12 @@ export interface RemoteUiSessionIdentity {
   readonly assets: ReadonlySet<string>;
 }
 
+export interface RemoteUiGenerationOwner {
+  readonly applicationId: string;
+  readonly environment: string;
+  readonly appId: string;
+}
+
 export interface RemoteUiHostAdapter {
   authorize(identity: RemoteUiSessionIdentity, frame: RemoteUiFrame): boolean | Promise<boolean>;
   render(root: RemoteUiNode): void | Promise<void>;
@@ -205,29 +211,54 @@ export class RemoteUiGenerationSessions {
 
   constructor(private readonly schedule: (work: () => void, delayMs: number) => unknown = setTimeout) {}
 
-  activate(appId: string, generationId: string, drainMs: number): void {
-    if (!/^app(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$/u.test(appId) || !/^[a-z][a-z0-9-]{2,127}$/u.test(generationId) || !Number.isSafeInteger(drainMs) || drainMs < 1 || drainMs > 30_000) throw new TypeError("Remote UI generation activation is invalid.");
-    const previous = this.active.get(appId);
-    this.active.set(appId, generationId);
-    if (previous !== undefined && previous !== generationId) this.schedule(() => this.retire(appId, previous), drainMs);
+  activate(ownerInput: RemoteUiGenerationOwner, generationId: string, drainMs: number): void {
+    const owner = remoteUiGenerationOwner(ownerInput);
+    if (!validGenerationId(generationId) || !Number.isSafeInteger(drainMs) || drainMs < 1 || drainMs > 30_000) throw new TypeError("Remote UI generation activation is invalid.");
+    const key = remoteUiGenerationOwnerKey(owner);
+    const previous = this.active.get(key);
+    this.active.set(key, generationId);
+    if (previous !== undefined && previous !== generationId) this.schedule(() => this.retire(owner, previous), drainMs);
   }
 
   admit(session: RemoteUiHostSession): void {
-    if (this.active.get(session.identity.appId) !== session.identity.generationId) fail("IDENTITY_MISMATCH", "New Remote UI sessions require the active generation.");
-    const key = `${session.identity.appId}/${session.identity.generationId}`;
+    const owner = remoteUiGenerationOwner(session.identity);
+    if (!validGenerationId(session.identity.generationId)) fail("IDENTITY_MISMATCH", "Remote UI session generation is invalid.");
+    if (this.active.get(remoteUiGenerationOwnerKey(owner)) !== session.identity.generationId) fail("IDENTITY_MISMATCH", "New Remote UI sessions require the active generation.");
+    const key = remoteUiGenerationKey(owner, session.identity.generationId);
     const sessions = this.sessions.get(key) ?? new Set<RemoteUiHostSession>();
     sessions.add(session);
     this.sessions.set(key, sessions);
   }
 
-  retire(appId: string, generationId: string): number {
-    const key = `${appId}/${generationId}`;
+  retire(ownerInput: RemoteUiGenerationOwner, generationId: string): number {
+    const owner = remoteUiGenerationOwner(ownerInput);
+    if (!validGenerationId(generationId)) throw new TypeError("Remote UI generation retirement is invalid.");
+    const key = remoteUiGenerationKey(owner, generationId);
     const sessions = this.sessions.get(key);
     if (!sessions) return 0;
     for (const session of sessions) session.dispose("generation-retired");
     this.sessions.delete(key);
     return sessions.size;
   }
+}
+
+function remoteUiGenerationOwner(owner: RemoteUiGenerationOwner): RemoteUiGenerationOwner {
+  if (!/^[a-z][a-z0-9-]{2,127}$/u.test(owner.applicationId) || !/^[a-z][a-z0-9-]{1,63}$/u.test(owner.environment) || !/^app(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$/u.test(owner.appId)) {
+    throw new TypeError("Remote UI generation owner is invalid.");
+  }
+  return Object.freeze({ applicationId: owner.applicationId, environment: owner.environment, appId: owner.appId });
+}
+
+function validGenerationId(generationId: string): boolean {
+  return /^[a-z][a-z0-9-]{2,127}$/u.test(generationId);
+}
+
+function remoteUiGenerationOwnerKey(owner: RemoteUiGenerationOwner): string {
+  return `${owner.applicationId}\0${owner.environment}\0${owner.appId}`;
+}
+
+function remoteUiGenerationKey(owner: RemoteUiGenerationOwner, generationId: string): string {
+  return `${remoteUiGenerationOwnerKey(owner)}\0${generationId}`;
 }
 
 export function createOpaqueRemoteUiFrame(document: Document, session: RemoteUiHostSession, source: string, title: string, options: RemoteUiFrameOptions = {}): Readonly<{ iframe: HTMLIFrameElement; dispose(): void }> {

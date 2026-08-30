@@ -119,16 +119,43 @@ describe("remote UI host session", () => {
   it("admits only the active generation and drains old sessions after promotion", () => {
     const scheduled: Array<() => void> = [];
     const generations = new RemoteUiGenerationSessions((work) => scheduled.push(work));
-    generations.activate(identity.appId, identity.generationId, 100);
+    const owner = { applicationId: identity.applicationId, environment: identity.environment, appId: identity.appId };
+    generations.activate(owner, identity.generationId, 100);
     const old = new RemoteUiHostSession(identity, registry, adapter());
     generations.admit(old);
-    generations.activate(identity.appId, "sales-generation-2", 100);
+    generations.activate(owner, "sales-generation-2", 100);
     expect(() => generations.admit(new RemoteUiHostSession(identity, registry, adapter()))).toThrow();
     const current = new RemoteUiHostSession({ ...identity, sessionId: "remote-session-2", generationId: "sales-generation-2" }, registry, adapter());
     expect(() => generations.admit(current)).not.toThrow();
     expect(scheduled).toHaveLength(1);
     scheduled[0]!();
-    expect(generations.retire(identity.appId, identity.generationId)).toBe(0);
+    expect(generations.retire(owner, identity.generationId)).toBe(0);
+  });
+
+  it("scopes active generations and drains to the application, environment, and app owner", () => {
+    const scheduled: Array<() => void> = [];
+    const generations = new RemoteUiGenerationSessions((work) => scheduled.push(work));
+    const alpha = { applicationId: identity.applicationId, environment: identity.environment, appId: identity.appId };
+    const beta = { applicationId: "customer-beta", environment: "staging", appId: identity.appId };
+    const alphaOld = new RemoteUiHostSession(identity, registry, adapter());
+    const betaIdentity = { ...identity, sessionId: "remote-session-beta", applicationId: beta.applicationId, environment: beta.environment };
+    const betaOld = new RemoteUiHostSession(betaIdentity, registry, adapter());
+    const alphaDispose = vi.spyOn(alphaOld, "dispose");
+    const betaDispose = vi.spyOn(betaOld, "dispose");
+
+    generations.activate(alpha, identity.generationId, 100);
+    generations.activate(beta, identity.generationId, 100);
+    generations.admit(alphaOld);
+    generations.admit(betaOld);
+    generations.activate(alpha, "sales-generation-2", 100);
+
+    expect(() => generations.admit(new RemoteUiHostSession(betaIdentity, registry, adapter()))).not.toThrow();
+    expect(scheduled).toHaveLength(1);
+    scheduled[0]!();
+    expect(alphaDispose).toHaveBeenCalledWith("generation-retired");
+    expect(betaDispose).not.toHaveBeenCalled();
+    expect(generations.retire(beta, identity.generationId)).toBe(2);
+    expect(betaDispose).toHaveBeenCalledWith("generation-retired");
   });
 
   it("closes sessions that exceed frame depth, size, or rate budgets", async () => {
