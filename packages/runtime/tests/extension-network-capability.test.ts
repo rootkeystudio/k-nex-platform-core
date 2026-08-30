@@ -35,4 +35,25 @@ describe("bounded extension network capability", () => {
     await expect(capability.invoke(context, capability.validateInput({ destination: "https://api.example.test", path: "/", method: "GET", headers: {}, secretReference: "other.api" }), new AbortController().signal)).rejects.toMatchObject({ code: "SECRET_REFERENCE_DENIED" });
     await expect(capability.invoke(context, capability.validateInput({ destination: "https://api.example.test", path: "/", method: "GET", headers: {}, secretReference: "sales.api" }), new AbortController().signal)).rejects.toMatchObject({ code: "SECRET_OUTPUT_REJECTED" });
   });
+
+  it.each([
+    { body: { nested: [{ value: 'Bearer protect"ed\\value' }] } },
+    { body: { ['Bearer protect"ed\\value']: "present in a response key" } }
+  ])("rejects raw quoted and escaped secret material in nested response values and keys", async (response) => {
+    const capability = new BoundedExtensionNetworkCapability(
+      { destinations: ["https://api.example.test"], methods: ["GET"], secretReferences: ["sales.api"] },
+      { resolve: async () => ({ header: "authorization", value: 'Bearer protect"ed\\value' }) }, { request: async () => response }
+    );
+    await expect(capability.invoke(context, capability.validateInput({ destination: "https://api.example.test", path: "/", method: "GET", headers: {}, secretReference: "sales.api" }), new AbortController().signal)).rejects.toMatchObject({ code: "SECRET_OUTPUT_REJECTED" });
+  });
+
+  it("rejects cyclic network responses", async () => {
+    const response: Record<string, unknown> = {};
+    response.self = response;
+    const capability = new BoundedExtensionNetworkCapability(
+      { destinations: ["https://api.example.test"], methods: ["GET"], secretReferences: ["sales.api"] },
+      { resolve: async () => ({ header: "authorization", value: "Bearer protected" }) }, { request: async () => response }
+    );
+    await expect(capability.invoke(context, capability.validateInput({ destination: "https://api.example.test", path: "/", method: "GET", headers: {}, secretReference: "sales.api" }), new AbortController().signal)).rejects.toMatchObject({ code: "SECRET_OUTPUT_REJECTED" });
+  });
 });

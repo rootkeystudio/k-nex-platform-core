@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Bound every Hot Application runner and production capability invocation to its exact live, owner/generation-scoped drain lease; active-generation state no longer bypasses an expired, released, or mismatched lease.
+Closed network secret exfiltration through JSON escaping by inspecting raw nested response keys and values; cyclic or uninspectable output fails closed.
 
 ## Validation
 
-Node 24.19.0: runtime, runner, and Payload adapter builds passed; runner tests passed (2 files, 5 tests); focused runner-adapter tests passed (1 file, 2 tests); real PostgreSQL capability-authority test passed (1 test); `git diff --check` passed. Testcontainers left no containers.
+Node 24.19.0: runtime build passed; focused network-capability tests passed (1 file, 5 tests), including quote/backslash secrets in nested keys/values and cyclic output; `git diff --check` passed.
 
 ## Next
 
-Complete the app-relative AJV/Remote UI route-authority conversion and its full PostgreSQL/browser proof, then address the remaining Ultra lifecycle/security findings.
+Commit the completed app-relative AJV/Remote UI route-authority conversion, then address the remaining Ultra lifecycle/security findings.
 
 ## Blockers
 

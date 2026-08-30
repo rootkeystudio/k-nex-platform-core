@@ -65,7 +65,21 @@ function input(value: unknown): NetworkInput {
 
 function containsSecret(value: unknown, secret: string): boolean {
   if (secret === "") return false;
-  try { return JSON.stringify(value).includes(secret); } catch { return true; }
+  const ancestors = new Set<object>();
+  try {
+    const inspect = (current: unknown): boolean => {
+      if (typeof current === "string") return current.includes(secret);
+      if (typeof current !== "object" || current === null) return false;
+      if (ancestors.has(current)) return true;
+      ancestors.add(current);
+      for (const key of Object.keys(current)) {
+        if (key.includes(secret) || inspect((current as Record<string, unknown>)[key])) return true;
+      }
+      ancestors.delete(current);
+      return false;
+    };
+    return inspect(value);
+  } catch { return true; }
 }
 
 export class BoundedExtensionNetworkCapability implements ExtensionCapabilityHandler {
