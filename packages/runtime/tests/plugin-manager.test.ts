@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ExtensionInstallPlan, RuntimeExtensionInventory, StaticCompositionChangePlan } from "@k-nex/contracts";
 import {
@@ -164,6 +164,8 @@ function manager(store = new MemoryStore(), reverify = true) {
 }
 
 describe("PluginManager", () => {
+  afterEach(() => vi.useRealTimers());
+
   it("plans and stages a verified live generation with resumable checkpoints", async () => {
     const runtime = manager();
     const planned = await runtime.value.plan(request);
@@ -313,6 +315,8 @@ describe("PluginManager", () => {
   });
 
   it("reverifies and freshly warms the retained generation before the rollback pointer can change", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-29T09:00:30.000Z"));
     const retained = { ...authority, generationId: "sales-assistant-generation-0" };
     const rollbackRequest: ExtensionChangeRequest = {
       ...request,

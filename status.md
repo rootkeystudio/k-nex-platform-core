@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Closed exact SemVer grammar and persistence parity: prerelease matching is linear-time, exact versions are bounded to 64 characters across authoring/generated/runtime/catalog boundaries, and the static-release database enforces the same limit.
+Made the PluginManager rollback-readiness fixture deterministic by freezing its clock inside the affected test instead of relying on a calendar date that eventually expires.
 
 ## Validation
 
-Node 24.19.0: contracts tests passed (177); extension-bundler tests passed (20); runtime operator tests passed (9); architecture tests/validation passed (26 plus generated/Ajv/repository checks); customer fixture build and focused real PostgreSQL 64/65-character persistence proof passed; adversarial 50k-character regex regression and focused P0/P1/P2 audit passed. No Docker containers remain.
+Node 24.19.0: focused PluginManager tests passed (13); diff whitespace validation passed. No Docker containers remain.
 
 ## Next
 
-Continue the remaining Ultra Theme Skin parser, authority, accessibility, lifecycle, and recipe-bound corrections in atomic tasks.
+Close the audited static transition-ticket, retirement recovery, and real Docker evidence findings in one coherent lifecycle commit.
 
 ## Blockers
 
