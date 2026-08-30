@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Exact-head CI proved the Linux isolation setup and Gate 5 correction, then exposed Phase 0's full-repository validator using Vitest's 5-second unit default under concurrent CI load. That integration proof now has the existing 30-second repository-proof bound; the persistent Sol Ultra review returned PASS.
+Added Gate 9 CI bootstrap for the exact digest-pinned runner image: after Docker restarts with user namespace remapping, CI reads the image only from the authoring source, pulls it, and verifies its local digest inspection. A focused AppArmor Docker runner preflight now fails before the full gate when that boundary is unavailable.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: architecture-contract-tools 26/26 passed three times; Minimal theme 3/3 and UI design-system contracts 59/59 passed; runner build/unit/Docker and Linux setup previously passed. Exact-head CI reached Phase 0 tests before the corrected timeout. No task container/process remains.
+Local Node 24.19.0 / pnpm 11.9.0: `node --check scripts/setup-gate-9-linux-isolation.mjs`; `pnpm --filter @k-nex/extension-runner build`; runner unit tests 6/6; `git diff --check`. Linux Docker restart/setup and AppArmor preflight require GitHub's Ubuntu runner and were not run locally.
 
 ## Next
 

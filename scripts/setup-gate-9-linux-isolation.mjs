@@ -14,6 +14,14 @@ if (!profile || !profileName || !profileDigest || `sha256:${createHash("sha256")
   throw new Error("The approved runner AppArmor profile is unavailable or has an invalid digest.");
 }
 
+const runnerSource = readFileSync("packages/extension-runner/src/index.ts", "utf8");
+const runnerImageMatches = [...runnerSource.matchAll(/^export const extensionRunnerImage = "(node:24\.19\.0-alpine@(sha256:[0-9a-f]{64}))";$/gmu)];
+const extensionRunnerImage = runnerImageMatches[0]?.[1];
+const extensionRunnerImageDigest = runnerImageMatches[0]?.[2];
+if (typeof extensionRunnerImage !== "string" || typeof extensionRunnerImageDigest !== "string" || runnerImageMatches.length !== 1) {
+  throw new Error("The approved digest-pinned extension runner image is unavailable or ambiguous.");
+}
+
 const run = (command, args, options = {}) => {
   const result = spawnSync(command, args, { encoding: "utf8", stdio: options.stdio ?? "inherit" });
   if (result.error || result.status !== 0) throw new Error(`${command} failed: ${result.error?.message ?? result.stderr ?? result.status}`);
@@ -77,6 +85,19 @@ const grantRyukSocketAccess = () => {
   }
 };
 
+const pullAndInspectRunnerImage = () => {
+  run("docker", ["pull", extensionRunnerImage]);
+  let repoDigests;
+  try {
+    repoDigests = JSON.parse(run("docker", ["image", "inspect", extensionRunnerImage, "--format", "{{json .RepoDigests}}"], { stdio: "pipe" }));
+  } catch {
+    throw new Error("The approved digest-pinned extension runner image is not locally inspectable.");
+  }
+  if (!Array.isArray(repoDigests) || !repoDigests.every((digest) => typeof digest === "string") || !repoDigests.includes(`node@${extensionRunnerImageDigest}`)) {
+    throw new Error("The locally inspected extension runner image does not retain its approved digest.");
+  }
+};
+
 run("sudo", ["apt-get", "update"]);
 run("sudo", ["apt-get", "install", "--yes", "apparmor", "acl"]);
 
@@ -102,6 +123,7 @@ try {
   if (!securityOptions.includes("name=apparmor") || !securityOptions.includes("name=userns")) {
     throw new Error("Docker did not report both AppArmor and user-namespace remapping after Gate 9 setup.");
   }
+  pullAndInspectRunnerImage();
   grantRyukSocketAccess();
 } finally {
   rmSync(setupDirectory, { recursive: true, force: true });

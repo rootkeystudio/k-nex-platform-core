@@ -32,6 +32,12 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Configure Gate 9 Linux runner isolation
         run: node scripts/setup-gate-9-linux-isolation.mjs
+      - name: Run Gate 9 Docker runner preflight
+        run: |
+          pnpm --filter @k-nex/extension-runner build
+          pnpm --filter @k-nex/extension-runner test:docker
+        env:
+          K_NEX_RUNNER_ISOLATION_POLICY: apparmor
       - name: Install browser proofs
         run: pnpm exec playwright install --with-deps chromium
       - name: Run Phase 0 through Gate 9
