@@ -582,7 +582,9 @@ test("proves distinct customer binaries and deployment processes recover from Po
       managedStore,
       { stage: async () => assert.fail("Platform Plugin delivery must not stage a live artifact."), reverify: async () => false },
       { request: async () => change },
-      deploymentBoundary
+      deploymentBoundary,
+      undefined,
+      { now: () => now }
     );
     const operatorApi = new ExtensionOperatorApi(
       manager,
@@ -1363,7 +1365,9 @@ test("proves distinct customer binaries and deployment processes recover from Po
         assert.deepEqual(sourceChange, offlineChange);
         assert.deepEqual(decision, offlineAuthorization);
         return maintenancePlaceholder;
-      }, reverify: async () => assert.fail("Maintenance refusal must not reverify a build placeholder.") }
+      }, reverify: async () => assert.fail("Maintenance refusal must not reverify a build placeholder.") },
+      undefined,
+      { now: () => now }
     );
     const offlineOperatorApi = new ExtensionOperatorApi(
       offlineManager,

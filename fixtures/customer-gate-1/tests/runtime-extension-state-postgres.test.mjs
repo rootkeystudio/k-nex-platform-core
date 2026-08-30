@@ -453,7 +453,7 @@ test("rejects SCN-12 activation races and SCN-13 stale operation replays in Post
 test("proves PostgreSQL-backed Hot Application install, update, restore, rollback, and execution through the durable runtime", { timeout: 180_000 }, async () => {
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("runtime_extensions").withStartupTimeout(120_000).start();
   const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
-  const now = new Date();
+  const now = new Date("2026-08-29T09:00:00.000Z");
   const clock = { now: () => now };
   const storeA = new PostgresRuntimeExtensionStore(pool, clock, digest("7"));
   const storeB = new PostgresRuntimeExtensionStore(pool, clock, digest("7"));
@@ -500,7 +500,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
         if (!release) throw new Error("Fixture release is unavailable.");
         return { plan: plan(change.operationId, change, release).plan, sourceCommit: release.authority.sourceCommit, generationId: release.generationId };
       }
-    }, storeA, pipeline, { request: async () => { throw new Error("Static delivery is not used."); } }, { request: async () => { throw new Error("Static delivery is not used."); }, reverify: async () => false }, new DurableDynamicGenerationRuntime(artifacts, warmer));
+    }, storeA, pipeline, { request: async () => { throw new Error("Static delivery is not used."); } }, { request: async () => { throw new Error("Static delivery is not used."); }, reverify: async () => false }, new DurableDynamicGenerationRuntime(artifacts, warmer), clock);
 
     const identity = { deliveryClass: "hot-application", id: "app.sales-live" };
 
@@ -523,12 +523,13 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     const runnerAuthority = {
       active: (runnerIdentity) => runnerQuarantine.active(runnerIdentity),
       async admit(runnerIdentity, drainLeaseId) {
-        if (admissionBarrier?.generationId === runnerIdentity.generationId) {
-          admissionBarrier.leaseId ??= drainLeaseId;
-          admissionBarrier.reached.resolve();
-          await admissionBarrier.release.promise;
+        const barrier = admissionBarrier;
+        if (barrier?.generationId === runnerIdentity.generationId) {
+          barrier.leaseId ??= drainLeaseId;
+          barrier.reached.resolve();
+          await barrier.release.promise;
           const admitted = await runnerQuarantine.admit(runnerIdentity, drainLeaseId);
-          admissionBarrier.admitted = admitted;
+          barrier.admitted = admitted;
           return admitted;
         }
         return runnerQuarantine.admit(runnerIdentity, drainLeaseId);

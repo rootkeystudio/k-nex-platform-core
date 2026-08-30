@@ -7,15 +7,15 @@
 
 ## Last completed
 
-P9.10c wired immutable Theme Skin asset serving to a binding-aware asynchronous PostgreSQL reader and compiled fixed-route host. Restored state proves active, rollback, and disabled-retained authority through HTTP/Chromium; corrupted bytes, deleted bindings, mismatches, and removed assets fail closed. Gate 9 requires the exact durable evidence marker. Persistent Sol Ultra re-review returned `PASS`.
+Closed the Gate 9 Hot Application runtime time bombs: the durable journey uses a fixed acceptance clock, the drain-admission barrier survives its intentional async release race, and PluginManager rollback freshness uses the same injected clock as generation warm-up instead of ambient wall time.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: extension bundler build/tests passed (24); payload adapter build/tests passed (49); customer fixture build and focused real PostgreSQL/HTTP/Chromium Theme Skin test passed with exact `P9_THEME_SKIN_DURABLE_EVIDENCE`; attack-corpus syntax and diff checks passed. Full attack corpus reaches a pre-existing Hot Application migration-compatibility failure before the Skin proof; no task container/process remains.
+Node 24.19.0 / pnpm 11.9.0: runtime build/tests passed (324); customer fixture build passed; focused real PostgreSQL/Docker/HTTP/Chromium Hot Application proof passed (4/4 with `P9_RUNTIME_JOURNEY_EVIDENCE`); Theme Skin PostgreSQL/HTTP/Chromium regression passed with exact durable marker; diff checks passed. No task container/process remains.
 
 ## Next
 
-Pre-review and fix the Hot Application migration-compatibility failure currently blocking the Phase 9 attack corpus, then rerun its focused PostgreSQL proof.
+Obtain persistent Sol Ultra PASS for the deterministic clock/drain fix, then rerun the complete Phase 9 attack corpus to expose the next exact closeout blocker.
 
 ## Blockers
 

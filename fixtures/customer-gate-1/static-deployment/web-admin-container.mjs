@@ -38,7 +38,8 @@ const proof = await (async () => {
   return Object.freeze({ inventoryReadable, deploymentTableDenied, sourceWriteDenied, buildDenied, dockerDenied, supervisorDenied, controlPlaneAbsent, processId: process.pid });
 })();
 
-const operationStore = new PostgresRuntimeExtensionStore(pool, { now: () => new Date() }, operator.hostInventoryDigest);
+const operationClock = { now: () => new Date() };
+const operationStore = new PostgresRuntimeExtensionStore(pool, operationClock, operator.hostInventoryDigest);
 const manager = new PluginManager(
   operator.workerId,
   new TrustedAutomationOperationAuthorizer(operator.automationIdentity),
@@ -53,7 +54,9 @@ const manager = new PluginManager(
   { request: async (sourceChange, decision) => {
     if (canonicalJson(sourceChange) !== canonicalJson(operator.sourceChange) || canonicalJson(decision) !== canonicalJson(operator.authorization)) throw new Error("Trusted build request does not match the authorized web/admin operation.");
     return operator.deployment;
-  }, reverify: async () => false }
+  }, reverify: async () => false },
+  undefined,
+  operationClock
 );
 const operatorApi = new ExtensionOperatorApi(
   manager,

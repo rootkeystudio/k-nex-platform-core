@@ -209,7 +209,7 @@ test("delivers Theme Skins from signed durable artifacts through PluginManager i
         } };
       }
     };
-    const manager = new PluginManager("theme-skin-worker", new TrustedAutomationOperationAuthorizer("github-actions:phase-9"), planner, extensionStore, new DurableDynamicArtifactPipeline(artifacts), { request: async () => { throw new Error("Static delivery is not used."); } }, { request: async () => { throw new Error("Static delivery is not used."); }, reverify: async () => false }, new DurableDynamicGenerationRuntime(artifacts, warmer));
+    const manager = new PluginManager("theme-skin-worker", new TrustedAutomationOperationAuthorizer("github-actions:phase-9"), planner, extensionStore, new DurableDynamicArtifactPipeline(artifacts), { request: async () => { throw new Error("Static delivery is not used."); } }, { request: async () => { throw new Error("Static delivery is not used."); }, reverify: async () => false }, new DurableDynamicGenerationRuntime(artifacts, warmer), clock);
 
     const install = await manager.plan(request("install", "1.0.0", 0));
     await manager.stage(install.operationId);
@@ -243,7 +243,7 @@ test("delivers Theme Skins from signed durable artifacts through PluginManager i
 
     const recoveredArtifacts = new PostgresVerifiedArtifactStore(pool, verifier);
     const recoveredResolver = new DurableThemeSkinResolver({ load: (authority) => recoveredArtifacts.loadThemeSkin(authority) });
-    const recoveredManager = new PluginManager("theme-skin-recovery", new TrustedAutomationOperationAuthorizer("github-actions:phase-9"), planner, new PostgresRuntimeExtensionStore(pool, clock, sha256(Buffer.from("theme-skin-store"))), new DurableDynamicArtifactPipeline(recoveredArtifacts), { request: async () => { throw new Error("Static delivery is not used."); } }, { request: async () => { throw new Error("Static delivery is not used."); }, reverify: async () => false }, new DurableDynamicGenerationRuntime(recoveredArtifacts, new ReferenceThemeSkinGenerationWarmer({ skins: { prepareSkin: async ({ artifact }) => { await recoveredResolver.generation(artifact.authority); } }, clock })));
+    const recoveredManager = new PluginManager("theme-skin-recovery", new TrustedAutomationOperationAuthorizer("github-actions:phase-9"), planner, new PostgresRuntimeExtensionStore(pool, clock, sha256(Buffer.from("theme-skin-store"))), new DurableDynamicArtifactPipeline(recoveredArtifacts), { request: async () => { throw new Error("Static delivery is not used."); } }, { request: async () => { throw new Error("Static delivery is not used."); }, reverify: async () => false }, new DurableDynamicGenerationRuntime(recoveredArtifacts, new ReferenceThemeSkinGenerationWarmer({ skins: { prepareSkin: async ({ artifact }) => { await recoveredResolver.generation(artifact.authority); } }, clock })), clock);
     assert.equal((await recoveredManager.inventory("customer-alpha", "production")).extensions.themeSkins["skin.neobrutalism"].activeGeneration.generationId, releases[1].generationId);
     const recoveredSkin = await recoveredResolver.resolve(releases[1].authority, second);
     assert.equal(recoveredSkin.generation.generationId, releases[1].generationId);

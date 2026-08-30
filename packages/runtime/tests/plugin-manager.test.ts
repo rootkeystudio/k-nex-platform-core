@@ -160,7 +160,8 @@ function manager(store = new MemoryStore(), reverify = true) {
     compatibility: { status: "compatible" as const, windowId: "rollback-window-1", closesAt: "2026-08-30T09:00:00.000Z", migrationDigest: digest("6"), dataRevision: 1 },
     metadata: {}, settings: {}, storageSchemaVersions: {}
   })) };
-  return { value: new PluginManager("phase-9-worker", new TrustedAutomationOperationAuthorizer("github-actions:phase-9"), planner, store, artifacts, staticChanges, deployments, generationRuntime), store, planner, artifacts, staticChanges, deployments, generationRuntime };
+  const clock = { now: () => new Date(Date.now()) };
+  return { value: new PluginManager("phase-9-worker", new TrustedAutomationOperationAuthorizer("github-actions:phase-9"), planner, store, artifacts, staticChanges, deployments, generationRuntime, clock), store, planner, artifacts, staticChanges, deployments, generationRuntime, clock };
 }
 
 describe("PluginManager", () => {
@@ -436,7 +437,8 @@ describe("PluginManager", () => {
       runtime.artifacts,
       runtime.staticChanges,
       runtime.deployments,
-      runtime.generationRuntime
+      runtime.generationRuntime,
+      runtime.clock
     );
     await expect(blocked.plan(request)).rejects.toThrow("OPERATION_FORBIDDEN");
     expect(runtime.planner.plan).not.toHaveBeenCalled();

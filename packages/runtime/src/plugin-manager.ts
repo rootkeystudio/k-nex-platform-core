@@ -445,12 +445,13 @@ function authorityFromGeneration(generation: ActiveDynamicGeneration): VerifiedG
   });
 }
 
-function assertFreshRollbackReadiness(stage: StagedGenerationActivation, authority: VerifiedGenerationAuthority, version: string): void {
+function assertFreshRollbackReadiness(stage: StagedGenerationActivation, authority: VerifiedGenerationAuthority, version: string, now: Date): void {
   if (canonicalJson(stage.authority) !== canonicalJson(authority) || stage.version !== version ||
     stage.readiness.generationId !== authority.generationId || stage.readiness.serverGenerationId !== authority.generationId ||
     stage.readiness.uiGenerationId !== authority.generationId || stage.readiness.storageGenerationId !== authority.generationId ||
+    !(now instanceof Date) || Number.isNaN(now.valueOf()) ||
     !Number.isFinite(Date.parse(stage.readiness.readyAt)) || !Number.isFinite(Date.parse(stage.readiness.expiresAt)) ||
-    Date.parse(stage.readiness.expiresAt) <= Date.now()) {
+    Date.parse(stage.readiness.expiresAt) <= now.valueOf()) {
     throw new PluginManagerError("ARTIFACT_AUTHORITY_REJECTED", "Retained generation readiness is not fresh and generation-bound.");
   }
 }
@@ -477,7 +478,8 @@ export class PluginManager {
     private readonly artifacts: DynamicArtifactPipeline,
     private readonly staticChanges: StaticCompositionChangeAuthority,
     private readonly deployments: TrustedBuildDeploymentClient,
-    private readonly generationRuntime?: DynamicGenerationRuntime
+    private readonly generationRuntime: DynamicGenerationRuntime | undefined,
+    private readonly clock: Readonly<{ now(): Date }>
   ) {
     if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{2,159}$/u.test(workerId)) throw new TypeError("PluginManager worker identity is invalid.");
   }
@@ -642,7 +644,7 @@ export class PluginManager {
       throw new PluginManagerError("ARTIFACT_AUTHORITY_REJECTED", "Retained artifact authority could not be reverified.");
     }
     const stage = await this.generationRuntime.prepare({ request: current.request, plan: current.plan, authority });
-    assertFreshRollbackReadiness(stage, authority, current.plan.plan.version);
+    assertFreshRollbackReadiness(stage, authority, current.plan.plan.version, this.clock.now());
     return this.store.rollbackGeneration(operationId, current.leaseToken);
   }
 
