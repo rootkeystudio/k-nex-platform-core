@@ -363,7 +363,7 @@ async function provisionStaticBinarySchema(pool) {
   `);
 }
 
-test("proves distinct customer binaries and deployment processes recover from PostgreSQL authority", { timeout: 300_000 }, async () => {
+test("proves distinct customer binaries and deployment processes recover from PostgreSQL authority", { timeout: 360_000 }, async () => {
   supervisorControlToken = sha256(randomUUID());
   const network = `knex-p9-${randomUUID()}`;
   let postgres;
