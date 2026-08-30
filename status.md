@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Exact-head CI proved the Linux AppArmor/userns/Ryuk setup step, then exposed an earlier Gate 5 assertion that conflated contract-level malformed CSS rejection with installed-package schema rejection. The Minimal theme test now asserts each authority message; the persistent Sol Ultra review returned PASS.
+Exact-head CI proved the Linux isolation setup and Gate 5 correction, then exposed Phase 0's full-repository validator using Vitest's 5-second unit default under concurrent CI load. That integration proof now has the same explicit 30-second bound as the existing repository reproducibility proof; no retry or production change was added.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: Minimal theme 3/3 and UI design-system contracts 59/59 passed; runner build/unit/Docker, durable runtime PostgreSQL, static Docker recovery, workflow/setup checks previously passed. Exact-head CI setup step passed before Gate 5 found the corrected assertion. No task container/process remains.
+Node 24.19.0 / pnpm 11.9.0: architecture-contract-tools 26/26 passed three times; Minimal theme 3/3 and UI design-system contracts 59/59 passed; runner build/unit/Docker and Linux setup previously passed. Exact-head CI reached Phase 0 tests before the corrected timeout. No task container/process remains.
 
 ## Next
 
-Push PR #28 and rerun exact-head `validate` through full Gate 9.
+Obtain persistent Sol Ultra PASS for the Phase 0 timeout correction, push PR #28, and rerun exact-head `validate` through full Gate 9.
 
 ## Blockers
 

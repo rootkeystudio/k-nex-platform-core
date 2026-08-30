@@ -33,7 +33,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../.
 describe("P0.4 executable repository validation", () => {
   it("accepts the repository through the complete TypeScript validator", async () => {
     expect(await validateRepository(repositoryRoot)).toEqual([]);
-  });
+  }, 30_000);
 
   it("reports malformed JSON without throwing", () => {
     const result = parseJsonDocument("broken.json", "{");
