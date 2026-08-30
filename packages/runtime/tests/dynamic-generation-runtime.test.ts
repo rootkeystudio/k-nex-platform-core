@@ -34,7 +34,7 @@ const artifact: DurableDynamicArtifact = {
   hotApplicationManifest: {
     schemaVersion: 1, deliveryClass: "hot-application", id: request.extension.id, displayName: "Sales assistant", version: "1.0.0", runtimeAbi: "1.0.0",
     entrypoints: { server: ["server/main.mjs"], ui: ["ui/main.mjs"] }, capabilities: plan.plan.requiredCapabilities, resourceBudget: plan.plan.resourceBudget,
-    settings: [], screens: [{ id: "sales.screen", route: "/apps/sales-assistant", entrypoint: "ui/main.mjs" }], navigation: [], sources: [], actions: [], tools: [], logicFunctions: [], eventSubscriptions: [], schedules: [], storageSchemas: [], assets: [], localization: [], healthChecks: []
+    settings: [], screens: [{ id: "sales.screen", route: "/", entrypoint: "ui/main.mjs" }], navigation: [], sources: [], actions: [], tools: [], logicFunctions: [], eventSubscriptions: [], schedules: [], storageSchemas: [], assets: [], localization: [], healthChecks: []
   },
   capabilities: plan.plan.requiredCapabilities,
   resourceBudget: plan.plan.resourceBudget,

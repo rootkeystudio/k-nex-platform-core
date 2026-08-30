@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Closed network secret exfiltration through JSON escaping by inspecting raw nested response keys and values; cyclic or uninspectable output fails closed.
+Made signed Hot Application screen routes app-relative and derived every concrete host/Remote UI route through one owner-aware contract and matcher, including dotted IDs and parameter paths.
 
 ## Validation
 
-Node 24.19.0: runtime build passed; focused network-capability tests passed (1 file, 5 tests), including quote/backslash secrets in nested keys/values and cyclic output; `git diff --check` passed.
+Node 24.19.0: contract generation/validation passed; contracts 156, bundler 20, UI runtime 63, runner 5, focused runtime 8, and Chromium UI suites passed. PostgreSQL suite passed 3/4 tests; the route browser journey reaches the separate expired compatibility-window blocker before activation. `git diff --check` passed; Docker is empty.
 
 ## Next
 
-Commit the completed app-relative AJV/Remote UI route-authority conversion, then address the remaining Ultra lifecycle/security findings.
+Bind rollback availability/readiness to durable live/static state, then address the remaining Ultra lifecycle/security findings in atomic tasks.
 
 ## Blockers
 

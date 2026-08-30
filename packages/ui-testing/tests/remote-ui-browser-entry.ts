@@ -50,7 +50,7 @@ function element(node: RemoteUiNode): HTMLElement {
 session = new RemoteUiHostSession({
   sessionId: "remote-session-1", actorSessionId: "actor-session-1", applicationId: "customer-alpha", environment: "development",
   appId: "app.sales-assistant", generationId: "sales-generation-1", remoteUiFrameUrl: window.__K_NEX_REMOTE_FRAME_URL__, route: "/apps/sales-assistant", surface: "sales.assistant-screen",
-  sources: new Set(["sales.tasks", "sales.heartbeat"]), actions: new Set(["sales.refresh"]), routes: new Set(["/apps/sales-assistant"]), assets: new Set()
+  sources: new Set(["sales.tasks", "sales.heartbeat"]), actions: new Set(["sales.refresh"]), routes: new Set(["/"]), assets: new Set()
 }, registry, {
   authorize: async () => true,
   render(tree) {

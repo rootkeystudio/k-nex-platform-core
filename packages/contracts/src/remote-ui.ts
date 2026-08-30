@@ -1,6 +1,7 @@
 import * as z from "zod";
 
 import type { JsonValue } from "./canonical-json.js";
+import { HotApplicationConcreteRouteSchema } from "./extension-runtime.js";
 import { HotApplicationIdSchema, ResourceIdSchema } from "./identity.js";
 import { uniqueArray } from "./schema-helpers.js";
 
@@ -19,7 +20,6 @@ export const remoteUiCeilings = Object.freeze({
 const recordId = z.string().regex(/^[a-z][a-z0-9-]{2,127}$/u);
 const nodeId = z.string().regex(/^[a-z][a-z0-9_-]{0,127}$/u);
 const componentId = z.string().regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u).max(128);
-const route = z.string().regex(/^\/apps\/[a-z0-9][a-z0-9-]*(?:\/[a-z0-9._~-]+)*\/?$/u).max(512);
 const jsonValue: z.ZodType<JsonValue> = z.lazy(() => z.union([
   z.string().max(remoteUiCeilings.stringBytes), z.number().finite(), z.boolean(), z.null(),
   z.array(jsonValue).max(128), z.record(z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{0,63}$/u), jsonValue)
@@ -56,10 +56,10 @@ export const RemoteUiFrameSchema = z.discriminatedUnion("type", [
   z.strictObject({ ...common, direction: z.literal("realm-to-host"), type: z.literal("ready") }),
   z.strictObject({ ...common, direction: z.literal("realm-to-host"), type: z.literal("render"), root: RemoteUiNodeSchema }),
   z.strictObject({ ...common, direction: z.literal("realm-to-host"), type: z.literal("request"), operation: z.enum(["source", "action"]), requestId: recordId, targetId: ResourceIdSchema, input: jsonValue }),
-  z.strictObject({ ...common, direction: z.literal("realm-to-host"), type: z.literal("navigate"), route }),
+  z.strictObject({ ...common, direction: z.literal("realm-to-host"), type: z.literal("navigate"), route: HotApplicationConcreteRouteSchema }),
   z.strictObject({ ...common, direction: z.literal("realm-to-host"), type: z.literal("focus"), nodeId }),
   z.strictObject({ ...common, direction: z.literal("realm-to-host"), type: z.literal("failure"), code: z.enum(["APP_BOOT_FAILED", "APP_RENDER_FAILED", "APP_EVENT_FAILED"]) }),
-  z.strictObject({ ...common, direction: z.literal("host-to-realm"), type: z.literal("bootstrap"), actorSessionId: recordId, route, surface: ResourceIdSchema }),
+  z.strictObject({ ...common, direction: z.literal("host-to-realm"), type: z.literal("bootstrap"), actorSessionId: recordId, route: HotApplicationConcreteRouteSchema, surface: ResourceIdSchema }),
   z.strictObject({ ...common, direction: z.literal("host-to-realm"), type: z.literal("event"), nodeId, event: z.enum(["press", "change", "submit", "selection-change"]), handlerId: ResourceIdSchema, payload: jsonValue }),
   z.strictObject({ ...common, direction: z.literal("host-to-realm"), type: z.literal("response-ok"), requestId: recordId, output: jsonValue }),
   z.strictObject({ ...common, direction: z.literal("host-to-realm"), type: z.literal("response-error"), requestId: recordId, code: z.enum(["UNAUTHORIZED", "TARGET_UNAVAILABLE", "REQUEST_INVALID", "REQUEST_FAILED"]) }),

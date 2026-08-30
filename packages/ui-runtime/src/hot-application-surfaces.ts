@@ -1,10 +1,12 @@
-import { HotApplicationIdSchema, hotApplicationOwnsRoute, isHotApplicationRouteLiteralSegment, isHotApplicationRoutePath, matchHotApplicationRoute } from "@k-nex/contracts";
+import { HotApplicationConcreteRouteSchema, HotApplicationIdSchema, hotApplicationHostRouteTemplate, isHotApplicationRouteLiteralSegment, matchHotApplicationRoute } from "@k-nex/contracts";
 
 export interface HotApplicationSurfaceRegistration {
   readonly appId: string;
   readonly generationId: string;
   readonly active: boolean;
+  /** Signed app-relative route templates. */
   readonly routes: readonly string[];
+  /** Concrete host pathnames derived from the signed templates. */
   readonly navigation: readonly Readonly<{ id: string; title: string; route: string }>[];
   readonly slots: readonly Readonly<{ slotId: string; contributionId: string }>[];
 }
@@ -19,16 +21,16 @@ export class HotApplicationSurfaceError extends Error {
 const idPattern = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/u;
 
 function validate(registration: HotApplicationSurfaceRegistration): void {
-  if (!HotApplicationIdSchema.safeParse(registration.appId).success || !/^[a-z][a-z0-9-]{2,127}$/u.test(registration.generationId) || registration.routes.some((route) => !hotApplicationOwnsRoute(registration.appId, route)) ||
-    registration.navigation.some((item) => !idPattern.test(item.id) || item.title.length < 1 || item.title.length > 120 || !registration.routes.includes(item.route)) ||
+  if (!HotApplicationIdSchema.safeParse(registration.appId).success || !/^[a-z][a-z0-9-]{2,127}$/u.test(registration.generationId) || registration.routes.some((route) => hotApplicationHostRouteTemplate(registration.appId, route) === undefined) ||
+    registration.navigation.some((item) => !idPattern.test(item.id) || item.title.length < 1 || item.title.length > 120 || !HotApplicationConcreteRouteSchema.safeParse(item.route).success || !registration.routes.some((route) => matchHotApplicationRoute(registration.appId, route, item.route))) ||
     registration.slots.some((item) => !idPattern.test(item.slotId) || !idPattern.test(item.contributionId))) throw new HotApplicationSurfaceError("ROUTE_INVALID", "Hot Application surface registration is invalid.");
 }
 
 export function resolveHotApplicationRoute(pathname: string, registrations: readonly HotApplicationSurfaceRegistration[]): Readonly<{ appId: string; generationId: string; route: string }> {
-  if (!isHotApplicationRoutePath(pathname)) throw new HotApplicationSurfaceError("ROUTE_INVALID", "Hot Application route is invalid.");
+  if (!HotApplicationConcreteRouteSchema.safeParse(pathname).success) throw new HotApplicationSurfaceError("ROUTE_INVALID", "Hot Application route is invalid.");
   const matches = registrations.filter((registration) => {
     validate(registration);
-    return registration.active && registration.routes.some((route) => matchHotApplicationRoute(route, pathname));
+    return registration.active && registration.routes.some((route) => matchHotApplicationRoute(registration.appId, route, pathname));
   });
   if (matches.length === 0) throw new HotApplicationSurfaceError("ROUTE_UNAVAILABLE", "Hot Application route is unavailable.");
   if (matches.length > 1) throw new HotApplicationSurfaceError("DUPLICATE_CONTRIBUTION", "Hot Application route ownership is ambiguous.");

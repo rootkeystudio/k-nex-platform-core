@@ -16,7 +16,7 @@
   "runtimeAbi": "1.0.0",
   "schedules": [{ "id": "sales.assistant-refresh", "intervalSeconds": 300, "logicFunctionId": "sales.assistant-handler" }],
   "schemaVersion": 1,
-  "screens": [{ "entrypoint": "ui/assistant.mjs", "id": "sales.assistant-screen", "route": "/apps/sales-assistant" }],
+  "screens": [{ "entrypoint": "ui/assistant.mjs", "id": "sales.assistant-screen", "route": "/" }],
   "settings": [{ "id": "sales.assistant-settings", "path": "schemas/settings/assistant.json" }],
   "sources": [{ "id": "sales.assistant-source", "path": "schemas/sources/assistant.json" }],
   "storageSchemas": [{ "id": "sales.assistant-storage", "indexes": [{ "path": "/taskId", "unique": true }], "quotaBytes": 1048576, "schemaPath": "schemas/storage/assistant.json" }],

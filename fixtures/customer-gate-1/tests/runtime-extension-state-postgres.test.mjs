@@ -203,7 +203,7 @@ function releaseDefinition(generation, version, marker, compatibility) {
       entrypoints: { server: ["server/main.mjs"], ui: ["ui/main.mjs"] },
       capabilities: [{ kind: "records", required: true, reason: "Read the bounded Hot Application fixture.", operations: ["query"], resources: [{ id: "sales.records", version: 1 }] }],
       resourceBudget: { maxBundleBytes: 1_048_576, maxAssetBytes: 262_144, maxStorageBytes: 1_048_576, maxMemoryMiB: 128, maxCpuMilliCores: 500, maxWallTimeMs: 5_000, maxInputBytes: 65_536, maxOutputBytes: 131_072, maxLogBytes: 65_536, maxConcurrency: 4 },
-      settings: [], screens: [{ id: "sales.screen", route: "/apps/sales-live", entrypoint: "ui/main.mjs" }, { id: "sales.activity", route: "/apps/sales-live/activity", entrypoint: "ui/main.mjs" }], navigation: [], sources: [], actions: [], tools: [], logicFunctions: [], eventSubscriptions: [], schedules: [], storageSchemas: [], assets: ["assets/marker.txt"], localization: [], healthChecks: []
+      settings: [], screens: [{ id: "sales.screen", route: "/", entrypoint: "ui/main.mjs" }, { id: "sales.activity", route: "/activity/:activityid", entrypoint: "ui/main.mjs" }], navigation: [], sources: [], actions: [], tools: [], logicFunctions: [], eventSubscriptions: [], schedules: [], storageSchemas: [], assets: ["assets/marker.txt"], localization: [], healthChecks: []
     },
     files: [
       { path: "server/main.mjs", bytes: Buffer.from(`export default async ({ input, host }) => { const scope = await host.call("records.query", input); return { marker: ${JSON.stringify(marker)}, generationId: scope.generationId }; };\n`), contentType: "application/javascript" },
@@ -482,7 +482,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       runner: { prepareServer: async ({ artifact }) => { assert.match((await artifacts.runnerSource().load({ owner: { ...artifact.authority, generationId: artifact.authority.generationId }, artifactDigest: artifact.authority.artifactDigest, serverEntrypoint: "server/main.mjs" })).source, /export default async/u); warmed.push(`runner:${artifact.authority.generationId}`); } },
       remoteUi: { prepareRemoteUi: async ({ artifact }) => { assert.ok((await artifacts.read(artifact.authority.artifactDigest))?.verified.files.get("ui/main.mjs")); warmed.push(`remote-ui:${artifact.authority.generationId}`); } },
       storage: { prepareStorage: async ({ artifact }) => { assert.equal((await pool.query("select to_regclass('public.runtime_extension_storage_namespaces')::text storage")).rows[0].storage, "runtime_extension_storage_namespaces"); warmed.push(`storage:${artifact.authority.generationId}`); } },
-      surfaces: { prepareFixedSurfaces: async ({ manifest, artifact }) => { assert.equal(manifest.screens.some((screen) => screen.route === "/apps/sales-live/activity"), true); warmed.push(`surfaces:${artifact.authority.generationId}`); } },
+      surfaces: { prepareFixedSurfaces: async ({ manifest, artifact }) => { assert.equal(manifest.screens.some((screen) => screen.route === "/activity/:activityid"), true); warmed.push(`surfaces:${artifact.authority.generationId}`); } },
       clock
     });
     const pipeline = new DurableDynamicArtifactPipeline(artifacts);
@@ -555,7 +555,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     await trafficProbe.waitForGeneration("install", "host-gateway-generation-0");
     const fixedRouteHost = await startHotApplicationFixedRouteHost({ store: storeA, artifacts, applicationId: "customer-alpha", environment: "production", extension: identity });
     hosts.push(fixedRouteHost);
-    const preInstallRoute = await fetch(`${fixedRouteHost.url}/apps/sales-live/activity`);
+    const preInstallRoute = await fetch(`${fixedRouteHost.url}/apps/sales-live/activity/42`);
     assert.equal(preInstallRoute.status, 404, "the immutable customer route host must exist and fail closed before app installation");
     assert.equal(fixedRouteHost.scriptBuilds, 1, "the customer fixed route must be built exactly once before app installation");
     const preInstallHostScriptDigest = await fixedRouteScriptDigest(fixedRouteHost);
@@ -584,10 +584,10 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     const routeDiagnostics = [];
     routePage.on("pageerror", (error) => routeDiagnostics.push(error.message));
     routePage.on("console", (message) => routeDiagnostics.push(`${message.type()}:${message.text()}`));
-    const installedRoute = await routePage.goto(`${fixedRouteHost.url}/apps/sales-live/activity`);
+    const installedRoute = await routePage.goto(`${fixedRouteHost.url}/apps/sales-live/activity/42`);
     assert.equal(installedRoute?.status(), 200, `the preinstalled /apps/:appId/* route must host an installed app: ${fixedRouteHost.routeErrors.join(" | ")}`);
     await routePage.getByRole("heading", { name: "sales-live-v1" }).waitFor({ timeout: 5_000 }).catch(async (error) => { throw new Error(`${error.message}; route=${await routePage.content()}; diagnostics=${routeDiagnostics.join(" | ")}`); });
-    assert.deepEqual(await routePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__), { appId: "app.sales-live", generationId: installed.generationId, route: "/apps/sales-live/activity", actorSessionId: "customer-session-1" });
+    assert.deepEqual(await routePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__), { appId: "app.sales-live", generationId: installed.generationId, route: "/apps/sales-live/activity/42", actorSessionId: "customer-session-1" });
     const runnerBaseline = await runnerService.state("/runtime-extension-state");
     const browserBaseline = await browserPage.evaluate(() => window.runtimeExtensionState("snapshot"));
     assert.equal(await browserPage.evaluate(() => typeof globalThis.process), "undefined", "Chromium browser consumer received a Node process surface.");
@@ -668,10 +668,10 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     assert.equal(dockerExecutions.some((execution) => execution.event === "stopped" && execution.generationId === installed.generationId), true);
     assert.equal((await storeB.observeActiveGeneration("customer-alpha", "production", identity)).generationId, updated.generationId);
     await assert.rejects(manager.plan(request("update", "1.0.0", updated.revisionAfter)), { code: "PLAN_MISMATCH" });
-    const updatedRoute = await routePage.goto(`${fixedRouteHost.url}/apps/sales-live/activity`);
+    const updatedRoute = await routePage.goto(`${fixedRouteHost.url}/apps/sales-live/activity/42`);
     assert.equal(updatedRoute?.status(), 200, "the fixed route must resolve the active updated generation without a rebuild");
     await routePage.getByRole("heading", { name: "sales-live-v2" }).waitFor();
-    assert.deepEqual(await routePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__), { appId: "app.sales-live", generationId: updated.generationId, route: "/apps/sales-live/activity", actorSessionId: "customer-session-1" });
+    assert.deepEqual(await routePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__), { appId: "app.sales-live", generationId: updated.generationId, route: "/apps/sales-live/activity/42", actorSessionId: "customer-session-1" });
     assert.equal(fixedRouteHost.routeRequests.at(-1)?.hadSession, true, "the updated fixed route lost its customer host session");
     const updatedHostScriptDigest = await fixedRouteScriptDigest(fixedRouteHost);
     assert.equal(updatedHostScriptDigest, preInstallHostScriptDigest, "the customer host script changed during app update");
@@ -743,11 +743,11 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     await trafficProbe.waitForGeneration("rollback", rolledBack.generationId);
     assert.equal(rolledBack.generationId, installed.generationId);
     assert.deepEqual(await manager.rollback(rollback.operationId), rolledBack);
-    const rolledBackRoute = await routePage.goto(`${fixedRouteHost.url}/apps/sales-live/activity`);
+    const rolledBackRoute = await routePage.goto(`${fixedRouteHost.url}/apps/sales-live/activity/42`);
     assert.equal(rolledBackRoute?.status(), 200, "the fixed route must resolve the rolled-back active generation without a rebuild");
     await routePage.getByRole("heading", { name: "sales-live-v1" }).waitFor();
-    assert.deepEqual(await routePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__), { appId: "app.sales-live", generationId: rolledBack.generationId, route: "/apps/sales-live/activity", actorSessionId: "customer-session-1" });
-    assert.equal(fixedRouteHost.routeRequests.every((request) => request.route === "/apps/sales-live/activity"), true, "the customer host did not use the declared fixed catch-all route");
+    assert.deepEqual(await routePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__), { appId: "app.sales-live", generationId: rolledBack.generationId, route: "/apps/sales-live/activity/42", actorSessionId: "customer-session-1" });
+    assert.equal(fixedRouteHost.routeRequests.every((request) => request.route === "/apps/sales-live/activity/42"), true, "the customer host did not use the declared fixed catch-all route");
     assert.equal(fixedRouteHost.scriptBuilds, 1, "the customer host rebuilt its fixed route during install, update, or rollback");
     const rolledBackHostScriptDigest = await fixedRouteScriptDigest(fixedRouteHost);
     assert.equal(rolledBackHostScriptDigest, preInstallHostScriptDigest, "the customer host script changed during app rollback");

@@ -6,6 +6,7 @@
   "fixtures/extensions/invalid/capability.unsafe-network.json": { "code": "SCHEMA_INVALID", "schema": "extension-capability-request", "validator": "json-schema" },
   "fixtures/extensions/invalid/generation.invalid-lifecycle.json": { "code": "SCHEMA_INVALID", "schema": "extension-generation", "validator": "json-schema" },
   "fixtures/extensions/invalid/hot-application.forbidden-host-schema.json": { "code": "SCHEMA_INVALID", "schema": "hot-application-manifest", "validator": "json-schema" },
+  "fixtures/extensions/invalid/hot-application.absolute-route.json": { "code": "SCHEMA_INVALID", "schema": "hot-application-manifest", "validator": "json-schema" },
   "fixtures/extensions/invalid/hot-application.kind-id-mismatch.json": { "code": "SCHEMA_INVALID", "schema": "hot-application-manifest", "validator": "json-schema" },
   "fixtures/extensions/invalid/hot-application.resource-bound.json": { "code": "SCHEMA_INVALID", "schema": "hot-application-manifest", "validator": "json-schema" },
   "fixtures/extensions/invalid/hot-application.unsafe-entrypoint.json": { "code": "SCHEMA_INVALID", "schema": "hot-application-manifest", "validator": "json-schema" },

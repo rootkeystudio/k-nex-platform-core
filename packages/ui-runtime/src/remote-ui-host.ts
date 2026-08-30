@@ -1,4 +1,4 @@
-import { canonicalJson, RemoteUiFrameSchema, remoteUiCeilings, type JsonValue, type RemoteUiFrame, type RemoteUiNode } from "@k-nex/contracts";
+import { canonicalJson, matchHotApplicationRoute, RemoteUiFrameSchema, remoteUiCeilings, type JsonValue, type RemoteUiFrame, type RemoteUiNode } from "@k-nex/contracts";
 
 export interface RemoteUiComponentDefinition {
   readonly events: ReadonlySet<"press" | "change" | "submit" | "selection-change">;
@@ -14,10 +14,12 @@ export interface RemoteUiSessionIdentity {
   readonly generationId: string;
   /** Host-authorized, verified, generation-pinned frame document URL. */
   readonly remoteUiFrameUrl: string;
+  /** Concrete host pathname for this session. */
   readonly route: string;
   readonly surface: string;
   readonly sources: ReadonlySet<string>;
   readonly actions: ReadonlySet<string>;
+  /** Signed app-relative route templates. */
   readonly routes: ReadonlySet<string>;
   readonly assets: ReadonlySet<string>;
 }
@@ -162,7 +164,7 @@ export class RemoteUiHostSession {
       return;
     }
     if (frame.type === "navigate") {
-      if (!this.identity.routes.has(frame.route)) fail("TARGET_DENIED", "Remote UI route is not declared.");
+      if (![...this.identity.routes].some((route) => matchHotApplicationRoute(this.identity.appId, route, frame.route))) fail("TARGET_DENIED", "Remote UI route is not declared.");
       await this.adapter.navigate(frame.route);
       return;
     }

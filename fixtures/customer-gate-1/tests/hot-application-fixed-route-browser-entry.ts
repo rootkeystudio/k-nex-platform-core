@@ -2,7 +2,7 @@ import { createOpaqueRemoteUiFrame, RemoteUiHostSession, type RemoteUiComponentD
 
 declare global {
   interface Window {
-    __K_NEX_HOT_APPLICATION_ROUTE__: Readonly<{ applicationId: string; environment: string; appId: string; generationId: string; route: string; remoteUiFrameUrl: string; actorSessionId: string }>;
+    __K_NEX_HOT_APPLICATION_ROUTE__: Readonly<{ applicationId: string; environment: string; appId: string; generationId: string; route: string; routes: readonly string[]; remoteUiFrameUrl: string; actorSessionId: string }>;
     __K_NEX_HOT_APPLICATION_ROUTE_SESSION__?: Readonly<{ appId: string; generationId: string; route: string; actorSessionId: string }>;
   }
 }
@@ -22,7 +22,7 @@ const session = new RemoteUiHostSession({
   sessionId: `route-${configuration.generationId}`, actorSessionId: configuration.actorSessionId,
   applicationId: configuration.applicationId, environment: "development", appId: configuration.appId,
   generationId: configuration.generationId, remoteUiFrameUrl: configuration.remoteUiFrameUrl,
-  route: configuration.route, surface: "sales.screen", sources: new Set(), actions: new Set(), routes: new Set([configuration.route]), assets: new Set()
+  route: configuration.route, surface: "sales.screen", sources: new Set(), actions: new Set(), routes: new Set(configuration.routes), assets: new Set()
 }, registry, {
   authorize(identity) { return identity.actorSessionId === configuration.actorSessionId; },
   render(tree: RemoteUiNode) {

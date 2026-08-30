@@ -5,7 +5,7 @@ import { resolveHotApplicationFixedRoute, resolveHotApplicationNavigation, resol
 
 const registration = {
   appId: "app.sales-assistant", generationId: "sales-generation-1", active: true,
-  routes: ["/apps/sales-assistant", "/apps/sales-assistant/tasks"],
+  routes: ["/", "/tasks"],
   navigation: [{ id: "sales.assistant", title: "Sales assistant", route: "/apps/sales-assistant" }],
   slots: [{ slotId: "sales.task-detail", contributionId: "sales.assistant-summary" }]
 };
@@ -15,8 +15,8 @@ const dottedManifest = {
   entrypoints: { server: [], ui: ["ui/main.mjs"] }, capabilities: [],
   resourceBudget: { maxBundleBytes: 1, maxAssetBytes: 1, maxStorageBytes: 1, maxMemoryMiB: 1, maxCpuMilliCores: 1, maxWallTimeMs: 1, maxInputBytes: 1, maxOutputBytes: 1, maxLogBytes: 1, maxConcurrency: 1 },
   settings: [], screens: [
-    { id: "foo.home", route: "/apps/foo.bar", entrypoint: "ui/main.mjs" },
-    { id: "foo.task", route: "/apps/foo.bar/tasks/:taskid", entrypoint: "ui/main.mjs" }
+    { id: "foo.home", route: "/", entrypoint: "ui/main.mjs" },
+    { id: "foo.task", route: "/tasks/:taskid", entrypoint: "ui/main.mjs" }
   ],
   navigation: [], sources: [], actions: [], tools: [], logicFunctions: [], eventSubscriptions: [], schedules: [], storageSchemas: [], assets: [], localization: [], healthChecks: []
 } as const;
@@ -29,10 +29,10 @@ describe("fixed Hot Application surfaces", () => {
     expect(resolveHotApplicationFixedRoute("sales-assistant", ["tasks"], [registration])).toEqual({ appId: registration.appId, generationId: registration.generationId, route: "/apps/sales-assistant/tasks" });
   });
 
-  it("rejects traversal, inactive routes, and ambiguous ownership", () => {
+  it("rejects traversal, inactive routes, and duplicate active ownership", () => {
     expect(() => resolveHotApplicationRoute("/apps/sales-assistant/../admin", [registration])).toThrow();
     expect(() => resolveHotApplicationRoute("/apps/sales-assistant", [{ ...registration, active: false }])).toThrow();
-    expect(() => resolveHotApplicationRoute("/apps/sales-assistant", [registration, { ...registration, appId: "app.other" }])).toThrow();
+    expect(() => resolveHotApplicationRoute("/apps/sales-assistant", [registration, { ...registration }])).toThrow("Hot Application route ownership is ambiguous.");
     expect(() => resolveHotApplicationFixedRoute("sales-assistant", ["%2e%2e"], [registration])).toThrow();
   });
 
@@ -43,7 +43,7 @@ describe("fixed Hot Application surfaces", () => {
       navigation: [{ id: "foo.bar", title: "Dotted", route: "/apps/foo.bar" }]
     };
     const hyphenated = {
-      ...registration, appId: "app.foo-bar", routes: ["/apps/foo-bar"],
+      ...registration, appId: "app.foo-bar", routes: ["/"],
       navigation: [{ id: "foo-bar", title: "Hyphenated", route: "/apps/foo-bar" }]
     };
 
@@ -56,11 +56,11 @@ describe("fixed Hot Application surfaces", () => {
   });
 
   it("rejects routes that only share an application ID prefix", () => {
-    const prefixCollision = {
-      ...registration, appId: "app.sales", routes: ["/apps/sales-assistant"],
-      navigation: [{ id: "sales", title: "Sales", route: "/apps/sales-assistant" }]
+    const sales = {
+      ...registration, appId: "app.sales", routes: ["/"],
+      navigation: [{ id: "sales", title: "Sales", route: "/apps/sales" }]
     };
 
-    expect(() => resolveHotApplicationRoute("/apps/sales-assistant", [prefixCollision])).toThrow("Hot Application surface registration is invalid.");
+    expect(() => resolveHotApplicationRoute("/apps/sales-assistant", [sales])).toThrow("Hot Application route is unavailable.");
   });
 });

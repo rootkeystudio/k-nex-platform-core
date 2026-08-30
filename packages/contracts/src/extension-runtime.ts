@@ -57,32 +57,36 @@ export const ThemeSkinStylesheetSchema = z.string().max(160).regex(new RegExp(`^
 const hotApplicationRouteOwnerSegment = "[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)*";
 const hotApplicationRouteLiteralSegment = "(?!\\.?(?:/|$))(?![a-z0-9._~-]*\\.\\.)[a-z0-9._~-]+";
 const hotApplicationRouteParameterSegment = ":[a-z][a-z0-9]*";
-const hotApplicationRoutePattern = new RegExp(`^/apps/${hotApplicationRouteOwnerSegment}(?:/(?:${hotApplicationRouteLiteralSegment}|${hotApplicationRouteParameterSegment}))*$`, "u");
+const hotApplicationRelativeRoutePattern = new RegExp(`^(?!/apps(?:/|$))/(?:${hotApplicationRouteLiteralSegment}|${hotApplicationRouteParameterSegment})(?:/(?:${hotApplicationRouteLiteralSegment}|${hotApplicationRouteParameterSegment}))*$|^/$`, "u");
+const hotApplicationConcreteRoutePattern = new RegExp(`^/apps/${hotApplicationRouteOwnerSegment}(?:/${hotApplicationRouteLiteralSegment})*$`, "u");
 const hotApplicationRouteLiteralSegmentPattern = new RegExp(`^${hotApplicationRouteLiteralSegment}$`, "u");
 
-export const ExtensionRouteSchema = z.string().max(160).regex(hotApplicationRoutePattern);
+/** Signed, app-relative screen template: `/` or descendants such as `/tasks/:taskid`. */
+export const ExtensionRouteSchema = z.string().max(160).regex(hotApplicationRelativeRoutePattern);
+/** Host-owned concrete pathname for a Hot Application. It never contains route parameters. */
+export const HotApplicationConcreteRouteSchema = z.string().max(512).regex(hotApplicationConcreteRoutePattern);
 
 export function hotApplicationRouteBase(appId: string): string | undefined {
   return HotApplicationIdSchema.safeParse(appId).success ? `/apps/${appId.slice("app.".length)}` : undefined;
 }
 
-export function hotApplicationOwnsRoute(appId: string, route: string): boolean {
+/** Derives the host-owned full route template from a signed relative template. */
+export function hotApplicationHostRouteTemplate(appId: string, route: string): string | undefined {
   const baseRoute = hotApplicationRouteBase(appId);
-  return baseRoute !== undefined && ExtensionRouteSchema.safeParse(route).success && (route === baseRoute || route.startsWith(`${baseRoute}/`));
+  if (baseRoute === undefined || !ExtensionRouteSchema.safeParse(route).success) return undefined;
+  return route === "/" ? baseRoute : `${baseRoute}${route}`;
 }
 
 export function isHotApplicationRouteLiteralSegment(segment: string): boolean {
   return hotApplicationRouteLiteralSegmentPattern.test(segment);
 }
 
-export function isHotApplicationRoutePath(pathname: string): boolean {
-  return ExtensionRouteSchema.safeParse(pathname).success && !pathname.includes(":");
-}
-
-export function matchHotApplicationRoute(template: string, pathname: string): boolean {
-  if (!ExtensionRouteSchema.safeParse(template).success || !isHotApplicationRoutePath(pathname)) return false;
-  const templateSegments = template.split("/");
-  const pathnameSegments = pathname.split("/");
+export function matchHotApplicationRoute(appId: string, template: string, pathname: string): boolean {
+  const baseRoute = hotApplicationRouteBase(appId);
+  if (baseRoute === undefined || !ExtensionRouteSchema.safeParse(template).success || !HotApplicationConcreteRouteSchema.safeParse(pathname).success) return false;
+  if (hotApplicationHostRouteTemplate(appId, template) === undefined || !(pathname === baseRoute || pathname.startsWith(`${baseRoute}/`))) return false;
+  const templateSegments = template === "/" ? [] : template.slice(1).split("/");
+  const pathnameSegments = pathname === baseRoute ? [] : pathname.slice(baseRoute.length + 1).split("/");
   return templateSegments.length === pathnameSegments.length && templateSegments.every((segment, index) => segment.startsWith(":") || segment === pathnameSegments[index]);
 }
 export const ExtensionDestinationSchema = z.string().max(253).regex(/^https:\/\/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+(?::[0-9]{2,5})?$/u);
@@ -165,12 +169,6 @@ export const HotApplicationManifestSchema = z.strictObject({
   assets: uniqueArray(ExtensionAssetPathSchema).max(extensionRuntimeCeilings.bundleFiles),
   localization: uniqueArray(localizationReferenceSchema).max(32),
   healthChecks: uniqueArray(z.strictObject({ id: ResourceIdSchema, entrypoint: HotApplicationServerEntrypointSchema })).max(8)
-}).check((context) => {
-  for (const [index, screen] of context.value.screens.entries()) {
-    if (!hotApplicationOwnsRoute(context.value.id, screen.route)) {
-      context.issues.push({ code: "custom", input: screen.route, path: ["screens", index, "route"], message: "A Hot Application screen route must stay within its exact application route namespace." });
-    }
-  }
 }).meta({ $id: "https://schemas.k-nex.dev/hot-application-manifest/v1.json", title: "K-Nex Hot Application Manifest v1" });
 
 const tokenNameSchema = z.string().regex(/^--k-nex-[a-z0-9-]{1,80}$/u);

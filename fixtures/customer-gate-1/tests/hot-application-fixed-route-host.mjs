@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { build } from "esbuild";
+import { matchHotApplicationRoute } from "@k-nex/contracts";
 import { createRemoteUiFrameDocument, createRemoteUiWorkerBootstrapSource, sha256, VerifiedRemoteUiAssetService } from "@k-nex/extension-bundler";
 import { resolveHotApplicationFixedRoute } from "@k-nex/ui-runtime";
 
@@ -83,7 +84,7 @@ export async function startHotApplicationFixedRouteHost({ store, artifacts, appl
         appId: extension.id, generationId: active.active.generationId, active: true,
         routes: active.manifest.screens.map((screen) => screen.route), navigation: [], slots: []
       }]);
-      const screen = active.manifest.screens.find((candidate) => candidate.route === route.route);
+      const screen = active.manifest.screens.find((candidate) => matchHotApplicationRoute(route.appId, candidate.route, route.route));
       if (!screen) { response.writeHead(404).end(); return; }
       const uiDigest = active.envelope.files[screen.entrypoint]?.digest;
       if (!uiDigest) { response.writeHead(404).end(); return; }
@@ -97,7 +98,7 @@ export async function startHotApplicationFixedRouteHost({ store, artifacts, appl
       const actorSessionId = "customer-session-1";
       const hadSession = request.headers.cookie?.includes(`customer_session=${actorSessionId}`) ?? false;
       routeRequests.push({ route: route.route, generationId: route.generationId, hadSession });
-      const configuration = { applicationId, environment, appId: route.appId, generationId: route.generationId, route: route.route, actorSessionId, remoteUiFrameUrl: `${extensionOrigin}/api/extensions/apps/${extension.id}/assets/${route.generationId}/${bootstrap.bootstrapDigest}/frame.html` };
+      const configuration = { applicationId, environment, appId: route.appId, generationId: route.generationId, route: route.route, routes: active.manifest.screens.map((screen) => screen.route), actorSessionId, remoteUiFrameUrl: `${extensionOrigin}/api/extensions/apps/${extension.id}/assets/${route.generationId}/${bootstrap.bootstrapDigest}/frame.html` };
       response.writeHead(200, {
         "content-type": "text/html; charset=utf-8", "cache-control": "no-store",
         ...(hadSession ? {} : { "set-cookie": `customer_session=${actorSessionId}; HttpOnly; SameSite=Lax` })

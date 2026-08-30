@@ -13,12 +13,14 @@ describe("remote UI wire contract", () => {
     expect(RemoteUiNodeSchema.parse(root)).toEqual(root);
     expect(RemoteUiFrameSchema.parse({ ...identity, direction: "realm-to-host", type: "render", root })).toMatchObject({ type: "render" });
     expect(RemoteUiFrameSchema.parse({ ...identity, direction: "realm-to-host", type: "request", operation: "source", requestId: "source-request-1", targetId: "sales.tasks", input: {} })).toMatchObject({ type: "request" });
+    expect(RemoteUiFrameSchema.parse({ ...identity, direction: "realm-to-host", type: "navigate", route: "/apps/sales-assistant/tasks/42" })).toMatchObject({ type: "navigate" });
     expect(RemoteUiFrameSchema.parse({ ...identity, direction: "host-to-realm", type: "event", nodeId: "refresh", event: "press", handlerId: "sales.refresh", payload: null })).toMatchObject({ type: "event" });
   });
 
   it("rejects executable props, unknown frames, mixed direction, and unbounded trees", () => {
     expect(RemoteUiNodeSchema.safeParse({ ...root, props: { onClick: () => undefined } }).success).toBe(false);
     expect(RemoteUiFrameSchema.safeParse({ ...identity, direction: "host-to-realm", type: "render", root }).success).toBe(false);
+    expect(RemoteUiFrameSchema.safeParse({ ...identity, direction: "realm-to-host", type: "navigate", route: "/tasks/42" }).success).toBe(false);
     expect(RemoteUiFrameSchema.safeParse({ ...identity, direction: "realm-to-host", type: "eval", source: "alert(1)" }).success).toBe(false);
     expect(RemoteUiNodeSchema.safeParse({ ...root, children: Array.from({ length: 65 }, (_, index) => ({ nodeId: `node_${index}`, component: "text", props: {}, events: [], children: [] })) }).success).toBe(false);
   });

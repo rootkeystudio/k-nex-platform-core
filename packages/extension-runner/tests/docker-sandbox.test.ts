@@ -50,7 +50,7 @@ async function request(store: VerifiedArtifactStore, generationId: string, sourc
     entrypoints: { server: ["server/main.mjs"], ui: ["ui/main.mjs"] },
     capabilities: [],
     resourceBudget: { maxBundleBytes: 1_048_576, maxAssetBytes: 1_024, maxStorageBytes: 1_024, maxMemoryMiB: 64, maxCpuMilliCores: 250, maxWallTimeMs: 10_000, maxInputBytes: 8_192, maxOutputBytes: 8_192, maxLogBytes: 8_192, maxConcurrency: 2 },
-    settings: [], screens: [{ id: "runner.screen", route: "/apps/runner", entrypoint: "ui/main.mjs" }], navigation: [], sources: [], actions: [], tools: [], logicFunctions: [], eventSubscriptions: [], schedules: [], storageSchemas: [], assets: [], localization: [], healthChecks: []
+    settings: [], screens: [{ id: "runner.screen", route: "/", entrypoint: "ui/main.mjs" }], navigation: [], sources: [], actions: [], tools: [], logicFunctions: [], eventSubscriptions: [], schedules: [], storageSchemas: [], assets: [], localization: [], healthChecks: []
   };
   const releaseSource = { repository: "https://github.com/k-nex/runner-fixtures", commit: "0123456789abcdef0123456789abcdef01234567" };
   const bundle = buildBundle({ manifest, files: [

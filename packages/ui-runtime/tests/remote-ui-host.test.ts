@@ -7,7 +7,7 @@ import { createOpaqueRemoteUiFrame, RemoteUiGenerationSessions, RemoteUiHostSess
 const identity: RemoteUiSessionIdentity = {
   sessionId: "remote-session-1", actorSessionId: "actor-session-1", applicationId: "customer-alpha", environment: "production",
   appId: "app.sales-assistant", generationId: "sales-generation-1", remoteUiFrameUrl: `https://extensions.example/api/extensions/apps/app.sales-assistant/assets/sales-generation-1/sha256:${"a".repeat(64)}/frame.html`, route: "/apps/sales-assistant", surface: "sales.assistant-screen",
-  sources: new Set(["sales.tasks"]), actions: new Set(["sales.refresh"]), routes: new Set(["/apps/sales-assistant"]),
+  sources: new Set(["sales.tasks"]), actions: new Set(["sales.refresh"]), routes: new Set(["/", "/tasks/:taskid"]),
   assets: new Set([`asset:sha256:${"a".repeat(64)}`])
 };
 const registry = new Map([
@@ -86,6 +86,27 @@ describe("remote UI host session", () => {
     expect(received).toEqual(expect.arrayContaining([expect.objectContaining({ type: "event", handlerId: "sales.refresh" })]));
     session.dispose();
     channel.port2.close();
+  });
+
+  it("navigates only concrete paths matched by a declared relative template", async () => {
+    const host = adapter();
+    const channel = new MessageChannel();
+    const session = new RemoteUiHostSession(identity, registry, host);
+    session.start(channel.port1 as unknown as MessagePort);
+    channel.port2.postMessage({ schemaVersion: 1, sessionId: identity.sessionId, appId: identity.appId, generationId: identity.generationId, sequence: 1, direction: "realm-to-host", type: "navigate", route: "/apps/sales-assistant/tasks/42" });
+    await tick();
+    expect(host.navigate).toHaveBeenCalledWith("/apps/sales-assistant/tasks/42");
+    session.dispose();
+    channel.port2.close();
+
+    const denied = adapter();
+    const deniedChannel = new MessageChannel();
+    const deniedSession = new RemoteUiHostSession(identity, registry, denied);
+    deniedSession.start(deniedChannel.port1 as unknown as MessagePort);
+    deniedChannel.port2.postMessage({ schemaVersion: 1, sessionId: identity.sessionId, appId: identity.appId, generationId: identity.generationId, sequence: 1, direction: "realm-to-host", type: "navigate", route: "/apps/sales-assistant/tasks/42/other" });
+    await tick();
+    expect(denied.fallback).toHaveBeenCalledWith("PROTOCOL_FAILURE");
+    deniedChannel.port2.close();
   });
 
   it("fails the app-local session on replay, unknown component, and authorization denial", async () => {
