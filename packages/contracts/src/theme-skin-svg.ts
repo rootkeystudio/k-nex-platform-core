@@ -1,5 +1,5 @@
-const elements = new Set(["svg", "g", "path", "rect", "circle", "ellipse", "line", "polyline", "polygon", "use", "defs", "linearGradient", "radialGradient", "stop", "clipPath", "mask", "title", "desc"]);
-const attributes = new Set(["xmlns", "viewBox", "width", "height", "fill", "fill-opacity", "fill-rule", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "stroke-opacity", "opacity", "transform", "d", "x", "y", "x1", "x2", "y1", "y2", "cx", "cy", "rx", "ry", "r", "points", "offset", "stop-color", "stop-opacity", "gradientUnits", "gradientTransform", "spreadMethod", "clip-path", "mask", "id", "href"]);
+const elements = new Set(["svg", "g", "path", "rect", "circle", "ellipse", "line", "polyline", "polygon", "use", "defs", "linearGradient", "radialGradient", "stop", "clipPath", "title", "desc"]);
+const attributes = new Set(["xmlns", "viewBox", "width", "height", "fill", "fill-opacity", "fill-rule", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "stroke-opacity", "opacity", "transform", "d", "x", "y", "x1", "x2", "y1", "y2", "cx", "cy", "rx", "ry", "r", "points", "offset", "stop-color", "stop-opacity", "gradientUnits", "gradientTransform", "spreadMethod", "clip-path", "id", "href"]);
 const names = /^[A-Za-z_:][A-Za-z0-9_.:-]*$/u;
 const attributesPattern = /\s+([A-Za-z_:][A-Za-z0-9_.:-]*)\s*=\s*("[^"]*"|'[^']*')/gu;
 
@@ -7,6 +7,7 @@ const attributesPattern = /\s+([A-Za-z_:][A-Za-z0-9_.:-]*)\s*=\s*("[^"]*"|'[^']*
 export function assertSafeThemeSkinSvg(bytes: Uint8Array): void {
   let source: string;
   try { source = new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch { throw new TypeError("Theme Skin SVG must be valid UTF-8."); }
+  if (/[&\\]/u.test(source)) throw new TypeError("Theme Skin SVG contains encoded content.");
   if (/<!|<\?|<\/(?![A-Za-z])|\b(?:script|style|foreignObject)\b|\bon[a-z]+\s*=/iu.test(source)) throw new TypeError("Theme Skin SVG contains executable content.");
   const tags = source.match(/<[^>]*>/gu);
   if (!tags || tags.length === 0 || !/^\s*<svg\b/u.test(source)) throw new TypeError("Theme Skin SVG must have an SVG root.");

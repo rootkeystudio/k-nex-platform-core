@@ -14,6 +14,7 @@ declare global {
     __K_NEX_SKIN_BUTTON__?: Element;
     __K_NEX_SKIN_SAME_DOCUMENT__?: boolean;
     __K_NEX_ATTACK_SKIN_REJECTED__?: boolean;
+    __K_NEX_SVG_ATTACK_SKIN_REJECTED__?: boolean;
   }
 }
 
@@ -25,16 +26,17 @@ const css = `${themeRootSelector}{background:var(--k-nex-skin-color-background);
 ${themeRootSelector} [data-k-nex-primitive="card"]{background:var(--k-nex-skin-color-background);border:2px solid var(--k-nex-skin-color-foreground)}
 ${themeRootSelector} [data-k-nex-primitive="button"]{background:var(--k-nex-skin-color-background);color:var(--k-nex-skin-color-foreground);transition-duration:var(--k-nex-skin-motion-duration);padding:8px}`;
 
-function generation(generationId: string, version: string, colorTokens: ReturnType<typeof tokens>, stylesheet = css) {
+function generation(generationId: string, version: string, colorTokens: ReturnType<typeof tokens>, stylesheet = css, asset?: Uint8Array) {
+  const assets = asset === undefined ? {} : { "assets/grid.svg": { digest: `sha256:${"a".repeat(64)}`, contentType: "image/svg+xml", bytes: asset } };
   return createThemeSkinGeneration({
     generationId,
     manifest: {
       schemaVersion: 1, deliveryClass: "theme-skin", id: "skin.browser-proof", displayName: "Browser proof", version, runtimeAbi: "1.0.0",
       profileCompatibility: { schemaVersion: 1 }, tokens: colorTokens, palettes: { "skin.default": {} }, recipes: { surface: "skin.surface", focusRing: "skin.focus" },
-      stylesheets: ["styles/skin.css"], profileMigrations: [], assets: [], localization: [],
-      resourceBudget: { maxBundleBytes: 1_048_576, maxAssetBytes: 1, maxCssBytes: 65_536 }
+      stylesheets: ["styles/skin.css"], profileMigrations: [], assets: asset === undefined ? [] : [{ path: "assets/grid.svg", digest: `sha256:${"a".repeat(64)}` }], localization: [],
+      resourceBudget: { maxBundleBytes: 1_048_576, maxAssetBytes: 65_536, maxCssBytes: 65_536 }
     },
-    stylesheets: { "styles/skin.css": stylesheet }, assets: {}
+    stylesheets: { "styles/skin.css": stylesheet }, assets
   });
 }
 
@@ -86,11 +88,17 @@ requestAnimationFrame(() => {
     window.__K_NEX_BAD_SKIN_REJECTED__ = true;
   }
   window.__K_NEX_ATTACK_SKIN_REJECTED__ = [
-    `${css}\n${themeRootSelector}{background:\\75\\72\\6c(//evil.test/theme.css)}`,
+    `${css}\n${themeRootSelector}{background:${String.raw`\75\72\6c(\68\74\74\70\73\3a\2f\2f\65\76\69\6c\2e\74\65\73\74\2f\74\68\65\6d\65\2e\63\73\73)`}}`,
     `${css}\n${themeRootSelector} [data-k-nex-primitive="button"]:focus-visible{outline:none!important}`,
     `${css}\n${themeRootSelector} input::file-selector-button{transition-duration:var(--k-nex-skin-motion-duration)}`
   ].every((stylesheet, index) => {
     try { generation(`skin-browser-attack-${index}`, "2.0.0", tokens("#ffffff", "#111111", "#0088cc", "#000000"), stylesheet); return false; } catch { return true; }
   });
+  try {
+    generation("skin-browser-svg-attack", "2.0.0", tokens("#ffffff", "#111111", "#0088cc", "#000000"), css, new TextEncoder().encode('<svg><path mask="image-set(\'/attacker.svg\' 1x)"/></svg>'));
+    window.__K_NEX_SVG_ATTACK_SKIN_REJECTED__ = false;
+  } catch {
+    window.__K_NEX_SVG_ATTACK_SKIN_REJECTED__ = true;
+  }
   window.__K_NEX_SKIN_READY__ = true;
 });

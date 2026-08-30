@@ -17,6 +17,7 @@ try {
   const html = '<!doctype html><html><head><meta charset="utf-8"><title>Theme Skin proof</title><style id="theme"></style></head><body><main id="root"></main><script type="module" src="/fixture.js"></script></body></html>';
   server = createServer((request, response) => {
     if (request.url === "/fixture.js") { response.writeHead(200, { "content-type": "text/javascript", "x-content-type-options": "nosniff" }); response.end(script); return; }
+    if (["/attacker.svg", "/mask-probe.svg", "/escaped-probe.svg"].includes(request.url ?? "")) { response.writeHead(200, { "content-type": "image/svg+xml" }); response.end('<svg xmlns="http://www.w3.org/2000/svg"/>'); return; }
     response.writeHead(200, { "content-type": "text/html" }); response.end(html);
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -24,13 +25,32 @@ try {
   const url = `http://127.0.0.1:${address.port}`;
   browser = await chromium.launch();
 
+  const probe = await browser.newPage();
+  const probeRequests = [];
+  probe.on("request", (request) => { const path = new URL(request.url()).pathname; if (path.endsWith("-probe.svg")) probeRequests.push(path); });
+  await probe.goto(`${url}/probe`);
+  const escapedUrlRecognized = await probe.evaluate(() => {
+    document.body.innerHTML = '<svg width="4" height="4"><path d="M0 0h4v4H0z" mask="image-set(\'/mask-probe.svg\' 1x)"/></svg>';
+    const escapedUrl = String.raw`\75\72\6c(\2f\65\73\63\61\70\65\64\2d\70\72\6f\62\65\2e\73\76\67)`;
+    const target = document.createElement("div");
+    target.style.cssText = `width:4px;height:4px;background-image:${escapedUrl}`;
+    document.body.append(target);
+    return CSS.supports("background-image", escapedUrl) && target.style.backgroundImage !== "";
+  });
+  await probe.waitForTimeout(250);
+  assert.equal(escapedUrlRecognized, true, "Pre-guard escaped CSS URL was not recognized.");
+  assert.deepEqual([...new Set(probeRequests)].sort(), ["/escaped-probe.svg", "/mask-probe.svg"], "Pre-guard browser did not request both encoded network surfaces.");
+  await probe.close();
+
   const context = await browser.newContext({ viewport: { width: 800, height: 500 } });
   const page = await context.newPage();
   const diagnostics = [];
   const unexpectedRequests = [];
+  const skinAttackerRequests = [];
   page.on("pageerror", (error) => diagnostics.push(error.message));
   page.on("console", (message) => diagnostics.push(`${message.type()}:${message.text()}`));
   page.on("request", (request) => { if (new URL(request.url()).origin !== url) unexpectedRequests.push(request.url()); });
+  page.on("request", (request) => { if (new URL(request.url()).pathname === "/attacker.svg") skinAttackerRequests.push(request.url()); });
   await page.goto(url); await page.waitForFunction(() => window.__K_NEX_SKIN_READY__ === true).catch((error) => { throw new Error(`Theme Skin fixture did not become ready: ${error.message}; ${diagnostics.join(" | ")}`); });
   const root = page.locator("#root"); const button = page.getByRole("button", { name: "Save sales view" });
   assert.equal(await root.getAttribute("data-skin-generation"), "skin-browser-1");
@@ -46,7 +66,9 @@ try {
   assert.equal(await page.evaluate(() => window.__K_NEX_SKIN_SAME_DOCUMENT__), true);
   assert.equal(await page.evaluate(() => window.__K_NEX_BAD_SKIN_REJECTED__), true);
   assert.equal(await page.evaluate(() => window.__K_NEX_ATTACK_SKIN_REJECTED__), true, "Escaped URL and cascade bypass skin was accepted.");
+  assert.equal(await page.evaluate(() => window.__K_NEX_SVG_ATTACK_SKIN_REJECTED__), true, "SVG mask skin was accepted.");
   assert.deepEqual(unexpectedRequests, [], "Theme Skin emitted unexpected network requests.");
+  assert.deepEqual(skinAttackerRequests, [], "Theme Skin emitted attacker requests.");
   const after = createHash("sha256").update(await page.screenshot()).digest("hex");
   assert.notEqual(after, before, "Old and new skin visual captures were identical.");
   await context.close();

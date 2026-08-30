@@ -44,7 +44,10 @@ describe("verified Theme Skin assets", () => {
     '<svg><use href="//evil.test/icon.svg#x"/></svg>',
     '<svg><use href="/assets/icon.svg#x"/></svg>',
     '<svg><style>@import url("https://evil.test/theme.css");</style></svg>',
-    '<svg><path style="fill:url(https://evil.test/payload)"/></svg>'
+    '<svg><path style="fill:url(https://evil.test/payload)"/></svg>',
+    '<svg><path fill="&#117;&#114;&#108;&#40;&#104;&#116;&#116;&#112;&#115;&#58;&#47;&#47;&#101;&#118;&#105;&#108;&#46;&#116;&#101;&#115;&#116;&#47;&#112;&#97;&#121;&#108;&#111;&#97;&#100;&#41;"/></svg>',
+    '<svg><path fill="\\75\\72\\6c(\\68\\74\\74\\70\\73\\3a\\2f\\2f\\65\\76\\69\\6c\\2e\\74\\65\\73\\74\\2f\\70\\61\\79\\6c\\6f\\61\\64)"/></svg>',
+    '<svg><path mask="image-set(\'https://evil.test/payload.svg\' 1x)"/></svg>'
   ])("rejects SVG network references while serving: %s", async (unsafe) => {
     const unsafeBytes = Buffer.from(unsafe);
     const unsafeDigest = sha256(unsafeBytes);

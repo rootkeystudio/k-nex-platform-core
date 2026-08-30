@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Closed Theme Skin profile/disposition integrity: draft staging validates and locks the exact active generation; disable/uninstall rejects references from active, previous, or draft profiles; concurrent draft/disposition commits cannot leave a dangling generation reference.
+Closed Theme Skin SVG network bypasses: the shared data-only boundary rejects XML entities and CSS escapes before attribute interpretation and removes Chromium's network-capable SVG mask surface; activation and immutable serving fail closed.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: Payload adapter build and tests passed (49); customer fixture build passed; focused real PostgreSQL/Chromium Theme Skin lifecycle, reference, and race proof passed (1); diff whitespace checks passed. No P9/Testcontainers containers, networks, volumes, or test processes remain.
+Node 24.19.0 / pnpm 11.9.0: contracts build and tests passed (181); UI design-system contracts build, boundary check, and tests passed (59); extension bundler build and tests passed (23); UI testing build and real Chromium Theme Skin attack proof passed (`P9_THEME_SKIN_BROWSER_PASS`); diff whitespace checks passed. Prior reference-safety commit received persistent Sol Ultra PASS. No P9/Testcontainers containers, networks, volumes, or test processes remain.
 
 ## Next
 
-Commit the Theme Skin reference-safety task and obtain persistent Sol Ultra PASS; then close the encoded SVG reference gap.
+Amend the exact SVG hardening commit and obtain persistent Sol Ultra PASS; then wire the durable Theme Skin asset route to the PostgreSQL artifact reader.
 
 ## Blockers
 
