@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Bound Gate 9's maintenance-refusal requirement to an executable evidence marker in the real PostgreSQL/Docker static-deployment journey, replacing its stale expectation for a deleted helper test.
+Passed the complete Gate 9 on committed head `6990fe2`, including Gates 0-8, all Phase 9 package/browser/customer journeys, 22 attacks, 12 exact proof groups, and the executable maintenance-refusal evidence.
 
 ## Validation
 
-Node 24.19.0: the corrected Phase 9 attack corpus passed all 22 scenarios, including the real static PostgreSQL/Docker journey's maintenance-refusal and zero-downtime evidence. The prior full Gate 9 reached this final corpus after Gates 0-8 and the direct runtime/static journeys passed.
+Node 24.19.0: `pnpm gate:9` passed on `6990fe2` with 155 contract, 84 composition, 292 runtime, 20 bundler, 8 runner, 40 payload-adapter, and 14 customer PostgreSQL/Docker tests plus all Chromium and attack-corpus proofs.
 
 ## Next
 
-Run complete Gate 9 on the exact evidence-correction commit.
+Commit the refreshed phase result, rerun complete Gate 9 on that exact closeout commit, then request a fresh Sol-high review.
 
 ## Blockers
 

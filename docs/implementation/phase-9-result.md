@@ -1,6 +1,6 @@
 # Phase 9 Result — Dynamic Application Runtime and Zero-Downtime Delivery
 
-- **Date:** 2026-08-29
+- **Date:** 2026-08-30
 - **Gate:** Gate 9
 - **Accepted base:** `73d18886c36db5fc5c0d05a1d8e44dc784e460cc`
 - **Delivery:** one Phase 9 branch and pull request; no merge or auto-merge
@@ -45,7 +45,7 @@ contracts: 155 tests; architecture-contract-tools generated schemas current, par
 extension-bundler: 20 tests; extension-runner: 8 tests with real Docker isolation
 runtime: 292 tests; payload-adapter: 40 tests
 ui-runtime and ui-testing: full unit and real Chromium suites
-customer fixture: 15 PostgreSQL/Docker tests
+customer fixture: 14 PostgreSQL/Docker tests
 phase attack corpus: 22 required attacks, 12 exact proof groups, 9 recovered state/process matrix entries
 phase:0 and Gates 1–8: passed transitively through Gate 9
 pnpm gate:9: GATE_9_PASS
