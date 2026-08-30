@@ -14,11 +14,17 @@ if (!required.every((key) => typeof configuration[key] === "string" && configura
 const pool = new pg.Pool({ connectionString: configuration.databaseUrl });
 const store = new PostgresRuntimeExtensionStore(pool, { now: () => new Date() }, configuration.auditKey ?? "sha256:7777777777777777777777777777777777777777777777777777777777777777");
 const extension = { deliveryClass: configuration.deliveryClass, id: configuration.extensionId };
-const consumer = new RuntimeExtensionRevisionConsumer(store, configuration.applicationId, configuration.environment, extension);
+const pollIntervalMs = configuration.pollIntervalMs ?? 30_000;
+if (!Number.isSafeInteger(pollIntervalMs) || pollIntervalMs < 50 || pollIntervalMs > 300_000) throw new Error("Runtime extension consumer polling interval is invalid.");
 
 function emit(event, extra = {}) {
   process.stdout.write(`${JSON.stringify({ event, role: configuration.role, pid: process.pid, snapshot: consumer.snapshot(), ...extra })}\n`);
 }
+
+const consumer = new RuntimeExtensionRevisionConsumer(store, configuration.applicationId, configuration.environment, extension, {
+  intervalMs: pollIntervalMs,
+  onError(error) { emit("poll-error", { message: error instanceof Error ? error.message : "runtime-extension-poll-failed" }); }
+});
 
 async function combinedGeneration() {
   const result = await pool.query(
@@ -56,19 +62,36 @@ window.runtimeExtensionState = (type) => new Promise((resolve, reject) => {
 });
 `;
 
-const browserWorker = `let port;
+const browserWorker = `let port; let polling = false; let timer; let latest; let autoPolls = 0;
+const poll = async () => {
+  if (polling) return;
+  polling = true;
+  try {
+    const response = await fetch('/runtime-extension-state/poll', { method: 'POST', credentials: 'same-origin' });
+    latest = await response.json(); autoPolls += 1;
+  } finally {
+    polling = false;
+    timer = setTimeout(poll, ${pollIntervalMs});
+  }
+};
 self.onmessage = ({ data, ports }) => {
   if (data?.type !== 'connect' || !ports[0]) return;
   port = ports[0];
   port.onmessage = async ({ data: command }) => {
     if (!['snapshot', 'poll'].includes(command?.type) || !Number.isSafeInteger(command.sequence)) return;
-    const response = await fetch(command.type === 'poll' ? '/runtime-extension-state/poll' : '/runtime-extension-state', { method: command.type === 'poll' ? 'POST' : 'GET', credentials: 'same-origin' });
-    port.postMessage({ ...(await response.json()), sequence: command.sequence });
+    if (command.type === 'poll') await poll();
+    if (!latest) {
+      const response = await fetch('/runtime-extension-state', { credentials: 'same-origin' });
+      latest = await response.json();
+    }
+    port.postMessage({ ...latest, autoPolls, sequence: command.sequence });
   };
   port.start();
+  void poll();
 };`;
 
 await consumer.poll();
+consumer.start();
 const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url ?? "/", "http://runtime-extension.local");
@@ -82,6 +105,7 @@ const server = createServer(async (request, response) => {
     }
     if (request.method === "POST" && url.pathname === "/shutdown") {
       respond(response, 200, { event: "closed" });
+      consumer.stop();
       return void server.close(() => void pool.end().finally(() => process.exit(0)));
     }
     respond(response, 404, { error: "not-found" });

@@ -14,6 +14,7 @@ import { DockerHotApplicationSandboxSupervisor } from "@k-nex/extension-runner";
 import { ActiveExtensionSecurityReconciler, PostgresExtensionCapabilityAuthority, PostgresExtensionCapabilitySequenceStore, PostgresRuntimeExtensionOutboxDispatcher, PostgresRuntimeExtensionStore, PostgresVerifiedArtifactStore, RuntimeStoreRunnerQuarantineAdapter } from "@k-nex/payload-adapter";
 import { AuthoritativeHotApplicationRuntime, DurableDynamicArtifactPipeline, DurableDynamicGenerationRuntime, ExtensionCapabilityGateway, HmacExtensionCapabilityTokens, PluginManager, ReferenceHotApplicationGenerationWarmer, RuntimeExtensionRevisionConsumer, TrustedAutomationOperationAuthorizer } from "@k-nex/runtime";
 import { startContinuousHttpProbe } from "./continuous-http-probe.mjs";
+import { startHotApplicationFixedRouteHost } from "./hot-application-fixed-route-host.mjs";
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
 const fixtureDirectory = fileURLToPath(new URL("..", import.meta.url));
@@ -55,7 +56,7 @@ function startRuntimeExtensionService(connectionString, role) {
       ...process.env,
       P9_RUNTIME_CONSUMER_CONFIGURATION: JSON.stringify({
         databaseUrl: connectionString, role, applicationId: "customer-alpha", environment: "production",
-        deliveryClass: "hot-application", extensionId: "app.sales-live", auditKey: digest("7")
+        deliveryClass: "hot-application", extensionId: "app.sales-live", auditKey: digest("7"), pollIntervalMs: 200
       })
     },
     stdio: ["pipe", "pipe", "pipe"]
@@ -213,11 +214,11 @@ function releaseDefinition(generation, version, marker, compatibility) {
       entrypoints: { server: ["server/main.mjs"], ui: ["ui/main.mjs"] },
       capabilities: [{ kind: "records", required: true, reason: "Read the bounded Hot Application fixture.", operations: ["query"], resources: [{ id: "sales.records", version: 1 }] }],
       resourceBudget: { maxBundleBytes: 1_048_576, maxAssetBytes: 262_144, maxStorageBytes: 1_048_576, maxMemoryMiB: 128, maxCpuMilliCores: 500, maxWallTimeMs: 5_000, maxInputBytes: 65_536, maxOutputBytes: 131_072, maxLogBytes: 65_536, maxConcurrency: 4 },
-      settings: [], screens: [{ id: "sales.screen", route: "/apps/sales-live", entrypoint: "ui/main.mjs" }], navigation: [], sources: [], actions: [], tools: [], logicFunctions: [], eventSubscriptions: [], schedules: [], storageSchemas: [], assets: ["assets/marker.txt"], localization: [], healthChecks: []
+      settings: [], screens: [{ id: "sales.screen", route: "/apps/sales-live", entrypoint: "ui/main.mjs" }, { id: "sales.activity", route: "/apps/sales-live/activity", entrypoint: "ui/main.mjs" }], navigation: [], sources: [], actions: [], tools: [], logicFunctions: [], eventSubscriptions: [], schedules: [], storageSchemas: [], assets: ["assets/marker.txt"], localization: [], healthChecks: []
     },
     files: [
       { path: "server/main.mjs", bytes: Buffer.from(`export default async ({ input, host }) => { const scope = await host.call("records.query", input); return { marker: ${JSON.stringify(marker)}, generationId: scope.generationId }; };\n`), contentType: "application/javascript" },
-      { path: "ui/main.mjs", bytes: Buffer.from(`export default () => ({ type: "text", text: ${JSON.stringify(marker)} });\n`), contentType: "application/javascript" },
+      { path: "ui/main.mjs", bytes: Buffer.from(`let port;let sequence=0;const send=(type,body={})=>port.postMessage({schemaVersion:1,sessionId:'route-'+${JSON.stringify(generationId)},appId:'app.sales-live',generationId:${JSON.stringify(generationId)},sequence:++sequence,direction:'realm-to-host',type,...body});self.onmessage=({data,ports})=>{if(data?.type!=='connect'||!ports[0])return;port=ports[0];port.onmessage=({data})=>{if(data?.type==='bootstrap'){send('ready');send('render',{root:{nodeId:'root',component:'heading',props:{level:1,text:${JSON.stringify(marker)}},events:[],children:[]}});}};port.start();};\n`), contentType: "application/javascript" },
       { path: "assets/marker.txt", bytes: Buffer.from(marker), contentType: "text/plain" }
     ],
     source,
@@ -466,6 +467,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
   let trafficProbe;
   let continuousHttp;
   let lostInvalidationRecovery;
+  let runnerConsumer;
   try {
     await boot(container.getConnectionUri());
     const tables = await pool.query("select to_regclass('public.runtime_extension_artifacts')::text artifacts, to_regclass('public.runtime_extension_artifact_bindings')::text bindings");
@@ -492,7 +494,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       runner: { prepareServer: async ({ artifact }) => { assert.match((await artifacts.runnerSource().load({ owner: { ...artifact.authority, generationId: artifact.authority.generationId }, artifactDigest: artifact.authority.artifactDigest, serverEntrypoint: "server/main.mjs" })).source, /export default async/u); warmed.push(`runner:${artifact.authority.generationId}`); } },
       remoteUi: { prepareRemoteUi: async ({ artifact }) => { assert.ok((await artifacts.read(artifact.authority.artifactDigest))?.verified.files.get("ui/main.mjs")); warmed.push(`remote-ui:${artifact.authority.generationId}`); } },
       storage: { prepareStorage: async ({ artifact }) => { assert.equal((await pool.query("select to_regclass('public.runtime_extension_storage_namespaces')::text storage")).rows[0].storage, "runtime_extension_storage_namespaces"); warmed.push(`storage:${artifact.authority.generationId}`); } },
-      surfaces: { prepareFixedSurfaces: async ({ artifact }) => { assert.match(`/apps/${artifact.authority.extensionId}/${artifact.authority.generationId}`, /^\/apps\/app\.sales-live\//u); warmed.push(`surfaces:${artifact.authority.generationId}`); } },
+      surfaces: { prepareFixedSurfaces: async ({ manifest, artifact }) => { assert.equal(manifest.screens.some((screen) => screen.route === "/apps/sales-live/activity"), true); warmed.push(`surfaces:${artifact.authority.generationId}`); } },
       clock
     });
     const pipeline = new DurableDynamicArtifactPipeline(artifacts);
@@ -558,6 +560,9 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     await trafficProbe.waitForGeneration("install", installed.generationId);
     assert.equal(installed.generationId, "app-sales-live-generation-1");
     assert.deepEqual(await manager.activate(install.operationId), installed);
+    const fixedRouteHost = await startHotApplicationFixedRouteHost({ store: storeA, artifacts, applicationId: "customer-alpha", environment: "production", extension: identity });
+    hosts.push(fixedRouteHost);
+    assert.equal(fixedRouteHost.scriptBuilds, 1, "the customer fixed route must be installed once before app activation changes");
     await trafficProbe.pause();
     consumerFleet.push(...["web", "worker", "browser-host"].map((role) => startRuntimeExtensionService(container.getConnectionUri(), role)));
     const [webService, workerService, browserHost] = consumerFleet;
@@ -568,7 +573,16 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     const browserPage = await browserContext.newPage();
     await browserPage.goto(browserHost.url);
     await browserPage.waitForFunction(() => typeof window.runtimeExtensionState === "function");
-    const runnerConsumer = new RuntimeExtensionRevisionConsumer(storeB, "customer-alpha", "production", identity);
+    const routePage = await browserContext.newPage();
+    const routeDiagnostics = [];
+    routePage.on("pageerror", (error) => routeDiagnostics.push(error.message));
+    routePage.on("console", (message) => routeDiagnostics.push(`${message.type()}:${message.text()}`));
+    const installedRoute = await routePage.goto(`${fixedRouteHost.url}/apps/sales-live/activity`);
+    assert.equal(installedRoute?.status(), 200, `the preinstalled /apps/:appId/* route must host an installed app: ${fixedRouteHost.routeErrors.join(" | ")}`);
+    await routePage.getByRole("heading", { name: "sales-live-v1" }).waitFor({ timeout: 5_000 }).catch(async (error) => { throw new Error(`${error.message}; route=${await routePage.content()}; diagnostics=${routeDiagnostics.join(" | ")}`); });
+    assert.deepEqual(await routePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__), { appId: "app.sales-live", generationId: installed.generationId, route: "/apps/sales-live/activity", actorSessionId: "customer-session-1" });
+    runnerConsumer = new RuntimeExtensionRevisionConsumer(storeB, "customer-alpha", "production", identity, { intervalMs: 200 });
+    runnerConsumer.start();
     const pollRunner = async () => {
       const changed = await runnerConsumer.poll();
       const invocation = await invokeTraffic();
@@ -612,6 +626,11 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     assert.equal(dockerExecutions.some((execution) => execution.event === "stopped" && execution.generationId === installed.generationId), true);
     assert.equal((await storeB.observeActiveGeneration("customer-alpha", "production", identity)).generationId, updated.generationId);
     await assert.rejects(manager.plan(request("update", "1.0.0", updated.revisionAfter)), { code: "PLAN_MISMATCH" });
+    const updatedRoute = await routePage.goto(`${fixedRouteHost.url}/apps/sales-live/activity`);
+    assert.equal(updatedRoute?.status(), 200, "the fixed route must resolve the active updated generation without a rebuild");
+    await routePage.getByRole("heading", { name: "sales-live-v2" }).waitFor();
+    assert.deepEqual(await routePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__), { appId: "app.sales-live", generationId: updated.generationId, route: "/apps/sales-live/activity", actorSessionId: "customer-session-1" });
+    assert.equal(fixedRouteHost.routeRequests.at(-1)?.hadSession, true, "the updated fixed route lost its customer host session");
     assert.deepEqual(warmed, [
       "runner:app-sales-live-generation-1", "remote-ui:app-sales-live-generation-1", "storage:app-sales-live-generation-1", "surfaces:app-sales-live-generation-1",
       "runner:app-sales-live-generation-2", "remote-ui:app-sales-live-generation-2", "storage:app-sales-live-generation-2", "surfaces:app-sales-live-generation-2"
@@ -624,27 +643,24 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       if (delivery.status === "idle") break;
     }
     assert.equal(deliberatelyDroppedInvalidations > 0, true, "test must drop the PostgreSQL outbox invalidation before recovery polling");
-    const staleConsumers = [
-      await webService.state("/runtime-extension-state"),
-      await workerService.state("/runtime-extension-state"),
-      { role: "runner", snapshot: runnerConsumer.snapshot() },
-      { ...(await browserPage.evaluate(() => window.runtimeExtensionState("snapshot"))), role: "browser" }
-    ];
-    assert.deepEqual(staleConsumers.map((consumer) => [consumer.role, consumer.snapshot.generationId]), [
-      ["web", installed.generationId], ["worker", installed.generationId], ["runner", installed.generationId], ["browser", installed.generationId]
-    ], "lost invalidations must leave each independently running consumer on the old revision");
-    const convergedConsumers = [
-      await webService.state("/runtime-extension-state/poll", "POST"),
-      await workerService.state("/runtime-extension-state/poll", "POST"),
-      await pollRunner(),
-      { ...(await browserPage.evaluate(() => window.runtimeExtensionState("poll"))), role: "browser" }
-    ];
-    assert.deepEqual(convergedConsumers.map((consumer) => [consumer.role, consumer.changed, consumer.snapshot.generationId, consumer.combinedGeneration.generationId, consumer.combinedGeneration.serverGenerationId, consumer.combinedGeneration.uiGenerationId, consumer.combinedGeneration.storageGenerationId]), [
-      ["web", true, updated.generationId, updated.generationId, updated.generationId, updated.generationId, updated.generationId],
-      ["worker", true, updated.generationId, updated.generationId, updated.generationId, updated.generationId, updated.generationId],
-      ["runner", true, updated.generationId, updated.generationId, updated.generationId, updated.generationId, updated.generationId],
-      ["browser", true, updated.generationId, updated.generationId, updated.generationId, updated.generationId, updated.generationId]
-    ], "revision polling must recover every consumer to the exact combined server/UI/storage generation");
+    let convergedConsumers;
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      convergedConsumers = [
+        await webService.state("/runtime-extension-state"),
+        await workerService.state("/runtime-extension-state"),
+        { role: "runner", snapshot: runnerConsumer.snapshot(), combinedGeneration: await combinedGeneration(pool, identity), invocationGenerationId: (await invokeTraffic()).generationId },
+        { ...(await browserPage.evaluate(() => window.runtimeExtensionState("snapshot"))), role: "browser" }
+      ];
+      if (convergedConsumers.every((consumer) => consumer.snapshot.generationId === updated.generationId)) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.equal(convergedConsumers.every((consumer) => consumer.snapshot.generationId === updated.generationId), true, "autonomous revision polling did not recover every consumer after the dropped outbox invalidation");
+    assert.deepEqual(convergedConsumers.map((consumer) => [consumer.role, consumer.snapshot.generationId, consumer.combinedGeneration.generationId, consumer.combinedGeneration.serverGenerationId, consumer.combinedGeneration.uiGenerationId, consumer.combinedGeneration.storageGenerationId]), [
+      ["web", updated.generationId, updated.generationId, updated.generationId, updated.generationId, updated.generationId],
+      ["worker", updated.generationId, updated.generationId, updated.generationId, updated.generationId, updated.generationId],
+      ["runner", updated.generationId, updated.generationId, updated.generationId, updated.generationId, updated.generationId],
+      ["browser", updated.generationId, updated.generationId, updated.generationId, updated.generationId, updated.generationId]
+    ], "autonomous revision polling must recover every consumer to the exact combined server/UI/storage generation");
     assert.equal(convergedConsumers[2].invocationGenerationId, updated.generationId, "Runner recovery bypassed the Docker generation path.");
     lostInvalidationRecovery = { roles: convergedConsumers.map((consumer) => consumer.role), droppedOutboxInvalidations: deliberatelyDroppedInvalidations, generationId: updated.generationId };
 
@@ -677,6 +693,12 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     await trafficProbe.waitForGeneration("rollback", rolledBack.generationId);
     assert.equal(rolledBack.generationId, installed.generationId);
     assert.deepEqual(await manager.rollback(rollback.operationId), rolledBack);
+    const rolledBackRoute = await routePage.goto(`${fixedRouteHost.url}/apps/sales-live/activity`);
+    assert.equal(rolledBackRoute?.status(), 200, "the fixed route must resolve the rolled-back active generation without a rebuild");
+    await routePage.getByRole("heading", { name: "sales-live-v1" }).waitFor();
+    assert.deepEqual(await routePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__), { appId: "app.sales-live", generationId: rolledBack.generationId, route: "/apps/sales-live/activity", actorSessionId: "customer-session-1" });
+    assert.equal(fixedRouteHost.routeRequests.every((request) => request.route === "/apps/sales-live/activity"), true, "the customer host did not use the declared fixed catch-all route");
+    assert.equal(fixedRouteHost.scriptBuilds, 1, "the customer host rebuilt its fixed route during install, update, or rollback");
     const rollbackTraffic = await fetch(`${gateway.url}/rollback`);
     assert.equal(rollbackTraffic.status, 200);
     assert.equal(JSON.parse(await rollbackTraffic.text()).generationId, installed.generationId);
@@ -717,6 +739,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     })}`);
   } finally {
     await trafficProbe?.stop();
+    runnerConsumer?.stop();
     await browserContext?.close();
     await browser?.close();
     await Promise.allSettled(consumerFleet.map((consumer) => consumer.close()));
