@@ -8,7 +8,8 @@ import {
   type VerifiedArtifact,
   type VerifiedArtifactGenerationOwner,
   type VerifiedArtifactRunnerSource,
-  type VerifiedRemoteUiArtifactReader
+  type VerifiedRemoteUiArtifactReader,
+  type VerifiedThemeSkinArtifactReader
 } from "@k-nex/extension-bundler";
 import type {
   DurableDynamicArtifact,
@@ -91,7 +92,7 @@ function assertAuthority(stage: VerifiedDynamicArtifactStage, verified: Verified
  * restored database cannot silently turn an inventory row into executable UI
  * or runner source.
  */
-export class PostgresVerifiedArtifactStore implements DurableDynamicArtifactStore, VerifiedRemoteUiArtifactReader {
+export class PostgresVerifiedArtifactStore implements DurableDynamicArtifactStore, VerifiedRemoteUiArtifactReader, VerifiedThemeSkinArtifactReader {
   constructor(private readonly pool: RuntimeExtensionPool, private readonly verifier: ArtifactVerifier) {}
 
   async stage(input: VerifiedDynamicArtifactStage): Promise<DurableDynamicArtifact> {

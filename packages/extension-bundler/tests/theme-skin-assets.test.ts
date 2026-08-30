@@ -17,7 +17,7 @@ const request: ThemeSkinAssetRequest = {
 
 describe("verified Theme Skin assets", () => {
   it("serves only generation-pinned verified SVG bytes with immutable headers", async () => {
-    const response = await new VerifiedThemeSkinAssetService({ read: () => staged }, { isAvailable: async () => true }).read(request);
+    const response = await new VerifiedThemeSkinAssetService({ read: async () => staged }, { isAvailable: async () => true }).read(request);
     expect(Buffer.from(response.body)).toEqual(body);
     expect(response.headers).toMatchObject({
       "cache-control": "public, max-age=31536000, immutable",
@@ -29,15 +29,20 @@ describe("verified Theme Skin assets", () => {
   });
 
   it("rejects unavailable generations, traversal, digest mismatch, executable SVG, and unverified artifacts", async () => {
-    await expect(new VerifiedThemeSkinAssetService({ read: () => staged }, { isAvailable: async () => false }).read(request)).rejects.toMatchObject({ code: "GENERATION_UNAVAILABLE" });
-    const service = new VerifiedThemeSkinAssetService({ read: () => staged }, { isAvailable: async () => true });
+    await expect(new VerifiedThemeSkinAssetService({ read: async () => staged }, { isAvailable: async () => false }).read(request)).rejects.toMatchObject({ code: "GENERATION_UNAVAILABLE" });
+    const service = new VerifiedThemeSkinAssetService({ read: async () => staged }, { isAvailable: async () => true });
     await expect(service.read({ ...request, path: "assets/../secret.svg" })).rejects.toMatchObject({ code: "REQUEST_INVALID" });
     await expect(service.read({ ...request, fileDigest: `sha256:${"b".repeat(64)}` })).rejects.toMatchObject({ code: "DIGEST_MISMATCH" });
     const unsafe = Buffer.from("<svg><script>alert(1)</script></svg>");
     const unsafeDigest = sha256(unsafe);
     const unsafeStaged = { ...staged, verified: { ...staged.verified, manifest: { ...manifest, files: { "assets/grid.svg": { ...manifest.files["assets/grid.svg"], digest: unsafeDigest, bytes: unsafe.byteLength } } }, files: new Map([["assets/grid.svg", unsafe]]) } };
-    await expect(new VerifiedThemeSkinAssetService({ read: () => unsafeStaged }, { isAvailable: async () => true }).read({ ...request, fileDigest: unsafeDigest })).rejects.toMatchObject({ code: "ASSET_UNSAFE" });
-    await expect(new VerifiedThemeSkinAssetService({ read: () => undefined }, { isAvailable: async () => true }).read(request)).rejects.toMatchObject({ code: "ARTIFACT_UNAVAILABLE" });
+    await expect(new VerifiedThemeSkinAssetService({ read: async () => unsafeStaged }, { isAvailable: async () => true }).read({ ...request, fileDigest: unsafeDigest })).rejects.toMatchObject({ code: "ASSET_UNSAFE" });
+    await expect(new VerifiedThemeSkinAssetService({ read: async () => undefined }, { isAvailable: async () => true }).read(request)).rejects.toMatchObject({ code: "ARTIFACT_UNAVAILABLE" });
+  });
+
+  it("rejects bytes that no longer match verified metadata", async () => {
+    const byteMismatch = { ...staged, verified: { ...staged.verified, manifest: { ...manifest, files: { "assets/grid.svg": { ...manifest.files["assets/grid.svg"], bytes: body.byteLength + 1 } } } } };
+    await expect(new VerifiedThemeSkinAssetService({ read: async () => byteMismatch }, { isAvailable: async () => true }).read(request)).rejects.toMatchObject({ code: "DIGEST_MISMATCH" });
   });
 
   it.each([
@@ -52,6 +57,6 @@ describe("verified Theme Skin assets", () => {
     const unsafeBytes = Buffer.from(unsafe);
     const unsafeDigest = sha256(unsafeBytes);
     const unsafeStaged = { ...staged, verified: { ...staged.verified, manifest: { ...manifest, files: { "assets/grid.svg": { ...manifest.files["assets/grid.svg"], digest: unsafeDigest, bytes: unsafeBytes.byteLength } } }, files: new Map([["assets/grid.svg", unsafeBytes]]) } };
-    await expect(new VerifiedThemeSkinAssetService({ read: () => unsafeStaged }, { isAvailable: async () => true }).read({ ...request, fileDigest: unsafeDigest })).rejects.toMatchObject({ code: "ASSET_UNSAFE" });
+    await expect(new VerifiedThemeSkinAssetService({ read: async () => unsafeStaged }, { isAvailable: async () => true }).read({ ...request, fileDigest: unsafeDigest })).rejects.toMatchObject({ code: "ASSET_UNSAFE" });
   });
 });

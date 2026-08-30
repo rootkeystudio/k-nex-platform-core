@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Closed Theme Skin SVG network bypasses: the shared data-only boundary rejects XML entities and CSS escapes before attribute interpretation and removes Chromium's network-capable SVG mask surface; activation and immutable serving fail closed.
+P9.10c wired immutable Theme Skin asset serving to the asynchronous PostgreSQL verified-artifact reader. Restored state now proves active, rollback, and disabled-retained generation authority through HTTP and real Chromium while unrelated, mismatched, and removed assets fail closed.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: contracts build and tests passed (181); UI design-system contracts build, boundary check, and tests passed (59); extension bundler build and tests passed (23); UI testing build and real Chromium Theme Skin attack proof passed (`P9_THEME_SKIN_BROWSER_PASS`); diff whitespace checks passed. Prior reference-safety commit received persistent Sol Ultra PASS. No P9/Testcontainers containers, networks, volumes, or test processes remain.
+Node 24.19.0 / pnpm 11.9.0: extension bundler build/tests passed (24); payload adapter build/tests passed (49); customer fixture build and focused real PostgreSQL/HTTP/Chromium Theme Skin test passed (`P9_THEME_SKIN_DURABLE_EVIDENCE`); diff whitespace checks passed. Testcontainers process/container cleanup completed; no task container or process remains.
 
 ## Next
 
-Amend the exact SVG hardening commit and obtain persistent Sol Ultra PASS; then wire the durable Theme Skin asset route to the PostgreSQL artifact reader.
+Obtain persistent Sol Ultra review PASS for exact P9.10c commit, remediate any finding, then continue Gate 9 closeout gaps and exact-head evidence.
 
 ## Blockers
 

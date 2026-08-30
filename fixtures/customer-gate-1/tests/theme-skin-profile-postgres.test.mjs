@@ -9,7 +9,7 @@ import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import pg from "pg";
 import { chromium } from "playwright";
 
-import { ArtifactVerifier, buildBundle, canonicalJson, CatalogClient, InMemoryCatalogCheckpointStore, sha256 } from "@k-nex/extension-bundler";
+import { ArtifactVerifier, buildBundle, canonicalJson, CatalogClient, InMemoryCatalogCheckpointStore, sha256, VerifiedThemeSkinAssetService } from "@k-nex/extension-bundler";
 import { PostgresRuntimeExtensionStore, PostgresThemeProfileStore, PostgresVerifiedArtifactStore } from "@k-nex/payload-adapter";
 import { DurableDynamicArtifactPipeline, DurableDynamicGenerationRuntime, PluginManager, ReferenceThemeSkinGenerationWarmer, TrustedAutomationOperationAuthorizer } from "@k-nex/runtime";
 import { createThemeSkinCss, DurableThemeSkinResolver } from "@k-nex/ui-design-system-contracts";
@@ -44,9 +44,10 @@ function signedCatalog(entries) {
 
 const skinCss = `:--k-nex-theme-root{background:var(--k-nex-skin-color-background);color:var(--k-nex-skin-color-foreground)}
 :--k-nex-theme-root [data-k-nex-primitive="button"]{background:var(--k-nex-skin-color-background);border-color:var(--k-nex-skin-color-foreground);transition-duration:var(--k-nex-skin-motion-duration);padding:8px}`;
+const skinAsset = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4" viewBox="0 0 4 4"><path d="M0 0h4v4H0z"/></svg>');
 
 function releaseDefinition(generation, version, accent) {
-  const asset = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 4"><path d="M0 0h4v4H0z"/></svg>');
+  const asset = skinAsset;
   const themeManifest = {
     schemaVersion: 1, deliveryClass: "theme-skin", id: "skin.neobrutalism", displayName: "Neobrutalism", version, runtimeAbi: "1.0.0",
     profileCompatibility: { schemaVersion: 1 },
@@ -100,22 +101,61 @@ async function waitForLockWaiters(pool, count) {
   throw new Error(`Timed out waiting for ${count} PostgreSQL lock waiters.`);
 }
 
-async function assertRestoredSkinBrowser(resolved, themeProfile, assetBytes) {
+function assetRequest(release) {
+  return {
+    applicationId: "customer-alpha", environment: "production", skinId: "skin.neobrutalism", generationId: release.generationId,
+    artifactDigest: release.authority.artifactDigest, fileDigest: sha256(skinAsset), path: "assets/grid.svg"
+  };
+}
+
+function themeSkinAssetAuthority(manager) {
+  const generations = async (identity) => {
+    const state = (await manager.inventory(identity.applicationId, identity.environment)).extensions.themeSkins[identity.skinId];
+    if (!state) return [];
+    return state.disposition === "active" ? [state.activeGeneration, state.rollbackGeneration]
+      : state.disposition === "disabled" ? [state.retainedGeneration] : [];
+  };
+  return {
+    isAvailable: async (identity) => {
+      return (await generations(identity)).some((generation) => generation?.applicationId === identity.applicationId && generation?.environment === identity.environment &&
+        generation?.deliveryClass === "theme-skin" && generation?.extensionId === identity.skinId && generation?.generationId === identity.generationId &&
+        generation?.artifactDigest === identity.artifactDigest);
+    },
+    artifactDigest: async (identity) => {
+      const generation = (await generations(identity)).find((candidate) => candidate?.applicationId === identity.applicationId && candidate?.environment === identity.environment &&
+        candidate?.deliveryClass === "theme-skin" && candidate?.extensionId === identity.skinId && candidate?.generationId === identity.generationId);
+      return typeof generation?.artifactDigest === "string" ? generation.artifactDigest : undefined;
+    }
+  };
+}
+
+async function assertRestoredSkinBrowser(resolved, themeProfile, assets, authority) {
   const assetPath = resolved.generation.assetHandles["assets/grid.svg"];
   assert.ok(assetPath, "Resolved Theme Skin omitted its declared asset handle.");
-  assert.ok(assetBytes, "Restored Theme Skin artifact omitted its declared asset bytes.");
   const cssText = createThemeSkinCss(resolved, themeProfile.revision.id);
-  let assetRequested = false;
-  const server = createServer((request, response) => {
+  let assetRequests = 0;
+  let assetFailure;
+  const server = createServer(async (request, response) => {
     const path = new URL(request.url ?? "/", "http://skin.local").pathname;
-    if (path === assetPath) {
-      assetRequested = true;
-      response.writeHead(200, { "content-type": "image/svg+xml", "x-content-type-options": "nosniff" });
-      response.end(assetBytes);
+    const asset = /^\/api\/extensions\/skins\/(skin(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+)\/assets\/([a-z][a-z0-9-]{2,127})\/(sha256:[0-9a-f]{64})\/(.+)$/u.exec(path);
+    if (asset) {
+      assetRequests += 1;
+      try {
+        const identity = { applicationId: "customer-alpha", environment: "production", skinId: asset[1], generationId: asset[2] };
+        const artifactDigest = await authority.artifactDigest(identity);
+        if (!artifactDigest) throw new Error("Theme Skin asset handle does not name an available immutable generation.");
+        const verified = await assets.read({ ...identity, artifactDigest, fileDigest: asset[3], path: `assets/${decodeURIComponent(asset[4])}` });
+        response.writeHead(verified.status, verified.headers);
+        response.end(verified.body);
+      } catch (error) {
+        assetFailure = error;
+        response.writeHead(404, { "x-content-type-options": "nosniff" });
+        response.end();
+      }
       return;
     }
     response.writeHead(200, { "content-type": "text/html", "x-content-type-options": "nosniff" });
-    response.end(`<!doctype html><html><head><meta charset="utf-8"><style>${cssText}</style></head><body><main id="root" data-k-nex-theme-profile="${themeProfile.revision.id}" data-skin-generation="${resolved.generation.generationId}"><button data-k-nex-primitive="button">Save sales view</button></main></body></html>`);
+    response.end(`<!doctype html><html><head><meta charset="utf-8"><style>${cssText}</style></head><body><main id="root" data-k-nex-theme-profile="${themeProfile.revision.id}" data-skin-generation="${resolved.generation.generationId}"><img id="skin-grid" src="${assetPath}" alt="Neobrutalist grid" width="4" height="4"><button data-k-nex-primitive="button">Save sales view</button></main></body></html>`);
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
@@ -126,8 +166,13 @@ async function assertRestoredSkinBrowser(resolved, themeProfile, assetBytes) {
     browser = await chromium.launch();
     const context = await browser.newContext();
     const page = await context.newPage();
+    let assetResponse;
+    page.on("response", (response) => {
+      if (new URL(response.url()).pathname === assetPath) assetResponse = response;
+    });
     await page.goto(url);
     const root = page.locator("#root");
+    const grid = page.getByRole("img", { name: "Neobrutalist grid" });
     const button = page.getByRole("button", { name: "Save sales view" });
     assert.equal(await root.getAttribute("data-skin-generation"), resolved.generation.generationId);
     assert.equal(await root.getAttribute("data-k-nex-theme-profile"), themeProfile.revision.id);
@@ -138,20 +183,35 @@ async function assertRestoredSkinBrowser(resolved, themeProfile, assetBytes) {
     assert.equal(await button.evaluate((element) => getComputedStyle(element).outlineStyle), "solid");
     assert.equal(await button.evaluate((element) => getComputedStyle(element).outlineColor), "rgb(0, 0, 0)");
     assert.match(await button.ariaSnapshot(), /button "Save sales view"/);
+    assert.equal(await grid.getAttribute("alt"), "Neobrutalist grid");
+    assert.equal(assetFailure, undefined, assetFailure?.stack);
+    assert.deepEqual(await grid.evaluate((element) => ({ complete: element.complete, naturalWidth: element.naturalWidth, naturalHeight: element.naturalHeight })), { complete: true, naturalWidth: 4, naturalHeight: 4 });
+    assert.ok(assetResponse, "Theme Skin asset handle produced no browser response.");
+    const assetHeaders = await assetResponse.allHeaders();
+    assert.equal(assetResponse.status(), 200);
+    assert.equal(assetHeaders["cache-control"], "public, max-age=31536000, immutable");
+    assert.equal(assetHeaders["content-type"], "image/svg+xml");
+    assert.match(assetHeaders["content-digest"] ?? "", /^sha-256=:[A-Za-z0-9+/]{43}=:/u);
+    assert.match(assetHeaders["content-security-policy"] ?? "", /default-src 'none'; sandbox/u);
+    assert.equal(assetHeaders["x-content-type-options"], "nosniff");
+    assert.equal(assetHeaders["content-length"], String(skinAsset.byteLength));
+    assert.deepEqual(Buffer.from(await assetResponse.body()), skinAsset);
+    assert.equal(assetRequests, 1, "Theme Skin asset handle was not served through the verified boundary.");
     assert.equal(await page.locator("script").count(), 0, "Theme Skin presentation loaded executable document code.");
-    assert.equal(assetRequested, false, "Untrusted Skin CSS requested an asset handle.");
     await context.close();
 
     const reduced = await browser.newContext({ reducedMotion: "reduce" });
     const reducedPage = await reduced.newPage();
     await reducedPage.goto(url);
     assert.equal(await reducedPage.getByRole("button", { name: "Save sales view" }).evaluate((element) => getComputedStyle(element).transitionDuration), "0s");
+    assert.equal(assetFailure, undefined, assetFailure?.stack);
     await reduced.close();
 
     const forced = await browser.newContext({ forcedColors: "active" });
     const forcedPage = await forced.newPage();
     await forcedPage.goto(url);
     assert.notEqual(await forcedPage.getByRole("button", { name: "Save sales view" }).evaluate((element) => getComputedStyle(element).borderTopStyle), "none");
+    assert.equal(assetFailure, undefined, assetFailure?.stack);
     await forced.close();
   } finally {
     await browser?.close();
@@ -161,7 +221,7 @@ async function assertRestoredSkinBrowser(resolved, themeProfile, assetBytes) {
 
 test("delivers Theme Skins from signed durable artifacts through PluginManager install, update, rollback, and restore", { timeout: 180_000 }, async () => {
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("theme_skins").withStartupTimeout(120_000).start();
-  const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
+  let pool = new pg.Pool({ connectionString: container.getConnectionUri() });
   const clock = { now: () => new Date() };
   try {
     await boot(container.getConnectionUri());
@@ -199,7 +259,7 @@ test("delivers Theme Skins from signed durable artifacts through PluginManager i
     await manager.stage(install.operationId);
     const installed = await manager.activate(install.operationId);
     assert.equal(installed.generationId, releases[0].generationId);
-    const profiles = new PostgresThemeProfileStore(pool, clock);
+    let profiles = new PostgresThemeProfileStore(pool, clock);
     const first = profile("published", "theme-skin.revision-1", releases[0].generationId, releases[0].version);
     await profiles.stageDraft({ applicationId: "customer-alpha", environment: "production", profile: profile("draft", first.revision.id, releases[0].generationId, releases[0].version) });
     await profiles.publish({ applicationId: "customer-alpha", environment: "production", expectedRevision: 0, profile: first });
@@ -221,6 +281,9 @@ test("delivers Theme Skins from signed durable artifacts through PluginManager i
     await assert.rejects(artifacts.loadThemeSkin(releases[1].authority), { code: "ARTIFACT_INVALID" });
     const restored = await container.exec(["pg_restore", "--clean", "--if-exists", "--no-owner", `--dbname=${uri.toString()}`, "/tmp/p9-theme-skin.dump"]);
     assert.equal(restored.exitCode, 0, restored.output);
+    await pool.end();
+    pool = new pg.Pool({ connectionString: container.getConnectionUri() });
+    profiles = new PostgresThemeProfileStore(pool, clock);
 
     const recoveredArtifacts = new PostgresVerifiedArtifactStore(pool, verifier);
     const recoveredResolver = new DurableThemeSkinResolver({ load: (authority) => recoveredArtifacts.loadThemeSkin(authority) });
@@ -228,15 +291,24 @@ test("delivers Theme Skins from signed durable artifacts through PluginManager i
     assert.equal((await recoveredManager.inventory("customer-alpha", "production")).extensions.themeSkins["skin.neobrutalism"].activeGeneration.generationId, releases[1].generationId);
     const recoveredSkin = await recoveredResolver.resolve(releases[1].authority, second);
     assert.equal(recoveredSkin.generation.generationId, releases[1].generationId);
-    const recoveredArtifact = await recoveredArtifacts.loadThemeSkin(releases[1].authority);
-    await assertRestoredSkinBrowser(recoveredSkin, second, recoveredArtifact.files.get("assets/grid.svg"));
+    const assetAuthority = themeSkinAssetAuthority(recoveredManager);
+    const assets = new VerifiedThemeSkinAssetService(recoveredArtifacts, assetAuthority);
+    const activeAsset = assetRequest(releases[1]);
+    const rollbackAsset = assetRequest(releases[0]);
+    await assert.doesNotReject(assets.read(activeAsset));
+    await assert.doesNotReject(assets.read(rollbackAsset));
+    await assert.rejects(assets.read({ ...activeAsset, generationId: "skin-generation-unrelated" }), { code: "GENERATION_UNAVAILABLE" });
+    await assert.rejects(assets.read({ ...activeAsset, generationId: releases[0].generationId }), { code: "GENERATION_UNAVAILABLE" });
+    await assert.rejects(assets.read({ ...activeAsset, artifactDigest: releases[0].authority.artifactDigest }), { code: "GENERATION_UNAVAILABLE" });
+    await assert.rejects(assets.read({ ...activeAsset, fileDigest: `sha256:${"f".repeat(64)}` }), { code: "DIGEST_MISMATCH" });
+    await assertRestoredSkinBrowser(recoveredSkin, second, assets, assetAuthority);
 
     await pool.query("update runtime_extension_artifact_bindings set authority_json=jsonb_set(authority_json, '{catalogDigest}', to_jsonb($1::text)) where generation_id=$2", [`sha256:${"f".repeat(64)}`, releases[1].generationId]);
     await assert.rejects(recoveredManager.inventory("customer-alpha", "production"), { code: "ARTIFACT_INVALID" });
     await pool.query("update runtime_extension_artifact_bindings set authority_json=$1::jsonb where generation_id=$2", [JSON.stringify(releases[1].authority), releases[1].generationId]);
 
-    const rollback = await manager.plan(request("rollback", "1.0.0", updated.revisionAfter));
-    const rolledBack = await manager.rollback(rollback.operationId);
+    const rollback = await recoveredManager.plan(request("rollback", "1.0.0", updated.revisionAfter));
+    const rolledBack = await recoveredManager.rollback(rollback.operationId);
     assert.equal(rolledBack.generationId, releases[0].generationId);
     const profileRollback = await profiles.rollback({ applicationId: "customer-alpha", environment: "production", profileId: first.id, expectedRevision: 2 });
     assert.equal(profileRollback.skinGenerationId, releases[0].generationId);
@@ -303,6 +375,7 @@ test("delivers Theme Skins from signed durable artifacts through PluginManager i
     await profiles.publish({ applicationId: "customer-alpha", environment: "production", expectedRevision: 7, profile: noSkin6 });
     const disabled = await recoveredManager.disable(disable.operationId);
     assert.equal(disabled.disposition, "disabled");
+    await assert.doesNotReject(assets.read(assetRequest(releases[0])));
 
     const reinstalled = await recoveredManager.plan(request("install", "1.2.0", disabled.revisionAfter));
     await recoveredManager.stage(reinstalled.operationId);
@@ -322,7 +395,8 @@ test("delivers Theme Skins from signed durable artifacts through PluginManager i
     await profiles.publish({ applicationId: "customer-alpha", environment: "production", expectedRevision: 10, profile: noSkin9 });
     const uninstalled = await recoveredManager.uninstall(uninstall.operationId);
     assert.equal(uninstalled.disposition, "removed");
-    console.log('P9_THEME_SKIN_DURABLE_EVIDENCE={"scenarios":["signed-install-update-rollback","forged-row","altered-bytes","wrong-generation","restore-restart","restored-chromium-presentation","profile-reference-disposition","draft-disposition-race"]}');
+    await assert.rejects(assets.read(assetRequest(releases[2])), { code: "GENERATION_UNAVAILABLE" });
+    console.log('P9_THEME_SKIN_DURABLE_EVIDENCE={"scenarios":["signed-install-update-rollback","forged-row","altered-bytes","wrong-generation-artifact-file-digest","restore-restart","verified-asset-chromium-presentation","profile-reference-disposition","draft-disposition-race","disabled-retained","removed-asset-denial"]}');
   } finally {
     await pool.end();
     await container.stop();

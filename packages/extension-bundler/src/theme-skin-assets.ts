@@ -4,7 +4,7 @@ import { sha256 } from "./bundle.js";
 import type { Digest } from "./catalog.js";
 import type { StagedArtifact } from "./store.js";
 
-export interface VerifiedThemeSkinArtifactReader { read(artifactDigest: Digest): StagedArtifact | undefined; }
+export interface VerifiedThemeSkinArtifactReader { read(artifactDigest: Digest): Promise<StagedArtifact | undefined>; }
 
 export interface ThemeSkinGenerationAuthority {
   isAvailable(identity: Readonly<{
@@ -60,14 +60,14 @@ export class VerifiedThemeSkinAssetService {
       throw new ThemeSkinAssetError("REQUEST_INVALID", "Theme Skin asset request is invalid.");
     }
     if (!await this.authority.isAvailable(request)) throw new ThemeSkinAssetError("GENERATION_UNAVAILABLE", "Theme Skin generation is neither active nor retained.");
-    const staged = this.artifacts.read(request.artifactDigest);
+    const staged = await this.artifacts.read(request.artifactDigest);
     if (!staged || staged.verified.artifactDigest !== request.artifactDigest) throw new ThemeSkinAssetError("ARTIFACT_UNAVAILABLE", "Verified Theme Skin artifact is unavailable.");
     const manifest = staged.verified.manifest;
     if (manifest.deliveryClass !== "theme-skin" || manifest.id !== request.skinId) throw new ThemeSkinAssetError("ARTIFACT_UNAVAILABLE", "Verified Theme Skin artifact identity does not match.");
     const metadata = manifest.files[path.data];
     const body = staged.verified.files.get(path.data);
     if (!metadata || !body || metadata.contentType !== "image/svg+xml") throw new ThemeSkinAssetError("ASSET_UNAVAILABLE", "Theme Skin asset is absent or has a forbidden content type.");
-    if (metadata.digest !== request.fileDigest || sha256(body) !== request.fileDigest) throw new ThemeSkinAssetError("DIGEST_MISMATCH", "Theme Skin asset digest does not match its content-addressed route.");
+    if (metadata.digest !== request.fileDigest || sha256(body) !== request.fileDigest || body.byteLength !== metadata.bytes) throw new ThemeSkinAssetError("DIGEST_MISMATCH", "Theme Skin asset no longer matches its verified inventory.");
     assertSafeSvg(body);
     const digestBytes = Buffer.from(request.fileDigest.slice("sha256:".length), "hex").toString("base64");
     return Object.freeze({
