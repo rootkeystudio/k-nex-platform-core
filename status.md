@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Made signed Hot Application screen routes app-relative and derived every concrete host/Remote UI route through one owner-aware contract and matcher, including dotted IDs and parameter paths.
+Made all static deployment lifecycle receipt/outbox IDs deterministic and owner-scoped so independent tenants can commit the same per-owner revision without a global primary-key collision.
 
 ## Validation
 
-Node 24.19.0: contract generation/validation passed; contracts 156, bundler 20, UI runtime 63, runner 5, focused runtime 8, and Chromium UI suites passed. PostgreSQL suite passed 3/4 tests; the route browser journey reaches the separate expired compatibility-window blocker before activation. `git diff --check` passed; Docker is empty.
+Node 24.19.0: Payload adapter build and 42 unit tests passed; real PostgreSQL concurrent two-owner promotion journey passed (1 test), proving distinct receipt/outbox IDs at revision one; `git diff --check` passed. Testcontainers left no containers or fixture networks.
 
 ## Next
 

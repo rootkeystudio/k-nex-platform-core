@@ -593,6 +593,63 @@ test("proves distinct customer binaries and deployment processes recover from Po
     const blue = { generationId: "customer-alpha-blue-11", sourceCommit: baseCommit, compositionChangePlanDigest: digestJson(plan.base), buildEvidenceDigest: digestJson({ sourceCommit: baseCommit, imageDigest: blueBuild.imageDigest }), applicationDigest: blueBuild.applicationDigest, imageDigest: blueBuild.imageDigest, imageReference: blueBuild.imageReference, migrationRevision: 11 };
     const owner = { applicationId: "customer-alpha", environment: "production" };
     const leaseExpiresAt = new Date(now.valueOf() + 299_000).toISOString();
+    const concurrentBuilds = new Map();
+    const concurrentStore = new PostgresStaticDeploymentStore(pool, { now: () => now }, {
+      read(token) {
+        const verified = concurrentBuilds.get(token);
+        assert.ok(verified, "Concurrent promotion must use a verified static build token.");
+        return verified;
+      }
+    });
+    const concurrentPromotions = ["customer-bravo", "customer-charlie"].map((applicationId) => {
+      const concurrentOwner = { applicationId, environment: "production" };
+      const concurrentChange = structuredClone(plan);
+      concurrentChange.applicationId = applicationId;
+      concurrentChange.environment = concurrentOwner.environment;
+      concurrentChange.migration.applicationId = applicationId;
+      concurrentChange.migration.environment = concurrentOwner.environment;
+      const concurrentEvidence = structuredClone(build.evidence);
+      concurrentEvidence.applicationId = applicationId;
+      concurrentEvidence.environment = concurrentOwner.environment;
+      const token = {};
+      concurrentBuilds.set(token, {
+        change: { status: "source-change-ready", planDigest: digestJson(concurrentChange), targetSourceCommit: concurrentChange.target.sourceCommit, change: concurrentChange },
+        evidence: concurrentEvidence,
+        evidenceDigest: digestJson(concurrentEvidence)
+      });
+      const baseGeneration = {
+        generationId: `${applicationId}-blue-11`, sourceCommit: concurrentChange.base.sourceCommit,
+        compositionChangePlanDigest: digestJson(concurrentChange.base), buildEvidenceDigest: digestJson({ applicationId, sourceCommit: concurrentChange.base.sourceCommit }),
+        applicationDigest: concurrentChange.migration.rollbackWindow.previousApplicationDigest, imageDigest: `sha256:${"0".repeat(64)}`,
+        imageReference: `ghcr.io/k-nex/${applicationId}@sha256:${"0".repeat(64)}`, migrationRevision: concurrentChange.migration.baseRevision
+      };
+      const generationId = `${applicationId}-green-12`;
+      const readiness = {
+        generationId, sourceCommit: concurrentChange.target.sourceCommit, applicationDigest: concurrentEvidence.applicationSubject.digest,
+        imageDigest: concurrentEvidence.imageSubject.digest, migrationRevision: concurrentChange.migration.targetRevision,
+        completedMigrationSteps: concurrentChange.migration.steps.filter((step) => step.phase === "online-expand" || step.phase === "online-backfill").map((step) => step.stepId),
+        publicSmoke: true, authenticatedSmoke: true, inventoryReconciled: true, workerMode: "passive", gatewayCapacity: true, realtimeReady: true, observedAt: now.toISOString()
+      };
+      return {
+        concurrentOwner,
+        initialize: () => concurrentStore.initialize({ ...concurrentOwner, generation: baseGeneration, workerOwner: "worker:p9-concurrent", workerFencingToken: 1, workerLeaseExpiresAt: leaseExpiresAt }),
+        promote: () => concurrentStore.promote({ ...concurrentOwner, expectedRevision: 0, expectedFenceToken: 1, generationId, workerOwner: "worker:p9-concurrent", workerLeaseExpiresAt: leaseExpiresAt, build: token, readiness })
+      };
+    });
+    await Promise.all(concurrentPromotions.map(({ initialize }) => initialize()));
+    const concurrentReceipts = await Promise.all(concurrentPromotions.map(({ promote }) => promote()));
+    const concurrentOutbox = await pool.query(
+      "select event_id, application_id, revision, event_json->>'receiptId' receipt_id from runtime_static_deployment_outbox where application_id = any($1::text[]) order by application_id",
+      [concurrentPromotions.map(({ concurrentOwner }) => concurrentOwner.applicationId)]
+    );
+    assert.equal(new Set(concurrentReceipts.map(({ receiptId }) => receiptId)).size, 2, "Different deployment owners at revision zero must receive globally distinct receipt IDs.");
+    assert.deepEqual(concurrentOutbox.rows.map(({ event_id, receipt_id, revision }) => ({ event_id, receipt_id, revision: Number(revision) })), concurrentReceipts
+      .sort((left, right) => left.applicationId.localeCompare(right.applicationId))
+      .map(({ receiptId, revisionAfter }) => ({ event_id: receiptId, receipt_id: receiptId, revision: revisionAfter })));
+    for (const { receiptId } of concurrentReceipts) {
+      assert.match(receiptId, /^[a-z][a-z0-9-]{2,127}$/u);
+      assert.ok(receiptId.length <= 128);
+    }
     await assert.rejects(supervisorCommand(supervisorUrl, { commandId: "migration-label-reject-12", operation: "validate-online-migration", ...owner, generationId: "customer-alpha-green-12", buildRequestDigest: deploymentRequest.buildRequestDigest, expectedRevision: 0, migration: relabeledMigration }), { code: "MIGRATION_LABEL_REJECTED" });
     await supervisorCommand(supervisorUrl, { commandId: "bootstrap-blue-11", operation: "bootstrap", ...owner, generationId: blue.generationId, buildRequestDigest: greenBuild.buildRequestDigest, compositionChangePlanDigest: blue.compositionChangePlanDigest, buildEvidenceDigest: blue.buildEvidenceDigest, workerOwner: "worker:phase-9-blue", workerLeaseExpiresAt: leaseExpiresAt });
     trafficProbe = startContinuousHttpProbe({
@@ -731,7 +788,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
       generationId: "customer-alpha-green-12", version: plan.plugin.version, sourceCommit: targetCommit,
       compositionChangePlanDigest: change.planDigest, buildEvidenceDigest: build.authority.read(build.token).evidenceDigest,
       applicationDigest: greenBuild.applicationDigest, imageDigest: greenBuild.imageDigest, migrationRevision: 12,
-      workerFencingToken: 2, receiptId: "static-promotion-1"
+      workerFencingToken: 2, receiptId: managedReceipt.receipt.receiptId
     };
     assert.equal(await deploymentClient.reverify(deployedAuthority), true, "a restarted supervisor must publish only the durable source/build/deployment authority");
     assert.equal(await deploymentClient.reverify({ ...deployedAuthority, imageDigest: blueBuild.imageDigest }), false, "an arbitrary image cannot masquerade as a deployed static release");
@@ -777,7 +834,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     scenarioEvidence.add("SCN-17");
     assert.equal((await pool.query("select count(*)::int count from information_schema.columns where table_name='p9_static_overlap' and column_name='legacy_value'")).rows[0].count, 0);
     assert.equal((await pool.query("select count(*)::int count from p9_static_process_events where role='realtime-client' and event='realtime-resynced'")).rows[0].count >= 3, true);
-    const outbox = await pool.query("select revision, event_json->>'operation' operation from runtime_static_deployment_outbox order by revision");
+    const outbox = await pool.query("select revision, event_json->>'operation' operation from runtime_static_deployment_outbox where application_id=$1 and environment=$2 order by revision", [owner.applicationId, owner.environment]);
     assert.deepEqual(outbox.rows, [{ revision: 1, operation: "promote" }, { revision: 2, operation: "rollback" }, { revision: 3, operation: "promote" }, { revision: 4, operation: "reserve-rollback-retirement" }, { revision: 5, operation: "close-rollback" }]);
 
     const offlineRequest = {

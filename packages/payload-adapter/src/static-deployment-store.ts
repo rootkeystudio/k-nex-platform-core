@@ -110,6 +110,10 @@ async function sha256(value: unknown): Promise<string> {
   return `sha256:${Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
+async function receiptId(owner: Owner, operation: StaticDeploymentReceipt["operation"], revision: number): Promise<string> {
+  return `static-${operation}-${(await sha256([owner.applicationId, owner.environment])).slice(7)}-${revision}`;
+}
+
 function same(left: unknown, right: unknown): boolean {
   return canonicalJson(left) === canonicalJson(right);
 }
@@ -243,7 +247,7 @@ export class PostgresStaticDeploymentStore {
       const rollbackWindow = change.migration.rollbackWindow;
       const receipt = StaticDeploymentReceiptSchema.parse({
         schemaVersion: 1,
-        receiptId: `static-promotion-${revision}`,
+        receiptId: await receiptId(input, "promote", revision),
         operation: "promote",
         applicationId: input.applicationId,
         environment: input.environment,
@@ -289,7 +293,7 @@ export class PostgresStaticDeploymentStore {
       const target = current.rollback_generation;
       const receipt = StaticDeploymentReceiptSchema.parse({
         schemaVersion: 1,
-        receiptId: `static-rollback-${revision}`,
+        receiptId: await receiptId(input, "rollback", revision),
         operation: "rollback",
         applicationId: input.applicationId,
         environment: input.environment,
@@ -334,7 +338,7 @@ export class PostgresStaticDeploymentStore {
       const stateDigest = await sha256({ revision, active: current.active_generation, rollback: null, rollbackWindow, transitionCheckpoint: null });
       const receipt = StaticDeploymentReceiptSchema.parse({
         schemaVersion: 1,
-        receiptId: `static-rollback-close-${revision}`,
+        receiptId: await receiptId(input, "close-rollback", revision),
         operation: "close-rollback",
         applicationId: input.applicationId,
         environment: input.environment,
@@ -386,7 +390,7 @@ export class PostgresStaticDeploymentStore {
       const checkpoint: StaticDeploymentTransitionCheckpoint = { kind: "retire-rollback", revision, activeGenerationId: current.active_generation_id, previousGenerationId: input.retiredGenerationId, completedSteps: [] };
       const stateDigest = await sha256({ revision, active: current.active_generation, rollback: current.rollback_generation, rollbackWindow, transitionCheckpoint: checkpoint });
       const receipt = StaticDeploymentReceiptSchema.parse({
-        schemaVersion: 1, receiptId: `static-rollback-retirement-reserve-${revision}`, operation: "reserve-rollback-retirement",
+        schemaVersion: 1, receiptId: await receiptId(input, "reserve-rollback-retirement", revision), operation: "reserve-rollback-retirement",
         applicationId: input.applicationId, environment: input.environment, activeGenerationId: current.active_generation_id,
         retiredGenerationId: input.retiredGenerationId, sourceCommit: current.active_generation.sourceCommit,
         compositionChangePlanDigest: current.active_generation.compositionChangePlanDigest, buildEvidenceDigest: current.active_generation.buildEvidenceDigest,
