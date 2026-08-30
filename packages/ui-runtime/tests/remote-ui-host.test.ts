@@ -132,6 +132,67 @@ describe("remote UI host session", () => {
     expect(generations.retire(owner, identity.generationId)).toBe(0);
   });
 
+  it("keeps a rolled-back generation alive when its stale retirement callback runs", () => {
+    const scheduled: Array<() => void> = [];
+    const generations = new RemoteUiGenerationSessions((work) => scheduled.push(work));
+    const owner = { applicationId: identity.applicationId, environment: identity.environment, appId: identity.appId };
+    const generationOne = new RemoteUiHostSession(identity, registry, adapter());
+    const generationTwo = new RemoteUiHostSession({ ...identity, sessionId: "remote-session-2", generationId: "sales-generation-2" }, registry, adapter());
+    const disposeOne = vi.spyOn(generationOne, "dispose");
+    const disposeTwo = vi.spyOn(generationTwo, "dispose");
+
+    generations.activate(owner, identity.generationId, 100);
+    generations.admit(generationOne);
+    generations.activate(owner, "sales-generation-2", 100);
+    generations.admit(generationTwo);
+    generations.activate(owner, identity.generationId, 100);
+
+    scheduled[0]!();
+    expect(disposeOne).not.toHaveBeenCalled();
+    expect(disposeTwo).not.toHaveBeenCalled();
+    scheduled[1]!();
+    expect(disposeTwo).toHaveBeenCalledWith("generation-retired");
+    expect(disposeOne).not.toHaveBeenCalled();
+  });
+
+  it("does not let a first-cycle timer shorten a later drain for the same generation", () => {
+    const scheduled: Array<() => void> = [];
+    const generations = new RemoteUiGenerationSessions((work) => scheduled.push(work));
+    const owner = { applicationId: identity.applicationId, environment: identity.environment, appId: identity.appId };
+    const resumedGenerationOne = new RemoteUiHostSession({ ...identity, sessionId: "remote-session-returned" }, registry, adapter());
+    const disposeOne = vi.spyOn(resumedGenerationOne, "dispose");
+
+    generations.activate(owner, identity.generationId, 100);
+    generations.activate(owner, "sales-generation-2", 100);
+    generations.activate(owner, identity.generationId, 100);
+    generations.admit(resumedGenerationOne);
+    generations.activate(owner, "sales-generation-2", 100);
+
+    scheduled[0]!();
+    expect(disposeOne).not.toHaveBeenCalled();
+    scheduled[2]!();
+    expect(disposeOne).toHaveBeenCalledWith("generation-retired");
+  });
+
+  it("invalidates a scheduled retirement when retirement is explicit", () => {
+    const scheduled: Array<() => void> = [];
+    const generations = new RemoteUiGenerationSessions((work) => scheduled.push(work));
+    const owner = { applicationId: identity.applicationId, environment: identity.environment, appId: identity.appId };
+    const oldGenerationOne = new RemoteUiHostSession(identity, registry, adapter());
+    const restoredGenerationOne = new RemoteUiHostSession({ ...identity, sessionId: "remote-session-restored" }, registry, adapter());
+    const disposeRestored = vi.spyOn(restoredGenerationOne, "dispose");
+
+    generations.activate(owner, identity.generationId, 100);
+    generations.admit(oldGenerationOne);
+    generations.activate(owner, "sales-generation-2", 100);
+    expect(generations.retire(owner, identity.generationId)).toBe(1);
+    generations.activate(owner, identity.generationId, 100);
+    generations.admit(restoredGenerationOne);
+
+    scheduled[0]!();
+    expect(disposeRestored).not.toHaveBeenCalled();
+  });
+
   it("scopes active generations and drains to the application, environment, and app owner", () => {
     const scheduled: Array<() => void> = [];
     const generations = new RemoteUiGenerationSessions((work) => scheduled.push(work));

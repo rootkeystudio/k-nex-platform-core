@@ -208,6 +208,7 @@ export class RemoteUiHostSession {
 export class RemoteUiGenerationSessions {
   private readonly active = new Map<string, string>();
   private readonly sessions = new Map<string, Set<RemoteUiHostSession>>();
+  private readonly pendingRetirements = new Map<string, symbol>();
 
   constructor(private readonly schedule: (work: () => void, delayMs: number) => unknown = setTimeout) {}
 
@@ -217,7 +218,17 @@ export class RemoteUiGenerationSessions {
     const key = remoteUiGenerationOwnerKey(owner);
     const previous = this.active.get(key);
     this.active.set(key, generationId);
-    if (previous !== undefined && previous !== generationId) this.schedule(() => this.retire(owner, previous), drainMs);
+    this.pendingRetirements.delete(remoteUiGenerationKey(owner, generationId));
+    if (previous !== undefined && previous !== generationId) {
+      const previousKey = remoteUiGenerationKey(owner, previous);
+      const retirement = Symbol();
+      this.pendingRetirements.set(previousKey, retirement);
+      this.schedule(() => {
+        if (this.pendingRetirements.get(previousKey) !== retirement) return;
+        this.pendingRetirements.delete(previousKey);
+        if (this.active.get(key) !== previous) this.retire(owner, previous);
+      }, drainMs);
+    }
   }
 
   admit(session: RemoteUiHostSession): void {
@@ -234,6 +245,7 @@ export class RemoteUiGenerationSessions {
     const owner = remoteUiGenerationOwner(ownerInput);
     if (!validGenerationId(generationId)) throw new TypeError("Remote UI generation retirement is invalid.");
     const key = remoteUiGenerationKey(owner, generationId);
+    this.pendingRetirements.delete(key);
     const sessions = this.sessions.get(key);
     if (!sessions) return 0;
     for (const session of sessions) session.dispose("generation-retired");
