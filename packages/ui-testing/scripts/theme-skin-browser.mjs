@@ -27,8 +27,10 @@ try {
   const context = await browser.newContext({ viewport: { width: 800, height: 500 } });
   const page = await context.newPage();
   const diagnostics = [];
+  const unexpectedRequests = [];
   page.on("pageerror", (error) => diagnostics.push(error.message));
   page.on("console", (message) => diagnostics.push(`${message.type()}:${message.text()}`));
+  page.on("request", (request) => { if (new URL(request.url()).origin !== url) unexpectedRequests.push(request.url()); });
   await page.goto(url); await page.waitForFunction(() => window.__K_NEX_SKIN_READY__ === true).catch((error) => { throw new Error(`Theme Skin fixture did not become ready: ${error.message}; ${diagnostics.join(" | ")}`); });
   const root = page.locator("#root"); const button = page.getByRole("button", { name: "Save sales view" });
   assert.equal(await root.getAttribute("data-skin-generation"), "skin-browser-1");
@@ -43,18 +45,31 @@ try {
   assert.equal(await root.evaluate((element) => getComputedStyle(element).backgroundColor), "rgb(17, 17, 17)");
   assert.equal(await page.evaluate(() => window.__K_NEX_SKIN_SAME_DOCUMENT__), true);
   assert.equal(await page.evaluate(() => window.__K_NEX_BAD_SKIN_REJECTED__), true);
+  assert.equal(await page.evaluate(() => window.__K_NEX_ATTACK_SKIN_REJECTED__), true, "Escaped URL and cascade bypass skin was accepted.");
+  assert.deepEqual(unexpectedRequests, [], "Theme Skin emitted unexpected network requests.");
   const after = createHash("sha256").update(await page.screenshot()).digest("hex");
   assert.notEqual(after, before, "Old and new skin visual captures were identical.");
   await context.close();
 
   const reduced = await browser.newContext({ reducedMotion: "reduce" });
   const reducedPage = await reduced.newPage(); await reducedPage.goto(url); await reducedPage.waitForFunction(() => window.__K_NEX_SKIN_READY__ === true);
+  assert.equal(await reducedPage.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches), true);
   assert.equal(await reducedPage.getByRole("button", { name: "Save sales view" }).evaluate((element) => getComputedStyle(element).transitionDuration), "0s");
   await reduced.close();
 
   const forced = await browser.newContext({ forcedColors: "active" });
   const forcedPage = await forced.newPage(); await forcedPage.goto(url); await forcedPage.waitForFunction(() => window.__K_NEX_SKIN_READY__ === true);
-  assert.notEqual(await forcedPage.getByRole("button", { name: "Save sales view" }).evaluate((element) => getComputedStyle(element).borderTopStyle), "none");
+  assert.equal(await forcedPage.evaluate(() => matchMedia("(forced-colors: active)").matches), true);
+  await forcedPage.keyboard.press("Tab");
+  const forcedColors = await forcedPage.getByRole("button", { name: "Save sales view" }).evaluate((element) => {
+    const probe = document.createElement("span"); probe.style.color = "CanvasText"; document.body.append(probe);
+    const canvasText = getComputedStyle(probe).color; probe.remove();
+    const style = getComputedStyle(element);
+    return { border: style.borderTopColor, outline: style.outlineColor, outlineStyle: style.outlineStyle, canvasText };
+  });
+  assert.equal(forcedColors.border, forcedColors.canvasText, "Host forced-color border guard was overridden.");
+  assert.equal(forcedColors.outline, forcedColors.canvasText, "Host forced-color focus guard was overridden.");
+  assert.notEqual(forcedColors.outlineStyle, "none", "Host forced-color focus outline was removed.");
   await forced.close();
   process.stdout.write("P9_THEME_SKIN_BROWSER_PASS\n");
 } finally {

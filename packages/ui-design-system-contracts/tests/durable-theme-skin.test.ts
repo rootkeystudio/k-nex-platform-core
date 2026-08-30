@@ -10,14 +10,11 @@ const authority: DurableThemeSkinAuthority = {
   artifactDigest: `sha256:${"a".repeat(64)}`, manifestDigest: `sha256:${"b".repeat(64)}`, catalogDigest: `sha256:${"c".repeat(64)}`,
   provenanceDigest: `sha256:${"d".repeat(64)}`, sbomDigest: `sha256:${"e".repeat(64)}`, sourceCommit: "0123456789abcdef0123456789abcdef01234567"
 };
-const css = `:--k-nex-theme-root{background:var(--k-nex-color-background)}
-:--k-nex-theme-root [data-k-nex-primitive="button"]:focus-visible{outline:3px solid var(--k-nex-focus-ring)}
-@media (prefers-reduced-motion: reduce){:--k-nex-theme-root *{transition-duration:0ms!important}}
-@media (forced-colors: active){:--k-nex-theme-root [data-k-nex-primitive="button"]{border-color:CanvasText;outline-color:CanvasText}}`;
+const css = `:--k-nex-theme-root{background:var(--k-nex-skin-color-background)}`;
 const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0h1v1H0z"/></svg>');
 const skinManifest = {
   schemaVersion: 1, deliveryClass: "theme-skin", id: authority.extensionId, displayName: "Durable proof", version: "1.0.0", runtimeAbi: "1.0.0",
-  profileCompatibility: { schemaVersion: 1 }, tokens: { "--k-nex-color-background": "#ffffff", "--k-nex-color-foreground": "#111111", "--k-nex-color-accent": "#005fcc", "--k-nex-focus-ring": "#000000", "--k-nex-motion-duration": "120ms" },
+  profileCompatibility: { schemaVersion: 1 }, tokens: { "--k-nex-skin-color-background": "#ffffff", "--k-nex-skin-color-foreground": "#111111", "--k-nex-skin-color-accent": "#0088cc", "--k-nex-skin-focus-ring": "#000000", "--k-nex-skin-motion-duration": "120ms" },
   palettes: { "skin.default": {} }, recipes: { surface: "skin.surface" }, stylesheets: ["styles/skin.css"], profileMigrations: [], assets: [{ path: "assets/grid.svg", digest: sha256(svg) }], localization: [],
   resourceBudget: { maxBundleBytes: 1_048_576, maxAssetBytes: 262_144, maxCssBytes: 65_536 }
 };

@@ -1,6 +1,7 @@
 import * as z from "zod";
 
 import { MillisecondTimestampSchema } from "./event.js";
+import { ThemeSkinTokenValueSchema } from "./extension-runtime.js";
 import { ExactSemverSchema, PluginIdSchema, ResourceIdSchema, ThemeSkinIdSchema, identityPatterns } from "./identity.js";
 
 export const themeSurfaces = ["admin", "public"] as const;
@@ -14,13 +15,14 @@ const generationIdSchema = z.string().regex(/^[a-z][a-z0-9-]{2,127}$/u);
 const profileIdSchema = z.string().min(1).max(128).regex(new RegExp(identityPatterns.resource));
 const paletteIdSchema = z.string().min(1).max(64).regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/);
 const unsafeTokenKey = /(?:^|\.)(?:css|class|classname|style|import|function|secret|password|credential|token|fonturl)(?:\.|$)/i;
-const unsafeTokenString = /(?:https?:\/\/|data:|javascript:|@import|url\s*\(|[{};])/i;
-const skinTokenNameSchema = z.string().regex(/^--k-nex-[a-z0-9-]{1,80}$/u);
+const skinTokenNameSchema = z.string().regex(/^--k-nex-skin-[a-z0-9-]{1,75}$/u);
+const themeProfileCssValuePattern = /^(?:#[0-9A-Fa-f]{3}|#[0-9A-Fa-f]{4}|#[0-9A-Fa-f]{6}|#[0-9A-Fa-f]{8}|(?:0|[1-9]\d{0,3})(?:ms|px|rem|em|%|deg)?)(?: (?:#[0-9A-Fa-f]{3}|#[0-9A-Fa-f]{4}|#[0-9A-Fa-f]{6}|#[0-9A-Fa-f]{8}|(?:0|[1-9]\d{0,3})(?:ms|px|rem|em|%|deg)?)){0,3}$/u;
+const ThemeProfileCssValueSchema = z.string().min(1).max(256).regex(themeProfileCssValuePattern, "Theme token strings must be bounded literal CSS values.");
 
 export const ThemeProfileTokenValueSchema = z.union([
   z.number().finite(),
   z.boolean(),
-  z.string().min(1).max(256).refine((value) => !unsafeTokenString.test(value), "Theme token strings cannot contain URLs, imports, scripts, or arbitrary CSS declarations.")
+  ThemeProfileCssValueSchema
 ]);
 
 export const ThemeProfileValuesSchema = z.record(tokenIdSchema, ThemeProfileTokenValueSchema).superRefine((values, context) => {
@@ -35,7 +37,7 @@ export const ThemeSkinProfileSelectionSchema = z.strictObject({
   generationId: generationIdSchema,
   version: ExactSemverSchema,
   palette: ResourceIdSchema,
-  values: z.record(skinTokenNameSchema, z.string().min(1).max(256).refine((value) => !unsafeTokenString.test(value), "Skin token strings cannot contain URLs, imports, scripts, or arbitrary CSS declarations.")).check((context) => {
+  values: z.record(skinTokenNameSchema, ThemeSkinTokenValueSchema).check((context) => {
     if (Object.keys(context.value).length > 128) context.issues.push({ code: "custom", input: context.value, message: "Theme Skin profiles may override at most 128 tokens." });
   }).meta({ maxProperties: 128 })
 });

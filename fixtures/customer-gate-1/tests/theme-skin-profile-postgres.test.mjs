@@ -42,18 +42,15 @@ function signedCatalog(entries) {
   return { schemaVersion: 1, signer: catalogSigner, payload, signature: sign(null, Buffer.from(canonicalJson(payload)), catalogKeys.privateKey).toString("base64") };
 }
 
-const skinCss = `:--k-nex-theme-root{background:var(--k-nex-color-background);background-image:asset("assets/grid.svg");color:var(--k-nex-color-foreground)}
-:--k-nex-theme-root [data-k-nex-primitive="button"]{background:var(--k-nex-color-accent);border-color:var(--k-nex-color-foreground);transition-duration:var(--k-nex-motion-duration)}
-:--k-nex-theme-root [data-k-nex-primitive="button"]:focus-visible{outline:3px solid var(--k-nex-focus-ring)}
-@media (prefers-reduced-motion: reduce){:--k-nex-theme-root *{transition-duration:0ms!important}}
-@media (forced-colors: active){:--k-nex-theme-root [data-k-nex-primitive="button"]{border-color:CanvasText;outline-color:CanvasText}}`;
+const skinCss = `:--k-nex-theme-root{background:var(--k-nex-skin-color-background);color:var(--k-nex-skin-color-foreground)}
+:--k-nex-theme-root [data-k-nex-primitive="button"]{background:var(--k-nex-skin-color-background);border-color:var(--k-nex-skin-color-foreground);transition-duration:var(--k-nex-skin-motion-duration);padding:8px}`;
 
 function releaseDefinition(generation, version, accent) {
   const asset = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 4"><path d="M0 0h4v4H0z"/></svg>');
   const themeManifest = {
     schemaVersion: 1, deliveryClass: "theme-skin", id: "skin.neobrutalism", displayName: "Neobrutalism", version, runtimeAbi: "1.0.0",
     profileCompatibility: { schemaVersion: 1 },
-    tokens: { "--k-nex-color-background": "#ffffff", "--k-nex-color-foreground": "#111111", "--k-nex-color-accent": accent, "--k-nex-focus-ring": "#000000", "--k-nex-motion-duration": "120ms" },
+    tokens: { "--k-nex-skin-color-background": "#ffffff", "--k-nex-skin-color-foreground": "#111111", "--k-nex-skin-color-accent": accent, "--k-nex-skin-focus-ring": "#000000", "--k-nex-skin-motion-duration": "120ms" },
     palettes: { "skin.bright": {} }, recipes: { surface: "skin.surface", focusRing: "skin.focus", accent: "skin.accent" },
     stylesheets: ["styles/skin.css"], profileMigrations: [], assets: [{ path: "assets/grid.svg", digest: sha256(asset) }], localization: [],
     resourceBudget: { maxBundleBytes: 1_048_576, maxAssetBytes: 262_144, maxCssBytes: 65_536 }
@@ -125,14 +122,14 @@ async function assertRestoredSkinBrowser(resolved, themeProfile, assetBytes) {
     assert.equal(await root.getAttribute("data-skin-generation"), resolved.generation.generationId);
     assert.equal(await root.getAttribute("data-k-nex-theme-profile"), themeProfile.revision.id);
     assert.equal(await root.evaluate((element) => getComputedStyle(element).backgroundColor), "rgb(255, 255, 255)");
-    assert.ok((await root.evaluate((element) => getComputedStyle(element).backgroundImage)).includes(assetPath), "Restored skin asset was not applied to the document.");
-    assert.equal(await button.evaluate((element) => getComputedStyle(element).backgroundColor), "rgb(0, 79, 168)");
+    assert.equal(await root.evaluate((element) => getComputedStyle(element).backgroundImage), "none", "Untrusted Skin CSS placed an asset behind semantic content.");
+    assert.equal(await button.evaluate((element) => getComputedStyle(element).backgroundColor), "rgb(255, 255, 255)");
     await button.focus();
     assert.equal(await button.evaluate((element) => getComputedStyle(element).outlineStyle), "solid");
     assert.equal(await button.evaluate((element) => getComputedStyle(element).outlineColor), "rgb(0, 0, 0)");
     assert.match(await button.ariaSnapshot(), /button "Save sales view"/);
     assert.equal(await page.locator("script").count(), 0, "Theme Skin presentation loaded executable document code.");
-    assert.equal(assetRequested, true, "Restored skin asset was not requested from its generation-bound handle.");
+    assert.equal(assetRequested, false, "Untrusted Skin CSS requested an asset handle.");
     await context.close();
 
     const reduced = await browser.newContext({ reducedMotion: "reduce" });
@@ -158,7 +155,7 @@ test("delivers Theme Skins from signed durable artifacts through PluginManager i
   const clock = { now: () => new Date() };
   try {
     await boot(container.getConnectionUri());
-    const releases = [releaseDefinition(1, "1.0.0", "#005fcc"), releaseDefinition(2, "1.1.0", "#004fa8")];
+    const releases = [releaseDefinition(1, "1.0.0", "#0088cc"), releaseDefinition(2, "1.1.0", "#0099cc")];
     const catalog = signedCatalog(releases.map((release) => release.entry));
     const verifier = new ArtifactVerifier(new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, new InMemoryCatalogCheckpointStore()), { [publisher.identity]: publisher.publicKey });
     const artifacts = new PostgresVerifiedArtifactStore(pool, verifier);

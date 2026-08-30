@@ -14,7 +14,7 @@
     "generationId": "skin-generation-1",
     "id": "skin.neobrutalism",
     "palette": "skin.bright",
-    "values": { "--k-nex-color-accent": "#004fa8" },
+    "values": { "--k-nex-skin-color-accent": "#0088cc" },
     "version": "1.0.0"
   },
   "surface": "public",

@@ -172,17 +172,6 @@ function themeProfileJsonSchema(): unknown {
   const values = referencedDefinition(generated, "values");
   values.maxProperties = 128;
   values.propertyNames = { allOf: [values.propertyNames, { not: { pattern: "(?:^|\\.)(?:css|class|classname|style|import|function|secret|password|credential|token|fonturl)(?:\\.|$)" } }] };
-  const valueReference = values.additionalProperties?.$ref as string | undefined;
-  const valueDefinition = valueReference?.startsWith("#/$defs/") ? generated.$defs?.[valueReference.slice("#/$defs/".length)] : undefined;
-  const stringValue = valueDefinition?.anyOf?.find((candidate: Record<string, unknown>) => candidate.type === "string");
-  if (stringValue === undefined) throw new TypeError("Generated theme token string definition is missing.");
-  stringValue.pattern = "^(?![\\s\\S]*(?:[hH][tT][tT][pP][sS]?:\\/\\/|[dD][aA][tT][aA]:|[jJ][aA][vV][aA][sS][cC][rR][iI][pP][tT]:|@[iI][mM][pP][oO][rR][tT]|[uU][rR][lL]\\s*\\(|[{};]))[\\s\\S]+$";
-  const skin = referencedDefinition(generated, "skin");
-  const skinValues = skin.properties?.values as Record<string, any> | undefined;
-  const skinValueReference = skinValues?.additionalProperties?.$ref as string | undefined;
-  const skinValueDefinition = skinValueReference?.startsWith("#/$defs/") ? generated.$defs?.[skinValueReference.slice("#/$defs/".length)] : undefined;
-  if (skinValueDefinition === undefined) throw new TypeError("Generated Theme Skin token string definition is missing.");
-  skinValueDefinition.pattern = stringValue.pattern;
   return generated;
 }
 

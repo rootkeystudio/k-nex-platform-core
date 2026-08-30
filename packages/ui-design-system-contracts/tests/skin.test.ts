@@ -14,19 +14,16 @@ const digest = (character: string) => `sha256:${character.repeat(64)}`;
 const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 4"><path d="M0 0h4v4H0z"/></svg>');
 
 const tokens = {
-  "--k-nex-color-background": "#ffffff",
-  "--k-nex-color-foreground": "#111111",
-  "--k-nex-color-accent": "#005fcc",
-  "--k-nex-focus-ring": "#000000",
-  "--k-nex-motion-duration": "120ms"
+  "--k-nex-skin-color-background": "#ffffff",
+  "--k-nex-skin-color-foreground": "#111111",
+  "--k-nex-skin-color-accent": "#0088cc",
+  "--k-nex-skin-focus-ring": "#000000",
+  "--k-nex-skin-motion-duration": "120ms"
 };
 
-const css = `${themeRootSelector}{background:var(--k-nex-color-background);color:var(--k-nex-color-foreground)}
-${themeRootSelector} [data-k-nex-primitive="card"]{background-image:asset("assets/grid.svg");border:1px solid var(--k-nex-color-foreground)}
-${themeRootSelector} [data-k-nex-primitive="button"]{min-width:44px;min-height:44px;transition-duration:var(--k-nex-motion-duration)}
-${themeRootSelector} [data-focus-visible]{outline:3px solid var(--k-nex-focus-ring);outline-offset:2px}
-@media (prefers-reduced-motion: reduce){${themeRootSelector} *{transition-duration:0ms!important}}
-@media (forced-colors: active){${themeRootSelector} [data-k-nex-primitive="button"]{border-color:CanvasText;outline-color:CanvasText}}`;
+const css = `${themeRootSelector}{background:var(--k-nex-skin-color-background);color:var(--k-nex-skin-color-foreground)}
+${themeRootSelector} [data-k-nex-primitive="card"]{border:1px solid var(--k-nex-skin-color-foreground);padding:8px}
+${themeRootSelector} [data-k-nex-primitive="button"]{transition-duration:var(--k-nex-skin-motion-duration);padding:8px}`;
 
 function skin(overrides: Partial<ThemeSkinGenerationInput> = {}): ThemeSkinGenerationInput {
   return {
@@ -45,7 +42,7 @@ function skin(overrides: Partial<ThemeSkinGenerationInput> = {}): ThemeSkinGener
 
 const profile = {
   schemaVersion: 1, id: "theme-profile.public-default", surface: "public", themeId: "theme.minimal", themeVersion: "1.0.0", palette: "default", mode: "light", values: {},
-  skin: { id: "skin.neobrutalism", generationId: "skin-generation-1", version: "1.0.0", palette: "skin.bright", values: { "--k-nex-color-accent": "#004fa8" } },
+  skin: { id: "skin.neobrutalism", generationId: "skin-generation-1", version: "1.0.0", palette: "skin.bright", values: { "--k-nex-skin-color-accent": "#0088cc" } },
   revision: { id: "theme-revision.public-1", number: 1, state: "published", createdAt: "2026-08-29T09:00:00.000Z", publishedAt: "2026-08-29T09:01:00.000Z" }
 } as const;
 
@@ -66,8 +63,12 @@ describe("live Theme Skin generations", () => {
     const presentation = createThemePresentation(registry.resolveProfile(profile));
     expect(profile).toEqual(before);
     expect(presentation).toMatchObject({ skinId: "skin.neobrutalism", skinGenerationId: "skin-generation-1", skinRecipes: { surface: "skin.surface", focusRing: "skin.focus-ring" } });
-    expect(presentation.cssText).toContain("--k-nex-color-accent:#004fa8");
-    expect(presentation.cssText).toContain(`/api/extensions/skins/skin.neobrutalism/assets/skin-generation-1/${digest("a")}/grid.svg`);
+    expect(presentation.cssText).toContain("--k-nex-skin-color-accent:#0088cc");
+    expect(presentation.cssText).toContain("@media (prefers-reduced-motion: reduce)");
+    expect(presentation.cssText).toContain("::before");
+    expect(presentation.cssText).toContain("::after");
+    expect(presentation.cssText).toContain("outline:3px solid var(--k-nex-skin-focus-ring)!important");
+    expect(presentation.cssText).toContain(" :focus-visible:where");
     expect(presentation.cssText).not.toContain(themeRootSelector);
     expect(Object.isFrozen(generation.manifest)).toBe(true);
   });
@@ -77,39 +78,78 @@ describe("live Theme Skin generations", () => {
     const skins = createThemeSkinRegistry([generation]);
     expect(() => skins.resolve({ ...profile.skin, generationId: "skin-generation-2" })).toThrow(/not active or retained/);
     expect(() => skins.resolve({ ...profile.skin, palette: "skin.missing" })).toThrow(/palette/);
-    expect(() => skins.resolve({ ...profile.skin, values: { "--k-nex-unknown": "#000000" } })).toThrow(/undeclared/);
+    expect(() => skins.resolve({ ...profile.skin, values: { "--k-nex-skin-unknown": "#000000" } })).toThrow(/undeclared/);
     const incompatible = createThemeSkinGeneration(skin({ manifest: { ...(skin().manifest as object), profileCompatibility: { schemaVersion: 2 } } }));
     expect(() => createThemeSkinRegistry([incompatible]).resolve({ ...profile.skin, generationId: incompatible.generationId })).toThrow(/migration/);
     const migrated = createThemeSkinGeneration(skin({ manifest: {
       ...(skin().manifest as object), profileCompatibility: { schemaVersion: 2 },
-      profileMigrations: [{ fromSchemaVersion: 1, toSchemaVersion: 2, renames: [{ from: "--k-nex-accent-old", to: "--k-nex-color-accent" }] }]
+      profileMigrations: [{ fromSchemaVersion: 1, toSchemaVersion: 2, renames: [{ from: "--k-nex-skin-accent-old", to: "--k-nex-skin-color-accent" }] }]
     } }));
-    expect(createThemeSkinRegistry([migrated]).resolve({ ...profile.skin, values: { "--k-nex-accent-old": "#004fa8" } }).tokens["--k-nex-color-accent"]).toBe("#004fa8");
+    expect(createThemeSkinRegistry([migrated]).resolve({ ...profile.skin, values: { "--k-nex-skin-accent-old": "#0088cc" } }).tokens["--k-nex-skin-color-accent"]).toBe("#0088cc");
   });
 
   it.each([
     ["global selector", css.replace(`${themeRootSelector}{`, "body{")],
-    ["remote URL", css.replace("asset(\"assets/grid.svg\")", "url(https://evil.test/grid.svg)")],
+    ["remote URL", `${css}\n${themeRootSelector}{background-image:url(https://evil.test/grid.svg)}`],
     ["forbidden property", css.replace("background:var", "position:fixed;background:var")],
-    ["missing reduced motion", css.replace(/@media \(prefers-reduced-motion: reduce\)\{[^}]+\}\}/u, "")],
-    ["missing forced colors", css.replace(/@media \(forced-colors: active\)\{[^}]+\}\}/u, "")],
-    ["missing focus", css.replace(`${themeRootSelector} [data-focus-visible]{outline:3px solid var(--k-nex-focus-ring);outline-offset:2px}\n`, "")]
+    ["host guard media", `${css}\n@media (prefers-reduced-motion: reduce){${themeRootSelector} *{transition-duration:0ms!important}}`],
+    ["host focus outline", `${css}\n${themeRootSelector} [data-focus-visible]{outline:3px solid currentColor}`],
+    ["supports block", `${css}\n@supports (display: grid){${themeRootSelector}{padding:8px}}`],
+    ["nested media", `${css}\n@media (min-width: 1px){@media (prefers-color-scheme: dark){${themeRootSelector}{padding:8px}}}`]
   ])("rejects %s CSS before activation", (_name, stylesheet) => {
     expect(() => createThemeSkinGeneration(skin({ stylesheets: { "styles/skin.css": stylesheet } }))).toThrow();
   });
 
   it("does not accept accessibility evidence hidden in comments", () => {
     const spoofed = `${themeRootSelector}{display:block}/* @media (prefers-reduced-motion: reduce){x{transition-duration:0ms!important}} @media (forced-colors: active){x{outline-color:CanvasText}} ${themeRootSelector} [data-focus-visible]{outline:solid} */`;
-    expect(() => createThemeSkinGeneration(skin({ stylesheets: { "styles/skin.css": spoofed } }))).toThrow(/reduced motion/);
+    expect(() => createThemeSkinGeneration(skin({ stylesheets: { "styles/skin.css": spoofed } }))).toThrow(/comment|declaration-breaking/i);
+  });
+
+  it.each([
+    ["escaped remote url", `${css}\n${themeRootSelector}{background:\\75\\72\\6c(//evil.test/theme.css)}`],
+    ["escaped import", `${css}\n@\\69mport url(//evil.test/theme.css);`],
+    ["comment smuggling", `${css}\n${themeRootSelector}{color:var(--k-nex-skin-color-foreground)/*;background:url(//evil.test)*/}`],
+    ["quoted value", `${css}\n${themeRootSelector}{color:"#ffffff"}`],
+    ["custom-property smuggling", `${css}\n${themeRootSelector}{--k-nex-skin-focus-ring:#ffffff}`],
+    ["focus cascade override", `${css}\n${themeRootSelector} [data-focus-visible]{outline:none!important}`],
+    ["motion cascade override", `${css}\n${themeRootSelector} [data-k-nex-primitive="button"]{transition-duration:999s!important}`],
+    ["forced-colors cascade override", `${css}\n@media (forced-colors: active){${themeRootSelector} [data-k-nex-primitive="button"]{border-color:var(--k-nex-skin-color-accent)}}`],
+    ["asset placement", `${css}\n${themeRootSelector}{background-image:asset("assets/grid.svg")}`],
+    ["literal contrast override", `${css}\n${themeRootSelector}{background:#ffffff;color:#ffffff}`],
+    ["link affordance removal", `${css}\n${themeRootSelector} a{text-decoration:none}`],
+    ["undeclared CSS variable", css.replace("var(--k-nex-skin-color-background)", "var(--k-nex-skin-missing)")],
+    ["CSS variable fallback", css.replace("var(--k-nex-skin-color-background)", "var(--k-nex-skin-color-background,#ffffff)")],
+    ["nested CSS variable", css.replace("var(--k-nex-skin-color-background)", "var(var(--k-nex-skin-color-background))")],
+    ["hidden focus target", `${css}\n${themeRootSelector} [data-k-nex-primitive="button"]{display:none}`],
+    ["case-insensitive hidden focus target", `${css}\n${themeRootSelector} [data-k-nex-primitive="button"]{display:NoNe}`],
+    ["transparent focus target", `${css}\n${themeRootSelector} [data-k-nex-primitive="button"]{opacity:calc(0)}`],
+    ["collapsed focus target", `${css}\n${themeRootSelector} [data-k-nex-primitive="button"]{min-width:0PX}`],
+    ["hidden text", `${css}\n${themeRootSelector}{font-size:0;line-height:0}`],
+    ["pseudo-element motion", `${css}\n${themeRootSelector} input::file-selector-button{transition-duration:var(--k-nex-skin-motion-duration)}`],
+    ["legacy pseudo-element motion", `${css}\n${themeRootSelector} [data-k-nex-primitive="button"]:before{transition-duration:var(--k-nex-skin-motion-duration)}`]
+  ])("rejects CSS lexical and cascade smuggling: %s", (_name, stylesheet) => {
+    expect(() => createThemeSkinGeneration(skin({ stylesheets: { "styles/skin.css": stylesheet } }))).toThrow();
+  });
+
+  it("allows signed accent backgrounds only when the required contrast pair is valid", () => {
+    const stylesheet = `${css}\n${themeRootSelector} [data-k-nex-primitive="button"]{background:var(--k-nex-skin-color-accent);color:var(--k-nex-skin-color-foreground)}`;
+    expect(() => createThemeSkinGeneration(skin({ stylesheets: { "styles/skin.css": stylesheet } }))).not.toThrow();
   });
 
   it("rejects bad contrast, executable SVG, mixed inventories, and executable skin fields", () => {
     const original = skin();
-    const badContrast = skin({ manifest: { ...(original.manifest as object), tokens: { ...tokens, "--k-nex-color-foreground": "#fefefe" } } });
+    const badContrast = skin({ manifest: { ...(original.manifest as object), tokens: { ...tokens, "--k-nex-skin-color-foreground": "#fefefe" } } });
     expect(() => createThemeSkinGeneration(badContrast)).toThrow(/contrast/);
+    expect(() => createThemeSkinGeneration(skin({ manifest: { ...(original.manifest as object), tokens: { ...tokens, "--k-nex-skin-color-accent": "#005fcc" } } }))).toThrow(/foreground-on-accent/);
+    expect(() => createThemeSkinGeneration(skin({ manifest: { ...(original.manifest as object), tokens: { ...tokens, "--k-nex-skin-focus-ring": "#0088cc" } } }))).toThrow(/focus-on-accent/);
     expect(() => createThemeSkinGeneration(skin({ assets: { "assets/grid.svg": { digest: digest("a"), contentType: "image/svg+xml", bytes: new TextEncoder().encode("<svg><script>alert(1)</script></svg>") } } }))).toThrow(/executable/);
     expect(() => createThemeSkinGeneration(skin({ stylesheets: { "styles/other.css": css } }))).toThrow(/inventory/);
     expect(() => createThemeSkinGeneration(skin({ manifest: { ...(skin().manifest as object), entrypoints: { ui: ["ui/theme.mjs"] } } }))).toThrow();
+  });
+
+  it("keeps palette and variable namespaces bound to the base manifest tokens", () => {
+    expect(() => createThemeSkinGeneration(skin({ manifest: { ...(skin().manifest as object), tokens: { ...tokens, "--k-nex-public-color-background": "#ffffff" } } }))).toThrow();
+    expect(() => createThemeSkinGeneration(skin({ manifest: { ...(skin().manifest as object), palettes: { "skin.bright": { "--k-nex-skin-palette-only": "#ffffff" } } } }))).toThrow(/unknown token/);
   });
 
   it.each([
@@ -119,5 +159,15 @@ describe("live Theme Skin generations", () => {
     '<svg><path style="fill:url(https://evil.test/payload)"/></svg>'
   ])("rejects SVG network references at activation: %s", (unsafe) => {
     expect(() => createThemeSkinGeneration(skin({ assets: { "assets/grid.svg": { digest: digest("a"), contentType: "image/svg+xml", bytes: new TextEncoder().encode(unsafe) } } }))).toThrow(/SVG.*remote|SVG.*unsafe/i);
+  });
+
+  it.each([
+    ["unbounded padding", `${css}\n${themeRootSelector}{padding:999px}`],
+    ["layered shadow", `${css}\n${themeRootSelector}{box-shadow:1px 1px var(--k-nex-skin-color-accent),1px 1px var(--k-nex-skin-color-accent)}`],
+    ["inset contrast cover", `${css}\n${themeRootSelector}{box-shadow:inset 0px 0px 0px 99px var(--k-nex-skin-color-foreground)}`],
+    ["sibling contrast cover", `${css}\n${themeRootSelector} [data-k-nex-primitive="button"]{box-shadow:0px 0px 0px 99px var(--k-nex-skin-color-foreground)}`],
+    ["unbounded letter spacing", `${css}\n${themeRootSelector}{letter-spacing:999px}`]
+  ])("rejects unbounded visual values: %s", (_name, stylesheet) => {
+    expect(() => createThemeSkinGeneration(skin({ stylesheets: { "styles/skin.css": stylesheet } }))).toThrow();
   });
 });

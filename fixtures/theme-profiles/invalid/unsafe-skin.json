@@ -13,7 +13,7 @@
     "generationId": "skin-generation-1",
     "id": "skin.neobrutalism",
     "palette": "skin.bright",
-    "values": { "--k-nex-color-accent": "url(https://evil.test/x.svg)" },
+    "values": { "--k-nex-skin-color-accent": "url(https://evil.test/x.svg)" },
     "version": "1.0.0"
   },
   "surface": "public",

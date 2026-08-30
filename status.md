@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Reconciled failed static promotion commits before cleanup: passive targets are retired only when authoritative state proves they are neither active nor retained, while uncertain or concurrent committed targets are preserved.
+Closed Theme Skin value and CSS authority: disjoint bounded tokens, strict Zod/JSON Schema parity, host-owned accessibility guards, contrast-safe styling, and rejection of executable, occluding, or network-capable CSS.
 
 ## Validation
 
-Node 24.19.0: runtime build passed; focused static deployment supervisor tests passed (18), covering rejected promotion cleanup, concurrent active/retained wins, reconciliation failure, and cleanup failure; `git diff --check` passed. No Docker containers remain.
+Node 24.19.0: contracts build/test passed (175); UI design-system build/test passed (56 plus boundary check); architecture build/validation/test passed (25 plus generated/Ajv/repository checks); real Chromium Theme Skin proof passed; focused durable Postgres backup/restore proof passed; `git diff --check` and independent focused review passed. No Docker containers remain.
 
 ## Next
 
-Close Theme Skin value/CSS authority gaps and strict exact-SemVer grammar, then continue the remaining Ultra lifecycle/security findings in atomic tasks.
+Correct strict exact-SemVer grammar, then continue the remaining Ultra lifecycle/security findings in atomic tasks.
 
 ## Blockers
 

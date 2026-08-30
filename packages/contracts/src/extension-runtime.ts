@@ -171,9 +171,12 @@ export const HotApplicationManifestSchema = z.strictObject({
   healthChecks: uniqueArray(z.strictObject({ id: ResourceIdSchema, entrypoint: HotApplicationServerEntrypointSchema })).max(8)
 }).meta({ $id: "https://schemas.k-nex.dev/hot-application-manifest/v1.json", title: "K-Nex Hot Application Manifest v1" });
 
-const tokenNameSchema = z.string().regex(/^--k-nex-[a-z0-9-]{1,80}$/u);
-const tokenValueSchema = z.string().min(1).max(256).regex(/^(?![\s\S]*(?:@import|url\s*\(|javascript:|https?:|data:|[{};]))[\s\S]+$/iu);
-const tokenMapSchema = z.record(tokenNameSchema, tokenValueSchema).check((context) => {
+const tokenNameSchema = z.string().regex(/^--k-nex-skin-[a-z0-9-]{1,75}$/u);
+const themeSkinCssValuePattern = /^(?:#[0-9A-Fa-f]{3}|#[0-9A-Fa-f]{4}|#[0-9A-Fa-f]{6}|#[0-9A-Fa-f]{8}|(?:0|[1-9]\d{0,3})(?:ms|px|rem|em|%|deg)?)$/u;
+
+/** A single literal color or bounded dimension; indirection cannot smuggle another CSS value. */
+export const ThemeSkinTokenValueSchema = z.string().min(1).max(256).regex(themeSkinCssValuePattern, "Skin token strings must be a single literal color or bounded dimension.");
+const tokenMapSchema = z.record(tokenNameSchema, ThemeSkinTokenValueSchema).check((context) => {
   if (Object.keys(context.value).length > 128) context.issues.push({ code: "custom", input: context.value, message: "A skin token map may contain at most 128 tokens." });
 }).meta({ maxProperties: 128 });
 const paletteMapSchema = z.record(ResourceIdSchema, tokenMapSchema).check((context) => {

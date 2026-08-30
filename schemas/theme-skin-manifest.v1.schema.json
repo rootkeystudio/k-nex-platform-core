@@ -237,13 +237,13 @@
       "type": "object"
     },
     "__schema8": {
-      "pattern": "^--k-nex-[a-z0-9-]{1,80}$",
+      "pattern": "^--k-nex-skin-[a-z0-9-]{1,75}$",
       "type": "string"
     },
     "__schema9": {
       "maxLength": 256,
       "minLength": 1,
-      "pattern": "^(?![\\s\\S]*(?:@import|url\\s*\\(|javascript:|https?:|data:|[{};]))[\\s\\S]+$",
+      "pattern": "^(?:#[0-9A-Fa-f]{3}|#[0-9A-Fa-f]{4}|#[0-9A-Fa-f]{6}|#[0-9A-Fa-f]{8}|(?:0|[1-9]\\d{0,3})(?:ms|px|rem|em|%|deg)?)$",
       "type": "string"
     }
   },

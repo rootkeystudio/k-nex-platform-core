@@ -5,17 +5,15 @@ import { scopeThemeCss, themeRootSelector } from "./theme-css.js";
 
 const recordId = /^[a-z][a-z0-9-]{2,127}$/u;
 const digest = /^sha256:[0-9a-f]{64}$/u;
-const assetCall = /asset\("(assets\/[A-Za-z0-9._/-]+)"\)/gu;
-const forbiddenCss = /(?:@import|javascript:|expression\s*\(|behavior\s*:|url\s*\(|https?:|data:)/iu;
-const allowedFunctions = new Set(["asset", "calc", "clamp", "hsl", "hsla", "linear-gradient", "max", "min", "rgb", "rgba", "var"]);
+const allowedFunctions = new Set(["var"]);
 const allowedProperties = new Set([
-  "align-items", "background", "background-color", "background-image", "border", "border-color", "border-radius", "border-style", "border-width",
-  "box-shadow", "color", "display", "flex-direction", "font-size", "font-weight", "gap", "grid-template-columns", "height",
-  "justify-content", "letter-spacing", "line-height", "margin", "margin-block", "margin-inline", "max-height", "max-width", "min-height", "min-width",
-  "opacity", "outline", "outline-color", "outline-offset", "outline-style", "outline-width", "padding", "padding-block", "padding-inline",
-  "text-align", "text-decoration", "text-transform", "transform", "transition", "transition-duration", "width"
+  "background", "background-color", "border", "border-color", "border-radius", "border-style", "border-width",
+  "color", "font-weight", "gap", "letter-spacing", "padding", "padding-block", "padding-inline",
+  "text-align", "text-decoration", "text-transform", "transition-duration"
 ]);
-const requiredTokens = ["--k-nex-color-background", "--k-nex-color-foreground", "--k-nex-color-accent", "--k-nex-focus-ring", "--k-nex-motion-duration"] as const;
+const requiredTokens = ["--k-nex-skin-color-background", "--k-nex-skin-color-foreground", "--k-nex-skin-color-accent", "--k-nex-skin-focus-ring", "--k-nex-skin-motion-duration"] as const;
+const safeCssValue = /^[A-Za-z0-9#%(),.+\-*/: ]+$/u;
+const hostAccessibilityCss = `@media (prefers-reduced-motion: reduce){${themeRootSelector},${themeRootSelector} *,${themeRootSelector} *::before,${themeRootSelector} *::after{transition-duration:0ms!important}}\n${themeRootSelector} [data-focus-visible],${themeRootSelector} :focus-visible{outline:3px solid var(--k-nex-skin-focus-ring)!important;outline-offset:2px!important}\n@media (forced-colors: active){${themeRootSelector} [data-k-nex-primitive]{border-color:CanvasText!important;outline-color:CanvasText!important}${themeRootSelector} [data-focus-visible],${themeRootSelector} :focus-visible{outline:3px solid CanvasText!important;outline-offset:2px!important}}`;
 
 export interface ThemeSkinAsset {
   readonly digest: string;
@@ -79,70 +77,106 @@ function contrast(left: string, right: string): number {
 
 function assertAccessibleTokens(tokens: Readonly<Record<string, string>>, palette: string): void {
   if (requiredTokens.some((token) => tokens[token] === undefined)) throw new TypeError(`Theme Skin palette ${palette} is missing required accessibility tokens.`);
-  if (contrast(tokens["--k-nex-color-foreground"]!, tokens["--k-nex-color-background"]!) < 4.5) throw new TypeError(`Theme Skin palette ${palette} has insufficient text contrast.`);
-  if (contrast(tokens["--k-nex-color-accent"]!, tokens["--k-nex-color-background"]!) < 3) throw new TypeError(`Theme Skin palette ${palette} has insufficient accent contrast.`);
-  if (contrast(tokens["--k-nex-focus-ring"]!, tokens["--k-nex-color-background"]!) < 3) throw new TypeError(`Theme Skin palette ${palette} has insufficient focus contrast.`);
-  if (!/^(?:0|[1-9]\d{0,3})ms$/u.test(tokens["--k-nex-motion-duration"]!)) throw new TypeError(`Theme Skin palette ${palette} has an invalid motion duration.`);
+  if (contrast(tokens["--k-nex-skin-color-foreground"]!, tokens["--k-nex-skin-color-background"]!) < 4.5) throw new TypeError(`Theme Skin palette ${palette} has insufficient text contrast.`);
+  if (contrast(tokens["--k-nex-skin-color-accent"]!, tokens["--k-nex-skin-color-background"]!) < 3) throw new TypeError(`Theme Skin palette ${palette} has insufficient accent contrast.`);
+  if (contrast(tokens["--k-nex-skin-color-foreground"]!, tokens["--k-nex-skin-color-accent"]!) < 4.5) throw new TypeError(`Theme Skin palette ${palette} has insufficient foreground-on-accent contrast.`);
+  if (contrast(tokens["--k-nex-skin-focus-ring"]!, tokens["--k-nex-skin-color-background"]!) < 3) throw new TypeError(`Theme Skin palette ${palette} has insufficient focus contrast.`);
+  if (contrast(tokens["--k-nex-skin-focus-ring"]!, tokens["--k-nex-skin-color-accent"]!) < 3) throw new TypeError(`Theme Skin palette ${palette} has insufficient focus-on-accent contrast.`);
+  if (!/^(?:0|[1-9]\d{0,3})ms$/u.test(tokens["--k-nex-skin-motion-duration"]!)) throw new TypeError(`Theme Skin palette ${palette} has an invalid motion duration.`);
 }
 
 function assetHandle(manifest: ThemeSkinManifest, generationId: string, path: string, assetDigest: string): string {
   return `/api/extensions/skins/${manifest.id}/assets/${generationId}/${assetDigest}/${path.slice("assets/".length)}`;
 }
 
-function insideMedia(declaration: postcss.Declaration, params: string): boolean {
-  let node = declaration.parent as postcss.Node | undefined;
-  while (node) {
-    if (node.type === "atrule") {
-      const atRule = node as postcss.AtRule;
-      if (atRule.name === "media" && atRule.params === params) return true;
-    }
-    node = node.parent as postcss.Node | undefined;
+function assertSafeCssValue(value: string, declaredTokens: ReadonlySet<string>): void {
+  if (!safeCssValue.test(value) || value.includes("//") || /(?:\\|\/\*|\*\/|@import|(?:javascript|https?|data):)/iu.test(value)) {
+    throw new TypeError("Theme Skin CSS value is not a closed safe value.");
   }
-  return false;
+  let depth = 0;
+  for (const character of value) {
+    if (character === "(") depth += 1;
+    if (character === ")" && --depth < 0) throw new TypeError("Theme Skin CSS value has unbalanced functions.");
+  }
+  if (depth !== 0) throw new TypeError("Theme Skin CSS value has unbalanced functions.");
+  for (const match of value.matchAll(/([a-z-]+)\(/giu)) {
+    if (!allowedFunctions.has(match[1]!.toLowerCase())) throw new TypeError(`Theme Skin CSS function is forbidden: ${match[1]}.`);
+  }
+  const variables = [...value.matchAll(/var\(([^()]*)\)/giu)];
+  if (variables.length !== [...value.matchAll(/var\(/giu)].length) throw new TypeError("Theme Skin CSS variables cannot be nested.");
+  for (const match of variables) {
+    if (!/^--k-nex-skin-[a-z0-9-]{1,75}$/u.test(match[1]!) || !declaredTokens.has(match[1]!)) throw new TypeError("Theme Skin CSS variables must reference declared tokens directly.");
+  }
 }
 
-function compileCss(manifest: ThemeSkinManifest, stylesheets: Readonly<Record<string, string>>, handles: Readonly<Record<string, string>>): string {
+function assertDeclaration(declaration: postcss.Declaration, declaredTokens: ReadonlySet<string>): void {
+  if (!allowedProperties.has(declaration.prop)) throw new TypeError(`Theme Skin property is forbidden: ${declaration.prop}.`);
+  if (declaration.important) throw new TypeError("Theme Skin CSS cannot use !important.");
+  assertSafeCssValue(declaration.value, declaredTokens);
+  if (declaration.prop === "transition-duration" && declaration.value !== "var(--k-nex-skin-motion-duration)") throw new TypeError("Theme Skin transitions must use the validated motion token.");
+  if (declaration.prop === "color" && declaration.value !== "var(--k-nex-skin-color-foreground)") throw new TypeError("Theme Skin text color must use the validated foreground token.");
+  if (["background", "background-color"].includes(declaration.prop) && !/^var\(--k-nex-skin-color-(?:background|accent)\)$/u.test(declaration.value)) {
+    throw new TypeError("Theme Skin backgrounds must use validated color tokens.");
+  }
+  if (declaration.prop === "border" && !/^[1-9]\d?px (?:solid|dashed) var\(--k-nex-skin-color-(?:foreground|accent)\)$/u.test(declaration.value)) throw new TypeError("Theme Skin borders must use validated color tokens.");
+  if (declaration.prop === "border-style" && !/^(?:solid|dashed)$/u.test(declaration.value)) throw new TypeError("Theme Skin borders must remain visible.");
+  if (declaration.prop === "border-width" && !/^[1-9]\d?px$/u.test(declaration.value)) throw new TypeError("Theme Skin borders must remain visible.");
+  if (declaration.prop === "border-color" && !/^var\(--k-nex-skin-color-(?:foreground|accent)\)$/u.test(declaration.value)) throw new TypeError("Theme Skin border color must use a validated color token.");
+  const pixel = "(?:0|[1-9]\\d?)px";
+  const box = new RegExp(`^${pixel}(?: ${pixel}){0,3}$`, "u");
+  if (["padding", "padding-block", "padding-inline"].includes(declaration.prop) && !box.test(declaration.value)) throw new TypeError("Theme Skin padding must be a bounded literal.");
+  if (declaration.prop === "gap" && !new RegExp(`^${pixel}$`, "u").test(declaration.value)) throw new TypeError("Theme Skin gap must be a bounded literal.");
+  if (declaration.prop === "border-radius" && !/^(?:0|[1-9]\d?)px$/u.test(declaration.value) && !/^(?:[1-9]\d?|100)%$/u.test(declaration.value)) throw new TypeError("Theme Skin border radius must be bounded.");
+  if (declaration.prop === "letter-spacing" && !/^(?:0|[1-9]\d?)px$/u.test(declaration.value)) throw new TypeError("Theme Skin letter spacing must be bounded.");
+  if (declaration.prop === "font-weight" && !/^(?:400|500|600|700)$/u.test(declaration.value)) throw new TypeError("Theme Skin font weight is forbidden.");
+  if (declaration.prop === "text-align" && !/^(?:start|center|end)$/u.test(declaration.value)) throw new TypeError("Theme Skin text alignment is forbidden.");
+  if (declaration.prop === "text-decoration" && declaration.value !== "underline") throw new TypeError("Theme Skin text decoration cannot remove affordances.");
+  if (declaration.prop === "text-transform" && !/^(?:none|uppercase|lowercase)$/u.test(declaration.value)) throw new TypeError("Theme Skin text transform is forbidden.");
+}
+
+function compileCss(manifest: ThemeSkinManifest, stylesheets: Readonly<Record<string, string>>): string {
   if (canonicalJson(Object.keys(stylesheets).sort()) !== canonicalJson([...manifest.stylesheets].sort())) throw new TypeError("Theme Skin stylesheet inventory differs from its manifest.");
   const source = manifest.stylesheets.map((path) => stylesheets[path]!).join("\n");
   if (new TextEncoder().encode(source).byteLength > manifest.resourceBudget.maxCssBytes) throw new TypeError("Theme Skin CSS exceeds maxCssBytes.");
-  if (forbiddenCss.test(source)) throw new TypeError("Theme Skin CSS contains a remote or executable construct.");
-  const root = postcss.parse(source);
+  if (/(?:\\|\/\*|\*\/)/u.test(source)) throw new TypeError("Theme Skin CSS contains an escaped or declaration-breaking token.");
+  let root: postcss.Root;
+  try { root = postcss.parse(source); } catch { throw new TypeError("Theme Skin CSS is invalid."); }
+  const declaredTokens = new Set(Object.keys(manifest.tokens));
   let rules = 0; let declarations = 0; let selectors = 0;
-  let reducedMotion = false; let forcedColors = false; let visibleFocus = false;
+  root.walkComments(() => { throw new TypeError("Theme Skin CSS comments are forbidden."); });
   root.walkAtRules((rule) => {
-    if (rule.name !== "media" && rule.name !== "supports") throw new TypeError(`Theme Skin at-rule is forbidden: @${rule.name}.`);
+    if (rule.name !== "media" || rule.parent?.type !== "root") throw new TypeError(`Theme Skin at-rule is forbidden: @${rule.name}.`);
     if (rule.name === "media" && !/^(?:\((?:prefers-reduced-motion|forced-colors|prefers-color-scheme|min-width|max-width): [A-Za-z0-9 .-]+\))(?: and \((?:min-width|max-width): [A-Za-z0-9 .-]+\))*$/u.test(rule.params)) {
       throw new TypeError(`Theme Skin media query is forbidden: ${rule.params}.`);
     }
-    if (/url|import|selector/iu.test(rule.params)) throw new TypeError("Theme Skin conditional CSS contains a forbidden function.");
+    if (rule.params === "(prefers-reduced-motion: reduce)" || rule.params === "(forced-colors: active)") throw new TypeError("Theme Skin CSS cannot redefine host accessibility guards.");
+    if (/(?:\\|\/\*|\*\/|url|import|selector|(?:javascript|https?|data):)/iu.test(rule.params)) throw new TypeError("Theme Skin conditional CSS contains a forbidden function.");
   });
-  root.walkRules((rule) => { rules += 1; selectors += rule.selectors.length; });
+  root.walkRules((rule) => {
+    if (/::|:(?:before|after|first-letter|first-line)(?![a-z-])/iu.test(rule.selector)) throw new TypeError("Theme Skin CSS cannot target pseudo-elements.");
+    rules += 1; selectors += rule.selectors.length;
+  });
   root.walkDecls((declaration) => {
     declarations += 1;
-    if (!declaration.prop.startsWith("--k-nex-") && !allowedProperties.has(declaration.prop)) throw new TypeError(`Theme Skin property is forbidden: ${declaration.prop}.`);
-    for (const match of declaration.value.matchAll(/([a-z-]+)\(/giu)) if (!allowedFunctions.has(match[1]!.toLowerCase())) throw new TypeError(`Theme Skin CSS function is forbidden: ${match[1]}.`);
-    const rule = declaration.parent?.type === "rule" ? declaration.parent : undefined;
-    if (declaration.prop === "transition-duration" && declaration.value === "0ms" && declaration.important && insideMedia(declaration, "(prefers-reduced-motion: reduce)")) reducedMotion = true;
-    if (["border-color", "outline", "outline-color"].includes(declaration.prop) && /\bCanvasText\b/u.test(declaration.value) && insideMedia(declaration, "(forced-colors: active)")) forcedColors = true;
-    if (rule && /(?:\[data-focus-visible\]|:focus-visible)/u.test(rule.selector) && ["outline", "outline-color"].includes(declaration.prop) && declaration.value !== "none") visibleFocus = true;
+    assertDeclaration(declaration, declaredTokens);
   });
   if (rules > 512 || selectors > 1024 || declarations > 2048) throw new TypeError("Theme Skin CSS exceeds its rule complexity budget.");
-  if (!reducedMotion) throw new TypeError("Theme Skin CSS must preserve reduced motion.");
-  if (!forcedColors) throw new TypeError("Theme Skin CSS must preserve forced colors.");
-  if (!visibleFocus) throw new TypeError("Theme Skin CSS must preserve a visible focus indicator.");
-  const rewritten = root.toString().replace(assetCall, (_match, path: string) => {
-    const handle = handles[path];
-    if (!handle) throw new TypeError(`Theme Skin CSS references an undeclared asset: ${path}.`);
-    return `url("${handle}")`;
-  });
-  if (/asset\s*\(/iu.test(rewritten)) throw new TypeError("Theme Skin CSS contains a malformed asset reference.");
-  return scopeThemeCss(rewritten);
+  const rewritten = root.toString();
+  if (/asset\s*\(/iu.test(rewritten)) throw new TypeError("Theme Skin CSS cannot place assets in CSS.");
+  const scoped = scopeThemeCss(rewritten);
+  const finalRoot = postcss.parse(scoped);
+  finalRoot.walkComments(() => { throw new TypeError("Generated Theme Skin CSS contains a comment."); });
+  finalRoot.walkDecls((declaration) => assertDeclaration(declaration, declaredTokens));
+  return `${scoped}${scopeThemeCss(hostAccessibilityCss)}`;
 }
 
 export function createThemeSkinGeneration(input: ThemeSkinGenerationInput): ThemeSkinGeneration {
   const manifest = ThemeSkinManifestSchema.parse(input.manifest);
   if (!recordId.test(input.generationId)) throw new TypeError("Theme Skin generation identity is invalid.");
-  for (const palette of Object.keys(manifest.palettes)) assertAccessibleTokens({ ...manifest.tokens, ...manifest.palettes[palette] }, palette);
+  for (const [palette, values] of Object.entries(manifest.palettes)) {
+    if (Object.keys(values).some((token) => !Object.hasOwn(manifest.tokens, token))) throw new TypeError(`Theme Skin palette ${palette} declares an unknown token.`);
+    assertAccessibleTokens({ ...manifest.tokens, ...values }, palette);
+  }
   const declaredAssets = new Map(manifest.assets.map((asset) => [asset.path, asset.digest]));
   if (canonicalJson([...declaredAssets.keys()].sort()) !== canonicalJson(Object.keys(input.assets).sort())) throw new TypeError("Theme Skin asset inventory differs from its manifest.");
   let assetBytes = 0;
@@ -155,7 +189,7 @@ export function createThemeSkinGeneration(input: ThemeSkinGenerationInput): Them
     handles[path] = assetHandle(manifest, input.generationId, path, asset.digest);
   }
   if (assetBytes > manifest.resourceBudget.maxAssetBytes) throw new TypeError("Theme Skin assets exceed maxAssetBytes.");
-  const scopedCss = compileCss(manifest, input.stylesheets, handles);
+  const scopedCss = compileCss(manifest, input.stylesheets);
   return deepFreeze({ manifest: structuredClone(manifest), generationId: input.generationId, scopedCss, assetHandles: handles });
 }
 

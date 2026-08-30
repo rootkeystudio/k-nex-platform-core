@@ -13,21 +13,19 @@ declare global {
     __K_NEX_SKIN_SWITCH__?: () => void;
     __K_NEX_SKIN_BUTTON__?: Element;
     __K_NEX_SKIN_SAME_DOCUMENT__?: boolean;
+    __K_NEX_ATTACK_SKIN_REJECTED__?: boolean;
   }
 }
 
 const tokens = (background: string, foreground: string, accent: string, focus: string) => ({
-  "--k-nex-color-background": background, "--k-nex-color-foreground": foreground,
-  "--k-nex-color-accent": accent, "--k-nex-focus-ring": focus, "--k-nex-motion-duration": "120ms"
+  "--k-nex-skin-color-background": background, "--k-nex-skin-color-foreground": foreground,
+  "--k-nex-skin-color-accent": accent, "--k-nex-skin-focus-ring": focus, "--k-nex-skin-motion-duration": "120ms"
 });
-const css = `${themeRootSelector}{background:var(--k-nex-color-background);color:var(--k-nex-color-foreground)}
-${themeRootSelector} [data-k-nex-primitive="card"]{background:var(--k-nex-color-background);border:2px solid var(--k-nex-color-foreground)}
-${themeRootSelector} [data-k-nex-primitive="button"]{min-width:44px;min-height:44px;background:var(--k-nex-color-accent);color:var(--k-nex-color-foreground);transition-duration:var(--k-nex-motion-duration)}
-${themeRootSelector} [data-k-nex-primitive="button"]:focus-visible{outline:3px solid var(--k-nex-focus-ring);outline-offset:2px}
-@media (prefers-reduced-motion: reduce){${themeRootSelector} *{transition-duration:0ms!important}}
-@media (forced-colors: active){${themeRootSelector} [data-k-nex-primitive="button"],${themeRootSelector} [data-k-nex-primitive="card"]{border-color:CanvasText;outline-color:CanvasText}}`;
+const css = `${themeRootSelector}{background:var(--k-nex-skin-color-background);color:var(--k-nex-skin-color-foreground)}
+${themeRootSelector} [data-k-nex-primitive="card"]{background:var(--k-nex-skin-color-background);border:2px solid var(--k-nex-skin-color-foreground)}
+${themeRootSelector} [data-k-nex-primitive="button"]{background:var(--k-nex-skin-color-background);color:var(--k-nex-skin-color-foreground);transition-duration:var(--k-nex-skin-motion-duration);padding:8px}`;
 
-function generation(generationId: string, version: string, colorTokens: ReturnType<typeof tokens>) {
+function generation(generationId: string, version: string, colorTokens: ReturnType<typeof tokens>, stylesheet = css) {
   return createThemeSkinGeneration({
     generationId,
     manifest: {
@@ -36,12 +34,12 @@ function generation(generationId: string, version: string, colorTokens: ReturnTy
       stylesheets: ["styles/skin.css"], profileMigrations: [], assets: [], localization: [],
       resourceBudget: { maxBundleBytes: 1_048_576, maxAssetBytes: 1, maxCssBytes: 65_536 }
     },
-    stylesheets: { "styles/skin.css": css }, assets: {}
+    stylesheets: { "styles/skin.css": stylesheet }, assets: {}
   });
 }
 
-const oldGeneration = generation("skin-browser-1", "1.0.0", tokens("#ffffff", "#111111", "#005fcc", "#000000"));
-const newGeneration = generation("skin-browser-2", "1.1.0", tokens("#111111", "#ffffff", "#8a5cff", "#00ffff"));
+const oldGeneration = generation("skin-browser-1", "1.0.0", tokens("#ffffff", "#111111", "#0088cc", "#000000"));
+const newGeneration = generation("skin-browser-2", "1.1.0", tokens("#111111", "#ffffff", "#804dcc", "#ffffff"));
 const skins = createThemeSkinRegistry([oldGeneration, newGeneration]);
 const registry = createThemeRegistry([minimalThemePackage], skins);
 const profile = (generationId: string, version: string, revision: number) => ({
@@ -87,5 +85,12 @@ requestAnimationFrame(() => {
   } catch {
     window.__K_NEX_BAD_SKIN_REJECTED__ = true;
   }
+  window.__K_NEX_ATTACK_SKIN_REJECTED__ = [
+    `${css}\n${themeRootSelector}{background:\\75\\72\\6c(//evil.test/theme.css)}`,
+    `${css}\n${themeRootSelector} [data-k-nex-primitive="button"]:focus-visible{outline:none!important}`,
+    `${css}\n${themeRootSelector} input::file-selector-button{transition-duration:var(--k-nex-skin-motion-duration)}`
+  ].every((stylesheet, index) => {
+    try { generation(`skin-browser-attack-${index}`, "2.0.0", tokens("#ffffff", "#111111", "#0088cc", "#000000"), stylesheet); return false; } catch { return true; }
+  });
   window.__K_NEX_SKIN_READY__ = true;
 });

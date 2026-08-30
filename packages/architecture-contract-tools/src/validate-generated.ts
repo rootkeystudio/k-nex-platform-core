@@ -503,6 +503,15 @@ for (const path of extensionValidFixtures) {
   if (!zodValid || !jsonSchemaValid) throw new Error(`Valid ${path} must pass both Zod and generated JSON Schema validation: ${ajv.errorsText(extensionValidators[name].errors)}`);
 }
 
+const themeSkinManifest = await load<Record<string, unknown>>("fixtures/extensions/valid/theme-skin.manifest.json");
+for (const [token, valid] of [["#ABC", true], ["#ABCD", true], ["#A1B2C3", true], ["#A1B2C3D4", true], ["#ABCDE", false], ["#A1B2C3D", false]] as const) {
+  const value = structuredClone(themeSkinManifest);
+  (value.tokens as Record<string, string>)["--k-nex-skin-color-accent"] = token;
+  const zodValid = ThemeSkinManifestSchema.safeParse(value).success;
+  const jsonSchemaValid = extensionValidators["theme-skin-manifest"](value);
+  if (zodValid !== valid || jsonSchemaValid !== valid || zodValid !== jsonSchemaValid) throw new Error(`Theme Skin token ${token} must preserve Zod/Ajv parity.`);
+}
+
 const extensionInvalidFixtures = await load<Record<string, { schema: ExtensionSchemaName }>>("fixtures/extensions/expected-diagnostics.json");
 for (const [path, declaration] of Object.entries(extensionInvalidFixtures)) {
   const value = await load(path);

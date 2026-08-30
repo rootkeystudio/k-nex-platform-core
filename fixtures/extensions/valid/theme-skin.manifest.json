@@ -5,7 +5,7 @@
   "id": "skin.neobrutalism",
   "deliveryClass": "theme-skin",
   "localization": [{ "locale": "en", "path": "locales/en.json" }],
-  "palettes": { "skin.bright": { "--k-nex-color-background": "#fff200" } },
+  "palettes": { "skin.bright": { "--k-nex-skin-color-background": "#fff200" } },
   "profileCompatibility": { "schemaVersion": 1 },
   "profileMigrations": [],
   "recipes": { "accent": "skin.accent", "focusRing": "skin.focus-ring", "surface": "skin.surface" },
@@ -14,11 +14,11 @@
   "schemaVersion": 1,
   "stylesheets": ["styles/neobrutalism.css"],
   "tokens": {
-    "--k-nex-color-accent": "#005fcc",
-    "--k-nex-color-background": "#ffffff",
-    "--k-nex-color-foreground": "#111111",
-    "--k-nex-focus-ring": "#000000",
-    "--k-nex-motion-duration": "120ms"
+    "--k-nex-skin-color-accent": "#0088cc",
+    "--k-nex-skin-color-background": "#ffffff",
+    "--k-nex-skin-color-foreground": "#111111",
+    "--k-nex-skin-focus-ring": "#000000",
+    "--k-nex-skin-motion-duration": "120ms"
   },
   "version": "1.0.0"
 }
