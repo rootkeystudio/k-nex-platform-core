@@ -3,19 +3,19 @@
 - **Updated:** 2026-08-30
 - **Phase:** Phase 9 — Dynamic Application Runtime and Zero-Downtime Delivery
 - **Active task:** P9.10 — Gate 9 closeout
-- **State:** In progress
+- **State:** Ready for phase review
 
 ## Last completed
 
-Remediated both P9.10 review blockers with a pre-install fixed-route host whose served script digest remains identical through update and rollback, plus four autonomous child-process consumers.
+Completed P9.10 remediation with a pre-install fixed-route host whose served script remains identical through update and rollback, plus four autonomous child-process consumers.
 
 ## Validation
 
-Node 24.19.0: all four focused PostgreSQL/runtime tests passed, including the fixed-route and four-process journey in 29 seconds; complete Gate 9 remains pending on the remediation commit.
+Node 24.19.0: all executable Gate 9 proofs passed; the terminal check rejected only the intentionally in-progress closeout decision before this review-ready commit.
 
 ## Next
 
-Commit the focused remediation, rerun complete Gate 9 on exact HEAD, then request fresh Sol-high review.
+Run complete Gate 9 on this exact closeout head, request fresh Sol-high blocking review, then open the Phase 9 pull request if it passes.
 
 ## Blockers
 
