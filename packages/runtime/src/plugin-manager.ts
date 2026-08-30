@@ -318,6 +318,7 @@ export interface RuntimeExtensionStore {
   observeActiveGeneration(applicationId: string, environment: string, extension: ExtensionIdentity): Promise<ActiveGenerationObservation>;
   acquireGenerationLease(input: Readonly<{ applicationId: string; environment: string; extension: ExtensionIdentity; generationId: string; holder: string; ttlMs: number }>): Promise<string>;
   releaseGenerationLease(leaseId: string): Promise<void>;
+  hasLiveGenerationLease(input: Readonly<{ applicationId: string; environment: string; extension: ExtensionIdentity; generationId: string; leaseId: string }>): Promise<boolean>;
   liveGenerationLeaseCount(applicationId: string, environment: string, extension: ExtensionIdentity, generationId: string): Promise<number>;
 }
 

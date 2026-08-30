@@ -23,6 +23,7 @@ export interface HotApplicationServerInvocation {
   readonly artifactDigest: `sha256:${string}`;
   readonly serverEntrypoint: string;
   readonly invocationId: string;
+  readonly drainLeaseId: string;
   readonly token: string;
   readonly input: unknown;
   readonly limits: Readonly<{
@@ -129,6 +130,7 @@ export class AuthoritativeHotApplicationRuntime {
           artifactDigest: active.artifactDigest as `sha256:${string}`,
           serverEntrypoint,
           invocationId,
+          drainLeaseId: leaseId,
           token,
           input: request.input,
           limits: {

@@ -141,7 +141,7 @@ describe("durable dynamic generation adapters", () => {
     })).resolves.toEqual({ generationId: authority.generationId, artifactDigest: authority.artifactDigest });
 
     expect(tokens.issue).toHaveBeenCalledWith(expect.objectContaining({ generationId: authority.generationId, grants: manifestCapabilities, ttlMs: 6_000, drainLeaseId: expect.stringMatching(/^lease-/u) }));
-    expect(runner.invoke).toHaveBeenCalledWith(expect.objectContaining({ generationId: authority.generationId, artifactDigest: authority.artifactDigest, serverEntrypoint: "server/main.mjs", limits: {
+    expect(runner.invoke).toHaveBeenCalledWith(expect.objectContaining({ generationId: authority.generationId, artifactDigest: authority.artifactDigest, serverEntrypoint: "server/main.mjs", drainLeaseId: "lease-00000000-0000-4000-8000-000000000000", limits: {
       cpuMilliCores: 300, memoryMiB: 64, processes: 3, openFiles: 32, tempBytes: 65_536,
       wallTimeMs: 5_000, inputBytes: 65_536, outputBytes: 131_072, logBytes: 65_536, maxConcurrency: 4
     } }));

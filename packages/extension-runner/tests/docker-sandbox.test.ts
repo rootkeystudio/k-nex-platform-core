@@ -43,6 +43,7 @@ let sequence = 0;
 async function request(store: VerifiedArtifactStore, generationId: string, source: string, options: Readonly<{ appId?: string; wallTimeMs?: number }> = {}) {
   sequence += 1;
   const invocationId = `runner-invocation-${sequence}`;
+  const drainLeaseId = `lease-00000000-0000-4000-8000-${sequence.toString(16).padStart(12, "0")}`;
   const target = identity(generationId, options.appId);
   const manifest = {
     schemaVersion: 1 as const, deliveryClass: "hot-application" as const, id: target.appId, displayName: "Runner fixture", version: "1.0.0", runtimeAbi: "1.0.0",
@@ -67,9 +68,9 @@ async function request(store: VerifiedArtifactStore, generationId: string, sourc
   const token = tokens.issue({
     tokenId: `runner-token-${sequence}`, ...target, invocationId,
     actor: { principalId: "user:one", effectiveActorId: "user:one" }, correlationId: `runner-correlation-${sequence}`,
-    grants: [{ kind: "records", required: true, reason: "Read fixture records.", operations: ["query"], resources: [{ id: "sales.tasks", version: 1 }] }], ttlMs: 30_000
+    drainLeaseId, grants: [{ kind: "records", required: true, reason: "Read fixture records.", operations: ["query"], resources: [{ id: "sales.tasks", version: 1 }] }], ttlMs: 30_000
   });
-  return { owner: { applicationId: owner.applicationId, environment: owner.environment, deliveryClass: owner.deliveryClass, extensionId: owner.extensionId }, generationId, artifactDigest: verified.artifactDigest, serverEntrypoint: "server/main.mjs", invocationId, token, input: { marker: invocationId }, limits: { ...limits, ...(options.wallTimeMs === undefined ? {} : { wallTimeMs: options.wallTimeMs }) } };
+  return { owner: { applicationId: owner.applicationId, environment: owner.environment, deliveryClass: owner.deliveryClass, extensionId: owner.extensionId }, generationId, artifactDigest: verified.artifactDigest, serverEntrypoint: "server/main.mjs", invocationId, drainLeaseId, token, input: { marker: invocationId }, limits: { ...limits, ...(options.wallTimeMs === undefined ? {} : { wallTimeMs: options.wallTimeMs }) } };
 }
 
 async function inspectContainer(name: string): Promise<Record<string, any>> {
@@ -91,7 +92,8 @@ function supervisor(observations: Record<string, Record<string, any>>, store: Ve
   return new DockerHotApplicationSandboxSupervisor(gateway, {
     quarantine(generation, reason) { quarantines.push(`${generation.generationId}:${reason}`); }
   }, {
-    active() { return Promise.resolve(true); }
+    active() { return Promise.resolve(true); },
+    admit() { return Promise.resolve(true); }
   }, {
     async started(generation, name) { observations[name] = await inspectContainer(name); started?.(generation, name); },
     stopped() {}

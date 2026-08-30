@@ -28,12 +28,6 @@ export class PostgresExtensionCapabilityAuthority implements ExtensionCapability
 
   async reauthorize(claims: ExtensionCapabilityClaims): Promise<boolean> {
     if (!await this.principals.reauthorize(claims)) return false;
-    const active = await this.pool.query<{ active_generation_id: string | null }>(
-      `select active_generation_id from runtime_extensions
-       where application_id=$1 and environment=$2 and delivery_class='hot-application' and extension_id=$3 and disposition='active'`,
-      [claims.applicationId, claims.environment, claims.appId]
-    );
-    if (active.rows[0]?.active_generation_id === claims.generationId) return true;
     if (!claims.drainLeaseId) return false;
     const lease = await this.pool.query<{ lease_id: string }>(
       `select lease_id from runtime_extension_generation_leases

@@ -511,7 +511,22 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     });
     const dockerExecutions = [];
     const runnerQuarantine = new RuntimeStoreRunnerQuarantineAdapter(storeB);
-    const runner = new DockerHotApplicationSandboxSupervisor(runnerGateway, runnerQuarantine, runnerQuarantine, {
+    let admissionBarrier;
+    const runnerAuthority = {
+      active: (runnerIdentity) => runnerQuarantine.active(runnerIdentity),
+      async admit(runnerIdentity, drainLeaseId) {
+        if (admissionBarrier?.generationId === runnerIdentity.generationId) {
+          admissionBarrier.leaseId ??= drainLeaseId;
+          admissionBarrier.reached.resolve();
+          await admissionBarrier.release.promise;
+          const admitted = await runnerQuarantine.admit(runnerIdentity, drainLeaseId);
+          admissionBarrier.admitted = admitted;
+          return admitted;
+        }
+        return runnerQuarantine.admit(runnerIdentity, drainLeaseId);
+      }
+    };
+    const runner = new DockerHotApplicationSandboxSupervisor(runnerGateway, runnerQuarantine, runnerAuthority, {
       started(identity) { dockerExecutions.push({ event: "started", generationId: identity.generationId }); },
       stopped(identity) { dockerExecutions.push({ event: "stopped", generationId: identity.generationId }); }
     }, artifacts.runnerSource());
@@ -594,19 +609,61 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
 
     const update = await manager.plan(request("update", "1.1.0", installed.revisionAfter));
     await manager.stage(update.operationId);
-    const draining = invokeTraffic({ delayMs: 500 });
-    for (let attempt = 0; attempt < 100 && await storeA.liveGenerationLeaseCount("customer-alpha", "production", identity, installed.generationId) === 0; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-    assert.equal(await storeA.liveGenerationLeaseCount("customer-alpha", "production", identity, installed.generationId) >= 1, true, "the old generation drain must hold a durable lease while independent consumers are polling");
     trafficProbe.transition("update", [installed.generationId, "app-sales-live-generation-2"]);
     await trafficProbe.waitForGeneration("update", installed.generationId);
-    const [updated, drained] = await Promise.all([manager.activate(update.operationId), draining]);
+    const barrier = {
+      generationId: installed.generationId,
+      reached: Promise.withResolvers(),
+      release: Promise.withResolvers(),
+      admitted: undefined,
+      leaseId: undefined
+    };
+    admissionBarrier = barrier;
+    const draining = invokeTraffic({ delayMs: 500 });
+    await barrier.reached.promise;
+    assert.equal(await storeA.liveGenerationLeaseCount("customer-alpha", "production", identity, installed.generationId) >= 1, true, "the old generation invocation must hold a durable lease before cutover");
+    assert.equal(await runnerQuarantine.admit({ applicationId: "customer-beta", environment: "production", appId: identity.id, generationId: installed.generationId }, barrier.leaseId), false, "a live lease must not admit another application");
+    assert.equal(await runnerQuarantine.admit({ applicationId: "customer-alpha", environment: "production", appId: "app.sales-other", generationId: installed.generationId }, barrier.leaseId), false, "a live lease must not admit another application extension");
+    assert.equal(await runnerQuarantine.admit({ applicationId: "customer-alpha", environment: "production", appId: identity.id, generationId: "app-sales-live-generation-2" }, barrier.leaseId), false, "a live lease must not admit another generation");
+    let updated;
+    try {
+      updated = await manager.activate(update.operationId);
+    } finally {
+      admissionBarrier = undefined;
+      barrier.release.resolve();
+    }
+    const drained = await draining;
+    assert.equal(barrier.admitted, true, "the old generation must be admitted through its exact live lease after cutover");
     await trafficProbe.waitForGeneration("update", updated.generationId);
     assert.equal(updated.previousGenerationId, installed.generationId);
     assert.deepEqual(await manager.activate(update.operationId), updated);
     assert.deepEqual(drained, { marker: "sales-live-v1", generationId: installed.generationId });
     assert.equal(await storeA.liveGenerationLeaseCount("customer-alpha", "production", identity, installed.generationId), 0);
+    const staleInvocationId = "stale-drain-invocation";
+    const staleToken = capabilityTokens.issue({
+      tokenId: "stale-drain-token",
+      applicationId: "customer-alpha",
+      environment: "production",
+      appId: identity.id,
+      generationId: installed.generationId,
+      invocationId: staleInvocationId,
+      actor: { principalId: "user:one", effectiveActorId: "user:one" },
+      correlationId: "stale-drain-correlation",
+      drainLeaseId: barrier.leaseId,
+      grants: byGeneration.get(installed.generationId).bundle.manifest.capabilities,
+      ttlMs: 6_000
+    });
+    await assert.rejects(runner.invoke({
+      owner: { applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application", extensionId: identity.id },
+      generationId: installed.generationId,
+      artifactDigest: byGeneration.get(installed.generationId).authority.artifactDigest,
+      serverEntrypoint: "server/main.mjs",
+      invocationId: staleInvocationId,
+      drainLeaseId: barrier.leaseId,
+      token: staleToken,
+      input: {},
+      limits: { cpuMilliCores: 500, memoryMiB: 128, processes: 16, openFiles: 64, tempBytes: 1_048_576, wallTimeMs: 5_000, inputBytes: 65_536, outputBytes: 131_072, logBytes: 65_536, maxConcurrency: 4 }
+    }), { code: "GENERATION_QUARANTINED" });
     assert.equal(dockerExecutions.some((execution) => execution.event === "started" && execution.generationId === installed.generationId), true);
     assert.equal(dockerExecutions.some((execution) => execution.event === "stopped" && execution.generationId === installed.generationId), true);
     assert.equal((await storeB.observeActiveGeneration("customer-alpha", "production", identity)).generationId, updated.generationId);
@@ -728,7 +785,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
         startedGenerationIds: [...new Set(dockerExecutions.filter((execution) => execution.event === "started").map((execution) => execution.generationId))],
         stoppedGenerationIds: [...new Set(dockerExecutions.filter((execution) => execution.event === "stopped").map((execution) => execution.generationId))]
       },
-      oldGenerationDrain: { generationId: installed.generationId, leaseObserved: true, completed: true },
+      oldGenerationDrain: { generationId: installed.generationId, leaseObserved: true, runnerAdmissionBeforeCutover: true, staleLeaseDenied: true, completed: true },
       fixedRouteAuthority: {
         startedBeforeInstall: true,
         preInstallStatus: preInstallRoute.status,

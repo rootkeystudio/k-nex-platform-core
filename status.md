@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Invalidated stale Remote UI retirement callbacks with owner/generation-scoped tokens so rollback reactivation survives old timers and later drain windows cannot be shortened by an earlier cycle.
+Bound every Hot Application runner and production capability invocation to its exact live, owner/generation-scoped drain lease; active-generation state no longer bypasses an expired, released, or mismatched lease.
 
 ## Validation
 
-Node 24.19.0: focused Remote UI host tests passed (1 file, 11 tests); the worker's full UI runtime build and test passed (10 files, 62 tests); `git diff --check` passed.
+Node 24.19.0: runtime, runner, and Payload adapter builds passed; runner tests passed (2 files, 5 tests); focused runner-adapter tests passed (1 file, 2 tests); real PostgreSQL capability-authority test passed (1 test); `git diff --check` passed. Testcontainers left no containers.
 
 ## Next
 
-Complete durable drain-lease runner admission and the AJV/Remote UI route-authority follow-up, then implement operation-lease renewal.
+Complete the app-relative AJV/Remote UI route-authority conversion and its full PostgreSQL/browser proof, then address the remaining Ultra lifecycle/security findings.
 
 ## Blockers
 

@@ -947,6 +947,16 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
     await this.pool.query(`delete from runtime_extension_generation_leases where lease_id=$1`, [leaseId]);
   }
 
+  async hasLiveGenerationLease(input: Parameters<RuntimeExtensionStore["hasLiveGenerationLease"]>[0]): Promise<boolean> {
+    if (!validRecordId(input.generationId) || !/^lease-[0-9a-f-]{36}$/u.test(input.leaseId)) throw new TypeError("Generation drain lease identity is invalid.");
+    const result = await this.pool.query<{ lease_id: string }>(
+      `select lease_id from runtime_extension_generation_leases
+       where lease_id=$1 and application_id=$2 and environment=$3 and delivery_class=$4 and extension_id=$5 and generation_id=$6 and expires_at>$7`,
+      [input.leaseId, input.applicationId, input.environment, input.extension.deliveryClass, input.extension.id, input.generationId, timestamp(this.clock)]
+    );
+    return result.rows.length === 1;
+  }
+
   async liveGenerationLeaseCount(applicationId: string, environment: string, extension: Parameters<RuntimeExtensionStore["liveGenerationLeaseCount"]>[2], generationId: string): Promise<number> {
     const result = await this.pool.query<{ count: number }>(
       `select count(*)::int count from runtime_extension_generation_leases

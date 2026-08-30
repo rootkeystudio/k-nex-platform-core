@@ -43,6 +43,7 @@ export interface RunnerInvocationRequest {
   readonly artifactDigest: `sha256:${string}`;
   readonly serverEntrypoint: string;
   readonly invocationId: string;
+  readonly drainLeaseId: string;
   readonly token: string;
   readonly input: unknown;
   readonly limits: RunnerInvocationLimits;
@@ -65,6 +66,7 @@ export interface RunnerQuarantineSink {
 /** Durable inventory is the authority; container labels only locate candidates. */
 export interface RunnerGenerationAuthority {
   active(identity: RunnerGenerationIdentity): Promise<boolean>;
+  admit(identity: RunnerGenerationIdentity, drainLeaseId: string): Promise<boolean>;
 }
 
 export interface RunnerObservationSink {
@@ -111,6 +113,7 @@ const applicationPattern = /^[a-z][a-z0-9-]{2,127}$/u;
 const environmentPattern = /^[a-z][a-z0-9-]{1,63}$/u;
 const appPattern = /^app(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$/u;
 const recordPattern = /^[a-z][a-z0-9-]{2,127}$/u;
+const drainLeasePattern = /^lease-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/u;
 
 function generationKey(identity: RunnerGenerationIdentity): string {
   return `${identity.applicationId}/${identity.environment}/${identity.appId}/${identity.generationId}`;
@@ -136,7 +139,7 @@ function validateRequest(request: RunnerInvocationRequest): void {
   const limits = request.limits;
   if (!recordPattern.test(request.invocationId) ||
     request.owner.deliveryClass !== "hot-application" || !/^sha256:[0-9a-f]{64}$/u.test(request.artifactDigest) || !/^server\/[a-zA-Z0-9._/-]+\.mjs$/u.test(request.serverEntrypoint) || request.serverEntrypoint.includes("..") ||
-    request.token.length < 32 || request.token.length > 8192 || jsonBytes(request.input) > limits.inputBytes ||
+    !drainLeasePattern.test(request.drainLeaseId) || request.token.length < 32 || request.token.length > 8192 || jsonBytes(request.input) > limits.inputBytes ||
     !Number.isSafeInteger(limits.cpuMilliCores) || limits.cpuMilliCores < 1 || limits.cpuMilliCores > 2_000 ||
     !Number.isSafeInteger(limits.memoryMiB) || limits.memoryMiB < 16 || limits.memoryMiB > 512 ||
     !Number.isSafeInteger(limits.processes) || limits.processes < 1 || limits.processes > 256 ||
@@ -187,8 +190,9 @@ export class DockerHotApplicationSandboxSupervisor {
     if (request.signal?.aborted) throw new RunnerInvocationError("INVOCATION_TIMEOUT", "Runner invocation was aborted.");
     const runnerIdentity = identity(request);
     await this.start();
-    if (!await this.authority.active(runnerIdentity)) throw new RunnerInvocationError("GENERATION_QUARANTINED", "Runner generation is not authoritatively active.");
-    this.gateway.assertInvocationIdentity(request.token, { ...runnerIdentity, invocationId: request.invocationId });
+    const claims = this.gateway.assertInvocationIdentity(request.token, { ...runnerIdentity, invocationId: request.invocationId });
+    if (claims.drainLeaseId !== request.drainLeaseId) throw new RunnerInvocationError("INVOCATION_INVALID", "Runner invocation drain lease does not match its token.");
+    if (!await this.authority.admit(runnerIdentity, request.drainLeaseId)) throw new RunnerInvocationError("GENERATION_QUARANTINED", "Runner generation is not authoritatively admitted.");
     let source: string;
     try { source = (await this.artifacts.load({ owner: { ...request.owner, generationId: request.generationId }, artifactDigest: request.artifactDigest, serverEntrypoint: request.serverEntrypoint })).source; } catch {
       throw new RunnerInvocationError("INVOCATION_INVALID", "Runner artifact identity is not present in the verified inventory.");

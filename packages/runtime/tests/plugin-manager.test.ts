@@ -142,6 +142,7 @@ class MemoryStore implements RuntimeExtensionStore {
   async observeActiveGeneration() { return { revision: 0, inventoryRevision: 0 }; }
   async acquireGenerationLease() { return "lease-00000000-0000-4000-8000-000000000000"; }
   async releaseGenerationLease() {}
+  async hasLiveGenerationLease() { return false; }
   async liveGenerationLeaseCount() { return 0; }
 }
 
