@@ -20,8 +20,62 @@ const run = (command, args, options = {}) => {
   return result.stdout;
 };
 
+const dockerSocket = "/var/run/docker.sock";
+
+const dockremapRootUid = () => {
+  const mappings = readFileSync("/etc/subuid", "utf8")
+    .split(/\r?\n/u)
+    .filter((line) => line.length > 0 && !line.startsWith("#"))
+    .filter((line) => line.split(":", 1)[0] === "dockremap");
+  if (mappings.length !== 1) throw new Error("Docker user namespace mapping must contain exactly one dockremap entry in /etc/subuid.");
+
+  const [name, start, count, extra] = mappings[0].split(":");
+  if (name !== "dockremap" || extra !== undefined || !/^[1-9]\d*$/u.test(start ?? "") || !/^[1-9]\d*$/u.test(count ?? "")) {
+    throw new Error("Docker user namespace mapping has a malformed dockremap entry in /etc/subuid.");
+  }
+  const rootUid = Number(start);
+  const rangeSize = Number(count);
+  if (!Number.isSafeInteger(rootUid) || !Number.isSafeInteger(rangeSize) || rootUid + rangeSize - 1 > 4_294_967_294) {
+    throw new Error("Docker user namespace mapping has an invalid dockremap UID range in /etc/subuid.");
+  }
+  return rootUid;
+};
+
+const socketAccess = () => ({
+  metadata: run("sudo", ["stat", "--format=%u:%g:%a", dockerSocket], { stdio: "pipe" }).trim(),
+  acl: run("sudo", ["getfacl", "--absolute-names", "--numeric", "--omit-header", dockerSocket], { stdio: "pipe" })
+    .split(/\r?\n/u)
+    .filter((line) => line.length > 0),
+});
+
+const grantRyukSocketAccess = () => {
+  const rootUid = dockremapRootUid();
+  const before = socketAccess();
+  const entry = `user:${rootUid}:rw-`;
+  const mask = before.acl.find((line) => line.startsWith("mask::"));
+  if (mask ? mask !== "mask::rw-" : !before.acl.includes("group::rw-")) {
+    throw new Error("Docker socket ACL mask cannot grant the remapped Ryuk root UID read/write access without broadening existing access.");
+  }
+
+  // This test-only Ryuk exception never applies to production Hot Applications, whose runner forbids Docker socket mounts.
+  run("sudo", ["setfacl", "--no-mask", "--modify", entry, dockerSocket]);
+
+  const after = socketAccess();
+  if (after.metadata !== before.metadata) throw new Error("Granting Ryuk Docker socket access changed its owner, group, or mode.");
+  const retained = before.acl.filter((line) => !line.startsWith(`user:${rootUid}:`));
+  if (!retained.every((line) => after.acl.includes(line))) throw new Error("Granting Ryuk Docker socket access changed an existing Docker socket ACL.");
+  const additions = after.acl.filter((line) => !before.acl.includes(line));
+  if (!additions.every((line) => line === entry || line === "mask::rw-")) {
+    throw new Error("Granting Ryuk Docker socket access added an unexpected Docker socket ACL.");
+  }
+  const mappedRootEntries = after.acl.filter((line) => line.startsWith(`user:${rootUid}:`));
+  if (mappedRootEntries.length !== 1 || mappedRootEntries[0] !== entry) {
+    throw new Error("Docker socket ACL does not grant exactly the remapped Ryuk root UID read/write access.");
+  }
+};
+
 run("sudo", ["apt-get", "update"]);
-run("sudo", ["apt-get", "install", "--yes", "apparmor"]);
+run("sudo", ["apt-get", "install", "--yes", "apparmor", "acl"]);
 
 const existingDaemon = existsSync("/etc/docker/daemon.json") ? JSON.parse(readFileSync("/etc/docker/daemon.json", "utf8")) : {};
 if (typeof existingDaemon !== "object" || existingDaemon === null || Array.isArray(existingDaemon) ||
@@ -45,6 +99,7 @@ try {
   if (!securityOptions.includes("name=apparmor") || !securityOptions.includes("name=userns")) {
     throw new Error("Docker did not report both AppArmor and user-namespace remapping after Gate 9 setup.");
   }
+  grantRyukSocketAccess();
 } finally {
   rmSync(setupDirectory, { recursive: true, force: true });
 }
