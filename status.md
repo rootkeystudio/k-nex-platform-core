@@ -7,7 +7,7 @@
 
 ## Last completed
 
-Exact-head CI proved the Linux AppArmor/userns/Ryuk setup step, then exposed an earlier Gate 5 assertion that conflated contract-level malformed CSS rejection with installed-package schema rejection. The Minimal theme test now asserts each distinct authority message; production behavior is unchanged.
+Exact-head CI proved the Linux AppArmor/userns/Ryuk setup step, then exposed an earlier Gate 5 assertion that conflated contract-level malformed CSS rejection with installed-package schema rejection. The Minimal theme test now asserts each authority message; the persistent Sol Ultra review returned PASS.
 
 ## Validation
 
@@ -15,7 +15,7 @@ Node 24.19.0 / pnpm 11.9.0: Minimal theme 3/3 and UI design-system contracts 59/
 
 ## Next
 
-Obtain persistent Sol Ultra PASS for the Gate 5 correction, push PR #28, and rerun exact-head `validate` through full Gate 9.
+Push PR #28 and rerun exact-head `validate` through full Gate 9.
 
 ## Blockers
 
