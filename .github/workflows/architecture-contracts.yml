@@ -34,7 +34,7 @@ jobs:
         run: node scripts/setup-gate-9-linux-isolation.mjs
       - name: Run Gate 9 Docker runner preflight
         run: |
-          pnpm --filter @k-nex/extension-runner build
+          pnpm --filter '@k-nex/extension-runner...' -r build
           pnpm --filter @k-nex/extension-runner test:docker
         env:
           K_NEX_RUNNER_ISOLATION_POLICY: apparmor

@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Hardened the Docker runner terminal path: it now aborts capability work, reaps the original `docker run` CLI before exact-name container cleanup, and removes the per-invocation policy directory once. Docker-free regressions prove cleanup waits for CLI close and deferred inspection cannot write after terminal timeout.
+CI run 33333075806 failed in the clean-checkout Docker runner preflight because it built only `@k-nex/extension-runner`; its workspace dependencies `@k-nex/runtime` and `@k-nex/extension-bundler` therefore had no emitted declarations. The preflight now recursively builds `@k-nex/extension-runner...`, including its dependency graph in pnpm topological order, while retaining the real Docker test and AppArmor environment.
 
 ## Validation
 
-Local Node 24.19.0 / pnpm 11.9.0: `pnpm --filter @k-nex/extension-runner test` (8/8); `pnpm --filter @k-nex/extension-runner build`; `git diff --check`. Linux Docker isolation proof remains GitHub Ubuntu-only.
+Local Node 24.19.0 / pnpm 11.9.0: `pnpm --filter '@k-nex/extension-runner...' -r build` (5 workspace packages); `pnpm --filter @k-nex/extension-runner test:docker` (5/5); Ruby YAML parse; `git diff --check`. Linux Docker isolation proof remains GitHub Ubuntu-only.
 
 ## Next
 
-Push PR #28 and rerun exact-head `validate` through full Gate 9.
+Rerun exact-head CI `validate` through full Gate 9.
 
 ## Blockers
 
