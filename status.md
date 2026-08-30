@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Gate 9 CI now provisions the approved AppArmor profile and Docker user-namespace remapping on Linux, explicitly selects that policy for the full gate, and keeps the local Docker Desktop VM boundary. The setup grants only the remapped Ryuk root UID audited Docker-socket ACL access so real Testcontainers PostgreSQL proofs remain executable; the persistent Sol Ultra review returned PASS.
+Exact-head CI proved the Linux AppArmor/userns/Ryuk setup step, then exposed an earlier Gate 5 assertion that conflated contract-level malformed CSS rejection with installed-package schema rejection. The Minimal theme test now asserts each distinct authority message; production behavior is unchanged.
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: runner build; runner unit 6/6; real Docker runner 5/5; durable runtime PostgreSQL 4/4; static Docker recovery; workflow YAML parse; setup-script syntax and strict conflicting-ACL rejection; diff checks all passed. Full Phase 9 attack corpus previously passed (`status: PASS`; 22 scenarios, 12 proof groups). No task container/process remains. Linux AppArmor/userns/Ryuk enforcement awaits exact-head CI.
+Node 24.19.0 / pnpm 11.9.0: Minimal theme 3/3 and UI design-system contracts 59/59 passed; runner build/unit/Docker, durable runtime PostgreSQL, static Docker recovery, workflow/setup checks previously passed. Exact-head CI setup step passed before Gate 5 found the corrected assertion. No task container/process remains.
 
 ## Next
 
-Push PR #28 and require exact-head `validate` to prove AppArmor/userns/Ryuk enforcement before Phase 9 closeout.
+Obtain persistent Sol Ultra PASS for the Gate 5 correction, push PR #28, and rerun exact-head `validate` through full Gate 9.
 
 ## Blockers
 
