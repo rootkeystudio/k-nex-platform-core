@@ -11,7 +11,7 @@ Gate 9 CI now provisions the approved AppArmor profile and Docker user-namespace
 
 ## Validation
 
-Node 24.19.0 / pnpm 11.9.0: runner build; runner unit 6/6; real Docker runner 5/5; durable runtime PostgreSQL 4/4; static Docker recovery; workflow YAML parse; setup-script syntax and ACL assertions; diff checks all passed. Full Phase 9 attack corpus previously passed (`status: PASS`; 22 scenarios, 12 proof groups). No task container/process remains. Linux AppArmor/userns/Ryuk enforcement awaits exact-head CI.
+Node 24.19.0 / pnpm 11.9.0: runner build; runner unit 6/6; real Docker runner 5/5; durable runtime PostgreSQL 4/4; static Docker recovery; workflow YAML parse; setup-script syntax and strict conflicting-ACL rejection; diff checks all passed. Full Phase 9 attack corpus previously passed (`status: PASS`; 22 scenarios, 12 proof groups). No task container/process remains. Linux AppArmor/userns/Ryuk enforcement awaits exact-head CI.
 
 ## Next
 

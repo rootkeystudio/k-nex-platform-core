@@ -52,6 +52,10 @@ const grantRyukSocketAccess = () => {
   const rootUid = dockremapRootUid();
   const before = socketAccess();
   const entry = `user:${rootUid}:rw-`;
+  const existingMappedRootEntries = before.acl.filter((line) => line.startsWith(`user:${rootUid}:`));
+  if (existingMappedRootEntries.length > 1 || (existingMappedRootEntries.length === 1 && existingMappedRootEntries[0] !== entry)) {
+    throw new Error("Docker socket has a conflicting ACL for the remapped Ryuk root UID.");
+  }
   const mask = before.acl.find((line) => line.startsWith("mask::"));
   if (mask ? mask !== "mask::rw-" : !before.acl.includes("group::rw-")) {
     throw new Error("Docker socket ACL mask cannot grant the remapped Ryuk root UID read/write access without broadening existing access.");
@@ -62,8 +66,7 @@ const grantRyukSocketAccess = () => {
 
   const after = socketAccess();
   if (after.metadata !== before.metadata) throw new Error("Granting Ryuk Docker socket access changed its owner, group, or mode.");
-  const retained = before.acl.filter((line) => !line.startsWith(`user:${rootUid}:`));
-  if (!retained.every((line) => after.acl.includes(line))) throw new Error("Granting Ryuk Docker socket access changed an existing Docker socket ACL.");
+  if (!before.acl.every((line) => after.acl.includes(line))) throw new Error("Granting Ryuk Docker socket access changed an existing Docker socket ACL.");
   const additions = after.acl.filter((line) => !before.acl.includes(line));
   if (!additions.every((line) => line === entry || line === "mask::rw-")) {
     throw new Error("Granting Ryuk Docker socket access added an unexpected Docker socket ACL.");
