@@ -94,22 +94,48 @@ function harness(build = trustedBuild(), now = new Date("2026-08-29T12:00:00.000
     reservationId: "11111111-1111-4111-8111-111111111111",
     reservedAt: "2026-08-29T12:00:00.000Z"
   };
+  const retainedReservation = { ...rejectedReservation, generationId: blue.generationId, reservationId: "22222222-2222-4222-8222-222222222222" };
   let current = snapshot();
   const checkpoint = (kind: "promote" | "rollback" | "retire-rollback", activeGenerationId: string, previousGenerationId: string, revision: number) => ({ kind, activeGenerationId, previousGenerationId, revision, completedSteps: [] as const });
   const state: StaticDeploymentState = {
     read: vi.fn(async () => current),
     readFence: vi.fn().mockResolvedValueOnce(fence(blue.generationId, 4, 0)).mockResolvedValue(fence(green.generationId, 5, 1)),
     promote: vi.fn(async () => { events.push("promote"); current = { ...snapshot(green, blue, 1), transitionCheckpoint: checkpoint("promote", green.generationId, blue.generationId, 1) }; return receipt; }),
-    rollback: vi.fn(async () => { events.push("rollback"); current = { ...snapshot(blue, green, 2), transitionCheckpoint: checkpoint("rollback", blue.generationId, green.generationId, 2) }; return receipt; }),
-    reserveRollbackRetirement: vi.fn(async () => { const retained = current.rollback ?? blue; events.push("reserve-retirement"); current = { ...snapshot(current.active, retained, current.revision + 1), rollbackWindow: { state: "retirement-reserved" }, transitionCheckpoint: checkpoint("retire-rollback", current.active.generationId, retained.generationId, current.revision + 1) }; return { revisionAfter: current.revision } as StaticDeploymentReceipt; }),
-    reserveRejectedGenerationRetirement: vi.fn(async ({ generationId }) => {
+    rollback: vi.fn(async () => { events.push("rollback"); current = { ...snapshot(blue, green, 2), transitionCheckpoint: checkpoint("rollback", blue.generationId, green.generationId, 2) }; return { revisionAfter: 2 } as StaticDeploymentReceipt; }),
+    reserveRollbackRetirement: vi.fn(async () => {
+      const pending = current.transitionCheckpoint;
+      const required = pending?.kind === "retire-rollback" ? 2 : 4;
+      if (pending && pending.completedSteps.length !== required) throw Object.assign(new Error("incomplete transition checkpoint"), { code: "REVISION_CONFLICT" });
+      const retained = current.rollback ?? blue; events.push("reserve-retirement"); current = { ...snapshot(current.active, retained, current.revision + 1), rollbackWindow: { state: "retirement-reserved" }, transitionCheckpoint: checkpoint("retire-rollback", current.active.generationId, retained.generationId, current.revision + 1) }; return { ...retainedReservation, generationId: retained.generationId };
+    }),
+    reserveGenerationRetirement: vi.fn(async ({ generationId }) => {
       if (current.active.generationId === generationId || current.rollback?.generationId === generationId) return undefined;
       events.push("reserve-rejected");
       return { ...rejectedReservation, generationId };
     }),
-    completeRejectedGenerationRetirement: vi.fn(async () => { events.push("complete-rejected"); }),
+    readGenerationRetirement: vi.fn(async ({ generationId }) => generationId === (current.rollback?.generationId ?? "") ? { ...retainedReservation, generationId } : undefined),
+    listPendingGenerationRetirements: vi.fn(async () => []),
+    completeGenerationRetirement: vi.fn(async () => { events.push("complete-rejected"); }),
     closeRollback: vi.fn(async () => { events.push("close-rollback"); return receipt; }),
-    completeTransitionStep: vi.fn(async () => undefined),
+    reserveTransitionStep: vi.fn(async ({ expectedRevision, step, reservationId }) => {
+      const transition = current.transitionCheckpoint!;
+      const reservationExpiresAt = "2026-08-29T12:01:00.000Z";
+      current = { ...current, transitionCheckpoint: { ...transition, reservedStep: step, reservationId, reservationExpiresAt } };
+      return { ...owner, generationId: ["activate-worker", "converge-gateway", "reconnect-realtime"].includes(step) ? transition.activeGenerationId : transition.previousGenerationId, activeGenerationId: transition.activeGenerationId, revision: expectedRevision, fencingToken: 5, checkpointKind: transition.kind, step, reservationId, reservationExpiresAt };
+    }),
+    releaseTransitionStep: vi.fn(async (ticket) => {
+      const transition = current.transitionCheckpoint!;
+      if (transition.reservedStep === ticket.step) {
+        const { reservedStep: _reservedStep, reservationId: _reservationId, reservationExpiresAt: _reservationExpiresAt, ...unreserved } = transition;
+        current = { ...current, transitionCheckpoint: unreserved };
+      }
+    }),
+    completeTransitionStep: vi.fn(async (ticket) => {
+      const transition = current.transitionCheckpoint!;
+      const { reservedStep: _reservedStep, reservationId: _reservationId, reservationExpiresAt: _reservationExpiresAt, ...unreserved } = transition;
+      current = { ...current, transitionCheckpoint: { ...unreserved, completedSteps: [...transition.completedSteps, ticket.step] } };
+    }),
+    assertTransitionTicket: vi.fn(async () => undefined),
     assertContractCleanup: vi.fn(async () => undefined)
   };
   const artifacts: StaticApplicationArtifactProvider = {
@@ -139,7 +165,7 @@ function harness(build = trustedBuild(), now = new Date("2026-08-29T12:00:00.000
   };
   const gateway: GatewayTrafficRouter = { converge: vi.fn(async () => { events.push("route-green"); }) };
   const realtime: StaticRealtimeConvergence = { reconnectAndResync: vi.fn(async () => { events.push("realtime-resync"); }) };
-  return { build, blue, green, rejectedReservation, events, state, artifacts, migrations, generations, gateway, realtime, supervisor: new DeploymentSupervisor(build.authority, artifacts, migrations, generations, state, gateway, realtime, { now: () => now }) };
+  return { build, blue, green, rejectedReservation, events, state, artifacts, migrations, generations, gateway, realtime, setCurrent: (next: StaticDeploymentSnapshot) => { current = next; }, supervisor: new DeploymentSupervisor(build.authority, artifacts, migrations, generations, state, gateway, realtime, { now: () => now }) };
 }
 
 describe("static deployment supervisor", () => {
@@ -168,6 +194,21 @@ describe("static deployment supervisor", () => {
     expect(value.generations.activateWorker).not.toHaveBeenCalled();
     expect(value.generations.drain).not.toHaveBeenCalled();
     expect(value.generations.retire).not.toHaveBeenCalled();
+  });
+
+  it.each(["reserved", "completed"])('rejects a %s generation retirement tombstone before migrations or target work', async (state) => {
+    const value = harness();
+    vi.mocked(value.state.readGenerationRetirement).mockResolvedValueOnce({
+      ...value.rejectedReservation,
+      ...(state === "completed" ? { completedAt: "2026-08-29T12:01:00.000Z" } : {})
+    });
+
+    await expect(value.supervisor.deploy({ build: value.build.token, generationId: value.green.generationId, workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" }))
+      .rejects.toMatchObject({ code: "STATE_UNAVAILABLE" });
+    expect(value.migrations.runOnline).not.toHaveBeenCalled();
+    expect(value.generations.start).not.toHaveBeenCalled();
+    expect(value.generations.readiness).not.toHaveBeenCalled();
+    expect(value.state.promote).not.toHaveBeenCalled();
   });
 
   it("returns maintenance-required before resolving artifacts, migrations, or green containers", async () => {
@@ -217,9 +258,9 @@ describe("static deployment supervisor", () => {
     vi.mocked(value.state.promote).mockRejectedValueOnce(failure);
 
     await expect(value.supervisor.deploy({ build: value.build.token, generationId: value.green.generationId, workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" })).rejects.toBe(failure);
-    expect(value.state.reserveRejectedGenerationRetirement).toHaveBeenCalledWith({ ...owner, generationId: value.green.generationId });
-    expect(value.generations.retire).toHaveBeenCalledWith(value.rejectedReservation);
-    expect(value.state.completeRejectedGenerationRetirement).toHaveBeenCalledWith(value.rejectedReservation);
+    expect(value.state.reserveGenerationRetirement).toHaveBeenCalledWith({ ...owner, generationId: value.green.generationId });
+    expect(value.generations.retire).toHaveBeenCalledWith({ reservation: value.rejectedReservation });
+    expect(value.state.completeGenerationRetirement).toHaveBeenCalledWith(value.rejectedReservation);
     expect(value.events).toEqual(["migrate", "start-passive", "reserve-rejected", "retire-green", "complete-rejected"]);
   });
 
@@ -232,7 +273,7 @@ describe("static deployment supervisor", () => {
     const protectedState = committed(value);
     expect([protectedState.active.generationId, protectedState.rollback?.generationId]).toContain(value.green.generationId);
     vi.mocked(value.state.promote).mockImplementationOnce(async () => {
-      vi.mocked(value.state.reserveRejectedGenerationRetirement).mockResolvedValueOnce(undefined);
+      vi.mocked(value.state.reserveGenerationRetirement).mockResolvedValueOnce(undefined);
       throw failure;
     });
 
@@ -242,50 +283,54 @@ describe("static deployment supervisor", () => {
 
   it("preserves a promotion error when passive-target retirement fails after reconciliation", async () => {
     const value = harness();
-    const promotionFailure = new Error("promotion rejected");
+    const promotionFailure = Object.assign(new Error("promotion rejected"), { code: "REVISION_CONFLICT", status: 409 });
     vi.mocked(value.state.promote).mockRejectedValueOnce(promotionFailure);
     vi.mocked(value.generations.retire).mockRejectedValueOnce(new Error("retirement unavailable"));
 
-    await expect(value.supervisor.deploy({ build: value.build.token, generationId: value.green.generationId, workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" })).rejects.toBe(promotionFailure);
-    expect(value.generations.retire).toHaveBeenCalledWith(value.rejectedReservation);
-    expect(value.state.completeRejectedGenerationRetirement).not.toHaveBeenCalled();
+    try {
+      await value.supervisor.deploy({ build: value.build.token, generationId: value.green.generationId, workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" });
+      expect.unreachable("promotion must preserve its primary error");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AggregateError);
+      expect(error).toMatchObject({ message: "promotion rejected", code: "REVISION_CONFLICT", status: 409, cause: promotionFailure });
+      expect((error as AggregateError).errors).toEqual([promotionFailure, expect.objectContaining({ message: "retirement unavailable" })]);
+    }
+    expect(value.generations.retire).toHaveBeenCalledWith({ reservation: value.rejectedReservation });
+    expect(value.state.completeGenerationRetirement).not.toHaveBeenCalled();
   });
 
-  it("retires a re-created passive target even when its durable tombstone was already completed", async () => {
+  it("never recreates a completed generation identity", async () => {
     const value = harness();
-    const promotionFailure = new Error("generation identity tombstoned");
     const completed = { ...value.rejectedReservation, completedAt: "2026-08-29T12:01:00.000Z" };
-    vi.mocked(value.state.promote).mockRejectedValueOnce(promotionFailure);
-    vi.mocked(value.state.reserveRejectedGenerationRetirement).mockResolvedValueOnce(completed);
+    vi.mocked(value.state.readGenerationRetirement).mockResolvedValueOnce(completed);
 
-    await expect(value.supervisor.deploy({ build: value.build.token, generationId: value.green.generationId, workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" })).rejects.toBe(promotionFailure);
-    expect(value.generations.retire).toHaveBeenCalledWith(completed);
-    expect(value.state.completeRejectedGenerationRetirement).toHaveBeenCalledWith(completed);
+    await expect(value.supervisor.deploy({ build: value.build.token, generationId: value.green.generationId, workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" })).rejects.toMatchObject({ code: "STATE_UNAVAILABLE" });
+    expect(value.migrations.runOnline).not.toHaveBeenCalled();
+    expect(value.generations.start).not.toHaveBeenCalled();
+    expect(value.state.promote).not.toHaveBeenCalled();
   });
 
-  it("preserves a promotion error without retiring when durable reservation fails", async () => {
+  it("surfaces durable retirement reservation failure alongside the promotion error", async () => {
     const value = harness();
     const promotionFailure = new Error("promotion rejected");
     vi.mocked(value.state.promote).mockRejectedValueOnce(promotionFailure);
-    vi.mocked(value.state.reserveRejectedGenerationRetirement).mockRejectedValueOnce(new Error("state unavailable"));
+    vi.mocked(value.state.reserveGenerationRetirement).mockRejectedValueOnce(new Error("state unavailable"));
 
-    await expect(value.supervisor.deploy({ build: value.build.token, generationId: value.green.generationId, workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" })).rejects.toBe(promotionFailure);
+    try {
+      await value.supervisor.deploy({ build: value.build.token, generationId: value.green.generationId, workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" });
+      expect.unreachable("promotion must preserve its primary error");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AggregateError);
+      expect(error).toMatchObject({ message: "promotion rejected", cause: promotionFailure });
+      expect((error as AggregateError).errors).toEqual([promotionFailure, expect.objectContaining({ message: "state unavailable" })]);
+    }
     expect(value.generations.retire).not.toHaveBeenCalled();
   });
 
   it("reverifies, starts, and freshly proves the retained immutable generation before static rollback state can switch", async () => {
     const value = harness();
-    vi.mocked(value.state.read).mockResolvedValue(snapshot(value.green, value.blue, 1));
+    value.setCurrent(snapshot(value.green, value.blue, 1));
     vi.mocked(value.state.readFence).mockReset().mockResolvedValueOnce(fence(value.green.generationId, 5, 1)).mockResolvedValue(fence(value.blue.generationId, 6, 2));
-    vi.mocked(value.state.rollback).mockImplementationOnce(async () => {
-      expect(value.generations.readiness).toHaveBeenCalledOnce();
-      value.events.push("rollback");
-      return { revisionAfter: 2 } as StaticDeploymentReceipt;
-    });
-    vi.mocked(value.state.read).mockResolvedValueOnce(snapshot(value.green, value.blue, 1)).mockResolvedValue({
-      ...snapshot(value.blue, value.green, 2),
-      transitionCheckpoint: { kind: "rollback", activeGenerationId: value.blue.generationId, previousGenerationId: value.green.generationId, revision: 2, completedSteps: [] }
-    });
     await expect(value.supervisor.rollback({ ...owner, workerOwner: "worker:phase-9-blue", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" }))
       .resolves.toMatchObject({ revisionAfter: 2 });
     expect(value.artifacts.reverify).toHaveBeenCalledWith(value.blue);
@@ -310,7 +355,7 @@ describe("static deployment supervisor", () => {
     });
     await expect(value.supervisor.rollback({ ...owner, workerOwner: "worker:phase-9-blue", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" })).rejects.toMatchObject({ code: "READINESS_REJECTED" });
     expect(value.state.rollback).not.toHaveBeenCalled();
-    expect(value.state.reserveRejectedGenerationRetirement).not.toHaveBeenCalled();
+    expect(value.state.reserveGenerationRetirement).not.toHaveBeenCalled();
     expect(value.generations.retire).not.toHaveBeenCalled();
   });
 
@@ -334,19 +379,25 @@ describe("static deployment supervisor", () => {
   it("atomically reserves the retained inactive generation before draining it", async () => {
     const value = harness();
     const open = snapshot(value.green, value.blue, 1);
-    const reserved = {
-      ...snapshot(value.green, value.blue, 2), rollbackWindow: { state: "retirement-reserved" },
-      transitionCheckpoint: { kind: "retire-rollback" as const, activeGenerationId: value.green.generationId, previousGenerationId: value.blue.generationId, revision: 2, completedSteps: [] }
-    };
-    vi.mocked(value.state.read).mockResolvedValueOnce(open).mockResolvedValue(reserved);
+    value.setCurrent(open);
     await value.supervisor.closeRollback(owner);
     expect(value.state.reserveRollbackRetirement).toHaveBeenCalledWith({ ...owner, expectedRevision: 1, retiredGenerationId: value.blue.generationId });
-    expect(value.events).toEqual(["reserve-retirement", "drain-blue", "retire-green", "close-rollback"]);
+    expect(value.events).toEqual(["reserve-retirement", "drain-blue", "retire-green", "complete-rejected", "close-rollback"]);
+  });
+
+  it("finishes a partially promoted gateway transition before reserving rollback retirement", async () => {
+    const value = harness();
+    value.setCurrent({
+      ...snapshot(value.green, value.blue, 1),
+      transitionCheckpoint: { kind: "promote", activeGenerationId: value.green.generationId, previousGenerationId: value.blue.generationId, revision: 1, completedSteps: ["activate-worker"] }
+    });
+    await value.supervisor.closeRollback(owner);
+    expect(value.events).toEqual(["route-green", "realtime-resync", "drain-blue", "reserve-retirement", "drain-blue", "retire-green", "complete-rejected", "close-rollback"]);
   });
 
   it("recovery idempotently finishes every post-commit promotion step", async () => {
     const value = harness();
-    vi.mocked(value.state.read).mockResolvedValue({
+    value.setCurrent({
       ...snapshot(value.green, value.blue, 1),
       transitionCheckpoint: { kind: "promote", activeGenerationId: value.green.generationId, previousGenerationId: value.blue.generationId, revision: 1, completedSteps: [] }
     });
@@ -356,17 +407,92 @@ describe("static deployment supervisor", () => {
     expect(value.state.completeTransitionStep).toHaveBeenCalledTimes(4);
   });
 
-  it("restores active worker and gateway authority after a settled process restart", async () => {
+  it("does not drain a generation made active while a stale supervisor is paused", async () => {
     const value = harness();
-    vi.mocked(value.state.read).mockResolvedValue(snapshot(value.green, value.blue, 1));
+    value.setCurrent({
+      ...snapshot(value.green, value.blue, 1),
+      transitionCheckpoint: { kind: "promote", activeGenerationId: value.green.generationId, previousGenerationId: value.blue.generationId, revision: 1, completedSteps: ["activate-worker", "converge-gateway", "reconnect-realtime"] }
+    });
+    const arrived = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    vi.mocked(value.state.reserveTransitionStep).mockImplementationOnce(async () => {
+      arrived.resolve();
+      await release.promise;
+      throw Object.assign(new Error("stale deployment revision"), { code: "REVISION_CONFLICT" });
+    });
+    const stale = value.supervisor.recover(owner);
+    await arrived.promise;
+    value.setCurrent({
+      ...snapshot(value.blue, value.green, 2),
+      transitionCheckpoint: { kind: "rollback", activeGenerationId: value.blue.generationId, previousGenerationId: value.green.generationId, revision: 2, completedSteps: [] }
+    });
+    release.resolve();
+    await expect(stale).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+    expect(value.generations.drain).not.toHaveBeenCalled();
+    expect(value.generations.retire).not.toHaveBeenCalled();
+  });
+
+  it("bounds live transition-claim retries even when the authority clock is fixed", async () => {
+    const value = harness();
+    value.setCurrent({
+      ...snapshot(value.green, value.blue, 1),
+      transitionCheckpoint: {
+        kind: "promote", activeGenerationId: value.green.generationId, previousGenerationId: value.blue.generationId, revision: 1,
+        completedSteps: ["activate-worker", "converge-gateway", "reconnect-realtime"], reservedStep: "drain-previous",
+        reservationId: "12345678-1234-4abc-8def-123456789abc", reservationExpiresAt: "2026-08-29T12:01:00.000Z"
+      }
+    });
+    const waiter = { wait: vi.fn(async () => undefined) };
+    const supervisor = new DeploymentSupervisor(value.build.authority, value.artifacts, value.migrations, value.generations, value.state, value.gateway, value.realtime, { now: () => new Date("2026-08-29T12:00:00.000Z") }, waiter);
+    vi.mocked(value.state.reserveTransitionStep).mockRejectedValue(new Error("live claim"));
+
+    await expect(supervisor.recover(owner)).rejects.toThrow("live claim");
+    expect(value.state.reserveTransitionStep).toHaveBeenCalledTimes(71);
+    expect(waiter.wait).toHaveBeenCalledTimes(70);
+  });
+
+  it("replays the same durable transition reservation after a lost reserve response", async () => {
+    const value = harness();
+    value.setCurrent({
+      ...snapshot(value.green, value.blue, 1),
+      transitionCheckpoint: { kind: "promote", activeGenerationId: value.green.generationId, previousGenerationId: value.blue.generationId, revision: 1, completedSteps: ["activate-worker", "converge-gateway", "reconnect-realtime"] }
+    });
+    const waiter = { wait: vi.fn(async () => undefined) };
+    const supervisor = new DeploymentSupervisor(value.build.authority, value.artifacts, value.migrations, value.generations, value.state, value.gateway, value.realtime, { now: () => new Date("2026-08-29T12:00:00.000Z") }, waiter);
+    vi.mocked(value.state.reserveTransitionStep).mockImplementationOnce(async (input) => {
+      const current = await value.state.read(owner);
+      value.setCurrent({ ...current!, transitionCheckpoint: { ...current!.transitionCheckpoint!, reservedStep: input.step, reservationId: input.reservationId, reservationExpiresAt: "2026-08-29T12:01:00.000Z" } });
+      throw new Error("reserve response lost");
+    });
+
+    await supervisor.recover(owner);
+
+    const reservationIds = vi.mocked(value.state.reserveTransitionStep).mock.calls.slice(0, 2).map(([input]) => input.reservationId);
+    expect(reservationIds).toHaveLength(2);
+    expect(new Set(reservationIds).size).toBe(1);
+    expect(waiter.wait).toHaveBeenCalledOnce();
+  });
+
+  it("recovers bounded pending generation retirements before checkpoint work", async () => {
+    const value = harness();
+    value.setCurrent(snapshot(value.green, value.blue, 1));
+    vi.mocked(value.state.listPendingGenerationRetirements).mockResolvedValueOnce([value.rejectedReservation]);
+    await value.supervisor.recover(owner);
+    expect(value.generations.retire).toHaveBeenCalledWith({ reservation: value.rejectedReservation });
+    expect(value.state.completeGenerationRetirement).toHaveBeenCalledWith(value.rejectedReservation);
+  });
+
+  it("does not repeat settled transition effects after a process restart", async () => {
+    const value = harness();
+    value.setCurrent(snapshot(value.green, value.blue, 1));
     vi.mocked(value.state.readFence).mockResolvedValue(fence(value.green.generationId, 5, 1));
     await value.supervisor.recover(owner);
-    expect(value.events).toEqual(["activate-worker", "route-green"]);
+    expect(value.events).toEqual([]);
   });
 
   it("never drains a retained generation that became active during retirement recovery", async () => {
     const value = harness();
-    vi.mocked(value.state.read).mockResolvedValue({
+    value.setCurrent({
       ...snapshot(value.blue, value.green, 2), rollbackWindow: { state: "retirement-reserved" },
       transitionCheckpoint: { kind: "retire-rollback", activeGenerationId: value.blue.generationId, previousGenerationId: value.blue.generationId, revision: 2, completedSteps: [] }
     });

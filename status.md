@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Made the PluginManager rollback-readiness fixture deterministic by freezing its clock inside the affected test instead of relying on a calendar date that eventually expires.
+Closed static transition and retirement races: every post-commit external effect now carries boundary-validated durable authority; incomplete promotion/rollback checkpoints finish before retirement; one-shot tombstones fence rejected and retained generations; bounded recovery advances through pending cleanup; owner-scoped Docker cleanup survives partial startup and supervisor crashes.
 
 ## Validation
 
-Node 24.19.0: focused PluginManager tests passed (13); diff whitespace validation passed. No Docker containers remain.
+Node 24.19.0: runtime build and tests passed (313); Payload adapter build and tests passed (49); customer fixture build passed; focused real PostgreSQL retirement test passed; full real Docker/PostgreSQL topology passed (1, 208s) with continuous HTTP/crash evidence; fixture syntax and diff whitespace checks passed. No P9/Testcontainers containers, networks, volumes, or test processes remain.
 
 ## Next
 
-Close the audited static transition-ticket, retirement recovery, and real Docker evidence findings in one coherent lifecycle commit.
+Submit the exact lifecycle and deterministic-clock commits to the persistent Sol Ultra reviewer, then fix every finding before continuing the remaining Theme Skin closeout tasks.
 
 ## Blockers
 

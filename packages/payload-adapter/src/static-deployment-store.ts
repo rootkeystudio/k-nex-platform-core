@@ -15,6 +15,7 @@ import type {
   StaticDeploymentSnapshot,
   StaticDeploymentTransitionCheckpoint,
   StaticDeploymentTransitionStep,
+  StaticDeploymentTransitionTicket,
   StaticGenerationRetirementReservation,
   StaticPromotionReadiness,
   VerifiedStaticApplicationBuild,
@@ -81,6 +82,12 @@ interface RetirementRow {
   completed_at: Date | string | null;
 }
 
+interface TransitionAuthorityRow extends DeploymentRow, FenceRow {
+  reservation_id: string | null;
+  retirement_state: "reserved" | "completed" | null;
+  retirement_generation_id: string | null;
+}
+
 interface Owner { readonly applicationId: string; readonly environment: string; }
 
 const digestPattern = /^sha256:[0-9a-f]{64}$/u;
@@ -137,13 +144,31 @@ function checkpoint(value: StaticDeploymentTransitionCheckpoint | null, row: Dep
     rollback: ["activate-worker", "converge-gateway", "reconnect-realtime", "drain-previous"],
     "retire-rollback": ["drain-retained", "retire-retained"]
   };
+  const hasReservation = value?.reservedStep !== undefined || value?.reservationId !== undefined || value?.reservationExpiresAt !== undefined;
+  const reservationIsValid = !hasReservation || Boolean(value?.reservedStep && value.reservationId && value.reservationExpiresAt &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value.reservationId) && Number.isFinite(Date.parse(value.reservationExpiresAt)));
   if (!value || !["promote", "rollback", "retire-rollback"].includes(value.kind) || value.revision !== row.revision ||
     !generationPattern.test(value.activeGenerationId) || !generationPattern.test(value.previousGenerationId) ||
     value.activeGenerationId !== row.active_generation_id || value.previousGenerationId !== row.rollback_generation_id ||
-    !Array.isArray(value.completedSteps) || value.completedSteps.some((step, index) => step !== allowed[value.kind][index])) {
+    !Array.isArray(value.completedSteps) || value.completedSteps.some((step, index) => step !== allowed[value.kind][index]) ||
+    (value.reservedStep !== undefined && value.reservedStep !== allowed[value.kind][value.completedSteps.length]) || !reservationIsValid) {
     fail("INPUT_INVALID", "Static deployment transition checkpoint is invalid.");
   }
   return value;
+}
+
+function assertNoReservedStep(value: StaticDeploymentTransitionCheckpoint | null): void {
+  if (value?.reservedStep) fail("REVISION_CONFLICT", "Static deployment has a durable external transition step in progress.");
+}
+
+function assertCompletedCheckpoint(value: StaticDeploymentTransitionCheckpoint | null): void {
+  if (!value) return;
+  const allowed = value.kind === "retire-rollback"
+    ? ["drain-retained", "retire-retained"]
+    : ["activate-worker", "converge-gateway", "reconnect-realtime", "drain-previous"];
+  if (value.completedSteps.length !== allowed.length) {
+    fail("REVISION_CONFLICT", "Static deployment has an incomplete transition checkpoint.");
+  }
 }
 
 function snapshot(owner: Owner, row: DeploymentRow): StaticDeploymentSnapshot {
@@ -246,6 +271,7 @@ export class PostgresStaticDeploymentStore {
       const current = await this.readLocked(session, input);
       const fence = await this.readFenceLocked(session, input);
       if (!current || current.revision !== input.expectedRevision) fail("REVISION_CONFLICT", "Static deployment revision changed before promotion.");
+      assertNoReservedStep(current.transition_checkpoint);
       if (await this.readRetirementLocked(session, input, input.generationId)) fail("REVISION_CONFLICT", "Target static generation is reserved or tombstoned for retirement.");
       if (current.rollback_window.state === "retirement-reserved") fail("REVISION_CONFLICT", "Static deployment cannot replace a generation while rollback retirement is reserved.");
       if (current.active_generation.sourceCommit !== change.base.sourceCommit || current.active_generation.migrationRevision !== change.migration.baseRevision) {
@@ -300,6 +326,7 @@ export class PostgresStaticDeploymentStore {
       const current = await this.readLocked(session, input);
       const fence = await this.readFenceLocked(session, input);
       if (!current || current.revision !== input.expectedRevision) fail("REVISION_CONFLICT", "Static deployment revision changed before rollback.");
+      assertNoReservedStep(current.transition_checkpoint);
       if (!current.rollback_generation || !current.rollback_generation_id || current.rollback_window.state !== "open") fail("ROLLBACK_UNAVAILABLE", "No compatible static generation is retained for rollback.");
       if (new Date(String(current.rollback_window.closesAt)).valueOf() <= this.clock.now().valueOf()) fail("ROLLBACK_UNAVAILABLE", "Static deployment rollback window has expired.");
       if (!fence || Number(fence.fencing_token) !== input.expectedFenceToken || fence.active_execution_generation !== current.active_generation_id) fail("FENCE_REJECTED", "Worker execution authority changed before rollback.");
@@ -342,10 +369,14 @@ export class PostgresStaticDeploymentStore {
       if (!current) fail("REVISION_CONFLICT", "Static deployment is unavailable for rollback closure.");
       if (current.rollback_window.state === "closed") return this.readCloseReceipt(session, input, current);
       if (current.revision !== input.expectedRevision) fail("REVISION_CONFLICT", "Static deployment revision changed before rollback closure.");
+      assertNoReservedStep(current.transition_checkpoint);
+      assertCompletedCheckpoint(current.transition_checkpoint);
       if (!current.rollback_generation || current.rollback_generation_id !== input.retiredGenerationId || current.rollback_window.state !== "retirement-reserved" ||
         !current.transition_checkpoint?.completedSteps.includes("drain-retained") || !current.transition_checkpoint.completedSteps.includes("retire-retained")) {
         fail("CONTRACT_CLEANUP_BLOCKED", "The retained rollback generation has not been drained and retired under its reservation.");
       }
+      const retirement = await this.readRetirementLocked(session, input, input.retiredGenerationId);
+      if (!retirement || retirement.state !== "completed") fail("CONTRACT_CLEANUP_BLOCKED", "The retained rollback generation is missing its completed one-shot retirement tombstone.");
       if (!fence) fail("FENCE_REJECTED", "Worker execution fence is unavailable.");
       const revision = current.revision + 1;
       const closedAt = timestamp(this.clock);
@@ -385,7 +416,7 @@ export class PostgresStaticDeploymentStore {
     });
   }
 
-  async reserveRollbackRetirement(input: Owner & Readonly<{ expectedRevision: number; retiredGenerationId: string }>): Promise<StaticDeploymentReceipt> {
+  async reserveRollbackRetirement(input: Owner & Readonly<{ expectedRevision: number; retiredGenerationId: string }>): Promise<StaticGenerationRetirementReservation> {
     assertOwner(input); assertRevision(input.expectedRevision);
     return this.transaction(async (session) => {
       await this.lock(session, input);
@@ -393,14 +424,28 @@ export class PostgresStaticDeploymentStore {
       const fence = await this.readFenceLocked(session, input);
       if (!current || !fence) fail("FENCE_REJECTED", "Static deployment authority is unavailable for rollback retirement.");
       if (current.rollback_window.state === "retirement-reserved" && current.rollback_generation_id === input.retiredGenerationId) {
-        return this.readReserveReceipt(session, input, current);
+        const existing = await this.readRetirementLocked(session, input, input.retiredGenerationId);
+        if (!existing) fail("REVISION_CONFLICT", "Rollback retirement reservation is missing its durable tombstone.");
+        return this.retirement(existing);
       }
       if (current.revision !== input.expectedRevision) fail("REVISION_CONFLICT", "Static deployment revision changed before rollback retirement reservation.");
+      assertNoReservedStep(current.transition_checkpoint);
+      assertCompletedCheckpoint(current.transition_checkpoint);
       if (!current.rollback_generation || current.rollback_generation_id !== input.retiredGenerationId || current.rollback_window.state !== "open" || current.active_generation_id === input.retiredGenerationId) {
         fail("CONTRACT_CLEANUP_BLOCKED", "Only the retained inactive rollback generation can be reserved for retirement.");
       }
       const revision = current.revision + 1;
       const reservedAt = timestamp(this.clock);
+      if (await this.readRetirementLocked(session, input, input.retiredGenerationId)) {
+        fail("REVISION_CONFLICT", "Retired static generation identity is permanently tombstoned.");
+      }
+      const reservationId = globalThis.crypto.randomUUID();
+      const insertedRetirement = await session.query<RetirementRow>(
+        `insert into runtime_static_generation_retirements (
+           application_id, environment, generation_id, reservation_id, reserved_at
+         ) values ($1,$2,$3,$4,$5) returning *`,
+        [input.applicationId, input.environment, input.retiredGenerationId, reservationId, reservedAt]
+      );
       const rollbackWindow = { state: "retirement-reserved", windowId: current.rollback_window.windowId, closesAt: current.rollback_window.closesAt, reservedAt, contractCleanup: "blocked" };
       const checkpoint: StaticDeploymentTransitionCheckpoint = { kind: "retire-rollback", revision, activeGenerationId: current.active_generation_id, previousGenerationId: input.retiredGenerationId, completedSteps: [] };
       const stateDigest = await sha256({ revision, active: current.active_generation, rollback: current.rollback_generation, rollbackWindow, transitionCheckpoint: checkpoint });
@@ -421,17 +466,17 @@ export class PostgresStaticDeploymentStore {
       );
       if (!updated.rows[0]) fail("REVISION_CONFLICT", "Static deployment changed before rollback retirement reservation commit.");
       await this.outbox(session, input, receipt);
-      return Object.freeze(receipt);
+      return this.retirement(insertedRetirement.rows[0]!);
     });
   }
 
-  async reserveRejectedGenerationRetirement(input: Owner & Readonly<{ generationId: string }>): Promise<StaticGenerationRetirementReservation | undefined> {
+  async reserveGenerationRetirement(input: Owner & Readonly<{ generationId: string }>): Promise<StaticGenerationRetirementReservation | undefined> {
     assertOwner(input);
-    if (!generationPattern.test(input.generationId)) fail("INPUT_INVALID", "Rejected static generation identity is invalid.");
+    if (!generationPattern.test(input.generationId)) fail("INPUT_INVALID", "Static generation retirement identity is invalid.");
     return this.transaction(async (session) => {
       await this.lock(session, input);
       const current = await this.readLocked(session, input);
-      if (!current) fail("REVISION_CONFLICT", "Static deployment is unavailable for rejected-generation retirement.");
+      if (!current) fail("REVISION_CONFLICT", "Static deployment is unavailable for generation retirement.");
       const existing = await this.readRetirementLocked(session, input, input.generationId);
       if (current.active_generation_id === input.generationId || current.rollback_generation_id === input.generationId) {
         if (existing) fail("EVIDENCE_MISMATCH", "A protected static generation also has a retirement tombstone.");
@@ -450,17 +495,48 @@ export class PostgresStaticDeploymentStore {
     });
   }
 
-  async completeRejectedGenerationRetirement(input: StaticGenerationRetirementReservation): Promise<void> {
+  async readGenerationRetirement(input: Owner & Readonly<{ generationId: string }>): Promise<StaticGenerationRetirementReservation | undefined> {
+    assertOwner(input);
+    if (!generationPattern.test(input.generationId)) fail("INPUT_INVALID", "Static generation retirement identity is invalid.");
+    const result = await this.pool.query<RetirementRow>(
+      `select * from runtime_static_generation_retirements where application_id=$1 and environment=$2 and generation_id=$3`,
+      [input.applicationId, input.environment, input.generationId]
+    );
+    return result.rows[0] ? this.retirement(result.rows[0]) : undefined;
+  }
+
+  async listPendingGenerationRetirements(input: Owner & Readonly<{ limit: number }>): Promise<readonly StaticGenerationRetirementReservation[]> {
+    assertOwner(input);
+    if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 32) fail("INPUT_INVALID", "Generation retirement recovery limit is invalid.");
+    return this.transaction(async (session) => {
+      await this.lock(session, input);
+      const current = await this.readLocked(session, input);
+      if (!current) fail("REVISION_CONFLICT", "Static deployment is unavailable for retirement recovery.");
+      const result = await session.query<RetirementRow>(
+        `select * from runtime_static_generation_retirements
+         where application_id=$1 and environment=$2 and state='reserved'
+           and generation_id<>$3 and generation_id<>coalesce($4, '')
+         order by reserved_at, generation_id limit $5`,
+        [input.applicationId, input.environment, current.active_generation_id, current.rollback_generation_id, input.limit]
+      );
+      return Object.freeze(result.rows.map((row) => this.retirement(row)));
+    });
+  }
+
+  async completeGenerationRetirement(input: StaticGenerationRetirementReservation): Promise<void> {
     assertOwner(input);
     if (!generationPattern.test(input.generationId) || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(input.reservationId)) {
-      fail("INPUT_INVALID", "Rejected static generation retirement reservation is invalid.");
+      fail("INPUT_INVALID", "Static generation retirement reservation is invalid.");
     }
     return this.transaction(async (session) => {
       await this.lock(session, input);
       const current = await this.readLocked(session, input);
       const existing = await this.readRetirementLocked(session, input, input.generationId);
-      if (!current || !existing || existing.reservation_id !== input.reservationId) fail("REVISION_CONFLICT", "Rejected-generation retirement reservation changed before completion.");
-      if (current.active_generation_id === input.generationId || current.rollback_generation_id === input.generationId) fail("EVIDENCE_MISMATCH", "A protected static generation cannot complete retirement.");
+      if (!current || !existing || existing.reservation_id !== input.reservationId) fail("REVISION_CONFLICT", "Generation retirement reservation changed before completion.");
+      const normalRollbackRetirement = current.rollback_generation_id === input.generationId && current.rollback_window.state === "retirement-reserved" &&
+        current.transition_checkpoint?.kind === "retire-rollback" && current.transition_checkpoint.previousGenerationId === input.generationId &&
+        current.transition_checkpoint.reservedStep === "retire-retained";
+      if (current.active_generation_id === input.generationId || (current.rollback_generation_id === input.generationId && !normalRollbackRetirement)) fail("EVIDENCE_MISMATCH", "A protected static generation cannot complete retirement.");
       if (existing.state === "completed") return;
       const completedAt = timestamp(this.clock);
       const updated = await session.query(
@@ -468,30 +544,125 @@ export class PostgresStaticDeploymentStore {
          where application_id=$1 and environment=$2 and generation_id=$3 and reservation_id=$4 and state='reserved' returning generation_id`,
         [input.applicationId, input.environment, input.generationId, input.reservationId, completedAt]
       );
-      if (!updated.rows[0]) fail("REVISION_CONFLICT", "Rejected-generation retirement reservation changed during completion.");
+      if (!updated.rows[0]) fail("REVISION_CONFLICT", "Generation retirement reservation changed during completion.");
     });
   }
 
-  async completeTransitionStep(input: Owner & Readonly<{ expectedRevision: number; step: StaticDeploymentTransitionStep }>): Promise<void> {
+  async reserveTransitionStep(input: Owner & Readonly<{ expectedRevision: number; step: StaticDeploymentTransitionStep; reservationId: string }>): Promise<StaticDeploymentTransitionTicket> {
     assertOwner(input); assertRevision(input.expectedRevision);
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(input.reservationId)) fail("INPUT_INVALID", "Static deployment transition reservation identity is invalid.");
     return this.transaction(async (session) => {
       await this.lock(session, input);
       const current = await this.readLocked(session, input);
-      if (!current || current.revision !== input.expectedRevision || !current.transition_checkpoint) fail("REVISION_CONFLICT", "Static deployment transition checkpoint changed before completion.");
+      const fence = await this.readFenceLocked(session, input);
+      if (!current || current.revision !== input.expectedRevision || !current.transition_checkpoint || !fence) fail("REVISION_CONFLICT", "Static deployment transition checkpoint changed before reservation.");
       const checkpoint = current.transition_checkpoint;
-      if (checkpoint.completedSteps.includes(input.step)) return;
       const allowed = checkpoint.kind === "retire-rollback" ? ["drain-retained", "retire-retained"] : ["activate-worker", "converge-gateway", "reconnect-realtime", "drain-previous"];
+      if (checkpoint.reservedStep && (checkpoint.reservedStep !== input.step || checkpoint.reservationId !== input.reservationId) && Date.parse(checkpoint.reservationExpiresAt!) > this.clock.now().valueOf()) {
+        fail("REVISION_CONFLICT", "A live external transition step is already reserved.");
+      }
       if (input.step !== allowed[checkpoint.completedSteps.length]) fail("INPUT_INVALID", "Transition step is out of order for the persisted deployment checkpoint.");
-      const completedSteps = [...checkpoint.completedSteps, input.step] as StaticDeploymentTransitionStep[];
-      const updatedCheckpoint = { ...checkpoint, completedSteps } as StaticDeploymentTransitionCheckpoint;
+      const ticket: StaticDeploymentTransitionTicket = Object.freeze({
+        applicationId: input.applicationId,
+        environment: input.environment,
+        generationId: ["activate-worker", "converge-gateway", "reconnect-realtime"].includes(input.step) ? checkpoint.activeGenerationId : checkpoint.previousGenerationId,
+        activeGenerationId: checkpoint.activeGenerationId,
+        revision: checkpoint.revision,
+        fencingToken: Number(fence.fencing_token),
+        checkpointKind: checkpoint.kind,
+        step: input.step,
+        reservationId: input.reservationId,
+        reservationExpiresAt: new Date(this.clock.now().valueOf() + 60_000).toISOString()
+      });
+      if (checkpoint.reservedStep === input.step && checkpoint.reservationId === input.reservationId) return Object.freeze({ ...ticket, reservationExpiresAt: checkpoint.reservationExpiresAt! });
+      const updatedCheckpoint = { ...checkpoint, reservedStep: input.step, reservationId: ticket.reservationId, reservationExpiresAt: ticket.reservationExpiresAt } as StaticDeploymentTransitionCheckpoint;
       const stateDigest = await sha256(stateForDigest({ ...current, transition_checkpoint: updatedCheckpoint }));
       const updated = await session.query(
         `update runtime_static_deployments set transition_checkpoint=$3::jsonb, state_digest=$4, updated_at=now()
          where application_id=$1 and environment=$2 and revision=$5 returning revision`,
         [input.applicationId, input.environment, JSON.stringify(updatedCheckpoint), stateDigest, input.expectedRevision]
       );
+      if (!updated.rows[0]) fail("REVISION_CONFLICT", "Static deployment transition checkpoint changed during reservation.");
+      return ticket;
+    });
+  }
+
+  async releaseTransitionStep(input: StaticDeploymentTransitionTicket): Promise<void> {
+    assertOwner(input); assertRevision(input.revision); assertFenceToken(input.fencingToken);
+    return this.transaction(async (session) => {
+      await this.lock(session, input);
+      const current = await this.readLocked(session, input);
+      const fence = await this.readFenceLocked(session, input);
+      if (!current || current.revision !== input.revision || !current.transition_checkpoint) fail("REVISION_CONFLICT", "Static deployment transition checkpoint changed before release.");
+      const checkpoint = current.transition_checkpoint;
+      this.assertTransitionTicketValue(input, checkpoint, fence);
+      if (checkpoint.reservedStep !== input.step || checkpoint.reservationId !== input.reservationId) return;
+      const { reservedStep: _reservedStep, reservationId: _reservationId, reservationExpiresAt: _reservationExpiresAt, ...unreservedCheckpoint } = checkpoint;
+      const updatedCheckpoint = unreservedCheckpoint as StaticDeploymentTransitionCheckpoint;
+      const stateDigest = await sha256(stateForDigest({ ...current, transition_checkpoint: updatedCheckpoint }));
+      const updated = await session.query(
+        `update runtime_static_deployments set transition_checkpoint=$3::jsonb, state_digest=$4, updated_at=now()
+         where application_id=$1 and environment=$2 and revision=$5 returning revision`,
+        [input.applicationId, input.environment, JSON.stringify(updatedCheckpoint), stateDigest, input.revision]
+      );
+      if (!updated.rows[0]) fail("REVISION_CONFLICT", "Static deployment transition checkpoint changed during release.");
+    });
+  }
+
+  async completeTransitionStep(input: StaticDeploymentTransitionTicket): Promise<void> {
+    assertOwner(input); assertRevision(input.revision); assertFenceToken(input.fencingToken);
+    return this.transaction(async (session) => {
+      await this.lock(session, input);
+      const current = await this.readLocked(session, input);
+      const fence = await this.readFenceLocked(session, input);
+      if (!current || current.revision !== input.revision || !current.transition_checkpoint) fail("REVISION_CONFLICT", "Static deployment transition checkpoint changed before completion.");
+      const checkpoint = current.transition_checkpoint;
+      this.assertTransitionTicketValue(input, checkpoint, fence);
+      if (checkpoint.completedSteps.includes(input.step)) return;
+      const allowed = checkpoint.kind === "retire-rollback" ? ["drain-retained", "retire-retained"] : ["activate-worker", "converge-gateway", "reconnect-realtime", "drain-previous"];
+      if (input.step !== allowed[checkpoint.completedSteps.length] || checkpoint.reservedStep !== input.step || checkpoint.reservationId !== input.reservationId) fail("REVISION_CONFLICT", "Transition step is not durably reserved by this external effect.");
+      const completedSteps = [...checkpoint.completedSteps, input.step] as StaticDeploymentTransitionStep[];
+      const { reservedStep: _reservedStep, reservationId: _reservationId, reservationExpiresAt: _reservationExpiresAt, ...unreservedCheckpoint } = checkpoint;
+      const updatedCheckpoint = { ...unreservedCheckpoint, completedSteps } as StaticDeploymentTransitionCheckpoint;
+      const stateDigest = await sha256(stateForDigest({ ...current, transition_checkpoint: updatedCheckpoint }));
+      const updated = await session.query(
+        `update runtime_static_deployments set transition_checkpoint=$3::jsonb, state_digest=$4, updated_at=now()
+         where application_id=$1 and environment=$2 and revision=$5 returning revision`,
+        [input.applicationId, input.environment, JSON.stringify(updatedCheckpoint), stateDigest, input.revision]
+      );
       if (!updated.rows[0]) fail("REVISION_CONFLICT", "Static deployment transition checkpoint changed during completion.");
     });
+  }
+
+  async assertTransitionTicket(input: StaticDeploymentTransitionTicket, retirement?: StaticGenerationRetirementReservation): Promise<void> {
+    assertOwner(input); assertRevision(input.revision); assertFenceToken(input.fencingToken);
+    const retirementProjection = retirement ? ", r.reservation_id, r.state as retirement_state, r.generation_id as retirement_generation_id" : "";
+    const retirementJoin = retirement
+      ? " left join runtime_static_generation_retirements r on r.application_id=d.application_id and r.environment=d.environment and r.generation_id=$3"
+      : "";
+    const result = await this.pool.query<TransitionAuthorityRow>(
+      `select d.*, f.active_execution_generation, f.fencing_token, f.lease_owner, f.lease_expires_at, f.promotion_revision${retirementProjection}
+       from runtime_static_deployments d join runtime_worker_generation_fences f using (application_id, environment)
+       ${retirementJoin}
+       where d.application_id=$1 and d.environment=$2`,
+      retirement ? [input.applicationId, input.environment, retirement.generationId] : [input.applicationId, input.environment]
+    );
+    const current = result.rows[0];
+    if (!current || current.revision !== input.revision || !current.transition_checkpoint) fail("REVISION_CONFLICT", "Static generation drain authority is stale.");
+    const transition = checkpoint(current.transition_checkpoint, current);
+    if (!transition) fail("REVISION_CONFLICT", "Static deployment transition authority is unavailable.");
+    this.assertTransitionTicketValue(input, transition, current);
+    const previousStep = input.step === "drain-previous" || input.step === "drain-retained" || input.step === "retire-retained";
+    if (previousStep && (input.generationId === current.active_generation_id || transition.previousGenerationId !== input.generationId)) {
+      fail("FENCE_REJECTED", "Static generation transition target is active or stale.");
+    }
+    if (input.step === "retire-retained") {
+      if (!retirement || retirement.applicationId !== input.applicationId || retirement.environment !== input.environment || retirement.generationId !== input.generationId ||
+        current.retirement_generation_id !== input.generationId || current.reservation_id !== retirement.reservationId || !["reserved", "completed"].includes(String(current.retirement_state)) ||
+        current.rollback_generation_id !== input.generationId || current.rollback_window.state !== "retirement-reserved") {
+        fail("FENCE_REJECTED", "Retained static generation retirement authority is stale.");
+      }
+    }
   }
 
   async assertContractCleanup(owner: Owner): Promise<void> {
@@ -651,6 +822,18 @@ export class PostgresStaticDeploymentStore {
     return fence;
   }
 
+  private assertTransitionTicketValue(input: StaticDeploymentTransitionTicket, checkpoint: StaticDeploymentTransitionCheckpoint, fence: FenceRow | undefined): void {
+    const expectedGenerationId = input.step === "activate-worker" || input.step === "converge-gateway" || input.step === "reconnect-realtime"
+      ? checkpoint.activeGenerationId
+      : checkpoint.previousGenerationId;
+    if (!fence || input.activeGenerationId !== checkpoint.activeGenerationId || input.generationId !== expectedGenerationId ||
+      input.revision !== checkpoint.revision || input.checkpointKind !== checkpoint.kind || input.fencingToken !== Number(fence.fencing_token) ||
+      fence.active_execution_generation !== checkpoint.activeGenerationId || checkpoint.reservationId !== input.reservationId ||
+      checkpoint.reservedStep !== input.step || checkpoint.reservationExpiresAt !== input.reservationExpiresAt || Date.parse(input.reservationExpiresAt) <= this.clock.now().valueOf()) {
+      fail("FENCE_REJECTED", "Static deployment transition authority is stale.");
+    }
+  }
+
   private fence(owner: Owner, row: FenceRow): WorkerGenerationFence {
     return WorkerGenerationFenceSchema.parse({
       schemaVersion: 1,
@@ -767,7 +950,7 @@ export class PostgresStaticDeploymentStore {
     const completedAt = row.completed_at ? new Date(row.completed_at).toISOString() : undefined;
     if (!generationPattern.test(row.generation_id) || !["reserved", "completed"].includes(row.state) || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(row.reservation_id) ||
       !Number.isFinite(Date.parse(reservedAt)) || (row.state === "completed") !== (completedAt !== undefined)) {
-      fail("EVIDENCE_MISMATCH", "Rejected-generation retirement evidence is invalid.");
+      fail("EVIDENCE_MISMATCH", "Static generation retirement evidence is invalid.");
     }
     return Object.freeze({
       applicationId: row.application_id,

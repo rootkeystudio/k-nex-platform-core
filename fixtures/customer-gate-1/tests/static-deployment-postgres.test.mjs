@@ -181,6 +181,28 @@ async function docker(args, options = {}) {
   return run("docker", args, { maxBuffer: 8 * 1024 * 1024, ...options });
 }
 
+function dockerContainerMissing(error) {
+  return /\bno such (?:container|object)\b/iu.test(`${error?.stderr ?? ""}\n${error?.stdout ?? ""}\n${error?.message ?? ""}`);
+}
+
+async function dockerContainerPresent(name) {
+  try {
+    await docker(["inspect", name]);
+    return true;
+  } catch (error) {
+    if (dockerContainerMissing(error)) return false;
+    throw error;
+  }
+}
+
+async function assertDockerContainerAbsent(name, message) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (!await dockerContainerPresent(name)) return;
+    await delay(100);
+  }
+  assert.fail(message);
+}
+
 async function command(command, args, cwd) {
   return run(command, args, { cwd, maxBuffer: 8 * 1024 * 1024 });
 }
@@ -353,7 +375,8 @@ async function provisionStaticBinarySchema(pool) {
     grant insert, update on runtime_static_deployments, runtime_worker_generation_fences, runtime_static_deployment_outbox to p9_static_supervisor;
     grant select, insert, update on runtime_static_generation_retirements to p9_static_supervisor;
     grant select on runtime_static_deployment_outbox to p9_static_supervisor;
-    grant select, insert, update on p9_static_deployment_commands, p9_static_process_routes to p9_static_supervisor;
+    grant select, insert, update on p9_static_deployment_commands to p9_static_supervisor;
+    grant select, insert, update, delete on p9_static_process_routes to p9_static_supervisor;
     grant select, insert, update on runtime_worker_effects to p9_static_worker;
     grant select, insert on p9_static_external_effects to p9_static_worker;
     -- SELECT FOR UPDATE is required to atomically claim an effect, but this role
@@ -392,7 +415,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     try { await docker(["rm", "--force", name]); return; }
     catch (error) { if (!/removal of container .* is already in progress/u.test(error.message)) throw error; }
     for (let attempt = 0; attempt < 100; attempt += 1) {
-      const present = await docker(["inspect", name]).then(() => true).catch(() => false);
+      const present = await dockerContainerPresent(name);
       if (!present) return;
       await delay(100);
     }
@@ -789,9 +812,98 @@ test("proves distinct customer binaries and deployment processes recover from Po
     await assert.rejects(store.claimEffect({ ...owner, effectId: "sales-external-effect", generationId: "customer-alpha-green-12", fencingToken: 2, claimantId: "worker:phase-9-green-a", claimLeaseExpiresAt: effectLeaseExpiresAt }), { code: "FENCE_REJECTED" });
     const blueEffect = await store.claimEffect({ ...owner, effectId: "sales-external-effect", generationId: blue.generationId, fencingToken: 1, claimantId: "worker:phase-9-blue", claimLeaseExpiresAt: effectLeaseExpiresAt });
     assert.equal((await deliverExternalEffect(pool, blueEffect.externalIdempotencyKey, "sales external effect")).duplicate, false);
+    const partialOwnerId = createHash("sha256").update(`${owner.applicationId}:${owner.environment}`).digest("hex").slice(0, 16);
+    const promotionCommand = (commandId, generationId) => ({
+      commandId, operation: "promote", ...owner, generationId,
+      buildRequestDigest: deploymentRequest.buildRequestDigest, expectedRevision: 0,
+      workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: leaseExpiresAt
+    });
+    const assertRejectedGenerationRetired = async (generationId) => {
+      const container = `knex-p9-${network}-${partialOwnerId}-${generationId}`;
+      for (const name of [container, `${container}-worker`]) {
+        await assertDockerContainerAbsent(name, `${name} survived rejected-generation retirement.`);
+      }
+      assert.equal((await pool.query(
+        "select count(*)::int count from p9_static_process_routes where application_id=$1 and environment=$2 and generation_id=$3",
+        [owner.applicationId, owner.environment, generationId]
+      )).rows[0].count, 0, "Rejected partial generation retained a route.");
+      assert.deepEqual((await pool.query(
+        "select state, completed_at is not null completed from runtime_static_generation_retirements where application_id=$1 and environment=$2 and generation_id=$3",
+        [owner.applicationId, owner.environment, generationId]
+      )).rows, [{ state: "completed", completed: true }], "Retirement may complete only after both named processes and the route are absent.");
+    };
+    const partialGenerationId = "customer-alpha-green-partial-12";
+    const partialCommand = promotionCommand("partial-worker-green-12", partialGenerationId);
+    await supervisorCommand(supervisorUrl, { commandId: "arm-partial-worker-green-12", operation: "arm-worker-start-failure" });
+    await assert.rejects(supervisorCommand(supervisorUrl, partialCommand), /simulated worker start failure after web start/u);
+    assert.deepEqual((await pool.query("select detail from p9_static_process_events where event='worker-start-failure-before-route' and generation_id=$1", [partialGenerationId])).rows, [{ detail: { webName: `knex-p9-${network}-${partialOwnerId}-${partialGenerationId}`, workerName: `knex-p9-${network}-${partialOwnerId}-${partialGenerationId}-worker`, routePublished: false } }]);
+    await assertRejectedGenerationRetired(partialGenerationId);
+    await supervisorProcess.stop();
+    supervisorProcess = startTopologyProcess("supervisor", processEnv("supervisor", {
+      P9_PROCESS_INSTANCE: "supervisor-2", P9_CONTROL_PORT: String(supervisorPort), P9_DOCKER_NETWORK: network, P9_DOCKER_NAMESPACE: network, P9_GATEWAY_URL: processGatewayUrl, P9_STAY_ALIVE: "1"
+    }));
+    topology.push(supervisorProcess);
+    supervisorUrl = (await supervisorProcess.ready).url;
+    await waitForProcessEvent(pool, "supervisor", "supervisor-recovered", 2);
+    await assert.rejects(supervisorCommand(supervisorUrl, partialCommand), { code: "STATE_UNAVAILABLE" });
+    await assertRejectedGenerationRetired(partialGenerationId);
+
+    const workerOnlyGenerationId = "customer-alpha-green-worker-only-12";
+    const workerOnlyCommand = promotionCommand("worker-only-survivor-green-12", workerOnlyGenerationId);
+    await supervisorCommand(supervisorUrl, { commandId: "arm-worker-only-survivor-green-12", operation: "arm-worker-only-survivor" });
+    await assert.rejects(supervisorCommand(supervisorUrl, workerOnlyCommand), /simulated web startup failure after passive worker startup/u);
+    assert.deepEqual((await pool.query("select detail from p9_static_process_events where event='worker-only-survivor-before-route' and generation_id=$1", [workerOnlyGenerationId])).rows, [{ detail: { webName: `knex-p9-${network}-${partialOwnerId}-${workerOnlyGenerationId}`, workerName: `knex-p9-${network}-${partialOwnerId}-${workerOnlyGenerationId}-worker`, routePublished: false } }]);
+    await assertRejectedGenerationRetired(workerOnlyGenerationId);
+    await supervisorProcess.stop();
+    supervisorProcess = startTopologyProcess("supervisor", processEnv("supervisor", {
+      P9_PROCESS_INSTANCE: "supervisor-3", P9_CONTROL_PORT: String(supervisorPort), P9_DOCKER_NETWORK: network, P9_DOCKER_NAMESPACE: network, P9_GATEWAY_URL: processGatewayUrl, P9_STAY_ALIVE: "1"
+    }));
+    topology.push(supervisorProcess);
+    supervisorUrl = (await supervisorProcess.ready).url;
+    await waitForProcessEvent(pool, "supervisor", "supervisor-recovered", 3);
+    await assert.rejects(supervisorCommand(supervisorUrl, workerOnlyCommand), { code: "STATE_UNAVAILABLE" });
+    await assertRejectedGenerationRetired(workerOnlyGenerationId);
+
     await supervisorCommand(supervisorUrl, { commandId: "arm-failed-green-12", operation: "arm-health-failure" });
-    await assert.rejects(supervisorCommand(supervisorUrl, { commandId: "failed-green-12", operation: "promote", ...owner, generationId: "customer-alpha-green-health-12", buildRequestDigest: deploymentRequest.buildRequestDigest, expectedRevision: 0, workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: leaseExpiresAt }), /failed health checks/);
+    await assert.rejects(supervisorCommand(supervisorUrl, promotionCommand("failed-green-12", "customer-alpha-green-health-12")), /failed health checks/);
+    await assertRejectedGenerationRetired("customer-alpha-green-health-12");
     assert.equal((await store.read(owner)).active.generationId, blue.generationId);
+
+    const reservationCrashGenerationId = "customer-alpha-green-reserved-crash-12";
+    const reservationCrashCommand = promotionCommand("reserved-retirement-crash-green-12", reservationCrashGenerationId);
+    await supervisorCommand(supervisorUrl, { commandId: "arm-reserved-retirement-readiness-failure", operation: "arm-readiness-failure" });
+    await supervisorCommand(supervisorUrl, { commandId: "arm-reserved-retirement-crash", operation: "arm-retirement-reservation-crash" });
+    await assert.rejects(supervisorCommand(supervisorUrl, reservationCrashCommand), /fetch failed|other side closed|socket/u);
+    if (supervisorProcess.child.exitCode === null && supervisorProcess.child.signalCode === null) await new Promise((resolve) => supervisorProcess.child.once("exit", resolve));
+    const reservedRetirement = (await pool.query(
+      "select reservation_id, reserved_at, state from runtime_static_generation_retirements where application_id=$1 and environment=$2 and generation_id=$3",
+      [owner.applicationId, owner.environment, reservationCrashGenerationId]
+    )).rows[0];
+    assert.ok(reservedRetirement?.reservation_id && reservedRetirement?.reserved_at, "The rejected target must receive a durable retirement reservation before host deletion.");
+    assert.equal(reservedRetirement.state, "reserved");
+    assert.equal((await pool.query("select status from p9_static_deployment_commands where command_id=$1", [reservationCrashCommand.commandId])).rows[0].status, "running");
+    const reservationCrashContainer = `knex-p9-${network}-${partialOwnerId}-${reservationCrashGenerationId}`;
+    for (const name of [reservationCrashContainer, `${reservationCrashContainer}-worker`]) {
+      assert.equal(await dockerContainerPresent(name), true, `${name} must survive the crash before retirement deletion.`);
+    }
+    assert.equal((await pool.query("select count(*)::int count from p9_static_process_routes where application_id=$1 and environment=$2 and generation_id=$3", [owner.applicationId, owner.environment, reservationCrashGenerationId])).rows[0].count, 1);
+    assert.equal((await store.read(owner)).active.generationId, blue.generationId);
+    assert.equal((await store.readFence(owner)).fencingToken, 1);
+    await trafficProbe.waitForGeneration("install", blue.generationId);
+    supervisorProcess = startTopologyProcess("supervisor", processEnv("supervisor", { P9_PROCESS_INSTANCE: "supervisor-4", P9_CONTROL_PORT: String(supervisorPort), P9_DOCKER_NETWORK: network, P9_DOCKER_NAMESPACE: network, P9_GATEWAY_URL: processGatewayUrl, P9_STAY_ALIVE: "1" }));
+    topology.push(supervisorProcess);
+    supervisorUrl = (await supervisorProcess.ready).url;
+    await waitForProcessEvent(pool, "supervisor", "supervisor-recovered", 4);
+    await assertRejectedGenerationRetired(reservationCrashGenerationId);
+    const completedRetirement = (await pool.query(
+      "select reservation_id, reserved_at, state, completed_at is not null completed from runtime_static_generation_retirements where application_id=$1 and environment=$2 and generation_id=$3",
+      [owner.applicationId, owner.environment, reservationCrashGenerationId]
+    )).rows[0];
+    assert.deepEqual(completedRetirement, { ...reservedRetirement, state: "completed", completed: true }, "Recovery must complete the original reservation rather than minting a replacement.");
+    assert.equal((await store.read(owner)).active.generationId, blue.generationId);
+    assert.equal((await store.readFence(owner)).fencingToken, 1);
+    await assert.rejects(supervisorCommand(supervisorUrl, reservationCrashCommand), { code: "STATE_UNAVAILABLE" });
+    await assertRejectedGenerationRetired(reservationCrashGenerationId);
 
     await pool.query("create function p9_fail_fence_transfer() returns trigger language plpgsql as $$ begin if new.fencing_token=2 then raise exception 'simulated fence transfer crash'; end if; return new; end $$");
     await pool.query("create trigger p9_fail_fence_transfer before update on runtime_worker_generation_fences for each row execute function p9_fail_fence_transfer()");
@@ -820,7 +932,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     await assert.rejects(operatorApi.activate(managedPlan.operationId), /fetch failed|other side closed|socket/u);
     if (supervisorProcess.child.exitCode === null && supervisorProcess.child.signalCode === null) await new Promise((resolve) => supervisorProcess.child.once("exit", resolve));
     assert.equal((await pool.query("select status from p9_static_deployment_commands where command_id=$1", [`promote-${managedPlan.operationId}`])).rows[0].status, "running", "SIGKILL after commit must leave an in-flight durable command for recovery.");
-    supervisorProcess = startTopologyProcess("supervisor", processEnv("supervisor", { P9_PROCESS_INSTANCE: "supervisor-2", P9_CONTROL_PORT: String(supervisorPort), P9_DOCKER_NETWORK: network, P9_DOCKER_NAMESPACE: network, P9_GATEWAY_URL: processGatewayUrl, P9_STAY_ALIVE: "1" }));
+    supervisorProcess = startTopologyProcess("supervisor", processEnv("supervisor", { P9_PROCESS_INSTANCE: "supervisor-5", P9_CONTROL_PORT: String(supervisorPort), P9_DOCKER_NETWORK: network, P9_DOCKER_NAMESPACE: network, P9_GATEWAY_URL: processGatewayUrl, P9_STAY_ALIVE: "1" }));
     topology.push(supervisorProcess);
     supervisorUrl = (await supervisorProcess.ready).url;
     const managedReceipt = await operatorApi.activate(managedPlan.operationId);
@@ -841,12 +953,33 @@ test("proves distinct customer binaries and deployment processes recover from Po
     assert.equal((await inFlightBlue).generation, blue.generationId);
     assert.equal((await fetch(`${processGatewayUrl}/p9-authority`).then((response) => response.json())).generation, "customer-alpha-green-12");
     assert.equal((await store.readFence(owner)).activeExecutionGeneration, "customer-alpha-green-12");
+    const staleDrainTicket = {
+      ...owner, generationId: "customer-alpha-green-12", activeGenerationId: blue.generationId,
+      revision: 0, fencingToken: 1, checkpointKind: "promote", step: "drain-previous",
+      reservationId: randomUUID(), reservationExpiresAt: new Date(Date.now() + 60_000).toISOString()
+    };
+    await assert.rejects(
+      supervisorCommand(supervisorUrl, { commandId: "stale-drain-active-green-12", operation: "drain-with-ticket", ...owner, generationId: "customer-alpha-green-12", ticket: staleDrainTicket }),
+      { code: "REVISION_CONFLICT" },
+      "A stale supervisor ticket cannot drain the newly fenced active worker."
+    );
+    const greenWorkerName = `knex-p9-${network}-${partialOwnerId}-customer-alpha-green-12-worker`;
+    const greenWorkerPort = (await docker(["port", greenWorkerName, "3002/tcp"])).stdout.trim().match(/127\.0\.0\.1:(\d+)$/u)?.[1];
+    assert.ok(greenWorkerPort, "The active green worker container must remain addressable after stale drain rejection.");
+    assert.deepEqual(await fetch(`http://127.0.0.1:${greenWorkerPort}/status`).then((response) => response.json()), {
+      mode: "active", generationId: "customer-alpha-green-12", fencingToken: 2, inFlight: 0,
+      sourceCommit: targetCommit, applicationDigest: greenBuild.applicationDigest, imageDigest: greenBuild.imageDigest,
+      module: "module.sales", pluginVersion: "1.0.1"
+    });
+    assert.equal((await fetch(`${processGatewayUrl}/inventory`).then((response) => response.json())).generation, "customer-alpha-green-12");
+    assert.equal((await docker(["inspect", greenWorkerName])).stdout.length > 0, true);
     await waitForProcessEvent(pool, "release-worker", "worker-activated", 1);
     await waitForProcessEvent(pool, "release-worker", "worker-drained", 1);
     assert.equal((await packagedWorkerEffect).result.status, "stale-completion-rejected", "Fence transfer must reject the packaged blue worker's stale database completion after its external delivery settles.");
-    const releaseWorkerEvidence = await pool.query("select id, event, generation_id, fencing_token, detail from p9_static_process_events where role='release-worker' and event in ('worker-activated','worker-effect-started','worker-effect-delivered','worker-effect-completed','worker-stale-completion-rejected','worker-draining','worker-drained') order by id");
+    const releaseWorkerEvidence = await pool.query("select id, event, generation_id, fencing_token, detail from p9_static_process_events where role='release-worker' and event in ('worker-activated','worker-effect-started','worker-effect-delivered','worker-effect-completed','worker-stale-completion-rejected','worker-drain-rejected','worker-draining','worker-drained') order by id");
     assert.equal(releaseWorkerEvidence.rows.some((row) => row.event === "worker-activated" && row.generation_id === "customer-alpha-green-12" && Number(row.fencing_token) === 2 && row.detail.sourceCommit === targetCommit && row.detail.applicationDigest === greenBuild.applicationDigest && row.detail.imageDigest === greenBuild.imageDigest && row.detail.module === "module.sales"), true, "The supervisor must activate the green worker packaged in the exact attested release image after fence transfer.");
     assert.equal(releaseWorkerEvidence.rows.some((row) => row.event === "worker-drained" && row.generation_id === blue.generationId && row.detail.sourceCommit === baseCommit && row.detail.applicationDigest === blueBuild.applicationDigest && row.detail.imageDigest === blueBuild.imageDigest && row.detail.module === "module.sales"), true, "The supervisor must drain the prior worker binary instead of treating host checkout processes as workers.");
+    assert.equal(releaseWorkerEvidence.rows.some((row) => row.event === "worker-drain-rejected" && row.generation_id === "customer-alpha-green-12" && row.detail.reason === "stale-ticket" && row.detail.ticketFencingToken === 1), true, "The release worker must record and reject the stale full transition ticket before changing mode.");
     const packagedEvents = releaseWorkerEvidence.rows.filter((row) => row.generation_id === blue.generationId && ["worker-effect-started", "worker-effect-delivered", "worker-stale-completion-rejected", "worker-draining", "worker-drained"].includes(row.event));
     assert.deepEqual(packagedEvents.map(({ event }) => event), ["worker-effect-started", "worker-draining", "worker-effect-delivered", "worker-stale-completion-rejected", "worker-drained"], "Drain must enter draining state, wait for the packaged worker's external delivery and stale-completion denial, then complete.");
     assert.equal(packagedEvents.find(({ event }) => event === "worker-draining").detail.inFlight, 1);
@@ -866,7 +999,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     await supervisorCommand(supervisorUrl, { commandId: "restart-blue-rollback-window", operation: "restart", ...owner, generationId: blue.generationId, buildRequestDigest: deploymentRequest.buildRequestDigest, expectedRevision: 1, sourceCommit: baseCommit, applicationDigest: blueBuild.applicationDigest, imageDigest: blueBuild.imageDigest, migrationRevision: 11, completedMigrationSteps: [] });
     crashEvidence.add("rollback-open:web-blue");
     await supervisorProcess.stop();
-    supervisorProcess = startTopologyProcess("supervisor", processEnv("supervisor", { P9_PROCESS_INSTANCE: "supervisor-3", P9_CONTROL_PORT: String(supervisorPort), P9_DOCKER_NETWORK: network, P9_DOCKER_NAMESPACE: network, P9_GATEWAY_URL: processGatewayUrl, P9_STAY_ALIVE: "1" }));
+    supervisorProcess = startTopologyProcess("supervisor", processEnv("supervisor", { P9_PROCESS_INSTANCE: "supervisor-6", P9_CONTROL_PORT: String(supervisorPort), P9_DOCKER_NETWORK: network, P9_DOCKER_NAMESPACE: network, P9_GATEWAY_URL: processGatewayUrl, P9_STAY_ALIVE: "1" }));
     topology.push(supervisorProcess);
     supervisorUrl = (await supervisorProcess.ready).url;
     await realtimeProcess.stop();
@@ -874,7 +1007,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     topology.push(realtimeProcess);
     await realtimeProcess.ready;
     await Promise.all([
-      waitForProcessEvent(pool, "supervisor", "supervisor-recovered", 3), waitForProcessEvent(pool, "release-worker", "worker-activated", 1),
+      waitForProcessEvent(pool, "supervisor", "supervisor-recovered", 6), waitForProcessEvent(pool, "release-worker", "worker-activated", 1),
       waitForProcessEvent(pool, "realtime-client", "realtime-resynced", 2)
     ]);
     const deployedAuthority = {
@@ -915,14 +1048,64 @@ test("proves distinct customer binaries and deployment processes recover from Po
     await supervisorCommand(supervisorUrl, { commandId: "recover-rollback-blue-12", operation: "recover", ...owner, generationId: blue.generationId, buildRequestDigest: deploymentRequest.buildRequestDigest, expectedRevision: 2 });
     assert.equal((await fetch(`${processGatewayUrl}/inventory`).then((response) => response.json())).generation, blue.generationId);
     await waitForProcessEvent(pool, "release-worker", "worker-activated", 2);
+    const completedBlueDrainTicket = (await pool.query(
+      "select detail->'ticket' ticket from p9_static_process_events where role='supervisor' and event='drain-ticket-forwarded' and generation_id=$1 order by id limit 1",
+      [blue.generationId]
+    )).rows[0]?.ticket;
+    assert.ok(completedBlueDrainTicket, "The real completed blue drain ticket must be retained as PostgreSQL fixture evidence.");
+    await assert.rejects(
+      supervisorCommand(supervisorUrl, { commandId: "replay-completed-blue-drain-ticket", operation: "drain-with-ticket", ...owner, generationId: blue.generationId, ticket: completedBlueDrainTicket }),
+      { code: "REVISION_CONFLICT" },
+      "A completed pre-rollback ticket cannot drain Blue after it becomes the newly fenced active generation."
+    );
+    const blueWorkerName = `knex-p9-${network}-${partialOwnerId}-${blue.generationId}-worker`;
+    const blueWorkerPort = (await docker(["port", blueWorkerName, "3002/tcp"])).stdout.trim().match(/127\.0\.0\.1:(\d+)$/u)?.[1];
+    assert.equal((await fetch(`http://127.0.0.1:${blueWorkerPort}/status`).then((response) => response.json())).mode, "active");
+    assert.equal((await fetch(`${processGatewayUrl}/inventory`).then((response) => response.json())).generation, blue.generationId);
     crashEvidence.add("rolled-back:worker-blue");
     trafficProbe.transition("re-promotion", [blue.generationId, "customer-alpha-green-12"]);
     await trafficProbe.waitForGeneration("re-promotion", blue.generationId);
     await supervisorCommand(supervisorUrl, { commandId: "re-promote-green-12", operation: "promote", ...owner, generationId: "customer-alpha-green-12", buildRequestDigest: deploymentRequest.buildRequestDigest, expectedRevision: 2, workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: leaseExpiresAt });
     await trafficProbe.waitForGeneration("re-promotion", "customer-alpha-green-12");
     await assert.rejects(supervisorCommand(supervisorUrl, { commandId: "contract-before-close-12", operation: "contract-cleanup", ...owner, generationId: "customer-alpha-green-12", buildRequestDigest: deploymentRequest.buildRequestDigest, expectedRevision: 3 }), { code: "CONTRACT_CLEANUP_BLOCKED" });
-    const closed = (await supervisorCommand(supervisorUrl, { commandId: "close-rollback-12", operation: "close-rollback", ...owner, generationId: "customer-alpha-green-12", buildRequestDigest: deploymentRequest.buildRequestDigest, expectedRevision: 3 })).result;
+    const blueRetirement = await store.reserveRollbackRetirement({ ...owner, expectedRevision: 3, retiredGenerationId: blue.generationId });
+    const blueRetirementTicket = await store.reserveTransitionStep({ ...owner, expectedRevision: 4, step: "drain-retained", reservationId: randomUUID() });
+    const blueWorkerControlToken = sha256(`${network}:${owner.applicationId}:${owner.environment}:${blue.generationId}:release-worker-control`);
+    const assertStaleDrainRejected = async (field, ticket) => {
+      const response = await fetch(`http://127.0.0.1:${blueWorkerPort}/drain`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-p9-worker-control": blueWorkerControlToken },
+        body: JSON.stringify(ticket)
+      });
+      assert.equal(response.status, 409, `A stale ${field} ticket field must be rejected by the release worker.`);
+      assert.equal((await fetch(`http://127.0.0.1:${blueWorkerPort}/status`).then((value) => value.json())).mode, "drained", `Rejecting stale ${field} must not change the worker mode.`);
+    };
+    const staleTickets = [
+      ["fencing token", { ...blueRetirementTicket, fencingToken: blueRetirementTicket.fencingToken - 1 }],
+      ["checkpoint kind", { ...blueRetirementTicket, checkpointKind: "rollback" }],
+      ["step", { ...blueRetirementTicket, step: "drain-previous" }],
+      ["reservation", { ...blueRetirementTicket, reservationId: randomUUID() }],
+      ["reservation expiry", { ...blueRetirementTicket, reservationExpiresAt: new Date(Date.parse(blueRetirementTicket.reservationExpiresAt) + 1_000).toISOString() }],
+      ["active generation", { ...blueRetirementTicket, activeGenerationId: blue.generationId }],
+      ["application owner", { ...blueRetirementTicket, applicationId: "customer-bravo" }],
+      ["environment owner", { ...blueRetirementTicket, environment: "staging" }],
+      ["generation target", { ...blueRetirementTicket, generationId: "customer-alpha-green-12" }]
+    ];
+    for (const [field, ticket] of staleTickets) await assertStaleDrainRejected(field, ticket);
+    await store.releaseTransitionStep(blueRetirementTicket);
+    const closed = (await supervisorCommand(supervisorUrl, { commandId: "close-rollback-12", operation: "close-rollback", ...owner, generationId: "customer-alpha-green-12", buildRequestDigest: deploymentRequest.buildRequestDigest, expectedRevision: 4 })).result;
     assert.equal(closed.contractCleanup, "eligible");
+    const blueContainer = `knex-p9-${network}-${partialOwnerId}-${blue.generationId}`;
+    await assertDockerContainerAbsent(blueContainer, "Normal rollback retirement retained the Blue web container.");
+    await assertDockerContainerAbsent(`${blueContainer}-worker`, "Normal rollback retirement retained the Blue worker container.");
+    assert.equal((await pool.query(
+      "select count(*)::int count from p9_static_process_routes where application_id=$1 and environment=$2 and generation_id=$3",
+      [owner.applicationId, owner.environment, blue.generationId]
+    )).rows[0].count, 0, "Normal rollback retirement retained Blue's owner-scoped route.");
+    assert.deepEqual((await pool.query(
+      "select reservation_id, state, completed_at is not null completed from runtime_static_generation_retirements where application_id=$1 and environment=$2 and generation_id=$3",
+      [owner.applicationId, owner.environment, blue.generationId]
+    )).rows, [{ reservation_id: blueRetirement.reservationId, state: "completed", completed: true }], "Normal rollback retirement must complete its original durable tombstone before contract cleanup.");
     assert.deepEqual((await supervisorCommand(supervisorUrl, { commandId: "contract-after-close-12", operation: "contract-cleanup", ...owner, generationId: "customer-alpha-green-12", buildRequestDigest: deploymentRequest.buildRequestDigest, expectedRevision: 5 })).result.completed, ["migration-contract-12"]);
     scenarioEvidence.add("SCN-17");
     assert.equal((await pool.query("select count(*)::int count from information_schema.columns where table_name='p9_static_overlap' and column_name='legacy_value'")).rows[0].count, 0);

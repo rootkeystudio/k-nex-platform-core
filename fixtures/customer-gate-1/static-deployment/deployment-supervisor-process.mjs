@@ -12,7 +12,7 @@ const execute = promisify(execFile);
 const sha256 = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 const digestJson = (value) => sha256(canonicalJson(value));
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
-const greenGenerationIds = new Set(["customer-alpha-green-health-12", "customer-alpha-green-fence-12", "customer-alpha-green-12"]);
+const greenGenerationIds = new Set(["customer-alpha-green-partial-12", "customer-alpha-green-worker-only-12", "customer-alpha-green-reserved-crash-12", "customer-alpha-green-health-12", "customer-alpha-green-fence-12", "customer-alpha-green-12"]);
 
 function required(name) {
   const value = process.env[name];
@@ -22,6 +22,23 @@ function required(name) {
 
 async function docker(args) {
   return execute("docker", args, { maxBuffer: 8 * 1024 * 1024 });
+}
+
+function dockerContainerMissing(error) {
+  return /\bno such (?:container|object)\b/iu.test(`${error?.stderr ?? ""}\n${error?.stdout ?? ""}\n${error?.message ?? ""}`);
+}
+
+async function removeContainer(name) {
+  try { await docker(["rm", "--force", name]); }
+  catch (error) {
+    if (!dockerContainerMissing(error)) throw error;
+  }
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try { await docker(["inspect", name]); }
+    catch (error) { if (dockerContainerMissing(error)) return; throw error; }
+    await delay(100);
+  }
+  throw new Error(`Container ${name} remained after retirement.`);
 }
 
 async function json(path) { return JSON.parse(await readFile(path, "utf8")); }
@@ -107,9 +124,10 @@ class CompatibilityMigrations {
 }
 
 class DockerGenerationHost {
-  constructor({ network, artifacts, pool, now }) {
-    this.network = network; this.namespace = required("P9_DOCKER_NAMESPACE"); this.artifacts = artifacts; this.pool = pool; this.now = now;
-    this.containers = new Map(); this.failGatewayOnce = false; this.failHealthOnce = false;
+  constructor({ network, artifacts, pool, now, transitionAuthority }) {
+    this.network = network; this.namespace = required("P9_DOCKER_NAMESPACE"); this.artifacts = artifacts; this.pool = pool; this.now = now; this.transitionAuthority = transitionAuthority;
+    this.containers = new Map(); this.failGatewayOnce = false; this.failHealthOnce = false; this.failWorkerStartOnce = false;
+    this.failReadinessOnce = false; this.failWebAfterWorkerStartOnce = false; this.crashAfterRetirementReservationOnce = false;
   }
 
   key({ applicationId, environment, generationId }) { return `${applicationId}:${environment}:${generationId}`; }
@@ -154,6 +172,14 @@ class DockerGenerationHost {
       port = (await docker(["port", name, "3000/tcp"])).stdout.trim().match(/127\.0\.0\.1:(\d+)$/u)?.[1];
     }
     if (!port) throw new Error("Docker did not publish a loopback port.");
+    if (this.failWorkerStartOnce) {
+      this.failWorkerStartOnce = false;
+      await this.pool.query(
+        "insert into p9_static_process_events (role, instance_id, event, generation_id, detail) values ('supervisor', $1, 'worker-start-failure-before-route', $2, $3::jsonb)",
+        [`supervisor-${process.pid}`, generationId, JSON.stringify({ webName: name, workerName, routePublished: false })]
+      );
+      throw new Error("simulated worker start failure after web start");
+    }
     const workerControlToken = sha256(`${this.namespace}:${input.applicationId}:${input.environment}:${generationId}:release-worker-control`);
     let workerPort;
     try {
@@ -188,6 +214,15 @@ class DockerGenerationHost {
       const logs = await docker(["logs", workerName]).then(({ stdout, stderr }) => `${stdout}${stderr}`).catch((error) => error.message);
       throw new Error(`Release worker ${generationId} did not become passive and ready: ${logs}`);
     }
+    if (this.failWebAfterWorkerStartOnce) {
+      this.failWebAfterWorkerStartOnce = false;
+      await removeContainer(name);
+      await this.pool.query(
+        "insert into p9_static_process_events (role, instance_id, event, generation_id, detail) values ('supervisor', $1, 'worker-only-survivor-before-route', $2, $3::jsonb)",
+        [`supervisor-${process.pid}`, generationId, JSON.stringify({ webName: name, workerName, routePublished: false })]
+      );
+      throw new Error("simulated web startup failure after passive worker startup and before route publication");
+    }
     const container = { applicationId: input.applicationId, environment: input.environment, generationId, name, workerName, imageId, url: `http://127.0.0.1:${port}`, workerUrl: `http://127.0.0.1:${workerPort}`, workerControlToken };
     this.containers.set(this.key(input), container);
     await this.pool.query(
@@ -201,6 +236,10 @@ class DockerGenerationHost {
     const container = this.containers.get(this.key(input));
     if (!container) throw new Error(`Generation ${input.generationId} was not started.`);
     const database = this.database(input.generationId);
+    if (this.failReadinessOnce) {
+      this.failReadinessOnce = false;
+      throw new Error("simulated web readiness failure after both generation processes and route publication");
+    }
     let healthy = false;
     for (let attempt = 0; attempt < 100; attempt += 1) {
       const response = await fetch(`${container.url}/health`).catch(() => undefined);
@@ -236,34 +275,91 @@ class DockerGenerationHost {
     if (!container) throw new Error(`Release worker ${generationId} is not running.`);
     const response = await fetch(`${container.workerUrl}${path}`, { method: "POST", headers: { "content-type": "application/json", "x-p9-worker-control": container.workerControlToken }, body: JSON.stringify(payload) });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error ?? `Release worker ${path} failed.`);
+    if (!response.ok) throw Object.assign(new Error(result.error ?? `Release worker ${path} failed.`), { status: response.status, code: result.code });
     return result;
   }
-  async activateWorker(generationId, fence) {
-    const result = await this.workerCommand({ applicationId: fence.applicationId, environment: fence.environment, generationId }, "/activate", { fencingToken: fence.fencingToken, promotionRevision: fence.promotionRevision });
-    if (result.mode !== "active" || result.generationId !== generationId || result.fencingToken !== fence.fencingToken) throw new Error("Release worker activation did not bind the persisted fencing authority.");
+  async activateWorker(ticket) {
+    const result = await this.workerCommand(ticket, "/activate", ticket);
+    if (result.mode !== "active" || result.generationId !== ticket.generationId || result.fencingToken !== ticket.fencingToken) throw new Error("Release worker activation did not bind the persisted transition authority.");
+  }
+  async activateInitialWorker(generationId, fence) {
+    const result = await this.workerCommand({ applicationId: fence.applicationId, environment: fence.environment, generationId }, "/activate-bootstrap", { fencingToken: fence.fencingToken, promotionRevision: fence.promotionRevision });
+    if (result.mode !== "active" || result.generationId !== generationId || result.fencingToken !== fence.fencingToken) throw new Error("Release worker bootstrap activation did not bind the persisted fencing authority.");
   }
   async executeEffect(input, effect) {
     return this.workerCommand(input, "/execute", effect);
   }
   async drain(input) {
-    const result = await this.workerCommand(input, "/drain");
+    await this.pool.query(
+      "insert into p9_static_process_events (role, instance_id, event, generation_id, deployment_revision, fencing_token, detail) values ('supervisor', $1, 'drain-ticket-forwarded', $2, $3, $4, $5::jsonb)",
+      [`supervisor-${process.pid}`, input.generationId, input.revision, input.fencingToken, JSON.stringify({ ticket: input })]
+    );
+    const result = await this.workerCommand(input, "/drain", input);
     if (result.mode !== "drained" || result.generationId !== input.generationId) throw new Error("Release worker drain did not complete.");
   }
-  async retire(input) {
-    const container = await this.discover(input);
-    if (container) {
-      await docker(["rm", "--force", container.workerName]);
-      await docker(["rm", "--force", container.name]);
+  async retire({ reservation, ticket }) {
+    if (ticket) await this.transitionAuthority.assertTransitionTicket(ticket, reservation);
+    await this.assertRetirementReservation(reservation, ticket);
+    if (this.crashAfterRetirementReservationOnce) {
+      this.crashAfterRetirementReservationOnce = false;
+      await this.pool.query(
+        "insert into p9_static_process_events (role, instance_id, event, generation_id, detail) values ('supervisor', $1, 'retirement-reserved-before-delete', $2, $3::jsonb)",
+        [`supervisor-${process.pid}`, reservation.generationId, JSON.stringify({ applicationId: reservation.applicationId, environment: reservation.environment, generationId: reservation.generationId, reservationId: reservation.reservationId })]
+      );
+      process.kill(process.pid, "SIGKILL");
+      await new Promise(() => {});
     }
-    this.containers.delete(this.key(input));
+    await this.removeGeneration(reservation);
   }
   async restart(input) {
-    await this.retire(input);
+    await this.removeGeneration(input);
     await this.start({ applicationId: input.applicationId, environment: input.environment, generationId: input.generationId, imageReference: input.imageReference, workerMode: "passive" });
     return this.readiness(input);
   }
-  async close() { for (const container of [...this.containers.values()]) await this.retire(container); }
+  async close() { for (const container of [...this.containers.values()]) await this.removeGeneration(container); }
+
+  async removeGeneration(input) {
+    const name = this.name(input);
+    await removeContainer(`${name}-worker`);
+    await removeContainer(name);
+    await this.pool.query(
+      "delete from p9_static_process_routes where application_id=$1 and environment=$2 and generation_id=$3",
+      [input.applicationId, input.environment, input.generationId]
+    );
+    const route = await this.pool.query(
+      "select 1 from p9_static_process_routes where application_id=$1 and environment=$2 and generation_id=$3",
+      [input.applicationId, input.environment, input.generationId]
+    );
+    if (route.rows[0]) throw new Error("Removed static generation route remained registered.");
+    this.containers.delete(this.key(input));
+  }
+
+  async assertRetirementReservation(input, ticket) {
+    const result = await this.pool.query(
+      `select r.reservation_id, r.state, d.active_generation_id, d.rollback_generation_id,
+              d.rollback_window, d.transition_checkpoint
+         from runtime_static_generation_retirements r
+         join runtime_static_deployments d using (application_id, environment)
+        where r.application_id=$1 and r.environment=$2 and r.generation_id=$3`,
+      [input.applicationId, input.environment, input.generationId]
+    );
+    const row = result.rows[0];
+    if (!row || row.reservation_id !== input.reservationId || !["reserved", "completed"].includes(row.state)) {
+      throw new Error("Static generation retirement requires its exact durable tombstone.");
+    }
+    if (row.active_generation_id === input.generationId) {
+      throw new Error("Active static generation cannot be destructively retired.");
+    }
+    if (row.rollback_generation_id === input.generationId) {
+      const rollbackWindow = row.rollback_window;
+      const checkpoint = row.transition_checkpoint;
+      if (!ticket || rollbackWindow?.state !== "retirement-reserved" || checkpoint?.kind !== "retire-rollback" ||
+        checkpoint?.previousGenerationId !== input.generationId || checkpoint?.reservedStep !== "retire-retained" ||
+        checkpoint?.reservationId !== ticket.reservationId || checkpoint?.reservationExpiresAt !== ticket.reservationExpiresAt) {
+        throw new Error("Retained static generation lacks the protected retirement transition authority.");
+      }
+    }
+  }
 
   async discover(input) {
     const { generationId } = input;
@@ -318,22 +414,24 @@ export async function runDeploymentSupervisor({ event, ready }) {
   const [greenBuild, blueBuild, trust] = await Promise.all([json(required("P9_BUILD_RESULT_PATH")), json(required("P9_BASE_BUILD_PATH")), json(required("P9_BUILDER_TRUST_POLICY_PATH"))]);
   const authority = new TrustedStaticApplicationBuildAuthority({ [trust.builderIdentity]: { publicKey: trust.publicKey, authority: trust.authority } });
   const artifacts = new ArtifactProvider(new Map([[blueBuild.imageDigest, blueBuild], [greenBuild.imageDigest, greenBuild]]));
-  const migrations = new CompatibilityMigrations(pool);
-  const generations = new DockerGenerationHost({ network, artifacts, pool, now: () => new Date() });
   const store = new PostgresStaticDeploymentStore(pool, { now: () => new Date() }, authority);
+  const migrations = new CompatibilityMigrations(pool);
+  const generations = new DockerGenerationHost({ network, artifacts, pool, now: () => new Date(), transitionAuthority: store });
   const releases = new PostgresTrustedBuildDeploymentClient(pool);
-  const gateway = { converge: async ({ applicationId, environment, generationId }) => {
+  const gateway = { converge: async (ticket) => {
+    await store.assertTransitionTicket(ticket);
     if (generations.failGatewayOnce) { generations.failGatewayOnce = false; throw new Error("simulated post-commit gateway crash"); }
     const route = await pool.query(
       "select url from p9_static_process_routes where application_id=$1 and environment=$2 and generation_id=$3",
-      [applicationId, environment, generationId]
+      [ticket.applicationId, ticket.environment, ticket.generationId]
     );
     if (!route.rows[0]) throw new Error("Stable process gateway cannot resolve the promoted generation route.");
   } };
-  const realtime = { reconnectAndResync: async ({ activeGenerationId }) => {
+  const realtime = { reconnectAndResync: async (ticket) => {
+    await store.assertTransitionTicket(ticket);
     const response = await fetch(`${gatewayUrl}/p9-authority`);
     const current = response.ok && await response.json();
-    if (!current || current.generation !== activeGenerationId) throw new Error("Stable process gateway has not consumed the atomic PostgreSQL promotion.");
+    if (!current || current.generation !== ticket.activeGenerationId) throw new Error("Stable process gateway has not consumed the atomic PostgreSQL promotion.");
   } };
   const supervisor = new DeploymentSupervisor(authority, artifacts, migrations, generations, store, gateway, realtime);
   let crashAfterCommitOnce = false;
@@ -433,7 +531,7 @@ export async function runDeploymentSupervisor({ event, ready }) {
       await store.initialize({ ...owner, generation: blue, workerOwner: command.workerOwner, workerFencingToken: 1, workerLeaseExpiresAt: command.workerLeaseExpiresAt });
       await generations.start({ ...owner, generationId: blue.generationId, imageReference: blue.imageReference, workerMode: "passive" });
       await generations.readiness({ ...owner, generationId: blue.generationId, sourceCommit: blue.sourceCommit, applicationDigest: blue.applicationDigest, imageDigest: blue.imageDigest, migrationRevision: 11, completedMigrationSteps: [] });
-      await generations.activateWorker(blue.generationId, await store.readFence(owner));
+      await generations.activateInitialWorker(blue.generationId, await store.readFence(owner));
       return { operation: "bootstrap", generationId: blue.generationId, revision: 0 };
     }
     if (command.operation === "release-request") {
@@ -456,8 +554,13 @@ export async function runDeploymentSupervisor({ event, ready }) {
       if (!state || state.active.generationId !== command.generationId || state.revision !== command.expectedRevision) throw commandError(409, "Worker effect command is not bound to the active deployment revision.", "REVISION_CONFLICT");
       return generations.executeEffect({ ...owner, generationId: command.generationId }, { effectId: command.effectId, payload: command.payload, delayMs: command.delayMs });
     }
+    if (command.operation === "drain-with-ticket") return generations.drain(command.ticket);
     if (command.operation === "arm-gateway-failure") { generations.failGatewayOnce = true; return { armed: true }; }
     if (command.operation === "arm-health-failure") { generations.failHealthOnce = true; return { armed: true }; }
+    if (command.operation === "arm-worker-start-failure") { generations.failWorkerStartOnce = true; return { armed: true }; }
+    if (command.operation === "arm-readiness-failure") { generations.failReadinessOnce = true; return { armed: true }; }
+    if (command.operation === "arm-worker-only-survivor") { generations.failWebAfterWorkerStartOnce = true; return { armed: true }; }
+    if (command.operation === "arm-retirement-reservation-crash") { generations.crashAfterRetirementReservationOnce = true; return { armed: true }; }
     if (command.operation === "arm-response-crash") { crashAfterCommitOnce = true; return { armed: true }; }
     if (command.operation === "cleanup") { await generations.close(); return { cleaned: true }; }
     if (["restart", "recover", "close-rollback", "contract-cleanup", "rollback"].includes(command.operation)) await releaseContext(command);

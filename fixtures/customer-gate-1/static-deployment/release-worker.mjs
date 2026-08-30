@@ -91,14 +91,28 @@ createServer(async (request, response) => {
   const send = (status, value) => response.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(value));
   try {
     if (request.method === "GET" && request.url === "/status") return send(200, { mode, generationId, fencingToken, inFlight: inFlight.size, sourceCommit, applicationDigest, imageDigest, module: release.plugin.id, pluginVersion: release.plugin.version });
-    if (request.method !== "POST" || !["/activate", "/drain", "/execute"].includes(request.url ?? "") || !authenticated(request)) return send(401, { error: "Release worker command is unauthorized." });
+    if (request.method !== "POST" || !["/activate", "/activate-bootstrap", "/drain", "/execute"].includes(request.url ?? "") || !authenticated(request)) return send(401, { error: "Release worker command is unauthorized." });
     if (request.url === "/activate") {
       const command = await body(request);
+      if (command.generationId !== generationId) return send(409, { error: "Transition ticket does not target this immutable release worker.", code: "FENCE_REJECTED" });
+      try {
+        await store.assertTransitionTicket(command);
+      } catch (error) {
+        await event("worker-activation-rejected", { code: error?.code ?? "FENCE_REJECTED", ticketRevision: command.revision, ticketFencingToken: command.fencingToken });
+        return send(409, { error: error.message, code: error?.code ?? "FENCE_REJECTED" });
+      }
       const fence = await currentFence();
       if (fence?.active_execution_generation !== generationId || Number(fence?.fencing_token) !== command.fencingToken) return send(409, { error: "Persisted worker fence does not authorize this immutable release worker." });
       fencingToken = Number(fence.fencing_token);
       mode = "active";
       await event("worker-activated", { mode, promotionRevision: command.promotionRevision });
+    } else if (request.url === "/activate-bootstrap") {
+      const command = await body(request);
+      const fence = await currentFence();
+      if (fence?.active_execution_generation !== generationId || Number(fence?.fencing_token) !== command.fencingToken) return send(409, { error: "Persisted worker fence does not authorize this immutable release worker." });
+      fencingToken = Number(fence.fencing_token);
+      mode = "active";
+      await event("worker-bootstrap-activated", { mode, promotionRevision: command.promotionRevision });
     } else if (request.url === "/execute") {
       const command = await body(request);
       const work = executeEffect(command);
@@ -106,6 +120,17 @@ createServer(async (request, response) => {
       try { return send(200, await work); }
       finally { inFlight.delete(work); }
     } else {
+      const command = await body(request);
+      if (command.generationId !== generationId) {
+        await event("worker-drain-rejected", { reason: "generation-mismatch", ticketGenerationId: command.generationId });
+        return send(409, { error: "Drain ticket does not target this immutable release worker.", code: "FENCE_REJECTED" });
+      }
+      try {
+        await store.assertTransitionTicket(command);
+      } catch (error) {
+        await event("worker-drain-rejected", { reason: "stale-ticket", code: error?.code ?? "FENCE_REJECTED", ticketRevision: command.revision, ticketFencingToken: command.fencingToken });
+        return send(409, { error: error.message, code: error?.code ?? "FENCE_REJECTED" });
+      }
       const draining = [...inFlight];
       mode = "draining";
       await event("worker-draining", { mode, inFlight: draining.length });

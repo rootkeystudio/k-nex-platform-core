@@ -45,6 +45,10 @@ export interface StaticDeploymentTransitionCheckpoint {
   readonly activeGenerationId: string;
   readonly previousGenerationId: string;
   readonly completedSteps: readonly StaticDeploymentTransitionStep[];
+  /** A durably claimed external step; conflicting pointer changes must wait for it. */
+  readonly reservedStep?: StaticDeploymentTransitionStep;
+  readonly reservationId?: string;
+  readonly reservationExpiresAt?: string;
 }
 
 export interface StaticPromotionReadiness {
@@ -73,6 +77,16 @@ export interface StaticGenerationRetirementReservation extends StaticGenerationI
   readonly reservationId: string;
   readonly reservedAt: string;
   readonly completedAt?: string;
+}
+
+export interface StaticDeploymentTransitionTicket extends StaticGenerationIdentity {
+  readonly activeGenerationId: string;
+  readonly revision: number;
+  readonly fencingToken: number;
+  readonly checkpointKind: StaticDeploymentTransitionCheckpoint["kind"];
+  readonly step: StaticDeploymentTransitionStep;
+  readonly reservationId: string;
+  readonly reservationExpiresAt: string;
 }
 
 export interface VerifiedStaticBuildReader {
@@ -121,17 +135,22 @@ export interface StaticGenerationHost {
     migrationRevision: number;
     completedMigrationSteps: readonly string[];
   }>): Promise<StaticPromotionReadiness>;
-  activateWorker(generationId: string, fence: WorkerGenerationFence): Promise<void>;
-  drain(generation: StaticGenerationIdentity): Promise<void>;
-  retire(generation: StaticGenerationIdentity): Promise<void>;
+  /** Verify ticket immediately before worker mode changes. */
+  activateWorker(ticket: StaticDeploymentTransitionTicket): Promise<void>;
+  /** Verify ticket immediately before draining work. */
+  drain(ticket: StaticDeploymentTransitionTicket): Promise<void>;
+  /** Verify reservation, then ticket when present, immediately before destruction. */
+  retire(input: Readonly<{ reservation: StaticGenerationRetirementReservation; ticket?: StaticDeploymentTransitionTicket }>): Promise<void>;
 }
 
 export interface GatewayTrafficRouter {
-  converge(input: Readonly<{ applicationId: string; environment: string; generationId: string; revision: number }>): Promise<void>;
+  /** Verify ticket immediately before routing state changes. */
+  converge(ticket: StaticDeploymentTransitionTicket): Promise<void>;
 }
 
 export interface StaticRealtimeConvergence {
-  reconnectAndResync(input: Readonly<{ applicationId: string; environment: string; previousGenerationId: string; activeGenerationId: string }>): Promise<void>;
+  /** Verify ticket immediately before reconnect/resync state changes. */
+  reconnectAndResync(ticket: StaticDeploymentTransitionTicket): Promise<void>;
 }
 
 interface Owner { readonly applicationId: string; readonly environment: string; }
@@ -154,11 +173,16 @@ export interface StaticDeploymentState {
     workerOwner: string;
     workerLeaseExpiresAt: string;
   }>): Promise<StaticDeploymentReceipt>;
-  reserveRollbackRetirement(input: Owner & Readonly<{ expectedRevision: number; retiredGenerationId: string }>): Promise<StaticDeploymentReceipt>;
-  reserveRejectedGenerationRetirement(input: StaticGenerationIdentity): Promise<StaticGenerationRetirementReservation | undefined>;
-  completeRejectedGenerationRetirement(input: StaticGenerationRetirementReservation): Promise<void>;
+  reserveRollbackRetirement(input: Owner & Readonly<{ expectedRevision: number; retiredGenerationId: string }>): Promise<StaticGenerationRetirementReservation>;
+  reserveGenerationRetirement(input: StaticGenerationIdentity): Promise<StaticGenerationRetirementReservation | undefined>;
+  readGenerationRetirement(input: StaticGenerationIdentity): Promise<StaticGenerationRetirementReservation | undefined>;
+  listPendingGenerationRetirements(input: Owner & Readonly<{ limit: number }>): Promise<readonly StaticGenerationRetirementReservation[]>;
+  completeGenerationRetirement(input: StaticGenerationRetirementReservation): Promise<void>;
   closeRollback(input: Owner & Readonly<{ expectedRevision: number; retiredGenerationId: string }>): Promise<StaticDeploymentReceipt>;
-  completeTransitionStep(input: Owner & Readonly<{ expectedRevision: number; step: StaticDeploymentTransitionStep }>): Promise<void>;
+  reserveTransitionStep(input: Owner & Readonly<{ expectedRevision: number; step: StaticDeploymentTransitionStep; reservationId: string }>): Promise<StaticDeploymentTransitionTicket>;
+  releaseTransitionStep(input: StaticDeploymentTransitionTicket): Promise<void>;
+  completeTransitionStep(input: StaticDeploymentTransitionTicket): Promise<void>;
+  assertTransitionTicket(input: StaticDeploymentTransitionTicket, retirement?: StaticGenerationRetirementReservation): Promise<void>;
   assertContractCleanup(owner: Owner): Promise<void>;
 }
 
@@ -168,6 +192,10 @@ export type StaticDeploymentOutcome =
 
 export interface StaticDeploymentClock {
   now(): Date;
+}
+
+export interface StaticDeploymentWaiter {
+  wait(milliseconds: number): Promise<void>;
 }
 
 export function hasLiveStaticPromotionRollbackWindow(
@@ -218,7 +246,8 @@ export class DeploymentSupervisor {
     private readonly state: StaticDeploymentState,
     private readonly gateway: GatewayTrafficRouter,
     private readonly realtime: StaticRealtimeConvergence,
-    private readonly clock: StaticDeploymentClock = { now: () => new Date() }
+    private readonly clock: StaticDeploymentClock = { now: () => new Date() },
+    private readonly waiter: StaticDeploymentWaiter = { wait: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)) }
   ) {}
 
   async deploy(input: Readonly<{
@@ -236,6 +265,9 @@ export class DeploymentSupervisor {
     const before = await this.requireState(owner);
     if (!hasLiveStaticPromotionRollbackWindow(before.active, change.migration.rollbackWindow, this.clock.now())) {
       throw new StaticDeploymentSupervisorError("READINESS_REJECTED", "Promotion rollback window does not retain the active application and remain open.");
+    }
+    if (await this.state.readGenerationRetirement({ ...owner, generationId: input.generationId })) {
+      throw new StaticDeploymentSupervisorError("STATE_UNAVAILABLE", "Static generation identity has a durable retirement tombstone.");
     }
     const fence = await this.requireFence(owner);
     const artifact = await this.artifacts.resolve(verified.evidence);
@@ -265,7 +297,7 @@ export class DeploymentSupervisor {
         migrationRevision: change.migration.targetRevision
       });
     } catch (error) {
-      await this.retireRejectedPromotion(owner, input.generationId);
+      await this.cleanRejectedPromotion(owner, input.generationId, error);
       throw error;
     }
     let receipt: StaticDeploymentReceipt;
@@ -281,7 +313,7 @@ export class DeploymentSupervisor {
         readiness
       });
     } catch (error) {
-      await this.retireRejectedPromotion(owner, input.generationId);
+      await this.cleanRejectedPromotion(owner, input.generationId, error);
       throw error;
     }
     await this.finishPostCommit(owner);
@@ -321,20 +353,12 @@ export class DeploymentSupervisor {
   }
 
   async recover(owner: Owner): Promise<void> {
-    const before = await this.requireState(owner);
-    const checkpoint = before.transitionCheckpoint;
-    const steps = checkpoint?.kind === "retire-rollback" ? ["drain-retained", "retire-retained"] : ["activate-worker", "converge-gateway", "reconnect-realtime", "drain-previous"];
-    const hadPendingTransition = checkpoint !== undefined && checkpoint.completedSteps.length < steps.length;
+    await this.recoverPendingGenerationRetirements(owner);
     await this.finishPostCommit(owner);
-    if (!hadPendingTransition) {
-      const current = await this.requireState(owner);
-      const fence = await this.requireFence(owner);
-      await this.generations.activateWorker(current.active.generationId, fence);
-      await this.gateway.converge({ ...owner, generationId: current.active.generationId, revision: current.revision });
-    }
   }
 
   async closeRollback(owner: Owner): Promise<StaticDeploymentReceipt> {
+    await this.finishPostCommit(owner);
     let current = await this.requireState(owner);
     if (current.rollbackWindow.state === "closed") {
       const retiredGenerationId = current.rollbackWindow.retiredGenerationId;
@@ -374,36 +398,87 @@ export class DeploymentSupervisor {
     return value;
   }
 
-  private async retireRejectedPromotion(owner: Owner, generationId: string): Promise<void> {
-    const reservation = await this.state.reserveRejectedGenerationRetirement({ ...owner, generationId }).catch(() => undefined);
-    if (!reservation) return;
+  private async cleanRejectedPromotion(owner: Owner, generationId: string, primary: unknown): Promise<void> {
     try {
-      await this.generations.retire(reservation);
-      await this.state.completeRejectedGenerationRetirement(reservation);
-    } catch { /* preserve the deployment/readiness failure; the durable reservation fences retries */ }
+      await this.retireRejectedPromotion(owner, generationId);
+    } catch (cleanup) {
+      const message = primary instanceof Error ? primary.message : "Static deployment failed while retiring its rejected generation.";
+      const combined = new AggregateError([primary, cleanup], message, { cause: primary });
+      if (primary && typeof primary === "object") {
+        for (const field of ["code", "status"] as const) {
+          if (Object.hasOwn(primary, field)) Object.defineProperty(combined, field, { value: (primary as Record<string, unknown>)[field], enumerable: true });
+        }
+      }
+      throw combined;
+    }
+  }
+
+  private async retireRejectedPromotion(owner: Owner, generationId: string): Promise<void> {
+    const reservation = await this.state.reserveGenerationRetirement({ ...owner, generationId });
+    if (!reservation) return;
+    await this.generations.retire({ reservation });
+    await this.state.completeGenerationRetirement(reservation);
+  }
+
+  private async recoverPendingGenerationRetirements(owner: Owner): Promise<void> {
+    for (const reservation of await this.state.listPendingGenerationRetirements({ ...owner, limit: 32 })) {
+      await this.generations.retire({ reservation });
+      await this.state.completeGenerationRetirement(reservation);
+    }
   }
 
   private async finishPostCommit(owner: Owner): Promise<void> {
-    let current = await this.requireState(owner);
-    const checkpoint = current.transitionCheckpoint;
-    if (!checkpoint) return;
-    const complete = async (step: StaticDeploymentTransitionStep, work: () => Promise<void>) => {
-      if (checkpoint.completedSteps.includes(step)) return;
-      await work();
-      await this.state.completeTransitionStep({ ...owner, expectedRevision: checkpoint.revision, step });
-      current = await this.requireState(owner);
+    const steps: Record<StaticDeploymentTransitionCheckpoint["kind"], readonly StaticDeploymentTransitionStep[]> = {
+      promote: ["activate-worker", "converge-gateway", "reconnect-realtime", "drain-previous"],
+      rollback: ["activate-worker", "converge-gateway", "reconnect-realtime", "drain-previous"],
+      "retire-rollback": ["drain-retained", "retire-retained"]
     };
-    if (checkpoint.kind === "retire-rollback") {
-      if (current.active.generationId === checkpoint.previousGenerationId) {
-        throw new StaticDeploymentSupervisorError("STATE_UNAVAILABLE", "Reserved rollback generation became active and cannot be retired.");
+    while (true) {
+      const current = await this.requireState(owner);
+      const checkpoint = current.transitionCheckpoint;
+      if (!checkpoint) return;
+      const step = steps[checkpoint.kind][checkpoint.completedSteps.length];
+      if (!step) return;
+      if ((step === "drain-previous" || step === "drain-retained" || step === "retire-retained") && checkpoint.previousGenerationId === current.active.generationId) {
+        throw new StaticDeploymentSupervisorError("STATE_UNAVAILABLE", "Active generation cannot be drained or retired.");
       }
-      await complete("drain-retained", () => this.generations.drain({ ...owner, generationId: checkpoint.previousGenerationId }));
-      await complete("retire-retained", () => this.generations.retire({ ...owner, generationId: checkpoint.previousGenerationId }));
-      return;
+      const ticket = await this.reserveTransitionStep({ ...owner, expectedRevision: checkpoint.revision, step });
+      try {
+        if (step === "activate-worker") await this.generations.activateWorker(ticket);
+        else if (step === "converge-gateway") await this.gateway.converge(ticket);
+        else if (step === "reconnect-realtime") await this.realtime.reconnectAndResync(ticket);
+        else if (step === "retire-retained") {
+          const reservation = await this.state.readGenerationRetirement({ ...owner, generationId: checkpoint.previousGenerationId });
+          if (!reservation) throw new StaticDeploymentSupervisorError("STATE_UNAVAILABLE", "Rollback retirement is missing its durable reservation.");
+          await this.generations.retire({ reservation, ticket });
+          await this.state.completeGenerationRetirement(reservation);
+        } else {
+          await this.generations.drain(ticket);
+        }
+      } catch (error) {
+        await this.state.releaseTransitionStep(ticket).catch(() => undefined);
+        throw error;
+      }
+      await this.state.completeTransitionStep(ticket);
     }
-    await complete("activate-worker", async () => this.generations.activateWorker(checkpoint.activeGenerationId, await this.requireFence(owner)));
-    await complete("converge-gateway", () => this.gateway.converge({ ...owner, generationId: checkpoint.activeGenerationId, revision: checkpoint.revision }));
-    await complete("reconnect-realtime", () => this.realtime.reconnectAndResync({ ...owner, previousGenerationId: checkpoint.previousGenerationId, activeGenerationId: checkpoint.activeGenerationId }));
-    await complete("drain-previous", () => this.generations.drain({ ...owner, generationId: checkpoint.previousGenerationId }));
+  }
+
+  private async reserveTransitionStep(input: Owner & Readonly<{ expectedRevision: number; step: StaticDeploymentTransitionStep }>): Promise<StaticDeploymentTransitionTicket> {
+    const deadline = this.clock.now().valueOf() + 65_000;
+    const reservationId = globalThis.crypto.randomUUID();
+    let attempts = 0;
+    while (true) {
+      try {
+        return await this.state.reserveTransitionStep({ ...input, reservationId });
+      } catch (error) {
+        const current = await this.requireState(input);
+        const checkpoint = current.transitionCheckpoint;
+        const expiresAt = checkpoint?.reservationExpiresAt ? Date.parse(checkpoint.reservationExpiresAt) : Number.NaN;
+        const now = this.clock.now().valueOf();
+        if (!checkpoint?.reservedStep || !Number.isFinite(expiresAt) || expiresAt <= now || now >= deadline || attempts >= 70) throw error;
+        attempts += 1;
+        await this.waiter.wait(Math.min(1_000, Math.max(1, expiresAt - now)));
+      }
+    }
   }
 }
