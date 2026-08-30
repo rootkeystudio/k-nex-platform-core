@@ -212,9 +212,10 @@ describe("production extension runner", () => {
     await expect(runner.invoke(await request(store, "healthy-generation-two", `() => ({ stillHealthy: true })`))).resolves.toEqual({ stillHealthy: true });
 
     const oldWork = runner.invoke(await request(store, "draining-generation-one", `async () => new Promise(() => {})`));
+    const oldWorkFailure = expect(oldWork).rejects.toBeInstanceOf(RunnerInvocationError);
     await started;
     await expect(runner.drain(identity("draining-generation-one"), 100)).resolves.toEqual({ graceful: false, terminated: 1 });
-    await expect(oldWork).rejects.toBeInstanceOf(RunnerInvocationError);
+    await oldWorkFailure;
     await expect(runner.invoke(await request(store, "healthy-generation-three", `() => ({ healthy: true })`))).resolves.toEqual({ healthy: true });
   }, 120_000);
 
