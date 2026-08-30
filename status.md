@@ -7,7 +7,7 @@
 
 ## Last completed
 
-P9.10c wired immutable Theme Skin asset serving to a binding-aware asynchronous PostgreSQL reader and a compiled fixed-route host. Restored state proves active, rollback, and disabled-retained authority through HTTP/Chromium; corrupted bytes, deleted bindings, mismatches, and removed assets fail closed. Gate 9 now requires the exact durable evidence marker.
+P9.10c wired immutable Theme Skin asset serving to a binding-aware asynchronous PostgreSQL reader and compiled fixed-route host. Restored state proves active, rollback, and disabled-retained authority through HTTP/Chromium; corrupted bytes, deleted bindings, mismatches, and removed assets fail closed. Gate 9 requires the exact durable evidence marker. Persistent Sol Ultra re-review returned `PASS`.
 
 ## Validation
 
@@ -15,7 +15,7 @@ Node 24.19.0 / pnpm 11.9.0: extension bundler build/tests passed (24); payload a
 
 ## Next
 
-Obtain persistent Sol Ultra review PASS for exact P9.10c commit, remediate any finding, then continue Gate 9 closeout gaps and exact-head evidence.
+Pre-review and fix the Hot Application migration-compatibility failure currently blocking the Phase 9 attack corpus, then rerun its focused PostgreSQL proof.
 
 ## Blockers
 
