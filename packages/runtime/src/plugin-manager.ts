@@ -1,5 +1,6 @@
 import {
   canonicalJson,
+  compareExactSemverPrecedence,
   ExactSemverSchema,
   ExtensionIdentitySchema,
   ExtensionInstallPlanSchema,
@@ -12,7 +13,6 @@ import {
   type StaticCompositionChangePlan,
   type RuntimeExtensionInventory
 } from "@k-nex/contracts";
-import { compare as compareSemver } from "semver";
 
 export type ExtensionManagerOperation = "install" | "update" | "disable" | "rollback" | "uninstall";
 export type { ExtensionOperationPhase } from "@k-nex/contracts";
@@ -367,7 +367,7 @@ function inventoryGenerationState(inventory: RuntimeExtensionInventory, request:
 }
 
 function assertNoActiveDowngrade(request: ExtensionChangeRequest, inventory: InventoryGenerationState): void {
-  if (["install", "update"].includes(request.operation) && inventory.currentVersion && compareSemver(request.targetVersion, inventory.currentVersion) < 0) {
+  if (["install", "update"].includes(request.operation) && inventory.currentVersion && compareExactSemverPrecedence(request.targetVersion, inventory.currentVersion) < 0) {
     throw new PluginManagerError("PLAN_MISMATCH", "Install and update cannot downgrade the active extension version.");
   }
 }

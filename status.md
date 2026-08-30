@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Moved static runtime-image attestation ahead of online migrations and generation startup so mismatched runtime bytes cannot mutate customer state before rejection.
+Centralized exact SemVer precedence for catalog, planning, and durable runtime-state downgrade checks; comparisons now ignore build metadata and preserve arbitrarily large numeric identifier precision.
 
 ## Validation
 
-Node 24.19.0: runtime build passed; focused static deployment supervisor tests passed (1 file, 11 tests), including zero migration/generation calls on runtime-image mismatch; `git diff --check` passed.
+Node 24.19.0: contracts build/tests passed (23 files, 168 tests); extension-bundler tests passed (3 files, 20 tests); focused runtime downgrade test passed; payload-adapter build/tests passed (42 tests); real PostgreSQL downgrade regression passed; `git diff --check` passed. No Docker containers remain.
 
 ## Next
 
-Bind rollback availability/readiness to durable live/static state, then address the remaining Ultra lifecycle/security findings in atomic tasks.
+Bind static rollback-window truth to durable store-clock state, then address the remaining Ultra lifecycle/security findings in atomic tasks.
 
 ## Blockers
 

@@ -167,9 +167,9 @@ function stateAuthority(change, generationId, generation = 1) {
   };
 }
 
-function stateActivation(authority, now) {
+function stateActivation(authority, now, version = "1.0.0") {
   return {
-    authority, version: "1.0.0",
+    authority, version,
     readiness: { generationId: authority.generationId, serverGenerationId: authority.generationId, uiGenerationId: authority.generationId, storageGenerationId: authority.generationId, leaseToken: `ready:${authority.generationId}`, readyAt: now.toISOString(), expiresAt: new Date(now.valueOf() + 60_000).toISOString() },
     compatibility: { status: "compatible", windowId: "state-window-1", closesAt: new Date(now.valueOf() + 86_400_000).toISOString(), migrationDigest: digest("1"), dataRevision: 1 },
     metadata: {}, settings: {}, storageSchemaVersions: {}
@@ -191,7 +191,7 @@ async function prepareStateGeneration(store, change, requestDigest, workerId, no
   const authority = stateAuthority(change, operation.plan.generationId);
   operation = (await store.transition({ operationId: operation.operationId, leaseToken: operation.leaseToken, expectedPhase: "downloading", phase: "verified", authority })).operation;
   operation = (await store.transition({ operationId: operation.operationId, leaseToken: operation.leaseToken, expectedPhase: "verified", phase: "staged", authority })).operation;
-  await store.stageGeneration({ operationId: operation.operationId, leaseToken: operation.leaseToken, stage: stateActivation(authority, now) });
+  await store.stageGeneration({ operationId: operation.operationId, leaseToken: operation.leaseToken, stage: stateActivation(authority, now, change.targetVersion) });
   return store.readOperation(operation.operationId);
 }
 
@@ -418,6 +418,14 @@ test("rejects SCN-12 activation races and SCN-13 stale operation replays in Post
     await storeB.transition({ operationId: resumed.operationId, leaseToken: resumed.leaseToken, expectedPhase: "downloading", phase: "failed" });
     const secondResumed = await storeB.resumeOperation(secondSaved.operationId, "worker-recovery");
     await storeB.transition({ operationId: secondResumed.operationId, leaseToken: secondResumed.leaseToken, expectedPhase: "planning", phase: "failed" });
+
+    const activeVersionRequest = stateRequest("app.sales-semver", "install:app.sales-semver:1-0-1", { version: "1.0.1" });
+    const activeVersionOperation = await prepareStateGeneration(storeA, activeVersionRequest, digest("e"), "semver-worker", now);
+    const activeVersionReceipt = await storeA.activateGeneration(activeVersionOperation.operationId, activeVersionOperation.leaseToken);
+    await assert.rejects(
+      claimState(storeB, stateRequest("app.sales-semver", "update:app.sales-semver:1-0-0-attacker", { operation: "update", version: "1.0.0+attacker", expectedRevision: activeVersionReceipt.revisionAfter }), digest("f"), "semver-attacker"),
+      { code: "VERSION_DOWNGRADE" }
+    );
 
     const activationRequest = stateRequest("app.sales-activation", "install:app.sales-activation:1");
     const warming = await prepareStateGeneration(storeA, activationRequest, digest("6"), "activation-worker", now);

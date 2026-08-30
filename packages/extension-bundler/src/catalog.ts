@@ -1,6 +1,6 @@
 import { createHash, createPublicKey, verify } from "node:crypto";
 
-import { canonicalJson, ExactSemverSchema, HotApplicationIdSchema, ThemeSkinIdSchema } from "@k-nex/contracts";
+import { canonicalJson, ExactSemverSchema, HotApplicationIdSchema, ThemeSkinIdSchema, compareExactSemverPrecedence } from "@k-nex/contracts";
 import * as z from "zod";
 
 export const DigestSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/u);
@@ -115,13 +115,13 @@ export class CatalogClient {
       for (const entry of entries) {
         const key = `${entry.deliveryClass}:${entry.id}`;
         const incoming = incomingHighest[key];
-        if (incoming === undefined || compareSemver(entry.version, incoming) > 0) incomingHighest[key] = entry.version;
+        if (incoming === undefined || compareExactSemverPrecedence(entry.version, incoming) > 0) incomingHighest[key] = entry.version;
       }
       const highestVersions = { ...(previous?.highestVersions ?? {}) };
       for (const [key, incoming] of Object.entries(incomingHighest)) {
         const highest = highestVersions[key];
-        if (highest && compareSemver(incoming, highest) < 0) throw new Error("Official catalog attempts an unauthorized downgrade.");
-        if (highest === undefined || compareSemver(incoming, highest) > 0) highestVersions[key] = incoming;
+        if (highest && compareExactSemverPrecedence(incoming, highest) < 0) throw new Error("Official catalog attempts an unauthorized downgrade.");
+        if (highest === undefined || compareExactSemverPrecedence(incoming, highest) > 0) highestVersions[key] = incoming;
       }
       const next = freezeCheckpoint({ signerIdentity: catalog.signer.identity, sequence: catalog.payload.sequence, payloadDigest, highestVersions });
       if (await this.#checkpoints.compareAndSet(previous, next)) return entries;
@@ -143,29 +143,4 @@ export class CatalogClient {
     if (!verify(null, Buffer.from(canonicalJson(catalog.payload)), publicKey, Buffer.from(catalog.signature, "base64"))) throw new Error("Official catalog signature is invalid.");
     return Object.freeze({ catalog, entries: catalog.payload.entries });
   }
-}
-
-function compareSemver(left: string, right: string): number {
-  const parsed = (value: string) => {
-    const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/u.exec(value);
-    if (!match) throw new Error("Catalog version is invalid.");
-    return { core: [match[1]!, match[2]!, match[3]!] as const, prerelease: match[4]?.split(".") ?? [] };
-  };
-  const compareNumeric = (leftPart: string, rightPart: string): number => {
-    const normalizedLeft = leftPart.replace(/^0+(?=\d)/u, ""); const normalizedRight = rightPart.replace(/^0+(?=\d)/u, "");
-    return normalizedLeft.length === normalizedRight.length ? (normalizedLeft < normalizedRight ? -1 : normalizedLeft > normalizedRight ? 1 : 0) : normalizedLeft.length - normalizedRight.length;
-  };
-  const leftParts = parsed(left); const rightParts = parsed(right);
-  for (const index of [0, 1, 2] as const) if (leftParts.core[index] !== rightParts.core[index]) return compareNumeric(leftParts.core[index], rightParts.core[index]);
-  if (leftParts.prerelease.length === 0 || rightParts.prerelease.length === 0) return leftParts.prerelease.length === 0 ? 1 : -1;
-  for (let index = 0; index < Math.max(leftParts.prerelease.length, rightParts.prerelease.length); index += 1) {
-    const leftPart = leftParts.prerelease[index]; const rightPart = rightParts.prerelease[index];
-    if (leftPart === undefined || rightPart === undefined) return leftPart === undefined ? -1 : 1;
-    if (leftPart === rightPart) continue;
-    const leftNumeric = /^\d+$/u.test(leftPart); const rightNumeric = /^\d+$/u.test(rightPart);
-    if (leftNumeric && rightNumeric) return compareNumeric(leftPart, rightPart);
-    if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1;
-    return leftPart < rightPart ? -1 : 1;
-  }
-  return 0;
 }

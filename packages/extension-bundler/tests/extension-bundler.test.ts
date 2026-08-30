@@ -191,15 +191,16 @@ describe("extension bundler", () => {
     await expect(restarted.read(signed(1, "2030-01-02T00:00:00.000Z", { ...clear, revoked: false }))).rejects.toThrow(/checkpoint|stale|replay/i);
     await expect(restarted.read(signed(3, "2029-12-31T00:00:00.000Z", clear))).rejects.toThrow(/expired/i);
     await expect(restarted.read(signed(3, "2030-01-02T00:00:00.000Z", { ...clear, revoked: true }))).resolves.toHaveLength(1);
-    await expect(restarted.read(signed(4, "2030-01-02T00:00:00.000Z", { ...clear, version: "0.9.0" }))).rejects.toThrow(/downgrade|rollback/i);
+    await expect(restarted.read(signed(4, "2030-01-02T00:00:00.000Z", { ...clear, version: "1.0.1" }))).resolves.toHaveLength(1);
+    await expect(restarted.read(signed(5, "2030-01-02T00:00:00.000Z", { ...clear, version: "1.0.0+attacker" }))).rejects.toThrow(/downgrade|rollback/i);
     const racingHigh = new CatalogClient({ [signer.identity]: signer.publicKey }, checkpoints, () => Date.parse("2030-01-01T00:00:00.000Z"));
     const racingLow = new CatalogClient({ [signer.identity]: signer.publicKey }, checkpoints, () => Date.parse("2030-01-01T00:00:00.000Z"));
     const raced = await Promise.allSettled([
-      racingHigh.read(signed(6, "2030-01-02T00:00:00.000Z", { ...clear, version: "1.2.0" })),
-      racingLow.read(signed(5, "2030-01-02T00:00:00.000Z", { ...clear, version: "1.1.0" }))
+      racingHigh.read(signed(7, "2030-01-02T00:00:00.000Z", { ...clear, version: "1.2.0" })),
+      racingLow.read(signed(6, "2030-01-02T00:00:00.000Z", { ...clear, version: "1.1.0" }))
     ]);
     expect(raced[0]?.status).toBe("fulfilled");
-    await expect(restarted.read(signed(5, "2030-01-02T00:00:00.000Z", { ...clear, version: "1.1.0" }))).rejects.toThrow(/checkpoint|stale|replay/i);
+    await expect(restarted.read(signed(6, "2030-01-02T00:00:00.000Z", { ...clear, version: "1.1.0" }))).rejects.toThrow(/checkpoint|stale|replay/i);
   });
 
   it("revalidates accepted immutable bytes without applying later catalog freshness or checkpoint policy", async () => {

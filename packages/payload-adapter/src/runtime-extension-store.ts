@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import {
   canonicalJson,
+  compareExactSemverPrecedence,
   ExtensionLifecycleEventSchema,
   ExtensionSecurityQuarantineEventSchema,
   RuntimeExtensionInventorySchema,
@@ -136,31 +137,6 @@ function timestamp(clock: RuntimeExtensionClock): string {
 
 function validRecordId(value: string): boolean {
   return /^[a-z][a-z0-9-]{2,127}$/u.test(value);
-}
-
-function compareSemver(left: string, right: string): number {
-  const parse = (version: string) => {
-    const [core, prerelease] = version.split("-", 2);
-    return { core: core!.split(".").map(Number), prerelease: prerelease?.split(".") ?? [] };
-  };
-  const a = parse(left);
-  const b = parse(right);
-  for (let index = 0; index < 3; index += 1) {
-    if (a.core[index]! !== b.core[index]!) return a.core[index]! < b.core[index]! ? -1 : 1;
-  }
-  if (a.prerelease.length === 0 || b.prerelease.length === 0) return a.prerelease.length === b.prerelease.length ? 0 : a.prerelease.length === 0 ? 1 : -1;
-  for (let index = 0; index < Math.max(a.prerelease.length, b.prerelease.length); index += 1) {
-    const aPart = a.prerelease[index];
-    const bPart = b.prerelease[index];
-    if (aPart === undefined || bPart === undefined) return aPart === undefined ? -1 : 1;
-    if (aPart === bPart) continue;
-    const aNumber = /^\d+$/u.test(aPart);
-    const bNumber = /^\d+$/u.test(bPart);
-    if (aNumber && bNumber) return Number(aPart) < Number(bPart) ? -1 : 1;
-    if (aNumber !== bNumber) return aNumber ? -1 : 1;
-    return aPart < bPart ? -1 : 1;
-  }
-  return 0;
 }
 
 function assertStage(stage: StagedGenerationActivation, now: Date): void {
@@ -342,7 +318,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
 
       if (state.rows[0]?.revision !== request.expectedRevision) fail("REVISION_CONFLICT", "Runtime extension revision differs from the requested revision.");
       const activeVersion = state.rows[0]?.active_generation?.["version"];
-      if (["install", "update"].includes(request.operation) && typeof activeVersion === "string" && compareSemver(request.targetVersion, activeVersion) < 0) {
+      if (["install", "update"].includes(request.operation) && typeof activeVersion === "string" && compareExactSemverPrecedence(request.targetVersion, activeVersion) < 0) {
         fail("VERSION_DOWNGRADE", "Install and update cannot downgrade the active extension version.");
       }
 

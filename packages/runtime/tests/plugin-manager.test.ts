@@ -269,7 +269,7 @@ describe("PluginManager", () => {
         platformPlugins: {}, themeSkins: {}, hotApplications: {
           "app.sales-assistant": {
             disposition: "active", revision: 5, lastOperationId: "extension-operation-previous", lastReceiptId: "extension-receipt-previous", stateDigest: digest("9"),
-            activeGeneration: { authority: "verified-bundle", version: "2.0.0", receiptId: "extension-receipt-previous", ...authority, generationId: "sales-assistant-generation-active" },
+            activeGeneration: { authority: "verified-bundle", version: "1.0.1", receiptId: "extension-receipt-previous", ...authority, generationId: "sales-assistant-generation-active" },
             rollbackGeneration: { authority: "verified-bundle", version: "1.5.0", receiptId: "extension-receipt-rollback", ...authority, generationId: "sales-assistant-generation-rollback" }
           }
         }
@@ -283,7 +283,7 @@ describe("PluginManager", () => {
 
     const downgrade = manager();
     downgrade.store.inventoryValue = runtime.store.inventoryValue;
-    const downgradeRequest: ExtensionChangeRequest = { ...update, targetVersion: "1.9.0", idempotencyKey: "update:app.sales-assistant:1-9-0" };
+    const downgradeRequest: ExtensionChangeRequest = { ...update, targetVersion: "1.0.0+attacker", idempotencyKey: "update:app.sales-assistant:1-0-0-attacker" };
     await expect(downgrade.value.plan(downgradeRequest)).rejects.toMatchObject({ code: "PLAN_MISMATCH" });
 
     const reused = manager();
