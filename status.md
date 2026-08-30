@@ -7,7 +7,7 @@
 
 ## Last completed
 
-Closed the Gate 9 Hot Application runtime time bombs: the durable journey uses a fixed acceptance clock, the drain-admission barrier survives its intentional async release race, and PluginManager rollback freshness uses the same injected clock as generation warm-up instead of ambient wall time.
+Closed the Gate 9 Hot Application runtime time bombs: the durable journey uses a fixed acceptance clock, the drain-admission barrier survives its intentional async release race, and PluginManager rollback freshness uses the same injected clock as generation warm-up instead of ambient wall time. Persistent Sol Ultra review returned `PASS`.
 
 ## Validation
 
@@ -15,7 +15,7 @@ Node 24.19.0 / pnpm 11.9.0: runtime build/tests passed (324); customer fixture b
 
 ## Next
 
-Obtain persistent Sol Ultra PASS for the deterministic clock/drain fix, then rerun the complete Phase 9 attack corpus to expose the next exact closeout blocker.
+Rerun the complete Phase 9 attack corpus, isolate any next exact blocker, and continue Gate 9 closeout without weakening required evidence.
 
 ## Blockers
 
