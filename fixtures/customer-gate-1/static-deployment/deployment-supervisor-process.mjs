@@ -117,6 +117,10 @@ class DockerGenerationHost {
     throw new Error(`No least-privilege database authority exists for ${generationId}.`);
   }
 
+  workerDatabaseUrl() {
+    return "postgresql://p9_static_worker:p9-static-worker-password@p9-postgres:5432/static_deployment";
+  }
+
   async start({ generationId, imageReference, workerMode }) {
     if (workerMode !== "passive") throw new Error("Static generation workers must begin passive.");
     const database = this.database(generationId);
@@ -160,7 +164,7 @@ class DockerGenerationHost {
       await docker(["run", "--rm", "--detach", "--name", workerName, "--network", this.network, "--label", `p9-fixture=${this.namespace}`, "--label", "p9-role=release-worker",
         "--user", "65534:65534", "--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=16m",
         "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--pids-limit", "64", "--memory", "128m", "--cpus", "0.5",
-        "--publish", "127.0.0.1::3002", "--env", `K_NEX_GENERATION=${generationId}`, "--env", `K_NEX_IMAGE_DIGEST=${imageId}`, "--env", `K_NEX_WORKER_CONTROL_TOKEN=${workerControlToken}`, "--env", "P9_RELEASE_WORKER_PORT=3002", "--env", `DATABASE_URL=${database.url}`,
+        "--publish", "127.0.0.1::3002", "--env", `K_NEX_GENERATION=${generationId}`, "--env", `K_NEX_IMAGE_DIGEST=${imageId}`, "--env", `K_NEX_WORKER_CONTROL_TOKEN=${workerControlToken}`, "--env", "P9_RELEASE_WORKER_PORT=3002", "--env", `DATABASE_URL=${this.workerDatabaseUrl()}`,
         imageId, "node", "release-worker.mjs"
       ]);
       workerPort = (await docker(["port", workerName, "3002/tcp"])).stdout.trim().match(/127\.0\.0\.1:(\d+)$/u)?.[1];
@@ -225,6 +229,9 @@ class DockerGenerationHost {
   async activateWorker(generationId, fence) {
     const result = await this.workerCommand(generationId, "/activate", { fencingToken: fence.fencingToken, promotionRevision: fence.promotionRevision });
     if (result.mode !== "active" || result.generationId !== generationId || result.fencingToken !== fence.fencingToken) throw new Error("Release worker activation did not bind the persisted fencing authority.");
+  }
+  async executeEffect(generationId, effect) {
+    return this.workerCommand(generationId, "/execute", effect);
   }
   async drain(generationId) {
     const result = await this.workerCommand(generationId, "/drain");
@@ -407,6 +414,7 @@ export async function runDeploymentSupervisor({ event, ready }) {
       await store.initialize({ ...owner, generation: blue, workerOwner: command.workerOwner, workerFencingToken: 1, workerLeaseExpiresAt: command.workerLeaseExpiresAt });
       await generations.start({ ...owner, generationId: blue.generationId, imageReference: blue.imageReference, workerMode: "passive" });
       await generations.readiness({ ...owner, generationId: blue.generationId, sourceCommit: blue.sourceCommit, applicationDigest: blue.applicationDigest, imageDigest: blue.imageDigest, migrationRevision: 11, completedMigrationSteps: [] });
+      await generations.activateWorker(blue.generationId, await store.readFence(owner));
       return { operation: "bootstrap", generationId: blue.generationId, revision: 0 };
     }
     if (command.operation === "release-request") {
@@ -423,6 +431,11 @@ export async function runDeploymentSupervisor({ event, ready }) {
     if (command.operation === "maintenance-required") {
       await maintenanceContext(command);
       return Object.freeze({ outcome: "maintenance-required", reasons: ["offline-migration"] });
+    }
+    if (command.operation === "worker-effect") {
+      const state = await store.read(owner);
+      if (!state || state.active.generationId !== command.generationId || state.revision !== command.expectedRevision) throw commandError(409, "Worker effect command is not bound to the active deployment revision.", "REVISION_CONFLICT");
+      return generations.executeEffect(command.generationId, { effectId: command.effectId, payload: command.payload, delayMs: command.delayMs });
     }
     if (command.operation === "arm-gateway-failure") { generations.failGatewayOnce = true; return { armed: true }; }
     if (command.operation === "arm-health-failure") { generations.failHealthOnce = true; return { armed: true }; }

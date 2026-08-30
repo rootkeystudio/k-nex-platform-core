@@ -32,6 +32,13 @@ const run = promisify(execFile);
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 const sha256 = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 const digestJson = (value) => sha256(canonicalJson(value));
+const operatorPackages = Object.freeze([
+  { name: "@k-nex/contracts", version: "0.0.0", path: "static-deployment/operator-packages/k-nex-contracts-0.0.0.tgz" },
+  { name: "@k-nex/composition", version: "0.0.0", path: "static-deployment/operator-packages/k-nex-composition-0.0.0.tgz" },
+  { name: "@k-nex/extension-bundler", version: "0.0.0", path: "static-deployment/operator-packages/k-nex-extension-bundler-0.0.0.tgz" },
+  { name: "@k-nex/runtime", version: "0.0.0", path: "static-deployment/operator-packages/k-nex-runtime-0.0.0.tgz" },
+  { name: "@k-nex/payload-adapter", version: "0.0.0", path: "static-deployment/operator-packages/k-nex-payload-adapter-0.0.0.tgz" }
+]);
 let supervisorControlToken;
 
 async function deliverExternalEffect(pool, idempotencyKey, payload) {
@@ -237,23 +244,20 @@ async function sourceMaterials(sourceDirectory) {
     "static-deployment/app/layout.tsx", "static-deployment/app/page.tsx", "static-deployment/app/api/[...slug]/route.ts", "static-deployment/app/[endpoint]/route.ts",
     "static-deployment-migration.ts", salesTarball
   ];
-  paths.push(
-    "static-deployment/operator-packages/k-nex-contracts-0.0.0.tgz",
-    "static-deployment/operator-packages/k-nex-composition-0.0.0.tgz",
-    "static-deployment/operator-packages/k-nex-extension-bundler-0.0.0.tgz",
-    "static-deployment/operator-packages/k-nex-runtime-0.0.0.tgz",
-    "static-deployment/operator-packages/k-nex-payload-adapter-0.0.0.tgz"
-  );
+  paths.push(...operatorPackages.map(({ path }) => path));
   const digests = Object.fromEntries(await Promise.all(paths.map(async (path) => [path, await fileDigest(join(sourceDirectory, path))])));
+  const pluginVersion = JSON.parse(await readFile(join(sourceDirectory, "static-deployment", "release.json"), "utf8")).plugin.version;
+  const packageClosure = [{ name: "@k-nex/module-sales", version: pluginVersion, path: salesTarball }, ...operatorPackages]
+    .map((item) => ({ ...item, digest: digests[item.path] }));
   const composition = {
     applicationManifestDigest: digests["k-nex.app.json"],
     lockfileDigest: digests["package-lock.json"],
     resolvedGraphDigest: digests[".k-nex/generated/resolved-graph.json"],
     generatedRegistriesDigest: digestJson({ customerPayloadRegistry: Object.fromEntries(paths.filter((path) => path === "tsconfig.json" || path.startsWith("src/") || path.startsWith("static-deployment/app/") || ["static-deployment/customer-application-gate.mjs", "static-deployment/next.config.mjs", "static-deployment/payload.config.ts", "static-deployment/release-worker.mjs", "static-deployment/static-runtime.ts", "static-deployment/tsconfig.customer.json", "static-deployment/tsconfig.next.json"].includes(path)).map((path) => [path, digests[path]])), dockerfile: digests["static-deployment/Dockerfile"], healthcheck: digests["static-deployment/healthcheck.mjs"], topology: digests["static-deployment/topology-process.mjs"], supervisor: digests["static-deployment/deployment-supervisor-process.mjs"], webAdmin: digests["static-deployment/web-admin-container.mjs"] }),
-    packageClosureDigest: digests[salesTarball],
+    packageClosureDigest: digestJson(Object.fromEntries(packageClosure.map(({ path, digest }) => [path, digest]))),
     migrationPlanDigest: digests["static-deployment-migration.ts"]
   };
-  return { composition, digests, paths, pluginVersion: JSON.parse(await readFile(join(sourceDirectory, "static-deployment", "release.json"), "utf8")).plugin.version };
+  return { composition, digests, paths, packageClosure, pluginVersion };
 }
 
 async function prepareBaseImage(sourceDirectory, commit, artifactsDirectory, fixtureLabel, trackedImages) {
@@ -350,6 +354,7 @@ async function provisionStaticBinarySchema(pool) {
     grant select on runtime_static_deployment_outbox to p9_static_supervisor;
     grant select, insert, update on p9_static_deployment_commands, p9_static_process_routes to p9_static_supervisor;
     grant select, insert, update on runtime_worker_effects to p9_static_worker;
+    grant select, insert on p9_static_external_effects to p9_static_worker;
     -- SELECT FOR UPDATE is required to atomically claim an effect, but this role
     -- may renew only its lease: it cannot transfer the active generation/token.
     grant update (lease_expires_at, updated_at) on runtime_worker_generation_fences to p9_static_worker;
@@ -383,7 +388,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     catch (error) { cleanupFailures.push(new Error(`${name}: ${error.message}`, { cause: error })); }
   };
   try {
-    postgres = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("static_deployment").withStartupTimeout(120_000).start();
+    postgres = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("static_deployment").withLabels({ "p9-fixture": network }).withStartupTimeout(120_000).start();
     sourceDirectory = await prepareCustomerSource();
     artifactsDirectory = await mkdtemp(join(tmpdir(), "knex-p9-static-artifacts-"));
     builderTrustDirectory = await mkdtemp(join(tmpdir(), "knex-p9-static-builder-trust-"));
@@ -475,6 +480,13 @@ test("proves distinct customer binaries and deployment processes recover from Po
     assert.equal(builderReady.buildRequestDigest, greenBuild.buildRequestDigest);
     assert.equal(builderReady.buildResultDigest, await fileDigest(buildResultPath));
     assert.equal(greenBuild.state, "attested");
+    const targetMaterials = await sourceMaterials(sourceDirectory);
+    assert.equal(greenBuild.composition.packageClosureDigest, targetMaterials.composition.packageClosureDigest, "Signed composition must cover the exact package closure installed into the immutable image.");
+    assert.deepEqual(
+      greenBuild.sbom.components.map(({ name, version, hashes }) => ({ name, version, digest: `sha256:${hashes[0].content}` })),
+      targetMaterials.packageClosure.map(({ name, version, digest }) => ({ name, version, digest })),
+      "The signed SBOM must enumerate Sales and every packaged operator/runtime tarball."
+    );
     const durableCheckpoint = await pool.query("select checkpoint_id, status, expected_source_commit, change_digest from runtime_static_composition_checkpoints");
     assert.deepEqual(durableCheckpoint.rows, [{ checkpoint_id: greenBuild.checkpointId, status: "committed", expected_source_commit: baseCommit, change_digest: greenBuild.change.planDigest }]);
     await waitForProcessEvent(pool, "source-authority", "source-change-authorized");
@@ -570,7 +582,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     const store = new PostgresStaticDeploymentStore(pool, { now: () => now }, build.authority);
     const blue = { generationId: "customer-alpha-blue-11", sourceCommit: baseCommit, compositionChangePlanDigest: digestJson(plan.base), buildEvidenceDigest: digestJson({ sourceCommit: baseCommit, imageDigest: blueBuild.imageDigest }), applicationDigest: blueBuild.applicationDigest, imageDigest: blueBuild.imageDigest, imageReference: blueBuild.imageReference, migrationRevision: 11 };
     const owner = { applicationId: "customer-alpha", environment: "production" };
-    const leaseExpiresAt = new Date(now.valueOf() + 240_000).toISOString();
+    const leaseExpiresAt = new Date(now.valueOf() + 299_000).toISOString();
     await assert.rejects(supervisorCommand(supervisorUrl, { commandId: "migration-label-reject-12", operation: "validate-online-migration", ...owner, generationId: "customer-alpha-green-12", buildRequestDigest: deploymentRequest.buildRequestDigest, expectedRevision: 0, migration: relabeledMigration }), { code: "MIGRATION_LABEL_REJECTED" });
     await supervisorCommand(supervisorUrl, { commandId: "bootstrap-blue-11", operation: "bootstrap", ...owner, generationId: blue.generationId, buildRequestDigest: greenBuild.buildRequestDigest, compositionChangePlanDigest: blue.compositionChangePlanDigest, buildEvidenceDigest: blue.buildEvidenceDigest, workerOwner: "worker:phase-9-blue", workerLeaseExpiresAt: leaseExpiresAt });
     trafficProbe = startContinuousHttpProbe({
@@ -634,6 +646,11 @@ test("proves distinct customer binaries and deployment processes recover from Po
     await pool.query("drop trigger p9_fail_fence_transfer on runtime_worker_generation_fences");
     await pool.query("drop function p9_fail_fence_transfer()");
 
+    const packagedWorkerEffect = supervisorCommand(supervisorUrl, {
+      commandId: "packaged-blue-worker-effect", operation: "worker-effect", ...owner, generationId: blue.generationId, expectedRevision: 0,
+      effectId: "packaged-worker-effect", payload: "packaged worker external effect", delayMs: 15_000
+    });
+    await waitForProcessEvent(pool, "release-worker", "worker-effect-started", 1);
     const inFlightBlue = fetch(`${processGatewayUrl}/slow`).then((response) => response.json());
     await delay(30);
     await supervisorCommand(supervisorUrl, { commandId: "arm-post-commit-gateway-crash", operation: "arm-gateway-failure" });
@@ -669,9 +686,15 @@ test("proves distinct customer binaries and deployment processes recover from Po
     assert.equal((await store.readFence(owner)).activeExecutionGeneration, "customer-alpha-green-12");
     await waitForProcessEvent(pool, "release-worker", "worker-activated", 1);
     await waitForProcessEvent(pool, "release-worker", "worker-drained", 1);
-    const releaseWorkerEvidence = await pool.query("select event, generation_id, fencing_token, detail from p9_static_process_events where role='release-worker' and event in ('worker-activated','worker-drained') order by id");
+    assert.equal((await packagedWorkerEffect).result.status, "stale-completion-rejected", "Fence transfer must reject the packaged blue worker's stale database completion after its external delivery settles.");
+    const releaseWorkerEvidence = await pool.query("select id, event, generation_id, fencing_token, detail from p9_static_process_events where role='release-worker' and event in ('worker-activated','worker-effect-started','worker-effect-delivered','worker-effect-completed','worker-stale-completion-rejected','worker-draining','worker-drained') order by id");
     assert.equal(releaseWorkerEvidence.rows.some((row) => row.event === "worker-activated" && row.generation_id === "customer-alpha-green-12" && Number(row.fencing_token) === 2 && row.detail.sourceCommit === targetCommit && row.detail.applicationDigest === greenBuild.applicationDigest && row.detail.imageDigest === greenBuild.imageDigest && row.detail.module === "module.sales"), true, "The supervisor must activate the green worker packaged in the exact attested release image after fence transfer.");
     assert.equal(releaseWorkerEvidence.rows.some((row) => row.event === "worker-drained" && row.generation_id === blue.generationId && row.detail.sourceCommit === baseCommit && row.detail.applicationDigest === blueBuild.applicationDigest && row.detail.imageDigest === blueBuild.imageDigest && row.detail.module === "module.sales"), true, "The supervisor must drain the prior worker binary instead of treating host checkout processes as workers.");
+    const packagedEvents = releaseWorkerEvidence.rows.filter((row) => row.generation_id === blue.generationId && ["worker-effect-started", "worker-effect-delivered", "worker-stale-completion-rejected", "worker-draining", "worker-drained"].includes(row.event));
+    assert.deepEqual(packagedEvents.map(({ event }) => event), ["worker-effect-started", "worker-draining", "worker-effect-delivered", "worker-stale-completion-rejected", "worker-drained"], "Drain must enter draining state, wait for the packaged worker's external delivery and stale-completion denial, then complete.");
+    assert.equal(packagedEvents.find(({ event }) => event === "worker-draining").detail.inFlight, 1);
+    assert.equal(packagedEvents.find(({ event }) => event === "worker-drained").detail.waitedFor, 1);
+    assert.equal((await pool.query("select count(*)::int count from p9_static_external_effects where result_digest=$1", [sha256("packaged worker external effect")])).rows[0].count, 1);
     await supervisorCommand(supervisorUrl, { commandId: "recover-promote-green-12", operation: "recover", ...owner, generationId: "customer-alpha-green-12", buildRequestDigest: deploymentRequest.buildRequestDigest, expectedRevision: 1 });
     assert.equal((await fetch(`${processGatewayUrl}/inventory`).then((response) => response.json())).generation, "customer-alpha-green-12");
     const [oldBinarySchema, newBinarySchema] = await Promise.all([
@@ -876,10 +899,10 @@ test("proves distinct customer binaries and deployment processes recover from Po
     await cleanup("continuous traffic probe", () => trafficProbe?.stop());
     for (const process of topology) await cleanup(`topology process ${process.output().slice(0, 80)}`, () => process.stop());
     await cleanup("isolated web/admin container", () => webAdminContainer?.stop());
-    const labeledContainers = await docker(["ps", "--all", "--filter", `label=p9-fixture=${network}`, "--format", "{{.Names}}"]).then(({ stdout }) => stdout.trim().split("\n").filter(Boolean));
-    for (const name of labeledContainers) await cleanup(`labeled container ${name}`, () => docker(["rm", "--force", name]));
     await cleanup("PostgreSQL pool", () => pool?.end());
     await cleanup("PostgreSQL container", () => postgres?.stop());
+    const labeledContainers = await docker(["ps", "--all", "--filter", `label=p9-fixture=${network}`, "--format", "{{.Names}}"]).then(({ stdout }) => stdout.trim().split("\n").filter(Boolean));
+    for (const name of labeledContainers) await cleanup(`labeled container ${name}`, () => docker(["rm", "--force", name]));
     if (networkCreated) await cleanup("fixture network", () => docker(["network", "rm", network]));
     const labeledImages = new Set((await docker(["image", "ls", "--filter", `label=p9-fixture=${network}`, "--format", "{{.ID}}"]).then(({ stdout }) => stdout.trim().split("\n").filter(Boolean))));
     for (const imageId of labeledImages) await cleanup(`labeled image ${imageId}`, () => docker(["image", "rm", "--force", imageId]));

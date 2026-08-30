@@ -3,19 +3,19 @@
 - **Updated:** 2026-08-30
 - **Phase:** Phase 9 — Dynamic Application Runtime and Zero-Downtime Delivery
 - **Active task:** P9.10 — Gate 9 closeout
-- **State:** Ready for phase review
+- **State:** In progress
 
 ## Last completed
 
-Completed P9.10 and Gate 9 after adding autonomous runtime convergence, the real fixed Hot Application host route, an in-image least-privilege operator, distinct digest-pinned release workers, supervisor restart rediscovery, and fail-closed labeled Docker teardown.
+Closed the three static-release review gaps with a real packaged worker effect and drain, signed Sales/operator package closure and SBOM evidence, and labeled PostgreSQL teardown included in zero-residue assertions.
 
 ## Validation
 
-Node 24.19.0: runtime 294/294, ui-runtime 56/56, both 14-test customer PostgreSQL/Docker suites, Gates 0–8, 22 Gate 9 attacks, 12 proof groups, and `pnpm gate:9` (`GATE_9_PASS`). Fixture teardown left zero labeled containers, images, or networks.
+Node 24.19.0: the focused static PostgreSQL/Docker proof passed in 243 seconds with real in-image effect delivery, stale-completion denial, blocking drain, signed six-package closure, all four scenarios, nine crash entries, and zero labeled resources.
 
 ## Next
 
-Request a fresh Sol-high blocking review on the exact closeout head, then push the Phase 9 branch and open one pull request without merging or auto-merge.
+Refresh the Phase 9 closeout snapshot, run complete Gate 9 on its exact head, then request a fresh Sol-high blocking review.
 
 ## Blockers
 

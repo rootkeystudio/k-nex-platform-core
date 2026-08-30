@@ -22,12 +22,20 @@ if (!role || !databaseUrl || !instance) throw new Error("Phase 9 process topolog
 const pool = new pg.Pool({ connectionString: databaseUrl, max: 2 });
 const sha256 = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 const digestJson = (value) => sha256(canonicalJson(value));
+const operatorPackages = Object.freeze([
+  { name: "@k-nex/contracts", version: "0.0.0", path: "static-deployment/operator-packages/k-nex-contracts-0.0.0.tgz" },
+  { name: "@k-nex/composition", version: "0.0.0", path: "static-deployment/operator-packages/k-nex-composition-0.0.0.tgz" },
+  { name: "@k-nex/extension-bundler", version: "0.0.0", path: "static-deployment/operator-packages/k-nex-extension-bundler-0.0.0.tgz" },
+  { name: "@k-nex/runtime", version: "0.0.0", path: "static-deployment/operator-packages/k-nex-runtime-0.0.0.tgz" },
+  { name: "@k-nex/payload-adapter", version: "0.0.0", path: "static-deployment/operator-packages/k-nex-payload-adapter-0.0.0.tgz" }
+]);
 const sourceFiles = Object.freeze([
   "k-nex.app.json", "package.json", "package-lock.json", ".k-nex/generated/resolved-graph.json",
   "tsconfig.json", "src/boot.ts", "src/k-nex-readiness.ts", "src/k-nex-registry.ts", "src/payload.config.ts", "src/migrations/20260827_000001_sales_baseline.ts", "src/migrations/20260827_000002_knex_bootstrap.ts", "src/migrations/index.ts",
   "static-deployment/Dockerfile", "static-deployment/customer-application-gate.mjs", "static-deployment/deployment-supervisor-process.mjs", "static-deployment/healthcheck.mjs", "static-deployment/next.config.mjs", "static-deployment/payload.config.ts", "static-deployment/release-worker.mjs", "static-deployment/release.json", "static-deployment/static-runtime.ts", "static-deployment/topology-process.mjs", "static-deployment/tsconfig.customer.json", "static-deployment/tsconfig.next.json", "static-deployment/web-admin-container.mjs",
   "static-deployment/app/layout.tsx", "static-deployment/app/page.tsx", "static-deployment/app/api/[...slug]/route.ts", "static-deployment/app/[endpoint]/route.ts",
-  "static-deployment-migration.ts"
+  "static-deployment-migration.ts",
+  ...operatorPackages.map(({ path }) => path)
 ]);
 const event = async (name, detail = {}) => {
   const deployment = await pool.query("select revision, active_generation_id from runtime_static_deployments where application_id='customer-alpha' and environment='production'");
@@ -69,14 +77,18 @@ async function composition(sourceDirectory) {
   const salesTarball = pkg.dependencies?.["@k-nex/module-sales"]?.replace("file:", "");
   if (salesTarball !== "packages/k-nex-module-sales-1.0.1.tgz" && salesTarball !== "packages/k-nex-module-sales-1.0.0.tgz") throw new Error("Customer package closure is not an approved module.sales archive.");
   const digests = Object.fromEntries(await Promise.all([...sourceFiles, salesTarball].map(async (path) => [path, await fileDigest(join(sourceDirectory, path))])));
+  const pluginVersion = (await readJson(join(sourceDirectory, "static-deployment/release.json"))).plugin.version;
+  const packageClosure = [{ name: "@k-nex/module-sales", version: pluginVersion, path: salesTarball }, ...operatorPackages]
+    .map((item) => ({ ...item, digest: digests[item.path] }));
   return {
     composition: {
       applicationManifestDigest: digests["k-nex.app.json"], lockfileDigest: digests["package-lock.json"], resolvedGraphDigest: digests[".k-nex/generated/resolved-graph.json"],
       generatedRegistriesDigest: digestJson({ customerPayloadRegistry: Object.fromEntries(sourceFiles.filter((path) => path === "tsconfig.json" || path.startsWith("src/") || path.startsWith("static-deployment/app/") || ["static-deployment/customer-application-gate.mjs", "static-deployment/next.config.mjs", "static-deployment/payload.config.ts", "static-deployment/release-worker.mjs", "static-deployment/static-runtime.ts", "static-deployment/tsconfig.customer.json", "static-deployment/tsconfig.next.json"].includes(path)).map((path) => [path, digests[path]])), dockerfile: digests["static-deployment/Dockerfile"], healthcheck: digests["static-deployment/healthcheck.mjs"], topology: digests["static-deployment/topology-process.mjs"], supervisor: digests["static-deployment/deployment-supervisor-process.mjs"], webAdmin: digests["static-deployment/web-admin-container.mjs"] }),
-      packageClosureDigest: digests[salesTarball], migrationPlanDigest: digests["static-deployment-migration.ts"]
+      packageClosureDigest: digestJson(Object.fromEntries(packageClosure.map(({ path, digest }) => [path, digest]))), migrationPlanDigest: digests["static-deployment-migration.ts"]
     },
     digests,
-    pluginVersion: (await readJson(join(sourceDirectory, "static-deployment/release.json"))).plugin.version
+    packageClosure,
+    pluginVersion
   };
 }
 
@@ -261,7 +273,7 @@ async function builder() {
   const inspection = JSON.parse((await execute("docker", ["image", "inspect", tag], { maxBuffer: 1024 * 1024 })).stdout)[0];
   const imageDigest = inspection.Id;
   if (!/^sha256:[0-9a-f]{64}$/u.test(imageDigest) || inspection.Config.Labels["org.opencontainers.image.revision"] !== source.targetSourceCommit || inspection.Config.Labels["dev.k-nex.application-digest"] !== applicationDigest) throw new Error("Builder rejected immutable image labels or digest.");
-  const sbom = { bomFormat: "CycloneDX", components: [{ name: "@k-nex/module-sales", version: materials.pluginVersion, hashes: [{ alg: "SHA-256", content: materials.composition.packageClosureDigest.slice(7) }] }], sourceCommit: source.targetSourceCommit };
+  const sbom = { bomFormat: "CycloneDX", components: materials.packageClosure.map(({ name, version, digest }) => ({ name, version, hashes: [{ alg: "SHA-256", content: digest.slice(7) }] })), sourceCommit: source.targetSourceCommit };
   const sbomPath = join(artifactsDirectory, `${source.targetSourceCommit}.sbom.json`);
   await writeJson(sbomPath, sbom);
   const trustPolicy = await readJson(trustPolicyPath);

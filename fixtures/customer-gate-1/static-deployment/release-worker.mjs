@@ -1,6 +1,8 @@
 import { createServer } from "node:http";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import pg from "pg";
+import { PostgresStaticDeploymentStore } from "@k-nex/payload-adapter";
 
 const required = (name) => {
   const value = process.env[name];
@@ -19,8 +21,12 @@ if (!Number.isInteger(port)) throw new Error("The release worker control port mu
 const release = JSON.parse(await readFile(new URL("./release.json", import.meta.url), "utf8"));
 if (release.plugin?.id !== "module.sales") throw new Error("The release worker image must carry only the attested Sales module fixture.");
 const pool = new pg.Pool({ connectionString: required("DATABASE_URL"), max: 1 });
+const store = new PostgresStaticDeploymentStore(pool, { now: () => new Date() });
 let mode = "passive";
 let fencingToken;
+const inFlight = new Set();
+const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+const sha256 = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 
 async function event(name, detail = {}) {
   await pool.query(
@@ -38,6 +44,39 @@ function authenticated(request) {
   return request.headers["x-p9-worker-control"] === controlToken;
 }
 
+async function executeEffect(command) {
+  if (mode !== "active") throw new Error("Only the active fenced release worker may execute effects.");
+  if (typeof command.effectId !== "string" || !command.effectId || typeof command.payload !== "string" || !Number.isInteger(command.delayMs) || command.delayMs < 0 || command.delayMs > 30_000) {
+    throw new Error("Release worker effect command is invalid.");
+  }
+  const fence = await currentFence();
+  if (fence?.active_execution_generation !== generationId || Number(fence?.fencing_token) !== fencingToken) throw new Error("Persisted worker fence no longer authorizes this release worker.");
+  const claim = await store.claimEffect({
+    applicationId: "customer-alpha", environment: "production", effectId: command.effectId, generationId, fencingToken,
+    claimantId: `release-worker-${generationId}`, claimLeaseExpiresAt: new Date(Date.now() + 120_000).toISOString()
+  });
+  if (claim.status !== "claimed") return { status: claim.status, externalIdempotencyKey: claim.externalIdempotencyKey };
+  await event("worker-effect-started", { effectId: command.effectId, claimToken: claim.claimToken });
+  await delay(command.delayMs);
+  const resultDigest = sha256(command.payload);
+  const inserted = await pool.query(
+    "insert into p9_static_external_effects (idempotency_key, result_digest) values ($1,$2) on conflict (idempotency_key) do nothing returning result_digest",
+    [claim.externalIdempotencyKey, resultDigest]
+  );
+  const recorded = inserted.rows[0] ?? (await pool.query("select result_digest from p9_static_external_effects where idempotency_key=$1", [claim.externalIdempotencyKey])).rows[0];
+  if (!recorded || recorded.result_digest !== resultDigest) throw new Error("External effect idempotency reconciliation failed.");
+  await event("worker-effect-delivered", { effectId: command.effectId, resultDigest, externalIdempotencyKey: claim.externalIdempotencyKey });
+  try {
+    await store.completeEffect({ applicationId: "customer-alpha", environment: "production", effectId: command.effectId, generationId, fencingToken, claimToken: claim.claimToken, resultDigest });
+    await event("worker-effect-completed", { effectId: command.effectId, resultDigest, externalIdempotencyKey: claim.externalIdempotencyKey });
+    return { status: "completed", resultDigest, externalIdempotencyKey: claim.externalIdempotencyKey };
+  } catch (error) {
+    if (error?.code !== "FENCE_REJECTED") throw error;
+    await event("worker-stale-completion-rejected", { effectId: command.effectId, resultDigest, externalIdempotencyKey: claim.externalIdempotencyKey });
+    return { status: "stale-completion-rejected", resultDigest, externalIdempotencyKey: claim.externalIdempotencyKey };
+  }
+}
+
 async function body(request) {
   let value = "";
   for await (const chunk of request) {
@@ -51,8 +90,8 @@ await event("worker-passive", { mode });
 createServer(async (request, response) => {
   const send = (status, value) => response.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(value));
   try {
-    if (request.method === "GET" && request.url === "/status") return send(200, { mode, generationId, fencingToken, sourceCommit, applicationDigest, imageDigest, module: release.plugin.id, pluginVersion: release.plugin.version });
-    if (request.method !== "POST" || !["/activate", "/drain"].includes(request.url ?? "") || !authenticated(request)) return send(401, { error: "Release worker command is unauthorized." });
+    if (request.method === "GET" && request.url === "/status") return send(200, { mode, generationId, fencingToken, inFlight: inFlight.size, sourceCommit, applicationDigest, imageDigest, module: release.plugin.id, pluginVersion: release.plugin.version });
+    if (request.method !== "POST" || !["/activate", "/drain", "/execute"].includes(request.url ?? "") || !authenticated(request)) return send(401, { error: "Release worker command is unauthorized." });
     if (request.url === "/activate") {
       const command = await body(request);
       const fence = await currentFence();
@@ -60,9 +99,19 @@ createServer(async (request, response) => {
       fencingToken = Number(fence.fencing_token);
       mode = "active";
       await event("worker-activated", { mode, promotionRevision: command.promotionRevision });
+    } else if (request.url === "/execute") {
+      const command = await body(request);
+      const work = executeEffect(command);
+      inFlight.add(work);
+      try { return send(200, await work); }
+      finally { inFlight.delete(work); }
     } else {
+      const draining = [...inFlight];
+      mode = "draining";
+      await event("worker-draining", { mode, inFlight: draining.length });
+      await Promise.all(draining);
       mode = "drained";
-      await event("worker-drained", { mode });
+      await event("worker-drained", { mode, waitedFor: draining.length });
     }
     return send(200, { mode, generationId, fencingToken });
   } catch (error) {
