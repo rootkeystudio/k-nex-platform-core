@@ -1,5 +1,11 @@
 FROM node@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43
 
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY packages ./packages
+RUN npm ci --legacy-peer-deps --ignore-scripts --no-audit --no-fund
+COPY static-deployment/operator-packages /tmp/operator-packages
+RUN npm install --no-save --legacy-peer-deps --ignore-scripts --no-audit --no-fund /tmp/operator-packages/*.tgz
 ARG K_NEX_SOURCE_COMMIT
 ARG K_NEX_APPLICATION_DIGEST
 ARG K_NEX_FIXTURE_LABEL
@@ -8,12 +14,6 @@ LABEL dev.k-nex.application-digest=${K_NEX_APPLICATION_DIGEST}
 LABEL p9-fixture=${K_NEX_FIXTURE_LABEL}
 ENV K_NEX_SOURCE_COMMIT=${K_NEX_SOURCE_COMMIT}
 ENV K_NEX_APPLICATION_DIGEST=${K_NEX_APPLICATION_DIGEST}
-WORKDIR /app
-COPY package.json package-lock.json ./
-COPY packages ./packages
-RUN npm ci --legacy-peer-deps --ignore-scripts --no-audit --no-fund
-COPY static-deployment/operator-packages /tmp/operator-packages
-RUN npm install --no-save --legacy-peer-deps --ignore-scripts --no-audit --no-fund /tmp/operator-packages/*.tgz
 COPY src ./src
 COPY static-deployment/tsconfig.next.json ./tsconfig.json
 COPY static-deployment/tsconfig.customer.json ./
