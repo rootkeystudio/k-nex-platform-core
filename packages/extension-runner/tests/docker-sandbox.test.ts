@@ -225,34 +225,49 @@ describe("production extension runner", () => {
     await expect(runner.inspectSecurity("runner-control-test", limits, 10_000)).rejects.toMatchObject({ code: "POLICY_UNAVAILABLE" });
   });
 
-  it("waits for effective Linux controls before making source eligible", async () => {
+  it("re-inspects after a pre-exec Linux PID disappears before making source eligible", async () => {
     const runner = supervisor({}, artifactStore()) as any;
     runner.isolationPolicy = dockerAppArmorPolicy;
-    runner.inspectRunningContainer = async () => secureLinuxInspection();
-    const statuses = [
-      "CapEff:\t0000000000000000\nNoNewPrivs:\t0\nSeccomp:\t0\n",
-      "CapEff:\t0000000000000000\nNoNewPrivs:\t1\nSeccomp:\t2\n"
-    ];
-    let statusReads = 0;
+    const preExec = secureLinuxInspection();
+    const final = secureLinuxInspection();
+    final.State.Pid = 4243;
+    let startupInspections = 0;
+    let effectiveInspections = 0;
+    const procReads: string[] = [];
     let waits = 0;
-    runner.readProcFile = (path: string) => path.endsWith("uid_map") ? "0 100000 65536\n" : statuses[statusReads++]!;
+    runner.inspectRunningContainer = async () => (startupInspections += 1, preExec);
+    runner.inspectContainerOnce = async () => [preExec, final][effectiveInspections++]!;
+    runner.readProcFile = (path: string) => {
+      procReads.push(path);
+      if (path === "/proc/4242/uid_map") throw new Error("ENOENT");
+      if (path === "/proc/4243/uid_map") return "0 100000 65536\n";
+      if (path === "/proc/4243/status") return "CapEff:\t0000000000000000\nNoNewPrivs:\t1\nSeccomp:\t2\n";
+      throw new Error(`unexpected proc path: ${path}`);
+    };
     runner.waitForSecurityStatus = async () => { waits += 1; };
 
     await expect(runner.inspectSecurity("runner-startup-poll", limits, 10_000)).resolves.toBeUndefined();
-    expect(statusReads).toBe(2);
+    expect(startupInspections).toBe(1);
+    expect(effectiveInspections).toBe(2);
+    expect(procReads).toEqual(["/proc/4242/uid_map", "/proc/4243/uid_map", "/proc/4243/status"]);
     expect(waits).toBe(1);
   });
 
   it("fails closed when effective Linux controls never converge", async () => {
     const runner = supervisor({}, artifactStore()) as any;
     runner.isolationPolicy = dockerAppArmorPolicy;
-    runner.inspectRunningContainer = async () => secureLinuxInspection();
+    let startupInspections = 0;
+    let effectiveInspections = 0;
+    runner.inspectRunningContainer = async () => (startupInspections += 1, secureLinuxInspection());
+    runner.inspectContainerOnce = async () => (effectiveInspections += 1, secureLinuxInspection());
     let statusReads = 0;
     let waits = 0;
     runner.readProcFile = (path: string) => path.endsWith("uid_map") ? "0 100000 65536\n" : (statusReads += 1, "CapEff:\t0000000000000000\nNoNewPrivs:\t0\nSeccomp:\t0\n");
     runner.waitForSecurityStatus = async () => { waits += 1; };
 
     await expect(runner.inspectSecurity("runner-startup-poll", limits, 10_000)).rejects.toMatchObject({ code: "POLICY_UNAVAILABLE" });
+    expect(startupInspections).toBe(1);
+    expect(effectiveInspections).toBe(50);
     expect(statusReads).toBe(50);
     expect(waits).toBe(49);
   });

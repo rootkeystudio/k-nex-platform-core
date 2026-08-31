@@ -7,11 +7,11 @@
 
 ## Last completed
 
-P9.10 Linux preflight remediation is complete. Docker CLI process spawn can precede final OCI effective controls, so production inspection now waits a bounded one second for the unchanged `CapEff=0`, `NoNewPrivs=1`, and `Seccomp=2` tuple. Persistent mismatch or unreadable host state still fails closed before source handoff.
+P9.10 Linux preflight remediation is complete. Docker CLI spawn can expose a transient pre-exec PID that disappears, so production inspection boundedly re-reads container PID, remapped uid-map, and the unchanged `CapEff=0` / `NoNewPrivs=1` / `Seccomp=2` tuple as one observation. Persistent mismatch still fails closed before source handoff.
 
 ## Validation
 
-Local Node 24.19.0: runner forced build passes. Deterministic stale-to-stable and persistent-stale effective-policy polling tests pass 2/2; `git diff --check` passes. PR #28 exact-head Linux/AppArmor preflight at `8218b66` proved setup, AppArmor, userns, and SIGSYS enforcement, then exposed only this host-observation race. Full Gate 9 remains pending the repaired exact-head CI run.
+Local Node 24.19.0: runner forced build passes. Deterministic nonnumeric-PID, disappearing-PID recovery, and persistent-invalid effective-policy tests pass 3/3; `git diff --check` passes. PR #28 exact-head Linux/AppArmor preflight at `fc49cb6` proved setup, AppArmor, userns, and SIGSYS enforcement, then isolated the PID-replacement race. Full Gate 9 remains pending the repaired exact-head CI run.
 
 ## Next
 

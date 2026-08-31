@@ -603,27 +603,25 @@ export class DockerHotApplicationSandboxSupervisor {
       }
       return;
     }
-    const state = isRecord(inspected.State) ? inspected.State : undefined;
-    const pid = state?.Pid;
-    if (typeof pid !== "number" || !Number.isSafeInteger(pid) || pid <= 0) throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker did not expose a running container PID for user-namespace verification.");
-    let uidMap: string;
-    try {
-      uidMap = this.readProcFile(`/proc/${pid}/uid_map`);
-    } catch { throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Host cannot verify the effective container security state."); }
-    if (!/^\s*0\s+[1-9][0-9]*\s+[1-9][0-9]*\s*$/mu.test(uidMap)) throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker launched the runner without a remapped user namespace.");
     for (let attempt = 0; attempt < 50; attempt += 1) {
-      let status: string;
-      try { status = this.readProcFile(`/proc/${pid}/status`); }
-      catch { throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Host cannot verify the effective container security state."); }
-      const proc = new Map<string, string>();
-      for (const line of status.split("\n")) {
-        const match = /^(CapEff|NoNewPrivs|Seccomp):\s*(\S+)\s*$/u.exec(line);
-        if (match) proc.set(match[1]!, match[2]!);
-      }
-      if (/^0+$/u.test(proc.get("CapEff") ?? "") && proc.get("NoNewPrivs") === "1" && proc.get("Seccomp") === "2") return;
+      try {
+        const effective = await this.inspectContainerOnce(containerName);
+        const state = isRecord(effective.State) ? effective.State : undefined;
+        const pid = state?.Pid;
+        if (typeof pid !== "number" || !Number.isSafeInteger(pid) || pid <= 0) throw new Error("container PID unavailable");
+        const uidMap = this.readProcFile(`/proc/${pid}/uid_map`);
+        const status = this.readProcFile(`/proc/${pid}/status`);
+        if (!/^\s*0\s+[1-9][0-9]*\s+[1-9][0-9]*\s*$/mu.test(uidMap)) throw new Error("user namespace unavailable");
+        const proc = new Map<string, string>();
+        for (const line of status.split("\n")) {
+          const match = /^(CapEff|NoNewPrivs|Seccomp):\s*(\S+)\s*$/u.exec(line);
+          if (match) proc.set(match[1]!, match[2]!);
+        }
+        if (/^0+$/u.test(proc.get("CapEff") ?? "") && proc.get("NoNewPrivs") === "1" && proc.get("Seccomp") === "2") return;
+      } catch { /* OCI exec can briefly replace the inspected process. */ }
       if (attempt < 49) await this.waitForSecurityStatus();
     }
-    unavailable("Docker did not apply the effective capability, no-new-privileges, and seccomp controls.");
+    unavailable("Host could not verify the effective container security state.");
   }
 
   private readProcFile(path: string): string {
@@ -678,13 +676,17 @@ export class DockerHotApplicationSandboxSupervisor {
   private async inspectRunningContainer(containerName: string): Promise<Record<string, unknown>> {
     let error: unknown;
     for (let attempt = 0; attempt < 50; attempt += 1) {
-      try {
-        const value = await this.dockerJson(["inspect", containerName]);
-        if (Array.isArray(value) && value[0] && typeof value[0] === "object") return value[0] as Record<string, unknown>;
-      } catch (caught) { error = caught; }
+      try { return await this.inspectContainerOnce(containerName); }
+      catch (caught) { error = caught; }
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
     throw error ?? new Error("container inspect unavailable");
+  }
+
+  private async inspectContainerOnce(containerName: string): Promise<Record<string, unknown>> {
+    const value = await this.dockerJson(["inspect", containerName]);
+    if (Array.isArray(value) && value[0] && typeof value[0] === "object") return value[0] as Record<string, unknown>;
+    throw new Error("container inspect unavailable");
   }
 
   private async reconcileStartupContainers(): Promise<number> {
