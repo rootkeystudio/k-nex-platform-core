@@ -20,7 +20,7 @@ import type {
   VerifiedGenerationAuthorityOwner
 } from "@k-nex/runtime";
 
-import type { RuntimeExtensionPool, RuntimeExtensionSession } from "./runtime-extension-store.js";
+import { runtimeExtensionIdentityKey, type RuntimeExtensionPool, type RuntimeExtensionSession } from "./runtime-extension-store.js";
 
 export class VerifiedArtifactStoreError extends Error {
   constructor(readonly code: "ARTIFACT_INVALID" | "ARTIFACT_CONFLICT" | "ARTIFACT_UNAVAILABLE", message: string) {
@@ -62,6 +62,13 @@ interface BindingRow {
   authority_json: VerifiedGenerationAuthority;
   activation_json: VerifiedDynamicArtifactStage["activation"];
   version: string;
+}
+
+interface ActiveRemoteUiRow extends BindingRow {
+  catalog_json: unknown;
+  artifact_bytes: Buffer;
+  provenance_bytes: Buffer;
+  runtime_abi: string;
 }
 
 function fail(code: VerifiedArtifactStoreError["code"], message: string): never {
@@ -135,6 +142,25 @@ export class PostgresVerifiedArtifactStore implements DurableDynamicArtifactStor
   async read(artifactDigest: Digest): Promise<StagedArtifact | undefined> {
     const verified = await this.verified(artifactDigest, true);
     return verified ? Object.freeze({ artifactDigest, verified }) : undefined;
+  }
+
+  async readRemoteUi(identity: Readonly<{
+    applicationId: string;
+    environment: string;
+    extensionId: string;
+    generationId: string;
+    artifactDigest: Digest;
+  }>): Promise<StagedArtifact | undefined> {
+    return this.transaction(async (session) => {
+      await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [runtimeExtensionIdentityKey({
+        applicationId: identity.applicationId, environment: identity.environment, deliveryClass: "hot-application", extensionId: identity.extensionId
+      })]);
+      const binding = await this.activeRemoteUiBinding(session, identity);
+      if (!binding) return undefined;
+      const verified = await this.verifiedRow(binding);
+      await this.durable(binding, verified, sha256(Buffer.from(canonicalJson(binding.catalog_json))));
+      return Object.freeze({ artifactDigest: identity.artifactDigest, verified });
+    });
   }
 
   async readThemeSkin(identity: Readonly<{
@@ -235,10 +261,14 @@ export class PostgresVerifiedArtifactStore implements DurableDynamicArtifactStor
       if (absentOk) return undefined;
       fail("ARTIFACT_UNAVAILABLE", "Verified artifact bytes are unavailable.");
     }
+    return this.verifiedRow(row);
+  }
+
+  private async verifiedRow(row: ArtifactRow): Promise<VerifiedArtifact> {
     try {
       const verified = await this.verifier.verifyAccepted({ catalog: row.catalog_json as VerificationRequest["catalog"], artifact: row.artifact_bytes, provenance: row.provenance_bytes,
         deliveryClass: row.delivery_class, id: row.extension_id, version: row.version, runtimeAbi: row.runtime_abi });
-      if (verified.artifactDigest !== artifactDigest) fail("ARTIFACT_INVALID", "Artifact bytes no longer match their content address.");
+      if (verified.artifactDigest !== row.artifact_digest) fail("ARTIFACT_INVALID", "Artifact bytes no longer match their content address.");
       return verified;
     } catch (error) {
       if (error instanceof VerifiedArtifactStoreError) throw error;
@@ -252,6 +282,72 @@ export class PostgresVerifiedArtifactStore implements DurableDynamicArtifactStor
        from runtime_extension_artifact_bindings
        where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4 and generation_id=$5 and artifact_digest=$6`,
       [owner.applicationId, owner.environment, owner.deliveryClass, owner.extensionId, owner.generationId, artifactDigest]
+    );
+    return result.rows[0];
+  }
+
+  /**
+   * This is the Remote UI read linearization point. The serving path accepts
+   * bytes only when the immutable artifact binding, canonical active evidence,
+   * activation receipt, and unified server/UI/storage generation are all the
+   * same durable row.
+   */
+  private async activeRemoteUiBinding(session: Pick<RuntimeExtensionSession, "query">, identity: Readonly<{
+    applicationId: string;
+    environment: string;
+    extensionId: string;
+    generationId: string;
+    artifactDigest: Digest;
+  }>): Promise<ActiveRemoteUiRow | undefined> {
+    const result = await session.query<ActiveRemoteUiRow>(
+      `select b.application_id as application_id, b.environment as environment, b.delivery_class as delivery_class,
+              b.extension_id as extension_id, b.generation_id as generation_id, b.artifact_digest as artifact_digest,
+              b.authority_json as authority_json, b.activation_json as activation_json, b.version as version,
+              a.catalog_json as catalog_json, a.artifact_bytes as artifact_bytes,
+              a.provenance_bytes as provenance_bytes, a.runtime_abi as runtime_abi
+       from runtime_extension_artifact_bindings b
+       join runtime_extension_artifacts a on a.artifact_digest=b.artifact_digest
+       join runtime_extensions e
+         on e.application_id=b.application_id and e.environment=b.environment and e.delivery_class=b.delivery_class and e.extension_id=b.extension_id
+       join runtime_extension_generations g
+         on g.application_id=b.application_id and g.environment=b.environment and g.delivery_class=b.delivery_class
+        and g.extension_id=b.extension_id and g.generation_id=b.generation_id
+       join lateral (
+         select r.receipt_id, r.event_json
+         from runtime_extension_transition_receipts r
+         join runtime_extension_operations o on o.operation_id=r.operation_id
+         where o.application_id=b.application_id and o.environment=b.environment and o.delivery_class=b.delivery_class and o.extension_id=b.extension_id
+           and o.phase='completed' and o.operation_kind in ('install','update','rollback')
+           and r.event_json->>'eventType'='extension.lifecycle-transition'
+           and r.event_json->>'operationId'=o.operation_id
+           and r.event_json->>'operationPhase'='completed' and r.event_json->>'lifecycleState'='active'
+           and r.event_json->>'receiptId'=r.receipt_id
+           and r.event_json->>'applicationId'=b.application_id and r.event_json->>'environment'=b.environment
+           and r.event_json->>'deliveryClass'=b.delivery_class and r.event_json->>'id'=b.extension_id
+           and r.event_json->'evidence'->>'generationId'=b.generation_id
+           and r.event_json->'evidence'->>'sourceCommit'=b.authority_json->>'sourceCommit'
+           and r.event_json->'evidence'->>'artifactDigest'=b.artifact_digest
+           and r.event_json->'evidence'->>'manifestDigest'=b.authority_json->>'manifestDigest'
+           and r.event_json->'evidence'->>'catalogDigest'=b.authority_json->>'catalogDigest'
+           and r.event_json->'evidence'->>'provenanceDigest'=b.authority_json->>'provenanceDigest'
+           and r.event_json->'evidence'->>'sbomDigest'=b.authority_json->>'sbomDigest'
+         order by r.revision desc
+         limit 1
+       ) r on true
+       where b.application_id=$1 and b.environment=$2 and b.delivery_class='hot-application' and b.extension_id=$3
+         and b.generation_id=$4 and b.artifact_digest=$5
+         and e.disposition='active' and e.active_generation_id=b.generation_id
+         and e.active_generation=jsonb_build_object(
+           'authority', 'verified-bundle', 'applicationId', b.application_id, 'environment', b.environment,
+           'deliveryClass', b.delivery_class, 'extensionId', b.extension_id, 'generationId', b.generation_id,
+           'version', b.version, 'sourceCommit', b.authority_json->>'sourceCommit', 'artifactDigest', b.artifact_digest,
+           'manifestDigest', b.authority_json->>'manifestDigest', 'catalogDigest', b.authority_json->>'catalogDigest',
+           'provenanceDigest', b.authority_json->>'provenanceDigest', 'sbomDigest', b.authority_json->>'sbomDigest',
+           'receiptId', r.receipt_id
+         )
+         and g.state='active' and g.authority_json=b.authority_json and g.receipt_id=r.receipt_id
+         and g.server_generation_id=b.generation_id and g.ui_generation_id=b.generation_id and g.storage_generation_id=b.generation_id`,
+      [identity.applicationId, identity.environment, identity.extensionId, identity.generationId, identity.artifactDigest]
     );
     return result.rows[0];
   }

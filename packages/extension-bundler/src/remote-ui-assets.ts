@@ -4,10 +4,21 @@ import { createHash } from "node:crypto";
 import type { Digest } from "./catalog.js";
 import type { StagedArtifact } from "./store.js";
 
-export interface VerifiedRemoteUiArtifactReader { read(artifactDigest: Digest): StagedArtifact | undefined | Promise<StagedArtifact | undefined>; }
+export interface RemoteUiArtifactIdentity {
+  readonly applicationId: string;
+  readonly environment: string;
+  readonly extensionId: string;
+  readonly generationId: string;
+  readonly artifactDigest: Digest;
+}
 
-export interface RemoteUiGenerationAuthority {
-  isActive(identity: Readonly<{ applicationId: string; environment: string; appId: string; generationId: string; artifactDigest: Digest }>): boolean | Promise<boolean>;
+/**
+ * Resolves only the currently active durable Hot Application generation and
+ * reverified bytes as one authority boundary. A digest-only read cannot serve
+ * Remote UI because it loses the owner and lifecycle binding.
+ */
+export interface VerifiedRemoteUiArtifactReader {
+  readRemoteUi(identity: RemoteUiArtifactIdentity): StagedArtifact | undefined | Promise<StagedArtifact | undefined>;
 }
 
 export interface RemoteUiAssetRequest {
@@ -53,7 +64,7 @@ function contentType(path: string): "application/javascript" | "application/json
 }
 
 export function createRemoteUiWorkerBootstrapSource(applicationSource: string): string {
-  return `const applicationSource=${JSON.stringify(applicationSource)};addEventListener("message",function connect(event){if(event.data?.type!=="k-nex-connect"||!event.ports?.[0])return;removeEventListener("message",connect);const url=URL.createObjectURL(new Blob([applicationSource],{type:"text/javascript"}));const worker=new Worker(url);worker.addEventListener("error",()=>worker.terminate());worker.postMessage({type:"connect"},[event.ports[0]]);});\n`;
+  return `const applicationSource=${JSON.stringify(applicationSource)};addEventListener("message",function connect(event){if(event.data?.type!=="k-nex-connect"||!event.ports?.[0])return;removeEventListener("message",connect);const hostPort=event.ports[0];let identity,worker,workerPort,url,closed=false,realmSequence=0;const validIdentity=value=>value&&typeof value==="object"&&value.schemaVersion===1&&value.direction==="host-to-realm"&&value.type==="bootstrap"&&typeof value.sessionId==="string"&&typeof value.appId==="string"&&typeof value.generationId==="string"&&Number.isInteger(value.sequence)&&value.sequence>0&&value.sequence<=1000000000;const recordRealm=value=>{if(value&&typeof value==="object"&&value.schemaVersion===1&&value.direction==="realm-to-host"&&value.sessionId===identity?.sessionId&&value.appId===identity?.appId&&value.generationId===identity?.generationId&&Number.isInteger(value.sequence)&&value.sequence===realmSequence+1)realmSequence=value.sequence;};const cleanup=()=>{if(closed)return;closed=true;try{worker?.terminate()}catch{}try{workerPort?.close()}catch{}try{hostPort.close()}catch{}try{if(url)URL.revokeObjectURL(url)}catch{}};const fail=()=>{if(closed)return;try{if(identity)hostPort.postMessage({schemaVersion:1,sessionId:identity.sessionId,appId:identity.appId,generationId:identity.generationId,sequence:realmSequence+1,direction:"realm-to-host",type:"failure",code:"APP_BOOT_FAILED"})}catch{}finally{cleanup()}};hostPort.addEventListener("message",hostEvent=>{if(closed)return;const frame=hostEvent.data;if(!identity){if(!validIdentity(frame))return;identity=frame;try{url=URL.createObjectURL(new Blob([applicationSource],{type:"text/javascript"}));worker=new Worker(url);const channel=new MessageChannel();workerPort=channel.port1;workerPort.addEventListener("message",workerEvent=>{if(closed)return;recordRealm(workerEvent.data);try{hostPort.postMessage(workerEvent.data)}catch{fail()}});workerPort.addEventListener("messageerror",fail);workerPort.start();worker.addEventListener("error",workerEvent=>{workerEvent.preventDefault?.();fail()});worker.addEventListener("messageerror",fail);worker.postMessage({type:"connect"},[channel.port2]);workerPort.postMessage(frame)}catch{fail()}return}try{workerPort?.postMessage(frame);if(frame?.type==="dispose")cleanup()}catch{fail()}});hostPort.addEventListener("messageerror",fail);hostPort.start();});\n`;
 }
 
 export function createRemoteUiFrameDocument(bootstrapPath: string, integrity: string): RemoteUiFrameDocumentResponse {
@@ -74,15 +85,15 @@ export function createRemoteUiFrameDocument(bootstrapPath: string, integrity: st
 }
 
 export class VerifiedRemoteUiAssetService {
-  constructor(private readonly artifacts: VerifiedRemoteUiArtifactReader, private readonly authority: RemoteUiGenerationAuthority) {}
+  constructor(private readonly artifacts: VerifiedRemoteUiArtifactReader) {}
 
   async read(request: RemoteUiAssetRequest): Promise<RemoteUiAssetResponse> {
-    const verified = await this.verifiedFile(request, /^(?:assets|locales)\//u);
+    const verified = await this.verifiedFile(request, /^(?:assets|locales)\//u, false);
     return this.response(verified.body, verified.contentType, request.fileDigest);
   }
 
   async readBootstrap(request: RemoteUiAssetRequest & { readonly bootstrapDigest: Digest }): Promise<RemoteUiBootstrapResponse> {
-    const verified = await this.verifiedFile(request, /^ui\//u);
+    const verified = await this.verifiedFile(request, /^ui\//u, true);
     if (verified.contentType !== "application/javascript") throw new RemoteUiAssetError("ASSET_UNAVAILABLE", "Remote UI entrypoint must be JavaScript.");
     const body = Buffer.from(createRemoteUiWorkerBootstrapSource(verified.body.toString("utf8")));
     const bootstrapDigest = sha256(body);
@@ -91,17 +102,41 @@ export class VerifiedRemoteUiAssetService {
     return Object.freeze({ ...response, bootstrapDigest, integrity: `sha256-${Buffer.from(bootstrapDigest.slice("sha256:".length), "hex").toString("base64")}` });
   }
 
-  private async verifiedFile(request: RemoteUiAssetRequest, allowedPath: RegExp): Promise<Readonly<{ body: Buffer; contentType: string }>> {
+  private async verifiedFile(request: RemoteUiAssetRequest, allowedPath: RegExp, requireScreenEntrypoint: boolean): Promise<Readonly<{ body: Buffer; contentType: string }>> {
     const path = ExtensionBundlePathSchema.safeParse(request.path);
     if (!idPattern.test(request.applicationId) || !environmentPattern.test(request.environment) || !appPattern.test(request.appId) || !idPattern.test(request.generationId) ||
       !digestPattern.test(request.artifactDigest) || !digestPattern.test(request.fileDigest) || !path.success || !allowedPath.test(path.data)) {
       throw new RemoteUiAssetError("REQUEST_INVALID", "Remote UI asset request is invalid.");
     }
-    if (!await this.authority.isActive(request)) throw new RemoteUiAssetError("GENERATION_INACTIVE", "Remote UI generation is not active.");
-    const staged = await this.artifacts.read(request.artifactDigest);
-    if (!staged || staged.verified.artifactDigest !== request.artifactDigest) throw new RemoteUiAssetError("ARTIFACT_UNAVAILABLE", "Verified Remote UI artifact is unavailable.");
+    let staged: StagedArtifact | undefined;
+    try {
+      staged = await this.artifacts.readRemoteUi({
+        applicationId: request.applicationId,
+        environment: request.environment,
+        extensionId: request.appId,
+        generationId: request.generationId,
+        artifactDigest: request.artifactDigest
+      });
+    } catch {
+      throw new RemoteUiAssetError("ARTIFACT_UNAVAILABLE", "Verified Remote UI artifact is unavailable.");
+    }
+    if (!staged || staged.verified.artifactDigest !== request.artifactDigest) {
+      throw new RemoteUiAssetError("GENERATION_INACTIVE", "Remote UI generation is not active with its verified artifact.");
+    }
     const manifest = staged.verified.manifest;
-    if (manifest.deliveryClass !== "hot-application" || manifest.id !== request.appId) throw new RemoteUiAssetError("ARTIFACT_UNAVAILABLE", "Verified Remote UI artifact identity does not match.");
+    if (manifest.deliveryClass !== "hot-application" || manifest.id !== request.appId || !staged.verified.hotApplicationManifest) {
+      throw new RemoteUiAssetError("ARTIFACT_UNAVAILABLE", "Verified Remote UI artifact identity does not match.");
+    }
+    if (requireScreenEntrypoint &&
+      (!manifest.entrypoints.ui.includes(path.data) || !staged.verified.hotApplicationManifest.screens.some((screen) => screen.entrypoint === path.data))) {
+      throw new RemoteUiAssetError("ASSET_UNAVAILABLE", "Remote UI bootstrap entrypoint is not declared by a screen.");
+    }
+    if (!requireScreenEntrypoint &&
+      (path.data.startsWith("assets/")
+        ? !staged.verified.hotApplicationManifest.assets.includes(path.data)
+        : !staged.verified.hotApplicationManifest.localization.some((localization) => localization.path === path.data))) {
+      throw new RemoteUiAssetError("ASSET_UNAVAILABLE", "Remote UI asset is not declared by the signed Hot Application manifest.");
+    }
     const metadata = manifest.files[path.data];
     const storedBody = staged.verified.files.get(path.data);
     if (!metadata || !storedBody) throw new RemoteUiAssetError("ASSET_UNAVAILABLE", "Remote UI asset is not in the verified inventory.");

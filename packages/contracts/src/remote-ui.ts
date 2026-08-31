@@ -59,7 +59,7 @@ export const RemoteUiFrameSchema = z.discriminatedUnion("type", [
   z.strictObject({ ...common, direction: z.literal("realm-to-host"), type: z.literal("navigate"), route: HotApplicationConcreteRouteSchema }),
   z.strictObject({ ...common, direction: z.literal("realm-to-host"), type: z.literal("focus"), nodeId }),
   z.strictObject({ ...common, direction: z.literal("realm-to-host"), type: z.literal("failure"), code: z.enum(["APP_BOOT_FAILED", "APP_RENDER_FAILED", "APP_EVENT_FAILED"]) }),
-  z.strictObject({ ...common, direction: z.literal("host-to-realm"), type: z.literal("bootstrap"), actorSessionId: recordId, route: HotApplicationConcreteRouteSchema, surface: ResourceIdSchema }),
+  z.strictObject({ ...common, direction: z.literal("host-to-realm"), type: z.literal("bootstrap"), route: HotApplicationConcreteRouteSchema, surface: ResourceIdSchema }),
   z.strictObject({ ...common, direction: z.literal("host-to-realm"), type: z.literal("event"), nodeId, event: z.enum(["press", "change", "submit", "selection-change"]), handlerId: ResourceIdSchema, payload: jsonValue }),
   z.strictObject({ ...common, direction: z.literal("host-to-realm"), type: z.literal("response-ok"), requestId: recordId, output: jsonValue }),
   z.strictObject({ ...common, direction: z.literal("host-to-realm"), type: z.literal("response-error"), requestId: recordId, code: z.enum(["UNAUTHORIZED", "TARGET_UNAVAILABLE", "REQUEST_INVALID", "REQUEST_FAILED"]) }),

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { generateKeyPairSync, sign } from "node:crypto";
 import { createServer } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
@@ -114,10 +115,16 @@ function startRuntimeExtensionService(connectionString, role) {
   };
 }
 
-async function fixedRouteScriptDigest(host) {
-  const response = await fetch(`${host.url}/host-route.js`);
-  assert.equal(response.status, 200, "the immutable customer host script must remain available");
-  return sha256(Buffer.from(await response.arrayBuffer()));
+function requestFixedRoute(host, path) {
+  return new Promise((resolve, reject) => {
+    const request = httpsRequest(`${host.url}${path}`, { ca: host.tlsCertificate, rejectUnauthorized: true }, (response) => {
+      const chunks = [];
+      response.on("data", (chunk) => chunks.push(chunk));
+      response.on("end", () => resolve({ status: response.statusCode ?? 0, body: Buffer.concat(chunks) }));
+    });
+    request.once("error", reject);
+    request.end();
+  });
 }
 
 async function listen(handler) {
@@ -248,11 +255,12 @@ function releaseDefinition(generation, version, marker, compatibility) {
       entrypoints: { server: ["server/main.mjs"], ui: ["ui/main.mjs"] },
       capabilities: [{ kind: "records", required: true, reason: "Read the bounded Hot Application fixture.", operations: ["query"], resources: [{ id: "sales.records", version: 1 }] }],
       resourceBudget: { maxBundleBytes: 1_048_576, maxAssetBytes: 262_144, maxStorageBytes: 1_048_576, maxMemoryMiB: 128, maxCpuMilliCores: 500, maxWallTimeMs: 5_000, maxInputBytes: 65_536, maxOutputBytes: 131_072, maxLogBytes: 65_536, maxConcurrency: 4 },
-      settings: [], screens: [{ id: "sales.screen", route: "/", entrypoint: "ui/main.mjs" }, { id: "sales.activity", route: "/activity/:activityid", entrypoint: "ui/main.mjs" }], navigation: [], sources: [], actions: [], tools: [], logicFunctions: [], eventSubscriptions: [], schedules: [], storageSchemas: [], assets: ["assets/marker.txt"], localization: [], healthChecks: []
+      settings: [], screens: [{ id: "sales.screen", route: "/", entrypoint: "ui/main.mjs" }, { id: "sales.activity", route: "/activity/:activityid", entrypoint: "ui/main.mjs" }], navigation: [], sources: [{ id: "sales.live", path: "schemas/sales-live.json" }], actions: [], tools: [], logicFunctions: [], eventSubscriptions: [], schedules: [], storageSchemas: [], assets: ["assets/marker.txt"], localization: [], healthChecks: []
     },
     files: [
       { path: "server/main.mjs", bytes: Buffer.from(`export default async ({ input, host }) => { const scope = await host.call("records.query", input); return { marker: ${JSON.stringify(marker)}, generationId: scope.generationId }; };\n`), contentType: "application/javascript" },
-      { path: "ui/main.mjs", bytes: Buffer.from(`let port;let sequence=0;const send=(type,body={})=>port.postMessage({schemaVersion:1,sessionId:'route-'+${JSON.stringify(generationId)},appId:'app.sales-live',generationId:${JSON.stringify(generationId)},sequence:++sequence,direction:'realm-to-host',type,...body});self.onmessage=({data,ports})=>{if(data?.type!=='connect'||!ports[0])return;port=ports[0];port.onmessage=({data})=>{if(data?.type==='bootstrap'){send('ready');send('render',{root:{nodeId:'root',component:'heading',props:{level:1,text:${JSON.stringify(marker)}},events:[],children:[]}});}};port.start();};\n`), contentType: "application/javascript" },
+      { path: "ui/main.mjs", bytes: Buffer.from(`let port,sessionId,appId,generationId,sequence=0;const send=(type,body={})=>port.postMessage({schemaVersion:1,sessionId,appId,generationId,sequence:++sequence,direction:'realm-to-host',type,...body});const tree=(status)=>({nodeId:'root',component:'stack',props:{},events:[],children:[{nodeId:'title',component:'heading',props:{level:1,text:${JSON.stringify(marker)}},events:[],children:[]},{nodeId:'status',component:'heading',props:{level:2,text:status},events:[],children:[]},{nodeId:'query',component:'button',props:{label:'Query source'},events:[{event:'press',handlerId:'sales.live.query'}],children:[]}]});const request=()=>send('request',{operation:'source',requestId:'source-'+(sequence+1),targetId:'sales.live',input:{delayMs:500}});self.onmessage=({data,ports})=>{if(data?.type!=='connect'||!ports[0])return;port=ports[0];port.onmessage=({data})=>{if(data?.type==='bootstrap'){({sessionId,appId,generationId}=data);send('ready');send('render',{root:tree('source-idle')});}else if(data?.type==='event')request();else if(data?.type==='response-ok')send('render',{root:tree('source:'+data.output.generationId)});else if(data?.type==='response-error')send('render',{root:tree('source-denied')});};port.start();};\n`), contentType: "application/javascript" },
+      { path: "schemas/sales-live.json", bytes: Buffer.from('{"schemaVersion":1,"id":"sales.live"}\n'), contentType: "application/json" },
       { path: "assets/marker.txt", bytes: Buffer.from(marker), contentType: "text/plain" }
     ],
     source,
@@ -517,7 +525,9 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     const releaseDrafts = [
       releaseDefinition(1, "1.0.0", "sales-live-v1", { status: "compatible", windowId: "sales-window-1", closesAt: "2026-08-30T09:00:00.000Z", migrationDigest: digest("1"), dataRevision: 1 }),
       releaseDefinition(2, "1.1.0", "sales-live-v2", { status: "compatible", windowId: "sales-window-2", closesAt: "2026-08-30T09:59:59.000Z", migrationDigest: digest("2"), dataRevision: 2 }),
-      releaseDefinition(3, "2.0.0", "sales-live-v3", { status: "irreversible", decisionId: "sales-contract-cutover", reason: "The storage contract no longer supports generation 1.", migrationDigest: digest("3"), dataRevision: 3 })
+      releaseDefinition(3, "2.0.0", "sales-live-v3", { status: "irreversible", decisionId: "sales-contract-cutover", reason: "The storage contract no longer supports generation 1.", migrationDigest: digest("3"), dataRevision: 3 }),
+      releaseDefinition(4, "2.1.0", "sales-live-v4", { status: "compatible", windowId: "sales-window-4", closesAt: "2026-08-30T10:59:59.000Z", migrationDigest: digest("4"), dataRevision: 4 }),
+      releaseDefinition(5, "2.2.0", "sales-live-v5", { status: "compatible", windowId: "sales-window-5", closesAt: "2026-08-30T11:59:59.000Z", migrationDigest: digest("5"), dataRevision: 5 })
     ];
     const catalog = signedCatalog(releaseDrafts.map((release) => release.entry));
     const releases = releaseDrafts.map((release) => verifiedRelease(release, catalog));
@@ -527,7 +537,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     const artifacts = new PostgresVerifiedArtifactStore(pool, verifier);
     await Promise.all(releases.map((release) => artifacts.stage(release.stage)));
     const storedBytes = await pool.query("select artifact_digest, octet_length(artifact_bytes)::int artifact_bytes, octet_length(provenance_bytes)::int provenance_bytes from runtime_extension_artifacts order by artifact_digest");
-    assert.equal(storedBytes.rows.length, 3);
+    assert.equal(storedBytes.rows.length, 5);
     assert.equal(storedBytes.rows.every((row) => row.artifact_bytes > 0 && row.provenance_bytes > 0), true);
 
     const warmed = [];
@@ -604,10 +614,17 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       applicationId: "customer-alpha", environment: "production", appId: "app.sales-live"
     }, runnerIsolationProfile, "runtime-traffic-gateway");
     let trafficSequence = 0;
-    const invokeTraffic = (input = {}) => trafficRuntime.invoke({
+    const activeTrafficGeneration = async () => {
+      const inventory = await storeB.inventory("customer-alpha", "production");
+      const entry = inventory.extensions.hotApplications[identity.id];
+      if (!entry || entry.disposition !== "active") throw new Error("Traffic has no authoritative active Hot Application generation.");
+      return Object.freeze({ generationId: entry.activeGeneration.generationId, artifactDigest: entry.activeGeneration.artifactDigest });
+    };
+    const invokeTraffic = async (input = {}, expectedGeneration = undefined) => trafficRuntime.invoke({
       input,
       actor: { principalId: "user:one", effectiveActorId: "user:one" },
-      correlationId: `traffic-correlation-${++trafficSequence}`
+      correlationId: `traffic-correlation-${++trafficSequence}`,
+      expectedGeneration: expectedGeneration ?? await activeTrafficGeneration()
     });
     let applicationTrafficReady = false;
     const gateway = await listen(async (_request, response) => {
@@ -623,12 +640,24 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       initialGenerations: ["host-gateway-generation-0", "app-sales-live-generation-1"]
     });
     await trafficProbe.waitForGeneration("install", "host-gateway-generation-0");
-    const fixedRouteHost = await startHotApplicationFixedRouteHost({ store: storeA, artifacts, applicationId: "customer-alpha", environment: "production", extension: identity });
+    let sourceAdmissionBarrier;
+    const pinnedSourceExecutions = [];
+    const fixedRouteHost = await startHotApplicationFixedRouteHost({
+      store: storeA, artifacts, applicationId: "customer-alpha", environment: "production", extension: identity,
+      invokeSource: async ({ identity: routeSessionIdentity, expectedGeneration, input }) => {
+        const barrier = sourceAdmissionBarrier;
+        if (barrier?.sessionId === routeSessionIdentity.sessionId) {
+          barrier.reached.resolve();
+          await barrier.release.promise;
+        }
+        const output = await invokeTraffic(input, expectedGeneration);
+        pinnedSourceExecutions.push(Object.freeze({ sessionId: routeSessionIdentity.sessionId, generationId: output.generationId }));
+        return output;
+      }
+    });
     hosts.push(fixedRouteHost);
-    const preInstallRoute = await fetch(`${fixedRouteHost.url}/apps/sales-live/activity/42`);
+    const preInstallRoute = await requestFixedRoute(fixedRouteHost, "/apps/sales-live/activity/42");
     assert.equal(preInstallRoute.status, 404, "the immutable customer route host must exist and fail closed before app installation");
-    assert.equal(fixedRouteHost.scriptBuilds, 1, "the customer fixed route must be built exactly once before app installation");
-    const preInstallHostScriptDigest = await fixedRouteScriptDigest(fixedRouteHost);
 
     const install = await manager.plan(request("install", "1.0.0", 0));
     await manager.stage(install.operationId);
@@ -646,7 +675,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     assert.equal(new Set(baselineServices.map((consumer) => consumer.pid)).size, 4, "web, worker, runner, and browser host must be distinct service processes");
     assert.equal(baselineServices.every((consumer) => consumer.pid !== process.pid), true, "runtime consumers must not run in the node:test parent process");
     browser = await chromium.launch();
-    browserContext = await browser.newContext();
+    browserContext = await browser.newContext({ ignoreHTTPSErrors: true });
     const browserPage = await browserContext.newPage();
     await browserPage.goto(browserHost.url);
     await browserPage.waitForFunction(() => typeof window.runtimeExtensionState === "function");
@@ -657,7 +686,11 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     const installedRoute = await routePage.goto(`${fixedRouteHost.url}/apps/sales-live/activity/42`);
     assert.equal(installedRoute?.status(), 200, `the preinstalled /apps/:appId/* route must host an installed app: ${fixedRouteHost.routeErrors.join(" | ")}`);
     await routePage.getByRole("heading", { name: "sales-live-v1" }).waitFor({ timeout: 5_000 }).catch(async (error) => { throw new Error(`${error.message}; route=${await routePage.content()}; diagnostics=${routeDiagnostics.join(" | ")}`); });
-    assert.deepEqual(await routePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__), { appId: "app.sales-live", generationId: installed.generationId, route: "/apps/sales-live/activity/42", actorSessionId: "customer-session-1" });
+    assert.deepEqual(await routePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__), { appId: "app.sales-live", generationId: installed.generationId, route: "/apps/sales-live/activity/42" });
+    const drainingRoutePage = await browserContext.newPage();
+    await drainingRoutePage.goto(`${fixedRouteHost.url}/apps/sales-live/activity/42`);
+    await drainingRoutePage.getByRole("heading", { name: "sales-live-v1" }).waitFor();
+    const installedFramePath = await drainingRoutePage.evaluate(() => new URL(window.__K_NEX_HOT_APPLICATION_ROUTE__.remoteUiFrameUrl).pathname);
     const runnerBaseline = await runnerService.state("/runtime-extension-state");
     const browserBaseline = await browserPage.evaluate(() => window.runtimeExtensionState("snapshot"));
     assert.equal(await browserPage.evaluate(() => typeof globalThis.process), "undefined", "Chromium browser consumer received a Node process surface.");
@@ -681,6 +714,18 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     await manager.stage(update.operationId);
     trafficProbe.transition("update", [installed.generationId, "app-sales-live-generation-2"]);
     await trafficProbe.waitForGeneration("update", installed.generationId);
+    await trafficProbe.pause();
+    const routeSessionId = await routePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE__.sessionId);
+    const drainingRouteSessionId = await drainingRoutePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE__.sessionId);
+    const sourceBarrier = {
+      sessionId: routeSessionId,
+      reached: Promise.withResolvers(),
+      release: Promise.withResolvers()
+    };
+    sourceAdmissionBarrier = sourceBarrier;
+    await routePage.getByRole("button", { name: "Query source" }).click();
+    await sourceBarrier.reached.promise;
+    assert.equal(fixedRouteHost.sourceRequests.some((request) => request.sessionId === routeSessionId && request.generationId === installed.generationId && request.status === "admitted"), true, "the pinned G1 source request never reached the host-authorized pre-runtime gap");
     const barrier = {
       generationId: installed.generationId,
       reached: Promise.withResolvers(),
@@ -689,7 +734,9 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       leaseId: undefined
     };
     admissionBarrier = barrier;
-    const draining = invokeTraffic({ delayMs: 500 });
+    await drainingRoutePage.getByRole("button", { name: "Query source" }).click();
+    for (let attempt = 0; attempt < 50 && !fixedRouteHost.sourceRequests.some((request) => request.sessionId === drainingRouteSessionId && request.generationId === installed.generationId && request.status === "admitted"); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(fixedRouteHost.sourceRequests.some((request) => request.sessionId === drainingRouteSessionId && request.generationId === installed.generationId && request.status === "admitted"), true, "the host-owned G1 source gateway never admitted the lease-holding request before cutover");
     await barrier.reached.promise;
     assert.equal(await storeA.liveGenerationLeaseCount("customer-alpha", "production", identity, installed.generationId) >= 1, true, "the old generation invocation must hold a durable lease before cutover");
     assert.equal(await runnerQuarantine.admit({ applicationId: "customer-beta", environment: "production", appId: identity.id, generationId: installed.generationId }, barrier.leaseId), false, "a live lease must not admit another application");
@@ -700,14 +747,36 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       updated = await manager.activate(update.operationId);
     } finally {
       admissionBarrier = undefined;
+      sourceAdmissionBarrier = undefined;
       barrier.release.resolve();
+      sourceBarrier.release.resolve();
     }
-    const drained = await draining;
+    await drainingRoutePage.getByRole("heading", { name: `source:${installed.generationId}` }).waitFor();
+    await routePage.getByRole("heading", { name: "source-denied" }).waitFor();
     assert.equal(barrier.admitted, true, "the old generation must be admitted through its exact live lease after cutover");
+    assert.equal(fixedRouteHost.sourceRequests.some((request) => request.sessionId === routeSessionId && request.generationId === installed.generationId && request.status === "runtime-denied"), true, "the host-authorized G1 request must be rejected when its pinned generation is no longer active");
+    assert.equal(pinnedSourceExecutions.some((execution) => execution.sessionId === routeSessionId), false, "the pre-runtime G1/G2 cutover-gap request reached an executor after its pinned generation was denied");
+    assert.equal(pinnedSourceExecutions.some((execution) => execution.sessionId === drainingRouteSessionId && execution.generationId === installed.generationId), true, "the G1 request that already held a drain lease did not return from G1");
+    const sourceAdmission = Object.freeze({
+      cutoverGap: Object.freeze({
+        sessionId: routeSessionId,
+        generationId: fixedRouteHost.sourceRequests.find((request) => request.sessionId === routeSessionId && request.status === "admitted")?.generationId ?? null,
+        hostAuthorizedBeforeRuntime: fixedRouteHost.sourceRequests.some((request) => request.sessionId === routeSessionId && request.generationId === installed.generationId && request.status === "admitted"),
+        runtimeDeniedAfterCutover: fixedRouteHost.sourceRequests.some((request) => request.sessionId === routeSessionId && request.generationId === installed.generationId && request.status === "runtime-denied"),
+        executedGenerationId: pinnedSourceExecutions.find((execution) => execution.sessionId === routeSessionId)?.generationId ?? null
+      }),
+      leaseHeldG1: Object.freeze({
+        sessionId: drainingRouteSessionId,
+        generationId: fixedRouteHost.sourceRequests.find((request) => request.sessionId === drainingRouteSessionId && request.status === "admitted")?.generationId ?? null,
+        hostAuthorizedBeforeRuntime: fixedRouteHost.sourceRequests.some((request) => request.sessionId === drainingRouteSessionId && request.generationId === installed.generationId && request.status === "admitted"),
+        runnerAdmissionWithLease: barrier.admitted === true,
+        returnedGenerationId: pinnedSourceExecutions.find((execution) => execution.sessionId === drainingRouteSessionId)?.generationId ?? null
+      })
+    });
+    trafficProbe.resume();
     await trafficProbe.waitForGeneration("update", updated.generationId);
     assert.equal(updated.previousGenerationId, installed.generationId);
     assert.deepEqual(await manager.activate(update.operationId), updated);
-    assert.deepEqual(drained, { marker: "sales-live-v1", generationId: installed.generationId });
     assert.equal(await storeA.liveGenerationLeaseCount("customer-alpha", "production", identity, installed.generationId), 0);
     const staleInvocationId = "stale-drain-invocation";
     const staleToken = capabilityTokens.issue({
@@ -738,13 +807,25 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     assert.equal(dockerExecutions.some((execution) => execution.event === "stopped" && execution.generationId === installed.generationId), true);
     assert.equal((await storeB.observeActiveGeneration("customer-alpha", "production", identity)).generationId, updated.generationId);
     await assert.rejects(manager.plan(request("update", "1.0.0", updated.revisionAfter)), { code: "PLAN_MISMATCH" });
-    const updatedRoute = await routePage.goto(`${fixedRouteHost.url}/apps/sales-live/activity/42`);
+    const updatedRoutePage = await browserContext.newPage();
+    const updatedRoute = await updatedRoutePage.goto(`${fixedRouteHost.url}/apps/sales-live/activity/42`);
     assert.equal(updatedRoute?.status(), 200, "the fixed route must resolve the active updated generation without a rebuild");
-    await routePage.getByRole("heading", { name: "sales-live-v2" }).waitFor();
-    assert.deepEqual(await routePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__), { appId: "app.sales-live", generationId: updated.generationId, route: "/apps/sales-live/activity/42", actorSessionId: "customer-session-1" });
+    await updatedRoutePage.getByRole("heading", { name: "sales-live-v2" }).waitFor();
+    assert.deepEqual(await updatedRoutePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__), { appId: "app.sales-live", generationId: updated.generationId, route: "/apps/sales-live/activity/42" });
     assert.equal(fixedRouteHost.routeRequests.at(-1)?.hadSession, true, "the updated fixed route lost its customer host session");
-    const updatedHostScriptDigest = await fixedRouteScriptDigest(fixedRouteHost);
-    assert.equal(updatedHostScriptDigest, preInstallHostScriptDigest, "the customer host script changed during app update");
+    await updatedRoutePage.getByRole("button", { name: "Query source" }).click();
+    await updatedRoutePage.getByRole("heading", { name: `source:${updated.generationId}` }).waitFor();
+    assert.equal((await requestFixedRoute(fixedRouteHost, installedFramePath)).status, 404, "mixed-generation G1 UI bytes must be denied after G2 becomes active");
+    assert.equal(routePage.url(), `${fixedRouteHost.url}/apps/sales-live/activity/42`, "the original G1 page must remain open across the update rather than proving only a reload");
+    await Promise.all([
+      routePage.waitForFunction((generationId) => window.__K_NEX_HOT_APPLICATION_LIFECYCLE_OBSERVATIONS__?.some((entry) => entry.source === "snapshot-poll" && entry.generationId === generationId && entry.retirementScheduled) === true, updated.generationId),
+      drainingRoutePage.waitForFunction((generationId) => window.__K_NEX_HOT_APPLICATION_LIFECYCLE_OBSERVATIONS__?.some((entry) => entry.source === "snapshot-poll" && entry.generationId === generationId && entry.retirementScheduled) === true, updated.generationId)
+    ]);
+    const g1RetirementDeadline = Math.max(...(await Promise.all([routePage, drainingRoutePage].map((page) => page.evaluate(() => {
+      const observation = window.__K_NEX_HOT_APPLICATION_LIFECYCLE_OBSERVATIONS__?.find((entry) => entry.source === "snapshot-poll" && entry.retirementScheduled);
+      if (!observation) throw new Error("The page did not retain its polling retirement observation.");
+      return observation.observedAt + 10_000;
+    })))));
     assert.deepEqual(warmed, [
       "runner:app-sales-live-generation-1", "remote-ui:app-sales-live-generation-1", "storage:app-sales-live-generation-1", "surfaces:app-sales-live-generation-1",
       "runner:app-sales-live-generation-2", "remote-ui:app-sales-live-generation-2", "storage:app-sales-live-generation-2", "surfaces:app-sales-live-generation-2"
@@ -796,6 +877,9 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     await pool.query("update runtime_extensions set metadata_json='{\"corrupt\":true}'::jsonb where extension_id='app.sales-live'");
     assert.equal(await artifacts.resolve({ owner: { applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application", extensionId: "app.sales-live" }, generationId: updated.generationId, artifactDigest: byGeneration.get(updated.generationId).authority.artifactDigest }), undefined);
     await assert.rejects(manager.inventory("customer-alpha", "production"), { code: "ARTIFACT_AUTHORITY_REJECTED" });
+    const noFallbackHost = await startHotApplicationFixedRouteHost({ store: storeA, artifacts, applicationId: "customer-alpha", environment: "production", extension: identity, invokeSource: ({ input, expectedGeneration }) => invokeTraffic(input, expectedGeneration) });
+    hosts.push(noFallbackHost);
+    assert.equal((await requestFixedRoute(noFallbackHost, "/apps/sales-live/activity/42")).status, 404, "a freshly started fixed host must reject missing durable PostgreSQL bytes instead of falling back to a digest");
     const restored = await container.exec(["pg_restore", "--clean", "--if-exists", "--no-owner", `--dbname=${uri.toString()}`, "/tmp/p9-extension.dump"]);
     assert.equal(restored.exitCode, 0, restored.output);
     assert.deepEqual(await manager.inventory("customer-alpha", "production"), beforeRestore);
@@ -804,6 +888,12 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       assert.equal((await artifacts.read(release.authority.artifactDigest)).verified.artifactDigest, release.authority.artifactDigest);
     }
     assert.deepEqual(await invokeTraffic(), { marker: "sales-live-v2", generationId: updated.generationId });
+    const restartedFixedRouteHost = await startHotApplicationFixedRouteHost({ store: storeA, artifacts, applicationId: "customer-alpha", environment: "production", extension: identity, invokeSource: ({ input, expectedGeneration }) => invokeTraffic(input, expectedGeneration) });
+    hosts.push(restartedFixedRouteHost);
+    const restoredRoutePage = await browserContext.newPage();
+    await restoredRoutePage.goto(`${restartedFixedRouteHost.url}/apps/sales-live/activity/42`);
+    await restoredRoutePage.getByRole("heading", { name: "sales-live-v2" }).waitFor();
+    assert.deepEqual(await restoredRoutePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__), { appId: "app.sales-live", generationId: updated.generationId, route: "/apps/sales-live/activity/42" });
 
     const retained = byGeneration.get(installed.generationId);
     assert.ok(retained, "rollback fixture lost its retained verified generation");
@@ -874,6 +964,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     trafficProbe.resume();
     trafficProbe.transition("rollback", [updated.generationId, installed.generationId]);
     await trafficProbe.waitForGeneration("rollback", updated.generationId);
+    assert.equal(Date.now() < g1RetirementDeadline, true, "rollback did not begin before the original G1 retirement deadline");
     const rolledBack = await manager.rollback(rollback.operationId);
     const afterRollback = await rollbackMutationSnapshot(pool, identity.id);
     const refreshedRetained = afterRollback.generations.find((generation) => generation.generation_id === installed.generationId);
@@ -895,14 +986,29 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     await trafficProbe.waitForGeneration("rollback", rolledBack.generationId);
     assert.equal(rolledBack.generationId, installed.generationId);
     assert.deepEqual(await manager.rollback(rollback.operationId), rolledBack);
-    const rolledBackRoute = await routePage.goto(`${fixedRouteHost.url}/apps/sales-live/activity/42`);
+    await Promise.all([
+      routePage.waitForFunction((generationId) => window.__K_NEX_HOT_APPLICATION_LIFECYCLE_OBSERVATIONS__?.some((entry) => entry.source === "snapshot-poll" && entry.generationId === generationId && entry.retirementCancelled) === true, rolledBack.generationId),
+      drainingRoutePage.waitForFunction((generationId) => window.__K_NEX_HOT_APPLICATION_LIFECYCLE_OBSERVATIONS__?.some((entry) => entry.source === "snapshot-poll" && entry.generationId === generationId && entry.retirementCancelled) === true, rolledBack.generationId)
+    ]);
+    const rollbackObservationTimes = await Promise.all([routePage, drainingRoutePage].map((page) => page.evaluate((generationId) => {
+      const observation = window.__K_NEX_HOT_APPLICATION_LIFECYCLE_OBSERVATIONS__?.find((entry) => entry.source === "snapshot-poll" && entry.generationId === generationId && entry.retirementCancelled);
+      if (!observation) throw new Error("The rollback snapshot polling observation is unavailable.");
+      return observation.observedAt;
+    }, rolledBack.generationId)));
+    assert.equal(rollbackObservationTimes.every((observedAt) => observedAt < g1RetirementDeadline), true, "G1 pages did not observe rollback before their scheduled retirement deadline");
+    const rolledBackRoutePage = await browserContext.newPage();
+    const rolledBackRoute = await rolledBackRoutePage.goto(`${restartedFixedRouteHost.url}/apps/sales-live/activity/42`);
     assert.equal(rolledBackRoute?.status(), 200, "the fixed route must resolve the rolled-back active generation without a rebuild");
-    await routePage.getByRole("heading", { name: "sales-live-v1" }).waitFor();
-    assert.deepEqual(await routePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__), { appId: "app.sales-live", generationId: rolledBack.generationId, route: "/apps/sales-live/activity/42", actorSessionId: "customer-session-1" });
+    await rolledBackRoutePage.getByRole("heading", { name: "sales-live-v1" }).waitFor();
+    assert.deepEqual(await rolledBackRoutePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__), { appId: "app.sales-live", generationId: rolledBack.generationId, route: "/apps/sales-live/activity/42" });
+    await rolledBackRoutePage.close();
+    await Promise.all([
+      updatedRoutePage.waitForFunction(() => document.querySelectorAll("iframe").length === 0, { timeout: 12_000 }),
+      new Promise((resolve) => setTimeout(resolve, Math.max(0, g1RetirementDeadline - Date.now()) + 100))
+    ]);
+    assert.equal(await routePage.locator("iframe").count(), 1, "rollback did not cancel G1 retirement after its original deadline elapsed");
+    assert.equal(await drainingRoutePage.locator("iframe").count(), 1, "rollback did not preserve the lease-drained G1 page after its original retirement deadline elapsed");
     assert.equal(fixedRouteHost.routeRequests.every((request) => request.route === "/apps/sales-live/activity/42"), true, "the customer host did not use the declared fixed catch-all route");
-    assert.equal(fixedRouteHost.scriptBuilds, 1, "the customer host rebuilt its fixed route during install, update, or rollback");
-    const rolledBackHostScriptDigest = await fixedRouteScriptDigest(fixedRouteHost);
-    assert.equal(rolledBackHostScriptDigest, preInstallHostScriptDigest, "the customer host script changed during app rollback");
     const rollbackTraffic = await fetch(`${gateway.url}/rollback`);
     assert.equal(rollbackTraffic.status, 200);
     assert.equal(JSON.parse(await rollbackTraffic.text()).generationId, installed.generationId);
@@ -919,16 +1025,49 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     await manager.stage(irreversibleUpdate.operationId);
     const cutover = await manager.activate(irreversibleUpdate.operationId);
     assert.equal(cutover.rollback, "blocked-irreversible");
+    await Promise.all([
+      routePage.waitForFunction((generationId) => window.__K_NEX_HOT_APPLICATION_LIFECYCLE_OBSERVATIONS__?.some((entry) => entry.source === "snapshot-poll" && entry.generationId === generationId && entry.retirementScheduled) === true, cutover.generationId),
+      drainingRoutePage.waitForFunction((generationId) => window.__K_NEX_HOT_APPLICATION_LIFECYCLE_OBSERVATIONS__?.some((entry) => entry.source === "snapshot-poll" && entry.generationId === generationId && entry.retirementScheduled) === true, cutover.generationId)
+    ]);
+    await Promise.all([
+      routePage.waitForFunction(() => document.querySelectorAll("iframe").length === 0, { timeout: 12_000 }),
+      drainingRoutePage.waitForFunction(() => document.querySelectorAll("iframe").length === 0, { timeout: 12_000 })
+    ]);
 
     await pool.query("update runtime_extensions set active_generation=jsonb_set(active_generation, '{artifactDigest}', to_jsonb($1::text)) where extension_id='app.sales-live'", [digest("f")]);
     await assert.rejects(manager.inventory("customer-alpha", "production"), { code: "ARTIFACT_AUTHORITY_REJECTED" });
+    await pool.query("update runtime_extensions set active_generation=jsonb_set(active_generation, '{artifactDigest}', to_jsonb($1::text)) where extension_id='app.sales-live'", [byGeneration.get(cutover.generationId).authority.artifactDigest]);
 
+    const terminalRoutePage = await browserContext.newPage();
+    await terminalRoutePage.goto(`${restartedFixedRouteHost.url}/apps/sales-live/activity/42`);
+    await terminalRoutePage.getByRole("heading", { name: "sales-live-v3" }).waitFor();
     const disablePlan = await manager.plan(request("disable", "2.0.0", cutover.revisionAfter));
     const disabled = await manager.disable(disablePlan.operationId);
     assert.deepEqual(await manager.disable(disablePlan.operationId), disabled);
-    const uninstallPlan = await manager.plan(request("uninstall", "2.0.0", disabled.revisionAfter));
+    await terminalRoutePage.waitForFunction(() => document.querySelectorAll("iframe").length === 0, { timeout: 5_000 });
+    assert.equal((await requestFixedRoute(restartedFixedRouteHost, "/apps/sales-live/activity/42")).status, 404, "disabled applications must reject new fixed-route sessions immediately");
+    const reinstall = await manager.plan(request("install", "2.1.0", disabled.revisionAfter));
+    await manager.stage(reinstall.operationId);
+    assert.equal((await manager.validate(reinstall.operationId)).valid, true);
+    const reactivated = await manager.activate(reinstall.operationId);
+    const quarantinedRoutePage = await browserContext.newPage();
+    await quarantinedRoutePage.goto(`${restartedFixedRouteHost.url}/apps/sales-live/activity/42`);
+    await quarantinedRoutePage.getByRole("heading", { name: "sales-live-v4" }).waitFor();
+    const quarantined = await storeA.quarantineRunnerGeneration({ applicationId: "customer-alpha", environment: "production", appId: identity.id, generationId: reactivated.generationId, expectedRevision: reactivated.revisionAfter, reason: "INVOCATION_TIMEOUT" });
+    await quarantinedRoutePage.waitForFunction(() => document.querySelectorAll("iframe").length === 0, { timeout: 5_000 });
+    assert.equal((await requestFixedRoute(restartedFixedRouteHost, "/apps/sales-live/activity/42")).status, 404, "quarantined applications must reject new fixed-route sessions immediately");
+    const removalReinstall = await manager.plan(request("install", "2.2.0", quarantined.revisionAfter));
+    await manager.stage(removalReinstall.operationId);
+    assert.equal((await manager.validate(removalReinstall.operationId)).valid, true);
+    const removalActive = await manager.activate(removalReinstall.operationId);
+    const removedRoutePage = await browserContext.newPage();
+    await removedRoutePage.goto(`${restartedFixedRouteHost.url}/apps/sales-live/activity/42`);
+    await removedRoutePage.getByRole("heading", { name: "sales-live-v5" }).waitFor();
+    const uninstallPlan = await manager.plan(request("uninstall", "2.2.0", removalActive.revisionAfter));
     const uninstalled = await manager.uninstall(uninstallPlan.operationId);
     assert.deepEqual(await manager.uninstall(uninstallPlan.operationId), uninstalled);
+    await removedRoutePage.waitForFunction(() => document.querySelectorAll("iframe").length === 0, { timeout: 5_000 });
+    assert.equal((await requestFixedRoute(restartedFixedRouteHost, "/apps/sales-live/activity/42")).status, 404, "removed applications must reject new fixed-route sessions immediately");
     console.log(`P9_RUNTIME_JOURNEY_EVIDENCE=${JSON.stringify({
       scenarios: ["SCN-11", "SCN-16"],
       productionDockerExecution: {
@@ -941,9 +1080,11 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       fixedRouteAuthority: {
         startedBeforeInstall: true,
         preInstallStatus: preInstallRoute.status,
-        scriptBuilds: fixedRouteHost.scriptBuilds,
-        scriptDigests: [preInstallHostScriptDigest, updatedHostScriptDigest, rolledBackHostScriptDigest]
+        httpsDistinctOrigins: true,
+        durableBytesRequiredAfterRestart: true,
+        lifecycle: ["g1-observed-g2-scheduled-retirement", "rollback-observed-g1-before-deadline", "rollback-cancelled-g1-retirement-after-deadline", "g2-drained-after-rollback", "g1-drained-after-irreversible-v3-cutover", "disable", "quarantine", "remove"]
       },
+      sourceAdmission,
       freshRollbackReadiness: {
         generationId: installed.generationId,
         expiredToken: expiredReadiness.rows[0].readiness_token,

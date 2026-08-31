@@ -7,15 +7,15 @@
 
 ## Last completed
 
-P9.10 runner protocol and cancellation review is PASS. Capability requests are admitted in strict wire order, every accepted task is joined before external settlement, and malformed/null/duplicate/EPIPE frames remain invocation-local. The runner service joins fire-and-forget calls before terminal output. Abort is rechecked across authority and sequence admission; app-storage propagates the exact signal, rolls back pre-commit cancellation, and preserves successful commit point-of-no-return semantics. Cleanup failure wins only after all accepted work settles and quarantines the generation.
+P9.10 Remote UI durable asset and lifecycle authority review is PASS. PostgreSQL serving binds exact canonical active-generation evidence to the newest applicable completed receipt and reverified declared bytes. Host-admitted generation/artifact identity remains pinned through source admission; pre-lease cutover fails closed while leased G1 completes on G1. Automatic PostgreSQL polling proves update drain, rollback cancellation past the stale deadline, terminal teardown, and lost-invalidation recovery. Worker failure cleanup is immediate even when fallback never settles. Gate 9 retains exactly 12 proof groups and includes the new security proofs.
 
 ## Validation
 
-Local Node 24.19.0: focused runner reconciliation 12/12, actual runner service 3/3, capability gateway 9/9, and app-storage 7/7 pass; runner/runtime/payload-adapter builds and `git diff --check` pass. Focused real Docker fire-and-forget/concurrency proof passes 1/1 with bounded polling. Isolated real PostgreSQL app-storage file passes 2/2 in 8.40s, including advisory-lock cancellation with rollback and unchanged durable state. Package/Gate evidence commands include the new proofs. Same Sol-ultra reviewer PASS. Full Gate 9 integrity fixture and exact-head Linux CI remain phase-end validation only.
+Local Node 24.19.0: focused contracts 3/3, bundler 7/7, UI runtime 15/15, runtime admission 8/8, payload reader 1/1, package builds, and standalone Chromium pass. Isolated real PostgreSQL asset proof passes 1/1 with 18 security scenarios. The exact real PostgreSQL/HTTPS/Chromium lifecycle journey passes 1/1 with pinned source admission and observed drain/rollback/terminal evidence. Gate scripts, exact 12-proof count, and `git diff --check` pass. Same Sol-ultra reviewer PASS. Full Gate 9 and exact-head Linux CI remain phase-end validation only.
 
 ## Next
 
-Close the Remote UI durable asset and lifecycle authority gap, then continue the remaining Phase 9 review blockers in order.
+Close runner host-policy/quarantine and seccomp enforcement gaps, then continue the remaining Phase 9 review blockers in order.
 
 ## Blockers
 

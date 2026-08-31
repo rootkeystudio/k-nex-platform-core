@@ -1,65 +1,89 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { createServer } from "node:http";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { createServer } from "node:https";
 
-import { build } from "esbuild";
 import { matchHotApplicationRoute } from "@k-nex/contracts";
 import { createRemoteUiFrameDocument, createRemoteUiWorkerBootstrapSource, sha256, VerifiedRemoteUiAssetService } from "@k-nex/extension-bundler";
+import { PostgresVerifiedArtifactStore } from "@k-nex/payload-adapter";
 import { resolveHotApplicationFixedRoute } from "@k-nex/ui-runtime";
 
 const assetPath = /^\/api\/extensions\/apps\/(app(?:\.[a-z][a-z0-9-]*)+)\/assets\/([a-z][a-z0-9-]{2,127})\/(sha256:[0-9a-f]{64})\/(bootstrap\.js|frame\.html)$/u;
+const hostScriptPath = new URL("../dist/tests/hot-application-fixed-route-browser-entry.js", import.meta.url);
+const sessionId = (request) => /(?:^|;\s*)customer_session=([^;]+)/u.exec(request.headers.cookie ?? "")?.[1];
+const tls = {
+  key: Buffer.from("LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1JSUV2Z0lCQURBTkJna3Foa2lHOXcwQkFRRUZBQVNDQktnd2dnU2tBZ0VBQW9JQkFRQ2c5eTRjNi9KZHBzNGMKQUFhaldHdnBhRzU2NVBENmxRTHFCa2dIQm5rUEFlYTVPTHdBOXluUUJtVlJIWDVza2xFbDNJYThvc1A5RkgzQwpYSFJLdE4yR2tIb1FJMGV4R0VhWnk3aThOSFc1TGNpSjU0SnRadkFVZFZCaUNKQlRwdjdrYXpjY3R5Z3M4VThLCkNhb2RtRVdKempkM1JJNWF0NmlYTHZPUnlHaSttODljZExielAxbDNUVVZYZy94TE1PanYvaEhEMkhXeXk5SzEKWW9wTE5oRUIrY2NOQk51L1RrRVBOQUhXc0V4dUxhc3JxK045QWRnVmdYeXFnYW84MEhVUGw2cGp3NVNhOXEvSgpoTGwxbzdzaXRoazhuTm11dGQxUVdzTmhKZ0tZTU5JMDNtbksrU0xWazlZeitneUg3NWwvYkR0V0xKaFd6WWluCmhwWk8rQ1U3QWdNQkFBRUNnZ0VBRFp4K24rcDNKR0tLYVBBUVNrMXhVL0R2OEF0enNkK0U1THVObEFQV1Juc2EKTFdKMTlMenh6UW42djZPM1ZrQ3AybGVZdXloN3NKSEVML25OSHY0Y0FoallnWXlDTDZCYnVWTkg5cWpzVURHUQp2M3lUV1EzM0o1RU9CWTdhS1lDNXdDQ3RnelpIdXU2QzNsaVgzb2gxcE9RS2FRR2o2Z1JBSGpJQVhiMENnbnBHCjk3ZGQvWnRZK2FYQXFEejltdWdjbjI4QXdEUmlCalV1dGIwNlI0TUNJSXFTd09MZUwzOE9SeFprbGg2SU80TE4KZldBbnY0QlNOYzBjZktCRlFWLzEwbnVhZ0JXOFl4SkJsa1VSU01CRXFFYjZrN29pTlZMS0wzWnB5YXNlRG9mRwp2Vm45Q09iQXRtSTFYbVJDUE4zcHBLTHp1dzhMdGxSeU1Ga3Q1MmRRdVFLQmdRRGY2QXpWREdwamtLcEM5a2RGCnd5cE1ab1BUWEhZQVpxWFVid3N4dnNXc2JvbFFMZWZHVnUySlpGajB0Wk9mdkZIMTI3ZmdwcmF1cnNvWU44OE0KbDlzZDZFU003NEFEcmlrY1R2M08vMUNOUnVTNmRWY2JtZHN1czk0bXFNTFU2T3FRYXN2Zjh2ZnJvczA3NVRZdwo3R2p4V1k3OWp4eTRPRy81N3JLaFRWVFkrUUtCZ1FDNENaam1jL2hUZDZFbnVISGQxdTVFRE5VVGNRS0loSWkrCm9YQlgvNlE3VEpsZStjVUt4Q2w2ME1IN292azZPMExPUmFFNXZUN1pVMmhsRlhOanBnNmJjazhPOXE2YldjYW4Kc2U0QTBpSWVGc2RBdEVqZEZHWnJOOE9BT1BFNC9ObUl6bzdnQ0JwRlNmZ0l3TTRCd2c5eDNoam9PY0hEbldvKwpuNHJ6ZG5mUTB3S0JnUURJSEZBN3FKajgyeklRSHFPY1Njem44MGNtQTZEQ3d2cTZYWFFYeFhSTm80eTlTQW01ClRiK0Y1MVZKZjI2c2VGYVg4UUxwbUpYMGtPcTFza3N0NmhvL0pITC9zcDBxck9DNUdDL21iSERGa3ZLaFluV3oKaVZKRzd5SkFVdHV1Qld4K0hiU1FOa28xSW85aVZIeVdSUE9Wb0lFWFJHeGFpTFlySFpZd2F6akZvUUtCZ1FDUwpsL3AySHd4QUdEdURNelZvT3FzQ0E2SzZZTHRlMlFzL3BjS2lKZHpBNjJ3RHJqclpMNVhHNFlDVEc2Y2dUbElSCmtuOHhTZUJGSmw0eW5wcVNWcFN1RjZpSHg5RWZwNnhJcWI5bVlmdVJNaDIzR2FRc2pmSmpGMEVmNHJ1cTVDVzMKQnFuaUpESWczU0c0ZnpQWlRLWVcwbzNPZFNzMTBTN3ZBUkNpaTh3Mnh3S0JnQ1drQldXUUFOQXpNZ0M3TGxlbQpwaFZJYTY2S1ZDWldETjJPMGxpSEtiQlo3RHRLZWw0TFU2NmZxOUdHSDhmRHR3M3p4bkc3SVoyZzd6d0hWYW4zCnI5OFlxUmN2UjNPWU1xM1BNeEFSa1pPWmFFYVY1cW5jZVdWclViNTIvU25WTGNFOGF1NzYvRjIvaHN6MFRGT2IKMkRvcm9KU0UvYytLUkdjOXdXaFEra2VqCi0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K", "base64"),
+  cert: Buffer.from("LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURHakNDQWdLZ0F3SUJBZ0lVZmpMSEpGK2NXb0hJSUZIRGIzZlJPcWFOT2Mwd0RRWUpLb1pJaHZjTkFRRUwKQlFBd0ZERVNNQkFHQTFVRUF3d0pNVEkzTGpBdU1DNHhNQjRYRFRJMk1EZ3pNVEF3TlRZMU9Wb1hEVE0yTURneQpPREF3TlRZMU9Wb3dGREVTTUJBR0ExVUVBd3dKTVRJM0xqQXVNQzR4TUlJQklqQU5CZ2txaGtpRzl3MEJBUUVGCkFBT0NBUThBTUlJQkNnS0NBUUVBb1BjdUhPdnlYYWJPSEFBR28xaHI2V2h1ZXVUdytwVUM2Z1pJQndaNUR3SG0KdVRpOEFQY3AwQVpsVVIxK2JKSlJKZHlHdktMRC9SUjl3bHgwU3JUZGhwQjZFQ05Ic1JoR21jdTR2RFIxdVMzSQppZWVDYldid0ZIVlFZZ2lRVTZiKzVHczNITGNvTFBGUENnbXFIWmhGaWM0M2QwU09XcmVvbHk3emtjaG92cHZQClhIUzI4ejlaZDAxRlY0UDhTekRvNy80Unc5aDFzc3ZTdFdLS1N6WVJBZm5IRFFUYnYwNUJEelFCMXJCTWJpMnIKSzZ2amZRSFlGWUY4cW9HcVBOQjFENWVxWThPVW12YXZ5WVM1ZGFPN0lyWVpQSnpacnJYZFVGckRZU1lDbUREUwpOTjVweXZraTFaUFdNL29NaCsrWmYydzdWaXlZVnMySXA0YVdUdmdsT3dJREFRQUJvMlF3WWpBZEJnTlZIUTRFCkZnUVV2R0o1Nm9IUld2Wjlydjl5RGxaRGFCSHFFOHd3SHdZRFZSMGpCQmd3Rm9BVXZHSjU2b0hSV3ZaOXJ2OXkKRGxaRGFCSHFFOHd3RHdZRFZSMFRBUUgvQkFVd0F3RUIvekFQQmdOVkhSRUVDREFHaHdSL0FBQUJNQTBHQ1NxRwpTSWIzRFFFQkN3VUFBNElCQVFDSnZ6STVpTmhDZGR5VGQ0dzhIa01pekpBczh3Y3czNkpZS2lvVGtUV0pzQlU3CnJXLy9PUW9tTStENFpyOXVYN3psSkhjRVhVTTV5c3hvS3JURjlqYjRka0RzUFgrZGRKM0RvS3FCVlA2dnlLeFAKRER6STAzRUY0ajdOWGhoWVpVYkdCN2NST3NKUnhQU0FiSFpJbjEraUNlTFBjd0d5YkZvVkFQaWJRSk02eUZUOQoxOWljdVNuQ3I2VU84OFBLWlFRQUxmUC9QdnNURFZNanhOMk03RzZXN1RtRUhQMXJhalFEVFJKeURMd05PL2lVCitBSGl5OVNMRkdmeG9yNVVMaFFBQU8xamZmbmN2NitiUkFSV1d6WllxUFJIdzlrRGRmanFzT282SDdwQTZENkwKcThIRUVMYklvbWt5MDhDN1FxakIyR2RCOElibENOOEM4QlVSUEE1TwotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==", "base64")
+};
 
-function listen(server) {
-  return new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
+function listen(server) { return new Promise((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); }); }
+function close(server) { return new Promise((resolve) => server.close(resolve)); }
+async function jsonBody(request) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.byteLength;
+    if (size > 65_536) throw new TypeError("Remote UI host request exceeds its byte budget.");
+    chunks.push(chunk);
+  }
+  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
-function close(server) { return new Promise((resolve) => server.close(resolve)); }
-
-export async function startHotApplicationFixedRouteHost({ store, artifacts, applicationId, environment, extension }) {
-  const directory = await mkdtemp(join(tmpdir(), "knex-p9-fixed-route-"));
-  let scriptBuilds = 0;
-  await build({ entryPoints: [new URL("./hot-application-fixed-route-browser-entry.ts", import.meta.url).pathname], bundle: true, format: "esm", outfile: join(directory, "host-route.js") });
-  scriptBuilds += 1;
-  const hostScript = await readFile(join(directory, "host-route.js"));
-  let extensionOrigin;
+export async function startHotApplicationFixedRouteHost({ store, artifacts, applicationId, environment, extension, invokeSource }) {
+  if (!(artifacts instanceof PostgresVerifiedArtifactStore)) throw new TypeError("Fixed route host requires PostgresVerifiedArtifactStore.");
+  if (environment !== "production") throw new TypeError("Fixed route host requires the production environment.");
+  if (typeof invokeSource !== "function") throw new TypeError("Fixed route host requires a bounded source gateway.");
+  const hostScript = await readFile(hostScriptPath);
   const routeRequests = [];
   const routeErrors = [];
-
-  const current = async () => {
+  const sourceRequests = [];
+  const authorizedSessions = new Set(["customer-session-1"]);
+  const routeSessions = new Map();
+  let nextRouteSession = 0;
+  const admitted = async (generationId) => {
     const inventory = await store.inventory(applicationId, environment);
     const entry = inventory.extensions.hotApplications[extension.id];
-    if (!entry || entry.disposition !== "active") return undefined;
+    if (!entry || entry.disposition !== "active" || (generationId && entry.activeGeneration.generationId !== generationId)) return undefined;
     const active = entry.activeGeneration;
-    const staged = await artifacts.read(active.artifactDigest);
-    if (!staged || staged.verified.manifest.deliveryClass !== "hot-application" || staged.verified.manifest.id !== extension.id || !staged.verified.hotApplicationManifest) return undefined;
-    return { active, manifest: staged.verified.hotApplicationManifest, envelope: staged.verified.manifest };
+    const identity = Object.freeze({ applicationId, environment, extensionId: extension.id, generationId: active.generationId, artifactDigest: active.artifactDigest });
+    const staged = await artifacts.readRemoteUi(identity);
+    if (!staged || staged.verified.artifactDigest !== active.artifactDigest || staged.verified.manifest.deliveryClass !== "hot-application" || staged.verified.manifest.id !== extension.id || !staged.verified.hotApplicationManifest) return undefined;
+    return Object.freeze({ identity, revision: entry.revision, manifest: staged.verified.hotApplicationManifest, envelope: staged.verified.manifest, files: staged.verified.files });
   };
-  const assets = new VerifiedRemoteUiAssetService(artifacts, {
-    async isActive(identity) {
-      const active = await current();
-      return active?.active.generationId === identity.generationId && active.active.artifactDigest === identity.artifactDigest && identity.appId === extension.id;
+  const assets = new VerifiedRemoteUiAssetService(artifacts);
+  const routeSnapshot = async (pathname) => {
+    const active = await admitted();
+    if (!active) return undefined;
+    const parts = pathname.split("/").slice(1);
+    const route = resolveHotApplicationFixedRoute(parts[1] ?? "", parts.slice(2), [{ appId: extension.id, generationId: active.identity.generationId, active: true, routes: active.manifest.screens.map((screen) => screen.route), navigation: [], slots: [] }]);
+    const screen = active.manifest.screens.find((candidate) => matchHotApplicationRoute(route.appId, candidate.route, route.route));
+    const fileDigest = screen && active.envelope.files[screen.entrypoint]?.digest;
+    const source = screen && active.files.get(screen.entrypoint);
+    if (!screen || !fileDigest || !source) return undefined;
+    const bootstrapDigest = sha256(Buffer.from(createRemoteUiWorkerBootstrapSource(Buffer.from(source).toString("utf8"))));
+    const bootstrap = await assets.readBootstrap({ applicationId, environment, appId: extension.id, generationId: active.identity.generationId, artifactDigest: active.identity.artifactDigest, fileDigest, path: screen.entrypoint, bootstrapDigest });
+    return Object.freeze({ active, route, bootstrap });
+  };
+  const durableSnapshot = async (routeSession) => {
+    const inventory = await store.inventory(applicationId, environment);
+    const entry = inventory.extensions.hotApplications[extension.id];
+    if (!entry) return undefined;
+    if (entry.disposition === "active") {
+      return Object.freeze({ applicationId, environment, appId: extension.id, generationId: entry.activeGeneration.generationId, artifactDigest: entry.activeGeneration.artifactDigest, revision: entry.revision, disposition: "active" });
     }
-  });
-
-  const extensionServer = createServer(async (request, response) => {
+    if (!["disabled", "quarantined", "removed"].includes(entry.disposition)) return undefined;
+    const retained = entry.retainedGeneration;
+    return Object.freeze({ applicationId, environment, appId: extension.id, generationId: retained?.generationId ?? routeSession.identity.generationId, artifactDigest: retained?.artifactDigest ?? routeSession.identity.artifactDigest, revision: entry.revision, disposition: entry.disposition });
+  };
+  const extensionServer = createServer(tls, async (request, response) => {
     try {
-      const match = assetPath.exec(new URL(request.url ?? "/", "http://extensions.local").pathname);
+      const match = assetPath.exec(new URL(request.url ?? "/", "https://extensions.local").pathname);
       if (!match) { response.writeHead(404).end(); return; }
       const [, appId, generationId, bootstrapDigest, resource] = match;
-      const active = await current();
+      const active = await admitted(generationId);
       const screen = active?.manifest.screens.find((candidate) => candidate.entrypoint.startsWith("ui/"));
-      if (!active || appId !== extension.id || generationId !== active.active.generationId || !screen) { response.writeHead(404).end(); return; }
-      const fileDigest = active.envelope.files[screen.entrypoint]?.digest;
-      if (!fileDigest) { response.writeHead(404).end(); return; }
-      const input = { applicationId, environment, appId, generationId, artifactDigest: active.active.artifactDigest, fileDigest, path: screen.entrypoint, bootstrapDigest };
-      const bootstrap = await assets.readBootstrap(input);
-      const output = resource === "bootstrap.js"
-        ? bootstrap
-        : createRemoteUiFrameDocument(`/api/extensions/apps/${appId}/assets/${generationId}/${bootstrap.bootstrapDigest}/bootstrap.js`, bootstrap.integrity);
+      const fileDigest = screen && active.envelope.files[screen.entrypoint]?.digest;
+      if (!active || appId !== extension.id || !screen || !fileDigest) { response.writeHead(404).end(); return; }
+      const bootstrap = await assets.readBootstrap({ applicationId, environment, appId, generationId, artifactDigest: active.identity.artifactDigest, fileDigest, path: screen.entrypoint, bootstrapDigest });
+      const output = resource === "bootstrap.js" ? bootstrap : createRemoteUiFrameDocument(`/api/extensions/apps/${appId}/assets/${generationId}/${bootstrap.bootstrapDigest}/bootstrap.js`, bootstrap.integrity);
       response.writeHead(output.status, output.headers);
       response.end(output.body);
     } catch (error) { routeErrors.push(error instanceof Error ? error.message : "fixed-route-asset-failed"); response.writeHead(404).end(); }
@@ -67,53 +91,63 @@ export async function startHotApplicationFixedRouteHost({ store, artifacts, appl
   await listen(extensionServer);
   const extensionAddress = extensionServer.address();
   if (extensionAddress === null || typeof extensionAddress === "string") throw new Error("Fixed route extension asset host failed to listen.");
-  extensionOrigin = `http://127.0.0.1:${extensionAddress.port}`;
-
-  const hostServer = createServer(async (request, response) => {
+  const extensionOrigin = `https://127.0.0.1:${extensionAddress.port}`;
+  const hostServer = createServer(tls, async (request, response) => {
     try {
-      const url = new URL(request.url ?? "/", "http://customer.local");
-      if (url.pathname === "/host-route.js") {
-        response.writeHead(200, { "content-type": "text/javascript", "x-content-type-options": "nosniff" });
-        response.end(hostScript); return;
+      const url = new URL(request.url ?? "/", "https://customer.local");
+      if (url.pathname === "/host-route.js") { response.writeHead(200, { "content-type": "text/javascript", "x-content-type-options": "nosniff" }); response.end(hostScript); return; }
+      if (url.pathname === "/api/extensions/remote-ui/authorize" && request.method === "POST") {
+        response.writeHead(authorizedSessions.has(sessionId(request)) ? 204 : 401, { "cache-control": "no-store" }).end(); return;
       }
-      const parts = url.pathname.split("/").slice(1);
-      if (request.method !== "GET" || parts[0] !== "apps") { response.writeHead(404).end(); return; }
-      const active = await current();
-      if (!active) { response.writeHead(404).end(); return; }
-      const route = resolveHotApplicationFixedRoute(parts[1] ?? "", parts.slice(2), [{
-        appId: extension.id, generationId: active.active.generationId, active: true,
-        routes: active.manifest.screens.map((screen) => screen.route), navigation: [], slots: []
-      }]);
-      const screen = active.manifest.screens.find((candidate) => matchHotApplicationRoute(route.appId, candidate.route, route.route));
-      if (!screen) { response.writeHead(404).end(); return; }
-      const uiDigest = active.envelope.files[screen.entrypoint]?.digest;
-      if (!uiDigest) { response.writeHead(404).end(); return; }
-      const staged = await artifacts.read(active.active.artifactDigest);
-      const source = staged?.verified.files.get(screen.entrypoint);
-      if (!source) { response.writeHead(404).end(); return; }
-      const bootstrap = await assets.readBootstrap({
-        applicationId, environment, appId: extension.id, generationId: route.generationId, artifactDigest: active.active.artifactDigest,
-        fileDigest: uiDigest, path: screen.entrypoint, bootstrapDigest: sha256(Buffer.from(createRemoteUiWorkerBootstrapSource(Buffer.from(source).toString("utf8"))))
-      });
-      const actorSessionId = "customer-session-1";
-      const hadSession = request.headers.cookie?.includes(`customer_session=${actorSessionId}`) ?? false;
-      routeRequests.push({ route: route.route, generationId: route.generationId, hadSession });
-      const configuration = { applicationId, environment, appId: route.appId, generationId: route.generationId, route: route.route, routes: active.manifest.screens.map((screen) => screen.route), actorSessionId, remoteUiFrameUrl: `${extensionOrigin}/api/extensions/apps/${extension.id}/assets/${route.generationId}/${bootstrap.bootstrapDigest}/frame.html` };
-      response.writeHead(200, {
-        "content-type": "text/html; charset=utf-8", "cache-control": "no-store",
-        ...(hadSession ? {} : { "set-cookie": `customer_session=${actorSessionId}; HttpOnly; SameSite=Lax` })
-      });
+      if (url.pathname === "/api/extensions/remote-ui/test-revoke" && request.method === "POST") {
+        response.writeHead(authorizedSessions.delete(sessionId(request)) ? 204 : 401, { "cache-control": "no-store" }).end(); return;
+      }
+      if (url.pathname === "/api/extensions/remote-ui/snapshot" && request.method === "GET") {
+        const routeSession = routeSessions.get(url.searchParams.get("session") ?? "");
+        if (!routeSession || !authorizedSessions.has(sessionId(request))) { response.writeHead(401, { "cache-control": "no-store" }).end(); return; }
+        const snapshot = await durableSnapshot(routeSession);
+        if (!snapshot) { response.writeHead(404, { "cache-control": "no-store" }).end(); return; }
+        response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" }).end(JSON.stringify(snapshot)); return;
+      }
+      if (url.pathname === "/api/extensions/remote-ui/source" && request.method === "POST") {
+        if (!authorizedSessions.has(sessionId(request))) { response.writeHead(401, { "cache-control": "no-store" }).end(); return; }
+        const body = await jsonBody(request);
+        const routeSession = typeof body?.sessionId === "string" ? routeSessions.get(body.sessionId) : undefined;
+        const identity = body?.identity;
+        if (!routeSession || !identity || identity.applicationId !== routeSession.identity.applicationId || identity.environment !== routeSession.identity.environment || identity.appId !== routeSession.identity.appId || identity.generationId !== routeSession.identity.generationId || identity.artifactDigest !== routeSession.identity.artifactDigest || identity.sessionId !== routeSession.identity.sessionId || typeof body.targetId !== "string" || !routeSession.sources.has(body.targetId)) {
+          response.writeHead(401, { "cache-control": "no-store" }).end(); return;
+        }
+        const current = await durableSnapshot(routeSession);
+        if (!current || current.disposition !== "active" || current.generationId !== routeSession.identity.generationId || current.artifactDigest !== routeSession.identity.artifactDigest) {
+          sourceRequests.push(Object.freeze({ sessionId: routeSession.identity.sessionId, generationId: routeSession.identity.generationId, artifactDigest: routeSession.identity.artifactDigest, targetId: body.targetId, status: "denied" }));
+          response.writeHead(409, { "cache-control": "no-store" }).end(); return;
+        }
+        const expectedGeneration = Object.freeze({ generationId: routeSession.identity.generationId, artifactDigest: routeSession.identity.artifactDigest });
+        sourceRequests.push(Object.freeze({ sessionId: routeSession.identity.sessionId, generationId: expectedGeneration.generationId, artifactDigest: expectedGeneration.artifactDigest, targetId: body.targetId, status: "admitted", input: body.input }));
+        try {
+          const output = await invokeSource(Object.freeze({ identity: routeSession.identity, expectedGeneration, targetId: body.targetId, input: body.input }));
+          sourceRequests.push(Object.freeze({ sessionId: routeSession.identity.sessionId, generationId: expectedGeneration.generationId, artifactDigest: expectedGeneration.artifactDigest, targetId: body.targetId, status: "completed" }));
+          response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" }).end(JSON.stringify({ output })); return;
+        } catch {
+          sourceRequests.push(Object.freeze({ sessionId: routeSession.identity.sessionId, generationId: expectedGeneration.generationId, artifactDigest: expectedGeneration.artifactDigest, targetId: body.targetId, status: "runtime-denied" }));
+          response.writeHead(409, { "cache-control": "no-store" }).end(); return;
+        }
+      }
+      if (request.method !== "GET" || !url.pathname.startsWith("/apps/")) { response.writeHead(404).end(); return; }
+      const snapshot = await routeSnapshot(url.pathname);
+      if (!snapshot) { response.writeHead(404).end(); return; }
+      const hadSession = request.headers.cookie?.includes("customer_session=customer-session-1") ?? false;
+      routeRequests.push({ route: snapshot.route.route, generationId: snapshot.active.identity.generationId, hadSession });
+      const routeSessionId = `route-session-${++nextRouteSession}`;
+      const identity = Object.freeze({ applicationId, environment: "production", appId: snapshot.route.appId, generationId: snapshot.active.identity.generationId, artifactDigest: snapshot.active.identity.artifactDigest, sessionId: routeSessionId });
+      const configuration = { ...identity, revision: snapshot.active.revision, route: snapshot.route.route, routes: snapshot.active.manifest.screens.map((screen) => screen.route), sources: snapshot.active.manifest.sources.map((source) => source.id), remoteUiFrameUrl: `${extensionOrigin}/api/extensions/apps/${extension.id}/assets/${snapshot.active.identity.generationId}/${snapshot.bootstrap.bootstrapDigest}/frame.html`, snapshotUrl: `/api/extensions/remote-ui/snapshot?session=${routeSessionId}`, sourceUrl: "/api/extensions/remote-ui/source", drainMs: 10_000 };
+      routeSessions.set(routeSessionId, Object.freeze({ identity, sources: new Set(configuration.sources) }));
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", ...(hadSession ? {} : { "set-cookie": "customer_session=customer-session-1; Path=/; HttpOnly; Secure; SameSite=Lax" }) });
       response.end(`<!doctype html><html><body><main id="hot-application-route"></main><script>window.__K_NEX_HOT_APPLICATION_ROUTE__=${JSON.stringify(configuration)}</script><script type="module" src="/host-route.js"></script></body></html>`);
     } catch (error) { routeErrors.push(error instanceof Error ? error.message : "fixed-route-host-failed"); response.writeHead(404).end(); }
   });
   await listen(hostServer);
   const hostAddress = hostServer.address();
   if (hostAddress === null || typeof hostAddress === "string") throw new Error("Fixed route customer host failed to listen.");
-  return Object.freeze({
-    url: `http://127.0.0.1:${hostAddress.port}`,
-    routeRequests,
-    routeErrors,
-    get scriptBuilds() { return scriptBuilds; },
-    async close() { await Promise.all([close(hostServer), close(extensionServer)]); await rm(directory, { recursive: true, force: true }); }
-  });
+  return Object.freeze({ url: `https://127.0.0.1:${hostAddress.port}`, routeRequests, routeErrors, sourceRequests, tlsCertificate: tls.cert, async close() { await Promise.all([close(hostServer), close(extensionServer)]); } });
 }

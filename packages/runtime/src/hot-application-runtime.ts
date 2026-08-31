@@ -49,6 +49,7 @@ export interface HotApplicationTrafficRequest {
   readonly input: unknown;
   readonly actor: ExtensionActorIdentity;
   readonly correlationId: string;
+  readonly expectedGeneration: Readonly<{ generationId: string; artifactDigest: `sha256:${string}` }>;
   readonly signal?: AbortSignal;
 }
 
@@ -78,35 +79,35 @@ export class AuthoritativeHotApplicationRuntime {
   async invoke(request: HotApplicationTrafficRequest): Promise<unknown> {
     const extension = { deliveryClass: "hot-application" as const, id: this.identity.appId };
     const owner = { applicationId: this.identity.applicationId, environment: this.identity.environment, deliveryClass: "hot-application" as const, extensionId: this.identity.appId };
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const active = this.active(await this.store.inventory(this.identity.applicationId, this.identity.environment));
-      if (!active) throw new Error("Hot Application has no authoritative active generation.");
-      const artifact = await this.artifacts.resolve({ owner, generationId: active.generationId, artifactDigest: active.artifactDigest });
-      if (!artifact || !this.matches(active, artifact) || !isHotApplicationArtifact(artifact)) {
-        throw new Error("The authoritative generation has no matching verified Hot Application bytes.");
+    const expected = request.expectedGeneration;
+    const active = this.active(await this.store.inventory(this.identity.applicationId, this.identity.environment));
+    if (!active) throw new Error("Hot Application has no authoritative active generation.");
+    if (active.generationId !== expected.generationId || active.artifactDigest !== expected.artifactDigest) {
+      throw new Error("Hot Application active generation does not match the UI-admitted generation.");
+    }
+    const artifact = await this.artifacts.resolve({ owner, generationId: active.generationId, artifactDigest: active.artifactDigest });
+    if (!artifact || !this.matches(active, artifact) || !isHotApplicationArtifact(artifact)) {
+      throw new Error("The authoritative generation has no matching verified Hot Application bytes.");
+    }
+    const ttlMs = Math.min(300_000, artifact.hotApplicationManifest.resourceBudget.maxWallTimeMs + 1_000);
+    let leaseId: string;
+    try {
+      leaseId = await this.store.acquireGenerationLease({
+        applicationId: this.identity.applicationId,
+        environment: this.identity.environment,
+        extension,
+        generationId: active.generationId,
+        holder: this.holder,
+        ttlMs
+      });
+    } catch (error) {
+      const current = this.active(await this.store.inventory(this.identity.applicationId, this.identity.environment));
+      if (current?.generationId !== expected.generationId || current?.artifactDigest !== expected.artifactDigest) {
+        throw new Error("Hot Application active generation changed after UI admission.");
       }
-      const ttlMs = Math.min(300_000, artifact.hotApplicationManifest.resourceBudget.maxWallTimeMs + 1_000);
-      let leaseId: string;
-      try {
-        leaseId = await this.store.acquireGenerationLease({
-          applicationId: this.identity.applicationId,
-          environment: this.identity.environment,
-          extension,
-          generationId: active.generationId,
-          holder: this.holder,
-          ttlMs
-        });
-      } catch (error) {
-        let current: ActiveGeneration | undefined;
-        try {
-          current = this.active(await this.store.inventory(this.identity.applicationId, this.identity.environment));
-        } catch {
-          throw error;
-        }
-        if (current?.generationId === active.generationId || attempt === 1) throw error;
-        continue;
-      }
-      try {
+      throw error;
+    }
+    try {
         const invocationId = `invocation-${randomUUID()}`;
         const token = this.tokens.issue({
           tokenId: `token-${randomUUID()}`,
@@ -147,11 +148,9 @@ export class AuthoritativeHotApplicationRuntime {
           },
           ...(request.signal ? { signal: request.signal } : {})
         });
-      } finally {
-        await this.store.releaseGenerationLease(leaseId);
-      }
+    } finally {
+      await this.store.releaseGenerationLease(leaseId);
     }
-    throw new Error("Hot Application active generation changed before an invocation lease could be acquired.");
   }
 
   private active(inventory: Awaited<ReturnType<RuntimeExtensionStore["inventory"]>>) {

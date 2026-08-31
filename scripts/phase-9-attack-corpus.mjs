@@ -20,7 +20,7 @@ const run = (command, args, options = {}) => {
 };
 
 const vitestProof = (id, filter, file, names) => ({ id, runner: "vitest", filter, file, names });
-const nodeProof = (id, file, names, expectedMarkers = {}) => ({ id, runner: "node:test", file, names, expectedMarkers });
+const nodeProof = (id, files, names, expectedMarkers = {}) => ({ id, runner: "node:test", files: Array.isArray(files) ? files : [files], names, expectedMarkers });
 const browserProof = (id, script, marker) => ({ id, runner: "chromium", script, marker });
 
 const proofs = [
@@ -34,7 +34,13 @@ const proofs = [
     "extension bundler rejects traversal, links, colliding paths, bombs, and every configured extraction bound"
   ]),
   vitestProof("remote-ui-assets", "@k-nex/extension-bundler", "tests/remote-ui-assets.test.ts", [
-    "verified Remote UI assets rejects staged, mixed-generation, digest, traversal, and unverified assets"
+    "verified Remote UI assets proxies native Worker failures as one generation-bound failure frame and cleans up once",
+    "verified Remote UI assets serves only active generation-pinned verified bytes with immutable security headers",
+    "verified Remote UI assets rejects inactive, wrong-owner, wrong-generation, digest, traversal, and unverified assets",
+    "verified Remote UI assets allows bootstrap only for a declared screen entrypoint",
+    "verified Remote UI assets serves only signed manifest-declared assets and localization with their exact digests",
+    "verified Remote UI assets rejects signed inventory assets and locales absent from the signed Hot Application manifest",
+    "verified Remote UI assets copies stored bytes and rejects corrupted reader bytes before serving"
   ]),
   vitestProof("runner-isolation", "@k-nex/extension-runner", "tests/docker-sandbox.test.ts", [
     "production extension runner refuses to send source when Docker inspection omits any required effective control",
@@ -45,9 +51,21 @@ const proofs = [
     "production extension runner contains an out-of-memory generation failure"
   ]),
   vitestProof("remote-ui-host", "@k-nex/ui-runtime", "tests/remote-ui-host.test.ts", [
-    "remote UI host session removes the owned realm after a malformed frame",
-    "remote UI host session validates identity, sequence, registry, events, and declared source transport",
-    "remote UI host session admits only the active generation and drains old sessions after promotion"
+    "remote UI host session authority creates and starts sessions only from the current active authority snapshot",
+    "remote UI host session authority makes identical authority replays no-ops while rejecting stale or conflicting observations",
+    "remote UI host session authority does not schedule another retirement for an identical outbox replay",
+    "remote UI host session authority drains admitted old work after update, while admitting only the new snapshot",
+    "remote UI host session authority cancels a stale retirement after an authoritative rollback",
+    "remote UI host session authority immediately denies new work and disposes realms when disabled",
+    "remote UI host session authority immediately denies new work and disposes realms when quarantined",
+    "remote UI host session authority immediately denies new work and disposes realms when removed",
+    "remote UI host session authority unregisters normally disposed sessions",
+    "remote UI host session authority passes the admitted immutable session identity to bounded source and action gateways",
+    "remote UI host session authority contains malformed port traffic with one fallback and one realm cleanup",
+    "remote UI host session authority cleans up exactly once when postMessage and fallback both fail",
+    "remote UI host session authority immediately aborts and tears down a crashed realm while its fallback never settles",
+    "remote UI host session authority makes late authorization, render, source, and action completions inert after closure",
+    "remote UI host session authority keeps the opaque frame path generation pinned and reports realm load failure"
   ]),
   vitestProof("static-composition-authority", "@k-nex/runtime", "tests/static-composition-authority.test.ts", [
     "static source and trusted build authority commits only an exact-base deterministic customer source change",
@@ -63,10 +81,20 @@ const proofs = [
   nodeProof("app-storage", "tests/app-storage-postgres.test.mjs", [
     "proves revisioned, quota-limited, schema-validated, backed-up, cross-app isolated storage"
   ]),
-  nodeProof("runtime-extension-state", "tests/runtime-extension-state-postgres.test.mjs", [
+  nodeProof("runtime-extension-state", ["tests/runtime-extension-state-postgres.test.mjs", "tests/remote-ui-assets-postgres.test.mjs"], [
     "rejects SCN-12 activation races and SCN-13 stale operation replays in PostgreSQL",
-    "proves PostgreSQL-backed Hot Application install, update, restore, rollback, and execution through the durable runtime"
-  ]),
+    "proves PostgreSQL-backed Hot Application install, update, restore, rollback, and execution through the durable runtime",
+    "PostgreSQL Remote UI reads are generation-linearized, restart-safe, and fail closed"
+  ], {
+    P9_REMOTE_UI_POSTGRES_EVIDENCE: {
+      scenarios: [
+        "restart", "owner-denial", "declared-assets", "signed-undeclared-assets", "staged", "linearized-cutover",
+        "rollback-only", "revoked", "malformed-pointer", "complete-canonical-pointer-tamper",
+        "extra-canonical-pointer-field", "coordinated-pointer-generation-receipt-forgery", "corrupt-bytes-restored", "deleted-binding",
+        "completed-rollback", "post-rollback-stale-same-generation-receipt", "disabled", "removed"
+      ]
+    }
+  }),
   nodeProof("static-deployment", "tests/static-deployment-postgres.test.mjs", [
     "proves distinct customer binaries and deployment processes recover from PostgreSQL authority"
   ], {
@@ -115,7 +143,7 @@ const crashMatrix = [
   { state: "post-transition", process: "gateway", expected: "a restarted gateway routes from PostgreSQL active-generation authority" }
 ];
 
-const exactEvidence = (proof, name, marker) => ({ proof, name, ...(marker ? { marker } : {}) });
+const exactEvidence = (proof, name, marker, markerScenario) => ({ proof, name, ...(marker ? { marker } : {}), ...(markerScenario ? { markerScenario } : {}) });
 const staticProofName = "proves distinct customer binaries and deployment processes recover from PostgreSQL authority";
 const runtimeJourneyName = "proves PostgreSQL-backed Hot Application install, update, restore, rollback, and execution through the durable runtime";
 const runtimeCoordinationName = "rejects SCN-12 activation races and SCN-13 stale operation replays in PostgreSQL";
@@ -124,6 +152,7 @@ const assertRuntimeJourneyEvidence = (marker) => {
   const docker = marker.productionDockerExecution;
   const drain = marker.oldGenerationDrain;
   const fixedRoute = marker.fixedRouteAuthority;
+  const sourceAdmission = marker.sourceAdmission;
   const recovery = marker.lostInvalidationRecovery;
   assert.equal(docker?.runner, "DockerHotApplicationSandboxSupervisor", "P9 runtime journey did not prove Docker runner execution.");
   assert.equal(docker?.image, "node:24.19.0-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43", "P9 runtime journey used an unapproved production runner image.");
@@ -133,13 +162,38 @@ const assertRuntimeJourneyEvidence = (marker) => {
   assert.equal(docker.startedGenerationIds?.includes(drain.generationId), true, "P9 runtime journey did not start the drained generation in Docker.");
   assert.equal(docker.stoppedGenerationIds?.includes(drain.generationId), true, "P9 runtime journey did not stop the drained generation in Docker.");
   assert.deepEqual(
-    { startedBeforeInstall: fixedRoute?.startedBeforeInstall, preInstallStatus: fixedRoute?.preInstallStatus, scriptBuilds: fixedRoute?.scriptBuilds },
-    { startedBeforeInstall: true, preInstallStatus: 404, scriptBuilds: 1 },
-    "P9 runtime journey did not prove one route host existed before installation."
+    {
+      startedBeforeInstall: fixedRoute?.startedBeforeInstall,
+      preInstallStatus: fixedRoute?.preInstallStatus,
+      httpsDistinctOrigins: fixedRoute?.httpsDistinctOrigins,
+      durableBytesRequiredAfterRestart: fixedRoute?.durableBytesRequiredAfterRestart,
+      lifecycle: fixedRoute?.lifecycle
+    },
+    {
+      startedBeforeInstall: true,
+      preInstallStatus: 404,
+      httpsDistinctOrigins: true,
+      durableBytesRequiredAfterRestart: true,
+      lifecycle: ["g1-observed-g2-scheduled-retirement", "rollback-observed-g1-before-deadline", "rollback-cancelled-g1-retirement-after-deadline", "g2-drained-after-rollback", "g1-drained-after-irreversible-v3-cutover", "disable", "quarantine", "remove"]
+    },
+    "P9 runtime journey did not prove the fixed HTTPS host route, durable bytes, and generation lifecycle."
   );
-  assert.equal(fixedRoute?.scriptDigests?.length, 3, "P9 runtime journey did not sample the host script before install, after update, and after rollback.");
-  assert.equal(fixedRoute.scriptDigests.every((digest) => /^sha256:[0-9a-f]{64}$/u.test(digest)), true, "P9 runtime journey emitted an invalid host script digest.");
-  assert.equal(new Set(fixedRoute.scriptDigests).size, 1, "P9 runtime journey rebuilt or mutated the customer host script during the app lifecycle.");
+  assert.deepEqual(sourceAdmission, {
+    cutoverGap: {
+      sessionId: "route-session-1",
+      generationId: drain?.generationId,
+      hostAuthorizedBeforeRuntime: true,
+      runtimeDeniedAfterCutover: true,
+      executedGenerationId: null
+    },
+    leaseHeldG1: {
+      sessionId: "route-session-2",
+      generationId: drain?.generationId,
+      hostAuthorizedBeforeRuntime: true,
+      runnerAdmissionWithLease: true,
+      returnedGenerationId: drain?.generationId
+    }
+  }, "P9 runtime journey did not prove G1 source admission, post-cutover denial without execution, and lease-held G1 completion.");
   assert.deepEqual(recovery?.roles, ["web", "worker", "runner", "browser"], "P9 runtime journey did not prove all four runtime consumer roles.");
   assert.deepEqual(recovery?.processes?.map(({ role }) => role), recovery.roles, "P9 runtime journey process identities did not match the consumer roles.");
   const processIds = recovery?.processes?.map(({ pid }) => pid) ?? [];
@@ -158,8 +212,8 @@ const scenarios = [
   { id: "SCN-07", attack: "forbidden builtin/import/capability", expected: "reject undeclared capability", evidence: [exactEvidence("bundler-rejections", "extension bundler rejects module access and package lifecycle representation without false comment matches"), exactEvidence("runner-isolation", "production extension runner runs app generations with container authority and only declared host capabilities")] },
   { id: "SCN-08", attack: "host/cross-app DB/Docker/secret/network/filesystem escape", expected: "contain the application generation", evidence: [exactEvidence("runner-isolation", "production extension runner refuses to send source when Docker inspection omits any required effective control"), exactEvidence("runner-isolation", "production extension runner runs app generations with container authority and only declared host capabilities")] },
   { id: "SCN-09", attack: "cross-app storage/token/revision reuse", expected: "isolate app identity", evidence: [exactEvidence("app-storage", "proves revisioned, quota-limited, schema-validated, backed-up, cross-app isolated storage"), exactEvidence("runner-isolation", "production extension runner rejects mixed token identity before starting a container and keeps app/generation responses isolated")] },
-  { id: "SCN-10", attack: "staged artifact served before verification", expected: "deny unverified asset", evidence: [exactEvidence("remote-ui-assets", "verified Remote UI assets rejects staged, mixed-generation, digest, traversal, and unverified assets")] },
-  { id: "SCN-11", attack: "mixed UI/server/storage generation", expected: "reject mixed generation", evidence: [exactEvidence("remote-ui-host", "remote UI host session admits only the active generation and drains old sessions after promotion"), exactEvidence("runtime-extension-state", runtimeJourneyName, "P9_RUNTIME_JOURNEY_EVIDENCE")] },
+  { id: "SCN-10", attack: "staged artifact served before verification", expected: "deny unverified asset", evidence: [exactEvidence("runtime-extension-state", "PostgreSQL Remote UI reads are generation-linearized, restart-safe, and fail closed", "P9_REMOTE_UI_POSTGRES_EVIDENCE", "staged"), exactEvidence("remote-ui-browser", "P9_REMOTE_UI_BROWSER_PASS")] },
+  { id: "SCN-11", attack: "mixed UI/server/storage generation", expected: "reject mixed generation", evidence: [exactEvidence("runtime-extension-state", "PostgreSQL Remote UI reads are generation-linearized, restart-safe, and fail closed", "P9_REMOTE_UI_POSTGRES_EVIDENCE", "linearized-cutover"), exactEvidence("remote-ui-host", "remote UI host session authority creates and starts sessions only from the current active authority snapshot"), exactEvidence("remote-ui-host", "remote UI host session authority drains admitted old work after update, while admitting only the new snapshot"), exactEvidence("remote-ui-host", "remote UI host session authority cancels a stale retirement after an authoritative rollback"), exactEvidence("remote-ui-host", "remote UI host session authority immediately denies new work and disposes realms when disabled"), exactEvidence("remote-ui-host", "remote UI host session authority immediately denies new work and disposes realms when quarantined"), exactEvidence("remote-ui-host", "remote UI host session authority immediately denies new work and disposes realms when removed"), exactEvidence("remote-ui-host", "remote UI host session authority makes late authorization, render, source, and action completions inert after closure"), exactEvidence("remote-ui-browser", "P9_REMOTE_UI_BROWSER_PASS"), exactEvidence("runtime-extension-state", runtimeJourneyName, "P9_RUNTIME_JOURNEY_EVIDENCE")] },
   { id: "SCN-12", attack: "activation pointer race", expected: "serialize the revision transition", evidence: [exactEvidence("runtime-extension-state", runtimeCoordinationName, "P9_RUNTIME_COORDINATION_EVIDENCE")] },
   { id: "SCN-13", attack: "stale operation replay", expected: "reject replay", evidence: [exactEvidence("runtime-extension-state", runtimeCoordinationName, "P9_RUNTIME_COORDINATION_EVIDENCE")] },
   { id: "SCN-14", attack: "runtime DB-authored static graph", expected: "require source authority", evidence: [exactEvidence("plugin-manager", "PluginManager delegates module and executable theme Platform Plugins to source and trusted-build authorities"), exactEvidence("plugin-manager", "PluginManager rejects planner mismatches and unverified inventory authority")] },
@@ -217,7 +271,7 @@ const executeProof = (proof) => {
     return parseVitest(proof, output);
   }
   if (proof.runner === "node:test") {
-    const output = run(process.execPath, ["--test", "--test-concurrency=1", "--test-reporter=tap", `--test-name-pattern=${exactPattern(proof.names)}`, proof.file], { ...proof, cwd: customerFixture });
+    const output = run(process.execPath, ["--test", "--test-concurrency=1", "--test-reporter=tap", `--test-name-pattern=${exactPattern(proof.names)}`, ...proof.files], { ...proof, cwd: customerFixture });
     return parseTap(proof, output);
   }
   const output = run(process.execPath, [proof.script], proof);
@@ -242,9 +296,10 @@ export const runAttackCorpus = () => {
         const marker = result.markers?.[required.marker];
         assert.ok(marker, `${scenario.id}: exact runtime marker ${required.marker} was not emitted.`);
         if (required.marker === "P9_RUNTIME_JOURNEY_EVIDENCE") assertRuntimeJourneyEvidence(marker);
-        if (scenario.id !== "SCN-19") assert.equal(marker.scenarios?.includes(scenario.id), true, `${scenario.id}: ${required.marker} did not record the scenario outcome.`);
+        const markerScenario = required.markerScenario ?? scenario.id;
+        if (scenario.id !== "SCN-19") assert.equal(marker.scenarios?.includes(markerScenario), true, `${scenario.id}: ${required.marker} did not record the ${markerScenario} outcome.`);
       }
-      return { proof: required.proof, name: required.name, ...(required.marker ? { marker: required.marker } : {}) };
+      return { proof: required.proof, name: required.name, ...(required.marker ? { marker: required.marker } : {}), ...(required.markerScenario ? { markerScenario: required.markerScenario } : {}) };
     });
     const matrixEvidence = scenario.id === "SCN-19" ? results.get("static-deployment")?.markers?.P9_STATIC_SCENARIO_EVIDENCE?.crashMatrix : undefined;
     const matrix = scenario.matrix?.map((entry) => {

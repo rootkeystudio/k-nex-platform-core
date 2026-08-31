@@ -116,7 +116,7 @@ describe("durable dynamic generation adapters", () => {
     await expect(pipeline.stage({ plan: plan.plan, owner: { applicationId: authority.applicationId, environment: authority.environment, deliveryClass: authority.deliveryClass, extensionId: authority.extensionId } })).rejects.toThrow(/declarations/i);
   });
 
-  it("issues exact reverified manifest grants and intersects runner limits with the production profile", async () => {
+  it("keeps a positive UI-admitted G1 invocation pinned to G1", async () => {
     const active = activeGeneration();
     const productionArtifact: DurableDynamicArtifact = {
       ...artifact
@@ -137,7 +137,8 @@ describe("durable dynamic generation adapters", () => {
     await expect(runtime.invoke({
       input: { marker: "traffic" },
       actor: { principalId: "user:one", effectiveActorId: "user:one" },
-      correlationId: "traffic-correlation-1"
+      correlationId: "traffic-correlation-1",
+      expectedGeneration: { generationId: authority.generationId, artifactDigest: authority.artifactDigest }
     })).resolves.toEqual({ generationId: authority.generationId, artifactDigest: authority.artifactDigest });
 
     expect(tokens.issue).toHaveBeenCalledWith(expect.objectContaining({ generationId: authority.generationId, grants: manifestCapabilities, ttlMs: 6_000, drainLeaseId: expect.stringMatching(/^lease-/u) }));
@@ -158,19 +159,19 @@ describe("durable dynamic generation adapters", () => {
     const runner = { invoke: vi.fn() };
     const runtime = trafficRuntime(store, runner, { issue: vi.fn() }, artifact);
 
-    await expect(runtime.invoke({ input: {}, actor: { principalId: "user:one", effectiveActorId: "user:one" }, correlationId: "traffic-correlation-2" })).rejects.toBe(leaseError);
+    await expect(runtime.invoke({ input: {}, actor: { principalId: "user:one", effectiveActorId: "user:one" }, correlationId: "traffic-correlation-2", expectedGeneration: { generationId: authority.generationId, artifactDigest: authority.artifactDigest } })).rejects.toBe(leaseError);
     expect(store.acquireGenerationLease).toHaveBeenCalledTimes(1);
     expect(runner.invoke).not.toHaveBeenCalled();
   });
 
-  it("retries once against a new active pointer after a proven lease race", async () => {
+  it("denies a UI-admitted G1 request when cutover reaches G2 before lease acquisition", async () => {
     const nextAuthority = { ...authority, generationId: "sales-assistant-generation-2", artifactDigest: digest("9"), manifestDigest: digest("8"), catalogDigest: digest("7"), provenanceDigest: digest("6"), sbomDigest: digest("5") };
     const nextArtifact: DurableDynamicArtifact = { ...artifact, authority: nextAuthority };
-    const current = inventory(activeGeneration());
+    let current = inventory(activeGeneration());
     const next = inventory(activeGeneration(nextAuthority));
     const store = {
-      inventory: vi.fn().mockResolvedValueOnce(current).mockResolvedValueOnce(next).mockResolvedValueOnce(next),
-      acquireGenerationLease: vi.fn().mockRejectedValueOnce(new Error("pointer changed")).mockResolvedValueOnce("lease-00000000-0000-4000-8000-000000000000"),
+      inventory: vi.fn(async () => current),
+      acquireGenerationLease: vi.fn(async () => { current = next; throw new Error("pointer changed"); }),
       releaseGenerationLease: vi.fn(async () => {})
     };
     const artifacts = { resolve: vi.fn(async ({ generationId }: { generationId: string }) => generationId === authority.generationId
@@ -180,8 +181,10 @@ describe("durable dynamic generation adapters", () => {
       applicationId: authority.applicationId, environment: authority.environment, appId: authority.extensionId
     }, productionProfile, "runtime-traffic-gateway");
 
-    await expect(runtime.invoke({ input: {}, actor: { principalId: "user:one", effectiveActorId: "user:one" }, correlationId: "traffic-correlation-3" })).resolves.toBe(nextAuthority.generationId);
-    expect(store.acquireGenerationLease).toHaveBeenNthCalledWith(2, expect.objectContaining({ generationId: nextAuthority.generationId }));
+    await expect(runtime.invoke({ input: {}, actor: { principalId: "user:one", effectiveActorId: "user:one" }, correlationId: "traffic-correlation-3", expectedGeneration: { generationId: authority.generationId, artifactDigest: authority.artifactDigest } })).rejects.toThrow("changed after UI admission");
+    expect(store.acquireGenerationLease).toHaveBeenCalledOnce();
+    expect(store.acquireGenerationLease).toHaveBeenCalledWith(expect.objectContaining({ generationId: authority.generationId }));
+    expect(runner.invoke).not.toHaveBeenCalled();
   });
 
   it("releases the generation lease when runner execution fails", async () => {
@@ -194,7 +197,7 @@ describe("durable dynamic generation adapters", () => {
     };
     const runtime = trafficRuntime(store, { invoke: vi.fn(async () => { throw runnerFailure; }) }, { issue: vi.fn(() => "capability-token") }, artifact);
 
-    await expect(runtime.invoke({ input: {}, actor: { principalId: "user:one", effectiveActorId: "user:one" }, correlationId: "traffic-correlation-4" })).rejects.toBe(runnerFailure);
+    await expect(runtime.invoke({ input: {}, actor: { principalId: "user:one", effectiveActorId: "user:one" }, correlationId: "traffic-correlation-4", expectedGeneration: { generationId: authority.generationId, artifactDigest: authority.artifactDigest } })).rejects.toBe(runnerFailure);
     expect(released).toEqual(["lease-00000000-0000-4000-8000-000000000000"]);
   });
 });

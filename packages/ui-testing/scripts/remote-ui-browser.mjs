@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { createServer } from "node:http";
+import { createServer } from "node:https";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 
 import { build } from "esbuild";
 import { chromium } from "playwright";
@@ -13,21 +15,27 @@ const directory = await mkdtemp(join(tmpdir(), "k-nex-p9-remote-ui-"));
 const csp = remoteUiContentSecurityPolicy;
 let browser; let hostServer; let extensionServer;
 let authenticatedFetches = 0; let extensionDocumentCookie = undefined;
+const authorizedSessions = new Set(["protected"]); let remoteUiAuthorizationChecks = 0;
 const extensionRequests = [];
+const run = promisify(execFile);
 const listen = (server) => new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const close = (server) => server === undefined ? Promise.resolve() : new Promise((resolve, reject) => server.close((error) => error === undefined ? resolve() : reject(error)));
 try {
+  const keyPath = join(directory, "key.pem");
+  const certificatePath = join(directory, "certificate.pem");
+  await run("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", keyPath, "-out", certificatePath, "-days", "1", "-subj", "/CN=127.0.0.1", "-addext", "subjectAltName=IP:127.0.0.1"]);
+  const tls = { key: await readFile(keyPath), cert: await readFile(certificatePath) };
   await build({ entryPoints: [new URL("../tests/remote-ui-browser-entry.ts", import.meta.url).pathname], bundle: true, format: "esm", outfile: join(directory, "host.js") });
   const hostScript = await readFile(join(directory, "host.js"));
 
-  hostServer = createServer((request, response) => {
+  hostServer = createServer(tls, (request, response) => {
     if (request.url === "/host.js") { response.writeHead(200, { "content-type": "text/javascript", "x-content-type-options": "nosniff" }); response.end(hostScript); return; }
     if (request.url === "/authenticated") { authenticatedFetches += 1; response.writeHead(200, { "content-type": "application/json" }); response.end('{"secret":true}'); return; }
     response.writeHead(404); response.end();
   });
   await listen(hostServer);
   const hostAddress = hostServer.address(); if (hostAddress === null || typeof hostAddress === "string") throw new Error("Remote UI host server failed.");
-  const hostOrigin = `http://127.0.0.1:${hostAddress.port}`;
+  const hostOrigin = `https://127.0.0.1:${hostAddress.port}`;
 
   const worker = `let port; let outgoing = 0; let incoming = 0; let heartbeat;
 const send = (type, body = {}) => port.postMessage({ schemaVersion: 1, sessionId: 'remote-session-1', appId: 'app.sales-assistant', generationId: 'sales-generation-1', sequence: ++outgoing, direction: 'realm-to-host', type, ...body });
@@ -57,7 +65,9 @@ function tree(probe, status = 'Ready') { return { nodeId: 'root', component: 'st
   { nodeId: 'probe', component: 'text', props: { text: JSON.stringify(probe) }, events: [], children: [] },
   { nodeId: 'status', component: 'text', props: { text: status }, events: [], children: [] },
   { nodeId: 'refresh', component: 'button', props: { label: 'Refresh sales tasks' }, events: [{ event: 'press', handlerId: 'sales.refresh' }], children: [] },
+  { nodeId: 'pause', component: 'button', props: { label: 'Pause sales heartbeat' }, events: [{ event: 'press', handlerId: 'sales.pause-heartbeat' }], children: [] },
   { nodeId: 'break', component: 'button', props: { label: 'Trigger invalid application tree' }, events: [{ event: 'press', handlerId: 'sales.break' }], children: [] },
+  { nodeId: 'crash', component: 'button', props: { label: 'Report application runtime crash' }, events: [{ event: 'press', handlerId: 'sales.runtime-crash' }], children: [] },
   ...['oversized', 'depth', 'rate', 'replay', 'mixed-generation', 'navigation', 'download'].map((kind) => ({ nodeId: 'attack-' + kind, component: 'button', props: { label: 'Hostile ' + kind }, events: [{ event: 'press', handlerId: 'sales.attack.' + kind }], children: [] }))
 ] }; }
 self.onmessage = async (event) => {
@@ -65,9 +75,11 @@ self.onmessage = async (event) => {
   port = event.ports[0]; self.onmessage = null;
   port.onmessage = async ({ data }) => {
     if (data.sequence !== ++incoming || data.appId !== 'app.sales-assistant' || data.generationId !== 'sales-generation-1') return;
-    if (data.type === 'bootstrap') { const probe = await probes(); self.__probe = probe; send('ready'); send('render', { root: tree(probe) }); send('focus', { nodeId: 'refresh' }); heartbeat = setInterval(() => send('request', { operation: 'source', requestId: 'heartbeat-' + outgoing, targetId: 'sales.heartbeat', input: {} }), 20); }
+    if (data.type === 'bootstrap') { const probe = { ...(await probes()), bootstrapCredentials: /cookie|token|credential|actor/i.test(JSON.stringify(data)) ? 'exposed' : 'absent' }; self.__probe = probe; send('ready'); send('render', { root: tree(probe) }); send('focus', { nodeId: 'refresh' }); heartbeat = setInterval(() => send('request', { operation: 'source', requestId: 'heartbeat-' + outgoing, targetId: 'sales.heartbeat', input: {} }), 20); }
     else if (data.type === 'event' && data.handlerId === 'sales.refresh') send('request', { operation: 'source', requestId: 'source-request-1', targetId: 'sales.tasks', input: {} });
+    else if (data.type === 'event' && data.handlerId === 'sales.pause-heartbeat') clearInterval(heartbeat);
     else if (data.type === 'event' && data.handlerId === 'sales.break') send('render', { root: { ...tree(self.__probe), component: 'script' } });
+    else if (data.type === 'event' && data.handlerId === 'sales.runtime-crash') { send('failure', { code: 'APP_EVENT_FAILED' }); clearInterval(heartbeat); close(); }
     else if (data.type === 'event' && data.handlerId.startsWith('sales.attack.')) hostile(data.handlerId.slice('sales.attack.'.length));
     else if (data.type === 'response-ok' && data.requestId === 'source-request-1') send('render', { root: tree(self.__probe, 'Loaded ' + data.output.rows + ' tasks') });
     else if (data.type === 'dispose') { clearInterval(heartbeat); close(); }
@@ -81,7 +93,7 @@ self.onmessage = async (event) => {
   const framePath = `/api/extensions/apps/app.sales-assistant/assets/sales-generation-1/${bootstrapDigest}/frame.html`;
   const frameDocument = createRemoteUiFrameDocument(bootstrapPath, bootstrapIntegrity);
 
-  extensionServer = createServer((request, response) => {
+  extensionServer = createServer(tls, (request, response) => {
     extensionRequests.push(request.url);
     const headers = { "access-control-allow-origin": "null", "content-security-policy": csp, "cross-origin-resource-policy": "cross-origin", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff" };
     if (request.url === framePath) {
@@ -95,20 +107,30 @@ self.onmessage = async (event) => {
   });
   await listen(extensionServer);
   const extensionAddress = extensionServer.address(); if (extensionAddress === null || typeof extensionAddress === "string") throw new Error("Remote UI extension server failed.");
-  const extensionOrigin = `http://127.0.0.1:${extensionAddress.port}`;
+  const extensionOrigin = `https://127.0.0.1:${extensionAddress.port}`;
   const frameUrl = `${extensionOrigin}${framePath}`;
   const hostileFrameUrl = `${extensionOrigin.replace(/:\d+$/u, ":1")}${framePath}`;
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Remote UI proof</title></head><body><main id="root"></main><script>window.__K_NEX_REMOTE_FRAME_URL__=${JSON.stringify(frameUrl)};window.__K_NEX_REMOTE_HOSTILE_FRAME_URL__=${JSON.stringify(hostileFrameUrl)}</script><script type="module" src="/host.js"></script></body></html>`;
+  const snapshot = { applicationId: "customer-alpha", environment: "production", appId: "app.sales-assistant", generationId: "sales-generation-1", artifactDigest: `sha256:${"a".repeat(64)}`, revision: 1, disposition: "active" };
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Remote UI proof</title></head><body><main id="root"></main><script>window.__K_NEX_REMOTE_FRAME_URL__=${JSON.stringify(frameUrl)};window.__K_NEX_REMOTE_HOSTILE_FRAME_URL__=${JSON.stringify(hostileFrameUrl)};window.__K_NEX_REMOTE_SNAPSHOT__=${JSON.stringify(snapshot)}</script><script type="module" src="/host.js"></script></body></html>`;
   hostServer.removeAllListeners("request");
   hostServer.on("request", (request, response) => {
     if (request.url === "/host.js") { response.writeHead(200, { "content-type": "text/javascript", "x-content-type-options": "nosniff" }); response.end(hostScript); return; }
+    if (request.url === "/api/extensions/remote-ui/authorize" && request.method === "POST") {
+      remoteUiAuthorizationChecks += 1;
+      const sessionId = /(?:^|;\s*)customer_session=([^;]+)/u.exec(request.headers.cookie ?? "")?.[1];
+      response.writeHead(authorizedSessions.has(sessionId) ? 204 : 401, { "cache-control": "no-store" }); response.end(); return;
+    }
+    if (request.url === "/api/extensions/remote-ui/test-revoke" && request.method === "POST") {
+      const sessionId = /(?:^|;\s*)customer_session=([^;]+)/u.exec(request.headers.cookie ?? "")?.[1];
+      response.writeHead(authorizedSessions.delete(sessionId) ? 204 : 401, { "cache-control": "no-store" }); response.end(); return;
+    }
     if (request.url === "/authenticated") { authenticatedFetches += 1; response.writeHead(200, { "content-type": "application/json" }); response.end('{"secret":true}'); return; }
     if (request.url === "/healthy") { response.writeHead(200, { "content-type": "application/json" }); response.end('{"healthy":true}'); return; }
     response.writeHead(200, { "content-type": "text/html", "set-cookie": "customer_session=protected; HttpOnly; SameSite=Lax" }); response.end(html);
   });
 
   browser = await chromium.launch();
-  const context = await browser.newContext();
+  const context = await browser.newContext({ ignoreHTTPSErrors: true });
   await context.addCookies([{ name: "extension_cookie", value: "must-not-be-sent", url: extensionOrigin }]);
   const page = await context.newPage();
   const pageErrors = []; const browserDiagnostics = [];
@@ -120,16 +142,20 @@ self.onmessage = async (event) => {
   const probe = await page.evaluate(() => window.__K_NEX_REMOTE_PROBE__);
   assert.deepEqual(probe, {
     document: "undefined", window: "undefined", localStorage: "undefined", sessionStorage: "undefined", sharedWorker: "undefined", serviceWorker: "undefined", popup: "undefined", top: "undefined",
-    indexedDB: "blocked", cache: "unavailable", authenticatedFetch: "blocked", websocket: "blocked", dynamicImport: "blocked"
+    indexedDB: "blocked", cache: "unavailable", authenticatedFetch: "blocked", websocket: "blocked", dynamicImport: "blocked", bootstrapCredentials: "absent"
   });
   assert.equal(extensionDocumentCookie, undefined, "credentialless iframe sent extension-origin cookies");
   assert.equal(await page.evaluate(() => window.__K_NEX_REMOTE_HOSTILE_FRAME_REJECTED__), true, "remote UI host accepted a hostile same-path frame origin");
   assert.equal(authenticatedFetches, 0, "remote realm reached an authenticated host endpoint");
   assert.equal(await page.evaluate(() => window.__K_NEX_REMOTE_WINDOW_MESSAGES__), 0, "remote app used ambient window messaging after channel transfer");
-  assert.match(await page.getByRole("heading", { name: "Sales assistant" }).ariaSnapshot(), /heading "Sales assistant" \[level=1\]/);
+  const heading = page.getByRole("heading", { name: "Sales assistant" });
+  assert.equal(await heading.evaluate((element) => element.tagName), "H1", "remote heading did not render through the host semantic component");
   const refresh = page.getByRole("button", { name: "Refresh sales tasks" });
   assert.equal(await refresh.evaluate((element) => element === document.activeElement), true, "host-owned focus request did not target the semantic control");
-  await refresh.click();
+  await page.getByRole("heading", { name: "Sales assistant" }).evaluate((element) => { element.tabIndex = -1; element.focus(); });
+  await page.keyboard.press("Tab");
+  assert.equal(await refresh.evaluate((element) => element === document.activeElement), true, "Tab did not reach the host semantic control");
+  await page.keyboard.press("Enter");
   await page.getByText("Loaded 2 tasks").waitFor();
   await page.waitForFunction(() => (window.__K_NEX_REMOTE_HEARTBEATS__ ?? 0) >= 2);
   const heartbeatsBeforeFailure = await page.evaluate(() => window.__K_NEX_REMOTE_HEARTBEATS__);
@@ -141,7 +167,18 @@ self.onmessage = async (event) => {
   await page.waitForTimeout(100);
   assert.equal(await page.evaluate(() => window.__K_NEX_REMOTE_HEARTBEATS__), heartbeatsAtFailure, "remote realm heartbeat continued after protocol failure");
   assert.equal(await page.locator("iframe").count(), 0, "failed remote realm iframe remained attached");
+  const fallback = page.getByRole("alert");
+  assert.equal(await fallback.evaluate((element) => element === document.activeElement), true, "fallback did not recover host-owned focus");
   assert.deepEqual(pageErrors, []);
+  const crashPage = await context.newPage();
+  await crashPage.goto(hostOrigin);
+  await crashPage.waitForFunction(() => window.__K_NEX_REMOTE_READY__ === true);
+  await crashPage.getByRole("button", { name: "Report application runtime crash" }).click();
+  await crashPage.getByRole("alert").waitFor();
+  assert.match(await crashPage.getByRole("alert").textContent(), /APP_FAILURE/u);
+  assert.equal(await crashPage.locator("iframe").count(), 0, "crashed remote realm iframe remained attached");
+  assert.equal(await crashPage.getByRole("alert").evaluate((element) => element === document.activeElement), true, "crashed realm did not recover host-owned focus");
+  await crashPage.close();
   for (const attack of ["oversized", "depth", "rate", "replay", "mixed-generation", "navigation", "download"]) {
     const attackPage = await context.newPage();
     let downloads = 0;
@@ -157,11 +194,26 @@ self.onmessage = async (event) => {
     assert.equal((await attackPage.evaluate(() => window.__K_NEX_REMOTE_SOURCE_TARGETS__ ?? [])).every((target) => target === "sales.heartbeat"), true, `${attack} reached an unauthorized source`);
     assert.equal(await attackPage.evaluate(() => window.__K_NEX_REMOTE_ACTION_CALLS__ ?? 0), 0, `${attack} reached an unauthorized action`);
     assert.equal(downloads, 0, `${attack} initiated a browser download`);
-    const health = await fetch(`${hostOrigin}/healthy`);
-    assert.equal(health.status, 200, `${attack} made the host unhealthy`);
+    const health = await context.request.get(`${hostOrigin}/healthy`);
+    assert.equal(health.status(), 200, `${attack} made the host unhealthy`);
     await attackPage.close();
   }
   assert.equal(extensionRequests.includes("/download"), false, "remote realm reached the download endpoint despite connect-src denial");
+  const reauthorizationPage = await context.newPage();
+  await reauthorizationPage.goto(hostOrigin);
+  await reauthorizationPage.waitForFunction(() => window.__K_NEX_REMOTE_READY__ === true);
+  await reauthorizationPage.getByRole("button", { name: "Pause sales heartbeat" }).click();
+  await reauthorizationPage.waitForTimeout(100);
+  const gatewaysBeforeRevocation = await reauthorizationPage.evaluate(() => ({ source: window.__K_NEX_REMOTE_SOURCE_CALLS__ ?? 0, action: window.__K_NEX_REMOTE_ACTION_CALLS__ ?? 0 }));
+  const authorizationsBeforeRevocation = remoteUiAuthorizationChecks;
+  assert.equal(await reauthorizationPage.evaluate(async () => (await fetch("/api/extensions/remote-ui/test-revoke", { method: "POST", credentials: "same-origin" })).status), 204, "test session revocation failed");
+  await reauthorizationPage.getByRole("button", { name: "Refresh sales tasks" }).click();
+  await reauthorizationPage.getByRole("alert").waitFor();
+  assert.match(await reauthorizationPage.getByRole("alert").textContent(), /UNAUTHORIZED/u, "revoked session did not fail closed");
+  assert.equal(remoteUiAuthorizationChecks, authorizationsBeforeRevocation + 1, "the valid post-revocation frame was not reauthorized");
+  assert.deepEqual(await reauthorizationPage.evaluate(() => ({ source: window.__K_NEX_REMOTE_SOURCE_CALLS__ ?? 0, action: window.__K_NEX_REMOTE_ACTION_CALLS__ ?? 0 })), gatewaysBeforeRevocation, "revoked session reached a source or action gateway");
+  assert.equal(await reauthorizationPage.locator("iframe").count(), 0, "revoked remote realm remained attached");
+  await reauthorizationPage.close();
   await context.close();
   process.stdout.write("P9_REMOTE_UI_BROWSER_PASS\n");
 } finally {

@@ -30,7 +30,11 @@ try {
 }
 assert.equal(evidence.status, "PASS", "Gate 9 attack corpus did not pass.");
 assert.equal(evidence.scenarios.length, 22, "Gate 9 must execute all 22 named attack scenarios.");
-assert.ok(evidence.proofs.length > 0, "Gate 9 must execute named proofs.");
+assert.equal(evidence.proofs.length, 12, "Gate 9 must execute exactly 12 named proof groups.");
+const runtimeExtensionStateProof = evidence.proofs.find(({ id }) => id === "runtime-extension-state");
+assert.ok(runtimeExtensionStateProof, "Gate 9 must execute the merged PostgreSQL runtime-extension-state proof.");
+assert.ok(runtimeExtensionStateProof.names.includes("PostgreSQL Remote UI reads are generation-linearized, restart-safe, and fail closed"), "Gate 9 merged PostgreSQL proof did not report the exact Remote UI test.");
+assert.ok(runtimeExtensionStateProof.markers?.P9_REMOTE_UI_POSTGRES_EVIDENCE, "Gate 9 merged PostgreSQL proof did not report durable asset evidence.");
 for (const scenario of evidence.scenarios) {
   assert.match(scenario.id, /^SCN-\d{2}$/u, "Gate 9 scenario has no stable identifier.");
   assert.ok(typeof scenario.expected === "string" && scenario.expected.length > 0, `Gate 9 scenario lacks an expected outcome: ${scenario.id}`);

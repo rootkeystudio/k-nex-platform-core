@@ -5,13 +5,20 @@ export interface RemoteUiComponentDefinition {
   validateProps(props: Readonly<Record<string, JsonValue>>, context: Readonly<{ assets: ReadonlySet<string> }>): void;
 }
 
-export interface RemoteUiSessionIdentity {
-  readonly sessionId: string;
-  readonly actorSessionId: string;
-  readonly applicationId: string;
-  readonly environment: string;
-  readonly appId: string;
+export interface RemoteUiGenerationOwner { readonly applicationId: string; readonly environment: string; readonly appId: string; }
+export type RemoteUiGenerationDisposition = "active" | "disabled" | "quarantined" | "removed";
+/** Ephemeral projection of the durable extension inventory authority. */
+export interface RemoteUiGenerationSnapshot extends RemoteUiGenerationOwner {
   readonly generationId: string;
+  readonly artifactDigest: string;
+  readonly revision: number;
+  readonly disposition: RemoteUiGenerationDisposition;
+}
+
+export interface RemoteUiSessionIdentity extends RemoteUiGenerationOwner {
+  readonly sessionId: string;
+  readonly generationId: string;
+  readonly artifactDigest: string;
   /** Host-authorized, verified, generation-pinned frame document URL. */
   readonly remoteUiFrameUrl: string;
   /** Concrete host pathname for this session. */
@@ -24,25 +31,20 @@ export interface RemoteUiSessionIdentity {
   readonly assets: ReadonlySet<string>;
 }
 
-export interface RemoteUiGenerationOwner {
-  readonly applicationId: string;
-  readonly environment: string;
-  readonly appId: string;
-}
+export type RemoteUiSessionRequest = Readonly<Omit<RemoteUiSessionIdentity, "applicationId" | "environment" | "appId" | "generationId" | "artifactDigest">>;
 
 export interface RemoteUiHostAdapter {
-  authorize(identity: RemoteUiSessionIdentity, frame: RemoteUiFrame): boolean | Promise<boolean>;
-  render(root: RemoteUiNode): void | Promise<void>;
-  fallback(code: "APP_FAILURE" | "PROTOCOL_FAILURE" | "UNAUTHORIZED"): void | Promise<void>;
-  focus(nodeId: string): void | Promise<void>;
-  navigate(route: string): void | Promise<void>;
-  source(targetId: string, input: JsonValue): JsonValue | Promise<JsonValue>;
-  action(targetId: string, input: JsonValue): JsonValue | Promise<JsonValue>;
+  authorize(identity: RemoteUiSessionIdentity, frame: RemoteUiFrame, signal: AbortSignal): boolean | Promise<boolean>;
+  render(root: RemoteUiNode, signal: AbortSignal): void | Promise<void>;
+  fallback(code: "APP_FAILURE" | "PROTOCOL_FAILURE" | "UNAUTHORIZED", signal: AbortSignal): void | Promise<void>;
+  focus(nodeId: string, signal: AbortSignal): void | Promise<void>;
+  navigate(route: string, signal: AbortSignal): void | Promise<void>;
+  /** Requests always carry the immutable host-admitted session, never browser-authored identity. */
+  source(identity: RemoteUiSessionIdentity, targetId: string, input: JsonValue, signal: AbortSignal): JsonValue | Promise<JsonValue>;
+  action(identity: RemoteUiSessionIdentity, targetId: string, input: JsonValue, signal: AbortSignal): JsonValue | Promise<JsonValue>;
 }
 
-export interface RemoteUiFrameOptions {
-  readonly allowInsecureDevelopmentOrigin?: boolean;
-}
+export interface RemoteUiFrameOptions { readonly allowInsecureDevelopmentOrigin?: boolean; }
 
 export class RemoteUiProtocolError extends Error {
   constructor(readonly code: "FRAME_INVALID" | "IDENTITY_MISMATCH" | "SEQUENCE_INVALID" | "BUDGET_EXCEEDED" | "COMPONENT_DENIED" | "PROP_INVALID" | "EVENT_DENIED" | "TARGET_DENIED" | "UNAUTHORIZED" | "SESSION_CLOSED", message: string) {
@@ -51,6 +53,7 @@ export class RemoteUiProtocolError extends Error {
   }
 }
 
+const sessionAdmission = Symbol("remote-ui-session-admission");
 function fail(code: RemoteUiProtocolError["code"], message: string): never { throw new RemoteUiProtocolError(code, message); }
 
 function bytes(value: unknown): number {
@@ -97,22 +100,26 @@ export class RemoteUiHostSession {
   private realmDisposer: (() => void) | undefined;
   private nodes: ReadonlyMap<string, RemoteUiNode> = new Map();
   private readonly requestTimes: number[] = [];
+  private readonly abortController = new AbortController();
 
   constructor(
     readonly identity: RemoteUiSessionIdentity,
     private readonly registry: ReadonlyMap<string, RemoteUiComponentDefinition>,
     private readonly adapter: RemoteUiHostAdapter,
-    private readonly now: () => number = Date.now
-  ) {}
+    private readonly now: () => number,
+    admission: symbol,
+    private readonly unregister: (session: RemoteUiHostSession) => void
+  ) {
+    if (admission !== sessionAdmission) throw new TypeError("Remote UI sessions must be created by an admitted generation handle.");
+  }
 
   start(port: MessagePort): void {
     if (this.port || this.closed) fail("SESSION_CLOSED", "Remote UI session cannot be started.");
     this.port = port;
-    port.addEventListener("message", (event) => {
-      this.queue = this.queue.then(() => this.receive(event.data)).catch((error) => this.protocolFailure(error));
-    });
+    port.addEventListener("message", (event) => this.enqueue(() => this.receive(event.data)));
+    port.addEventListener("messageerror", () => { void this.controlledFailure("PROTOCOL_FAILURE"); });
     port.start();
-    this.send("bootstrap", { actorSessionId: this.identity.actorSessionId, route: this.identity.route, surface: this.identity.surface });
+    this.send("bootstrap", { route: this.identity.route, surface: this.identity.surface });
   }
 
   /** The host owns the realm lifecycle; any terminal session state must tear it down. */
@@ -121,7 +128,10 @@ export class RemoteUiHostSession {
     this.realmDisposer = dispose;
   }
 
+  realmCrashed(): void { void this.controlledFailure("APP_FAILURE"); }
+
   dispatchEvent(nodeId: string, event: "press" | "change" | "submit" | "selection-change", payload: JsonValue): void {
+    if (this.closed) return;
     const binding = this.nodes.get(nodeId)?.events.find((candidate) => candidate.event === event);
     if (!binding) fail("EVENT_DENIED", "Remote UI event is not bound by the active tree.");
     this.send("event", { nodeId, event, handlerId: binding.handlerId, payload });
@@ -129,17 +139,29 @@ export class RemoteUiHostSession {
 
   dispose(reason: "generation-retired" | "session-ended" | "protocol-failure" = "session-ended"): void {
     if (this.closed) return;
-    if (this.port) this.send("dispose", { reason });
     this.closed = true;
-    this.nodes = new Map();
-    this.port?.close();
+    this.abortController.abort();
+    const port = this.port;
     const disposeRealm = this.realmDisposer;
+    this.port = undefined;
     this.realmDisposer = undefined;
-    disposeRealm?.();
+    this.nodes = new Map();
+    try { if (port) try { this.post(port, "dispose", { reason }); } catch {} }
+    finally {
+      try { try { port?.close(); } catch {} }
+      finally {
+        try { try { disposeRealm?.(); } catch {} }
+        finally { this.unregister(this); }
+      }
+    }
+  }
+
+  private enqueue(work: () => Promise<void>): void {
+    this.queue = this.queue.then(work).catch((error) => this.controlledFailure(error instanceof RemoteUiProtocolError && error.code === "UNAUTHORIZED" ? "UNAUTHORIZED" : "PROTOCOL_FAILURE"));
   }
 
   private async receive(value: unknown): Promise<void> {
-    if (this.closed) fail("SESSION_CLOSED", "Remote UI session is closed.");
+    if (this.closed) return;
     if (bytes(value) > remoteUiCeilings.canonicalBytes) fail("BUDGET_EXCEEDED", "Remote UI frame exceeds its byte budget.");
     const parsed = RemoteUiFrameSchema.safeParse(value);
     if (!parsed.success || parsed.data.direction !== "realm-to-host") fail("FRAME_INVALID", "Remote UI realm frame is invalid.");
@@ -148,49 +170,54 @@ export class RemoteUiHostSession {
     if (frame.sequence !== this.incomingSequence + 1) fail("SEQUENCE_INVALID", "Remote UI sequence is missing or replayed.");
     this.incomingSequence = frame.sequence;
     this.enforceRate();
-    if (!await this.adapter.authorize(this.identity, frame)) {
-      await this.adapter.fallback("UNAUTHORIZED");
-      fail("UNAUTHORIZED", "Remote UI frame is not authorized.");
-    }
+    const signal = this.abortController.signal;
+    const authorized = await this.adapter.authorize(this.identity, frame, signal);
+    if (this.closed) return;
+    if (!authorized) { await this.controlledFailure("UNAUTHORIZED"); return; }
     if (frame.type === "ready") return;
     if (frame.type === "render") {
       this.nodes = validateTree(frame.root, this.registry, this.identity.assets);
-      await this.adapter.render(frame.root);
+      await this.adapter.render(frame.root, signal);
       return;
     }
     if (frame.type === "focus") {
       if (!this.nodes.has(frame.nodeId)) fail("TARGET_DENIED", "Remote UI focus target is not active.");
-      await this.adapter.focus(frame.nodeId);
+      await this.adapter.focus(frame.nodeId, signal);
       return;
     }
     if (frame.type === "navigate") {
       if (![...this.identity.routes].some((route) => matchHotApplicationRoute(this.identity.appId, route, frame.route))) fail("TARGET_DENIED", "Remote UI route is not declared.");
-      await this.adapter.navigate(frame.route);
+      await this.adapter.navigate(frame.route, signal);
       return;
     }
-    if (frame.type === "failure") {
-      await this.adapter.fallback("APP_FAILURE");
-      this.dispose("protocol-failure");
-      return;
-    }
+    if (frame.type === "failure") { await this.controlledFailure("APP_FAILURE"); return; }
     const allowed = frame.operation === "source" ? this.identity.sources : this.identity.actions;
     if (!allowed.has(frame.targetId)) fail("TARGET_DENIED", "Remote UI data target is not declared.");
     try {
-      const output = await (frame.operation === "source" ? this.adapter.source(frame.targetId, frame.input) : this.adapter.action(frame.targetId, frame.input));
-      this.send("response-ok", { requestId: frame.requestId, output });
+      const output = await (frame.operation === "source" ? this.adapter.source(this.identity, frame.targetId, frame.input, signal) : this.adapter.action(this.identity, frame.targetId, frame.input, signal));
+      if (!this.closed) this.send("response-ok", { requestId: frame.requestId, output });
     } catch {
-      this.send("response-error", { requestId: frame.requestId, code: "REQUEST_FAILED" });
+      if (!this.closed) this.send("response-error", { requestId: frame.requestId, code: "REQUEST_FAILED" });
     }
   }
 
-  private send(type: "bootstrap" | "event" | "response-ok" | "response-error" | "dispose", body: Record<string, unknown>): void {
-    if (!this.port || (this.closed && type !== "dispose")) fail("SESSION_CLOSED", "Remote UI session is not connected.");
-    const frame = RemoteUiFrameSchema.parse({
-      schemaVersion: 1, sessionId: this.identity.sessionId, appId: this.identity.appId, generationId: this.identity.generationId,
-      sequence: ++this.outgoingSequence, direction: "host-to-realm", type, ...body
-    });
+  private async controlledFailure(code: "APP_FAILURE" | "PROTOCOL_FAILURE" | "UNAUTHORIZED"): Promise<void> {
+    if (this.closed) return;
+    try { void Promise.resolve(this.adapter.fallback(code, this.abortController.signal)).catch(() => undefined); }
+    catch {}
+    finally { this.dispose("protocol-failure"); }
+  }
+
+  private send(type: "bootstrap" | "event" | "response-ok" | "response-error", body: Record<string, unknown>): void {
+    if (!this.port || this.closed) return;
+    try { this.post(this.port, type, body); }
+    catch { this.realmCrashed(); }
+  }
+
+  private post(port: MessagePort, type: "bootstrap" | "event" | "response-ok" | "response-error" | "dispose", body: Record<string, unknown>): void {
+    const frame = RemoteUiFrameSchema.parse({ schemaVersion: 1, sessionId: this.identity.sessionId, appId: this.identity.appId, generationId: this.identity.generationId, sequence: ++this.outgoingSequence, direction: "host-to-realm", type, ...body });
     if (bytes(frame) > remoteUiCeilings.canonicalBytes) fail("BUDGET_EXCEEDED", "Remote UI host frame exceeds its byte budget.");
-    this.port.postMessage(frame);
+    port.postMessage(frame);
   }
 
   private enforceRate(): void {
@@ -199,48 +226,51 @@ export class RemoteUiHostSession {
     if (this.requestTimes.length >= remoteUiCeilings.callsPerMinute) fail("BUDGET_EXCEEDED", "Remote UI frame rate exceeds its budget.");
     this.requestTimes.push(this.now());
   }
-
-  private async protocolFailure(error: unknown): Promise<void> {
-    if (this.closed) return;
-    if (!(error instanceof RemoteUiProtocolError && error.code === "UNAUTHORIZED")) await this.adapter.fallback("PROTOCOL_FAILURE");
-    this.dispose("protocol-failure");
-  }
 }
 
 export class RemoteUiGenerationSessions {
-  private readonly active = new Map<string, string>();
+  private readonly active = new Map<string, RemoteUiGenerationSnapshot>();
+  private readonly observed = new Map<string, RemoteUiGenerationSnapshot>();
   private readonly sessions = new Map<string, Set<RemoteUiHostSession>>();
   private readonly pendingRetirements = new Map<string, symbol>();
 
-  constructor(private readonly schedule: (work: () => void, delayMs: number) => unknown = setTimeout) {}
+  constructor(private readonly schedule: (work: () => void, delayMs: number) => unknown = (work, delayMs) => setTimeout(work, delayMs)) {}
 
-  activate(ownerInput: RemoteUiGenerationOwner, generationId: string, drainMs: number): void {
-    const owner = remoteUiGenerationOwner(ownerInput);
-    if (!validGenerationId(generationId) || !Number.isSafeInteger(drainMs) || drainMs < 1 || drainMs > 30_000) throw new TypeError("Remote UI generation activation is invalid.");
-    const key = remoteUiGenerationOwnerKey(owner);
-    const previous = this.active.get(key);
-    this.active.set(key, generationId);
-    this.pendingRetirements.delete(remoteUiGenerationKey(owner, generationId));
-    if (previous !== undefined && previous !== generationId) {
-      const previousKey = remoteUiGenerationKey(owner, previous);
-      const retirement = Symbol();
-      this.pendingRetirements.set(previousKey, retirement);
-      this.schedule(() => {
-        if (this.pendingRetirements.get(previousKey) !== retirement) return;
-        this.pendingRetirements.delete(previousKey);
-        if (this.active.get(key) !== previous) this.retire(owner, previous);
-      }, drainMs);
+  observe(snapshotInput: RemoteUiGenerationSnapshot, drainMs: number): void {
+    const snapshot = remoteUiGenerationSnapshot(snapshotInput);
+    if (!Number.isSafeInteger(drainMs) || drainMs < 1 || drainMs > 30_000) throw new TypeError("Remote UI generation drain is invalid.");
+    const ownerKey = remoteUiGenerationOwnerKey(snapshot);
+    const previous = this.observed.get(ownerKey);
+    if (previous && snapshot.revision < previous.revision) throw new TypeError("Remote UI generation observations must advance monotonically.");
+    if (previous && snapshot.revision === previous.revision) {
+      if (sameSnapshot(previous, snapshot)) return;
+      throw new TypeError("Remote UI generation observations with the same revision must match.");
     }
+    const active = this.active.get(ownerKey);
+    if (active && snapshot.disposition === "active" && active.generationId === snapshot.generationId && active.artifactDigest !== snapshot.artifactDigest) throw new TypeError("An immutable Remote UI generation cannot change artifact digest.");
+    this.observed.set(ownerKey, snapshot);
+    if (snapshot.disposition !== "active") {
+      this.active.delete(ownerKey);
+      this.disposeOwner(snapshot, "protocol-failure");
+      return;
+    }
+    this.active.set(ownerKey, snapshot);
+    this.pendingRetirements.delete(remoteUiGenerationKey(snapshot, snapshot.generationId));
+    if (active && active.generationId !== snapshot.generationId) this.drain(active, drainMs);
   }
 
-  admit(session: RemoteUiHostSession): void {
-    const owner = remoteUiGenerationOwner(session.identity);
-    if (!validGenerationId(session.identity.generationId)) fail("IDENTITY_MISMATCH", "Remote UI session generation is invalid.");
-    if (this.active.get(remoteUiGenerationOwnerKey(owner)) !== session.identity.generationId) fail("IDENTITY_MISMATCH", "New Remote UI sessions require the active generation.");
-    const key = remoteUiGenerationKey(owner, session.identity.generationId);
+  open(snapshotInput: RemoteUiGenerationSnapshot, request: RemoteUiSessionRequest, registry: ReadonlyMap<string, RemoteUiComponentDefinition>, adapter: RemoteUiHostAdapter, now: () => number = Date.now): RemoteUiHostSession {
+    const snapshot = remoteUiGenerationSnapshot(snapshotInput);
+    const active = this.active.get(remoteUiGenerationOwnerKey(snapshot));
+    if (!active || active.disposition !== "active" || !sameSnapshot(active, snapshot)) fail("IDENTITY_MISMATCH", "New Remote UI sessions require the current active generation snapshot.");
+    if (!validRecordId(request.sessionId)) fail("IDENTITY_MISMATCH", "Remote UI session identity is invalid.");
+    const identity = Object.freeze({ ...request, applicationId: active.applicationId, environment: active.environment, appId: active.appId, generationId: active.generationId, artifactDigest: active.artifactDigest });
+    const session = new RemoteUiHostSession(identity, registry, adapter, now, sessionAdmission, (value) => this.unregister(value));
+    const key = remoteUiGenerationKey(active, active.generationId);
     const sessions = this.sessions.get(key) ?? new Set<RemoteUiHostSession>();
     sessions.add(session);
     this.sessions.set(key, sessions);
+    return session;
   }
 
   retire(ownerInput: RemoteUiGenerationOwner, generationId: string): number {
@@ -250,42 +280,69 @@ export class RemoteUiGenerationSessions {
     this.pendingRetirements.delete(key);
     const sessions = this.sessions.get(key);
     if (!sessions) return 0;
-    for (const session of sessions) session.dispose("generation-retired");
+    const count = sessions.size;
     this.sessions.delete(key);
-    return sessions.size;
+    for (const session of sessions) session.dispose("generation-retired");
+    return count;
+  }
+
+  private drain(snapshot: RemoteUiGenerationSnapshot, drainMs: number): void {
+    const key = remoteUiGenerationKey(snapshot, snapshot.generationId);
+    const retirement = Symbol();
+    this.pendingRetirements.set(key, retirement);
+    this.schedule(() => {
+      if (this.pendingRetirements.get(key) !== retirement) return;
+      this.pendingRetirements.delete(key);
+      if (this.active.get(remoteUiGenerationOwnerKey(snapshot))?.generationId !== snapshot.generationId) this.retire(snapshot, snapshot.generationId);
+    }, drainMs);
+  }
+
+  private disposeOwner(owner: RemoteUiGenerationOwner, reason: "generation-retired" | "protocol-failure"): void {
+    const prefix = `${remoteUiGenerationOwnerKey(owner)}\0`;
+    for (const key of [...this.pendingRetirements.keys()]) if (key.startsWith(prefix)) this.pendingRetirements.delete(key);
+    for (const [key, sessions] of [...this.sessions]) {
+      if (!key.startsWith(prefix)) continue;
+      this.sessions.delete(key);
+      for (const session of sessions) session.dispose(reason);
+    }
+  }
+
+  private unregister(session: RemoteUiHostSession): void {
+    const key = remoteUiGenerationKey(session.identity, session.identity.generationId);
+    const sessions = this.sessions.get(key);
+    if (!sessions) return;
+    sessions.delete(session);
+    if (sessions.size === 0) this.sessions.delete(key);
   }
 }
 
 function remoteUiGenerationOwner(owner: RemoteUiGenerationOwner): RemoteUiGenerationOwner {
-  if (!/^[a-z][a-z0-9-]{2,127}$/u.test(owner.applicationId) || !/^[a-z][a-z0-9-]{1,63}$/u.test(owner.environment) || !/^app(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$/u.test(owner.appId)) {
-    throw new TypeError("Remote UI generation owner is invalid.");
-  }
+  if (!/^[a-z][a-z0-9-]{2,127}$/u.test(owner.applicationId) || !/^[a-z][a-z0-9-]{1,63}$/u.test(owner.environment) || !/^app(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$/u.test(owner.appId)) throw new TypeError("Remote UI generation owner is invalid.");
   return Object.freeze({ applicationId: owner.applicationId, environment: owner.environment, appId: owner.appId });
 }
 
-function validGenerationId(generationId: string): boolean {
-  return /^[a-z][a-z0-9-]{2,127}$/u.test(generationId);
+function remoteUiGenerationSnapshot(snapshot: RemoteUiGenerationSnapshot): RemoteUiGenerationSnapshot {
+  const owner = remoteUiGenerationOwner(snapshot);
+  if (!validGenerationId(snapshot.generationId) || !/^sha256:[0-9a-f]{64}$/u.test(snapshot.artifactDigest) || !Number.isSafeInteger(snapshot.revision) || snapshot.revision < 0 || !["active", "disabled", "quarantined", "removed"].includes(snapshot.disposition)) throw new TypeError("Remote UI generation snapshot is invalid.");
+  return Object.freeze({ ...owner, generationId: snapshot.generationId, artifactDigest: snapshot.artifactDigest, revision: snapshot.revision, disposition: snapshot.disposition });
 }
 
-function remoteUiGenerationOwnerKey(owner: RemoteUiGenerationOwner): string {
-  return `${owner.applicationId}\0${owner.environment}\0${owner.appId}`;
+function sameSnapshot(left: RemoteUiGenerationSnapshot, right: RemoteUiGenerationSnapshot): boolean {
+  return left.applicationId === right.applicationId && left.environment === right.environment && left.appId === right.appId && left.generationId === right.generationId && left.artifactDigest === right.artifactDigest && left.revision === right.revision && left.disposition === right.disposition;
 }
 
-function remoteUiGenerationKey(owner: RemoteUiGenerationOwner, generationId: string): string {
-  return `${remoteUiGenerationOwnerKey(owner)}\0${generationId}`;
-}
+function validRecordId(value: string): boolean { return /^[a-z][a-z0-9-]{2,127}$/u.test(value); }
+function validGenerationId(generationId: string): boolean { return validRecordId(generationId); }
+function remoteUiGenerationOwnerKey(owner: RemoteUiGenerationOwner): string { return `${owner.applicationId}\0${owner.environment}\0${owner.appId}`; }
+function remoteUiGenerationKey(owner: RemoteUiGenerationOwner, generationId: string): string { return `${remoteUiGenerationOwnerKey(owner)}\0${generationId}`; }
 
 export function createOpaqueRemoteUiFrame(document: Document, session: RemoteUiHostSession, source: string, title: string, options: RemoteUiFrameOptions = {}): Readonly<{ iframe: HTMLIFrameElement; dispose(): void }> {
   const url = new URL(source, document.location.href);
   const expected = new URL(session.identity.remoteUiFrameUrl, document.location.href);
   const framePath = /^\/api\/extensions\/apps\/(app\.[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*)\/assets\/([a-z][a-z0-9-]{2,127})\/sha256:[0-9a-f]{64}\/frame\.html$/u.exec(url.pathname);
-  if (options.allowInsecureDevelopmentOrigin && session.identity.environment !== "development") {
-    throw new TypeError("Insecure Remote UI origins are permitted only for development.");
-  }
+  if (options.allowInsecureDevelopmentOrigin && session.identity.environment !== "development") throw new TypeError("Insecure Remote UI origins are permitted only for development.");
   const insecureDevelopmentOrigin = options.allowInsecureDevelopmentOrigin && url.protocol === "http:" && ["127.0.0.1", "localhost"].includes(url.hostname);
-  if (url.href !== expected.href || (!insecureDevelopmentOrigin && url.protocol !== "https:") || url.origin === document.location.origin || url.username !== "" || url.password !== "" || url.search !== "" || url.hash !== "" || framePath?.[1] !== session.identity.appId || framePath[2] !== session.identity.generationId) {
-    throw new TypeError("Remote UI frame URL must be a generation-pinned credentialless extension origin.");
-  }
+  if (url.href !== expected.href || (!insecureDevelopmentOrigin && url.protocol !== "https:") || url.origin === document.location.origin || url.username !== "" || url.password !== "" || url.search !== "" || url.hash !== "" || framePath?.[1] !== session.identity.appId || framePath[2] !== session.identity.generationId) throw new TypeError("Remote UI frame URL must be a generation-pinned credentialless extension origin.");
   const iframe = document.createElement("iframe");
   iframe.title = title;
   iframe.sandbox.add("allow-scripts");
@@ -295,8 +352,10 @@ export function createOpaqueRemoteUiFrame(document: Document, session: RemoteUiH
   const channel = new MessageChannel();
   iframe.addEventListener("load", () => {
     session.start(channel.port1);
-    iframe.contentWindow?.postMessage({ schemaVersion: 1, type: "k-nex-connect" }, "*", [channel.port2]);
+    if (iframe.contentWindow) iframe.contentWindow.postMessage({ schemaVersion: 1, type: "k-nex-connect" }, "*", [channel.port2]);
+    else session.realmCrashed();
   }, { once: true });
+  iframe.addEventListener("error", () => session.realmCrashed(), { once: true });
   iframe.src = url.href;
   session.bindRealmDisposer(() => iframe.remove());
   return Object.freeze({ iframe, dispose() { session.dispose(); } });

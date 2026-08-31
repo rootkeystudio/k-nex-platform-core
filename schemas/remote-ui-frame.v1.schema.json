@@ -266,9 +266,6 @@
     "__schema17": {
       "additionalProperties": false,
       "properties": {
-        "actorSessionId": {
-          "$ref": "#/$defs/__schema2"
-        },
         "appId": {
           "$ref": "#/$defs/__schema3"
         },
@@ -307,7 +304,6 @@
         "sequence",
         "direction",
         "type",
-        "actorSessionId",
         "route",
         "surface"
       ],

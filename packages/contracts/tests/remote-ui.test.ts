@@ -17,6 +17,14 @@ describe("remote UI wire contract", () => {
     expect(RemoteUiFrameSchema.parse({ ...identity, direction: "host-to-realm", type: "event", nodeId: "refresh", event: "press", handlerId: "sales.refresh", payload: null })).toMatchObject({ type: "event" });
   });
 
+  it("keeps bootstrap and wire frames free of actor or credential inputs", () => {
+    const bootstrap = RemoteUiFrameSchema.parse({ ...identity, direction: "host-to-realm", type: "bootstrap", route: "/apps/sales-assistant", surface: "sales.assistant-screen" });
+    expect(Object.keys(bootstrap).sort()).toEqual(["appId", "direction", "generationId", "route", "schemaVersion", "sequence", "sessionId", "surface", "type"]);
+    for (const credential of ["actorSessionId", "cookie", "token", "authorization"]) {
+      expect(RemoteUiFrameSchema.safeParse({ ...bootstrap, [credential]: "credential-value" }).success).toBe(false);
+    }
+  });
+
   it("rejects executable props, unknown frames, mixed direction, and unbounded trees", () => {
     expect(RemoteUiNodeSchema.safeParse({ ...root, props: { onClick: () => undefined } }).success).toBe(false);
     expect(RemoteUiFrameSchema.safeParse({ ...identity, direction: "host-to-realm", type: "render", root }).success).toBe(false);
