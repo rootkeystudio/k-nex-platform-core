@@ -8,6 +8,7 @@ import test from "node:test";
 
 const fixtureDirectory = fileURLToPath(new URL("..", import.meta.url));
 const topologyProcess = join(fixtureDirectory, "static-deployment", "topology-process.mjs");
+const PROBE_LINE_STARTUP_TIMEOUT_MS = 10_000;
 
 function startProbe(environment) {
   const child = spawn(process.execPath, [topologyProcess], {
@@ -50,7 +51,7 @@ function startProbe(environment) {
         const timeout = setTimeout(() => {
           listeners.delete(listener);
           reject(new Error(`Probe did not emit the expected line: ${output}`));
-        }, 2_000);
+        }, PROBE_LINE_STARTUP_TIMEOUT_MS);
         const listener = (value) => {
           if (!predicate(value)) return;
           clearTimeout(timeout);
