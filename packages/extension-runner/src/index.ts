@@ -129,6 +129,7 @@ const applicationPattern = /^[a-z][a-z0-9-]{2,127}$/u;
 const environmentPattern = /^[a-z][a-z0-9-]{1,63}$/u;
 const appPattern = /^app(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$/u;
 const recordPattern = /^[a-z][a-z0-9-]{2,127}$/u;
+const supervisorPattern = /^[a-z][a-z0-9-]{2,127}$/u;
 const drainLeasePattern = /^lease-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/u;
 
 function generationKey(identity: RunnerGenerationIdentity): string {
@@ -236,9 +237,11 @@ export class DockerHotApplicationSandboxSupervisor {
     private readonly observationSink: RunnerObservationSink,
     private readonly artifacts: VerifiedArtifactRunnerSource,
     private readonly isolationPolicy: DockerIsolationPolicy,
+    private readonly supervisorIdentity: string,
     private readonly image = extensionRunnerImage
   ) {
     if (image !== extensionRunnerImage) throw new TypeError("Runner image must match the approved Node release digest.");
+    if (!supervisorPattern.test(supervisorIdentity)) throw new TypeError("Runner supervisor identity is invalid.");
     assertDockerSecurityPolicy(isolationPolicy);
     if (isolationPolicy.kind !== "local-docker-test-only") this.isolationProfile = createDockerRunnerIsolationProfile(isolationPolicy);
   }
@@ -355,7 +358,7 @@ export class DockerHotApplicationSandboxSupervisor {
       : [];
     const args = [
       "run", "-i", "--name", containerName,
-      "--label", "k-nex.runner=hot-application-v1", "--label", `k-nex.application=${request.applicationId}`, "--label", `k-nex.environment=${request.environment}`, "--label", `k-nex.app=${request.appId}`, "--label", `k-nex.generation=${request.generationId}`,
+      "--label", "k-nex.runner=hot-application-v1", "--label", `k-nex.supervisor=${this.supervisorIdentity}`, "--label", `k-nex.application=${request.applicationId}`, "--label", `k-nex.environment=${request.environment}`, "--label", `k-nex.app=${request.appId}`, "--label", `k-nex.generation=${request.generationId}`,
       "--network", "none", "--read-only", "--user", `${workloadUser}:${workloadUser}`, "--workdir", "/tmp",
       "--tmpfs", `/tmp:rw,noexec,nosuid,nodev,size=${request.limits.tempBytes},mode=700,uid=${workloadUser},gid=${workloadUser}`,
       "--cap-drop", "ALL", "--security-opt", "no-new-privileges=true", "--security-opt", `seccomp=${seccompPath}`, ...isolationOptions, "--pids-limit", String(request.limits.processes),
@@ -743,7 +746,7 @@ export class DockerHotApplicationSandboxSupervisor {
   }
 
   private async reconcileStartupContainers(): Promise<number> {
-    const output = await this.dockerOutput(["ps", "-aq", "--filter", "label=k-nex.runner=hot-application-v1"]);
+    const output = await this.dockerOutput(["ps", "-aq", "--filter", "label=k-nex.runner=hot-application-v1", "--filter", `label=k-nex.supervisor=${this.supervisorIdentity}`]);
     const containers = output.split(/\s+/u).filter(Boolean);
     const cleanup = await Promise.allSettled(containers.map((containerName) => this.kill(containerName)));
     const failed = cleanup.find((result) => result.status === "rejected");

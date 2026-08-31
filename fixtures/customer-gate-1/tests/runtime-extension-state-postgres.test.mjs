@@ -591,7 +591,7 @@ test("persists exact active-generation POLICY_VIOLATION runner quarantine across
     const supervisor = new DockerHotApplicationSandboxSupervisor(
       {}, adapter, { active: (runnerIdentity) => adapter.active(runnerIdentity), admit: (runnerIdentity, drainLeaseId) => adapter.admit(runnerIdentity, drainLeaseId) },
       { async started() {}, async stopped() {} }, { async load() { throw new Error("quarantine containment proof never loads an artifact"); } },
-      dockerIsolationPolicyFromEnvironment("local-docker-test-only")
+      dockerIsolationPolicyFromEnvironment("local-docker-test-only"), "runner-supervisor-quarantine-proof"
     );
     const supervisorState = supervisor.state(identity);
     supervisorState.active = 2;
@@ -917,7 +917,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     const runner = new DockerHotApplicationSandboxSupervisor(runnerGateway, runnerQuarantine, runnerAuthority, {
       started(identity) { dockerExecutions.push({ event: "started", generationId: identity.generationId }); },
       stopped(identity) { dockerExecutions.push({ event: "stopped", generationId: identity.generationId }); }
-    }, artifacts.runnerSource(), dockerIsolationPolicyFromEnvironment(process.env.K_NEX_RUNNER_ISOLATION_POLICY));
+    }, artifacts.runnerSource(), dockerIsolationPolicyFromEnvironment(process.env.K_NEX_RUNNER_ISOLATION_POLICY), "runner-supervisor-runtime-traffic");
     const trafficRuntime = new AuthoritativeHotApplicationRuntime(storeB, artifacts, capabilityTokens, runner, {
       applicationId: "customer-alpha", environment: "production", appId: "app.sales-live"
     }, "runtime-traffic-gateway");

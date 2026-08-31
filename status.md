@@ -7,15 +7,15 @@
 
 ## Last completed
 
-PR #28 review findings validated. Expired nonterminal operations are now reclaimed in a bounded, concurrency-safe PostgreSQL pass before new claims; live leases remain fenced and released capacity is exact-once.
+PR #28 review findings validated. Expired operation capacity is reclaimed safely, and runner startup cleanup is fenced to the required stable supervisor identity instead of Docker-daemon-global ownership.
 
 ## Validation
 
-Focused runtime and payload-adapter builds/unit tests passed, plus the real-PostgreSQL expired-operation reclamation proof. Full Gate 9 is deferred until the complete review-remediation slice.
+Focused runtime/payload-adapter builds and tests passed with real PostgreSQL reclamation proof. Extension-runner build, 36 reconciliation tests, and 13 Docker sandbox tests passed; one existing platform guard skipped. Full Gate 9 is deferred until the complete remediation slice.
 
 ## Next
 
-Fix the remaining PR #28 findings: module workers, runner ownership, catalog-state parity, and outbox publish leases. Then run the full phase gate once.
+Fix the remaining PR #28 findings: module-worker execution, catalog-state parity, and outbox publish leases. Then run the full phase gate once.
 
 ## Blockers
 

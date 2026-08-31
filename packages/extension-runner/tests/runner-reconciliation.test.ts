@@ -27,19 +27,10 @@ function request(overrides: Record<string, unknown> = {}) {
 
 function runner(
   authority: { active(identity: RunnerGenerationIdentity): Promise<boolean>; admit(identity: RunnerGenerationIdentity, leaseId: string): Promise<boolean> },
-  tokenLeaseId = drainLeaseId
+  tokenLeaseId = drainLeaseId,
+  supervisorIdentity = "runner-supervisor-alpha"
 ) {
-  return new DockerHotApplicationSandboxSupervisor({ assertInvocationIdentity() { return { drainLeaseId: tokenLeaseId }; } } as never, { async quarantine() {} }, authority, { async started() {}, async stopped() {} }, { async load() { throw new Error("artifact reads must not run"); } } as never, dockerAppArmorPolicy);
-}
-
-function labels(identity: RunnerGenerationIdentity) {
-  return {
-    "k-nex.runner": "hot-application-v1",
-    "k-nex.application": identity.applicationId,
-    "k-nex.environment": identity.environment,
-    "k-nex.app": identity.appId,
-    "k-nex.generation": identity.generationId
-  };
+  return new DockerHotApplicationSandboxSupervisor({ assertInvocationIdentity() { return { drainLeaseId: tokenLeaseId }; } } as never, { async quarantine() {} }, authority, { async started() {}, async stopped() {} }, { async load() { throw new Error("artifact reads must not run"); } } as never, dockerAppArmorPolicy, supervisorIdentity);
 }
 
 function child() {
@@ -79,27 +70,51 @@ function deferred<T>() {
 }
 
 describe("runner startup reconciliation", () => {
-  it("reaps every labeled startup container because no invocation can be reattached", async () => {
+  it("reaps every owned startup container because no invocation can be reattached", async () => {
     const supervisor = runner({ active: async (identity) => identity.generationId === active.generationId, admit: async () => true }) as any;
     const output = vi.fn(async (args: string[]) => {
       if (args[0] === "ps") return "orphan-container\nactive-container\n";
-      if (args[0] === "inspect") return JSON.stringify([{ Config: { Labels: labels(args[1] === "orphan-container" ? orphan : active) } }]);
       return "";
     });
     supervisor.dockerOutput = output;
 
     await expect(supervisor.start()).resolves.toBe(2);
-    expect(output).toHaveBeenCalledWith(["ps", "-aq", "--filter", "label=k-nex.runner=hot-application-v1"]);
+    expect(output).toHaveBeenCalledWith(["ps", "-aq", "--filter", "label=k-nex.runner=hot-application-v1", "--filter", "label=k-nex.supervisor=runner-supervisor-alpha"]);
     expect(output).toHaveBeenCalledWith(["kill", "orphan-container"]);
     expect(output).toHaveBeenCalledWith(["rm", "-f", "orphan-container"]);
     expect(output).toHaveBeenCalledWith(["kill", "active-container"]);
+  });
+
+  it("reaps only its own orphan when another supervisor has a healthy invocation on the same daemon", async () => {
+    const alpha = runner({ active: async () => true, admit: async () => true }, drainLeaseId, "runner-supervisor-alpha") as any;
+    const bravo = runner({ active: async () => true, admit: async () => true }, drainLeaseId, "runner-supervisor-bravo") as any;
+    const containers = new Set(["alpha-orphan", "bravo-healthy-invocation"]);
+    const daemon = vi.fn(async (args: string[]) => {
+      if (args[0] === "ps") {
+        return args.includes("label=k-nex.supervisor=runner-supervisor-alpha") && containers.has("alpha-orphan") ? "alpha-orphan\n" : "";
+      }
+      if (args[0] === "rm") containers.delete(args[2]!);
+      return "";
+    });
+    alpha.dockerOutput = daemon;
+    bravo.dockerOutput = daemon;
+
+    await expect(alpha.start()).resolves.toBe(1);
+
+    expect(daemon).toHaveBeenCalledWith(["ps", "-aq", "--filter", "label=k-nex.runner=hot-application-v1", "--filter", "label=k-nex.supervisor=runner-supervisor-alpha"]);
+    expect(daemon).toHaveBeenCalledWith(["kill", "alpha-orphan"]);
+    expect(daemon).not.toHaveBeenCalledWith(["kill", "bravo-healthy-invocation"]);
+    expect(containers).toEqual(new Set(["bravo-healthy-invocation"]));
+  });
+
+  it("rejects an invalid supervisor identity at construction", () => {
+    expect(() => runner({ active: async () => true, admit: async () => true }, drainLeaseId, "not stable")).toThrow("Runner supervisor identity is invalid.");
   });
 
   it("reaps an active-generation hung orphan before a fresh admitted invocation starts", async () => {
     const supervisor = runner({ active: vi.fn(async () => true), admit: vi.fn(async () => true) }) as any;
     supervisor.dockerOutput = vi.fn(async (args: string[]) => {
       if (args[0] === "ps") return "hung-active-container\n";
-      if (args[0] === "inspect") return JSON.stringify([{ Config: { Labels: labels(active) } }]);
       return "";
     });
 

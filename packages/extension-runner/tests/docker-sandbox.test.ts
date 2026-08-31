@@ -103,7 +103,7 @@ function supervisor(observations: Record<string, Record<string, any>>, store: Ve
   }, {
     async started(generation, name) { observations[name] = await inspectContainer(name); started?.(generation, name); },
     stopped() {}
-  }, store.runnerSource(), isolationPolicy);
+  }, store.runnerSource(), isolationPolicy, "runner-supervisor-docker-test");
 }
 
 function secureLinuxInspection(): Record<string, any> {
@@ -133,7 +133,7 @@ describe("production extension runner", () => {
     try {
       await execFile("docker", [
         "run", "--detach", "--interactive", "--name", containerName,
-        "--label", "k-nex.runner=hot-application-v1", "--label", "k-nex.application=customer-alpha", "--label", "k-nex.environment=production", "--label", "k-nex.app=app.sales-assistant", "--label", "k-nex.generation=seccomp-service",
+        "--label", "k-nex.runner=hot-application-v1", "--label", "k-nex.supervisor=runner-supervisor-seccomp-service", "--label", "k-nex.application=customer-alpha", "--label", "k-nex.environment=production", "--label", "k-nex.app=app.sales-assistant", "--label", "k-nex.generation=seccomp-service",
         "--network", "none", "--read-only", "--user", "10000:10000", "--workdir", "/tmp",
         "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=1048576,mode=700,uid=10000,gid=10000",
         "--cap-drop", "ALL", "--security-opt", "no-new-privileges=true", "--security-opt", `seccomp=${profilePath}`, "--security-opt", `apparmor=${runnerAppArmorProfileName}`, "--pids-limit", "32",
@@ -187,7 +187,7 @@ describe("production extension runner", () => {
       const isolationOptions = isolationPolicy.kind === "apparmor" ? ["--security-opt", `apparmor=${isolationPolicy.profile}`] : [];
       const child = spawn("docker", [
         "run", "-i", "--name", containerName,
-        "--label", "k-nex.runner=hot-application-v1", "--label", `k-nex.application=${invocation.applicationId}`, "--label", `k-nex.environment=${invocation.environment}`, "--label", `k-nex.app=${invocation.appId}`, "--label", `k-nex.generation=${invocation.generationId}`,
+        "--label", "k-nex.runner=hot-application-v1", "--label", "k-nex.supervisor=runner-supervisor-docker-test", "--label", `k-nex.application=${invocation.applicationId}`, "--label", `k-nex.environment=${invocation.environment}`, "--label", `k-nex.app=${invocation.appId}`, "--label", `k-nex.generation=${invocation.generationId}`,
         "--network", "none", "--read-only", "--user", `${workloadUser}:${workloadUser}`, "--workdir", "/tmp",
         "--tmpfs", `/tmp:rw,noexec,nosuid,nodev,size=${invocation.limits.tempBytes},mode=700,uid=${workloadUser},gid=${workloadUser}`,
         "--cap-drop", "ALL", "--security-opt", "no-new-privileges=true", "--security-opt", `seccomp=${seccompPath}`, ...isolationOptions, "--pids-limit", String(invocation.limits.processes),
@@ -444,6 +444,7 @@ describe("production extension runner", () => {
       expect(nodeLookupAll).toEqual([true, true]);
       expect(pinnedLookupResults).toEqual([[vettedAddress], [vettedAddress]]);
       const inspected = Object.values(observations)[0]!;
+      expect(inspected.Config.Labels).toMatchObject({ "k-nex.runner": "hot-application-v1", "k-nex.supervisor": "runner-supervisor-docker-test" });
       expect(Number(inspected.Config.User.split(":")[0])).toBeGreaterThanOrEqual(10_000);
       expect(inspected.HostConfig).toMatchObject({ NetworkMode: "none", ReadonlyRootfs: true, PidsLimit: 32, Memory: 67_108_864, MemorySwap: 67_108_864, NanoCpus: 250_000_000 });
       expect(inspected.HostConfig.CapDrop).toContain("ALL");
