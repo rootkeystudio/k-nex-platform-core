@@ -7,15 +7,15 @@
 
 ## Last completed
 
-PR #28 review findings validated. Expired operation capacity is reclaimed safely, and runner startup cleanup is fenced to the required stable supervisor identity instead of Docker-daemon-global ownership.
+PR #28 review findings validated. Expired operation capacity and runner ownership are fixed. Verified Remote UI ESM now launches as a module worker from an opaque-origin-safe `data:` URL without weakening the sandbox.
 
 ## Validation
 
-Focused runtime/payload-adapter builds and tests passed with real PostgreSQL reclamation proof. Extension-runner build, 36 reconciliation tests, and 13 Docker sandbox tests passed; one existing platform guard skipped. Full Gate 9 is deferred until the complete remediation slice.
+Focused runtime/payload-adapter builds and tests passed with real PostgreSQL proof; extension-runner build and focused reconciliation/Docker tests passed. Remote UI asset build/unit tests and real Chromium module-worker proof passed. Full Gate 9 is deferred until the complete remediation slice.
 
 ## Next
 
-Fix the remaining PR #28 findings: module-worker execution, catalog-state parity, and outbox publish leases. Then run the full phase gate once.
+Fix catalog-state parity and outbox publish leases, then run the full phase gate once.
 
 ## Blockers
 

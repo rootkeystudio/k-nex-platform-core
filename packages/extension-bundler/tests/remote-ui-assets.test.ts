@@ -55,20 +55,22 @@ describe("verified Remote UI assets", () => {
       constructor() { Channel.latest = this; }
     }
     let worker: { readonly listeners: Map<string, Array<(event: { data?: unknown; preventDefault?: () => void }) => void>>; readonly sent: unknown[]; terminate: ReturnType<typeof vi.fn> } | undefined;
+    let workerUrl: unknown;
+    let workerOptions: unknown;
     const Worker = class {
       readonly listeners = new Map<string, Array<(event: { data?: unknown; preventDefault?: () => void }) => void>>();
       readonly sent: unknown[] = [];
       readonly terminate = vi.fn();
-      constructor() { worker = this; }
+      constructor(url: unknown, options: unknown) { workerUrl = url; workerOptions = options; worker = this; }
       addEventListener(type: string, listener: (event: { data?: unknown; preventDefault?: () => void }) => void) { this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]); }
       postMessage(value: unknown, ports?: unknown[]) { this.sent.push([value, ports]); }
       emit(type: string, data?: unknown) { for (const listener of this.listeners.get(type) ?? []) listener({ data, preventDefault() {} }); }
     };
     const listeners = new Map<string, (event: { data?: unknown; ports?: Port[] }) => void>();
-    const revokeObjectURL = vi.fn();
-    new Function("addEventListener", "removeEventListener", "URL", "Blob", "Worker", "MessageChannel", createRemoteUiWorkerBootstrapSource(""))(
+    const moduleSource = "export const remoteUiModule = true;\n";
+    new Function("addEventListener", "removeEventListener", "Worker", "MessageChannel", createRemoteUiWorkerBootstrapSource(moduleSource))(
       (type: string, listener: (event: { data?: unknown; ports?: Port[] }) => void) => listeners.set(type, listener),
-      (type: string) => listeners.delete(type), { createObjectURL: () => "blob:app", revokeObjectURL }, class Blob {}, Worker, Channel
+      (type: string) => listeners.delete(type), Worker, Channel
     );
     const host = new Port();
     listeners.get("message")!({ data: { type: "k-nex-connect" }, ports: [host] });
@@ -82,8 +84,10 @@ describe("verified Remote UI assets", () => {
       { schemaVersion: 1, sessionId: "remote-session-1", appId: "app.sales-assistant", generationId: "sales-generation-1", sequence: 2, direction: "realm-to-host", type: "failure", code: "APP_BOOT_FAILED" }
     ]);
     expect(worker!.terminate).toHaveBeenCalledTimes(1);
+    expect(workerUrl).toMatch(/^data:text\/javascript;base64,/u);
+    expect(Buffer.from((workerUrl as string).slice("data:text/javascript;base64,".length), "base64").toString("utf8")).toBe(moduleSource);
+    expect(workerOptions).toEqual({ type: "module" });
     expect(host.closes).toBe(1);
-    expect(revokeObjectURL).toHaveBeenCalledTimes(1);
   });
 
   it("serves only active generation-pinned verified bytes with immutable security headers", async () => {
@@ -99,7 +103,7 @@ describe("verified Remote UI assets", () => {
     expect(response.headers["content-security-policy"]).toContain("connect-src 'none'");
     const document = createRemoteUiFrameDocument(`/api/extensions/apps/app.sales-assistant/assets/sales-generation-1/${response.bootstrapDigest}/bootstrap.js`, response.integrity);
     expect(Buffer.from(document.body).toString("utf8")).toContain('crossorigin="anonymous"');
-    expect(document.headers["content-security-policy"]).toContain("worker-src blob:");
+    expect(document.headers["content-security-policy"]).toContain("worker-src data:");
     expect(resolved.readRemoteUi).toHaveBeenCalledWith({
       applicationId: request.applicationId, environment: request.environment, extensionId: request.appId,
       generationId: request.generationId, artifactDigest: request.artifactDigest

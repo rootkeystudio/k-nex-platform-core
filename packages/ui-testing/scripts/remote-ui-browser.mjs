@@ -37,12 +37,13 @@ try {
   const hostAddress = hostServer.address(); if (hostAddress === null || typeof hostAddress === "string") throw new Error("Remote UI host server failed.");
   const hostOrigin = `https://127.0.0.1:${hostAddress.port}`;
 
-  const worker = `let port; let outgoing = 0; let incoming = 0; let heartbeat;
+  const worker = `export const remoteUiModuleProof = true;
+let port; let outgoing = 0; let incoming = 0; let heartbeat;
 const send = (type, body = {}) => port.postMessage({ schemaVersion: 1, sessionId: 'remote-session-1', appId: 'app.sales-assistant', generationId: 'sales-generation-1', sequence: ++outgoing, direction: 'realm-to-host', type, ...body });
 const attempt = async (work) => { try { await work(); return 'available'; } catch { return 'blocked'; } };
 async function probes() {
   const indexed = typeof indexedDB === 'undefined' ? 'unavailable' : await attempt(() => new Promise((resolve, reject) => { const request = indexedDB.open('probe'); request.onerror = reject; request.onupgradeneeded = () => request.transaction.abort(); request.onsuccess = () => { request.result.close(); resolve(); }; }));
-  const cache = typeof caches === 'undefined' ? 'unavailable' : await attempt(() => caches.open('probe'));
+  const cache = await attempt(() => caches.open('probe'));
   return {
     document: typeof document, window: typeof window, localStorage: typeof localStorage, sessionStorage: typeof sessionStorage, sharedWorker: typeof SharedWorker,
     serviceWorker: typeof navigator.serviceWorker, popup: typeof open, top: typeof top, indexedDB: indexed, cache,
@@ -142,7 +143,7 @@ self.onmessage = async (event) => {
   const probe = await page.evaluate(() => window.__K_NEX_REMOTE_PROBE__);
   assert.deepEqual(probe, {
     document: "undefined", window: "undefined", localStorage: "undefined", sessionStorage: "undefined", sharedWorker: "undefined", serviceWorker: "undefined", popup: "undefined", top: "undefined",
-    indexedDB: "blocked", cache: "unavailable", authenticatedFetch: "blocked", websocket: "blocked", dynamicImport: "blocked", bootstrapCredentials: "absent"
+    indexedDB: "blocked", cache: "blocked", authenticatedFetch: "blocked", websocket: "blocked", dynamicImport: "blocked", bootstrapCredentials: "absent"
   });
   assert.equal(extensionDocumentCookie, undefined, "credentialless iframe sent extension-origin cookies");
   assert.equal(await page.evaluate(() => window.__K_NEX_REMOTE_HOSTILE_FRAME_REJECTED__), true, "remote UI host accepted a hostile same-path frame origin");
