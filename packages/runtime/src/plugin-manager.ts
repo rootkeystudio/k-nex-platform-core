@@ -317,6 +317,12 @@ export interface RuntimeExtensionStore {
     generationId: string;
     decision: ActiveGenerationSecurityDecision;
   }>): Promise<ExtensionSecurityQuarantineReceipt>;
+  readSecurityQuarantineReceipt(input: Readonly<{
+    applicationId: string;
+    environment: string;
+    extension: Extract<ExtensionIdentity, { deliveryClass: "hot-application" | "theme-skin" }>;
+    generationId: string;
+  }>): Promise<ExtensionSecurityQuarantineReceipt | undefined>;
   quarantineRunnerGeneration(input: Readonly<{
     applicationId: string;
     environment: string;

@@ -83,6 +83,7 @@ const proofs = [
     "proves revisioned, quota-limited, schema-validated, backed-up, cross-app isolated storage"
   ]),
   nodeProof("runtime-extension-state", ["tests/runtime-extension-state-postgres.test.mjs", "tests/remote-ui-assets-postgres.test.mjs"], [
+    "preserves accepted artifacts while reconciling fresh revocation decisions atomically in PostgreSQL",
     "persists exact active-generation POLICY_VIOLATION runner quarantine across a runner restart",
     "rejects SCN-12 activation races and SCN-13 stale operation replays in PostgreSQL",
     "proves PostgreSQL-backed Hot Application install, update, restore, rollback, and execution through the durable runtime",
@@ -149,6 +150,7 @@ const exactEvidence = (proof, name, marker, markerScenario) => ({ proof, name, .
 const staticProofName = "proves distinct customer binaries and deployment processes recover from PostgreSQL authority";
 const runtimeJourneyName = "proves PostgreSQL-backed Hot Application install, update, restore, rollback, and execution through the durable runtime";
 const runtimeCoordinationName = "rejects SCN-12 activation races and SCN-13 stale operation replays in PostgreSQL";
+const runtimeSecurityReconciliationName = "preserves accepted artifacts while reconciling fresh revocation decisions atomically in PostgreSQL";
 
 const assertRuntimeJourneyEvidence = (marker) => {
   const docker = marker.productionDockerExecution;
@@ -206,7 +208,7 @@ const assertRuntimeJourneyEvidence = (marker) => {
 
 const scenarios = [
   { id: "SCN-01", attack: "arbitrary repository/branch URL", expected: "reject unpinned source", evidence: [exactEvidence("static-composition-authority", "static source and trusted build authority rejects arbitrary repository and branch controls in a static source change")] },
-  { id: "SCN-02", attack: "unsigned/tampered/downgraded/revoked bundle", expected: "reject verification failure", evidence: [exactEvidence("bundler-rejections", "extension bundler verifies the signed catalog and every provenance/release binding before stage"), exactEvidence("bundler-rejections", "extension bundler rejects expired, replayed, revoked, and downgraded signed catalog indexes")] },
+  { id: "SCN-02", attack: "unsigned/tampered/downgraded/revoked bundle", expected: "reject verification failure", evidence: [exactEvidence("bundler-rejections", "extension bundler verifies the signed catalog and every provenance/release binding before stage"), exactEvidence("bundler-rejections", "extension bundler rejects expired, replayed, revoked, and downgraded signed catalog indexes"), exactEvidence("runtime-extension-state", runtimeSecurityReconciliationName, "P9_ACCEPTED_ARTIFACT_SECURITY_EVIDENCE")] },
   { id: "SCN-03", attack: "archive traversal/symlink/hardlink/collision/bomb", expected: "reject unsafe extraction", evidence: [exactEvidence("bundler-rejections", "extension bundler rejects traversal, links, colliding paths, bombs, and every configured extraction bound")] },
   { id: "SCN-04", attack: "install script or runtime package-manager invocation", expected: "reject lifecycle/package-manager surface", evidence: [exactEvidence("bundler-rejections", "extension bundler rejects module access and package lifecycle representation without false comment matches")] },
   { id: "SCN-05", attack: "host dynamic import of downloaded code", expected: "reject host execution", evidence: [exactEvidence("bundler-rejections", "extension bundler binds runner code to the verified owner, generation, artifact, and declared entrypoint"), exactEvidence("runner-isolation", "production extension runner runs app generations with container authority and only declared host capabilities")] },

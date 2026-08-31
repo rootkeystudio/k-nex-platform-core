@@ -8,6 +8,7 @@ import {
   ExtensionSecurityQuarantineEventSchema,
   RuntimeExtensionInventorySchema,
   type ExtensionLifecycleEvent,
+  type ExtensionSecurityQuarantineEvent,
   type RuntimeExtensionInventory,
   type StaticDeploymentReceipt
 } from "@k-nex/contracts";
@@ -115,6 +116,31 @@ interface GenerationRow {
   receipt_id: string | null;
 }
 
+interface SecurityQuarantineReceiptRow {
+  receipt_id: string;
+  security_transition_id: string;
+  application_id: string;
+  environment: string;
+  delivery_class: "hot-application" | "theme-skin";
+  extension_id: string;
+  generation_id: string;
+  expected_revision: number;
+  revision: number;
+  inventory_revision: number;
+  decision_digest: string;
+  receipt_json: unknown;
+  event_json: unknown;
+}
+
+type SecurityQuarantineInput = Parameters<RuntimeExtensionStore["quarantineActiveGeneration"]>[0];
+type SecurityQuarantineTransitionIds = Readonly<{
+  decisionDigest: string;
+  securityTransitionId: string;
+  receiptId: string;
+  auditId: string;
+  eventId: string;
+}>;
+
 function fail(code: RuntimeExtensionStoreError["code"], message: string): never {
   throw new RuntimeExtensionStoreError(code, message);
 }
@@ -138,6 +164,25 @@ async function sha256(value: unknown): Promise<string> {
   return `sha256:${Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
+async function securityQuarantineTransitionIds(input: SecurityQuarantineInput): Promise<SecurityQuarantineTransitionIds> {
+  const decisionDigest = await sha256({
+    applicationId: input.applicationId,
+    environment: input.environment,
+    extension: input.extension,
+    expectedRevision: input.expectedRevision,
+    generationId: input.generationId,
+    decision: input.decision
+  });
+  const suffix = decisionDigest.slice("sha256:".length, "sha256:".length + 32);
+  return Object.freeze({
+    decisionDigest,
+    securityTransitionId: `security-quarantine-${suffix}`,
+    receiptId: `security-receipt-${suffix}`,
+    auditId: `security-audit-${suffix}`,
+    eventId: `security-event-${suffix}`
+  });
+}
+
 function timestamp(clock: RuntimeExtensionClock): string {
   const now = clock.now();
   if (!(now instanceof Date) || Number.isNaN(now.valueOf())) fail("STATE_INVALID", "Runtime extension clock is invalid.");
@@ -146,6 +191,68 @@ function timestamp(clock: RuntimeExtensionClock): string {
 
 function validRecordId(value: string): boolean {
   return /^[a-z][a-z0-9-]{2,127}$/u.test(value);
+}
+
+function securityQuarantineInput(event: ExtensionSecurityQuarantineEvent): SecurityQuarantineInput {
+  return {
+    applicationId: event.applicationId,
+    environment: event.environment,
+    extension: { deliveryClass: event.deliveryClass, id: event.id },
+    expectedRevision: event.expectedRevision,
+    generationId: event.evidence.generationId,
+    decision: {
+      catalogDigest: event.evidence.catalogDigest,
+      catalogSignerIdentity: event.evidence.catalogSignerIdentity,
+      catalogSequence: event.evidence.catalogSequence,
+      disposition: event.evidence.disposition,
+      release: {
+        deliveryClass: event.deliveryClass,
+        id: event.id,
+        version: event.evidence.version,
+        sourceCommit: event.evidence.sourceCommit,
+        artifactDigest: event.evidence.artifactDigest,
+        manifestDigest: event.evidence.manifestDigest,
+        provenanceDigest: event.evidence.provenanceDigest,
+        sbomDigest: event.evidence.sbomDigest
+      }
+    }
+  };
+}
+
+async function securityQuarantineReceipt(row: SecurityQuarantineReceiptRow): Promise<ExtensionSecurityQuarantineReceipt> {
+  let event: ExtensionSecurityQuarantineEvent;
+  try { event = ExtensionSecurityQuarantineEventSchema.parse(row.event_json); }
+  catch { return fail("STATE_INVALID", "Persisted security quarantine event is invalid."); }
+  const input = securityQuarantineInput(event);
+  const ids = await securityQuarantineTransitionIds(input);
+  if (row.decision_digest !== ids.decisionDigest || event.eventId !== ids.eventId || event.auditId !== ids.auditId ||
+    event.receiptId !== ids.receiptId || event.securityTransitionId !== ids.securityTransitionId ||
+    row.receipt_id !== ids.receiptId || row.security_transition_id !== ids.securityTransitionId ||
+    event.applicationId !== row.application_id || event.environment !== row.environment || event.deliveryClass !== row.delivery_class ||
+    event.id !== row.extension_id || event.evidence.generationId !== row.generation_id || event.expectedRevision !== row.expected_revision ||
+    event.revision !== row.revision || event.inventoryRevision !== row.inventory_revision) {
+    return fail("STATE_INVALID", "Persisted security quarantine receipt does not match its owner or transition evidence.");
+  }
+  const receipt: ExtensionSecurityQuarantineReceipt = Object.freeze({
+    receiptId: event.receiptId,
+    securityTransitionId: event.securityTransitionId,
+    disposition: "quarantined",
+    reason: event.evidence.disposition,
+    generationId: event.evidence.generationId,
+    revisionBefore: event.expectedRevision,
+    revisionAfter: event.revision,
+    inventoryRevision: event.inventoryRevision,
+    catalogDigest: event.evidence.catalogDigest,
+    occurredAt: event.occurredAt
+  });
+  try {
+    if (canonicalJson(row.receipt_json) !== canonicalJson(receipt)) {
+      return fail("STATE_INVALID", "Persisted security quarantine receipt does not match its event evidence.");
+    }
+  } catch {
+    return fail("STATE_INVALID", "Persisted security quarantine receipt is invalid.");
+  }
+  return receipt;
 }
 
 function assertStage(stage: StagedGenerationActivation, now: Date, validateCompatibility = true): void {
@@ -779,14 +886,16 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
       !["revoked", "compromised", "unsupported"].includes(input.decision.disposition)) {
       fail("STATE_INVALID", "Security quarantine decision is invalid.");
     }
-    const transition = await this.securityTransitionIds(input);
+    const transition = await securityQuarantineTransitionIds(input);
     return this.transaction(async (session) => {
       await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [canonicalJson([input.applicationId, input.environment, input.extension.deliveryClass, input.extension.id])]);
-      const replay = await session.query<{ receipt_json: ExtensionSecurityQuarantineReceipt }>(
-        `select receipt_json from runtime_extension_security_receipts where decision_digest=$1 for update`,
+      const replay = await session.query<SecurityQuarantineReceiptRow>(
+        `select receipt_id, security_transition_id, application_id, environment, delivery_class, extension_id, generation_id,
+                expected_revision, revision, inventory_revision, decision_digest, receipt_json, event_json
+         from runtime_extension_security_receipts where decision_digest=$1 for update`,
         [transition.decisionDigest]
       );
-      if (replay.rows[0]) return Object.freeze({ ...replay.rows[0].receipt_json });
+      if (replay.rows[0]) return securityQuarantineReceipt(replay.rows[0]);
       const stateResult = await session.query<ExtensionRow>(
         `select *, 0::int as inventory_revision from runtime_extensions where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4 for update`,
         [input.applicationId, input.environment, input.extension.deliveryClass, input.extension.id]
@@ -832,6 +941,25 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
       await this.writeSecurityQuarantineEvidence(session, input, transition, receipt);
       return receipt;
     });
+  }
+
+  async readSecurityQuarantineReceipt(input: Parameters<RuntimeExtensionStore["readSecurityQuarantineReceipt"]>[0]): Promise<ExtensionSecurityQuarantineReceipt | undefined> {
+    if (!/^[a-z][a-z0-9-]{2,127}$/u.test(input.applicationId) || !/^[a-z][a-z0-9-]{1,63}$/u.test(input.environment) ||
+      !validRecordId(input.generationId) ||
+      (input.extension.deliveryClass === "hot-application" && !/^app(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$/u.test(input.extension.id)) ||
+      (input.extension.deliveryClass === "theme-skin" && !/^skin(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$/u.test(input.extension.id))) {
+      fail("STATE_INVALID", "Security quarantine receipt lookup is invalid.");
+    }
+    const result = await this.pool.query<SecurityQuarantineReceiptRow>(
+      `select receipt_id, security_transition_id, application_id, environment, delivery_class, extension_id, generation_id,
+              expected_revision, revision, inventory_revision, decision_digest, receipt_json, event_json
+       from runtime_extension_security_receipts
+       where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4 and generation_id=$5
+       order by revision desc limit 1`,
+      [input.applicationId, input.environment, input.extension.deliveryClass, input.extension.id, input.generationId]
+    );
+    const row = result.rows[0];
+    return row ? await securityQuarantineReceipt(row) : undefined;
   }
 
   async quarantineRunnerGeneration(input: Parameters<RuntimeExtensionStore["quarantineRunnerGeneration"]>[0]): Promise<ExtensionRunnerQuarantineReceipt> {
@@ -1082,25 +1210,6 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
       active["deliveryClass"] !== release.deliveryClass || active["extensionId"] !== release.id) {
       fail("GENERATION_MISMATCH", "Current security decision does not bind the exact active immutable release.");
     }
-  }
-
-  private async securityTransitionIds(input: Parameters<RuntimeExtensionStore["quarantineActiveGeneration"]>[0]) {
-    const decisionDigest = await sha256({
-      applicationId: input.applicationId,
-      environment: input.environment,
-      extension: input.extension,
-      expectedRevision: input.expectedRevision,
-      generationId: input.generationId,
-      decision: input.decision
-    });
-    const suffix = decisionDigest.slice("sha256:".length, "sha256:".length + 32);
-    return Object.freeze({
-      decisionDigest,
-      securityTransitionId: `security-quarantine-${suffix}`,
-      receiptId: `security-receipt-${suffix}`,
-      auditId: `security-audit-${suffix}`,
-      eventId: `security-event-${suffix}`
-    });
   }
 
   private async runnerQuarantineTransitionIds(input: Parameters<RuntimeExtensionStore["quarantineRunnerGeneration"]>[0]) {

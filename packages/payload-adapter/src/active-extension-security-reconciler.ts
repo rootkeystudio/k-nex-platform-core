@@ -1,12 +1,12 @@
 import { ArtifactVerifier, type SignedCatalog } from "@k-nex/extension-bundler";
 import type { ExtensionIdentity } from "@k-nex/contracts";
 import type { ExtensionSecurityQuarantineReceipt, RuntimeExtensionStore } from "@k-nex/runtime";
+import { RuntimeExtensionStoreError } from "./runtime-extension-store.js";
 
 export interface ActiveExtensionSecurityReconcileRequest {
   readonly applicationId: string;
   readonly environment: string;
   readonly extension: Extract<ExtensionIdentity, { deliveryClass: "hot-application" | "theme-skin" }>;
-  readonly expectedRevision: number;
   readonly catalog: SignedCatalog;
 }
 
@@ -21,40 +21,54 @@ export type ActiveExtensionSecurityReconcileResult =
 export class ActiveExtensionSecurityReconciler {
   constructor(
     private readonly verifier: ArtifactVerifier,
-    private readonly store: Pick<RuntimeExtensionStore, "inventory" | "quarantineActiveGeneration">
+    private readonly store: Pick<RuntimeExtensionStore, "inventory" | "quarantineActiveGeneration" | "readSecurityQuarantineReceipt">
   ) {}
 
   async reconcile(input: ActiveExtensionSecurityReconcileRequest): Promise<ActiveExtensionSecurityReconcileResult> {
-    const inventory = await this.store.inventory(input.applicationId, input.environment);
-    const entries = input.extension.deliveryClass === "hot-application" ? inventory.extensions.hotApplications : inventory.extensions.themeSkins;
-    const active = entries[input.extension.id];
-    if (!active || (active.disposition !== "active" && active.disposition !== "quarantined")) return Object.freeze({ status: "not-active" });
-    const generation = active.disposition === "active" ? active.activeGeneration : active.retainedGeneration;
-    if (!generation) return Object.freeze({ status: "not-active" });
-    const decision = await this.verifier.currentSecurityDecision(input.catalog, {
-      deliveryClass: generation.deliveryClass,
-      id: generation.extensionId,
-      version: generation.version,
-      sourceCommit: generation.sourceCommit,
-      artifactDigest: generation.artifactDigest,
-      manifestDigest: generation.manifestDigest,
-      provenanceDigest: generation.provenanceDigest,
-      sbomDigest: generation.sbomDigest
-    });
-    if (!decision) return Object.freeze({ status: "no-matching-release" });
-    if (decision.disposition === "clear") {
-      if (active.disposition === "quarantined") throw new Error("A new catalog decision conflicts with the frozen security quarantine receipt.");
-      return Object.freeze({ status: "clear" });
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const inventory = await this.store.inventory(input.applicationId, input.environment);
+      const entries = input.extension.deliveryClass === "hot-application" ? inventory.extensions.hotApplications : inventory.extensions.themeSkins;
+      const active = entries[input.extension.id];
+      if (!active) return Object.freeze({ status: "not-active" });
+      if (active.disposition === "quarantined") {
+        if (!active.retainedGeneration) return Object.freeze({ status: "not-active" });
+        const receipt = await this.store.readSecurityQuarantineReceipt({
+          applicationId: input.applicationId,
+          environment: input.environment,
+          extension: input.extension,
+          generationId: active.retainedGeneration.generationId
+        });
+        return receipt ? Object.freeze({ status: "quarantined", receipt }) : Object.freeze({ status: "not-active" });
+      }
+      if (active.disposition !== "active" || !active.activeGeneration) return Object.freeze({ status: "not-active" });
+      const generation = active.activeGeneration;
+      const decision = await this.verifier.currentSecurityDecision(input.catalog, {
+        deliveryClass: generation.deliveryClass,
+        id: generation.extensionId,
+        version: generation.version,
+        sourceCommit: generation.sourceCommit,
+        artifactDigest: generation.artifactDigest,
+        manifestDigest: generation.manifestDigest,
+        provenanceDigest: generation.provenanceDigest,
+        sbomDigest: generation.sbomDigest
+      });
+      if (!decision) return Object.freeze({ status: "no-matching-release" });
+      if (decision.disposition === "clear") return Object.freeze({ status: "clear" });
+      const securityDecision = Object.freeze({ ...decision, disposition: decision.disposition as "revoked" | "compromised" | "unsupported" });
+      try {
+        const receipt = await this.store.quarantineActiveGeneration({
+          applicationId: input.applicationId,
+          environment: input.environment,
+          extension: input.extension,
+          expectedRevision: active.revision,
+          generationId: generation.generationId,
+          decision: securityDecision
+        });
+        return Object.freeze({ status: "quarantined", receipt });
+      } catch (error) {
+        if (!(error instanceof RuntimeExtensionStoreError) || !["REVISION_CONFLICT", "GENERATION_MISMATCH"].includes(error.code) || attempt === 2) throw error;
+      }
     }
-    const securityDecision = Object.freeze({ ...decision, disposition: decision.disposition as "revoked" | "compromised" | "unsupported" });
-    const receipt = await this.store.quarantineActiveGeneration({
-      applicationId: input.applicationId,
-      environment: input.environment,
-      extension: input.extension,
-      expectedRevision: input.expectedRevision,
-      generationId: generation.generationId,
-      decision: securityDecision
-    });
-    return Object.freeze({ status: "quarantined", receipt });
+    throw new Error("Security reconciliation exhausted unexpectedly.");
   }
 }

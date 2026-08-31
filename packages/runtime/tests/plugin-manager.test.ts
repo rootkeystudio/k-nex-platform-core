@@ -139,6 +139,7 @@ class MemoryStore implements RuntimeExtensionStore {
   async uninstallGeneration() {
     return { receiptId: "uninstall-receipt-1", operationId: this.operation!.operationId, operation: "uninstall" as const, disposition: "removed" as const, revisionBefore: 2, revisionAfter: 3, inventoryRevision: 3, occurredAt: "2026-08-29T09:00:00.000Z" };
   }
+  async readSecurityQuarantineReceipt() { return undefined; }
   async quarantineRunnerGeneration(input: Parameters<RuntimeExtensionStore["quarantineRunnerGeneration"]>[0]) {
     return { receiptId: "runner-receipt-1", quarantineTransitionId: "runner-quarantine-1", disposition: "quarantined" as const, reason: input.reason, generationId: input.generationId, revisionBefore: input.expectedRevision, revisionAfter: input.expectedRevision + 1, inventoryRevision: input.expectedRevision + 1, occurredAt: "2026-08-29T09:00:00.000Z" };
   }
