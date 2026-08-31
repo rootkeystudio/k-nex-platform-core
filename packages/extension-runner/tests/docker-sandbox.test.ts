@@ -11,7 +11,7 @@ import { ArtifactVerifier, buildBundle, canonicalJson, CatalogClient, InMemoryCa
 import { BoundedExtensionNetworkCapability, ExtensionCapabilityGateway, HmacExtensionCapabilityTokens, InMemoryExtensionCapabilitySequenceStoreForTests, NodeHttpsExtensionNetworkTransport, type ExtensionCapabilityGrant, type ExtensionCapabilityHandler, type ExtensionCapabilitySequenceStore } from "@k-nex/runtime";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { DockerHotApplicationSandboxSupervisor, RunnerInvocationError, dockerAppArmorPolicy, dockerIsolationPolicyFromEnvironment, extensionRunnerImage, runnerAppArmorProfileName, runnerSeccompProfile, runnerSeccompProfileForDiagnostic, runnerServiceSource, type RunnerGenerationIdentity, type RunnerInvocationLimits } from "../src/index.js";
+import { DockerHotApplicationSandboxSupervisor, RunnerInvocationError, dockerAppArmorPolicy, dockerIsolationPolicyFromEnvironment, extensionRunnerImage, runnerAppArmorProfileName, runnerSeccompProfile, runnerServiceSource, type RunnerGenerationIdentity, type RunnerInvocationLimits } from "../src/index.js";
 
 const execFile = promisify(execFileCallback);
 const clock = { now: () => new Date() };
@@ -19,7 +19,6 @@ const tokens = new HmacExtensionCapabilityTokens(new Uint8Array(32).fill(7), clo
 const extensionKeys = generateKeyPairSync("ed25519");
 const extensionPublisher = { identity: "k-nex-extension-runner", publicKey: extensionKeys.publicKey.export({ type: "spki", format: "pem" }).toString() };
 const isolationPolicy = dockerIsolationPolicyFromEnvironment(process.env.K_NEX_RUNNER_ISOLATION_POLICY);
-const selectedSeccompProfile = runnerSeccompProfileForDiagnostic(process.env.K_NEX_RUNNER_SECCOMP_DIAGNOSTIC);
 const catalogKeys = generateKeyPairSync("ed25519");
 const catalogSigner = { identity: "k-nex-runner-catalog", publicKey: catalogKeys.publicKey.export({ type: "spki", format: "pem" }).toString() };
 const limits: RunnerInvocationLimits = {
@@ -112,7 +111,7 @@ function secureLinuxInspection(): Record<string, any> {
     Config: { User: "10000:10000", WorkingDir: "/tmp", Image: extensionRunnerImage, Env: ["HOME=/tmp", "NODE_NO_WARNINGS=1"] },
     HostConfig: {
       NetworkMode: "none", ReadonlyRootfs: true, Privileged: false, CapDrop: ["ALL"], CapAdd: null,
-      SecurityOpt: ["no-new-privileges=true", `seccomp=${selectedSeccompProfile}`, `apparmor=${runnerAppArmorProfileName}`],
+      SecurityOpt: ["no-new-privileges=true", `seccomp=${runnerSeccompProfile}`, `apparmor=${runnerAppArmorProfileName}`],
       Binds: [], Tmpfs: { "/tmp": "rw,noexec,nosuid,nodev,size=1048576,mode=700,uid=10000,gid=10000" },
       PidsLimit: 32, Memory: 67_108_864, MemorySwap: 67_108_864, NanoCpus: 250_000_000,
       Ulimits: [{ Name: "nofile", Soft: 64, Hard: 64 }], UsernsMode: ""
@@ -126,12 +125,6 @@ beforeAll(async () => {
 }, 30_000);
 
 describe("production extension runner", () => {
-  it("selects the strict profile unless the exact diagnostic flag requests logging", () => {
-    expect(runnerSeccompProfileForDiagnostic(undefined)).toBe(runnerSeccompProfile);
-    expect(runnerSeccompProfileForDiagnostic("LOG")).toBe(runnerSeccompProfile);
-    expect(JSON.parse(runnerSeccompProfileForDiagnostic("log"))).toMatchObject({ defaultAction: "SCMP_ACT_LOG" });
-  });
-
   it.skipIf(isolationPolicy.kind !== "apparmor" || process.arch !== "x64")("starts the actual runner service under the native strict production profile", async () => {
     const directory = mkdtempSync(join(tmpdir(), "k-nex-seccomp-service-"));
     const profilePath = join(directory, "policy.json");
@@ -181,7 +174,6 @@ describe("production extension runner", () => {
     const quarantines: string[] = [];
     const store = artifactStore();
     const runner = supervisor({}, store, quarantines) as any;
-    runner.seccompProfile = runnerSeccompProfile;
     const originalObservedPolicyViolation = runner.observedPolicyViolation.bind(runner);
     let observedExitCode: number | undefined;
     runner.observedPolicyViolation = async (containerName: string) => {
@@ -217,7 +209,7 @@ describe("production extension runner", () => {
     const secure = {
       Config: { User: "10000:10000", WorkingDir: "/tmp", Image: extensionRunnerImage, Env: ["HOME=/tmp", "NODE_NO_WARNINGS=1"] },
       HostConfig: {
-        NetworkMode: "none", ReadonlyRootfs: true, CapDrop: ["ALL"], CapAdd: null, SecurityOpt: ["no-new-privileges=true", `seccomp=${selectedSeccompProfile}`],
+        NetworkMode: "none", ReadonlyRootfs: true, CapDrop: ["ALL"], CapAdd: null, SecurityOpt: ["no-new-privileges=true", `seccomp=${runnerSeccompProfile}`],
         Binds: [], Tmpfs: { "/tmp": "rw,noexec,nosuid,nodev,size=1048576,mode=700,uid=10000,gid=10000" },
         PidsLimit: 32, Memory: 67_108_864, MemorySwap: 67_108_864, NanoCpus: 250_000_000,
         Ulimits: [{ Name: "nofile", Soft: 64, Hard: 64 }], UsernsMode: ""
@@ -456,7 +448,7 @@ describe("production extension runner", () => {
       expect(inspected.HostConfig).toMatchObject({ NetworkMode: "none", ReadonlyRootfs: true, PidsLimit: 32, Memory: 67_108_864, MemorySwap: 67_108_864, NanoCpus: 250_000_000 });
       expect(inspected.HostConfig.CapDrop).toContain("ALL");
       expect(inspected.HostConfig.SecurityOpt).toContain("no-new-privileges=true");
-      expect(inspected.HostConfig.SecurityOpt).toContain(`seccomp=${selectedSeccompProfile}`);
+      expect(inspected.HostConfig.SecurityOpt).toContain(`seccomp=${runnerSeccompProfile}`);
       if (isolationPolicy.kind === "apparmor") {
         expect(inspected.HostConfig.SecurityOpt).toContain(`apparmor=${runnerAppArmorProfileName}`);
         expect(inspected.AppArmorProfile).toBe(runnerAppArmorProfileName);

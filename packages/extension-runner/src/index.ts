@@ -223,16 +223,8 @@ function procReadFailure(file: "uid_map" | "status", error: unknown): string {
   return `proc-read-failed(file=${file},reason=${error instanceof Error && /\bENOENT\b/u.test(error.message) ? "enoent" : "other"})`;
 }
 
-/** Gate-only syscall discovery retains enforcement unless the exact opt-in value is supplied. */
-export function runnerSeccompProfileForDiagnostic(value: string | undefined): string {
-  if (value !== "log") return runnerSeccompProfile;
-  const profile = JSON.parse(runnerSeccompProfile) as Record<string, unknown>;
-  return JSON.stringify({ ...profile, defaultAction: "SCMP_ACT_LOG" });
-}
-
 export class DockerHotApplicationSandboxSupervisor {
   readonly isolationProfile?: DockerRunnerIsolationProfile;
-  private readonly seccompProfile: string;
   private readonly generations = new Map<string, GenerationState>();
   private readonly workloadUsers = new Map<number, string>();
   private startup?: Promise<number>;
@@ -248,7 +240,6 @@ export class DockerHotApplicationSandboxSupervisor {
   ) {
     if (image !== extensionRunnerImage) throw new TypeError("Runner image must match the approved Node release digest.");
     assertDockerSecurityPolicy(isolationPolicy);
-    this.seccompProfile = runnerSeccompProfileForDiagnostic(process.env.K_NEX_RUNNER_SECCOMP_DIAGNOSTIC);
     if (isolationPolicy.kind !== "local-docker-test-only") this.isolationProfile = createDockerRunnerIsolationProfile(isolationPolicy);
   }
 
@@ -358,7 +349,7 @@ export class DockerHotApplicationSandboxSupervisor {
   private runContainer(request: ResolvedRunnerInvocation, containerName: string, workloadUser: number): Promise<unknown> {
     const policyDirectory = mkdtempSync(join(tmpdir(), "k-nex-runner-seccomp-"));
     const seccompPath = join(policyDirectory, "policy.json");
-    writeFileSync(seccompPath, this.seccompProfile, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    writeFileSync(seccompPath, runnerSeccompProfile, { encoding: "utf8", mode: 0o600, flag: "wx" });
     const isolationOptions = this.isolationPolicy.kind === "apparmor"
       ? ["--security-opt", `apparmor=${this.isolationPolicy.profile}`]
       : [];
@@ -628,7 +619,7 @@ export class DockerHotApplicationSandboxSupervisor {
     if (!Array.isArray(ulimits) || ulimits.length !== 1 || !isNoFileLimit(ulimits[0], limits.openFiles)) unavailable("Docker did not apply the open-file limit.");
     const securityOptions = host.SecurityOpt;
     const options = isStringArray(securityOptions) ? securityOptions : unavailable("Docker did not expose valid security options.");
-    if (!options.includes("no-new-privileges=true") || !options.includes(`seccomp=${this.seccompProfile}`)) {
+    if (!options.includes("no-new-privileges=true") || !options.includes(`seccomp=${runnerSeccompProfile}`)) {
       throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker did not apply the required custom seccomp policy.");
     }
     if (this.isolationPolicy.kind === "apparmor" && (!options.includes(`apparmor=${this.isolationPolicy.profile}`) || inspected.AppArmorProfile !== this.isolationPolicy.profile)) {

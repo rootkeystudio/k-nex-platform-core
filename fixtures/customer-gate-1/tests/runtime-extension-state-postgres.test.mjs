@@ -1,11 +1,9 @@
 import assert from "node:assert/strict";
-import { execFile as execFileCallback, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { generateKeyPairSync, sign } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
 import test from "node:test";
 
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
@@ -13,14 +11,13 @@ import pg from "pg";
 import { chromium } from "playwright";
 
 import { ArtifactVerifier, buildBundle, canonicalJson, CatalogClient, InMemoryCatalogCheckpointStore, sha256 } from "@k-nex/extension-bundler";
-import { DockerHotApplicationSandboxSupervisor, dockerIsolationPolicyFromEnvironment, runnerSeccompProfile } from "@k-nex/extension-runner";
+import { DockerHotApplicationSandboxSupervisor, dockerIsolationPolicyFromEnvironment } from "@k-nex/extension-runner";
 import { ActiveExtensionSecurityReconciler, PostgresCatalogCheckpointStore, PostgresExtensionCapabilityAuthority, PostgresExtensionCapabilitySequenceStore, PostgresRuntimeExtensionOutboxDispatcher, PostgresRuntimeExtensionStore, PostgresVerifiedArtifactStore, RuntimeStoreRunnerQuarantineAdapter } from "@k-nex/payload-adapter";
 import { AuthoritativeHotApplicationRuntime, DurableDynamicArtifactPipeline, DurableDynamicGenerationRuntime, ExtensionCapabilityGateway, HmacExtensionCapabilityTokens, PluginManager, ReferenceHotApplicationGenerationWarmer, TrustedAutomationOperationAuthorizer } from "@k-nex/runtime";
 import { startContinuousHttpProbe } from "./continuous-http-probe.mjs";
 import { startHotApplicationFixedRouteHost } from "./hot-application-fixed-route-host.mjs";
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
-const execFile = promisify(execFileCallback);
 const fixtureDirectory = fileURLToPath(new URL("..", import.meta.url));
 const digest = (character) => `sha256:${character.repeat(64)}`;
 const source = { repository: "https://github.com/k-nex/customer-gate-1-apps", commit: "0123456789abcdef0123456789abcdef01234567" };
@@ -28,32 +25,6 @@ const publisherKeys = generateKeyPairSync("ed25519");
 const catalogKeys = generateKeyPairSync("ed25519");
 const publisher = { identity: "customer-gate-1-hot-app-publisher", publicKey: publisherKeys.publicKey.export({ type: "spki", format: "pem" }).toString() };
 const catalogSigner = { identity: "customer-gate-1-hot-app-catalog", publicKey: catalogKeys.publicKey.export({ type: "spki", format: "pem" }).toString() };
-
-function seccompFullDiagnosticEnabled() {
-  return process.env.K_NEX_RUNNER_SECCOMP_DIAGNOSTIC === "log";
-}
-
-async function snapshotKernelAudit() {
-  return (await execFile("sudo", ["dmesg", "--color=never"], { maxBuffer: 2_000_000 })).stdout;
-}
-
-async function failForFullGateSeccompDiagnostic(before) {
-  const prior = new Set(before.split("\n"));
-  const records = (await snapshotKernelAudit()).split("\n").filter((line) =>
-    !prior.has(line) && /\btype=1326\b/u.test(line) && /\barch=c000003e\b/u.test(line) &&
-    /\bsubj==?k-nex-extension-runner\b/u.test(line) && /\bsyscall=\d+\b/u.test(line)
-  );
-  const approved = new Set(JSON.parse(runnerSeccompProfile).syscalls.flatMap((rule) => rule.names));
-  const syscallNames = new Map([...readFileSync("/usr/include/x86_64-linux-gnu/asm/unistd_64.h", "utf8")
-    .matchAll(/^#define __NR_(\w+)\s+(\d+)$/gmu)].map(([, name, number]) => [Number(number), name]));
-  const missing = [...new Set(records.map((record) => Number(record.match(/\bsyscall=(\d+)\b/u)?.[1])).filter(Number.isSafeInteger))]
-    .map((number) => ({ number, name: syscallNames.get(number) ?? "unknown" }))
-    .filter(({ name }) => !approved.has(name))
-    .sort((left, right) => left.number - right.number);
-  if (missing.length > 0) throw new Error(JSON.stringify({ diagnostic: "GATE_9_SECCOMP_FULL_DIAGNOSTIC", missing: missing.slice(0, 32), omitted: Math.max(0, missing.length - 32) }));
-  throw new Error(JSON.stringify({ diagnostic: "GATE_9_SECCOMP_FULL_DIAGNOSTIC_NO_MISSING", auditRecords: Math.min(records.length, 32) }));
-}
-
 function boot(connectionString) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ["tests/boot-once.mjs"], {
@@ -773,7 +744,6 @@ test("rejects SCN-12 activation races and SCN-13 stale operation replays in Post
 });
 
 test("proves PostgreSQL-backed Hot Application install, update, restore, rollback, and execution through the durable runtime", { timeout: 180_000 }, async () => {
-  const seccompDiagnosticBefore = seccompFullDiagnosticEnabled() ? await snapshotKernelAudit() : undefined;
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("runtime_extensions").withStartupTimeout(120_000).start();
   const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
   let now = new Date("2026-08-29T09:00:00.000Z");
@@ -1363,16 +1333,12 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       continuousHttp
     })}`);
   } finally {
-    try {
-      await trafficProbe?.stop();
-      await browserContext?.close();
-      await browser?.close();
-      await Promise.allSettled(consumerFleet.map((consumer) => consumer.close()));
-      await Promise.allSettled(hosts.map((host) => host.close()));
-      await pool.end();
-      await container.stop();
-    } finally {
-      if (seccompDiagnosticBefore !== undefined) await failForFullGateSeccompDiagnostic(seccompDiagnosticBefore);
-    }
+    await trafficProbe?.stop();
+    await browserContext?.close();
+    await browser?.close();
+    await Promise.allSettled(consumerFleet.map((consumer) => consumer.close()));
+    await Promise.allSettled(hosts.map((host) => host.close()));
+    await pool.end();
+    await container.stop();
   }
 });

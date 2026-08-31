@@ -44,7 +44,6 @@ jobs:
         run: pnpm gate:9
         env:
           K_NEX_RUNNER_ISOLATION_POLICY: apparmor
-          K_NEX_RUNNER_SECCOMP_DIAGNOSTIC: log
       - name: Verify exact-head repository evidence
         run: |
           pnpm audit --audit-level high
