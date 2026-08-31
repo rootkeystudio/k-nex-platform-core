@@ -7,16 +7,16 @@
 
 ## Last completed
 
-P9.10 Linux preflight remediation is complete. Docker CLI spawn can expose a transient pre-exec PID that disappears, so production inspection boundedly re-reads container PID, remapped uid-map, and the unchanged `CapEff=0` / `NoNewPrivs=1` / `Seccomp=2` tuple as one observation. Persistent mismatch still fails closed before source handoff. Exact-head CI then showed the strict runner profile terminates Node before source handoff.
+P9.10 Linux preflight remediation is complete. Docker CLI spawn can expose a transient pre-exec PID that disappears, so production inspection boundedly re-reads container PID, remapped uid-map, and the unchanged `CapEff=0` / `NoNewPrivs=1` / `Seccomp=2` tuple as one observation. Persistent mismatch still fails closed before source handoff. Exact-head native x86 diagnostic identified only syscall `open` missing from strict runner startup; the smallest profile correction and durable service-start proof are pending exact-head validation.
 
 ## Validation
 
-Local Node 24.19.0: runner forced build passes. Deterministic nonnumeric-PID, disappearing-PID recovery, and persistent-invalid effective-policy tests pass 3/3; `git diff --check` passes. PR #28 exact-head Linux/AppArmor preflight at `fc49cb6` proved setup, AppArmor, userns, and SIGSYS enforcement, then isolated the PID-replacement race. Exact-head native x86 syscall diagnostic is pending; it will map strict-profile startup denials before any allowlist change. Full Gate 9 remains pending.
+Local Node 24.19.0: runner forced build and policy tests pass 3/3; the AppArmor/x64 service-start proof skips outside its authoritative host; profile digest and `git diff --check` pass. PR #28 exact-head Linux/AppArmor diagnostic run `33361443122` mapped strict-profile actual-service startup to syscall `open` only. Exact-head Linux/AppArmor Docker preflight and full Gate 9 remain pending.
 
 ## Next
 
-Run the exact-head native x86 syscall diagnostic, make the smallest evidenced profile correction, then require exact-head Linux/AppArmor Docker preflight and full Gate 9 PASS before same Sol-xhigh phase review.
+Require exact-head Linux/AppArmor Docker preflight and full Gate 9 PASS before same Sol-xhigh phase review.
 
 ## Blockers
 
-Native x86 strict-profile syscall mapping awaits exact-head CI diagnostic.
+Focused correction requires exact-head Linux/AppArmor Docker/Gate 9 evidence.

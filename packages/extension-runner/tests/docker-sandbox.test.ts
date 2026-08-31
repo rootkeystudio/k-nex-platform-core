@@ -125,18 +125,15 @@ beforeAll(async () => {
 }, 30_000);
 
 describe("production extension runner", () => {
-  it.skipIf(isolationPolicy.kind !== "apparmor" || process.arch !== "x64")("reports native x86 syscalls missing from the runner profile", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "k-nex-seccomp-diagnostic-"));
+  it.skipIf(isolationPolicy.kind !== "apparmor" || process.arch !== "x64")("starts the actual runner service under the native strict production profile", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "k-nex-seccomp-service-"));
     const profilePath = join(directory, "policy.json");
-    const containerName = `k-nex-seccomp-diagnostic-${randomUUID().slice(0, 8)}`;
-    const profile = JSON.parse(runnerSeccompProfile) as { defaultAction: string };
-    profile.defaultAction = "SCMP_ACT_LOG";
-    writeFileSync(profilePath, JSON.stringify(profile), { encoding: "utf8", mode: 0o600, flag: "wx" });
+    const containerName = `k-nex-seccomp-service-${randomUUID().slice(0, 8)}`;
+    writeFileSync(profilePath, runnerSeccompProfile, { encoding: "utf8", mode: 0o600, flag: "wx" });
     try {
-      const dmesgBefore = (await execFile("sudo", ["dmesg", "--color=never"])).stdout;
       await execFile("docker", [
         "run", "--detach", "--interactive", "--name", containerName,
-        "--label", "k-nex.runner=hot-application-v1", "--label", "k-nex.application=customer-alpha", "--label", "k-nex.environment=production", "--label", "k-nex.app=app.sales-assistant", "--label", "k-nex.generation=seccomp-diagnostic",
+        "--label", "k-nex.runner=hot-application-v1", "--label", "k-nex.application=customer-alpha", "--label", "k-nex.environment=production", "--label", "k-nex.app=app.sales-assistant", "--label", "k-nex.generation=seccomp-service",
         "--network", "none", "--read-only", "--user", "10000:10000", "--workdir", "/tmp",
         "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=1048576,mode=700,uid=10000,gid=10000",
         "--cap-drop", "ALL", "--security-opt", "no-new-privileges=true", "--security-opt", `seccomp=${profilePath}`, "--security-opt", `apparmor=${runnerAppArmorProfileName}`, "--pids-limit", "32",
@@ -146,19 +143,8 @@ describe("production extension runner", () => {
       await new Promise((resolve) => setTimeout(resolve, 250));
       const inspected = await inspectContainer(containerName);
       const pid = inspected.State?.Pid;
-      if (inspected.State?.Running !== true || !Number.isSafeInteger(pid) || pid <= 0) {
-        throw new Error(`GATE_9_SECCOMP_DIAGNOSTIC_NO_KERNEL_RECORDS ${JSON.stringify({ state: inspected.State })}`);
-      }
-      const dmesgAfter = (await execFile("sudo", ["dmesg", "--color=never"])).stdout;
-      const newRecords = dmesgAfter.startsWith(dmesgBefore) ? dmesgAfter.slice(dmesgBefore.length) : dmesgAfter;
-      const records = newRecords
-        .split(/\r?\n/u)
-        .filter((line) => line.includes("arch=c000003e") && /\bsyscall=\d+\b/u.test(line) && new RegExp(`\\bpid=${pid}\\b`, "u").test(line));
-      if (records.length === 0) throw new Error(`GATE_9_SECCOMP_DIAGNOSTIC_NO_KERNEL_RECORDS ${JSON.stringify({ pid })}`);
-      const syscallNames = new Map([...readFileSync("/usr/include/x86_64-linux-gnu/asm/unistd_64.h", "utf8").matchAll(/^#define __NR_([a-z0-9_]+)\s+(\d+)$/gmu)].map(([, name, number]) => [Number(number), name]));
-      const syscalls = [...new Set(records.map((line) => Number(line.match(/\bsyscall=(\d+)\b/u)?.[1])).filter(Number.isSafeInteger))]
-        .map((number) => ({ number, name: syscallNames.get(number) ?? null }));
-      throw new Error(`GATE_9_SECCOMP_DIAGNOSTIC ${JSON.stringify({ pid, syscalls, records })}`);
+      expect(inspected.State?.Running).toBe(true);
+      expect(pid).toSatisfy((value: unknown) => Number.isSafeInteger(value) && (value as number) > 0);
     } finally {
       await execFile("docker", ["rm", "-f", containerName]).catch(() => {});
       rmSync(directory, { recursive: true, force: true });
