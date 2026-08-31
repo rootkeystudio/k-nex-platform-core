@@ -106,6 +106,20 @@ function supervisor(observations: Record<string, Record<string, any>>, store: Ve
   }, store.runnerSource(), isolationPolicy);
 }
 
+function secureLinuxInspection(): Record<string, any> {
+  return {
+    Config: { User: "10000:10000", WorkingDir: "/tmp", Image: extensionRunnerImage, Env: ["HOME=/tmp", "NODE_NO_WARNINGS=1"] },
+    HostConfig: {
+      NetworkMode: "none", ReadonlyRootfs: true, Privileged: false, CapDrop: ["ALL"], CapAdd: null,
+      SecurityOpt: ["no-new-privileges=true", `seccomp=${runnerSeccompProfile}`, `apparmor=${runnerAppArmorProfileName}`],
+      Binds: [], Tmpfs: { "/tmp": "rw,noexec,nosuid,nodev,size=1048576,mode=700,uid=10000,gid=10000" },
+      PidsLimit: 32, Memory: 67_108_864, MemorySwap: 67_108_864, NanoCpus: 250_000_000,
+      Ulimits: [{ Name: "nofile", Soft: 64, Hard: 64 }], UsernsMode: ""
+    },
+    Mounts: [], AppArmorProfile: runnerAppArmorProfileName, State: { Pid: 4242 }
+  };
+}
+
 beforeAll(async () => {
   await execFile("docker", ["version", "--format", "{{.Server.Version}}"]);
 }, 30_000);
@@ -205,18 +219,42 @@ describe("production extension runner", () => {
   it("fails closed when Linux inspection does not expose a numeric container PID", async () => {
     const runner = supervisor({}, artifactStore()) as any;
     runner.isolationPolicy = dockerAppArmorPolicy;
-    runner.inspectRunningContainer = async () => ({
-      Config: { User: "10000:10000", WorkingDir: "/tmp", Image: extensionRunnerImage, Env: ["HOME=/tmp", "NODE_NO_WARNINGS=1"] },
-      HostConfig: {
-        NetworkMode: "none", ReadonlyRootfs: true, Privileged: false, CapDrop: ["ALL"], CapAdd: null,
-        SecurityOpt: ["no-new-privileges=true", `seccomp=${runnerSeccompProfile}`, `apparmor=${runnerAppArmorProfileName}`],
-        Binds: [], Tmpfs: { "/tmp": "rw,noexec,nosuid,nodev,size=1048576,mode=700,uid=10000,gid=10000" },
-        PidsLimit: 32, Memory: 67_108_864, MemorySwap: 67_108_864, NanoCpus: 250_000_000,
-        Ulimits: [{ Name: "nofile", Soft: 64, Hard: 64 }], UsernsMode: ""
-      },
-      Mounts: [], AppArmorProfile: runnerAppArmorProfileName, State: { Pid: "1" }
-    });
+    const inspected = secureLinuxInspection();
+    inspected.State.Pid = "1";
+    runner.inspectRunningContainer = async () => inspected;
     await expect(runner.inspectSecurity("runner-control-test", limits, 10_000)).rejects.toMatchObject({ code: "POLICY_UNAVAILABLE" });
+  });
+
+  it("waits for effective Linux controls before making source eligible", async () => {
+    const runner = supervisor({}, artifactStore()) as any;
+    runner.isolationPolicy = dockerAppArmorPolicy;
+    runner.inspectRunningContainer = async () => secureLinuxInspection();
+    const statuses = [
+      "CapEff:\t0000000000000000\nNoNewPrivs:\t0\nSeccomp:\t0\n",
+      "CapEff:\t0000000000000000\nNoNewPrivs:\t1\nSeccomp:\t2\n"
+    ];
+    let statusReads = 0;
+    let waits = 0;
+    runner.readProcFile = (path: string) => path.endsWith("uid_map") ? "0 100000 65536\n" : statuses[statusReads++]!;
+    runner.waitForSecurityStatus = async () => { waits += 1; };
+
+    await expect(runner.inspectSecurity("runner-startup-poll", limits, 10_000)).resolves.toBeUndefined();
+    expect(statusReads).toBe(2);
+    expect(waits).toBe(1);
+  });
+
+  it("fails closed when effective Linux controls never converge", async () => {
+    const runner = supervisor({}, artifactStore()) as any;
+    runner.isolationPolicy = dockerAppArmorPolicy;
+    runner.inspectRunningContainer = async () => secureLinuxInspection();
+    let statusReads = 0;
+    let waits = 0;
+    runner.readProcFile = (path: string) => path.endsWith("uid_map") ? "0 100000 65536\n" : (statusReads += 1, "CapEff:\t0000000000000000\nNoNewPrivs:\t0\nSeccomp:\t0\n");
+    runner.waitForSecurityStatus = async () => { waits += 1; };
+
+    await expect(runner.inspectSecurity("runner-startup-poll", limits, 10_000)).rejects.toMatchObject({ code: "POLICY_UNAVAILABLE" });
+    expect(statusReads).toBe(50);
+    expect(waits).toBe(49);
   });
 
   it("runs app generations with container authority and only declared host capabilities", async () => {

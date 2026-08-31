@@ -7,15 +7,15 @@
 
 ## Last completed
 
-P9.10 local Gate remediation is complete. Static deployment now resolves npm through PATH instead of assuming it is bundled beside the exact Node binary. The full local gate correctly refuses to label Docker Desktop's test-only runner policy as production traffic isolation; production proof remains the exact-head Linux/AppArmor CI path.
+P9.10 Linux preflight remediation is complete. Docker CLI process spawn can precede final OCI effective controls, so production inspection now waits a bounded one second for the unchanged `CapEff=0`, `NoNewPrivs=1`, and `Seccomp=2` tuple. Persistent mismatch or unreadable host state still fails closed before source handoff.
 
 ## Validation
 
-Local Node 24.19.0: Gates 0–8 and all browser/unit/most PostgreSQL proofs passed in the final full-gate attempt. Its two failures were isolated: PATH npm ENOENT is fixed and the exact static deployment PostgreSQL/Docker proof now passes 1/1; local production-traffic admission remains intentionally denied because Docker Desktop supplies no AppArmor evidence. `git diff --check` passes; labeled resources and fixture temp are absent.
+Local Node 24.19.0: runner forced build passes. Deterministic stale-to-stable and persistent-stale effective-policy polling tests pass 2/2; `git diff --check` passes. PR #28 exact-head Linux/AppArmor preflight at `8218b66` proved setup, AppArmor, userns, and SIGSYS enforcement, then exposed only this host-observation race. Full Gate 9 remains pending the repaired exact-head CI run.
 
 ## Next
 
-Refresh the Phase 9 result, push PR #28, require exact-head Linux/AppArmor Gate 9 PASS, then obtain same Sol-xhigh phase review and stop for designated project-manager review.
+Push the repaired PR #28 head, require exact-head Linux/AppArmor Docker preflight and full Gate 9 PASS, then obtain same Sol-xhigh phase review and stop for designated project-manager review.
 
 ## Blockers
 

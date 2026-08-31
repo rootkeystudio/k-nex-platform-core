@@ -607,18 +607,31 @@ export class DockerHotApplicationSandboxSupervisor {
     const pid = state?.Pid;
     if (typeof pid !== "number" || !Number.isSafeInteger(pid) || pid <= 0) throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker did not expose a running container PID for user-namespace verification.");
     let uidMap: string;
-    let status: string;
     try {
-      uidMap = readFileSync(`/proc/${pid}/uid_map`, "utf8");
-      status = readFileSync(`/proc/${pid}/status`, "utf8");
+      uidMap = this.readProcFile(`/proc/${pid}/uid_map`);
     } catch { throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Host cannot verify the effective container security state."); }
     if (!/^\s*0\s+[1-9][0-9]*\s+[1-9][0-9]*\s*$/mu.test(uidMap)) throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker launched the runner without a remapped user namespace.");
-    const proc = new Map<string, string>();
-    for (const line of status.split("\n")) {
-      const match = /^(CapEff|NoNewPrivs|Seccomp):\s*(\S+)\s*$/u.exec(line);
-      if (match) proc.set(match[1]!, match[2]!);
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      let status: string;
+      try { status = this.readProcFile(`/proc/${pid}/status`); }
+      catch { throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Host cannot verify the effective container security state."); }
+      const proc = new Map<string, string>();
+      for (const line of status.split("\n")) {
+        const match = /^(CapEff|NoNewPrivs|Seccomp):\s*(\S+)\s*$/u.exec(line);
+        if (match) proc.set(match[1]!, match[2]!);
+      }
+      if (/^0+$/u.test(proc.get("CapEff") ?? "") && proc.get("NoNewPrivs") === "1" && proc.get("Seccomp") === "2") return;
+      if (attempt < 49) await this.waitForSecurityStatus();
     }
-    if (!/^0+$/u.test(proc.get("CapEff") ?? "") || proc.get("NoNewPrivs") !== "1" || proc.get("Seccomp") !== "2") unavailable("Docker did not apply the effective capability, no-new-privileges, and seccomp controls.");
+    unavailable("Docker did not apply the effective capability, no-new-privileges, and seccomp controls.");
+  }
+
+  private readProcFile(path: string): string {
+    return readFileSync(path, "utf8");
+  }
+
+  private waitForSecurityStatus(): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, 20));
   }
 
   private async observedPolicyViolation(containerName: string): Promise<boolean> {
