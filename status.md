@@ -7,15 +7,15 @@
 
 ## Last completed
 
-P9.10 static Platform Plugin lifecycle review is PASS. Disable retains the exact static generation and serializes real Sales action/outbox admission with the lifecycle transition. Schema-owning `module.sales` uninstall fails before claim; supported schema-less uninstall requires a fresh, composed, signed static release. Planner policy runs only after authorization and before claim. Forged live Platform uninstall plans fail inertly. Empty migration plans require equal revisions in Zod and generated Ajv schemas.
+P9.10 fresh dynamic rollback-readiness review is PASS. Rollback prepares and atomically persists a fresh lease bound to the exact retained immutable generation, current compatibility authority, activation, source, artifact, version, and owner. Readiness is rechecked after all identity/state/generation locks; expired, forged, malformed-evidence, and irreversible paths remain inert. Irreversible rejection preserves its explicit decision identity.
 
 ## Validation
 
-Local Node 24.19.0: runtime 331/331 plus focused 17/17, contracts 185/185, payload-adapter 49/49, architecture-contract-tools 26/26, relevant builds, generated validation/reproducibility, and `git diff --check` pass. Isolated real PostgreSQL proofs pass for restricted-role real Sales handler/outbox (1/1), deterministic Sales/disable advisory-lock race (1/1), and customer migration/handler/outbox boot (1/1). Full Gate 9 integrity fixture and exact-head Linux CI remain phase-end validation only.
+Local Node 24.19.0: focused runtime 17/17 and rollback-store 10/10 pass; payload-adapter package 59/59 was also run, relevant package builds and `git diff --check` pass. The isolated real PostgreSQL runtime-state file passes 4/4 in 31.99s, including deterministic advisory-lock wait past readiness expiry with complete zero-mutation snapshots. Same Sol-ultra reviewer PASS. Full Gate 9 integrity fixture and exact-head Linux CI remain phase-end validation only.
 
 ## Next
 
-Close the fresh dynamic rollback-readiness authority gap, then continue the remaining Phase 9 review blockers in order.
+Close the runner protocol concurrent-frame and fire-and-forget gap, then continue the remaining Phase 9 review blockers in order.
 
 ## Blockers
 

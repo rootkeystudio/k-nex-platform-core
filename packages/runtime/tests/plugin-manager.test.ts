@@ -12,6 +12,7 @@ import {
   type PluginManagerPlan,
   type RuntimeExtensionOperation,
   type RuntimeExtensionStore,
+  type StagedGenerationActivation,
   type VerifiedGenerationAuthority
 } from "../src/index.js";
 
@@ -77,6 +78,7 @@ class MemoryStore implements RuntimeExtensionStore {
   readonly transitions: string[] = [];
   inventoryValue: RuntimeExtensionInventory = emptyInventory();
   rollbackResult?: ExtensionActivationReceipt;
+  rollbackStage?: StagedGenerationActivation;
   readonly staticReceipts: unknown[] = [];
   resumeCount = 0;
 
@@ -121,8 +123,9 @@ class MemoryStore implements RuntimeExtensionStore {
       rollback: "unavailable", occurredAt: "2026-08-29T09:00:00.000Z"
     };
   }
-  async rollbackGeneration(): Promise<ExtensionActivationReceipt> {
+  async rollbackGeneration(_id: string, _token: string, stage: StagedGenerationActivation): Promise<ExtensionActivationReceipt> {
     if (!this.rollbackResult) throw new Error("unused");
+    this.rollbackStage = stage;
     return this.rollbackResult;
   }
   async completeStaticRelease(_id: string, _token: string, receipt: Parameters<RuntimeExtensionStore["completeStaticRelease"]>[2]) {
@@ -463,6 +466,8 @@ describe("PluginManager", () => {
     await expect(runtime.value.rollback(planned.operationId)).resolves.toMatchObject({ generationId: retained.generationId });
     expect(runtime.artifacts.reverify).toHaveBeenCalledWith(retained, expect.objectContaining({ extensionId: retained.extensionId }));
     expect(runtime.generationRuntime.prepare).toHaveBeenCalledWith(expect.objectContaining({ authority: retained }));
+    const prepared = await runtime.generationRuntime.prepare.mock.results.at(-1)!.value;
+    expect(runtime.store.rollbackStage).toBe(prepared);
 
     runtime.artifacts.reverify.mockResolvedValueOnce(false);
     runtime.store.operation = { ...runtime.store.operation!, phase: "planning" };
@@ -471,6 +476,8 @@ describe("PluginManager", () => {
   });
 
   it("rejects stale or mixed retained readiness before rollback pointer mutation", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-29T09:00:30.000Z"));
     const runtime = manager();
     const retained = { ...authority, generationId: "sales-assistant-generation-0" };
     runtime.store.operation = {
@@ -495,6 +502,15 @@ describe("PluginManager", () => {
     });
     await expect(runtime.value.rollback("extension-operation-rollback")).rejects.toMatchObject({ code: "ARTIFACT_AUTHORITY_REJECTED" });
     expect(runtime.store.rollbackResult).toBeUndefined();
+    expect(runtime.store.rollbackStage).toBeUndefined();
+
+    runtime.generationRuntime.prepare.mockResolvedValueOnce({
+      authority: retained, version: "1.0.0",
+      readiness: { generationId: retained.generationId, serverGenerationId: retained.generationId, uiGenerationId: retained.generationId, storageGenerationId: retained.generationId, leaseToken: "readiness:lease-2", readyAt: "2026-08-29T08:00:00.000Z", expiresAt: "2026-08-29T09:00:00.000Z" },
+      compatibility: { status: "compatible", windowId: "rollback-window-1", closesAt: "2026-08-30T09:00:00.000Z", migrationDigest: digest("6"), dataRevision: 1 }, metadata: {}, settings: {}, storageSchemaVersions: {}
+    });
+    await expect(runtime.value.rollback("extension-operation-rollback")).rejects.toMatchObject({ code: "ARTIFACT_AUTHORITY_REJECTED" });
+    expect(runtime.store.rollbackStage).toBeUndefined();
   });
 
   it("exposes safe progress, validation, disable, and uninstall operations", async () => {

@@ -305,7 +305,7 @@ export interface RuntimeExtensionStore {
   stageGeneration(input: Readonly<{ operationId: string; leaseToken: string; stage: StagedGenerationActivation }>): Promise<Readonly<{ operation: RuntimeExtensionOperation; event: ExtensionLifecycleEvent }>>;
   refreshGenerationReadiness(input: Readonly<{ operationId: string; leaseToken: string; stage: StagedGenerationActivation }>): Promise<RuntimeExtensionOperation>;
   activateGeneration(operationId: string, leaseToken: string): Promise<ExtensionActivationReceipt>;
-  rollbackGeneration(operationId: string, leaseToken: string): Promise<ExtensionActivationReceipt>;
+  rollbackGeneration(operationId: string, leaseToken: string, stage: StagedGenerationActivation): Promise<ExtensionActivationReceipt>;
   completeStaticRelease(operationId: string, leaseToken: string, receipt: StaticDeploymentReceipt): Promise<StaticDeploymentReceipt>;
   disableGeneration(operationId: string, leaseToken: string): Promise<ExtensionDispositionReceipt>;
   uninstallGeneration(operationId: string, leaseToken: string): Promise<ExtensionDispositionReceipt>;
@@ -675,7 +675,7 @@ export class PluginManager {
     }
     const stage = await this.generationRuntime.prepare({ request: current.request, plan: livePlan, authority });
     assertFreshRollbackReadiness(stage, authority, current.plan.plan.version, this.clock.now());
-    return this.store.rollbackGeneration(operationId, current.leaseToken);
+    return this.store.rollbackGeneration(operationId, current.leaseToken, stage);
   }
 
   async completeStaticRelease(operationId: string, receipt: StaticDeploymentReceipt): Promise<StaticDeploymentReceipt> {

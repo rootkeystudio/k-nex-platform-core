@@ -195,6 +195,51 @@ async function prepareStateGeneration(store, change, requestDigest, workerId, no
   return store.readOperation(operation.operationId);
 }
 
+async function rollbackMutationSnapshot(pool, extensionId) {
+  const values = ["customer-alpha", "production", "hot-application", extensionId];
+  const scopedRows = async (table, orderBy) => (await pool.query(
+    `select to_jsonb(row) value from ${table} row
+     where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4 ${orderBy}`,
+    values
+  )).rows.map(({ value }) => value);
+  const receipts = await pool.query(
+    `select to_jsonb(receipt) value from runtime_extension_transition_receipts receipt
+     join runtime_extension_operations operation using (operation_id)
+     where operation.application_id=$1 and operation.environment=$2 and operation.delivery_class=$3 and operation.extension_id=$4
+     order by receipt.receipt_id`,
+    values
+  );
+  const revision = await pool.query(
+    "select to_jsonb(row) value from runtime_extension_inventory_revisions row where application_id=$1 and environment=$2",
+    values.slice(0, 2)
+  );
+  const budget = await pool.query(
+    "select to_jsonb(row) value from runtime_extension_operation_budget row where application_id=$1 and environment=$2",
+    values.slice(0, 2)
+  );
+  return {
+    pointer: await scopedRows("runtime_extensions", "order by extension_id"),
+    generations: await scopedRows("runtime_extension_generations", "order by generation_id"),
+    revision: revision.rows.map(({ value }) => value),
+    operations: await scopedRows("runtime_extension_operations", "order by operation_id"),
+    budget: budget.rows.map(({ value }) => value),
+    receipts: receipts.rows.map(({ value }) => value),
+    audit: await scopedRows("runtime_extension_audit", "order by audit_id"),
+    outbox: await scopedRows("runtime_extension_outbox", "order by event_id")
+  };
+}
+
+async function waitForRuntimeExtensionLock(pool) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const result = await pool.query(
+      "select 1 from pg_stat_activity where datname=current_database() and wait_event_type='Lock' and query like 'select pg_advisory_xact_lock%' limit 1"
+    );
+    if (result.rowCount === 1) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.fail("Rollback never waited on its runtime extension advisory lock.");
+}
+
 function releaseDefinition(generation, version, marker, compatibility) {
   const generationId = `app-sales-live-generation-${generation}`;
   const bundle = buildBundle({
@@ -453,7 +498,7 @@ test("rejects SCN-12 activation races and SCN-13 stale operation replays in Post
 test("proves PostgreSQL-backed Hot Application install, update, restore, rollback, and execution through the durable runtime", { timeout: 180_000 }, async () => {
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("runtime_extensions").withStartupTimeout(120_000).start();
   const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
-  const now = new Date("2026-08-29T09:00:00.000Z");
+  let now = new Date("2026-08-29T09:00:00.000Z");
   const clock = { now: () => now };
   const storeA = new PostgresRuntimeExtensionStore(pool, clock, digest("7"));
   const storeB = new PostgresRuntimeExtensionStore(pool, clock, digest("7"));
@@ -486,6 +531,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     assert.equal(storedBytes.rows.every((row) => row.artifact_bytes > 0 && row.provenance_bytes > 0), true);
 
     const warmed = [];
+    let readinessSequence = 0;
     const warmer = new ReferenceHotApplicationGenerationWarmer({
       runner: { prepareServer: async ({ artifact }) => { assert.match((await artifacts.runnerSource().load({ owner: { ...artifact.authority, generationId: artifact.authority.generationId }, artifactDigest: artifact.authority.artifactDigest, serverEntrypoint: "server/main.mjs" })).source, /export default async/u); warmed.push(`runner:${artifact.authority.generationId}`); } },
       remoteUi: { prepareRemoteUi: async ({ artifact }) => { assert.ok((await artifacts.read(artifact.authority.artifactDigest))?.verified.files.get("ui/main.mjs")); warmed.push(`remote-ui:${artifact.authority.generationId}`); } },
@@ -493,7 +539,21 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       surfaces: { prepareFixedSurfaces: async ({ manifest, artifact }) => { assert.equal(manifest.screens.some((screen) => screen.route === "/activity/:activityid"), true); warmed.push(`surfaces:${artifact.authority.generationId}`); } },
       clock
     });
+    const deterministicWarmer = {
+      async warm(input) {
+        const readiness = await warmer.warm(input);
+        const sequence = ++readinessSequence;
+        const readyAt = clock.now();
+        return {
+          ...readiness,
+          leaseToken: `ready:${readiness.generationId}:fixture-${sequence}`,
+          readyAt: readyAt.toISOString(),
+          expiresAt: new Date(readyAt.valueOf() + 60_000).toISOString()
+        };
+      }
+    };
     const pipeline = new DurableDynamicArtifactPipeline(artifacts);
+    const dynamicRuntime = new DurableDynamicGenerationRuntime(artifacts, deterministicWarmer);
     const manager = new PluginManager("activation-worker", new TrustedAutomationOperationAuthorizer("github-actions:phase-9"), {
       validate: async () => undefined,
       plan: async (change) => {
@@ -501,7 +561,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
         if (!release) throw new Error("Fixture release is unavailable.");
         return { plan: plan(change.operationId, change, release).plan, sourceCommit: release.authority.sourceCommit, generationId: release.generationId };
       }
-    }, storeA, pipeline, { request: async () => { throw new Error("Static delivery is not used."); } }, { request: async () => { throw new Error("Static delivery is not used."); }, reverify: async () => false }, new DurableDynamicGenerationRuntime(artifacts, warmer), clock);
+    }, storeA, pipeline, { request: async () => { throw new Error("Static delivery is not used."); } }, { request: async () => { throw new Error("Static delivery is not used."); }, reverify: async () => false }, dynamicRuntime, clock);
 
     const identity = { deliveryClass: "hot-application", id: "app.sales-live" };
 
@@ -745,11 +805,93 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     }
     assert.deepEqual(await invokeTraffic(), { marker: "sales-live-v2", generationId: updated.generationId });
 
+    const retained = byGeneration.get(installed.generationId);
+    assert.ok(retained, "rollback fixture lost its retained verified generation");
+    await pool.query(
+      "update runtime_extension_generations set readiness_expires_at=$1 where application_id=$2 and environment=$3 and delivery_class=$4 and extension_id=$5 and generation_id=$6",
+      [new Date(now.valueOf() - 1_000).toISOString(), "customer-alpha", "production", "hot-application", identity.id, installed.generationId]
+    );
+    const expiredReadiness = await pool.query(
+      "select readiness_token, readiness_expires_at::text from runtime_extension_generations where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4 and generation_id=$5",
+      ["customer-alpha", "production", "hot-application", identity.id, installed.generationId]
+    );
+    assert.equal(new Date(expiredReadiness.rows[0].readiness_expires_at).valueOf() <= now.valueOf(), true, "retained generation must require a fresh rollback readiness lease");
+
+    const rollback = await manager.plan(request("rollback", "1.0.0", updated.revisionAfter));
+    const rollbackOperation = await storeA.readOperation(rollback.operationId);
+    assert.ok(rollbackOperation, "planned rollback operation is unavailable");
+    const rollbackStage = {
+      authority: retained.authority,
+      version: retained.version,
+      readiness: {
+        generationId: retained.generationId,
+        serverGenerationId: retained.generationId,
+        uiGenerationId: retained.generationId,
+        storageGenerationId: retained.generationId,
+        leaseToken: `ready:${retained.generationId}:direct-stage`,
+        readyAt: now.toISOString(),
+        expiresAt: new Date(now.valueOf() + 60_000).toISOString()
+      },
+      compatibility: retained.compatibility,
+      metadata: retained.stage.activation.metadata,
+      settings: retained.stage.activation.settings,
+      storageSchemaVersions: retained.stage.activation.storageSchemaVersions
+    };
+    const rejectedRollbackStages = [
+      { name: "expired-at-store-check", expectedCode: "READINESS_EXPIRED", stage: { ...rollbackStage, readiness: { ...rollbackStage.readiness, expiresAt: now.toISOString() } } },
+      { name: "wrong-owner", expectedCode: "GENERATION_MISMATCH", stage: { ...rollbackStage, authority: { ...rollbackStage.authority, applicationId: "customer-beta" } } },
+      { name: "wrong-generation", expectedCode: "GENERATION_MISMATCH", stage: { ...rollbackStage, authority: { ...rollbackStage.authority, generationId: "app-sales-live-generation-99" }, readiness: { ...rollbackStage.readiness, generationId: "app-sales-live-generation-99", serverGenerationId: "app-sales-live-generation-99", uiGenerationId: "app-sales-live-generation-99", storageGenerationId: "app-sales-live-generation-99" } } },
+      { name: "wrong-artifact", expectedCode: "GENERATION_MISMATCH", stage: { ...rollbackStage, authority: { ...rollbackStage.authority, artifactDigest: digest("9") } } },
+      { name: "wrong-version", expectedCode: "GENERATION_MISMATCH", stage: { ...rollbackStage, version: "1.1.0" } },
+      { name: "wrong-activation", expectedCode: "GENERATION_MISMATCH", stage: { ...rollbackStage, metadata: { ...rollbackStage.metadata, forged: "rollback" } } }
+    ];
+    for (const rejected of rejectedRollbackStages) {
+      const before = await rollbackMutationSnapshot(pool, identity.id);
+      await assert.rejects(storeA.rollbackGeneration(rollback.operationId, rollbackOperation.leaseToken, rejected.stage), { code: rejected.expectedCode }, rejected.name);
+      assert.deepEqual(await rollbackMutationSnapshot(pool, identity.id), before, `${rejected.name} rollback stage mutated durable state`);
+    }
+
+    const rollbackLock = await pool.connect();
+    let rollbackLockOpen = false;
+    try {
+      await rollbackLock.query("begin");
+      rollbackLockOpen = true;
+      await rollbackLock.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [canonicalJson(["customer-alpha", "production", "hot-application", identity.id])]);
+      const beforeExpiredWhileWaiting = await rollbackMutationSnapshot(pool, identity.id);
+      const expiredWhileWaiting = storeA.rollbackGeneration(rollback.operationId, rollbackOperation.leaseToken, rollbackStage);
+      await waitForRuntimeExtensionLock(pool);
+      now = new Date(now.valueOf() + 60_001);
+      await rollbackLock.query("commit");
+      rollbackLockOpen = false;
+      await assert.rejects(expiredWhileWaiting, { code: "READINESS_EXPIRED" });
+      assert.deepEqual(await rollbackMutationSnapshot(pool, identity.id), beforeExpiredWhileWaiting, "Rollback whose fresh readiness expired while waiting mutated durable state");
+    } finally {
+      if (rollbackLockOpen) await rollbackLock.query("rollback");
+      rollbackLock.release();
+    }
+    const beforeRollback = await rollbackMutationSnapshot(pool, identity.id);
+
     trafficProbe.resume();
     trafficProbe.transition("rollback", [updated.generationId, installed.generationId]);
     await trafficProbe.waitForGeneration("rollback", updated.generationId);
-    const rollback = await manager.plan(request("rollback", "1.0.0", updated.revisionAfter));
     const rolledBack = await manager.rollback(rollback.operationId);
+    const afterRollback = await rollbackMutationSnapshot(pool, identity.id);
+    const refreshedRetained = afterRollback.generations.find((generation) => generation.generation_id === installed.generationId);
+    assert.deepEqual(afterRollback.pointer[0].active_generation_id, installed.generationId);
+    assert.deepEqual(afterRollback.pointer[0].rollback_generation_id, updated.generationId);
+    assert.equal(refreshedRetained.state, "active");
+    assert.equal(refreshedRetained.readiness_token, `ready:${installed.generationId}:fixture-3`);
+    assert.equal(new Date(refreshedRetained.readiness_expires_at).toISOString(), "2026-08-29T09:02:00.001Z");
+    assert.equal(refreshedRetained.staged_revision, rolledBack.revisionBefore);
+    assert.equal(refreshedRetained.readiness_token === expiredReadiness.rows[0].readiness_token, false, "rollback must replace stored retained readiness token");
+    assert.deepEqual(rolledBack.compatibility, releases[1].compatibility, "rollback receipt must bind current active rollback compatibility window");
+    assert.deepEqual(afterRollback.operations.find((operation) => operation.operation_id === rollback.operationId).result_json, rolledBack);
+    assert.equal(afterRollback.receipts.some((receipt) => receipt.receipt_id === rolledBack.receiptId), true);
+    assert.equal(afterRollback.audit.some((audit) => audit.event_json?.receiptId === rolledBack.receiptId), true);
+    assert.equal(afterRollback.outbox.some((event) => event.event_json?.receiptId === rolledBack.receiptId), true);
+    assert.equal(afterRollback.revision[0].revision, rolledBack.inventoryRevision);
+    assert.equal(afterRollback.budget[0].active_count, 0);
+    assert.equal(afterRollback.operations.length, beforeRollback.operations.length, "rollback completion must finish its planned operation in place");
     await trafficProbe.waitForGeneration("rollback", rolledBack.generationId);
     assert.equal(rolledBack.generationId, installed.generationId);
     assert.deepEqual(await manager.rollback(rollback.operationId), rolledBack);
@@ -801,6 +943,15 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
         preInstallStatus: preInstallRoute.status,
         scriptBuilds: fixedRouteHost.scriptBuilds,
         scriptDigests: [preInstallHostScriptDigest, updatedHostScriptDigest, rolledBackHostScriptDigest]
+      },
+      freshRollbackReadiness: {
+        generationId: installed.generationId,
+        expiredToken: expiredReadiness.rows[0].readiness_token,
+        token: refreshedRetained.readiness_token,
+        expiresAt: refreshedRetained.readiness_expires_at,
+        stagedRevision: refreshedRetained.staged_revision,
+        compatibilityWindowId: rolledBack.compatibility.windowId,
+        rejectedStages: rejectedRollbackStages.map(({ name }) => name)
       },
       lostInvalidationRecovery,
       continuousHttp

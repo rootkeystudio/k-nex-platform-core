@@ -140,7 +140,7 @@ function validRecordId(value: string): boolean {
   return /^[a-z][a-z0-9-]{2,127}$/u.test(value);
 }
 
-function assertStage(stage: StagedGenerationActivation, now: Date): void {
+function assertStage(stage: StagedGenerationActivation, now: Date, validateCompatibility = true): void {
   const readiness = stage.readiness;
   const readyAt = new Date(readiness.readyAt);
   const expiresAt = new Date(readiness.expiresAt);
@@ -158,11 +158,13 @@ function assertStage(stage: StagedGenerationActivation, now: Date): void {
     Object.values(stage.storageSchemaVersions).some((revision) => !Number.isSafeInteger(revision) || revision < 1 || revision > 1_000_000_000)) {
     fail("STATE_INVALID", "Generation activation changes exceed their bounded contract.");
   }
-  const compatibility = stage.compatibility;
-  if (!/^sha256:[0-9a-f]{64}$/u.test(compatibility.migrationDigest) || !Number.isSafeInteger(compatibility.dataRevision) || compatibility.dataRevision < 0 || compatibility.dataRevision > 1_000_000_000 ||
-    (compatibility.status === "compatible" && (!validRecordId(compatibility.windowId) || new Date(compatibility.closesAt).valueOf() <= now.valueOf())) ||
-    (compatibility.status === "irreversible" && (!validRecordId(compatibility.decisionId) || compatibility.reason.length < 1 || compatibility.reason.length > 512))) {
-    fail("STATE_INVALID", "Generation migration compatibility record is invalid.");
+  if (validateCompatibility) {
+    const compatibility = stage.compatibility;
+    if (!/^sha256:[0-9a-f]{64}$/u.test(compatibility.migrationDigest) || !Number.isSafeInteger(compatibility.dataRevision) || compatibility.dataRevision < 0 || compatibility.dataRevision > 1_000_000_000 ||
+      (compatibility.status === "compatible" && (!validRecordId(compatibility.windowId) || new Date(compatibility.closesAt).valueOf() <= now.valueOf())) ||
+      (compatibility.status === "irreversible" && (!validRecordId(compatibility.decisionId) || compatibility.reason.length < 1 || compatibility.reason.length > 512))) {
+      fail("STATE_INVALID", "Generation migration compatibility record is invalid.");
+    }
   }
 }
 
@@ -602,7 +604,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
     });
   }
 
-  async rollbackGeneration(id: string, token: string): Promise<ExtensionActivationReceipt> {
+  async rollbackGeneration(id: string, token: string, stage: StagedGenerationActivation): Promise<ExtensionActivationReceipt> {
     return this.transaction(async (session) => {
       const replay = await this.completedReceipt(session, id, ["rollback"]);
       if (replay) return replay as ExtensionActivationReceipt;
@@ -610,6 +612,9 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
       if (row.phase !== "planning" || row.operation_kind !== "rollback" || row.plan_json?.executionClass !== "live-generation") {
         fail("PHASE_CONFLICT", "Only a planned live-generation rollback can commit.");
       }
+      assertStage(stage, this.clock.now(), false);
+      assertAuthorityOwner(row, stage.authority);
+      const authorityDigest = await sha256(stage.authority);
       const identity = identityKey(row);
       await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [identity]);
       const stateResult = await session.query<ExtensionRow>(
@@ -618,11 +623,12 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
       );
       const state = stateResult.rows[0];
       if (!state || state.revision !== row.expected_revision + 1) fail("REVISION_CONFLICT", "Rollback expected revision does not match the planned active state.");
-      if (!state.active_generation_id || !state.active_generation) fail("ROLLBACK_BLOCKED", "No active generation is available for rollback.");
       const compatibility = state.rollback_compatibility_json;
       if (compatibility?.status === "irreversible") {
-        fail("ROLLBACK_BLOCKED", `Irreversible decision ${compatibility.decisionId} blocks rollback.`);
+        fail("ROLLBACK_BLOCKED", `Rollback is blocked by irreversible migration decision ${compatibility.decisionId}.`);
       }
+      assertPlanIdentity(row, row.plan_json, state);
+      if (!state.active_generation_id || !state.active_generation) fail("ROLLBACK_BLOCKED", "No active generation is available for rollback.");
       if (!state.rollback_generation_id || !state.rollback_generation) fail("ROLLBACK_BLOCKED", "No compatible prior generation is retained.");
       const targetResult = await session.query<GenerationRow>(
         `select * from runtime_extension_generations where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4 and generation_id=$5 for update`,
@@ -630,12 +636,42 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
       );
       const target = targetResult.rows[0];
       if (!target || !target.activation_json || !compatibility) fail("ROLLBACK_BLOCKED", "Rollback generation evidence is incomplete.");
-      if (new Date(compatibility.closesAt).valueOf() <= this.clock.now().valueOf()) fail("ROLLBACK_BLOCKED", "Rollback compatibility window is closed.");
+      assertStage(stage, this.clock.now(), false);
+      const now = this.clock.now();
+      if (compatibility.status !== "compatible" || !validRecordId(compatibility.windowId) || !/^sha256:[0-9a-f]{64}$/u.test(compatibility.migrationDigest) ||
+        !Number.isSafeInteger(compatibility.dataRevision) || compatibility.dataRevision < 0 || compatibility.dataRevision > 1_000_000_000 ||
+        !Number.isFinite(Date.parse(compatibility.closesAt)) || Date.parse(compatibility.closesAt) <= now.valueOf()) {
+        fail("ROLLBACK_BLOCKED", "Rollback compatibility window is closed or invalid.");
+      }
+      const retained = state.rollback_generation;
+      const retainedEvidence = target.receipt_id && validRecordId(target.receipt_id)
+        ? this.bundleGenerationEvidence(target, target.receipt_id)
+        : undefined;
+      if (stage.readiness.leaseToken === target.readiness_token) {
+        fail("READINESS_EXPIRED", "Rollback readiness lease was not freshly prepared.");
+      }
+      if (target.generation_id !== state.rollback_generation_id || target.state !== "rollback" || target.server_generation_id !== target.generation_id ||
+        target.ui_generation_id !== target.generation_id || target.storage_generation_id !== target.generation_id || target.version !== row.plan_json.plan.version ||
+        stage.version !== target.version || canonicalJson(stage.authority) !== canonicalJson(target.authority_json) || authorityDigest !== target.authority_digest ||
+        canonicalJson({ metadata: stage.metadata, settings: stage.settings, storageSchemaVersions: stage.storageSchemaVersions }) !== canonicalJson(target.activation_json) ||
+        !retainedEvidence || canonicalJson(retained) !== canonicalJson(retainedEvidence) || row.plan_json.sourceCommit !== stage.authority.sourceCommit ||
+        row.plan_json.plan.artifactDigest !== stage.authority.artifactDigest) {
+        fail("GENERATION_MISMATCH", "Rollback stage does not bind the exact retained immutable generation.");
+      }
+      assertAuthorityOwner(row, target.authority_json);
 
       const revision = state.revision + 1;
+      const refreshed = await session.query(
+        `update runtime_extension_generations set readiness_token=$6, readiness_expires_at=$7, staged_revision=$8
+         where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4 and generation_id=$5
+           and state='rollback' and authority_digest=$9 returning generation_id`,
+        [row.application_id, row.environment, row.delivery_class, row.extension_id, target.generation_id,
+          stage.readiness.leaseToken, stage.readiness.expiresAt, state.revision, authorityDigest]
+      );
+      if (refreshed.rowCount !== 1) fail("REVISION_CONFLICT", "Retained generation changed before rollback readiness refresh.");
       const inventoryRevision = await this.advanceInventoryRevision(session, row.application_id, row.environment);
       const { receiptId } = evidenceIds(row, revision);
-      const targetEvidence = { ...state.rollback_generation, receiptId };
+      const targetEvidence = this.bundleGenerationEvidence(target, receiptId);
       const updated = await session.query(
         `update runtime_extensions set revision=$5, active_generation_id=$6, active_generation=$7::jsonb,
            rollback_generation_id=$8, rollback_generation=$9::jsonb, metadata_json=$10::jsonb, settings_json=$11::jsonb,
