@@ -199,6 +199,30 @@ function isDockerNotRunning(error: unknown): error is DockerCommandError {
   return error instanceof DockerCommandError && /\bis not running\b/iu.test(error.stderr);
 }
 
+function safeStateValue(value: unknown): string {
+  if (typeof value === "boolean") return String(value);
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return String(value);
+  if (typeof value === "string" && /^[a-z-]{1,32}$/u.test(value)) return value;
+  return "unavailable";
+}
+
+function containerStateSummary(state: Record<string, unknown> | undefined): string {
+  return `running=${safeStateValue(state?.Running)},status=${safeStateValue(state?.Status)},exitCode=${safeStateValue(state?.ExitCode)},oomKilled=${safeStateValue(state?.OOMKilled)}`;
+}
+
+function isTerminalContainerState(state: Record<string, unknown>): boolean {
+  return state.Status === "exited" || state.Status === "dead" || state.Status === "removing" ||
+    ((state.OOMKilled === true || (typeof state.ExitCode === "number" && state.ExitCode !== 0)) && state.Status !== "created");
+}
+
+function safeProcValue(value: string | undefined, pattern: RegExp): string {
+  return value !== undefined && pattern.test(value) ? value : "unavailable";
+}
+
+function procReadFailure(file: "uid_map" | "status", error: unknown): string {
+  return `proc-read-failed(file=${file},reason=${error instanceof Error && /\bENOENT\b/u.test(error.message) ? "enoent" : "other"})`;
+}
+
 export class DockerHotApplicationSandboxSupervisor {
   readonly isolationProfile?: DockerRunnerIsolationProfile;
   private readonly generations = new Map<string, GenerationState>();
@@ -603,25 +627,48 @@ export class DockerHotApplicationSandboxSupervisor {
       }
       return;
     }
+    let lastObservation = "inspect-failed";
     for (let attempt = 0; attempt < 50; attempt += 1) {
-      try {
-        const effective = await this.inspectContainerOnce(containerName);
-        const state = isRecord(effective.State) ? effective.State : undefined;
-        const pid = state?.Pid;
-        if (typeof pid !== "number" || !Number.isSafeInteger(pid) || pid <= 0) throw new Error("container PID unavailable");
-        const uidMap = this.readProcFile(`/proc/${pid}/uid_map`);
-        const status = this.readProcFile(`/proc/${pid}/status`);
-        if (!/^\s*0\s+[1-9][0-9]*\s+[1-9][0-9]*\s*$/mu.test(uidMap)) throw new Error("user namespace unavailable");
-        const proc = new Map<string, string>();
-        for (const line of status.split("\n")) {
-          const match = /^(CapEff|NoNewPrivs|Seccomp):\s*(\S+)\s*$/u.exec(line);
-          if (match) proc.set(match[1]!, match[2]!);
+      let effective: Record<string, unknown>;
+      try { effective = await this.inspectContainerOnce(containerName); }
+      catch { lastObservation = "inspect-failed"; if (attempt < 49) await this.waitForSecurityStatus(); continue; }
+      const state = isRecord(effective.State) ? effective.State : undefined;
+      if (!state) {
+        lastObservation = "state-unavailable";
+      } else if (state.Running === false && isTerminalContainerState(state)) {
+        unavailable(`Host could not verify the effective container security state (${containerStateSummary(state)}).`);
+      } else if (state.Running === false) {
+        lastObservation = `container-not-running(${containerStateSummary(state)})`;
+      } else {
+        const pid = state.Pid;
+        if (typeof pid !== "number" || !Number.isSafeInteger(pid) || pid <= 0) {
+          lastObservation = "container-pid-unavailable";
+        } else {
+          let uidMap: string;
+          try { uidMap = this.readProcFile(`/proc/${pid}/uid_map`); }
+          catch (error) { lastObservation = procReadFailure("uid_map", error); if (attempt < 49) await this.waitForSecurityStatus(); continue; }
+          let status: string;
+          try { status = this.readProcFile(`/proc/${pid}/status`); }
+          catch (error) { lastObservation = procReadFailure("status", error); if (attempt < 49) await this.waitForSecurityStatus(); continue; }
+          if (!/^\s*0\s+[1-9][0-9]*\s+[1-9][0-9]*\s*$/mu.test(uidMap)) {
+            lastObservation = "uid-map-mismatch";
+          } else {
+            const proc = new Map<string, string>();
+            for (const line of status.split("\n")) {
+              const match = /^(CapEff|NoNewPrivs|Seccomp):\s*(\S+)\s*$/u.exec(line);
+              if (match) proc.set(match[1]!, match[2]!);
+            }
+            const capEff = safeProcValue(proc.get("CapEff"), /^[0-9a-f]{1,32}$/iu);
+            const noNewPrivs = safeProcValue(proc.get("NoNewPrivs"), /^[0-9]{1,8}$/u);
+            const seccomp = safeProcValue(proc.get("Seccomp"), /^[0-9]{1,8}$/u);
+            if (/^0+$/u.test(proc.get("CapEff") ?? "") && proc.get("NoNewPrivs") === "1" && proc.get("Seccomp") === "2") return;
+            lastObservation = `effective-tuple(capEff=${capEff},noNewPrivs=${noNewPrivs},seccomp=${seccomp})`;
+          }
         }
-        if (/^0+$/u.test(proc.get("CapEff") ?? "") && proc.get("NoNewPrivs") === "1" && proc.get("Seccomp") === "2") return;
-      } catch { /* OCI exec can briefly replace the inspected process. */ }
+      }
       if (attempt < 49) await this.waitForSecurityStatus();
     }
-    unavailable("Host could not verify the effective container security state.");
+    unavailable(`Host could not verify the effective container security state (${lastObservation}).`);
   }
 
   private readProcFile(path: string): string {

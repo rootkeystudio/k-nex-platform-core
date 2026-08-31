@@ -251,6 +251,44 @@ describe("production extension runner", () => {
     await expect(runner.inspectSecurity("runner-control-test", limits, 10_000)).rejects.toMatchObject({ code: "POLICY_UNAVAILABLE" });
   });
 
+  it("reports a terminal container state without polling for controls that cannot converge", async () => {
+    const runner = supervisor({}, artifactStore()) as any;
+    runner.isolationPolicy = dockerAppArmorPolicy;
+    const terminal = secureLinuxInspection();
+    terminal.State = { Pid: 4242, Running: false, Status: "exited", ExitCode: 159, OOMKilled: false };
+    let inspections = 0;
+    let waits = 0;
+    runner.inspectRunningContainer = async () => terminal;
+    runner.inspectContainerOnce = async () => (inspections += 1, terminal);
+    runner.waitForSecurityStatus = async () => { waits += 1; };
+
+    await expect(runner.inspectSecurity("runner-terminal-state", limits, 10_000)).rejects.toMatchObject({
+      code: "POLICY_UNAVAILABLE",
+      message: "Host could not verify the effective container security state (running=false,status=exited,exitCode=159,oomKilled=false)."
+    });
+    expect(inspections).toBe(1);
+    expect(waits).toBe(0);
+  });
+
+  it("retries a created container until its effective controls become observable", async () => {
+    const runner = supervisor({}, artifactStore()) as any;
+    runner.isolationPolicy = dockerAppArmorPolicy;
+    const created = secureLinuxInspection();
+    created.State = { Pid: 0, Running: false, Status: "created", ExitCode: 0, OOMKilled: false };
+    const running = secureLinuxInspection();
+    running.State = { Pid: 4243, Running: true, Status: "running", ExitCode: 0, OOMKilled: false };
+    let inspections = 0;
+    let waits = 0;
+    runner.inspectRunningContainer = async () => created;
+    runner.inspectContainerOnce = async () => [created, running][inspections++]!;
+    runner.readProcFile = (path: string) => path.endsWith("uid_map") ? "0 100000 65536\n" : "CapEff:\t0000000000000000\nNoNewPrivs:\t1\nSeccomp:\t2\n";
+    runner.waitForSecurityStatus = async () => { waits += 1; };
+
+    await expect(runner.inspectSecurity("runner-created-state", limits, 10_000)).resolves.toBeUndefined();
+    expect(inspections).toBe(2);
+    expect(waits).toBe(1);
+  });
+
   it("re-inspects after a pre-exec Linux PID disappears before making source eligible", async () => {
     const runner = supervisor({}, artifactStore()) as any;
     runner.isolationPolicy = dockerAppArmorPolicy;
@@ -291,7 +329,10 @@ describe("production extension runner", () => {
     runner.readProcFile = (path: string) => path.endsWith("uid_map") ? "0 100000 65536\n" : (statusReads += 1, "CapEff:\t0000000000000000\nNoNewPrivs:\t0\nSeccomp:\t0\n");
     runner.waitForSecurityStatus = async () => { waits += 1; };
 
-    await expect(runner.inspectSecurity("runner-startup-poll", limits, 10_000)).rejects.toMatchObject({ code: "POLICY_UNAVAILABLE" });
+    await expect(runner.inspectSecurity("runner-startup-poll", limits, 10_000)).rejects.toMatchObject({
+      code: "POLICY_UNAVAILABLE",
+      message: "Host could not verify the effective container security state (effective-tuple(capEff=0000000000000000,noNewPrivs=0,seccomp=0))."
+    });
     expect(startupInspections).toBe(1);
     expect(effectiveInspections).toBe(50);
     expect(statusReads).toBe(50);
