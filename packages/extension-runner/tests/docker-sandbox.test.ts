@@ -11,7 +11,7 @@ import { ArtifactVerifier, buildBundle, canonicalJson, CatalogClient, InMemoryCa
 import { BoundedExtensionNetworkCapability, ExtensionCapabilityGateway, HmacExtensionCapabilityTokens, InMemoryExtensionCapabilitySequenceStoreForTests, NodeHttpsExtensionNetworkTransport, type ExtensionCapabilityGrant, type ExtensionCapabilityHandler, type ExtensionCapabilitySequenceStore } from "@k-nex/runtime";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { DockerHotApplicationSandboxSupervisor, RunnerInvocationError, dockerAppArmorPolicy, dockerIsolationPolicyFromEnvironment, extensionRunnerImage, runnerAppArmorProfileName, runnerSeccompProfile, type RunnerGenerationIdentity, type RunnerInvocationLimits } from "../src/index.js";
+import { DockerHotApplicationSandboxSupervisor, RunnerInvocationError, dockerAppArmorPolicy, dockerIsolationPolicyFromEnvironment, extensionRunnerImage, runnerAppArmorProfileName, runnerSeccompProfile, runnerServiceSource, type RunnerGenerationIdentity, type RunnerInvocationLimits } from "../src/index.js";
 
 const execFile = promisify(execFileCallback);
 const clock = { now: () => new Date() };
@@ -125,6 +125,46 @@ beforeAll(async () => {
 }, 30_000);
 
 describe("production extension runner", () => {
+  it.skipIf(isolationPolicy.kind !== "apparmor" || process.arch !== "x64")("reports native x86 syscalls missing from the runner profile", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "k-nex-seccomp-diagnostic-"));
+    const profilePath = join(directory, "policy.json");
+    const containerName = `k-nex-seccomp-diagnostic-${randomUUID().slice(0, 8)}`;
+    const profile = JSON.parse(runnerSeccompProfile) as { defaultAction: string };
+    profile.defaultAction = "SCMP_ACT_LOG";
+    writeFileSync(profilePath, JSON.stringify(profile), { encoding: "utf8", mode: 0o600, flag: "wx" });
+    try {
+      const dmesgBefore = (await execFile("sudo", ["dmesg", "--color=never"])).stdout;
+      await execFile("docker", [
+        "run", "--detach", "--interactive", "--name", containerName,
+        "--label", "k-nex.runner=hot-application-v1", "--label", "k-nex.application=customer-alpha", "--label", "k-nex.environment=production", "--label", "k-nex.app=app.sales-assistant", "--label", "k-nex.generation=seccomp-diagnostic",
+        "--network", "none", "--read-only", "--user", "10000:10000", "--workdir", "/tmp",
+        "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=1048576,mode=700,uid=10000,gid=10000",
+        "--cap-drop", "ALL", "--security-opt", "no-new-privileges=true", "--security-opt", `seccomp=${profilePath}`, "--security-opt", `apparmor=${runnerAppArmorProfileName}`, "--pids-limit", "32",
+        "--memory", "64m", "--memory-swap", "64m", "--cpus", "0.25", "--ulimit", "nofile=64:64", "--env", "HOME=/tmp", "--env", "NODE_NO_WARNINGS=1", "--entrypoint", "node",
+        extensionRunnerImage, "--permission", "--experimental-vm-modules", "-e", runnerServiceSource
+      ]);
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const inspected = await inspectContainer(containerName);
+      const pid = inspected.State?.Pid;
+      if (inspected.State?.Running !== true || !Number.isSafeInteger(pid) || pid <= 0) {
+        throw new Error(`GATE_9_SECCOMP_DIAGNOSTIC_NO_KERNEL_RECORDS ${JSON.stringify({ state: inspected.State })}`);
+      }
+      const dmesgAfter = (await execFile("sudo", ["dmesg", "--color=never"])).stdout;
+      const newRecords = dmesgAfter.startsWith(dmesgBefore) ? dmesgAfter.slice(dmesgBefore.length) : dmesgAfter;
+      const records = newRecords
+        .split(/\r?\n/u)
+        .filter((line) => line.includes("arch=c000003e") && /\bsyscall=\d+\b/u.test(line) && new RegExp(`\\bpid=${pid}\\b`, "u").test(line));
+      if (records.length === 0) throw new Error(`GATE_9_SECCOMP_DIAGNOSTIC_NO_KERNEL_RECORDS ${JSON.stringify({ pid })}`);
+      const syscallNames = new Map([...readFileSync("/usr/include/x86_64-linux-gnu/asm/unistd_64.h", "utf8").matchAll(/^#define __NR_([a-z0-9_]+)\s+(\d+)$/gmu)].map(([, name, number]) => [Number(number), name]));
+      const syscalls = [...new Set(records.map((line) => Number(line.match(/\bsyscall=(\d+)\b/u)?.[1])).filter(Number.isSafeInteger))]
+        .map((number) => ({ number, name: syscallNames.get(number) ?? null }));
+      throw new Error(`GATE_9_SECCOMP_DIAGNOSTIC ${JSON.stringify({ pid, syscalls, records })}`);
+    } finally {
+      await execFile("docker", ["rm", "-f", containerName]).catch(() => {});
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   it("kills a real forbidden socket syscall under the pinned default-deny profile", async () => {
     const directory = mkdtempSync(join(tmpdir(), "k-nex-seccomp-proof-"));
     const profilePath = join(directory, "policy.json");
