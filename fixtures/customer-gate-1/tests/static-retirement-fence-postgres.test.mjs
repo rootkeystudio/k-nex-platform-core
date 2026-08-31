@@ -184,10 +184,11 @@ test("rejected-generation retirement is atomic, durable, and owner scoped", { ti
     assert.equal(await store.expireWorkerRecoveryActivation(alpha), true, "A late restart must durably reconcile an expired response-lost activation claim.");
     assert.equal(await store.readWorkerRecoveryActivation(alpha), undefined);
     assert.equal((await pool.query("select state from runtime_static_worker_activations where recovery_id=$1", [expiredRecovery.recoveryId])).rows[0].state, "expired");
-    const takeoverRecovery = await store.reserveWorkerRecoveryActivation(await recoveryInput(alpha));
+    const takeoverRecovery = await store.reserveWorkerRecoveryActivation({ ...await recoveryInput(alpha), executionLeaseDurationMs: 5_000 });
     assert.notEqual(takeoverRecovery.recoveryId, expiredRecovery.recoveryId, "An expired recovery ticket must be replaced rather than revived.");
     await assert.rejects(store.assertWorkerRecoveryActivation(expiredRecovery), { code: "FENCE_REJECTED" });
     await store.completeWorkerRecoveryActivation(takeoverRecovery);
+    assert.equal(takeoverRecovery.fencingToken, 4, "The replacement recovery must advance Alpha to its next monotonic fence epoch.");
     const betaRecoveryInput = await recoveryInput(beta);
     const [concurrentRecoveryA, concurrentRecoveryB] = await Promise.all([store.reserveWorkerRecoveryActivation(betaRecoveryInput), store.reserveWorkerRecoveryActivation(betaRecoveryInput)]);
     assert.deepEqual(concurrentRecoveryA, concurrentRecoveryB, "Concurrent recovery callers must share the sole live owner ticket.");
@@ -268,7 +269,7 @@ test("rejected-generation retirement is atomic, durable, and owner scoped", { ti
     const [reservationOutcome, promotionOutcome] = await Promise.allSettled([
       racedStore.reserveGenerationRetirement({ ...alpha, generationId: raceGenerationId }),
       racedStore.promote({
-        ...alpha, expectedRevision: 0, expectedFenceToken: 3, generationId: raceGenerationId,
+        ...alpha, expectedRevision: 0, expectedFenceToken: takeoverRecovery.fencingToken, generationId: raceGenerationId,
         workerOwner: "worker:alpha", workerLeaseExpiresAt: leaseExpiresAt,
         build: alphaToken, readiness: readiness(alphaRelease, raceGenerationId)
       })
@@ -301,11 +302,11 @@ test("rejected-generation retirement is atomic, durable, and owner scoped", { ti
     assert.deepEqual(rows.rows, [{ application_id: alpha.applicationId, generation_id: sharedGenerationId, state: "completed", completed: true }]);
     assert.equal((await store.read(beta)).active.generationId, sharedGenerationId);
     const activeFence = await store.readFence(alpha);
-    const renewal = { ...alpha, generationId: activeFence.activeExecutionGeneration, fencingToken: activeFence.fencingToken, owner: activeFence.lease.owner, expectedPromotionRevision: activeFence.promotionRevision, leaseDurationMs: 1_000 };
+    const renewal = { ...alpha, generationId: activeFence.activeExecutionGeneration, fencingToken: activeFence.fencingToken, owner: activeFence.lease.owner, expectedPromotionRevision: activeFence.promotionRevision, leaseDurationMs: 5_000 };
     const firstRenewal = await store.renewWorkerFence(renewal);
     const secondRenewal = await store.renewWorkerFence(renewal);
     assert.ok(Date.parse(secondRenewal.lease.expiresAt) >= Date.parse(firstRenewal.lease.expiresAt));
-    assert.ok(Date.parse(secondRenewal.lease.expiresAt) <= Date.now() + 1_100, "Frequent heartbeats must stay bounded to one configured lease from database now.");
+    assert.ok(Date.parse(secondRenewal.lease.expiresAt) <= Date.now() + 5_100, "Frequent heartbeats must stay bounded to one configured lease from database now.");
     await assert.rejects(store.renewWorkerFence({ ...renewal, owner: "worker:stale" }), { code: "FENCE_REJECTED" });
     await assert.rejects(store.renewWorkerFence({ ...renewal, expectedPromotionRevision: activeFence.promotionRevision + 1 }), { code: "FENCE_REJECTED" });
     const expiredFenceInput = await recoveryInput(alpha);

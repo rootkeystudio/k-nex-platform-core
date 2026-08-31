@@ -7,11 +7,11 @@
 
 ## Last completed
 
-The final PR #28 owner finding is fixed: a complete signed catalog now fails closed with durable `release-missing`, `release-evidence-mismatch`, or `publisher-key-mismatch` quarantine evidence.
+The final catalog blocker is fixed. Gate 9 then exposed and owner review identified a stale hard-coded worker-fence token in the retirement race fixture; the proof now uses its durable takeover token and a bounded non-flaky lease.
 
 ## Validation
 
-Focused extension-bundler, payload-adapter, contracts, and real PostgreSQL reconciliation tests passed; contract generation/cleanliness and `git diff --check` passed. Exact-head Gate 9 is pending.
+Catalog-focused extension-bundler, payload-adapter, contracts, and real PostgreSQL tests passed. The corrected retirement/fence PostgreSQL proof passed five consecutive runs; `git diff --check` passed. Exact-head Gate 9 rerun is pending.
 
 ## Next
 
