@@ -7,15 +7,15 @@
 
 ## Last completed
 
-PR #28 review findings validated. Expired operation capacity and runner ownership are fixed. Verified Remote UI ESM now launches as a module worker from an opaque-origin-safe `data:` URL without weakening the sandbox.
+Four PR #28 findings are fixed: expired operation capacity, runner ownership, opaque-safe Remote UI module workers, and runtime outbox delivery with durable claim leases and bounded dead-letter handling.
 
 ## Validation
 
-Focused runtime/payload-adapter builds and tests passed with real PostgreSQL proof; extension-runner build and focused reconciliation/Docker tests passed. Remote UI asset build/unit tests and real Chromium module-worker proof passed. Full Gate 9 is deferred until the complete remediation slice.
+Focused runtime/payload-adapter, runner, and Remote UI builds/tests passed with real PostgreSQL, Docker, and Chromium proof. The dedicated outbox PostgreSQL test passed concurrent claims, lease recovery, timeout, poison/dead-letter, and duplicate replay cases. Full Gate 9 remains deferred.
 
 ## Next
 
-Fix catalog-state parity and outbox publish leases, then run the full phase gate once.
+Finish catalog-state parity, then run the full phase gate once.
 
 ## Blockers
 

@@ -122,14 +122,22 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
       "inventory_revision" integer NOT NULL,
       "event_json" jsonb NOT NULL,
       "status" varchar(32) DEFAULT 'pending' NOT NULL,
+      "attempt_count" integer DEFAULT 0 NOT NULL,
+      "claimed_at" timestamp(3) with time zone,
+      "lease_expires_at" timestamp(3) with time zone,
+      "claim_token" varchar(64),
+      "last_error_code" varchar(64),
+      "dead_lettered_at" timestamp(3) with time zone,
       "created_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
       CONSTRAINT "runtime_extension_outbox_revision_key" UNIQUE ("application_id", "environment", "delivery_class", "extension_id", "revision"),
       CONSTRAINT "runtime_extension_outbox_inventory_revision_key" UNIQUE ("application_id", "environment", "inventory_revision"),
       CONSTRAINT "runtime_extension_outbox_inventory_revision_check" CHECK ("inventory_revision" BETWEEN 1 AND 1000000000),
-      CONSTRAINT "runtime_extension_outbox_status_check" CHECK ("status" IN ('pending','delivered')),
+      CONSTRAINT "runtime_extension_outbox_status_check" CHECK ("status" IN ('pending','processing','delivered','dead-letter')),
+      CONSTRAINT "runtime_extension_outbox_attempt_count_check" CHECK ("attempt_count" >= 0),
       CONSTRAINT "runtime_extension_outbox_event_check" CHECK (jsonb_typeof("event_json")='object')
     );
-    CREATE INDEX "runtime_extension_outbox_pending_idx" ON "runtime_extension_outbox" ("status", "inventory_revision", "event_id") WHERE "status"='pending';
+    CREATE INDEX "runtime_extension_outbox_pending_idx" ON "runtime_extension_outbox" ("attempt_count", "inventory_revision", "event_id") WHERE "status"='pending';
+    CREATE INDEX "runtime_extension_outbox_expired_lease_idx" ON "runtime_extension_outbox" ("lease_expires_at", "event_id") WHERE "status"='processing';
 
     CREATE TABLE "runtime_extension_operation_budget" (
       "application_id" varchar(128) NOT NULL,
