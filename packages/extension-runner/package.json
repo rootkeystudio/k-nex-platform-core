@@ -13,11 +13,12 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "test": "vitest run tests/policy.test.ts tests/runner-reconciliation.test.ts tests/service-source.test.ts",
+    "test": "vitest run tests/policy.test.ts tests/isolation-profile.test.ts tests/runner-reconciliation.test.ts tests/service-source.test.ts",
     "test:docker": "vitest run tests/docker-sandbox.test.ts"
   },
   "dependencies": {
     "@k-nex/extension-bundler": "workspace:*",
+    "@k-nex/contracts": "workspace:*",
     "@k-nex/runtime": "workspace:*"
   },
   "devDependencies": {

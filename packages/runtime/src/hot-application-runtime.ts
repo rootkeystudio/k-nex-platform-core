@@ -42,6 +42,7 @@ export interface HotApplicationServerInvocation {
 }
 
 export interface HotApplicationServerRunner {
+  readonly isolationProfile: ProductionRunnerIsolationProfile | undefined;
   invoke(input: HotApplicationServerInvocation): Promise<unknown>;
 }
 
@@ -63,15 +64,14 @@ export class AuthoritativeHotApplicationRuntime {
     private readonly tokens: Pick<HmacExtensionCapabilityTokens, "issue">,
     private readonly runner: HotApplicationServerRunner,
     private readonly identity: Readonly<{ applicationId: string; environment: string; appId: string }>,
-    profile: RunnerIsolationProfile,
     private readonly holder: string = "hot-application-traffic",
   ) {
-    const parsed = RunnerIsolationProfileSchema.safeParse(profile);
+    const parsed = RunnerIsolationProfileSchema.safeParse(runner.isolationProfile);
     if (!parsed.success || parsed.data.scope !== "production" ||
       !/^[a-z][a-z0-9-]{2,127}$/u.test(identity.applicationId) || !/^[a-z][a-z0-9-]{1,63}$/u.test(identity.environment) ||
       !/^app(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$/u.test(identity.appId) ||
       !/^[A-Za-z0-9][A-Za-z0-9._:-]{2,159}$/u.test(holder)) {
-      throw new TypeError("Hot Application traffic runtime identity or production isolation profile is invalid.");
+      throw new TypeError("Hot Application traffic runtime identity or runner-owned production isolation profile is invalid.");
     }
     this.profile = parsed.data;
   }

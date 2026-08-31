@@ -271,6 +271,9 @@ importers:
 
   packages/extension-runner:
     dependencies:
+      '@k-nex/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@k-nex/extension-bundler':
         specifier: workspace:*
         version: link:../extension-bundler

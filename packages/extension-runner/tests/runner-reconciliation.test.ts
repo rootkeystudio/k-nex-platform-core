@@ -3,7 +3,7 @@ import { PassThrough } from "node:stream";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { DockerHotApplicationSandboxSupervisor, RunnerInvocationError, type RunnerGenerationIdentity } from "../src/index.js";
+import { DockerCommandError, DockerHotApplicationSandboxSupervisor, RunnerInvocationError, dockerAppArmorPolicy, type RunnerGenerationIdentity } from "../src/index.js";
 
 const orphan: RunnerGenerationIdentity = { applicationId: "customer-alpha", environment: "production", appId: "app.sales-assistant", generationId: "orphan-generation" };
 const active: RunnerGenerationIdentity = { ...orphan, generationId: "active-generation" };
@@ -29,7 +29,7 @@ function runner(
   authority: { active(identity: RunnerGenerationIdentity): Promise<boolean>; admit(identity: RunnerGenerationIdentity, leaseId: string): Promise<boolean> },
   tokenLeaseId = drainLeaseId
 ) {
-  return new DockerHotApplicationSandboxSupervisor({ assertInvocationIdentity() { return { drainLeaseId: tokenLeaseId }; } } as never, { async quarantine() {} }, authority, { async started() {}, async stopped() {} }, { async load() { throw new Error("artifact reads must not run"); } } as never);
+  return new DockerHotApplicationSandboxSupervisor({ assertInvocationIdentity() { return { drainLeaseId: tokenLeaseId }; } } as never, { async quarantine() {} }, authority, { async started() {}, async stopped() {} }, { async load() { throw new Error("artifact reads must not run"); } } as never, dockerAppArmorPolicy);
 }
 
 function labels(identity: RunnerGenerationIdentity) {
@@ -55,6 +55,22 @@ function frame(type: string, values: Record<string, unknown> = {}) {
   return JSON.stringify({ type, schemaVersion: 1, invocationId: "runner-invocation-restart", generationId: orphan.generationId, ...values });
 }
 
+const invocationAcknowledgement = (invocationId = "runner-invocation-restart", generationId = orphan.generationId) => JSON.stringify({ type: "invoke-ack", schemaVersion: 1, invocationId, generationId });
+
+async function acknowledge(supervisor: any, process: ReturnType<typeof child>, invocationId = "runner-invocation-restart") {
+  supervisor.inspectSecurity = vi.fn(async () => {});
+  supervisor.observationSink = { async started() {}, async stopped() {} };
+  const sent = vi.fn();
+  process.stdin.once("data", sent);
+  process.emit("spawn");
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(sent).toHaveBeenCalledOnce();
+  process.stdout.write(`${invocationAcknowledgement(invocationId)}\n`);
+  await Promise.resolve();
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (error: unknown) => void;
@@ -63,7 +79,7 @@ function deferred<T>() {
 }
 
 describe("runner startup reconciliation", () => {
-  it("SIGKILLs only labeled runner orphans after checking durable authority", async () => {
+  it("reaps every labeled startup container because no invocation can be reattached", async () => {
     const supervisor = runner({ active: async (identity) => identity.generationId === active.generationId, admit: async () => true }) as any;
     const output = vi.fn(async (args: string[]) => {
       if (args[0] === "ps") return "orphan-container\nactive-container\n";
@@ -72,11 +88,152 @@ describe("runner startup reconciliation", () => {
     });
     supervisor.dockerOutput = output;
 
-    await expect(supervisor.start()).resolves.toBe(1);
+    await expect(supervisor.start()).resolves.toBe(2);
     expect(output).toHaveBeenCalledWith(["ps", "-aq", "--filter", "label=k-nex.runner=hot-application-v1"]);
     expect(output).toHaveBeenCalledWith(["kill", "orphan-container"]);
     expect(output).toHaveBeenCalledWith(["rm", "-f", "orphan-container"]);
-    expect(output).not.toHaveBeenCalledWith(["kill", "active-container"]);
+    expect(output).toHaveBeenCalledWith(["kill", "active-container"]);
+  });
+
+  it("reaps an active-generation hung orphan before a fresh admitted invocation starts", async () => {
+    const supervisor = runner({ active: vi.fn(async () => true), admit: vi.fn(async () => true) }) as any;
+    supervisor.dockerOutput = vi.fn(async (args: string[]) => {
+      if (args[0] === "ps") return "hung-active-container\n";
+      if (args[0] === "inspect") return JSON.stringify([{ Config: { Labels: labels(active) } }]);
+      return "";
+    });
+
+    await expect(supervisor.start()).resolves.toBe(1);
+    expect(supervisor.dockerOutput).toHaveBeenCalledWith(["kill", "hung-active-container"]);
+    supervisor.artifacts = { load: vi.fn(async () => ({ source: "export default () => null" })) };
+    supervisor.runContainer = vi.fn(async () => ({ fresh: true }));
+
+    await expect(supervisor.invoke(request({ generationId: active.generationId, limits: { ...request().limits, wallTimeMs: 10_000 } }))).resolves.toEqual({ fresh: true });
+    expect(supervisor.runContainer).toHaveBeenCalledOnce();
+  });
+
+  it("retries failed durable quarantine through public invoke before rejecting locally quarantined work", async () => {
+    let durablyQuarantined = false;
+    const quarantine = vi.fn().mockRejectedValueOnce(new Error("store down")).mockImplementationOnce(async () => { durablyQuarantined = true; });
+    const supervisor = runner({ active: async () => false, admit: async () => true }) as any;
+    supervisor.dockerOutput = vi.fn(async () => "");
+    supervisor.artifacts = { load: vi.fn(async () => ({ source: "export default () => null" })) };
+    supervisor.quarantineSink = { quarantine };
+    supervisor.runContainer = vi.fn(async () => { throw new RunnerInvocationError("POLICY_VIOLATION", "seccomp killed workload"); });
+
+    await expect(supervisor.invoke(request({ limits: { ...request().limits, wallTimeMs: 10_000 } }))).rejects.toMatchObject({ code: "POLICY_VIOLATION", cleanupFailed: true });
+    expect(supervisor.health(orphan)).toMatchObject({ accepting: false, quarantined: true });
+    await expect(supervisor.invoke(request({ invocationId: "runner-invocation-retry", limits: { ...request().limits, wallTimeMs: 10_000 } }))).rejects.toMatchObject({ code: "GENERATION_QUARANTINED", cleanupFailed: false });
+    expect(quarantine).toHaveBeenCalledTimes(2);
+
+    const freshAuthority = { active: vi.fn(async () => false), admit: vi.fn(async () => !durablyQuarantined) };
+    const fresh = runner(freshAuthority) as any;
+    fresh.dockerOutput = vi.fn(async () => "");
+    fresh.artifacts = { load: vi.fn() };
+    fresh.runContainer = vi.fn();
+    await expect(fresh.invoke(request({ limits: { ...request().limits, wallTimeMs: 10_000 } }))).rejects.toMatchObject({ code: "GENERATION_QUARANTINED" });
+    expect(freshAuthority.admit).toHaveBeenCalledWith(orphan, drainLeaseId);
+    expect(fresh.artifacts.load).not.toHaveBeenCalled();
+    expect(fresh.runContainer).not.toHaveBeenCalled();
+  });
+
+  it("awaits every sibling containment attempt and preserves POLICY_VIOLATION", async () => {
+    const quarantine = vi.fn(async () => {});
+    const supervisor = runner({ active: async () => false, admit: async () => true }) as any;
+    const delayed = deferred<void>();
+    supervisor.dockerOutput = vi.fn(async () => "");
+    supervisor.artifacts = { load: vi.fn(async () => ({ source: "export default () => null" })) };
+    supervisor.quarantineSink = { quarantine };
+    supervisor.kill = vi.fn((name: string) => {
+      if (name === "policy-sibling-now") return Promise.reject(new Error("sibling remains"));
+      if (name === "policy-sibling-later") return delayed.promise;
+      return Promise.resolve();
+    });
+    supervisor.runContainer = vi.fn(async () => {
+      const state = supervisor.state(orphan);
+      state.containers.add("policy-sibling-now");
+      state.containers.add("policy-sibling-later");
+      throw new RunnerInvocationError("POLICY_VIOLATION", "seccomp killed workload");
+    });
+
+    const invocation = supervisor.invoke(request({ limits: { ...request().limits, wallTimeMs: 10_000 } }));
+    await vi.waitFor(() => expect(supervisor.kill).toHaveBeenCalledTimes(2));
+    let settled = false;
+    void invocation.finally(() => { settled = true; }).catch(() => {});
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    delayed.resolve();
+
+    await expect(invocation).rejects.toMatchObject({ code: "POLICY_VIOLATION", cleanupFailed: true });
+    expect(supervisor.kill.mock.calls.map(([name]: [string]) => name).sort()).toEqual(["policy-sibling-later", "policy-sibling-now"]);
+    expect(quarantine).toHaveBeenCalledTimes(1);
+    expect(quarantine).toHaveBeenCalledWith(expect.objectContaining(orphan), "POLICY_VIOLATION");
+  });
+
+  it("does not retain a rejected durable quarantine promise", async () => {
+    const quarantine = vi.fn().mockRejectedValueOnce(new Error("store down")).mockResolvedValueOnce(undefined);
+    const supervisor = runner({ active: async () => false, admit: async () => true }) as any;
+    const state = supervisor.state(orphan);
+    supervisor.quarantineSink = { quarantine };
+
+    await expect(supervisor.quarantineGeneration(state, orphan, "POLICY_VIOLATION", "policy-current")).resolves.toBe(true);
+    await expect(supervisor.quarantineGeneration(state, orphan, "POLICY_VIOLATION", "policy-current")).resolves.toBe(false);
+    expect(quarantine).toHaveBeenCalledTimes(2);
+  });
+
+  it("reaps malformed candidates, awaits every cleanup, then blocks all fresh work if one remains", async () => {
+    const supervisor = runner({ active: async () => false, admit: async () => true }) as any;
+    const delayed = deferred<void>();
+    supervisor.dockerOutput = vi.fn(async (args: string[]) => args[0] === "ps" ? "malformed-runner-container\nvalid-runner-container\n" : "");
+    supervisor.kill = vi.fn((name: string) => name === "malformed-runner-container" ? Promise.reject(new Error("malformed runner remains")) : delayed.promise);
+    supervisor.artifacts = { load: vi.fn(async () => ({ source: "export default () => null" })) };
+    supervisor.runContainer = vi.fn(async () => null);
+
+    const start = supervisor.start();
+    await vi.waitFor(() => expect(supervisor.kill).toHaveBeenCalledTimes(2));
+    let settled = false;
+    void start.finally(() => { settled = true; }).catch(() => {});
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    delayed.resolve();
+
+    await expect(start).rejects.toThrow("malformed runner remains");
+    expect(supervisor.kill.mock.calls.map(([name]: [string]) => name).sort()).toEqual(["malformed-runner-container", "valid-runner-container"]);
+    await expect(supervisor.invoke(request({ limits: { ...request().limits, wallTimeMs: 10_000 } }))).rejects.toThrow("malformed runner remains");
+    expect(supervisor.runContainer).not.toHaveBeenCalled();
+  });
+
+  it("treats only an explicit Docker not-found response as already cleaned up", async () => {
+    const supervisor = runner({ active: async () => false, admit: async () => true }) as any;
+    const output = vi.fn(async () => { throw new DockerCommandError(["kill", "gone"], 1, "Error response from daemon: No such container: gone"); });
+    supervisor.dockerOutput = output;
+
+    await expect(supervisor.kill("gone")).resolves.toBeUndefined();
+    expect(output).toHaveBeenCalledTimes(1);
+  });
+
+  it("continues from an explicitly stopped container to forced removal", async () => {
+    const supervisor = runner({ active: async () => false, admit: async () => true }) as any;
+    const output = vi.fn(async (args: string[]) => {
+      if (args[0] === "kill") throw new DockerCommandError(args, 1, "Error response from daemon: container runner-stopped is not running");
+      return "";
+    });
+    supervisor.dockerOutput = output;
+
+    await expect(supervisor.kill("runner-stopped")).resolves.toBeUndefined();
+    expect(output).toHaveBeenCalledWith(["rm", "-f", "runner-stopped"]);
+  });
+
+  it("rejects cleanup when rm and its confirmatory inspect fail at the Docker control plane", async () => {
+    const supervisor = runner({ active: async () => false, admit: async () => true }) as any;
+    supervisor.dockerOutput = vi.fn(async (args: string[]) => {
+      if (args[0] === "kill") return "";
+      if (args[0] === "rm") throw new DockerCommandError(args, 1, "Docker daemon failed to remove container");
+      if (args[0] === "inspect") throw new DockerCommandError(args, 1, "Docker daemon unavailable");
+      return "";
+    });
+
+    await expect(supervisor.kill("runner-control-plane-failure")).rejects.toMatchObject({ stderr: "Docker daemon unavailable" });
   });
 
   it("rejects a restarted quarantined generation before artifact or container work", async () => {
@@ -106,6 +263,43 @@ describe("runner startup reconciliation", () => {
     expect(authority.admit).toHaveBeenCalledWith(orphan, drainLeaseId);
   });
 
+  it("reserves capacity before a delayed artifact read and never launches after drain", async () => {
+    const supervisor = runner({ active: async () => false, admit: vi.fn(async () => true) }) as any;
+    supervisor.dockerOutput = vi.fn(async () => "");
+    const source = deferred<{ source: string }>();
+    supervisor.artifacts = { load: vi.fn(() => source.promise) };
+    supervisor.runContainer = vi.fn(async () => null);
+
+    const first = supervisor.invoke(request({ limits: { ...request().limits, wallTimeMs: 10_000 } }));
+    await vi.waitFor(() => expect(supervisor.artifacts.load).toHaveBeenCalledOnce());
+    await expect(supervisor.invoke(request({ invocationId: "runner-invocation-second", limits: { ...request().limits, wallTimeMs: 10_000 } }))).rejects.toMatchObject({ code: "CONCURRENCY_EXHAUSTED" });
+    expect(supervisor.artifacts.load).toHaveBeenCalledOnce();
+
+    const draining = supervisor.drain(orphan, 100);
+    source.resolve({ source: "export default () => null" });
+    await expect(first).rejects.toMatchObject({ code: "GENERATION_DRAINING" });
+    await expect(draining).resolves.toEqual({ graceful: true, terminated: 0 });
+    expect(supervisor.runContainer).not.toHaveBeenCalled();
+  });
+
+  it("rechecks durable admission after a delayed artifact read before launch", async () => {
+    const admit = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    const supervisor = runner({ active: async () => false, admit }) as any;
+    supervisor.dockerOutput = vi.fn(async () => "");
+    const source = deferred<{ source: string }>();
+    supervisor.artifacts = { load: vi.fn(() => source.promise) };
+    supervisor.runContainer = vi.fn(async () => null);
+
+    const invocation = supervisor.invoke(request({ limits: { ...request().limits, wallTimeMs: 10_000 } }));
+    await vi.waitFor(() => expect(supervisor.artifacts.load).toHaveBeenCalledOnce());
+    expect(admit).toHaveBeenCalledOnce();
+    source.resolve({ source: "export default () => null" });
+
+    await expect(invocation).rejects.toMatchObject({ code: "GENERATION_QUARANTINED" });
+    expect(admit).toHaveBeenCalledWith(orphan, drainLeaseId);
+    expect(supervisor.runContainer).not.toHaveBeenCalled();
+  });
+
   it("does not write an invoke frame when deferred inspection resolves after timeout", async () => {
     vi.useFakeTimers();
     try {
@@ -125,19 +319,19 @@ describe("runner startup reconciliation", () => {
       supervisor.observationSink = { started, async stopped() {} };
       supervisor.kill = vi.fn(async () => {});
       const cleanup = vi.fn();
-      const invocation = { ...request(), ...orphan, source: "export default () => null" };
+      const invocation = { ...request({ limits: { ...request().limits, wallTimeMs: 10_000 } }), ...orphan, source: "export default () => null" };
       const outcome = supervisor.exchange(child, invocation, "runner-deferred-inspection", 10_000, cleanup);
 
       child.emit("spawn");
       await Promise.resolve();
-      await vi.advanceTimersByTimeAsync(1);
+      await vi.advanceTimersByTimeAsync(10_000);
       resolveInspection();
       await Promise.resolve();
 
       expect(started).not.toHaveBeenCalled();
       expect(writes).toEqual([]);
       child.emit("close", 137);
-      await expect(outcome).rejects.toMatchObject({ code: "INVOCATION_TIMEOUT" });
+      await expect(outcome).rejects.toMatchObject({ code: "POLICY_UNAVAILABLE" });
       expect(cleanup).toHaveBeenCalledTimes(1);
       expect(supervisor.kill).toHaveBeenCalledTimes(1);
     } finally {
@@ -162,21 +356,21 @@ describe("runner startup reconciliation", () => {
       child.on("close", () => { events.push("cli:close"); });
       const cleanup = vi.fn(() => { events.push("policy"); });
       supervisor.kill = vi.fn(async () => { events.push("container"); });
-      const invocation = { ...request(), ...orphan, source: "export default () => null" };
+      const invocation = { ...request({ limits: { ...request().limits, wallTimeMs: 10_000 } }), ...orphan, source: "export default () => null" };
       const outcome = supervisor.exchange(child, invocation, "runner-before-spawn", 10_000, cleanup);
-      const rejection = expect(outcome).rejects.toMatchObject({ code: "INVOCATION_TIMEOUT" });
+      const rejection = expect(outcome).rejects.toMatchObject({ code: "POLICY_UNAVAILABLE" });
       const observed = outcome.catch((error: RunnerInvocationError) => {
         events.push(`settled:${error.code}`);
         return error;
       });
 
-      await vi.advanceTimersByTimeAsync(1);
+      await vi.advanceTimersByTimeAsync(10_000);
       expect(events).toEqual(["cli:SIGKILL"]);
       expect(cleanup).not.toHaveBeenCalled();
       expect(supervisor.kill).not.toHaveBeenCalled();
       child.emit("close", 137);
       await Promise.all([rejection, observed]);
-      expect(events).toEqual(["cli:SIGKILL", "cli:close", "container", "policy", "settled:INVOCATION_TIMEOUT"]);
+      expect(events).toEqual(["cli:SIGKILL", "cli:close", "container", "policy", "settled:POLICY_UNAVAILABLE"]);
 
       child.stdout.write('{"type":"result"}\n');
       child.emit("error", new Error("late docker error"));
@@ -184,6 +378,308 @@ describe("runner startup reconciliation", () => {
       await Promise.resolve();
       expect(cleanup).toHaveBeenCalledTimes(1);
       expect(supervisor.kill).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("fails closed for unavailable host policy without quarantining the generation or sending source", async () => {
+    const quarantine = vi.fn(async () => {});
+    const started = vi.fn(async () => {});
+    const stopped = vi.fn(async () => {});
+    const supervisor = runner({ active: async () => false, admit: async () => true }) as any;
+    const process = child();
+    const cleanup = vi.fn();
+    const source = vi.fn(async () => ({ source: "export default () => null" }));
+    supervisor.dockerOutput = vi.fn(async () => "");
+    supervisor.artifacts = { load: source };
+    supervisor.quarantineSink = { quarantine };
+    supervisor.observationSink = { started, stopped };
+    supervisor.inspectSecurity = vi.fn(async () => { throw new RunnerInvocationError("POLICY_UNAVAILABLE", "inspection omitted a required control"); });
+    supervisor.kill = vi.fn(async () => {});
+    supervisor.runContainer = vi.fn((invocation: unknown, containerName: string, workloadUser: number) => supervisor.exchange(process, invocation, containerName, workloadUser, cleanup));
+    const writes: string[] = [];
+    process.stdin.on("data", (chunk: Buffer) => { writes.push(chunk.toString("utf8")); });
+
+    const outcome = supervisor.invoke(request({ limits: { ...request().limits, wallTimeMs: 10_000 } }));
+    await vi.waitFor(() => expect(supervisor.runContainer).toHaveBeenCalledTimes(1));
+    process.emit("spawn");
+    await vi.waitFor(() => expect(process.kill).toHaveBeenCalledWith("SIGKILL"));
+    process.emit("close", 137);
+
+    await expect(outcome).rejects.toMatchObject({ code: "POLICY_UNAVAILABLE" });
+    expect(source).toHaveBeenCalledTimes(1);
+    expect(writes).toEqual([]);
+    expect(started).not.toHaveBeenCalled();
+    expect(stopped).toHaveBeenCalledTimes(1);
+    expect(cleanup).toHaveBeenCalledTimes(1);
+    expect(supervisor.kill).toHaveBeenCalledTimes(1);
+    expect(quarantine).not.toHaveBeenCalled();
+    expect(supervisor.health(orphan)).toMatchObject({ accepting: true, quarantined: false, failures: 1 });
+  });
+
+  it("observes a seccomp SIGSYS exit, quarantines only that generation, and blocks new work", async () => {
+    const quarantine = vi.fn(async () => {});
+    const supervisor = runner({ active: async () => false, admit: async () => true }) as any;
+    const processes = [child(), child()];
+    const writes: string[] = [];
+    for (const process of processes) process.stdin.on("data", (chunk: Buffer) => { writes.push(chunk.toString("utf8")); });
+    const loaded = vi.fn(async () => ({ source: "export default () => null" }));
+    const names: string[] = [];
+    supervisor.dockerOutput = vi.fn(async () => "");
+    supervisor.artifacts = { load: loaded };
+    supervisor.quarantineSink = { quarantine };
+    supervisor.kill = vi.fn(async () => {});
+    supervisor.dockerJson = vi.fn(async () => [{ State: { ExitCode: 128 + 31 } }]);
+    supervisor.inspectSecurity = vi.fn(async () => {});
+    supervisor.runContainer = vi.fn((invocation: unknown, containerName: string, workloadUser: number) => {
+      names.push(containerName);
+      return supervisor.exchange(processes[names.length - 1], invocation, containerName, workloadUser, vi.fn());
+    });
+    const limits = { ...request().limits, maxConcurrency: 2, wallTimeMs: 10_000 };
+    const first = supervisor.invoke(request({ limits, invocationId: "runner-policy-first" }));
+    const second = supervisor.invoke(request({ limits, invocationId: "runner-policy-second" }));
+    void second.catch(() => {});
+    await vi.waitFor(() => expect(supervisor.runContainer).toHaveBeenCalledTimes(2));
+    processes[0].emit("spawn");
+    processes[1].emit("spawn");
+    await vi.waitFor(() => expect(supervisor.inspectSecurity).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(writes).toHaveLength(2));
+    processes[0].stdout.write(`${invocationAcknowledgement("runner-policy-first")}\n`);
+    processes[0].emit("close", 1);
+
+    await expect(first).rejects.toMatchObject({ code: "POLICY_VIOLATION" });
+    expect(quarantine).toHaveBeenCalledTimes(1);
+    expect(quarantine).toHaveBeenCalledWith(expect.objectContaining(orphan), "POLICY_VIOLATION");
+    expect(new Set(supervisor.kill.mock.calls.map(([name]: [string]) => name))).toEqual(new Set(names));
+    expect(supervisor.health(orphan)).toMatchObject({ accepting: false, quarantined: true });
+    await expect(supervisor.invoke(request({ limits, invocationId: "runner-policy-blocked" }))).rejects.toMatchObject({ code: "GENERATION_QUARANTINED" });
+    expect(loaded).toHaveBeenCalledTimes(2);
+
+    processes[1].emit("close", 1);
+    await second.catch(() => {});
+  });
+
+  it("treats SIGSYS before source handoff as unavailable host policy without quarantine", async () => {
+    const quarantine = vi.fn(async () => {});
+    const supervisor = runner({ active: async () => false, admit: async () => true }) as any;
+    const process = child();
+    const started = deferred<void>();
+    supervisor.kill = vi.fn(async () => {});
+    supervisor.dockerJson = vi.fn(async () => [{ State: { ExitCode: 128 + 31 } }]);
+    supervisor.inspectSecurity = vi.fn(async () => {});
+    supervisor.observationSink = { started: vi.fn(() => started.promise), stopped: vi.fn(async () => {}) };
+    supervisor.quarantineSink = { quarantine };
+    const invocation = { ...request({ limits: { ...request().limits, wallTimeMs: 10_000 } }), ...orphan, source: "export default () => null" };
+    const outcome = supervisor.exchange(process, invocation, "runner-policy-before-source", 10_000, vi.fn());
+
+    process.emit("spawn");
+    await vi.waitFor(() => expect(supervisor.inspectSecurity).toHaveBeenCalledOnce());
+    process.emit("close", 128 + 31);
+    started.resolve();
+
+    await expect(outcome).rejects.toMatchObject({ code: "POLICY_UNAVAILABLE" });
+    expect(quarantine).not.toHaveBeenCalled();
+  });
+
+  it("publishes an acknowledged policy violation before current cleanup so sibling work cannot return", async () => {
+    const supervisor = runner({ active: async () => false, admit: async () => true }) as any;
+    const processes = [child(), child()];
+    const names: string[] = [];
+    const writes = [[], []] as string[][];
+    for (const [index, process] of processes.entries()) process.stdin.on("data", (chunk: Buffer) => { writes[index]!.push(chunk.toString("utf8")); });
+    const capability = deferred<unknown>();
+    let capabilitySignal: AbortSignal | undefined;
+    let capabilityCompleted = false;
+    capability.promise.finally(() => { capabilityCompleted = true; }).catch(() => {});
+    const invoke = vi.fn(({ signal }: { signal: AbortSignal }) => {
+      capabilitySignal = signal;
+      return capability.promise;
+    });
+    supervisor.gateway = { assertInvocationIdentity() { return { drainLeaseId }; }, invoke };
+    supervisor.dockerOutput = vi.fn(async () => "");
+    supervisor.artifacts = { load: vi.fn(async () => ({ source: "export default () => null" })) };
+    supervisor.inspectSecurity = vi.fn(async () => {});
+    supervisor.observationSink = { async started() {}, async stopped() {} };
+    supervisor.dockerJson = vi.fn(async () => [{ State: { ExitCode: 128 + 31 } }]);
+    const currentCleanup = deferred<void>();
+    supervisor.kill = vi.fn(async (name: string) => {
+      if (name === names[0]) await currentCleanup.promise;
+    });
+    supervisor.runContainer = vi.fn((invocation: unknown, containerName: string, workloadUser: number) => {
+      names.push(containerName);
+      return supervisor.exchange(processes[names.length - 1], invocation, containerName, workloadUser, vi.fn());
+    });
+    const limits = { ...request().limits, maxConcurrency: 2, wallTimeMs: 10_000 };
+    const first = supervisor.invoke(request({ limits, invocationId: "runner-inert-first" }));
+    const second = supervisor.invoke(request({ limits, invocationId: "runner-inert-second" }));
+    const firstError = first.then(() => undefined, (error) => error);
+    const secondError = second.then(() => undefined, (error) => error);
+    await vi.waitFor(() => expect(supervisor.runContainer).toHaveBeenCalledTimes(2));
+    processes[0].emit("spawn");
+    processes[1].emit("spawn");
+    await vi.waitFor(() => expect(writes[0]).toHaveLength(1));
+    await vi.waitFor(() => expect(writes[1]).toHaveLength(1));
+    processes[0].stdout.write(`${invocationAcknowledgement("runner-inert-first")}\n`);
+    processes[1].stdout.write(`${invocationAcknowledgement("runner-inert-second")}\n`);
+    processes[1].stdout.write(`${frame("capability-request", { invocationId: "runner-inert-second", sequence: 1, capability: "records.query", payload: {}, token: "x".repeat(32) })}\n`);
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce());
+    expect(capabilitySignal?.aborted).toBe(false);
+    processes[0].emit("close", 128 + 31);
+
+    await vi.waitFor(() => expect(capabilitySignal?.aborted).toBe(true));
+    expect(writes[1]).toHaveLength(1);
+    expect(capabilityCompleted).toBe(false);
+    processes[1].stdout.write(`${frame("result", { invocationId: "runner-inert-second", ok: true, output: { done: true } })}\n`);
+    processes[1].emit("close", 0);
+
+    await expect(secondError).resolves.toMatchObject({ code: "GENERATION_QUARANTINED" });
+    expect(writes[1]).toHaveLength(1);
+    expect(capabilityCompleted).toBe(false);
+    currentCleanup.resolve();
+    await expect(firstError).resolves.toMatchObject({ code: "POLICY_VIOLATION" });
+  });
+
+  it("does not return a completed result when quarantine wins during stop observation", async () => {
+    const supervisor = runner({ active: async () => false, admit: async () => true }) as any;
+    const processes = [child(), child()];
+    const names: string[] = [];
+    const stopped = deferred<void>();
+    supervisor.dockerOutput = vi.fn(async () => "");
+    supervisor.artifacts = { load: vi.fn(async () => ({ source: "export default () => null" })) };
+    supervisor.inspectSecurity = vi.fn(async () => {});
+    supervisor.observationSink = {
+      async started() {},
+      stopped: vi.fn((request: { invocationId: string }) => request.invocationId === "runner-stop-race-success" ? stopped.promise : Promise.resolve())
+    };
+    supervisor.dockerJson = vi.fn(async () => [{ State: { ExitCode: 128 + 31 } }]);
+    supervisor.kill = vi.fn(async () => {});
+    supervisor.runContainer = vi.fn((invocation: unknown, containerName: string, workloadUser: number) => {
+      names.push(containerName);
+      return supervisor.exchange(processes[names.length - 1], invocation, containerName, workloadUser, vi.fn());
+    });
+    const limits = { ...request().limits, maxConcurrency: 2, wallTimeMs: 10_000 };
+    const success = supervisor.invoke(request({ limits, invocationId: "runner-stop-race-success" }));
+    const successError = success.then(() => undefined, (error) => error);
+    await vi.waitFor(() => expect(supervisor.runContainer).toHaveBeenCalledOnce());
+    processes[0].emit("spawn");
+    await vi.waitFor(() => expect(processes[0].stdin.readableLength).toBeGreaterThan(0));
+    processes[0].stdout.write(`${invocationAcknowledgement("runner-stop-race-success")}\n${frame("result", { invocationId: "runner-stop-race-success", ok: true, output: { done: true } })}\n`);
+    processes[0].emit("close", 0);
+    await vi.waitFor(() => expect(supervisor.observationSink.stopped).toHaveBeenCalledOnce());
+
+    const violation = supervisor.invoke(request({ limits, invocationId: "runner-stop-race-violation" }));
+    const violationError = violation.then(() => undefined, (error) => error);
+    await vi.waitFor(() => expect(supervisor.runContainer).toHaveBeenCalledTimes(2));
+    processes[1].emit("spawn");
+    await vi.waitFor(() => expect(processes[1].stdin.readableLength).toBeGreaterThan(0));
+    processes[1].stdout.write(`${invocationAcknowledgement("runner-stop-race-violation")}\n`);
+    processes[1].emit("close", 128 + 31);
+    await vi.waitFor(() => expect(supervisor.health(orphan)).toMatchObject({ quarantined: true }));
+
+    stopped.resolve();
+    await expect(successError).resolves.toMatchObject({ code: "GENERATION_QUARANTINED" });
+    await expect(violationError).resolves.toMatchObject({ code: "POLICY_VIOLATION" });
+    expect(supervisor.observationSink.stopped).toHaveBeenCalledTimes(2);
+  });
+
+  it("treats rejected start observation as host-only policy failure before source handoff", async () => {
+    const quarantine = vi.fn(async () => {});
+    const started = vi.fn(async () => { throw new Error("observation unavailable"); });
+    const supervisor = runner({ active: async () => false, admit: async () => true }) as any;
+    const process = child();
+    const writes: string[] = [];
+    process.stdin.on("data", (chunk: Buffer) => { writes.push(chunk.toString("utf8")); });
+    supervisor.dockerOutput = vi.fn(async () => "");
+    supervisor.artifacts = { load: vi.fn(async () => ({ source: "export default () => null" })) };
+    supervisor.inspectSecurity = vi.fn(async () => {});
+    supervisor.observationSink = { started, async stopped() {} };
+    supervisor.quarantineSink = { quarantine };
+    supervisor.kill = vi.fn(async () => {});
+    supervisor.runContainer = vi.fn((invocation: unknown, containerName: string, workloadUser: number) => supervisor.exchange(process, invocation, containerName, workloadUser, vi.fn()));
+
+    const outcome = supervisor.invoke(request({ limits: { ...request().limits, wallTimeMs: 10_000 } }));
+    await vi.waitFor(() => expect(supervisor.runContainer).toHaveBeenCalledOnce());
+    process.emit("spawn");
+    await vi.waitFor(() => expect(started).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(process.kill).toHaveBeenCalledWith("SIGKILL"));
+    process.emit("close", 137);
+
+    await expect(outcome).rejects.toMatchObject({ code: "POLICY_UNAVAILABLE" });
+    expect(writes).toEqual([]);
+    expect(quarantine).not.toHaveBeenCalled();
+    expect(supervisor.health(orphan)).toMatchObject({ accepting: true, quarantined: false });
+  });
+
+  it("preserves an acknowledged SIGSYS violation when stop observation fails", async () => {
+    const supervisor = runner({ active: async () => false, admit: async () => true }) as any;
+    const process = child();
+    supervisor.dockerOutput = vi.fn(async () => "");
+    supervisor.artifacts = { load: vi.fn(async () => ({ source: "export default () => null" })) };
+    supervisor.inspectSecurity = vi.fn(async () => {});
+    supervisor.observationSink = { async started() {}, async stopped() { throw new Error("stop observation unavailable"); } };
+    supervisor.dockerJson = vi.fn(async () => [{ State: { ExitCode: 128 + 31 } }]);
+    supervisor.kill = vi.fn(async () => {});
+    supervisor.runContainer = vi.fn((invocation: unknown, containerName: string, workloadUser: number) => supervisor.exchange(process, invocation, containerName, workloadUser, vi.fn()));
+
+    const outcome = supervisor.invoke(request({ limits: { ...request().limits, wallTimeMs: 10_000 } }));
+    await vi.waitFor(() => expect(supervisor.runContainer).toHaveBeenCalledOnce());
+    process.emit("spawn");
+    await vi.waitFor(() => expect(process.stdin.readableLength).toBeGreaterThan(0));
+    process.stdout.write(`${invocationAcknowledgement()}\n`);
+    process.emit("close", 128 + 31);
+
+    await expect(outcome).rejects.toMatchObject({ code: "POLICY_VIOLATION", cleanupFailed: true });
+  });
+
+  it("returns a typed container failure when stop observation rejects after success", async () => {
+    const supervisor = runner({ active: async () => false, admit: async () => true }) as any;
+    const process = child();
+    supervisor.dockerOutput = vi.fn(async () => "");
+    supervisor.artifacts = { load: vi.fn(async () => ({ source: "export default () => null" })) };
+    supervisor.inspectSecurity = vi.fn(async () => {});
+    supervisor.observationSink = { async started() {}, async stopped() { throw new Error("stop observation unavailable"); } };
+    supervisor.kill = vi.fn(async () => {});
+    supervisor.runContainer = vi.fn((invocation: unknown, containerName: string, workloadUser: number) => supervisor.exchange(process, invocation, containerName, workloadUser, vi.fn()));
+
+    const outcome = supervisor.invoke(request({ limits: { ...request().limits, wallTimeMs: 10_000 } }));
+    await vi.waitFor(() => expect(supervisor.runContainer).toHaveBeenCalledOnce());
+    process.emit("spawn");
+    await vi.waitFor(() => expect(process.stdin.readableLength).toBeGreaterThan(0));
+    process.stdout.write(`${invocationAcknowledgement()}\n`);
+    process.stdout.write(`${frame("result", { ok: true, output: { done: true } })}\n`);
+    process.emit("close", 0);
+
+    await expect(outcome).rejects.toMatchObject({ code: "CONTAINER_FAILED" });
+  });
+
+  it("freezes the acknowledged SIGSYS classification before EPIPE or late frames can race exit inspection", async () => {
+    vi.useFakeTimers();
+    try {
+      const supervisor = runner({ active: async () => false, admit: async () => true }) as any;
+      const inspection = deferred<boolean>();
+      const process = child();
+      const writes: string[] = [];
+      process.stdin.on("data", (chunk: Buffer) => { writes.push(chunk.toString("utf8")); });
+      supervisor.inspectSecurity = vi.fn(async () => {});
+      supervisor.observedPolicyViolation = vi.fn(() => inspection.promise);
+      supervisor.kill = vi.fn(async () => {});
+      const invocation = { ...request({ limits: { ...request().limits, wallTimeMs: 10_000 } }), ...orphan, source: "export default () => null" };
+      const outcome = supervisor.exchange(process, invocation, "runner-acknowledged-sigsys", 10_000, vi.fn());
+
+      process.emit("spawn");
+      await vi.waitFor(() => expect(supervisor.inspectSecurity).toHaveBeenCalledOnce());
+      await vi.advanceTimersByTimeAsync(0);
+      expect(writes).toHaveLength(1);
+      process.stdout.write(`${invocationAcknowledgement()}\n`);
+      process.emit("close", 128 + 31);
+      process.stdin.emit("error", Object.assign(new Error("closed"), { code: "EPIPE" }));
+      process.stdout.write(`${frame("result", { ok: true, output: { late: true } })}\n`);
+      await vi.advanceTimersByTimeAsync(10_000);
+      inspection.resolve(true);
+
+      await expect(outcome).rejects.toMatchObject({ code: "POLICY_VIOLATION" });
+      expect(supervisor.observedPolicyViolation).toHaveBeenCalledWith("runner-acknowledged-sigsys");
     } finally {
       vi.useRealTimers();
     }
@@ -200,12 +696,13 @@ describe("runner startup reconciliation", () => {
     supervisor.quarantineSink = { quarantine };
     supervisor.runContainer = vi.fn((invocation: unknown, containerName: string, workloadUser: number) => supervisor.exchange(process, invocation, containerName, workloadUser, cleanup));
 
-    const outcome = supervisor.invoke(request());
+    const outcome = supervisor.invoke(request({ limits: { ...request().limits, wallTimeMs: 10_000 } }));
     await vi.waitFor(() => expect(supervisor.runContainer).toHaveBeenCalledTimes(1));
+    await acknowledge(supervisor, process);
     process.stdout.write(`${frame("result", { ok: false, error: { code: "APPLICATION_FAILED" } })}\n`);
     process.emit("close", 137);
 
-    await expect(outcome).rejects.toMatchObject({ code: "CONTAINER_FAILED" });
+    await expect(outcome).rejects.toMatchObject({ code: "APPLICATION_FAILED" });
     expect(cleanup).toHaveBeenCalledTimes(1);
     expect(quarantine).toHaveBeenCalledWith(expect.objectContaining(orphan), "CONTAINER_FAILED");
     expect(supervisor.health(orphan)).toMatchObject({ accepting: false, quarantined: true, failures: 1 });
@@ -227,6 +724,8 @@ describe("runner startup reconciliation", () => {
     const invocation = { ...request({ limits: { ...request().limits, wallTimeMs: 10_000 } }), ...orphan, source: "export default () => null" };
     const outcome = supervisor.exchange(process, invocation, "runner-ordered-capabilities", 10_000, vi.fn());
 
+    await acknowledge(supervisor, process);
+
     process.stdout.write(`${frame("capability-request", { sequence: 1, capability: "records.query", payload: {}, token: invocation.token })}\n${frame("capability-request", { sequence: 2, capability: "records.query", payload: {}, token: invocation.token })}\n`);
     await Promise.resolve();
     expect(calls).toEqual([1]);
@@ -234,8 +733,8 @@ describe("runner startup reconciliation", () => {
     first.resolve({ first: true });
     await vi.waitFor(() => expect(calls).toEqual([1, 2]));
     second.resolve({ second: true });
-    await vi.waitFor(() => expect(writes).toHaveLength(2));
-    expect(writes.map((value) => value.sequence)).toEqual([1, 2]);
+    await vi.waitFor(() => expect(writes.filter((value) => value.type === "capability-response")).toHaveLength(2));
+    expect(writes.filter((value) => value.type === "capability-response").map((value) => value.sequence)).toEqual([1, 2]);
 
     process.stdout.write(`${frame("result", { ok: true, output: { done: true } })}\n`);
     process.emit("close", 0);
@@ -253,6 +752,8 @@ describe("runner startup reconciliation", () => {
     const invocation = { ...request({ limits: { ...request().limits, wallTimeMs: 10_000 } }), ...orphan, source: "export default () => null" };
     const outcome = supervisor.exchange(process, invocation, "runner-premature-result", 10_000, vi.fn());
 
+    await acknowledge(supervisor, process);
+
     process.stdout.write(`${frame("capability-request", { sequence: 1, capability: "records.query", payload: {}, token: invocation.token })}\n`);
     await Promise.resolve();
     process.stdout.write(`${frame("result", { ok: true, output: null })}\n`);
@@ -261,14 +762,14 @@ describe("runner startup reconciliation", () => {
     void outcome.then(() => { settled = true; }, () => { settled = true; });
     await Promise.resolve();
     expect(settled).toBe(false);
-    expect(writes).toEqual([]);
+    expect(writes).toHaveLength(1);
 
     capability.resolve({ ignored: true });
     await expect(outcome).rejects.toMatchObject({ code: "PROTOCOL_VIOLATION" });
-    expect(writes).toEqual([]);
+    expect(writes).toHaveLength(1);
   });
 
-  it("reports failed cleanup after waiting for an accepted capability task", async () => {
+  it("times out after cleanup without waiting for an accepted capability task", async () => {
     vi.useFakeTimers();
     try {
       const supervisor = runner({ active: async () => false, admit: async () => true }) as any;
@@ -282,6 +783,7 @@ describe("runner startup reconciliation", () => {
       const cleanup = vi.fn();
       const outcome = supervisor.exchange(process, invocation, "runner-timeout-join", 10_000, cleanup);
 
+      await acknowledge(supervisor, process);
       process.stdout.write(`${frame("capability-request", { sequence: 1, capability: "records.query", payload: {}, token: invocation.token })}\n`);
       await Promise.resolve();
       await vi.advanceTimersByTimeAsync(1);
@@ -292,13 +794,47 @@ describe("runner startup reconciliation", () => {
       reaping.reject(new Error("container already gone"));
       await vi.waitFor(() => expect(observedReapingFailure).toHaveBeenCalledTimes(1));
       await vi.waitFor(() => expect(cleanup).toHaveBeenCalledTimes(1));
-      expect(settled).toBe(false);
-
+      await expect(outcome).rejects.toMatchObject({ code: "INVOCATION_TIMEOUT" });
+      expect(settled).toBe(true);
       capability.resolve({ ignored: true });
-      await expect(outcome).rejects.toMatchObject({ code: "CONTAINER_FAILED" });
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("rejects every workload frame before invoke acknowledgement without executing a capability", async () => {
+    for (const payload of [
+      frame("log", { text: "too early" }),
+      frame("capability-request", { sequence: 1, capability: "records.query", payload: {}, token: "x".repeat(32) }),
+      frame("result", { ok: true, output: null })
+    ]) {
+      const supervisor = runner({ active: async () => false, admit: async () => true }) as any;
+      supervisor.gateway = { invoke: vi.fn() };
+      supervisor.kill = vi.fn(async () => {});
+      const process = child();
+      const invocation = { ...request({ limits: { ...request().limits, wallTimeMs: 10_000 } }), ...orphan, source: "export default () => null" };
+      const outcome = supervisor.exchange(process, invocation, "runner-before-ack-frame", 10_000, vi.fn());
+
+      process.stdout.write(`${payload}\n`);
+      process.emit("close", 137);
+
+      await expect(outcome).rejects.toMatchObject({ code: "PROTOCOL_VIOLATION" });
+      expect(supervisor.gateway.invoke).not.toHaveBeenCalled();
+    }
+  });
+
+  it("treats abort before invoke acknowledgement as host-only policy failure", async () => {
+    const supervisor = runner({ active: async () => false, admit: async () => true }) as any;
+    supervisor.kill = vi.fn(async () => {});
+    const process = child();
+    const controller = new AbortController();
+    const invocation = { ...request({ limits: { ...request().limits, wallTimeMs: 10_000 }, signal: controller.signal }), ...orphan, source: "export default () => null" };
+    const outcome = supervisor.exchange(process, invocation, "runner-before-ack-abort", 10_000, vi.fn());
+
+    controller.abort();
+    process.emit("close", 137);
+
+    await expect(outcome).rejects.toMatchObject({ code: "POLICY_UNAVAILABLE" });
   });
 
   it("fails closed for null, malformed, and duplicate terminal frames", async () => {
@@ -320,6 +856,7 @@ describe("runner startup reconciliation", () => {
     const process = child();
     const invocation = { ...request({ limits: { ...request().limits, wallTimeMs: 10_000 } }), ...orphan, source: "export default () => null" };
     const outcome = supervisor.exchange(process, invocation, "runner-duplicate-result", 10_000, vi.fn());
+    await acknowledge(supervisor, process);
     const result = frame("result", { ok: true, output: null });
     process.stdout.write(`${result}\n${result}\n`);
     process.emit("close", 0);
@@ -345,9 +882,9 @@ describe("runner startup reconciliation", () => {
     const outcome = supervisor.exchange(process, invocation, "runner-stdin-epipe", 10_000, vi.fn());
 
     process.emit("spawn");
-    await Promise.resolve();
+    await vi.waitFor(() => expect(stdin.write).toHaveBeenCalledOnce());
     await Promise.resolve();
     process.emit("close", 137);
-    await expect(outcome).rejects.toMatchObject({ code: "CONTAINER_FAILED" });
+    await expect(outcome).rejects.toMatchObject({ code: "POLICY_UNAVAILABLE" });
   });
 });

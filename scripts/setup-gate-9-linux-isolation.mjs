@@ -30,7 +30,7 @@ const run = (command, args, options = {}) => {
 
 const dockerSocket = "/var/run/docker.sock";
 
-const dockremapRootUid = () => {
+const dockremapMapping = () => {
   const mappings = readFileSync("/etc/subuid", "utf8")
     .split(/\r?\n/u)
     .filter((line) => line.length > 0 && !line.startsWith("#"))
@@ -46,7 +46,7 @@ const dockremapRootUid = () => {
   if (!Number.isSafeInteger(rootUid) || !Number.isSafeInteger(rangeSize) || rootUid + rangeSize - 1 > 4_294_967_294) {
     throw new Error("Docker user namespace mapping has an invalid dockremap UID range in /etc/subuid.");
   }
-  return rootUid;
+  return { rootUid, rangeSize };
 };
 
 const socketAccess = () => ({
@@ -57,7 +57,7 @@ const socketAccess = () => ({
 });
 
 const grantRyukSocketAccess = () => {
-  const rootUid = dockremapRootUid();
+  const { rootUid } = dockremapMapping();
   const before = socketAccess();
   const entry = `user:${rootUid}:rw-`;
   const existingMappedRootEntries = before.acl.filter((line) => line.startsWith(`user:${rootUid}:`));
@@ -82,6 +82,30 @@ const grantRyukSocketAccess = () => {
   const mappedRootEntries = after.acl.filter((line) => line.startsWith(`user:${rootUid}:`));
   if (mappedRootEntries.length !== 1 || mappedRootEntries[0] !== entry) {
     throw new Error("Docker socket ACL does not grant exactly the remapped Ryuk root UID read/write access.");
+  }
+};
+
+const verifyEffectiveRunnerIsolation = () => {
+  const { rootUid, rangeSize } = dockremapMapping();
+  const containerName = `${profileName}-verify-${process.pid}`;
+  try {
+    run("docker", [
+      "run", "--detach", "--name", containerName, "--network", "none", "--read-only", "--user", "10000:10000", "--cap-drop", "ALL",
+      "--security-opt", "no-new-privileges=true", "--security-opt", `apparmor=${profileName}`, "--entrypoint", "node", extensionRunnerImage,
+      "-e", "setInterval(() => {}, 60000)"
+    ]);
+    const inspected = JSON.parse(run("docker", ["inspect", containerName], { stdio: "pipe" }))[0];
+    const host = inspected?.HostConfig;
+    const pid = inspected?.State?.Pid;
+    if (!host || inspected.AppArmorProfile !== profileName || !Array.isArray(host.SecurityOpt) || !host.SecurityOpt.includes(`apparmor=${profileName}`) || host.UsernsMode === "host" || !Number.isSafeInteger(pid) || pid <= 0) {
+      throw new Error("Docker did not enforce the exact Gate 9 AppArmor profile and remapped user namespace for the verification runner.");
+    }
+    const uidMap = run("sudo", ["cat", `/proc/${pid}/uid_map`], { stdio: "pipe" });
+    if (!new RegExp(`^\\s*0\\s+${rootUid}\\s+${rangeSize}\\s*$`, "mu").test(uidMap)) {
+      throw new Error("Docker did not expose the exact dockremap user namespace mapping for the verification runner.");
+    }
+  } finally {
+    spawnSync("docker", ["rm", "--force", containerName], { stdio: "ignore" });
   }
 };
 
@@ -115,7 +139,19 @@ try {
 
   run("sudo", ["install", "-d", "-m", "0755", "/etc/apparmor.d"]);
   run("sudo", ["install", "-m", "0644", profilePath, `/etc/apparmor.d/${profileName}`]);
+  if (`sha256:${createHash("sha256").update(readFileSync(`/etc/apparmor.d/${profileName}`, "utf8")).digest("hex")}` !== profileDigest) {
+    throw new Error("The installed Gate 9 AppArmor profile does not match its approved digest.");
+  }
   run("sudo", ["apparmor_parser", "-r", "-W", `/etc/apparmor.d/${profileName}`]);
+  const appArmorStatus = run("sudo", ["aa-status"], { stdio: "pipe" });
+  if (!/apparmor module is loaded\./u.test(appArmorStatus)) {
+    throw new Error("AppArmor is not loaded after installing the Gate 9 runner profile.");
+  }
+  const loadedProfiles = run("sudo", ["cat", "/sys/kernel/security/apparmor/profiles"], { stdio: "pipe" });
+  const profileMode = loadedProfiles.split(/\r?\n/u).find((line) => line.startsWith(`${profileName} (`));
+  if (profileMode !== `${profileName} (enforce)`) {
+    throw new Error("The Gate 9 runner AppArmor profile is not loaded in enforce mode.");
+  }
   run("sudo", ["install", "-d", "-m", "0755", "/etc/docker"]);
   run("sudo", ["install", "-m", "0644", daemonPath, "/etc/docker/daemon.json"]);
   run("sudo", ["systemctl", "restart", "docker"]);
@@ -124,6 +160,7 @@ try {
     throw new Error("Docker did not report both AppArmor and user-namespace remapping after Gate 9 setup.");
   }
   pullAndInspectRunnerImage();
+  verifyEffectiveRunnerIsolation();
   grantRyukSocketAccess();
 } finally {
   rmSync(setupDirectory, { recursive: true, force: true });

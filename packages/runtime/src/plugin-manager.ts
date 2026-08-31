@@ -210,7 +210,7 @@ export interface ExtensionSecurityQuarantineReceipt {
   readonly occurredAt: string;
 }
 
-export type RunnerQuarantineReason = "INVOCATION_TIMEOUT" | "OUTPUT_BUDGET_EXCEEDED" | "PROTOCOL_VIOLATION" | "CONTAINER_FAILED" | "POLICY_UNAVAILABLE";
+export type RunnerQuarantineReason = "INVOCATION_TIMEOUT" | "OUTPUT_BUDGET_EXCEEDED" | "PROTOCOL_VIOLATION" | "CONTAINER_FAILED" | "POLICY_VIOLATION";
 
 /** Durable system quarantine for a terminal per-generation runner failure. */
 export interface ExtensionRunnerQuarantineReceipt {

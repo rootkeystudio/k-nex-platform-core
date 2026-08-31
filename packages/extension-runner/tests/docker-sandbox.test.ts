@@ -1,12 +1,15 @@
-import { execFile as execFileCallback } from "node:child_process";
-import { generateKeyPairSync, sign } from "node:crypto";
+import { execFile as execFileCallback, spawn } from "node:child_process";
+import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { ArtifactVerifier, buildBundle, canonicalJson, CatalogClient, InMemoryCatalogCheckpointStore, sha256, type CatalogEntry, type SignedCatalog, VerifiedArtifactStore } from "@k-nex/extension-bundler";
 import { ExtensionCapabilityGateway, HmacExtensionCapabilityTokens, InMemoryExtensionCapabilitySequenceStoreForTests, type ExtensionCapabilityHandler, type ExtensionCapabilitySequenceStore } from "@k-nex/runtime";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { DockerHotApplicationSandboxSupervisor, RunnerInvocationError, dockerIsolationPolicyFromEnvironment, extensionRunnerImage, runnerAppArmorProfileName, runnerSeccompProfile, type RunnerGenerationIdentity, type RunnerInvocationLimits } from "../src/index.js";
+import { DockerHotApplicationSandboxSupervisor, RunnerInvocationError, dockerAppArmorPolicy, dockerIsolationPolicyFromEnvironment, extensionRunnerImage, runnerAppArmorProfileName, runnerSeccompProfile, type RunnerGenerationIdentity, type RunnerInvocationLimits } from "../src/index.js";
 
 const execFile = promisify(execFileCallback);
 const clock = { now: () => new Date() };
@@ -106,12 +109,65 @@ beforeAll(async () => {
 }, 30_000);
 
 describe("production extension runner", () => {
+  it("kills a real forbidden socket syscall under the pinned default-deny profile", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "k-nex-seccomp-proof-"));
+    const profilePath = join(directory, "policy.json");
+    const containerName = `k-nex-seccomp-proof-${randomUUID().slice(0, 8)}`;
+    writeFileSync(profilePath, runnerSeccompProfile, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    try {
+      await expect(execFile("docker", [
+        "run", "--name", containerName, "--network", "none", "--read-only", "--user", "10000:10000", "--cap-drop", "ALL",
+        "--security-opt", "no-new-privileges=true", "--security-opt", `seccomp=${profilePath}`, "--entrypoint", "node", extensionRunnerImage,
+        "-e", "require('node:net').createServer().listen(0)"
+      ])).rejects.toBeDefined();
+      const inspected = await inspectContainer(containerName);
+      expect(inspected.State).toMatchObject({ Running: false, ExitCode: 128 + 31 });
+    } finally {
+      await execFile("docker", ["rm", "-f", containerName]).catch(() => {});
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("causally quarantines once after an acknowledged real forbidden syscall", async () => {
+    const quarantines: string[] = [];
+    const store = artifactStore();
+    const runner = supervisor({}, store, quarantines) as any;
+    const originalObservedPolicyViolation = runner.observedPolicyViolation.bind(runner);
+    let observedExitCode: number | undefined;
+    runner.observedPolicyViolation = async (containerName: string) => {
+      observedExitCode = (await inspectContainer(containerName)).State.ExitCode;
+      return originalObservedPolicyViolation(containerName);
+    };
+    runner.runContainer = (invocation: any, containerName: string, workloadUser: number) => {
+      const directory = mkdtempSync(join(tmpdir(), "k-nex-supervisor-seccomp-proof-"));
+      const seccompPath = join(directory, "policy.json");
+      writeFileSync(seccompPath, runnerSeccompProfile, { encoding: "utf8", mode: 0o600, flag: "wx" });
+      const isolationOptions = isolationPolicy.kind === "apparmor" ? ["--security-opt", `apparmor=${isolationPolicy.profile}`] : [];
+      const child = spawn("docker", [
+        "run", "-i", "--name", containerName,
+        "--label", "k-nex.runner=hot-application-v1", "--label", `k-nex.application=${invocation.applicationId}`, "--label", `k-nex.environment=${invocation.environment}`, "--label", `k-nex.app=${invocation.appId}`, "--label", `k-nex.generation=${invocation.generationId}`,
+        "--network", "none", "--read-only", "--user", `${workloadUser}:${workloadUser}`, "--workdir", "/tmp",
+        "--tmpfs", `/tmp:rw,noexec,nosuid,nodev,size=${invocation.limits.tempBytes},mode=700,uid=${workloadUser},gid=${workloadUser}`,
+        "--cap-drop", "ALL", "--security-opt", "no-new-privileges=true", "--security-opt", `seccomp=${seccompPath}`, ...isolationOptions, "--pids-limit", String(invocation.limits.processes),
+        "--memory", `${invocation.limits.memoryMiB}m`, "--memory-swap", `${invocation.limits.memoryMiB}m`, "--cpus", String(invocation.limits.cpuMilliCores / 1000),
+        "--ulimit", `nofile=${invocation.limits.openFiles}:${invocation.limits.openFiles}`, "--env", "HOME=/tmp", "--env", "NODE_NO_WARNINGS=1", "--entrypoint", "node",
+        extensionRunnerImage, "-e", "process.stdin.once('data', chunk => { const frame = JSON.parse(chunk); process.stdout.write(JSON.stringify({ type: 'invoke-ack', schemaVersion: 1, invocationId: frame.invocationId, generationId: frame.generationId }) + '\\n'); setImmediate(() => require('node:net').createServer().listen(0)); });"
+      ], { stdio: ["pipe", "pipe", "pipe"] });
+      return runner.exchange(child, invocation, containerName, workloadUser, () => rmSync(directory, { recursive: true, force: true }));
+    };
+
+    await expect(runner.invoke(await request(store, "seccomp-quarantine-generation", "() => ({ ignored: true })"))).rejects.toMatchObject({ code: "POLICY_VIOLATION" });
+    expect(observedExitCode).toBe(128 + 31);
+    expect(quarantines).toEqual(["seccomp-quarantine-generation:POLICY_VIOLATION"]);
+    expect(runner.health(identity("seccomp-quarantine-generation"))).toMatchObject({ accepting: false, quarantined: true });
+  }, 30_000);
+
   it("refuses to send source when Docker inspection omits any required effective control", async () => {
     const runner = supervisor({}, artifactStore()) as any;
     const secure = {
       Config: { User: "10000:10000", WorkingDir: "/tmp", Image: extensionRunnerImage, Env: ["HOME=/tmp", "NODE_NO_WARNINGS=1"] },
       HostConfig: {
-        NetworkMode: "none", ReadonlyRootfs: true, CapDrop: ["ALL"], SecurityOpt: ["no-new-privileges=true", `seccomp=${runnerSeccompProfile}`],
+        NetworkMode: "none", ReadonlyRootfs: true, CapDrop: ["ALL"], CapAdd: null, SecurityOpt: ["no-new-privileges=true", `seccomp=${runnerSeccompProfile}`],
         Binds: [], Tmpfs: { "/tmp": "rw,noexec,nosuid,nodev,size=1048576,mode=700,uid=10000,gid=10000" },
         PidsLimit: 32, Memory: 67_108_864, MemorySwap: 67_108_864, NanoCpus: 250_000_000,
         Ulimits: [{ Name: "nofile", Soft: 64, Hard: 64 }], UsernsMode: ""
@@ -123,10 +179,14 @@ describe("production extension runner", () => {
       (value: any) => { value.HostConfig.NetworkMode = "bridge"; },
       (value: any) => { value.HostConfig.ReadonlyRootfs = false; },
       (value: any) => { value.HostConfig.CapDrop = []; },
+      (value: any) => { value.HostConfig.CapAdd = "SYS_ADMIN"; },
       (value: any) => { value.HostConfig.Binds = ["/:/host:ro"]; },
       (value: any) => { value.Mounts = [{ Type: "bind", Source: "/", Destination: "/host" }]; },
       (value: any) => { value.HostConfig.Tmpfs = {}; },
+      (value: any) => { value.HostConfig.Tmpfs["/tmp"] = "rw,noexec,nosuid,nodev,size=1048576,mode=755,uid=10000,gid=10000"; },
       (value: any) => { value.Config.Env.push("DATABASE_URL=postgres://host-secret"); },
+      (value: any) => { value.Config.User = { uid: 10_000 }; },
+      (value: any) => { value.HostConfig.SecurityOpt = "no-new-privileges=true"; },
       (value: any) => { value.HostConfig.PidsLimit = 0; },
       (value: any) => { value.HostConfig.Memory = 0; },
       (value: any) => { value.HostConfig.MemorySwap = 0; },
@@ -138,6 +198,23 @@ describe("production extension runner", () => {
       runner.inspectRunningContainer = async () => inspected;
       await expect(runner.inspectSecurity("runner-control-test", limits, 10_000)).rejects.toMatchObject({ code: "POLICY_UNAVAILABLE" });
     }
+  });
+
+  it("fails closed when Linux inspection does not expose a numeric container PID", async () => {
+    const runner = supervisor({}, artifactStore()) as any;
+    runner.isolationPolicy = dockerAppArmorPolicy;
+    runner.inspectRunningContainer = async () => ({
+      Config: { User: "10000:10000", WorkingDir: "/tmp", Image: extensionRunnerImage, Env: ["HOME=/tmp", "NODE_NO_WARNINGS=1"] },
+      HostConfig: {
+        NetworkMode: "none", ReadonlyRootfs: true, Privileged: false, CapDrop: ["ALL"], CapAdd: null,
+        SecurityOpt: ["no-new-privileges=true", `seccomp=${runnerSeccompProfile}`, `apparmor=${runnerAppArmorProfileName}`],
+        Binds: [], Tmpfs: { "/tmp": "rw,noexec,nosuid,nodev,size=1048576,mode=700,uid=10000,gid=10000" },
+        PidsLimit: 32, Memory: 67_108_864, MemorySwap: 67_108_864, NanoCpus: 250_000_000,
+        Ulimits: [{ Name: "nofile", Soft: 64, Hard: 64 }], UsernsMode: ""
+      },
+      Mounts: [], AppArmorProfile: runnerAppArmorProfileName, State: { Pid: "1" }
+    });
+    await expect(runner.inspectSecurity("runner-control-test", limits, 10_000)).rejects.toMatchObject({ code: "POLICY_UNAVAILABLE" });
   });
 
   it("runs app generations with container authority and only declared host capabilities", async () => {
@@ -262,7 +339,7 @@ describe("production extension runner", () => {
     const started = new Promise<void>((resolve) => { notifyStarted = resolve; });
     const runner = supervisor(observations, store, quarantines, (generation) => { if (generation.generationId === "draining-generation-one") notifyStarted?.(); });
 
-    await expect(runner.invoke(await request(store, "hung-generation-one", `() => { while (true) {} }`, { wallTimeMs: 500 }))).rejects.toMatchObject({ code: "INVOCATION_TIMEOUT" });
+    await expect(runner.invoke(await request(store, "hung-generation-one", `() => { while (true) {} }`, { wallTimeMs: 5_000 }))).rejects.toMatchObject({ code: "INVOCATION_TIMEOUT" });
     expect(runner.health(identity("hung-generation-one"))).toMatchObject({ accepting: false, quarantined: true });
     expect(quarantines).toEqual(["hung-generation-one:INVOCATION_TIMEOUT"]);
     await expect(runner.invoke(await request(store, "healthy-generation-one", `({ input }) => input`))).resolves.toMatchObject({ marker: expect.any(String) });

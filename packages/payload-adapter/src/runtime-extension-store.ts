@@ -46,6 +46,14 @@ export interface RuntimeExtensionClock {
   now(): Date;
 }
 
+const runnerQuarantineReasons = Object.freeze({
+  INVOCATION_TIMEOUT: true,
+  OUTPUT_BUDGET_EXCEEDED: true,
+  PROTOCOL_VIOLATION: true,
+  CONTAINER_FAILED: true,
+  POLICY_VIOLATION: true
+} satisfies Readonly<Record<RunnerQuarantineReason, true>>);
+
 export class RuntimeExtensionStoreError extends Error {
   constructor(readonly code: "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "OPERATION_IN_PROGRESS" | "OPERATION_NOT_FOUND" | "LEASE_CONFLICT" | "PHASE_CONFLICT" | "GLOBAL_BUDGET_EXHAUSTED" | "GENERATION_MISMATCH" | "VERSION_DOWNGRADE" | "READINESS_EXPIRED" | "ROLLBACK_BLOCKED" | "REFERENCE_CONFLICT" | "STATE_INVALID", message: string) {
     super(message);
@@ -830,7 +838,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
     if (!/^[a-z][a-z0-9-]{2,127}$/u.test(input.applicationId) || !/^[a-z][a-z0-9-]{1,63}$/u.test(input.environment) ||
       !/^app(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$/u.test(input.appId) || !validRecordId(input.generationId) ||
       !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0 ||
-      !["INVOCATION_TIMEOUT", "OUTPUT_BUDGET_EXCEEDED", "PROTOCOL_VIOLATION", "CONTAINER_FAILED", "POLICY_UNAVAILABLE"].includes(input.reason)) {
+      runnerQuarantineReasons[input.reason] !== true) {
       fail("STATE_INVALID", "Runner quarantine request is invalid.");
     }
     const transition = await this.runnerQuarantineTransitionIds(input);

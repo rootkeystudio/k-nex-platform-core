@@ -8,7 +8,8 @@ import { createInterface } from "node:readline";
 import type { VerifiedArtifactOwner, VerifiedArtifactRunnerSource } from "@k-nex/extension-bundler";
 import type { ExtensionCapabilityGateway, ExtensionCapabilityId } from "@k-nex/runtime";
 
-import { assertDockerSecurityPolicy, defaultDockerIsolationPolicy, runnerSeccompProfile, type DockerIsolationPolicy } from "./policy.js";
+import { createDockerRunnerIsolationProfile, dockerRunnerHardLimits, type DockerRunnerIsolationProfile } from "./isolation-profile.js";
+import { assertDockerSecurityPolicy, runnerSeccompProfile, type DockerIsolationPolicy } from "./policy.js";
 import { runnerServiceSource } from "./service-source.js";
 
 export const extensionRunnerImage = "node:24.19.0-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43";
@@ -57,7 +58,7 @@ export interface RunnerHealth {
   readonly failures: number;
 }
 
-export type RunnerTerminalQuarantineReason = "INVOCATION_TIMEOUT" | "OUTPUT_BUDGET_EXCEEDED" | "PROTOCOL_VIOLATION" | "CONTAINER_FAILED" | "POLICY_UNAVAILABLE";
+export type RunnerTerminalQuarantineReason = "INVOCATION_TIMEOUT" | "OUTPUT_BUDGET_EXCEEDED" | "PROTOCOL_VIOLATION" | "CONTAINER_FAILED" | "POLICY_VIOLATION";
 
 export interface RunnerQuarantineSink {
   quarantine(identity: RunnerGenerationIdentity, reason: RunnerTerminalQuarantineReason): void | Promise<void>;
@@ -75,9 +76,18 @@ export interface RunnerObservationSink {
 }
 
 export class RunnerInvocationError extends Error {
-  constructor(readonly code: "RUNNER_UNAVAILABLE" | "GENERATION_DRAINING" | "GENERATION_QUARANTINED" | "CONCURRENCY_EXHAUSTED" | "INVOCATION_INVALID" | "INVOCATION_TIMEOUT" | "OUTPUT_BUDGET_EXCEEDED" | "PROTOCOL_VIOLATION" | "POLICY_UNAVAILABLE" | "CONTAINER_FAILED" | "APPLICATION_FAILED", message: string) {
+  cleanupFailed = false;
+
+  constructor(readonly code: "RUNNER_UNAVAILABLE" | "GENERATION_DRAINING" | "GENERATION_QUARANTINED" | "CONCURRENCY_EXHAUSTED" | "INVOCATION_INVALID" | "INVOCATION_TIMEOUT" | "OUTPUT_BUDGET_EXCEEDED" | "PROTOCOL_VIOLATION" | "POLICY_UNAVAILABLE" | "POLICY_VIOLATION" | "CONTAINER_FAILED" | "APPLICATION_FAILED", message: string) {
     super(message);
     this.name = "RunnerInvocationError";
+  }
+}
+
+export class DockerCommandError extends Error {
+  constructor(readonly args: readonly string[], readonly exitCode: number | null, readonly stderr: string) {
+    super(`docker ${args.join(" ")} failed${exitCode === null ? "" : ` with exit code ${exitCode}`}.`);
+    this.name = "DockerCommandError";
   }
 }
 
@@ -92,6 +102,12 @@ interface GenerationState {
   quarantined: boolean;
   readonly workloadUser: number;
   readonly containers: Set<string>;
+  readonly invocations: Map<string, { readonly containerName: string; readonly cancel: () => void }>;
+  terminalQuarantine?: {
+    readonly identity: RunnerGenerationIdentity;
+    readonly reason: RunnerTerminalQuarantineReason;
+    durable?: Promise<void>;
+  };
 }
 
 interface RunnerFrame {
@@ -140,11 +156,11 @@ function validateRequest(request: RunnerInvocationRequest): void {
   if (!recordPattern.test(request.invocationId) ||
     request.owner.deliveryClass !== "hot-application" || !/^sha256:[0-9a-f]{64}$/u.test(request.artifactDigest) || !/^server\/[a-zA-Z0-9._/-]+\.mjs$/u.test(request.serverEntrypoint) || request.serverEntrypoint.includes("..") ||
     !drainLeasePattern.test(request.drainLeaseId) || request.token.length < 32 || request.token.length > 8192 || jsonBytes(request.input) > limits.inputBytes ||
-    !Number.isSafeInteger(limits.cpuMilliCores) || limits.cpuMilliCores < 1 || limits.cpuMilliCores > 2_000 ||
-    !Number.isSafeInteger(limits.memoryMiB) || limits.memoryMiB < 16 || limits.memoryMiB > 512 ||
-    !Number.isSafeInteger(limits.processes) || limits.processes < 1 || limits.processes > 256 ||
-    !Number.isSafeInteger(limits.openFiles) || limits.openFiles < 16 || limits.openFiles > 4096 ||
-    !Number.isSafeInteger(limits.tempBytes) || limits.tempBytes < 4096 || limits.tempBytes > 268_435_456 ||
+    !Number.isSafeInteger(limits.cpuMilliCores) || limits.cpuMilliCores < 1 || limits.cpuMilliCores > dockerRunnerHardLimits.cpuMilliCores ||
+    !Number.isSafeInteger(limits.memoryMiB) || limits.memoryMiB < 16 || limits.memoryMiB > dockerRunnerHardLimits.memoryMiB ||
+    !Number.isSafeInteger(limits.processes) || limits.processes < 1 || limits.processes > dockerRunnerHardLimits.processes ||
+    !Number.isSafeInteger(limits.openFiles) || limits.openFiles < 16 || limits.openFiles > dockerRunnerHardLimits.openFiles ||
+    !Number.isSafeInteger(limits.tempBytes) || limits.tempBytes < 4096 || limits.tempBytes > dockerRunnerHardLimits.tempBytes ||
     !Number.isSafeInteger(limits.wallTimeMs) || limits.wallTimeMs < 1 || limits.wallTimeMs > 30_000 ||
     !Number.isSafeInteger(limits.inputBytes) || limits.inputBytes < 1 || limits.inputBytes > 1_048_576 ||
     !Number.isSafeInteger(limits.outputBytes) || limits.outputBytes < 1 || limits.outputBytes > 4_194_304 ||
@@ -158,16 +174,33 @@ function exactKeys(value: RunnerFrame, keys: readonly string[]): boolean {
   return Object.keys(value).sort().join("\0") === [...keys].sort().join("\0");
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
 function isNoFileLimit(value: unknown, expected: number): boolean {
   return typeof value === "object" && value !== null &&
     (value as Record<string, unknown>).Name === "nofile" && (value as Record<string, unknown>).Soft === expected && (value as Record<string, unknown>).Hard === expected;
 }
 
 function isTerminalQuarantineReason(code: RunnerInvocationError["code"]): code is RunnerTerminalQuarantineReason {
-  return ["INVOCATION_TIMEOUT", "OUTPUT_BUDGET_EXCEEDED", "PROTOCOL_VIOLATION", "CONTAINER_FAILED", "POLICY_UNAVAILABLE"].includes(code);
+  return ["INVOCATION_TIMEOUT", "OUTPUT_BUDGET_EXCEEDED", "PROTOCOL_VIOLATION", "CONTAINER_FAILED", "POLICY_VIOLATION"].includes(code);
+}
+
+function isDockerNotFound(error: unknown): error is DockerCommandError {
+  return error instanceof DockerCommandError && /\bno such (?:container|object)\b/iu.test(error.stderr);
+}
+
+function isDockerNotRunning(error: unknown): error is DockerCommandError {
+  return error instanceof DockerCommandError && /\bis not running\b/iu.test(error.stderr);
 }
 
 export class DockerHotApplicationSandboxSupervisor {
+  readonly isolationProfile?: DockerRunnerIsolationProfile;
   private readonly generations = new Map<string, GenerationState>();
   private readonly workloadUsers = new Map<number, string>();
   private startup?: Promise<number>;
@@ -178,11 +211,12 @@ export class DockerHotApplicationSandboxSupervisor {
     private readonly authority: RunnerGenerationAuthority,
     private readonly observationSink: RunnerObservationSink,
     private readonly artifacts: VerifiedArtifactRunnerSource,
-    private readonly isolationPolicy: DockerIsolationPolicy = defaultDockerIsolationPolicy,
+    private readonly isolationPolicy: DockerIsolationPolicy,
     private readonly image = extensionRunnerImage
   ) {
-    if (!/^node:24\.19\.0-alpine@sha256:[0-9a-f]{64}$/u.test(image)) throw new TypeError("Runner image must be pinned to the approved Node release digest.");
+    if (image !== extensionRunnerImage) throw new TypeError("Runner image must match the approved Node release digest.");
     assertDockerSecurityPolicy(isolationPolicy);
+    if (isolationPolicy.kind !== "local-docker-test-only") this.isolationProfile = createDockerRunnerIsolationProfile(isolationPolicy);
   }
 
   async invoke(request: RunnerInvocationRequest): Promise<unknown> {
@@ -190,37 +224,64 @@ export class DockerHotApplicationSandboxSupervisor {
     if (request.signal?.aborted) throw new RunnerInvocationError("INVOCATION_TIMEOUT", "Runner invocation was aborted.");
     const runnerIdentity = identity(request);
     await this.start();
+    const state = this.state(runnerIdentity);
+    if (state.quarantined) {
+      const error = new RunnerInvocationError("GENERATION_QUARANTINED", "Runner generation is quarantined.");
+      error.cleanupFailed = await this.retryTerminalQuarantine(state);
+      throw error;
+    }
     const claims = this.gateway.assertInvocationIdentity(request.token, { ...runnerIdentity, invocationId: request.invocationId });
     if (claims.drainLeaseId !== request.drainLeaseId) throw new RunnerInvocationError("INVOCATION_INVALID", "Runner invocation drain lease does not match its token.");
     if (!await this.authority.admit(runnerIdentity, request.drainLeaseId)) throw new RunnerInvocationError("GENERATION_QUARANTINED", "Runner generation is not authoritatively admitted.");
-    let source: string;
-    try { source = (await this.artifacts.load({ owner: { ...request.owner, generationId: request.generationId }, artifactDigest: request.artifactDigest, serverEntrypoint: request.serverEntrypoint })).source; } catch {
-      throw new RunnerInvocationError("INVOCATION_INVALID", "Runner artifact identity is not present in the verified inventory.");
-    }
-    const resolved = { ...request, ...runnerIdentity, source };
-    const state = this.state(runnerIdentity);
-    if (state.quarantined) throw new RunnerInvocationError("GENERATION_QUARANTINED", "Runner generation is quarantined.");
     if (!state.accepting) throw new RunnerInvocationError("GENERATION_DRAINING", "Runner generation is draining.");
     if (state.active >= request.limits.maxConcurrency) throw new RunnerInvocationError("CONCURRENCY_EXHAUSTED", "Runner generation concurrency is exhausted.");
     state.active += 1;
-    const containerName = `k-nex-${resolved.appId.replaceAll(".", "-")}-${resolved.generationId}-${randomUUID().slice(0, 8)}`.slice(0, 120);
-    state.containers.add(containerName);
+    let resolved: ResolvedRunnerInvocation | undefined;
+    let containerName: string | undefined;
+    let result: unknown;
+    let invocationError: RunnerInvocationError | undefined;
     try {
-      return await this.runContainer(resolved, containerName, state.workloadUser);
+      let source: string;
+      try { source = (await this.artifacts.load({ owner: { ...request.owner, generationId: request.generationId }, artifactDigest: request.artifactDigest, serverEntrypoint: request.serverEntrypoint })).source; } catch {
+        throw new RunnerInvocationError("INVOCATION_INVALID", "Runner artifact identity is not present in the verified inventory.");
+      }
+      if (state.quarantined) throw new RunnerInvocationError("GENERATION_QUARANTINED", "Runner generation is quarantined.");
+      if (!state.accepting) throw new RunnerInvocationError("GENERATION_DRAINING", "Runner generation is draining.");
+      if (!await this.authority.admit(runnerIdentity, request.drainLeaseId)) throw new RunnerInvocationError("GENERATION_QUARANTINED", "Runner generation is not authoritatively admitted.");
+      if (state.quarantined) throw new RunnerInvocationError("GENERATION_QUARANTINED", "Runner generation is quarantined.");
+      if (!state.accepting) throw new RunnerInvocationError("GENERATION_DRAINING", "Runner generation is draining.");
+      resolved = { ...request, ...runnerIdentity, source };
+      containerName = `k-nex-${resolved.appId.replaceAll(".", "-")}-${resolved.generationId}-${randomUUID().slice(0, 8)}`.slice(0, 120);
+      state.containers.add(containerName);
+      result = await this.runContainer(resolved, containerName, state.workloadUser);
+      if (state.quarantined) throw new RunnerInvocationError("GENERATION_QUARANTINED", "Runner generation was quarantined while this invocation was running.");
     } catch (error) {
       const normalized = error instanceof RunnerInvocationError ? error : new RunnerInvocationError("CONTAINER_FAILED", "Runner container failed.");
       state.failures += 1;
-      if (isTerminalQuarantineReason(normalized.code)) {
+      const quarantineReason = isTerminalQuarantineReason(normalized.code) ? normalized.code : normalized.cleanupFailed ? "CONTAINER_FAILED" : undefined;
+      if (resolved && containerName && quarantineReason) {
         state.quarantined = true;
         state.accepting = false;
-        await this.quarantineSink.quarantine(resolved, normalized.code);
+        const containmentFailed = await this.quarantineGeneration(state, resolved, quarantineReason, containerName);
+        normalized.cleanupFailed ||= containmentFailed;
       }
-      throw normalized;
+      invocationError = normalized;
     } finally {
       state.active -= 1;
-      state.containers.delete(containerName);
-      await this.observationSink.stopped(resolved, containerName);
+      if (resolved && containerName) {
+        state.containers.delete(containerName);
+        try { await this.observationSink.stopped(resolved, containerName); }
+        catch {
+          if (invocationError) invocationError.cleanupFailed = true;
+          else invocationError = new RunnerInvocationError("CONTAINER_FAILED", "Runner container stop observation failed.");
+        }
+        if (!invocationError && state.quarantined) {
+          invocationError = new RunnerInvocationError("GENERATION_QUARANTINED", "Runner generation was quarantined while this invocation was stopping.");
+        }
+      }
     }
+    if (invocationError) throw invocationError;
+    return result;
   }
 
   health(identity: RunnerGenerationIdentity): RunnerHealth {
@@ -229,7 +290,7 @@ export class DockerHotApplicationSandboxSupervisor {
     return Object.freeze({ accepting: state.accepting, activeInvocations: state.active, quarantined: state.quarantined, failures: state.failures });
   }
 
-  /** Reap only runner-marked containers whose exact generation is no longer durable authority. */
+  /** No runner survives a supervisor restart: protocol state cannot be reattached safely. */
   async start(): Promise<number> {
     this.startup ??= this.reconcileStartupContainers();
     return this.startup;
@@ -255,7 +316,7 @@ export class DockerHotApplicationSandboxSupervisor {
       let workloadUser = 10_000 + createHash("sha256").update(key).digest().readUInt32BE(0) % 50_000;
       while (this.workloadUsers.has(workloadUser) && this.workloadUsers.get(workloadUser) !== key) workloadUser = workloadUser === 59_999 ? 10_000 : workloadUser + 1;
       this.workloadUsers.set(workloadUser, key);
-      state = { accepting: true, active: 0, failures: 0, quarantined: false, workloadUser, containers: new Set() };
+      state = { accepting: true, active: 0, failures: 0, quarantined: false, workloadUser, containers: new Set(), invocations: new Map() };
       this.generations.set(key, state);
     }
     return state;
@@ -267,16 +328,16 @@ export class DockerHotApplicationSandboxSupervisor {
     writeFileSync(seccompPath, runnerSeccompProfile, { encoding: "utf8", mode: 0o600, flag: "wx" });
     const isolationOptions = this.isolationPolicy.kind === "apparmor"
       ? ["--security-opt", `apparmor=${this.isolationPolicy.profile}`]
-      : this.isolationPolicy.kind === "selinux" ? ["--security-opt", this.isolationPolicy.label] : [];
+      : [];
     const args = [
-      "run", "--rm", "-i", "--name", containerName,
+      "run", "-i", "--name", containerName,
       "--label", "k-nex.runner=hot-application-v1", "--label", `k-nex.application=${request.applicationId}`, "--label", `k-nex.environment=${request.environment}`, "--label", `k-nex.app=${request.appId}`, "--label", `k-nex.generation=${request.generationId}`,
       "--network", "none", "--read-only", "--user", `${workloadUser}:${workloadUser}`, "--workdir", "/tmp",
       "--tmpfs", `/tmp:rw,noexec,nosuid,nodev,size=${request.limits.tempBytes},mode=700,uid=${workloadUser},gid=${workloadUser}`,
       "--cap-drop", "ALL", "--security-opt", "no-new-privileges=true", "--security-opt", `seccomp=${seccompPath}`, ...isolationOptions, "--pids-limit", String(request.limits.processes),
       "--memory", `${request.limits.memoryMiB}m`, "--memory-swap", `${request.limits.memoryMiB}m`, "--cpus", String(request.limits.cpuMilliCores / 1000),
-      "--ulimit", `nofile=${request.limits.openFiles}:${request.limits.openFiles}`, "--env", "HOME=/tmp", "--env", "NODE_NO_WARNINGS=1",
-      this.image, "node", "--permission", "--experimental-vm-modules", "-e", runnerServiceSource
+      "--ulimit", `nofile=${request.limits.openFiles}:${request.limits.openFiles}`, "--env", "HOME=/tmp", "--env", "NODE_NO_WARNINGS=1", "--entrypoint", "node",
+      this.image, "--permission", "--experimental-vm-modules", "-e", runnerServiceSource
     ];
     const child = spawn("docker", args, { stdio: ["pipe", "pipe", "pipe"] });
     return this.exchange(child, request, containerName, workloadUser, () => rmSync(policyDirectory, { recursive: true, force: true }));
@@ -284,6 +345,14 @@ export class DockerHotApplicationSandboxSupervisor {
 
   private exchange(child: ChildProcessWithoutNullStreams, request: ResolvedRunnerInvocation, containerName: string, workloadUser: number, cleanup: () => void): Promise<unknown> {
     return new Promise((resolve, reject) => {
+      const state = this.state(request);
+      const invocationKey = `${containerName}\0${request.invocationId}`;
+      let registered = false;
+      const unregister = () => {
+        if (!registered) return;
+        registered = false;
+        state.invocations.delete(invocationKey);
+      };
       let closed = false;
       let resolveClose!: () => void;
       const close = new Promise<void>((resolveClosePromise) => { resolveClose = resolveClosePromise; });
@@ -293,6 +362,10 @@ export class DockerHotApplicationSandboxSupervisor {
       const controller = new AbortController();
       let terminal: { value: unknown } | { error: RunnerInvocationError } | undefined;
       let acceptingFrames = true;
+      let policyInspected = false;
+      let invokeSent = false;
+      let invokeAcknowledged = false;
+      let exitObserved = false;
       let capabilityQueue = Promise.resolve();
       const acceptedCapabilities = new Set<Promise<void>>();
       let reaping: Promise<void> | undefined;
@@ -302,22 +375,31 @@ export class DockerHotApplicationSandboxSupervisor {
         cleaned = true;
         cleanup();
       };
-      const fail = (error: RunnerInvocationError) => settle({ error });
+      const startupUnavailable = (message: string) => new RunnerInvocationError("POLICY_UNAVAILABLE", message);
+      const fail = (error: RunnerInvocationError) => {
+        if (invokeAcknowledged && isTerminalQuarantineReason(error.code)) this.publishTerminalQuarantine(state, request, error.code, containerName);
+        settle({ error });
+      };
       const write = (frame: unknown): boolean => {
         if (!acceptingFrames || controller.signal.aborted || child.stdin.destroyed || !child.stdin.writable) return false;
         try {
           child.stdin.write(`${JSON.stringify(frame)}\n`, (error) => {
-            if (error && !controller.signal.aborted) fail(new RunnerInvocationError("CONTAINER_FAILED", "Runner stdin could not accept a protocol frame."));
+            if (error && !controller.signal.aborted) fail(invokeAcknowledged
+              ? new RunnerInvocationError("CONTAINER_FAILED", "Runner stdin could not accept a protocol frame.")
+              : startupUnavailable("Runner stdin closed before acknowledging the invocation."));
           });
           return true;
         } catch {
-          if (!controller.signal.aborted) fail(new RunnerInvocationError("CONTAINER_FAILED", "Runner stdin could not accept a protocol frame."));
+          if (!controller.signal.aborted) fail(invokeAcknowledged
+            ? new RunnerInvocationError("CONTAINER_FAILED", "Runner stdin could not accept a protocol frame.")
+            : startupUnavailable("Runner stdin closed before acknowledging the invocation."));
           return false;
         }
       };
       const settle = (result: { readonly value: unknown } | { readonly error: RunnerInvocationError }) => {
         if (terminal) return;
         terminal = result;
+        unregister();
         acceptingFrames = false;
         clearTimeout(timer);
         request.signal?.removeEventListener("abort", abort);
@@ -338,22 +420,36 @@ export class DockerHotApplicationSandboxSupervisor {
           }
           if (cleanupFailed) throw new RunnerInvocationError("CONTAINER_FAILED", "Runner container could not be forcibly terminated.");
         })();
-        const accepted = [...acceptedCapabilities];
-        void Promise.allSettled([...accepted, reaping]).then((settled) => {
+        // A terminal error must not wait for a gateway implementation that ignores abort.
+        void Promise.allSettled([reaping]).then((settled) => {
+          const final = terminal!;
           if (settled.at(-1)?.status === "rejected") {
-            reject(new RunnerInvocationError("CONTAINER_FAILED", "Runner container could not be forcibly terminated."));
+            if ("error" in final) {
+              final.error.cleanupFailed = true;
+              reject(final.error);
+            } else reject(new RunnerInvocationError("CONTAINER_FAILED", "Runner container could not be forcibly terminated."));
             return;
           }
-          const final = terminal!;
           "error" in final ? reject(final.error) : resolve(final.value);
         });
       };
       const finish = (value: unknown) => settle({ value });
-      const abort = () => fail(new RunnerInvocationError("INVOCATION_TIMEOUT", "Runner invocation was aborted."));
+      state.invocations.set(invocationKey, {
+        containerName,
+        cancel: () => fail(new RunnerInvocationError("GENERATION_QUARANTINED", "Runner generation was quarantined while this invocation was running."))
+      });
+      registered = true;
+      const abort = () => fail(invokeAcknowledged
+        ? new RunnerInvocationError("INVOCATION_TIMEOUT", "Runner invocation was aborted.")
+        : startupUnavailable("Runner invocation aborted before the runner acknowledged source handoff."));
       request.signal?.addEventListener("abort", abort, { once: true });
-      const timer = setTimeout(() => fail(new RunnerInvocationError("INVOCATION_TIMEOUT", "Runner invocation exceeded its wall-time budget.")), request.limits.wallTimeMs);
-      child.on("error", () => { if (!terminal) fail(new RunnerInvocationError("RUNNER_UNAVAILABLE", "Docker runner is unavailable.")); });
-      child.stdin.on("error", () => { if (!terminal) fail(new RunnerInvocationError("CONTAINER_FAILED", "Runner stdin could not accept a protocol frame.")); });
+      const timer = setTimeout(() => fail(invokeAcknowledged
+        ? new RunnerInvocationError("INVOCATION_TIMEOUT", "Runner invocation exceeded its wall-time budget.")
+        : startupUnavailable("Runner invocation timed out before the runner acknowledged source handoff.")), request.limits.wallTimeMs);
+      child.on("error", () => { if (!terminal && !exitObserved) fail(new RunnerInvocationError("RUNNER_UNAVAILABLE", "Docker runner is unavailable.")); });
+      child.stdin.on("error", () => { if (!terminal && !exitObserved) fail(invokeAcknowledged
+        ? new RunnerInvocationError("CONTAINER_FAILED", "Runner stdin could not accept a protocol frame.")
+        : startupUnavailable("Runner stdin closed before acknowledging the invocation.")); });
       child.stderr.on("data", (chunk: Buffer) => {
         stderr += chunk.toString("utf8");
         if (!terminal && Buffer.byteLength(stderr) > request.limits.logBytes) fail(new RunnerInvocationError("OUTPUT_BUDGET_EXCEEDED", "Runner stderr exceeded its log budget."));
@@ -365,12 +461,13 @@ export class DockerHotApplicationSandboxSupervisor {
       const lines = createInterface({ input: child.stdout, crlfDelay: Infinity, terminal: false });
       const queueCapability = (frame: RunnerFrame) => {
         const run = async () => {
-          if (controller.signal.aborted) return;
+          if (controller.signal.aborted || state.quarantined) return;
           try {
+            if (controller.signal.aborted || state.quarantined) return;
             const output = await this.gateway.invoke({ token: frame.token!, invocationId: request.invocationId, generationId: request.generationId, sequence: frame.sequence!, capability: frame.capability as ExtensionCapabilityId, payload: frame.payload, signal: controller.signal });
-            if (!controller.signal.aborted) write({ type: "capability-response", schemaVersion: 1, invocationId: request.invocationId, generationId: request.generationId, sequence: frame.sequence, ok: true, output, error: null });
+            if (!controller.signal.aborted && !state.quarantined) write({ type: "capability-response", schemaVersion: 1, invocationId: request.invocationId, generationId: request.generationId, sequence: frame.sequence, ok: true, output, error: null });
           } catch (error) {
-            if (!controller.signal.aborted) {
+            if (!controller.signal.aborted && !state.quarantined) {
               const code = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : "CAPABILITY_FAILED";
               write({ type: "capability-response", schemaVersion: 1, invocationId: request.invocationId, generationId: request.generationId, sequence: frame.sequence, ok: false, output: null, error: { code } });
             }
@@ -390,6 +487,19 @@ export class DockerHotApplicationSandboxSupervisor {
           if (terminal && "value" in terminal && (frame as RunnerFrame).type === "result") {
             terminal = { error: new RunnerInvocationError("PROTOCOL_VIOLATION", "Runner emitted a duplicate terminal frame.") };
           }
+          return;
+        }
+        if (state.quarantined) {
+          fail(new RunnerInvocationError("GENERATION_QUARANTINED", "Runner generation was quarantined while this invocation was running."));
+          return;
+        }
+        if (frame.type === "invoke-ack" && exactKeys(frame, ["type", "schemaVersion", "invocationId", "generationId"]) && frame.schemaVersion === 1 && frame.invocationId === request.invocationId && frame.generationId === request.generationId) {
+          if (!invokeSent || invokeAcknowledged) fail(new RunnerInvocationError("PROTOCOL_VIOLATION", "Runner emitted an invalid invocation acknowledgement."));
+          else invokeAcknowledged = true;
+          return;
+        }
+        if (!invokeAcknowledged) {
+          fail(new RunnerInvocationError("PROTOCOL_VIOLATION", "Runner emitted a protocol frame before acknowledging the invocation."));
           return;
         }
         if (frame.type === "log" && exactKeys(frame, ["type", "schemaVersion", "invocationId", "generationId", "text"]) && frame.schemaVersion === 1 && frame.invocationId === request.invocationId && frame.generationId === request.generationId && typeof frame.text === "string") {
@@ -421,9 +531,11 @@ export class DockerHotApplicationSandboxSupervisor {
           try {
             await this.inspectSecurity(containerName, request.limits, workloadUser);
             if (controller.signal.aborted) return;
-            await this.observationSink.started(request, containerName);
+            policyInspected = true;
+            try { await this.observationSink.started(request, containerName); }
+            catch { fail(startupUnavailable("Runner start observation did not complete before source handoff.")); return; }
             if (controller.signal.aborted) return;
-            write({ type: "invoke", schemaVersion: 1, invocationId: request.invocationId, generationId: request.generationId, token: request.token, source: request.source, input: request.input, maxInputBytes: request.limits.inputBytes, maxOutputBytes: request.limits.outputBytes });
+            invokeSent = write({ type: "invoke", schemaVersion: 1, invocationId: request.invocationId, generationId: request.generationId, token: request.token, source: request.source, input: request.input, maxInputBytes: request.limits.inputBytes, maxOutputBytes: request.limits.outputBytes });
           } catch (error) {
             if (controller.signal.aborted) return;
             fail(error instanceof RunnerInvocationError ? error : new RunnerInvocationError("CONTAINER_FAILED", "Runner container observation failed."));
@@ -435,8 +547,20 @@ export class DockerHotApplicationSandboxSupervisor {
         resolveClose();
         controller.abort();
         if (!terminal) {
-          const policyFailure = /(?:apparmor|selinux|seccomp|user\s*namespace|userns)/iu.test(stderr);
-          fail(new RunnerInvocationError(code === 0 ? "PROTOCOL_VIOLATION" : policyFailure ? "POLICY_UNAVAILABLE" : "CONTAINER_FAILED", code === 0 ? "Runner exited without a result." : policyFailure ? "Docker could not apply the required isolation policy." : "Runner container exited unsuccessfully."));
+          acceptingFrames = false;
+          exitObserved = true;
+          clearTimeout(timer);
+          request.signal?.removeEventListener("abort", abort);
+          if (!policyInspected || !invokeSent || !invokeAcknowledged) {
+            fail(new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker closed before the runner security policy and source handoff were established."));
+            return;
+          }
+          void this.observedPolicyViolation(containerName).then((policyViolation) => {
+            if (terminal) return;
+            fail(new RunnerInvocationError(code === 0 ? "PROTOCOL_VIOLATION" : policyViolation ? "POLICY_VIOLATION" : "CONTAINER_FAILED", code === 0 ? "Runner exited without a result." : policyViolation ? "Runner was terminated by the enforced isolation policy." : "Runner container exited unsuccessfully."));
+          }, () => {
+            if (!terminal) fail(new RunnerInvocationError(code === 0 ? "PROTOCOL_VIOLATION" : "CONTAINER_FAILED", code === 0 ? "Runner exited without a result." : "Runner container exited unsuccessfully."));
+          });
         }
       });
     });
@@ -446,46 +570,96 @@ export class DockerHotApplicationSandboxSupervisor {
     let inspected: Record<string, unknown>;
     try { inspected = await this.inspectRunningContainer(containerName); }
     catch { throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker did not expose the launched container security state."); }
-    const host = inspected.HostConfig as Record<string, unknown> | undefined;
-    const config = inspected.Config as Record<string, unknown> | undefined;
+    const host = isRecord(inspected.HostConfig) ? inspected.HostConfig : undefined;
+    const config = isRecord(inspected.Config) ? inspected.Config : undefined;
     const unavailable = (message: string): never => { throw new RunnerInvocationError("POLICY_UNAVAILABLE", message); };
     if (!host || !config) throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker did not expose the container configuration.");
-    if (host.NetworkMode !== "none" || host.ReadonlyRootfs !== true || host.Privileged === true || host.PidsLimit !== limits.processes || host.Memory !== limits.memoryMiB * 1024 * 1024 || host.MemorySwap !== limits.memoryMiB * 1024 * 1024 || host.NanoCpus !== limits.cpuMilliCores * 1_000_000) unavailable("Docker did not apply the required network, root, privilege, or cgroup controls.");
-    if (!Array.isArray(host.CapDrop) || host.CapDrop.length !== 1 || host.CapDrop[0] !== "ALL" || (Array.isArray(host.CapAdd) && host.CapAdd.length > 0)) unavailable("Docker did not drop every Linux capability.");
-    if ((host.Binds != null && (!Array.isArray(host.Binds) || host.Binds.length !== 0)) || !Array.isArray(inspected.Mounts) || (inspected.Mounts as readonly Record<string, unknown>[]).some((mount) => mount.Type !== "tmpfs" || mount.Destination !== "/tmp")) unavailable("Docker exposed an unexpected mount.");
-    const tmpfs = host.Tmpfs as Record<string, unknown> | undefined;
+    if (host.NetworkMode !== "none" || host.ReadonlyRootfs !== true || host.Privileged !== false || host.PidsLimit !== limits.processes || host.Memory !== limits.memoryMiB * 1024 * 1024 || host.MemorySwap !== limits.memoryMiB * 1024 * 1024 || host.NanoCpus !== limits.cpuMilliCores * 1_000_000) unavailable("Docker did not apply the required network, root, privilege, or cgroup controls.");
+    if (!Array.isArray(host.CapDrop) || host.CapDrop.length !== 1 || host.CapDrop[0] !== "ALL" || !(host.CapAdd === null || (Array.isArray(host.CapAdd) && host.CapAdd.length === 0))) unavailable("Docker did not drop every Linux capability.");
+    if ((host.Binds != null && (!Array.isArray(host.Binds) || host.Binds.length !== 0)) || !Array.isArray(inspected.Mounts) || inspected.Mounts.some((mount) => !isRecord(mount) || mount.Type !== "tmpfs" || mount.Destination !== "/tmp")) unavailable("Docker exposed an unexpected mount.");
+    const tmpfs = isRecord(host.Tmpfs) ? host.Tmpfs : undefined;
     const tmpSetting = tmpfs?.["/tmp"];
-    if (typeof tmpSetting !== "string" || ![`size=${limits.tempBytes}`, "noexec", "nosuid", "nodev", `uid=${workloadUser}`, `gid=${workloadUser}`].every((control) => tmpSetting.includes(control))) unavailable("Docker did not apply the bounded temporary filesystem.");
+    const expectedTmpfs = new Set(["rw", "noexec", "nosuid", "nodev", `size=${limits.tempBytes}`, "mode=700", `uid=${workloadUser}`, `gid=${workloadUser}`]);
+    const tmpfsControls = typeof tmpSetting === "string" ? tmpSetting.split(",") : [];
+    if (tmpfsControls.length !== expectedTmpfs.size || new Set(tmpfsControls).size !== expectedTmpfs.size || tmpfsControls.some((control) => !expectedTmpfs.has(control))) unavailable("Docker did not apply the bounded temporary filesystem.");
     const env = config.Env;
     const allowedEnvironment = new Set(["HOME=/tmp", "NODE_NO_WARNINGS=1", "NODE_VERSION=24.19.0", "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "YARN_VERSION=1.22.22"]);
     if (!Array.isArray(env) || !env.includes("HOME=/tmp") || !env.includes("NODE_NO_WARNINGS=1") || env.some((entry) => typeof entry !== "string" || !allowedEnvironment.has(entry))) unavailable("Docker exposed an unexpected runner environment.");
     const ulimits = host.Ulimits;
     if (!Array.isArray(ulimits) || ulimits.length !== 1 || !isNoFileLimit(ulimits[0], limits.openFiles)) unavailable("Docker did not apply the open-file limit.");
     const securityOptions = host.SecurityOpt;
-    const options = Array.isArray(securityOptions) ? securityOptions : [];
+    const options = isStringArray(securityOptions) ? securityOptions : unavailable("Docker did not expose valid security options.");
     if (!options.includes("no-new-privileges=true") || !options.includes(`seccomp=${runnerSeccompProfile}`)) {
       throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker did not apply the required custom seccomp policy.");
     }
     if (this.isolationPolicy.kind === "apparmor" && (!options.includes(`apparmor=${this.isolationPolicy.profile}`) || inspected.AppArmorProfile !== this.isolationPolicy.profile)) {
       throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker did not apply the required AppArmor profile.");
     }
-    if (this.isolationPolicy.kind === "selinux" && (!options.includes(this.isolationPolicy.label) || typeof inspected.ProcessLabel !== "string" || inspected.ProcessLabel.length === 0)) {
-      throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker did not apply the required SELinux label.");
-    }
     if (config?.User !== `${workloadUser}:${workloadUser}` || config.WorkingDir !== "/tmp" || config.Image !== this.image) throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker did not apply the generation-specific non-root identity.");
-    if (this.isolationPolicy.kind === "virtual-machine") {
+    if (this.isolationPolicy.kind === "local-docker-test-only") {
       const operatingSystem = await this.dockerOperatingSystem();
       if (operatingSystem !== this.isolationPolicy.operatingSystem || host.UsernsMode === "host") {
-        throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker Desktop did not provide the approved VM and container user boundary.");
+        throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker Desktop did not provide the bounded local test container boundary.");
       }
       return;
     }
-    const state = inspected.State as Record<string, unknown> | undefined;
+    const state = isRecord(inspected.State) ? inspected.State : undefined;
     const pid = state?.Pid;
     if (typeof pid !== "number" || !Number.isSafeInteger(pid) || pid <= 0) throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker did not expose a running container PID for user-namespace verification.");
     let uidMap: string;
-    try { uidMap = readFileSync(`/proc/${pid}/uid_map`, "utf8"); } catch { throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Host cannot verify the container user namespace."); }
-    if (/^\s*0\s+0\s+/u.test(uidMap)) throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker launched the runner without a remapped user namespace.");
+    let status: string;
+    try {
+      uidMap = readFileSync(`/proc/${pid}/uid_map`, "utf8");
+      status = readFileSync(`/proc/${pid}/status`, "utf8");
+    } catch { throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Host cannot verify the effective container security state."); }
+    if (!/^\s*0\s+[1-9][0-9]*\s+[1-9][0-9]*\s*$/mu.test(uidMap)) throw new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker launched the runner without a remapped user namespace.");
+    const proc = new Map<string, string>();
+    for (const line of status.split("\n")) {
+      const match = /^(CapEff|NoNewPrivs|Seccomp):\s*(\S+)\s*$/u.exec(line);
+      if (match) proc.set(match[1]!, match[2]!);
+    }
+    if (!/^0+$/u.test(proc.get("CapEff") ?? "") || proc.get("NoNewPrivs") !== "1" || proc.get("Seccomp") !== "2") unavailable("Docker did not apply the effective capability, no-new-privileges, and seccomp controls.");
+  }
+
+  private async observedPolicyViolation(containerName: string): Promise<boolean> {
+    const inspected = await this.dockerJson(["inspect", containerName]);
+    if (!Array.isArray(inspected) || !isRecord(inspected[0]) || !isRecord(inspected[0].State)) return false;
+    // SCMP_ACT_KILL_PROCESS makes a forbidden syscall terminate the workload with SIGSYS.
+    return inspected[0].State.ExitCode === 128 + 31;
+  }
+
+  private async retryTerminalQuarantine(state: GenerationState): Promise<boolean> {
+    const quarantine = state.terminalQuarantine;
+    if (!quarantine) return false;
+    const durable = quarantine.durable ??= Promise.resolve().then(() => this.quarantineSink.quarantine(quarantine.identity, quarantine.reason));
+    const result = await Promise.allSettled([durable]);
+    if (result[0]!.status === "fulfilled") return false;
+    if (quarantine.durable === durable) delete quarantine.durable;
+    return true;
+  }
+
+  private async quarantineGeneration(state: GenerationState, identity: RunnerGenerationIdentity, reason: RunnerTerminalQuarantineReason, currentContainer: string): Promise<boolean> {
+    this.publishTerminalQuarantine(state, identity, reason, currentContainer);
+    const [durableFailed, containment] = await Promise.all([
+      this.retryTerminalQuarantine(state),
+      Promise.allSettled([...state.containers].filter((name) => name !== currentContainer).map((name) => this.kill(name)))
+    ]);
+    return durableFailed || containment.some((result) => result.status === "rejected");
+  }
+
+  private publishTerminalQuarantine(state: GenerationState, identity: RunnerGenerationIdentity, reason: RunnerTerminalQuarantineReason, currentContainer: string): void {
+    state.quarantined = true;
+    state.accepting = false;
+    state.terminalQuarantine ??= {
+      identity: {
+        applicationId: identity.applicationId,
+        environment: identity.environment,
+        appId: identity.appId,
+        generationId: identity.generationId
+      },
+      reason
+    };
+    for (const { containerName, cancel } of state.invocations.values()) if (containerName !== currentContainer) cancel();
   }
 
   private async inspectRunningContainer(containerName: string): Promise<Record<string, unknown>> {
@@ -502,29 +676,11 @@ export class DockerHotApplicationSandboxSupervisor {
 
   private async reconcileStartupContainers(): Promise<number> {
     const output = await this.dockerOutput(["ps", "-aq", "--filter", "label=k-nex.runner=hot-application-v1"]);
-    let terminated = 0;
-    for (const containerName of output.split(/\s+/u).filter(Boolean)) {
-      let labels: Record<string, unknown> | undefined;
-      try {
-        const inspected = await this.dockerJson(["inspect", containerName]) as unknown[];
-        labels = (inspected[0] as { Config?: { Labels?: Record<string, unknown> } } | undefined)?.Config?.Labels;
-      } catch {
-        continue;
-      }
-      const runnerIdentity = {
-        applicationId: labels?.["k-nex.application"],
-        environment: labels?.["k-nex.environment"],
-        appId: labels?.["k-nex.app"],
-        generationId: labels?.["k-nex.generation"]
-      };
-      if (labels?.["k-nex.runner"] !== "hot-application-v1" || !Object.values(runnerIdentity).every((value) => typeof value === "string")) continue;
-      try { validateIdentity(runnerIdentity as RunnerGenerationIdentity); } catch { continue; }
-      if (!await this.authority.active(runnerIdentity as RunnerGenerationIdentity)) {
-        await this.kill(containerName);
-        terminated += 1;
-      }
-    }
-    return terminated;
+    const containers = output.split(/\s+/u).filter(Boolean);
+    const cleanup = await Promise.allSettled(containers.map((containerName) => this.kill(containerName)));
+    const failed = cleanup.find((result) => result.status === "rejected");
+    if (failed?.status === "rejected") throw failed.reason;
+    return containers.length;
   }
 
   private async dockerOperatingSystem(): Promise<string> {
@@ -538,20 +694,31 @@ export class DockerHotApplicationSandboxSupervisor {
 
   private dockerOutput(args: readonly string[]): Promise<string> {
     return new Promise((resolve, reject) => {
-      const child = spawn("docker", [...args], { stdio: ["ignore", "pipe", "ignore"] });
+      const child = spawn("docker", [...args], { stdio: ["ignore", "pipe", "pipe"] });
       const output: Buffer[] = [];
+      const stderr: Buffer[] = [];
       child.stdout.on("data", (chunk: Buffer) => output.push(chunk));
-      child.once("error", reject);
-      child.once("close", (code) => code === 0 ? resolve(Buffer.concat(output).toString("utf8")) : reject(new Error("docker command failed")));
+      child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+      child.once("error", () => reject(new DockerCommandError(args, null, Buffer.concat(stderr).toString("utf8"))));
+      child.once("close", (code) => code === 0 ? resolve(Buffer.concat(output).toString("utf8")) : reject(new DockerCommandError(args, code, Buffer.concat(stderr).toString("utf8"))));
     });
   }
 
   private async kill(containerName: string): Promise<void> {
-    try { await this.dockerOutput(["kill", containerName]); } catch { /* Docker may have already stopped --rm container. */ }
+    try { await this.dockerOutput(["kill", containerName]); }
+    catch (error) {
+      if (isDockerNotFound(error)) return;
+      if (!isDockerNotRunning(error)) throw error;
+    }
     for (let attempt = 0; attempt < 50; attempt += 1) {
-      try { await this.dockerOutput(["rm", "-f", containerName]); return; } catch {
+      try { await this.dockerOutput(["rm", "-f", containerName]); return; }
+      catch (error) {
+        if (isDockerNotFound(error)) return;
         try { await this.dockerJson(["inspect", containerName]); }
-        catch { return; }
+        catch (inspectError) {
+          if (isDockerNotFound(inspectError)) return;
+          throw inspectError;
+        }
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
     }
@@ -560,19 +727,15 @@ export class DockerHotApplicationSandboxSupervisor {
 }
 
 export { runnerServiceSource } from "./service-source.js";
+export { createDockerRunnerIsolationProfile, dockerRunnerHardLimits, type DockerRunnerIsolationProfile } from "./isolation-profile.js";
 export {
-  defaultDockerIsolationPolicy,
   dockerAppArmorPolicy,
   dockerIsolationPolicyFromEnvironment,
-  dockerSelinuxPolicy,
+  localDockerTestIsolationPolicy,
   runnerAppArmorProfile,
   runnerAppArmorProfileDigest,
   runnerAppArmorProfileName,
   runnerSeccompProfile,
   runnerSeccompProfileDigest,
-  runnerSelinuxLabel,
-  runnerSelinuxPolicyDigest,
-  runnerVirtualMachineBoundary,
-  runnerVirtualMachineBoundaryDigest,
   type DockerIsolationPolicy
 } from "./policy.js";

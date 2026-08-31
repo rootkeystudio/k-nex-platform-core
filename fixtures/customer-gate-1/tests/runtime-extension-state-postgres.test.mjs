@@ -25,16 +25,6 @@ const publisherKeys = generateKeyPairSync("ed25519");
 const catalogKeys = generateKeyPairSync("ed25519");
 const publisher = { identity: "customer-gate-1-hot-app-publisher", publicKey: publisherKeys.publicKey.export({ type: "spki", format: "pem" }).toString() };
 const catalogSigner = { identity: "customer-gate-1-hot-app-catalog", publicKey: catalogKeys.publicKey.export({ type: "spki", format: "pem" }).toString() };
-const runnerIsolationProfile = {
-  schemaVersion: 1, scope: "production", profile: "os-container-per-generation-v1", isolation: "os-container-per-generation", workloadIdentity: "unique-non-root",
-  namespaces: { pid: "separate", mount: "separate", user: "separate", network: "separate" },
-  filesystem: { root: "read-only", code: "read-only", temporaryStorage: "bounded-tmpfs", hostMounts: "none" },
-  privileges: { linuxCapabilities: "dropped", noNewPrivileges: true, dockerSocket: "none", databaseCredential: "none", hostSecrets: "none" },
-  policy: { syscallProfile: digest("a"), macProfile: digest("b"), rawEgress: "denied", inboundListener: "denied", hostNetworkAdapter: "allowlisted-proxy-only" },
-  limits: { cpuMilliCores: 500, memoryMiB: 128, processes: 16, openFiles: 64, tempBytes: 1_048_576 },
-  rpc: { transport: "structured-host-rpc-only", schemaValidated: true, shortLivedGenerationActorIdentity: true }
-};
-
 function boot(connectionString) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ["tests/boot-once.mjs"], {
@@ -386,34 +376,93 @@ test("preserves accepted artifacts while reconciling fresh revocation decisions 
   }
 });
 
-test("persists terminal runner quarantine, audit, and outbox evidence across a runner restart", { timeout: 180_000 }, async () => {
+test("persists exact active-generation POLICY_VIOLATION runner quarantine across a runner restart", { timeout: 180_000 }, async () => {
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("runtime_runner_quarantine").withStartupTimeout(120_000).start();
   const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
   const now = new Date("2026-08-29T09:00:00.000Z");
   const clock = { now: () => now };
   const store = new PostgresRuntimeExtensionStore(pool, clock, digest("7"));
+  const competingStore = new PostgresRuntimeExtensionStore(pool, clock, digest("7"));
   try {
     await boot(container.getConnectionUri());
     const change = stateRequest("app.sales-runner-quarantine", "runner-quarantine");
     const warming = await prepareStateGeneration(store, change, digest("a"), "runner-quarantine-worker", now);
     const activated = await store.activateGeneration(warming.operationId, warming.leaseToken);
     const active = (await store.inventory(change.applicationId, change.environment)).extensions.hotApplications[change.extension.id].activeGeneration;
+    const siblingChange = stateRequest("app.sales-runner-sibling", "runner-quarantine-sibling");
+    const siblingWarming = await prepareStateGeneration(store, siblingChange, digest("b"), "runner-quarantine-sibling-worker", now);
+    const siblingActivated = await store.activateGeneration(siblingWarming.operationId, siblingWarming.leaseToken);
+    const sibling = (await store.inventory(siblingChange.applicationId, siblingChange.environment)).extensions.hotApplications[siblingChange.extension.id].activeGeneration;
+    const adapter = new RuntimeStoreRunnerQuarantineAdapter(store);
+    const identity = { applicationId: change.applicationId, environment: change.environment, appId: change.extension.id, generationId: active.generationId };
+    const leaseId = await store.acquireGenerationLease({ applicationId: change.applicationId, environment: change.environment, extension: change.extension, generationId: active.generationId, holder: "runner-quarantine-proof", ttlMs: 30_000 });
+    assert.equal(await adapter.admit(identity, leaseId), true);
+    const supervisor = new DockerHotApplicationSandboxSupervisor(
+      {}, adapter, { active: (runnerIdentity) => adapter.active(runnerIdentity), admit: (runnerIdentity, drainLeaseId) => adapter.admit(runnerIdentity, drainLeaseId) },
+      { async started() {}, async stopped() {} }, { async load() { throw new Error("quarantine containment proof never loads an artifact"); } },
+      dockerIsolationPolicyFromEnvironment("local-docker-test-only")
+    );
+    const supervisorState = supervisor.state(identity);
+    supervisorState.active = 2;
+    supervisorState.containers.add("runner-quarantine-current");
+    supervisorState.containers.add("runner-quarantine-sibling");
+    const containmentAttempts = [];
+    supervisor.kill = async (containerName) => {
+      containmentAttempts.push(containerName);
+      if (containerName === "runner-quarantine-sibling") throw new Error("sibling containment failed");
+    };
     const request = {
       applicationId: change.applicationId,
       environment: change.environment,
       appId: change.extension.id,
       generationId: active.generationId,
       expectedRevision: activated.revisionAfter,
-      reason: "INVOCATION_TIMEOUT"
+      reason: "POLICY_VIOLATION"
     };
-    const receipt = await store.quarantineRunnerGeneration(request);
-    assert.equal(receipt.reason, "INVOCATION_TIMEOUT");
-    assert.deepEqual(await store.quarantineRunnerGeneration(request), receipt);
-    assert.equal((await store.inventory(change.applicationId, change.environment)).extensions.hotApplications[change.extension.id].disposition, "quarantined");
+    assert.equal(supervisor.health(identity).activeInvocations, 2, "proof models two concurrent invocation containers");
+    assert.equal(
+      await supervisor.quarantineGeneration(supervisorState, identity, "POLICY_VIOLATION", "runner-quarantine-current"),
+      true,
+      "containment failure must remain visible without replacing the causal runner error"
+    );
+    assert.deepEqual(containmentAttempts, ["runner-quarantine-sibling"]);
+    const race = await Promise.allSettled([
+      adapter.quarantine(identity, "POLICY_VIOLATION"),
+      competingStore.quarantineRunnerGeneration({ ...request, expectedRevision: request.expectedRevision - 1 }),
+      competingStore.quarantineRunnerGeneration({ ...request, generationId: "app-sales-runner-quarantine-generation-stale" })
+    ]);
+    assert.deepEqual(race.map(({ status }) => status).sort(), ["fulfilled", "rejected", "rejected"], race.map((result) => result.status === "rejected" ? `${result.reason.code ?? result.reason.name}:${result.reason.message}` : "fulfilled").join(" | "));
+    const receipt = (await pool.query("select receipt_json from runtime_extension_runner_quarantine_receipts where application_id=$1 and extension_id=$2", [change.applicationId, change.extension.id])).rows[0].receipt_json;
+    assert.deepEqual(await store.quarantineRunnerGeneration(request), receipt, "the exact runner quarantine request must replay its original receipt");
+    const beforeReplay = await pool.query("select (select count(*)::int from runtime_extension_runner_quarantine_receipts) receipts, (select count(*)::int from runtime_extension_audit) audits, (select count(*)::int from runtime_extension_outbox where event_json->>'receiptId'=$1) outbox", [receipt.receiptId]);
     const restartedAdapter = new RuntimeStoreRunnerQuarantineAdapter(new PostgresRuntimeExtensionStore(pool, clock, digest("7")));
-    assert.equal(await restartedAdapter.active({ applicationId: change.applicationId, environment: change.environment, appId: change.extension.id, generationId: active.generationId }), false);
-    assert.deepEqual((await pool.query("select reason, count(*)::int count from runtime_extension_runner_quarantine_receipts group by reason")).rows, [{ reason: "INVOCATION_TIMEOUT", count: 1 }]);
-    assert.deepEqual((await pool.query("select count(*)::int audits, (select count(*)::int from runtime_extension_outbox where event_json->>'operationPhase'='failed' and event_json->>'lifecycleState'='quarantined') outbox from runtime_extension_audit where event_json->>'operationPhase'='failed' and event_json->>'lifecycleState'='quarantined'")).rows, [{ audits: 1, outbox: 1 }]);
+    assert.equal(receipt.reason, "POLICY_VIOLATION");
+    assert.equal(receipt.generationId, active.generationId);
+    assert.equal(receipt.revisionBefore, activated.revisionAfter);
+    assert.equal(receipt.revisionAfter, activated.revisionAfter + 1);
+    assert.equal(await restartedAdapter.active(identity), false);
+    assert.equal(await restartedAdapter.admit(identity, leaseId), false, "restart must not readmit the cleared lease");
+    await restartedAdapter.quarantine(identity, "POLICY_VIOLATION");
+    await assert.rejects(competingStore.quarantineRunnerGeneration({ ...request, reason: "CONTAINER_FAILED", expectedRevision: receipt.revisionBefore }), { code: "REVISION_CONFLICT" });
+    await assert.rejects(competingStore.quarantineRunnerGeneration({ ...request, generationId: "app-sales-runner-quarantine-generation-stale", expectedRevision: receipt.revisionAfter }), { code: "GENERATION_MISMATCH" });
+    assert.deepEqual((await pool.query("select (select count(*)::int from runtime_extension_runner_quarantine_receipts) receipts, (select count(*)::int from runtime_extension_audit) audits, (select count(*)::int from runtime_extension_outbox where event_json->>'receiptId'=$1) outbox", [receipt.receiptId])).rows, beforeReplay.rows, "replay and stale runner races must be inert");
+    const inventory = await store.inventory(change.applicationId, change.environment);
+    assert.deepEqual(inventory.extensions.hotApplications[change.extension.id], {
+      disposition: "quarantined", revision: receipt.revisionAfter, lastOperationId: receipt.quarantineTransitionId,
+      lastReceiptId: receipt.receiptId, stateDigest: inventory.extensions.hotApplications[change.extension.id].stateDigest,
+      retainedGeneration: active
+    });
+    assert.equal(await store.liveGenerationLeaseCount(change.applicationId, change.environment, change.extension, active.generationId), 0);
+    assert.deepEqual((await pool.query("select state from runtime_extension_generations where application_id=$1 and extension_id=$2 and generation_id=$3", [change.applicationId, change.extension.id, active.generationId])).rows, [{ state: "retired" }]);
+    assert.deepEqual((await pool.query("select reason, expected_revision, revision, receipt_json->>'generationId' generation_id from runtime_extension_runner_quarantine_receipts")).rows, [{ reason: "POLICY_VIOLATION", expected_revision: activated.revisionAfter, revision: receipt.revisionAfter, generation_id: active.generationId }]);
+    assert.deepEqual((await pool.query("select count(*)::int audits, (select count(*)::int from runtime_extension_outbox where event_json->>'receiptId'=$1 and event_json->>'operationPhase'='failed' and event_json->>'lifecycleState'='quarantined') outbox from runtime_extension_audit where event_json->>'receiptId'=$1 and event_json->>'operationPhase'='failed' and event_json->>'lifecycleState'='quarantined'", [receipt.receiptId])).rows, [{ audits: 1, outbox: 1 }]);
+    const siblingAdapter = new RuntimeStoreRunnerQuarantineAdapter(store);
+    const siblingIdentity = { applicationId: siblingChange.applicationId, environment: siblingChange.environment, appId: siblingChange.extension.id, generationId: sibling.generationId };
+    const siblingLease = await store.acquireGenerationLease({ applicationId: siblingChange.applicationId, environment: siblingChange.environment, extension: siblingChange.extension, generationId: sibling.generationId, holder: "runner-quarantine-sibling-proof", ttlMs: 30_000 });
+    assert.equal(await siblingAdapter.active(siblingIdentity), true);
+    assert.equal(await siblingAdapter.admit(siblingIdentity, siblingLease), true);
+    assert.equal((await store.inventory(siblingChange.applicationId, siblingChange.environment)).extensions.hotApplications[siblingChange.extension.id].activeGeneration.generationId, siblingActivated.generationId);
+    console.log(`P9_RUNNER_QUARANTINE_EVIDENCE=${JSON.stringify({ scenarios: ["SCN-07"], reason: receipt.reason, generationId: receipt.generationId, revision: [receipt.revisionBefore, receipt.revisionAfter], leaseCleared: true, retired: true, restartDenied: true, replayIdempotent: true, staleRacesInert: true, siblingContainmentFailed: true, siblingActive: true })}`);
   } finally {
     await pool.end();
     await container.stop();
@@ -612,7 +661,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     }, artifacts.runnerSource(), dockerIsolationPolicyFromEnvironment(process.env.K_NEX_RUNNER_ISOLATION_POLICY));
     const trafficRuntime = new AuthoritativeHotApplicationRuntime(storeB, artifacts, capabilityTokens, runner, {
       applicationId: "customer-alpha", environment: "production", appId: "app.sales-live"
-    }, runnerIsolationProfile, "runtime-traffic-gateway");
+    }, "runtime-traffic-gateway");
     let trafficSequence = 0;
     const activeTrafficGeneration = async () => {
       const inventory = await storeB.inventory("customer-alpha", "production");

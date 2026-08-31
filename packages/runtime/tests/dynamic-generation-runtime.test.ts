@@ -50,8 +50,8 @@ const productionProfile = {
   namespaces: { pid: "separate", mount: "separate", user: "separate", network: "separate" },
   filesystem: { root: "read-only", code: "read-only", temporaryStorage: "bounded-tmpfs", hostMounts: "none" },
   privileges: { linuxCapabilities: "dropped", noNewPrivileges: true, dockerSocket: "none", databaseCredential: "none", hostSecrets: "none" },
-  policy: { syscallProfile: digest("1"), macProfile: digest("2"), rawEgress: "denied", inboundListener: "denied", hostNetworkAdapter: "allowlisted-proxy-only" },
-  limits: { cpuMilliCores: 300, memoryMiB: 64, processes: 3, openFiles: 32, tempBytes: 65_536 },
+  policy: { syscallProfile: "sha256:9e1b305927408a95032982bd0c5713e372cd2a3c205febc954df62e8a0de3ef8", macProfile: "sha256:258d1e7e322b0dd4d9394ddc97e356e191076a89609cd07395fe5ac9656a1814", rawEgress: "denied", inboundListener: "denied", hostNetworkAdapter: "allowlisted-proxy-only" },
+  limits: { cpuMilliCores: 2_000, memoryMiB: 512, processes: 256, openFiles: 4_096, tempBytes: 268_435_456 },
   rpc: { transport: "structured-host-rpc-only", schemaValidated: true, shortLivedGenerationActorIdentity: true }
 } as const;
 const manifestCapabilities = plan.plan.requiredCapabilities;
@@ -65,9 +65,9 @@ function inventory(active: ReturnType<typeof activeGeneration>) {
 }
 
 function trafficRuntime(store: any, runner: any, tokens: any, productionArtifact: DurableDynamicArtifact) {
-  return new AuthoritativeHotApplicationRuntime(store, { resolve: vi.fn(async ({ generationId }: { generationId: string }) => generationId === productionArtifact.authority.generationId ? productionArtifact : undefined) }, tokens, runner, {
+  return new AuthoritativeHotApplicationRuntime(store, { resolve: vi.fn(async ({ generationId }: { generationId: string }) => generationId === productionArtifact.authority.generationId ? productionArtifact : undefined) }, tokens, { isolationProfile: productionProfile, ...runner }, {
     applicationId: authority.applicationId, environment: authority.environment, appId: authority.extensionId
-  }, productionProfile, "runtime-traffic-gateway");
+  }, "runtime-traffic-gateway");
 }
 
 describe("durable dynamic generation adapters", () => {
@@ -121,6 +121,7 @@ describe("durable dynamic generation adapters", () => {
     const productionArtifact: DurableDynamicArtifact = {
       ...artifact
     };
+    const enforcedProfile = { ...productionProfile, limits: { cpuMilliCores: 300, memoryMiB: 64, processes: 3, openFiles: 32, tempBytes: 65_536 } } as const;
     const leases: string[] = [];
     const store = {
       inventory: vi.fn(async () => inventory(active)),
@@ -131,7 +132,7 @@ describe("durable dynamic generation adapters", () => {
       releaseGenerationLease: vi.fn(async (leaseId: string) => { leases.push(leaseId); })
     };
     const tokens = { issue: vi.fn(() => "capability-token") };
-    const runner = { invoke: vi.fn(async (invocation) => ({ generationId: invocation.generationId, artifactDigest: invocation.artifactDigest })) };
+    const runner = { isolationProfile: enforcedProfile, invoke: vi.fn(async (invocation) => ({ generationId: invocation.generationId, artifactDigest: invocation.artifactDigest })) };
     const runtime = trafficRuntime(store, runner, tokens, productionArtifact);
 
     await expect(runtime.invoke({
@@ -176,10 +177,10 @@ describe("durable dynamic generation adapters", () => {
     };
     const artifacts = { resolve: vi.fn(async ({ generationId }: { generationId: string }) => generationId === authority.generationId
       ? artifact : nextArtifact) };
-    const runner = { invoke: vi.fn(async (input) => input.generationId) };
+    const runner = { isolationProfile: productionProfile, invoke: vi.fn(async (input) => input.generationId) };
     const runtime = new AuthoritativeHotApplicationRuntime(store as any, artifacts, { issue: vi.fn(() => "capability-token") } as any, runner, {
       applicationId: authority.applicationId, environment: authority.environment, appId: authority.extensionId
-    }, productionProfile, "runtime-traffic-gateway");
+    }, "runtime-traffic-gateway");
 
     await expect(runtime.invoke({ input: {}, actor: { principalId: "user:one", effectiveActorId: "user:one" }, correlationId: "traffic-correlation-3", expectedGeneration: { generationId: authority.generationId, artifactDigest: authority.artifactDigest } })).rejects.toThrow("changed after UI admission");
     expect(store.acquireGenerationLease).toHaveBeenCalledOnce();

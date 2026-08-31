@@ -23,7 +23,7 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
       CONSTRAINT "runtime_extension_runner_quarantine_class_check" CHECK ("delivery_class"='hot-application'),
       CONSTRAINT "runtime_extension_runner_quarantine_revision_check" CHECK ("expected_revision" BETWEEN 0 AND 1000000000 AND "revision" BETWEEN 1 AND 1000000000 AND "revision" = "expected_revision" + 1),
       CONSTRAINT "runtime_extension_runner_quarantine_inventory_check" CHECK ("inventory_revision" BETWEEN 1 AND 1000000000),
-      CONSTRAINT "runtime_extension_runner_quarantine_reason_check" CHECK ("reason" IN ('INVOCATION_TIMEOUT','OUTPUT_BUDGET_EXCEEDED','PROTOCOL_VIOLATION','CONTAINER_FAILED','POLICY_UNAVAILABLE')),
+      CONSTRAINT "runtime_extension_runner_quarantine_reason_check" CHECK ("reason" IN ('INVOCATION_TIMEOUT','OUTPUT_BUDGET_EXCEEDED','PROTOCOL_VIOLATION','CONTAINER_FAILED','POLICY_VIOLATION')),
       CONSTRAINT "runtime_extension_runner_quarantine_digest_check" CHECK ("quarantine_digest" ~ '^sha256:[0-9a-f]{64}$'),
       CONSTRAINT "runtime_extension_runner_quarantine_json_check" CHECK (jsonb_typeof("receipt_json")='object' AND jsonb_typeof("event_json")='object')
     );

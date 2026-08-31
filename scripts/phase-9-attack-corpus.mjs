@@ -43,6 +43,7 @@ const proofs = [
     "verified Remote UI assets copies stored bytes and rejects corrupted reader bytes before serving"
   ]),
   vitestProof("runner-isolation", "@k-nex/extension-runner", "tests/docker-sandbox.test.ts", [
+    "production extension runner causally quarantines once after an acknowledged real forbidden syscall",
     "production extension runner refuses to send source when Docker inspection omits any required effective control",
     "production extension runner runs app generations with container authority and only declared host capabilities",
     "production extension runner waits for fire-and-forget and concurrent capability calls before returning",
@@ -82,6 +83,7 @@ const proofs = [
     "proves revisioned, quota-limited, schema-validated, backed-up, cross-app isolated storage"
   ]),
   nodeProof("runtime-extension-state", ["tests/runtime-extension-state-postgres.test.mjs", "tests/remote-ui-assets-postgres.test.mjs"], [
+    "persists exact active-generation POLICY_VIOLATION runner quarantine across a runner restart",
     "rejects SCN-12 activation races and SCN-13 stale operation replays in PostgreSQL",
     "proves PostgreSQL-backed Hot Application install, update, restore, rollback, and execution through the durable runtime",
     "PostgreSQL Remote UI reads are generation-linearized, restart-safe, and fail closed"
@@ -209,7 +211,7 @@ const scenarios = [
   { id: "SCN-04", attack: "install script or runtime package-manager invocation", expected: "reject lifecycle/package-manager surface", evidence: [exactEvidence("bundler-rejections", "extension bundler rejects module access and package lifecycle representation without false comment matches")] },
   { id: "SCN-05", attack: "host dynamic import of downloaded code", expected: "reject host execution", evidence: [exactEvidence("bundler-rejections", "extension bundler binds runner code to the verified owner, generation, artifact, and declared entrypoint"), exactEvidence("runner-isolation", "production extension runner runs app generations with container authority and only declared host capabilities")] },
   { id: "SCN-06", attack: "same-origin credentialed remote UI fetch/storage/network", expected: "deny browser authority", evidence: [exactEvidence("remote-ui-browser", "P9_REMOTE_UI_BROWSER_PASS")] },
-  { id: "SCN-07", attack: "forbidden builtin/import/capability", expected: "reject undeclared capability", evidence: [exactEvidence("bundler-rejections", "extension bundler rejects module access and package lifecycle representation without false comment matches"), exactEvidence("runner-isolation", "production extension runner runs app generations with container authority and only declared host capabilities")] },
+  { id: "SCN-07", attack: "forbidden builtin/import/capability", expected: "reject undeclared capability", evidence: [exactEvidence("bundler-rejections", "extension bundler rejects module access and package lifecycle representation without false comment matches"), exactEvidence("runner-isolation", "production extension runner runs app generations with container authority and only declared host capabilities"), exactEvidence("runner-isolation", "production extension runner causally quarantines once after an acknowledged real forbidden syscall"), exactEvidence("runtime-extension-state", "persists exact active-generation POLICY_VIOLATION runner quarantine across a runner restart", "P9_RUNNER_QUARANTINE_EVIDENCE")] },
   { id: "SCN-08", attack: "host/cross-app DB/Docker/secret/network/filesystem escape", expected: "contain the application generation", evidence: [exactEvidence("runner-isolation", "production extension runner refuses to send source when Docker inspection omits any required effective control"), exactEvidence("runner-isolation", "production extension runner runs app generations with container authority and only declared host capabilities")] },
   { id: "SCN-09", attack: "cross-app storage/token/revision reuse", expected: "isolate app identity", evidence: [exactEvidence("app-storage", "proves revisioned, quota-limited, schema-validated, backed-up, cross-app isolated storage"), exactEvidence("runner-isolation", "production extension runner rejects mixed token identity before starting a container and keeps app/generation responses isolated")] },
   { id: "SCN-10", attack: "staged artifact served before verification", expected: "deny unverified asset", evidence: [exactEvidence("runtime-extension-state", "PostgreSQL Remote UI reads are generation-linearized, restart-safe, and fail closed", "P9_REMOTE_UI_POSTGRES_EVIDENCE", "staged"), exactEvidence("remote-ui-browser", "P9_REMOTE_UI_BROWSER_PASS")] },

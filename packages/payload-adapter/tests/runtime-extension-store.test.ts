@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 import { canonicalJson } from "@k-nex/contracts";
 import { describe, expect, it, vi } from "vitest";
@@ -9,6 +10,29 @@ const now = new Date("2026-08-31T12:00:00.000Z");
 const digest = (character: string) => `sha256:${character.repeat(64)}`;
 const owner = { applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application" as const, extensionId: "app.sales-live" };
 const authority = { ...owner, generationId: "generation-retained", sourceCommit: "a".repeat(40), artifactDigest: digest("a"), manifestDigest: digest("b"), catalogDigest: digest("c"), provenanceDigest: digest("d"), sbomDigest: digest("e") };
+const runnerQuarantineMigration = readFileSync(new URL("../../../fixtures/customer-gate-1/src/migrations/20260829_000018_runner_quarantine.ts", import.meta.url), "utf8");
+
+describe("runner quarantine durable reasons", () => {
+  it("rejects host-only policy availability before database interaction and excludes it from the migration constraint", async () => {
+    const query = vi.fn();
+    const pool: RuntimeExtensionPool = { connect: vi.fn(), query };
+    const store = new PostgresRuntimeExtensionStore(pool, { now: () => now }, digest("9"));
+
+    await expect(store.quarantineRunnerGeneration({
+      applicationId: "customer-alpha",
+      environment: "production",
+      appId: "app.sales-live",
+      generationId: "generation-live",
+      expectedRevision: 1,
+      reason: "POLICY_UNAVAILABLE" as never
+    })).rejects.toMatchObject({ code: "STATE_INVALID" });
+
+    expect(pool.connect).not.toHaveBeenCalled();
+    expect(query).not.toHaveBeenCalled();
+    expect(runnerQuarantineMigration).toContain("POLICY_VIOLATION");
+    expect(runnerQuarantineMigration).not.toContain("POLICY_UNAVAILABLE");
+  });
+});
 
 function stage(overrides: Record<string, unknown> = {}) {
   return {
