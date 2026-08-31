@@ -39,6 +39,7 @@ const proofs = [
   vitestProof("runner-isolation", "@k-nex/extension-runner", "tests/docker-sandbox.test.ts", [
     "production extension runner refuses to send source when Docker inspection omits any required effective control",
     "production extension runner runs app generations with container authority and only declared host capabilities",
+    "production extension runner waits for fire-and-forget and concurrent capability calls before returning",
     "production extension runner rejects mixed token identity before starting a container and keeps app/generation responses isolated",
     "production extension runner quarantines only a timed-out generation and drains old work without affecting a sibling generation",
     "production extension runner contains an out-of-memory generation failure"

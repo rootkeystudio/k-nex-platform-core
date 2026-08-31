@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { PostgresAppStorage } from "../src/app-storage.js";
+import { createAppStorageCapabilityHandlers, PostgresAppStorage } from "../src/app-storage.js";
 import type { RuntimeExtensionPool } from "../src/runtime-extension-store.js";
 
 function deferred() {
@@ -10,6 +10,7 @@ function deferred() {
 }
 
 const identity = ["customer-alpha", "production", "app.sales-assistant"] as const;
+const appNamespace = { applicationId: identity[0], environment: identity[1], appId: identity[2], schemaId: "sales.preferences" };
 
 describe("PostgresAppStorage.exportBackup", () => {
   it("does not produce a torn recoverable backup across a barrier-controlled concurrent mutation", async () => {
@@ -88,6 +89,120 @@ describe("PostgresAppStorage.exportBackup", () => {
       expect.stringContaining("runtime_extension_storage_namespaces"),
       "rollback"
     ]);
+    expect(released).toBe(true);
+  });
+});
+
+describe("PostgresAppStorage cancellation", () => {
+  it("forwards the exact caller signal through every app-storage capability handler", async () => {
+    const received: Record<string, AbortSignal | undefined> = {};
+    const storage = {
+      get: async (_namespace: unknown, _key: unknown, signal: AbortSignal) => { received.get = signal; return undefined; },
+      put: async (_namespace: unknown, _key: unknown, _value: unknown, _revision: unknown, signal: AbortSignal) => { received.put = signal; return {}; },
+      query: async (_namespace: unknown, _prefix: unknown, _limit: unknown, signal: AbortSignal) => { received.query = signal; return []; },
+      delete: async (_namespace: unknown, _key: unknown, _revision: unknown, signal: AbortSignal) => { received.delete = signal; }
+    } as unknown as PostgresAppStorage;
+    const handlers = createAppStorageCapabilityHandlers(storage);
+    const claims = {
+      applicationId: identity[0], environment: identity[1], appId: identity[2],
+      grants: [{ kind: "app-storage", operations: ["get", "put", "query", "delete"], schemaIds: [appNamespace.schemaId] }]
+    } as never;
+    const controller = new AbortController();
+
+    await handlers["app-storage.get"]!.invoke(claims, { schemaId: appNamespace.schemaId, key: "view.primary" }, controller.signal);
+    await handlers["app-storage.put"]!.invoke(claims, { schemaId: appNamespace.schemaId, key: "view.primary", value: { label: "primary" }, expectedRevision: 0 }, controller.signal);
+    await handlers["app-storage.query"]!.invoke(claims, { schemaId: appNamespace.schemaId, prefix: "view", limit: 1 }, controller.signal);
+    await handlers["app-storage.delete"]!.invoke(claims, { schemaId: appNamespace.schemaId, key: "view.primary", expectedRevision: 1 }, controller.signal);
+
+    expect(received).toEqual({ get: controller.signal, put: controller.signal, query: controller.signal, delete: controller.signal });
+  });
+
+  it("runs no SQL when a storage mutation is already aborted", async () => {
+    let connects = 0;
+    let queries = 0;
+    const pool = {
+      connect: async () => { connects += 1; throw new Error("must not connect"); },
+      query: async () => { queries += 1; throw new Error("must not query"); }
+    } as unknown as RuntimeExtensionPool;
+    const storage = new PostgresAppStorage(pool, { validate: (_schemaId, value) => value }, { assertSafe: () => undefined });
+    const controller = new AbortController();
+    const cancellation = new Error("cancelled before storage");
+    controller.abort(cancellation);
+
+    await expect(storage.put(appNamespace, "view.primary", { label: "primary" }, 0, controller.signal)).rejects.toBe(cancellation);
+    expect({ connects, queries }).toEqual({ connects: 0, queries: 0 });
+  });
+
+  it("returns the committed put when cancellation arrives during commit", async () => {
+    const statements: string[] = [];
+    let releases = 0;
+    const controller = new AbortController();
+    const pool = {
+      connect: async () => ({
+        query: async <T extends object>(statement: string) => {
+          statements.push(statement);
+          if (statement === "commit") controller.abort(new Error("cancelled during commit"));
+          if (statement.includes("runtime_extension_storage_namespaces")) {
+            return { rows: [{ schema_version: 1, quota_bytes: 1_024, used_bytes: 0, revision: 1 }] as T[] };
+          }
+          if (statement.includes("runtime_extension_storage_records") && statement.includes("for update")) return { rows: [] as T[] };
+          if (statement.includes("insert into runtime_extension_storage_records")) {
+            return { rows: [{ schema_id: appNamespace.schemaId, storage_key: "view.primary", value_json: { label: "primary" }, value_bytes: 19, revision: 1 }] as T[] };
+          }
+          return { rows: [] as T[] };
+        },
+        release: () => { releases += 1; }
+      }),
+      query: async () => { throw new Error("mutation must use its connected transaction client"); }
+    } as unknown as RuntimeExtensionPool;
+    const storage = new PostgresAppStorage(pool, { validate: (_schemaId, value) => value }, { assertSafe: () => undefined });
+
+    await expect(storage.put(appNamespace, "view.primary", { label: "primary" }, 0, controller.signal)).resolves.toMatchObject({ key: "view.primary", revision: 1 });
+    expect(statements.filter((statement) => statement === "commit")).toHaveLength(1);
+    expect(statements).not.toContain("rollback");
+    expect(releases).toBe(1);
+  });
+
+  it.each(["put", "delete"] as const)("rolls back and releases without subsequent SQL when %s is aborted after its mutating query", async (operation) => {
+    const statements: string[] = [];
+    let released = false;
+    const controller = new AbortController();
+    const cancellation = new Error(`cancelled during ${operation}`);
+    const pool = {
+      connect: async () => ({
+        query: async <T extends object>(statement: string) => {
+          statements.push(statement);
+          if ((operation === "put" && statement.includes("insert into runtime_extension_storage_records")) ||
+            (operation === "delete" && statement.startsWith("delete from runtime_extension_storage_records"))) {
+            controller.abort(cancellation);
+            return { rows: (operation === "put" ? [{ schema_id: appNamespace.schemaId, storage_key: "view.primary", value_json: { label: "primary" }, value_bytes: 19, revision: 1 }] : []) as T[] };
+          }
+          if (statement.includes("runtime_extension_storage_namespaces")) {
+            return { rows: [{ schema_version: 1, quota_bytes: 1_024, used_bytes: 0, revision: 1 }] as T[] };
+          }
+          if (statement.includes("runtime_extension_storage_records") && statement.includes("for update")) {
+            return { rows: (operation === "delete" ? [{ schema_id: appNamespace.schemaId, storage_key: "view.primary", value_json: { label: "primary" }, value_bytes: 19, revision: 1 }] : []) as T[] };
+          }
+          return { rows: [] as T[] };
+        },
+        release: () => { released = true; }
+      }),
+      query: async () => { throw new Error("mutation must use its connected transaction client"); }
+    } as unknown as RuntimeExtensionPool;
+    const storage = new PostgresAppStorage(pool, { validate: (_schemaId, value) => value }, { assertSafe: () => undefined });
+
+    const pending = operation === "put"
+      ? storage.put(appNamespace, "view.primary", { label: "primary" }, 0, controller.signal)
+      : storage.delete(appNamespace, "view.primary", 1, controller.signal);
+    await expect(pending).rejects.toBe(cancellation);
+
+    const mutationIndex = statements.findIndex((statement) => operation === "put"
+      ? statement.includes("insert into runtime_extension_storage_records")
+      : statement.startsWith("delete from runtime_extension_storage_records"));
+    expect(mutationIndex).toBeGreaterThanOrEqual(0);
+    expect(statements.slice(mutationIndex + 1)).toEqual(["rollback"]);
+    expect(statements).not.toContain("commit");
+    expect(statements.some((statement) => statement.startsWith("update runtime_extension_storage_namespaces"))).toBe(false);
     expect(released).toBe(true);
   });
 });

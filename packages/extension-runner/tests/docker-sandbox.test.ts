@@ -3,7 +3,7 @@ import { generateKeyPairSync, sign } from "node:crypto";
 import { promisify } from "node:util";
 
 import { ArtifactVerifier, buildBundle, canonicalJson, CatalogClient, InMemoryCatalogCheckpointStore, sha256, type CatalogEntry, type SignedCatalog, VerifiedArtifactStore } from "@k-nex/extension-bundler";
-import { ExtensionCapabilityGateway, HmacExtensionCapabilityTokens, InMemoryExtensionCapabilitySequenceStoreForTests, type ExtensionCapabilityHandler } from "@k-nex/runtime";
+import { ExtensionCapabilityGateway, HmacExtensionCapabilityTokens, InMemoryExtensionCapabilitySequenceStoreForTests, type ExtensionCapabilityHandler, type ExtensionCapabilitySequenceStore } from "@k-nex/runtime";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { DockerHotApplicationSandboxSupervisor, RunnerInvocationError, dockerIsolationPolicyFromEnvironment, extensionRunnerImage, runnerAppArmorProfileName, runnerSeccompProfile, type RunnerGenerationIdentity, type RunnerInvocationLimits } from "../src/index.js";
@@ -88,8 +88,8 @@ async function inspectContainer(name: string): Promise<Record<string, any>> {
   throw lastError;
 }
 
-function supervisor(observations: Record<string, Record<string, any>>, store: VerifiedArtifactStore, quarantines: string[] = [], started?: (identity: RunnerGenerationIdentity, name: string) => void) {
-  const gateway = new ExtensionCapabilityGateway(tokens, { "records.query": queryHandler }, { reauthorize: () => true }, new InMemoryExtensionCapabilitySequenceStoreForTests(clock), clock, { maxInputBytes: 8_192, maxOutputBytes: 8_192, maxDepth: 12, maxCalls: 8 });
+function supervisor(observations: Record<string, Record<string, any>>, store: VerifiedArtifactStore, quarantines: string[] = [], started?: (identity: RunnerGenerationIdentity, name: string) => void, handler: ExtensionCapabilityHandler = queryHandler, sequences: ExtensionCapabilitySequenceStore = new InMemoryExtensionCapabilitySequenceStoreForTests(clock)) {
+  const gateway = new ExtensionCapabilityGateway(tokens, { "records.query": handler }, { reauthorize: () => true }, sequences, clock, { maxInputBytes: 8_192, maxOutputBytes: 8_192, maxDepth: 12, maxCalls: 8 });
   return new DockerHotApplicationSandboxSupervisor(gateway, {
     quarantine(generation, reason) { quarantines.push(`${generation.generationId}:${reason}`); }
   }, {
@@ -180,6 +180,60 @@ describe("production extension runner", () => {
     ]);
     expect(inspected.Config.Env.join("\n")).not.toMatch(/K_NEX_RUNNER_HOST_SECRET_PROBE|DATABASE_URL|DOCKER_HOST|PAYLOAD_SECRET/u);
     expect(inspected.HostConfig.Tmpfs["/tmp"]).toContain("noexec");
+  }, 120_000);
+
+  it("waits for fire-and-forget and concurrent capability calls before returning", async () => {
+    const store = artifactStore();
+    const wireSequences: number[] = [];
+    const recordedSequences = new InMemoryExtensionCapabilitySequenceStoreForTests(clock);
+    const pending = new Map<string, { promise: Promise<unknown>; resolve(value: unknown): void }>();
+    for (const call of ["fire-and-forget", "first", "second"]) {
+      let resolve!: (value: unknown) => void;
+      pending.set(call, { promise: new Promise((done) => { resolve = done; }), resolve });
+    }
+    const handler: ExtensionCapabilityHandler = {
+      validateInput(value) { return value as { call: string }; },
+      invoke(_claims, input) {
+        const call = (input as { call: string }).call;
+        const gate = pending.get(call);
+        if (!gate) throw new Error(`Unknown Docker capability gate: ${call}`);
+        return gate.promise;
+      },
+      validateOutput(value) { return value; }
+    };
+    const sequences: ExtensionCapabilitySequenceStore = {
+      claim(claims, sequence, maxCalls) {
+        wireSequences.push(sequence);
+        return recordedSequences.claim(claims, sequence, maxCalls);
+      }
+    };
+    const runner = supervisor({}, store, [], undefined, handler, sequences);
+    const invocation = runner.invoke(await request(store, "capability-order-generation", `async ({ host }) => {
+      host.call("records.query", { call: "fire-and-forget" });
+      const [first, second] = await Promise.all([
+        host.call("records.query", { call: "first" }),
+        host.call("records.query", { call: "second" })
+      ]);
+      return { first, second };
+    }`));
+    let settled = false;
+    void invocation.then(() => { settled = true; }, () => { settled = true; });
+
+    try {
+      await expect.poll(() => wireSequences, { timeout: 30_000 }).toEqual([1]);
+      expect(settled).toBe(false);
+      pending.get("fire-and-forget")!.resolve("fire");
+      await expect.poll(() => wireSequences, { timeout: 5_000 }).toEqual([1, 2]);
+      expect(settled).toBe(false);
+      pending.get("first")!.resolve("first");
+      await expect.poll(() => wireSequences, { timeout: 5_000 }).toEqual([1, 2, 3]);
+      expect(settled).toBe(false);
+      pending.get("second")!.resolve("second");
+      await expect(invocation).resolves.toEqual({ first: "first", second: "second" });
+    } finally {
+      for (const call of pending.values()) call.resolve(null);
+      await invocation.catch(() => {});
+    }
   }, 120_000);
 
   it("rejects mixed token identity before starting a container and keeps app/generation responses isolated", async () => {

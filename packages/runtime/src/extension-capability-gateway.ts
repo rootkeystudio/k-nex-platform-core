@@ -245,6 +245,7 @@ export class ExtensionCapabilityGateway {
   }
 
   async invoke(call: ExtensionCapabilityCall): Promise<unknown> {
+    call.signal.throwIfAborted();
     const claims = this.tokens.verify(call.token);
     if (claims.invocationId !== call.invocationId || claims.generationId !== call.generationId) fail("IDENTITY_MISMATCH", "Capability invocation identity does not match its token.");
     if (!claims.grants.some((grant) => grantAllowsCapability(grant, call.capability))) fail("CAPABILITY_DENIED", "Capability operation was not granted to this invocation.");
@@ -253,7 +254,9 @@ export class ExtensionCapabilityGateway {
     boundedJson(call.payload, this.limits.maxInputBytes, this.limits.maxDepth);
     const input = handler.validateInput(call.payload);
     if (!await this.authority.reauthorize(claims)) fail("AUTHORITY_DENIED", "Capability invocation no longer has current generation or actor authority.");
+    call.signal.throwIfAborted();
     if (!await this.sequences.claim(claims, call.sequence, this.limits.maxCalls)) fail("SEQUENCE_INVALID", "Capability sequence is missing, replayed, or outside its call budget.");
+    call.signal.throwIfAborted();
     const output = handler.validateOutput(await handler.invoke(claims, input, call.signal));
     boundedJson(output, this.limits.maxOutputBytes, this.limits.maxDepth);
     return output;

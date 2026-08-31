@@ -21,6 +21,12 @@ const handler: ExtensionCapabilityHandler = {
   validateOutput(value) { return value; }
 };
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => { resolve = next; });
+  return { promise, resolve };
+}
+
 function gateway() {
   return new ExtensionCapabilityGateway(tokens, { "records.query": handler }, { reauthorize: () => true }, new InMemoryExtensionCapabilitySequenceStoreForTests(clock), clock, { maxInputBytes: 1024, maxOutputBytes: 1024, maxDepth: 4, maxCalls: 2 });
 }
@@ -86,5 +92,85 @@ describe("extension capability authority", () => {
     current = false;
     await expect(calls.invoke({ token: value, invocationId: "runner-invocation-1", generationId: "sales-assistant-generation-1", sequence: 2, capability: "records.query", payload: {}, signal: new AbortController().signal }))
       .rejects.toMatchObject({ code: "AUTHORITY_DENIED" });
+  });
+
+  it("stops a pre-aborted capability call before any gateway work", async () => {
+    let reauthorizations = 0;
+    let claims = 0;
+    let handlers = 0;
+    const calls = new ExtensionCapabilityGateway(
+      tokens,
+      { "records.query": { ...handler, invoke() { handlers += 1; } } },
+      { reauthorize() { reauthorizations += 1; return true; } },
+      { claim() { claims += 1; return true; } },
+      clock,
+      { maxInputBytes: 1024, maxOutputBytes: 1024, maxDepth: 4, maxCalls: 2 }
+    );
+    const controller = new AbortController();
+    const cancellation = new Error("cancelled");
+    controller.abort(cancellation);
+    await expect(calls.invoke({ token: token(), invocationId: "runner-invocation-1", generationId: "sales-assistant-generation-1", sequence: 1, capability: "records.query", payload: {}, signal: controller.signal })).rejects.toBe(cancellation);
+    expect({ reauthorizations, claims, handlers }).toEqual({ reauthorizations: 0, claims: 0, handlers: 0 });
+  });
+
+  it("does not claim or invoke when aborted while authority is pending", async () => {
+    const authorization = deferred<boolean>();
+    let reauthorizations = 0;
+    let claims = 0;
+    let handlers = 0;
+    const calls = new ExtensionCapabilityGateway(
+      tokens,
+      { "records.query": { ...handler, invoke() { handlers += 1; } } },
+      { reauthorize() { reauthorizations += 1; return authorization.promise; } },
+      { claim() { claims += 1; return true; } },
+      clock,
+      { maxInputBytes: 1024, maxOutputBytes: 1024, maxDepth: 4, maxCalls: 2 }
+    );
+    const controller = new AbortController();
+    const pending = calls.invoke({ token: token(), invocationId: "runner-invocation-1", generationId: "sales-assistant-generation-1", sequence: 1, capability: "records.query", payload: {}, signal: controller.signal });
+    const cancellation = new Error("cancelled during authority");
+    controller.abort(cancellation);
+    authorization.resolve(true);
+    await expect(pending).rejects.toBe(cancellation);
+    expect({ reauthorizations, claims, handlers }).toEqual({ reauthorizations: 1, claims: 0, handlers: 0 });
+  });
+
+  it("allows a completed claim but never invokes when aborted while claiming", async () => {
+    const sequence = deferred<boolean>();
+    let reauthorizations = 0;
+    let claims = 0;
+    let handlers = 0;
+    const calls = new ExtensionCapabilityGateway(
+      tokens,
+      { "records.query": { ...handler, invoke() { handlers += 1; } } },
+      { reauthorize() { reauthorizations += 1; return true; } },
+      { claim() { claims += 1; return sequence.promise; } },
+      clock,
+      { maxInputBytes: 1024, maxOutputBytes: 1024, maxDepth: 4, maxCalls: 2 }
+    );
+    const controller = new AbortController();
+    const pending = calls.invoke({ token: token(), invocationId: "runner-invocation-1", generationId: "sales-assistant-generation-1", sequence: 1, capability: "records.query", payload: {}, signal: controller.signal });
+    await Promise.resolve();
+    expect(claims).toBe(1);
+    const cancellation = new Error("cancelled during claim");
+    controller.abort(cancellation);
+    sequence.resolve(true);
+    await expect(pending).rejects.toBe(cancellation);
+    expect({ reauthorizations, claims, handlers }).toEqual({ reauthorizations: 1, claims: 1, handlers: 0 });
+  });
+
+  it("passes the caller's exact signal to the handler", async () => {
+    let received: AbortSignal | undefined;
+    const calls = new ExtensionCapabilityGateway(
+      tokens,
+      { "records.query": { ...handler, invoke(_claims, _input, signal) { received = signal; return {}; } } },
+      { reauthorize() { return true; } },
+      { claim() { return true; } },
+      clock,
+      { maxInputBytes: 1024, maxOutputBytes: 1024, maxDepth: 4, maxCalls: 2 }
+    );
+    const controller = new AbortController();
+    await calls.invoke({ token: token(), invocationId: "runner-invocation-1", generationId: "sales-assistant-generation-1", sequence: 1, capability: "records.query", payload: {}, signal: controller.signal });
+    expect(received).toBe(controller.signal);
   });
 });

@@ -284,7 +284,6 @@ export class DockerHotApplicationSandboxSupervisor {
 
   private exchange(child: ChildProcessWithoutNullStreams, request: ResolvedRunnerInvocation, containerName: string, workloadUser: number, cleanup: () => void): Promise<unknown> {
     return new Promise((resolve, reject) => {
-      let settled = false;
       let closed = false;
       let resolveClose!: () => void;
       const close = new Promise<void>((resolveClosePromise) => { resolveClose = resolveClosePromise; });
@@ -292,15 +291,39 @@ export class DockerHotApplicationSandboxSupervisor {
       let logBytes = 0;
       let stderr = "";
       const controller = new AbortController();
+      let terminal: { value: unknown } | { error: RunnerInvocationError } | undefined;
+      let acceptingFrames = true;
+      let capabilityQueue = Promise.resolve();
+      const acceptedCapabilities = new Set<Promise<void>>();
+      let reaping: Promise<void> | undefined;
+      let cleaned = false;
+      const cleanupOnce = () => {
+        if (cleaned) return;
+        cleaned = true;
+        cleanup();
+      };
+      const fail = (error: RunnerInvocationError) => settle({ error });
+      const write = (frame: unknown): boolean => {
+        if (!acceptingFrames || controller.signal.aborted || child.stdin.destroyed || !child.stdin.writable) return false;
+        try {
+          child.stdin.write(`${JSON.stringify(frame)}\n`, (error) => {
+            if (error && !controller.signal.aborted) fail(new RunnerInvocationError("CONTAINER_FAILED", "Runner stdin could not accept a protocol frame."));
+          });
+          return true;
+        } catch {
+          if (!controller.signal.aborted) fail(new RunnerInvocationError("CONTAINER_FAILED", "Runner stdin could not accept a protocol frame."));
+          return false;
+        }
+      };
       const settle = (result: { readonly value: unknown } | { readonly error: RunnerInvocationError }) => {
-        if (settled) return;
-        settled = true;
+        if (terminal) return;
+        terminal = result;
+        acceptingFrames = false;
         clearTimeout(timer);
         request.signal?.removeEventListener("abort", abort);
         controller.abort();
-        lines.close();
-        child.stdin.end();
-        void (async () => {
+        try { child.stdin.end(); } catch { /* The child is being reaped below. */ }
+        reaping ??= (async () => {
           let cleanupFailed = false;
           try {
             if (!closed) {
@@ -311,33 +334,88 @@ export class DockerHotApplicationSandboxSupervisor {
           } catch {
             cleanupFailed = true;
           } finally {
-            try { cleanup(); } catch { cleanupFailed = true; }
+            try { cleanupOnce(); } catch { cleanupFailed = true; }
           }
-          if (cleanupFailed) {
-            reject(new RunnerInvocationError("CONTAINER_FAILED", "Runner container could not be forcibly terminated."));
-          } else if ("error" in result) {
-            reject(result.error);
-          } else {
-            resolve(result.value);
-          }
+          if (cleanupFailed) throw new RunnerInvocationError("CONTAINER_FAILED", "Runner container could not be forcibly terminated.");
         })();
+        const accepted = [...acceptedCapabilities];
+        void Promise.allSettled([...accepted, reaping]).then((settled) => {
+          if (settled.at(-1)?.status === "rejected") {
+            reject(new RunnerInvocationError("CONTAINER_FAILED", "Runner container could not be forcibly terminated."));
+            return;
+          }
+          const final = terminal!;
+          "error" in final ? reject(final.error) : resolve(final.value);
+        });
       };
-      const fail = (error: RunnerInvocationError) => settle({ error });
       const finish = (value: unknown) => settle({ value });
       const abort = () => fail(new RunnerInvocationError("INVOCATION_TIMEOUT", "Runner invocation was aborted."));
       request.signal?.addEventListener("abort", abort, { once: true });
       const timer = setTimeout(() => fail(new RunnerInvocationError("INVOCATION_TIMEOUT", "Runner invocation exceeded its wall-time budget.")), request.limits.wallTimeMs);
-      child.once("error", () => fail(new RunnerInvocationError("RUNNER_UNAVAILABLE", "Docker runner is unavailable.")));
+      child.on("error", () => { if (!terminal) fail(new RunnerInvocationError("RUNNER_UNAVAILABLE", "Docker runner is unavailable.")); });
+      child.stdin.on("error", () => { if (!terminal) fail(new RunnerInvocationError("CONTAINER_FAILED", "Runner stdin could not accept a protocol frame.")); });
       child.stderr.on("data", (chunk: Buffer) => {
         stderr += chunk.toString("utf8");
-        if (Buffer.byteLength(stderr) > request.limits.logBytes) fail(new RunnerInvocationError("OUTPUT_BUDGET_EXCEEDED", "Runner stderr exceeded its log budget."));
+        if (!terminal && Buffer.byteLength(stderr) > request.limits.logBytes) fail(new RunnerInvocationError("OUTPUT_BUDGET_EXCEEDED", "Runner stderr exceeded its log budget."));
       });
       child.stdout.on("data", (chunk: Buffer) => {
         protocolBytes += chunk.byteLength;
-        if (protocolBytes > request.limits.outputBytes + request.limits.logBytes + 1_048_576) fail(new RunnerInvocationError("OUTPUT_BUDGET_EXCEEDED", "Runner protocol output exceeded its budget."));
+        if (!terminal && protocolBytes > request.limits.outputBytes + request.limits.logBytes + 1_048_576) fail(new RunnerInvocationError("OUTPUT_BUDGET_EXCEEDED", "Runner protocol output exceeded its budget."));
       });
       const lines = createInterface({ input: child.stdout, crlfDelay: Infinity, terminal: false });
-      lines.on("line", (line) => { void this.handleFrame(line, request, child, controller.signal, (bytes) => { logBytes += bytes; if (logBytes > request.limits.logBytes) fail(new RunnerInvocationError("OUTPUT_BUDGET_EXCEEDED", "Runner logs exceeded their budget.")); }, finish, fail); });
+      const queueCapability = (frame: RunnerFrame) => {
+        const run = async () => {
+          if (controller.signal.aborted) return;
+          try {
+            const output = await this.gateway.invoke({ token: frame.token!, invocationId: request.invocationId, generationId: request.generationId, sequence: frame.sequence!, capability: frame.capability as ExtensionCapabilityId, payload: frame.payload, signal: controller.signal });
+            if (!controller.signal.aborted) write({ type: "capability-response", schemaVersion: 1, invocationId: request.invocationId, generationId: request.generationId, sequence: frame.sequence, ok: true, output, error: null });
+          } catch (error) {
+            if (!controller.signal.aborted) {
+              const code = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : "CAPABILITY_FAILED";
+              write({ type: "capability-response", schemaVersion: 1, invocationId: request.invocationId, generationId: request.generationId, sequence: frame.sequence, ok: false, output: null, error: { code } });
+            }
+          }
+        };
+        const task = capabilityQueue.then(run, run).catch(() => { fail(new RunnerInvocationError("CONTAINER_FAILED", "Runner capability queue failed.")); });
+        capabilityQueue = task;
+        acceptedCapabilities.add(task);
+        void task.then(() => { acceptedCapabilities.delete(task); });
+      };
+      const valid = (frame: unknown): frame is RunnerFrame => typeof frame === "object" && frame !== null && !Array.isArray(frame);
+      lines.on("line", (line) => {
+        let frame: unknown;
+        try { frame = JSON.parse(line); } catch { fail(new RunnerInvocationError("PROTOCOL_VIOLATION", "Runner emitted malformed JSON.")); return; }
+        if (!valid(frame)) { fail(new RunnerInvocationError("PROTOCOL_VIOLATION", "Runner emitted an invalid protocol frame.")); return; }
+        if (!acceptingFrames) {
+          if (terminal && "value" in terminal && (frame as RunnerFrame).type === "result") {
+            terminal = { error: new RunnerInvocationError("PROTOCOL_VIOLATION", "Runner emitted a duplicate terminal frame.") };
+          }
+          return;
+        }
+        if (frame.type === "log" && exactKeys(frame, ["type", "schemaVersion", "invocationId", "generationId", "text"]) && frame.schemaVersion === 1 && frame.invocationId === request.invocationId && frame.generationId === request.generationId && typeof frame.text === "string") {
+          logBytes += Buffer.byteLength(frame.text);
+          if (logBytes > request.limits.logBytes) fail(new RunnerInvocationError("OUTPUT_BUDGET_EXCEEDED", "Runner logs exceeded their budget."));
+          return;
+        }
+        if (frame.type === "capability-request" && exactKeys(frame, ["type", "schemaVersion", "invocationId", "generationId", "sequence", "capability", "payload", "token"]) && frame.schemaVersion === 1 && frame.invocationId === request.invocationId && frame.generationId === request.generationId && frame.token === request.token && Number.isSafeInteger(frame.sequence) && typeof frame.capability === "string") {
+          queueCapability(frame);
+          return;
+        }
+        if (frame.type === "result" && frame.schemaVersion === 1 && frame.invocationId === request.invocationId && frame.generationId === request.generationId) {
+          if (acceptedCapabilities.size > 0) { fail(new RunnerInvocationError("PROTOCOL_VIOLATION", "Runner emitted a terminal frame before accepted capability calls settled.")); return; }
+          if (frame.ok === true && exactKeys(frame, ["type", "schemaVersion", "invocationId", "generationId", "ok", "output"])) {
+            try {
+              if (jsonBytes(frame.output) > request.limits.outputBytes) fail(new RunnerInvocationError("OUTPUT_BUDGET_EXCEEDED", "Runner result exceeded its output budget.")); else finish(frame.output);
+            } catch (error) { fail(error instanceof RunnerInvocationError ? error : new RunnerInvocationError("PROTOCOL_VIOLATION", "Runner emitted an invalid result.")); }
+            return;
+          }
+          if (frame.ok === false && exactKeys(frame, ["type", "schemaVersion", "invocationId", "generationId", "ok", "error"]) && typeof frame.error === "object" && frame.error !== null && !Array.isArray(frame.error) && exactKeys(frame.error as RunnerFrame, ["code"]) && frame.error.code === "APPLICATION_FAILED") {
+            fail(new RunnerInvocationError("APPLICATION_FAILED", "Hot Application invocation failed."));
+            return;
+          }
+        }
+        fail(new RunnerInvocationError("PROTOCOL_VIOLATION", "Runner emitted an invalid protocol frame."));
+      });
       child.once("spawn", () => {
         void (async () => {
           try {
@@ -345,7 +423,7 @@ export class DockerHotApplicationSandboxSupervisor {
             if (controller.signal.aborted) return;
             await this.observationSink.started(request, containerName);
             if (controller.signal.aborted) return;
-            child.stdin.write(`${JSON.stringify({ type: "invoke", schemaVersion: 1, invocationId: request.invocationId, generationId: request.generationId, token: request.token, source: request.source, input: request.input, maxInputBytes: request.limits.inputBytes, maxOutputBytes: request.limits.outputBytes })}\n`);
+            write({ type: "invoke", schemaVersion: 1, invocationId: request.invocationId, generationId: request.generationId, token: request.token, source: request.source, input: request.input, maxInputBytes: request.limits.inputBytes, maxOutputBytes: request.limits.outputBytes });
           } catch (error) {
             if (controller.signal.aborted) return;
             fail(error instanceof RunnerInvocationError ? error : new RunnerInvocationError("CONTAINER_FAILED", "Runner container observation failed."));
@@ -356,53 +434,12 @@ export class DockerHotApplicationSandboxSupervisor {
         closed = true;
         resolveClose();
         controller.abort();
-        if (!settled) {
+        if (!terminal) {
           const policyFailure = /(?:apparmor|selinux|seccomp|user\s*namespace|userns)/iu.test(stderr);
           fail(new RunnerInvocationError(code === 0 ? "PROTOCOL_VIOLATION" : policyFailure ? "POLICY_UNAVAILABLE" : "CONTAINER_FAILED", code === 0 ? "Runner exited without a result." : policyFailure ? "Docker could not apply the required isolation policy." : "Runner container exited unsuccessfully."));
         }
       });
     });
-  }
-
-  private async handleFrame(
-    line: string,
-    request: RunnerInvocationRequest,
-    child: ChildProcessWithoutNullStreams,
-    signal: AbortSignal,
-    log: (bytes: number) => void,
-    finish: (value: unknown) => void,
-    fail: (error: RunnerInvocationError) => void
-  ): Promise<void> {
-    if (signal.aborted) return;
-    let frame: RunnerFrame;
-    try { frame = JSON.parse(line) as RunnerFrame; } catch { fail(new RunnerInvocationError("PROTOCOL_VIOLATION", "Runner emitted malformed JSON.")); return; }
-    if (frame.type === "log" && exactKeys(frame, ["type", "schemaVersion", "invocationId", "generationId", "text"]) && frame.schemaVersion === 1 && frame.invocationId === request.invocationId && frame.generationId === request.generationId && typeof frame.text === "string") {
-      log(Buffer.byteLength(frame.text));
-      return;
-    }
-    if (frame.type === "capability-request" && exactKeys(frame, ["type", "schemaVersion", "invocationId", "generationId", "sequence", "capability", "payload", "token"]) && frame.schemaVersion === 1 && frame.invocationId === request.invocationId && frame.generationId === request.generationId && frame.token === request.token && Number.isSafeInteger(frame.sequence) && typeof frame.capability === "string") {
-      try {
-        const output = await this.gateway.invoke({ token: frame.token, invocationId: request.invocationId, generationId: request.generationId, sequence: frame.sequence!, capability: frame.capability as ExtensionCapabilityId, payload: frame.payload, signal });
-        if (signal.aborted) return;
-        child.stdin.write(`${JSON.stringify({ type: "capability-response", schemaVersion: 1, invocationId: request.invocationId, generationId: request.generationId, sequence: frame.sequence, ok: true, output, error: null })}\n`);
-      } catch (error) {
-        if (signal.aborted) return;
-        const code = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : "CAPABILITY_FAILED";
-        child.stdin.write(`${JSON.stringify({ type: "capability-response", schemaVersion: 1, invocationId: request.invocationId, generationId: request.generationId, sequence: frame.sequence, ok: false, output: null, error: { code } })}\n`);
-      }
-      return;
-    }
-    if (frame.type === "result" && frame.schemaVersion === 1 && frame.invocationId === request.invocationId && frame.generationId === request.generationId) {
-      if (frame.ok === true && exactKeys(frame, ["type", "schemaVersion", "invocationId", "generationId", "ok", "output"])) {
-        if (jsonBytes(frame.output) > request.limits.outputBytes) fail(new RunnerInvocationError("OUTPUT_BUDGET_EXCEEDED", "Runner result exceeded its output budget.")); else finish(frame.output);
-        return;
-      }
-      if (frame.ok === false && exactKeys(frame, ["type", "schemaVersion", "invocationId", "generationId", "ok", "error"]) && frame.error?.code === "APPLICATION_FAILED") {
-        fail(new RunnerInvocationError("APPLICATION_FAILED", "Hot Application invocation failed."));
-        return;
-      }
-    }
-    fail(new RunnerInvocationError("PROTOCOL_VIOLATION", "Runner emitted an invalid protocol frame."));
   }
 
   private async inspectSecurity(containerName: string, limits: RunnerInvocationLimits, workloadUser: number): Promise<void> {

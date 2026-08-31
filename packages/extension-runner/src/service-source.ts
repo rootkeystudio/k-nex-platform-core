@@ -5,7 +5,9 @@ const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity,
 let initialized = false;
 let invocation;
 let sequence = 0;
+let entrypointSettled = false;
 const pending = new Map();
+const acceptedCalls = new Set();
 const write = (frame) => process.stdout.write(JSON.stringify(frame) + '\n');
 const exact = (value, keys) => value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).sort().join('\0') === [...keys].sort().join('\0');
 const jsonBytes = (value) => Buffer.byteLength(JSON.stringify(value));
@@ -13,11 +15,21 @@ const safeLog = (...values) => {
   const text = values.map((value) => typeof value === 'string' ? value : JSON.stringify(value)).join(' ').slice(0, 4096);
   write({ type: 'log', schemaVersion: 1, invocationId: invocation.invocationId, generationId: invocation.generationId, text });
 };
+const rejectedCall = (code) => {
+  const call = Promise.reject(new Error(code));
+  call.catch(() => {});
+  return call;
+};
+const joinAcceptedCalls = () => Promise.allSettled([...acceptedCalls]);
 const host = Object.freeze({ call(capability, payload) {
-  if (typeof capability !== 'string' || capability.length > 64 || jsonBytes(payload) > invocation.maxInputBytes) return Promise.reject(new Error('CAPABILITY_REQUEST_INVALID'));
+  if (entrypointSettled) return rejectedCall('CAPABILITY_REQUEST_CLOSED');
+  if (typeof capability !== 'string' || capability.length > 64 || jsonBytes(payload) > invocation.maxInputBytes) return rejectedCall('CAPABILITY_REQUEST_INVALID');
   sequence += 1;
+  const call = new Promise((resolve, reject) => pending.set(sequence, { resolve, reject }));
+  acceptedCalls.add(call);
+  call.catch(() => {});
   write({ type: 'capability-request', schemaVersion: 1, invocationId: invocation.invocationId, generationId: invocation.generationId, sequence, capability, payload, token: invocation.token });
-  return new Promise((resolve, reject) => pending.set(sequence, { resolve, reject }));
+  return call;
 } });
 async function execute() {
   const context = vm.createContext({ console: Object.freeze({ log: safeLog, info: safeLog, warn: safeLog, error: safeLog }) }, { name: invocation.generationId, codeGeneration: { strings: false, wasm: false } });
@@ -29,7 +41,13 @@ async function execute() {
   context.__entrypoint = entrypoint;
   context.__input = invocation.input;
   context.__host = host;
-  const result = await new vm.Script('__entrypoint({ input: __input, host: __host })').runInContext(context);
+  let result;
+  try {
+    result = await new vm.Script('__entrypoint({ input: __input, host: __host })').runInContext(context);
+  } finally {
+    entrypointSettled = true;
+    await joinAcceptedCalls();
+  }
   const output = result === undefined ? null : result;
   if (jsonBytes(output) > invocation.maxOutputBytes) throw new Error('OUTPUT_BUDGET_EXCEEDED');
   write({ type: 'result', schemaVersion: 1, invocationId: invocation.invocationId, generationId: invocation.generationId, ok: true, output });

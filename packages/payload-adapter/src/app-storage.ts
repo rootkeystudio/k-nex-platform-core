@@ -65,6 +65,7 @@ interface RecordRow {
 const keyPattern = /^[a-z][a-z0-9._:-]{0,159}$/u;
 const schemaPattern = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/u;
 const appPattern = /^app(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$/u;
+const neverAbortedSignal = new AbortController().signal;
 
 function fail(code: AppStorageError["code"], message: string): never { throw new AppStorageError(code, message); }
 
@@ -94,7 +95,7 @@ export class PostgresAppStorage {
     if (!Number.isSafeInteger(schemaVersion) || schemaVersion < 1 || schemaVersion > 1_000_000_000 || !Number.isSafeInteger(quotaBytes) || quotaBytes < 1 || quotaBytes > 268_435_456) {
       throw new TypeError("App storage namespace limits are invalid.");
     }
-    await this.transaction(async (session) => {
+    await this.transaction(neverAbortedSignal, async (session) => {
       await this.lockApplication(session, namespace);
       await this.lockNamespace(session, namespace);
       const current = await this.readNamespace(session, namespace, true);
@@ -109,7 +110,8 @@ export class PostgresAppStorage {
     });
   }
 
-  async get(namespace: AppStorageNamespace, key: string): Promise<AppStorageRecord | undefined> {
+  async get(namespace: AppStorageNamespace, key: string, signal: AbortSignal): Promise<AppStorageRecord | undefined> {
+    signal.throwIfAborted();
     assertNamespace(namespace);
     this.assertKey(key);
     const result = await this.pool.query<RecordRow>(
@@ -117,17 +119,19 @@ export class PostgresAppStorage {
        where application_id=$1 and environment=$2 and app_id=$3 and schema_id=$4 and storage_key=$5`,
       [namespace.applicationId, namespace.environment, namespace.appId, namespace.schemaId, key]
     );
+    signal.throwIfAborted();
     return result.rows[0] ? this.record(result.rows[0]) : undefined;
   }
 
-  async put(namespace: AppStorageNamespace, key: string, value: unknown, expectedRevision: number): Promise<AppStorageRecord> {
+  async put(namespace: AppStorageNamespace, key: string, value: unknown, expectedRevision: number, signal: AbortSignal): Promise<AppStorageRecord> {
+    signal.throwIfAborted();
     assertNamespace(namespace);
     this.assertKey(key);
     if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) fail("REVISION_CONFLICT", "App storage expected revision is invalid.");
     const validated = this.validator.validate(namespace.schemaId, value);
     this.secretGuard.assertSafe(validated);
     const bytes = valueBytes(validated);
-    return this.transaction(async (session) => {
+    return this.transaction(signal, async (session) => {
       await this.lockApplication(session, namespace);
       await this.lockNamespace(session, namespace);
       const state = await this.readNamespace(session, namespace, true);
@@ -158,10 +162,11 @@ export class PostgresAppStorage {
     });
   }
 
-  async delete(namespace: AppStorageNamespace, key: string, expectedRevision: number): Promise<void> {
+  async delete(namespace: AppStorageNamespace, key: string, expectedRevision: number, signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
     assertNamespace(namespace);
     this.assertKey(key);
-    await this.transaction(async (session) => {
+    await this.transaction(signal, async (session) => {
       await this.lockApplication(session, namespace);
       await this.lockNamespace(session, namespace);
       const state = await this.readNamespace(session, namespace, true);
@@ -185,7 +190,8 @@ export class PostgresAppStorage {
     });
   }
 
-  async query(namespace: AppStorageNamespace, prefix: string, limit: number): Promise<readonly AppStorageRecord[]> {
+  async query(namespace: AppStorageNamespace, prefix: string, limit: number, signal: AbortSignal): Promise<readonly AppStorageRecord[]> {
+    signal.throwIfAborted();
     assertNamespace(namespace);
     if (prefix !== "" && !keyPattern.test(prefix)) fail("KEY_INVALID", "App storage key prefix is invalid.");
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new TypeError("App storage query limit is invalid.");
@@ -195,6 +201,7 @@ export class PostgresAppStorage {
        order by storage_key limit $7`,
       [namespace.applicationId, namespace.environment, namespace.appId, namespace.schemaId, prefix, `${prefix}\uffff`, limit]
     );
+    signal.throwIfAborted();
     return Object.freeze(result.rows.map((row) => this.record(row)));
   }
 
@@ -234,7 +241,7 @@ export class PostgresAppStorage {
     if (await digest(body) !== suppliedDigest) fail("BACKUP_INVALID", "App storage backup digest is invalid.");
     assertNamespace({ applicationId: backup.applicationId, environment: backup.environment, appId: backup.appId, schemaId: "backup.probe" });
     if (!Array.isArray(backup.namespaces) || backup.namespaces.length > 16) fail("BACKUP_INVALID", "App storage backup namespace inventory is invalid.");
-    await this.transaction(async (session) => {
+    await this.transaction(neverAbortedSignal, async (session) => {
       await this.lockApplication(session, backup);
       await session.query(
         `delete from runtime_extension_storage_namespaces where application_id=$1 and environment=$2 and app_id=$3`,
@@ -270,17 +277,29 @@ export class PostgresAppStorage {
     });
   }
 
-  private async transaction<T>(work: (session: RuntimeExtensionSession) => Promise<T>): Promise<T> {
-    const session = await this.pool.connect();
+  private async transaction<T>(signal: AbortSignal, work: (session: RuntimeExtensionSession) => Promise<T>): Promise<T> {
+    signal.throwIfAborted();
+    const connected = await this.pool.connect();
     try {
+      signal.throwIfAborted();
+      const session: RuntimeExtensionSession = {
+        query: async <T extends object = Record<string, unknown>>(text: string, values?: readonly unknown[]) => {
+          signal.throwIfAborted();
+          const result = await connected.query<T>(text, values);
+          signal.throwIfAborted();
+          return result;
+        },
+        release: () => connected.release()
+      };
       await session.query("begin");
       const result = await work(session);
-      await session.query("commit");
+      signal.throwIfAborted();
+      await connected.query("commit");
       return result;
     } catch (error) {
-      try { await session.query("rollback"); } catch { /* preserve original error */ }
+      try { await connected.query("rollback"); } catch { /* preserve original error */ }
       throw error;
-    } finally { session.release(); }
+    } finally { connected.release(); }
   }
 
   private async lockNamespace(session: RuntimeExtensionSession, namespace: AppStorageNamespace): Promise<void> {
@@ -327,30 +346,30 @@ export function createAppStorageCapabilityHandlers(storage: PostgresAppStorage):
       const input = inputObject(value, ["schemaId", "key"]);
       if (typeof input.key !== "string") throw new AppStorageError("KEY_INVALID", "App storage key is invalid.");
       return input;
-    }, invoke: async (claims, input) => storage.get(namespace(claims, input as Record<string, unknown>, "get"), (input as Record<string, unknown>).key as string), validateOutput: output },
+    }, invoke: async (claims, input, signal) => storage.get(namespace(claims, input as Record<string, unknown>, "get"), (input as Record<string, unknown>).key as string, signal), validateOutput: output },
     "app-storage.put": { validateInput: (value) => {
       const input = inputObject(value, ["schemaId", "key", "value", "expectedRevision"]);
       if (typeof input.key !== "string" || !Number.isSafeInteger(input.expectedRevision) || Number(input.expectedRevision) < 0) throw new AppStorageError("KEY_INVALID", "App storage put input is invalid.");
       return input;
-    }, invoke: async (claims, input) => {
+    }, invoke: async (claims, input, signal) => {
       const data = input as Record<string, unknown>;
-      return storage.put(namespace(claims, data, "put"), data.key as string, data.value, data.expectedRevision as number);
+      return storage.put(namespace(claims, data, "put"), data.key as string, data.value, data.expectedRevision as number, signal);
     }, validateOutput: output },
     "app-storage.query": { validateInput: (value) => {
       const input = inputObject(value, ["schemaId", "prefix", "limit"]);
       if (typeof input.prefix !== "string" || !Number.isSafeInteger(input.limit)) throw new AppStorageError("KEY_INVALID", "App storage query input is invalid.");
       return input;
-    }, invoke: async (claims, input) => {
+    }, invoke: async (claims, input, signal) => {
       const data = input as Record<string, unknown>;
-      return storage.query(namespace(claims, data, "query"), data.prefix as string, data.limit as number);
+      return storage.query(namespace(claims, data, "query"), data.prefix as string, data.limit as number, signal);
     }, validateOutput: output },
     "app-storage.delete": { validateInput: (value) => {
       const input = inputObject(value, ["schemaId", "key", "expectedRevision"]);
       if (typeof input.key !== "string" || !Number.isSafeInteger(input.expectedRevision) || Number(input.expectedRevision) < 1) throw new AppStorageError("KEY_INVALID", "App storage delete input is invalid.");
       return input;
-    }, invoke: async (claims, input) => {
+    }, invoke: async (claims, input, signal) => {
       const data = input as Record<string, unknown>;
-      await storage.delete(namespace(claims, data, "delete"), data.key as string, data.expectedRevision as number);
+      await storage.delete(namespace(claims, data, "delete"), data.key as string, data.expectedRevision as number, signal);
       return { deleted: true };
     }, validateOutput: output }
   });
