@@ -62,6 +62,7 @@ function startTopologyProcess(role, env) {
     stdio: ["ignore", "pipe", "pipe"]
   });
   let output = "";
+  const exit = new Promise((resolve) => child.once("exit", (code, signal) => resolve({ code, signal })));
   const ready = new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error(`${role} process did not become ready: ${output}`)), Number(env.P9_READY_TIMEOUT_MS ?? 10_000));
     child.stdout.setEncoding("utf8").on("data", (chunk) => {
@@ -77,7 +78,7 @@ function startTopologyProcess(role, env) {
     child.once("error", (error) => { clearTimeout(timeout); reject(error); });
     child.once("exit", (code) => { if (code && code !== 0) { clearTimeout(timeout); reject(new Error(`${role} process exited ${code}: ${output}`)); } });
   });
-  return { child, ready, output: () => output, stop: () => new Promise((resolve) => {
+  return { child, ready, exit, output: () => output, stop: () => new Promise((resolve) => {
     if (child.exitCode !== null || child.signalCode !== null) {
       resolve();
       return;
@@ -178,6 +179,15 @@ function boot(connectionString) {
     child.on("error", reject);
     child.on("close", (code) => code === 0 ? resolve() : reject(new Error(output)));
   });
+}
+
+async function waitForBuilderReady(builderProcess, sourceAuthorityProcess, label) {
+  return Promise.race([
+    builderProcess.ready,
+    sourceAuthorityProcess.exit.then(({ code, signal }) => {
+      throw new Error(`source-authority exited ${signal ?? code} while ${label} awaited artifact authority: ${sourceAuthorityProcess.output().slice(-4096)}`);
+    })
+  ]);
 }
 
 async function docker(args, options = {}) {
@@ -526,7 +536,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
       P9_APPROVED_INPUT_DIGEST: approvedInputDigest, P9_SOURCE_RESULT_PATH: sourceResultPath, P9_BUILD_RESULT_PATH: buildResultPath,
       P9_AUTHORITY_RESULT_PATH: authorityResultPath, P9_ARTIFACTS_DIRECTORY: artifactsDirectory,
       P9_BASE_BUILD_PATH: baseBuildPath, P9_BUILDER_SIGNING_KEY_PATH: builderSigningKeyPath, P9_BUILDER_TRUST_POLICY_PATH: builderTrustPolicyPath,
-      P9_FIXTURE_LABEL: network, P9_WORKER_CLOCK_SKEW_MS: "60000"
+      P9_FIXTURE_LABEL: network, P9_WORKER_CLOCK_SKEW_MS: "60000", P9_ARTIFACT_WAIT_TIMEOUT_MS: "480000"
     };
     const processEnv = (role, extra) => {
       const database = new URL(postgres.getConnectionUri());
@@ -561,7 +571,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     builtImages.push({ tag: `knex-p9-customer-alpha:${targetCommit.slice(0, 12)}` });
     let builderProcess = startTopologyProcess("builder", processEnv("builder", { P9_PROCESS_INSTANCE: "builder-1", P9_SOURCE_RESULT_DIGEST: sourceReady.sourceResultDigest, P9_STAY_ALIVE: "1", P9_READY_TIMEOUT_MS: "480000" }));
     topology.push(builderProcess);
-    const builderReady = await builderProcess.ready;
+    const builderReady = await waitForBuilderReady(builderProcess, sourceAuthorityProcess, "builder");
     const greenBuild = JSON.parse(await readFile(buildResultPath, "utf8"));
     now = new Date();
     assert.equal(builderReady.buildRequestDigest, greenBuild.buildRequestDigest);
@@ -1724,7 +1734,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
       P9_STAY_ALIVE: "1", P9_READY_TIMEOUT_MS: "480000"
     }));
     topology.push(builderProcess);
-    const providerBuilderReady = await builderProcess.ready;
+    const providerBuilderReady = await waitForBuilderReady(builderProcess, sourceAuthorityProcess, "provider builder");
     const providerBuild = JSON.parse(await readFile(providerBuildResultPath, "utf8"));
     assert.equal(providerBuild.state, "attested");
     assert.equal(providerBuilderReady.buildRequestDigest, providerBuild.buildRequestDigest);

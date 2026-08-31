@@ -10,7 +10,7 @@
   },
   "scripts": {
     "build": "esbuild tests/hot-application-fixed-route-browser-entry.ts --bundle --format=esm --platform=browser --outfile=dist/tests/hot-application-fixed-route-browser-entry.js && tsc -b",
-    "test": "pnpm build && node --test tests/payload-config.test.mjs",
+    "test": "pnpm build && node --test tests/payload-config.test.mjs tests/static-deployment-artifact-wait-timeout.test.mjs",
     "test:postgres": "pnpm build && pnpm --dir ../customer-alpha install --frozen-lockfile && pnpm --dir ../customer-beta install --frozen-lockfile && pnpm --dir ../customer-alpha build && pnpm --dir ../customer-beta build && node --test --test-concurrency=1 tests/app-storage-postgres.test.mjs tests/backup-restore-postgres.test.mjs tests/capability-authority-postgres.test.mjs tests/catalog-checkpoint-postgres.test.mjs tests/migration-fence-postgres.test.mjs tests/packed-customer-boot-postgres.test.mjs tests/postgres-gate.test.mjs tests/previous-release-upgrade-postgres.test.mjs tests/remote-ui-assets-postgres.test.mjs tests/runtime-extension-state-postgres.test.mjs tests/static-deployment-postgres.test.mjs tests/static-release-semver-postgres.test.mjs tests/static-retirement-fence-postgres.test.mjs tests/theme-skin-profile-postgres.test.mjs"
   },
   "dependencies": {

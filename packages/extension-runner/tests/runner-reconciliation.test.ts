@@ -339,6 +339,32 @@ describe("runner startup reconciliation", () => {
     }
   });
 
+  it("preserves the bounded inspection result when Docker closes before source handoff", async () => {
+    const supervisor = runner({ active: async () => false, admit: async () => true }) as any;
+    const inspection = deferred<void>();
+    const process = child();
+    supervisor.inspectSecurity = vi.fn(() => inspection.promise);
+    supervisor.kill = vi.fn(async () => {});
+    const secretSource = 'export const secret = "runner-source-secret"';
+    const secretToken = "runner-token-secret".padEnd(32, "x");
+    const invocation = { ...request({ token: secretToken, input: { secret: "runner-input-secret" }, limits: { ...request().limits, wallTimeMs: 10_000 } }), ...orphan, source: secretSource };
+    const outcome = supervisor.exchange(process, invocation, "runner-close-before-inspection", 10_000, vi.fn());
+
+    process.emit("spawn");
+    await vi.waitFor(() => expect(supervisor.inspectSecurity).toHaveBeenCalledOnce());
+    process.emit("close", 137);
+    inspection.reject(new RunnerInvocationError("POLICY_UNAVAILABLE", "Host could not verify the effective container security state (running=false,status=exited,exitCode=137,oomKilled=false)."));
+
+    await expect(outcome).rejects.toMatchObject({
+      code: "POLICY_UNAVAILABLE",
+      message: "Host could not verify the effective container security state (running=false,status=exited,exitCode=137,oomKilled=false)."
+    });
+    const error = await outcome.catch((caught: RunnerInvocationError) => caught);
+    expect(error.message).not.toContain(secretSource);
+    expect(error.message).not.toContain(secretToken);
+    expect(error.message).not.toContain("runner-input-secret");
+  });
+
   it("reaps the docker CLI before container cleanup when timeout wins before spawn", async () => {
     vi.useFakeTimers();
     try {

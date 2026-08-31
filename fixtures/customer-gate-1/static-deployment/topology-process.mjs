@@ -59,7 +59,15 @@ function requiredPath(name) {
 
 async function readJson(path) { return JSON.parse(await readFile(path, "utf8")); }
 async function writeJson(path, value) { await mkdir(dirname(path), { recursive: true }); await writeFile(path, `${canonicalJson(value)}\n`); }
-async function waitJson(path, timeout = 120_000) {
+function artifactWaitTimeoutMs() {
+  const raw = process.env.P9_ARTIFACT_WAIT_TIMEOUT_MS;
+  const value = Number(raw);
+  if (!/^[1-9]\d*$/u.test(raw ?? "") || !Number.isSafeInteger(value) || value > 480_000) {
+    throw new Error("P9_ARTIFACT_WAIT_TIMEOUT_MS must be an integer between 1 and 480000.");
+  }
+  return value;
+}
+async function waitJson(path, timeout) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
     try { return await readJson(path); }
@@ -128,8 +136,8 @@ function staticChangeRequest(source, plan, approved) {
   };
 }
 
-async function authorizeSourceChange(sourceDirectory, approved, source, buildResultPath, authorityResultPath) {
-  const built = await waitJson(buildResultPath);
+async function authorizeSourceChange(sourceDirectory, approved, source, buildResultPath, authorityResultPath, artifactWaitTimeout) {
+  const built = await waitJson(buildResultPath, artifactWaitTimeout);
   if (!["built", "attested"].includes(built.state) || built.sourceResultDigest !== await fileDigest(requiredPath("P9_SOURCE_RESULT_PATH"))) throw new Error("Source authority rejected unbound builder materials.");
   const request = staticChangeRequest(source, built.plan, approved);
   const checkpoints = new PostgresStaticCompositionCheckpointStore(pool);
@@ -197,6 +205,7 @@ async function sourceAuthority() {
   const resultPath = requiredPath("P9_SOURCE_RESULT_PATH");
   const buildResultPath = requiredPath("P9_BUILD_RESULT_PATH");
   const authorityResultPath = requiredPath("P9_AUTHORITY_RESULT_PATH");
+  const artifactWaitTimeout = artifactWaitTimeoutMs();
   const approvedDigest = process.env.P9_APPROVED_INPUT_DIGEST;
   const expectedBase = process.env.P9_EXPECTED_BASE_COMMIT;
   if (!approvedDigest || !/^[0-9a-f]{40}$/u.test(expectedBase ?? "")) throw new Error("Source authority requires fixed approved input and expected base digests.");
@@ -243,11 +252,11 @@ async function sourceAuthority() {
       mutated: ["k-nex.app.json", "package.json", "package-lock.json", ".k-nex/generated/resolved-graph.json", providerUninstall ? "src/k-nex-provider-registry.ts" : "static-deployment/release.json"]
     });
     ready({ sourceCommit: targetSourceCommit, sourceResultDigest: await fileDigest(resultPath) });
-    await authorizeSourceChange(sourceDirectory, approved, result, buildResultPath, authorityResultPath);
+    await authorizeSourceChange(sourceDirectory, approved, result, buildResultPath, authorityResultPath, artifactWaitTimeout);
   } else {
     const result = await readJson(resultPath);
     if (head !== result.targetSourceCommit || result.expectedBase !== expectedBase || result.approvedInputDigest !== approvedDigest) throw new Error("Source authority recovery rejected checkout or source result drift.");
-    const authorized = await authorizeSourceChange(sourceDirectory, approved, result, buildResultPath, authorityResultPath);
+    const authorized = await authorizeSourceChange(sourceDirectory, approved, result, buildResultPath, authorityResultPath, artifactWaitTimeout);
     await event("source-recovered", { sourceCommit: head, sourceResultDigest: await fileDigest(resultPath), checkpointId: authorized.checkpointId });
     ready({ sourceCommit: head, sourceResultDigest: await fileDigest(resultPath), checkpointId: authorized.checkpointId });
   }
@@ -263,6 +272,7 @@ async function builder() {
   const artifactsDirectory = requiredPath("P9_ARTIFACTS_DIRECTORY");
   const signingKeyPath = requiredPath("P9_BUILDER_SIGNING_KEY_PATH");
   const trustPolicyPath = requiredPath("P9_BUILDER_TRUST_POLICY_PATH");
+  const artifactWaitTimeout = artifactWaitTimeoutMs();
   const approvedDigest = process.env.P9_APPROVED_INPUT_DIGEST;
   const sourceResultDigest = process.env.P9_SOURCE_RESULT_DIGEST;
   if (!approvedDigest || !sourceResultDigest || await fileDigest(approvedPath) !== approvedDigest || await fileDigest(sourceResultPath) !== sourceResultDigest) throw new Error("Builder rejected altered fixed source/build inputs.");
@@ -325,7 +335,7 @@ async function builder() {
   const statement = { schemaVersion: 1, applicationId: approved.applicationId, environment: approved.environment, sourceCommit: source.targetSourceCommit, authority, composition: source.target, sbomDigest: await fileDigest(sbomPath), provenanceDigest: await fileDigest(provenancePath), applicationSubject: { name: "customer-alpha.application.json", digest: applicationDigest }, imageSubject: { repository: "knex-p9-customer-alpha", digest: imageDigest } };
   const evidence = { ...statement, signature: { algorithm: "ed25519", keyId: trustPolicy.builderIdentity, value: sign(null, Buffer.from(canonicalJson(statement)), signingKey).toString("base64") } };
   await writeJson(resultPath, { state: "built", sourceResultDigest, plan, evidence, applicationDigest, applicationPath, imageDigest, imageReference: `knex-p9-customer-alpha@${imageDigest}`, tag, sbom, sbomPath, provenance, provenancePath, composition: source.target, pluginVersion: source.plugin.version });
-  const authorized = await waitJson(authorityResultPath);
+  const authorized = await waitJson(authorityResultPath, artifactWaitTimeout);
   if (authorized.checkpointId !== digestJson({ authority: approved.authority.identity, authorization: approved.authorization, request: staticChangeRequest(source, plan, approved) }) || canonicalJson(authorized.change.change) !== canonicalJson(plan)) {
     throw new Error("Builder rejected an unbound source authority checkpoint.");
   }
@@ -463,6 +473,14 @@ async function webAdmin() {
   ready({ url: `http://127.0.0.1:${server.address().port}`, deniedAuthority: true });
 }
 
+async function artifactWaitProbe() {
+  const artifactWaitTimeout = artifactWaitTimeoutMs();
+  const path = requiredPath("P9_ARTIFACT_WAIT_PROBE_PATH");
+  ready({ artifactWaitTimeout, waitingForArtifact: true });
+  const artifact = await waitJson(path, artifactWaitTimeout);
+  process.stdout.write(`${JSON.stringify({ type: "artifact-wait-complete", artifactWaitTimeout, artifact })}\n`);
+}
+
 if (role === "source-authority") await sourceAuthority();
 else if (role === "builder") await builder();
 else if (role === "deployer") await observeAuthority();
@@ -471,4 +489,5 @@ else if (role === "worker") await worker();
 else if (role === "gateway") await gateway();
 else if (role === "realtime-client") await realtime();
 else if (role === "web-admin") await webAdmin();
+else if (role === "artifact-wait-probe") await artifactWaitProbe();
 else throw new Error(`Unknown Phase 9 topology role: ${role}`);

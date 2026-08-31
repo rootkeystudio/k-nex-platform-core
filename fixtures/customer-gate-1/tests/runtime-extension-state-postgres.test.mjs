@@ -854,17 +854,11 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       applicationId: "customer-alpha", environment: "production", appId: "app.sales-live"
     }, "runtime-traffic-gateway");
     let trafficSequence = 0;
-    const activeTrafficGeneration = async () => {
-      const inventory = await storeB.inventory("customer-alpha", "production");
-      const entry = inventory.extensions.hotApplications[identity.id];
-      if (!entry || entry.disposition !== "active") throw new Error("Traffic has no authoritative active Hot Application generation.");
-      return Object.freeze({ generationId: entry.activeGeneration.generationId, artifactDigest: entry.activeGeneration.artifactDigest });
-    };
     const invokeTraffic = async (input = {}, expectedGeneration = undefined) => trafficRuntime.invoke({
       input,
       actor: { principalId: "user:one", effectiveActorId: "user:one" },
       correlationId: `traffic-correlation-${++trafficSequence}`,
-      expectedGeneration: expectedGeneration ?? await activeTrafficGeneration()
+      ...(expectedGeneration ? { expectedGeneration } : {})
     });
     let applicationTrafficReady = false;
     const gateway = await listen(async (_request, response) => {

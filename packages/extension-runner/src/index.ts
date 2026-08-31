@@ -390,6 +390,8 @@ export class DockerHotApplicationSandboxSupervisor {
       let invokeSent = false;
       let invokeAcknowledged = false;
       let exitObserved = false;
+      let startupInspection: Promise<void> | undefined;
+      let startupInspectionError: RunnerInvocationError | undefined;
       let capabilityQueue = Promise.resolve();
       const acceptedCapabilities = new Set<Promise<void>>();
       let reaping: Promise<void> | undefined;
@@ -553,17 +555,20 @@ export class DockerHotApplicationSandboxSupervisor {
       child.once("spawn", () => {
         void (async () => {
           try {
-            await this.inspectSecurity(containerName, request.limits, workloadUser);
-            if (controller.signal.aborted) return;
-            policyInspected = true;
-            try { await this.observationSink.started(request, containerName); }
-            catch { fail(startupUnavailable("Runner start observation did not complete before source handoff.")); return; }
-            if (controller.signal.aborted) return;
-            invokeSent = write({ type: "invoke", schemaVersion: 1, invocationId: request.invocationId, generationId: request.generationId, token: request.token, source: request.source, input: request.input, maxInputBytes: request.limits.inputBytes, maxOutputBytes: request.limits.outputBytes });
+            startupInspection = this.inspectSecurity(containerName, request.limits, workloadUser);
+            await startupInspection;
           } catch (error) {
+            startupInspectionError = error instanceof RunnerInvocationError ? error : new RunnerInvocationError("CONTAINER_FAILED", "Runner container observation failed.");
             if (controller.signal.aborted) return;
-            fail(error instanceof RunnerInvocationError ? error : new RunnerInvocationError("CONTAINER_FAILED", "Runner container observation failed."));
+            fail(startupInspectionError);
+            return;
           }
+          if (controller.signal.aborted) return;
+          policyInspected = true;
+          try { await this.observationSink.started(request, containerName); }
+          catch { fail(startupUnavailable("Runner start observation did not complete before source handoff.")); return; }
+          if (controller.signal.aborted) return;
+          invokeSent = write({ type: "invoke", schemaVersion: 1, invocationId: request.invocationId, generationId: request.generationId, token: request.token, source: request.source, input: request.input, maxInputBytes: request.limits.inputBytes, maxOutputBytes: request.limits.outputBytes });
         })();
       });
       child.once("close", (code) => {
@@ -576,7 +581,8 @@ export class DockerHotApplicationSandboxSupervisor {
           clearTimeout(timer);
           request.signal?.removeEventListener("abort", abort);
           if (!policyInspected || !invokeSent || !invokeAcknowledged) {
-            fail(new RunnerInvocationError("POLICY_UNAVAILABLE", "Docker closed before the runner security policy and source handoff were established."));
+            const closedBeforeHandoff = () => !terminal && fail(startupInspectionError ?? new RunnerInvocationError("POLICY_UNAVAILABLE", `Docker closed before the runner security policy and source handoff were established (exitCode=${safeStateValue(code)}).`));
+            startupInspection ? void startupInspection.then(closedBeforeHandoff, closedBeforeHandoff) : closedBeforeHandoff();
             return;
           }
           void this.observedPolicyViolation(containerName).then((policyViolation) => {
