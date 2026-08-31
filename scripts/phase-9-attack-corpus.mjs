@@ -77,7 +77,7 @@ const proofs = [
   vitestProof("plugin-manager", "@k-nex/runtime", "tests/plugin-manager.test.ts", [
     "PluginManager delegates module and executable theme Platform Plugins to source and trusted-build authorities",
     "PluginManager rejects planner mismatches and unverified inventory authority",
-    "PluginManager stops before planning or persistence when operation authorization rejects"
+    "PluginManager rejects authorization before policy validation or operation claiming"
   ]),
   nodeProof("app-storage", "tests/app-storage-postgres.test.mjs", [
     "proves revisioned, quota-limited, schema-validated, backed-up, cross-app isolated storage"
@@ -228,7 +228,7 @@ const scenarios = [
   { id: "SCN-19", attack: "process crash at required lifecycle boundaries", expected: "recover each matrix entry from PostgreSQL authority", evidence: [exactEvidence("static-deployment", staticProofName, "P9_STATIC_SCENARIO_EVIDENCE")], matrix: crashMatrix },
   { id: "SCN-20", attack: "false zero-downtime claim", expected: "prove concurrent old/new binary overlap during expand/backfill", evidence: [exactEvidence("static-deployment", staticProofName, "P9_STATIC_SCENARIO_EVIDENCE")] },
   { id: "SCN-21", attack: "web process source/build/Docker authority", expected: "keep source/build/Docker authority out of web binaries", evidence: [exactEvidence("static-deployment", staticProofName, "P9_STATIC_SCENARIO_EVIDENCE")] },
-  { id: "SCN-22", attack: "operator authorization bypass", expected: "reject unauthorized operation", evidence: [exactEvidence("plugin-manager", "PluginManager stops before planning or persistence when operation authorization rejects")] }
+  { id: "SCN-22", attack: "operator authorization bypass", expected: "reject unauthorized operation", evidence: [exactEvidence("plugin-manager", "PluginManager rejects authorization before policy validation or operation claiming")] }
 ];
 
 const parseVitest = (proof, output) => {

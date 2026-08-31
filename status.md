@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Run `33372670777` strict full Gate 9 audit capture verified the `dmesg` canary and reproduced `SCMP_ACT_KILL_PROCESS` denial `syscall=35` (`nanosleep`) before durable Hot Application runner-source handoff (`exitCode=159`). The Node 24 runner seccomp allowlist now admits only `nanosleep` for that denial and pins the regenerated profile digest; temporary audit capture is removed and the architecture workflow matches permanent baseline `47d4cf7`.
+Exact-head CI run `33374242177` passed strict preflight and every full Gate 9 runtime, PostgreSQL, HTTP, and Chromium proof, then the attack corpus failed only because `plugin-manager` expected the stale test name `PluginManager stops before planning or persistence when operation authorization rejects`; the real authorization-boundary test is now selected by its current name.
 
 ## Validation
 
-Focused runner policy test passes (3 tests); runner TypeScript build passes; strict local Docker runner test passes (13 tests, 1 production-AppArmor test skipped on Docker Desktop).
+`PATH=/Users/canersevince/.nvm/versions/node/v24.19.0/bin:$PATH pnpm --filter @k-nex/runtime exec vitest run tests/plugin-manager.test.ts --reporter=json --testNamePattern='^(?:PluginManager delegates module and executable theme Platform Plugins to source and trusted-build authorities|PluginManager rejects planner mismatches and unverified inventory authority|PluginManager rejects authorization before policy validation or operation claiming)$'` passes: 3 passed, 0 failed.
 
 ## Next
 
