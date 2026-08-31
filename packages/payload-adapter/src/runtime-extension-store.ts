@@ -432,19 +432,60 @@ const allowedTransitions: Readonly<Record<ExtensionOperationPhase, readonly Exte
 export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
   private readonly leaseMs: number;
   private readonly maxConcurrentOperations: number;
+  private readonly reconciliationBatchSize: number;
 
   constructor(
     private readonly pool: RuntimeExtensionPool,
     private readonly clock: RuntimeExtensionClock,
     private readonly hostInventoryDigest: string,
-    options: Readonly<{ leaseMs?: number; maxConcurrentOperations?: number }> = {}
+    options: Readonly<{ leaseMs?: number; maxConcurrentOperations?: number; reconciliationBatchSize?: number }> = {}
   ) {
     this.leaseMs = options.leaseMs ?? 30_000;
     this.maxConcurrentOperations = options.maxConcurrentOperations ?? 16;
+    this.reconciliationBatchSize = options.reconciliationBatchSize ?? this.maxConcurrentOperations;
     if (!/^sha256:[0-9a-f]{64}$/u.test(hostInventoryDigest) || !Number.isSafeInteger(this.leaseMs) || this.leaseMs < 1 ||
-      !Number.isSafeInteger(this.maxConcurrentOperations) || this.maxConcurrentOperations < 1 || this.maxConcurrentOperations > 512) {
+      !Number.isSafeInteger(this.maxConcurrentOperations) || this.maxConcurrentOperations < 1 || this.maxConcurrentOperations > 512 ||
+      !Number.isSafeInteger(this.reconciliationBatchSize) || this.reconciliationBatchSize < 1 || this.reconciliationBatchSize > 512) {
       throw new TypeError("Runtime extension store configuration is invalid.");
     }
+  }
+
+  async reconcileExpiredOperations(input: Readonly<{ applicationId: string; environment: string }>): Promise<number> {
+    const now = timestamp(this.clock);
+    return this.transaction(async (session) => {
+      const expired = await session.query<OperationRow>(
+        `select * from runtime_extension_operations
+         where application_id=$1 and environment=$2 and phase not in ('completed','failed') and lease_expires_at <= $3
+         order by lease_expires_at, operation_id
+         limit $4 for update skip locked`,
+        [input.applicationId, input.environment, now, this.reconciliationBatchSize]
+      );
+      let reclaimed = 0;
+      for (const candidate of expired.rows) {
+        const identityLock = await session.query<{ acquired: boolean }>(
+          "select pg_try_advisory_xact_lock(hashtextextended($1, 0)) as acquired",
+          [identityKey(candidate)]
+        );
+        if (!identityLock.rows[0]?.acquired) continue;
+        const failed = await session.query<OperationRow>(
+          `update runtime_extension_operations
+           set phase='failed', lease_owner='expired-operation-reconciler', lease_token=$2, lease_expires_at=$3, updated_at=now()
+           where operation_id=$1 and phase not in ('completed','failed') and lease_expires_at <= $3
+           returning *`,
+          [candidate.operation_id, randomUUID(), now]
+        );
+        const row = failed.rows[0];
+        if (!row) continue;
+        // A claim without a persisted plan never reached the lifecycle evidence boundary; manufacturing bundle evidence for it would be false.
+        if (row.plan_json) await this.appendTransition(session, row, "failed", undefined);
+        await session.query(
+          `update runtime_extension_operation_budget set active_count=greatest(active_count-1,0) where application_id=$1 and environment=$2`,
+          [row.application_id, row.environment]
+        );
+        reclaimed += 1;
+      }
+      return reclaimed;
+    });
   }
 
   async claimOperation(input: Parameters<RuntimeExtensionStore["claimOperation"]>[0]): Promise<ClaimOperationResult> {

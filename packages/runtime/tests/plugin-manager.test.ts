@@ -81,6 +81,9 @@ class MemoryStore implements RuntimeExtensionStore {
   rollbackStage?: StagedGenerationActivation;
   readonly staticReceipts: unknown[] = [];
   resumeCount = 0;
+  reconcileCount = 0;
+
+  async reconcileExpiredOperations() { this.reconcileCount += 1; return 0; }
 
   async claimOperation(input: Parameters<RuntimeExtensionStore["claimOperation"]>[0]): Promise<ClaimOperationResult> {
     if (this.operation) return { status: "replay", operation: this.operation };
@@ -181,6 +184,7 @@ describe("PluginManager", () => {
     expect(runtime.artifacts.reverify).toHaveBeenCalledWith(authority, { applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application", extensionId: "app.sales-assistant" });
     await expect(runtime.value.plan(request)).resolves.toBe(planned);
     expect(runtime.planner.plan).toHaveBeenCalledTimes(1);
+    expect(runtime.store.reconcileCount).toBe(2);
     runtime.store.operation = { ...runtime.store.operation!, phase: "failed" };
     await expect(runtime.value.stage(planned.operationId)).rejects.toMatchObject({ code: "INVALID_STATE" });
   });

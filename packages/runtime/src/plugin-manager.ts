@@ -296,6 +296,7 @@ export type ClaimOperationResult =
   | Readonly<{ status: "replay"; operation: RuntimeExtensionOperation }>;
 
 export interface RuntimeExtensionStore {
+  reconcileExpiredOperations(input: Readonly<{ applicationId: string; environment: string }>): Promise<number>;
   claimOperation(input: Readonly<{ request: ExtensionChangeRequest; requestDigest: string; authorization: OperationAuthorizationDecision; workerId: string }>): Promise<ClaimOperationResult>;
   resumeOperation(operationId: string, workerId: string): Promise<RuntimeExtensionOperation>;
   savePlan(operationId: string, leaseToken: string, plan: PluginManagerPlan): Promise<RuntimeExtensionOperation>;
@@ -518,6 +519,7 @@ export class PluginManager {
     const requestDigest = await digest(request);
     const authorization = await this.authorizer.authorize({ ...request, requestDigest });
     await this.planner.validate(Object.freeze({ ...request }));
+    await this.store.reconcileExpiredOperations({ applicationId: request.applicationId, environment: request.environment });
     let claim: ClaimOperationResult;
     try {
       claim = await this.store.claimOperation({ request, requestDigest, authorization, workerId: this.workerId });

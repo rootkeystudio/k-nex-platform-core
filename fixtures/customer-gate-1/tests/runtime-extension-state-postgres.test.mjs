@@ -743,6 +743,74 @@ test("rejects SCN-12 activation races and SCN-13 stale operation replays in Post
   }
 });
 
+test("reclaims expired operation leases without touching live work or double-releasing capacity", { timeout: 180_000 }, async () => {
+  const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("runtime_operation_reclamation").withStartupTimeout(120_000).start();
+  const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
+  let now = new Date("2026-08-31T12:00:00.000Z");
+  const clock = { now: () => now };
+  const storeA = new PostgresRuntimeExtensionStore(pool, clock, digest("7"), { leaseMs: 1_000, maxConcurrentOperations: 3, reconciliationBatchSize: 3 });
+  const storeB = new PostgresRuntimeExtensionStore(pool, clock, digest("7"), { leaseMs: 1_000, maxConcurrentOperations: 3, reconciliationBatchSize: 3 });
+  try {
+    await boot(container.getConnectionUri());
+    const abandonedARequest = stateRequest("app.sales-expired-a", "install:app.sales-expired-a:abandoned");
+    const abandonedBRequest = stateRequest("app.sales-expired-b", "install:app.sales-expired-b:abandoned");
+    const abandonedAClaim = await claimState(storeA, abandonedARequest, digest("a"), "lost-worker-a");
+    const abandonedBClaim = await claimState(storeA, abandonedBRequest, digest("b"), "lost-worker-b");
+    const abandonedA = await storeA.savePlan(abandonedAClaim.operation.operationId, abandonedAClaim.operation.leaseToken, statePlan(abandonedAClaim.operation.operationId, abandonedARequest));
+    await storeA.savePlan(abandonedBClaim.operation.operationId, abandonedBClaim.operation.leaseToken, statePlan(abandonedBClaim.operation.operationId, abandonedBRequest));
+
+    now = new Date(now.valueOf() + 1_001);
+    const liveRequest = stateRequest("app.sales-live-lease", "install:app.sales-live-lease:live");
+    const liveClaim = await claimState(storeA, liveRequest, digest("c"), "live-worker");
+    const live = await storeA.savePlan(liveClaim.operation.operationId, liveClaim.operation.leaseToken, statePlan(liveClaim.operation.operationId, liveRequest));
+    await assert.rejects(
+      claimState(storeB, stateRequest("app.sales-capacity", "install:app.sales-capacity:blocked"), digest("d"), "blocked-worker"),
+      { code: "GLOBAL_BUDGET_EXHAUSTED" }
+    );
+
+    const reclaimed = await Promise.all([
+      storeA.reconcileExpiredOperations({ applicationId: "customer-alpha", environment: "production" }),
+      storeB.reconcileExpiredOperations({ applicationId: "customer-alpha", environment: "production" })
+    ]);
+    assert.deepEqual(reclaimed.sort((left, right) => left - right), [0, 2]);
+    assert.equal((await storeA.readOperation(abandonedA.operationId)).phase, "failed");
+    assert.equal((await storeA.readOperation(abandonedBClaim.operation.operationId)).phase, "failed");
+    assert.equal((await storeA.readOperation(live.operationId)).phase, "planning");
+    assert.equal((await pool.query(
+      "select active_count from runtime_extension_operation_budget where application_id=$1 and environment=$2",
+      ["customer-alpha", "production"]
+    )).rows[0].active_count, 1);
+    assert.equal((await pool.query(
+      "select count(*)::int count from runtime_extension_transition_receipts where operation_id in ($1,$2) and event_json->>'operationPhase'='failed'",
+      [abandonedA.operationId, abandonedBClaim.operation.operationId]
+    )).rows[0].count, 2);
+    assert.deepEqual((await pool.query(
+      `select
+         (select count(*)::int from runtime_extension_audit where operation_id in ($1,$2) and event_json->>'operationPhase'='failed') audits,
+         (select count(*)::int from runtime_extension_outbox where event_json->>'operationId' in ($1,$2) and event_json->>'operationPhase'='failed') outbox`,
+      [abandonedA.operationId, abandonedBClaim.operation.operationId]
+    )).rows[0], { audits: 2, outbox: 2 });
+    await assert.rejects(
+      storeA.transition({ operationId: abandonedA.operationId, leaseToken: abandonedA.leaseToken, expectedPhase: "planning", phase: "downloading" }),
+      { code: "LEASE_CONFLICT" }
+    );
+
+    const replacement = await claimState(storeA, {
+      ...abandonedARequest,
+      expectedRevision: 2,
+      idempotencyKey: "install:app.sales-expired-a:recovered"
+    }, digest("e"), "recovery-worker");
+    assert.equal(replacement.status, "claimed");
+    assert.equal((await pool.query(
+      "select active_count from runtime_extension_operation_budget where application_id=$1 and environment=$2",
+      ["customer-alpha", "production"]
+    )).rows[0].active_count, 2);
+  } finally {
+    await pool.end();
+    await container.stop();
+  }
+});
+
 test("proves PostgreSQL-backed Hot Application install, update, restore, rollback, and execution through the durable runtime", { timeout: 180_000 }, async () => {
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("runtime_extensions").withStartupTimeout(120_000).start();
   const pool = new pg.Pool({ connectionString: container.getConnectionUri() });

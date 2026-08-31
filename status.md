@@ -3,19 +3,19 @@
 - **Updated:** 2026-08-31
 - **Phase:** Phase 9 — Dynamic Application Runtime and Zero-Downtime Delivery
 - **Active task:** P9.10 — Gate 9 closeout
-- **State:** Ready for phase review
+- **State:** In progress
 
 ## Last completed
 
-Phase 9 Gate 9 closeout completed on exact head `ee8f171ebca066be71c5875eed6c2981a73f765c`.
+PR #28 review findings validated. Expired nonterminal operations are now reclaimed in a bounded, concurrency-safe PostgreSQL pass before new claims; live leases remain fenced and released capacity is exact-once.
 
 ## Validation
 
-GitHub Actions [run `33381147184`](https://github.com/rootkeystudio/k-nex-platform-core/actions/runs/33381147184) passed strict Linux/AppArmor setup, Docker runner preflight, browser proofs, `pnpm gate:9`, and exact-head repository evidence for `ee8f171ebca066be71c5875eed6c2981a73f765c`.
+Focused runtime and payload-adapter builds/unit tests passed, plus the real-PostgreSQL expired-operation reclamation proof. Full Gate 9 is deferred until the complete review-remediation slice.
 
 ## Next
 
-Refresh PR #28 and await designated review; do not start P10.1 until PASS/merge.
+Fix the remaining PR #28 findings: module workers, runner ownership, catalog-state parity, and outbox publish leases. Then run the full phase gate once.
 
 ## Blockers
 
