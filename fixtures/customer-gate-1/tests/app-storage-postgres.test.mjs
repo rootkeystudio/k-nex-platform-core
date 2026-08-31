@@ -34,6 +34,24 @@ function deferred() {
   return { promise, resolve };
 }
 
+async function seedBulkRecords(pool, namespace, count) {
+  const records = Array.from({ length: count }, (_, index) => {
+    const value = { label: `bulk-${String(index).padStart(4, "0")}` };
+    return { key: `entry.${String(index).padStart(4, "0")}`, value, bytes: Buffer.byteLength(canonicalJson(value)), revision: 1 };
+  });
+  await pool.query(
+    `insert into runtime_extension_storage_records (application_id, environment, app_id, schema_id, storage_key, value_json, value_bytes, revision) values ${records.map((_, index) => {
+      const parameter = index * 8;
+      return `($${parameter + 1},$${parameter + 2},$${parameter + 3},$${parameter + 4},$${parameter + 5},$${parameter + 6}::jsonb,$${parameter + 7},$${parameter + 8})`;
+    }).join(",")}`,
+    records.flatMap((record) => [namespace.applicationId, namespace.environment, namespace.appId, namespace.schemaId, record.key, JSON.stringify(record.value), record.bytes, record.revision])
+  );
+  await pool.query(
+    `update runtime_extension_storage_namespaces set used_bytes=$5, revision=$6 where application_id=$1 and environment=$2 and app_id=$3 and schema_id=$4`,
+    [namespace.applicationId, namespace.environment, namespace.appId, namespace.schemaId, records.reduce((total, record) => total + record.bytes, 0), count]
+  );
+}
+
 async function waitForLockWait(pool, processId) {
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
@@ -50,7 +68,7 @@ test("proves revisioned, quota-limited, schema-validated, backed-up, cross-app i
   const knownSecret = "never-store-this-secret";
   const storage = new PostgresAppStorage(pool, {
     validate(schemaId, value) {
-      if (schemaId !== "sales.preferences" || typeof value !== "object" || value === null || Array.isArray(value) || typeof value.label !== "string") throw new Error("schema rejected");
+      if (!["sales.preferences", "sales.bulk"].includes(schemaId) || typeof value !== "object" || value === null || Array.isArray(value) || typeof value.label !== "string") throw new Error("schema rejected");
       return { label: value.label };
     }
   }, {
@@ -121,6 +139,97 @@ test("proves revisioned, quota-limited, schema-validated, backed-up, cross-app i
     assert.deepEqual(consistentSnapshot.namespaces[0].records, backup.namespaces[0].records, "backup namespace and records must come from one PostgreSQL snapshot");
     await storage.restoreBackup(consistentSnapshot);
     assert.deepEqual(await storage.get(sales, "view.primary", signal), consistentSnapshot.namespaces[0].records[0]);
+
+    const bulk = { ...sales, appId: "app.bulk-storage", schemaId: "sales.bulk" };
+    await storage.ensureNamespace(bulk, 1, 65_536);
+    await seedBulkRecords(pool, bulk, 1_001);
+    const bulkBackup = await storage.exportBackup("customer-alpha", "production", "app.bulk-storage");
+    assert.equal(bulkBackup.namespaces[0].records.length, 1_001);
+    assert.deepEqual(bulkBackup.namespaces[0].records.map((record) => record.key), Array.from({ length: 1_001 }, (_, index) => `entry.${String(index).padStart(4, "0")}`));
+    const replaced = await storage.put(bulk, "entry.0000", { label: "replaced" }, bulkBackup.namespaces[0].records[0].revision, signal);
+    await storage.delete(bulk, "entry.1000", bulkBackup.namespaces[0].records[1_000].revision, signal);
+    assert.equal((await storage.get(bulk, "entry.0000", signal)).revision, replaced.revision);
+    assert.equal(await storage.get(bulk, "entry.1000", signal), undefined);
+    await storage.restoreBackup(bulkBackup);
+    const restoredBulk = await storage.exportBackup("customer-alpha", "production", "app.bulk-storage");
+    assert.deepEqual(restoredBulk, bulkBackup, "1,001-record backup restore must preserve exact structure, digest, and ordering");
+
+    const firstBulkPageRead = deferred();
+    const concurrentBulkWriterCommitted = deferred();
+    let snapshotBulkPages = 0;
+    const pagedSnapshotStorage = new PostgresAppStorage({
+      query: (...args) => pool.query(...args),
+      async connect() {
+        const client = await pool.connect();
+        return {
+          release: () => client.release(),
+          async query(statement, values) {
+            const result = await client.query(statement, values);
+            if (typeof statement === "string" && statement.includes("runtime_extension_storage_records") && statement.includes("order by schema_id, storage_key limit")) {
+              snapshotBulkPages += 1;
+              if (snapshotBulkPages === 1) {
+                firstBulkPageRead.resolve();
+                await concurrentBulkWriterCommitted.promise;
+              }
+            }
+            return result;
+          }
+        };
+      }
+    }, { validate: (_schemaId, value) => value }, { assertSafe() {} });
+    const pagedSnapshotExport = pagedSnapshotStorage.exportBackup("customer-alpha", "production", "app.bulk-storage");
+    await firstBulkPageRead.promise;
+    await storage.put(bulk, "entry.0000", { label: "concurrent-page-write" }, bulkBackup.namespaces[0].records[0].revision, signal);
+    concurrentBulkWriterCommitted.resolve();
+    const pagedSnapshot = await pagedSnapshotExport;
+    assert.equal(snapshotBulkPages, 2, "1,001 records must require a second export page");
+    assert.equal(pagedSnapshot.namespaces[0].revision, bulkBackup.namespaces[0].revision, "exported namespace revision must remain at the pre-write snapshot");
+    assert.deepEqual(pagedSnapshot.namespaces[0].records, bulkBackup.namespaces[0].records, "both export pages must remain in the pre-write PostgreSQL snapshot");
+
+    const beforeExportFailure = await storage.exportBackup("customer-alpha", "production", "app.bulk-storage");
+    let exportFailurePages = 0;
+    let exportFailureRollbacks = 0;
+    let exportFailureReleases = 0;
+    let exportFulfilled = false;
+    const failingExportStorage = new PostgresAppStorage({
+      query: (...args) => pool.query(...args),
+      async connect() {
+        const client = await pool.connect();
+        return {
+          release() { exportFailureReleases += 1; client.release(); },
+          async query(statement, values) {
+            if (statement === "rollback") exportFailureRollbacks += 1;
+            if (typeof statement === "string" && statement.includes("runtime_extension_storage_records") && statement.includes("order by schema_id, storage_key limit") && ++exportFailurePages === 2) {
+              throw new Error("page two export failed");
+            }
+            return client.query(statement, values);
+          }
+        };
+      }
+    }, { validate: (_schemaId, value) => value }, { assertSafe() {} });
+    await assert.rejects(failingExportStorage.exportBackup("customer-alpha", "production", "app.bulk-storage").then((backup) => { exportFulfilled = true; return backup; }), /page two export failed/u);
+    assert.deepEqual({ exportFailurePages, exportFailureRollbacks, exportFailureReleases, exportFulfilled }, { exportFailurePages: 2, exportFailureRollbacks: 1, exportFailureReleases: 1, exportFulfilled: false });
+    assert.deepEqual(await storage.exportBackup("customer-alpha", "production", "app.bulk-storage"), beforeExportFailure, "a failed export must not change durable storage");
+
+    await storage.delete(bulk, "entry.1000", beforeExportFailure.namespaces[0].records[1_000].revision, signal);
+    const beforeRestoreFailure = await storage.exportBackup("customer-alpha", "production", "app.bulk-storage");
+    let restoreBatches = 0;
+    const failingRestoreStorage = new PostgresAppStorage({
+      query: (...args) => pool.query(...args),
+      async connect() {
+        const client = await pool.connect();
+        return {
+          release: () => client.release(),
+          async query(statement, values) {
+            if (typeof statement === "string" && statement.startsWith("insert into runtime_extension_storage_records") && ++restoreBatches === 2) throw new Error("restore batch two failed");
+            return client.query(statement, values);
+          }
+        };
+      }
+    }, { validate: (_schemaId, value) => value }, { assertSafe() {} });
+    await assert.rejects(failingRestoreStorage.restoreBackup(bulkBackup), /restore batch two failed/u);
+    assert.equal(restoreBatches, 2, "restore failure must occur after the first durable-record batch is attempted");
+    assert.deepEqual(await storage.exportBackup("customer-alpha", "production", "app.bulk-storage"), beforeRestoreFailure, "restore batch failure must roll back to the exact pre-restore database state");
 
     const restoreLockHeld = deferred();
     const releaseRestore = deferred();

@@ -65,6 +65,7 @@ interface RecordRow {
 const keyPattern = /^[a-z][a-z0-9._:-]{0,159}$/u;
 const schemaPattern = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/u;
 const appPattern = /^app(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$/u;
+const backupPageSize = 1_000;
 const neverAbortedSignal = new AbortController().signal;
 
 function fail(code: AppStorageError["code"], message: string): never { throw new AppStorageError(code, message); }
@@ -215,16 +216,25 @@ export class PostgresAppStorage {
          where application_id=$1 and environment=$2 and app_id=$3 order by schema_id`,
         [applicationId, environment, appId]
       );
-      const records = await session.query<RecordRow>(
-        `select schema_id, storage_key, value_json, value_bytes, revision from runtime_extension_storage_records
-         where application_id=$1 and environment=$2 and app_id=$3 order by schema_id, storage_key`,
-        [applicationId, environment, appId]
-      );
+      const records: RecordRow[] = [];
+      let cursor: Pick<RecordRow, "schema_id" | "storage_key"> | undefined;
+      while (true) {
+        const page = await session.query<RecordRow>(
+          `select schema_id, storage_key, value_json, value_bytes, revision from runtime_extension_storage_records
+           where application_id=$1 and environment=$2 and app_id=$3
+             and ($4::text is null or (schema_id, storage_key) > ($4::text, $5::text))
+           order by schema_id, storage_key limit $6`,
+          [applicationId, environment, appId, cursor?.schema_id ?? null, cursor?.storage_key ?? null, backupPageSize]
+        );
+        records.push(...page.rows);
+        if (page.rows.length < backupPageSize) break;
+        cursor = page.rows[page.rows.length - 1]!;
+      }
       const body = {
         schemaVersion: 1 as const, applicationId, environment, appId,
         namespaces: namespaces.rows.map((namespace) => ({
           schemaId: namespace.schema_id, schemaVersion: namespace.schema_version, quotaBytes: Number(namespace.quota_bytes), revision: namespace.revision,
-          records: records.rows.filter((record) => record.schema_id === namespace.schema_id).map((record) => this.record(record))
+          records: records.filter((record) => record.schema_id === namespace.schema_id).map((record) => this.record(record))
         }))
       };
       const backup = Object.freeze({ ...body, digest: await digest(body) });
@@ -249,7 +259,7 @@ export class PostgresAppStorage {
       );
       const schemaIds = new Set<string>();
       for (const namespace of backup.namespaces) {
-        if (!schemaPattern.test(namespace.schemaId) || schemaIds.has(namespace.schemaId) || !Number.isSafeInteger(namespace.schemaVersion) || namespace.schemaVersion < 1 || !Number.isSafeInteger(namespace.quotaBytes) || namespace.quotaBytes < 1 || namespace.quotaBytes > 268_435_456 || !Number.isSafeInteger(namespace.revision) || namespace.revision < 0 || !Array.isArray(namespace.records) || namespace.records.length > 1_000) fail("BACKUP_INVALID", "App storage backup namespace is invalid.");
+        if (!schemaPattern.test(namespace.schemaId) || schemaIds.has(namespace.schemaId) || !Number.isSafeInteger(namespace.schemaVersion) || namespace.schemaVersion < 1 || !Number.isSafeInteger(namespace.quotaBytes) || namespace.quotaBytes < 1 || namespace.quotaBytes > 268_435_456 || !Number.isSafeInteger(namespace.revision) || namespace.revision < 0 || !Array.isArray(namespace.records)) fail("BACKUP_INVALID", "App storage backup namespace is invalid.");
         schemaIds.add(namespace.schemaId);
         let usedBytes = 0;
         const keys = new Set<string>();
@@ -269,10 +279,16 @@ export class PostgresAppStorage {
            values ($1,$2,$3,$4,$5,$6,$7,$8)`,
           [backup.applicationId, backup.environment, backup.appId, namespace.schemaId, namespace.schemaVersion, namespace.quotaBytes, usedBytes, namespace.revision]
         );
-        for (const record of namespace.records) await session.query(
-          `insert into runtime_extension_storage_records (application_id, environment, app_id, schema_id, storage_key, value_json, value_bytes, revision) values ($1,$2,$3,$4,$5,$6::jsonb,$7,$8)`,
-          [backup.applicationId, backup.environment, backup.appId, namespace.schemaId, record.key, JSON.stringify(record.value), record.bytes, record.revision]
-        );
+        for (let start = 0; start < namespace.records.length; start += backupPageSize) {
+          const records = namespace.records.slice(start, start + backupPageSize);
+          await session.query(
+            `insert into runtime_extension_storage_records (application_id, environment, app_id, schema_id, storage_key, value_json, value_bytes, revision) values ${records.map((_, index) => {
+              const parameter = index * 8;
+              return `($${parameter + 1},$${parameter + 2},$${parameter + 3},$${parameter + 4},$${parameter + 5},$${parameter + 6}::jsonb,$${parameter + 7},$${parameter + 8})`;
+            }).join(",")}`,
+            records.flatMap((record) => [backup.applicationId, backup.environment, backup.appId, namespace.schemaId, record.key, JSON.stringify(record.value), record.bytes, record.revision])
+          );
+        }
       }
     });
   }

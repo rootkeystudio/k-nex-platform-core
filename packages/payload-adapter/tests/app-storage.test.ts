@@ -91,6 +91,63 @@ describe("PostgresAppStorage.exportBackup", () => {
     ]);
     expect(released).toBe(true);
   });
+
+  it("keyset-pages exports and rolls back a later restore batch", async () => {
+    const records = Array.from({ length: 1_001 }, (_, index) => ({
+      schema_id: appNamespace.schemaId,
+      storage_key: `view.${String(index).padStart(4, "0")}`,
+      value_json: null,
+      value_bytes: 5,
+      revision: 1
+    }));
+    const restoreStatements: string[] = [];
+    const restoreParameterCounts: number[] = [];
+    let connections = 0;
+    let recordBatches = 0;
+    let releases = 0;
+    const pool = {
+      connect: async () => {
+        connections += 1;
+        if (connections === 1) return {
+          query: async <T extends object>(statement: string, values?: readonly unknown[]) => {
+            if (statement.startsWith("select schema_id, schema_version")) {
+              return { rows: [{ schema_id: appNamespace.schemaId, schema_version: 1, quota_bytes: 20_000, used_bytes: 5_005, revision: 1 }] as T[] };
+            }
+            if (statement.startsWith("select schema_id, storage_key")) {
+              const start = values?.[3] === null ? 0 : 1_000;
+              return { rows: records.slice(start, start + 1_000) as T[] };
+            }
+            return { rows: [] as T[] };
+          },
+          release: () => { releases += 1; }
+        };
+        return {
+          query: async <T extends object>(statement: string, values?: readonly unknown[]) => {
+            restoreStatements.push(statement);
+            if (statement.startsWith("insert into runtime_extension_storage_records")) {
+              recordBatches += 1;
+              restoreParameterCounts.push(values?.length ?? 0);
+              if (recordBatches === 2) throw new Error("second batch failed");
+            }
+            return { rows: [] as T[] };
+          },
+          release: () => { releases += 1; }
+        };
+      },
+      query: async () => { throw new Error("storage must use its connected client"); }
+    } as unknown as RuntimeExtensionPool;
+    const storage = new PostgresAppStorage(pool, { validate: (_schemaId, value) => value }, { assertSafe: () => undefined });
+
+    const backup = await storage.exportBackup(...identity);
+    expect(backup.namespaces[0]?.records).toHaveLength(1_001);
+    expect(backup.namespaces[0]?.records.map((record) => record.key)).toEqual(records.map((record) => record.storage_key));
+
+    await expect(storage.restoreBackup(backup)).rejects.toThrow("second batch failed");
+    expect(restoreParameterCounts).toEqual([8_000, 8]);
+    expect(restoreStatements).toContain("rollback");
+    expect(restoreStatements).not.toContain("commit");
+    expect(releases).toBe(2);
+  });
 });
 
 describe("PostgresAppStorage cancellation", () => {
