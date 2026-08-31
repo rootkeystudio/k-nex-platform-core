@@ -11,11 +11,11 @@ Run `33369701437` attempt 2: the exact durable Hot Application PostgreSQL journe
 
 ## Validation
 
-Run `33371840529`: the strict canary produced `socket=41` with a new `type=1326` audit record; five isolated durable-journey attempts did not reproduce `exitCode=159`. Local workflow YAML parse, extracted Bash syntax check, and `git diff --check` pass for this audit-capture slice.
+Runs `33371840529` and `33372094707`: the strict canary produced `socket=41` with a new `type=1326` audit record; 55 isolated durable-journey attempts did not reproduce `exitCode=159`. Local workflow YAML parse, extracted Bash syntax check, and `git diff --check` pass for this audit-capture slice.
 
 ## Next
 
-Run the strict audit capture with its verified canary and retry only the exact durable Hot Application PostgreSQL journey up to 50 times for mapped syscall evidence.
+Run the verified strict audit capture around the real full Gate 9 workload; map any SIGSYS syscall or accept a genuine Gate 9 pass.
 
 ## Blockers
 

@@ -34,6 +34,12 @@ jobs:
         run: node scripts/setup-gate-9-linux-isolation.mjs
       - name: Install browser proofs
         run: pnpm exec playwright install --with-deps chromium
+      - name: Run Gate 9 Docker runner preflight
+        run: |
+          pnpm --filter '@k-nex/extension-runner...' -r build
+          pnpm --filter @k-nex/extension-runner test:docker
+        env:
+          K_NEX_RUNNER_ISOLATION_POLICY: apparmor
       - name: Capture strict Gate 9 seccomp audit evidence
         shell: bash
         run: |
@@ -95,25 +101,14 @@ jobs:
           fi
           audit_baseline_lines=$(wc -l < "$audit_log")
 
-          reproduced=""
-          for attempt in {1..50}; do
-            set +e
-            K_NEX_RUNNER_ISOLATION_POLICY=apparmor node --test --test-concurrency=1 \
-              --test-name-pattern='^proves PostgreSQL-backed Hot Application install, update, restore, rollback, and execution through the durable runtime$' \
-              fixtures/customer-gate-1/tests/runtime-extension-state-postgres.test.mjs > "$attempt_log" 2>&1
-            test_status=$?
-            set -e
-            if [ "$test_status" -eq 159 ] || grep -Eq 'exitCode=159|SIGSYS' "$attempt_log"; then
-              reproduced="$attempt"
-              break
-            fi
-          done
+          set +e
+          K_NEX_RUNNER_ISOLATION_POLICY=apparmor pnpm gate:9 > "$attempt_log" 2>&1
+          gate_status=$?
+          set -e
 
           stop_capture
           tail -n 120 "$audit_log" || true
-          if [ -n "$reproduced" ]; then
-            tail -n 120 "$attempt_log" || true
-          fi
+          tail -n 240 "$attempt_log" || true
           audit_records=$(tail -n "+$((audit_baseline_lines + 1))" "$audit_log" | grep -F 'type=1326' | grep -F 'subj=k-nex-extension-runner' | grep -F 'exe="/usr/local/bin/node"' | grep -F 'sig=31' | grep -F 'code=0x80000000' | grep -F 'arch=c000003e' || true)
           unistd_header=/usr/include/x86_64-linux-gnu/asm/unistd_64.h
           if [ ! -r "$unistd_header" ]; then
@@ -127,26 +122,23 @@ jobs:
             syscall_map="${syscall_map}${syscall_map:+,}${syscall_number}:${syscall_name:-unknown}"
           done < <(printf '%s\n' "$audit_records" | sed -n 's/.*syscall=\([0-9][0-9]*\).*/\1/p' | sort -nu)
 
-          if [ -n "$reproduced" ]; then
+          if grep -Eq 'exitCode=159|SIGSYS' "$attempt_log"; then
             if [ -z "$syscall_map" ]; then
-              echo "GATE_9_STRICT_AUDIT_UNAVAILABLE attempt=$reproduced strict_workload_audit_record_missing"
+              echo "GATE_9_STRICT_AUDIT_UNAVAILABLE gate_status=$gate_status strict_workload_audit_record_missing"
               exit 1
             fi
-            echo "GATE_9_STRICT_AUDIT_REPRODUCED attempt=$reproduced syscall_map=$syscall_map"
+            echo "GATE_9_STRICT_AUDIT_REPRODUCED gate_status=$gate_status syscall_map=$syscall_map"
             exit 1
           fi
-          echo "GATE_9_STRICT_AUDIT_NO_REPRODUCTION attempts=50 syscall_map=$syscall_map"
-          exit 1
-      - name: Run Gate 9 Docker runner preflight
-        run: |
-          pnpm --filter '@k-nex/extension-runner...' -r build
-          pnpm --filter @k-nex/extension-runner test:docker
-        env:
-          K_NEX_RUNNER_ISOLATION_POLICY: apparmor
-      - name: Run Phase 0 through Gate 9
-        run: pnpm gate:9
-        env:
-          K_NEX_RUNNER_ISOLATION_POLICY: apparmor
+          if [ "$gate_status" -ne 0 ]; then
+            echo "GATE_9_STRICT_AUDIT_OTHER_FAILURE gate_status=$gate_status syscall_map=$syscall_map"
+            exit "$gate_status"
+          fi
+          if [ -n "$syscall_map" ]; then
+            echo "GATE_9_STRICT_AUDIT_UNEXPECTED_DENIAL gate_status=0 syscall_map=$syscall_map"
+            exit 1
+          fi
+          echo "GATE_9_STRICT_AUDIT_GATE_PASS"
       - name: Verify exact-head repository evidence
         run: |
           pnpm audit --audit-level high
