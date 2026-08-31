@@ -184,7 +184,14 @@ export interface ActiveGenerationSecurityDecision {
   readonly catalogDigest: string;
   readonly catalogSignerIdentity: string;
   readonly catalogSequence: number;
-  readonly disposition: "revoked" | "compromised" | "unsupported";
+  readonly disposition:
+    | "revoked"
+    | "security-compromised"
+    | "security-advisory"
+    | "review-rejected"
+    | "review-pending"
+    | "support-unsupported"
+    | "support-deprecated";
   readonly release: Readonly<{
     deliveryClass: "hot-application" | "theme-skin";
     id: string;

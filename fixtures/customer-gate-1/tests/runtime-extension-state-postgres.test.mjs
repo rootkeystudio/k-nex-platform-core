@@ -272,12 +272,23 @@ function signedCatalog(entries, sequence = 1, expiresAt = "2030-01-01T00:00:00.0
   return { schemaVersion: 1, signer: catalogSigner, payload, signature: sign(null, Buffer.from(canonicalJson(payload)), catalogKeys.privateKey).toString("base64") };
 }
 
-function securityEntry(id, state, security = "clear") {
+function securityEntry(id, state, disposition = "clear") {
+  const policy = {
+    clear: { support: "supported", review: "approved", security: "clear", revoked: false },
+    revoked: { support: "supported", review: "approved", security: "clear", revoked: true },
+    "security-compromised": { support: "supported", review: "approved", security: "compromised", revoked: false },
+    "security-advisory": { support: "supported", review: "approved", security: "advisory", revoked: false },
+    "review-rejected": { support: "supported", review: "rejected", security: "clear", revoked: false },
+    "review-pending": { support: "supported", review: "pending", security: "clear", revoked: false },
+    "support-unsupported": { support: "unsupported", review: "approved", security: "clear", revoked: false },
+    "support-deprecated": { support: "deprecated", review: "approved", security: "clear", revoked: false }
+  }[disposition];
+  if (!policy) throw new TypeError(`Unknown catalog policy disposition: ${disposition}`);
   return {
     deliveryClass: "hot-application", id, version: "1.0.0", runtimeAbi: "1.0.0", publisher,
     source: { repository: source.repository, commit: state.sourceCommit, assetUrl: `${source.repository}/releases/download/v1.0.0/${id}.tar.gz` },
     artifactDigest: state.artifactDigest, manifestDigest: state.manifestDigest, provenanceDigest: state.provenanceDigest, sbomDigest: state.sbomDigest,
-    support: security === "unsupported" ? "unsupported" : "supported", review: "approved", security: security === "compromised" ? "compromised" : "clear", revoked: security === "revoked"
+    ...policy
   };
 }
 
@@ -518,7 +529,7 @@ test("preserves accepted artifacts while reconciling fresh revocation decisions 
     const preReceiptWarming = await prepareStateGeneration(storeA, preReceiptChange, digest("c"), "security-pre-receipt-worker", now);
     await storeA.activateGeneration(preReceiptWarming.operationId, preReceiptWarming.leaseToken);
     const preReceiptActive = (await storeA.inventory(preReceiptChange.applicationId, preReceiptChange.environment)).extensions.hotApplications[preReceiptChange.extension.id].activeGeneration;
-    const preReceiptCatalog = signedCatalog([securityEntry(preReceiptChange.extension.id, preReceiptActive, "compromised")], 7, "2030-01-01T00:00:00.000Z");
+    const preReceiptCatalog = signedCatalog([securityEntry(preReceiptChange.extension.id, preReceiptActive, "security-compromised")], 7, "2030-01-01T00:00:00.000Z");
     await pool.query(`
       create function p9_security_pre_receipt_failure() returns trigger language plpgsql as $$
       begin raise exception 'security pre-receipt evidence failure'; end;
@@ -541,6 +552,7 @@ test("preserves accepted artifacts while reconciling fresh revocation decisions 
     const preReceiptRecovered = await freshReconciler().reconcile({ applicationId: preReceiptChange.applicationId, environment: preReceiptChange.environment, extension: preReceiptChange.extension, catalog: preReceiptCatalog });
     assert.equal(preReceiptRecovered.status, "quarantined");
     assert.deepEqual(await evidence(preReceiptChange.extension.id), { receipts: 1, audits: 1, outbox: 1 });
+
     assert.deepEqual((await pool.query(
       "select status from runtime_extension_outbox where extension_id=$1 and event_json->>'eventType'='extension.security-quarantine'",
       [preReceiptChange.extension.id]
@@ -560,6 +572,21 @@ test("preserves accepted artifacts while reconciling fresh revocation decisions 
       [preReceiptChange.extension.id]
     )).rows, [{ status: "delivered" }]);
     assert.deepEqual(await evidence(preReceiptChange.extension.id), { receipts: 1, audits: 1, outbox: 1 });
+
+    const advisoryChange = stateRequest("app.sales-security-advisory", "security-advisory");
+    const advisoryWarming = await prepareStateGeneration(storeA, advisoryChange, digest("d"), "security-advisory-worker", now);
+    await storeA.activateGeneration(advisoryWarming.operationId, advisoryWarming.leaseToken);
+    const advisoryActive = (await storeA.inventory(advisoryChange.applicationId, advisoryChange.environment)).extensions.hotApplications[advisoryChange.extension.id].activeGeneration;
+    const advisoryCatalog = signedCatalog([securityEntry(advisoryChange.extension.id, advisoryActive, "security-advisory")], 8, "2030-01-01T00:00:00.000Z");
+    const advisory = await freshReconciler().reconcile({ applicationId: advisoryChange.applicationId, environment: advisoryChange.environment, extension: advisoryChange.extension, catalog: advisoryCatalog });
+    assert.equal(advisory.status, "quarantined");
+    assert.equal(advisory.receipt.reason, "security-advisory");
+    assert.deepEqual((await pool.query(
+      "select receipt_json->>'reason' reason, event_json->'evidence'->>'disposition' disposition from runtime_extension_security_receipts where extension_id=$1",
+      [advisoryChange.extension.id]
+    )).rows, [{ reason: "security-advisory", disposition: "security-advisory" }]);
+    assert.equal((await storeA.inventory(advisoryChange.applicationId, advisoryChange.environment)).extensions.hotApplications[advisoryChange.extension.id].disposition, "quarantined");
+
     console.log('P9_ACCEPTED_ARTIFACT_SECURITY_EVIDENCE={"scenarios":["SCN-02","accepted-expiry","postgres-checkpoint","altered-bytes","reconciler-race","lost-ack-restart","pre-receipt-rollback","outbox-publish-ack-gap"]}');
   } finally {
     await pool.end();

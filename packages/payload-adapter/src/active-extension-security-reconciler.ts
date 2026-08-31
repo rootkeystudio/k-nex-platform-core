@@ -53,8 +53,9 @@ export class ActiveExtensionSecurityReconciler {
         sbomDigest: generation.sbomDigest
       });
       if (!decision) return Object.freeze({ status: "no-matching-release" });
-      if (decision.disposition === "clear") return Object.freeze({ status: "clear" });
-      const securityDecision = Object.freeze({ ...decision, disposition: decision.disposition as "revoked" | "compromised" | "unsupported" });
+      const disposition = decision.disposition;
+      if (disposition === "clear") return Object.freeze({ status: "clear" });
+      const securityDecision = Object.freeze({ ...decision, disposition });
       try {
         const receipt = await this.store.quarantineActiveGeneration({
           applicationId: input.applicationId,

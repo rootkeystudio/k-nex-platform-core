@@ -924,7 +924,15 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
       input.generationId.length < 1 || !/^sha256:[0-9a-f]{64}$/u.test(input.decision.catalogDigest) ||
       !Number.isSafeInteger(input.decision.catalogSequence) || input.decision.catalogSequence < 1 ||
       !/^[a-z0-9][a-z0-9.-]{0,159}$/u.test(input.decision.catalogSignerIdentity) ||
-      !["revoked", "compromised", "unsupported"].includes(input.decision.disposition)) {
+      ![
+        "revoked",
+        "security-compromised",
+        "security-advisory",
+        "review-rejected",
+        "review-pending",
+        "support-unsupported",
+        "support-deprecated"
+      ].includes(input.decision.disposition)) {
       fail("STATE_INVALID", "Security quarantine decision is invalid.");
     }
     const transition = await securityQuarantineTransitionIds(input);

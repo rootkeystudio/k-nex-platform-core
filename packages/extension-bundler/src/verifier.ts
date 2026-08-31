@@ -1,6 +1,6 @@
 import { canonicalJson, ExtensionBundleManifestSchema, HotApplicationManifestSchema, type ExtensionBundleManifest, type HotApplicationManifest } from "@k-nex/contracts";
 
-import { CatalogClient, type CatalogEntry, type Digest, type SignedCatalog, verifyHostedBuildProvenance } from "./catalog.js";
+import { CatalogClient, catalogPolicyDisposition, type CatalogEntry, type CatalogPolicyDisposition, type Digest, type SignedCatalog, verifyHostedBuildProvenance } from "./catalog.js";
 import { inspectBundleImports, sha256 } from "./bundle.js";
 import { assertBundleInventory } from "./inventory.js";
 import { extractNormalizedTarGz, type ExtractionLimits } from "./tar.js";
@@ -22,7 +22,7 @@ export type CurrentCatalogSecurityDecision = Readonly<{
   catalogSignerIdentity: string;
   catalogSequence: number;
   release: ActiveReleaseIdentity;
-  disposition: "clear" | "revoked" | "compromised" | "unsupported";
+  disposition: CatalogPolicyDisposition;
 }>;
 
 function required(files: ReadonlyMap<string, Buffer>, path: string): Buffer {
@@ -84,7 +84,7 @@ export class ArtifactVerifier {
   async verify(request: VerificationRequest): Promise<VerifiedArtifact> {
     const entry = (await this.#catalog.read(request.catalog)).find((candidate) => candidate.deliveryClass === request.deliveryClass && candidate.id === request.id && candidate.version === request.version);
     if (!entry) throw new Error("Requested extension is not in the official catalog.");
-    if (entry.support !== "supported" || entry.review !== "approved" || entry.security !== "clear" || entry.revoked) throw new Error("Catalog release is not currently installable.");
+    if (catalogPolicyDisposition(entry) !== "clear") throw new Error("Catalog release is not currently installable.");
     return this.verifyEntry(request, entry);
   }
 
@@ -92,13 +92,13 @@ export class ArtifactVerifier {
   async verifyAccepted(request: VerificationRequest): Promise<VerifiedArtifact> {
     const entry = (await this.#catalog.readAcceptanceEvidence(request.catalog)).find((candidate) => candidate.deliveryClass === request.deliveryClass && candidate.id === request.id && candidate.version === request.version);
     if (!entry) throw new Error("Requested extension is not in the accepted catalog evidence.");
-    if (entry.support !== "supported" || entry.review !== "approved" || entry.security !== "clear" || entry.revoked) {
+    if (catalogPolicyDisposition(entry) !== "clear") {
       throw new Error("Accepted catalog evidence does not describe an installable release.");
     }
     return this.verifyEntry(request, entry);
   }
 
-  /** Reads a fresh, replay-protected catalog and returns the security state of one exact release. */
+  /** Reads a fresh, replay-protected catalog and returns the policy state of one exact release. */
   async currentSecurityDecision(catalog: SignedCatalog, release: ActiveReleaseIdentity): Promise<CurrentCatalogSecurityDecision | undefined> {
     const entry = (await this.#catalog.read(catalog)).find((candidate) => candidate.deliveryClass === release.deliveryClass && candidate.id === release.id && candidate.version === release.version);
     if (!entry || entry.source.commit !== release.sourceCommit || entry.artifactDigest !== release.artifactDigest ||
@@ -108,7 +108,7 @@ export class ArtifactVerifier {
     if (this.#trustedExtensionPublishers.get(entry.publisher.identity) !== entry.publisher.publicKey) {
       throw new Error("Extension publisher is not trusted.");
     }
-    const disposition = entry.revoked ? "revoked" : entry.security === "compromised" ? "compromised" : entry.support === "unsupported" ? "unsupported" : "clear";
+    const disposition = catalogPolicyDisposition(entry);
     return Object.freeze({
       catalogDigest: sha256(Buffer.from(canonicalJson(catalog))),
       catalogSignerIdentity: catalog.signer.identity,

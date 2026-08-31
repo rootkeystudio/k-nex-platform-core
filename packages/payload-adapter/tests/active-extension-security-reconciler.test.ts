@@ -188,4 +188,24 @@ describe("ActiveExtensionSecurityReconciler", () => {
     await expect(value.reconcile(request())).resolves.toEqual({ status: "clear" });
     expect(value.quarantineActiveGeneration).not.toHaveBeenCalled();
   });
+
+  it.each([
+    "revoked",
+    "security-compromised",
+    "security-advisory",
+    "review-rejected",
+    "review-pending",
+    "support-unsupported",
+    "support-deprecated"
+  ] as const)("quarantines every non-installable active disposition: %s", async (disposition) => {
+    const value = harness();
+    value.inventoryRead.mockResolvedValue(inventory("active", 17));
+    value.verifier.currentSecurityDecision.mockResolvedValue({ ...revokedDecision, disposition });
+    value.quarantineActiveGeneration.mockResolvedValue(receipt);
+
+    await expect(value.reconcile(request())).resolves.toEqual({ status: "quarantined", receipt });
+    expect(value.quarantineActiveGeneration).toHaveBeenCalledWith(expect.objectContaining({
+      decision: expect.objectContaining({ disposition })
+    }));
+  });
 });

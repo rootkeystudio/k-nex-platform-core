@@ -29,6 +29,35 @@ export type CatalogEntry = z.infer<typeof CatalogEntrySchema>;
 export type CatalogPayload = z.infer<typeof CatalogPayloadSchema>;
 export type SignedCatalog = z.infer<typeof SignedCatalogSchema>;
 
+export const catalogPolicyDispositions = [
+  "clear",
+  "revoked",
+  "security-compromised",
+  "security-advisory",
+  "review-rejected",
+  "review-pending",
+  "support-unsupported",
+  "support-deprecated"
+] as const;
+
+export type CatalogPolicyDisposition = typeof catalogPolicyDispositions[number];
+
+/**
+ * One policy ordering governs both fresh installs and active-generation
+ * revalidation. Earlier conditions win when a signed release has multiple
+ * non-installable states.
+ */
+export function catalogPolicyDisposition(entry: CatalogEntry): CatalogPolicyDisposition {
+  if (entry.revoked) return "revoked";
+  if (entry.security === "compromised") return "security-compromised";
+  if (entry.security === "advisory") return "security-advisory";
+  if (entry.review === "rejected") return "review-rejected";
+  if (entry.review === "pending") return "review-pending";
+  if (entry.support === "unsupported") return "support-unsupported";
+  if (entry.support === "deprecated") return "support-deprecated";
+  return "clear";
+}
+
 export interface CatalogCheckpoint {
   readonly signerIdentity: string;
   readonly sequence: number;

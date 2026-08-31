@@ -80,7 +80,15 @@ const SecurityQuarantineEvidenceSchema = z.strictObject({
   catalogDigest: DigestSchema,
   catalogSignerIdentity: z.string().min(1).max(160),
   catalogSequence: PositiveRevisionSchema,
-  disposition: z.enum(["revoked", "compromised", "unsupported"]),
+  disposition: z.enum([
+    "revoked",
+    "security-compromised",
+    "security-advisory",
+    "review-rejected",
+    "review-pending",
+    "support-unsupported",
+    "support-deprecated"
+  ]),
   sourceCommit: FullShaSchema,
   artifactDigest: DigestSchema,
   manifestDigest: DigestSchema,

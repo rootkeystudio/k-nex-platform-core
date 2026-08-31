@@ -5,7 +5,7 @@ import { gunzipSync, gzipSync } from "node:zlib";
 import { canonicalJson } from "@k-nex/contracts";
 import { describe, expect, it } from "vitest";
 
-import { ArtifactVerifier, buildBundle, CatalogClient, createNormalizedTarGz, defaultExtractionLimits, extractNormalizedTarGz, InMemoryCatalogCheckpointStore, sha256, type BundleBuildInput, type CatalogEntry, type SignedCatalog, VerifiedArtifactStore, verifyHostedBuildProvenance } from "../src/index.js";
+import { ArtifactVerifier, buildBundle, catalogPolicyDisposition, CatalogClient, createNormalizedTarGz, defaultExtractionLimits, extractNormalizedTarGz, InMemoryCatalogCheckpointStore, sha256, type BundleBuildInput, type CatalogEntry, type SignedCatalog, VerifiedArtifactStore, verifyHostedBuildProvenance } from "../src/index.js";
 
 const source = { repository: "https://github.com/k-nex/official-apps", commit: "0123456789abcdef0123456789abcdef01234567" };
 const workflowIdentity = `${source.repository}/.github/workflows/release.yml@${source.commit}`;
@@ -134,6 +134,40 @@ describe("extension bundler", () => {
       const blocked = signedCatalog(entry);
       const blockedClient = new CatalogClient({ [blocked.signer.identity]: blocked.signer.publicKey }, new InMemoryCatalogCheckpointStore());
       await expect(new ArtifactVerifier(blockedClient, publishers).verify({ ...request, catalog: blocked })).rejects.toThrow(/not currently installable/u);
+    }
+  });
+
+  it("keeps every fresh-install policy state aligned with active-generation revalidation", async () => {
+    const expectedDisposition = (entry: CatalogEntry) => entry.revoked ? "revoked" :
+      entry.security === "compromised" ? "security-compromised" :
+      entry.security === "advisory" ? "security-advisory" :
+      entry.review === "rejected" ? "review-rejected" :
+      entry.review === "pending" ? "review-pending" :
+      entry.support === "unsupported" ? "support-unsupported" :
+      entry.support === "deprecated" ? "support-deprecated" : "clear";
+
+    for (const revoked of [false, true]) for (const security of ["clear", "advisory", "compromised"] as const) {
+      for (const review of ["approved", "pending", "rejected"] as const) for (const support of ["supported", "deprecated", "unsupported"] as const) {
+        const { bundle, publishers, request, catalog: accepted } = release();
+        const entry = { ...accepted.payload.entries[0]!, revoked, security, review, support };
+        const catalog = signedCatalog(entry);
+        const verifier = new ArtifactVerifier(new CatalogClient({ [catalog.signer.identity]: catalog.signer.publicKey }, new InMemoryCatalogCheckpointStore()), publishers);
+        const expected = expectedDisposition(entry);
+
+        expect(catalogPolicyDisposition(entry)).toBe(expected);
+        await expect(verifier.currentSecurityDecision(catalog, {
+          deliveryClass: entry.deliveryClass,
+          id: entry.id,
+          version: entry.version,
+          sourceCommit: entry.source.commit,
+          artifactDigest: entry.artifactDigest,
+          manifestDigest: entry.manifestDigest,
+          provenanceDigest: entry.provenanceDigest,
+          sbomDigest: entry.sbomDigest
+        })).resolves.toMatchObject({ disposition: expected });
+        if (expected === "clear") await expect(verifier.verify({ ...request, catalog })).resolves.toMatchObject({ artifactDigest: sha256(bundle.artifact) });
+        else await expect(verifier.verify({ ...request, catalog })).rejects.toThrow(/not currently installable/u);
+      }
     }
   });
 
