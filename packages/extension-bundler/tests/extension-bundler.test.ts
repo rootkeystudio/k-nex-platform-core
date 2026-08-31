@@ -99,9 +99,10 @@ describe("extension bundler", () => {
     const verifier = new ArtifactVerifier(client, publishers);
     expect((await verifier.verify(request)).manifest.id).toBe(request.id);
     const store = new VerifiedArtifactStore(verifier);
-    expect(store.read(sha256(bundle.artifact))).toBeUndefined();
+    const catalogDigest = sha256(Buffer.from(canonicalJson(catalog)));
+    expect(store.read(sha256(bundle.artifact), catalogDigest)).toBeUndefined();
     expect(await store.stage(request)).toEqual(await store.stage(request));
-    expect(store.read(sha256(bundle.artifact))?.verified.manifest.id).toBe(request.id);
+    expect(store.read(sha256(bundle.artifact), catalogDigest)?.verified.manifest.id).toBe(request.id);
 
     const alteredSignature = `${catalog.signature.startsWith("A") ? "B" : "A"}${catalog.signature.slice(1)}`;
     await expect(new ArtifactVerifier(client, publishers).verify({ ...request, catalog: { ...catalog, signature: alteredSignature } })).rejects.toThrow(/signature/u);
@@ -230,9 +231,39 @@ describe("extension bundler", () => {
     staged.verified.files.get("server/main.mjs")!.fill(0x20);
     expect(source.load({ owner, artifactDigest: staged.artifactDigest, serverEntrypoint: "server/main.mjs" }).source).toContain("export const run");
     expect(() => source.load({ owner, artifactDigest: staged.artifactDigest, serverEntrypoint: "server/not-declared.mjs" })).toThrow(/declared/u);
-    const entrypoint = store.read(staged.artifactDigest)!.verified.files.get("server/main.mjs")!;
+    const entrypoint = store.read(staged.artifactDigest, staged.catalogDigest)!.verified.files.get("server/main.mjs")!;
     entrypoint.fill(0x20);
     expect(source.load({ owner, artifactDigest: staged.artifactDigest, serverEntrypoint: "server/main.mjs" }).source).toContain("export const run");
+  });
+
+  it("keeps identical bytes under independent catalog acceptances", async () => {
+    const digest = `sha256:${"e".repeat(64)}` as const;
+    const body = Buffer.from("export const run = () => 'ok';\n");
+    const request = (sequence: number) => ({
+      catalog: { payload: { sequence } }, artifact: Buffer.from("same-bytes"), provenance: Buffer.from(`provenance-${sequence}`),
+      deliveryClass: "hot-application" as const, id: "app.sales-fixture", version: "1.0.0", runtimeAbi: "1.0.0"
+    });
+    const store = new VerifiedArtifactStore({
+      verify: async (value: ReturnType<typeof request>) => ({
+        artifactDigest: digest,
+        entry: { manifestDigest: digest, provenanceDigest: digest, sbomDigest: digest, source: { commit: `${value.catalog.payload.sequence}`.repeat(40) } },
+        manifest: {
+          deliveryClass: value.deliveryClass, id: value.id, version: value.version, runtimeAbi: value.runtimeAbi,
+          entrypoints: { server: ["server/main.mjs"], ui: [] }, files: { "server/main.mjs": { contentType: "application/javascript", bytes: body.byteLength, digest: sha256(body) } }
+        },
+        files: new Map([["server/main.mjs", Buffer.from(body)]])
+      })
+    } as any);
+    const owner = { applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application" as const, extensionId: "app.sales-fixture", generationId: "generation-a" };
+    const acceptedA = await store.stageForOwner(owner, request(1) as any);
+    const acceptedB = await store.stageForOwner({ ...owner, generationId: "generation-b" }, request(2) as any);
+
+    expect(acceptedA.artifactDigest).toBe(acceptedB.artifactDigest);
+    expect(acceptedA.catalogDigest).not.toBe(acceptedB.catalogDigest);
+    expect(store.read(digest, acceptedA.catalogDigest)!.verified.entry.source.commit).toBe("1".repeat(40));
+    expect(store.read(digest, acceptedB.catalogDigest)!.verified.entry.source.commit).toBe("2".repeat(40));
+    await expect(store.stageForOwner(owner, request(2) as any)).rejects.toThrow(/already bound/u);
+    expect(store.runnerSource().load({ owner, artifactDigest: digest, serverEntrypoint: "server/main.mjs" }).source).toContain("export const run");
   });
 
   it("rejects unknown catalog fields and invalid delivery-class-to-ID bindings at the catalog boundary", async () => {

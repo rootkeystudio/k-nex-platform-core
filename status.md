@@ -7,15 +7,15 @@
 
 ## Last completed
 
-P9.10 runner isolation and quarantine review is PASS. Production requires verified AppArmor plus remapped user namespaces; Docker Desktop is explicitly test-only. The runner uses a default-deny seccomp profile, acknowledges source handoff, fails closed across protocol and cleanup races, and publishes generation quarantine before delayed containment so sibling capability work cannot escape. Durable PostgreSQL quarantine retires the exact generation, clears its lease, remains idempotent across restart/replay, and preserves sibling application availability.
+P9.10 verified-artifact acceptance review is PASS. Artifact bytes remain content-addressed by `artifactDigest`; signed release acceptance is independently immutable by `(artifactDigest, catalogDigest)`, and generation bindings reference that exact pair. Stage conflicts roll back atomically. Resolve, Remote UI, Theme Skin, and runner reads reverify the selected catalog acceptance without digest-only trust or pool deadlock.
 
 ## Validation
 
-Local Node 24.19.0: affected package builds pass; focused runner/runtime/store tests pass 64/64; real Docker sandbox tests pass 9/9; isolated real PostgreSQL quarantine proof passes 1/1 with SCN-07 restart/replay/race evidence; the final delayed-cleanup race proof passes 1/1. Gate scripts retain exactly 12 proof groups and `git diff --check` passes. Same Sol-xhigh reviewer PASS. Full Gate 9 and exact-head Linux CI remain phase-end validation only.
+Local Node 24.19.0: affected package builds and forced clean payload-adapter typecheck pass; focused package tests pass; schema, Remote UI, and Theme Skin fixture proofs pass. The isolated real PostgreSQL acceptance proof passes 1/1 for concurrent catalogs, catalog-swap isolation, transaction rollback, composite FK, and exact runner resolution. `git diff --check` passes and test containers are removed. Same Sol-xhigh reviewer PASS. Full Gate 9 and exact-head Linux CI remain phase-end validation only.
 
 ## Next
 
-Close verified-artifact acceptance poisoning so identical bytes from different catalogs cannot overwrite or borrow trust.
+Close storage export/restore behavior beyond 1,000 records with one consistent PostgreSQL snapshot and rollback-safe failure handling.
 
 ## Blockers
 

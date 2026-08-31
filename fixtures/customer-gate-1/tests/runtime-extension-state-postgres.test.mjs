@@ -298,6 +298,71 @@ function verifiedRelease(release, catalog) {
   };
 }
 
+test("proves catalog-scoped verified-artifact acceptances preserve independent trust for identical bytes in PostgreSQL", { timeout: 180_000 }, async () => {
+  const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("runtime_artifact_acceptances").withStartupTimeout(120_000).start();
+  const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
+  try {
+    await boot(container.getConnectionUri());
+    const release = releaseDefinition(99, "3.0.0", "catalog-scoped-bytes", { status: "compatible", windowId: "catalog-acceptance-window", closesAt: "2026-08-30T09:00:00.000Z", migrationDigest: digest("9"), dataRevision: 1 });
+    const catalogA = signedCatalog([release.entry], 1);
+    const catalogB = signedCatalog([release.entry], 2);
+    const catalogC = signedCatalog([release.entry], 3);
+    const acceptedA = verifiedRelease(release, catalogA);
+    const acceptedB = verifiedRelease({ ...release, generationId: "app-sales-live-generation-98" }, catalogB);
+    const acceptedC = verifiedRelease({ ...release, generationId: "app-sales-live-generation-97" }, catalogC);
+    const artifactsA = new PostgresVerifiedArtifactStore(pool, new ArtifactVerifier(new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, new InMemoryCatalogCheckpointStore()), { [publisher.identity]: publisher.publicKey }));
+    const artifactsB = new PostgresVerifiedArtifactStore(pool, new ArtifactVerifier(new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, new InMemoryCatalogCheckpointStore()), { [publisher.identity]: publisher.publicKey }));
+    const artifactsC = new PostgresVerifiedArtifactStore(pool, new ArtifactVerifier(new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, new InMemoryCatalogCheckpointStore()), { [publisher.identity]: publisher.publicKey }));
+
+    await Promise.all([artifactsA.stage(acceptedA.stage), artifactsB.stage(acceptedB.stage)]);
+    assert.deepEqual((await pool.query(`
+      select (select count(*)::int from runtime_extension_artifacts) bytes,
+             (select count(*)::int from runtime_extension_artifact_acceptances) acceptances
+    `)).rows, [{ bytes: 1, acceptances: 2 }]);
+    assert.equal((await artifactsA.resolve({ owner: acceptedA.stage.owner, generationId: acceptedA.generationId, artifactDigest: release.entry.artifactDigest }))?.authority.catalogDigest, acceptedA.authority.catalogDigest);
+    assert.equal((await artifactsB.resolve({ owner: acceptedB.stage.owner, generationId: acceptedB.generationId, artifactDigest: release.entry.artifactDigest }))?.authority.catalogDigest, acceptedB.authority.catalogDigest);
+
+    await assert.rejects(artifactsB.stage({ ...acceptedB.stage, owner: acceptedA.stage.owner, authority: { ...acceptedA.authority, catalogDigest: acceptedB.authority.catalogDigest } }), { code: "ARTIFACT_CONFLICT" });
+    assert.equal((await artifactsA.resolve({ owner: acceptedA.stage.owner, generationId: acceptedA.generationId, artifactDigest: release.entry.artifactDigest }))?.authority.catalogDigest, acceptedA.authority.catalogDigest);
+
+    const missingCatalogDigest = digest("f");
+    await assert.rejects(pool.query(
+      `insert into runtime_extension_artifact_bindings
+        (application_id, environment, delivery_class, extension_id, generation_id, artifact_digest, catalog_digest, authority_json, activation_json, version)
+       values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10)`,
+      ["customer-alpha", "production", "hot-application", "app.sales-live", "app-sales-live-generation-missing-acceptance", release.entry.artifactDigest, missingCatalogDigest,
+        JSON.stringify({ ...acceptedA.authority, generationId: "app-sales-live-generation-missing-acceptance", catalogDigest: missingCatalogDigest }), JSON.stringify(acceptedA.stage.activation), release.version]
+    ), { code: "23503" });
+
+    await pool.query("update runtime_extension_artifact_acceptances set catalog_json=$1::jsonb where artifact_digest=$2 and catalog_digest=$3", [JSON.stringify(catalogA), release.entry.artifactDigest, acceptedB.authority.catalogDigest]);
+    await assert.rejects(artifactsB.resolve({ owner: acceptedB.stage.owner, generationId: acceptedB.generationId, artifactDigest: release.entry.artifactDigest }), { code: "ARTIFACT_INVALID" });
+    await assert.rejects(artifactsB.runnerSource().load({ owner: acceptedB.stage.owner, artifactDigest: release.entry.artifactDigest, serverEntrypoint: "server/main.mjs" }), { code: "ARTIFACT_INVALID" });
+    assert.equal((await artifactsA.resolve({ owner: acceptedA.stage.owner, generationId: acceptedA.generationId, artifactDigest: release.entry.artifactDigest }))?.authority.catalogDigest, acceptedA.authority.catalogDigest);
+
+    await pool.query(
+      `insert into runtime_extension_artifact_acceptances
+        (artifact_digest, catalog_digest, catalog_json, provenance_bytes, delivery_class, extension_id, version, runtime_abi)
+       values ($1,$2,$3::jsonb,$4,$5,$6,$7,$8)`,
+      [release.entry.artifactDigest, acceptedC.authority.catalogDigest, JSON.stringify(catalogA), acceptedC.stage.verification.provenance,
+        "hot-application", "app.sales-live", release.version, "1.0.0"]
+    );
+    const conflictBefore = await pool.query(`
+      select (select count(*)::int from runtime_extension_artifact_acceptances) acceptances,
+             (select count(*)::int from runtime_extension_artifact_bindings) bindings
+    `);
+    await assert.rejects(artifactsC.stage(acceptedC.stage), { code: "ARTIFACT_CONFLICT" });
+    assert.deepEqual((await pool.query(`
+      select (select count(*)::int from runtime_extension_artifact_acceptances) acceptances,
+             (select count(*)::int from runtime_extension_artifact_bindings) bindings
+    `)).rows, conflictBefore.rows);
+    assert.equal(await artifactsC.resolve({ owner: acceptedC.stage.owner, generationId: acceptedC.generationId, artifactDigest: release.entry.artifactDigest }), undefined);
+    await assert.rejects(artifactsC.runnerSource().load({ owner: acceptedC.stage.owner, artifactDigest: release.entry.artifactDigest, serverEntrypoint: "server/main.mjs" }), { code: "ARTIFACT_UNAVAILABLE" });
+  } finally {
+    await pool.end();
+    await container.stop();
+  }
+});
+
 test("preserves accepted artifacts while reconciling fresh revocation decisions atomically in PostgreSQL", { timeout: 180_000 }, async () => {
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("runtime_extension_security").withStartupTimeout(120_000).start();
   const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
@@ -322,7 +387,7 @@ test("preserves accepted artifacts while reconciling fresh revocation decisions 
     });
     assert.equal((await artifacts.resolve({ owner: acceptedRelease.stage.owner, generationId: release.generationId, artifactDigest: release.entry.artifactDigest }))?.authority.generationId, release.generationId);
     await pool.query("update runtime_extension_artifacts set artifact_bytes=set_byte(artifact_bytes, 0, (get_byte(artifact_bytes, 0)+1)%256) where artifact_digest=$1", [release.entry.artifactDigest]);
-    await assert.rejects(artifacts.read(release.entry.artifactDigest), { code: "ARTIFACT_INVALID" });
+    await assert.rejects(artifacts.read(release.entry.artifactDigest, acceptedRelease.authority.catalogDigest), { code: "ARTIFACT_INVALID" });
 
     const change = stateRequest("app.sales-security", "security-reconcile");
     const warming = await prepareStateGeneration(storeA, change, digest("a"), "security-worker", now);
@@ -585,7 +650,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     const verifier = new ArtifactVerifier(new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, new InMemoryCatalogCheckpointStore()), { [publisher.identity]: publisher.publicKey });
     const artifacts = new PostgresVerifiedArtifactStore(pool, verifier);
     await Promise.all(releases.map((release) => artifacts.stage(release.stage)));
-    const storedBytes = await pool.query("select artifact_digest, octet_length(artifact_bytes)::int artifact_bytes, octet_length(provenance_bytes)::int provenance_bytes from runtime_extension_artifacts order by artifact_digest");
+    const storedBytes = await pool.query("select artifact_digest, octet_length(artifact_bytes)::int artifact_bytes, (select octet_length(provenance_bytes)::int from runtime_extension_artifact_acceptances where artifact_digest=runtime_extension_artifacts.artifact_digest) provenance_bytes from runtime_extension_artifacts order by artifact_digest");
     assert.equal(storedBytes.rows.length, 5);
     assert.equal(storedBytes.rows.every((row) => row.artifact_bytes > 0 && row.provenance_bytes > 0), true);
 
@@ -593,7 +658,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     let readinessSequence = 0;
     const warmer = new ReferenceHotApplicationGenerationWarmer({
       runner: { prepareServer: async ({ artifact }) => { assert.match((await artifacts.runnerSource().load({ owner: { ...artifact.authority, generationId: artifact.authority.generationId }, artifactDigest: artifact.authority.artifactDigest, serverEntrypoint: "server/main.mjs" })).source, /export default async/u); warmed.push(`runner:${artifact.authority.generationId}`); } },
-      remoteUi: { prepareRemoteUi: async ({ artifact }) => { assert.ok((await artifacts.read(artifact.authority.artifactDigest))?.verified.files.get("ui/main.mjs")); warmed.push(`remote-ui:${artifact.authority.generationId}`); } },
+      remoteUi: { prepareRemoteUi: async ({ artifact }) => { assert.ok((await artifacts.read(artifact.authority.artifactDigest, artifact.authority.catalogDigest))?.verified.files.get("ui/main.mjs")); warmed.push(`remote-ui:${artifact.authority.generationId}`); } },
       storage: { prepareStorage: async ({ artifact }) => { assert.equal((await pool.query("select to_regclass('public.runtime_extension_storage_namespaces')::text storage")).rows[0].storage, "runtime_extension_storage_namespaces"); warmed.push(`storage:${artifact.authority.generationId}`); } },
       surfaces: { prepareFixedSurfaces: async ({ manifest, artifact }) => { assert.equal(manifest.screens.some((screen) => screen.route === "/activity/:activityid"), true); warmed.push(`surfaces:${artifact.authority.generationId}`); } },
       clock
@@ -922,7 +987,8 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     const dumped = await container.exec(["pg_dump", "--format=custom", "--file=/tmp/p9-extension.dump", uri.toString()]);
     assert.equal(dumped.exitCode, 0, dumped.output);
     await pool.query("delete from runtime_extension_artifact_bindings where extension_id='app.sales-live'");
-    await pool.query("delete from runtime_extension_artifacts where extension_id='app.sales-live'");
+    await pool.query("delete from runtime_extension_artifact_acceptances where extension_id='app.sales-live'");
+    await pool.query("delete from runtime_extension_artifacts where not exists (select 1 from runtime_extension_artifact_acceptances where runtime_extension_artifact_acceptances.artifact_digest=runtime_extension_artifacts.artifact_digest)");
     await pool.query("update runtime_extensions set metadata_json='{\"corrupt\":true}'::jsonb where extension_id='app.sales-live'");
     assert.equal(await artifacts.resolve({ owner: { applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application", extensionId: "app.sales-live" }, generationId: updated.generationId, artifactDigest: byGeneration.get(updated.generationId).authority.artifactDigest }), undefined);
     await assert.rejects(manager.inventory("customer-alpha", "production"), { code: "ARTIFACT_AUTHORITY_REJECTED" });
@@ -934,7 +1000,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     assert.deepEqual(await manager.inventory("customer-alpha", "production"), beforeRestore);
     for (const release of releases) {
       assert.equal(await pipeline.reverify(release.authority, { applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application", extensionId: "app.sales-live" }), true);
-      assert.equal((await artifacts.read(release.authority.artifactDigest)).verified.artifactDigest, release.authority.artifactDigest);
+      assert.equal((await artifacts.read(release.authority.artifactDigest, release.authority.catalogDigest)).verified.artifactDigest, release.authority.artifactDigest);
     }
     assert.deepEqual(await invokeTraffic(), { marker: "sales-live-v2", generationId: updated.generationId });
     const restartedFixedRouteHost = await startHotApplicationFixedRouteHost({ store: storeA, artifacts, applicationId: "customer-alpha", environment: "production", extension: identity, invokeSource: ({ input, expectedGeneration }) => invokeTraffic(input, expectedGeneration) });

@@ -234,7 +234,7 @@ test("delivers Theme Skins from signed durable artifacts through PluginManager i
     const uri = new URL(container.getConnectionUri()); uri.hostname = "127.0.0.1"; uri.port = "5432";
     const dumped = await container.exec(["pg_dump", "--format=custom", "--file=/tmp/p9-theme-skin.dump", uri.toString()]);
     assert.equal(dumped.exitCode, 0, dumped.output);
-    await pool.query("update runtime_extension_artifacts set artifact_bytes=decode('00','hex') where extension_id='skin.neobrutalism'");
+    await pool.query("update runtime_extension_artifacts set artifact_bytes=decode('00','hex') where artifact_digest=$1", [releases[1].authority.artifactDigest]);
     await assert.rejects(artifacts.loadThemeSkin(releases[1].authority), { code: "ARTIFACT_INVALID" });
     const restored = await container.exec(["pg_restore", "--clean", "--if-exists", "--no-owner", `--dbname=${uri.toString()}`, "/tmp/p9-theme-skin.dump"]);
     assert.equal(restored.exitCode, 0, restored.output);
@@ -262,9 +262,19 @@ test("delivers Theme Skins from signed durable artifacts through PluginManager i
     await recoveredArtifacts.stage({ owner: releases[0].authority, authority: releases[0].authority, activation, verification: { catalog, artifact: releases[0].bundle.artifact, provenance: releases[0].bundle.provenance, deliveryClass: "theme-skin", id: releases[0].entry.id, version: releases[0].version, runtimeAbi: "1.0.0" } });
     await assertAssetStatus(skinHost, skinAssetPath(releases[0]), 200);
 
-    await pool.query("update runtime_extension_artifact_bindings set authority_json=jsonb_set(authority_json, '{catalogDigest}', to_jsonb($1::text)) where generation_id=$2", [`sha256:${"f".repeat(64)}`, releases[1].generationId]);
-    await assert.rejects(recoveredManager.inventory("customer-alpha", "production"), { code: "ARTIFACT_INVALID" });
-    await pool.query("update runtime_extension_artifact_bindings set authority_json=$1::jsonb where generation_id=$2", [JSON.stringify(releases[1].authority), releases[1].generationId]);
+    const verifiedProvenance = (await pool.query(
+      "select provenance_bytes from runtime_extension_artifact_acceptances where artifact_digest=$1 and catalog_digest=$2",
+      [releases[1].authority.artifactDigest, releases[1].authority.catalogDigest]
+    )).rows[0].provenance_bytes;
+    await pool.query(
+      "update runtime_extension_artifact_acceptances set provenance_bytes=decode('00','hex') where artifact_digest=$1 and catalog_digest=$2",
+      [releases[1].authority.artifactDigest, releases[1].authority.catalogDigest]
+    );
+    await assert.rejects(recoveredArtifacts.loadThemeSkin(releases[1].authority), { code: "ARTIFACT_INVALID" });
+    await pool.query(
+      "update runtime_extension_artifact_acceptances set provenance_bytes=$1 where artifact_digest=$2 and catalog_digest=$3",
+      [verifiedProvenance, releases[1].authority.artifactDigest, releases[1].authority.catalogDigest]
+    );
 
     const rollback = await recoveredManager.plan(request("rollback", "1.0.0", updated.revisionAfter));
     const rolledBack = await recoveredManager.rollback(rollback.operationId);
