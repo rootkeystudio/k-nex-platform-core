@@ -7,15 +7,15 @@
 
 ## Last completed
 
-P9.10 exact-head run `33362722310` confirmed the release-worker OOM fix, then exposed two late races. Anonymous Hot Application traffic now retries once only after a proven active-pointer lease race while UI-pinned traffic remains fail-closed. Static source/builder artifact handoff now uses one validated bounded wait and surfaces post-ready source death promptly. Runner pre-handoff close now preserves bounded inspection evidence. Run `33364968118` exposed and corrected only the new isolated probe's concurrent 2-second startup assumption before PostgreSQL began.
+P9.10 exact-head run `33365283190` static proof PASS, 18/19; the only remaining exact failure is SIGSYS under the strict runner profile.
 
 ## Validation
 
-Local Node 24.19.0: runtime pointer-race tests pass 9/9; runner reconciliation tests pass 34/34; serialized customer fixture tests pass 2/2; runtime and runner typechecks, fixture syntax checks, and `git diff --check` pass. PR #28 run `33364968118` passed exact-head Linux/AppArmor preflight; its pre-PostgreSQL probe-only timeout is corrected without changing artifact deadlines.
+Run `33365283190` static proof PASS, 18/19. Local Node 24.19.0 with `K_NEX_RUNNER_ISOLATION_POLICY=local-docker-test-only`: Docker runner tests pass 13/13 with 2 AppArmor/x64-only skips.
 
 ## Next
 
-Push exact head and run Linux/AppArmor Docker plus full Gate 9. On PASS, refresh Phase 9 result/status, rerun exact-head CI, then obtain same Sol-xhigh phase review.
+Run the temporary x64/AppArmor seccomp diagnostic preflight to derive the exact SIGSYS syscall evidence.
 
 ## Blockers
 
