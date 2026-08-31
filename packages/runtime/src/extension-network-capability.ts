@@ -22,7 +22,7 @@ export interface ExtensionNetworkPolicy {
 }
 
 export class ExtensionNetworkError extends Error {
-  constructor(readonly code: "REQUEST_INVALID" | "DESTINATION_DENIED" | "METHOD_DENIED" | "SECRET_REFERENCE_DENIED" | "SECRET_OUTPUT_REJECTED", message: string) {
+  constructor(readonly code: "REQUEST_INVALID" | "DESTINATION_DENIED" | "METHOD_DENIED" | "SECRET_REFERENCE_DENIED" | "SECRET_OUTPUT_REJECTED" | "INPUT_TOO_LARGE" | "OUTPUT_TOO_LARGE" | "CONCURRENCY_EXHAUSTED" | "DNS_FAILED" | "DNS_DENIED" | "REDIRECT_DENIED" | "RESPONSE_ENCODING_REJECTED" | "RESPONSE_INVALID" | "TRANSPORT_FAILED" | "TIMEOUT" | "ABORTED", message: string) {
     super(message);
     this.name = "ExtensionNetworkError";
   }

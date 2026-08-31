@@ -1,12 +1,14 @@
 import { execFile as execFileCallback, spawn } from "node:child_process";
 import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer as createHttpsServer, request as requestHttps } from "node:https";
+import type { RequestOptions } from "node:https";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { ArtifactVerifier, buildBundle, canonicalJson, CatalogClient, InMemoryCatalogCheckpointStore, sha256, type CatalogEntry, type SignedCatalog, VerifiedArtifactStore } from "@k-nex/extension-bundler";
-import { ExtensionCapabilityGateway, HmacExtensionCapabilityTokens, InMemoryExtensionCapabilitySequenceStoreForTests, type ExtensionCapabilityHandler, type ExtensionCapabilitySequenceStore } from "@k-nex/runtime";
+import { BoundedExtensionNetworkCapability, ExtensionCapabilityGateway, HmacExtensionCapabilityTokens, InMemoryExtensionCapabilitySequenceStoreForTests, NodeHttpsExtensionNetworkTransport, type ExtensionCapabilityGrant, type ExtensionCapabilityHandler, type ExtensionCapabilitySequenceStore } from "@k-nex/runtime";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { DockerHotApplicationSandboxSupervisor, RunnerInvocationError, dockerAppArmorPolicy, dockerIsolationPolicyFromEnvironment, extensionRunnerImage, runnerAppArmorProfileName, runnerSeccompProfile, type RunnerGenerationIdentity, type RunnerInvocationLimits } from "../src/index.js";
@@ -44,7 +46,7 @@ function artifactStore() {
 }
 
 let sequence = 0;
-async function request(store: VerifiedArtifactStore, generationId: string, source: string, options: Readonly<{ appId?: string; wallTimeMs?: number }> = {}) {
+async function request(store: VerifiedArtifactStore, generationId: string, source: string, options: Readonly<{ appId?: string; wallTimeMs?: number; capabilities?: readonly ExtensionCapabilityGrant[]; grants?: readonly ExtensionCapabilityGrant[] }> = {}) {
   sequence += 1;
   const invocationId = `runner-invocation-${sequence}`;
   const drainLeaseId = `lease-00000000-0000-4000-8000-${sequence.toString(16).padStart(12, "0")}`;
@@ -52,7 +54,7 @@ async function request(store: VerifiedArtifactStore, generationId: string, sourc
   const manifest = {
     schemaVersion: 1 as const, deliveryClass: "hot-application" as const, id: target.appId, displayName: "Runner fixture", version: "1.0.0", runtimeAbi: "1.0.0",
     entrypoints: { server: ["server/main.mjs"], ui: ["ui/main.mjs"] },
-    capabilities: [],
+    capabilities: options.capabilities ?? [],
     resourceBudget: { maxBundleBytes: 1_048_576, maxAssetBytes: 1_024, maxStorageBytes: 1_024, maxMemoryMiB: 64, maxCpuMilliCores: 250, maxWallTimeMs: 10_000, maxInputBytes: 8_192, maxOutputBytes: 8_192, maxLogBytes: 8_192, maxConcurrency: 2 },
     settings: [], screens: [{ id: "runner.screen", route: "/", entrypoint: "ui/main.mjs" }], navigation: [], sources: [], actions: [], tools: [], logicFunctions: [], eventSubscriptions: [], schedules: [], storageSchemas: [], assets: [], localization: [], healthChecks: []
   };
@@ -72,7 +74,7 @@ async function request(store: VerifiedArtifactStore, generationId: string, sourc
   const token = tokens.issue({
     tokenId: `runner-token-${sequence}`, ...target, invocationId,
     actor: { principalId: "user:one", effectiveActorId: "user:one" }, correlationId: `runner-correlation-${sequence}`,
-    drainLeaseId, grants: [{ kind: "records", required: true, reason: "Read fixture records.", operations: ["query"], resources: [{ id: "sales.tasks", version: 1 }] }], ttlMs: 30_000
+    drainLeaseId, grants: options.grants ?? [{ kind: "records", required: true, reason: "Read fixture records.", operations: ["query"], resources: [{ id: "sales.tasks", version: 1 }] }], ttlMs: 30_000
   });
   return { owner: { applicationId: owner.applicationId, environment: owner.environment, deliveryClass: owner.deliveryClass, extensionId: owner.extensionId }, generationId, artifactDigest: verified.artifactDigest, serverEntrypoint: "server/main.mjs", invocationId, drainLeaseId, token, input: { marker: invocationId }, limits: { ...limits, ...(options.wallTimeMs === undefined ? {} : { wallTimeMs: options.wallTimeMs }) } };
 }
@@ -91,8 +93,8 @@ async function inspectContainer(name: string): Promise<Record<string, any>> {
   throw lastError;
 }
 
-function supervisor(observations: Record<string, Record<string, any>>, store: VerifiedArtifactStore, quarantines: string[] = [], started?: (identity: RunnerGenerationIdentity, name: string) => void, handler: ExtensionCapabilityHandler = queryHandler, sequences: ExtensionCapabilitySequenceStore = new InMemoryExtensionCapabilitySequenceStoreForTests(clock)) {
-  const gateway = new ExtensionCapabilityGateway(tokens, { "records.query": handler }, { reauthorize: () => true }, sequences, clock, { maxInputBytes: 8_192, maxOutputBytes: 8_192, maxDepth: 12, maxCalls: 8 });
+function supervisor(observations: Record<string, Record<string, any>>, store: VerifiedArtifactStore, quarantines: string[] = [], started?: (identity: RunnerGenerationIdentity, name: string) => void, handler: ExtensionCapabilityHandler = queryHandler, sequences: ExtensionCapabilitySequenceStore = new InMemoryExtensionCapabilitySequenceStoreForTests(clock), networkHandler?: ExtensionCapabilityHandler) {
+  const gateway = new ExtensionCapabilityGateway(tokens, { "records.query": handler, ...(networkHandler === undefined ? {} : { "http-fetch.request": networkHandler }) }, { reauthorize: () => true }, sequences, clock, { maxInputBytes: 8_192, maxOutputBytes: 8_192, maxDepth: 12, maxCalls: 8 });
   return new DockerHotApplicationSandboxSupervisor(gateway, {
     quarantine(generation, reason) { quarantines.push(`${generation.generationId}:${reason}`); }
   }, {
@@ -220,43 +222,132 @@ describe("production extension runner", () => {
   it("runs app generations with container authority and only declared host capabilities", async () => {
     const observations: Record<string, Record<string, any>> = {};
     const store = artifactStore();
-    const runner = supervisor(observations, store);
-    process.env.K_NEX_RUNNER_HOST_SECRET_PROBE = "must-not-enter-container";
-    const source = `async ({ input, host }) => {
-      let constructorEscape = "allowed";
-      try { constructorEscape = ({}).constructor.constructor("return process")(); } catch { constructorEscape = "blocked"; }
-      const authority = await host.call("records.query", input);
-      let denied = "missing";
-      try { await host.call("records.action", {}); } catch (error) { denied = error.message; }
-      return { authority, denied, processType: typeof process, requireType: typeof require, fetchType: typeof fetch, constructorEscape, trustedResult: true };
-    }`;
-    const trusted = await request(store, "sales-generation-one", source);
-    const result = await runner.invoke({ ...trusted, source: "export default () => ({ attacker: true })" } as typeof trusted & { source: string });
-    expect(result).toMatchObject({
-      authority: { applicationId: "customer-alpha", appId: "app.sales-assistant", generationId: "sales-generation-one" },
-      denied: "CAPABILITY_DENIED", processType: "undefined", requireType: "undefined", fetchType: "undefined", constructorEscape: "blocked", trustedResult: true
-    });
-    await expect(runner.invoke(await request(store, "sales-generation-one", source))).resolves.toMatchObject({ trustedResult: true });
-
-    const inspected = Object.values(observations)[0]!;
-    expect(Number(inspected.Config.User.split(":")[0])).toBeGreaterThanOrEqual(10_000);
-    expect(inspected.HostConfig).toMatchObject({ NetworkMode: "none", ReadonlyRootfs: true, PidsLimit: 32, Memory: 67_108_864, MemorySwap: 67_108_864, NanoCpus: 250_000_000 });
-    expect(inspected.HostConfig.CapDrop).toContain("ALL");
-    expect(inspected.HostConfig.SecurityOpt).toContain("no-new-privileges=true");
-    expect(inspected.HostConfig.SecurityOpt).toContain(`seccomp=${runnerSeccompProfile}`);
-    if (isolationPolicy.kind === "apparmor") {
-      expect(inspected.HostConfig.SecurityOpt).toContain(`apparmor=${runnerAppArmorProfileName}`);
-      expect(inspected.AppArmorProfile).toBe(runnerAppArmorProfileName);
-    } else expect(inspected.AppArmorProfile).toBe("");
-    expect(inspected.HostConfig.UsernsMode).not.toBe("host");
-    expect(inspected.HostConfig.Binds ?? []).toEqual([]);
-    expect(inspected.Mounts.every((mount: Record<string, unknown>) => mount.Type !== "bind")).toBe(true);
-    expect(inspected.Config.Env.sort()).toEqual([
-      "HOME=/tmp", "NODE_NO_WARNINGS=1", "NODE_VERSION=24.19.0",
-      "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "YARN_VERSION=1.22.22"
-    ]);
-    expect(inspected.Config.Env.join("\n")).not.toMatch(/K_NEX_RUNNER_HOST_SECRET_PROBE|DATABASE_URL|DOCKER_HOST|PAYLOAD_SECRET/u);
-    expect(inspected.HostConfig.Tmpfs["/tmp"]).toContain("noexec");
+    const directory = mkdtempSync(join(tmpdir(), "k-nex-network-proof-"));
+    const keyPath = join(directory, "allowed.test.key");
+    const certificatePath = join(directory, "allowed.test.crt");
+    const hits: Array<Readonly<{ method: string | undefined; path: string | undefined; accept: string | undefined; fixture: string | undefined }>> = [];
+    const transportRequests: RequestOptions[] = [];
+    const nodeLookupAll: boolean[] = [];
+    const pinnedLookupResults: Array<readonly { address: string; family: number }[]> = [];
+    const priorHostSecret = process.env.K_NEX_RUNNER_HOST_SECRET_PROBE;
+    let server: ReturnType<typeof createHttpsServer> | undefined;
+    try {
+      await execFile("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", keyPath, "-out", certificatePath, "-subj", "/CN=allowed.test", "-addext", "subjectAltName=DNS:allowed.test", "-days", "1"]);
+      server = createHttpsServer({ key: readFileSync(keyPath), cert: readFileSync(certificatePath) }, (request, response) => {
+        hits.push({ method: request.method, path: request.url, accept: request.headers.accept, fixture: request.headers["x-fixture"] as string | undefined });
+        if (request.url === "/redirect") {
+          response.writeHead(302, { location: "https://denied.test/redirected" });
+          response.end();
+          return;
+        }
+        const body = JSON.stringify({ via: "host-capability", path: request.url });
+        response.writeHead(200, { "content-type": "application/json", "content-length": Buffer.byteLength(body) });
+        response.end(body);
+      });
+      await new Promise<void>((resolve, reject) => {
+        server!.once("error", reject);
+        server!.listen(0, "127.0.0.1", () => { server!.off("error", reject); resolve(); });
+      });
+      const address = server.address();
+      if (address === null || typeof address === "string") throw new Error("TLS fixture did not bind a TCP port.");
+      const networkGrant: ExtensionCapabilityGrant = { kind: "http-fetch", required: true, reason: "Fetch the bounded runner fixture.", destinations: ["https://allowed.test"], methods: ["GET"] };
+      const vettedAddress = { address: "93.184.216.34", family: 4 };
+      const transport = new NodeHttpsExtensionNetworkTransport(
+        { maxInputBytes: 512, maxOutputBytes: 512, maxWallTimeMs: 5_000, maxConcurrency: 1 },
+        {
+          resolve: async (hostname) => {
+            expect(hostname).toBe("allowed.test");
+            return [vettedAddress];
+          },
+          request: (options, callback) => {
+            transportRequests.push(options);
+            const productionLookup = options.lookup;
+            if (productionLookup === undefined) throw new Error("Network transport did not provide a pinned lookup.");
+            return requestHttps({
+              ...options,
+              port: address.port,
+              ca: readFileSync(certificatePath),
+              servername: "allowed.test",
+              lookup: ((hostname: string, lookupOptions: { readonly all?: boolean }, lookupCallback: (...args: unknown[]) => void) => {
+                nodeLookupAll.push(lookupOptions.all === true);
+                (productionLookup as never)(hostname, lookupOptions, (error: Error | null, result: string | readonly { address: string; family: number }[], family?: number) => {
+                  if (error !== null) return lookupCallback(error);
+                  if (Array.isArray(result)) {
+                    pinnedLookupResults.push(result);
+                    return lookupCallback(null, [{ address: "127.0.0.1", family: 4 }]);
+                  }
+                  return lookupCallback(null, "127.0.0.1", family ?? 4);
+                });
+              }) as RequestOptions["lookup"]
+            }, callback);
+          }
+        }
+      );
+      const networkHandler = new BoundedExtensionNetworkCapability(
+        { destinations: ["https://allowed.test"], methods: ["GET"], secretReferences: [] },
+        { resolve: async () => { throw new Error("This fixture has no secret references."); } }, transport
+      );
+      const runner = supervisor(observations, store, [], undefined, queryHandler, undefined, networkHandler);
+      process.env.K_NEX_RUNNER_HOST_SECRET_PROBE = "must-not-enter-container";
+      const source = `async ({ input, host }) => {
+        let constructorEscape = "allowed";
+        try { constructorEscape = ({}).constructor.constructor("return process")(); } catch { constructorEscape = "blocked"; }
+        const authority = await host.call("records.query", input);
+        const fetched = await host.call("http-fetch.request", { destination: "https://allowed.test", path: "/bounded?source=app", method: "GET", headers: { accept: "application/json", "x-fixture": "runner-proof" } });
+        let deniedDestination = "missing";
+        try { await host.call("http-fetch.request", { destination: "https://denied.test", path: "/never", method: "GET", headers: {} }); } catch (error) { deniedDestination = error.message; }
+        let deniedMethod = "missing";
+        try { await host.call("http-fetch.request", { destination: "https://allowed.test", path: "/never", method: "POST", headers: {} }); } catch (error) { deniedMethod = error.message; }
+        let redirect = "missing";
+        try { await host.call("http-fetch.request", { destination: "https://allowed.test", path: "/redirect", method: "GET", headers: {} }); } catch (error) { redirect = error.message; }
+        let denied = "missing";
+        try { await host.call("records.action", {}); } catch (error) { denied = error.message; }
+        return { authority, fetched, denied, deniedDestination, deniedMethod, redirect, processType: typeof process, requireType: typeof require, fetchType: typeof fetch, socketType: typeof WebSocket, constructorEscape, trustedResult: true };
+      }`;
+      const trusted = await request(store, "sales-generation-one", source, { capabilities: [networkGrant], grants: [{ kind: "records", required: true, reason: "Read fixture records.", operations: ["query"], resources: [{ id: "sales.tasks", version: 1 }] }, networkGrant] });
+      const result = await runner.invoke({ ...trusted, source: "export default () => ({ attacker: true })" } as typeof trusted & { source: string });
+      expect(result).toMatchObject({
+        authority: { applicationId: "customer-alpha", appId: "app.sales-assistant", generationId: "sales-generation-one" },
+        fetched: { status: 200, body: { via: "host-capability", path: "/bounded?source=app" } },
+        denied: "CAPABILITY_DENIED", deniedDestination: "DESTINATION_DENIED", deniedMethod: "METHOD_DENIED", redirect: "REDIRECT_DENIED",
+        processType: "undefined", requireType: "undefined", fetchType: "undefined", socketType: "undefined", constructorEscape: "blocked", trustedResult: true
+      });
+      expect(hits).toEqual([
+        { method: "GET", path: "/bounded?source=app", accept: "application/json", fixture: "runner-proof" },
+        { method: "GET", path: "/redirect", accept: undefined, fixture: undefined }
+      ]);
+      expect(transportRequests).toHaveLength(2);
+      expect(transportRequests).toEqual(expect.arrayContaining([
+        expect.objectContaining({ hostname: "allowed.test", method: "GET", path: "/bounded?source=app", headers: expect.objectContaining({ accept: "application/json", "x-fixture": "runner-proof", "accept-encoding": "identity", connection: "close" }) }),
+        expect.objectContaining({ hostname: "allowed.test", method: "GET", path: "/redirect", headers: expect.objectContaining({ "accept-encoding": "identity", connection: "close" }) })
+      ]));
+      expect(nodeLookupAll).toEqual([true, true]);
+      expect(pinnedLookupResults).toEqual([[vettedAddress], [vettedAddress]]);
+      const inspected = Object.values(observations)[0]!;
+      expect(Number(inspected.Config.User.split(":")[0])).toBeGreaterThanOrEqual(10_000);
+      expect(inspected.HostConfig).toMatchObject({ NetworkMode: "none", ReadonlyRootfs: true, PidsLimit: 32, Memory: 67_108_864, MemorySwap: 67_108_864, NanoCpus: 250_000_000 });
+      expect(inspected.HostConfig.CapDrop).toContain("ALL");
+      expect(inspected.HostConfig.SecurityOpt).toContain("no-new-privileges=true");
+      expect(inspected.HostConfig.SecurityOpt).toContain(`seccomp=${runnerSeccompProfile}`);
+      if (isolationPolicy.kind === "apparmor") {
+        expect(inspected.HostConfig.SecurityOpt).toContain(`apparmor=${runnerAppArmorProfileName}`);
+        expect(inspected.AppArmorProfile).toBe(runnerAppArmorProfileName);
+      } else expect(inspected.AppArmorProfile).toBe("");
+      expect(inspected.HostConfig.UsernsMode).not.toBe("host");
+      expect(inspected.HostConfig.Binds ?? []).toEqual([]);
+      expect(inspected.Mounts.every((mount: Record<string, unknown>) => mount.Type !== "bind")).toBe(true);
+      expect(inspected.Config.Env.sort()).toEqual([
+        "HOME=/tmp", "NODE_NO_WARNINGS=1", "NODE_VERSION=24.19.0",
+        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "YARN_VERSION=1.22.22"
+      ]);
+      expect(inspected.Config.Env.join("\n")).not.toMatch(/K_NEX_RUNNER_HOST_SECRET_PROBE|DATABASE_URL|DOCKER_HOST|PAYLOAD_SECRET/u);
+      expect(inspected.HostConfig.Tmpfs["/tmp"]).toContain("noexec");
+    } finally {
+      if (server !== undefined) await new Promise<void>((resolve) => server!.close(() => resolve())).catch(() => {});
+      rmSync(directory, { recursive: true, force: true });
+      if (priorHostSecret === undefined) delete process.env.K_NEX_RUNNER_HOST_SECRET_PROBE;
+      else process.env.K_NEX_RUNNER_HOST_SECRET_PROBE = priorHostSecret;
+    }
   }, 120_000);
 
   it("waits for fire-and-forget and concurrent capability calls before returning", async () => {

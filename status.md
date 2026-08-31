@@ -7,15 +7,15 @@
 
 ## Last completed
 
-P9.10 security reconciliation review is PASS. Public callers cannot choose the quarantine CAS revision. Fresh reconcilers derive it from durable inventory, retry bounded conflicts, and converge through the exact immutable security receipt after races, restart, or acknowledgement loss. Receipt reads and low-level replays rederive the full decision digest and all transition IDs from canonical event evidence before returning.
+P9.10 outbound-network enforcement review is PASS. The host-owned HTTPS transport bounds input, output, time, and concurrency; rejects private/special DNS answers, rebinding, redirects, encoded responses, and transport-header forgery; and pins the vetted address without exposing invocation identity. The isolated app has no ambient fetch/socket authority and reaches only the declared host capability.
 
 ## Validation
 
-Local Node 24.19.0: forced clean runtime and payload-adapter typechecks pass; focused reconciler tests pass 7/7. The exact SCN-02 PostgreSQL proof passes 1/1 for fresh-process races, commit acknowledgement loss, pre-receipt rollback, outbox recovery, and persisted event/receipt tamper rejection. Gate 9 remains 12 proof groups and 22 scenarios; scripts parse, `git diff --check` passes, and test containers are removed. Same Sol-xhigh reviewer PASS. Full Gate 9 and exact-head Linux CI remain phase-end validation only.
+Local Node 24.19.0: forced runtime/runner builds pass; focused network transport/capability tests pass 48/48. The exact Docker/TLS runner proof passes 1/1 with real Node `lookup({ all: true })`, pinned vetted DNS, bounded JSON, denied destination/method/redirect, and container `NetworkMode=none`. `git diff --check` passes; labeled containers and fixture temp are absent. Same Sol-xhigh reviewer PASS. Full Gate 9 and exact-head Linux CI remain phase-end validation only.
 
 ## Next
 
-Close declared outbound-network enforcement with bounded host transport, DNS/private-address/redirect denial, and real isolation evidence.
+Refresh the Phase 9 result, run the full integrity Gate 9, obtain same-reviewer phase PASS, then push PR #28 for exact-head Linux CI and designated project-manager review.
 
 ## Blockers
 
