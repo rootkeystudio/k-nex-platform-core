@@ -11,11 +11,11 @@ Run `33369701437` attempt 2: the exact durable Hot Application PostgreSQL journe
 
 ## Validation
 
-Run `33369701437` attempt 2 recorded the intermittent strict Linux failure. Local workflow YAML parse, extracted Bash syntax check, and `git diff --check` pass for this audit-capture slice.
+Run `33371840529`: the strict canary produced `socket=41` with a new `type=1326` audit record; five isolated durable-journey attempts did not reproduce `exitCode=159`. Local workflow YAML parse, extracted Bash syntax check, and `git diff --check` pass for this audit-capture slice.
 
 ## Next
 
-Run the bounded strict audit capture: verify a new seccomp `type=1326` canary record, retry only the exact durable Hot Application PostgreSQL journey, and report mapped x86_64 syscall evidence.
+Run the strict audit capture with its verified canary and retry only the exact durable Hot Application PostgreSQL journey up to 50 times for mapped syscall evidence.
 
 ## Blockers
 

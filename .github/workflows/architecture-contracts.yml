@@ -96,7 +96,7 @@ jobs:
           audit_baseline_lines=$(wc -l < "$audit_log")
 
           reproduced=""
-          for attempt in {1..5}; do
+          for attempt in {1..50}; do
             set +e
             K_NEX_RUNNER_ISOLATION_POLICY=apparmor node --test --test-concurrency=1 \
               --test-name-pattern='^proves PostgreSQL-backed Hot Application install, update, restore, rollback, and execution through the durable runtime$' \
@@ -135,7 +135,7 @@ jobs:
             echo "GATE_9_STRICT_AUDIT_REPRODUCED attempt=$reproduced syscall_map=$syscall_map"
             exit 1
           fi
-          echo "GATE_9_STRICT_AUDIT_NO_REPRODUCTION attempts=5 syscall_map=$syscall_map"
+          echo "GATE_9_STRICT_AUDIT_NO_REPRODUCTION attempts=50 syscall_map=$syscall_map"
           exit 1
       - name: Run Gate 9 Docker runner preflight
         run: |
