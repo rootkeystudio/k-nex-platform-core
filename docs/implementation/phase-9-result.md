@@ -4,8 +4,10 @@
 - **Gate:** Gate 9
 - **Accepted base:** `73d18886c36db5fc5c0d05a1d8e44dc784e460cc`
 - **Delivery:** one Phase 9 branch and pull request; no merge or auto-merge
-- **Decision:** **READY FOR PHASE REVIEW** (candidate record; not a final phase acceptance)
-- **Review state:** local closeout remediation is complete; exact-head Linux/AppArmor Gate 9, same Sol-xhigh phase review, and designated project-manager review remain pending
+- **Decision:** **READY FOR PHASE REVIEW**
+- **Validated head:** `ee8f171ebca066be71c5875eed6c2981a73f765c`
+- **Exact-head evidence:** GitHub Actions [run `33381147184`](https://github.com/rootkeystudio/k-nex-platform-core/actions/runs/33381147184) passed strict Linux/AppArmor setup, Docker runner preflight, browser proofs, `pnpm gate:9`, and exact-head repository evidence.
+- **Review state:** Gate 9 closeout is complete. The sole remaining acceptance boundary is designated same Sol-xhigh/project-manager review; no project-manager PASS is claimed.
 
 ## Scope proved
 
@@ -38,7 +40,7 @@ Phase 9 delivers the accepted Two-Path Extension Model. Hot Applications and The
 
 ## Validation and failure evidence
 
-Candidate-tree local evidence ran on Node 24.19.0. The final local Gate attempt passed Gates 0–8, the required unit and Chromium proofs, and most PostgreSQL journeys. The exact static deployment PostgreSQL/Docker proof passes 1/1 after the Node `npm` PATH correction. Local production-traffic admission intentionally remains denied: Docker Desktop does not provide the required AppArmor production profile. Therefore this record does not claim a current exact-head Linux/AppArmor Gate 9 PASS.
+Local evidence ran on Node 24.19.0, including Gates 0–8, the required unit and Chromium proofs, and PostgreSQL journeys. The exact static deployment PostgreSQL/Docker proof passes 1/1 after the Node `npm` PATH correction. Production admission was then validated on exact head `ee8f171ebca066be71c5875eed6c2981a73f765c`: GitHub Actions [run `33381147184`](https://github.com/rootkeystudio/k-nex-platform-core/actions/runs/33381147184) passed strict Linux/AppArmor setup, Docker runner preflight, browser proofs, `pnpm gate:9`, and exact-head repository evidence.
 
 The phase corpus remains structurally complete: 22 required attacks, 12 exact proof groups, and 9 recovered state/process matrix entries. Chromium markers: `P9_REMOTE_UI_BROWSER_PASS` and `P9_THEME_SKIN_BROWSER_PASS`.
 
@@ -46,7 +48,7 @@ The real customer PostgreSQL/Docker journeys run continuous HTTP probes with zer
 
 The Chromium remote-realm proof additionally exercises replayed, oversized, over-depth, rate-flooded, mixed-generation, navigation, and download attempts in fresh browser sessions. Every attack fails closed, detaches the realm, leaves the host healthy, and reaches no unauthorized source, action, navigation, or download authority.
 
-`scripts/gate-9.mjs` executes exact named Docker, PostgreSQL, Chromium, and unit evidence; PostgreSQL journeys emit scenario markers only after their assertions succeed; and the static journey emits each required crash-matrix key only after the corresponding process recovery. The gate fails if a proof or marker is missing, skipped, renamed, or failing, and also enforces required schemas, Sales-only scope, and this result matrix. The pending exact-head Linux/AppArmor run is the production admission evidence for this candidate.
+`scripts/gate-9.mjs` executes exact named Docker, PostgreSQL, Chromium, and unit evidence; PostgreSQL journeys emit scenario markers only after their assertions succeed; and the static journey emits each required crash-matrix key only after the corresponding process recovery. The gate fails if a proof or marker is missing, skipped, renamed, or failing, and also enforces required schemas, Sales-only scope, and this result matrix. Exact-head Linux/AppArmor production admission passed in GitHub Actions run `33381147184`.
 
 ## Known limits and deferred scope
 
@@ -58,10 +60,10 @@ The Chromium remote-realm proof additionally exercises replayed, oversized, over
 
 ## Phase-result decision
 
-Every Phase 9 task and closeout remediation is implemented on this candidate. The remaining acceptance boundary is exact-head Linux/AppArmor Gate 9 plus the same Sol-xhigh phase review; until both pass, this document is not a final phase acceptance. No host-process code injection, live database-authored static graph, unsigned build, mixed generation, unfenced worker, stale catalog replay, mutable rollback image, persistent failed realm, network-capable Skin SVG, or false zero-downtime path is accepted by the completed local evidence.
+Every Phase 9 task and closeout remediation is implemented, and exact-head Linux/AppArmor Gate 9 passed in GitHub Actions run `33381147184`. The remaining acceptance boundary is designated same Sol-xhigh/project-manager review only; this document does not claim project-manager PASS. No host-process code injection, live database-authored static graph, unsigned build, mixed generation, unfenced worker, stale catalog replay, mutable rollback image, persistent failed realm, network-capable Skin SVG, or false zero-downtime path is accepted by the completed evidence.
 
 **Decision:** **READY FOR PHASE REVIEW**
 
 Gate decision on acceptance: **GO PHASE 10 RBAC AND AUTHORIZATION**.
 
-After project-manager PASS, the exact next task is **P10.1 — Freeze owner, role, grant, assignment, template, and revision contracts**. Do not start domain expansion; continue using Sales and the Gate 9 extension fixtures to harden platform authorization.
+After project-manager PASS and merge, the exact next task is **P10.1 — Freeze owner, role, grant, assignment, template, and revision contracts**. Do not start domain expansion; continue using Sales and the Gate 9 extension fixtures to harden platform authorization.
