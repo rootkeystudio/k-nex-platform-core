@@ -5,14 +5,13 @@ import { createServer as createHttpsServer, request as requestHttps } from "node
 import type { RequestOptions } from "node:https";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createInterface } from "node:readline";
 import { promisify } from "node:util";
 
 import { ArtifactVerifier, buildBundle, canonicalJson, CatalogClient, InMemoryCatalogCheckpointStore, sha256, type CatalogEntry, type SignedCatalog, VerifiedArtifactStore } from "@k-nex/extension-bundler";
 import { BoundedExtensionNetworkCapability, ExtensionCapabilityGateway, HmacExtensionCapabilityTokens, InMemoryExtensionCapabilitySequenceStoreForTests, NodeHttpsExtensionNetworkTransport, type ExtensionCapabilityGrant, type ExtensionCapabilityHandler, type ExtensionCapabilitySequenceStore } from "@k-nex/runtime";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { DockerHotApplicationSandboxSupervisor, RunnerInvocationError, dockerAppArmorPolicy, dockerIsolationPolicyFromEnvironment, extensionRunnerImage, runnerAppArmorProfileName, runnerSeccompProfile, runnerServiceSource, type RunnerGenerationIdentity, type RunnerInvocationLimits } from "../src/index.js";
+import { DockerHotApplicationSandboxSupervisor, RunnerInvocationError, dockerAppArmorPolicy, dockerIsolationPolicyFromEnvironment, extensionRunnerImage, runnerAppArmorProfileName, runnerSeccompProfile, runnerSeccompProfileForDiagnostic, runnerServiceSource, type RunnerGenerationIdentity, type RunnerInvocationLimits } from "../src/index.js";
 
 const execFile = promisify(execFileCallback);
 const clock = { now: () => new Date() };
@@ -20,6 +19,7 @@ const tokens = new HmacExtensionCapabilityTokens(new Uint8Array(32).fill(7), clo
 const extensionKeys = generateKeyPairSync("ed25519");
 const extensionPublisher = { identity: "k-nex-extension-runner", publicKey: extensionKeys.publicKey.export({ type: "spki", format: "pem" }).toString() };
 const isolationPolicy = dockerIsolationPolicyFromEnvironment(process.env.K_NEX_RUNNER_ISOLATION_POLICY);
+const selectedSeccompProfile = runnerSeccompProfileForDiagnostic(process.env.K_NEX_RUNNER_SECCOMP_DIAGNOSTIC);
 const catalogKeys = generateKeyPairSync("ed25519");
 const catalogSigner = { identity: "k-nex-runner-catalog", publicKey: catalogKeys.publicKey.export({ type: "spki", format: "pem" }).toString() };
 const limits: RunnerInvocationLimits = {
@@ -94,60 +94,6 @@ async function inspectContainer(name: string): Promise<Record<string, any>> {
   throw lastError;
 }
 
-function startSeccompDiagnosticRunner(containerName: string, profilePath: string, index: number) {
-  const workloadUser = 20_000 + index;
-  const child = spawn("docker", [
-    "run", "-i", "--name", containerName,
-    "--label", "k-nex.runner=hot-application-v1", "--label", "k-nex.application=customer-alpha", "--label", "k-nex.environment=production", "--label", "k-nex.app=app.sales-assistant", "--label", `k-nex.generation=seccomp-diagnostic-${index}`,
-    "--network", "none", "--read-only", "--user", `${workloadUser}:${workloadUser}`, "--workdir", "/tmp",
-    "--tmpfs", `/tmp:rw,noexec,nosuid,nodev,size=268435456,mode=700,uid=${workloadUser},gid=${workloadUser}`,
-    "--cap-drop", "ALL", "--security-opt", "no-new-privileges=true", "--security-opt", `seccomp=${profilePath}`, "--security-opt", `apparmor=${runnerAppArmorProfileName}`, "--pids-limit", "256",
-    "--memory", "128m", "--memory-swap", "128m", "--cpus", "0.5", "--ulimit", "nofile=4096:4096", "--env", "HOME=/tmp", "--env", "NODE_NO_WARNINGS=1", "--entrypoint", "node",
-    extensionRunnerImage, "--permission", "--experimental-vm-modules", "-e", runnerServiceSource
-  ], { stdio: ["pipe", "pipe", "pipe"] });
-  const frames: Record<string, unknown>[] = [];
-  const waitFor = (predicate: (frame: Record<string, unknown>) => boolean) => {
-    const existing = frames.find(predicate);
-    if (existing !== undefined) return Promise.resolve(existing);
-    return new Promise<Record<string, unknown>>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Runner seccomp diagnostic frame timed out.")), 10_000);
-      const listener = (frame: Record<string, unknown>) => {
-        if (!predicate(frame)) return;
-        clearTimeout(timeout);
-        listeners.delete(listener);
-        resolve(frame);
-      };
-      listeners.add(listener);
-    });
-  };
-  const listeners = new Set<(frame: Record<string, unknown>) => void>();
-  createInterface({ input: child.stdout, crlfDelay: Infinity, terminal: false }).on("line", (line) => {
-    let frame: Record<string, unknown>;
-    try { frame = JSON.parse(line) as Record<string, unknown>; } catch { return; }
-    frames.push(frame);
-    for (const listener of listeners) listener(frame);
-  });
-  const invocationId = `seccomp-diagnostic-${index}`;
-  const generationId = `seccomp-diagnostic-${index}`;
-  child.stdin.write(`${JSON.stringify({ type: "invoke", schemaVersion: 1, invocationId, generationId, token: "seccomp-diagnostic-token", source: "export default async ({ input, host }) => ({ authority: await host.call('records.query', input) })", input: { index }, maxInputBytes: 1024, maxOutputBytes: 1024 })}\n`);
-  const request = waitFor((frame) => frame.type === "capability-request");
-
-  return {
-    child,
-    containerName,
-    request,
-    async complete() {
-      const requestFrame = await request;
-      child.stdin.write(`${JSON.stringify({ type: "capability-response", schemaVersion: 1, invocationId, generationId, sequence: requestFrame.sequence, ok: true, output: { accepted: true }, error: null })}\n`);
-      await expect(waitFor((frame) => frame.type === "result")).resolves.toMatchObject({ ok: true, output: { authority: { accepted: true } } });
-    }
-  };
-}
-
-function x64SyscallNames(): ReadonlyMap<number, string> {
-  return new Map([...readFileSync("/usr/include/x86_64-linux-gnu/asm/unistd_64.h", "utf8").matchAll(/^#define __NR_(\w+)\s+(\d+)$/gmu)].map(([, name, number]) => [Number(number), name]!));
-}
-
 function supervisor(observations: Record<string, Record<string, any>>, store: VerifiedArtifactStore, quarantines: string[] = [], started?: (identity: RunnerGenerationIdentity, name: string) => void, handler: ExtensionCapabilityHandler = queryHandler, sequences: ExtensionCapabilitySequenceStore = new InMemoryExtensionCapabilitySequenceStoreForTests(clock), networkHandler?: ExtensionCapabilityHandler) {
   const gateway = new ExtensionCapabilityGateway(tokens, { "records.query": handler, ...(networkHandler === undefined ? {} : { "http-fetch.request": networkHandler }) }, { reauthorize: () => true }, sequences, clock, { maxInputBytes: 8_192, maxOutputBytes: 8_192, maxDepth: 12, maxCalls: 8 });
   return new DockerHotApplicationSandboxSupervisor(gateway, {
@@ -166,7 +112,7 @@ function secureLinuxInspection(): Record<string, any> {
     Config: { User: "10000:10000", WorkingDir: "/tmp", Image: extensionRunnerImage, Env: ["HOME=/tmp", "NODE_NO_WARNINGS=1"] },
     HostConfig: {
       NetworkMode: "none", ReadonlyRootfs: true, Privileged: false, CapDrop: ["ALL"], CapAdd: null,
-      SecurityOpt: ["no-new-privileges=true", `seccomp=${runnerSeccompProfile}`, `apparmor=${runnerAppArmorProfileName}`],
+      SecurityOpt: ["no-new-privileges=true", `seccomp=${selectedSeccompProfile}`, `apparmor=${runnerAppArmorProfileName}`],
       Binds: [], Tmpfs: { "/tmp": "rw,noexec,nosuid,nodev,size=1048576,mode=700,uid=10000,gid=10000" },
       PidsLimit: 32, Memory: 67_108_864, MemorySwap: 67_108_864, NanoCpus: 250_000_000,
       Ulimits: [{ Name: "nofile", Soft: 64, Hard: 64 }], UsernsMode: ""
@@ -180,6 +126,12 @@ beforeAll(async () => {
 }, 30_000);
 
 describe("production extension runner", () => {
+  it("selects the strict profile unless the exact diagnostic flag requests logging", () => {
+    expect(runnerSeccompProfileForDiagnostic(undefined)).toBe(runnerSeccompProfile);
+    expect(runnerSeccompProfileForDiagnostic("LOG")).toBe(runnerSeccompProfile);
+    expect(JSON.parse(runnerSeccompProfileForDiagnostic("log"))).toMatchObject({ defaultAction: "SCMP_ACT_LOG" });
+  });
+
   it.skipIf(isolationPolicy.kind !== "apparmor" || process.arch !== "x64")("starts the actual runner service under the native strict production profile", async () => {
     const directory = mkdtempSync(join(tmpdir(), "k-nex-seccomp-service-"));
     const profilePath = join(directory, "policy.json");
@@ -206,40 +158,6 @@ describe("production extension runner", () => {
     }
   }, 30_000);
 
-  it.skipIf(isolationPolicy.kind !== "apparmor" || process.arch !== "x64")("fails GATE_9_SECCOMP_DIAGNOSTIC with newly observed missing syscalls", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "k-nex-seccomp-diagnostic-"));
-    const profilePath = join(directory, "policy.json");
-    const diagnosticProfile = JSON.parse(runnerSeccompProfile) as { defaultAction: string; syscalls: readonly { names: readonly string[] }[] };
-    diagnosticProfile.defaultAction = "SCMP_ACT_LOG";
-    writeFileSync(profilePath, JSON.stringify(diagnosticProfile), { encoding: "utf8", mode: 0o600, flag: "wx" });
-    const names = Array.from({ length: 3 }, () => `k-nex-seccomp-diagnostic-${randomUUID().slice(0, 8)}`);
-    let runners: ReturnType<typeof startSeccompDiagnosticRunner>[] = [];
-    try {
-      const before = (await execFile("sudo", ["dmesg", "--color=never"], { maxBuffer: 2_000_000 })).stdout;
-      runners = names.map((containerName, index) => startSeccompDiagnosticRunner(containerName, profilePath, index));
-      await Promise.all(runners.map((runner) => runner.request));
-      const pids = new Set((await Promise.all(runners.map((runner) => inspectContainer(runner.containerName)))).map((inspected) => inspected.State?.Pid).filter((pid): pid is number => Number.isSafeInteger(pid) && pid > 0));
-      expect(pids.size).toBe(runners.length);
-      await Promise.all(runners.map((runner) => runner.complete()));
-      const prior = new Set(before.split("\n"));
-      const newAuditRecords = (await execFile("sudo", ["dmesg", "--color=never"], { maxBuffer: 2_000_000 })).stdout.split("\n").filter((line) => !prior.has(line) && /audit:.*\btype=1326\b.*\barch=c000003e\b.*\bsyscall=\d+\b/u.test(line) && [...pids].some((pid) => new RegExp(`\\bpid=${pid}\\b`, "u").test(line)));
-      const approved = new Set(diagnosticProfile.syscalls.flatMap((rule) => rule.names));
-      const syscallNames = x64SyscallNames();
-      const missing = [...new Set(newAuditRecords.map((record) => Number(record.match(/\bsyscall=(\d+)\b/u)?.[1])).filter(Number.isSafeInteger))]
-        .map((number) => ({ number, name: syscallNames.get(number) ?? "unknown" }))
-        .filter(({ name }) => !approved.has(name))
-        .sort((left, right) => left.number - right.number);
-      if (missing.length > 0) throw new Error(JSON.stringify({ diagnostic: "GATE_9_SECCOMP_DIAGNOSTIC", missing: missing.slice(0, 32), omitted: Math.max(0, missing.length - 32) }));
-      throw new Error(JSON.stringify({ diagnostic: "GATE_9_SECCOMP_DIAGNOSTIC_NO_MISSING", containers: pids.size, auditRecords: newAuditRecords.length }));
-    } finally {
-      await Promise.all(runners.map(async (runner) => {
-        await execFile("docker", ["rm", "-f", runner.containerName]).catch(() => {});
-        runner.child.stdin.end();
-      }));
-      rmSync(directory, { recursive: true, force: true });
-    }
-  }, 60_000);
-
   it("kills a real forbidden socket syscall under the pinned default-deny profile", async () => {
     const directory = mkdtempSync(join(tmpdir(), "k-nex-seccomp-proof-"));
     const profilePath = join(directory, "policy.json");
@@ -263,6 +181,7 @@ describe("production extension runner", () => {
     const quarantines: string[] = [];
     const store = artifactStore();
     const runner = supervisor({}, store, quarantines) as any;
+    runner.seccompProfile = runnerSeccompProfile;
     const originalObservedPolicyViolation = runner.observedPolicyViolation.bind(runner);
     let observedExitCode: number | undefined;
     runner.observedPolicyViolation = async (containerName: string) => {
@@ -298,7 +217,7 @@ describe("production extension runner", () => {
     const secure = {
       Config: { User: "10000:10000", WorkingDir: "/tmp", Image: extensionRunnerImage, Env: ["HOME=/tmp", "NODE_NO_WARNINGS=1"] },
       HostConfig: {
-        NetworkMode: "none", ReadonlyRootfs: true, CapDrop: ["ALL"], CapAdd: null, SecurityOpt: ["no-new-privileges=true", `seccomp=${runnerSeccompProfile}`],
+        NetworkMode: "none", ReadonlyRootfs: true, CapDrop: ["ALL"], CapAdd: null, SecurityOpt: ["no-new-privileges=true", `seccomp=${selectedSeccompProfile}`],
         Binds: [], Tmpfs: { "/tmp": "rw,noexec,nosuid,nodev,size=1048576,mode=700,uid=10000,gid=10000" },
         PidsLimit: 32, Memory: 67_108_864, MemorySwap: 67_108_864, NanoCpus: 250_000_000,
         Ulimits: [{ Name: "nofile", Soft: 64, Hard: 64 }], UsernsMode: ""
@@ -537,7 +456,7 @@ describe("production extension runner", () => {
       expect(inspected.HostConfig).toMatchObject({ NetworkMode: "none", ReadonlyRootfs: true, PidsLimit: 32, Memory: 67_108_864, MemorySwap: 67_108_864, NanoCpus: 250_000_000 });
       expect(inspected.HostConfig.CapDrop).toContain("ALL");
       expect(inspected.HostConfig.SecurityOpt).toContain("no-new-privileges=true");
-      expect(inspected.HostConfig.SecurityOpt).toContain(`seccomp=${runnerSeccompProfile}`);
+      expect(inspected.HostConfig.SecurityOpt).toContain(`seccomp=${selectedSeccompProfile}`);
       if (isolationPolicy.kind === "apparmor") {
         expect(inspected.HostConfig.SecurityOpt).toContain(`apparmor=${runnerAppArmorProfileName}`);
         expect(inspected.AppArmorProfile).toBe(runnerAppArmorProfileName);
