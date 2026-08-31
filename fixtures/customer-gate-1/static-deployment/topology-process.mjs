@@ -95,7 +95,7 @@ async function composition(sourceDirectory) {
 }
 
 async function regenerateLockAndGraph(sourceDirectory) {
-  const npm = join(dirname(process.execPath), "npm");
+  const npm = "npm";
   await execute(npm, ["install", "--package-lock-only", "--legacy-peer-deps", "--ignore-scripts", "--no-audit", "--no-fund"], { cwd: sourceDirectory, maxBuffer: 8 * 1024 * 1024 });
   const lock = await readJson(join(sourceDirectory, "package-lock.json"));
   const sales = lock.packages?.["node_modules/@k-nex/module-sales"];

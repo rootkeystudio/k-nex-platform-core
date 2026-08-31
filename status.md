@@ -7,15 +7,15 @@
 
 ## Last completed
 
-P9.10 outbound-network enforcement review is PASS. The host-owned HTTPS transport bounds input, output, time, and concurrency; rejects private/special DNS answers, rebinding, redirects, encoded responses, and transport-header forgery; and pins the vetted address without exposing invocation identity. The isolated app has no ambient fetch/socket authority and reaches only the declared host capability.
+P9.10 local Gate remediation is complete. Static deployment now resolves npm through PATH instead of assuming it is bundled beside the exact Node binary. The full local gate correctly refuses to label Docker Desktop's test-only runner policy as production traffic isolation; production proof remains the exact-head Linux/AppArmor CI path.
 
 ## Validation
 
-Local Node 24.19.0: forced runtime/runner builds pass; focused network transport/capability tests pass 48/48. The exact Docker/TLS runner proof passes 1/1 with real Node `lookup({ all: true })`, pinned vetted DNS, bounded JSON, denied destination/method/redirect, and container `NetworkMode=none`. `git diff --check` passes; labeled containers and fixture temp are absent. Same Sol-xhigh reviewer PASS. Full Gate 9 and exact-head Linux CI remain phase-end validation only.
+Local Node 24.19.0: Gates 0–8 and all browser/unit/most PostgreSQL proofs passed in the final full-gate attempt. Its two failures were isolated: PATH npm ENOENT is fixed and the exact static deployment PostgreSQL/Docker proof now passes 1/1; local production-traffic admission remains intentionally denied because Docker Desktop supplies no AppArmor evidence. `git diff --check` passes; labeled resources and fixture temp are absent.
 
 ## Next
 
-Refresh the Phase 9 result, run the full integrity Gate 9, obtain same-reviewer phase PASS, then push PR #28 for exact-head Linux CI and designated project-manager review.
+Refresh the Phase 9 result, push PR #28, require exact-head Linux/AppArmor Gate 9 PASS, then obtain same Sol-xhigh phase review and stop for designated project-manager review.
 
 ## Blockers
 
