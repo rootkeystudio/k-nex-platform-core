@@ -9,6 +9,7 @@ import {
   type ExtensionLifecycleEvent,
   type ExtensionOperationPhase,
   type ExtensionOperationActor,
+  type ActiveGenerationSecurityDisposition,
   type StaticDeploymentReceipt,
   type StaticCompositionChangePlan,
   type RuntimeExtensionInventory
@@ -184,14 +185,7 @@ export interface ActiveGenerationSecurityDecision {
   readonly catalogDigest: string;
   readonly catalogSignerIdentity: string;
   readonly catalogSequence: number;
-  readonly disposition:
-    | "revoked"
-    | "security-compromised"
-    | "security-advisory"
-    | "review-rejected"
-    | "review-pending"
-    | "support-unsupported"
-    | "support-deprecated";
+  readonly disposition: ActiveGenerationSecurityDisposition;
   readonly release: Readonly<{
     deliveryClass: "hot-application" | "theme-skin";
     id: string;

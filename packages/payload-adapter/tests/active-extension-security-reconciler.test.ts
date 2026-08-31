@@ -196,7 +196,10 @@ describe("ActiveExtensionSecurityReconciler", () => {
     "review-rejected",
     "review-pending",
     "support-unsupported",
-    "support-deprecated"
+    "support-deprecated",
+    "release-missing",
+    "release-evidence-mismatch",
+    "publisher-key-mismatch"
   ] as const)("quarantines every non-installable active disposition: %s", async (disposition) => {
     const value = harness();
     value.inventoryRead.mockResolvedValue(inventory("active", 17));

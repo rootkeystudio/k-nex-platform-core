@@ -4,10 +4,10 @@
 - **Gate:** Gate 9
 - **Accepted base:** `73d18886c36db5fc5c0d05a1d8e44dc784e460cc`
 - **Delivery:** one Phase 9 branch and pull request; no merge or auto-merge
-- **Decision:** **READY FOR PHASE REVIEW**
+- **Decision:** **REMEDIATION IN PROGRESS**
 - **Validated head:** `7f9c5ececda3d745ae0bce53b1f3401258ec9912`
 - **Exact-head evidence:** GitHub Actions [run `33430567492`](https://github.com/rootkeystudio/k-nex-platform-core/actions/runs/33430567492) passed strict Linux/AppArmor setup, Docker runner preflight, browser proofs, `pnpm gate:9`, and exact-head repository evidence.
-- **Review state:** The reused Sol-xhigh reviewer returned `PASS` on the complete five-finding remediation slice. PR #28 remains review-only; no merge or auto-merge is claimed.
+- **Review state:** The reused Sol-xhigh reviewer returned `PASS` on the earlier five-finding remediation slice. Owner review then identified one fail-open catalog-removal path; its focused remediation is implemented and awaiting the exact-head Gate 9 and reused-reviewer pass. PR #28 remains review-only; no merge or auto-merge is claimed.
 
 ## Scope proved
 
@@ -42,7 +42,7 @@ Phase 9 delivers the accepted Two-Path Extension Model. Hot Applications and The
 
 Local evidence ran on Node 24.19.0, including Gates 0–8, the required unit and Chromium proofs, and 20/21 PostgreSQL journeys; the sole local-only refusal was the intended production-profile guard under macOS `local-docker-test-only`. Production admission was then validated on exact implementation head `7f9c5ececda3d745ae0bce53b1f3401258ec9912`: GitHub Actions [run `33430567492`](https://github.com/rootkeystudio/k-nex-platform-core/actions/runs/33430567492) passed strict Linux/AppArmor setup, Docker runner preflight, browser proofs, `pnpm gate:9`, and exact-head repository evidence.
 
-PR #28 remediation additionally proves one exhaustive fresh-install/active-catalog policy classifier with seven exact persisted quarantine reasons; opaque-origin ESM Remote UI module workers; supervisor-scoped Docker startup cleanup; bounded exact-once reclamation of expired operation capacity; and short-transaction outbox claims with publish timeout, lease recovery, poison dead-lettering, and explicit at-least-once replay behavior.
+PR #28 remediation additionally proves one exhaustive fresh-install/active-catalog policy classifier with ten exact persisted quarantine reasons, including authoritative release removal, immutable-evidence divergence, and publisher-key divergence; opaque-origin ESM Remote UI module workers; supervisor-scoped Docker startup cleanup; bounded exact-once reclamation of expired operation capacity; and short-transaction outbox claims with publish timeout, lease recovery, poison dead-lettering, and explicit at-least-once replay behavior.
 
 The phase corpus remains structurally complete: 22 required attacks, 12 exact proof groups, and 9 recovered state/process matrix entries. Chromium markers: `P9_REMOTE_UI_BROWSER_PASS` and `P9_THEME_SKIN_BROWSER_PASS`.
 
@@ -62,9 +62,9 @@ The Chromium remote-realm proof additionally exercises replayed, oversized, over
 
 ## Phase-result decision
 
-Every Phase 9 task and closeout remediation is implemented, exact-head Linux/AppArmor Gate 9 passed in GitHub Actions run `33430567492`, and the reused Sol-xhigh reviewer returned `PASS`. PR #28 remains for the designated owner review and merge. No host-process code injection, live database-authored static graph, unsigned build, mixed generation, unfenced worker, stale catalog replay, mutable rollback image, persistent failed realm, network-capable Skin SVG, or false zero-downtime path is accepted by the completed evidence.
+Every Phase 9 task is implemented. The prior exact-head Linux/AppArmor Gate 9 passed in GitHub Actions run `33430567492`; the final catalog fail-closed remediation still requires its exact-head Gate 9 and reused Sol-xhigh review before this result returns to phase-review readiness. PR #28 remains review-only and unmerged.
 
-**Decision:** **READY FOR PHASE REVIEW**
+**Decision:** **REMEDIATION IN PROGRESS**
 
 Gate decision on acceptance: **GO PHASE 10 RBAC AND AUTHORIZATION**.
 

@@ -76,19 +76,27 @@ export const ExtensionLifecycleEventSchema = z.discriminatedUnion("deliveryClass
   z.strictObject({ ...LifecycleEventBase, deliveryClass: z.literal("theme-skin"), id: ThemeSkinIdSchema, evidence: BundleTransitionEvidenceSchema })
 ]).meta({ $id: "https://schemas.k-nex.dev/extension-lifecycle-event/v1.json", title: "K-Nex Extension Lifecycle Event v1" });
 
+export const activeGenerationSecurityDispositions = [
+  "revoked",
+  "security-compromised",
+  "security-advisory",
+  "review-rejected",
+  "review-pending",
+  "support-unsupported",
+  "support-deprecated",
+  "release-missing",
+  "release-evidence-mismatch",
+  "publisher-key-mismatch"
+] as const;
+
+export const ActiveGenerationSecurityDispositionSchema = z.enum(activeGenerationSecurityDispositions);
+export type ActiveGenerationSecurityDisposition = z.infer<typeof ActiveGenerationSecurityDispositionSchema>;
+
 const SecurityQuarantineEvidenceSchema = z.strictObject({
   catalogDigest: DigestSchema,
   catalogSignerIdentity: z.string().min(1).max(160),
   catalogSequence: PositiveRevisionSchema,
-  disposition: z.enum([
-    "revoked",
-    "security-compromised",
-    "security-advisory",
-    "review-rejected",
-    "review-pending",
-    "support-unsupported",
-    "support-deprecated"
-  ]),
+  disposition: ActiveGenerationSecurityDispositionSchema,
   sourceCommit: FullShaSchema,
   artifactDigest: DigestSchema,
   manifestDigest: DigestSchema,

@@ -11,7 +11,7 @@ export interface ActiveExtensionSecurityReconcileRequest {
 }
 
 export type ActiveExtensionSecurityReconcileResult =
-  | Readonly<{ status: "not-active" | "no-matching-release" | "clear" }>
+  | Readonly<{ status: "not-active" | "clear" }>
   | Readonly<{ status: "quarantined"; receipt: ExtensionSecurityQuarantineReceipt }>;
 
 /**
@@ -52,7 +52,6 @@ export class ActiveExtensionSecurityReconciler {
         provenanceDigest: generation.provenanceDigest,
         sbomDigest: generation.sbomDigest
       });
-      if (!decision) return Object.freeze({ status: "no-matching-release" });
       const disposition = decision.disposition;
       if (disposition === "clear") return Object.freeze({ status: "clear" });
       const securityDecision = Object.freeze({ ...decision, disposition });

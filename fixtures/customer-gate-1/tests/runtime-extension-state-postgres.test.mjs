@@ -272,7 +272,7 @@ function signedCatalog(entries, sequence = 1, expiresAt = "2030-01-01T00:00:00.0
   return { schemaVersion: 1, signer: catalogSigner, payload, signature: sign(null, Buffer.from(canonicalJson(payload)), catalogKeys.privateKey).toString("base64") };
 }
 
-function securityEntry(id, state, disposition = "clear") {
+function securityEntry(id, state, disposition = "clear", overrides = {}) {
   const policy = {
     clear: { support: "supported", review: "approved", security: "clear", revoked: false },
     revoked: { support: "supported", review: "approved", security: "clear", revoked: true },
@@ -288,7 +288,8 @@ function securityEntry(id, state, disposition = "clear") {
     deliveryClass: "hot-application", id, version: "1.0.0", runtimeAbi: "1.0.0", publisher,
     source: { repository: source.repository, commit: state.sourceCommit, assetUrl: `${source.repository}/releases/download/v1.0.0/${id}.tar.gz` },
     artifactDigest: state.artifactDigest, manifestDigest: state.manifestDigest, provenanceDigest: state.provenanceDigest, sbomDigest: state.sbomDigest,
-    ...policy
+    ...policy,
+    ...overrides
   };
 }
 
@@ -587,7 +588,43 @@ test("preserves accepted artifacts while reconciling fresh revocation decisions 
     )).rows, [{ reason: "security-advisory", disposition: "security-advisory" }]);
     assert.equal((await storeA.inventory(advisoryChange.applicationId, advisoryChange.environment)).extensions.hotApplications[advisoryChange.extension.id].disposition, "quarantined");
 
-    console.log('P9_ACCEPTED_ARTIFACT_SECURITY_EVIDENCE={"scenarios":["SCN-02","accepted-expiry","postgres-checkpoint","altered-bytes","reconciler-race","lost-ack-restart","pre-receipt-rollback","outbox-publish-ack-gap"]}');
+    for (const [index, securityCase] of [
+      {
+        id: "app.sales-security-release-missing",
+        reason: "release-missing",
+        catalog: (active) => signedCatalog([securityEntry("app.sales-security-sentinel", active)], 9, "2030-01-01T00:00:00.000Z")
+      },
+      {
+        id: "app.sales-security-evidence-mismatch",
+        reason: "release-evidence-mismatch",
+        catalog: (active) => signedCatalog([securityEntry("app.sales-security-evidence-mismatch", active, "clear", { artifactDigest: digest("f") })], 10, "2030-01-01T00:00:00.000Z")
+      },
+      {
+        id: "app.sales-security-publisher-key",
+        reason: "publisher-key-mismatch",
+        catalog: (active) => signedCatalog([securityEntry("app.sales-security-publisher-key", active, "clear", { publisher: { ...publisher, publicKey: catalogSigner.publicKey } })], 11, "2030-01-01T00:00:00.000Z")
+      }
+    ].entries()) {
+      const change = stateRequest(securityCase.id, `${securityCase.id}-reconcile`);
+      const warming = await prepareStateGeneration(storeA, change, digest(String(index + 1)), `${securityCase.id}-worker`, now);
+      await storeA.activateGeneration(warming.operationId, warming.leaseToken);
+      const active = (await storeA.inventory(change.applicationId, change.environment)).extensions.hotApplications[change.extension.id].activeGeneration;
+      const currentCatalog = securityCase.catalog(active);
+      const first = await freshReconciler().reconcile({ applicationId: change.applicationId, environment: change.environment, extension: change.extension, catalog: currentCatalog });
+      const replay = await freshReconciler().reconcile({ applicationId: change.applicationId, environment: change.environment, extension: change.extension, catalog: currentCatalog });
+
+      assert.equal(first.status, "quarantined");
+      assert.equal(first.receipt.reason, securityCase.reason);
+      assert.deepEqual(replay, first, "polling the same quarantine must replay its durable receipt");
+      assert.equal((await storeA.inventory(change.applicationId, change.environment)).extensions.hotApplications[change.extension.id].disposition, "quarantined");
+      assert.deepEqual(await evidence(change.extension.id), { receipts: 1, audits: 1, outbox: 1 });
+      assert.deepEqual((await pool.query(
+        "select receipt_json->>'reason' reason, event_json->'evidence'->>'disposition' disposition from runtime_extension_security_receipts where extension_id=$1",
+        [change.extension.id]
+      )).rows, [{ reason: securityCase.reason, disposition: securityCase.reason }]);
+    }
+
+    console.log('P9_ACCEPTED_ARTIFACT_SECURITY_EVIDENCE={"scenarios":["SCN-02","accepted-expiry","postgres-checkpoint","altered-bytes","reconciler-race","lost-ack-restart","pre-receipt-rollback","outbox-publish-ack-gap","release-missing","release-evidence-mismatch","publisher-key-mismatch"]}');
   } finally {
     await pool.end();
     await container.stop();

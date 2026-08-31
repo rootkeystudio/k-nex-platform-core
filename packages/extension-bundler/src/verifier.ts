@@ -1,4 +1,4 @@
-import { canonicalJson, ExtensionBundleManifestSchema, HotApplicationManifestSchema, type ExtensionBundleManifest, type HotApplicationManifest } from "@k-nex/contracts";
+import { canonicalJson, ExtensionBundleManifestSchema, HotApplicationManifestSchema, type ActiveGenerationSecurityDisposition, type ExtensionBundleManifest, type HotApplicationManifest } from "@k-nex/contracts";
 
 import { CatalogClient, catalogPolicyDisposition, type CatalogEntry, type CatalogPolicyDisposition, type Digest, type SignedCatalog, verifyHostedBuildProvenance } from "./catalog.js";
 import { inspectBundleImports, sha256 } from "./bundle.js";
@@ -22,7 +22,7 @@ export type CurrentCatalogSecurityDecision = Readonly<{
   catalogSignerIdentity: string;
   catalogSequence: number;
   release: ActiveReleaseIdentity;
-  disposition: CatalogPolicyDisposition;
+  disposition: CatalogPolicyDisposition | ActiveGenerationSecurityDisposition;
 }>;
 
 function required(files: ReadonlyMap<string, Buffer>, path: string): Buffer {
@@ -98,17 +98,14 @@ export class ArtifactVerifier {
     return this.verifyEntry(request, entry);
   }
 
-  /** Reads a fresh, replay-protected catalog and returns the policy state of one exact release. */
-  async currentSecurityDecision(catalog: SignedCatalog, release: ActiveReleaseIdentity): Promise<CurrentCatalogSecurityDecision | undefined> {
+  /** A fresh signed catalog is the complete policy snapshot: an absent or altered active release fails closed. */
+  async currentSecurityDecision(catalog: SignedCatalog, release: ActiveReleaseIdentity): Promise<CurrentCatalogSecurityDecision> {
     const entry = (await this.#catalog.read(catalog)).find((candidate) => candidate.deliveryClass === release.deliveryClass && candidate.id === release.id && candidate.version === release.version);
-    if (!entry || entry.source.commit !== release.sourceCommit || entry.artifactDigest !== release.artifactDigest ||
-      entry.manifestDigest !== release.manifestDigest || entry.provenanceDigest !== release.provenanceDigest || entry.sbomDigest !== release.sbomDigest) {
-      return undefined;
-    }
-    if (this.#trustedExtensionPublishers.get(entry.publisher.identity) !== entry.publisher.publicKey) {
-      throw new Error("Extension publisher is not trusted.");
-    }
-    const disposition = catalogPolicyDisposition(entry);
+    const disposition: CatalogPolicyDisposition | ActiveGenerationSecurityDisposition = !entry ? "release-missing" :
+      entry.source.commit !== release.sourceCommit || entry.artifactDigest !== release.artifactDigest ||
+      entry.manifestDigest !== release.manifestDigest || entry.provenanceDigest !== release.provenanceDigest || entry.sbomDigest !== release.sbomDigest ? "release-evidence-mismatch" :
+      this.#trustedExtensionPublishers.get(entry.publisher.identity) !== entry.publisher.publicKey ? "publisher-key-mismatch" :
+      catalogPolicyDisposition(entry);
     return Object.freeze({
       catalogDigest: sha256(Buffer.from(canonicalJson(catalog))),
       catalogSignerIdentity: catalog.signer.identity,

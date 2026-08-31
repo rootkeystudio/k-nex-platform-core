@@ -931,7 +931,10 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
         "review-rejected",
         "review-pending",
         "support-unsupported",
-        "support-deprecated"
+        "support-deprecated",
+        "release-missing",
+        "release-evidence-mismatch",
+        "publisher-key-mismatch"
       ].includes(input.decision.disposition)) {
       fail("STATE_INVALID", "Security quarantine decision is invalid.");
     }

@@ -171,6 +171,29 @@ describe("extension bundler", () => {
     }
   });
 
+  it("fails closed when the authoritative catalog omits, changes, or distrusts an active release", async () => {
+    const { catalog, publishers } = release();
+    const entry = catalog.payload.entries[0]!;
+    const releaseIdentity = {
+      deliveryClass: entry.deliveryClass,
+      id: entry.id,
+      version: entry.version,
+      sourceCommit: entry.source.commit,
+      artifactDigest: entry.artifactDigest,
+      manifestDigest: entry.manifestDigest,
+      provenanceDigest: entry.provenanceDigest,
+      sbomDigest: entry.sbomDigest
+    } as const;
+    const decision = async (next: SignedCatalog, trustedPublishers = publishers) => new ArtifactVerifier(
+      new CatalogClient({ [next.signer.identity]: next.signer.publicKey }, new InMemoryCatalogCheckpointStore()), trustedPublishers
+    ).currentSecurityDecision(next, releaseIdentity);
+
+    await expect(decision(signedCatalog({ ...entry, id: "app.sales-other" }))).resolves.toMatchObject({ disposition: "release-missing" });
+    await expect(decision(signedCatalog({ ...entry, source: { ...entry.source, commit: "a".repeat(40) } }))).resolves.toMatchObject({ disposition: "release-evidence-mismatch" });
+    await expect(decision(signedCatalog({ ...entry, artifactDigest: sha256(Buffer.from("different")) }))).resolves.toMatchObject({ disposition: "release-evidence-mismatch" });
+    await expect(decision(signedCatalog({ ...entry, publisher: { ...entry.publisher, publicKey: catalog.signer.publicKey } }))).resolves.toMatchObject({ disposition: "publisher-key-mismatch" });
+  });
+
   it("rejects a missing or divergent complete Hot Application manifest even when the envelope and catalog are resigned", async () => {
     const { bundle, catalog, client, publishers, request } = release();
     const mutate = (entries: Map<string, Buffer>) => createNormalizedTarGz([...entries].map(([path, bytes]) => ({ path, bytes })));
