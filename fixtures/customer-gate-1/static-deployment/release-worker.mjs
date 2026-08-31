@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import pg from "pg";
-import { PostgresStaticDeploymentStore } from "@k-nex/payload-adapter";
+import { PostgresStaticDeploymentStore } from "@k-nex/payload-adapter/static-deployment-store";
 
 const required = (name) => {
   const value = process.env[name];

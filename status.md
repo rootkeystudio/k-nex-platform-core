@@ -7,16 +7,16 @@
 
 ## Last completed
 
-P9.10 Linux preflight remediation is complete. Docker CLI spawn can expose a transient pre-exec PID that disappears, so production inspection boundedly re-reads container PID, remapped uid-map, and the unchanged `CapEff=0` / `NoNewPrivs=1` / `Seccomp=2` tuple as one observation. Persistent mismatch still fails closed before source handoff. Exact-head native x86 diagnostic identified only syscall `open` missing from strict runner startup; the smallest profile correction and durable service-start proof are pending exact-head validation.
+P9.10 exact-head Linux/AppArmor Docker preflight now passes with the evidenced native `open` syscall and durable strict service-start proof. Full Gate 9 then exposed a static release-worker startup OOM before first log; it now imports its durable store through a narrow public export instead of loading the Payload root under its 128 MiB limit.
 
 ## Validation
 
-Local Node 24.19.0: runner forced build and policy tests pass 3/3; the AppArmor/x64 service-start proof skips outside its authoritative host; profile digest and `git diff --check` pass. PR #28 exact-head Linux/AppArmor diagnostic run `33361443122` mapped strict-profile actual-service startup to syscall `open` only. Exact-head Linux/AppArmor Docker preflight and full Gate 9 remain pending.
+Local Node 24.19.0: payload-adapter forced build and 64 MiB public-subpath import regression pass 1/1; `git diff --check` passes. PR #28 run `33361686797` passed exact-head Linux/AppArmor Docker preflight. Full Gate 9 passed 17/19 PostgreSQL journeys, then exposed the fixed static worker OOM and an intermittent effective runner-state observation failure whose swallowed detail is under focused diagnosis.
 
 ## Next
 
-Require exact-head Linux/AppArmor Docker preflight and full Gate 9 PASS before same Sol-xhigh phase review.
+Preserve bounded effective runner-state failure detail, identify and fix that remaining cause, then require exact-head full Gate 9 PASS before same Sol-xhigh phase review.
 
 ## Blockers
 
-Focused correction requires exact-head Linux/AppArmor Docker/Gate 9 evidence.
+Full Gate 9 is blocked by the remaining effective runner-state observation failure.
