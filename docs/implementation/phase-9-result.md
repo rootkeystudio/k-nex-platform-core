@@ -1,11 +1,11 @@
 # Phase 9 Result — Dynamic Application Runtime and Zero-Downtime Delivery
 
-- **Date:** 2026-08-30
+- **Date:** 2026-08-31
 - **Gate:** Gate 9
 - **Accepted base:** `73d18886c36db5fc5c0d05a1d8e44dc784e460cc`
 - **Delivery:** one Phase 9 branch and pull request; no merge or auto-merge
-- **Decision:** **READY FOR PHASE REVIEW**
-- **Review state:** review blockers remediated; fresh exact-head Sol-high review and designated project-manager review pending
+- **Decision:** **READY FOR PHASE REVIEW** (candidate record; not a final phase acceptance)
+- **Review state:** local closeout remediation is complete; exact-head Linux/AppArmor Gate 9, same Sol-xhigh phase review, and designated project-manager review remain pending
 
 ## Scope proved
 
@@ -18,9 +18,9 @@ Phase 9 delivers the accepted Two-Path Extension Model. Hot Applications and The
 | P9.1 | Closed delivery-class, manifest, generation, isolation, source/build, migration, and worker-fence contracts with Zod/AJV parity |
 | P9.2 | Deterministic bundle builder, signed official catalog, provenance/SBOM verification, bounded archive attack rejection |
 | P9.3 | Authorized persistent PluginManager operations, immutable generation authority, revision/outbox convergence, static-change delegation |
-| P9.4 | Production Docker runner isolation per app/generation with capability-only RPC, resource limits, quarantine, and cross-app denial |
-| P9.5 | Credentialless opaque remote UI realm, strict CSP/MessagePort host protocol, immutable verified assets, browser attack proof |
-| P9.6 | Atomic server/UI/storage activation, update, rollback, drain leases, crash recovery, restore, and multi-process convergence |
+| P9.4 | Production Docker runner isolation per app/generation with capability-only RPC, restart-safe quarantine/orphan reaping, bounded host HTTPS, and no raw app egress |
+| P9.5 | Credentialless opaque remote UI realm, strict CSP/MessagePort host protocol, owner/generation-linearized reverified durable reads, catalog-scoped immutable acceptance, and browser attack proof |
+| P9.6 | Atomic server/UI/storage activation, update, rollback, drain leases, repeatable-read keyset backup/restore proven at 1,001 records, and expected-revision security reconciliation via durable quarantine receipts |
 | P9.7 | Data-only Theme Skin generations, AST-scoped CSS, immutable assets, exact profile publication and rollback, Chromium proof |
 | P9.8 | Exact source/build authority, signed app/image evidence, PostgreSQL worker fencing, Docker blue/green traffic, rollback and cleanup |
 | P9.9 | Unified headless catalog/operation/status API, disable/uninstall receipts, real Hot Application traffic, 22-attack corpus |
@@ -38,26 +38,15 @@ Phase 9 delivers the accepted Two-Path Extension Model. Hot Applications and The
 
 ## Validation and failure evidence
 
-Final committed-tree Phase 9 evidence on Node 24.19.0:
+Candidate-tree local evidence ran on Node 24.19.0. The final local Gate attempt passed Gates 0–8, the required unit and Chromium proofs, and most PostgreSQL journeys. The exact static deployment PostgreSQL/Docker proof passes 1/1 after the Node `npm` PATH correction. Local production-traffic admission intentionally remains denied: Docker Desktop does not provide the required AppArmor production profile. Therefore this record does not claim a current exact-head Linux/AppArmor Gate 9 PASS.
 
-```text
-contracts: 155 tests; architecture-contract-tools generated schemas current, parity-tested, and reproducible
-extension-bundler: 20 tests; extension-runner: 8 tests with real Docker isolation
-runtime: 294 tests; payload-adapter: 40 tests
-ui-runtime: 56 tests; ui-testing: full unit and real Chromium suites
-customer fixture: 14 PostgreSQL/Docker tests
-phase attack corpus: 22 required attacks, 12 exact proof groups, 9 recovered state/process matrix entries
-phase:0 and Gates 1–8: passed transitively through Gate 9
-pnpm gate:9: GATE_9_PASS
-```
-
-Chromium markers: `P9_REMOTE_UI_BROWSER_PASS` and `P9_THEME_SKIN_BROWSER_PASS`.
+The phase corpus remains structurally complete: 22 required attacks, 12 exact proof groups, and 9 recovered state/process matrix entries. Chromium markers: `P9_REMOTE_UI_BROWSER_PASS` and `P9_THEME_SKIN_BROWSER_PASS`.
 
 The real customer PostgreSQL/Docker journeys run continuous HTTP probes with zero failures during compatible delivery transitions. The Hot Application probe covers install, update, and rollback through the fixed `/apps/:appId/*` host route; four distinct web, worker, runner, and browser processes deliberately lose every outbox invalidation and autonomously converge through lifecycle-owned polling of the authoritative combined server/UI/storage generation without rebuilding the host. The static Platform Plugin probe covers install, update, rollback, and re-promotion between two Git-backed, digest-pinned customer images containing different `module.sales` package versions. The web/admin image runs the real `ExtensionOperatorApi` and `PluginManager` with only operation-planning authority. A separately credentialed supervisor process—not the test parent or web/admin process—owns trusted evidence verification, online migration, container readiness, PostgreSQL promotion, rollback, and recovery through replay-bound durable commands. Distinct packaged web and worker images implement passive start, fence-bound activation, supervisor-restart rediscovery, and real drain that waits for an in-image worker claim and external delivery before rejecting its stale database completion after fence transfer. The customer image compiles and boots its committed Payload composition from a signed package closure and SBOM covering Sales plus the five local operator/runtime tarballs, its builder trust key is provisioned independently, and its isolated non-root/read-only web/admin container proves source, package-install, Docker, and deployment-table denial. The journeys also delete and restore authoritative Hot Application bytes/state from a physical backup; reject operation replay, pointer races, untrusted signed evidence, irreversible rollback, and forged database authority; kill and restart real web/supervisor processes; deliberately fail green readiness; crash PostgreSQL fence transfer; reject stale worker completion; preserve one logical effect; block contract cleanup while rollback is open; resume bounded backfill; and refuse offline migration as `maintenance-required` without changing traffic. Every fixture-owned container—including PostgreSQL—image, and network carries the run label, and deterministic teardown proves zero residual resources.
 
 The Chromium remote-realm proof additionally exercises replayed, oversized, over-depth, rate-flooded, mixed-generation, navigation, and download attempts in fresh browser sessions. Every attack fails closed, detaches the realm, leaves the host healthy, and reaches no unauthorized source, action, navigation, or download authority.
 
-At the closeout head, `pnpm gate:9` passed Gates 0–8 and every mandatory Gate 9 class-specific proof. `scripts/gate-9.mjs` executes exact named Docker, PostgreSQL, Chromium, and unit evidence; PostgreSQL journeys emit scenario markers only after their assertions succeed; and the static journey emits each required crash-matrix key only after the corresponding process recovery. The gate fails if a proof or marker is missing, skipped, renamed, or failing, and also enforces required schemas, Sales-only scope, and this result matrix.
+`scripts/gate-9.mjs` executes exact named Docker, PostgreSQL, Chromium, and unit evidence; PostgreSQL journeys emit scenario markers only after their assertions succeed; and the static journey emits each required crash-matrix key only after the corresponding process recovery. The gate fails if a proof or marker is missing, skipped, renamed, or failing, and also enforces required schemas, Sales-only scope, and this result matrix. The pending exact-head Linux/AppArmor run is the production admission evidence for this candidate.
 
 ## Known limits and deferred scope
 
@@ -69,10 +58,10 @@ At the closeout head, `pnpm gate:9` passed Gates 0–8 and every mandatory Gate 
 
 ## Phase-result decision
 
-Every Phase 9 task, acceptance journey, hardening amendment, and kill criterion has executable final-head evidence. No host-process code injection, live database-authored static graph, unsigned build, mixed generation, unfenced worker, stale catalog replay, mutable rollback image, persistent failed realm, network-capable Skin SVG, or false zero-downtime path is accepted.
+Every Phase 9 task and closeout remediation is implemented on this candidate. The remaining acceptance boundary is exact-head Linux/AppArmor Gate 9 plus the same Sol-xhigh phase review; until both pass, this document is not a final phase acceptance. No host-process code injection, live database-authored static graph, unsigned build, mixed generation, unfenced worker, stale catalog replay, mutable rollback image, persistent failed realm, network-capable Skin SVG, or false zero-downtime path is accepted by the completed local evidence.
 
 **Decision:** **READY FOR PHASE REVIEW**
 
-Gate decision: **GO PHASE 10 RBAC AND AUTHORIZATION**.
+Gate decision on acceptance: **GO PHASE 10 RBAC AND AUTHORIZATION**.
 
 After project-manager PASS, the exact next task is **P10.1 — Freeze owner, role, grant, assignment, template, and revision contracts**. Do not start domain expansion; continue using Sales and the Gate 9 extension fixtures to harden platform authorization.
