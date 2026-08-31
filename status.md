@@ -3,19 +3,19 @@
 - **Updated:** 2026-08-31
 - **Phase:** Phase 9 — Dynamic Application Runtime and Zero-Downtime Delivery
 - **Active task:** P9.10 — Gate 9 closeout
-- **State:** In progress
+- **State:** Ready for phase review
 
 ## Last completed
 
-All five PR #28 findings are fixed. Fresh install and active-generation policy now share one exhaustive classifier and persist exact quarantine reasons; the other four runtime, runner, Remote UI, and outbox remediations remain complete.
+All five PR #28 findings are fixed and the reused Sol-xhigh reviewer returned `PASS` on the complete remediation slice at `7f9c5ececda3d745ae0bce53b1f3401258ec9912`.
 
 ## Validation
 
-All focused builds/unit tests passed. Real PostgreSQL proofs passed for operation reclamation, advisory quarantine, and outbox leases; focused Docker and real Chromium proofs passed. Full Gate 9 has not yet run on the combined remediation head.
+GitHub Actions [run `33430567492`](https://github.com/rootkeystudio/k-nex-platform-core/actions/runs/33430567492) passed strict Linux/AppArmor setup, Docker runner preflight, browser proofs, `pnpm gate:9`, and exact-head repository evidence for `7f9c5ececda3d745ae0bce53b1f3401258ec9912`.
 
 ## Next
 
-Run Gate 9 once on the combined remediation head, refresh phase evidence/status, and update PR #28.
+Await designated review and merge of PR #28; do not start P10.1 before merge.
 
 ## Blockers
 

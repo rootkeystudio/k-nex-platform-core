@@ -5,9 +5,9 @@
 - **Accepted base:** `73d18886c36db5fc5c0d05a1d8e44dc784e460cc`
 - **Delivery:** one Phase 9 branch and pull request; no merge or auto-merge
 - **Decision:** **READY FOR PHASE REVIEW**
-- **Validated head:** `ee8f171ebca066be71c5875eed6c2981a73f765c`
-- **Exact-head evidence:** GitHub Actions [run `33381147184`](https://github.com/rootkeystudio/k-nex-platform-core/actions/runs/33381147184) passed strict Linux/AppArmor setup, Docker runner preflight, browser proofs, `pnpm gate:9`, and exact-head repository evidence.
-- **Review state:** Gate 9 closeout is complete. The sole remaining acceptance boundary is designated same Sol-xhigh/project-manager review; no project-manager PASS is claimed.
+- **Validated head:** `7f9c5ececda3d745ae0bce53b1f3401258ec9912`
+- **Exact-head evidence:** GitHub Actions [run `33430567492`](https://github.com/rootkeystudio/k-nex-platform-core/actions/runs/33430567492) passed strict Linux/AppArmor setup, Docker runner preflight, browser proofs, `pnpm gate:9`, and exact-head repository evidence.
+- **Review state:** The reused Sol-xhigh reviewer returned `PASS` on the complete five-finding remediation slice. PR #28 remains review-only; no merge or auto-merge is claimed.
 
 ## Scope proved
 
@@ -40,7 +40,9 @@ Phase 9 delivers the accepted Two-Path Extension Model. Hot Applications and The
 
 ## Validation and failure evidence
 
-Local evidence ran on Node 24.19.0, including Gates 0–8, the required unit and Chromium proofs, and PostgreSQL journeys. The exact static deployment PostgreSQL/Docker proof passes 1/1 after the Node `npm` PATH correction. Production admission was then validated on exact head `ee8f171ebca066be71c5875eed6c2981a73f765c`: GitHub Actions [run `33381147184`](https://github.com/rootkeystudio/k-nex-platform-core/actions/runs/33381147184) passed strict Linux/AppArmor setup, Docker runner preflight, browser proofs, `pnpm gate:9`, and exact-head repository evidence.
+Local evidence ran on Node 24.19.0, including Gates 0–8, the required unit and Chromium proofs, and 20/21 PostgreSQL journeys; the sole local-only refusal was the intended production-profile guard under macOS `local-docker-test-only`. Production admission was then validated on exact implementation head `7f9c5ececda3d745ae0bce53b1f3401258ec9912`: GitHub Actions [run `33430567492`](https://github.com/rootkeystudio/k-nex-platform-core/actions/runs/33430567492) passed strict Linux/AppArmor setup, Docker runner preflight, browser proofs, `pnpm gate:9`, and exact-head repository evidence.
+
+PR #28 remediation additionally proves one exhaustive fresh-install/active-catalog policy classifier with seven exact persisted quarantine reasons; opaque-origin ESM Remote UI module workers; supervisor-scoped Docker startup cleanup; bounded exact-once reclamation of expired operation capacity; and short-transaction outbox claims with publish timeout, lease recovery, poison dead-lettering, and explicit at-least-once replay behavior.
 
 The phase corpus remains structurally complete: 22 required attacks, 12 exact proof groups, and 9 recovered state/process matrix entries. Chromium markers: `P9_REMOTE_UI_BROWSER_PASS` and `P9_THEME_SKIN_BROWSER_PASS`.
 
@@ -48,7 +50,7 @@ The real customer PostgreSQL/Docker journeys run continuous HTTP probes with zer
 
 The Chromium remote-realm proof additionally exercises replayed, oversized, over-depth, rate-flooded, mixed-generation, navigation, and download attempts in fresh browser sessions. Every attack fails closed, detaches the realm, leaves the host healthy, and reaches no unauthorized source, action, navigation, or download authority.
 
-`scripts/gate-9.mjs` executes exact named Docker, PostgreSQL, Chromium, and unit evidence; PostgreSQL journeys emit scenario markers only after their assertions succeed; and the static journey emits each required crash-matrix key only after the corresponding process recovery. The gate fails if a proof or marker is missing, skipped, renamed, or failing, and also enforces required schemas, Sales-only scope, and this result matrix. Exact-head Linux/AppArmor production admission passed in GitHub Actions run `33381147184`.
+`scripts/gate-9.mjs` executes exact named Docker, PostgreSQL, Chromium, and unit evidence; PostgreSQL journeys emit scenario markers only after their assertions succeed; and the static journey emits each required crash-matrix key only after the corresponding process recovery. The gate fails if a proof or marker is missing, skipped, renamed, or failing, and also enforces required schemas, Sales-only scope, and this result matrix. Exact-head Linux/AppArmor production admission passed in GitHub Actions run `33430567492`.
 
 ## Known limits and deferred scope
 
@@ -60,7 +62,7 @@ The Chromium remote-realm proof additionally exercises replayed, oversized, over
 
 ## Phase-result decision
 
-Every Phase 9 task and closeout remediation is implemented, and exact-head Linux/AppArmor Gate 9 passed in GitHub Actions run `33381147184`. The remaining acceptance boundary is designated same Sol-xhigh/project-manager review only; this document does not claim project-manager PASS. No host-process code injection, live database-authored static graph, unsigned build, mixed generation, unfenced worker, stale catalog replay, mutable rollback image, persistent failed realm, network-capable Skin SVG, or false zero-downtime path is accepted by the completed evidence.
+Every Phase 9 task and closeout remediation is implemented, exact-head Linux/AppArmor Gate 9 passed in GitHub Actions run `33430567492`, and the reused Sol-xhigh reviewer returned `PASS`. PR #28 remains for the designated owner review and merge. No host-process code injection, live database-authored static graph, unsigned build, mixed generation, unfenced worker, stale catalog replay, mutable rollback image, persistent failed realm, network-capable Skin SVG, or false zero-downtime path is accepted by the completed evidence.
 
 **Decision:** **READY FOR PHASE REVIEW**
 
