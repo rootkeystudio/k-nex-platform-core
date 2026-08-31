@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Run `33369701437` attempt 2: the exact durable Hot Application PostgreSQL journey failed with `POLICY_UNAVAILABLE` before runner source handoff (`exitCode=159`); the remaining Gate 9 evidence continued.
+Run `33372670777` strict full Gate 9 audit capture verified the `dmesg` canary and reproduced `SCMP_ACT_KILL_PROCESS` denial `syscall=35` (`nanosleep`) before durable Hot Application runner-source handoff (`exitCode=159`). The Node 24 runner seccomp allowlist now admits only `nanosleep` for that denial and pins the regenerated profile digest; temporary audit capture is removed and the architecture workflow matches permanent baseline `47d4cf7`.
 
 ## Validation
 
-Runs `33371840529` and `33372094707`: the strict canary produced `socket=41` with a new `type=1326` audit record; 55 isolated durable-journey attempts did not reproduce `exitCode=159`. Local workflow YAML parse, extracted Bash syntax check, and `git diff --check` pass for this audit-capture slice.
+Focused runner policy test passes (3 tests); runner TypeScript build passes; strict local Docker runner test passes (13 tests, 1 production-AppArmor test skipped on Docker Desktop).
 
 ## Next
 
-Run the verified strict audit capture around the real full Gate 9 workload; map any SIGSYS syscall or accept a genuine Gate 9 pass.
+Retry the exact-head strict full Gate 9 workflow with `K_NEX_RUNNER_ISOLATION_POLICY=apparmor`.
 
 ## Blockers
 

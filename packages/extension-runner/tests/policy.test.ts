@@ -24,7 +24,7 @@ describe("runner Docker security policy", () => {
     const seccomp = JSON.parse(runnerSeccompProfile) as { defaultAction: string; syscalls: readonly { names: readonly string[]; action: string }[] };
     expect(seccomp).toMatchObject({ defaultAction: "SCMP_ACT_KILL_PROCESS" });
     expect(seccomp.syscalls).toEqual([
-      expect.objectContaining({ action: "SCMP_ACT_ALLOW", names: expect.arrayContaining(["capget", "clone", "clone3", "futex", "membarrier", "openat", "rseq", "statx"]) }),
+      expect.objectContaining({ action: "SCMP_ACT_ALLOW", names: expect.arrayContaining(["capget", "clone", "clone3", "futex", "membarrier", "nanosleep", "openat", "rseq", "statx"]) }),
       { names: ["io_uring_setup"], action: "SCMP_ACT_ERRNO", errnoRet: 1 }
     ]);
     const admitted = seccomp.syscalls.flatMap(({ names }) => names);

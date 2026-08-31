@@ -32,113 +32,18 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Configure Gate 9 Linux runner isolation
         run: node scripts/setup-gate-9-linux-isolation.mjs
-      - name: Install browser proofs
-        run: pnpm exec playwright install --with-deps chromium
       - name: Run Gate 9 Docker runner preflight
         run: |
           pnpm --filter '@k-nex/extension-runner...' -r build
           pnpm --filter @k-nex/extension-runner test:docker
         env:
           K_NEX_RUNNER_ISOLATION_POLICY: apparmor
-      - name: Capture strict Gate 9 seccomp audit evidence
-        shell: bash
-        run: |
-          set -euo pipefail
-          audit_log="$RUNNER_TEMP/gate-9-seccomp-audit.log"
-          seccomp_profile="$(mktemp "$RUNNER_TEMP/gate-9-seccomp.XXXXXX.json")"
-          attempt_log="$RUNNER_TEMP/gate-9-durable-hot-application-attempt.log"
-          audit_pid=""
-
-          stop_capture() {
-            if [ -n "$audit_pid" ]; then
-              sudo kill "$audit_pid" 2>/dev/null || true
-              wait "$audit_pid" 2>/dev/null || true
-              audit_pid=""
-            fi
-          }
-          cleanup() {
-            stop_capture
-            rm -f "$seccomp_profile"
-          }
-          trap cleanup EXIT
-
-          pnpm --filter '@k-nex/customer-gate-1...' -r build
-          read -r runner_image runner_apparmor_profile < <(
-            node --input-type=module - "$seccomp_profile" <<'NODE'
-          import { writeFileSync } from "node:fs";
-          import { extensionRunnerImage, runnerAppArmorProfileName, runnerSeccompProfile } from "./packages/extension-runner/dist/index.js";
-
-          writeFileSync(process.argv[2], runnerSeccompProfile, { encoding: "utf8", mode: 0o600, flag: "w" });
-          process.stdout.write(`${extensionRunnerImage} ${runnerAppArmorProfileName}\n`);
-          NODE
-          )
-
-          : > "$audit_log"
-          sudo dmesg --follow-new > "$audit_log" 2>&1 &
-          audit_pid=$!
-          cat /proc/sys/kernel/seccomp/actions_logged
-
-          canary_name="k-nex-seccomp-audit-canary-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          set +e
-          docker run --name "$canary_name" --network none --read-only --user 10000:10000 --cap-drop ALL \
-            --security-opt no-new-privileges=true --security-opt "seccomp=$seccomp_profile" \
-            --security-opt "apparmor=$runner_apparmor_profile" --entrypoint node "$runner_image" \
-            -e "require('node:net').createServer().listen(0)" > "$RUNNER_TEMP/gate-9-seccomp-canary.log" 2>&1
-          canary_status=$?
-          set -e
-          docker rm --force "$canary_name" >/dev/null 2>&1 || true
-          if [ "$canary_status" -ne 159 ]; then
-            echo "GATE_9_STRICT_AUDIT_UNAVAILABLE canary_exit=$canary_status expected=159"
-            exit 1
-          fi
-          for _ in {1..10}; do
-            if grep -Eq 'type=1326.*syscall=[0-9]+' "$audit_log"; then break; fi
-            sleep 1
-          done
-          if ! grep -Eq 'type=1326.*syscall=[0-9]+' "$audit_log"; then
-            echo "GATE_9_STRICT_AUDIT_UNAVAILABLE canary_sigsys=159 audit_type=1326_missing"
-            exit 1
-          fi
-          audit_baseline_lines=$(wc -l < "$audit_log")
-
-          set +e
-          K_NEX_RUNNER_ISOLATION_POLICY=apparmor pnpm gate:9 > "$attempt_log" 2>&1
-          gate_status=$?
-          set -e
-
-          stop_capture
-          tail -n 120 "$audit_log" || true
-          tail -n 240 "$attempt_log" || true
-          audit_records=$(tail -n "+$((audit_baseline_lines + 1))" "$audit_log" | grep -F 'type=1326' | grep -F 'subj=k-nex-extension-runner' | grep -F 'exe="/usr/local/bin/node"' | grep -F 'sig=31' | grep -F 'code=0x80000000' | grep -F 'arch=c000003e' || true)
-          unistd_header=/usr/include/x86_64-linux-gnu/asm/unistd_64.h
-          if [ ! -r "$unistd_header" ]; then
-            echo "GATE_9_STRICT_AUDIT_UNAVAILABLE unistd_header=$unistd_header"
-            exit 1
-          fi
-          syscall_map=""
-          while read -r syscall_number; do
-            [ -n "$syscall_number" ] || continue
-            syscall_name=$(awk -v number="$syscall_number" '$1 == "#define" && $2 ~ /^__NR_/ && $3 == number { sub(/^__NR_/, "", $2); print $2; exit }' "$unistd_header")
-            syscall_map="${syscall_map}${syscall_map:+,}${syscall_number}:${syscall_name:-unknown}"
-          done < <(printf '%s\n' "$audit_records" | sed -n 's/.*syscall=\([0-9][0-9]*\).*/\1/p' | sort -nu)
-
-          if grep -Eq 'exitCode=159|SIGSYS' "$attempt_log"; then
-            if [ -z "$syscall_map" ]; then
-              echo "GATE_9_STRICT_AUDIT_UNAVAILABLE gate_status=$gate_status strict_workload_audit_record_missing"
-              exit 1
-            fi
-            echo "GATE_9_STRICT_AUDIT_REPRODUCED gate_status=$gate_status syscall_map=$syscall_map"
-            exit 1
-          fi
-          if [ "$gate_status" -ne 0 ]; then
-            echo "GATE_9_STRICT_AUDIT_OTHER_FAILURE gate_status=$gate_status syscall_map=$syscall_map"
-            exit "$gate_status"
-          fi
-          if [ -n "$syscall_map" ]; then
-            echo "GATE_9_STRICT_AUDIT_UNEXPECTED_DENIAL gate_status=0 syscall_map=$syscall_map"
-            exit 1
-          fi
-          echo "GATE_9_STRICT_AUDIT_GATE_PASS"
+      - name: Install browser proofs
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Run Phase 0 through Gate 9
+        run: pnpm gate:9
+        env:
+          K_NEX_RUNNER_ISOLATION_POLICY: apparmor
       - name: Verify exact-head repository evidence
         run: |
           pnpm audit --audit-level high

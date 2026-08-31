@@ -10,7 +10,7 @@ export const runnerSeccompProfile = JSON.stringify({
       "faccessat", "fchdir", "fchmodat", "fcntl", "fdatasync", "fstat", "fstatfs", "fsync", "futex", "getcwd", "getdents64", "getegid",
       "geteuid", "getgid", "getgroups", "getpeername", "getpid", "getppid", "getrandom", "getresgid", "getresuid", "getrlimit", "getrusage",
       "getsid", "getsockname", "getsockopt", "gettid", "getuid", "ioctl", "kill", "lseek", "madvise", "memfd_create", "mmap", "mprotect",
-      "membarrier", "mremap", "munmap", "newfstatat", "open", "openat", "openat2", "pipe", "pipe2", "poll", "ppoll", "prctl", "pread64", "preadv", "prlimit64",
+      "membarrier", "mremap", "munmap", "nanosleep", "newfstatat", "open", "openat", "openat2", "pipe", "pipe2", "poll", "ppoll", "prctl", "pread64", "preadv", "prlimit64",
       "pselect6", "pwrite64", "read", "readlink", "readlinkat", "readv", "recvfrom", "recvmsg", "restart_syscall", "rseq", "rt_sigaction",
       "rt_sigpending", "rt_sigprocmask", "rt_sigreturn", "rt_sigsuspend", "rt_sigtimedwait", "sched_getaffinity", "sched_getparam", "sched_getscheduler",
       "sched_yield", "sendfile", "sendmsg", "sendto", "set_robust_list", "set_tid_address", "setrlimit", "sigaltstack", "statfs", "statx", "sysinfo",
@@ -24,7 +24,7 @@ export const runnerSeccompProfile = JSON.stringify({
     errnoRet: 1
   }]
 });
-export const runnerSeccompProfileDigest = "sha256:ef31f8835cf61bf56d7f8ba2bf2d9a8776351c3079871a3d81c81aa27efbf0be";
+export const runnerSeccompProfileDigest = "sha256:484830de0749ee7c1dcc0f3e10fb425ed0ec0f1f20097450271d18d7b2b8af10";
 
 export type DockerIsolationPolicy =
   | Readonly<{ kind: "apparmor"; profile: string; source: string; digest: string }>
