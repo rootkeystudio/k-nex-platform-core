@@ -95,13 +95,14 @@ async function inspectContainer(name: string): Promise<Record<string, any>> {
 }
 
 function startSeccompDiagnosticRunner(containerName: string, profilePath: string, index: number) {
+  const workloadUser = 20_000 + index;
   const child = spawn("docker", [
     "run", "-i", "--name", containerName,
     "--label", "k-nex.runner=hot-application-v1", "--label", "k-nex.application=customer-alpha", "--label", "k-nex.environment=production", "--label", "k-nex.app=app.sales-assistant", "--label", `k-nex.generation=seccomp-diagnostic-${index}`,
-    "--network", "none", "--read-only", "--user", "10000:10000", "--workdir", "/tmp",
-    "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=1048576,mode=700,uid=10000,gid=10000",
-    "--cap-drop", "ALL", "--security-opt", "no-new-privileges=true", "--security-opt", `seccomp=${profilePath}`, "--security-opt", `apparmor=${runnerAppArmorProfileName}`, "--pids-limit", "32",
-    "--memory", "64m", "--memory-swap", "64m", "--cpus", "0.25", "--ulimit", "nofile=64:64", "--env", "HOME=/tmp", "--env", "NODE_NO_WARNINGS=1", "--entrypoint", "node",
+    "--network", "none", "--read-only", "--user", `${workloadUser}:${workloadUser}`, "--workdir", "/tmp",
+    "--tmpfs", `/tmp:rw,noexec,nosuid,nodev,size=268435456,mode=700,uid=${workloadUser},gid=${workloadUser}`,
+    "--cap-drop", "ALL", "--security-opt", "no-new-privileges=true", "--security-opt", `seccomp=${profilePath}`, "--security-opt", `apparmor=${runnerAppArmorProfileName}`, "--pids-limit", "256",
+    "--memory", "128m", "--memory-swap", "128m", "--cpus", "0.5", "--ulimit", "nofile=4096:4096", "--env", "HOME=/tmp", "--env", "NODE_NO_WARNINGS=1", "--entrypoint", "node",
     extensionRunnerImage, "--permission", "--experimental-vm-modules", "-e", runnerServiceSource
   ], { stdio: ["pipe", "pipe", "pipe"] });
   const frames: Record<string, unknown>[] = [];
