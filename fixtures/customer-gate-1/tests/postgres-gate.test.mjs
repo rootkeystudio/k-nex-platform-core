@@ -102,6 +102,7 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
         (select count(*)::int from payload_migrations where name = '20260829_000017_static_release_authority') as static_release_authority_migration_count,
         (select count(*)::int from payload_migrations where name = '20260829_000018_runner_quarantine') as runner_quarantine_migration_count,
         (select count(*)::int from payload_migrations where name = '20260901_000019_authorization_storage') as authorization_storage_migration_count,
+        (select count(*)::int from payload_migrations where name = '20260901_000020_template_tombstones') as template_tombstones_migration_count,
         to_regclass('public.runtime_extensions')::text as runtime_extensions,
         to_regclass('public.runtime_extension_storage_records')::text as app_storage_records,
         to_regclass('public.runtime_theme_profile_publications')::text as theme_profile_publications,
@@ -146,6 +147,7 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
       static_release_authority_migration_count: 1,
       runner_quarantine_migration_count: 1,
       authorization_storage_migration_count: 1,
+      template_tombstones_migration_count: 1,
       runtime_extensions: "runtime_extensions",
       app_storage_records: "runtime_extension_storage_records",
       theme_profile_publications: "runtime_theme_profile_publications",
@@ -162,8 +164,8 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
       static_composition_checkpoints: "runtime_static_composition_checkpoints",
       static_release_requests: "runtime_static_release_requests",
       runner_quarantine_receipts: "runtime_extension_runner_quarantine_receipts",
-      predecessor_revision: 18,
-      revision: 19
+      predecessor_revision: 19,
+      revision: 20
     }]);
 
     const outboxSchema = await runFixtureProcess("tests/outbox-schema.mjs", connectionString);
@@ -189,7 +191,7 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
     assert.equal(currentBoot.code, 0, `${currentBoot.stdout}\n${currentBoot.stderr}`);
     assert.match(currentBoot.stdout, /^READY$/m);
     const current = await query(connectionString, "select count(*)::int as count from payload_migrations");
-    assert.equal(current.rows[0].count, 19);
+    assert.equal(current.rows[0].count, 20);
 
     const authenticated = await runFixtureProcess("tests/authenticated-runtime.mjs", connectionString, {
       BOOT_KEY: "gate1-authenticated-runtime"
@@ -340,7 +342,10 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
     `);
     assert.deepEqual(rolledBack.rows, [{ marker: null, migration_table: null }]);
   } finally {
-    if (databaseStopped) execFileSync("docker", ["unpause", container.getId()], { stdio: "ignore" });
-    await container.stop();
+    try {
+      if (databaseStopped) execFileSync("docker", ["unpause", container.getId()], { stdio: "ignore" });
+    } finally {
+      await container.stop();
+    }
   }
 });

@@ -7,7 +7,7 @@ import {
 } from "@k-nex/runtime";
 import { createPayloadPersistenceCapability, CurrentAuthorityPayloadPersistenceAuthorizer } from "@k-nex/payload-adapter";
 import type { Endpoint, PayloadRequest } from "payload";
-import type { FixtureAuthorityContext, FixtureCurrentAuthority } from "./current-authority.js";
+import type { FixtureAuthorityContext, FixtureCurrentAuthority, FixtureSalesProfile } from "./current-authority.js";
 
 interface ActionBody {
   readonly actionId?: unknown;
@@ -38,21 +38,32 @@ function docs(result: unknown): readonly Record<string, unknown>[] {
   return result.docs.filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null);
 }
 
-async function authorize(actionId: string, input: unknown, authenticated: AuthenticatedActionRequest): Promise<unknown> {
+function targetScope(collection: "sales-tasks" | "sales-opportunities", id: string, profile: FixtureSalesProfile) {
+  const field = collection === "sales-tasks" ? "status" : "stage";
+  const value = profile === "done"
+    ? collection === "sales-tasks" ? "done" : "won"
+    : collection === "sales-tasks" ? "open" : "lead";
+  return Object.freeze({
+    kind: collection === "sales-tasks" ? "sales.tasks" as const : "sales.opportunities" as const,
+    where: Object.freeze({ and: Object.freeze([{ id: Object.freeze({ equals: id }) }, { [field]: Object.freeze({ equals: value }) }]) })
+  });
+}
+
+async function authorize(authority: FixtureCurrentAuthority, actionId: string, input: unknown, authenticated: AuthenticatedActionRequest): Promise<unknown> {
   const details = typeof input === "object" && input !== null ? input as Record<string, unknown> : {};
   if (actionId === "sales.task.create") return Object.freeze({ actionId, operation: "create" });
   const id = details.id;
   if (typeof id !== "string") throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Action target is forbidden.");
   const context = authenticated.request as CapabilityRequest;
   const collection = actionId === "sales.task.update" ? "sales-tasks" : actionId === "sales.opportunity.stage.update" ? "sales-opportunities" : undefined;
-  const scope = {};
   if (collection === undefined) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Action is forbidden.");
+  const scope = targetScope(collection, id, authority.salesProfile(authenticated.authorizationContext as FixtureAuthorityContext));
   const result = await context.payload.find({
     collection,
     overrideAccess: true,
     depth: 0,
     limit: 1,
-    where: { id: { equals: id } }
+    where: scope.where
   });
   if (docs(result).length !== 1) throw new ActionGatewayError("ACTION_TARGET_FORBIDDEN", 403, "Action target is forbidden.");
   return Object.freeze({ actionId, resourceId: id, scope });
@@ -63,7 +74,7 @@ export function createActionEndpoint(registration: ScopedRegistrationResult, aut
     authority.adapter,
     ({ authenticated }) => authenticated.authorizationContext as FixtureAuthorityContext,
     (action, input) => authority.action(action, input),
-    { authorize: ({ action, input, authenticated }) => authorize(action.descriptor.id, input, authenticated) }
+    { authorize: ({ action, input, authenticated }) => authorize(authority, action.descriptor.id, input, authenticated) }
   );
   const gateway = new RegisteredActionGateway(registration, {
     authenticate(request) {

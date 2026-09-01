@@ -31,10 +31,13 @@ export interface FixtureAuthorityContext {
   readonly permissionFingerprint: string;
 }
 
+export type FixtureSalesProfile = "normal" | "done";
+
 export interface FixtureCurrentAuthority {
   readonly adapter: CurrentAuthorityAdapter<FixtureAuthorityContext>;
   readonly permissions: CurrentAuthorityPermissionProjection<FixtureAuthorityContext>;
   context(request: PayloadRequest, correlationId: string, user?: unknown): FixtureAuthorityContext;
+  salesProfile(context: FixtureAuthorityContext): FixtureSalesProfile;
   source(descriptor: DataSourceDescriptor, surface: string): CurrentAuthorityTarget;
   field(descriptor: DataSourceDescriptor, fieldId: string, surface: string): CurrentAuthorityTarget;
   action(action: ActionDefinition, input: unknown): CurrentAuthorityTarget;
@@ -62,11 +65,13 @@ function pool(request: PayloadRequest): RuntimeExtensionPool {
   return value as RuntimeExtensionPool;
 }
 
-function actor(user: unknown): { readonly id: string } {
+function actor(user: unknown): { readonly id: string; readonly salesProfile: FixtureSalesProfile } {
   if (typeof user !== "object" || user === null || !("collection" in user) || user.collection !== "users" || !("id" in user) || user.id === null || user.id === undefined) {
     throw new TypeError("Authentication context is invalid.");
   }
-  return { id: String(user.id) };
+  const email = "email" in user && typeof user.email === "string" ? user.email : undefined;
+  // This fixed fixture intentionally maps unknown and missing emails to normal.
+  return { id: String(user.id), salesProfile: email === "done@example.test" ? "done" : "normal" };
 }
 
 function target(permission: ReadonlyMap<string, Readonly<{ resource: string; scope: "application" | "record" | "field" }>>, permissionId: string, boundary: string, selectedRecordId?: string): CurrentAuthorityTarget {
@@ -136,7 +141,9 @@ export function createFixtureCurrentAuthority(registration: ScopedRegistrationRe
   const catalogProvider = createAuthorizationCatalogProvider(({ applicationId: requested, lifecycleRevision }) =>
     requested === applicationId ? Object.freeze({ applicationId, lifecycleRevision, catalog: effectiveCatalog }) : undefined);
   const sessions = new WeakMap<FixtureAuthorityContext, TrustedAuthorizationSession>();
-  const contexts = new WeakMap<PayloadRequest, Readonly<{ actorId: string; context: FixtureAuthorityContext }>>();
+  /** Domain facts stay in the branded context store: the cache accepts JSON-safe context projections only. */
+  const salesProfiles = new WeakMap<FixtureAuthorityContext, FixtureSalesProfile>();
+  const contexts = new WeakMap<PayloadRequest, Readonly<{ actorId: string; salesProfile: FixtureSalesProfile; context: FixtureAuthorityContext }>>();
   const stores = new WeakMap<TrustedAuthorizationSession, PostgresAuthorizationStore>();
   const resolver = {
     authorize(session: TrustedAuthorizationSession, request: Parameters<EffectiveAuthorityResolver["authorize"]>[1], signal: AbortSignal) {
@@ -169,7 +176,9 @@ export function createFixtureCurrentAuthority(registration: ScopedRegistrationRe
       const current = actor(user);
       const existing = contexts.get(request);
       if (existing !== undefined) {
-        if (existing.actorId !== current.id) throw new TypeError("Payload request authority actor changed.");
+        if (existing.actorId !== current.id || existing.salesProfile !== current.salesProfile) {
+          throw new TypeError("Payload request authority actor or Sales profile changed.");
+        }
         return existing.context;
       }
       const session = createTrustedAuthorizationSession({
@@ -180,11 +189,19 @@ export function createFixtureCurrentAuthority(registration: ScopedRegistrationRe
         principal: { kind: "user", id: current.id },
         effectiveActor: { kind: "user", id: current.id }
       });
-      const context = Object.freeze({ permissionFingerprint: `${applicationId}:${environment}:user:${current.id}` });
+      const context = Object.freeze({
+        permissionFingerprint: `${applicationId}:${environment}:user:${current.id}:sales:${current.salesProfile}`
+      });
       stores.set(session, new PostgresAuthorizationStore(pool(request)));
       sessions.set(context, session);
-      contexts.set(request, Object.freeze({ actorId: current.id, context }));
+      salesProfiles.set(context, current.salesProfile);
+      contexts.set(request, Object.freeze({ actorId: current.id, salesProfile: current.salesProfile, context }));
       return context;
+    },
+    salesProfile(context) {
+      const profile = salesProfiles.get(context);
+      if (!sessions.has(context) || profile === undefined) throw new TypeError("Fixture Sales profile context is unavailable.");
+      return profile;
     },
     source(descriptor, surface) { return target(permission, descriptor.permission, `source-${surface}-${descriptor.id}`); },
     field(descriptor, fieldId, surface) {

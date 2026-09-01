@@ -201,6 +201,12 @@ describe("P10.1 authorization contracts", () => {
       revision: 3
     } as const;
     expect(TemplateAdoptionSchema.safeParse(adoption).success).toBe(true);
+    expect(TemplateAdoptionSchema.safeParse({ ...adoption, roleId: undefined }).success).toBe(false);
+    expect(TemplateAdoptionSchema.safeParse({ ...adoption, state: "tombstoned", roleId: undefined }).success).toBe(true);
+    expect(TemplateAdoptionSchema.safeParse({ ...adoption, state: "tombstoned" }).success).toBe(false);
+    expect(TemplateAdoptionSchema.safeParse({ ...adoption, kind: "copied-permissions" }).success).toBe(true);
+    expect(TemplateAdoptionSchema.safeParse({ ...adoption, kind: "copied-permissions", state: "tombstoned" }).success).toBe(true);
+    expect(TemplateAdoptionSchema.safeParse({ ...adoption, kind: "copied-permissions", state: "tombstoned", roleId: undefined }).success).toBe(false);
     expect(TemplateAdoptionSchema.safeParse({
       ...adoption,
       oldBaselinePermissionIds: ["sales.analytics.z.read", descriptor.id]

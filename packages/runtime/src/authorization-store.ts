@@ -80,6 +80,15 @@ export interface AuthorizationStore {
     expected: AuthorizationExpectedRevision,
     work: (transaction: AuthorizationStoreTransaction) => Promise<T>
   ): Promise<AuthorizationTransactionOutcome<T>>;
+  /**
+   * The only path allowed to create the immutable protected-role baseline and
+   * first owner. Implementations must reject non-first-run state and validate
+   * the complete staged mutation set before committing it.
+   */
+  bootstrapFirstOwnerTransaction<T>(
+    expected: AuthorizationExpectedRevision,
+    work: (transaction: AuthorizationStoreTransaction) => Promise<T>
+  ): Promise<AuthorizationTransactionOutcome<T>>;
 }
 
 export function parseAuthorizationExpectedRevision(value: unknown): AuthorizationExpectedRevision {

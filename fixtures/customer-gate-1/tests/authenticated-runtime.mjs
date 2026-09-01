@@ -3,16 +3,95 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
 import { createPayloadRequest } from "payload";
+import { PostgresAuthorizationStore } from "@k-nex/payload-adapter";
+import { bootstrapFirstOwner } from "@k-nex/runtime";
 
 import { bootGate1Application } from "../dist/src/boot.js";
 
 const key = process.env.BOOT_KEY;
 const password = "gate1-authenticated-query-password";
 const payload = await bootGate1Application({ key });
+const users = new Map();
 
 for (const email of ["gate1@example.test", "gate1-peer@example.test", "done@example.test", "no-note@example.test", "required-denied@example.test"]) {
-  await payload.create({ collection: "users", data: { email, password } });
+  users.set(email, await payload.create({ collection: "users", data: { email, password } }));
 }
+const userIds = new Set([...users.values()].map(({ id }) => String(id)));
+const pool = payload.db?.pool;
+assert.ok(pool && typeof pool === "object" && "connect" in pool && "query" in pool);
+const store = new PostgresAuthorizationStore(pool, {
+  validate: (applicationId, subject) => applicationId === "customer-gate-1" && subject.kind === "user" && userIds.has(subject.id)
+    ? "accepted"
+    : "rejected"
+});
+const firstOwner = await bootstrapFirstOwner({
+  store,
+  expected: { applicationId: "customer-gate-1", environment: "production", authorizationRevision: 0, lifecycleRevision: 0 },
+  firstOwner: { kind: "user", id: String(users.get("gate1@example.test").id) }
+});
+const salesOwner = Object.freeze({ kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales", generation: 1 });
+const salesPermissions = [
+  "sales.opportunities.name.read",
+  "sales.opportunities.read",
+  "sales.opportunities.stage.read",
+  "sales.opportunities.value.read",
+  "sales.opportunities.write",
+  "sales.tasks.private-note.read",
+  "sales.tasks.read",
+  "sales.tasks.revenue.read",
+  "sales.tasks.status.read",
+  "sales.tasks.title.read",
+  "sales.tasks.write"
+];
+await store.transaction({
+  applicationId: "customer-gate-1",
+  environment: "production",
+  authorizationRevision: firstOwner.state.authorizationRevision,
+  lifecycleRevision: firstOwner.state.lifecycleRevision
+}, async (transaction) => {
+  const seedRole = async (roleId, permissions, emails) => {
+    await transaction.write({ kind: "role", role: {
+      schemaVersion: 1,
+      id: roleId,
+      applicationId: "customer-gate-1",
+      label: "Fixture Sales operator",
+      revision: 0
+    } });
+    for (const permissionId of permissions) {
+      await transaction.write({ kind: "grant", grant: {
+        schemaVersion: 1,
+        id: `${roleId}.${permissionId}`,
+        applicationId: "customer-gate-1",
+        roleId,
+        permissionId,
+        owner: salesOwner,
+        revision: 0
+      } });
+    }
+    for (const email of emails) {
+      await transaction.write({ kind: "assignment", assignment: {
+        schemaVersion: 1,
+        id: `${roleId}.${email.replace(/@|\./gu, "-")}`,
+        applicationId: "customer-gate-1",
+        roleId,
+        principal: { kind: "user", id: String(users.get(email).id) },
+        state: "active",
+        revision: 0
+      } });
+    }
+  };
+  await transaction.write({ kind: "extension-generation", generation: {
+    schemaVersion: 1,
+    applicationId: "customer-gate-1",
+    owner: salesOwner,
+    runtimeGenerationIds: ["static-module-sales-1"],
+    state: "current",
+    authorizationRevision: firstOwner.state.authorizationRevision,
+    lifecycleRevision: firstOwner.state.lifecycleRevision
+  } });
+  await seedRole("fixture.sales-operator", salesPermissions, ["gate1@example.test", "gate1-peer@example.test", "done@example.test"]);
+  await seedRole("fixture.sales-operator-no-note", salesPermissions.filter((permissionId) => permissionId !== "sales.tasks.private-note.read"), ["no-note@example.test"]);
+});
 const openTask = await payload.create({
   collection: "sales-tasks",
   data: { title: "Authenticated Gate 1 query", status: "open", potentialRevenue: "100", privateNote: "open-secret" }
@@ -110,7 +189,7 @@ assert.equal((await unknownResponse.json()).code, "SOURCE_NOT_FOUND");
 const deniedLogin = await loginAs("required-denied@example.test");
 const deniedResponse = await callSource(deniedLogin.token, { ...sourceBody, selectedFields: sourceBody.selectedFields.slice(0, 3) });
 assert.equal(deniedResponse.status, 403);
-assert.equal((await deniedResponse.json()).code, "INSUFFICIENT_FIELD_PERMISSION");
+assert.equal((await deniedResponse.json()).code, "SOURCE_FORBIDDEN");
 
 const noNoteLogin = await loginAs("no-note@example.test");
 const noNoteResponse = await callSource(noNoteLogin.token);
@@ -148,6 +227,15 @@ const metricResponse = await callSource(login.token, {
 });
 assert.equal(metricResponse.status, 200);
 assert.equal((await metricResponse.json()).data.value.value, "100");
+const doneMetricResponse = await callSource(doneLogin.token, {
+  sourceId: "sales.total-potential-revenue",
+  surface: "workspace",
+  input: {},
+  query: { filters: [], sort: [] },
+  selectedFields: []
+});
+assert.equal(doneMetricResponse.status, 200);
+assert.equal((await doneMetricResponse.json()).data.value.value, "25");
 
 const actionEndpoint = payload.config.endpoints.find(({ path }) => path === "/k-nex/action");
 assert.ok(actionEndpoint);
@@ -175,6 +263,10 @@ assert.equal((await forbiddenTask.json()).code, "ACTION_TARGET_FORBIDDEN");
 const forbiddenOpportunity = await callAction(login.token, "sales.opportunity.stage.update", { id: String(wonOpportunity.id), stage: "lost" }, "action-forbidden-opportunity");
 assert.equal(forbiddenOpportunity.status, 403);
 assert.equal((await forbiddenOpportunity.json()).code, "ACTION_TARGET_FORBIDDEN");
+const doneTaskUpdate = await callAction(doneLogin.token, "sales.task.update", { id: String(doneTask.id), title: "Done actor mutation" }, "action-done-task");
+assert.equal(doneTaskUpdate.status, 200);
+const doneOpportunityUpdate = await callAction(doneLogin.token, "sales.opportunity.stage.update", { id: String(wonOpportunity.id), stage: "won" }, "action-done-opportunity");
+assert.equal(doneOpportunityUpdate.status, 200);
 
 const unauthenticatedRequest = await createPayloadRequest({
   config: payload.config,
@@ -306,7 +398,9 @@ assert.deepEqual(inventory.plugins, [{
     navigation: ["sales.navigation.opportunities", "sales.navigation.overview", "sales.navigation.settings", "sales.navigation.tasks"],
     pageTemplates: ["sales.page.opportunities", "sales.page.overview", "sales.page.settings", "sales.page.tasks"],
     permissions: ["sales.opportunities.name.read", "sales.opportunities.read", "sales.opportunities.stage.read", "sales.opportunities.value.read", "sales.opportunities.write", "sales.settings.read", "sales.settings.write", "sales.tasks.private-note.read", "sales.tasks.read", "sales.tasks.revenue.read", "sales.tasks.status.read", "sales.tasks.title.read", "sales.tasks.write"],
+    policyBindings: ["sales.policy.opportunities.name.read", "sales.policy.opportunities.read", "sales.policy.opportunities.stage.read", "sales.policy.opportunities.value.read", "sales.policy.opportunities.write", "sales.policy.tasks.private-note.read", "sales.policy.tasks.read", "sales.policy.tasks.revenue.read", "sales.policy.tasks.status.read", "sales.policy.tasks.title.read", "sales.policy.tasks.write"],
     realtimeTopics: ["sales.realtime.opportunities", "sales.realtime.tasks"],
+    roleTemplates: ["sales.template.administrator", "sales.template.manager", "sales.template.representative", "sales.template.viewer"],
     routes: ["sales.route.opportunities", "sales.route.overview", "sales.route.settings", "sales.route.tasks"],
     schema: ["sales.opportunities.collection", "sales.tasks.collection"],
     services: ["sales.service.domain"],
@@ -324,9 +418,9 @@ assert.deepEqual(inventory.plugins, [{
   actualContributions: {}
 }]);
 assert.deepEqual(inventory.migrationRevision, {
-  migrationName: "20260901_000019_authorization_storage",
-  predecessor: 18,
-  current: 19
+  migrationName: "20260901_000020_template_tombstones",
+  predecessor: 19,
+  current: 20
 });
 const serializedInventory = JSON.stringify(inventory);
 for (const forbidden of [process.env.DATABASE_URL, process.env.PAYLOAD_SECRET, login.token, password, "gate1@example.test"]) {

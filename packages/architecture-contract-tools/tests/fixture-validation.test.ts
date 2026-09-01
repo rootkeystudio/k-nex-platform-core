@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { Ajv2020, type AnySchema } from "ajv/dist/2020.js";
 import addFormatsModule from "ajv-formats";
 import { describe, expect, it } from "vitest";
-import { HotApplicationManifestSchema } from "@k-nex/contracts";
+import { HotApplicationManifestSchema, TemplateAdoptionSchema } from "@k-nex/contracts";
 
 import { type FixtureInput, type FixtureSchema, validateFixtures } from "../src/fixture-validation.js";
 import { registerAuthorizationOwnershipKeyword } from "../src/authorization-ownership.js";
@@ -147,5 +147,25 @@ describe("P10.2 Hot Application authorization parity", () => {
     expect(diagnostics.map(({ code, validator }) => ({ code, validator }))).toEqual([
       { code: "SCHEMA_INVALID", validator: "json-schema" }
     ]);
+  });
+});
+
+describe("P10.6 template-adoption schema parity", () => {
+  it("accepts only an independent instantiated-role tombstone in both Zod and AJV", async () => {
+    const fixture = await load<{ contract: Record<string, unknown> }>("fixtures/contracts/valid/authorization.adoption.json");
+    const independentTombstone = { ...fixture.contract, state: "tombstoned" };
+    delete independentTombstone.roleId;
+    const invalidLiveTombstone = { ...fixture.contract, state: "tombstoned" };
+    const invalidCopiedTombstone = { ...independentTombstone, kind: "copied-permissions" };
+    const candidates = [
+      { value: independentTombstone, valid: true },
+      { value: invalidLiveTombstone, valid: false },
+      { value: invalidCopiedTombstone, valid: false }
+    ] as const;
+    const validate = validators.authorization;
+    for (const candidate of candidates) {
+      expect(TemplateAdoptionSchema.safeParse(candidate.value).success).toBe(candidate.valid);
+      expect(validate({ $schema: "https://schemas.k-nex.dev/authorization.v1.schema.json", contract: candidate.value }), ajv.errorsText(validate.errors)).toBe(candidate.valid);
+    }
   });
 });

@@ -10,6 +10,7 @@ import {
   RoleSchema,
   TemplateAdoptionSchema,
   canonicalJson,
+  protectedRoleIds,
   type AuthorizationDecisionAudit,
   type AuthorizationState,
   type BootstrapReceipt,
@@ -22,6 +23,7 @@ import {
 } from "@k-nex/contracts";
 import {
   AuthorizationStoreError,
+  assertFirstOwnerBootstrapMutations,
   assertAuthorizationExpectedRevision,
   parseAuthorizationExpectedRevision,
   parseAuthorizationStoreMutation,
@@ -99,8 +101,9 @@ function assignment(row: Row): RoleAssignment {
 }
 
 function adoption(row: Row): TemplateAdoption {
+  const roleId = optionalString(row.role_id);
   return parse(TemplateAdoptionSchema, {
-    schemaVersion: 1, id: string(row.adoption_id), applicationId: string(row.application_id), roleId: string(row.role_id), templateId: string(row.template_id),
+    schemaVersion: 1, id: string(row.adoption_id), applicationId: string(row.application_id), ...(roleId === undefined ? {} : { roleId }), templateId: string(row.template_id),
     publisher: { kind: "extension", deliveryClass: string(row.publisher_delivery_class), extensionId: string(row.publisher_extension_id) },
     owner: owner(row) as Exclude<RolePermissionGrant["owner"], { kind: "platform" }>, templateVersion: integer(row.template_version),
     oldBaselinePermissionIds: row.old_baseline_permission_ids, digestAlgorithm: string(row.digest_algorithm), oldBaselineDigest: string(row.old_baseline_digest),
@@ -187,6 +190,14 @@ export class PostgresAuthorizationStore implements AuthorizationStore {
   }
 
   async transaction<T>(expected: AuthorizationExpectedRevision, work: (transaction: AuthorizationStoreTransaction) => Promise<T>): Promise<AuthorizationTransactionOutcome<T>> {
+    return this.runTransaction(expected, work, false);
+  }
+
+  async bootstrapFirstOwnerTransaction<T>(expected: AuthorizationExpectedRevision, work: (transaction: AuthorizationStoreTransaction) => Promise<T>): Promise<AuthorizationTransactionOutcome<T>> {
+    return this.runTransaction(expected, work, true);
+  }
+
+  private async runTransaction<T>(expected: AuthorizationExpectedRevision, work: (transaction: AuthorizationStoreTransaction) => Promise<T>, bootstrap: boolean): Promise<AuthorizationTransactionOutcome<T>> {
     const parsedExpected = parseAuthorizationExpectedRevision(expected);
     const session = await this.pool.connect();
     try {
@@ -201,8 +212,10 @@ export class PostgresAuthorizationStore implements AuthorizationStore {
       );
       const current = assertAuthorizationExpectedRevision(parsedExpected, locked.rows[0] ? state(locked.rows[0], parsedExpected.environment) : undefined);
       const mutations: AuthorizationStoreMutation[] = [];
-      const view = this.view(session, parsedExpected, current, mutations);
+      const view = this.view(session, parsedExpected, current, mutations, bootstrap);
+      if (bootstrap) await this.assertBootstrapEmpty(view, parsedExpected.applicationId);
       const value = await work(view);
+      if (bootstrap) assertFirstOwnerBootstrapMutations(parsedExpected, mutations);
       const changes = revisionChanges(mutations);
       const next = changes.authorization || changes.lifecycle
         ? await this.advance(session, current, changes)
@@ -217,7 +230,21 @@ export class PostgresAuthorizationStore implements AuthorizationStore {
     }
   }
 
-  private view(session: RuntimeExtensionSession, expected: AuthorizationExpectedRevision, current: AuthorizationState, mutations: AuthorizationStoreMutation[]): AuthorizationStoreTransaction {
+  private async assertBootstrapEmpty(view: AuthorizationStoreTransaction, applicationId: string): Promise<void> {
+    const roles = await view.listRoles(applicationId);
+    const grants = await view.listGrants(applicationId);
+    const assignments = await view.listAssignments(applicationId);
+    const adoptions = await view.listTemplateAdoptions(applicationId);
+    const snapshots = await view.listCatalogSnapshots(applicationId);
+    const generations = await view.listExtensionGenerations(applicationId);
+    const receipt = await view.readBootstrapReceipt(applicationId);
+    const audits = await view.listAudits({ applicationId, limit: 1 });
+    if (roles.length !== 0 || grants.length !== 0 || assignments.length !== 0 || adoptions.length !== 0 || snapshots.length !== 0 || generations.length !== 0 || receipt !== undefined || audits.length !== 0) {
+      fail("REVISION_CONFLICT", "First-owner bootstrap requires an empty authorization state.");
+    }
+  }
+
+  private view(session: RuntimeExtensionSession, expected: AuthorizationExpectedRevision, current: AuthorizationState, mutations: AuthorizationStoreMutation[], bootstrap: boolean): AuthorizationStoreTransaction {
     const application = (applicationId: string) => sameApplication(expected, applicationId);
     return Object.freeze({
       readRole: async (applicationId: string, roleId: string) => {
@@ -275,11 +302,29 @@ export class PostgresAuthorizationStore implements AuthorizationStore {
         if (mutation.kind === "audit" && (mutation.audit.environment !== expected.environment || mutation.audit.authorizationRevision !== current.authorizationRevision || mutation.audit.lifecycleRevision !== current.lifecycleRevision)) {
           fail("REVISION_CONFLICT", "Authorization audit must bind the transaction's current revisions.");
         }
+        if (!bootstrap) await this.assertRegularMutationAllowed(session, mutation);
         if (mutation.kind === "assignment") await this.assertOwnerRevocationSafe(session, mutation.assignment);
         await this.write(session, mutation);
         mutations.push(mutation);
       }
     });
+  }
+
+  private async assertRegularMutationAllowed(session: RuntimeExtensionSession, mutation: AuthorizationStoreMutation): Promise<void> {
+    if (mutation.kind === "bootstrap-receipt") {
+      fail("MUTATION_INVALID", "Bootstrap receipts may be created only by the first-owner bootstrap transaction.");
+    }
+    if (mutation.kind === "role" && (mutation.role.protectedRoleId !== undefined || protectedRoleIds.includes(mutation.role.id as typeof protectedRoleIds[number]))) {
+      fail("MUTATION_INVALID", "Protected role metadata may be created only by the first-owner bootstrap transaction.");
+    }
+    if (mutation.kind !== "grant") return;
+    if (protectedRoleIds.includes(mutation.grant.roleId as typeof protectedRoleIds[number])) {
+      fail("MUTATION_INVALID", "Protected role grants may be created only by the first-owner bootstrap transaction.");
+    }
+    const existing = await session.query<Row>(`select role_id from k_nex_role_permission_grants where application_id=$1 and grant_id=$2 for update`, [mutation.grant.applicationId, mutation.grant.id]);
+    if (existing.rows[0] !== undefined && protectedRoleIds.includes(string(existing.rows[0].role_id) as typeof protectedRoleIds[number])) {
+      fail("MUTATION_INVALID", "Protected role grants cannot be moved by reusing a grant ID.");
+    }
   }
 
   private async assertOwnerRevocationSafe(session: RuntimeExtensionSession, value: RoleAssignment): Promise<void> {
@@ -318,7 +363,7 @@ export class PostgresAuthorizationStore implements AuthorizationStore {
   }
 
   private async writeAdoption(session: RuntimeExtensionSession, value: TemplateAdoption): Promise<void> {
-    await session.query(`insert into k_nex_role_template_adoptions (application_id, adoption_id, role_id, template_id, publisher_delivery_class, publisher_extension_id, owner_delivery_class, owner_extension_id, owner_generation, template_version, old_baseline_permission_ids, digest_algorithm, old_baseline_digest, kind, state, revision) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14,$15,$16) on conflict (application_id, adoption_id) do update set role_id=excluded.role_id, template_id=excluded.template_id, publisher_delivery_class=excluded.publisher_delivery_class, publisher_extension_id=excluded.publisher_extension_id, owner_delivery_class=excluded.owner_delivery_class, owner_extension_id=excluded.owner_extension_id, owner_generation=excluded.owner_generation, template_version=excluded.template_version, old_baseline_permission_ids=excluded.old_baseline_permission_ids, digest_algorithm=excluded.digest_algorithm, old_baseline_digest=excluded.old_baseline_digest, kind=excluded.kind, state=excluded.state, revision=excluded.revision, updated_at=now()`, [value.applicationId, value.id, value.roleId, value.templateId, value.publisher.deliveryClass, value.publisher.extensionId, value.owner.deliveryClass, value.owner.extensionId, value.owner.generation, value.templateVersion, canonicalJson(value.oldBaselinePermissionIds), value.digestAlgorithm, value.oldBaselineDigest, value.kind, value.state, value.revision]);
+    await session.query(`insert into k_nex_role_template_adoptions (application_id, adoption_id, role_id, template_id, publisher_delivery_class, publisher_extension_id, owner_delivery_class, owner_extension_id, owner_generation, template_version, old_baseline_permission_ids, digest_algorithm, old_baseline_digest, kind, state, revision) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14,$15,$16) on conflict (application_id, adoption_id) do update set role_id=excluded.role_id, template_id=excluded.template_id, publisher_delivery_class=excluded.publisher_delivery_class, publisher_extension_id=excluded.publisher_extension_id, owner_delivery_class=excluded.owner_delivery_class, owner_extension_id=excluded.owner_extension_id, owner_generation=excluded.owner_generation, template_version=excluded.template_version, old_baseline_permission_ids=excluded.old_baseline_permission_ids, digest_algorithm=excluded.digest_algorithm, old_baseline_digest=excluded.old_baseline_digest, kind=excluded.kind, state=excluded.state, revision=excluded.revision, updated_at=now()`, [value.applicationId, value.id, value.roleId ?? null, value.templateId, value.publisher.deliveryClass, value.publisher.extensionId, value.owner.deliveryClass, value.owner.extensionId, value.owner.generation, value.templateVersion, canonicalJson(value.oldBaselinePermissionIds), value.digestAlgorithm, value.oldBaselineDigest, value.kind, value.state, value.revision]);
   }
 
   private async writeSnapshot(session: RuntimeExtensionSession, value: PermissionCatalogSnapshot): Promise<void> {

@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-09-01
 - **Phase:** Phase 10 — RBAC, Authorization, and Extension Bootstrap
-- **Active task:** P10.6 — Protected roles and template bootstrap
+- **Active task:** P10.7 — Lifecycle and generation integration
 - **State:** Ready to start
 
 ## Last completed
 
-P10.5 connected current authority to data/action/Payload/tool/realtime/route/page/navigation/Remote UI/settings/theme/Hot App capability/PluginManager/static deployment boundaries. Trusted actor/delegation sessions, exact server targets, continuation rechecks, timeout/failure closure, session/generation pinning, and pre-dispatch reauthorization prevent client forgery, actor confusion, stale continuation, and capability widening.
+P10.6 added immutable protected-role baselines, strict one-time first-owner bootstrap, app-branded automatic/manual templates, copy-once/compare/adoption semantics, independent durable tombstones, and migration revision 20. Protected-role mutation and bootstrap replay close safely; copied customer roles remain independent.
 
 ## Validation
 
-Focused only: runtime/payload/UI/Sales/customer fixture builds; runtime current-authority/lifecycle/settings/operator 8 files/89 tests; payload authorization 2 files/7 tests; Remote UI host 1 file/16 tests; Sales MCP/settings proofs; standalone Chromium Remote UI PASS; real PostgreSQL + Chromium boundary/actor/race proof 1/1; diff check; Docker cleanup. Same xhigh reviewer: PASS. Full suite deferred to phase closeout.
+Focused only: contracts build + 7 tests; runtime build + 30 tests; payload adapter build + 13 tests; schema/fixture parity 10 tests; Hot registry 13 tests; customer fixture build; real PostgreSQL template/bootstrap, storage, and migration rollback/reapply proofs 3/3; diff check; Docker cleanup. Same xhigh reviewer: PASS. Full suite deferred to phase closeout.
 
 ## Next
 
-Implement P10.6 protected platform roles, one-time owner bootstrap, extension templates, tombstones, receipts, three-way compare/adoption, and copy-once behavior.
+P10.7: first seed RBAC in the standalone sales lifecycle fixture (`sales-lifecycle.mjs:48`), then wire disable/re-enable/update/uninstall/quarantine to effective catalogs, current generations, retained grants, and explicit adoption.
 
 ## Blockers
 

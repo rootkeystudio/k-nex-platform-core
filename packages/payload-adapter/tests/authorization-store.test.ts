@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { PostgresAuthorizationStore } from "../src/authorization-store.js";
 import type { RuntimeExtensionPool, RuntimeExtensionSession } from "../src/runtime-extension-store.js";
+import { bootstrapFirstOwner, protectedPlatformRoleBaselines } from "@k-nex/runtime";
 
 const expected = { applicationId: "customer-alpha", environment: "production", authorizationRevision: 4, lifecycleRevision: 2 } as const;
 const role = { schemaVersion: 1, id: "sales.manager", applicationId: expected.applicationId, label: "Sales Manager", revision: 1 } as const;
@@ -10,22 +11,33 @@ const descriptor = {
   description: "Manage customer roles.", audience: "authenticated", resource: "system.roles", operation: "manage", scope: "application"
 } as const;
 
-function harness(options: Readonly<{ state?: Partial<typeof expected>; activeOwner?: boolean; otherOwners?: number; roleRow?: Record<string, unknown>; bootstrapAssignment?: Record<string, unknown> }> = {}) {
+function harness(options: Readonly<{ state?: Partial<typeof expected>; activeOwner?: boolean; otherOwners?: number; roleRow?: Record<string, unknown>; adoptionRow?: Record<string, unknown>; bootstrapAssignment?: Record<string, unknown>; protectedGrantRoleId?: string }> = {}) {
   const current = { ...expected, ...options.state };
   const queries: string[] = [];
+  let writtenOwnerAssignment: Record<string, unknown> | undefined;
   const query = vi.fn(async <T extends object>(text: string, values: readonly unknown[] = []) => {
     queries.push(text);
     if (text.startsWith("select application_id, authorization_revision")) return { rows: [{ application_id: current.applicationId, authorization_revision: current.authorizationRevision, lifecycle_revision: current.lifecycleRevision }] as T[] };
     if (text.startsWith("select application_id, role_id")) return { rows: options.roleRow ? [options.roleRow] as T[] : [] as T[] };
-    if (text.startsWith("update k_nex_authorization_state")) return { rows: [{ application_id: current.applicationId, authorization_revision: values[1], lifecycle_revision: values[2] }] as T[] };
+    if (text.startsWith("select application_id, adoption_id")) return { rows: options.adoptionRow ? [options.adoptionRow] as T[] : [] as T[] };
+    if (text.startsWith("update k_nex_authorization_state")) {
+      current.authorizationRevision = values[1] as number;
+      current.lifecycleRevision = values[2] as number;
+      return { rows: [{ application_id: current.applicationId, authorization_revision: current.authorizationRevision, lifecycle_revision: current.lifecycleRevision }] as T[] };
+    }
+    if (text.startsWith("insert into k_nex_role_assignments")) {
+      writtenOwnerAssignment = { role_id: values[2], subject_kind: values[3], subject_id: values[4], state: values[5] };
+      return { rows: [] as T[] };
+    }
     if (text.startsWith("select role_id, state from k_nex_role_assignments")) return { rows: options.activeOwner ? [{ role_id: "system.role.owner", state: "active" }] as T[] : [] as T[] };
-    if (text.startsWith("select role_id, subject_kind, subject_id, state")) return { rows: options.bootstrapAssignment ? [options.bootstrapAssignment] as T[] : [] as T[] };
+    if (text.startsWith("select role_id from k_nex_role_permission_grants")) return { rows: options.protectedGrantRoleId === undefined ? [] as T[] : [{ role_id: options.protectedGrantRoleId }] as T[] };
+    if (text.startsWith("select role_id, subject_kind, subject_id, state")) return { rows: options.bootstrapAssignment ? [options.bootstrapAssignment] as T[] : writtenOwnerAssignment === undefined ? [] as T[] : [writtenOwnerAssignment] as T[] };
     if (text.startsWith("select count(*)::int")) return { rows: [{ count: options.otherOwners ?? 0 }] as T[] };
     return { rows: [] as T[] };
   });
   const session: RuntimeExtensionSession = { query, release: vi.fn() };
   const pool: RuntimeExtensionPool = { connect: vi.fn(async () => session), query };
-  return { query, queries, store: new PostgresAuthorizationStore(pool) };
+  return { current, query, queries, store: new PostgresAuthorizationStore(pool) };
 }
 
 describe("PostgresAuthorizationStore", () => {
@@ -62,6 +74,86 @@ describe("PostgresAuthorizationStore", () => {
     const lockKey = value.query.mock.calls[1]?.[1]?.[0];
     expect(typeof lockKey).toBe("string");
     expect(JSON.parse(lockKey as string)).toEqual([expected.applicationId, "authorization-state"]);
+  });
+
+  it("rejects every regular protected role/grant write, including a moved protected grant ID", async () => {
+    const protectedRole = { schemaVersion: 1, id: "system.role.owner", applicationId: expected.applicationId, label: "Renamed owner", protectedRoleId: "system.role.owner", revision: 2 } as const;
+    const protectedGrant = { schemaVersion: 1, id: "protected-grant", applicationId: expected.applicationId, roleId: "system.role.owner", permissionId: "system.roles.manage", owner: { kind: "platform", namespace: "system" }, revision: 2 } as const;
+
+    const roleValue = harness();
+    await expect(roleValue.store.transaction(expected, async (transaction) => transaction.write({ kind: "role", role: protectedRole }))).rejects.toMatchObject({ code: "MUTATION_INVALID" });
+    expect(roleValue.queries.some((query) => query.startsWith("insert into k_nex_roles"))).toBe(false);
+
+    const grantValue = harness();
+    await expect(grantValue.store.transaction(expected, async (transaction) => transaction.write({ kind: "grant", grant: protectedGrant }))).rejects.toMatchObject({ code: "MUTATION_INVALID" });
+    expect(grantValue.queries.some((query) => query.startsWith("insert into k_nex_role_permission_grants"))).toBe(false);
+
+    const movedValue = harness({ protectedGrantRoleId: "system.role.owner" });
+    const movedGrant = { ...protectedGrant, roleId: role.id, revision: 3 };
+    await expect(movedValue.store.transaction(expected, async (transaction) => transaction.write({ kind: "grant", grant: movedGrant }))).rejects.toMatchObject({ code: "MUTATION_INVALID" });
+    expect(movedValue.queries.some((query) => query.startsWith("insert into k_nex_role_permission_grants"))).toBe(false);
+    expect(movedValue.queries.at(-1)).toBe("rollback");
+  });
+
+  it("rolls back a malformed dedicated bootstrap after its staged writes", async () => {
+    const value = harness({ state: { authorizationRevision: 0, lifecycleRevision: 0 } });
+    const zero = { ...expected, authorizationRevision: 0, lifecycleRevision: 0 } as const;
+    const partialRole = { schemaVersion: 1, id: "system.role.owner", applicationId: expected.applicationId, label: "Owner", protectedRoleId: "system.role.owner", revision: 1 } as const;
+
+    await expect(value.store.bootstrapFirstOwnerTransaction(zero, async (transaction) => transaction.write({ kind: "role", role: partialRole }))).rejects.toMatchObject({ code: "MUTATION_INVALID" });
+    expect(value.queries.some((query) => query.startsWith("insert into k_nex_roles"))).toBe(true);
+    expect(value.queries.some((query) => query.startsWith("update k_nex_authorization_state"))).toBe(false);
+    expect(value.queries.at(-1)).toBe("rollback");
+  });
+
+  it("commits the exact service first-owner bootstrap only through the dedicated path", async () => {
+    const value = harness({ state: { authorizationRevision: 0, lifecycleRevision: 0 } });
+    const store = new PostgresAuthorizationStore({ connect: vi.fn(async () => ({ query: value.query, release: vi.fn() })), query: value.query }, { validate: () => "accepted" });
+    const result = await bootstrapFirstOwner({ store, expected: { ...expected, authorizationRevision: 0, lifecycleRevision: 0 }, firstOwner: { kind: "user", id: "user-1" } });
+
+    expect(result.state).toMatchObject({ authorizationRevision: 1, lifecycleRevision: 0 });
+    expect(value.queries.filter((query) => query.startsWith("insert into k_nex_roles"))).toHaveLength(protectedPlatformRoleBaselines.length);
+    expect(value.queries.filter((query) => query.startsWith("insert into k_nex_role_permission_grants"))).toHaveLength(protectedPlatformRoleBaselines.reduce((count, baseline) => count + baseline.permissionIds.length, 0));
+    expect(value.queries.some((query) => query.startsWith("insert into k_nex_authorization_bootstrap_receipts"))).toBe(true);
+    expect(value.queries.at(-1)).toBe("commit");
+  });
+
+  it("leaves the post-receipt revision and protected baseline untouched after a regular mutation attempt", async () => {
+    const value = harness({ state: { authorizationRevision: 1, lifecycleRevision: 0 }, protectedGrantRoleId: "system.role.owner" });
+    const before = await value.store.readState(expected.applicationId, expected.environment);
+    const movedGrant = { schemaVersion: 1, id: "protected-grant", applicationId: expected.applicationId, roleId: role.id, permissionId: "system.roles.manage", owner: { kind: "platform", namespace: "system" }, revision: 2 } as const;
+
+    await expect(value.store.transaction({ ...expected, authorizationRevision: 1, lifecycleRevision: 0 }, async (transaction) => transaction.write({ kind: "grant", grant: movedGrant }))).rejects.toMatchObject({ code: "MUTATION_INVALID" });
+
+    await expect(value.store.readState(expected.applicationId, expected.environment)).resolves.toEqual(before);
+    expect(value.current.authorizationRevision).toBe(1);
+    expect(value.queries.some((query) => query.startsWith("update k_nex_authorization_state") || query.startsWith("insert into k_nex_role_permission_grants") || query.startsWith("insert into k_nex_authorization_bootstrap_receipts"))).toBe(false);
+  });
+
+  it("round-trips an independent template tombstone with a null role ID", async () => {
+    const adoption = {
+      schemaVersion: 1, id: "adoption-1", applicationId: expected.applicationId, templateId: "sales.manager",
+      publisher: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales" },
+      owner: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales", generation: 1 },
+      templateVersion: 1, oldBaselinePermissionIds: ["sales.opportunity.read"], digestAlgorithm: "sha256-canonical-json-v1", oldBaselineDigest: `sha256:${"0".repeat(64)}`,
+      kind: "instantiated-role", state: "tombstoned", revision: 1
+    } as const;
+    const row = {
+      application_id: adoption.applicationId, adoption_id: adoption.id, role_id: null, template_id: adoption.templateId,
+      publisher_delivery_class: adoption.publisher.deliveryClass, publisher_extension_id: adoption.publisher.extensionId,
+      owner_kind: "extension", owner_namespace: null, owner_delivery_class: adoption.owner.deliveryClass, owner_extension_id: adoption.owner.extensionId, owner_generation: adoption.owner.generation,
+      template_version: adoption.templateVersion, old_baseline_permission_ids: adoption.oldBaselinePermissionIds, digest_algorithm: adoption.digestAlgorithm,
+      old_baseline_digest: adoption.oldBaselineDigest, kind: adoption.kind, state: adoption.state, revision: adoption.revision
+    };
+    const value = harness({ adoptionRow: row });
+
+    await value.store.transaction(expected, async (transaction) => {
+      await expect(transaction.listTemplateAdoptions(expected.applicationId)).resolves.toEqual([adoption]);
+      await transaction.write({ kind: "template-adoption", adoption });
+    });
+
+    const write = value.query.mock.calls.find(([query]) => String(query).startsWith("insert into k_nex_role_template_adoptions"));
+    expect(write?.[1]?.[2]).toBeNull();
   });
 
   it("rolls back exact revision conflict before callback", async () => {
@@ -114,11 +206,11 @@ describe("PostgresAuthorizationStore", () => {
     expect(value.queries.some((query) => query.includes("insert into k_nex_role_assignments"))).toBe(false);
   });
 
-  it("rejects a receipt that does not bind an exact active owner assignment", async () => {
+  it("rejects bootstrap receipts outside the dedicated first-owner path", async () => {
     const value = harness({ bootstrapAssignment: { role_id: "system.role.owner", subject_kind: "user", subject_id: "user-1", state: "revoked" } });
     const receipt = { schemaVersion: 1, id: "receipt-1", applicationId: expected.applicationId, ownerRoleId: "system.role.owner", ownerAssignmentId: "owner-assignment-1", ownerPrincipal: { kind: "user", id: "user-1" }, authorizationRevision: 5, state: "committed" } as const;
 
-    await expect(value.store.transaction(expected, async (transaction) => transaction.write({ kind: "bootstrap-receipt", receipt }))).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+    await expect(value.store.transaction(expected, async (transaction) => transaction.write({ kind: "bootstrap-receipt", receipt }))).rejects.toMatchObject({ code: "MUTATION_INVALID" });
     expect(value.queries.some((query) => query.includes("insert into k_nex_authorization_bootstrap_receipts"))).toBe(false);
     expect(value.queries.at(-1)).toBe("rollback");
   });

@@ -11,6 +11,7 @@ import {
   createHotApplicationPolicyExecutable,
   createPlatformPluginRegistrationAuthorizationContribution,
   createPlatformPluginPolicyExecutable,
+  isEffectiveRoleTemplateForApplication,
   platformPermissionDescriptors
 } from "../src/authorization-registry.js";
 import { AuthoritativeHotApplicationRuntime } from "../src/hot-application-runtime.js";
@@ -237,6 +238,7 @@ describe("effective authorization registry", () => {
     });
     expect(catalog.permissions.map(({ descriptor: entry }) => entry.id)).toContain("sales-assistant.tasks.read");
     expect(catalog.roleTemplates.map(({ template: entry }) => entry.id)).toContain("sales-assistant.template.viewer");
+    expect(catalog.roleTemplates.find(({ template: entry }) => entry.id === "sales-assistant.template.viewer")?.template.instantiation).toBe("automatic");
     await expect(catalog.execute({
       schemaVersion: 1, applicationId: "customer-alpha", permissionId: "sales-assistant.tasks.read",
       scope: { kind: "record", resource: "sales-assistant.tasks", recordId: "task:one" },
@@ -253,6 +255,14 @@ describe("effective authorization registry", () => {
     expectCode(() => createHotApplicationManifestAuthorizationContribution({
       source: { ...hot.source }, generation: hot.generation, lifecycle: { enabled: true, ready: true }
     }), "INVALID_INPUT");
+  });
+
+  it("brands exact catalog role-template entries to their customer application", () => {
+    const catalog = createCatalog({ extensions: [registeredPlatformContribution({ bindings: [] })], executables: [] });
+    const effectiveTemplate = catalog.roleTemplates[0]!;
+    expect(isEffectiveRoleTemplateForApplication(effectiveTemplate, "customer-alpha")).toBe(true);
+    expect(isEffectiveRoleTemplateForApplication(effectiveTemplate, "customer-beta")).toBe(false);
+    expect(isEffectiveRoleTemplateForApplication({ ...effectiveTemplate }, "customer-alpha")).toBe(false);
   });
 
   it("accepts only branded static registration and verified manifest contributions", async () => {

@@ -262,7 +262,7 @@ export const TemplateAdoptionSchema = z.strictObject({
   schemaVersion: z.literal(1),
   id: identifierSchema,
   applicationId: applicationIdSchema,
-  roleId: identifierSchema,
+  roleId: identifierSchema.optional(),
   templateId: ResourceIdSchema,
   publisher: ExtensionPermissionPublisherRefSchema,
   owner: ExtensionAuthorizationOwnerRefSchema,
@@ -274,6 +274,10 @@ export const TemplateAdoptionSchema = z.strictObject({
   state: TemplateAdoptionStateSchema,
   revision: revisionSchema
 }).superRefine((adoption, context) => {
+  const independentTombstone = adoption.kind === "instantiated-role" && adoption.state === "tombstoned";
+  if (independentTombstone ? adoption.roleId !== undefined : adoption.roleId === undefined) {
+    context.addIssue({ code: "custom", path: ["roleId"], message: "Only instantiated-role tombstones omit their role ID." });
+  }
   if (!isPermissionOwnedByPublisher(adoption.publisher, adoption.templateId)
     || !adoption.oldBaselinePermissionIds.every((permissionId) => isPermissionOwnedByPublisher(adoption.publisher, permissionId))
     || !sameExtensionPublisher(adoption.publisher, adoption.owner)) {

@@ -97,6 +97,7 @@ export type TrustedPolicyExecutable = PlatformPluginPolicyExecutableDeclaration 
 
 const trustedExecutables = new WeakSet<object>();
 const effectiveAuthorizationCatalogs = new WeakSet<object>();
+const effectiveRoleTemplateApplications = new WeakMap<object, string>();
 const platformPluginAuthorizationContributions = new WeakSet<object>();
 const hotApplicationAuthorizationContributions = new WeakSet<object>();
 const hotApplicationContributionSources = new WeakMap<object, AuthoritativeHotApplicationAuthorizationRecord>();
@@ -125,6 +126,11 @@ function parseExecutableIdentity(value: Readonly<{ publisher: unknown; bindingId
 /** True only for the exact effective catalog constructed by this module. */
 export function isEffectiveAuthorizationCatalog(value: unknown): value is EffectiveAuthorizationCatalog {
   return typeof value === "object" && value !== null && effectiveAuthorizationCatalogs.has(value);
+}
+
+/** True only for an exact catalog-produced role-template entry bound to this customer application. */
+export function isEffectiveRoleTemplateForApplication(value: unknown, applicationId: string): value is EffectiveRoleTemplate {
+  return typeof value === "object" && value !== null && effectiveRoleTemplateApplications.get(value) === applicationId;
 }
 
 export function createPlatformPluginPolicyExecutable(value: PlatformPluginPolicyExecutableDeclaration): TrustedPolicyExecutable {
@@ -546,6 +552,7 @@ export function createEffectiveAuthorizationCatalog(value: unknown): EffectiveAu
   const permissions = Object.freeze([...platformPermissions, ...extensionPermissions].sort((left, right) => compare(left.descriptor.id, right.descriptor.id)));
   const policyBindings = Object.freeze(activeBindings.sort((left, right) => compare(left.binding.id, right.binding.id)));
   const roleTemplates = Object.freeze(templates.sort((left, right) => compare(left.template.id, right.template.id)));
+  for (const roleTemplate of roleTemplates) effectiveRoleTemplateApplications.set(roleTemplate, input.applicationId);
   const executableByPermission = new Map<string, BoundExecutable>();
   for (const binding of policyBindings) {
     const executable = boundExecutables.get(executionKey(binding.binding.publisher as ExtensionPermissionPublisherRef, binding.binding.id));

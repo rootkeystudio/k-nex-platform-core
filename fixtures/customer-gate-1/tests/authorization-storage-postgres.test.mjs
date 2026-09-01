@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
-import { parseAuthorizationStoreMutation } from "@k-nex/runtime";
+import { bootstrapFirstOwner, parseAuthorizationStoreMutation } from "@k-nex/runtime";
 import { PostgresAuthorizationStore } from "@k-nex/payload-adapter";
 import pg from "pg";
 
@@ -69,8 +69,9 @@ test("migrates P10.3 authorization storage with customer isolation and generatio
       [tables]
     );
     assert.deepEqual(migrated.rows.map(({ table_name }) => table_name), [...tables].sort());
-    assert.deepEqual((await pool.query("select predecessor_revision, revision from k_nex_migration_revision where id=1")).rows, [{ predecessor_revision: 18, revision: 19 }]);
+    assert.deepEqual((await pool.query("select predecessor_revision, revision from k_nex_migration_revision where id=1")).rows, [{ predecessor_revision: 19, revision: 20 }]);
     assert.equal((await pool.query("select count(*)::int as count from payload_migrations where name='20260901_000019_authorization_storage'")).rows[0].count, 1);
+    assert.equal((await pool.query("select count(*)::int as count from payload_migrations where name='20260901_000020_template_tombstones'")).rows[0].count, 1);
 
     await assert.rejects(insertRole("customer-alpha", "system.role.owner"), /k_nex_roles_protected_marker_check/u);
     await assert.rejects(insertRole("customer-alpha", "system.role.owner", "system.role.auditor"), /k_nex_roles_protected_marker_check/u);
@@ -166,12 +167,7 @@ test("migrates P10.3 authorization storage with customer isolation and generatio
 
     const store = new PostgresAuthorizationStore(pool, { validate: () => "accepted" });
     const gamma = { applicationId: "customer-gamma", environment: "production", authorizationRevision: 0, lifecycleRevision: 0 };
-    const bootstrap = (suffix) => store.transaction(gamma, async (transaction) => {
-      const assignment = ownerAssignment(gamma.applicationId, `owner-${suffix}`, `user:${suffix}`);
-      await transaction.write({ kind: "role", role: ownerRole(gamma.applicationId) });
-      await transaction.write({ kind: "assignment", assignment });
-      await transaction.write({ kind: "bootstrap-receipt", receipt: bootstrapReceipt(gamma.applicationId, `receipt-${suffix}`, assignment.id, assignment.principal.id) });
-    });
+    const bootstrap = (suffix) => bootstrapFirstOwner({ store, expected: gamma, firstOwner: { kind: "user", id: `user:${suffix}` } });
     const bootstrapRace = await Promise.allSettled([bootstrap("one"), bootstrap("two")]);
     assert.equal(bootstrapRace.filter(({ status }) => status === "fulfilled").length, 1, "Exactly one first-owner transaction may commit.");
     const bootstrapFailure = bootstrapRace.find(({ status }) => status === "rejected");
@@ -181,13 +177,13 @@ test("migrates P10.3 authorization storage with customer isolation and generatio
     const revokedBootstrapApplication = "customer-epsilon";
     const revokedBootstrapAssignment = ownerAssignment(revokedBootstrapApplication, "revoked-owner", "user:revoked", "revoked");
     await assert.rejects(
-      store.transaction({ applicationId: revokedBootstrapApplication, environment: "production", authorizationRevision: 0, lifecycleRevision: 0 }, async (transaction) => {
+      store.bootstrapFirstOwnerTransaction({ applicationId: revokedBootstrapApplication, environment: "production", authorizationRevision: 0, lifecycleRevision: 0 }, async (transaction) => {
         await transaction.write({ kind: "role", role: ownerRole(revokedBootstrapApplication) });
         await transaction.write({ kind: "assignment", assignment: revokedBootstrapAssignment });
         await transaction.write({ kind: "bootstrap-receipt", receipt: bootstrapReceipt(revokedBootstrapApplication, "revoked-receipt", revokedBootstrapAssignment.id, revokedBootstrapAssignment.principal.id) });
       }),
       { code: "REVISION_CONFLICT" },
-      "A revoked assignment cannot close first-owner bootstrap."
+      "A bootstrap transaction rejects a revoked owner assignment before a receipt can close bootstrap."
     );
     assert.equal((await pool.query("select count(*)::int as count from k_nex_roles where application_id=$1", [revokedBootstrapApplication])).rows[0].count, 0);
     assert.equal((await pool.query("select count(*)::int as count from k_nex_role_assignments where application_id=$1", [revokedBootstrapApplication])).rows[0].count, 0);
@@ -225,9 +221,9 @@ test("migrates P10.3 authorization storage with customer isolation and generatio
 
     const deltaProduction = { applicationId: "customer-delta", environment: "production", authorizationRevision: 0, lifecycleRevision: 0 };
     const deltaStaging = { ...deltaProduction, environment: "staging" };
-    const deltaProductionState = await store.transaction(deltaProduction, async (transaction) => {
-      await transaction.write({ kind: "role", role: ownerRole(deltaProduction.applicationId) });
-      await transaction.write({ kind: "assignment", assignment: ownerAssignment(deltaProduction.applicationId, "delta-owner-one", "user:delta-one") });
+    const deltaBootstrap = await bootstrapFirstOwner({ store, expected: deltaProduction, firstOwner: { kind: "user", id: "user:delta-one" } });
+    const deltaOwnerOneId = (await pool.query("select assignment_id from k_nex_role_assignments where application_id=$1 and role_id='system.role.owner' and subject_id='user:delta-one'", [deltaProduction.applicationId])).rows[0].assignment_id;
+    const deltaProductionState = await store.transaction(expectedRevision(deltaBootstrap.state), async (transaction) => {
       await transaction.write({ kind: "assignment", assignment: ownerAssignment(deltaProduction.applicationId, "delta-owner-two", "user:delta-two") });
     });
     const deltaStagingState = await store.readState(deltaStaging.applicationId, deltaStaging.environment);
@@ -238,7 +234,7 @@ test("migrates P10.3 authorization storage with customer isolation and generatio
       "Production and staging read one application-global authorization state."
     );
     const deltaAfterProductionMutation = await store.transaction(expectedRevision(deltaProductionState.state), async (transaction) => {
-      await transaction.write({ kind: "assignment", assignment: ownerAssignment(deltaProduction.applicationId, "delta-owner-one", "user:delta-one") });
+      await transaction.write({ kind: "assignment", assignment: ownerAssignment(deltaProduction.applicationId, deltaOwnerOneId, "user:delta-one") });
     });
     await assert.rejects(
       store.transaction(expectedRevision(deltaStagingState), async (transaction) => {
@@ -255,7 +251,7 @@ test("migrates P10.3 authorization storage with customer isolation and generatio
     );
     const crossEnvironmentRevocations = await Promise.allSettled([
       store.transaction(expectedRevision(deltaAfterProductionMutation.state), async (transaction) => {
-        await transaction.write({ kind: "assignment", assignment: ownerAssignment(deltaProduction.applicationId, "delta-owner-one", "user:delta-one", "revoked") });
+        await transaction.write({ kind: "assignment", assignment: ownerAssignment(deltaProduction.applicationId, deltaOwnerOneId, "user:delta-one", "revoked") });
       }),
       store.transaction(expectedRevision(deltaCurrentStagingState), async (transaction) => {
         await transaction.write({ kind: "assignment", assignment: ownerAssignment(deltaProduction.applicationId, "delta-owner-two", "user:delta-two", "revoked") });
@@ -310,7 +306,10 @@ test("migrates P10.3 authorization storage with customer isolation and generatio
     }
     assert.equal((await pool.query("select count(*)::int as count from k_nex_authorization_state where application_id='customer-alpha'")).rows[0].count, 0, "Real PostgreSQL rollback must leave no partial authorization state.");
   } finally {
-    await pool.end();
-    await container.stop();
+    try {
+      await pool.end();
+    } finally {
+      await container.stop();
+    }
   }
 });

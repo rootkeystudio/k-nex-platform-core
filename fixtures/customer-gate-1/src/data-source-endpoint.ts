@@ -19,7 +19,7 @@ import {
 } from "@k-nex/runtime";
 import { createPayloadPersistenceCapability, CurrentAuthorityPayloadPersistenceAuthorizer, PayloadRequestAuthenticator } from "@k-nex/payload-adapter";
 import type { Endpoint, PayloadRequest } from "payload";
-import type { FixtureAuthorityContext, FixtureCurrentAuthority } from "./current-authority.js";
+import type { FixtureAuthorityContext, FixtureCurrentAuthority, FixtureSalesProfile } from "./current-authority.js";
 
 interface QueryBody {
   readonly sourceId?: unknown;
@@ -41,25 +41,36 @@ function catalog(registration: RegistrationResult) {
   return { lookup: (sourceId: string) => sources.get(sourceId) };
 }
 
-const salesPolicy: DataSourcePolicyService = {
-  authorize({ descriptor }) {
+function taskStatus(profile: FixtureSalesProfile): "open" | "done" {
+  return profile === "done" ? "done" : "open";
+}
+
+function opportunityStage(profile: FixtureSalesProfile): "lead" | "won" {
+  return profile === "done" ? "won" : "lead";
+}
+
+function salesPolicy(authority: FixtureCurrentAuthority): DataSourcePolicyService {
+  return {
+    authorize({ descriptor, authorizationContext }) {
+      const profile = authority.salesProfile(authorizationContext as FixtureAuthorityContext);
     if (descriptor.id === "sales.tasks") return {
       sourceAllowed: true,
-      recordScope: { kind: "sales.tasks", where: {} },
+      recordScope: { kind: "sales.tasks", where: { status: { equals: taskStatus(profile) } } },
       allowedFields: ["title", "status", "potential-revenue", "private-note"]
     };
     if (descriptor.id === "sales.opportunities") return {
       sourceAllowed: true,
-      recordScope: { kind: "sales.opportunities", where: {} },
+      recordScope: { kind: "sales.opportunities", where: { stage: { equals: opportunityStage(profile) } } },
       allowedFields: ["name", "stage", "value"]
     };
     return {
       sourceAllowed: descriptor.id === "sales.total-potential-revenue",
-      recordScope: { kind: "sales.tasks", where: {} },
+      recordScope: { kind: "sales.tasks", where: { status: { equals: taskStatus(profile) } } },
       allowedFields: []
     };
+    }
   }
-};
+}
 
 function context(request: PayloadRequest, correlationId: string, authority: FixtureCurrentAuthority): FixtureAuthorityContext {
   return authority.context(request, correlationId);
@@ -96,7 +107,7 @@ function queryGateway(registration: RegistrationResult, authority: FixtureCurren
       authority.adapter,
       (request) => request.authorizationContext as FixtureAuthorityContext,
       { source: (descriptor, surface) => authority.source(descriptor, surface), field: (descriptor, fieldId, surface) => authority.field(descriptor, fieldId, surface) },
-      salesPolicy
+      salesPolicy(authority)
     )),
     budget: new BoundedQueryBudgetEvaluator(),
     dispatcher: new RegisteredHandlerDispatcher(),

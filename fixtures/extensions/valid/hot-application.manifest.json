@@ -115,7 +115,7 @@
   "roleTemplates": [
     {
       "id": "sales-assistant.template.viewer",
-      "instantiation": "manual",
+      "instantiation": "automatic",
       "permissionIds": [
         "sales-assistant.tasks.read"
       ],
