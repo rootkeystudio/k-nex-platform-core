@@ -1,0 +1,7 @@
+{
+  "$schema": "../../../schemas/zero-downtime-eligibility.v1.schema.json",
+  "id": "app.bad",
+  "deliveryClass": "hot-application",
+  "result": { "outcome": "unsupported", "reasons": ["supervisor-unavailable"] },
+  "schemaVersion": 1
+}

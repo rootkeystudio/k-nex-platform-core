@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { PluginManifest } from "@k-nex/contracts";
 
 import { executeRegistration } from "../src/registration-runtime.js";
-import { scopePluginRegistration } from "../src/plugin-lifecycle.js";
+import { scopePlatformPluginRegistration } from "../src/plugin-lifecycle.js";
 import { ActionGatewayError, RegisteredActionGateway } from "../src/action-gateway.js";
 
 const inputSchema = { safeParse: (value: unknown) => typeof value === "object" && value !== null && (value as { value?: unknown }).value === "ok" ? { success: true as const, data: value } : { success: false as const, error: new Error("invalid") } };
@@ -26,7 +26,7 @@ function registration() {
     lifecycle: { ownsPayloadSchema: false, ownsPersistentData: false, disable: "supported", uninstall: "supported", purge: "unsupported" },
     contributions: { permissions: { "fixture.write": "required" }, actions: { "fixture.action.run": "required" } }
   };
-  return scopePluginRegistration(executeRegistration({
+  return scopePlatformPluginRegistration(executeRegistration({
     graph: { resolverVersion: "1.0.0", plugins: [{ id: "module.fixture", kind: "module", package: "fixture", version: "1.0.0", integrity: "sha512-fixture", required: [], optional: [] }], capabilityProviders: [], registrationOrder: ["module.fixture"] },
     installed: [{ package: { name: "fixture", version: "1.0.0", integrity: "sha512-fixture" }, manifest }],
     registrations: [{ pluginId: "module.fixture", contracts(context) {

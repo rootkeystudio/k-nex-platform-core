@@ -1,0 +1,4 @@
+{
+  "$schema": "../../../schemas/extension-install-plan.v1.schema.json",
+  "approvalRequired": true, "artifactDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "availability": { "outcome": "maintenance-required", "reasons": ["destructive-migration"] }, "expectedRevision": 0, "id": "app.bad", "deliveryClass": "hot-application", "operation": "install", "operationId": "bad-operation-1", "planId": "bad-plan-1", "requiredCapabilities": [], "resourceBudget": { "maxAssetBytes": 1, "maxBundleBytes": 1, "maxConcurrency": 1, "maxCpuMilliCores": 1, "maxInputBytes": 1, "maxLogBytes": 1, "maxMemoryMiB": 1, "maxOutputBytes": 1, "maxStorageBytes": 1, "maxWallTimeMs": 1 }, "rollback": { "available": false, "reason": "No prior generation." }, "schemaVersion": 1, "version": "1.0.0"
+}

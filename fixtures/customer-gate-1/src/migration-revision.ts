@@ -1,9 +1,9 @@
 import type { Payload } from "payload";
 
 export const applicationMigrationRevision = Object.freeze({
-  migrationName: "20260827_000006_sales_opportunities",
-  predecessor: 5,
-  current: 6
+  migrationName: "20260829_000018_runner_quarantine",
+  predecessor: 17,
+  current: 18
 });
 
 export class MigrationRevisionError extends Error {

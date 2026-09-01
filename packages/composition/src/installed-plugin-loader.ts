@@ -9,33 +9,33 @@ import { parse as parseYaml } from "yaml";
 const importerDependencySections = ["dependencies", "optionalDependencies"] as const;
 const packageNamePattern = /^@?[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)?$/;
 
-export interface PluginPackageRequest {
+export interface PlatformPluginPackageRequest {
   readonly name: string;
   readonly version: string;
 }
 
-export type FrameworkTuple = PluginFrameworkTuple;
+export type PlatformPluginFrameworkTuple = PluginFrameworkTuple;
 
-export interface LoadInstalledPluginManifestsOptions {
+export interface LoadInstalledPlatformPluginManifestsOptions {
   readonly applicationRoot: string;
   readonly lockfilePath: string;
   readonly lockfileImporter: string;
-  readonly packages: readonly PluginPackageRequest[];
-  readonly framework: FrameworkTuple;
+  readonly packages: readonly PlatformPluginPackageRequest[];
+  readonly framework: PlatformPluginFrameworkTuple;
 }
 
-export interface InstalledPackageIdentity {
+export interface InstalledPlatformPluginPackageIdentity {
   readonly name: string;
   readonly version: string;
   readonly integrity: string;
 }
 
-export interface InstalledPluginManifest {
-  readonly package: InstalledPackageIdentity;
+export interface InstalledPlatformPluginManifest {
+  readonly package: InstalledPlatformPluginPackageIdentity;
   readonly manifest: PluginManifest;
 }
 
-export type PluginManifestLoadErrorCode =
+export type PlatformPluginManifestLoadErrorCode =
   | "INVALID_OPTIONS"
   | "INVALID_FRAMEWORK_VERSION"
   | "UNSUPPORTED_FRAMEWORK"
@@ -60,12 +60,12 @@ export type PluginManifestLoadErrorCode =
   | "FRAMEWORK_RANGE_INVALID"
   | "LOCKFILE_ENTRY_INVALID";
 
-export class PluginManifestLoadError extends Error {
-  readonly code: PluginManifestLoadErrorCode;
+export class PlatformPluginManifestLoadError extends Error {
+  readonly code: PlatformPluginManifestLoadErrorCode;
 
-  constructor(code: PluginManifestLoadErrorCode, message: string) {
+  constructor(code: PlatformPluginManifestLoadErrorCode, message: string) {
     super(message);
-    this.name = "PluginManifestLoadError";
+    this.name = "PlatformPluginManifestLoadError";
     this.code = code;
   }
 }
@@ -86,15 +86,15 @@ function compareStrings(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-function fail(code: PluginManifestLoadErrorCode, message: string): never {
-  throw new PluginManifestLoadError(code, message);
+function fail(code: PlatformPluginManifestLoadErrorCode, message: string): never {
+  throw new PlatformPluginManifestLoadError(code, message);
 }
 
 function isExactSemver(value: unknown): value is string {
   return typeof value === "string" && ExactSemverSchema.safeParse(value).success && semver.valid(value, { loose: false }) !== null;
 }
 
-function validateOptions(options: LoadInstalledPluginManifestsOptions): void {
+function validateOptions(options: LoadInstalledPlatformPluginManifestsOptions): void {
   if (!isRecord(options) || !isRecord(options.framework) || !Array.isArray(options.packages)) {
     fail("INVALID_OPTIONS", "Loader options must include an application root, lockfile, package requests, and framework tuple.");
   }
@@ -188,7 +188,7 @@ function fileTarball(value: unknown): string | undefined {
     : undefined;
 }
 
-function packageIntegrity(lockfile: RecordValue, importer: RecordValue, request: PluginPackageRequest): string {
+function packageIntegrity(lockfile: RecordValue, importer: RecordValue, request: PlatformPluginPackageRequest): string {
   const entries = dependencyEntries(importer, request.name);
   const registrySpecifier = entries.every((entry) => entry.specifier === request.version);
   const registryEntry = registrySpecifier && entries.every((entry) => importerVersionMatches(entry.version, request.version));
@@ -236,7 +236,7 @@ function readJson(
   }
 }
 
-function loadPackageJson(applicationRoot: string, request: PluginPackageRequest): { readonly path: string; readonly value: RecordValue } {
+function loadPackageJson(applicationRoot: string, request: PlatformPluginPackageRequest): { readonly path: string; readonly value: RecordValue } {
   const base = resolve(applicationRoot, "package.json");
   let packageJsonPath: string | undefined;
   try {
@@ -257,7 +257,7 @@ function loadPackageJson(applicationRoot: string, request: PluginPackageRequest)
   return { path: packageJsonPath, value };
 }
 
-function resolveManifest(applicationRoot: string, request: PluginPackageRequest, packageJsonPath: string, packageJson: RecordValue): string {
+function resolveManifest(applicationRoot: string, request: PlatformPluginPackageRequest, packageJsonPath: string, packageJson: RecordValue): string {
   const exportsValue = packageJson.exports;
   if (!isRecord(exportsValue) || !hasOwn(exportsValue, "./manifest")) {
     fail("MANIFEST_EXPORT_MISSING", `Installed package ${request.name} does not explicitly export ./manifest.`);
@@ -283,7 +283,7 @@ function resolveManifest(applicationRoot: string, request: PluginPackageRequest,
   return manifestPath;
 }
 
-function parseManifest(manifestPath: string, request: PluginPackageRequest): PluginManifest {
+function parseManifest(manifestPath: string, request: PlatformPluginPackageRequest): PluginManifest {
   const value = readJson(manifestPath, "MANIFEST_UNREADABLE", "MANIFEST_INVALID_JSON");
   const parsed = PluginManifestSchema.safeParse(value);
   if (!parsed.success) {
@@ -298,7 +298,7 @@ function parseManifest(manifestPath: string, request: PluginPackageRequest): Plu
   return parsed.data;
 }
 
-function validateCompatibility(manifest: PluginManifest, framework: FrameworkTuple): void {
+function validateCompatibility(manifest: PluginManifest, framework: PlatformPluginFrameworkTuple): void {
   const versions = [
     ["core", framework.core],
     ["payload", framework.payload],
@@ -318,7 +318,7 @@ function validateCompatibility(manifest: PluginManifest, framework: FrameworkTup
   }
 }
 
-export function loadInstalledPluginManifests(options: LoadInstalledPluginManifestsOptions): readonly InstalledPluginManifest[] {
+export function loadInstalledPlatformPluginManifests(options: LoadInstalledPlatformPluginManifestsOptions): readonly InstalledPlatformPluginManifest[] {
   validateOptions(options);
   const lockfile = readLockfile(options.lockfilePath);
   const importers = lockfile.importers;
@@ -330,7 +330,7 @@ export function loadInstalledPluginManifests(options: LoadInstalledPluginManifes
     fail("LOCKFILE_INVALID", "The selected lockfile importer is missing or malformed.");
   }
   const requests = [...options.packages].sort((left, right) => compareStrings(left.name, right.name));
-  const loaded: InstalledPluginManifest[] = [];
+  const loaded: InstalledPlatformPluginManifest[] = [];
   const pluginIds = new Set<string>();
   for (const request of requests) {
     const integrity = packageIntegrity(lockfile, importer, request);

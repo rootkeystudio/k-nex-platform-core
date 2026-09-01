@@ -1,0 +1,8 @@
+{
+  "$schema": "../../../schemas/extension-capability-request.v1.schema.json",
+  "kind": "records",
+  "operations": ["query"],
+  "reason": "Read assigned Sales tasks.",
+  "required": true,
+  "resources": [{ "id": "sales.tasks", "version": 1 }]
+}

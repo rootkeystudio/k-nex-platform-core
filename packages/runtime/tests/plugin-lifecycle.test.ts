@@ -2,20 +2,20 @@ import { describe, expect, it } from "vitest";
 import type { PluginManifest } from "@k-nex/contracts";
 import {
   assertExecutableRegistrationAuthority,
-  assertPluginDestructiveOperationSafe,
-  assertPluginUninstallSupported,
-  createPluginLifecycleState,
-  disablePlugin,
+  assertPlatformPluginDestructiveOperationSafe,
+  assertPlatformPluginUninstallSupported,
+  createPlatformPluginLifecycleState,
+  disablePlatformPlugin,
   executeRegistration,
-  planPluginInstall,
-  pluginReadyForEnable,
-  reenablePlugin,
-  reconcilePluginAvailability,
-  scopePluginRegistration,
-  scanPluginReferences,
+  planPlatformPluginInstall,
+  platformPluginReadyForEnable,
+  reenablePlatformPlugin,
+  reconcilePlatformPluginAvailability,
+  scopePlatformPluginRegistration,
+  scanPlatformPluginReferences,
   type RegistrationResult
 } from "../src/index.js";
-import type { InstalledPluginManifest, ResolvedPluginGraph } from "@k-nex/composition";
+import type { InstalledPlatformPluginManifest, ResolvedPlatformPluginGraph } from "@k-nex/composition";
 import type { PluginRegistration } from "../src/registration-runtime.js";
 
 const integrity = `sha512-${"a".repeat(86)}==`;
@@ -28,7 +28,7 @@ const manifest = {
 } as const satisfies PluginManifest;
 
 function state(overrides = {}) {
-  return createPluginLifecycleState({
+  return createPlatformPluginLifecycleState({
     pluginId: "module.sales", catalogStatus: "supported",
     package: { status: "installed", name: "@k-nex/module-sales", version: "1.0.0", integrity },
     enabled: true, configuration: { revision: 1, ready: true }, migration: { current: 6, required: 6, ready: true },
@@ -79,7 +79,7 @@ function lifecycleManifest(input: {
 }
 
 function lifecycleState(manifestValue: PluginManifest, enabled = true, ready = true) {
-  return createPluginLifecycleState({
+  return createPlatformPluginLifecycleState({
     pluginId: manifestValue.id, catalogStatus: "supported",
     package: { status: "installed", name: manifestValue.package, version: manifestValue.version, integrity },
     enabled, configuration: { revision: 1, ready }, migration: { current: ready ? 1 : 0, required: 1, ready },
@@ -129,9 +129,9 @@ function lifecyclePlan(
 function executeLifecycleRegistration(
   manifests: readonly PluginManifest[],
   registrations: readonly PluginRegistration[],
-  graph: ResolvedPluginGraph
+  graph: ResolvedPlatformPluginGraph
 ): RegistrationResult {
-  const installed: readonly InstalledPluginManifest[] = manifests.map((entry) => ({
+  const installed: readonly InstalledPlatformPluginManifest[] = manifests.map((entry) => ({
     package: { name: entry.package, version: entry.version, integrity: `sha512-${entry.id}` }, manifest: entry
   }));
   return executeRegistration({ graph, installed, registrations });
@@ -141,43 +141,43 @@ describe("plugin lifecycle", () => {
   it("rejects every registration until authoritative lifecycle scoping", () => {
     const raw = { ...registration, contributions: { ...registration.contributions, lifecycle: [] } } as unknown as RegistrationResult;
     expect(() => assertExecutableRegistrationAuthority(raw)).toThrow(/authoritative lifecycle scoping/);
-    expect(() => assertExecutableRegistrationAuthority(scopePluginRegistration(raw, []))).not.toThrow();
+    expect(() => assertExecutableRegistrationAuthority(scopePlatformPluginRegistration(raw, []))).not.toThrow();
     const forged = { ...registration, requiredProviders: { "module.sales": ["provider.forged"] } } as unknown as RegistrationResult;
-    const availability = reconcilePluginAvailability(registration, state());
-    expect(scopePluginRegistration(forged, [availability]).contributions.actions).toHaveLength(1);
+    const availability = reconcilePlatformPluginAvailability(registration, state());
+    expect(scopePlatformPluginRegistration(forged, [availability]).contributions.actions).toHaveLength(1);
   });
 
   it("plans source-controlled install and idempotent customer-owned template seeding", () => {
-    const first = planPluginInstall({ manifest, package: { name: manifest.package, version: manifest.version, integrity } });
+    const first = planPlatformPluginInstall({ manifest, package: { name: manifest.package, version: manifest.version, integrity } });
     expect(first).toEqual({ operation: "install", packageChange: { name: manifest.package, version: manifest.version, integrity }, requiresDeployment: true, seedTemplateIds: ["sales.page.tasks"] });
-    expect(planPluginInstall({ manifest, package: { name: manifest.package, version: manifest.version, integrity }, state: state(), existingTemplateIds: ["sales.page.tasks"] })).toMatchObject({ operation: "noop", packageChange: null, seedTemplateIds: [] });
+    expect(planPlatformPluginInstall({ manifest, package: { name: manifest.package, version: manifest.version, integrity }, state: state(), existingTemplateIds: ["sales.page.tasks"] })).toMatchObject({ operation: "noop", packageChange: null, seedTemplateIds: [] });
   });
 
   it("disables behavior while retaining schema and restores it only when ready", () => {
-    const disabled = disablePlugin(state(), manifest);
+    const disabled = disablePlatformPlugin(state(), manifest);
     expect(disabled).toMatchObject({ enabled: false, dataState: "retained" });
-    const availability = reconcilePluginAvailability(registration, disabled);
+    const availability = reconcilePlatformPluginAvailability(registration, disabled);
     expect(availability.isAvailable("schema", "sales.tasks.collection")).toBe(true);
     expect(availability.isAvailable("actions", "sales.task.create")).toBe(false);
-    const scoped = scopePluginRegistration(registration, [availability]);
-    expect(() => scopePluginRegistration(registration, [{ ...availability }])).toThrow(/not authoritative/);
+    const scoped = scopePlatformPluginRegistration(registration, [availability]);
+    expect(() => scopePlatformPluginRegistration(registration, [{ ...availability }])).toThrow(/not authoritative/);
     expect(scoped.contributions.schema).toHaveLength(1);
     expect(scoped.contributions.actions).toEqual([]);
     expect(scoped.contributions.jobs).toEqual([]);
     expect(scoped.contributions.routes).toEqual([]);
     expect(scoped.bindings.actions).toEqual([]);
     expect(scoped.bindings.blocks).toEqual([]);
-    expect(() => scopePluginRegistration(registration, [])).toThrow(/requires lifecycle availability/);
-    expect(reenablePlugin(disabled, manifest)).toMatchObject({ enabled: true, dataState: "active" });
-    const stale = createPluginLifecycleState({ ...disabled, migration: { current: 5, required: 6, ready: false } });
-    expect(pluginReadyForEnable(stale)).toBe(false);
-    expect(() => reenablePlugin(stale, manifest)).toThrow(/not ready/);
+    expect(() => scopePlatformPluginRegistration(registration, [])).toThrow(/requires lifecycle availability/);
+    expect(reenablePlatformPlugin(disabled, manifest)).toMatchObject({ enabled: true, dataState: "active" });
+    const stale = createPlatformPluginLifecycleState({ ...disabled, migration: { current: 5, required: 6, ready: false } });
+    expect(platformPluginReadyForEnable(stale)).toBe(false);
+    expect(() => reenablePlatformPlugin(stale, manifest)).toThrow(/not ready/);
   });
 
   it("revokes required consumers and captured capability services when a provider becomes unavailable", () => {
     const provider = lifecycleManifest({ id: "provider.clock", provides: [{ capability: "clock.now", version: "1.0.0" }] });
     const consumer = lifecycleManifest({ id: "module.consumer", requires: [{ capability: "clock.now", version: "^1.0.0" }], jobs: true });
-    const graph: ResolvedPluginGraph = {
+    const graph: ResolvedPlatformPluginGraph = {
       resolverVersion: "1.0.0",
       plugins: [
         { id: provider.id, kind: provider.kind, package: provider.package, version: provider.version, integrity: "sha512-provider.clock", required: [], optional: [] },
@@ -206,9 +206,9 @@ describe("plugin lifecycle", () => {
       ],
       graph
     );
-    const enabled = scopePluginRegistration(registrationResult, [
-      reconcilePluginAvailability(registrationResult, lifecycleState(provider)),
-      reconcilePluginAvailability(registrationResult, lifecycleState(consumer))
+    const enabled = scopePlatformPluginRegistration(registrationResult, [
+      reconcilePlatformPluginAvailability(registrationResult, lifecycleState(provider)),
+      reconcilePlatformPluginAvailability(registrationResult, lifecycleState(consumer))
     ]);
     expect(enabled.contributions.jobs).toHaveLength(1);
     expect(enabled.bindings.jobs).toHaveLength(1);
@@ -217,9 +217,9 @@ describe("plugin lifecycle", () => {
     expect(capturedDerived?.now()).toBe("derived");
     expect(capturedReturned?.()).toBe("returned");
 
-    const disabled = scopePluginRegistration(registrationResult, [
-      reconcilePluginAvailability(registrationResult, lifecycleState(provider, false)),
-      reconcilePluginAvailability(registrationResult, lifecycleState(consumer))
+    const disabled = scopePlatformPluginRegistration(registrationResult, [
+      reconcilePlatformPluginAvailability(registrationResult, lifecycleState(provider, false)),
+      reconcilePlatformPluginAvailability(registrationResult, lifecycleState(consumer))
     ]);
     expect(disabled.contributions.jobs).toEqual([]);
     expect(disabled.bindings.jobs).toEqual([]);
@@ -230,15 +230,15 @@ describe("plugin lifecycle", () => {
     expect(() => capturedDerived?.now()).toThrow(/Capability service is unavailable/);
     expect(() => capturedReturned?.()).toThrow(/Capability service is unavailable/);
 
-    const notReady = scopePluginRegistration(registrationResult, [
-      reconcilePluginAvailability(registrationResult, lifecycleState(provider, true, false)),
-      reconcilePluginAvailability(registrationResult, lifecycleState(consumer))
+    const notReady = scopePlatformPluginRegistration(registrationResult, [
+      reconcilePlatformPluginAvailability(registrationResult, lifecycleState(provider, true, false)),
+      reconcilePlatformPluginAvailability(registrationResult, lifecycleState(consumer))
     ]);
     expect(notReady.contributions.jobs).toEqual([]);
 
-    const reenabled = scopePluginRegistration(registrationResult, [
-      reconcilePluginAvailability(registrationResult, lifecycleState(provider)),
-      reconcilePluginAvailability(registrationResult, lifecycleState(consumer))
+    const reenabled = scopePlatformPluginRegistration(registrationResult, [
+      reconcilePlatformPluginAvailability(registrationResult, lifecycleState(provider)),
+      reconcilePlatformPluginAvailability(registrationResult, lifecycleState(consumer))
     ]);
     expect(reenabled.contributions.jobs).toHaveLength(1);
     expect(capturedNow?.()).toBe("now");
@@ -252,7 +252,7 @@ describe("plugin lifecycle", () => {
       const consumer = lifecycleManifest({
         id: "module.consumer", requires: [{ capability: "clock.now", version: "^1.0.0" }], lifecycle
       });
-      const graph: ResolvedPluginGraph = {
+      const graph: ResolvedPlatformPluginGraph = {
         resolverVersion: "1.0.0",
         plugins: [
           { id: provider.id, kind: provider.kind, package: provider.package, version: provider.version, integrity: "sha512-provider.clock", required: [], optional: [] },
@@ -287,27 +287,27 @@ describe("plugin lifecycle", () => {
         graph
       );
       const available = () => [
-        reconcilePluginAvailability(registrationResult, lifecycleState(provider)),
-        reconcilePluginAvailability(registrationResult, lifecycleState(consumer))
+        reconcilePlatformPluginAvailability(registrationResult, lifecycleState(provider)),
+        reconcilePlatformPluginAvailability(registrationResult, lifecycleState(consumer))
       ];
-      scopePluginRegistration(registrationResult, available());
+      scopePlatformPluginRegistration(registrationResult, available());
 
       const promise = service!.derived();
       expect(promise).toBeInstanceOf(Promise);
       const derived = await promise;
       expect(derived.ping()).toBe("still-ran");
 
-      scopePluginRegistration(registrationResult, [
-        reconcilePluginAvailability(registrationResult, lifecycleState(provider, false)),
-        reconcilePluginAvailability(registrationResult, lifecycleState(consumer))
+      scopePlatformPluginRegistration(registrationResult, [
+        reconcilePlatformPluginAvailability(registrationResult, lifecycleState(provider, false)),
+        reconcilePlatformPluginAvailability(registrationResult, lifecycleState(consumer))
       ]);
       expect(() => derived.ping()).toThrow(/Capability service is unavailable/);
 
-      scopePluginRegistration(registrationResult, available());
+      scopePlatformPluginRegistration(registrationResult, available());
       const pending = service!.delayed();
-      scopePluginRegistration(registrationResult, [
-        reconcilePluginAvailability(registrationResult, lifecycleState(provider, false)),
-        reconcilePluginAvailability(registrationResult, lifecycleState(consumer))
+      scopePlatformPluginRegistration(registrationResult, [
+        reconcilePlatformPluginAvailability(registrationResult, lifecycleState(provider, false)),
+        reconcilePlatformPluginAvailability(registrationResult, lifecycleState(consumer))
       ]);
       releaseDelayed();
       await expect(pending).rejects.toThrow(/Capability service is unavailable/);
@@ -323,7 +323,7 @@ describe("plugin lifecycle", () => {
     });
     const independent = lifecycleManifest({ id: "module.independent", jobs: true, lifecycle: false });
     const manifests = [provider, consumer, independent] as const;
-    const graph: ResolvedPluginGraph = {
+    const graph: ResolvedPlatformPluginGraph = {
       resolverVersion: "1.0.0",
       plugins: [
         { id: provider.id, kind: provider.kind, package: provider.package, version: provider.version, integrity: "sha512-provider.clock", required: [], optional: [] },
@@ -343,16 +343,16 @@ describe("plugin lifecycle", () => {
       ],
       graph
     );
-    const providerAvailability = reconcilePluginAvailability(registrationResult, lifecycleState(provider));
-    const consumerAvailability = reconcilePluginAvailability(registrationResult, lifecycleState(consumer));
+    const providerAvailability = reconcilePlatformPluginAvailability(registrationResult, lifecycleState(provider));
+    const consumerAvailability = reconcilePlatformPluginAvailability(registrationResult, lifecycleState(consumer));
 
-    expect(() => scopePluginRegistration(registrationResult, [consumerAvailability])).toThrow(/requires lifecycle availability/);
-    const enabled = scopePluginRegistration(registrationResult, [providerAvailability, consumerAvailability]);
+    expect(() => scopePlatformPluginRegistration(registrationResult, [consumerAvailability])).toThrow(/requires lifecycle availability/);
+    const enabled = scopePlatformPluginRegistration(registrationResult, [providerAvailability, consumerAvailability]);
     expect(enabled.contributions.jobs.map(({ pluginId }) => pluginId)).toEqual([consumer.id, independent.id]);
     expect(capturedNow?.()).toBe("now");
 
-    const disabled = scopePluginRegistration(registrationResult, [
-      reconcilePluginAvailability(registrationResult, lifecycleState(provider, false)),
+    const disabled = scopePlatformPluginRegistration(registrationResult, [
+      reconcilePlatformPluginAvailability(registrationResult, lifecycleState(provider, false)),
       consumerAvailability
     ]);
     expect(disabled.contributions.jobs.map(({ pluginId }) => pluginId)).toEqual([independent.id]);
@@ -360,8 +360,8 @@ describe("plugin lifecycle", () => {
     expect(disabled.inventory.find(({ id }) => id === consumer.id)?.contributions).toEqual({});
     expect(() => capturedNow?.()).toThrow(/Capability service is unavailable/);
 
-    const notReady = scopePluginRegistration(registrationResult, [
-      reconcilePluginAvailability(registrationResult, lifecycleState(provider, true, false)),
+    const notReady = scopePlatformPluginRegistration(registrationResult, [
+      reconcilePlatformPluginAvailability(registrationResult, lifecycleState(provider, true, false)),
       consumerAvailability
     ]);
     expect(notReady.contributions.jobs.map(({ pluginId }) => pluginId)).toEqual([independent.id]);
@@ -375,7 +375,7 @@ describe("plugin lifecycle", () => {
     const consumer = lifecycleManifest({
       id: "module.consumer", optional: [{ capability: "clock.now", version: "^1.0.0" }], jobs: true, lifecycle: false
     });
-    const graph: ResolvedPluginGraph = {
+    const graph: ResolvedPlatformPluginGraph = {
       resolverVersion: "1.0.0",
       plugins: [
         { id: provider.id, kind: provider.kind, package: provider.package, version: provider.version, integrity: "sha512-provider.clock", required: [], optional: [] },
@@ -394,17 +394,17 @@ describe("plugin lifecycle", () => {
       ],
       graph
     );
-    const enabled = scopePluginRegistration(registrationResult, [
-      reconcilePluginAvailability(registrationResult, lifecycleState(provider)),
-      reconcilePluginAvailability(registrationResult, lifecycleState(consumer))
+    const enabled = scopePlatformPluginRegistration(registrationResult, [
+      reconcilePlatformPluginAvailability(registrationResult, lifecycleState(provider)),
+      reconcilePlatformPluginAvailability(registrationResult, lifecycleState(consumer))
     ]);
     expect(enabled.contributions.jobs.map(({ pluginId }) => pluginId)).toEqual([consumer.id]);
     expect(service?.now()).toBe("now");
     expect(Object.getPrototypeOf(service)).toBeNull();
 
-    const disabled = scopePluginRegistration(registrationResult, [
-      reconcilePluginAvailability(registrationResult, lifecycleState(provider, false)),
-      reconcilePluginAvailability(registrationResult, lifecycleState(consumer))
+    const disabled = scopePlatformPluginRegistration(registrationResult, [
+      reconcilePlatformPluginAvailability(registrationResult, lifecycleState(provider, false)),
+      reconcilePlatformPluginAvailability(registrationResult, lifecycleState(consumer))
     ]);
     expect(disabled.contributions.jobs.map(({ pluginId }) => pluginId)).toEqual([consumer.id]);
     expect(() => service?.now()).toThrow(/Capability service is unavailable/);
@@ -417,7 +417,7 @@ describe("plugin lifecycle", () => {
     const requiredConsumer = lifecycleManifest({ id: "module.required", requires: [{ plugin: middle.id, version: "^1.0.0" }], jobs: true });
     const optionalConsumer = lifecycleManifest({ id: "module.optional", optional: [{ plugin: provider.id, version: "^1.0.0" }], jobs: true });
     const manifests = [provider, middle, requiredConsumer, optionalConsumer] as const;
-    const graph: ResolvedPluginGraph = {
+    const graph: ResolvedPlatformPluginGraph = {
       resolverVersion: "1.0.0",
       plugins: [
         { id: provider.id, kind: provider.kind, package: provider.package, version: provider.version, integrity: "sha512-provider.clock", required: [], optional: [] },
@@ -427,8 +427,8 @@ describe("plugin lifecycle", () => {
       ], capabilityProviders: [], registrationOrder: manifests.map(({ id }) => id)
     };
     const registrationResult = executeLifecycleRegistration(manifests, manifests.map((entry) => lifecyclePlan(entry, { jobs: entry.id !== provider.id })), graph);
-    const scoped = scopePluginRegistration(registrationResult, manifests.map((entry) =>
-      reconcilePluginAvailability(registrationResult, lifecycleState(entry, entry.id !== provider.id))
+    const scoped = scopePlatformPluginRegistration(registrationResult, manifests.map((entry) =>
+      reconcilePlatformPluginAvailability(registrationResult, lifecycleState(entry, entry.id !== provider.id))
     ));
     expect(scoped.contributions.jobs.map(({ pluginId }) => pluginId)).toEqual([optionalConsumer.id]);
     expect(scoped.bindings.jobs.map(({ pluginId }) => pluginId)).toEqual([optionalConsumer.id]);
@@ -440,9 +440,9 @@ describe("plugin lifecycle", () => {
       { kind: "dependency", id: "module.consumer", pluginId: "module.sales" },
       { kind: "document", id: "page.sales", pluginId: "module.sales" }
     ] as const;
-    expect(scanPluginReferences("module.sales", references).map(({ id }) => id)).toEqual(["module.consumer", "page.sales"]);
-    expect(() => assertPluginDestructiveOperationSafe(manifest, references)).toThrow(/2 active reference/);
-    expect(() => assertPluginDestructiveOperationSafe(manifest, [])).not.toThrow();
-    expect(() => assertPluginUninstallSupported(manifest)).toThrow(/does not support uninstall/);
+    expect(scanPlatformPluginReferences("module.sales", references).map(({ id }) => id)).toEqual(["module.consumer", "page.sales"]);
+    expect(() => assertPlatformPluginDestructiveOperationSafe(manifest, references)).toThrow(/2 active reference/);
+    expect(() => assertPlatformPluginDestructiveOperationSafe(manifest, [])).not.toThrow();
+    expect(() => assertPlatformPluginUninstallSupported(manifest)).toThrow(/does not support uninstall/);
   });
 });

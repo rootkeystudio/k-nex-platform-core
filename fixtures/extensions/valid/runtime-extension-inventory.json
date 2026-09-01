@@ -1,0 +1,25 @@
+{
+  "$schema": "../../../schemas/runtime-extension-inventory.v1.schema.json",
+  "applicationId": "customer-alpha",
+  "environment": "production",
+  "extensions": {
+    "hotApplications": {
+      "app.sales-assistant": {
+        "activeGeneration": { "applicationId": "customer-alpha", "artifactDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "authority": "verified-bundle", "catalogDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "deliveryClass": "hot-application", "environment": "production", "extensionId": "app.sales-assistant", "generationId": "sales-assistant-generation-9", "manifestDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "provenanceDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "receiptId": "extension-receipt-9", "sbomDigest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "sourceCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "version": "1.0.0" },
+        "disposition": "active", "lastOperationId": "extension-operation-9", "lastReceiptId": "extension-receipt-9", "revision": 9, "stateDigest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      }
+    },
+    "platformPlugins": {
+      "module.sales": {
+        "activeGeneration": { "applicationDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111", "authority": "static-build", "buildEvidenceDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222", "compositionChangePlanDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333", "generationId": "customer-alpha-green-9", "imageDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444", "migrationRevision": 9, "receiptId": "deployment-receipt-9", "sourceCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "version": "1.1.0", "workerFencingToken": 9 },
+        "disposition": "active", "lastOperationId": "platform-operation-9", "lastReceiptId": "deployment-receipt-9", "revision": 9, "stateDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+      }
+    },
+    "themeSkins": { "skin.neobrutalism": { "disposition": "disabled", "lastOperationId": "skin-operation-9", "lastReceiptId": "skin-receipt-9", "revision": 3, "stateDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666" } }
+  },
+  "hostInventoryDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+  "observedAt": "2026-08-29T09:00:00.000Z",
+  "revision": 9,
+  "schemaVersion": 1,
+  "stateDigest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+}

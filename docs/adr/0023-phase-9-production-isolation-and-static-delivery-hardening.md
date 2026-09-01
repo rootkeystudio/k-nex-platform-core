@@ -3,8 +3,8 @@
 - Status: accepted
 - Date: 2026-08-29
 - Decision owners: K-Nex platform maintainers
-- Evidence: design-only
-- Entry: before P9.1 implementation
+- Evidence: executable-poc
+- Entry: Gate 9 closeout
 - Related: [ADR-0021](./0021-dynamic-application-runtime-and-zero-downtime-delivery.md), [Phase 9 plan](../implementation/phase-9-dynamic-application-runtime.md), [mandatory review hardening](../implementation/phase-9-plan-review-hardening.md)
 
 ## Context

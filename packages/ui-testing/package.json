@@ -8,12 +8,13 @@
   "scripts": {
     "build": "tsc -b",
     "test:unit": "vitest run",
-    "test:browser": "node scripts/browser-matrix.mjs",
+    "test:browser": "node scripts/browser-matrix.mjs && node scripts/remote-ui-browser.mjs && node scripts/theme-skin-browser.mjs",
     "test:performance": "node scripts/performance.mjs",
     "test": "pnpm test:unit && pnpm test:browser && pnpm test:performance"
   },
   "devDependencies": {
     "@k-nex/contracts": "workspace:*",
+    "@k-nex/extension-bundler": "workspace:*",
     "@k-nex/module-sales": "workspace:*",
     "@k-nex/theme-minimal": "workspace:*",
     "@k-nex/theme-neobrutalism": "workspace:*",

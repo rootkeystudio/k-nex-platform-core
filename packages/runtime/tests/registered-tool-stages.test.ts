@@ -1,10 +1,10 @@
 import type { ActionDefinition, AgentToolDescriptor, PluginManifest } from "@k-nex/contracts";
-import type { InstalledPluginManifest, ResolvedPluginGraph } from "@k-nex/composition";
+import type { InstalledPlatformPluginManifest, ResolvedPlatformPluginGraph } from "@k-nex/composition";
 import { describe, expect, it } from "vitest";
 
 import {
   executeRegistration,
-  scopePluginRegistration,
+  scopePlatformPluginRegistration,
   RegisteredToolAuthorization,
   RegisteredToolDataSourceDispatcher,
   RegisteredToolDispatcher,
@@ -95,15 +95,15 @@ function registration() {
     lifecycle: { ownsPayloadSchema: false, ownsPersistentData: false, disable: "supported", uninstall: "supported", purge: "unsupported" },
     contributions: { permissions: { "fixture.run": "required" }, actions: { [actionDescriptor.id]: "required" }, tools: { [tool.id]: "required" } }
   };
-  const installed: readonly InstalledPluginManifest[] = [{ package: { name: manifest.package, version: manifest.version, integrity: "sha512-fixture" }, manifest }];
-  const graph: ResolvedPluginGraph = {
+  const installed: readonly InstalledPlatformPluginManifest[] = [{ package: { name: manifest.package, version: manifest.version, integrity: "sha512-fixture" }, manifest }];
+  const graph: ResolvedPlatformPluginGraph = {
     resolverVersion: "1.0.0",
     plugins: [{ id: manifest.id, kind: manifest.kind, package: manifest.package, version: manifest.version, integrity: "sha512-fixture", required: [], optional: [] }],
     capabilityProviders: [],
     registrationOrder: [manifest.id]
   };
   const definition: ActionDefinition = { descriptor: actionDescriptor, inputSchema, outputSchema };
-  return scopePluginRegistration(executeRegistration({
+  return scopePlatformPluginRegistration(executeRegistration({
     graph,
     installed,
     registrations: [{

@@ -1,0 +1,701 @@
+{
+  "$defs": {
+    "__schema0": {
+      "additionalProperties": false,
+      "properties": {
+        "appId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "direction": {
+          "const": "realm-to-host",
+          "type": "string"
+        },
+        "generationId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "sequence": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "sessionId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "type": {
+          "const": "ready",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "sessionId",
+        "appId",
+        "generationId",
+        "sequence",
+        "direction",
+        "type"
+      ],
+      "type": "object"
+    },
+    "__schema1": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema10": {
+      "additionalProperties": false,
+      "properties": {
+        "event": {
+          "enum": [
+            "press",
+            "change",
+            "submit",
+            "selection-change"
+          ],
+          "type": "string"
+        },
+        "handlerId": {
+          "$ref": "#/$defs/__schema11"
+        }
+      },
+      "required": [
+        "event",
+        "handlerId"
+      ],
+      "type": "object"
+    },
+    "__schema11": {
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    },
+    "__schema12": {
+      "additionalProperties": false,
+      "properties": {
+        "appId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "direction": {
+          "const": "realm-to-host",
+          "type": "string"
+        },
+        "generationId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "input": {
+          "$ref": "#/$defs/__schema9"
+        },
+        "operation": {
+          "enum": [
+            "source",
+            "action"
+          ],
+          "type": "string"
+        },
+        "requestId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "sequence": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "sessionId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "targetId": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "type": {
+          "const": "request",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "sessionId",
+        "appId",
+        "generationId",
+        "sequence",
+        "direction",
+        "type",
+        "operation",
+        "requestId",
+        "targetId",
+        "input"
+      ],
+      "type": "object"
+    },
+    "__schema13": {
+      "additionalProperties": false,
+      "properties": {
+        "appId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "direction": {
+          "const": "realm-to-host",
+          "type": "string"
+        },
+        "generationId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "route": {
+          "$ref": "#/$defs/__schema14"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "sequence": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "sessionId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "type": {
+          "const": "navigate",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "sessionId",
+        "appId",
+        "generationId",
+        "sequence",
+        "direction",
+        "type",
+        "route"
+      ],
+      "type": "object"
+    },
+    "__schema14": {
+      "maxLength": 512,
+      "pattern": "^\\/apps\\/[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)*(?:\\/(?!\\.?(?:\\/|$))(?![a-z0-9._~-]*\\.\\.)[a-z0-9._~-]+)*$",
+      "type": "string"
+    },
+    "__schema15": {
+      "additionalProperties": false,
+      "properties": {
+        "appId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "direction": {
+          "const": "realm-to-host",
+          "type": "string"
+        },
+        "generationId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "nodeId": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "sequence": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "sessionId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "type": {
+          "const": "focus",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "sessionId",
+        "appId",
+        "generationId",
+        "sequence",
+        "direction",
+        "type",
+        "nodeId"
+      ],
+      "type": "object"
+    },
+    "__schema16": {
+      "additionalProperties": false,
+      "properties": {
+        "appId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "code": {
+          "enum": [
+            "APP_BOOT_FAILED",
+            "APP_RENDER_FAILED",
+            "APP_EVENT_FAILED"
+          ],
+          "type": "string"
+        },
+        "direction": {
+          "const": "realm-to-host",
+          "type": "string"
+        },
+        "generationId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "sequence": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "sessionId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "type": {
+          "const": "failure",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "sessionId",
+        "appId",
+        "generationId",
+        "sequence",
+        "direction",
+        "type",
+        "code"
+      ],
+      "type": "object"
+    },
+    "__schema17": {
+      "additionalProperties": false,
+      "properties": {
+        "appId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "direction": {
+          "const": "host-to-realm",
+          "type": "string"
+        },
+        "generationId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "route": {
+          "$ref": "#/$defs/__schema14"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "sequence": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "sessionId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "surface": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "type": {
+          "const": "bootstrap",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "sessionId",
+        "appId",
+        "generationId",
+        "sequence",
+        "direction",
+        "type",
+        "route",
+        "surface"
+      ],
+      "type": "object"
+    },
+    "__schema18": {
+      "additionalProperties": false,
+      "properties": {
+        "appId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "direction": {
+          "const": "host-to-realm",
+          "type": "string"
+        },
+        "event": {
+          "enum": [
+            "press",
+            "change",
+            "submit",
+            "selection-change"
+          ],
+          "type": "string"
+        },
+        "generationId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "handlerId": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "nodeId": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "payload": {
+          "$ref": "#/$defs/__schema9"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "sequence": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "sessionId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "type": {
+          "const": "event",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "sessionId",
+        "appId",
+        "generationId",
+        "sequence",
+        "direction",
+        "type",
+        "nodeId",
+        "event",
+        "handlerId",
+        "payload"
+      ],
+      "type": "object"
+    },
+    "__schema19": {
+      "additionalProperties": false,
+      "properties": {
+        "appId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "direction": {
+          "const": "host-to-realm",
+          "type": "string"
+        },
+        "generationId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "output": {
+          "$ref": "#/$defs/__schema9"
+        },
+        "requestId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "sequence": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "sessionId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "type": {
+          "const": "response-ok",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "sessionId",
+        "appId",
+        "generationId",
+        "sequence",
+        "direction",
+        "type",
+        "requestId",
+        "output"
+      ],
+      "type": "object"
+    },
+    "__schema2": {
+      "pattern": "^[a-z][a-z0-9-]{2,127}$",
+      "type": "string"
+    },
+    "__schema20": {
+      "additionalProperties": false,
+      "properties": {
+        "appId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "code": {
+          "enum": [
+            "UNAUTHORIZED",
+            "TARGET_UNAVAILABLE",
+            "REQUEST_INVALID",
+            "REQUEST_FAILED"
+          ],
+          "type": "string"
+        },
+        "direction": {
+          "const": "host-to-realm",
+          "type": "string"
+        },
+        "generationId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "requestId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "sequence": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "sessionId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "type": {
+          "const": "response-error",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "sessionId",
+        "appId",
+        "generationId",
+        "sequence",
+        "direction",
+        "type",
+        "requestId",
+        "code"
+      ],
+      "type": "object"
+    },
+    "__schema21": {
+      "additionalProperties": false,
+      "properties": {
+        "appId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "direction": {
+          "const": "host-to-realm",
+          "type": "string"
+        },
+        "generationId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "reason": {
+          "enum": [
+            "generation-retired",
+            "session-ended",
+            "protocol-failure"
+          ],
+          "type": "string"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "sequence": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "sessionId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "type": {
+          "const": "dispose",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "sessionId",
+        "appId",
+        "generationId",
+        "sequence",
+        "direction",
+        "type",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "__schema3": {
+      "maxLength": 128,
+      "pattern": "^app(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    },
+    "__schema4": {
+      "exclusiveMinimum": 0,
+      "maximum": 1000000000,
+      "type": "integer"
+    },
+    "__schema5": {
+      "additionalProperties": false,
+      "properties": {
+        "appId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "direction": {
+          "const": "realm-to-host",
+          "type": "string"
+        },
+        "generationId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "root": {
+          "$ref": "#/$defs/__schema6"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "sequence": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "sessionId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "type": {
+          "const": "render",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "sessionId",
+        "appId",
+        "generationId",
+        "sequence",
+        "direction",
+        "type",
+        "root"
+      ],
+      "type": "object"
+    },
+    "__schema6": {
+      "additionalProperties": false,
+      "properties": {
+        "children": {
+          "items": {
+            "$ref": "#/$defs/__schema6"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "component": {
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+          "type": "string"
+        },
+        "events": {
+          "items": {
+            "$ref": "#/$defs/__schema10"
+          },
+          "maxItems": 8,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "nodeId": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "props": {
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema9"
+          },
+          "maxProperties": 64,
+          "propertyNames": {
+            "$ref": "#/$defs/__schema8"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "nodeId",
+        "component",
+        "props",
+        "events",
+        "children"
+      ],
+      "type": "object"
+    },
+    "__schema7": {
+      "pattern": "^[a-z][a-z0-9_-]{0,127}$",
+      "type": "string"
+    },
+    "__schema8": {
+      "maxLength": 64,
+      "pattern": "^[a-z][A-Za-z0-9]*$",
+      "type": "string"
+    },
+    "__schema9": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/__schema9"
+          },
+          "maxItems": 128,
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema9"
+          },
+          "propertyNames": {
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$",
+            "type": "string"
+          },
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "$id": "https://schemas.k-nex.dev/remote-ui-frame/v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/__schema0"
+    },
+    {
+      "$ref": "#/$defs/__schema5"
+    },
+    {
+      "$ref": "#/$defs/__schema12"
+    },
+    {
+      "$ref": "#/$defs/__schema13"
+    },
+    {
+      "$ref": "#/$defs/__schema15"
+    },
+    {
+      "$ref": "#/$defs/__schema16"
+    },
+    {
+      "$ref": "#/$defs/__schema17"
+    },
+    {
+      "$ref": "#/$defs/__schema18"
+    },
+    {
+      "$ref": "#/$defs/__schema19"
+    },
+    {
+      "$ref": "#/$defs/__schema20"
+    },
+    {
+      "$ref": "#/$defs/__schema21"
+    }
+  ],
+  "title": "K-Nex Remote UI Frame v1"
+}

@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "signer": {
+    "identity": "k-nex-official-catalog",
+    "publicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA2STc7nKIYWiNDqJOBItgDmSJ3InJzNrYELwJ+L9zjoU=\n-----END PUBLIC KEY-----\n"
+  },
+  "payload": {
+    "schemaVersion": 1,
+    "sequence": 1,
+    "expiresAt": "2030-01-01T00:00:00.000Z",
+    "entries": [
+      {
+        "deliveryClass": "hot-application",
+        "id": "app.catalog-fixture",
+        "version": "1.0.0",
+        "runtimeAbi": "1.0.0",
+        "publisher": {
+          "identity": "k-nex-fixture-publisher",
+          "publicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAC+FVfEZmiH31e9UKV0IhOWrfhcR04dTRO/c8FFMnMf0=\n-----END PUBLIC KEY-----\n"
+        },
+        "source": {
+          "repository": "https://github.com/k-nex/official-apps",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "assetUrl": "https://github.com/k-nex/official-apps/releases/download/v1.0.0/app.catalog-fixture.tar.gz"
+        },
+        "artifactDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "manifestDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "sbomDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "provenanceDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "support": "supported",
+        "review": "approved",
+        "security": "clear",
+        "revoked": false
+      }
+    ]
+  },
+  "signature": "CuOEUIVriL0uM3CoAdDdJT+3esqtA8484MasH4LyVWHgunYeP2mNQisBhgRH/RVE5YDA4azB+O8CXDssMvdPBg=="
+}

@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -26,17 +25,6 @@ function entries(archive) {
   }
   return result;
 }
-
-function packageRoot(name, version) {
-  if (name === "@k-nex/module-sales") return resolve(root, `releases/sources/sales-${version}`);
-  if (name === "@k-nex/provider-realtime-socketio") return resolve(root, "packages/realtime-socketio");
-  return resolve(root, "packages", name.replace("@k-nex/", ""));
-}
-
-const releasePackageRoots = [...new Set(releases.flatMap(({ packages }) => packages)
-  .filter(({ package: name }) => name !== "@k-nex/module-sales")
-  .map(({ package: name, version }) => packageRoot(name, version)))];
-execFileSync("pnpm", ["exec", "tsc", "-b", "--force", ...releasePackageRoots.map((directory) => resolve(directory, "tsconfig.json"))], { cwd: root, stdio: "inherit" });
 
 const archives = new Map();
 for (const filename of readdirSync(artifactDirectory).filter((name) => name.endsWith(".tgz")).sort()) {
@@ -72,13 +60,10 @@ for (const release of releases) for (const expected of release.packages) {
       }
     }
   }
-
-  const source = packageRoot(expected.package, expected.version);
-  for (const [name, content] of actual.packed) {
-    if (!/^package\/dist\/.*\.(?:js|d\.ts)$/u.test(name)) continue;
-    assert.ok(content.equals(readFileSync(resolve(source, name.slice("package/".length)))), `Packed runtime export ${expected.package}:${name} is stale.`);
-  }
 }
+
+// Gate 8 archives are immutable signed release subjects. Later pre-v1 source changes must not rewrite them;
+// gate-8.mjs independently exact-compares their bytes with the hosted application bundles and attestations.
 
 assert.deepEqual([...archives.keys()].filter((identity) => identity.startsWith("@k-nex/")).sort(), [...releasedIdentities].sort(), "Packed release closure and manifest package sets differ.");
 const salesIntegrities = releases.map((release) => release.packages.find((entry) => entry.package === "@k-nex/module-sales")?.integrity);

@@ -1,0 +1,4 @@
+{
+  "$schema": "../../../schemas/extension-install-receipt.v1.schema.json",
+  "actor": { "identity": "fixture", "kind": "trusted-automation" }, "artifactDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "availability": { "activation": "atomic-generation-pointer", "outcome": "live-generation" }, "id": "app.bad", "deliveryClass": "hot-application", "lifecycleState": "active", "occurredAt": "2026-08-29T08:00:00.000Z", "operation": "install", "operationId": "bad-operation-1", "outcome": "accepted", "planId": "bad-plan-1", "receiptId": "bad-receipt-1", "revisionAfter": 0, "revisionBefore": -1, "rollback": { "status": "not-requested" }, "schemaVersion": 1, "version": "1.0.0"
+}

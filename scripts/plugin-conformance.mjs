@@ -208,12 +208,13 @@ export function runBoundaryProof(pluginRoot) {
 
 function runCustomerPostgresProof(root, identity) {
   assert.deepEqual(identity, { pluginId: "module.sales", pluginPackage: "@k-nex/module-sales" });
-  const output = execute("pnpm", ["--dir", "fixtures/customer-gate-1", "test:postgres"], root, "customer-postgres-lifecycle", identity);
-  assert.match(output, /proves customer-owned migrations and revision-aware Postgres boot/);
-  const tests = output.match(/(?:^|\n)ℹ tests (\d+)/u)?.[1];
-  const passed = output.match(/(?:^|\n)ℹ pass (\d+)/u)?.[1];
-  assert.ok(tests !== undefined && tests === passed, "Every customer Postgres lifecycle test must pass.");
-  assert.match(output, /fail 0/);
+  execute("pnpm", ["--filter", "@k-nex/customer-gate-1", "build"], root, "customer-postgres-lifecycle", identity);
+  const testName = "proves customer-owned migrations and revision-aware Postgres boot";
+  const output = execute(process.execPath, ["--test", "--test-reporter=tap", `--test-name-pattern=^${escapeRegExp(testName)}$`, "fixtures/customer-gate-1/tests/postgres-gate.test.mjs"], root, "customer-postgres-lifecycle", identity);
+  assert.match(output, new RegExp(`^ok \\d+ - ${escapeRegExp(testName)}$`, "m"), "Customer Postgres lifecycle proof did not execute its exact named test.");
+  assert.match(output, /^# tests 1$/m, "Customer Postgres lifecycle proof did not execute exactly one test.");
+  assert.match(output, /^# pass 1$/m, "Customer Postgres lifecycle proof did not pass exactly one test.");
+  assert.match(output, /^# fail 0$/m, "Customer Postgres lifecycle proof reported a failure.");
 }
 
 function runSalesPlatformProof(root, pluginRoot, identity) {

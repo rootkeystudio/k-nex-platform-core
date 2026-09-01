@@ -56,7 +56,7 @@ The plan cannot point at another workspace package, escape the target plugin, se
 | Registration | `RegistrationError.code` in [registration runtime](../packages/runtime/src/registration-runtime.ts) | align phase, declaration, owner, binding, capability, and inventory |
 | Settings | strict settings runtime errors | remove executable/topology keys, raw secrets, or invalid revisions |
 | Page templates | page-template preflight result | install the exact source/action/block/capability or preserve last valid instance |
-| Lifecycle | `PluginLifecycleError.code` in [lifecycle runtime](../packages/runtime/src/plugin-lifecycle.ts) | restore exact package/readiness, resolve references, or use a supported operation |
+| Lifecycle | `PlatformPluginLifecycleError.code` in [lifecycle runtime](../packages/runtime/src/plugin-lifecycle.ts) | restore exact package/readiness, resolve references, or use a supported operation |
 | Conformance | proof ID plus captured runner output | run/fix the named proof; never add a marker without executable evidence |
 
 Do not add aliases or compatibility shims for discarded pre-v1 helper names. Update callers, fixtures, tests, generated artifacts, and documentation atomically.

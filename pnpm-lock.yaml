@@ -28,9 +28,15 @@ importers:
       '@k-nex/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@k-nex/extension-bundler':
+        specifier: workspace:*
+        version: link:../../packages/extension-bundler
+      '@k-nex/extension-runner':
+        specifier: workspace:*
+        version: link:../../packages/extension-runner
       '@k-nex/module-sales':
         specifier: file:packages/k-nex-module-sales-1.0.0.tgz
-        version: file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz(@k-nex/contracts@packages+contracts)(@k-nex/payload-adapter@packages+payload-adapter)(@k-nex/runtime@packages+runtime)(@k-nex/ui-runtime@packages+ui-runtime)(react@19.2.8)
+        version: file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz(@k-nex/contracts@packages+contracts)(@k-nex/payload-adapter@packages+payload-adapter)(@k-nex/runtime@packages+runtime)(@k-nex/ui-design-system-contracts@packages+ui-design-system-contracts)(@k-nex/ui-runtime@packages+ui-runtime)(react@19.2.8)
       '@k-nex/payload-adapter':
         specifier: workspace:*
         version: link:../../packages/payload-adapter
@@ -40,6 +46,9 @@ importers:
       '@k-nex/runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
+      '@k-nex/ui-design-system-contracts':
+        specifier: workspace:*
+        version: link:../../packages/ui-design-system-contracts
       '@k-nex/ui-runtime':
         specifier: workspace:*
         version: link:../../packages/ui-runtime
@@ -71,6 +80,9 @@ importers:
       '@types/node':
         specifier: 24.13.3
         version: 24.13.3
+      esbuild:
+        specifier: 0.28.2
+        version: 0.28.2
       pg:
         specifier: 8.20.0
         version: 8.20.0
@@ -235,11 +247,58 @@ importers:
         specifier: 4.1.6
         version: 4.1.6(@types/node@24.13.3)(happy-dom@20.11.2)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2)(sass@1.77.4)(tsx@4.22.4)(yaml@2.9.0))
 
+  packages/extension-bundler:
+    dependencies:
+      '@k-nex/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      es-module-lexer:
+        specifier: 2.3.2
+        version: 2.3.2
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@types/node':
+        specifier: 24.13.3
+        version: 24.13.3
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: 4.1.6
+        version: 4.1.6(@types/node@24.13.3)(happy-dom@20.11.2)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2)(sass@1.77.4)(tsx@4.22.4)(yaml@2.9.0))
+
+  packages/extension-runner:
+    dependencies:
+      '@k-nex/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@k-nex/extension-bundler':
+        specifier: workspace:*
+        version: link:../extension-bundler
+      '@k-nex/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+    devDependencies:
+      '@types/node':
+        specifier: 24.13.3
+        version: 24.13.3
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: 4.1.6
+        version: 4.1.6(@types/node@24.13.3)(happy-dom@20.11.2)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2)(sass@1.77.4)(tsx@4.22.4)(yaml@2.9.0))
+
   packages/payload-adapter:
     dependencies:
       '@k-nex/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@k-nex/extension-bundler':
+        specifier: workspace:*
+        version: link:../extension-bundler
       '@k-nex/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -685,6 +744,9 @@ importers:
       '@k-nex/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@k-nex/extension-bundler':
+        specifier: workspace:*
+        version: link:../extension-bundler
       '@k-nex/module-sales':
         specifier: workspace:*
         version: link:../../modules/sales
@@ -5577,13 +5639,14 @@ snapshots:
 
   '@jsdevtools/ono@7.1.3': {}
 
-  '@k-nex/module-sales@file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz(@k-nex/contracts@packages+contracts)(@k-nex/payload-adapter@packages+payload-adapter)(@k-nex/runtime@packages+runtime)(@k-nex/ui-runtime@packages+ui-runtime)(react@19.2.8)':
+  '@k-nex/module-sales@file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz(@k-nex/contracts@packages+contracts)(@k-nex/payload-adapter@packages+payload-adapter)(@k-nex/runtime@packages+runtime)(@k-nex/ui-design-system-contracts@packages+ui-design-system-contracts)(@k-nex/ui-runtime@packages+ui-runtime)(react@19.2.8)':
     dependencies:
       '@k-nex/contracts': link:packages/contracts
       '@k-nex/payload-adapter': link:packages/payload-adapter
       '@k-nex/runtime': link:packages/runtime
       '@k-nex/ui-runtime': link:packages/ui-runtime
     optionalDependencies:
+      '@k-nex/ui-design-system-contracts': link:packages/ui-design-system-contracts
       react: 19.2.8
 
   '@k-nex/provider-realtime-socketio@file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz(@k-nex/contracts@packages+contracts)(@k-nex/runtime@packages+runtime)':

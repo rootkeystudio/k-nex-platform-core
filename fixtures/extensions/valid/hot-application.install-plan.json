@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../schemas/extension-install-plan.v1.schema.json",
+  "approvalRequired": true,
+  "artifactDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "availability": { "activation": "atomic-generation-pointer", "outcome": "live-generation" },
+  "expectedRevision": 0,
+  "id": "app.sales-assistant",
+  "deliveryClass": "hot-application",
+  "operation": "install",
+  "operationId": "sales-assistant-operation-1",
+  "planId": "sales-assistant-plan-1",
+  "requiredCapabilities": [{ "kind": "records", "operations": ["query"], "reason": "Read assigned Sales tasks.", "required": true, "resources": [{ "id": "sales.tasks", "version": 1 }] }],
+  "resourceBudget": { "maxAssetBytes": 262144, "maxBundleBytes": 1048576, "maxConcurrency": 4, "maxCpuMilliCores": 500, "maxInputBytes": 65536, "maxLogBytes": 65536, "maxMemoryMiB": 128, "maxOutputBytes": 131072, "maxStorageBytes": 1048576, "maxWallTimeMs": 5000 },
+  "rollback": { "available": true, "windowSeconds": 86400 },
+  "schemaVersion": 1,
+  "targetGenerationId": "sales-assistant-generation-1",
+  "version": "1.0.0"
+}

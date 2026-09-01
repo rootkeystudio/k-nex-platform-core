@@ -9,22 +9,44 @@ import {
   canonicalJson,
   CmsPageMetadataSchema,
   DurableEventEnvelopeSchema,
+  ExtensionBundleManifestSchema,
+  ExtensionCapabilityRequestSchema,
+  ExtensionGenerationSchema,
+  ExtensionInstallPlanSchema,
+  ExtensionInstallReceiptSchema,
+  ExtensionLifecycleEventSchema,
+  ExtensionResourceBudgetSchema,
+  HotApplicationManifestSchema,
   isEventSecretFieldName,
+  MigrationCompatibilityPlanSchema,
   MetricScalarSchema,
   PluginManifestSchema,
   TableRecordsSchema,
+  ThemeSkinManifestSchema,
   ThemeProfileSchema,
-  UiDocumentSchema
+  ThemeProfilePublicationEventSchema,
+  RemoteUiIsolationProfileSchema,
+  RemoteUiFrameSchema,
+  RunnerIsolationProfileSchema,
+  RuntimeExtensionInventorySchema,
+  StaticCompositionChangePlanSchema,
+  StaticDeploymentReceiptSchema,
+  TrustedApplicationBuildEvidenceSchema,
+  UiDocumentSchema,
+  WorkerGenerationFenceSchema,
+  ZeroDowntimeEligibilitySchema
 } from "@k-nex/contracts";
-import { Ajv2020, type AnySchema } from "ajv/dist/2020.js";
+import { Ajv2020, type AnySchema, type ValidateFunction } from "ajv/dist/2020.js";
 import addFormatsModule from "ajv-formats";
 
 import { registerPluginContributionOwnershipKeyword } from "./plugin-contribution-ownership.js";
+import { registerMigrationRevisionKeyword } from "./migration-compatibility-plan.js";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 addFormatsModule.default(ajv);
 registerPluginContributionOwnershipKeyword(ajv);
+registerMigrationRevisionKeyword(ajv);
 ajv.addKeyword({
   keyword: "kNexMaxCanonicalBytes",
   type: "object",
@@ -96,11 +118,31 @@ for (const relativePath of [
   "schemas/action.v1.schema.json",
   "schemas/agent-tool.v1.schema.json",
   "schemas/plugin-manifest.v1.schema.json",
+  "schemas/hot-application-manifest.v1.schema.json",
+  "schemas/theme-skin-manifest.v1.schema.json",
+  "schemas/extension-bundle-manifest.v1.schema.json",
+  "schemas/extension-capability-request.v1.schema.json",
+  "schemas/extension-resource-budget.v1.schema.json",
+  "schemas/extension-install-plan.v1.schema.json",
+  "schemas/extension-install-receipt.v1.schema.json",
+  "schemas/extension-lifecycle-event.v1.schema.json",
+  "schemas/extension-generation.v1.schema.json",
+  "schemas/zero-downtime-eligibility.v1.schema.json",
+  "schemas/remote-ui-isolation-profile.v1.schema.json",
+  "schemas/remote-ui-frame.v1.schema.json",
+  "schemas/runner-isolation-profile.v1.schema.json",
+  "schemas/runtime-extension-inventory.v1.schema.json",
+  "schemas/static-composition-change-plan.v1.schema.json",
+  "schemas/static-deployment-receipt.v1.schema.json",
+  "schemas/trusted-application-build-evidence.v1.schema.json",
+  "schemas/migration-compatibility-plan.v1.schema.json",
+  "schemas/worker-generation-fence.v1.schema.json",
   "schemas/application-manifest.v1.schema.json",
   "schemas/event.v1.schema.json",
   "schemas/metric-scalar.v1.schema.json",
   "schemas/table-records.v1.schema.json",
   "schemas/theme-profile.v1.schema.json",
+  "schemas/theme-profile-publication-event.v1.schema.json",
   "schemas/ui-document.v1.schema.json",
   "schemas/cms-page-metadata.v1.schema.json",
   "fixtures/actions/valid/complete.json",
@@ -128,10 +170,14 @@ for (const relativePath of [
   "fixtures/cms-page-metadata/invalid/control-character.json",
   "fixtures/cms-page-metadata/invalid/title-too-long.json",
   "fixtures/theme-profiles/valid/public-minimal.json",
+  "fixtures/theme-profiles/valid/public-minimal-skin.json",
+  "fixtures/theme-profiles/valid/public-skin-publication-event.json",
   "fixtures/theme-profiles/invalid/non-theme-id.json",
   "fixtures/theme-profiles/invalid/unsafe-url.json",
   "fixtures/theme-profiles/invalid/unsafe-key.json",
   "fixtures/theme-profiles/invalid/too-many-overrides.json",
+  "fixtures/theme-profiles/invalid/unsafe-skin.json",
+  "fixtures/theme-profiles/invalid/publication-event-unsafe-generation.json",
   "fixtures/plugin-manifests/valid/module.sales.json",
   "fixtures/plugin-manifests/invalid/empty-category.json",
   "fixtures/plugin-manifests/invalid/invalid-requirement.json",
@@ -149,6 +195,7 @@ const eventSchema = await load<AnySchema>("schemas/event.v1.schema.json");
 const metricSchema = await load<AnySchema>("schemas/metric-scalar.v1.schema.json");
 const tableSchema = await load<AnySchema>("schemas/table-records.v1.schema.json");
 const themeProfileSchema = await load<AnySchema>("schemas/theme-profile.v1.schema.json");
+const themeProfilePublicationEventSchema = await load<AnySchema>("schemas/theme-profile-publication-event.v1.schema.json");
 const uiDocumentSchema = await load<AnySchema>("schemas/ui-document.v1.schema.json");
 const cmsPageMetadataSchema = await load<AnySchema>("schemas/cms-page-metadata.v1.schema.json");
 const validatePlugin = ajv.compile(pluginSchema);
@@ -159,8 +206,33 @@ const validateEvent = ajv.compile(eventSchema);
 const validateMetric = ajv.compile(metricSchema);
 const validateTable = ajv.compile(tableSchema);
 const validateThemeProfile = ajv.compile(themeProfileSchema);
+const validateThemeProfilePublicationEvent = ajv.compile(themeProfilePublicationEventSchema);
 const validateUiDocument = ajv.compile(uiDocumentSchema);
 const validateCmsPageMetadata = ajv.compile(cmsPageMetadataSchema);
+
+const extensionSchemas = {
+  "extension-bundle-manifest": { authoring: ExtensionBundleManifestSchema, generated: "schemas/extension-bundle-manifest.v1.schema.json" },
+  "extension-capability-request": { authoring: ExtensionCapabilityRequestSchema, generated: "schemas/extension-capability-request.v1.schema.json" },
+  "extension-generation": { authoring: ExtensionGenerationSchema, generated: "schemas/extension-generation.v1.schema.json" },
+  "extension-install-plan": { authoring: ExtensionInstallPlanSchema, generated: "schemas/extension-install-plan.v1.schema.json" },
+  "extension-install-receipt": { authoring: ExtensionInstallReceiptSchema, generated: "schemas/extension-install-receipt.v1.schema.json" },
+  "extension-lifecycle-event": { authoring: ExtensionLifecycleEventSchema, generated: "schemas/extension-lifecycle-event.v1.schema.json" },
+  "extension-resource-budget": { authoring: ExtensionResourceBudgetSchema, generated: "schemas/extension-resource-budget.v1.schema.json" },
+  "hot-application-manifest": { authoring: HotApplicationManifestSchema, generated: "schemas/hot-application-manifest.v1.schema.json" },
+  "migration-compatibility-plan": { authoring: MigrationCompatibilityPlanSchema, generated: "schemas/migration-compatibility-plan.v1.schema.json" },
+  "remote-ui-isolation-profile": { authoring: RemoteUiIsolationProfileSchema, generated: "schemas/remote-ui-isolation-profile.v1.schema.json" },
+  "remote-ui-frame": { authoring: RemoteUiFrameSchema, generated: "schemas/remote-ui-frame.v1.schema.json" },
+  "runner-isolation-profile": { authoring: RunnerIsolationProfileSchema, generated: "schemas/runner-isolation-profile.v1.schema.json" },
+  "runtime-extension-inventory": { authoring: RuntimeExtensionInventorySchema, generated: "schemas/runtime-extension-inventory.v1.schema.json" },
+  "static-composition-change-plan": { authoring: StaticCompositionChangePlanSchema, generated: "schemas/static-composition-change-plan.v1.schema.json" },
+  "static-deployment-receipt": { authoring: StaticDeploymentReceiptSchema, generated: "schemas/static-deployment-receipt.v1.schema.json" },
+  "theme-skin-manifest": { authoring: ThemeSkinManifestSchema, generated: "schemas/theme-skin-manifest.v1.schema.json" },
+  "trusted-application-build-evidence": { authoring: TrustedApplicationBuildEvidenceSchema, generated: "schemas/trusted-application-build-evidence.v1.schema.json" },
+  "worker-generation-fence": { authoring: WorkerGenerationFenceSchema, generated: "schemas/worker-generation-fence.v1.schema.json" },
+  "zero-downtime-eligibility": { authoring: ZeroDowntimeEligibilitySchema, generated: "schemas/zero-downtime-eligibility.v1.schema.json" }
+} as const;
+type ExtensionSchemaName = keyof typeof extensionSchemas;
+const extensionValidators = Object.fromEntries(await Promise.all(Object.entries(extensionSchemas).map(async ([name, contract]) => [name, ajv.compile(await load<AnySchema>(contract.generated))]))) as Record<ExtensionSchemaName, ValidateFunction>;
 
 const generatedContracts = await load<{
   artifacts: string[];
@@ -182,8 +254,14 @@ if (!generatedContracts.artifacts.includes("schemas/ui-document.v1.schema.json")
 if (!generatedContracts.artifacts.includes("schemas/theme-profile.v1.schema.json")) {
   throw new Error("Generated artifact inventory is missing schemas/theme-profile.v1.schema.json.");
 }
+if (!generatedContracts.artifacts.includes("schemas/theme-profile-publication-event.v1.schema.json")) {
+  throw new Error("Generated artifact inventory is missing schemas/theme-profile-publication-event.v1.schema.json.");
+}
 if (!generatedContracts.artifacts.includes("schemas/cms-page-metadata.v1.schema.json")) {
   throw new Error("Generated artifact inventory is missing schemas/cms-page-metadata.v1.schema.json.");
+}
+for (const { generated } of Object.values(extensionSchemas)) {
+  if (!generatedContracts.artifacts.includes(generated)) throw new Error(`Generated artifact inventory is missing ${generated}.`);
 }
 
 const salesPlugin = await load("fixtures/plugin-manifests/valid/module.sales.json");
@@ -321,16 +399,29 @@ if (ThemeProfileSchema.safeParse(unsafeThemeProfile).success || validateThemePro
 }
 const themeProfileFixtures = [
   { path: "fixtures/theme-profiles/valid/public-minimal.json", valid: true },
+  { path: "fixtures/theme-profiles/valid/public-minimal-skin.json", valid: true },
   { path: "fixtures/theme-profiles/invalid/non-theme-id.json", valid: false },
   { path: "fixtures/theme-profiles/invalid/unsafe-url.json", valid: false },
   { path: "fixtures/theme-profiles/invalid/unsafe-key.json", valid: false },
-  { path: "fixtures/theme-profiles/invalid/too-many-overrides.json", valid: false }
+  { path: "fixtures/theme-profiles/invalid/too-many-overrides.json", valid: false },
+  { path: "fixtures/theme-profiles/invalid/unsafe-skin.json", valid: false }
 ] as const;
 for (const fixture of themeProfileFixtures) {
   const value = await load(fixture.path);
   const zodValid = ThemeProfileSchema.safeParse(value).success;
   const jsonSchemaValid = validateThemeProfile(value);
   if (fixture.valid && (!zodValid || !jsonSchemaValid)) throw new Error(`Valid ${fixture.path} must pass both Zod and generated JSON Schema validation: ${ajv.errorsText(validateThemeProfile.errors)}`);
+  if (!fixture.valid && (zodValid || jsonSchemaValid)) throw new Error(`Invalid ${fixture.path} must fail both Zod and generated JSON Schema validation.`);
+}
+
+for (const fixture of [
+  { path: "fixtures/theme-profiles/valid/public-skin-publication-event.json", valid: true },
+  { path: "fixtures/theme-profiles/invalid/publication-event-unsafe-generation.json", valid: false }
+] as const) {
+  const value = await load(fixture.path);
+  const zodValid = ThemeProfilePublicationEventSchema.safeParse(value).success;
+  const jsonSchemaValid = validateThemeProfilePublicationEvent(value);
+  if (fixture.valid && (!zodValid || !jsonSchemaValid)) throw new Error(`Valid ${fixture.path} must pass both Zod and generated JSON Schema validation: ${ajv.errorsText(validateThemeProfilePublicationEvent.errors)}`);
   if (!fixture.valid && (zodValid || jsonSchemaValid)) throw new Error(`Invalid ${fixture.path} must fail both Zod and generated JSON Schema validation.`);
 }
 
@@ -371,6 +462,97 @@ for (const fixture of cmsPageMetadataFixtures) {
   const jsonSchemaValid = validateCmsPageMetadata(value);
   if (fixture.valid && (!zodValid || !jsonSchemaValid)) throw new Error(`Valid ${fixture.path} must pass both Zod and generated JSON Schema validation: ${ajv.errorsText(validateCmsPageMetadata.errors)}`);
   if (!fixture.valid && (zodValid || jsonSchemaValid)) throw new Error(`Invalid ${fixture.path} must fail both Zod and generated JSON Schema validation.`);
+}
+
+const extensionValidFixtures = [
+  "fixtures/extensions/valid/capability.records.json",
+  "fixtures/extensions/valid/hot-application.bundle.json",
+  "fixtures/extensions/valid/hot-application.generation.json",
+  "fixtures/extensions/valid/hot-application.install-plan.json",
+  "fixtures/extensions/valid/hot-application.install-receipt.json",
+  "fixtures/extensions/valid/hot-application.manifest.json",
+  "fixtures/extensions/valid/extension-lifecycle-event.json",
+  "fixtures/extensions/valid/migration-compatibility-plan.json",
+  "fixtures/extensions/valid/platform-plugin.bundle.json",
+  "fixtures/extensions/valid/platform-plugin.eligibility.json",
+  "fixtures/extensions/valid/platform-plugin.maintenance-required.json",
+  "fixtures/extensions/valid/platform-plugin.unsupported.json",
+  "fixtures/extensions/valid/resource-budget.hot-application.json",
+  "fixtures/extensions/valid/remote-ui-isolation-profile.json",
+  "fixtures/extensions/valid/runner-isolation-profile.json",
+  "fixtures/extensions/valid/runtime-extension-inventory.json",
+  "fixtures/extensions/valid/static-composition-change-plan.json",
+  "fixtures/extensions/valid/static-deployment-receipt.json",
+  "fixtures/extensions/valid/theme-skin.bundle.json",
+  "fixtures/extensions/valid/theme-skin.manifest.json",
+  "fixtures/extensions/valid/trusted-application-build-evidence.json",
+  "fixtures/extensions/valid/worker-generation-fence.json"
+] as const;
+
+function extensionSchemaName(value: unknown): ExtensionSchemaName {
+  const declared = value !== null && typeof value === "object" ? (value as Record<string, unknown>)["$schema"] : undefined;
+  if (typeof declared !== "string") throw new Error("Extension fixture must declare $schema.");
+  const match = Object.entries(extensionSchemas).find(([, contract]) => declared.endsWith(contract.generated.split("/").at(-1)!));
+  if (match === undefined) throw new Error(`Extension fixture declares an unknown schema: ${declared}.`);
+  return match[0] as ExtensionSchemaName;
+}
+
+for (const path of extensionValidFixtures) {
+  const value = await load(path);
+  const name = extensionSchemaName(value);
+  const zodValid = extensionSchemas[name].authoring.safeParse(value).success;
+  const jsonSchemaValid = extensionValidators[name](value);
+  if (!zodValid || !jsonSchemaValid) throw new Error(`Valid ${path} must pass both Zod and generated JSON Schema validation: ${ajv.errorsText(extensionValidators[name].errors)}`);
+}
+
+const migrationFreePlan = structuredClone(await load<Record<string, any>>("fixtures/extensions/valid/migration-compatibility-plan.json"));
+migrationFreePlan.plan.steps = [];
+migrationFreePlan.plan.baseRevision = 12;
+migrationFreePlan.plan.targetRevision = 12;
+const migrationPlanValidator = extensionValidators["migration-compatibility-plan"];
+if (!MigrationCompatibilityPlanSchema.safeParse(migrationFreePlan).success || !migrationPlanValidator(migrationFreePlan)) {
+  throw new Error(`Migration-free same-revision plan must pass both Zod and generated JSON Schema validation: ${ajv.errorsText(migrationPlanValidator.errors)}`);
+}
+
+const staticMigrationFreePlan = structuredClone(await load<Record<string, any>>("fixtures/extensions/valid/static-composition-change-plan.json"));
+staticMigrationFreePlan.migration.steps = [];
+staticMigrationFreePlan.migration.baseRevision = 12;
+staticMigrationFreePlan.migration.targetRevision = 12;
+const staticCompositionPlanValidator = extensionValidators["static-composition-change-plan"];
+if (!StaticCompositionChangePlanSchema.safeParse(staticMigrationFreePlan).success || !staticCompositionPlanValidator(staticMigrationFreePlan)) {
+  throw new Error(`Static migration-free same-revision plan must pass both Zod and generated JSON Schema validation: ${ajv.errorsText(staticCompositionPlanValidator.errors)}`);
+}
+
+for (const [baseRevision, targetRevision] of [[12, 13], [13, 12]] as const) {
+  const standalone = structuredClone(migrationFreePlan);
+  standalone.plan.baseRevision = baseRevision;
+  standalone.plan.targetRevision = targetRevision;
+  const embedded = structuredClone(staticMigrationFreePlan);
+  embedded.migration.baseRevision = baseRevision;
+  embedded.migration.targetRevision = targetRevision;
+  if (MigrationCompatibilityPlanSchema.safeParse(standalone).success || migrationPlanValidator(standalone)) {
+    throw new Error(`Empty standalone migration plan ${baseRevision}->${targetRevision} must fail both Zod and generated JSON Schema validation.`);
+  }
+  if (StaticCompositionChangePlanSchema.safeParse(embedded).success || staticCompositionPlanValidator(embedded)) {
+    throw new Error(`Empty embedded migration plan ${baseRevision}->${targetRevision} must fail both Zod and generated JSON Schema validation.`);
+  }
+}
+
+const themeSkinManifest = await load<Record<string, unknown>>("fixtures/extensions/valid/theme-skin.manifest.json");
+for (const [token, valid] of [["#ABC", true], ["#ABCD", true], ["#A1B2C3", true], ["#A1B2C3D4", true], ["#ABCDE", false], ["#A1B2C3D", false]] as const) {
+  const value = structuredClone(themeSkinManifest);
+  (value.tokens as Record<string, string>)["--k-nex-skin-color-accent"] = token;
+  const zodValid = ThemeSkinManifestSchema.safeParse(value).success;
+  const jsonSchemaValid = extensionValidators["theme-skin-manifest"](value);
+  if (zodValid !== valid || jsonSchemaValid !== valid || zodValid !== jsonSchemaValid) throw new Error(`Theme Skin token ${token} must preserve Zod/Ajv parity.`);
+}
+
+const extensionInvalidFixtures = await load<Record<string, { schema: ExtensionSchemaName }>>("fixtures/extensions/expected-diagnostics.json");
+for (const [path, declaration] of Object.entries(extensionInvalidFixtures)) {
+  const value = await load(path);
+  const zodValid = extensionSchemas[declaration.schema].authoring.safeParse(value).success;
+  const jsonSchemaValid = extensionValidators[declaration.schema](value);
+  if (zodValid || jsonSchemaValid) throw new Error(`Invalid ${path} must fail both Zod and generated JSON Schema validation.`);
 }
 
 console.log("Generated schemas compile with Ajv and preserve contract and lifecycle invariants.");

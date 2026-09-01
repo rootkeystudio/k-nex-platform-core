@@ -1,0 +1,14 @@
+{
+  "$schema": "../../../schemas/extension-generation.v1.schema.json",
+  "artifactDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "createdAt": "2026-08-29T08:00:00.000Z",
+  "generationId": "sales-assistant-generation-1",
+  "id": "app.sales-assistant",
+  "deliveryClass": "hot-application",
+  "lifecycleState": "active",
+  "manifestDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "revision": 1,
+  "rollbackEligible": true,
+  "schemaVersion": 1,
+  "version": "1.0.0"
+}

@@ -6,8 +6,9 @@ import { canonicalJson } from "@k-nex/contracts";
 import { Ajv2020, type AnySchema, type ValidateFunction } from "ajv/dist/2020.js";
 import addFormatsModule from "ajv-formats";
 
-import { type FixtureInput, type FixtureSchema, validateFixtures } from "./fixture-validation.js";
+import { fixtureSchemas, type FixtureInput, type FixtureSchema, validateFixtures } from "./fixture-validation.js";
 import { registerPluginContributionOwnershipKeyword } from "./plugin-contribution-ownership.js";
+import { registerMigrationRevisionKeyword } from "./migration-compatibility-plan.js";
 
 export type RepositoryDiagnosticCode =
   | "ADR_EVIDENCE_INVALID"
@@ -262,13 +263,13 @@ export function validateExpectedDiagnostics(value: unknown): {
       continue;
     }
     const candidate = declaration as Record<string, unknown>;
-    if ((candidate.schema !== "application" && candidate.schema !== "plugin")
+    if (!(fixtureSchemas as readonly string[]).includes(String(candidate.schema))
       || (candidate.validator !== "json-schema" && candidate.validator !== "repository-semantic")
       || typeof candidate.code !== "string" || candidate.code === "") {
       diagnostics.push(diagnostic(sourcePath, "EXPECTED_DIAGNOSTIC_MISMATCH", `$/entries/${path}`, `Invalid expected diagnostic declaration for ${path}.`, "Use a supported schema, validator, and non-empty stable code.", "fixture-expectation"));
       continue;
     }
-    expected[path] = { code: candidate.code, schema: candidate.schema, validator: candidate.validator };
+    expected[path] = { code: candidate.code, schema: candidate.schema as FixtureSchema, validator: candidate.validator as ExpectedDiagnostic["validator"] };
   }
   return { declaredPaths: Object.keys(entries), diagnostics, expected };
 }
@@ -279,6 +280,24 @@ export function declaredFixtureSchema(value: unknown): FixtureSchema | undefined
   if (typeof schema !== "string") return undefined;
   if (schema.endsWith("/application-manifest.v1.schema.json")) return "application";
   if (schema.endsWith("/plugin-manifest.v1.schema.json")) return "plugin";
+  if (schema.endsWith("/hot-application-manifest.v1.schema.json")) return "hot-application-manifest";
+  if (schema.endsWith("/theme-skin-manifest.v1.schema.json")) return "theme-skin-manifest";
+  if (schema.endsWith("/extension-bundle-manifest.v1.schema.json")) return "extension-bundle-manifest";
+  if (schema.endsWith("/extension-capability-request.v1.schema.json")) return "extension-capability-request";
+  if (schema.endsWith("/extension-resource-budget.v1.schema.json")) return "extension-resource-budget";
+  if (schema.endsWith("/extension-install-plan.v1.schema.json")) return "extension-install-plan";
+  if (schema.endsWith("/extension-install-receipt.v1.schema.json")) return "extension-install-receipt";
+  if (schema.endsWith("/extension-generation.v1.schema.json")) return "extension-generation";
+  if (schema.endsWith("/extension-lifecycle-event.v1.schema.json")) return "extension-lifecycle-event";
+  if (schema.endsWith("/migration-compatibility-plan.v1.schema.json")) return "migration-compatibility-plan";
+  if (schema.endsWith("/remote-ui-isolation-profile.v1.schema.json")) return "remote-ui-isolation-profile";
+  if (schema.endsWith("/runner-isolation-profile.v1.schema.json")) return "runner-isolation-profile";
+  if (schema.endsWith("/runtime-extension-inventory.v1.schema.json")) return "runtime-extension-inventory";
+  if (schema.endsWith("/static-composition-change-plan.v1.schema.json")) return "static-composition-change-plan";
+  if (schema.endsWith("/static-deployment-receipt.v1.schema.json")) return "static-deployment-receipt";
+  if (schema.endsWith("/trusted-application-build-evidence.v1.schema.json")) return "trusted-application-build-evidence";
+  if (schema.endsWith("/worker-generation-fence.v1.schema.json")) return "worker-generation-fence";
+  if (schema.endsWith("/zero-downtime-eligibility.v1.schema.json")) return "zero-downtime-eligibility";
   return undefined;
 }
 
@@ -358,25 +377,68 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
   const registryValue = await loadJson(root, "contracts/architecture-contracts.v1.json", diagnostics);
   const pluginSchema = await loadJson(root, "schemas/plugin-manifest.v1.schema.json", diagnostics);
   const applicationSchema = await loadJson(root, "schemas/application-manifest.v1.schema.json", diagnostics);
+  const hotApplicationSchema = await loadJson(root, "schemas/hot-application-manifest.v1.schema.json", diagnostics);
+  const themeSkinSchema = await loadJson(root, "schemas/theme-skin-manifest.v1.schema.json", diagnostics);
+  const extensionBundleSchema = await loadJson(root, "schemas/extension-bundle-manifest.v1.schema.json", diagnostics);
+  const extensionCapabilitySchema = await loadJson(root, "schemas/extension-capability-request.v1.schema.json", diagnostics);
+  const extensionBudgetSchema = await loadJson(root, "schemas/extension-resource-budget.v1.schema.json", diagnostics);
+  const extensionInstallPlanSchema = await loadJson(root, "schemas/extension-install-plan.v1.schema.json", diagnostics);
+  const extensionInstallReceiptSchema = await loadJson(root, "schemas/extension-install-receipt.v1.schema.json", diagnostics);
+  const extensionGenerationSchema = await loadJson(root, "schemas/extension-generation.v1.schema.json", diagnostics);
+  const extensionLifecycleEventSchema = await loadJson(root, "schemas/extension-lifecycle-event.v1.schema.json", diagnostics);
+  const migrationCompatibilityPlanSchema = await loadJson(root, "schemas/migration-compatibility-plan.v1.schema.json", diagnostics);
+  const remoteUiIsolationProfileSchema = await loadJson(root, "schemas/remote-ui-isolation-profile.v1.schema.json", diagnostics);
+  const runnerIsolationProfileSchema = await loadJson(root, "schemas/runner-isolation-profile.v1.schema.json", diagnostics);
+  const runtimeExtensionInventorySchema = await loadJson(root, "schemas/runtime-extension-inventory.v1.schema.json", diagnostics);
+  const staticCompositionChangePlanSchema = await loadJson(root, "schemas/static-composition-change-plan.v1.schema.json", diagnostics);
+  const staticDeploymentReceiptSchema = await loadJson(root, "schemas/static-deployment-receipt.v1.schema.json", diagnostics);
+  const trustedApplicationBuildEvidenceSchema = await loadJson(root, "schemas/trusted-application-build-evidence.v1.schema.json", diagnostics);
+  const workerGenerationFenceSchema = await loadJson(root, "schemas/worker-generation-fence.v1.schema.json", diagnostics);
+  const zeroDowntimeEligibilitySchema = await loadJson(root, "schemas/zero-downtime-eligibility.v1.schema.json", diagnostics);
   const expectedValue = await loadJson(root, "fixtures/contracts/expected-diagnostics.json", diagnostics);
-  if (registryValue === undefined || pluginSchema === undefined || applicationSchema === undefined || expectedValue === undefined) return sortDiagnostics(diagnostics);
+  const extensionExpectedValue = await loadJson(root, "fixtures/extensions/expected-diagnostics.json", diagnostics);
+  if (registryValue === undefined || pluginSchema === undefined || applicationSchema === undefined || hotApplicationSchema === undefined || themeSkinSchema === undefined || extensionBundleSchema === undefined || extensionCapabilitySchema === undefined || extensionBudgetSchema === undefined || extensionInstallPlanSchema === undefined || extensionInstallReceiptSchema === undefined || extensionGenerationSchema === undefined || extensionLifecycleEventSchema === undefined || migrationCompatibilityPlanSchema === undefined || remoteUiIsolationProfileSchema === undefined || runnerIsolationProfileSchema === undefined || runtimeExtensionInventorySchema === undefined || staticCompositionChangePlanSchema === undefined || staticDeploymentReceiptSchema === undefined || trustedApplicationBuildEvidenceSchema === undefined || workerGenerationFenceSchema === undefined || zeroDowntimeEligibilitySchema === undefined || expectedValue === undefined || extensionExpectedValue === undefined) return sortDiagnostics(diagnostics);
 
   const registry = registryValue as Registry;
   const expectedResult = validateExpectedDiagnostics(expectedValue);
   diagnostics.push(...expectedResult.diagnostics);
-  const expected = expectedResult.expected;
+  const extensionExpectedResult = validateExpectedDiagnostics(extensionExpectedValue);
+  diagnostics.push(...extensionExpectedResult.diagnostics);
+  const expected = { ...expectedResult.expected, ...extensionExpectedResult.expected };
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   addFormatsModule.default(ajv);
   registerPluginContributionOwnershipKeyword(ajv);
-  let validators: { application: ValidateFunction; plugin: ValidateFunction };
+  registerMigrationRevisionKeyword(ajv);
+  let validators: Partial<Record<FixtureSchema, ValidateFunction>>;
   try {
-    validators = { application: ajv.compile(applicationSchema as AnySchema), plugin: ajv.compile(pluginSchema as AnySchema) };
+    validators = {
+      application: ajv.compile(applicationSchema as AnySchema),
+      plugin: ajv.compile(pluginSchema as AnySchema),
+      "hot-application-manifest": ajv.compile(hotApplicationSchema as AnySchema),
+      "theme-skin-manifest": ajv.compile(themeSkinSchema as AnySchema),
+      "extension-bundle-manifest": ajv.compile(extensionBundleSchema as AnySchema),
+      "extension-capability-request": ajv.compile(extensionCapabilitySchema as AnySchema),
+      "extension-resource-budget": ajv.compile(extensionBudgetSchema as AnySchema),
+      "extension-install-plan": ajv.compile(extensionInstallPlanSchema as AnySchema),
+      "extension-install-receipt": ajv.compile(extensionInstallReceiptSchema as AnySchema),
+      "extension-generation": ajv.compile(extensionGenerationSchema as AnySchema),
+      "extension-lifecycle-event": ajv.compile(extensionLifecycleEventSchema as AnySchema),
+      "migration-compatibility-plan": ajv.compile(migrationCompatibilityPlanSchema as AnySchema),
+      "remote-ui-isolation-profile": ajv.compile(remoteUiIsolationProfileSchema as AnySchema),
+      "runner-isolation-profile": ajv.compile(runnerIsolationProfileSchema as AnySchema),
+      "runtime-extension-inventory": ajv.compile(runtimeExtensionInventorySchema as AnySchema),
+      "static-composition-change-plan": ajv.compile(staticCompositionChangePlanSchema as AnySchema),
+      "static-deployment-receipt": ajv.compile(staticDeploymentReceiptSchema as AnySchema),
+      "trusted-application-build-evidence": ajv.compile(trustedApplicationBuildEvidenceSchema as AnySchema),
+      "worker-generation-fence": ajv.compile(workerGenerationFenceSchema as AnySchema),
+      "zero-downtime-eligibility": ajv.compile(zeroDowntimeEligibilitySchema as AnySchema)
+    };
   } catch (error) {
     diagnostics.push(diagnostic("schemas", "SCHEMA_INVALID", "$", error instanceof Error ? error.message : "Generated schema compilation failed.", "Regenerate or correct the contract schemas.", "json-schema"));
     return sortDiagnostics(diagnostics);
   }
 
-  const validPaths = [...await walk(resolve(root, "fixtures/contracts/valid")), ...await walk(resolve(root, "fixtures/plugin-manifests/valid"))]
+  const validPaths = [...await walk(resolve(root, "fixtures/contracts/valid")), ...await walk(resolve(root, "fixtures/plugin-manifests/valid")), ...await walk(resolve(root, "fixtures/extensions/valid"))]
     .filter((path) => extname(path) === ".json")
     .map((path) => repositoryPath(root, path))
     .sort(compare);
@@ -401,10 +463,10 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
   ));
   diagnostics.push(...validateValidFixtureCoverage(validFixtures));
 
-  const invalidPaths = (await walk(resolve(root, "fixtures/contracts/invalid")))
+  const invalidPaths = [...await walk(resolve(root, "fixtures/contracts/invalid")), ...await walk(resolve(root, "fixtures/extensions/invalid"))]
     .filter((path) => extname(path) === ".json")
     .map((path) => repositoryPath(root, path));
-  diagnostics.push(...validateFixtureInventory(invalidPaths, expectedResult.declaredPaths));
+  diagnostics.push(...validateFixtureInventory(invalidPaths, [...expectedResult.declaredPaths, ...extensionExpectedResult.declaredPaths]));
   for (const sourcePath of invalidPaths.filter((path) => path in expected).sort(compare)) {
     const declaration = expected[sourcePath];
     const value = await loadJson(root, sourcePath, diagnostics);

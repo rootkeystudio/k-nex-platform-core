@@ -5,7 +5,7 @@ import { CapabilityIdSchema, ExactSemverSchema, PluginIdSchema } from "./identit
 import { OpenObjectSchema, uniqueArray } from "./schema-helpers.js";
 import { RealtimeProcessTopologySchema } from "./realtime-topology.js";
 
-export const PluginRequestSchema = z.strictObject({
+export const PlatformPluginRequestSchema = z.strictObject({
   id: PluginIdSchema,
   package: z.string(),
   version: ExactSemverSchema,
@@ -13,7 +13,7 @@ export const PluginRequestSchema = z.strictObject({
   options: OpenObjectSchema.optional()
 });
 
-export const ProviderRequestSchema = z.strictObject({
+export const PlatformProviderRequestSchema = z.strictObject({
   plugin: PluginIdSchema,
   package: z.string(),
   version: ExactSemverSchema,
@@ -46,8 +46,8 @@ const ApplicationManifestShapeSchema = z.strictObject({
       })
     })
   }),
-  plugins: z.array(PluginRequestSchema),
-  providers: z.record(CapabilityIdSchema, ProviderRequestSchema),
+  plugins: z.array(PlatformPluginRequestSchema),
+  providers: z.record(CapabilityIdSchema, PlatformProviderRequestSchema),
   builder: z.strictObject({
     plugin: z.literal("builder.puck"),
     package: z.string(),
@@ -87,6 +87,6 @@ export const ApplicationManifestSchema = ApplicationManifestShapeSchema.superRef
   title: "K-Nex Application Manifest v1"
 });
 
-export type PluginRequest = z.infer<typeof PluginRequestSchema>;
-export type ProviderRequest = z.infer<typeof ProviderRequestSchema>;
+export type PlatformPluginRequest = z.infer<typeof PlatformPluginRequestSchema>;
+export type PlatformProviderRequest = z.infer<typeof PlatformProviderRequestSchema>;
 export type ApplicationManifest = z.infer<typeof ApplicationManifestSchema>;

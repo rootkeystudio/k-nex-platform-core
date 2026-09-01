@@ -1,0 +1,485 @@
+{
+  "$defs": {
+    "__schema0": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "__schema1": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema10": {
+      "pattern": "^[0-9a-f]{40}$",
+      "type": "string"
+    },
+    "__schema11": {
+      "additionalProperties": false,
+      "properties": {
+        "applicationManifestDigest": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "generatedRegistriesDigest": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "lockfileDigest": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "migrationPlanDigest": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "packageClosureDigest": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "resolvedGraphDigest": {
+          "$ref": "#/$defs/__schema7"
+        }
+      },
+      "required": [
+        "applicationManifestDigest",
+        "lockfileDigest",
+        "resolvedGraphDigest",
+        "generatedRegistriesDigest",
+        "packageClosureDigest",
+        "migrationPlanDigest"
+      ],
+      "type": "object"
+    },
+    "__schema12": {
+      "additionalProperties": false,
+      "properties": {
+        "applicationSubjectDigest": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "composition": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "imageSubjectDigest": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "sourceCommit": {
+          "$ref": "#/$defs/__schema10"
+        }
+      },
+      "required": [
+        "sourceCommit",
+        "composition",
+        "applicationSubjectDigest",
+        "imageSubjectDigest"
+      ],
+      "type": "object"
+    },
+    "__schema13": {
+      "additionalProperties": false,
+      "kNexMigrationRevisionChangeRequiresSteps": true,
+      "properties": {
+        "applicationId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "baseRevision": {
+          "$ref": "#/$defs/__schema14"
+        },
+        "environment": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "planId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "rollbackWindow": {
+          "$ref": "#/$defs/__schema17"
+        },
+        "sourceCommit": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "steps": {
+          "$ref": "#/$defs/__schema15"
+        },
+        "targetRevision": {
+          "$ref": "#/$defs/__schema14"
+        },
+        "targetSourceCommit": {
+          "$ref": "#/$defs/__schema10"
+        }
+      },
+      "required": [
+        "planId",
+        "applicationId",
+        "environment",
+        "sourceCommit",
+        "targetSourceCommit",
+        "baseRevision",
+        "targetRevision",
+        "steps",
+        "rollbackWindow"
+      ],
+      "type": "object"
+    },
+    "__schema14": {
+      "maximum": 1000000000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "__schema15": {
+      "items": {
+        "$ref": "#/$defs/__schema16"
+      },
+      "maxItems": 128,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "__schema16": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "migrationDigest": {
+              "$ref": "#/$defs/__schema7"
+            },
+            "overlapSafe": {
+              "const": true,
+              "type": "boolean"
+            },
+            "phase": {
+              "const": "online-expand",
+              "type": "string"
+            },
+            "stepId": {
+              "$ref": "#/$defs/__schema2"
+            }
+          },
+          "required": [
+            "stepId",
+            "migrationDigest",
+            "phase",
+            "overlapSafe"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "checkpointSchemaDigest": {
+              "$ref": "#/$defs/__schema7"
+            },
+            "idempotent": {
+              "const": true,
+              "type": "boolean"
+            },
+            "migrationDigest": {
+              "$ref": "#/$defs/__schema7"
+            },
+            "phase": {
+              "const": "online-backfill",
+              "type": "string"
+            },
+            "resumable": {
+              "const": true,
+              "type": "boolean"
+            },
+            "stepId": {
+              "$ref": "#/$defs/__schema2"
+            }
+          },
+          "required": [
+            "stepId",
+            "migrationDigest",
+            "phase",
+            "resumable",
+            "idempotent",
+            "checkpointSchemaDigest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "migrationDigest": {
+              "$ref": "#/$defs/__schema7"
+            },
+            "phase": {
+              "const": "post-retirement-contract",
+              "type": "string"
+            },
+            "requiresOldGenerationRetired": {
+              "const": true,
+              "type": "boolean"
+            },
+            "requiresRollbackWindowClosed": {
+              "const": true,
+              "type": "boolean"
+            },
+            "stepId": {
+              "$ref": "#/$defs/__schema2"
+            }
+          },
+          "required": [
+            "stepId",
+            "migrationDigest",
+            "phase",
+            "requiresOldGenerationRetired",
+            "requiresRollbackWindowClosed"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "availability": {
+              "const": "maintenance-required",
+              "type": "string"
+            },
+            "migrationDigest": {
+              "$ref": "#/$defs/__schema7"
+            },
+            "phase": {
+              "const": "offline-required",
+              "type": "string"
+            },
+            "stepId": {
+              "$ref": "#/$defs/__schema2"
+            }
+          },
+          "required": [
+            "stepId",
+            "migrationDigest",
+            "phase",
+            "availability"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "__schema17": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "closesAt": {
+              "$ref": "#/$defs/__schema18"
+            },
+            "contractCleanup": {
+              "const": "blocked",
+              "type": "string"
+            },
+            "previousApplicationDigest": {
+              "$ref": "#/$defs/__schema7"
+            },
+            "state": {
+              "const": "open",
+              "type": "string"
+            },
+            "windowId": {
+              "$ref": "#/$defs/__schema2"
+            }
+          },
+          "required": [
+            "state",
+            "windowId",
+            "previousApplicationDigest",
+            "closesAt",
+            "contractCleanup"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "closedAt": {
+              "$ref": "#/$defs/__schema18"
+            },
+            "contractCleanup": {
+              "const": "eligible",
+              "type": "string"
+            },
+            "state": {
+              "const": "closed",
+              "type": "string"
+            },
+            "windowId": {
+              "$ref": "#/$defs/__schema2"
+            }
+          },
+          "required": [
+            "state",
+            "windowId",
+            "closedAt",
+            "contractCleanup"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "contractCleanup": {
+              "const": "blocked",
+              "type": "string"
+            },
+            "reason": {
+              "maxLength": 240,
+              "minLength": 1,
+              "type": "string"
+            },
+            "state": {
+              "const": "not-applicable",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state",
+            "reason",
+            "contractCleanup"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "__schema18": {
+      "allOf": [
+        {
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
+        },
+        {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        }
+      ],
+      "maxLength": 64,
+      "type": "string"
+    },
+    "__schema19": {
+      "const": "source-change-ready",
+      "type": "string"
+    },
+    "__schema2": {
+      "pattern": "^[a-z][a-z0-9-]{2,127}$",
+      "type": "string"
+    },
+    "__schema3": {
+      "pattern": "^[a-z][a-z0-9-]{2,127}$",
+      "type": "string"
+    },
+    "__schema4": {
+      "pattern": "^[a-z][a-z0-9-]{1,63}$",
+      "type": "string"
+    },
+    "__schema5": {
+      "const": "platform-plugin",
+      "type": "string"
+    },
+    "__schema6": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "pattern": "^(module|provider|builder|theme|integration|preset)(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+          "type": "string"
+        },
+        "releaseManifestDigest": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "version": {
+          "maxLength": 64,
+          "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:(?:0|[1-9][0-9]*)|(?:[0-9]*[A-Za-z-][0-9A-Za-z-]*))(?:\\.(?:(?:0|[1-9][0-9]*)|(?:[0-9]*[A-Za-z-][0-9A-Za-z-]*)))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "releaseManifestDigest"
+      ],
+      "type": "object"
+    },
+    "__schema7": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "__schema8": {
+      "additionalProperties": false,
+      "properties": {
+        "identity": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{2,511}$",
+          "type": "string"
+        },
+        "requestDigest": {
+          "$ref": "#/$defs/__schema7"
+        }
+      },
+      "required": [
+        "identity",
+        "requestDigest"
+      ],
+      "type": "object"
+    },
+    "__schema9": {
+      "additionalProperties": false,
+      "properties": {
+        "composition": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "sourceCommit": {
+          "$ref": "#/$defs/__schema10"
+        }
+      },
+      "required": [
+        "sourceCommit",
+        "composition"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://schemas.k-nex.dev/static-composition-change-plan/v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "applicationId": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "authority": {
+      "$ref": "#/$defs/__schema8"
+    },
+    "base": {
+      "$ref": "#/$defs/__schema9"
+    },
+    "deliveryClass": {
+      "$ref": "#/$defs/__schema5"
+    },
+    "environment": {
+      "$ref": "#/$defs/__schema4"
+    },
+    "migration": {
+      "$ref": "#/$defs/__schema13"
+    },
+    "planId": {
+      "$ref": "#/$defs/__schema2"
+    },
+    "plugin": {
+      "$ref": "#/$defs/__schema6"
+    },
+    "schemaVersion": {
+      "$ref": "#/$defs/__schema1"
+    },
+    "status": {
+      "$ref": "#/$defs/__schema19"
+    },
+    "target": {
+      "$ref": "#/$defs/__schema12"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "planId",
+    "applicationId",
+    "environment",
+    "deliveryClass",
+    "plugin",
+    "authority",
+    "base",
+    "target",
+    "migration",
+    "status"
+  ],
+  "title": "K-Nex Static Composition Change Plan v1",
+  "type": "object"
+}

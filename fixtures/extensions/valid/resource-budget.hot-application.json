@@ -1,0 +1,16 @@
+{
+  "$schema": "../../../schemas/extension-resource-budget.v1.schema.json",
+  "deliveryClass": "hot-application",
+  "limits": {
+    "maxAssetBytes": 262144,
+    "maxBundleBytes": 1048576,
+    "maxConcurrency": 4,
+    "maxCpuMilliCores": 500,
+    "maxInputBytes": 65536,
+    "maxLogBytes": 65536,
+    "maxMemoryMiB": 128,
+    "maxOutputBytes": 131072,
+    "maxStorageBytes": 1048576,
+    "maxWallTimeMs": 5000
+  }
+}

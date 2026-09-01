@@ -1,0 +1,16 @@
+{
+  "$schema": "../../../schemas/theme-profile-publication-event.v1.schema.json",
+  "activeRevisionId": "theme-revision.skin-1",
+  "applicationId": "customer-alpha",
+  "environment": "production",
+  "eventId": "theme-profile-event-11111111111111111111111111111111",
+  "eventType": "theme-profile.publication",
+  "occurredAt": "2026-08-29T09:02:00.000Z",
+  "operation": "publish",
+  "profileId": "theme-profile.public-skin",
+  "revisionAfter": 1,
+  "revisionBefore": 0,
+  "schemaVersion": 1,
+  "skinGenerationId": "skin-generation-1",
+  "stateDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

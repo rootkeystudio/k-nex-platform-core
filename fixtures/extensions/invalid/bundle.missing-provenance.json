@@ -1,0 +1,6 @@
+{
+  "$schema": "../../../schemas/extension-bundle-manifest.v1.schema.json",
+  "applicationManifest": { "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "path": "schemas/hot-application-manifest.json" },
+  "capabilities": [],
+  "deliveryClass": "hot-application", "entrypoints": { "server": [], "ui": ["ui/app.mjs"] }, "files": { "ui/app.mjs": { "bytes": 1, "contentType": "application/javascript", "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" } }, "id": "app.bad", "payloadDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "resourceBudget": { "maxAssetBytes": 1, "maxBundleBytes": 1, "maxConcurrency": 1, "maxCpuMilliCores": 1, "maxInputBytes": 1, "maxLogBytes": 1, "maxMemoryMiB": 1, "maxOutputBytes": 1, "maxStorageBytes": 1, "maxWallTimeMs": 1 }, "runtimeAbi": "1.0.0", "sbom": { "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "path": "sbom.cdx.json" }, "schemaVersion": 1, "version": "1.0.0"
+}

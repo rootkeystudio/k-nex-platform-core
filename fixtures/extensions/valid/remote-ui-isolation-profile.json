@@ -1,0 +1,17 @@
+{
+  "$schema": "../../../schemas/remote-ui-isolation-profile.v1.schema.json",
+  "ambientNetwork": "denied",
+  "browserStorage": "none",
+  "channelChecks": { "authorization": true, "depth": true, "generation": true, "rate": true, "replay": true, "schema": true, "sequence": true, "size": true },
+  "credentials": "none",
+  "directDom": "denied",
+  "hostChannel": "transferred-message-port-only",
+  "hostDynamicImport": "denied",
+  "popupTopNavigationDownload": "denied",
+  "profile": "credentialless-remote-ui-v1",
+  "realm": "opaque-origin-sandbox",
+  "responsePolicy": { "contentSecurityPolicy": "default-src 'none'; script-src 'self'; connect-src 'none'; worker-src blob:; img-src 'self'; style-src 'self'", "credentialsMode": "omit", "crossOriginResourcePolicy": "cross-origin", "generationPinnedIntegrity": true, "opaqueOriginCors": "null", "strictMime": true },
+  "schemaVersion": 1,
+  "serviceWorkers": "denied",
+  "sharedWorkers": "denied"
+}

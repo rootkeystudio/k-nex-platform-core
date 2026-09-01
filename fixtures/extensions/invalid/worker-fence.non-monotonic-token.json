@@ -1,0 +1,11 @@
+{
+  "$schema": "../../../schemas/worker-generation-fence.v1.schema.json",
+  "activeExecutionGeneration": "customer-alpha-green-9",
+  "applicationId": "customer-alpha",
+  "environment": "production",
+  "fencingToken": 0,
+  "lease": { "expiresAt": "2026-08-29T08:05:00.000Z", "owner": "worker:customer-alpha-green-9" },
+  "mode": "active",
+  "promotionRevision": 9,
+  "schemaVersion": 1
+}

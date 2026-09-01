@@ -1,0 +1,8 @@
+{
+  "$schema": "../../../schemas/trusted-application-build-evidence.v1.schema.json",
+  "applicationId": "customer-alpha", "applicationSubject": { "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "name": "customer-alpha.tar.gz" },
+  "authority": { "kind": "github-hosted", "ref": "branch", "repository": "rootkeystudio/customer-alpha", "workflowPath": ".github/workflows/build.yml" },
+  "composition": { "applicationManifestDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "generatedRegistriesDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "lockfileDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "migrationPlanDigest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "packageClosureDigest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "resolvedGraphDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111" },
+  "environment": "production", "imageSubject": { "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222", "repository": "ghcr.io/rootkeystudio/customer-alpha" }, "provenanceDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333", "sbomDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444", "schemaVersion": 1,
+  "signature": { "algorithm": "ed25519", "keyId": "github-actions:k-nex-build", "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==" }, "sourceCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

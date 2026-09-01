@@ -1,0 +1,21 @@
+{
+  "$schema": "../../../schemas/extension-install-receipt.v1.schema.json",
+  "actor": { "identity": "github-actions:phase-9-fixture", "kind": "trusted-automation" },
+  "artifactDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "availability": { "activation": "atomic-generation-pointer", "outcome": "live-generation" },
+  "generationId": "sales-assistant-generation-1",
+  "id": "app.sales-assistant",
+  "deliveryClass": "hot-application",
+  "lifecycleState": "active",
+  "occurredAt": "2026-08-29T08:00:00.000Z",
+  "operation": "install",
+  "operationId": "sales-assistant-operation-1",
+  "outcome": "accepted",
+  "planId": "sales-assistant-plan-1",
+  "receiptId": "sales-assistant-receipt-1",
+  "revisionAfter": 1,
+  "revisionBefore": 0,
+  "rollback": { "generationId": "sales-assistant-generation-1", "status": "available" },
+  "schemaVersion": 1,
+  "version": "1.0.0"
+}

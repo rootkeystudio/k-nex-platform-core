@@ -56,6 +56,7 @@ Theme Skin       signed declarative live-installable visual bundle
 20. Phase 9 exposes a narrow operation-authorizer interface and trusted automation adapter for proof. End-user authorization and role templates are implemented in Phase 10; no temporary role-name bypass is introduced.
 21. The main host process never performs `pnpm add`, `npm install`, dynamic import of downloaded code, runtime `node_modules` mutation, or direct in-process injection.
 22. Local development may use an explicitly development-only live-sync watcher. Production accepts only immutable verified artifacts.
+23. Each accepted signed catalog payload is a complete authoritative snapshot for active-generation security reconciliation, not a delta. Absence of an exact active release is `release-missing`; divergence in its immutable source or digest evidence is `release-evidence-mismatch`; and divergence from the trusted publisher key is `publisher-key-mismatch`. Every outcome fails closed through the same durable quarantine receipt, audit, and outbox path.
 
 ## Consequences
 
@@ -67,6 +68,7 @@ Theme Skin       signed declarative live-installable visual bundle
 - Some “plugins” in product language are technically apps or skins. Receipts and impact plans expose this truth.
 - Platform Plugin updates can preserve availability but not for every migration. Maintenance remains an explicit safe outcome.
 - RBAC follows the execution substrate so it can authorize both live activation and rolling deployment through one model.
+- Catalog publication must carry every currently admitted release in each complete signed snapshot; removal is authoritative and quarantines an active generation without requiring an unsigned inference or compatibility shim.
 
 ## Alternatives considered
 

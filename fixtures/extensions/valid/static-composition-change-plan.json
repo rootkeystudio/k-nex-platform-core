@@ -1,0 +1,22 @@
+{
+  "$schema": "../../../schemas/static-composition-change-plan.v1.schema.json",
+  "applicationId": "customer-alpha",
+  "authority": { "identity": "github-app:k-nex-change-authority", "requestDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+  "base": {
+    "composition": { "applicationManifestDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "generatedRegistriesDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "lockfileDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "migrationPlanDigest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "packageClosureDigest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "resolvedGraphDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111" },
+    "sourceCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "deliveryClass": "platform-plugin",
+  "environment": "production",
+  "migration": { "applicationId": "customer-alpha", "baseRevision": 8, "environment": "production", "planId": "migration-plan-9", "rollbackWindow": { "closesAt": "2026-09-05T08:00:00.000Z", "contractCleanup": "blocked", "previousApplicationDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222", "state": "open", "windowId": "rollback-window-9" }, "sourceCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "steps": [{ "migrationDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333", "overlapSafe": true, "phase": "online-expand", "stepId": "migration-expand-9" }], "targetRevision": 9, "targetSourceCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+  "planId": "composition-plan-9",
+  "plugin": { "id": "module.sales", "releaseManifestDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444", "version": "1.1.0" },
+  "schemaVersion": 1,
+  "status": "source-change-ready",
+  "target": {
+    "applicationSubjectDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+    "composition": { "applicationManifestDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666", "generatedRegistriesDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777", "lockfileDigest": "sha256:8888888888888888888888888888888888888888888888888888888888888888", "migrationPlanDigest": "sha256:9999999999999999999999999999999999999999999999999999999999999999", "packageClosureDigest": "sha256:abababababababababababababababababababababababababababababababab", "resolvedGraphDigest": "sha256:bcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc" },
+    "imageSubjectDigest": "sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+    "sourceCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  }
+}

@@ -2,8 +2,8 @@ import goldenCases from "./fixtures/resolver-golden.json";
 import { describe, expect, it } from "vitest";
 
 import {
-  PluginGraphResolutionError,
-  resolvePluginGraph,
+  PlatformPluginGraphResolutionError,
+  resolvePlatformPluginGraph,
   resolverVersion
 } from "../src/deterministic-resolver.js";
 
@@ -59,7 +59,7 @@ type GoldenCase = {
   expected: GoldenSuccess | GoldenFailure;
 };
 
-type ResolverOptions = Parameters<typeof resolvePluginGraph>[0];
+type ResolverOptions = Parameters<typeof resolvePlatformPluginGraph>[0];
 
 const cases = goldenCases as GoldenCase[];
 
@@ -121,27 +121,27 @@ function expandOptions(testCase: GoldenCase): ResolverOptions {
   };
 }
 
-function thrownResolutionError(callback: () => unknown): PluginGraphResolutionError {
+function thrownResolutionError(callback: () => unknown): PlatformPluginGraphResolutionError {
   try {
     callback();
   } catch (error) {
-    if (error instanceof PluginGraphResolutionError) return error;
+    if (error instanceof PlatformPluginGraphResolutionError) return error;
     throw error;
   }
-  throw new Error("Expected resolvePluginGraph to throw PluginGraphResolutionError.");
+  throw new Error("Expected resolvePlatformPluginGraph to throw PlatformPluginGraphResolutionError.");
 }
 
 describe("deterministic resolver golden corpus", () => {
   it.each(cases)("$name", (testCase) => {
     const options = expandOptions(testCase);
     if (testCase.expected.ok) {
-      const result = resolvePluginGraph(options);
+      const result = resolvePlatformPluginGraph(options);
       expect(result).toEqual(testCase.expected.output);
       expect(result.resolverVersion).toBe(resolverVersion);
       return;
     }
 
-    const error = thrownResolutionError(() => resolvePluginGraph(options));
+    const error = thrownResolutionError(() => resolvePlatformPluginGraph(options));
     expect({ code: error.code, message: error.message, path: [...error.path] }).toEqual(testCase.expected.error);
   });
 
@@ -156,8 +156,8 @@ describe("deterministic resolver golden corpus", () => {
       providers: Object.fromEntries(Object.entries(options.providers).reverse()),
       installed: [...options.installed].reverse()
     };
-    const forward = resolvePluginGraph(options);
-    const reverse = resolvePluginGraph(reversed);
+    const forward = resolvePlatformPluginGraph(options);
+    const reverse = resolvePlatformPluginGraph(reversed);
 
     expect(JSON.stringify(reverse)).toBe(JSON.stringify(forward));
     expect(options).toEqual(before);

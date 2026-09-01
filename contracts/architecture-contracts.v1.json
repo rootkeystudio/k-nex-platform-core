@@ -19,6 +19,55 @@
       "secret values"
     ]
   },
+  "extensions": {
+    "deliveryClasses": [
+      "platform-plugin",
+      "hot-application",
+      "theme-skin"
+    ],
+    "lifecycleStates": [
+      "catalog-available",
+      "planning",
+      "downloading",
+      "verified",
+      "staged",
+      "waiting-configuration",
+      "waiting-approval",
+      "warming",
+      "active",
+      "disabled",
+      "update-available",
+      "rollback-available",
+      "quarantined",
+      "retirement-pending",
+      "removed"
+    ],
+    "rules": [
+      "Platform Plugins remain static, release-composed host code.",
+      "Hot Applications use only app.* identities and isolated generation delivery.",
+      "Theme Skins use only skin.* identities and data-only generation delivery.",
+      "Runtime manifests do not declare Payload collections, globals, hooks, host routes, host services, packages, imports, SQL, database credentials, Docker access, or unrestricted network access."
+    ],
+    "runtimeCeilings": {
+      "assetBytes": 67108864,
+      "bundleBytes": 268435456,
+      "bundleFiles": 512,
+      "capabilities": 16,
+      "concurrency": 64,
+      "cpuMilliCores": 2000,
+      "cssBytes": 524288,
+      "descriptors": 64,
+      "destinations": 16,
+      "entrypoints": 16,
+      "inputBytes": 1048576,
+      "logBytes": 1048576,
+      "memoryMiB": 512,
+      "outputBytes": 4194304,
+      "routes": 32,
+      "storageBytes": 268435456,
+      "wallTimeMs": 30000
+    }
+  },
   "forbiddenLegacySymbols": [
     "module.logistics-core",
     "module.logistics-dispatch",
@@ -39,6 +88,9 @@
         "storage.objects",
         "builder.engine"
       ],
+      "hotApplications": [
+        "app.sales-assistant"
+      ],
       "plugins": [
         "module.sales",
         "module.logistics.core",
@@ -53,9 +105,13 @@
         "sales.total-potential-revenue",
         "logistics.shipment.assign",
         "page.filters.date-range"
+      ],
+      "themeSkins": [
+        "skin.neobrutalism"
       ]
     },
     "capabilityIdPattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+    "hotApplicationIdPattern": "^app(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
     "outputContractIdPattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+@[1-9][0-9]*$",
     "pluginIdPattern": "^(module|provider|builder|theme|integration|preset)(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
     "resourceIdPattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
@@ -64,7 +120,8 @@
       "A hyphen is allowed only inside one semantic segment.",
       "Package names are deployment locations and are not persisted identities.",
       "A persisted ID rename requires an explicit data/document migration; runtime aliases are not a permanent compatibility mechanism."
-    ]
+    ],
+    "themeSkinIdPattern": "^skin(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$"
   },
   "lifecycle": {
     "schemaLessPluginV1": {

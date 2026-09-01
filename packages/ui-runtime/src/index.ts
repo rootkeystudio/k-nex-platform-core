@@ -5,3 +5,5 @@ export * from "./presentation.js";
 export * from "./spike-blocks.js";
 export * from "./navigation.js";
 export * from "./browser-data.js";
+export * from "./remote-ui-host.js";
+export * from "./hot-application-surfaces.js";

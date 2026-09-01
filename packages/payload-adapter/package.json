@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./static-deployment-store": {
+      "types": "./dist/static-deployment-store.d.ts",
+      "default": "./dist/static-deployment-store.js"
     }
   },
   "scripts": {
@@ -17,6 +21,7 @@
   },
   "dependencies": {
     "@k-nex/contracts": "workspace:*",
+    "@k-nex/extension-bundler": "workspace:*",
     "@k-nex/runtime": "workspace:*",
     "@payloadcms/db-postgres": "3.88.0",
     "@payloadcms/plugin-mcp": "3.88.0",

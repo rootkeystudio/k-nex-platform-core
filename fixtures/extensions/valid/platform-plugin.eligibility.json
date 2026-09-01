@@ -1,0 +1,7 @@
+{
+  "$schema": "../../../schemas/zero-downtime-eligibility.v1.schema.json",
+  "id": "module.sales",
+  "deliveryClass": "platform-plugin",
+  "result": { "checks": { "expandCompatibleMigration": true, "inventoryMatch": true, "oldGenerationHealthy": true, "realtimeConvergence": true, "rollbackCompatible": true, "targetReadiness": true, "workerDrain": true, "writerReaderOverlap": true }, "outcome": "zero-downtime-eligible" },
+  "schemaVersion": 1
+}

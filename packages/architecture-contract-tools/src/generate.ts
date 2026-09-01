@@ -10,14 +10,34 @@ import {
   CmsPageMetadataSchema,
   DurableEventEnvelopeSchema,
   EVENT_PAYLOAD_MAX_BYTES,
+  ExtensionBundleManifestSchema,
+  ExtensionCapabilityRequestSchema,
+  ExtensionGenerationSchema,
+  ExtensionInstallPlanSchema,
+  ExtensionInstallReceiptSchema,
+  ExtensionLifecycleEventSchema,
+  ExtensionResourceBudgetSchema,
+  HotApplicationManifestSchema,
+  MigrationCompatibilityPlanSchema,
   MetricScalarSchema,
   PackageReleaseManifestSchema,
   RuntimeInventorySchema,
+  RuntimeExtensionInventorySchema,
+  ThemeSkinManifestSchema,
+  RemoteUiIsolationProfileSchema,
+  RemoteUiFrameSchema,
+  RunnerIsolationProfileSchema,
+  StaticCompositionChangePlanSchema,
+  StaticDeploymentReceiptSchema,
+  TrustedApplicationBuildEvidenceSchema,
+  WorkerGenerationFenceSchema,
   DeploymentReceiptSchema,
   PluginManifestSchema,
   TableRecordsSchema,
   ThemeProfileSchema,
+  ThemeProfilePublicationEventSchema,
   UiDocumentSchema,
+  ZeroDowntimeEligibilitySchema,
   architectureRegistry
 } from "@k-nex/contracts";
 import * as z from "zod";
@@ -35,6 +55,10 @@ function jsonSchema(schema: z.core.$ZodType): unknown {
   const metadata = descriptor?.value as { vendor?: unknown } | undefined;
   if (descriptor?.enumerable !== false || metadata?.vendor !== "zod") throw new TypeError("Zod JSON Schema output has unexpected metadata.");
   return { ...generated };
+}
+
+function identifiedJsonSchema(schema: z.core.$ZodType, id: string, title: string): unknown {
+  return { ...(jsonSchema(schema) as Record<string, unknown>), $id: id, title };
 }
 
 function secretFieldPattern(): string {
@@ -134,6 +158,18 @@ function referencedDefinition(schema: Record<string, any>, property: string): Re
   return definition;
 }
 
+function migrationCompatibilityPlanJsonSchema(): unknown {
+  const generated = jsonSchema(MigrationCompatibilityPlanSchema) as Record<string, any>;
+  referencedDefinition(generated, "plan").kNexMigrationRevisionChangeRequiresSteps = true;
+  return generated;
+}
+
+function staticCompositionChangePlanJsonSchema(): unknown {
+  const generated = jsonSchema(StaticCompositionChangePlanSchema) as Record<string, any>;
+  referencedDefinition(generated, "migration").kNexMigrationRevisionChangeRequiresSteps = true;
+  return generated;
+}
+
 function cmsPageMetadataJsonSchema(): unknown {
   const generated = jsonSchema(CmsPageMetadataSchema) as Record<string, any>;
   const canonicalTextPattern = "^(?!\\s)(?![\\s\\S]*\\s$)(?![\\s\\S]*[\\u0000-\\u001f\\u007f-\\u009f])[\\s\\S]+$";
@@ -148,11 +184,6 @@ function themeProfileJsonSchema(): unknown {
   const values = referencedDefinition(generated, "values");
   values.maxProperties = 128;
   values.propertyNames = { allOf: [values.propertyNames, { not: { pattern: "(?:^|\\.)(?:css|class|classname|style|import|function|secret|password|credential|token|fonturl)(?:\\.|$)" } }] };
-  const valueReference = values.additionalProperties?.$ref as string | undefined;
-  const valueDefinition = valueReference?.startsWith("#/$defs/") ? generated.$defs?.[valueReference.slice("#/$defs/".length)] : undefined;
-  const stringValue = valueDefinition?.anyOf?.find((candidate: Record<string, unknown>) => candidate.type === "string");
-  if (stringValue === undefined) throw new TypeError("Generated theme token string definition is missing.");
-  stringValue.pattern = "^(?![\\s\\S]*(?:[hH][tT][tT][pP][sS]?:\\/\\/|[dD][aA][tT][aA]:|[jJ][aA][vV][aA][sS][cC][rR][iI][pP][tT]:|@[iI][mM][pP][oO][rR][tT]|[uU][rR][lL]\\s*\\(|[{};]))[\\s\\S]+$";
   return generated;
 }
 
@@ -166,14 +197,34 @@ const primaryArtifacts = [
   { path: "schemas/action.v1.schema.json", value: jsonSchema(ActionDescriptorSchema) },
   { path: "schemas/agent-tool.v1.schema.json", value: jsonSchema(AgentToolDescriptorSchema) },
   { path: "schemas/plugin-manifest.v1.schema.json", value: pluginManifestJsonSchema() },
+  { path: "schemas/hot-application-manifest.v1.schema.json", value: jsonSchema(HotApplicationManifestSchema) },
+  { path: "schemas/theme-skin-manifest.v1.schema.json", value: jsonSchema(ThemeSkinManifestSchema) },
+  { path: "schemas/extension-bundle-manifest.v1.schema.json", value: jsonSchema(ExtensionBundleManifestSchema) },
+  { path: "schemas/extension-capability-request.v1.schema.json", value: identifiedJsonSchema(ExtensionCapabilityRequestSchema, "https://schemas.k-nex.dev/extension-capability-request/v1.json", "K-Nex Extension Capability Request v1") },
+  { path: "schemas/extension-resource-budget.v1.schema.json", value: jsonSchema(ExtensionResourceBudgetSchema) },
+  { path: "schemas/extension-install-plan.v1.schema.json", value: jsonSchema(ExtensionInstallPlanSchema) },
+  { path: "schemas/extension-install-receipt.v1.schema.json", value: jsonSchema(ExtensionInstallReceiptSchema) },
+  { path: "schemas/extension-lifecycle-event.v1.schema.json", value: jsonSchema(ExtensionLifecycleEventSchema) },
+  { path: "schemas/extension-generation.v1.schema.json", value: jsonSchema(ExtensionGenerationSchema) },
+  { path: "schemas/zero-downtime-eligibility.v1.schema.json", value: jsonSchema(ZeroDowntimeEligibilitySchema) },
+  { path: "schemas/remote-ui-isolation-profile.v1.schema.json", value: jsonSchema(RemoteUiIsolationProfileSchema) },
+  { path: "schemas/remote-ui-frame.v1.schema.json", value: jsonSchema(RemoteUiFrameSchema) },
+  { path: "schemas/runner-isolation-profile.v1.schema.json", value: jsonSchema(RunnerIsolationProfileSchema) },
+  { path: "schemas/static-composition-change-plan.v1.schema.json", value: staticCompositionChangePlanJsonSchema() },
+  { path: "schemas/static-deployment-receipt.v1.schema.json", value: jsonSchema(StaticDeploymentReceiptSchema) },
+  { path: "schemas/trusted-application-build-evidence.v1.schema.json", value: jsonSchema(TrustedApplicationBuildEvidenceSchema) },
+  { path: "schemas/migration-compatibility-plan.v1.schema.json", value: migrationCompatibilityPlanJsonSchema() },
+  { path: "schemas/worker-generation-fence.v1.schema.json", value: jsonSchema(WorkerGenerationFenceSchema) },
   { path: "schemas/package-release-manifest.v1.schema.json", value: jsonSchema(PackageReleaseManifestSchema) },
   { path: "schemas/runtime-inventory.v1.schema.json", value: jsonSchema(RuntimeInventorySchema) },
+  { path: "schemas/runtime-extension-inventory.v1.schema.json", value: jsonSchema(RuntimeExtensionInventorySchema) },
   { path: "schemas/deployment-receipt.v1.schema.json", value: jsonSchema(DeploymentReceiptSchema) },
   { path: "schemas/application-manifest.v1.schema.json", value: applicationJsonSchema() },
   { path: "schemas/event.v1.schema.json", value: eventJsonSchema() },
   { path: "schemas/metric-scalar.v1.schema.json", value: jsonSchema(MetricScalarSchema) },
   { path: "schemas/table-records.v1.schema.json", value: jsonSchema(TableRecordsSchema) },
   { path: "schemas/theme-profile.v1.schema.json", value: themeProfileJsonSchema() },
+  { path: "schemas/theme-profile-publication-event.v1.schema.json", value: jsonSchema(ThemeProfilePublicationEventSchema) },
   { path: "schemas/ui-document.v1.schema.json", value: uiDocumentJsonSchema() },
   { path: "schemas/cms-page-metadata.v1.schema.json", value: cmsPageMetadataJsonSchema() }
 ] satisfies readonly Artifact[];

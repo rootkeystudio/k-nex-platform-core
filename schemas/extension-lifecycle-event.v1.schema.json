@@ -1,0 +1,532 @@
+{
+  "$defs": {
+    "__schema0": {
+      "additionalProperties": false,
+      "properties": {
+        "$schema": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "actor": {
+          "$ref": "#/$defs/__schema12"
+        },
+        "applicationId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "auditId": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "correlationId": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "deliveryClass": {
+          "const": "platform-plugin",
+          "type": "string"
+        },
+        "environment": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "eventId": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "eventType": {
+          "$ref": "#/$defs/__schema6"
+        },
+        "evidence": {
+          "additionalProperties": false,
+          "properties": {
+            "applicationDigest": {
+              "$ref": "#/$defs/__schema16"
+            },
+            "buildEvidenceDigest": {
+              "$ref": "#/$defs/__schema16"
+            },
+            "buildRequestDigest": {
+              "$ref": "#/$defs/__schema16"
+            },
+            "compositionChangePlanDigest": {
+              "$ref": "#/$defs/__schema16"
+            },
+            "generationId": {
+              "$ref": "#/$defs/__schema5"
+            },
+            "imageDigest": {
+              "$ref": "#/$defs/__schema16"
+            },
+            "sourceCommit": {
+              "$ref": "#/$defs/__schema15"
+            }
+          },
+          "required": [
+            "sourceCommit",
+            "compositionChangePlanDigest",
+            "generationId"
+          ],
+          "type": "object"
+        },
+        "expectedRevision": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "id": {
+          "maxLength": 128,
+          "pattern": "^(module|provider|builder|theme|integration|preset)(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+          "type": "string"
+        },
+        "idempotencyKey": {
+          "$ref": "#/$defs/__schema13"
+        },
+        "inventoryRevision": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "lifecycleState": {
+          "$ref": "#/$defs/__schema9"
+        },
+        "occurredAt": {
+          "$ref": "#/$defs/__schema14"
+        },
+        "operation": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "operationId": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "operationPhase": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "receiptId": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "revision": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/__schema2"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "applicationId",
+        "environment",
+        "eventId",
+        "eventType",
+        "operationId",
+        "operation",
+        "operationPhase",
+        "lifecycleState",
+        "expectedRevision",
+        "revision",
+        "inventoryRevision",
+        "actor",
+        "receiptId",
+        "auditId",
+        "idempotencyKey",
+        "correlationId",
+        "occurredAt",
+        "deliveryClass",
+        "id",
+        "evidence"
+      ],
+      "type": "object"
+    },
+    "__schema1": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "__schema10": {
+      "maximum": 1000000000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "__schema11": {
+      "exclusiveMinimum": 0,
+      "maximum": 1000000000,
+      "type": "integer"
+    },
+    "__schema12": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "identity": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "kind": {
+              "const": "trusted-automation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "identity"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "approvalId": {
+              "maxLength": 160,
+              "minLength": 1,
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 160,
+              "minLength": 1,
+              "type": "string"
+            },
+            "kind": {
+              "const": "actor",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "approvalId"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "__schema13": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$",
+      "type": "string"
+    },
+    "__schema14": {
+      "allOf": [
+        {
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
+        },
+        {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        }
+      ],
+      "maxLength": 64,
+      "type": "string"
+    },
+    "__schema15": {
+      "pattern": "^[0-9a-f]{40}$",
+      "type": "string"
+    },
+    "__schema16": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "__schema17": {
+      "additionalProperties": false,
+      "properties": {
+        "$schema": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "actor": {
+          "$ref": "#/$defs/__schema12"
+        },
+        "applicationId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "auditId": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "correlationId": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "deliveryClass": {
+          "const": "hot-application",
+          "type": "string"
+        },
+        "environment": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "eventId": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "eventType": {
+          "$ref": "#/$defs/__schema6"
+        },
+        "evidence": {
+          "$ref": "#/$defs/__schema18"
+        },
+        "expectedRevision": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "id": {
+          "maxLength": 128,
+          "pattern": "^app(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+          "type": "string"
+        },
+        "idempotencyKey": {
+          "$ref": "#/$defs/__schema13"
+        },
+        "inventoryRevision": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "lifecycleState": {
+          "$ref": "#/$defs/__schema9"
+        },
+        "occurredAt": {
+          "$ref": "#/$defs/__schema14"
+        },
+        "operation": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "operationId": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "operationPhase": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "receiptId": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "revision": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/__schema2"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "applicationId",
+        "environment",
+        "eventId",
+        "eventType",
+        "operationId",
+        "operation",
+        "operationPhase",
+        "lifecycleState",
+        "expectedRevision",
+        "revision",
+        "inventoryRevision",
+        "actor",
+        "receiptId",
+        "auditId",
+        "idempotencyKey",
+        "correlationId",
+        "occurredAt",
+        "deliveryClass",
+        "id",
+        "evidence"
+      ],
+      "type": "object"
+    },
+    "__schema18": {
+      "additionalProperties": false,
+      "properties": {
+        "artifactDigest": {
+          "$ref": "#/$defs/__schema16"
+        },
+        "catalogDigest": {
+          "$ref": "#/$defs/__schema16"
+        },
+        "generationId": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "manifestDigest": {
+          "$ref": "#/$defs/__schema16"
+        },
+        "provenanceDigest": {
+          "$ref": "#/$defs/__schema16"
+        },
+        "sbomDigest": {
+          "$ref": "#/$defs/__schema16"
+        },
+        "sourceCommit": {
+          "$ref": "#/$defs/__schema15"
+        }
+      },
+      "required": [
+        "sourceCommit",
+        "artifactDigest",
+        "generationId"
+      ],
+      "type": "object"
+    },
+    "__schema19": {
+      "additionalProperties": false,
+      "properties": {
+        "$schema": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "actor": {
+          "$ref": "#/$defs/__schema12"
+        },
+        "applicationId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "auditId": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "correlationId": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "deliveryClass": {
+          "const": "theme-skin",
+          "type": "string"
+        },
+        "environment": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "eventId": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "eventType": {
+          "$ref": "#/$defs/__schema6"
+        },
+        "evidence": {
+          "$ref": "#/$defs/__schema18"
+        },
+        "expectedRevision": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "id": {
+          "maxLength": 128,
+          "pattern": "^skin(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+          "type": "string"
+        },
+        "idempotencyKey": {
+          "$ref": "#/$defs/__schema13"
+        },
+        "inventoryRevision": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "lifecycleState": {
+          "$ref": "#/$defs/__schema9"
+        },
+        "occurredAt": {
+          "$ref": "#/$defs/__schema14"
+        },
+        "operation": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "operationId": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "operationPhase": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "receiptId": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "revision": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/__schema2"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "applicationId",
+        "environment",
+        "eventId",
+        "eventType",
+        "operationId",
+        "operation",
+        "operationPhase",
+        "lifecycleState",
+        "expectedRevision",
+        "revision",
+        "inventoryRevision",
+        "actor",
+        "receiptId",
+        "auditId",
+        "idempotencyKey",
+        "correlationId",
+        "occurredAt",
+        "deliveryClass",
+        "id",
+        "evidence"
+      ],
+      "type": "object"
+    },
+    "__schema2": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema3": {
+      "pattern": "^[a-z][a-z0-9-]{2,127}$",
+      "type": "string"
+    },
+    "__schema4": {
+      "pattern": "^[a-z][a-z0-9-]{1,63}$",
+      "type": "string"
+    },
+    "__schema5": {
+      "pattern": "^[a-z][a-z0-9-]{2,127}$",
+      "type": "string"
+    },
+    "__schema6": {
+      "const": "extension.lifecycle-transition",
+      "type": "string"
+    },
+    "__schema7": {
+      "enum": [
+        "install",
+        "update",
+        "disable",
+        "rollback",
+        "uninstall"
+      ],
+      "type": "string"
+    },
+    "__schema8": {
+      "enum": [
+        "planning",
+        "downloading",
+        "verified",
+        "staged",
+        "waiting-configuration",
+        "waiting-approval",
+        "warming",
+        "source-change-required",
+        "source-change-ready",
+        "build-attested",
+        "zero-downtime-eligible",
+        "maintenance-required",
+        "unsupported",
+        "rollback-window-open",
+        "rollback-window-closed",
+        "contract-cleanup-eligible",
+        "completed",
+        "failed"
+      ],
+      "type": "string"
+    },
+    "__schema9": {
+      "enum": [
+        "catalog-available",
+        "planning",
+        "downloading",
+        "verified",
+        "staged",
+        "waiting-configuration",
+        "waiting-approval",
+        "warming",
+        "active",
+        "disabled",
+        "update-available",
+        "rollback-available",
+        "quarantined",
+        "retirement-pending",
+        "removed"
+      ],
+      "type": "string"
+    }
+  },
+  "$id": "https://schemas.k-nex.dev/extension-lifecycle-event/v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/__schema0"
+    },
+    {
+      "$ref": "#/$defs/__schema17"
+    },
+    {
+      "$ref": "#/$defs/__schema19"
+    }
+  ],
+  "title": "K-Nex Extension Lifecycle Event v1"
+}

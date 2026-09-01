@@ -1,0 +1,7 @@
+{
+  "applicationId": "customer-alpha",
+  "plugin": {
+    "id": "module.sales",
+    "version": "1.0.0"
+  }
+}

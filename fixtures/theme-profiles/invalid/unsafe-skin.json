@@ -1,0 +1,23 @@
+{
+  "id": "theme-profile.public-skin",
+  "mode": "light",
+  "palette": "light",
+  "revision": {
+    "createdAt": "2026-08-29T09:00:00.000Z",
+    "id": "theme-revision.skin-1",
+    "number": 1,
+    "state": "draft"
+  },
+  "schemaVersion": 1,
+  "skin": {
+    "generationId": "skin-generation-1",
+    "id": "skin.neobrutalism",
+    "palette": "skin.bright",
+    "values": { "--k-nex-skin-color-accent": "url(https://evil.test/x.svg)" },
+    "version": "1.0.0"
+  },
+  "surface": "public",
+  "themeId": "theme.minimal",
+  "themeVersion": "1.0.0",
+  "values": {}
+}

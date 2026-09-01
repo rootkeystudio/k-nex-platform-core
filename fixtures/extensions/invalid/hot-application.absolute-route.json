@@ -1,0 +1,6 @@
+{
+  "$schema": "../../../schemas/hot-application-manifest.v1.schema.json",
+  "actions": [], "assets": [], "capabilities": [], "displayName": "Bad App", "entrypoints": { "server": [], "ui": ["ui/app.mjs"] }, "eventSubscriptions": [], "healthChecks": [], "id": "app.bad", "deliveryClass": "hot-application", "localization": [], "logicFunctions": [], "navigation": [],
+  "resourceBudget": { "maxAssetBytes": 1, "maxBundleBytes": 1, "maxConcurrency": 1, "maxCpuMilliCores": 1, "maxInputBytes": 1, "maxLogBytes": 1, "maxMemoryMiB": 1, "maxOutputBytes": 1, "maxStorageBytes": 1, "maxWallTimeMs": 1 },
+  "runtimeAbi": "1.0.0", "schedules": [], "schemaVersion": 1, "screens": [{ "entrypoint": "ui/app.mjs", "id": "bad.screen", "route": "/apps/bad" }], "settings": [], "sources": [], "storageSchemas": [], "tools": [], "version": "1.0.0"
+}

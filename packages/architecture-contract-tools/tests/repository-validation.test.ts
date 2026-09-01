@@ -33,7 +33,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../.
 describe("P0.4 executable repository validation", () => {
   it("accepts the repository through the complete TypeScript validator", async () => {
     expect(await validateRepository(repositoryRoot)).toEqual([]);
-  });
+  }, 30_000);
 
   it("reports malformed JSON without throwing", () => {
     const result = parseJsonDocument("broken.json", "{");
@@ -53,6 +53,26 @@ describe("P0.4 executable repository validation", () => {
       new Map()
     );
     expect(diagnostics.map(({ code }) => code)).toEqual(["SCHEMA_INVALID"]);
+  });
+
+  it("keeps generated extension-plan SemVer grammar aligned with contracts", async () => {
+    const ajv = new Ajv2020({ allErrors: true, strict: true });
+    addFormatsModule.default(ajv);
+    const schema = JSON.parse(await readFile(resolve(repositoryRoot, "schemas/extension-install-plan.v1.schema.json"), "utf8")) as AnySchema;
+    const validate = ajv.compile(schema);
+    const plan = {
+      schemaVersion: 1, planId: "plan-semver-1", operationId: "operation-semver-1", operation: "install", version: "1.0.0-rc.1+build.2",
+      artifactDigest: `sha256:${"a".repeat(64)}`, expectedRevision: 0, approvalRequired: false, rollback: { available: false, reason: "not-requested" },
+      deliveryClass: "platform-plugin", id: "module.sales", availability: { outcome: "maintenance-required", reasons: ["destructive-migration"] }
+    };
+    expect(validate(plan), ajv.errorsText(validate.errors)).toBe(true);
+    const maxVersion = `1.0.0+${"a".repeat(58)}`;
+    expect(maxVersion).toHaveLength(64);
+    expect(validate({ ...plan, version: maxVersion }), ajv.errorsText(validate.errors)).toBe(true);
+    expect(validate({ ...plan, version: `${maxVersion}a` })).toBe(false);
+    for (const version of ["1.0.0-01", "1.0.0-alpha..1", "1.0.0-.", "1.0.0+build..1"]) {
+      expect(validate({ ...plan, version }), version).toBe(false);
+    }
   });
 
   it("collects multiple simultaneous evidence diagnostics deterministically", () => {

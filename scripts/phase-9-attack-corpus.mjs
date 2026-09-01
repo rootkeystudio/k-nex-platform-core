@@ -1,0 +1,319 @@
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const root = fileURLToPath(new URL("..", import.meta.url));
+const customerFixture = new URL("../fixtures/customer-gate-1/", import.meta.url);
+
+const escapeRegex = (value) => value.replace(/[|\\{}()[\]^$+*?.]/g, "\\$&");
+const exactPattern = (names) => `^(?:${names.map(escapeRegex).join("|")})$`;
+
+const run = (command, args, options = {}) => {
+  const result = spawnSync(command, args, {
+    cwd: options.cwd ?? root,
+    encoding: "utf8",
+    maxBuffer: 10 * 1024 * 1024
+  });
+  assert.equal(result.error, undefined, `${options.id}: could not start ${command}: ${result.error?.message}`);
+  assert.equal(result.status, 0, `${options.id}: ${command} failed:\n${result.stderr || result.stdout}`);
+  return result.stdout;
+};
+
+const vitestProof = (id, filter, file, names) => ({ id, runner: "vitest", filter, file, names });
+const nodeProof = (id, files, names, expectedMarkers = {}) => ({ id, runner: "node:test", files: Array.isArray(files) ? files : [files], names, expectedMarkers });
+const browserProof = (id, script, marker) => ({ id, runner: "chromium", script, marker });
+
+const proofs = [
+  vitestProof("bundler-rejections", "@k-nex/extension-bundler", "tests/extension-bundler.test.ts", [
+    "extension bundler builds byte-identical self-contained payloads with closed inventory, SBOM, and provenance",
+    "extension bundler rejects module access and package lifecycle representation without false comment matches",
+    "extension bundler enforces declared entrypoint, asset, skin CSS, and no-executable-skin inventories",
+    "extension bundler verifies the signed catalog and every provenance/release binding before stage",
+    "extension bundler rejects expired, replayed, revoked, and downgraded signed catalog indexes",
+    "extension bundler binds runner code to the verified owner, generation, artifact, and declared entrypoint",
+    "extension bundler rejects traversal, links, colliding paths, bombs, and every configured extraction bound"
+  ]),
+  vitestProof("remote-ui-assets", "@k-nex/extension-bundler", "tests/remote-ui-assets.test.ts", [
+    "verified Remote UI assets proxies native Worker failures as one generation-bound failure frame and cleans up once",
+    "verified Remote UI assets serves only active generation-pinned verified bytes with immutable security headers",
+    "verified Remote UI assets rejects inactive, wrong-owner, wrong-generation, digest, traversal, and unverified assets",
+    "verified Remote UI assets allows bootstrap only for a declared screen entrypoint",
+    "verified Remote UI assets serves only signed manifest-declared assets and localization with their exact digests",
+    "verified Remote UI assets rejects signed inventory assets and locales absent from the signed Hot Application manifest",
+    "verified Remote UI assets copies stored bytes and rejects corrupted reader bytes before serving"
+  ]),
+  vitestProof("runner-isolation", "@k-nex/extension-runner", "tests/docker-sandbox.test.ts", [
+    "production extension runner causally quarantines once after an acknowledged real forbidden syscall",
+    "production extension runner refuses to send source when Docker inspection omits any required effective control",
+    "production extension runner runs app generations with container authority and only declared host capabilities",
+    "production extension runner waits for fire-and-forget and concurrent capability calls before returning",
+    "production extension runner rejects mixed token identity before starting a container and keeps app/generation responses isolated",
+    "production extension runner quarantines only a timed-out generation and drains old work without affecting a sibling generation",
+    "production extension runner contains an out-of-memory generation failure"
+  ]),
+  vitestProof("remote-ui-host", "@k-nex/ui-runtime", "tests/remote-ui-host.test.ts", [
+    "remote UI host session authority creates and starts sessions only from the current active authority snapshot",
+    "remote UI host session authority makes identical authority replays no-ops while rejecting stale or conflicting observations",
+    "remote UI host session authority does not schedule another retirement for an identical outbox replay",
+    "remote UI host session authority drains admitted old work after update, while admitting only the new snapshot",
+    "remote UI host session authority cancels a stale retirement after an authoritative rollback",
+    "remote UI host session authority immediately denies new work and disposes realms when disabled",
+    "remote UI host session authority immediately denies new work and disposes realms when quarantined",
+    "remote UI host session authority immediately denies new work and disposes realms when removed",
+    "remote UI host session authority unregisters normally disposed sessions",
+    "remote UI host session authority passes the admitted immutable session identity to bounded source and action gateways",
+    "remote UI host session authority contains malformed port traffic with one fallback and one realm cleanup",
+    "remote UI host session authority cleans up exactly once when postMessage and fallback both fail",
+    "remote UI host session authority immediately aborts and tears down a crashed realm while its fallback never settles",
+    "remote UI host session authority makes late authorization, render, source, and action completions inert after closure",
+    "remote UI host session authority keeps the opaque frame path generation pinned and reports realm load failure"
+  ]),
+  vitestProof("static-composition-authority", "@k-nex/runtime", "tests/static-composition-authority.test.ts", [
+    "static source and trusted build authority commits only an exact-base deterministic customer source change",
+    "static source and trusted build authority rejects arbitrary repository and branch controls in a static source change",
+    "static source and trusted build authority accepts only signed build evidence bound to the exact source, graph, application, and image",
+    "static source and trusted build authority rejects a valid signature whose trusted key is not authorized for the claimed builder identity"
+  ]),
+  vitestProof("plugin-manager", "@k-nex/runtime", "tests/plugin-manager.test.ts", [
+    "PluginManager delegates module and executable theme Platform Plugins to source and trusted-build authorities",
+    "PluginManager rejects planner mismatches and unverified inventory authority",
+    "PluginManager rejects authorization before policy validation or operation claiming"
+  ]),
+  nodeProof("app-storage", "tests/app-storage-postgres.test.mjs", [
+    "proves revisioned, quota-limited, schema-validated, backed-up, cross-app isolated storage"
+  ]),
+  nodeProof("runtime-extension-state", ["tests/runtime-extension-state-postgres.test.mjs", "tests/remote-ui-assets-postgres.test.mjs"], [
+    "preserves accepted artifacts while reconciling fresh revocation decisions atomically in PostgreSQL",
+    "persists exact active-generation POLICY_VIOLATION runner quarantine across a runner restart",
+    "rejects SCN-12 activation races and SCN-13 stale operation replays in PostgreSQL",
+    "proves PostgreSQL-backed Hot Application install, update, restore, rollback, and execution through the durable runtime",
+    "PostgreSQL Remote UI reads are generation-linearized, restart-safe, and fail closed"
+  ], {
+    P9_REMOTE_UI_POSTGRES_EVIDENCE: {
+      scenarios: [
+        "restart", "owner-denial", "declared-assets", "signed-undeclared-assets", "staged", "linearized-cutover",
+        "rollback-only", "revoked", "malformed-pointer", "complete-canonical-pointer-tamper",
+        "extra-canonical-pointer-field", "coordinated-pointer-generation-receipt-forgery", "corrupt-bytes-restored", "deleted-binding",
+        "completed-rollback", "post-rollback-stale-same-generation-receipt", "disabled", "removed"
+      ]
+    }
+  }),
+  nodeProof("static-deployment", "tests/static-deployment-postgres.test.mjs", [
+    "proves distinct customer binaries and deployment processes recover from PostgreSQL authority"
+  ], {
+    P9_MAINTENANCE_REFUSAL_EVIDENCE: {
+      durablePlan: true,
+      onlineRelabelRejected: true,
+      stateUnchanged: true,
+      durableAudit: true,
+      outcome: "maintenance-required"
+    }
+  }),
+  nodeProof("theme-skin-profile", "tests/theme-skin-profile-postgres.test.mjs", [
+    "delivers Theme Skins from signed durable artifacts through PluginManager install, update, rollback, and restore"
+  ], {
+    P9_THEME_SKIN_DURABLE_EVIDENCE: {
+      scenarios: [
+        "signed-install-update-rollback",
+        "forged-row",
+        "altered-bytes",
+        "wrong-generation-artifact-file-digest",
+        "restore-pool-reconstruction",
+        "verified-asset-route-chromium-presentation",
+        "corrupt-rollback-route-denial",
+        "deleted-rollback-binding-route-denial",
+        "profile-reference-disposition",
+        "draft-disposition-race",
+        "disabled-retained-route",
+        "deleted-disabled-binding-route-denial",
+        "removed-asset-route-denial"
+      ]
+    }
+  }),
+  browserProof("remote-ui-browser", "packages/ui-testing/scripts/remote-ui-browser.mjs", "P9_REMOTE_UI_BROWSER_PASS"),
+  browserProof("theme-skin-browser", "packages/ui-testing/scripts/theme-skin-browser.mjs", "P9_THEME_SKIN_BROWSER_PASS")
+];
+
+const crashMatrix = [
+  { state: "source-attested", process: "builder", expected: "a restarted builder re-attests the immutable source/image pair" },
+  { state: "deployment-authorized", process: "deployer", expected: "a restarted deployer reads the single PostgreSQL authority row" },
+  { state: "warming", process: "web-green", expected: "the new binary remains unavailable until expanded-schema readiness succeeds" },
+  { state: "promoted", process: "supervisor", expected: "a restarted supervisor observes the committed generation and fence" },
+  { state: "promoted", process: "worker-green", expected: "a restarted green worker activates only under the committed fence" },
+  { state: "promoted", process: "realtime-client", expected: "a restarted client reconnects through the fixed gateway and resyncs the revision" },
+  { state: "rollback-open", process: "web-blue", expected: "the retained old binary can restart against the expanded schema" },
+  { state: "rolled-back", process: "worker-blue", expected: "a restarted blue worker activates only after PostgreSQL transfers the fence" },
+  { state: "post-transition", process: "gateway", expected: "a restarted gateway routes from PostgreSQL active-generation authority" }
+];
+
+const exactEvidence = (proof, name, marker, markerScenario) => ({ proof, name, ...(marker ? { marker } : {}), ...(markerScenario ? { markerScenario } : {}) });
+const staticProofName = "proves distinct customer binaries and deployment processes recover from PostgreSQL authority";
+const runtimeJourneyName = "proves PostgreSQL-backed Hot Application install, update, restore, rollback, and execution through the durable runtime";
+const runtimeCoordinationName = "rejects SCN-12 activation races and SCN-13 stale operation replays in PostgreSQL";
+const runtimeSecurityReconciliationName = "preserves accepted artifacts while reconciling fresh revocation decisions atomically in PostgreSQL";
+
+const assertRuntimeJourneyEvidence = (marker) => {
+  const docker = marker.productionDockerExecution;
+  const drain = marker.oldGenerationDrain;
+  const fixedRoute = marker.fixedRouteAuthority;
+  const sourceAdmission = marker.sourceAdmission;
+  const recovery = marker.lostInvalidationRecovery;
+  assert.equal(docker?.runner, "DockerHotApplicationSandboxSupervisor", "P9 runtime journey did not prove Docker runner execution.");
+  assert.equal(docker?.image, "node:24.19.0-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43", "P9 runtime journey used an unapproved production runner image.");
+  assert.equal(typeof drain?.generationId, "string", "P9 runtime journey did not identify the drained old generation.");
+  assert.equal(drain.leaseObserved, true, "P9 runtime journey did not observe the old-generation lease.");
+  assert.equal(drain.completed, true, "P9 runtime journey did not prove old-generation drain completion.");
+  assert.equal(docker.startedGenerationIds?.includes(drain.generationId), true, "P9 runtime journey did not start the drained generation in Docker.");
+  assert.equal(docker.stoppedGenerationIds?.includes(drain.generationId), true, "P9 runtime journey did not stop the drained generation in Docker.");
+  assert.deepEqual(
+    {
+      startedBeforeInstall: fixedRoute?.startedBeforeInstall,
+      preInstallStatus: fixedRoute?.preInstallStatus,
+      httpsDistinctOrigins: fixedRoute?.httpsDistinctOrigins,
+      durableBytesRequiredAfterRestart: fixedRoute?.durableBytesRequiredAfterRestart,
+      lifecycle: fixedRoute?.lifecycle
+    },
+    {
+      startedBeforeInstall: true,
+      preInstallStatus: 404,
+      httpsDistinctOrigins: true,
+      durableBytesRequiredAfterRestart: true,
+      lifecycle: ["g1-observed-g2-scheduled-retirement", "rollback-observed-g1-before-deadline", "rollback-cancelled-g1-retirement-after-deadline", "g2-drained-after-rollback", "g1-drained-after-irreversible-v3-cutover", "disable", "quarantine", "remove"]
+    },
+    "P9 runtime journey did not prove the fixed HTTPS host route, durable bytes, and generation lifecycle."
+  );
+  assert.deepEqual(sourceAdmission, {
+    cutoverGap: {
+      sessionId: "route-session-1",
+      generationId: drain?.generationId,
+      hostAuthorizedBeforeRuntime: true,
+      runtimeDeniedAfterCutover: true,
+      executedGenerationId: null
+    },
+    leaseHeldG1: {
+      sessionId: "route-session-2",
+      generationId: drain?.generationId,
+      hostAuthorizedBeforeRuntime: true,
+      runnerAdmissionWithLease: true,
+      returnedGenerationId: drain?.generationId
+    }
+  }, "P9 runtime journey did not prove G1 source admission, post-cutover denial without execution, and lease-held G1 completion.");
+  assert.deepEqual(recovery?.roles, ["web", "worker", "runner", "browser"], "P9 runtime journey did not prove all four runtime consumer roles.");
+  assert.deepEqual(recovery?.processes?.map(({ role }) => role), recovery.roles, "P9 runtime journey process identities did not match the consumer roles.");
+  const processIds = recovery?.processes?.map(({ pid }) => pid) ?? [];
+  assert.equal(processIds.every(Number.isSafeInteger), true, "P9 runtime journey emitted an invalid consumer process identity.");
+  assert.equal(new Set(processIds).size, 4, "P9 runtime journey did not use four distinct consumer processes.");
+  assert.equal(processIds.includes(recovery?.testParentPid), false, "P9 runtime journey ran a consumer in the node:test parent process.");
+};
+
+const scenarios = [
+  { id: "SCN-01", attack: "arbitrary repository/branch URL", expected: "reject unpinned source", evidence: [exactEvidence("static-composition-authority", "static source and trusted build authority rejects arbitrary repository and branch controls in a static source change")] },
+  { id: "SCN-02", attack: "unsigned/tampered/downgraded/revoked bundle", expected: "reject verification failure", evidence: [exactEvidence("bundler-rejections", "extension bundler verifies the signed catalog and every provenance/release binding before stage"), exactEvidence("bundler-rejections", "extension bundler rejects expired, replayed, revoked, and downgraded signed catalog indexes"), exactEvidence("runtime-extension-state", runtimeSecurityReconciliationName, "P9_ACCEPTED_ARTIFACT_SECURITY_EVIDENCE")] },
+  { id: "SCN-03", attack: "archive traversal/symlink/hardlink/collision/bomb", expected: "reject unsafe extraction", evidence: [exactEvidence("bundler-rejections", "extension bundler rejects traversal, links, colliding paths, bombs, and every configured extraction bound")] },
+  { id: "SCN-04", attack: "install script or runtime package-manager invocation", expected: "reject lifecycle/package-manager surface", evidence: [exactEvidence("bundler-rejections", "extension bundler rejects module access and package lifecycle representation without false comment matches")] },
+  { id: "SCN-05", attack: "host dynamic import of downloaded code", expected: "reject host execution", evidence: [exactEvidence("bundler-rejections", "extension bundler binds runner code to the verified owner, generation, artifact, and declared entrypoint"), exactEvidence("runner-isolation", "production extension runner runs app generations with container authority and only declared host capabilities")] },
+  { id: "SCN-06", attack: "same-origin credentialed remote UI fetch/storage/network", expected: "deny browser authority", evidence: [exactEvidence("remote-ui-browser", "P9_REMOTE_UI_BROWSER_PASS")] },
+  { id: "SCN-07", attack: "forbidden builtin/import/capability", expected: "reject undeclared capability", evidence: [exactEvidence("bundler-rejections", "extension bundler rejects module access and package lifecycle representation without false comment matches"), exactEvidence("runner-isolation", "production extension runner runs app generations with container authority and only declared host capabilities"), exactEvidence("runner-isolation", "production extension runner causally quarantines once after an acknowledged real forbidden syscall"), exactEvidence("runtime-extension-state", "persists exact active-generation POLICY_VIOLATION runner quarantine across a runner restart", "P9_RUNNER_QUARANTINE_EVIDENCE")] },
+  { id: "SCN-08", attack: "host/cross-app DB/Docker/secret/network/filesystem escape", expected: "contain the application generation", evidence: [exactEvidence("runner-isolation", "production extension runner refuses to send source when Docker inspection omits any required effective control"), exactEvidence("runner-isolation", "production extension runner runs app generations with container authority and only declared host capabilities")] },
+  { id: "SCN-09", attack: "cross-app storage/token/revision reuse", expected: "isolate app identity", evidence: [exactEvidence("app-storage", "proves revisioned, quota-limited, schema-validated, backed-up, cross-app isolated storage"), exactEvidence("runner-isolation", "production extension runner rejects mixed token identity before starting a container and keeps app/generation responses isolated")] },
+  { id: "SCN-10", attack: "staged artifact served before verification", expected: "deny unverified asset", evidence: [exactEvidence("runtime-extension-state", "PostgreSQL Remote UI reads are generation-linearized, restart-safe, and fail closed", "P9_REMOTE_UI_POSTGRES_EVIDENCE", "staged"), exactEvidence("remote-ui-browser", "P9_REMOTE_UI_BROWSER_PASS")] },
+  { id: "SCN-11", attack: "mixed UI/server/storage generation", expected: "reject mixed generation", evidence: [exactEvidence("runtime-extension-state", "PostgreSQL Remote UI reads are generation-linearized, restart-safe, and fail closed", "P9_REMOTE_UI_POSTGRES_EVIDENCE", "linearized-cutover"), exactEvidence("remote-ui-host", "remote UI host session authority creates and starts sessions only from the current active authority snapshot"), exactEvidence("remote-ui-host", "remote UI host session authority drains admitted old work after update, while admitting only the new snapshot"), exactEvidence("remote-ui-host", "remote UI host session authority cancels a stale retirement after an authoritative rollback"), exactEvidence("remote-ui-host", "remote UI host session authority immediately denies new work and disposes realms when disabled"), exactEvidence("remote-ui-host", "remote UI host session authority immediately denies new work and disposes realms when quarantined"), exactEvidence("remote-ui-host", "remote UI host session authority immediately denies new work and disposes realms when removed"), exactEvidence("remote-ui-host", "remote UI host session authority makes late authorization, render, source, and action completions inert after closure"), exactEvidence("remote-ui-browser", "P9_REMOTE_UI_BROWSER_PASS"), exactEvidence("runtime-extension-state", runtimeJourneyName, "P9_RUNTIME_JOURNEY_EVIDENCE")] },
+  { id: "SCN-12", attack: "activation pointer race", expected: "serialize the revision transition", evidence: [exactEvidence("runtime-extension-state", runtimeCoordinationName, "P9_RUNTIME_COORDINATION_EVIDENCE")] },
+  { id: "SCN-13", attack: "stale operation replay", expected: "reject replay", evidence: [exactEvidence("runtime-extension-state", runtimeCoordinationName, "P9_RUNTIME_COORDINATION_EVIDENCE")] },
+  { id: "SCN-14", attack: "runtime DB-authored static graph", expected: "require source authority", evidence: [exactEvidence("plugin-manager", "PluginManager delegates module and executable theme Platform Plugins to source and trusted-build authorities"), exactEvidence("plugin-manager", "PluginManager rejects planner mismatches and unverified inventory authority")] },
+  { id: "SCN-15", attack: "arbitrary image/tag or unsigned/self-asserted build", expected: "require immutable signed build", evidence: [exactEvidence("static-composition-authority", "static source and trusted build authority accepts only signed build evidence bound to the exact source, graph, application, and image"), exactEvidence("static-composition-authority", "static source and trusted build authority rejects a valid signature whose trusted key is not authorized for the claimed builder identity")] },
+  { id: "SCN-16", attack: "rollback across irreversible migration", expected: "reject incompatible rollback", evidence: [exactEvidence("runtime-extension-state", runtimeJourneyName, "P9_RUNTIME_JOURNEY_EVIDENCE")] },
+  { id: "SCN-17", attack: "contract cleanup while rollback open", expected: "block destructive cleanup", evidence: [exactEvidence("static-deployment", staticProofName, "P9_STATIC_SCENARIO_EVIDENCE")] },
+  { id: "SCN-18", attack: "blue/green worker duplicate claim/completion", expected: "permit one leased effect", evidence: [exactEvidence("static-deployment", staticProofName, "P9_STATIC_SCENARIO_EVIDENCE")] },
+  { id: "SCN-19", attack: "process crash at required lifecycle boundaries", expected: "recover each matrix entry from PostgreSQL authority", evidence: [exactEvidence("static-deployment", staticProofName, "P9_STATIC_SCENARIO_EVIDENCE")], matrix: crashMatrix },
+  { id: "SCN-20", attack: "false zero-downtime claim", expected: "prove concurrent old/new binary overlap during expand/backfill", evidence: [exactEvidence("static-deployment", staticProofName, "P9_STATIC_SCENARIO_EVIDENCE")] },
+  { id: "SCN-21", attack: "web process source/build/Docker authority", expected: "keep source/build/Docker authority out of web binaries", evidence: [exactEvidence("static-deployment", staticProofName, "P9_STATIC_SCENARIO_EVIDENCE")] },
+  { id: "SCN-22", attack: "operator authorization bypass", expected: "reject unauthorized operation", evidence: [exactEvidence("plugin-manager", "PluginManager rejects authorization before policy validation or operation claiming")] }
+];
+
+const parseVitest = (proof, output) => {
+  let report;
+  try {
+    report = JSON.parse(output.trim());
+  } catch (error) {
+    assert.fail(`${proof.id}: Vitest did not emit one machine-readable JSON report: ${error.message}`);
+  }
+  assert.equal(report.success, true, `${proof.id}: Vitest reported failure.`);
+  assert.equal(report.numFailedTests, 0, `${proof.id}: Vitest reported failed tests.`);
+  assert.equal(report.numPassedTests, proof.names.length, `${proof.id}: expected exactly ${proof.names.length} passing named tests; found ${report.numPassedTests}.`);
+  const passed = report.testResults.flatMap((result) => result.assertionResults)
+    .filter((test) => test.status === "passed")
+    .map((test) => test.fullName);
+  for (const name of proof.names) assert.equal(passed.filter((actual) => actual === name).length, 1, `${proof.id}: expected named test did not pass exactly once: ${name}`);
+  return { id: proof.id, runner: proof.runner, passed: report.numPassedTests, names: proof.names };
+};
+
+const parseTap = (proof, output) => {
+  const passed = [...output.matchAll(/^ok \d+ - (.+)$/gm)].map(([, name]) => name);
+  const pass = Number(/^# pass (\d+)$/m.exec(output)?.[1]);
+  assert.ok(Number.isInteger(pass), `${proof.id}: node:test did not emit a TAP pass count.`);
+  assert.equal(pass, proof.names.length, `${proof.id}: expected exactly ${proof.names.length} passing named tests; found ${pass}.`);
+  for (const name of proof.names) assert.equal(passed.filter((actual) => actual === name).length, 1, `${proof.id}: expected named test did not pass exactly once: ${name}`);
+  const markers = {};
+  for (const [, marker, serialized] of output.matchAll(/^# (P9_[A-Z0-9_]+)=(\{.*\})$/gm)) {
+    assert.equal(markers[marker], undefined, `${proof.id}: duplicate evidence marker ${marker}.`);
+    try {
+      markers[marker] = JSON.parse(serialized);
+    } catch (error) {
+      assert.fail(`${proof.id}: invalid ${marker} JSON evidence: ${error.message}`);
+    }
+  }
+  for (const [marker, expected] of Object.entries(proof.expectedMarkers)) {
+    assert.deepEqual(markers[marker], expected, `${proof.id}: required ${marker} evidence did not match.`);
+  }
+  return { id: proof.id, runner: proof.runner, passed: pass, names: proof.names, markers };
+};
+
+const executeProof = (proof) => {
+  if (proof.runner === "vitest") {
+    const output = run("pnpm", ["--filter", proof.filter, "exec", "vitest", "run", proof.file, "--reporter=json", `--testNamePattern=${exactPattern(proof.names)}`], proof);
+    return parseVitest(proof, output);
+  }
+  if (proof.runner === "node:test") {
+    const output = run(process.execPath, ["--test", "--test-concurrency=1", "--test-reporter=tap", `--test-name-pattern=${exactPattern(proof.names)}`, ...proof.files], { ...proof, cwd: customerFixture });
+    return parseTap(proof, output);
+  }
+  const output = run(process.execPath, [proof.script], proof);
+  assert.ok(output.includes(`${proof.marker}\n`), `${proof.id}: Chromium proof did not report ${proof.marker}.`);
+  return { id: proof.id, runner: proof.runner, passed: 1, names: [proof.marker] };
+};
+
+export const runAttackCorpus = () => {
+  assert.equal(process.versions.node, "24.19.0", `Phase 9 attack corpus requires Node 24.19.0; found ${process.versions.node}.`);
+  assert.equal(new Set(scenarios.map(({ id }) => id)).size, scenarios.length, "Gate 9 scenario IDs must be unique.");
+  assert.equal(new Set(scenarios.map(({ attack }) => attack)).size, scenarios.length, "Gate 9 scenario attacks must be unique.");
+  assert.equal(new Set(crashMatrix.map(({ state, process }) => `${state}:${process}`)).size, crashMatrix.length, "Gate 9 crash matrix entries must be unique.");
+  assert.equal(new Set(proofs.map(({ id }) => id)).size, proofs.length, "Phase 9 proof IDs must be unique.");
+  run("pnpm", ["--filter", "@k-nex/customer-gate-1", "build"], { id: "customer-gate-1-build" });
+  const results = new Map(proofs.map((proof) => [proof.id, executeProof(proof)]));
+  const scenarioResults = scenarios.map((scenario) => {
+    const observations = scenario.evidence.map((required) => {
+      const result = results.get(required.proof);
+      assert.ok(result, `${scenario.id}: required evidence ${required.proof} was not run.`);
+      assert.equal(result.names.includes(required.name), true, `${scenario.id}: exact named proof did not pass: ${required.name}`);
+      if (required.marker) {
+        const marker = result.markers?.[required.marker];
+        assert.ok(marker, `${scenario.id}: exact runtime marker ${required.marker} was not emitted.`);
+        if (required.marker === "P9_RUNTIME_JOURNEY_EVIDENCE") assertRuntimeJourneyEvidence(marker);
+        const markerScenario = required.markerScenario ?? scenario.id;
+        if (scenario.id !== "SCN-19") assert.equal(marker.scenarios?.includes(markerScenario), true, `${scenario.id}: ${required.marker} did not record the ${markerScenario} outcome.`);
+      }
+      return { proof: required.proof, name: required.name, ...(required.marker ? { marker: required.marker } : {}), ...(required.markerScenario ? { markerScenario: required.markerScenario } : {}) };
+    });
+    const matrixEvidence = scenario.id === "SCN-19" ? results.get("static-deployment")?.markers?.P9_STATIC_SCENARIO_EVIDENCE?.crashMatrix : undefined;
+    const matrix = scenario.matrix?.map((entry) => {
+      const key = `${entry.state}:${entry.process}`;
+      assert.equal(matrixEvidence?.includes(key), true, `${scenario.id}: crash recovery evidence was not emitted for ${key}.`);
+      return { ...entry, evidence: key, outcome: "recovered" };
+    });
+    return { id: scenario.id, attack: scenario.attack, expected: scenario.expected, evidence: observations, ...(matrix ? { matrix } : {}), outcome: "observed" };
+  });
+  return { phase: 9, scenarios: scenarioResults, proofs: [...results.values()], status: "PASS" };
+};
+
+if (process.argv[1]?.endsWith("scripts/phase-9-attack-corpus.mjs")) process.stdout.write(`${JSON.stringify(runAttackCorpus())}\n`);

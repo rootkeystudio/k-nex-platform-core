@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../schemas/migration-compatibility-plan.v1.schema.json",
+  "plan": {
+    "applicationId": "customer-alpha",
+    "baseRevision": 8,
+    "environment": "production",
+    "planId": "migration-plan-9",
+    "rollbackWindow": { "closesAt": "2026-09-05T08:00:00.000Z", "contractCleanup": "blocked", "previousApplicationDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "state": "open", "windowId": "rollback-window-9" },
+    "sourceCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "steps": [
+      { "migrationDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "overlapSafe": true, "phase": "online-expand", "stepId": "migration-expand-9" },
+      { "checkpointSchemaDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "idempotent": true, "migrationDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "phase": "online-backfill", "resumable": true, "stepId": "migration-backfill-9" }
+    ],
+    "targetRevision": 9,
+    "targetSourceCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "schemaVersion": 1
+}

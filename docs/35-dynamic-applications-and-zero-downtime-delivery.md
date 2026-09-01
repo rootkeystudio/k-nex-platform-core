@@ -95,15 +95,43 @@ sbom.cdx.json
 provenance/attestation reference
 ```
 
-The manifest binds exact identity/version, runtime ABI, artifact/file digests, entrypoints, permissions/capabilities, isolation profiles, network/secret references, storage quotas/schemas, routes/navigation/settings/templates, resource budgets, and lifecycle compatibility.
+The embedded `k-nex.app-bundle.json` or `k-nex.skin-bundle.json` manifest binds:
 
-Dependencies are bundled at publication. Customer activation runs no package manager or lifecycle script.
+```text
+app ID and exact version
+K-Nex runtime ABI range
+`payloadDigest`: SHA-256 of canonical JSON for the closed `files` inventory after each listed file digest, size, and content type is computed
+file digests
+server/UI entrypoints
+requested host capabilities and isolation profiles
+network and secret-reference requirements
+storage quota and schemas
+routes/navigation/settings/templates
+resource budgets
+upgrade/uninstall hooks expressed through supported contracts
+```
+
+Dependencies are bundled at publication time. Customer activation runs no lifecycle script or package manager.
+
+The embedded manifest is excluded from its `files` inventory and contains neither its own digest nor the full release-asset digest. The P9.2 catalog instead binds `artifactDigest` to the full immutable release asset and `manifestDigest` to the embedded bundle manifest; install plans, receipts, and generations retain `artifactDigest` with that full-release meaning.
 
 ## Official catalog trust
 
 The official catalog is a signed, versioned index. An entry binds publisher, source repository/commit, immutable release asset, manifest/artifact/SBOM digests, hosted-build provenance, compatibility, support, revocation, permissions/capabilities, and resource/security impact.
 
-Verification covers catalog trust, digest/provenance, closed manifests, secure archive extraction, entrypoint inventory, forbidden imports, capability requests, budgets, downgrade, and support/revocation before staging.
+```text
+publisher identity
+source repository and commit
+`artifactDigest`: full immutable release-asset digest
+`manifestDigest`: digest of the embedded bundle manifest
+SBOM digest
+hosted-build provenance
+review/support status
+compatibility range
+revocation/security status
+```
+
+The installer verifies the catalog signature, artifact digest, provenance, closed manifest schema, path safety, file count/size, entrypoint inventory, forbidden imports, capability requests, budgets, downgrade, and current support/revocation state before staging.
 
 ## PluginManager architecture
 

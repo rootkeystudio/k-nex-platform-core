@@ -4,8 +4,8 @@ import { dirname, resolve } from "node:path";
 
 import { ApplicationManifestSchema, supportedFrameworkTuple } from "@k-nex/contracts";
 
-import { resolvePluginGraph } from "./deterministic-resolver.js";
-import { loadInstalledPluginManifests } from "./installed-plugin-loader.js";
+import { resolvePlatformPluginGraph } from "./deterministic-resolver.js";
+import { loadInstalledPlatformPluginManifests } from "./installed-plugin-loader.js";
 import {
   fingerprintCustomerConfigSources,
   writeStaticArtifacts,
@@ -51,14 +51,14 @@ function run(check: boolean): void {
     ...Object.values(applicationManifest.providers).map(({ package: name, version }) => ({ name, version }))
   ].sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
     .filter((entry, index, entries) => index === 0 || entries[index - 1]?.name !== entry.name);
-  const installed = loadInstalledPluginManifests({
+  const installed = loadInstalledPlatformPluginManifests({
     applicationRoot: root,
     lockfilePath: resolve(root, "../..", "pnpm-lock.yaml"),
     lockfileImporter: "fixtures/customer-gate-1",
     packages: packageRequests,
     framework
   });
-  const resolvedGraph = resolvePluginGraph({
+  const resolvedGraph = resolvePlatformPluginGraph({
     plugins: applicationManifest.plugins,
     providers: applicationManifest.providers,
     installed

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { createPluginLifecycleState, executeRegistration, reconcilePluginAvailability, scopePluginRegistration, type RegistrationResult, type ScopedRegistrationResult } from "@k-nex/runtime";
+import { createPlatformPluginLifecycleState, executeRegistration, reconcilePlatformPluginAvailability, scopePlatformPluginRegistration, type RegistrationResult, type ScopedRegistrationResult } from "@k-nex/runtime";
 import { PluginManifestSchema } from "@k-nex/contracts";
 import { salesOpportunitiesCollection, salesRegistration, salesTasksCollection } from "@k-nex/module-sales/server";
 import { salesTaskFixture } from "@k-nex/module-sales/testing";
@@ -41,12 +41,12 @@ function rawRegistration(): RegistrationResult {
 
 function scope(raw: RegistrationResult): ScopedRegistrationResult {
   const integrity = `sha512-${"a".repeat(86)}==`;
-  const lifecycle = createPluginLifecycleState({
+  const lifecycle = createPlatformPluginLifecycleState({
     pluginId: "module.sales", catalogStatus: "supported",
     package: { status: "installed", name: "@k-nex/module-sales", version: "1.0.0", integrity }, enabled: true,
     configuration: { revision: 1, ready: true }, migration: { current: 1, required: 1, ready: true }, dataState: "active", releaseStatus: "supported"
   });
-  return scopePluginRegistration(raw, [reconcilePluginAvailability(raw, lifecycle)]);
+  return scopePlatformPluginRegistration(raw, [reconcilePlatformPluginAvailability(raw, lifecycle)]);
 }
 
 function registration(): ScopedRegistrationResult { return scope(rawRegistration()); }
@@ -124,14 +124,14 @@ describe("Payload application composition", () => {
   it("retains disabled plugin schema while direct collection access stays closed", async () => {
     const raw = rawRegistration();
     const integrity = `sha512-${"a".repeat(86)}==`;
-    const lifecycle = createPluginLifecycleState({
+    const lifecycle = createPlatformPluginLifecycleState({
       pluginId: "module.sales", catalogStatus: "supported",
       package: { status: "installed", name: "@k-nex/module-sales", version: "1.0.0", integrity }, enabled: false,
       configuration: { revision: 1, ready: true }, migration: { current: 1, required: 1, ready: true }, dataState: "retained", releaseStatus: "supported"
     });
     const composed = composePayloadApplication({
       baseConfig: { secret: "payload-composition-test-secret" }, databaseUrl: "postgres://test:test@localhost:5432/test",
-      registration: scopePluginRegistration(raw, [reconcilePluginAvailability(raw, lifecycle)])
+      registration: scopePlatformPluginRegistration(raw, [reconcilePlatformPluginAvailability(raw, lifecycle)])
     });
     const collection = composed.config.collections?.find(({ slug }) => slug === "sales-tasks");
     expect(collection).toBeDefined();

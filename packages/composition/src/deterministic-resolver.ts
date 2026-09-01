@@ -1,15 +1,15 @@
 import type {
   Dependency,
-  PluginRequest,
-  ProviderRequest
+  PlatformPluginRequest,
+  PlatformProviderRequest
 } from "@k-nex/contracts";
 import * as semver from "semver";
 
-import type { InstalledPluginManifest } from "./installed-plugin-loader.js";
+import type { InstalledPlatformPluginManifest } from "./installed-plugin-loader.js";
 
 export const resolverVersion = "1.0.0" as const;
 
-export type PluginGraphResolutionErrorCode =
+export type PlatformPluginGraphResolutionErrorCode =
   | "REQUEST_DUPLICATE"
   | "REQUEST_NOT_INSTALLED"
   | "REQUEST_IDENTITY_MISMATCH"
@@ -24,19 +24,19 @@ export type PluginGraphResolutionErrorCode =
   | "REQUIRED_CYCLE"
   | "MANIFEST_RANGE_INVALID";
 
-export class PluginGraphResolutionError extends Error {
-  readonly code: PluginGraphResolutionErrorCode;
+export class PlatformPluginGraphResolutionError extends Error {
+  readonly code: PlatformPluginGraphResolutionErrorCode;
   readonly path: readonly string[];
 
-  constructor(code: PluginGraphResolutionErrorCode, message: string, path: readonly string[] = []) {
+  constructor(code: PlatformPluginGraphResolutionErrorCode, message: string, path: readonly string[] = []) {
     super(message);
-    this.name = "PluginGraphResolutionError";
+    this.name = "PlatformPluginGraphResolutionError";
     this.code = code;
     this.path = Object.freeze([...path]);
   }
 }
 
-export interface ResolvedPluginNode {
+export interface ResolvedPlatformPluginNode {
   readonly id: string;
   readonly kind: string;
   readonly package: string;
@@ -46,27 +46,27 @@ export interface ResolvedPluginNode {
   readonly optional: readonly string[];
 }
 
-export interface ResolvedCapabilityProvider {
+export interface ResolvedPlatformPluginCapabilityProvider {
   readonly capability: string;
   readonly plugin: string;
   readonly version: string;
 }
 
-export interface ResolvedPluginGraph {
+export interface ResolvedPlatformPluginGraph {
   readonly resolverVersion: typeof resolverVersion;
-  readonly plugins: readonly ResolvedPluginNode[];
-  readonly capabilityProviders: readonly ResolvedCapabilityProvider[];
+  readonly plugins: readonly ResolvedPlatformPluginNode[];
+  readonly capabilityProviders: readonly ResolvedPlatformPluginCapabilityProvider[];
   readonly registrationOrder: readonly string[];
 }
 
-export interface ResolvePluginGraphOptions {
-  readonly plugins: readonly PluginRequest[];
-  readonly providers: Readonly<Record<string, ProviderRequest>>;
-  readonly installed: readonly InstalledPluginManifest[];
+export interface ResolvePlatformPluginGraphOptions {
+  readonly plugins: readonly PlatformPluginRequest[];
+  readonly providers: Readonly<Record<string, PlatformProviderRequest>>;
+  readonly installed: readonly InstalledPlatformPluginManifest[];
 }
 
 interface InstalledEntry {
-  readonly installed: InstalledPluginManifest;
+  readonly installed: InstalledPlatformPluginManifest;
   readonly id: string;
   readonly packageName: string;
   readonly version: string;
@@ -104,8 +104,8 @@ function compareInstalled(left: InstalledEntry, right: InstalledEntry): number {
   );
 }
 
-function fail(code: PluginGraphResolutionErrorCode, message: string, path: readonly string[] = []): never {
-  throw new PluginGraphResolutionError(code, message, path);
+function fail(code: PlatformPluginGraphResolutionErrorCode, message: string, path: readonly string[] = []): never {
+  throw new PlatformPluginGraphResolutionError(code, message, path);
 }
 
 function isPluginDependency(dependency: Dependency): dependency is Extract<Dependency, { readonly plugin: string }> {
@@ -149,11 +149,11 @@ function compareProviderEntries(left: InstalledEntry, right: InstalledEntry): nu
   return compareStrings(left.id, right.id);
 }
 
-function identityFromPluginRequest(request: PluginRequest): IdentityRequest {
+function identityFromPluginRequest(request: PlatformPluginRequest): IdentityRequest {
   return { id: request.id, packageName: request.package, version: request.version };
 }
 
-function identityFromProviderRequest(request: ProviderRequest): IdentityRequest {
+function identityFromProviderRequest(request: PlatformProviderRequest): IdentityRequest {
   return { id: request.plugin, packageName: request.package, version: request.version };
 }
 
@@ -161,7 +161,7 @@ function requestLabel(source: "plugin" | "provider", id: string, capability?: st
   return capability ? `${source} ${id} for capability ${capability}` : `${source} ${id}`;
 }
 
-function buildInstalledIndexes(installed: readonly InstalledPluginManifest[]): {
+function buildInstalledIndexes(installed: readonly InstalledPlatformPluginManifest[]): {
   readonly entries: readonly InstalledEntry[];
   readonly byId: ReadonlyMap<string, InstalledEntry>;
   readonly byPackage: ReadonlyMap<string, InstalledEntry>;
@@ -230,7 +230,7 @@ function reconcileIdentity(
   return byRequestedId;
 }
 
-function validatePluginRequestDuplicates(plugins: readonly PluginRequest[]): void {
+function validatePluginRequestDuplicates(plugins: readonly PlatformPluginRequest[]): void {
   const sorted = [...plugins].sort((left, right) =>
     compareStrings(`${left.id}\u0000${left.package}\u0000${left.version}`, `${right.id}\u0000${right.package}\u0000${right.version}`)
   );
@@ -515,7 +515,7 @@ function validateConflicts(active: readonly InstalledEntry[], activeById: Readon
   }
 }
 
-export function resolvePluginGraph(options: ResolvePluginGraphOptions): ResolvedPluginGraph {
+export function resolvePlatformPluginGraph(options: ResolvePlatformPluginGraphOptions): ResolvedPlatformPluginGraph {
   const plugins = options.plugins ?? [];
   const providers = options.providers ?? {};
   const installed = options.installed ?? [];
@@ -622,7 +622,7 @@ export function resolvePluginGraph(options: ResolvePluginGraphOptions): Resolved
   const cycle = shortestRequiredCycle(requiredEdges);
   if (cycle) fail("REQUIRED_CYCLE", `Required plugin dependency cycle: ${cycle.join(" -> ")}.`, cycle);
 
-  const nodes: ResolvedPluginNode[] = active.map((entry) => {
+  const nodes: ResolvedPlatformPluginNode[] = active.map((entry) => {
     const required = [...(requiredEdges.get(entry.id) ?? [])].sort(compareStrings);
     const optional = [...(optionalEdges.get(entry.id) ?? [])].sort(compareStrings);
     return {

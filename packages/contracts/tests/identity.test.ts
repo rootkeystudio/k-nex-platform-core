@@ -1,0 +1,43 @@
+import { performance } from "node:perf_hooks";
+
+import { describe, expect, it } from "vitest";
+
+import { ExactSemverSchema, compareExactSemverPrecedence, exactSemverPattern } from "../src/identity.js";
+
+const maxVersion = `1.0.0+${"a".repeat(58)}`;
+const oversizedVersion = `${maxVersion}a`;
+
+describe("exact SemVer precedence", () => {
+  it("ignores build metadata and returns equality for identical release precedence", () => {
+    expect(compareExactSemverPrecedence("1.0.0+build.1", "1.0.0+build.2")).toBe(0);
+    expect(compareExactSemverPrecedence("1.0.0", "1.0.0")).toBe(0);
+  });
+
+  it("orders prereleases without losing precision for numeric identifiers", () => {
+    expect(compareExactSemverPrecedence("1.0.0-9007199254740992", "1.0.0-9007199254740993")).toBe(-1);
+    expect(compareExactSemverPrecedence("1.0.0-alpha-beta", "1.0.0-alpha-gamma")).toBe(-1);
+    expect(compareExactSemverPrecedence("1.0.0-alpha", "1.0.0-alpha.1")).toBe(-1);
+    expect(compareExactSemverPrecedence("1.0.0-1", "1.0.0-alpha")).toBe(-1);
+    expect(compareExactSemverPrecedence("1.0.0-rc.1", "1.0.0")).toBe(-1);
+  });
+
+  it("uses the existing exact-version grammar as its input boundary", () => {
+    expect(ExactSemverSchema.safeParse("1.0.0-9007199254740993+build.2").success).toBe(true);
+    expect(maxVersion).toHaveLength(64);
+    expect(ExactSemverSchema.safeParse(maxVersion).success).toBe(true);
+    expect(ExactSemverSchema.safeParse(oversizedVersion).success).toBe(false);
+    for (const version of ["1.0.0-01", "1.0.0-alpha..1", "1.0.0-.", "1.0.0+build..1"]) {
+      expect(ExactSemverSchema.safeParse(version).success, version).toBe(false);
+    }
+    expect(() => compareExactSemverPrecedence("1.0", "1.0.0")).toThrow(/invalid/u);
+    expect(compareExactSemverPrecedence(maxVersion, maxVersion)).toBe(0);
+    expect(() => compareExactSemverPrecedence(oversizedVersion, "1.0.0")).toThrow(/invalid/u);
+  });
+
+  it("rejects adversarial invalid prerelease input without quadratic backtracking", () => {
+    const input = `1.0.0-${"a".repeat(50_000)}!`;
+    const startedAt = performance.now();
+    expect(new RegExp(exactSemverPattern, "u").test(input)).toBe(false);
+    expect(performance.now() - startedAt).toBeLessThan(1_000);
+  });
+});

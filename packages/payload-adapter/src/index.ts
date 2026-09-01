@@ -1,6 +1,6 @@
 import { postgresAdapter } from "@payloadcms/db-postgres";
 import type { MigrateDownArgs, MigrateUpArgs } from "@payloadcms/db-postgres";
-import { assertExecutableRegistrationAuthority, pluginEnabledInRegistration, type ScopedRegistrationResult } from "@k-nex/runtime";
+import { assertExecutableRegistrationAuthority, platformPluginEnabledInRegistration, type ScopedRegistrationResult } from "@k-nex/runtime";
 import type { CollectionConfig, Config } from "payload";
 
 export * from "./data-source-authenticator.js";
@@ -9,6 +9,17 @@ export * from "./mcp-adapter.js";
 export * from "./outbox-processor.js";
 export * from "./outbox-realtime-relay.js";
 export * from "./transactional-outbox.js";
+export * from "./runtime-extension-store.js";
+export * from "./runtime-extension-outbox.js";
+export * from "./theme-profile-store.js";
+export * from "./static-deployment-store.js";
+export * from "./static-release-authority.js";
+export * from "./app-storage.js";
+export * from "./verified-artifact-store.js";
+export * from "./catalog-checkpoint-store.js";
+export * from "./extension-capability-authority.js";
+export * from "./active-extension-security-reconciler.js";
+export * from "./runner-quarantine-adapter.js";
 
 export type PayloadCompositionErrorCode =
   | "INVALID_DATABASE_URL"
@@ -146,7 +157,7 @@ export function composePayloadApplication(options: ComposePayloadApplicationOpti
         [contribution.pluginId, contribution.id]
       );
     }
-    collections.push(collectionForAvailability(value.collection, pluginEnabledInRegistration(options.registration, contribution.pluginId)));
+    collections.push(collectionForAvailability(value.collection, platformPluginEnabledInRegistration(options.registration, contribution.pluginId)));
     ownership.push({
       slug: value.collection.slug,
       pluginId: contribution.pluginId,

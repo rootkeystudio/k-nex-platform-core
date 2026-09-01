@@ -1,0 +1,328 @@
+{
+  "$defs": {
+    "__schema0": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "__schema1": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema10": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "__schema11": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "closesAt": {
+              "$ref": "#/$defs/__schema12"
+            },
+            "contractCleanup": {
+              "const": "blocked",
+              "type": "string"
+            },
+            "previousApplicationDigest": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "state": {
+              "const": "open",
+              "type": "string"
+            },
+            "windowId": {
+              "$ref": "#/$defs/__schema3"
+            }
+          },
+          "required": [
+            "state",
+            "windowId",
+            "previousApplicationDigest",
+            "closesAt",
+            "contractCleanup"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "closedAt": {
+              "$ref": "#/$defs/__schema12"
+            },
+            "contractCleanup": {
+              "const": "eligible",
+              "type": "string"
+            },
+            "state": {
+              "const": "closed",
+              "type": "string"
+            },
+            "windowId": {
+              "$ref": "#/$defs/__schema3"
+            }
+          },
+          "required": [
+            "state",
+            "windowId",
+            "closedAt",
+            "contractCleanup"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "contractCleanup": {
+              "const": "blocked",
+              "type": "string"
+            },
+            "reason": {
+              "maxLength": 240,
+              "minLength": 1,
+              "type": "string"
+            },
+            "state": {
+              "const": "not-applicable",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state",
+            "reason",
+            "contractCleanup"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "__schema12": {
+      "allOf": [
+        {
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
+        },
+        {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        }
+      ],
+      "maxLength": 64,
+      "type": "string"
+    },
+    "__schema2": {
+      "additionalProperties": false,
+      "kNexMigrationRevisionChangeRequiresSteps": true,
+      "properties": {
+        "applicationId": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "baseRevision": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "environment": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "planId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "rollbackWindow": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "sourceCommit": {
+          "$ref": "#/$defs/__schema6"
+        },
+        "steps": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "targetRevision": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "targetSourceCommit": {
+          "$ref": "#/$defs/__schema6"
+        }
+      },
+      "required": [
+        "planId",
+        "applicationId",
+        "environment",
+        "sourceCommit",
+        "targetSourceCommit",
+        "baseRevision",
+        "targetRevision",
+        "steps",
+        "rollbackWindow"
+      ],
+      "type": "object"
+    },
+    "__schema3": {
+      "pattern": "^[a-z][a-z0-9-]{2,127}$",
+      "type": "string"
+    },
+    "__schema4": {
+      "pattern": "^[a-z][a-z0-9-]{2,127}$",
+      "type": "string"
+    },
+    "__schema5": {
+      "pattern": "^[a-z][a-z0-9-]{1,63}$",
+      "type": "string"
+    },
+    "__schema6": {
+      "pattern": "^[0-9a-f]{40}$",
+      "type": "string"
+    },
+    "__schema7": {
+      "maximum": 1000000000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "__schema8": {
+      "items": {
+        "$ref": "#/$defs/__schema9"
+      },
+      "maxItems": 128,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "__schema9": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "migrationDigest": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "overlapSafe": {
+              "const": true,
+              "type": "boolean"
+            },
+            "phase": {
+              "const": "online-expand",
+              "type": "string"
+            },
+            "stepId": {
+              "$ref": "#/$defs/__schema3"
+            }
+          },
+          "required": [
+            "stepId",
+            "migrationDigest",
+            "phase",
+            "overlapSafe"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "checkpointSchemaDigest": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "idempotent": {
+              "const": true,
+              "type": "boolean"
+            },
+            "migrationDigest": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "phase": {
+              "const": "online-backfill",
+              "type": "string"
+            },
+            "resumable": {
+              "const": true,
+              "type": "boolean"
+            },
+            "stepId": {
+              "$ref": "#/$defs/__schema3"
+            }
+          },
+          "required": [
+            "stepId",
+            "migrationDigest",
+            "phase",
+            "resumable",
+            "idempotent",
+            "checkpointSchemaDigest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "migrationDigest": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "phase": {
+              "const": "post-retirement-contract",
+              "type": "string"
+            },
+            "requiresOldGenerationRetired": {
+              "const": true,
+              "type": "boolean"
+            },
+            "requiresRollbackWindowClosed": {
+              "const": true,
+              "type": "boolean"
+            },
+            "stepId": {
+              "$ref": "#/$defs/__schema3"
+            }
+          },
+          "required": [
+            "stepId",
+            "migrationDigest",
+            "phase",
+            "requiresOldGenerationRetired",
+            "requiresRollbackWindowClosed"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "availability": {
+              "const": "maintenance-required",
+              "type": "string"
+            },
+            "migrationDigest": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "phase": {
+              "const": "offline-required",
+              "type": "string"
+            },
+            "stepId": {
+              "$ref": "#/$defs/__schema3"
+            }
+          },
+          "required": [
+            "stepId",
+            "migrationDigest",
+            "phase",
+            "availability"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "$id": "https://schemas.k-nex.dev/migration-compatibility-plan/v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "plan": {
+      "$ref": "#/$defs/__schema2"
+    },
+    "schemaVersion": {
+      "$ref": "#/$defs/__schema1"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "plan"
+  ],
+  "title": "K-Nex Migration Compatibility Plan v1",
+  "type": "object"
+}

@@ -1,0 +1,8 @@
+{
+  "$schema": "../../../schemas/runner-isolation-profile.v1.schema.json",
+  "isolation": "same-user-child-process",
+  "productionEvidence": "accepted",
+  "profile": "local-child-process-v1",
+  "schemaVersion": 1,
+  "scope": "production"
+}
