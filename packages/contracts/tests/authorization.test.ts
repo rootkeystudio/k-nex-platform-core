@@ -307,6 +307,8 @@ describe("P10.1 authorization contracts", () => {
       principal: decision.principal,
       effectiveActor: decision.effectiveActor,
       scope: decision.scope,
+      operation: "read-roles",
+      target: "system.roles",
       authorizationRevision: decision.authorizationRevision,
       lifecycleRevision: decision.lifecycleRevision,
       outcome: "allow",

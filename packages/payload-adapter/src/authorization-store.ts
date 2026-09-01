@@ -182,9 +182,9 @@ function mutationApplication(mutation: AuthorizationStoreMutation): string {
 
 type RevisionChanges = Readonly<{ authorization: boolean; lifecycle: boolean }>;
 
-function revisionChanges(mutations: readonly AuthorizationStoreMutation[]): RevisionChanges {
+function revisionChanges(mutations: readonly AuthorizationStoreMutation[], removedGrant: boolean): RevisionChanges {
   return Object.freeze({
-    authorization: mutations.some((mutation) => ["role", "grant", "assignment", "template-adoption", "bootstrap-receipt"].includes(mutation.kind)),
+    authorization: removedGrant || mutations.some((mutation) => ["role", "grant", "assignment", "template-adoption", "bootstrap-receipt"].includes(mutation.kind)),
     lifecycle: mutations.some((mutation) => ["catalog-snapshot", "extension-generation"].includes(mutation.kind))
   });
 }
@@ -244,11 +244,12 @@ export class PostgresAuthorizationStore implements AuthorizationStore {
       );
       const current = assertAuthorizationExpectedRevision(parsedExpected, locked.rows[0] ? state(locked.rows[0], parsedExpected.environment) : undefined);
       const mutations: AuthorizationStoreMutation[] = [];
-      const view = this.view(session, parsedExpected, current, mutations, bootstrap);
+      let removedGrant = false;
+      const view = this.view(session, parsedExpected, current, mutations, bootstrap, () => { removedGrant = true; });
       if (bootstrap) await this.assertBootstrapEmpty(view, parsedExpected.applicationId);
       const value = await work(view);
       if (bootstrap) assertFirstOwnerBootstrapMutations(parsedExpected, mutations);
-      const changes = revisionChanges(mutations);
+      const changes = revisionChanges(mutations, removedGrant);
       const next = changes.authorization || changes.lifecycle
         ? await this.advance(session, current, changes)
         : current;
@@ -337,9 +338,20 @@ export class PostgresAuthorizationStore implements AuthorizationStore {
     });
   }
 
-  private view(session: RuntimeExtensionSession, expected: AuthorizationExpectedRevision, current: AuthorizationState, mutations: AuthorizationStoreMutation[], bootstrap: boolean): AuthorizationStoreTransaction {
+  private view(session: RuntimeExtensionSession, expected: AuthorizationExpectedRevision, current: AuthorizationState, mutations: AuthorizationStoreMutation[], bootstrap: boolean, onGrantRemoval: () => void): AuthorizationStoreTransaction {
     return Object.freeze({
       ...this.readView(session, expected),
+      removeGrant: async (applicationId: string, grantId: string) => {
+        sameApplication(expected, applicationId);
+        if (typeof grantId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,159}$/u.test(grantId)) fail("MUTATION_INVALID", "Authorization grant ID is invalid.");
+        const found = await session.query<Row>(`select application_id, grant_id, role_id, permission_id, owner_kind, owner_namespace, owner_delivery_class, owner_extension_id, owner_generation, revision from k_nex_role_permission_grants where application_id=$1 and grant_id=$2 for update`, [expected.applicationId, grantId]);
+        if (found.rows[0] === undefined) return undefined;
+        const existing = grant(found.rows[0]);
+        if (!bootstrap && protectedRoleIds.includes(existing.roleId as typeof protectedRoleIds[number])) fail("MUTATION_INVALID", "Protected role grants may not be removed.");
+        await session.query(`delete from k_nex_role_permission_grants where application_id=$1 and grant_id=$2`, [expected.applicationId, grantId]);
+        onGrantRemoval();
+        return existing;
+      },
       write: async (value: AuthorizationStoreMutation) => {
         const mutation = await parseAuthorizationStoreMutation(value, this.subjectValidator);
         sameApplication(expected, mutationApplication(mutation));

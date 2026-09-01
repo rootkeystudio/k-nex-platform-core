@@ -41,6 +41,7 @@ class MemoryStore implements AuthorizationStore {
   async transaction<T>(actual: AuthorizationExpectedRevision, work: (transaction: AuthorizationStoreTransaction) => Promise<T>) {
     if (actual.applicationId !== this.state.applicationId || actual.environment !== this.state.environment || actual.authorizationRevision !== this.state.authorizationRevision || actual.lifecycleRevision !== this.state.lifecycleRevision) throw new Error("stale");
     const staged: AuthorizationStoreMutation[] = [];
+    const removedGrantIds = new Set<string>();
     const view: AuthorizationStoreTransaction = {
       readRole: async (_applicationId, id) => this.roles.get(id),
       listRoles: async () => Object.freeze([...this.roles.values()]),
@@ -55,12 +56,18 @@ class MemoryStore implements AuthorizationStore {
         const cursor = afterAuditId === undefined ? -1 : entries.findIndex((entry) => entry.audit.auditId === afterAuditId);
         return Object.freeze(afterAuditId === undefined ? entries.slice(0, limit) : cursor < 0 ? [] : entries.slice(cursor + 1, cursor + 1 + limit));
       },
+      removeGrant: async (_applicationId, grantId) => {
+        const grant = this.grants.get(grantId);
+        if (grant !== undefined) removedGrantIds.add(grantId);
+        return grant;
+      },
       write: async (mutation) => { staged.push(mutation); }
     };
     const value = await work(view);
+    for (const grantId of removedGrantIds) this.grants.delete(grantId);
     for (const mutation of staged) this.apply(mutation);
     this.writes.push(...staged);
-    if (staged.some((mutation) => mutation.kind !== "audit")) this.state = { ...this.state, authorizationRevision: this.state.authorizationRevision + 1 };
+    if (removedGrantIds.size > 0 || staged.some((mutation) => mutation.kind !== "audit")) this.state = { ...this.state, authorizationRevision: this.state.authorizationRevision + 1 };
     return Object.freeze({ committed: true as const, value, state: this.state });
   }
 
@@ -96,7 +103,7 @@ function audit(auditId: string): AuthorizationDecisionAudit {
     schemaVersion: 1, auditId, decisionId: `decision-${auditId}`, correlationId: `correlation-${auditId}`,
     applicationId: expected.applicationId, environment: expected.environment, permissionId: "system.roles.read",
     owner: { kind: "platform", namespace: "system" }, principal: { kind: "user", id: "admin" }, effectiveActor: { kind: "user", id: "admin" },
-    scope: { kind: "application", resource: "system.roles" }, authorizationRevision: expected.authorizationRevision,
+    scope: { kind: "application", resource: "system.roles" }, operation: "read-roles", target: "system.roles", authorizationRevision: expected.authorizationRevision,
     lifecycleRevision: expected.lifecycleRevision, outcome: "allow", reason: "granted", approval: "not-required", reauthentication: "not-required"
   };
 }
@@ -124,6 +131,7 @@ function catalogWithTemplate() {
 describe("system access administration", () => {
   it("groups only effective permissions and exposes inactive snapshots as diagnostics", async () => {
     const { store, service: access } = service();
+    const readTransaction = vi.spyOn(store, "readTransaction");
     store.snapshots.set("sales.read.inactive", {
       schemaVersion: 1, id: "sales.read.inactive", applicationId: expected.applicationId, source: "administrative-non-authoritative",
       permission: { schemaVersion: 1, id: "sales.read", publisher: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "sales" }, title: "Sales read", description: "Inactive", audience: "authenticated", resource: "sales.records", operation: "read", scope: "application" },
@@ -132,6 +140,7 @@ describe("system access administration", () => {
     const view = await access.permissions({ context: {} });
     expect(view.active.filter((group) => group.resource === "system.roles").flatMap((group) => group.permissions.map(({ descriptor }) => descriptor.id)).sort()).toEqual(["system.roles.manage", "system.roles.read"]);
     expect(view.inactive).toEqual([expect.objectContaining({ snapshot: expect.objectContaining({ state: "inactive-extension-disabled", permission: expect.objectContaining({ id: "sales.read" }) }) })]);
+    expect(readTransaction).toHaveBeenCalledOnce();
   });
 
   it("derives the permission owner from the effective catalog and audits the role mutation atomically", async () => {
@@ -142,6 +151,37 @@ describe("system access administration", () => {
     expect(store.writes.slice(-2).map((mutation) => mutation.kind)).toEqual(["grant", "audit"]);
     expect(store.audits.at(-1)?.audit).toMatchObject({ permissionId: "system.roles.manage", authorizationRevision: 4, approval: "not-required", reauthentication: "not-required" });
     await expect(access.addPermission({ context: {}, expected: currentExpected(store.state), roleId: "customer-admin", permissionId: "system.roles.read", owner: { kind: "extension" } } as never)).rejects.toMatchObject({ code: "MUTATION_INVALID" } satisfies Partial<SystemAccessAdministrationError>);
+  });
+
+  it("deletes a customer grant and reactivates its existing assignment under the exact revision", async () => {
+    const { store, service: access } = service();
+    store.roles.set("customer-admin", role("customer-admin"));
+    const grant: RolePermissionGrant = { schemaVersion: 1, id: "customer-admin-roles-read", applicationId: expected.applicationId, roleId: "customer-admin", permissionId: "system.roles.read", owner: { kind: "platform", namespace: "system" }, revision: expected.authorizationRevision };
+    const assignment: RoleAssignment = { schemaVersion: 1, id: "customer-admin-user", applicationId: expected.applicationId, roleId: "customer-admin", principal: { kind: "user", id: "customer-user" }, state: "revoked", revision: expected.authorizationRevision };
+    store.grants.set(grant.id, grant);
+    store.assignments.set(assignment.id, assignment);
+
+    await expect(access.removePermission({ context: {}, expected, grantId: grant.id })).resolves.toMatchObject({ value: grant, state: { authorizationRevision: 5 } });
+    expect(store.grants.has(grant.id)).toBe(false);
+    expect(store.audits.at(-1)?.audit).toMatchObject({ operation: "remove-permission", target: grant.id });
+
+    const current = currentExpected(store.state);
+    await expect(access.reactivateAssignment({ context: {}, expected: current, assignmentId: assignment.id })).resolves.toMatchObject({ value: { id: assignment.id, roleId: assignment.roleId, principal: assignment.principal, state: "active" }, state: { authorizationRevision: 6 } });
+    expect(store.assignments.get(assignment.id)).toMatchObject({ id: assignment.id, state: "active" });
+    expect(store.audits.at(-1)?.audit).toMatchObject({ operation: "reactivate-assignment", target: assignment.id });
+
+    await expect(access.reactivateAssignment({ context: {}, expected, assignmentId: assignment.id })).rejects.toMatchObject({ code: "REVISION_CONFLICT" } satisfies Partial<SystemAccessAdministrationError>);
+  });
+
+  it("refuses removal of protected-role grants", async () => {
+    const { store, service: access } = service();
+    const protectedRole: Role = { schemaVersion: 1, id: "system.role.owner", applicationId: expected.applicationId, label: "Owner", protectedRoleId: "system.role.owner", revision: expected.authorizationRevision };
+    const grant: RolePermissionGrant = { schemaVersion: 1, id: "owner-roles-read", applicationId: expected.applicationId, roleId: protectedRole.id, permissionId: "system.roles.read", owner: { kind: "platform", namespace: "system" }, revision: expected.authorizationRevision };
+    store.roles.set(protectedRole.id, protectedRole);
+    store.grants.set(grant.id, grant);
+
+    await expect(access.removePermission({ context: {}, expected, grantId: grant.id })).rejects.toMatchObject({ code: "MUTATION_INVALID" } satisfies Partial<SystemAccessAdministrationError>);
+    expect(store.grants.get(grant.id)).toEqual(grant);
   });
 
   it("denies unauthorized entry before reading or writing", async () => {
@@ -178,7 +218,7 @@ describe("system access administration", () => {
 
   it("maps store errors at read, mutation, and template boundaries without swallowing unknown errors", async () => {
     const read = service();
-    vi.spyOn(read.store, "transaction").mockRejectedValueOnce(new AuthorizationStoreError("REVISION_CONFLICT", "CAS rejected."));
+    vi.spyOn(read.store, "readTransaction").mockRejectedValueOnce(new AuthorizationStoreError("REVISION_CONFLICT", "CAS rejected."));
     await expect(read.service.roles({ context: {} })).rejects.toMatchObject({ code: "REVISION_CONFLICT" } satisfies Partial<SystemAccessAdministrationError>);
 
     const mutation = service();

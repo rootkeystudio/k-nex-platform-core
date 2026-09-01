@@ -25,6 +25,7 @@ import {
   type AuthorizationAuditEntry,
   type AuthorizationExpectedRevision,
   type AuthorizationStore,
+  type AuthorizationStoreReadTransaction,
   type AuthorizationStoreTransaction,
   type AuthorizationTransactionOutcome
 } from "./authorization-store.js";
@@ -224,6 +225,40 @@ export class SystemAccessAdministrationService<TContext> {
     });
   }
 
+  async reactivateAssignment(input: Readonly<{ readonly context: TContext; readonly expected: unknown; readonly assignmentId: string }>): Promise<AuthorizationTransactionOutcome<RoleAssignment>> {
+    exactInput(input, ["assignmentId", "context", "expected"]);
+    return this.storeErrorBoundary(async () => {
+      const expected = parseAuthorizationExpectedRevision(input.expected);
+      const decision = await this.admitMutation(input.context, expected, targets.assignmentsManage);
+      return this.options.store.transaction(expected, async (transaction) => {
+        const assignment = (await transaction.listAssignments(expected.applicationId)).find((candidate) => candidate.id === input.assignmentId);
+        if (assignment === undefined) invalid("Role assignment does not exist.");
+        if (assignment.state === "active") conflict("Role assignment is already active.");
+        const active = RoleAssignmentSchema.parse({ ...assignment, state: "active", revision: nextRevision(expected) });
+        await transaction.write({ kind: "assignment", assignment: active });
+        await transaction.write({ kind: "audit", audit: audit(decision, "reactivate-assignment", active.id) });
+        return active;
+      });
+    });
+  }
+
+  async removePermission(input: Readonly<{ readonly context: TContext; readonly expected: unknown; readonly grantId: string }>): Promise<AuthorizationTransactionOutcome<RolePermissionGrant>> {
+    exactInput(input, ["context", "expected", "grantId"]);
+    return this.storeErrorBoundary(async () => {
+      const expected = parseAuthorizationExpectedRevision(input.expected);
+      const decision = await this.admitMutation(input.context, expected, targets.rolesManage);
+      return this.options.store.transaction(expected, async (transaction) => {
+        const grant = (await transaction.listGrants(expected.applicationId)).find((candidate) => candidate.id === input.grantId);
+        if (grant === undefined) invalid("Role permission grant does not exist.");
+        await requiredRole(transaction, expected.applicationId, grant.roleId, true);
+        const removed = await transaction.removeGrant(expected.applicationId, grant.id);
+        if (removed === undefined) conflict("Role permission grant changed before removal.");
+        await transaction.write({ kind: "audit", audit: audit(decision, "remove-permission", removed.id) });
+        return removed;
+      });
+    });
+  }
+
   async instantiateTemplate(input: Readonly<{ readonly context: TContext; readonly expected: unknown; readonly templateId: string; readonly role: unknown }>): Promise<AuthorizationTransactionOutcome<unknown>> {
     return this.storeErrorBoundary(async () => {
       exactInput(input, ["context", "expected", "role", "templateId"]);
@@ -247,13 +282,13 @@ export class SystemAccessAdministrationService<TContext> {
     });
   }
 
-  private async read<TResult>(context: TContext, target: CurrentAuthorityTarget, work: (transaction: AuthorizationStoreTransaction, catalog: EffectiveAuthorizationCatalog, expected: AuthorizationExpectedRevision) => Promise<TResult>): Promise<TResult> {
+  private async read<TResult>(context: TContext, target: CurrentAuthorityTarget, work: (transaction: AuthorizationStoreReadTransaction, catalog: EffectiveAuthorizationCatalog, expected: AuthorizationExpectedRevision) => Promise<TResult>): Promise<TResult> {
     return this.storeErrorBoundary(async () => {
       const decision = await this.options.authority.authorize(context, target);
       if (!allowed(decision, target)) unauthorized();
       const expected = expectedFromDecision(decision);
       const catalog = await this.catalog(expected.applicationId, expected.lifecycleRevision);
-      const outcome = await this.options.store.transaction(expected, async (transaction) => work(transaction, catalog, expected));
+      const outcome = await this.options.store.readTransaction(expected, async (transaction) => work(transaction, catalog, expected));
       return outcome.value;
     });
   }
@@ -358,7 +393,7 @@ function oneTemplate(catalog: EffectiveAuthorizationCatalog, templateId: unknown
   return matching[0]!;
 }
 
-async function requiredRole(transaction: AuthorizationStoreTransaction, applicationIdValue: string, roleId: unknown, editable: boolean): Promise<Role> {
+async function requiredRole(transaction: AuthorizationStoreReadTransaction, applicationIdValue: string, roleId: unknown, editable: boolean): Promise<Role> {
   if (typeof roleId !== "string") invalid("Role ID is invalid.");
   const role = await transaction.readRole(applicationIdValue, roleId);
   if (role === undefined || role.applicationId !== applicationIdValue || editable && isProtectedRole(role)) invalid(editable ? "Role is protected or does not exist." : "Role does not exist.");
@@ -386,13 +421,13 @@ function parseSubject(value: unknown): AuthorizationSubject {
   return parsed.data;
 }
 
-function audit(decision: AuthorizationDecision, action: string, subject: string): AuthorizationDecisionAudit {
+function audit(decision: AuthorizationDecision, operation: string, target: string): AuthorizationDecisionAudit {
   const value = AuthorizationDecisionAuditSchema.safeParse({
-    schemaVersion: 1, auditId: id("audit", decision.decisionId, action, subject), decisionId: decision.decisionId,
+    schemaVersion: 1, auditId: id("audit", decision.decisionId, operation, target), decisionId: decision.decisionId,
     correlationId: decision.correlationId, applicationId: decision.applicationId, environment: decision.environment,
     permissionId: decision.permissionId, owner: decision.owner, principal: decision.principal, effectiveActor: decision.effectiveActor,
     ...(decision.delegation === undefined ? {} : { delegationId: decision.delegation.delegationId }), scope: decision.scope,
-    authorizationRevision: decision.authorizationRevision, lifecycleRevision: decision.lifecycleRevision,
+    operation, target, authorizationRevision: decision.authorizationRevision, lifecycleRevision: decision.lifecycleRevision,
     outcome: decision.outcome, reason: decision.reason, approval: decision.approval, reauthentication: decision.reauthentication
   });
   if (!value.success) invalid("Authorization decision audit is invalid.");

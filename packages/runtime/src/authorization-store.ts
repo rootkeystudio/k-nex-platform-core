@@ -71,6 +71,8 @@ export interface AuthorizationStoreReadTransaction {
 
 export interface AuthorizationStoreTransaction extends AuthorizationStoreReadTransaction {
   write(mutation: AuthorizationStoreMutation): Promise<void>;
+  /** Removes a customer grant inside the current revision-checked transaction. */
+  removeGrant(applicationId: string, grantId: string): Promise<RolePermissionGrant | undefined>;
 }
 
 export interface AuthorizationTransactionOutcome<T> {

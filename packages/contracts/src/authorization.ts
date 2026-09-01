@@ -407,6 +407,8 @@ export const AuthorizationDecisionAuditSchema = z.strictObject({
   effectiveActor: AuthorizationSubjectSchema,
   delegationId: identifierSchema.optional(),
   scope: AuthorizationScopeSchema,
+  operation: identifierSchema,
+  target: identifierSchema,
   authorizationRevision: revisionSchema,
   lifecycleRevision: revisionSchema,
   outcome: z.enum(["allow", "deny"]),

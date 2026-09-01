@@ -12,7 +12,7 @@ const descriptor = {
   description: "Manage customer roles.", audience: "authenticated", resource: "system.roles", operation: "manage", scope: "application"
 } as const;
 
-function harness(options: Readonly<{ state?: Partial<typeof expected>; activeOwner?: boolean; otherOwners?: number; roleRow?: Record<string, unknown>; adoptionRow?: Record<string, unknown>; auditRows?: readonly Record<string, unknown>[]; bootstrapAssignment?: Record<string, unknown>; protectedGrantRoleId?: string; outboxFailure?: boolean }> = {}) {
+function harness(options: Readonly<{ state?: Partial<typeof expected>; activeOwner?: boolean; otherOwners?: number; roleRow?: Record<string, unknown>; grantRow?: Record<string, unknown>; adoptionRow?: Record<string, unknown>; auditRows?: readonly Record<string, unknown>[]; bootstrapAssignment?: Record<string, unknown>; protectedGrantRoleId?: string; outboxFailure?: boolean }> = {}) {
   const current = { ...expected, ...options.state };
   const queries: string[] = [];
   let writtenOwnerAssignment: Record<string, unknown> | undefined;
@@ -20,6 +20,7 @@ function harness(options: Readonly<{ state?: Partial<typeof expected>; activeOwn
     queries.push(text);
     if (text.startsWith("select application_id, authorization_revision")) return { rows: [{ application_id: current.applicationId, authorization_revision: current.authorizationRevision, lifecycle_revision: current.lifecycleRevision }] as T[] };
     if (text.startsWith("select application_id, role_id")) return { rows: options.roleRow ? [options.roleRow] as T[] : [] as T[] };
+    if (text.startsWith("select application_id, grant_id")) return { rows: options.grantRow ? [options.grantRow] as T[] : [] as T[] };
     if (text.startsWith("select application_id, adoption_id")) return { rows: options.adoptionRow ? [options.adoptionRow] as T[] : [] as T[] };
     if (text.startsWith("select audit_id, application_id")) return { rows: options.auditRows ? [...options.auditRows] as T[] : [] as T[] };
     if (text.startsWith("update k_nex_authorization_state")) {
@@ -48,7 +49,7 @@ function audit(auditId: string): AuthorizationDecisionAudit {
     schemaVersion: 1, auditId, decisionId: `decision-${auditId}`, correlationId: `correlation-${auditId}`,
     applicationId: expected.applicationId, environment: expected.environment, permissionId: descriptor.id,
     owner: descriptor.publisher, principal: { kind: "user", id: "user-1" }, effectiveActor: { kind: "user", id: "user-1" },
-    scope: { kind: "application", resource: "system.roles" }, authorizationRevision: expected.authorizationRevision,
+    scope: { kind: "application", resource: "system.roles" }, operation: "read-roles", target: "system.roles", authorizationRevision: expected.authorizationRevision,
     lifecycleRevision: expected.lifecycleRevision, outcome: "allow", reason: "granted", approval: "not-required", reauthentication: "not-required"
   };
 }
@@ -133,6 +134,35 @@ describe("PostgresAuthorizationStore", () => {
     await expect(movedValue.store.transaction(expected, async (transaction) => transaction.write({ kind: "grant", grant: movedGrant }))).rejects.toMatchObject({ code: "MUTATION_INVALID" });
     expect(movedValue.queries.some((query) => query.startsWith("insert into k_nex_role_permission_grants"))).toBe(false);
     expect(movedValue.queries.at(-1)).toBe("rollback");
+  });
+
+  it("deletes only an unprotected grant, advances authority once, and writes the invalidation outbox", async () => {
+    const value = harness({ grantRow: {
+      application_id: expected.applicationId, grant_id: "sales-manager-read", role_id: role.id, permission_id: "system.roles.manage",
+      owner_kind: "platform", owner_namespace: "system", owner_delivery_class: null, owner_extension_id: null, owner_generation: null, revision: 4
+    } });
+
+    const result = await value.store.transaction(expected, async (transaction) => {
+      const removed = await transaction.removeGrant(expected.applicationId, "sales-manager-read");
+      await transaction.write({ kind: "audit", audit: audit("remove-sales-manager-read") });
+      return removed;
+    });
+
+    expect(result).toMatchObject({ value: { id: "sales-manager-read", roleId: role.id }, state: { authorizationRevision: 5, lifecycleRevision: 2 } });
+    expect(value.queries.some((query) => query.startsWith("delete from k_nex_role_permission_grants"))).toBe(true);
+    expect(value.queries.filter((query) => query.startsWith("update k_nex_authorization_state"))).toHaveLength(1);
+    expect(value.queries.filter((query) => query.includes("k_nex_authorization_outbox"))).toHaveLength(1);
+  });
+
+  it("fails closed before deleting a protected-role grant", async () => {
+    const value = harness({ grantRow: {
+      application_id: expected.applicationId, grant_id: "owner-manage", role_id: "system.role.owner", permission_id: "system.roles.manage",
+      owner_kind: "platform", owner_namespace: "system", owner_delivery_class: null, owner_extension_id: null, owner_generation: null, revision: 4
+    } });
+
+    await expect(value.store.transaction(expected, (transaction) => transaction.removeGrant(expected.applicationId, "owner-manage"))).rejects.toMatchObject({ code: "MUTATION_INVALID" });
+    expect(value.queries.some((query) => query.startsWith("delete from k_nex_role_permission_grants"))).toBe(false);
+    expect(value.queries.at(-1)).toBe("rollback");
   });
 
   it("rolls back a malformed dedicated bootstrap after its staged writes", async () => {
@@ -220,7 +250,7 @@ describe("PostgresAuthorizationStore", () => {
       schemaVersion: 1, auditId: "audit-1", decisionId: "decision-1", correlationId: "correlation-1", applicationId: expected.applicationId,
       environment: expected.environment, permissionId: descriptor.id, owner: descriptor.publisher, principal: { kind: "user", id: "user-1" },
       effectiveActor: { kind: "user", id: "user-1" }, scope: { kind: "application", resource: "system.roles" }, authorizationRevision: 4,
-      lifecycleRevision: 2, outcome: "allow", reason: "granted", approval: "satisfied", reauthentication: "satisfied"
+    lifecycleRevision: 2, operation: "update-role", target: role.id, outcome: "allow", reason: "granted", approval: "satisfied", reauthentication: "satisfied"
     } as const;
     const auditOnly = harness();
     await auditOnly.store.transaction(expected, async (transaction) => transaction.write({ kind: "audit", audit }));
