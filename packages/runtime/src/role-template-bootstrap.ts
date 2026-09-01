@@ -21,6 +21,7 @@ import {
   parseAuthorizationExpectedRevision,
   type AuthorizationExpectedRevision,
   type AuthorizationStore,
+  type AuthorizationStoreReadTransaction,
   type AuthorizationStoreTransaction,
   type AuthorizationTransactionOutcome
 } from "./authorization-store.js";
@@ -33,6 +34,8 @@ export interface InstantiateRoleTemplateInput {
   readonly role: Readonly<{ readonly id: string; readonly label: string; readonly description?: string }>;
   /** A server-authorized mutation may attach its decision audit to this same transaction. */
   readonly audit?: AuthorizationDecisionAudit;
+  /** Server-only admission that observes this mutation's exact transaction. */
+  readonly admit?: (transaction: AuthorizationStoreReadTransaction) => Promise<void>;
 }
 
 export interface ReconcileAutomaticRoleTemplatesInput {
@@ -49,6 +52,8 @@ export interface CopyTemplatePermissionsInput {
   readonly permissionIds: readonly string[];
   /** A server-authorized mutation may attach its decision audit to this same transaction. */
   readonly audit?: AuthorizationDecisionAudit;
+  /** Server-only admission that observes this mutation's exact transaction. */
+  readonly admit?: (transaction: AuthorizationStoreReadTransaction) => Promise<void>;
 }
 
 export interface TombstoneAutomaticRoleTemplateInput {
@@ -76,6 +81,7 @@ export async function instantiateRoleTemplate(input: InstantiateRoleTemplateInpu
     if (await transaction.readRole(expected.applicationId, role.id) !== undefined) {
       fail("REVISION_CONFLICT", "Template role target already exists.");
     }
+    await input.admit?.(transaction);
     await writeRoleTemplate(transaction, role, effectiveTemplate, adoption);
     await writeAudit(transaction, input.audit);
     return adoption;
@@ -127,6 +133,7 @@ export async function copyTemplatePermissionsToRole(input: CopyTemplatePermissio
     if (adoptions.some((adoption) => adoption.kind === "copied-permissions" && sameTemplate(adoption, effectiveTemplate))) {
       fail("REVISION_CONFLICT", "Template permissions were already copied into this role.");
     }
+    await input.admit?.(transaction);
     const grants = await transaction.listGrants(expected.applicationId, role.id);
     for (const permissionId of permissionIds) {
       const existing = grants.find((grant) => grant.permissionId === permissionId);

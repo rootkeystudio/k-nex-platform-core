@@ -85,19 +85,32 @@ function decision(request: EffectiveAuthorizationRequest, current: TrustedAuthor
   return {
     schemaVersion: 1, decisionId: request.decisionId, correlationId: current.correlationId, applicationId: current.applicationId, environment: current.environment,
     permissionId: request.permissionId, owner: { kind: "platform", namespace: "system" }, principal: current.principal, effectiveActor: current.effectiveActor,
+    ...(current.delegation === undefined ? {} : { delegation: current.delegation }),
     scope: request.scope, authorizationRevision: revisions.authorizationRevision, lifecycleRevision: revisions.lifecycleRevision,
     outcome, reason: outcome === "allow" ? "granted" : "permission-not-granted", approval: "not-required", reauthentication: "not-required"
   };
 }
 
-function service(store = new MemoryStore(), outcome: "allow" | "deny" = "allow", revisions: AuthorizationExpectedRevision | undefined = undefined, effectiveCatalog = catalog) {
+function service(store = new MemoryStore(), outcome: "allow" | "deny" = "allow", revisions: AuthorizationExpectedRevision | undefined = undefined, effectiveCatalog = catalog, current = session) {
   const resolver = { authorize: vi.fn(async (current: TrustedAuthorizationSession, request: EffectiveAuthorizationRequest) => decision(request, current, outcome, revisions ?? currentExpected(store.state))) } as unknown as Pick<EffectiveAuthorityResolver, "authorize">;
-  const authority = new CurrentAuthorityAdapter({ current: async () => session }, resolver);
+  const authority = new CurrentAuthorityAdapter({ current: async () => current }, resolver);
   const catalogProvider = createAuthorizationCatalogProvider(async ({ applicationId, lifecycleRevision }) => applicationId === expected.applicationId && lifecycleRevision === expected.lifecycleRevision ? { applicationId, lifecycleRevision, catalog: effectiveCatalog } : undefined);
   return { store, resolver, service: new SystemAccessAdministrationService({ store, catalogProvider, authority }) };
 }
 
 function role(id: string): Role { return { schemaVersion: 1, id, applicationId: expected.applicationId, label: id, revision: expected.authorizationRevision }; }
+function protectedRole(id: NonNullable<Role["protectedRoleId"]>): Role { return { ...role(id), protectedRoleId: id }; }
+function grant(store: MemoryStore, roleId: string, permissionId: string): void {
+  store.grants.set(`${roleId}-${permissionId.replaceAll(".", "-")}`, { schemaVersion: 1, id: `${roleId}-${permissionId.replaceAll(".", "-")}`, applicationId: expected.applicationId, roleId, permissionId, owner: { kind: "platform", namespace: "system" }, revision: expected.authorizationRevision });
+}
+function assignment(store: MemoryStore, id: string, roleId: string, principal: RoleAssignment["principal"], state: RoleAssignment["state"] = "active"): void {
+  store.assignments.set(id, { schemaVersion: 1, id, applicationId: expected.applicationId, roleId, principal, state, revision: expected.authorizationRevision });
+}
+function owner(store: MemoryStore, userId = "admin"): void {
+  const roleValue = protectedRole("system.role.owner");
+  store.roles.set(roleValue.id, roleValue);
+  assignment(store, `owner-${userId}`, roleValue.id, { kind: "user", id: userId });
+}
 function audit(auditId: string): AuthorizationDecisionAudit {
   return {
     schemaVersion: 1, auditId, decisionId: `decision-${auditId}`, correlationId: `correlation-${auditId}`,
@@ -145,6 +158,7 @@ describe("system access administration", () => {
 
   it("derives the permission owner from the effective catalog and audits the role mutation atomically", async () => {
     const { store, service: access } = service();
+    owner(store);
     store.roles.set("customer-admin", role("customer-admin"));
     const result = await access.addPermission({ context: {}, expected, roleId: "customer-admin", permissionId: "system.roles.read" });
     expect(result.value).toMatchObject({ owner: { kind: "platform", namespace: "system" }, revision: 5 });
@@ -257,11 +271,88 @@ describe("system access administration", () => {
   it("instantiates and copies only the current catalog template while recording each mutation audit", async () => {
     const templates = catalogWithTemplate();
     const { store, service: access } = service(undefined, "allow", undefined, templates);
+    owner(store);
     await expect(access.instantiateTemplate({ context: {}, expected, templateId: "sales.manager", role: { id: "customer-sales", label: "Customer sales" } })).resolves.toMatchObject({ value: expect.objectContaining({ roleId: "customer-sales" }) });
     expect(store.writes.slice(-5).map((mutation) => mutation.kind)).toEqual(["role", "grant", "grant", "template-adoption", "audit"]);
     store.roles.set("mixed-sales", { ...role("mixed-sales"), revision: store.state.authorizationRevision });
     await expect(access.copyTemplatePermissions({ context: {}, expected: currentExpected(store.state), templateId: "sales.manager", roleId: "mixed-sales", permissionIds: ["sales.records.read"] })).resolves.toMatchObject({ value: expect.objectContaining({ roleId: "mixed-sales", kind: "copied-permissions" }) });
     expect(store.writes.slice(-3).map((mutation) => mutation.kind)).toEqual(["grant", "template-adoption", "audit"]);
     await expect(access.instantiateTemplate({ context: {}, expected: currentExpected(store.state), templateId: "sales.manager", role: { id: "forged-template", label: "Forged", owner: { kind: "platform" } } as never })).rejects.toMatchObject({ code: "MUTATION_INVALID" } satisfies Partial<SystemAccessAdministrationError>);
+  });
+
+  it("keeps protected assignments and non-owner self-assignment out of User Admin", async () => {
+    const { store, service: access } = service();
+    const userAdmin = protectedRole("system.role.user-admin");
+    const ownerRole = protectedRole("system.role.owner");
+    const customerRole = role("customer-role");
+    store.roles.set(userAdmin.id, userAdmin);
+    store.roles.set(ownerRole.id, ownerRole);
+    store.roles.set(customerRole.id, customerRole);
+    grant(store, userAdmin.id, "system.role-assignments.manage");
+    assignment(store, "user-admin", userAdmin.id, { kind: "user", id: "admin" });
+    assignment(store, "owner-active", ownerRole.id, { kind: "user", id: "owner" });
+    assignment(store, "owner-revoked", ownerRole.id, { kind: "user", id: "former-owner" }, "revoked");
+
+    await expect(access.createAssignment({ context: {}, expected, assignment: { id: "owner-new", roleId: ownerRole.id, principal: { kind: "user", id: "new-owner" } } })).rejects.toMatchObject({ code: "UNAUTHORIZED" } satisfies Partial<SystemAccessAdministrationError>);
+    await expect(access.revokeAssignment({ context: {}, expected, assignmentId: "owner-active" })).rejects.toMatchObject({ code: "UNAUTHORIZED" } satisfies Partial<SystemAccessAdministrationError>);
+    await expect(access.reactivateAssignment({ context: {}, expected, assignmentId: "owner-revoked" })).rejects.toMatchObject({ code: "UNAUTHORIZED" } satisfies Partial<SystemAccessAdministrationError>);
+    await expect(access.createAssignment({ context: {}, expected, assignment: { id: "self", roleId: customerRole.id, principal: { kind: "user", id: "admin" } } })).rejects.toMatchObject({ code: "UNAUTHORIZED" } satisfies Partial<SystemAccessAdministrationError>);
+    expect(store.writes).toEqual([]);
+  });
+
+  it("prevents Security Admin from synthesizing or assigning authority beyond its current closure", async () => {
+    const templates = catalogWithTemplate();
+    const { store, service: access } = service(undefined, "allow", undefined, templates);
+    const securityAdmin = protectedRole("system.role.security-admin");
+    const ownerRole = protectedRole("system.role.owner");
+    const extensionAdmin = protectedRole("system.role.extension-admin");
+    const broadRole = role("customer-broad");
+    store.roles.set(securityAdmin.id, securityAdmin);
+    store.roles.set(ownerRole.id, ownerRole);
+    store.roles.set(extensionAdmin.id, extensionAdmin);
+    store.roles.set(broadRole.id, broadRole);
+    grant(store, securityAdmin.id, "system.roles.manage");
+    grant(store, securityAdmin.id, "system.role-assignments.manage");
+    assignment(store, "security-admin", securityAdmin.id, { kind: "user", id: "admin" });
+
+    await expect(access.addPermission({ context: {}, expected, roleId: broadRole.id, permissionId: "system.extensions.read" })).rejects.toMatchObject({ code: "UNAUTHORIZED" } satisfies Partial<SystemAccessAdministrationError>);
+    await expect(access.instantiateTemplate({ context: {}, expected, templateId: "sales.manager", role: { id: "customer-sales", label: "Customer sales" } })).rejects.toMatchObject({ code: "UNAUTHORIZED" } satisfies Partial<SystemAccessAdministrationError>);
+    await expect(access.createAssignment({ context: {}, expected, assignment: { id: "owner", roleId: ownerRole.id, principal: { kind: "user", id: "other-user" } } })).rejects.toMatchObject({ code: "UNAUTHORIZED" } satisfies Partial<SystemAccessAdministrationError>);
+    await expect(access.createAssignment({ context: {}, expected, assignment: { id: "extension-admin", roleId: extensionAdmin.id, principal: { kind: "user", id: "other-user" } } })).rejects.toMatchObject({ code: "UNAUTHORIZED" } satisfies Partial<SystemAccessAdministrationError>);
+    store.grants.set("customer-broad-dormant", { schemaVersion: 1, id: "customer-broad-dormant", applicationId: expected.applicationId, roleId: broadRole.id, permissionId: "sales.records.read", owner: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales", generation: 2 }, revision: expected.authorizationRevision });
+    await expect(access.createAssignment({ context: {}, expected, assignment: { id: "collusive", roleId: broadRole.id, principal: { kind: "user", id: "other-user" } } })).rejects.toMatchObject({ code: "UNAUTHORIZED" } satisfies Partial<SystemAccessAdministrationError>);
+    expect(store.writes).toEqual([]);
+  });
+
+  it("lets a current human Owner manage protected human assignments but never assign a protected role to a service", async () => {
+    const { store, service: access } = service();
+    owner(store);
+    const ownerRole = store.roles.get("system.role.owner")!;
+
+    await expect(access.createAssignment({ context: {}, expected, assignment: { id: "owner-service", roleId: ownerRole.id, principal: { kind: "service", id: "automation" } } })).rejects.toMatchObject({ code: "MUTATION_INVALID" } satisfies Partial<SystemAccessAdministrationError>);
+    await expect(access.createAssignment({ context: {}, expected, assignment: { id: "owner-human", roleId: ownerRole.id, principal: { kind: "user", id: "second-owner" } } })).resolves.toMatchObject({ value: { id: "owner-human", state: "active" } });
+  });
+
+  it("intersects principal and effective-actor closures for delegated administration", async () => {
+    const delegated = createTrustedAuthorizationSession({
+      schemaVersion: 1, applicationId: expected.applicationId, environment: expected.environment, correlationId: "delegated-system-access",
+      principal: { kind: "user", id: "principal" }, effectiveActor: { kind: "user", id: "effective-actor" },
+      delegation: { delegationId: "reduced-delegation", delegator: { kind: "user", id: "principal" }, effect: "reducing" }
+    });
+    const { store, service: access } = service(undefined, "allow", undefined, catalog, delegated);
+    const principalRole = role("principal-role");
+    const actorRole = role("actor-role");
+    const targetRole = role("delegated-target");
+    store.roles.set(principalRole.id, principalRole);
+    store.roles.set(actorRole.id, actorRole);
+    store.roles.set(targetRole.id, targetRole);
+    grant(store, principalRole.id, "system.roles.manage");
+    grant(store, principalRole.id, "system.roles.read");
+    grant(store, actorRole.id, "system.roles.manage");
+    assignment(store, "principal-role-assignment", principalRole.id, { kind: "user", id: "principal" });
+    assignment(store, "actor-role-assignment", actorRole.id, { kind: "user", id: "effective-actor" });
+
+    await expect(access.addPermission({ context: {}, expected, roleId: targetRole.id, permissionId: "system.roles.manage" })).resolves.toMatchObject({ value: { permissionId: "system.roles.manage" } });
+    await expect(access.addPermission({ context: {}, expected: currentExpected(store.state), roleId: targetRole.id, permissionId: "system.roles.read" })).rejects.toMatchObject({ code: "UNAUTHORIZED" } satisfies Partial<SystemAccessAdministrationError>);
   });
 });

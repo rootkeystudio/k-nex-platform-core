@@ -188,9 +188,10 @@ export class SystemAccessAdministrationService<TContext> {
 
   async addPermission(input: Readonly<{ readonly context: TContext; readonly expected: unknown; readonly roleId: string; readonly permissionId: string }>): Promise<AuthorizationTransactionOutcome<RolePermissionGrant>> {
     exactInput(input, ["context", "expected", "permissionId", "roleId"]);
-    return this.mutate(input.context, input.expected, targets.rolesManage, "add-permission", async (transaction, expected, catalog) => {
+    return this.mutate(input.context, input.expected, targets.rolesManage, "add-permission", async (transaction, expected, catalog, decision) => {
       const role = await requiredRole(transaction, expected.applicationId, input.roleId, true);
       const permission = oneActivePermission(catalog, input.permissionId);
+      assertPermissionDelegable(await delegationAuthority(transaction, expected.applicationId, catalog, decision), permission);
       const grants = await transaction.listGrants(expected.applicationId, role.id);
       if (grants.some((grant) => grant.permissionId === permission.descriptor.id)) conflict("Role already grants this permission.");
       const grant = RolePermissionGrantSchema.safeParse({ schemaVersion: 1, id: id("grant", expected.applicationId, role.id, permission.descriptor.id, ownerKey(permission.owner)), applicationId: expected.applicationId, roleId: role.id, permissionId: permission.descriptor.id, owner: permission.owner, revision: nextRevision(expected) });
@@ -202,11 +203,12 @@ export class SystemAccessAdministrationService<TContext> {
 
   async createAssignment(input: Readonly<{ readonly context: TContext; readonly expected: unknown; readonly assignment: unknown }>): Promise<AuthorizationTransactionOutcome<RoleAssignment>> {
     exactInput(input, ["assignment", "context", "expected"]);
-    return this.mutate(input.context, input.expected, targets.assignmentsManage, "create-assignment", async (transaction, expected) => {
+    return this.mutate(input.context, input.expected, targets.assignmentsManage, "create-assignment", async (transaction, expected, catalog, decision) => {
       const value = exactObject(input.assignment, ["id", "principal", "roleId"]);
-      await requiredRole(transaction, expected.applicationId, stringValue(value.roleId), false);
+      const role = await requiredRole(transaction, expected.applicationId, stringValue(value.roleId), false);
       const assignment = RoleAssignmentSchema.safeParse({ schemaVersion: 1, applicationId: expected.applicationId, id: value.id, roleId: value.roleId, principal: value.principal, state: "active", revision: nextRevision(expected) });
       if (!assignment.success) invalid("Role assignment is invalid.");
+      assertAssignmentDelegable(await delegationAuthority(transaction, expected.applicationId, catalog, decision), role, assignment.data.principal);
       if ((await transaction.listAssignments(expected.applicationId)).some((candidate) => candidate.id === assignment.data.id)) conflict("Role assignment already exists.");
       await transaction.write({ kind: "assignment", assignment: assignment.data });
       return assignment.data;
@@ -215,10 +217,12 @@ export class SystemAccessAdministrationService<TContext> {
 
   async revokeAssignment(input: Readonly<{ readonly context: TContext; readonly expected: unknown; readonly assignmentId: string }>): Promise<AuthorizationTransactionOutcome<RoleAssignment>> {
     exactInput(input, ["assignmentId", "context", "expected"]);
-    return this.mutate(input.context, input.expected, targets.assignmentsManage, "revoke-assignment", async (transaction, expected) => {
+    return this.mutate(input.context, input.expected, targets.assignmentsManage, "revoke-assignment", async (transaction, expected, catalog, decision) => {
       const assignment = (await transaction.listAssignments(expected.applicationId)).find((candidate) => candidate.id === input.assignmentId);
       if (assignment === undefined) invalid("Role assignment does not exist.");
       if (assignment.state === "revoked") conflict("Role assignment is already revoked.");
+      const role = await requiredRole(transaction, expected.applicationId, assignment.roleId, false);
+      assertProtectedAssignmentChange(await delegationAuthority(transaction, expected.applicationId, catalog, decision), role);
       const revoked = RoleAssignmentSchema.parse({ ...assignment, state: "revoked", revision: nextRevision(expected) });
       await transaction.write({ kind: "assignment", assignment: revoked });
       return revoked;
@@ -230,10 +234,13 @@ export class SystemAccessAdministrationService<TContext> {
     return this.storeErrorBoundary(async () => {
       const expected = parseAuthorizationExpectedRevision(input.expected);
       const decision = await this.admitMutation(input.context, expected, targets.assignmentsManage);
+      const catalog = await this.catalog(expected.applicationId, expected.lifecycleRevision);
       return this.options.store.transaction(expected, async (transaction) => {
         const assignment = (await transaction.listAssignments(expected.applicationId)).find((candidate) => candidate.id === input.assignmentId);
         if (assignment === undefined) invalid("Role assignment does not exist.");
         if (assignment.state === "active") conflict("Role assignment is already active.");
+        const role = await requiredRole(transaction, expected.applicationId, assignment.roleId, false);
+        assertAssignmentDelegable(await delegationAuthority(transaction, expected.applicationId, catalog, decision), role, assignment.principal);
         const active = RoleAssignmentSchema.parse({ ...assignment, state: "active", revision: nextRevision(expected) });
         await transaction.write({ kind: "assignment", assignment: active });
         await transaction.write({ kind: "audit", audit: audit(decision, "reactivate-assignment", active.id) });
@@ -266,7 +273,9 @@ export class SystemAccessAdministrationService<TContext> {
       const decision = await this.admitMutation(input.context, expected, targets.rolesManage);
       const catalog = await this.catalog(expected.applicationId, expected.lifecycleRevision);
       const template = oneTemplate(catalog, input.templateId);
-      return instantiateRoleTemplate({ store: this.options.store, expected, effectiveTemplate: template, role: parseTemplateRole(input.role), audit: audit(decision, "instantiate-template", input.templateId) });
+      return instantiateRoleTemplate({ store: this.options.store, expected, effectiveTemplate: template, role: parseTemplateRole(input.role), audit: audit(decision, "instantiate-template", input.templateId), admit: async (transaction) => {
+        assertPermissionsDelegable(await delegationAuthority(transaction, expected.applicationId, catalog, decision), catalog, template.template.permissionIds, template.owner);
+      } });
     });
   }
 
@@ -278,7 +287,9 @@ export class SystemAccessAdministrationService<TContext> {
       const catalog = await this.catalog(expected.applicationId, expected.lifecycleRevision);
       const template = oneTemplate(catalog, input.templateId);
       const permissionIds = canonicalSelection(input.permissionIds);
-      return copyTemplatePermissionsToRole({ store: this.options.store, expected, effectiveTemplate: template, roleId: input.roleId, permissionIds, audit: audit(decision, "copy-template-permissions", `${input.roleId}/${input.templateId}`) });
+      return copyTemplatePermissionsToRole({ store: this.options.store, expected, effectiveTemplate: template, roleId: input.roleId, permissionIds, audit: audit(decision, "copy-template-permissions", `${input.roleId}/${input.templateId}`), admit: async (transaction) => {
+        assertPermissionsDelegable(await delegationAuthority(transaction, expected.applicationId, catalog, decision), catalog, permissionIds, template.owner);
+      } });
     });
   }
 
@@ -293,13 +304,13 @@ export class SystemAccessAdministrationService<TContext> {
     });
   }
 
-  private async mutate<TResult>(context: TContext, expectedValue: unknown, target: CurrentAuthorityTarget, action: string, work: (transaction: AuthorizationStoreTransaction, expected: AuthorizationExpectedRevision, catalog: EffectiveAuthorizationCatalog) => Promise<TResult>): Promise<AuthorizationTransactionOutcome<TResult>> {
+  private async mutate<TResult>(context: TContext, expectedValue: unknown, target: CurrentAuthorityTarget, action: string, work: (transaction: AuthorizationStoreTransaction, expected: AuthorizationExpectedRevision, catalog: EffectiveAuthorizationCatalog, decision: AuthorizationDecision) => Promise<TResult>): Promise<AuthorizationTransactionOutcome<TResult>> {
     return this.storeErrorBoundary(async () => {
       const expected = parseAuthorizationExpectedRevision(expectedValue);
       const decision = await this.admitMutation(context, expected, target);
       const catalog = await this.catalog(expected.applicationId, expected.lifecycleRevision);
       return this.options.store.transaction(expected, async (transaction) => {
-        const value = await work(transaction, expected, catalog);
+        const value = await work(transaction, expected, catalog, decision);
         await transaction.write({ kind: "audit", audit: audit(decision, action, auditSubject(value)) });
         return value;
       });
@@ -352,11 +363,115 @@ function expectedFromDecision(decision: AuthorizationDecision): AuthorizationExp
 }
 
 function activeGrantKeys(catalog: EffectiveAuthorizationCatalog): ReadonlySet<string> {
-  return new Set(catalog.permissions.map((permission) => `${permission.descriptor.id}\u0000${ownerKey(permission.owner)}`));
+  return new Set(catalog.permissions.map(permissionKey));
+}
+
+function permissionKey(permission: Pick<EffectiveAuthorizationCatalog["permissions"][number], "descriptor" | "owner">): string {
+  return `${permission.descriptor.id}\u0000${ownerKey(permission.owner)}`;
+}
+
+function grantKey(grant: RolePermissionGrant): string {
+  return `${grant.permissionId}\u0000${ownerKey(grant.owner)}`;
+}
+
+function sameSubject(left: AuthorizationSubject, right: AuthorizationSubject): boolean {
+  return left.kind === right.kind && left.id === right.id;
 }
 
 function roleIsInactiveOnly(role: Role, grants: readonly RolePermissionGrant[], active: ReadonlySet<string>): boolean {
-  return role.protectedRoleId === undefined && grants.length > 0 && !grants.some((grant) => active.has(`${grant.permissionId}\u0000${ownerKey(grant.owner)}`));
+  return role.protectedRoleId === undefined && grants.length > 0 && !grants.some((grant) => active.has(grantKey(grant)));
+}
+
+interface DelegationAuthority {
+  readonly root: boolean;
+  readonly permissionKeys: ReadonlySet<string>;
+  readonly rolePermissionKeys: ReadonlyMap<string, ReadonlySet<string>>;
+  readonly principal: AuthorizationSubject;
+  readonly effectiveActor: AuthorizationSubject;
+}
+
+/**
+ * Generic administration permissions only open this service.  Each authority
+ * expansion is constrained by the actor's current transaction-local closure.
+ */
+async function delegationAuthority(
+  transaction: AuthorizationStoreReadTransaction,
+  applicationId: string,
+  catalog: EffectiveAuthorizationCatalog,
+  decision: AuthorizationDecision
+): Promise<DelegationAuthority> {
+  const roles = await transaction.listRoles(applicationId);
+  const grants = await transaction.listGrants(applicationId);
+  const assignments = await transaction.listAssignments(applicationId);
+  const active = activeGrantKeys(catalog);
+  const rolesById = new Map(roles.map((role) => [role.id, role]));
+  const rolePermissionKeys = new Map<string, ReadonlySet<string>>();
+  for (const role of roles) {
+    // Persisted dormant grants are not current authority, but a non-owner may
+    // not assign a role that could regain authority after lifecycle changes.
+    rolePermissionKeys.set(role.id, new Set(grants.filter((grant) => grant.roleId === role.id).map(grantKey)));
+  }
+  const fullCatalog = active;
+  const authorityFor = (subject: AuthorizationSubject): Readonly<{ readonly root: boolean; readonly permissionKeys: ReadonlySet<string> }> => {
+    const assignedRoleIds = new Set(assignments
+      .filter((assignment) => assignment.state === "active" && sameSubject(assignment.principal, subject))
+      .map((assignment) => assignment.roleId));
+    const root = subject.kind === "user" && [...assignedRoleIds].some((roleId) => rolesById.get(roleId)?.protectedRoleId === "system.role.owner");
+    if (root) return Object.freeze({ root: true, permissionKeys: fullCatalog });
+    const permissionKeys = new Set<string>();
+    for (const roleId of assignedRoleIds) {
+      for (const key of rolePermissionKeys.get(roleId) ?? []) if (active.has(key)) permissionKeys.add(key);
+    }
+    return Object.freeze({ root: false, permissionKeys });
+  };
+  const principal = authorityFor(decision.principal);
+  const effectiveActor = sameSubject(decision.principal, decision.effectiveActor) ? principal : authorityFor(decision.effectiveActor);
+  const permissionKeys = sameSubject(decision.principal, decision.effectiveActor)
+    ? principal.permissionKeys
+    : new Set([...principal.permissionKeys].filter((key) => effectiveActor.permissionKeys.has(key)));
+  return Object.freeze({
+    root: principal.root && effectiveActor.root,
+    permissionKeys,
+    rolePermissionKeys,
+    principal: decision.principal,
+    effectiveActor: decision.effectiveActor
+  });
+}
+
+function assertPermissionDelegable(authority: DelegationAuthority, permission: EffectiveAuthorizationCatalog["permissions"][number]): void {
+  if (!authority.root && !authority.permissionKeys.has(permissionKey(permission))) unauthorized();
+}
+
+function assertPermissionsDelegable(
+  authority: DelegationAuthority,
+  catalog: EffectiveAuthorizationCatalog,
+  permissionIds: readonly string[],
+  owner: AuthorizationOwnerRef
+): void {
+  for (const permissionId of permissionIds) {
+    const permission = catalog.permissions.find((candidate) => candidate.descriptor.id === permissionId && ownerKey(candidate.owner) === ownerKey(owner));
+    if (permission === undefined) invalid("Selected permission is not active for the selected owner.");
+    assertPermissionDelegable(authority, permission);
+  }
+}
+
+function assertAssignmentDelegable(authority: DelegationAuthority, role: Role, subject: AuthorizationSubject): void {
+  if (isProtectedRole(role)) {
+    if (!authority.root) unauthorized();
+    if (subject.kind !== "user") invalid("Protected roles may only be assigned to human users.");
+    return;
+  }
+  if (!authority.root && (sameSubject(subject, authority.principal) || sameSubject(subject, authority.effectiveActor))) {
+    unauthorized();
+  }
+  if (!authority.root && [...(authority.rolePermissionKeys.get(role.id) ?? [])].some((key) => !authority.permissionKeys.has(key))) {
+    unauthorized();
+  }
+}
+
+function assertProtectedAssignmentChange(authority: DelegationAuthority, role: Role): void {
+  if (!isProtectedRole(role)) return;
+  if (!authority.root) unauthorized();
 }
 
 function groupPermissions(catalog: EffectiveAuthorizationCatalog): readonly ActivePermissionGroup[] {
@@ -373,7 +488,7 @@ function groupPermissions(catalog: EffectiveAuthorizationCatalog): readonly Acti
 function grantDiagnostics(grants: readonly RolePermissionGrant[], catalog: EffectiveAuthorizationCatalog, snapshots: readonly PermissionCatalogSnapshot[]): readonly RoleGrantDiagnostic[] {
   const active = activeGrantKeys(catalog);
   return Object.freeze([...grants].sort((left, right) => compare(left.id, right.id)).map((grant) => {
-    if (active.has(`${grant.permissionId}\u0000${ownerKey(grant.owner)}`)) return Object.freeze({ grant, state: "active" as const });
+    if (active.has(grantKey(grant))) return Object.freeze({ grant, state: "active" as const });
     const snapshot = snapshots.find((candidate) => candidate.permission.id === grant.permissionId && candidate.owner !== undefined && ownerKey(candidate.owner) === ownerKey(grant.owner));
     return Object.freeze({ grant, state: "inactive" as const, inactiveReason: snapshot?.state ?? "orphaned-after-removal" });
   }));
