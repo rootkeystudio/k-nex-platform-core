@@ -110,6 +110,7 @@ test("P10.7 durable lifecycle catalog binds and revokes Sales and Hot authority"
   try {
     await boot(container.getConnectionUri());
     process.env.DATABASE_URL = container.getConnectionUri();
+    process.env.NODE_ENV = "production";
     process.env.PAYLOAD_SECRET = "p10-7-current-authority";
     const { bootGate1Application } = await import("../dist/src/boot.js");
     payload = await bootGate1Application({ key: "p10-7-current-authority" });

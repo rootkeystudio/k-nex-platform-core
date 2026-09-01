@@ -119,6 +119,7 @@ test("P10.5 current authority denies fixture source/action before handler, cache
   try {
     await boot(container.getConnectionUri());
     process.env.DATABASE_URL = container.getConnectionUri();
+    process.env.NODE_ENV = "production";
     process.env.PAYLOAD_SECRET = "p10-5-boundaries";
     const { bootGate1Application } = await import("../dist/src/boot.js");
     payload = await bootGate1Application({ key: "p10-5-boundaries" });

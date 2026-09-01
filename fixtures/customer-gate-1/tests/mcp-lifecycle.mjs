@@ -35,13 +35,21 @@ const state = initialState === undefined
   })).state
   : initialState;
 const salesOwner = Object.freeze({ kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales", generation: 1 });
+const existingGeneration = await pool.query(
+  "select 1 from k_nex_extension_authorization_generations where application_id=$1 and delivery_class='platform-plugin' and extension_id='module.sales' and authorization_generation=1",
+  ["customer-gate-1"]
+);
+const existingRuntime = await pool.query(
+  "select 1 from runtime_extensions where application_id=$1 and environment=$2 and delivery_class='platform-plugin' and extension_id='module.sales'",
+  ["customer-gate-1", "production"]
+);
 await store.transaction({
   applicationId: "customer-gate-1",
   environment: "production",
   authorizationRevision: state.authorizationRevision,
   lifecycleRevision: state.lifecycleRevision
 }, async (transaction) => {
-  await transaction.write({ kind: "extension-generation", generation: {
+  if (existingGeneration.rowCount === 0) await transaction.write({ kind: "extension-generation", generation: {
     schemaVersion: 1,
     applicationId: "customer-gate-1",
     owner: salesOwner,
@@ -78,7 +86,7 @@ await store.transaction({
     revision: 0
   } });
 });
-await pool.query(
+if (existingRuntime.rowCount === 0) await pool.query(
   "insert into runtime_extensions (application_id, environment, delivery_class, extension_id, revision, disposition, active_generation_id, active_generation) values ($1,$2,$3,$4,1,'active',$5,$6::jsonb)",
   ["customer-gate-1", "production", "platform-plugin", "module.sales", "static-module-sales-1", JSON.stringify(staticAuthorizationBuild)]
 );

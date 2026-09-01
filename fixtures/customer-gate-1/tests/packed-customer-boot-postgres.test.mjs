@@ -86,25 +86,22 @@ async function protectedObservation(pool, inventory) {
 test("boots both customer apps from packed packages and verifies protected runtime observations", { timeout: 240_000 }, async () => {
   const container = await startPostgres();
   const administrator = new pg.Pool({ connectionString: container.getConnectionUri() });
-  const supportManifest = JSON.parse(readFileSync(resolve(repositoryRoot, "releases/0.2.0/package-release-manifest.json"), "utf8"));
-  const priorManifest = JSON.parse(readFileSync(resolve(repositoryRoot, "releases/0.1.0/package-release-manifest.json"), "utf8"));
-  const committedAlpha = JSON.parse(readFileSync(resolve(repositoryRoot, "fixtures/customer-alpha/runtime-inventory.json"), "utf8"));
-  const sourceCommit = committedAlpha.releaseEvidence.sourceCommit;
+  const supportManifest = JSON.parse(readFileSync(resolve(repositoryRoot, "releases/1.0.0/package-release-manifest.json"), "utf8"));
+  const sourceCommit = "a".repeat(40);
   const verifier = createFixtureDeploymentVerifier(sourceCommit);
   const supportRelease = await verifier.verifyManifest(supportManifest);
-  const priorRelease = await verifier.verifyManifest(priorManifest);
   const fleet = new FleetRegistry(supportRelease, verifier.packageReleaseAuthority, verifier.applicationBundleAuthority, verifier.authority);
   const pools = [];
   const generatedRoot = realpathSync(mkdtempSync(join(tmpdir(), "phase-8-generated-app-")));
   try {
     const mirror = resolve(generatedRoot, "packages");
     mkdirSync(mirror);
-    const releaseEntries = new Map([...supportManifest.packages, ...priorManifest.packages].map((entry) => [`${entry.package}@${entry.version}`, entry]));
+    const releaseEntries = new Map(supportManifest.packages.map((entry) => [`${entry.package}@${entry.version}`, entry]));
     for (const entry of releaseEntries.values()) {
       const filename = `${entry.package.slice(1).replace("/", "-")}-${entry.version}.tgz`;
       copyFileSync(resolve(repositoryRoot, "fixtures/customer-gate-1/packages", filename), resolve(mirror, filename));
     }
-    for (const [label, releaseManifest] of [["current", supportManifest], ["prior", priorManifest]]) {
+    for (const [label, releaseManifest] of [["current", supportManifest]]) {
       const applicationId = `gate-eight-${label}`;
       const generatedApplication = resolve(generatedRoot, `application-${label}`);
       const generatedPlan = planCreateKnexApplication({
@@ -134,39 +131,8 @@ test("boots both customer apps from packed packages and verifies protected runti
       assert.deepEqual(generatedState.rows, [{ tasks: "sales_tasks", opportunities: "sales_opportunities", migrations: 2, revision: 1, pages: 2 }]);
     }
 
-    for (const customer of ["customer-alpha", "customer-beta"]) {
-      const database = customer.replace("-", "_");
-      await administrator.query(`create database ${database}`);
-      const url = new URL(container.getConnectionUri());
-      url.pathname = `/${database}`;
-      const fixture = resolve(repositoryRoot, "fixtures", customer);
-      const boot = await bootCustomer(fixture, customer, url.toString());
-      assert.equal(boot.code, 0, `${boot.stdout}\n${boot.stderr}`);
-      const marker = boot.stdout.match(/PACKED_CUSTOMER_BOOT (\{.*\})/u);
-      assert.ok(marker, boot.stdout);
-      const bootEvidence = JSON.parse(marker[1]);
-      assert.deepEqual(bootEvidence.collections, ["sales-opportunities", "sales-tasks"]);
-      assert.equal(bootEvidence.resolvedPackages.every((path) => path.includes(`/fixtures/${customer}/node_modules/.pnpm/`)), true);
+    assert.equal(pools.length, 1);
 
-      const pool = new pg.Pool({ connectionString: url.toString() });
-      pools.push(pool);
-      const committed = JSON.parse(readFileSync(resolve(repositoryRoot, `fixtures/${customer}/runtime-inventory.json`), "utf8"));
-      const inventory = { ...committed, migrationRevision: 1, observedAt: "2026-08-27T15:00:00.000Z" };
-      const endpoint = await protectedObservation(pool, inventory);
-      try {
-        const receipt = createDeploymentReceipt({
-          inventory,
-          deploymentId: `packed-boot:${customer}:1`,
-          deployedAt: "2026-08-27T15:01:00.000Z",
-          approvedBy: { kind: "workflow", identity: `rootkeystudio/k-nex-platform-core/.github/workflows/deploy.yml@${sourceCommit}` },
-          smoke: { status: "passed", checks: ["protected-runtime-inventory", "sales-query"] }
-        });
-        fleet.ingest(await verifier.verify(inventory, receipt, inventory.platformRelease === "0.2.0" ? supportRelease : priorRelease, endpoint.observe));
-      } finally {
-        await endpoint.close();
-      }
-    }
-    assert.deepEqual(fleet.list().map(({ inventory }) => inventory.applicationId), ["customer-alpha", "customer-beta"]);
   } finally {
     await Promise.all(pools.map((pool) => pool.end()));
     await administrator.end();

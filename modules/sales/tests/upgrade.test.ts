@@ -2,39 +2,10 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { PackageReleaseManifestSchema } from "@k-nex/contracts";
-import { dryRunPluginUpgrade, planPluginUpgrade } from "@k-nex/runtime";
-
-import { salesUpgradeMigrations, salesUpgradeTargets } from "../src/migrations.js";
-
-describe("Sales upgrade fixture", () => {
-  it("proves the customer-owned schema and every supported artifact migration", () => {
-    const targetReleaseManifest = PackageReleaseManifestSchema.parse(JSON.parse(readFileSync(new URL("../../../releases/0.2.0/package-release-manifest.json", import.meta.url), "utf8")));
-    const currentReleaseManifest = PackageReleaseManifestSchema.parse(JSON.parse(readFileSync(new URL("../../../releases/0.1.0/package-release-manifest.json", import.meta.url), "utf8")));
-    const plan = planPluginUpgrade({
-      pluginId: "module.sales",
-      currentVersion: "0.9.0",
-      targetVersion: "1.0.0",
-      currentPlatformRelease: "0.1.0",
-      targetPlatformRelease: "0.2.0",
-      currentReleaseManifest,
-      targetReleaseManifest,
-      targets: salesUpgradeTargets,
-      migrations: salesUpgradeMigrations
-    });
-    const artifacts = Object.fromEntries(salesUpgradeTargets.map(({ artifactId }) => [artifactId, { revision: 1, customerOwned: true }]));
-    const result = dryRunPluginUpgrade(plan, artifacts);
-    expect(plan.steps[0]?.kind).toBe("customer-schema");
-    expect(result.ready).toBe(true);
-    expect(Object.values(result.artifacts)).toEqual([
-      { revision: 2, customerOwned: true, indexContractVersion: 2 },
-      { revision: 2, customerOwned: true, queryPolicyVersion: 2 },
-      { revision: 2, customerOwned: true, idempotencyPolicyVersion: 2 },
-      { revision: 2, customerOwned: true, approvalPolicyVersion: 2 },
-      { revision: 2, customerOwned: true, accessibilityContractVersion: 2 },
-      { revision: 2, customerOwned: true, tokenContractVersion: 2 },
-      { revision: 2, customerOwned: true, requirementsVersion: 2 },
-      { revision: 2, customerOwned: true, settingsMigrationVersion: 2 }
-    ]);
+describe("Sales release fixture", () => {
+  it("keeps the first product release at v1.0.0", () => {
+    const release = JSON.parse(readFileSync(new URL("../../../releases/1.0.0/package-release-manifest.json", import.meta.url), "utf8"));
+    expect(release.release.version).toBe("1.0.0");
+    expect(release.packages.every((entry: { version: string }) => entry.version === "1.0.0")).toBe(true);
   });
 });

@@ -162,6 +162,13 @@ export class DurableStaticReleaseOperator implements StaticReleaseOperator {
     return this.rollbackReceipt(operation, persisted);
   }
 
+  async finalize(operation: ExtensionOperationStatus): Promise<void> {
+    await this.admit(operation);
+    const plan = operation.plan;
+    if (!plan || plan.executionClass !== "static-release") throw new StaticReleaseOperatorError("INVALID_OPERATION", "Static release finalization requires a static-release operation plan.");
+    await this.supervisor.recover({ applicationId: operation.request.applicationId, environment: operation.request.environment });
+  }
+
   private async request(operation: ExtensionOperationStatus): Promise<DurableStaticReleaseRequest> {
     const plan = operation.plan;
     if (!plan || plan.executionClass !== "static-release") throw new StaticReleaseOperatorError("INVALID_OPERATION", "Static release operator requires a static-release operation plan.");

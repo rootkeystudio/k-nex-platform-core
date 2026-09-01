@@ -19,6 +19,7 @@ import * as migration_20260829_000018_runner_quarantine from "./20260829_000018_
 import * as migration_20260901_000019_authorization_storage from "./20260901_000019_authorization_storage.js";
 import * as migration_20260901_000020_template_tombstones from "./20260901_000020_template_tombstones.js";
 import * as migration_20260901_000021_authorization_outbox from "./20260901_000021_authorization_outbox.js";
+import * as migration_20260901_000022_static_lifecycle_admission from "./20260901_000022_static_lifecycle_admission.js";
 
 import type { CustomerPayloadMigration } from "@k-nex/payload-adapter";
 
@@ -127,5 +128,10 @@ export const migrations: CustomerPayloadMigration[] = [
     up: migration_20260901_000021_authorization_outbox.up,
     down: migration_20260901_000021_authorization_outbox.down,
     name: "20260901_000021_authorization_outbox"
+  },
+  {
+    up: migration_20260901_000022_static_lifecycle_admission.up,
+    down: migration_20260901_000022_static_lifecycle_admission.down,
+    name: "20260901_000022_static_lifecycle_admission"
   }
 ];

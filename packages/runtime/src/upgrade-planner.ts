@@ -88,6 +88,7 @@ export function planPluginUpgrade(input: {
   readonly targetPlatformRelease: string;
   readonly currentReleaseManifest: PackageReleaseManifest;
   readonly targetReleaseManifest: PackageReleaseManifest;
+  readonly packageName: string;
   readonly targets: readonly UpgradeTarget[];
   readonly migrations: readonly UpgradeMigration[];
 }): UpgradePlan {
@@ -100,8 +101,8 @@ export function planPluginUpgrade(input: {
     !targetRelease.data.supportWindow.supportedReleases.includes(input.currentPlatformRelease)) {
     diagnostics.push(diagnostic("UNSUPPORTED_RELEASE", "Platform upgrade source and target must belong to the declared support window."));
   } else {
-    const currentPackage = currentRelease.data.packages.find((entry) => entry.package === `@k-nex/${input.pluginId.replace("module.", "module-")}`);
-    const targetPackage = targetRelease.data.packages.find((entry) => entry.package === `@k-nex/${input.pluginId.replace("module.", "module-")}`);
+    const currentPackage = currentRelease.data.packages.find((entry) => entry.package === input.packageName);
+    const targetPackage = targetRelease.data.packages.find((entry) => entry.package === input.packageName);
     if (currentPackage?.version !== input.currentVersion || targetPackage?.version !== input.targetVersion || currentPackage.integrity === targetPackage.integrity) {
       diagnostics.push(diagnostic("UNSUPPORTED_RELEASE", "Plugin source and target must be distinct trusted release artifacts."));
     }

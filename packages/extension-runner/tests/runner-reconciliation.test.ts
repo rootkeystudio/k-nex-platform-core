@@ -425,6 +425,7 @@ describe("runner startup reconciliation", () => {
     const writes: string[] = [];
     process.stdin.on("data", (chunk: Buffer) => { writes.push(chunk.toString("utf8")); });
     process.kill = vi.fn(() => { process.emit("close", 137); return true; });
+    supervisor.kill = vi.fn(async () => {});
     const invocation = { ...request({ invocationId: "runner-revoked-before-handoff", limits: { ...request().limits, wallTimeMs: 10_000 } }), ...orphan, source: "export default () => null" };
     const outcome = supervisor.exchange(process, invocation, "runner-revoked-before-handoff", 10_000, vi.fn());
 

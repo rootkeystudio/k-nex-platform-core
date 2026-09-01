@@ -368,9 +368,28 @@ assert.deepEqual(inventory.plugins, [{
       "sales.tasks.title.read": "required",
       "sales.tasks.write": "required"
     },
+    policyBindings: {
+      "sales.policy.opportunities.name.read": "required",
+      "sales.policy.opportunities.read": "required",
+      "sales.policy.opportunities.stage.read": "required",
+      "sales.policy.opportunities.value.read": "required",
+      "sales.policy.opportunities.write": "required",
+      "sales.policy.tasks.private-note.read": "required",
+      "sales.policy.tasks.read": "required",
+      "sales.policy.tasks.revenue.read": "required",
+      "sales.policy.tasks.status.read": "required",
+      "sales.policy.tasks.title.read": "required",
+      "sales.policy.tasks.write": "required"
+    },
     realtimeTopics: {
       "sales.realtime.opportunities": "required",
       "sales.realtime.tasks": "required"
+    },
+    roleTemplates: {
+      "sales.template.administrator": "required",
+      "sales.template.manager": "required",
+      "sales.template.representative": "required",
+      "sales.template.viewer": "required"
     },
     routes: {
       "sales.route.opportunities": "required",
@@ -425,9 +444,9 @@ assert.deepEqual(inventory.plugins, [{
   actualContributions: {}
 }]);
 assert.deepEqual(inventory.migrationRevision, {
-  migrationName: "20260901_000021_authorization_outbox",
-  predecessor: 20,
-  current: 21
+  migrationName: "20260901_000022_static_lifecycle_admission",
+  predecessor: 21,
+  current: 22
 });
 const serializedInventory = JSON.stringify(inventory);
 for (const forbidden of [process.env.DATABASE_URL, process.env.PAYLOAD_SECRET, login.token, password, "gate1@example.test"]) {

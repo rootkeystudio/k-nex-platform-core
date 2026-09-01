@@ -133,6 +133,7 @@ class MemoryStore implements AuthorizationStore {
 
   private generations: ExtensionAuthorizationGeneration[];
   async readState(): Promise<AuthorizationState> { return this.state; }
+  async readTransaction<T>(actual: AuthorizationExpectedRevision, work: (transaction: Omit<AuthorizationStoreTransaction, "write">) => Promise<T>) { return this.transaction(actual, work); }
   async bootstrapFirstOwnerTransaction<T>(actual: AuthorizationExpectedRevision, work: (transaction: AuthorizationStoreTransaction) => Promise<T>) { return this.transaction(actual, work); }
   async transaction<T>(actual: AuthorizationExpectedRevision, work: (transaction: AuthorizationStoreTransaction) => Promise<T>) {
     if (actual.applicationId !== this.state.applicationId || actual.environment !== this.state.environment || actual.authorizationRevision !== this.state.authorizationRevision || actual.lifecycleRevision !== this.state.lifecycleRevision) {

@@ -11,6 +11,7 @@ import {
   AuthorizationLifecycleProjector,
   activePayloadPostgresTransaction,
   PostgresRuntimeExtensionStore,
+  SharedStaticPlatformPluginGenerationRebinder,
   createStaticPlatformPluginAuthorizationDescriptorResolver,
   runtimeExtensionIdentityKey
 } from "@k-nex/payload-adapter";
@@ -215,7 +216,8 @@ async function proveRace(connectionString) {
     );
     await seedActiveSalesAuthorization(pool, authorizationLifecycleProjector);
     const store = new PostgresRuntimeExtensionStore(pool, { now: () => new Date("2026-08-31T00:00:00.000Z") }, `sha256:${"a".repeat(64)}`, {
-      authorizationLifecycleProjector
+      authorizationLifecycleProjector,
+      sharedStaticGenerationRebinder: new SharedStaticPlatformPluginGenerationRebinder()
     });
     const change = {
       ...identity, extension: { deliveryClass: identity.deliveryClass, id: identity.extensionId }, operation: "disable", targetVersion: "1.0.0", expectedRevision: 0,

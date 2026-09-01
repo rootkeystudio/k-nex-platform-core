@@ -84,6 +84,11 @@
     "schema": "extension-lifecycle-event",
     "validator": "json-schema"
   },
+  "fixtures/extensions/invalid/shared-static-rebind.missing-worker-fence.json": {
+    "code": "SCHEMA_INVALID",
+    "schema": "extension-shared-static-generation-rebind-event",
+    "validator": "json-schema"
+  },
   "fixtures/extensions/invalid/migration.unknown-phase.json": {
     "code": "SCHEMA_INVALID",
     "schema": "migration-compatibility-plan",

@@ -55,6 +55,7 @@ async function request(store: VerifiedArtifactStore, generationId: string, sourc
     schemaVersion: 1 as const, deliveryClass: "hot-application" as const, id: target.appId, displayName: "Runner fixture", version: "1.0.0", runtimeAbi: "1.0.0",
     entrypoints: { server: ["server/main.mjs"], ui: ["ui/main.mjs"] },
     capabilities: options.capabilities ?? [],
+    permissions: [], policyBindings: [],
     resourceBudget: { maxBundleBytes: 1_048_576, maxAssetBytes: 1_024, maxStorageBytes: 1_024, maxMemoryMiB: 64, maxCpuMilliCores: 250, maxWallTimeMs: 10_000, maxInputBytes: 8_192, maxOutputBytes: 8_192, maxLogBytes: 8_192, maxConcurrency: 2 },
     settings: [], screens: [{ id: "runner.screen", route: "/", entrypoint: "ui/main.mjs" }], navigation: [], sources: [], actions: [], tools: [], logicFunctions: [], eventSubscriptions: [], schedules: [], storageSchemas: [], assets: [], localization: [], healthChecks: []
   };

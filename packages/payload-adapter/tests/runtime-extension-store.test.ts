@@ -9,6 +9,7 @@ import type { AuthorizationLifecycleProjectionInput } from "../src/authorization
 
 const now = new Date("2026-08-31T12:00:00.000Z");
 const digest = (character: string) => `sha256:${character.repeat(64)}`;
+const staticRebinder = () => ({ rebind: vi.fn(async () => undefined) });
 const owner = { applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application" as const, extensionId: "app.sales-live" };
 const authority = { ...owner, generationId: "generation-retained", sourceCommit: "a".repeat(40), artifactDigest: digest("a"), manifestDigest: digest("b"), catalogDigest: digest("c"), provenanceDigest: digest("d"), sbomDigest: digest("e") };
 const activeAuthority = { ...authority, generationId: "generation-active" };
@@ -18,7 +19,7 @@ describe("runner quarantine durable reasons", () => {
   it("rejects host-only policy availability before database interaction and excludes it from the migration constraint", async () => {
     const query = vi.fn();
     const pool: RuntimeExtensionPool = { connect: vi.fn(), query };
-    const store = new PostgresRuntimeExtensionStore(pool, { now: () => now }, digest("9"));
+    const store = new PostgresRuntimeExtensionStore(pool, { now: () => now }, digest("9"), { sharedStaticGenerationRebinder: staticRebinder() });
 
     await expect(store.quarantineRunnerGeneration({
       applicationId: "customer-alpha",
@@ -104,7 +105,7 @@ function rollbackHarness(overrides: Readonly<{
   const projector = overrides.projector ?? { project: vi.fn(async () => undefined) };
   const pool: RuntimeExtensionPool = { connect: vi.fn(async () => session), query };
   return {
-    store: new PostgresRuntimeExtensionStore(pool, { now: () => currentNow }, digest("9"), overrides.withoutProjector ? {} : { authorizationLifecycleProjector: projector }),
+    store: new PostgresRuntimeExtensionStore(pool, { now: () => currentNow }, digest("9"), { sharedStaticGenerationRebinder: staticRebinder(), ...(overrides.withoutProjector ? {} : { authorizationLifecycleProjector: projector }) }),
     queries,
     projector,
     expireReadiness: () => { currentNow = new Date("2026-08-31T12:02:00.000Z"); }
@@ -145,7 +146,7 @@ function hotApplicationDispositionHarness() {
   const session: RuntimeExtensionSession = { query, release: vi.fn() };
   const pool: RuntimeExtensionPool = { connect: vi.fn(async () => session), query };
   return {
-    store: new PostgresRuntimeExtensionStore(pool, { now: () => now }, digest("9"), { authorizationLifecycleProjector: projector }),
+    store: new PostgresRuntimeExtensionStore(pool, { now: () => now }, digest("9"), { authorizationLifecycleProjector: projector, sharedStaticGenerationRebinder: staticRebinder() }),
     projector
   };
 }
@@ -198,9 +199,10 @@ function staticUninstallHarness(
   });
   const session: RuntimeExtensionSession = { query, release: vi.fn() };
   const pool: RuntimeExtensionPool = { connect: vi.fn(async () => session), query };
+  const rebinder = { rebind: vi.fn(async () => undefined) };
   return {
-    store: new PostgresRuntimeExtensionStore(pool, { now: () => now }, digest("9"), { authorizationLifecycleProjector: projector }),
-    projector, queries, retained, receipt
+    store: new PostgresRuntimeExtensionStore(pool, { now: () => now }, digest("9"), { authorizationLifecycleProjector: projector, sharedStaticGenerationRebinder: rebinder }),
+    projector, rebinder, queries, retained, receipt
   };
 }
 
@@ -239,7 +241,7 @@ function quarantinedLiveUpdateHarness() {
   });
   const session: RuntimeExtensionSession = { query, release: vi.fn() };
   const pool: RuntimeExtensionPool = { connect: vi.fn(async () => session), query };
-  return { store: new PostgresRuntimeExtensionStore(pool, { now: () => now }, digest("9"), { authorizationLifecycleProjector: projector }), projector, queries, retained, targetAuthority };
+  return { store: new PostgresRuntimeExtensionStore(pool, { now: () => now }, digest("9"), { authorizationLifecycleProjector: projector, sharedStaticGenerationRebinder: staticRebinder() }), projector, queries, retained, targetAuthority };
 }
 
 describe("PostgresRuntimeExtensionStore rollback readiness", () => {
@@ -395,6 +397,10 @@ describe("PostgresRuntimeExtensionStore static retained uninstall", () => {
       runtimeGenerationIds: [value.retained.generationId],
       transition: expect.objectContaining({ operation: "uninstall", lifecycleState: "removed" })
     }));
+    expect(value.rebinder.rebind).toHaveBeenCalledWith(expect.objectContaining({
+      session: expect.anything(), previousGenerationId: value.receipt.previousGenerationId,
+      receipt: value.receipt, excludeExtensionId: "module.sales", operationId: "operation-static-uninstall-1"
+    }));
   });
 
   it("rejects a static uninstall whose plan does not bind retained generation", async () => {
@@ -427,5 +433,17 @@ describe("PostgresRuntimeExtensionStore static retained uninstall", () => {
     await expect(value.store.completeStaticRelease("operation-static-uninstall-1", "lease-1", value.receipt))
       .rejects.toMatchObject({ code: "GENERATION_MISMATCH" });
     expect(value.queries.some(([text]) => text.startsWith("update runtime_extensions set revision="))).toBe(false);
+  });
+
+  it("rolls back target, authorization, and retained reconciliation when shared rebind fails", async () => {
+    const value = staticUninstallHarness();
+    value.rebinder.rebind.mockRejectedValueOnce(new Error("rebind rejected"));
+
+    await expect(value.store.completeStaticRelease("operation-static-uninstall-1", "lease-1", value.receipt))
+      .rejects.toThrow("rebind rejected");
+
+    expect(value.queries.map(([text]) => text)).toContain("rollback");
+    expect(value.queries.map(([text]) => text)).not.toContain("commit");
+    expect(value.queries.some(([text]) => text.startsWith("update runtime_extension_operations set phase='completed'"))).toBe(false);
   });
 });

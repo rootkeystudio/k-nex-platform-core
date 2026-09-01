@@ -197,6 +197,8 @@ interface Owner { readonly applicationId: string; readonly environment: string; 
 
 export interface StaticDeploymentState {
   read(owner: Owner): Promise<StaticDeploymentSnapshot | undefined>;
+  /** Returns the generation whose runtime and authorization inventory is safe to serve. */
+  readServingGeneration(owner: Owner): Promise<string | undefined>;
   readFence(owner: Owner): Promise<WorkerGenerationFence | undefined>;
   isWorkerFenceLive(owner: Owner, expected: WorkerGenerationFence): Promise<boolean>;
   promote(input: Owner & Readonly<{
@@ -368,8 +370,6 @@ export class DeploymentSupervisor {
       await this.cleanRejectedPromotion(owner, input.generationId, error);
       throw error;
     }
-    await this.finishPostCommit(owner);
-    await this.recoverActiveWorkerIfSafe(owner, {});
     return Object.freeze({ outcome: "promoted", receipt });
   }
 
@@ -401,13 +401,13 @@ export class DeploymentSupervisor {
       workerOwner: input.workerOwner,
       workerLeaseExpiresAt: input.workerLeaseExpiresAt
     });
-    await this.finishPostCommit(owner);
-    await this.recoverActiveWorkerIfSafe(owner, {});
     return receipt;
   }
 
   async recover(owner: Owner, options: Readonly<{ initialActivation?: boolean; workerLeaseDurationMs?: number }> = {}): Promise<void> {
     await this.recoverPendingGenerationRetirements(owner);
+    const current = await this.requireState(owner);
+    if (await this.state.readServingGeneration(owner) !== current.active.generationId) return;
     await this.recoverActiveWorkerIfSafe(owner, options);
     await this.finishPostCommit(owner);
     await this.recoverActiveWorkerIfSafe(owner, options);
@@ -441,6 +441,10 @@ export class DeploymentSupervisor {
   }
 
   async closeRollback(owner: Owner): Promise<StaticDeploymentReceipt> {
+    const active = await this.requireState(owner);
+    if (await this.state.readServingGeneration(owner) !== active.active.generationId) {
+      throw new StaticDeploymentSupervisorError("STATE_UNAVAILABLE", "Static runtime and authorization inventory has not converged to the active generation.");
+    }
     await this.finishPostCommit(owner);
     let current = await this.requireState(owner);
     if (current.rollbackWindow.state === "closed") {

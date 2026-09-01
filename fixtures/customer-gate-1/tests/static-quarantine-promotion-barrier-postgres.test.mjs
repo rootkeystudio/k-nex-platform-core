@@ -119,9 +119,9 @@ test("a plan made while active cannot promote after quarantine", { timeout: 180_
     );
 
     await pool.query(
-      `update runtime_extensions set revision=1, disposition='quarantined', active_generation_id=null, active_generation=null, retained_generation=$4::jsonb
+      `update runtime_extensions set revision=1, disposition='quarantined', active_generation_id=null, active_generation=null, retained_generation=$4::jsonb, last_operation_id=$5
        where application_id=$1 and environment=$2 and delivery_class='platform-plugin' and extension_id=$3`,
-      [owner.applicationId, owner.environment, extensionId, JSON.stringify(base)]
+      [owner.applicationId, owner.environment, extensionId, JSON.stringify(base), operationId]
     );
 
     const promotion = {

@@ -1688,19 +1688,19 @@ packages:
     resolution: {integrity: sha512-4JQNk+3mVzK3xh2rqd6RB4J46qUR19azEHBneZyTZM+c456qOrbbM/5xcR8huNCCcbVt7+UmizG6GuUvPvKUYg==}
 
   '@k-nex/module-sales@file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz':
-    resolution: {integrity: sha512-qDm4VY2AEG8m7578O+LYPVjJqZ3iCR/i53sxRhCKqW2VdXEao80aSVt+NrgvayDLpnA/6vT6dAs+0TR8klqo+g==, tarball: file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz}
+    resolution: {integrity: sha512-q3xcws+tBSk4pu9EBZ8m57YRZlcT4iZRv0vq7oIlTXrVDPcWoIxlbb7omezN6aMWXAHppCQDPop3WN4n3x5o1A==, tarball: file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz}
     version: 1.0.0
     peerDependencies:
-      '@k-nex/contracts': 0.0.0
-      '@k-nex/payload-adapter': 0.0.0
-      '@k-nex/runtime': 0.0.0
-      '@k-nex/ui-builder-blocks': 0.0.0
-      '@k-nex/ui-components': 0.0.0
-      '@k-nex/ui-data': 0.0.0
-      '@k-nex/ui-design-system-contracts': 0.0.0
-      '@k-nex/ui-forms': 0.0.0
-      '@k-nex/ui-pages': 0.0.0
-      '@k-nex/ui-runtime': 0.0.0
+      '@k-nex/contracts': 1.0.0
+      '@k-nex/payload-adapter': 1.0.0
+      '@k-nex/runtime': 1.0.0
+      '@k-nex/ui-builder-blocks': 1.0.0
+      '@k-nex/ui-components': 1.0.0
+      '@k-nex/ui-data': 1.0.0
+      '@k-nex/ui-design-system-contracts': 1.0.0
+      '@k-nex/ui-forms': 1.0.0
+      '@k-nex/ui-pages': 1.0.0
+      '@k-nex/ui-runtime': 1.0.0
       react: ^18.0.0 || ^19.0.0
     peerDependenciesMeta:
       '@k-nex/ui-builder-blocks':
@@ -1719,11 +1719,11 @@ packages:
         optional: true
 
   '@k-nex/provider-realtime-socketio@file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz':
-    resolution: {integrity: sha512-U0EHH5c1wuehYok+qms1r6HOKRR1NcSzAepoB0GbLJc8t1+3hY73CwXuu6uK4ZEO5yhSsTJW7lTOOGaMEn/RiA==, tarball: file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz}
+    resolution: {integrity: sha512-0lkZIrlzh8hfPy8mjVN/bthw0lD79GNRsh5n5w4GpIcP20kthsUhbROWiu5i0TwuloPorGG1jVtbk5v8srfCEg==, tarball: file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz}
     version: 1.0.0
     peerDependencies:
-      '@k-nex/contracts': 0.0.0
-      '@k-nex/runtime': 0.0.0
+      '@k-nex/contracts': 1.0.0
+      '@k-nex/runtime': 1.0.0
 
   '@kwsites/file-exists@1.1.1':
     resolution: {integrity: sha512-m9/5YGR18lIwxSFDwfE3oA7bWuq9kdau6ugN4H2rJeyhFQZcG9AgSHkQtSD15a8WvTgfz9aikZMrKPHvbpqFiw==}

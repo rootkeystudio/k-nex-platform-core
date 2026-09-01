@@ -1,5 +1,6 @@
 {
   "applicationId": "customer-alpha",
+  "generationId": "customer-alpha-blue-11",
   "plugin": {
     "id": "module.sales",
     "version": "1.0.0"

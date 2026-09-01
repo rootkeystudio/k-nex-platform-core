@@ -12,7 +12,7 @@ import { chromium } from "playwright";
 
 import { ArtifactVerifier, buildBundle, canonicalJson, CatalogClient, InMemoryCatalogCheckpointStore, sha256 } from "@k-nex/extension-bundler";
 import { DockerHotApplicationSandboxSupervisor, dockerIsolationPolicyFromEnvironment } from "@k-nex/extension-runner";
-import { ActiveExtensionSecurityReconciler, AuthorizationLifecycleProjector, PostgresCatalogCheckpointStore, PostgresExtensionCapabilityAuthority, PostgresExtensionCapabilitySequenceStore, PostgresRuntimeExtensionOutboxDispatcher, PostgresRuntimeExtensionStore, PostgresVerifiedArtifactStore, RuntimeStoreRunnerQuarantineAdapter } from "@k-nex/payload-adapter";
+import { ActiveExtensionSecurityReconciler, AuthorizationLifecycleProjector, PostgresCatalogCheckpointStore, PostgresExtensionCapabilityAuthority, PostgresExtensionCapabilitySequenceStore, PostgresRuntimeExtensionOutboxDispatcher, PostgresRuntimeExtensionStore, PostgresVerifiedArtifactStore, RuntimeStoreRunnerQuarantineAdapter, SharedStaticPlatformPluginGenerationRebinder } from "@k-nex/payload-adapter";
 import { AuthoritativeHotApplicationRuntime, createTrustedAuthorizationSession, createTrustedHotApplicationInvocationContext, DurableDynamicArtifactPipeline, DurableDynamicGenerationRuntime, ExtensionCapabilityGateway, HmacExtensionCapabilityTokens, isTrustedAuthorizationSession, PluginManager, ReferenceHotApplicationGenerationWarmer, TrustedAutomationOperationAuthorizer } from "@k-nex/runtime";
 import { startContinuousHttpProbe } from "./continuous-http-probe.mjs";
 import { startHotApplicationFixedRouteHost } from "./hot-application-fixed-route-host.mjs";
@@ -34,7 +34,8 @@ function lifecycleProjector(artifacts) {
 function lifecycleStore(pool, clock, artifacts, options = {}) {
   return new PostgresRuntimeExtensionStore(pool, clock, digest("7"), {
     ...options,
-    authorizationLifecycleProjector: lifecycleProjector(artifacts)
+    authorizationLifecycleProjector: lifecycleProjector(artifacts),
+    sharedStaticGenerationRebinder: new SharedStaticPlatformPluginGenerationRebinder()
   });
 }
 
@@ -66,7 +67,7 @@ function startRuntimeExtensionService(connectionString, role) {
       ...process.env,
       P9_RUNTIME_CONSUMER_CONFIGURATION: JSON.stringify({
         databaseUrl: connectionString, role, applicationId: "customer-alpha", environment: "production",
-        deliveryClass: "hot-application", extensionId: "app.sales-live", auditKey: digest("7"), pollIntervalMs: 200
+        deliveryClass: "hot-application", extensionId: "app.fixture-live", auditKey: digest("7"), pollIntervalMs: 200
       })
     },
     stdio: ["pipe", "pipe", "pipe"]
@@ -161,8 +162,8 @@ async function listen(handler) {
 
 function request(operation, version, expectedRevision) {
   return {
-    applicationId: "customer-alpha", environment: "production", extension: { deliveryClass: "hot-application", id: "app.sales-live" }, operation,
-    targetVersion: version, expectedRevision, idempotencyKey: `${operation}:app.sales-live:${version}:${expectedRevision}`, correlationId: `runtime-state-${operation}-${version.replaceAll(".", "-")}`
+    applicationId: "customer-alpha", environment: "production", extension: { deliveryClass: "hot-application", id: "app.fixture-live" }, operation,
+    targetVersion: version, expectedRevision, idempotencyKey: `${operation}:app.fixture-live:${version}:${expectedRevision}`, correlationId: `runtime-state-${operation}-${version.replaceAll(".", "-")}`
   };
 }
 
@@ -271,20 +272,20 @@ async function waitForRuntimeExtensionLock(pool) {
 }
 
 function releaseDefinition(generation, version, marker, compatibility, identity = {}) {
-  const extensionId = identity.extensionId ?? "app.sales-live";
+  const extensionId = identity.extensionId ?? "app.fixture-live";
   const generationId = identity.generationId ?? `${extensionId.replaceAll(".", "-")}-generation-${generation}`;
   const bundle = buildBundle({
     manifest: {
-      schemaVersion: 1, deliveryClass: "hot-application", id: extensionId, displayName: "Sales live", version, runtimeAbi: "1.0.0",
+      schemaVersion: 1, deliveryClass: "hot-application", id: extensionId, displayName: "Fixture live", version, runtimeAbi: "1.0.0",
       entrypoints: { server: ["server/main.mjs"], ui: ["ui/main.mjs"] },
-      capabilities: [{ kind: "records", required: true, reason: "Read the bounded Hot Application fixture.", operations: ["query"], resources: [{ id: "sales.records", version: 1 }] }], permissions: [], policyBindings: [],
+      capabilities: [{ kind: "records", required: true, reason: "Read the bounded Hot Application fixture.", operations: ["query"], resources: [{ id: "fixture.records", version: 1 }] }], permissions: [], policyBindings: [],
       resourceBudget: { maxBundleBytes: 1_048_576, maxAssetBytes: 262_144, maxStorageBytes: 1_048_576, maxMemoryMiB: 128, maxCpuMilliCores: 500, maxWallTimeMs: 5_000, maxInputBytes: 65_536, maxOutputBytes: 131_072, maxLogBytes: 65_536, maxConcurrency: 4 },
-      settings: [], screens: [{ id: "sales.screen", route: "/", entrypoint: "ui/main.mjs" }, { id: "sales.activity", route: "/activity/:activityid", entrypoint: "ui/main.mjs" }], navigation: [], sources: [{ id: "sales.live", path: "schemas/sales-live.json" }], actions: [], tools: [], logicFunctions: [], eventSubscriptions: [], schedules: [], storageSchemas: [], assets: ["assets/marker.txt"], localization: [], healthChecks: []
+      settings: [], screens: [{ id: "fixture.screen", route: "/", entrypoint: "ui/main.mjs" }, { id: "fixture.activity", route: "/activity/:activityid", entrypoint: "ui/main.mjs" }], navigation: [], sources: [{ id: "fixture.live", path: "schemas/fixture-live.json" }], actions: [], tools: [], logicFunctions: [], eventSubscriptions: [], schedules: [], storageSchemas: [], assets: ["assets/marker.txt"], localization: [], healthChecks: []
     },
     files: [
       { path: "server/main.mjs", bytes: Buffer.from(`export default async ({ input, host }) => { const scope = await host.call("records.query", input); return { marker: ${JSON.stringify(marker)}, generationId: scope.generationId }; };\n`), contentType: "application/javascript" },
-      { path: "ui/main.mjs", bytes: Buffer.from(`let port,sessionId,appId,generationId,sequence=0;const send=(type,body={})=>port.postMessage({schemaVersion:1,sessionId,appId,generationId,sequence:++sequence,direction:'realm-to-host',type,...body});const tree=(status)=>({nodeId:'root',component:'stack',props:{},events:[],children:[{nodeId:'title',component:'heading',props:{level:1,text:${JSON.stringify(marker)}},events:[],children:[]},{nodeId:'status',component:'heading',props:{level:2,text:status},events:[],children:[]},{nodeId:'query',component:'button',props:{label:'Query source'},events:[{event:'press',handlerId:'sales.live.query'}],children:[]}]});const request=()=>send('request',{operation:'source',requestId:'source-'+(sequence+1),targetId:'sales.live',input:{delayMs:500}});self.onmessage=({data,ports})=>{if(data?.type!=='connect'||!ports[0])return;port=ports[0];port.onmessage=({data})=>{if(data?.type==='bootstrap'){({sessionId,appId,generationId}=data);send('ready');send('render',{root:tree('source-idle')});}else if(data?.type==='event')request();else if(data?.type==='response-ok')send('render',{root:tree('source:'+data.output.generationId)});else if(data?.type==='response-error')send('render',{root:tree('source-denied')});};port.start();};\n`), contentType: "application/javascript" },
-      { path: "schemas/sales-live.json", bytes: Buffer.from('{"schemaVersion":1,"id":"sales.live"}\n'), contentType: "application/json" },
+      { path: "ui/main.mjs", bytes: Buffer.from(`let port,sessionId,appId,generationId,sequence=0;const send=(type,body={})=>port.postMessage({schemaVersion:1,sessionId,appId,generationId,sequence:++sequence,direction:'realm-to-host',type,...body});const tree=(status)=>({nodeId:'root',component:'stack',props:{},events:[],children:[{nodeId:'title',component:'heading',props:{level:1,text:${JSON.stringify(marker)}},events:[],children:[]},{nodeId:'status',component:'heading',props:{level:2,text:status},events:[],children:[]},{nodeId:'query',component:'button',props:{label:'Query source'},events:[{event:'press',handlerId:'fixture.live.query'}],children:[]}]});const request=()=>send('request',{operation:'source',requestId:'source-'+(sequence+1),targetId:'fixture.live',input:{delayMs:500}});self.onmessage=({data,ports})=>{if(data?.type!=='connect'||!ports[0])return;port=ports[0];port.onmessage=({data})=>{if(data?.type==='bootstrap'){({sessionId,appId,generationId}=data);send('ready');send('render',{root:tree('source-idle')});}else if(data?.type==='event')request();else if(data?.type==='response-ok')send('render',{root:tree('source:'+data.output.generationId)});else if(data?.type==='response-error')send('render',{root:tree('source-denied')});};port.start();};\n`), contentType: "application/javascript" },
+      { path: "schemas/fixture-live.json", bytes: Buffer.from('{"schemaVersion":1,"id":"fixture.live"}\n'), contentType: "application/json" },
       { path: "assets/marker.txt", bytes: Buffer.from(marker), contentType: "text/plain" }
     ],
     source,
@@ -339,7 +340,7 @@ function verifiedRelease(release, catalog) {
       owner: { applicationId: authority.applicationId, environment: authority.environment, deliveryClass: authority.deliveryClass, extensionId: authority.extensionId, generationId: authority.generationId },
       verification: { catalog, artifact: release.bundle.artifact, provenance: release.bundle.provenance, deliveryClass: "hot-application", id: release.entry.id, version: release.version, runtimeAbi: "1.0.0" },
       authority,
-      activation: { compatibility: release.compatibility, metadata: { navigation: `${release.generationId}:navigation` }, settings: { locale: "en" }, storageSchemaVersions: { "sales.records": Number(release.generationId.at(-1)) } }
+      activation: { compatibility: release.compatibility, metadata: { navigation: `${release.generationId}:navigation` }, settings: { locale: "en" }, storageSchemaVersions: { "fixture.records": Number(release.generationId.at(-1)) } }
     }
   };
 }
@@ -354,8 +355,8 @@ test("proves catalog-scoped verified-artifact acceptances preserve independent t
     const catalogB = signedCatalog([release.entry], 2);
     const catalogC = signedCatalog([release.entry], 3);
     const acceptedA = verifiedRelease(release, catalogA);
-    const acceptedB = verifiedRelease({ ...release, generationId: "app-sales-live-generation-98" }, catalogB);
-    const acceptedC = verifiedRelease({ ...release, generationId: "app-sales-live-generation-97" }, catalogC);
+    const acceptedB = verifiedRelease({ ...release, generationId: "app-fixture-live-generation-98" }, catalogB);
+    const acceptedC = verifiedRelease({ ...release, generationId: "app-fixture-live-generation-97" }, catalogC);
     const artifactsA = new PostgresVerifiedArtifactStore(pool, new ArtifactVerifier(new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, new InMemoryCatalogCheckpointStore()), { [publisher.identity]: publisher.publicKey }));
     const artifactsB = new PostgresVerifiedArtifactStore(pool, new ArtifactVerifier(new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, new InMemoryCatalogCheckpointStore()), { [publisher.identity]: publisher.publicKey }));
     const artifactsC = new PostgresVerifiedArtifactStore(pool, new ArtifactVerifier(new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, new InMemoryCatalogCheckpointStore()), { [publisher.identity]: publisher.publicKey }));
@@ -376,8 +377,8 @@ test("proves catalog-scoped verified-artifact acceptances preserve independent t
       `insert into runtime_extension_artifact_bindings
         (application_id, environment, delivery_class, extension_id, generation_id, artifact_digest, catalog_digest, authority_json, activation_json, version)
        values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10)`,
-      ["customer-alpha", "production", "hot-application", "app.sales-live", "app-sales-live-generation-missing-acceptance", release.entry.artifactDigest, missingCatalogDigest,
-        JSON.stringify({ ...acceptedA.authority, generationId: "app-sales-live-generation-missing-acceptance", catalogDigest: missingCatalogDigest }), JSON.stringify(acceptedA.stage.activation), release.version]
+      ["customer-alpha", "production", "hot-application", "app.fixture-live", "app-fixture-live-generation-missing-acceptance", release.entry.artifactDigest, missingCatalogDigest,
+        JSON.stringify({ ...acceptedA.authority, generationId: "app-fixture-live-generation-missing-acceptance", catalogDigest: missingCatalogDigest }), JSON.stringify(acceptedA.stage.activation), release.version]
     ), { code: "23503" });
 
     await pool.query("update runtime_extension_artifact_acceptances set catalog_json=$1::jsonb where artifact_digest=$2 and catalog_digest=$3", [JSON.stringify(catalogA), release.entry.artifactDigest, acceptedB.authority.catalogDigest]);
@@ -390,7 +391,7 @@ test("proves catalog-scoped verified-artifact acceptances preserve independent t
         (artifact_digest, catalog_digest, catalog_json, provenance_bytes, delivery_class, extension_id, version, runtime_abi)
        values ($1,$2,$3::jsonb,$4,$5,$6,$7,$8)`,
       [release.entry.artifactDigest, acceptedC.authority.catalogDigest, JSON.stringify(catalogA), acceptedC.stage.verification.provenance,
-        "hot-application", "app.sales-live", release.version, "1.0.0"]
+        "hot-application", "app.fixture-live", release.version, "1.0.0"]
     );
     const conflictBefore = await pool.query(`
       select (select count(*)::int from runtime_extension_artifact_acceptances) acceptances,
@@ -436,7 +437,7 @@ test("preserves accepted artifacts while reconciling fresh revocation decisions 
     await pool.query("update runtime_extension_artifacts set artifact_bytes=set_byte(artifact_bytes, 0, (get_byte(artifact_bytes, 0)+1)%256) where artifact_digest=$1", [release.entry.artifactDigest]);
     await assert.rejects(artifacts.read(release.entry.artifactDigest, acceptedRelease.authority.catalogDigest), { code: "ARTIFACT_INVALID" });
 
-    const change = stateRequest("app.sales-security", "security-reconcile");
+    const change = stateRequest("app.fixture-security", "security-reconcile");
     const warming = await prepareStateGeneration(storeA, lifecycleArtifacts, change, digest("a"), "security-worker", now);
     const activated = await storeA.activateGeneration(warming.operationId, warming.leaseToken);
     const extension = change.extension;
@@ -539,7 +540,7 @@ test("preserves accepted artifacts while reconciling fresh revocation decisions 
     assert.deepEqual(restoredReplay, race[0]);
     assert.deepEqual(await evidence(extension.id), { receipts: 1, audits: 1, outbox: 1 });
 
-    const lostAckChange = stateRequest("app.sales-security-lost-ack", "security-lost-ack");
+    const lostAckChange = stateRequest("app.fixture-security-lost-ack", "security-lost-ack");
     const lostAckWarming = await prepareStateGeneration(storeA, lifecycleArtifacts, lostAckChange, digest("b"), "security-lost-ack-worker", now);
     await storeA.activateGeneration(lostAckWarming.operationId, lostAckWarming.leaseToken);
     const lostAckActive = (await storeA.inventory(lostAckChange.applicationId, lostAckChange.environment)).extensions.hotApplications[lostAckChange.extension.id].activeGeneration;
@@ -561,7 +562,7 @@ test("preserves accepted artifacts while reconciling fresh revocation decisions 
     assert.deepEqual(lostAckRecovered.receipt, await storeA.readSecurityQuarantineReceipt({ applicationId: lostAckChange.applicationId, environment: lostAckChange.environment, extension: lostAckChange.extension, generationId: lostAckActive.generationId }));
     assert.deepEqual(await evidence(lostAckChange.extension.id), { receipts: 1, audits: 1, outbox: 1 });
 
-    const preReceiptChange = stateRequest("app.sales-security-pre-receipt", "security-pre-receipt");
+    const preReceiptChange = stateRequest("app.fixture-security-pre-receipt", "security-pre-receipt");
     const preReceiptWarming = await prepareStateGeneration(storeA, lifecycleArtifacts, preReceiptChange, digest("c"), "security-pre-receipt-worker", now);
     await storeA.activateGeneration(preReceiptWarming.operationId, preReceiptWarming.leaseToken);
     const preReceiptActive = (await storeA.inventory(preReceiptChange.applicationId, preReceiptChange.environment)).extensions.hotApplications[preReceiptChange.extension.id].activeGeneration;
@@ -609,7 +610,7 @@ test("preserves accepted artifacts while reconciling fresh revocation decisions 
     )).rows, [{ status: "delivered" }]);
     assert.deepEqual(await evidence(preReceiptChange.extension.id), { receipts: 1, audits: 1, outbox: 1 });
 
-    const advisoryChange = stateRequest("app.sales-security-advisory", "security-advisory");
+    const advisoryChange = stateRequest("app.fixture-security-advisory", "security-advisory");
     const advisoryWarming = await prepareStateGeneration(storeA, lifecycleArtifacts, advisoryChange, digest("d"), "security-advisory-worker", now);
     await storeA.activateGeneration(advisoryWarming.operationId, advisoryWarming.leaseToken);
     const advisoryActive = (await storeA.inventory(advisoryChange.applicationId, advisoryChange.environment)).extensions.hotApplications[advisoryChange.extension.id].activeGeneration;
@@ -625,19 +626,19 @@ test("preserves accepted artifacts while reconciling fresh revocation decisions 
 
     for (const [index, securityCase] of [
       {
-        id: "app.sales-security-release-missing",
+        id: "app.fixture-security-release-missing",
         reason: "release-missing",
-        catalog: (active) => signedCatalog([securityEntry("app.sales-security-sentinel", active)], 9, "2030-01-01T00:00:00.000Z")
+        catalog: (active) => signedCatalog([securityEntry("app.fixture-security-sentinel", active)], 9, "2030-01-01T00:00:00.000Z")
       },
       {
-        id: "app.sales-security-evidence-mismatch",
+        id: "app.fixture-security-evidence-mismatch",
         reason: "release-evidence-mismatch",
-        catalog: (active) => signedCatalog([securityEntry("app.sales-security-evidence-mismatch", active, "clear", { artifactDigest: digest("f") })], 10, "2030-01-01T00:00:00.000Z")
+        catalog: (active) => signedCatalog([securityEntry("app.fixture-security-evidence-mismatch", active, "clear", { artifactDigest: digest("f") })], 10, "2030-01-01T00:00:00.000Z")
       },
       {
-        id: "app.sales-security-publisher-key",
+        id: "app.fixture-security-publisher-key",
         reason: "publisher-key-mismatch",
-        catalog: (active) => signedCatalog([securityEntry("app.sales-security-publisher-key", active, "clear", { publisher: { ...publisher, publicKey: catalogSigner.publicKey } })], 11, "2030-01-01T00:00:00.000Z")
+        catalog: (active) => signedCatalog([securityEntry("app.fixture-security-publisher-key", active, "clear", { publisher: { ...publisher, publicKey: catalogSigner.publicKey } })], 11, "2030-01-01T00:00:00.000Z")
       }
     ].entries()) {
       const change = stateRequest(securityCase.id, `${securityCase.id}-reconcile`);
@@ -676,11 +677,11 @@ test("persists exact active-generation POLICY_VIOLATION runner quarantine across
   const competingStore = lifecycleStore(pool, clock, artifacts);
   try {
     await boot(container.getConnectionUri());
-    const change = stateRequest("app.sales-runner-quarantine", "runner-quarantine");
+    const change = stateRequest("app.fixture-runner-quarantine", "runner-quarantine");
     const warming = await prepareStateGeneration(store, artifacts, change, digest("a"), "runner-quarantine-worker", now);
     const activated = await store.activateGeneration(warming.operationId, warming.leaseToken);
     const active = (await store.inventory(change.applicationId, change.environment)).extensions.hotApplications[change.extension.id].activeGeneration;
-    const siblingChange = stateRequest("app.sales-runner-sibling", "runner-quarantine-sibling");
+    const siblingChange = stateRequest("app.fixture-runner-sibling", "runner-quarantine-sibling");
     const siblingWarming = await prepareStateGeneration(store, artifacts, siblingChange, digest("b"), "runner-quarantine-sibling-worker", now);
     const siblingActivated = await store.activateGeneration(siblingWarming.operationId, siblingWarming.leaseToken);
     const sibling = (await store.inventory(siblingChange.applicationId, siblingChange.environment)).extensions.hotApplications[siblingChange.extension.id].activeGeneration;
@@ -720,7 +721,7 @@ test("persists exact active-generation POLICY_VIOLATION runner quarantine across
     const race = await Promise.allSettled([
       adapter.quarantine(identity, "POLICY_VIOLATION"),
       competingStore.quarantineRunnerGeneration({ ...request, expectedRevision: request.expectedRevision - 1 }),
-      competingStore.quarantineRunnerGeneration({ ...request, generationId: "app-sales-runner-quarantine-generation-stale" })
+      competingStore.quarantineRunnerGeneration({ ...request, generationId: "app-fixture-runner-quarantine-generation-stale" })
     ]);
     assert.deepEqual(race.map(({ status }) => status).sort(), ["fulfilled", "rejected", "rejected"], race.map((result) => result.status === "rejected" ? `${result.reason.code ?? result.reason.name}:${result.reason.message}` : "fulfilled").join(" | "));
     const receipt = (await pool.query("select receipt_json from runtime_extension_runner_quarantine_receipts where application_id=$1 and extension_id=$2", [change.applicationId, change.extension.id])).rows[0].receipt_json;
@@ -735,7 +736,7 @@ test("persists exact active-generation POLICY_VIOLATION runner quarantine across
     assert.equal(await restartedAdapter.admit(identity, leaseId), false, "restart must not readmit the cleared lease");
     await restartedAdapter.quarantine(identity, "POLICY_VIOLATION");
     await assert.rejects(competingStore.quarantineRunnerGeneration({ ...request, reason: "CONTAINER_FAILED", expectedRevision: receipt.revisionBefore }), { code: "REVISION_CONFLICT" });
-    await assert.rejects(competingStore.quarantineRunnerGeneration({ ...request, generationId: "app-sales-runner-quarantine-generation-stale", expectedRevision: receipt.revisionAfter }), { code: "GENERATION_MISMATCH" });
+    await assert.rejects(competingStore.quarantineRunnerGeneration({ ...request, generationId: "app-fixture-runner-quarantine-generation-stale", expectedRevision: receipt.revisionAfter }), { code: "GENERATION_MISMATCH" });
     assert.deepEqual((await pool.query("select (select count(*)::int from runtime_extension_runner_quarantine_receipts) receipts, (select count(*)::int from runtime_extension_audit) audits, (select count(*)::int from runtime_extension_outbox where event_json->>'receiptId'=$1) outbox", [receipt.receiptId])).rows, beforeReplay.rows, "replay and stale runner races must be inert");
     const inventory = await store.inventory(change.applicationId, change.environment);
     assert.deepEqual(inventory.extensions.hotApplications[change.extension.id], {
@@ -767,7 +768,7 @@ function plan(operationId, change, release) {
       schemaVersion: 1, planId: `${release.generationId}-plan`, operationId, operation: change.operation, version: change.targetVersion,
       artifactDigest: release.authority.artifactDigest, expectedRevision: change.expectedRevision,
       ...(change.currentGenerationId ? { currentGenerationId: change.currentGenerationId } : {}), targetGenerationId: release.generationId,
-      approvalRequired: false, rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "hot-application", id: "app.sales-live",
+      approvalRequired: false, rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "hot-application", id: "app.fixture-live",
       availability: { outcome: "live-generation", activation: "atomic-generation-pointer" }, requiredCapabilities: release.bundle.manifest.capabilities,
       resourceBudget: { maxBundleBytes: 1_048_576, maxAssetBytes: 262_144, maxStorageBytes: 1_048_576, maxMemoryMiB: 128, maxCpuMilliCores: 500, maxWallTimeMs: 5_000, maxInputBytes: 65_536, maxOutputBytes: 131_072, maxLogBytes: 65_536, maxConcurrency: 4 }
     }
@@ -784,19 +785,19 @@ test("rejects SCN-12 activation races and SCN-13 stale operation replays in Post
   const storeB = lifecycleStore(pool, clock, artifacts, { leaseMs: 1_000, maxConcurrentOperations: 2 });
   try {
     await boot(container.getConnectionUri());
-    const firstRequest = stateRequest("app.sales-race", "install:app.sales-race:1");
+    const firstRequest = stateRequest("app.fixture-race", "install:app.fixture-race:1");
     const secondRequest = stateRequest("app.forecast", "install:app.forecast:1");
     const first = await claimState(storeA, firstRequest, digest("1"), "worker-a");
     assert.equal(first.status, "claimed");
     assert.equal((await claimState(storeA, firstRequest, digest("1"), "worker-a")).status, "replay");
     await assert.rejects(claimState(storeA, firstRequest, digest("2"), "worker-a"), { code: "IDEMPOTENCY_CONFLICT" });
-    await assert.rejects(claimState(storeB, stateRequest("app.sales-race", "install:app.sales-race:2"), digest("3"), "worker-b"), { code: "OPERATION_IN_PROGRESS" });
+    await assert.rejects(claimState(storeB, stateRequest("app.fixture-race", "install:app.fixture-race:2"), digest("3"), "worker-b"), { code: "OPERATION_IN_PROGRESS" });
     const second = await claimState(storeB, secondRequest, digest("4"), "worker-b");
     assert.equal(second.status, "claimed");
     await assert.rejects(claimState(storeB, stateRequest("app.pipeline", "install:app.pipeline:1"), digest("5"), "worker-b"), { code: "GLOBAL_BUDGET_EXHAUSTED" });
 
-    const firstSaved = await storeA.savePlan(first.operation.operationId, first.operation.leaseToken, statePlan(first.operation.operationId, firstRequest));
-    const secondSaved = await storeB.savePlan(second.operation.operationId, second.operation.leaseToken, statePlan(second.operation.operationId, secondRequest));
+    const firstSaved = await storeA.savePlan(first.operation.operationId, first.operation.leaseToken, statePlan(first.operation.operationId, firstRequest, stateRelease(firstRequest)));
+    const secondSaved = await storeB.savePlan(second.operation.operationId, second.operation.leaseToken, statePlan(second.operation.operationId, secondRequest, stateRelease(secondRequest)));
     const racedPhase = await Promise.allSettled([
       storeA.transition({ operationId: firstSaved.operationId, leaseToken: firstSaved.leaseToken, expectedPhase: "planning", phase: "downloading" }),
       storeB.transition({ operationId: firstSaved.operationId, leaseToken: firstSaved.leaseToken, expectedPhase: "planning", phase: "downloading" })
@@ -813,20 +814,20 @@ test("rejects SCN-12 activation races and SCN-13 stale operation replays in Post
     const secondResumed = await storeB.resumeOperation(secondSaved.operationId, "worker-recovery");
     await storeB.transition({ operationId: secondResumed.operationId, leaseToken: secondResumed.leaseToken, expectedPhase: "planning", phase: "failed" });
 
-    const activeVersionRequest = stateRequest("app.sales-semver", "install:app.sales-semver:1-0-1", { version: "1.0.1" });
+    const activeVersionRequest = stateRequest("app.fixture-semver", "install:app.fixture-semver:1-0-1", { version: "1.0.1" });
     const activeVersionOperation = await prepareStateGeneration(storeA, artifacts, activeVersionRequest, digest("e"), "semver-worker", now);
     const activeVersionReceipt = await storeA.activateGeneration(activeVersionOperation.operationId, activeVersionOperation.leaseToken);
     await assert.rejects(
-      claimState(storeB, stateRequest("app.sales-semver", "update:app.sales-semver:1-0-0-attacker", { operation: "update", version: "1.0.0+attacker", expectedRevision: activeVersionReceipt.revisionAfter }), digest("f"), "semver-attacker"),
+      claimState(storeB, stateRequest("app.fixture-semver", "update:app.fixture-semver:1-0-0-attacker", { operation: "update", version: "1.0.0+attacker", expectedRevision: activeVersionReceipt.revisionAfter }), digest("f"), "semver-attacker"),
       { code: "VERSION_DOWNGRADE" }
     );
 
-    const activationRequest = stateRequest("app.sales-activation", "install:app.sales-activation:1");
+    const activationRequest = stateRequest("app.fixture-activation", "install:app.fixture-activation:1");
     const warming = await prepareStateGeneration(storeA, artifacts, activationRequest, digest("6"), "activation-worker", now);
     await pool.query("create function p9_fail_activation_race() returns trigger language plpgsql as $$ begin raise exception 'simulated crash before pointer commit'; end $$");
-    await pool.query("create trigger p9_fail_activation_race after update on runtime_extensions for each row when (new.active_generation_id='app-sales-activation-generation-1') execute function p9_fail_activation_race()");
+    await pool.query("create trigger p9_fail_activation_race after update on runtime_extensions for each row when (new.active_generation_id='app-fixture-activation-generation-1') execute function p9_fail_activation_race()");
     await assert.rejects(storeA.activateGeneration(warming.operationId, warming.leaseToken), /simulated crash before pointer commit/);
-    assert.deepEqual((await pool.query("select active_generation_id from runtime_extensions where extension_id='app.sales-activation'")).rows, [{ active_generation_id: null }]);
+    assert.deepEqual((await pool.query("select active_generation_id from runtime_extensions where extension_id='app.fixture-activation'")).rows, [{ active_generation_id: null }]);
     await pool.query("drop trigger p9_fail_activation_race on runtime_extensions");
     await pool.query("drop function p9_fail_activation_race()");
     const racedActivation = await Promise.allSettled([
@@ -835,7 +836,7 @@ test("rejects SCN-12 activation races and SCN-13 stale operation replays in Post
     ]);
     assert.deepEqual(racedActivation.map(({ status }) => status), ["fulfilled", "fulfilled"]);
     assert.deepEqual(racedActivation[0].value, racedActivation[1].value);
-    assert.equal((await storeA.observeActiveGeneration("customer-alpha", "production", activationRequest.extension)).generationId, "app-sales-activation-generation-1");
+    assert.equal((await storeA.observeActiveGeneration("customer-alpha", "production", activationRequest.extension)).generationId, "app-fixture-activation-generation-1");
     assert.equal((await pool.query("select count(*)::int count from runtime_extension_transition_receipts where operation_id=$1 and event_json->>'operationPhase'='completed'", [warming.operationId])).rows[0].count, 1);
     console.log('P9_RUNTIME_COORDINATION_EVIDENCE={"scenarios":["SCN-12","SCN-13"]}');
   } finally {
@@ -849,23 +850,23 @@ test("reclaims expired operation leases without touching live work or double-rel
   const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
   let now = new Date("2026-08-31T12:00:00.000Z");
   const clock = { now: () => now };
-  const storeA = new PostgresRuntimeExtensionStore(pool, clock, digest("7"), { leaseMs: 1_000, maxConcurrentOperations: 3, reconciliationBatchSize: 3 });
-  const storeB = new PostgresRuntimeExtensionStore(pool, clock, digest("7"), { leaseMs: 1_000, maxConcurrentOperations: 3, reconciliationBatchSize: 3 });
+  const storeA = new PostgresRuntimeExtensionStore(pool, clock, digest("7"), { leaseMs: 1_000, maxConcurrentOperations: 3, reconciliationBatchSize: 3, sharedStaticGenerationRebinder: new SharedStaticPlatformPluginGenerationRebinder() });
+  const storeB = new PostgresRuntimeExtensionStore(pool, clock, digest("7"), { leaseMs: 1_000, maxConcurrentOperations: 3, reconciliationBatchSize: 3, sharedStaticGenerationRebinder: new SharedStaticPlatformPluginGenerationRebinder() });
   try {
     await boot(container.getConnectionUri());
-    const abandonedARequest = stateRequest("app.sales-expired-a", "install:app.sales-expired-a:abandoned");
-    const abandonedBRequest = stateRequest("app.sales-expired-b", "install:app.sales-expired-b:abandoned");
+    const abandonedARequest = stateRequest("app.fixture-expired-a", "install:app.fixture-expired-a:abandoned");
+    const abandonedBRequest = stateRequest("app.fixture-expired-b", "install:app.fixture-expired-b:abandoned");
     const abandonedAClaim = await claimState(storeA, abandonedARequest, digest("a"), "lost-worker-a");
     const abandonedBClaim = await claimState(storeA, abandonedBRequest, digest("b"), "lost-worker-b");
-    const abandonedA = await storeA.savePlan(abandonedAClaim.operation.operationId, abandonedAClaim.operation.leaseToken, statePlan(abandonedAClaim.operation.operationId, abandonedARequest));
-    await storeA.savePlan(abandonedBClaim.operation.operationId, abandonedBClaim.operation.leaseToken, statePlan(abandonedBClaim.operation.operationId, abandonedBRequest));
+    const abandonedA = await storeA.savePlan(abandonedAClaim.operation.operationId, abandonedAClaim.operation.leaseToken, statePlan(abandonedAClaim.operation.operationId, abandonedARequest, stateRelease(abandonedARequest)));
+    await storeA.savePlan(abandonedBClaim.operation.operationId, abandonedBClaim.operation.leaseToken, statePlan(abandonedBClaim.operation.operationId, abandonedBRequest, stateRelease(abandonedBRequest)));
 
     now = new Date(now.valueOf() + 1_001);
-    const liveRequest = stateRequest("app.sales-live-lease", "install:app.sales-live-lease:live");
+    const liveRequest = stateRequest("app.fixture-live-lease", "install:app.fixture-live-lease:live");
     const liveClaim = await claimState(storeA, liveRequest, digest("c"), "live-worker");
-    const live = await storeA.savePlan(liveClaim.operation.operationId, liveClaim.operation.leaseToken, statePlan(liveClaim.operation.operationId, liveRequest));
+    const live = await storeA.savePlan(liveClaim.operation.operationId, liveClaim.operation.leaseToken, statePlan(liveClaim.operation.operationId, liveRequest, stateRelease(liveRequest)));
     await assert.rejects(
-      claimState(storeB, stateRequest("app.sales-capacity", "install:app.sales-capacity:blocked"), digest("d"), "blocked-worker"),
+      claimState(storeB, stateRequest("app.fixture-capacity", "install:app.fixture-capacity:blocked"), digest("d"), "blocked-worker"),
       { code: "GLOBAL_BUDGET_EXHAUSTED" }
     );
 
@@ -899,7 +900,7 @@ test("reclaims expired operation leases without touching live work or double-rel
     const replacement = await claimState(storeA, {
       ...abandonedARequest,
       expectedRevision: 2,
-      idempotencyKey: "install:app.sales-expired-a:recovered"
+      idempotencyKey: "install:app.fixture-expired-a:recovered"
     }, digest("e"), "recovery-worker");
     assert.equal(replacement.status, "claimed");
     assert.equal((await pool.query(
@@ -930,11 +931,11 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     assert.deepEqual(tables.rows, [{ artifacts: "runtime_extension_artifacts", bindings: "runtime_extension_artifact_bindings" }]);
 
     const releaseDrafts = [
-      releaseDefinition(1, "1.0.0", "sales-live-v1", { status: "compatible", windowId: "sales-window-1", closesAt: "2026-08-30T09:00:00.000Z", migrationDigest: digest("1"), dataRevision: 1 }),
-      releaseDefinition(2, "1.1.0", "sales-live-v2", { status: "compatible", windowId: "sales-window-2", closesAt: "2026-08-30T09:59:59.000Z", migrationDigest: digest("2"), dataRevision: 2 }),
-      releaseDefinition(3, "2.0.0", "sales-live-v3", { status: "irreversible", decisionId: "sales-contract-cutover", reason: "The storage contract no longer supports generation 1.", migrationDigest: digest("3"), dataRevision: 3 }),
-      releaseDefinition(4, "2.1.0", "sales-live-v4", { status: "compatible", windowId: "sales-window-4", closesAt: "2026-08-30T10:59:59.000Z", migrationDigest: digest("4"), dataRevision: 4 }),
-      releaseDefinition(5, "2.2.0", "sales-live-v5", { status: "compatible", windowId: "sales-window-5", closesAt: "2026-08-30T11:59:59.000Z", migrationDigest: digest("5"), dataRevision: 5 })
+      releaseDefinition(1, "1.0.0", "fixture-live-v1", { status: "compatible", windowId: "sales-window-1", closesAt: "2026-08-30T09:00:00.000Z", migrationDigest: digest("1"), dataRevision: 1 }),
+      releaseDefinition(2, "1.1.0", "fixture-live-v2", { status: "compatible", windowId: "sales-window-2", closesAt: "2026-08-30T09:59:59.000Z", migrationDigest: digest("2"), dataRevision: 2 }),
+      releaseDefinition(3, "2.0.0", "fixture-live-v3", { status: "irreversible", decisionId: "sales-contract-cutover", reason: "The storage contract no longer supports generation 1.", migrationDigest: digest("3"), dataRevision: 3 }),
+      releaseDefinition(4, "2.1.0", "fixture-live-v4", { status: "compatible", windowId: "sales-window-4", closesAt: "2026-08-30T10:59:59.000Z", migrationDigest: digest("4"), dataRevision: 4 }),
+      releaseDefinition(5, "2.2.0", "fixture-live-v5", { status: "compatible", windowId: "sales-window-5", closesAt: "2026-08-30T11:59:59.000Z", migrationDigest: digest("5"), dataRevision: 5 })
     ];
     const catalog = signedCatalog(releaseDrafts.map((release) => release.entry));
     const releases = releaseDrafts.map((release) => verifiedRelease(release, catalog));
@@ -982,7 +983,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       }
     }, storeA, pipeline, { request: async () => { throw new Error("Static delivery is not used."); } }, { request: async () => { throw new Error("Static delivery is not used."); }, reverify: async () => false }, dynamicRuntime, clock);
 
-    const identity = { deliveryClass: "hot-application", id: "app.sales-live" };
+    const identity = { deliveryClass: "hot-application", id: "app.fixture-live" };
 
     const capabilityTokens = new HmacExtensionCapabilityTokens(new Uint8Array(32).fill(9), clock);
     const runnerGateway = new ExtensionCapabilityGateway(capabilityTokens, {
@@ -996,7 +997,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       }
     }, new PostgresExtensionCapabilityAuthority(pool, { reauthorize: (claims, capability) =>
       claims.actor.principalId === "user:one" && claims.actor.effectiveActorId === "user:one" && capability.capability === "records.query" &&
-      capability.grants.length === 1 && capability.grants[0]?.kind === "records" && capability.grants[0].resources.some(({ id }) => id === "sales.records")
+      capability.grants.length === 1 && capability.grants[0]?.kind === "records" && capability.grants[0].resources.some(({ id }) => id === "fixture.records")
     }, clock), new PostgresExtensionCapabilitySequenceStore(pool, clock), clock, {
       maxInputBytes: 65_536, maxOutputBytes: 131_072, maxDepth: 12, maxCalls: 8
     });
@@ -1025,11 +1026,11 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     const trafficRuntime = new AuthoritativeHotApplicationRuntime(storeB, artifacts, capabilityTokens, runner, { authorize: ({ session, grant }) =>
       isTrustedAuthorizationSession(session) && session.principal.kind === "user" && session.principal.id === "user:one" &&
       session.effectiveActor.kind === "user" && session.effectiveActor.id === "user:one" && grant.kind === "records" &&
-      grant.operations.length === 1 && grant.operations[0] === "query" && grant.resources.length === 1 && grant.resources[0]?.id === "sales.records"
+      grant.operations.length === 1 && grant.operations[0] === "query" && grant.resources.length === 1 && grant.resources[0]?.id === "fixture.records"
       ? { allowed: true, authorizationRevision: 1, lifecycleRevision: 1 }
       : { allowed: false, authorizationRevision: 1, lifecycleRevision: 1 }
     }, {
-      applicationId: "customer-alpha", environment: "production", appId: "app.sales-live"
+      applicationId: "customer-alpha", environment: "production", appId: "app.fixture-live"
     }, "runtime-traffic-gateway");
     let trafficSequence = 0;
     const invokeTraffic = async (input = {}, expectedGeneration = undefined) => {
@@ -1054,7 +1055,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     hosts.push(gateway);
     trafficProbe = startContinuousHttpProbe({
       url: gateway.url, path: "/continuous", initialWindow: "install",
-      initialGenerations: ["host-gateway-generation-0", "app-sales-live-generation-1"]
+      initialGenerations: ["host-gateway-generation-0", "app-fixture-live-generation-1"]
     });
     await trafficProbe.waitForGeneration("install", "host-gateway-generation-0");
     let sourceAdmissionBarrier;
@@ -1074,17 +1075,17 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       }
     });
     hosts.push(fixedRouteHost);
-    const preInstallRoute = await requestFixedRoute(fixedRouteHost, "/apps/sales-live/activity/42");
+    const preInstallRoute = await requestFixedRoute(fixedRouteHost, "/apps/fixture-live/activity/42");
     assert.equal(preInstallRoute.status, 404, "the immutable customer route host must exist and fail closed before app installation");
 
     const install = await manager.plan(request("install", "1.0.0", 0));
     await manager.stage(install.operationId);
     assert.equal((await manager.validate(install.operationId)).valid, true);
     const installed = await manager.activate(install.operationId);
-    assert.deepEqual(await invokeTraffic(), { marker: "sales-live-v1", generationId: installed.generationId }, "the active generation must answer before the gateway exposes it to continuous traffic");
+    assert.deepEqual(await invokeTraffic(), { marker: "fixture-live-v1", generationId: installed.generationId }, "the active generation must answer before the gateway exposes it to continuous traffic");
     applicationTrafficReady = true;
     await trafficProbe.waitForGeneration("install", installed.generationId);
-    assert.equal(installed.generationId, "app-sales-live-generation-1");
+    assert.equal(installed.generationId, "app-fixture-live-generation-1");
     assert.deepEqual(await manager.activate(install.operationId), installed);
     await trafficProbe.pause();
     consumerFleet.push(...["web", "worker", "runner", "browser-host"].map((role) => startRuntimeExtensionService(container.getConnectionUri(), role)));
@@ -1102,13 +1103,13 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     const routeDiagnostics = [];
     routePage.on("pageerror", (error) => routeDiagnostics.push(error.message));
     routePage.on("console", (message) => routeDiagnostics.push(`${message.type()}:${message.text()}`));
-    const installedRoute = await routePage.goto(`${fixedRouteHost.url}/apps/sales-live/activity/42`);
+    const installedRoute = await routePage.goto(`${fixedRouteHost.url}/apps/fixture-live/activity/42`);
     assert.equal(installedRoute?.status(), 200, `the preinstalled /apps/:appId/* route must host an installed app: ${fixedRouteHost.routeErrors.join(" | ")}`);
-    await routePage.getByRole("heading", { name: "sales-live-v1" }).waitFor({ timeout: 5_000 }).catch(async (error) => { throw new Error(`${error.message}; route=${await routePage.content()}; diagnostics=${routeDiagnostics.join(" | ")}`); });
-    assert.deepEqual(await routePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__), { appId: "app.sales-live", generationId: installed.generationId, route: "/apps/sales-live/activity/42" });
+    await routePage.getByRole("heading", { name: "fixture-live-v1" }).waitFor({ timeout: 5_000 }).catch(async (error) => { throw new Error(`${error.message}; route=${await routePage.content()}; diagnostics=${routeDiagnostics.join(" | ")}`); });
+    assert.deepEqual(await routePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__), { appId: "app.fixture-live", generationId: installed.generationId, route: "/apps/fixture-live/activity/42" });
     const drainingRoutePage = await browserContext.newPage();
-    await drainingRoutePage.goto(`${fixedRouteHost.url}/apps/sales-live/activity/42`);
-    await drainingRoutePage.getByRole("heading", { name: "sales-live-v1" }).waitFor();
+    await drainingRoutePage.goto(`${fixedRouteHost.url}/apps/fixture-live/activity/42`);
+    await drainingRoutePage.getByRole("heading", { name: "fixture-live-v1" }).waitFor();
     const installedFramePath = await drainingRoutePage.evaluate(() => new URL(window.__K_NEX_HOT_APPLICATION_ROUTE__.remoteUiFrameUrl).pathname);
     const runnerBaseline = await runnerService.state("/runtime-extension-state");
     const browserBaseline = await browserPage.evaluate(() => window.runtimeExtensionState("snapshot"));
@@ -1131,7 +1132,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
 
     const update = await manager.plan(request("update", "1.1.0", installed.revisionAfter));
     await manager.stage(update.operationId);
-    trafficProbe.transition("update", [installed.generationId, "app-sales-live-generation-2"]);
+    trafficProbe.transition("update", [installed.generationId, "app-fixture-live-generation-2"]);
     await trafficProbe.waitForGeneration("update", installed.generationId);
     await trafficProbe.pause();
     const routeSessionId = await routePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE__.sessionId);
@@ -1159,8 +1160,8 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     await barrier.reached.promise;
     assert.equal(await storeA.liveGenerationLeaseCount("customer-alpha", "production", identity, installed.generationId) >= 1, true, "the old generation invocation must hold a durable lease before cutover");
     assert.equal(await runnerQuarantine.admit({ applicationId: "customer-beta", environment: "production", appId: identity.id, generationId: installed.generationId }, barrier.leaseId), false, "a live lease must not admit another application");
-    assert.equal(await runnerQuarantine.admit({ applicationId: "customer-alpha", environment: "production", appId: "app.sales-other", generationId: installed.generationId }, barrier.leaseId), false, "a live lease must not admit another application extension");
-    assert.equal(await runnerQuarantine.admit({ applicationId: "customer-alpha", environment: "production", appId: identity.id, generationId: "app-sales-live-generation-2" }, barrier.leaseId), false, "a live lease must not admit another generation");
+    assert.equal(await runnerQuarantine.admit({ applicationId: "customer-alpha", environment: "production", appId: "app.fixture-other", generationId: installed.generationId }, barrier.leaseId), false, "a live lease must not admit another application extension");
+    assert.equal(await runnerQuarantine.admit({ applicationId: "customer-alpha", environment: "production", appId: identity.id, generationId: "app-fixture-live-generation-2" }, barrier.leaseId), false, "a live lease must not admit another generation");
     let updated;
     try {
       updated = await manager.activate(update.operationId);
@@ -1208,6 +1209,8 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       actor: { principalId: "user:one", effectiveActorId: "user:one" },
       correlationId: "stale-drain-correlation",
       drainLeaseId: barrier.leaseId,
+      authorizationRevision: 1,
+      lifecycleRevision: 1,
       grants: byGeneration.get(installed.generationId).bundle.manifest.capabilities,
       ttlMs: 6_000
     });
@@ -1219,6 +1222,8 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       invocationId: staleInvocationId,
       drainLeaseId: barrier.leaseId,
       token: staleToken,
+      authorizationRevision: 1,
+      lifecycleRevision: 1,
       input: {},
       limits: { cpuMilliCores: 500, memoryMiB: 128, processes: 16, openFiles: 64, tempBytes: 1_048_576, wallTimeMs: 5_000, inputBytes: 65_536, outputBytes: 131_072, logBytes: 65_536, maxConcurrency: 4 }
     }), { code: "GENERATION_QUARANTINED" });
@@ -1227,15 +1232,15 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     assert.equal((await storeB.observeActiveGeneration("customer-alpha", "production", identity)).generationId, updated.generationId);
     await assert.rejects(manager.plan(request("update", "1.0.0", updated.revisionAfter)), { code: "PLAN_MISMATCH" });
     const updatedRoutePage = await browserContext.newPage();
-    const updatedRoute = await updatedRoutePage.goto(`${fixedRouteHost.url}/apps/sales-live/activity/42`);
+    const updatedRoute = await updatedRoutePage.goto(`${fixedRouteHost.url}/apps/fixture-live/activity/42`);
     assert.equal(updatedRoute?.status(), 200, "the fixed route must resolve the active updated generation without a rebuild");
-    await updatedRoutePage.getByRole("heading", { name: "sales-live-v2" }).waitFor();
-    assert.deepEqual(await updatedRoutePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__), { appId: "app.sales-live", generationId: updated.generationId, route: "/apps/sales-live/activity/42" });
+    await updatedRoutePage.getByRole("heading", { name: "fixture-live-v2" }).waitFor();
+    assert.deepEqual(await updatedRoutePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__), { appId: "app.fixture-live", generationId: updated.generationId, route: "/apps/fixture-live/activity/42" });
     assert.equal(fixedRouteHost.routeRequests.at(-1)?.hadSession, true, "the updated fixed route lost its customer host session");
     await updatedRoutePage.getByRole("button", { name: "Query source" }).click();
     await updatedRoutePage.getByRole("heading", { name: `source:${updated.generationId}` }).waitFor();
     assert.equal((await requestFixedRoute(fixedRouteHost, installedFramePath)).status, 404, "mixed-generation G1 UI bytes must be denied after G2 becomes active");
-    assert.equal(routePage.url(), `${fixedRouteHost.url}/apps/sales-live/activity/42`, "the original G1 page must remain open across the update rather than proving only a reload");
+    assert.equal(routePage.url(), `${fixedRouteHost.url}/apps/fixture-live/activity/42`, "the original G1 page must remain open across the update rather than proving only a reload");
     await Promise.all([
       routePage.waitForFunction((generationId) => window.__K_NEX_HOT_APPLICATION_LIFECYCLE_OBSERVATIONS__?.some((entry) => entry.source === "snapshot-poll" && entry.generationId === generationId && entry.retirementScheduled) === true, updated.generationId),
       drainingRoutePage.waitForFunction((generationId) => window.__K_NEX_HOT_APPLICATION_LIFECYCLE_OBSERVATIONS__?.some((entry) => entry.source === "snapshot-poll" && entry.generationId === generationId && entry.retirementScheduled) === true, updated.generationId)
@@ -1246,8 +1251,8 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       return observation.observedAt + 10_000;
     })))));
     assert.deepEqual(warmed, [
-      "runner:app-sales-live-generation-1", "remote-ui:app-sales-live-generation-1", "storage:app-sales-live-generation-1", "surfaces:app-sales-live-generation-1",
-      "runner:app-sales-live-generation-2", "remote-ui:app-sales-live-generation-2", "storage:app-sales-live-generation-2", "surfaces:app-sales-live-generation-2"
+      "runner:app-fixture-live-generation-1", "remote-ui:app-fixture-live-generation-1", "storage:app-fixture-live-generation-1", "surfaces:app-fixture-live-generation-1",
+      "runner:app-fixture-live-generation-2", "remote-ui:app-fixture-live-generation-2", "storage:app-fixture-live-generation-2", "surfaces:app-fixture-live-generation-2"
     ]);
 
     const dispatcher = new PostgresRuntimeExtensionOutboxDispatcher(pool);
@@ -1291,29 +1296,29 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     uri.port = "5432";
     const dumped = await container.exec(["pg_dump", "--format=custom", "--file=/tmp/p9-extension.dump", uri.toString()]);
     assert.equal(dumped.exitCode, 0, dumped.output);
-    await pool.query("delete from runtime_extension_artifact_bindings where extension_id='app.sales-live'");
-    await pool.query("delete from runtime_extension_artifact_acceptances where extension_id='app.sales-live'");
+    await pool.query("delete from runtime_extension_artifact_bindings where extension_id='app.fixture-live'");
+    await pool.query("delete from runtime_extension_artifact_acceptances where extension_id='app.fixture-live'");
     await pool.query("delete from runtime_extension_artifacts where not exists (select 1 from runtime_extension_artifact_acceptances where runtime_extension_artifact_acceptances.artifact_digest=runtime_extension_artifacts.artifact_digest)");
-    await pool.query("update runtime_extensions set metadata_json='{\"corrupt\":true}'::jsonb where extension_id='app.sales-live'");
-    assert.equal(await artifacts.resolve({ owner: { applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application", extensionId: "app.sales-live" }, generationId: updated.generationId, artifactDigest: byGeneration.get(updated.generationId).authority.artifactDigest }), undefined);
+    await pool.query("update runtime_extensions set metadata_json='{\"corrupt\":true}'::jsonb where extension_id='app.fixture-live'");
+    assert.equal(await artifacts.resolve({ owner: { applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application", extensionId: "app.fixture-live" }, generationId: updated.generationId, artifactDigest: byGeneration.get(updated.generationId).authority.artifactDigest }), undefined);
     await assert.rejects(manager.inventory("customer-alpha", "production"), { code: "ARTIFACT_AUTHORITY_REJECTED" });
     const noFallbackHost = await startHotApplicationFixedRouteHost({ store: storeA, artifacts, applicationId: "customer-alpha", environment: "production", extension: identity, authorization: phase9FixedRouteAuthorization, invokeSource: ({ input, expectedGeneration }) => invokeTraffic(input, expectedGeneration) });
     hosts.push(noFallbackHost);
-    assert.equal((await requestFixedRoute(noFallbackHost, "/apps/sales-live/activity/42")).status, 404, "a freshly started fixed host must reject missing durable PostgreSQL bytes instead of falling back to a digest");
+    assert.equal((await requestFixedRoute(noFallbackHost, "/apps/fixture-live/activity/42")).status, 404, "a freshly started fixed host must reject missing durable PostgreSQL bytes instead of falling back to a digest");
     const restored = await container.exec(["pg_restore", "--clean", "--if-exists", "--no-owner", `--dbname=${uri.toString()}`, "/tmp/p9-extension.dump"]);
     assert.equal(restored.exitCode, 0, restored.output);
     assert.deepEqual(await manager.inventory("customer-alpha", "production"), beforeRestore);
     for (const release of releases) {
-      assert.equal(await pipeline.reverify(release.authority, { applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application", extensionId: "app.sales-live" }), true);
+      assert.equal(await pipeline.reverify(release.authority, { applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application", extensionId: "app.fixture-live" }), true);
       assert.equal((await artifacts.read(release.authority.artifactDigest, release.authority.catalogDigest)).verified.artifactDigest, release.authority.artifactDigest);
     }
-    assert.deepEqual(await invokeTraffic(), { marker: "sales-live-v2", generationId: updated.generationId });
+    assert.deepEqual(await invokeTraffic(), { marker: "fixture-live-v2", generationId: updated.generationId });
     const restartedFixedRouteHost = await startHotApplicationFixedRouteHost({ store: storeA, artifacts, applicationId: "customer-alpha", environment: "production", extension: identity, authorization: phase9FixedRouteAuthorization, invokeSource: ({ input, expectedGeneration }) => invokeTraffic(input, expectedGeneration) });
     hosts.push(restartedFixedRouteHost);
     const restoredRoutePage = await browserContext.newPage();
-    await restoredRoutePage.goto(`${restartedFixedRouteHost.url}/apps/sales-live/activity/42`);
-    await restoredRoutePage.getByRole("heading", { name: "sales-live-v2" }).waitFor();
-    assert.deepEqual(await restoredRoutePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__), { appId: "app.sales-live", generationId: updated.generationId, route: "/apps/sales-live/activity/42" });
+    await restoredRoutePage.goto(`${restartedFixedRouteHost.url}/apps/fixture-live/activity/42`);
+    await restoredRoutePage.getByRole("heading", { name: "fixture-live-v2" }).waitFor();
+    assert.deepEqual(await restoredRoutePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__), { appId: "app.fixture-live", generationId: updated.generationId, route: "/apps/fixture-live/activity/42" });
 
     const retained = byGeneration.get(installed.generationId);
     assert.ok(retained, "rollback fixture lost its retained verified generation");
@@ -1350,7 +1355,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     const rejectedRollbackStages = [
       { name: "expired-at-store-check", expectedCode: "READINESS_EXPIRED", stage: { ...rollbackStage, readiness: { ...rollbackStage.readiness, expiresAt: now.toISOString() } } },
       { name: "wrong-owner", expectedCode: "GENERATION_MISMATCH", stage: { ...rollbackStage, authority: { ...rollbackStage.authority, applicationId: "customer-beta" } } },
-      { name: "wrong-generation", expectedCode: "GENERATION_MISMATCH", stage: { ...rollbackStage, authority: { ...rollbackStage.authority, generationId: "app-sales-live-generation-99" }, readiness: { ...rollbackStage.readiness, generationId: "app-sales-live-generation-99", serverGenerationId: "app-sales-live-generation-99", uiGenerationId: "app-sales-live-generation-99", storageGenerationId: "app-sales-live-generation-99" } } },
+      { name: "wrong-generation", expectedCode: "GENERATION_MISMATCH", stage: { ...rollbackStage, authority: { ...rollbackStage.authority, generationId: "app-fixture-live-generation-99" }, readiness: { ...rollbackStage.readiness, generationId: "app-fixture-live-generation-99", serverGenerationId: "app-fixture-live-generation-99", uiGenerationId: "app-fixture-live-generation-99", storageGenerationId: "app-fixture-live-generation-99" } } },
       { name: "wrong-artifact", expectedCode: "GENERATION_MISMATCH", stage: { ...rollbackStage, authority: { ...rollbackStage.authority, artifactDigest: digest("9") } } },
       { name: "wrong-version", expectedCode: "GENERATION_MISMATCH", stage: { ...rollbackStage, version: "1.1.0" } },
       { name: "wrong-activation", expectedCode: "GENERATION_MISMATCH", stage: { ...rollbackStage, metadata: { ...rollbackStage.metadata, forged: "rollback" } } }
@@ -1417,10 +1422,10 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     }, rolledBack.generationId)));
     assert.equal(rollbackObservationTimes.every((observedAt) => observedAt < g1RetirementDeadline), true, "G1 pages did not observe rollback before their scheduled retirement deadline");
     const rolledBackRoutePage = await browserContext.newPage();
-    const rolledBackRoute = await rolledBackRoutePage.goto(`${restartedFixedRouteHost.url}/apps/sales-live/activity/42`);
+    const rolledBackRoute = await rolledBackRoutePage.goto(`${restartedFixedRouteHost.url}/apps/fixture-live/activity/42`);
     assert.equal(rolledBackRoute?.status(), 200, "the fixed route must resolve the rolled-back active generation without a rebuild");
-    await rolledBackRoutePage.getByRole("heading", { name: "sales-live-v1" }).waitFor();
-    assert.deepEqual(await rolledBackRoutePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__), { appId: "app.sales-live", generationId: rolledBack.generationId, route: "/apps/sales-live/activity/42" });
+    await rolledBackRoutePage.getByRole("heading", { name: "fixture-live-v1" }).waitFor();
+    assert.deepEqual(await rolledBackRoutePage.evaluate(() => window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__), { appId: "app.fixture-live", generationId: rolledBack.generationId, route: "/apps/fixture-live/activity/42" });
     await rolledBackRoutePage.close();
     await Promise.all([
       updatedRoutePage.waitForFunction(() => document.querySelectorAll("iframe").length === 0, { timeout: 12_000 }),
@@ -1428,16 +1433,16 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     ]);
     assert.equal(await routePage.locator("iframe").count(), 1, "rollback did not cancel G1 retirement after its original deadline elapsed");
     assert.equal(await drainingRoutePage.locator("iframe").count(), 1, "rollback did not preserve the lease-drained G1 page after its original retirement deadline elapsed");
-    assert.equal(fixedRouteHost.routeRequests.every((request) => request.route === "/apps/sales-live/activity/42"), true, "the customer host did not use the declared fixed catch-all route");
+    assert.equal(fixedRouteHost.routeRequests.every((request) => request.route === "/apps/fixture-live/activity/42"), true, "the customer host did not use the declared fixed catch-all route");
     const rollbackTraffic = await fetch(`${gateway.url}/rollback`);
     assert.equal(rollbackTraffic.status, 200);
     assert.equal(JSON.parse(await rollbackTraffic.text()).generationId, installed.generationId);
-    assert.deepEqual(await invokeTraffic(), { marker: "sales-live-v1", generationId: installed.generationId });
+    assert.deepEqual(await invokeTraffic(), { marker: "fixture-live-v1", generationId: installed.generationId });
     await trafficProbe.stop();
     trafficProbe.assertEvidence({
-      install: ["host-gateway-generation-0", "app-sales-live-generation-1"],
-      update: ["app-sales-live-generation-1", "app-sales-live-generation-2"],
-      rollback: ["app-sales-live-generation-2", "app-sales-live-generation-1"]
+      install: ["host-gateway-generation-0", "app-fixture-live-generation-1"],
+      update: ["app-fixture-live-generation-1", "app-fixture-live-generation-2"],
+      rollback: ["app-fixture-live-generation-2", "app-fixture-live-generation-1"]
     });
     continuousHttp = trafficProbe.summary();
 
@@ -1454,40 +1459,44 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       drainingRoutePage.waitForFunction(() => document.querySelectorAll("iframe").length === 0, { timeout: 12_000 })
     ]);
 
-    await pool.query("update runtime_extensions set active_generation=jsonb_set(active_generation, '{artifactDigest}', to_jsonb($1::text)) where extension_id='app.sales-live'", [digest("f")]);
+    await pool.query("update runtime_extensions set active_generation=jsonb_set(active_generation, '{artifactDigest}', to_jsonb($1::text)) where extension_id='app.fixture-live'", [digest("f")]);
     await assert.rejects(manager.inventory("customer-alpha", "production"), { code: "ARTIFACT_AUTHORITY_REJECTED" });
-    await pool.query("update runtime_extensions set active_generation=jsonb_set(active_generation, '{artifactDigest}', to_jsonb($1::text)) where extension_id='app.sales-live'", [byGeneration.get(cutover.generationId).authority.artifactDigest]);
+    await pool.query("update runtime_extensions set active_generation=jsonb_set(active_generation, '{artifactDigest}', to_jsonb($1::text)) where extension_id='app.fixture-live'", [byGeneration.get(cutover.generationId).authority.artifactDigest]);
 
     const terminalRoutePage = await browserContext.newPage();
-    await terminalRoutePage.goto(`${restartedFixedRouteHost.url}/apps/sales-live/activity/42`);
-    await terminalRoutePage.getByRole("heading", { name: "sales-live-v3" }).waitFor();
+    await terminalRoutePage.goto(`${restartedFixedRouteHost.url}/apps/fixture-live/activity/42`);
+    await terminalRoutePage.getByRole("heading", { name: "fixture-live-v3" }).waitFor();
     const disablePlan = await manager.plan(request("disable", "2.0.0", cutover.revisionAfter));
     const disabled = await manager.disable(disablePlan.operationId);
     assert.deepEqual(await manager.disable(disablePlan.operationId), disabled);
     await terminalRoutePage.waitForFunction(() => document.querySelectorAll("iframe").length === 0, { timeout: 5_000 });
-    assert.equal((await requestFixedRoute(restartedFixedRouteHost, "/apps/sales-live/activity/42")).status, 404, "disabled applications must reject new fixed-route sessions immediately");
-    const reinstall = await manager.plan(request("install", "2.1.0", disabled.revisionAfter));
+    assert.equal((await requestFixedRoute(restartedFixedRouteHost, "/apps/fixture-live/activity/42")).status, 404, "disabled applications must reject new fixed-route sessions immediately");
+    const reenable = await manager.plan(request("install", "2.0.0", disabled.revisionAfter));
+    await manager.stage(reenable.operationId);
+    assert.equal((await manager.validate(reenable.operationId)).valid, true);
+    const reenabled = await manager.activate(reenable.operationId);
+    const reinstall = await manager.plan(request("update", "2.1.0", reenabled.revisionAfter));
     await manager.stage(reinstall.operationId);
     assert.equal((await manager.validate(reinstall.operationId)).valid, true);
     const reactivated = await manager.activate(reinstall.operationId);
     const quarantinedRoutePage = await browserContext.newPage();
-    await quarantinedRoutePage.goto(`${restartedFixedRouteHost.url}/apps/sales-live/activity/42`);
-    await quarantinedRoutePage.getByRole("heading", { name: "sales-live-v4" }).waitFor();
+    await quarantinedRoutePage.goto(`${restartedFixedRouteHost.url}/apps/fixture-live/activity/42`);
+    await quarantinedRoutePage.getByRole("heading", { name: "fixture-live-v4" }).waitFor();
     const quarantined = await storeA.quarantineRunnerGeneration({ applicationId: "customer-alpha", environment: "production", appId: identity.id, generationId: reactivated.generationId, expectedRevision: reactivated.revisionAfter, reason: "INVOCATION_TIMEOUT" });
     await quarantinedRoutePage.waitForFunction(() => document.querySelectorAll("iframe").length === 0, { timeout: 5_000 });
-    assert.equal((await requestFixedRoute(restartedFixedRouteHost, "/apps/sales-live/activity/42")).status, 404, "quarantined applications must reject new fixed-route sessions immediately");
-    const removalReinstall = await manager.plan(request("install", "2.2.0", quarantined.revisionAfter));
-    await manager.stage(removalReinstall.operationId);
-    assert.equal((await manager.validate(removalReinstall.operationId)).valid, true);
-    const removalActive = await manager.activate(removalReinstall.operationId);
+    assert.equal((await requestFixedRoute(restartedFixedRouteHost, "/apps/fixture-live/activity/42")).status, 404, "quarantined applications must reject new fixed-route sessions immediately");
+    const quarantineRecovery = await manager.plan(request("update", "2.2.0", quarantined.revisionAfter));
+    await manager.stage(quarantineRecovery.operationId);
+    assert.equal((await manager.validate(quarantineRecovery.operationId)).valid, true);
+    const removalActive = await manager.activate(quarantineRecovery.operationId);
     const removedRoutePage = await browserContext.newPage();
-    await removedRoutePage.goto(`${restartedFixedRouteHost.url}/apps/sales-live/activity/42`);
-    await removedRoutePage.getByRole("heading", { name: "sales-live-v5" }).waitFor();
+    await removedRoutePage.goto(`${restartedFixedRouteHost.url}/apps/fixture-live/activity/42`);
+    await removedRoutePage.getByRole("heading", { name: "fixture-live-v5" }).waitFor();
     const uninstallPlan = await manager.plan(request("uninstall", "2.2.0", removalActive.revisionAfter));
     const uninstalled = await manager.uninstall(uninstallPlan.operationId);
     assert.deepEqual(await manager.uninstall(uninstallPlan.operationId), uninstalled);
     await removedRoutePage.waitForFunction(() => document.querySelectorAll("iframe").length === 0, { timeout: 5_000 });
-    assert.equal((await requestFixedRoute(restartedFixedRouteHost, "/apps/sales-live/activity/42")).status, 404, "removed applications must reject new fixed-route sessions immediately");
+    assert.equal((await requestFixedRoute(restartedFixedRouteHost, "/apps/fixture-live/activity/42")).status, 404, "removed applications must reject new fixed-route sessions immediately");
     console.log(`P9_RUNTIME_JOURNEY_EVIDENCE=${JSON.stringify({
       scenarios: ["SCN-11", "SCN-16"],
       productionDockerExecution: {

@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import { promisify } from "node:util";
 import pg from "pg";
 import { canonicalJson } from "@k-nex/contracts";
-import { PostgresRuntimeExtensionStore } from "@k-nex/payload-adapter";
+import { PostgresRuntimeExtensionStore, SharedStaticPlatformPluginGenerationRebinder } from "@k-nex/payload-adapter";
 import { ExtensionOperatorApi, PluginManager, TrustedAutomationOperationAuthorizer } from "@k-nex/runtime";
 
 const execute = promisify(execFile);
@@ -39,7 +39,7 @@ const proof = await (async () => {
 })();
 
 const operationClock = { now: () => new Date() };
-const operationStore = new PostgresRuntimeExtensionStore(pool, operationClock, operator.hostInventoryDigest);
+const operationStore = new PostgresRuntimeExtensionStore(pool, operationClock, operator.hostInventoryDigest, { sharedStaticGenerationRebinder: new SharedStaticPlatformPluginGenerationRebinder() });
 const manager = new PluginManager(
   operator.workerId,
   new TrustedAutomationOperationAuthorizer(operator.automationIdentity),

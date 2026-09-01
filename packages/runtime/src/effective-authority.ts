@@ -265,7 +265,7 @@ export class EffectiveAuthorityResolver {
       this.#cache.set(key, cached);
       return cached;
     }
-    const outcome = await this.#store.transaction(expected, async (transaction) => {
+    const outcome = await this.#store.readTransaction(expected, async (transaction) => {
       // One PostgreSQL transaction owns one session; issue reads serially.
       const roles = await transaction.listRoles(expected.applicationId);
       const grants = await transaction.listGrants(expected.applicationId);

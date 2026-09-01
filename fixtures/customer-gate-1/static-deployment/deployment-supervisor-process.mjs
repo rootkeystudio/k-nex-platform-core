@@ -515,6 +515,7 @@ export async function runDeploymentSupervisor({ event, ready }) {
   const releases = new PostgresTrustedBuildDeploymentClient(pool);
   const gateway = { converge: async (ticket) => {
     await store.assertTransitionTicket(ticket);
+    if (await store.readServingGeneration(ticket) !== ticket.generationId) throw new StaticDeploymentEffectNotDispatchedError("Static runtime and authorization inventory has not converged to the promoted generation.");
     if (generations.failGatewayOnce) { generations.failGatewayOnce = false; throw new StaticDeploymentEffectNotDispatchedError("simulated post-commit gateway crash"); }
     const route = await pool.query(
       "select url from p9_static_process_routes where application_id=$1 and environment=$2 and generation_id=$3",
@@ -572,39 +573,44 @@ export async function runDeploymentSupervisor({ event, ready }) {
   }
   async function promotionContext(command) {
     if (!command.operationId) throw commandError(409, "Promotion command requires durable lifecycle admission.", "REVISION_CONFLICT");
-    const result = await pool.query(
-      `select operation_id, application_id, environment, delivery_class, extension_id, expected_revision, phase, plan_json
-       from runtime_extension_operations where operation_id=$1`,
-      [command.operationId]
-    );
-    const operation = result.rows[0];
+    if (command.deliveryClass !== "platform-plugin") throw commandError(409, "Promotion command has an invalid lifecycle delivery class.", "REVISION_CONFLICT");
+    const operation = (await pool.query(
+      "select * from public.k_nex_static_lifecycle_admission($1,$2,$3,$4)",
+      [command.operationId, command.applicationId, command.environment, command.extensionId]
+    )).rows[0];
     const plan = operation?.plan_json;
     const install = plan?.plan;
-    if (!operation || operation.application_id !== command.applicationId || operation.environment !== command.environment ||
-      operation.delivery_class !== "platform-plugin" || operation.delivery_class !== command.deliveryClass ||
-      operation.extension_id !== command.extensionId || operation.expected_revision !== command.lifecycleExpectedRevision ||
-      !["source-change-ready", "build-attested", "zero-downtime-eligible", "rollback-window-open"].includes(operation.phase) ||
-      plan?.executionClass !== "static-release" || plan.operationId !== operation.operation_id || plan.generationId !== command.generationId ||
-      install?.operationId !== operation.operation_id || install?.id !== operation.extension_id || install?.expectedRevision !== operation.expected_revision ||
-      install?.targetGenerationId !== command.generationId || canonicalJson(plan.sourceChange) !== canonicalJson(greenBuild.change) ||
-      plan.deployment?.buildRequestDigest !== command.buildRequestDigest || plan.deployment?.sourceCommit !== greenBuild.sourceCommit) {
-      throw commandError(409, "Promotion command does not bind the exact persisted lifecycle release plan.", "REVISION_CONFLICT");
+    const invalid = !operation ? ["operation"] : [
+      ["expected-revision", operation.expected_revision === command.lifecycleExpectedRevision],
+      ["phase", ["source-change-ready", "build-attested", "zero-downtime-eligible", "rollback-window-open"].includes(operation.phase)],
+      ["execution-class", plan?.executionClass === "static-release"],
+      ["operation-id", plan?.operationId === operation.operation_id],
+      ["generation", plan?.generationId === command.generationId],
+      ["install-operation", install?.operationId === operation.operation_id],
+      ["extension", install?.id === command.extensionId],
+      ["install-revision", install?.expectedRevision === operation.expected_revision],
+      ["install-generation", install?.targetGenerationId === command.generationId],
+      ["source-change", canonicalJson(plan?.sourceChange) === canonicalJson(greenBuild.change)],
+      ["build-request", plan?.deployment?.buildRequestDigest === command.buildRequestDigest],
+      ["source-commit", plan?.deployment?.sourceCommit === greenBuild.change.targetSourceCommit]
+    ].filter(([, valid]) => !valid).map(([name]) => name);
+    if (invalid.length > 0) {
+      throw commandError(409, `Promotion command does not bind the exact persisted lifecycle release plan: ${invalid.join(", ")}.`, "REVISION_CONFLICT");
     }
     return {
       operationId: operation.operation_id,
       expectedRevision: operation.expected_revision,
-      extensionId: operation.extension_id,
+      extensionId: command.extensionId,
       quarantineRecovery: plan.quarantineRecovery === true
     };
   }
   async function maintenanceContext(command) {
-    const result = await pool.query(
-      "select operation_id, application_id, environment, delivery_class, extension_id, expected_revision, phase, authorization_json, plan_json from runtime_extension_operations where operation_id=$1",
-      [command.operationId]
-    );
-    const operation = result.rows[0];
-    if (!operation || operation.application_id !== command.applicationId || operation.environment !== command.environment ||
-      operation.delivery_class !== command.deliveryClass || operation.extension_id !== command.extensionId || operation.phase !== "source-change-ready" ||
+    if (command.deliveryClass !== "platform-plugin") throw commandError(409, "Maintenance command has an invalid lifecycle delivery class.", "MAINTENANCE_OPERATION_MISMATCH");
+    const operation = (await pool.query(
+      "select * from public.k_nex_static_lifecycle_admission($1,$2,$3,$4)",
+      [command.operationId, command.applicationId, command.environment, command.extensionId]
+    )).rows[0];
+    if (!operation || operation.phase !== "source-change-ready" ||
       operation.expected_revision !== command.expectedRevision) {
       throw commandError(409, "Maintenance command does not bind the persisted runtime operation owner or revision.", "MAINTENANCE_OPERATION_MISMATCH");
     }
@@ -620,9 +626,9 @@ export async function runDeploymentSupervisor({ event, ready }) {
       const install = ExtensionInstallPlanSchema.parse(plan.plan);
       sourceChange = plan.sourceChange;
       change = StaticCompositionChangePlanSchema.parse(sourceChange.change);
-      if (install.deliveryClass !== "platform-plugin" || install.id !== operation.extension_id || install.operationId !== operation.operation_id ||
+      if (install.deliveryClass !== "platform-plugin" || install.id !== command.extensionId || install.operationId !== operation.operation_id ||
         install.expectedRevision !== operation.expected_revision || install.targetGenerationId !== command.generationId ||
-        change.applicationId !== operation.application_id || change.environment !== operation.environment || change.plugin.id !== operation.extension_id ||
+        change.applicationId !== command.applicationId || change.environment !== command.environment || change.plugin.id !== command.extensionId ||
         change.plugin.version !== install.version || change.authority.requestDigest !== operation.authorization_json?.decisionId ||
         sourceChange.planDigest !== digestJson(change)) {
         throw new Error("static plan binding mismatch");
@@ -709,13 +715,13 @@ export async function runDeploymentSupervisor({ event, ready }) {
     const { request, build } = await verified(command);
     const state = await store.read(owner);
     if (!state) throw commandError(409, "Static deployment is not initialized.");
-    if (recovering && state.active.generationId === command.generationId && state.revision === command.expectedRevision + 1) {
+    if (recovering && state.active.generationId === command.generationId) {
       await supervisor.recover(owner, { workerLeaseDurationMs: generations.workerLeaseMs });
       const receipt = await receiptForRevision(owner, state.revision);
+      if (receipt.activeGenerationId !== command.generationId) throw commandError(409, "Recovered promotion receipt does not bind the active generation.", "REVISION_CONFLICT");
       if (request.status === "deployment-requested") await releases.recordDeployment({ buildRequestDigest: request.buildRequestDigest, expectedVersion: request.version, receipt });
       return { outcome: "promoted", receipt, recovered: true };
     }
-    if (state.revision !== command.expectedRevision) throw commandError(409, "Promotion command revision is stale.", "REVISION_CONFLICT");
     const outcome = await supervisor.deploy({ build, generationId: command.generationId, workerOwner: command.workerOwner, workerLeaseExpiresAt: command.workerLeaseExpiresAt, lifecycleAdmission });
     if (outcome.outcome === "promoted" && request.status === "deployment-requested") await releases.recordDeployment({ buildRequestDigest: request.buildRequestDigest, expectedVersion: request.version, receipt: outcome.receipt });
     await event("supervisor-lifecycle-executed", { operation: command.operation, generationId: command.generationId, buildRequestDigest: command.buildRequestDigest, outcome: outcome.outcome, backfillBatches: migrations.backfillBatches });

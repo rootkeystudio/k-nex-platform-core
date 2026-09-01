@@ -12,6 +12,7 @@
     "schemas/extension-install-plan.v1.schema.json",
     "schemas/extension-install-receipt.v1.schema.json",
     "schemas/extension-lifecycle-event.v1.schema.json",
+    "schemas/extension-shared-static-generation-rebind-event.v1.schema.json",
     "schemas/extension-generation.v1.schema.json",
     "schemas/zero-downtime-eligibility.v1.schema.json",
     "schemas/remote-ui-isolation-profile.v1.schema.json",

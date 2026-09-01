@@ -6,7 +6,7 @@ import { basename, join, resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
 const destination = resolve(root, "fixtures/customer-gate-1/packages");
-const release = JSON.parse(readFileSync(resolve(root, "releases/0.2.0/package-release-manifest.json"), "utf8"));
+const release = JSON.parse(readFileSync(resolve(root, "releases/1.0.0/package-release-manifest.json"), "utf8"));
 
 function packageRoot(name) {
   if (name === "@k-nex/module-sales") return resolve(root, "modules/sales");
@@ -36,20 +36,21 @@ function pack(directory, expectedFilename) {
   }
 }
 
-for (const entry of release.packages) {
+for (const entry of new Map([...release.packages, { package: "@k-nex/extension-bundler", version: "1.0.0" }].map((entry) => [entry.package, entry])).values()) {
   if (entry.package === "@k-nex/module-sales") continue;
   const filename = `${entry.package.replace(/^@k-nex\//u, "k-nex-")}-${entry.version}.tgz`;
   pack(packageRoot(entry.package), filename);
 }
 
-for (const version of ["0.9.0", "1.0.0", "1.0.1"]) {
+for (const version of ["1.0.0"]) {
   const source = resolve(root, `releases/sources/sales-${version}`);
   const metadata = JSON.parse(readFileSync(resolve(source, "release-source.json"), "utf8"));
   const manifest = JSON.parse(readFileSync(resolve(source, "package.json"), "utf8"));
   assert.equal(metadata.version, version);
   assert.equal(manifest.name, "@k-nex/module-sales");
   assert.equal(manifest.version, version);
+  assert.equal(version, "1.0.0");
   pack(source, `k-nex-module-sales-${version}.tgz`);
 }
 
-process.stdout.write(`P8_PACKED_RELEASES_GENERATED ${release.packages.length + 2}\n`);
+process.stdout.write(`P8_PACKED_RELEASES_GENERATED ${release.packages.length}\n`);

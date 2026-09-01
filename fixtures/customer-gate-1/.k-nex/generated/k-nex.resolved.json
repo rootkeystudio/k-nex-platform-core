@@ -94,9 +94,28 @@
           "sales.tasks.title.read": "required",
           "sales.tasks.write": "required"
         },
+        "policyBindings": {
+          "sales.policy.opportunities.name.read": "required",
+          "sales.policy.opportunities.read": "required",
+          "sales.policy.opportunities.stage.read": "required",
+          "sales.policy.opportunities.value.read": "required",
+          "sales.policy.opportunities.write": "required",
+          "sales.policy.tasks.private-note.read": "required",
+          "sales.policy.tasks.read": "required",
+          "sales.policy.tasks.revenue.read": "required",
+          "sales.policy.tasks.status.read": "required",
+          "sales.policy.tasks.title.read": "required",
+          "sales.policy.tasks.write": "required"
+        },
         "realtimeTopics": {
           "sales.realtime.opportunities": "required",
           "sales.realtime.tasks": "required"
+        },
+        "roleTemplates": {
+          "sales.template.administrator": "required",
+          "sales.template.manager": "required",
+          "sales.template.representative": "required",
+          "sales.template.viewer": "required"
         },
         "routes": {
           "sales.route.opportunities": "required",
@@ -131,7 +150,7 @@
         "names": []
       },
       "id": "module.sales",
-      "integrity": "sha512-qDm4VY2AEG8m7578O+LYPVjJqZ3iCR/i53sxRhCKqW2VdXEao80aSVt+NrgvayDLpnA/6vT6dAs+0TR8klqo+g==",
+      "integrity": "sha512-q3xcws+tBSk4pu9EBZ8m57YRZlcT4iZRv0vq7oIlTXrVDPcWoIxlbb7omezN6aMWXAHppCQDPop3WN4n3x5o1A==",
       "kind": "module",
       "lifecycle": {
         "disable": "supported",
@@ -140,7 +159,7 @@
         "purge": "supported",
         "uninstall": "unsupported"
       },
-      "manifestDigest": "sha256:137f9a1ea825abe16e110b856ee25567692a547447b0460518666e955c23aba1",
+      "manifestDigest": "sha256:81d0746e1395b03f96eb2f425ca81b1714d69ebba4f93eb63f7610213e614505",
       "optional": [],
       "package": "@k-nex/module-sales",
       "required": [],
@@ -152,7 +171,7 @@
         "names": []
       },
       "id": "provider.realtime.socketio",
-      "integrity": "sha512-U0EHH5c1wuehYok+qms1r6HOKRR1NcSzAepoB0GbLJc8t1+3hY73CwXuu6uK4ZEO5yhSsTJW7lTOOGaMEn/RiA==",
+      "integrity": "sha512-0lkZIrlzh8hfPy8mjVN/bthw0lD79GNRsh5n5w4GpIcP20kthsUhbROWiu5i0TwuloPorGG1jVtbk5v8srfCEg==",
       "kind": "provider",
       "lifecycle": {
         "disable": "supported",

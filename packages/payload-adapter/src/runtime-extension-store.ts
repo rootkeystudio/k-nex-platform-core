@@ -27,7 +27,7 @@ import type {
   StagedGenerationActivation,
   VerifiedGenerationAuthority
 } from "@k-nex/runtime";
-import type { AuthorizationLifecycleProjectionInput } from "./authorization-lifecycle-projector.js";
+import type { AuthorizationLifecycleProjectionInput, SharedStaticGenerationRebindInput } from "./authorization-lifecycle-projector.js";
 
 export interface RuntimeExtensionQueryResult<T> {
   readonly rows: readonly T[];
@@ -50,6 +50,10 @@ export interface RuntimeExtensionClock {
 
 interface RuntimeExtensionAuthorizationLifecycleProjector {
   project(input: AuthorizationLifecycleProjectionInput): Promise<unknown>;
+}
+
+interface RuntimeExtensionSharedStaticGenerationRebinder {
+  rebind(input: SharedStaticGenerationRebindInput): Promise<void>;
 }
 
 const runnerQuarantineReasons = Object.freeze({
@@ -468,6 +472,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
   private readonly maxConcurrentOperations: number;
   private readonly reconciliationBatchSize: number;
   private readonly authorizationLifecycleProjector: RuntimeExtensionAuthorizationLifecycleProjector | undefined;
+  private readonly sharedStaticGenerationRebinder: RuntimeExtensionSharedStaticGenerationRebinder;
 
   constructor(
     private readonly pool: RuntimeExtensionPool,
@@ -478,12 +483,14 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
       maxConcurrentOperations?: number;
       reconciliationBatchSize?: number;
       authorizationLifecycleProjector?: RuntimeExtensionAuthorizationLifecycleProjector;
-    }> = {}
+      sharedStaticGenerationRebinder: RuntimeExtensionSharedStaticGenerationRebinder;
+    }>
   ) {
     this.leaseMs = options.leaseMs ?? 30_000;
     this.maxConcurrentOperations = options.maxConcurrentOperations ?? 16;
     this.reconciliationBatchSize = options.reconciliationBatchSize ?? this.maxConcurrentOperations;
     this.authorizationLifecycleProjector = options.authorizationLifecycleProjector;
+    this.sharedStaticGenerationRebinder = options.sharedStaticGenerationRebinder;
     if (!/^sha256:[0-9a-f]{64}$/u.test(hostInventoryDigest) || !Number.isSafeInteger(this.leaseMs) || this.leaseMs < 1 ||
       !Number.isSafeInteger(this.maxConcurrentOperations) || this.maxConcurrentOperations < 1 || this.maxConcurrentOperations > 512 ||
       !Number.isSafeInteger(this.reconciliationBatchSize) || this.reconciliationBatchSize < 1 || this.reconciliationBatchSize > 512) {
@@ -980,6 +987,15 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
         updateCompatibility,
         priorGenerationEvidence
       );
+      await this.sharedStaticGenerationRebinder.rebind({
+        session,
+        applicationId: row.application_id,
+        environment: row.environment,
+        previousGenerationId: receipt.previousGenerationId,
+        receipt,
+        excludeExtensionId: row.extension_id,
+        operationId: row.operation_id
+      });
       await this.completeOperation(session, row, receipt);
       return receipt;
     });

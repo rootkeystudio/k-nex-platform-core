@@ -291,6 +291,7 @@ export function declaredFixtureSchema(value: unknown): FixtureSchema | undefined
   if (schema.endsWith("/extension-install-receipt.v1.schema.json")) return "extension-install-receipt";
   if (schema.endsWith("/extension-generation.v1.schema.json")) return "extension-generation";
   if (schema.endsWith("/extension-lifecycle-event.v1.schema.json")) return "extension-lifecycle-event";
+  if (schema.endsWith("/extension-shared-static-generation-rebind-event.v1.schema.json")) return "extension-shared-static-generation-rebind-event";
   if (schema.endsWith("/migration-compatibility-plan.v1.schema.json")) return "migration-compatibility-plan";
   if (schema.endsWith("/remote-ui-isolation-profile.v1.schema.json")) return "remote-ui-isolation-profile";
   if (schema.endsWith("/runner-isolation-profile.v1.schema.json")) return "runner-isolation-profile";
@@ -390,6 +391,7 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
   const extensionInstallReceiptSchema = await loadJson(root, "schemas/extension-install-receipt.v1.schema.json", diagnostics);
   const extensionGenerationSchema = await loadJson(root, "schemas/extension-generation.v1.schema.json", diagnostics);
   const extensionLifecycleEventSchema = await loadJson(root, "schemas/extension-lifecycle-event.v1.schema.json", diagnostics);
+  const extensionSharedStaticGenerationRebindEventSchema = await loadJson(root, "schemas/extension-shared-static-generation-rebind-event.v1.schema.json", diagnostics);
   const migrationCompatibilityPlanSchema = await loadJson(root, "schemas/migration-compatibility-plan.v1.schema.json", diagnostics);
   const remoteUiIsolationProfileSchema = await loadJson(root, "schemas/remote-ui-isolation-profile.v1.schema.json", diagnostics);
   const runnerIsolationProfileSchema = await loadJson(root, "schemas/runner-isolation-profile.v1.schema.json", diagnostics);
@@ -402,7 +404,7 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
   const authorizationSchema = await loadJson(root, "schemas/authorization.v1.schema.json", diagnostics);
   const expectedValue = await loadJson(root, "fixtures/contracts/expected-diagnostics.json", diagnostics);
   const extensionExpectedValue = await loadJson(root, "fixtures/extensions/expected-diagnostics.json", diagnostics);
-  if (registryValue === undefined || pluginSchema === undefined || applicationSchema === undefined || hotApplicationSchema === undefined || themeSkinSchema === undefined || extensionBundleSchema === undefined || extensionCapabilitySchema === undefined || extensionBudgetSchema === undefined || extensionInstallPlanSchema === undefined || extensionInstallReceiptSchema === undefined || extensionGenerationSchema === undefined || extensionLifecycleEventSchema === undefined || migrationCompatibilityPlanSchema === undefined || remoteUiIsolationProfileSchema === undefined || runnerIsolationProfileSchema === undefined || runtimeExtensionInventorySchema === undefined || staticCompositionChangePlanSchema === undefined || staticDeploymentReceiptSchema === undefined || trustedApplicationBuildEvidenceSchema === undefined || workerGenerationFenceSchema === undefined || zeroDowntimeEligibilitySchema === undefined || authorizationSchema === undefined || expectedValue === undefined || extensionExpectedValue === undefined) return sortDiagnostics(diagnostics);
+  if (registryValue === undefined || pluginSchema === undefined || applicationSchema === undefined || hotApplicationSchema === undefined || themeSkinSchema === undefined || extensionBundleSchema === undefined || extensionCapabilitySchema === undefined || extensionBudgetSchema === undefined || extensionInstallPlanSchema === undefined || extensionInstallReceiptSchema === undefined || extensionGenerationSchema === undefined || extensionLifecycleEventSchema === undefined || extensionSharedStaticGenerationRebindEventSchema === undefined || migrationCompatibilityPlanSchema === undefined || remoteUiIsolationProfileSchema === undefined || runnerIsolationProfileSchema === undefined || runtimeExtensionInventorySchema === undefined || staticCompositionChangePlanSchema === undefined || staticDeploymentReceiptSchema === undefined || trustedApplicationBuildEvidenceSchema === undefined || workerGenerationFenceSchema === undefined || zeroDowntimeEligibilitySchema === undefined || authorizationSchema === undefined || expectedValue === undefined || extensionExpectedValue === undefined) return sortDiagnostics(diagnostics);
 
   const registry = registryValue as Registry;
   const expectedResult = validateExpectedDiagnostics(expectedValue);
@@ -430,6 +432,7 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
       "extension-install-receipt": ajv.compile(extensionInstallReceiptSchema as AnySchema),
       "extension-generation": ajv.compile(extensionGenerationSchema as AnySchema),
       "extension-lifecycle-event": ajv.compile(extensionLifecycleEventSchema as AnySchema),
+      "extension-shared-static-generation-rebind-event": ajv.compile(extensionSharedStaticGenerationRebindEventSchema as AnySchema),
       "migration-compatibility-plan": ajv.compile(migrationCompatibilityPlanSchema as AnySchema),
       "remote-ui-isolation-profile": ajv.compile(remoteUiIsolationProfileSchema as AnySchema),
       "runner-isolation-profile": ajv.compile(runnerIsolationProfileSchema as AnySchema),

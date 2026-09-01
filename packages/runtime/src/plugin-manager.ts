@@ -449,7 +449,12 @@ function assertPlanMatches(
     throw new PluginManagerError("PLAN_MISMATCH", "Planner output does not match the authorized extension request.");
   }
   if (!plan.targetGenerationId) throw new PluginManagerError("PLAN_MISMATCH", "Planner output has no target generation identity.");
-  if (["install", "update"].includes(request.operation)) {
+  const retainedReenable = request.extension.deliveryClass !== "platform-plugin" && inventory.disposition === "disabled" && request.operation === "install";
+  if (retainedReenable) {
+    if (plan.targetGenerationId !== inventory.currentGenerationId) {
+      throw new PluginManagerError("PLAN_MISMATCH", "Re-enable must target the retained generation from current inventory.");
+    }
+  } else if (["install", "update"].includes(request.operation)) {
     if (plan.targetGenerationId === inventory.currentGenerationId || plan.targetGenerationId === inventory.rollbackGenerationId) {
       throw new PluginManagerError("PLAN_MISMATCH", "Install and update target generations must be fresh.");
     }

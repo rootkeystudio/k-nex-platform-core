@@ -43,6 +43,10 @@ class MemoryStore implements AuthorizationStore {
 
   async readState(): Promise<AuthorizationState> { return this.state; }
 
+  async readTransaction<T>(actual: AuthorizationExpectedRevision, work: (transaction: Omit<AuthorizationStoreTransaction, "write">) => Promise<T>) {
+    return this.transaction(actual, work);
+  }
+
   async transaction<T>(actual: AuthorizationExpectedRevision, work: (transaction: AuthorizationStoreTransaction) => Promise<T>) {
     this.transactionCalls += 1;
     if (actual.authorizationRevision !== this.state.authorizationRevision || actual.lifecycleRevision !== this.state.lifecycleRevision) {

@@ -16,6 +16,7 @@ import {
   planAuthorizationLifecycle,
   type AuthorizationLifecyclePlan
 } from "@k-nex/runtime";
+import type { StaticDeploymentReceipt } from "@k-nex/contracts";
 
 import type { RuntimeExtensionSession } from "./runtime-extension-store.js";
 import { writeAuthorizationInvalidationOutbox } from "./authorization-outbox.js";
@@ -45,6 +46,32 @@ export interface AuthorizationLifecycleProjectionInput {
 export interface AuthorizationLifecycleProjection {
   readonly plan: AuthorizationLifecyclePlan;
   readonly state: AuthorizationState;
+}
+
+export interface SharedStaticGenerationRebindInput {
+  /** The runtime lifecycle transaction completing the target Platform Plugin operation. */
+  readonly session: RuntimeExtensionSession;
+  readonly applicationId: string;
+  readonly environment: string;
+  readonly previousGenerationId: string;
+  readonly receipt: StaticDeploymentReceipt;
+  /** The lifecycle operation's own plugin is reconciled by its terminal receipt path. */
+  readonly excludeExtensionId?: string;
+  readonly operationId?: string;
+}
+
+/**
+ * Keeps retained Platform Plugin runtime identities coupled to the one shared
+ * static application image without changing their authorization owner generation.
+ */
+export class SharedStaticPlatformPluginGenerationRebinder {
+  async rebind(input: SharedStaticGenerationRebindInput): Promise<void> {
+    await input.session.query(
+      "select public.k_nex_static_shared_generation_rebind($1,$2,$3,$4::jsonb,$5,$6)",
+      [input.applicationId, input.environment, input.previousGenerationId, canonicalJson(input.receipt),
+        input.excludeExtensionId ?? null, input.operationId ?? null]
+    );
+  }
 }
 
 /**

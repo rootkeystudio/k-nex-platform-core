@@ -43,12 +43,13 @@ function harness() {
     { extension: { deliveryClass: "theme-skin", id: "skin.minimal-accent" }, version: "1.0.0", displayName: "Minimal Accent", support: "supported", review: "approved", security: "clear", revoked: false, availability: "live-generation" },
     { extension: { deliveryClass: "hot-application", id: "app.sales-advisory" }, version: "1.0.0", displayName: "Sales Advisory", support: "supported", review: "approved", security: "advisory", revoked: false, availability: "live-generation" },
     { extension: { deliveryClass: "hot-application", id: "app.sales-assistant" }, version: "1.0.0", displayName: "Sales Assistant", support: "supported", review: "approved", security: "compromised", revoked: true, availability: "live-generation" },
-    { extension: { deliveryClass: "platform-plugin", id: "module.sales" }, version: "1.1.0", displayName: "Sales", support: "supported", review: "approved", security: "clear", revoked: false, availability: "static-release" }
+    { extension: { deliveryClass: "platform-plugin", id: "module.sales" }, version: "1.0.0", displayName: "Sales", support: "supported", review: "approved", security: "clear", revoked: false, availability: "static-release" }
   ] as const) };
   const staticReleases = {
     validate: vi.fn(async () => ({ operationId: staticOperation.operationId, executionClass: "static-release", phase: "build-attested", valid: true, checks: ["trusted-build"] })),
     execute: vi.fn(async () => ({ outcome: "maintenance-required", reasons: ["offline-migration"] })),
-    rollback: vi.fn(async () => ({ operation: "rollback" }))
+    rollback: vi.fn(async () => ({ operation: "rollback" })),
+    finalize: vi.fn(async () => undefined)
   };
   const runtimeStatus = { observe: vi.fn(async () => ({ runnerIsolation, remoteUiIsolation, health: [{ extension: { deliveryClass: "hot-application", id: "app.sales-assistant" }, generationId: "sales-assistant-generation-1", state: "healthy" }] })) };
   return { manager, catalog, staticReleases, runtimeStatus, api: new ExtensionOperatorApi(manager as never, catalog, staticReleases as never, runtimeStatus as never) };
@@ -62,7 +63,7 @@ describe("ExtensionOperatorApi", () => {
       expect.objectContaining({ extension: { deliveryClass: "theme-skin", id: "skin.minimal-accent" } })
     ]);
     await expect(value.api.catalogList({ includeUnavailable: true, deliveryClass: "hot-application" })).resolves.toHaveLength(2);
-    await expect(value.api.catalogDetail({ deliveryClass: "platform-plugin", id: "module.sales" }, "1.1.0")).resolves.toMatchObject({ availability: "static-release" });
+    await expect(value.api.catalogDetail({ deliveryClass: "platform-plugin", id: "module.sales" }, "1.0.0")).resolves.toMatchObject({ availability: "static-release" });
     await expect(value.api.catalogDetail({ deliveryClass: "platform-plugin", id: "module.sales" }, "latest")).rejects.toThrow();
     const records = await value.catalog.list();
     value.catalog.list.mockResolvedValueOnce([...records, records[0]]);
@@ -93,6 +94,7 @@ describe("ExtensionOperatorApi", () => {
     expect(value.staticReleases.validate).toHaveBeenCalledOnce();
     expect(value.staticReleases.execute).toHaveBeenCalledTimes(2);
     expect(value.staticReleases.rollback).toHaveBeenCalledOnce();
+    expect(value.staticReleases.finalize).toHaveBeenCalledOnce();
     expect(value.manager.completeStaticRelease).toHaveBeenCalledWith("operation-static-release-rollback", { operation: "rollback" });
     await expect(value.api.disable(dynamicOperation.operationId)).rejects.toThrow("not authorized for this lifecycle action");
   });
@@ -103,6 +105,7 @@ describe("ExtensionOperatorApi", () => {
     value.staticReleases.execute.mockResolvedValueOnce({ outcome: "promoted", receipt });
     await expect(value.api.activate(staticOperation.operationId)).resolves.toEqual({ outcome: "promoted", receipt });
     expect(value.manager.completeStaticRelease).toHaveBeenCalledWith(staticOperation.operationId, receipt);
+    expect(value.staticReleases.finalize).toHaveBeenCalledWith(staticOperation);
   });
 
   it("combines reverified inventory with closed isolation, health, and fence observations", async () => {
@@ -136,14 +139,14 @@ describe("DurableStaticReleaseOperator", () => {
     ...staticOperation,
     plan: {
       executionClass: "static-release", operationId: "operation-static-1", generationId: "customer-alpha-green-1",
-      plan: { version: "1.1.0" },
+      plan: { version: "1.0.0" },
       sourceChange: { planDigest, targetSourceCommit: sourceCommit },
       deployment: { buildRequestDigest: `sha256:${"a".repeat(64)}`, sourceCommit }, quarantineRecovery: true
     }
   } as unknown as ExtensionOperationStatus;
   const request = (status: "builder-attested" | "deployment-requested" | "deployed") => ({
     buildRequestDigest: operation.plan!.executionClass === "static-release" ? operation.plan.deployment.buildRequestDigest : "",
-    applicationId: "customer-alpha", environment: "production", version: "1.1.0", sourceCommit, changePlanDigest: planDigest, status,
+    applicationId: "customer-alpha", environment: "production", version: "1.0.0", sourceCommit, changePlanDigest: planDigest, status,
     buildEvidenceDigest: buildDigest, applicationDigest, imageDigest,
     ...(status === "deployed" ? { generationId: "customer-alpha-green-1", migrationRevision: 2, workerFencingToken: 2, receipt } : {})
   });
@@ -178,7 +181,7 @@ describe("DurableStaticReleaseOperator", () => {
     };
     const builds = { verifiedBuild: vi.fn(async () => token) };
     const reader = { read: vi.fn(() => ({ change: { planDigest, targetSourceCommit: sourceCommit }, evidenceDigest: buildDigest, evidence: { applicationSubject: { digest: applicationDigest }, imageSubject: { digest: imageDigest } } })) };
-    const supervisor = { deploy: vi.fn(async () => ({ outcome: "promoted", receipt })), rollback: vi.fn() };
+    const supervisor = { deploy: vi.fn(async () => ({ outcome: "promoted", receipt })), rollback: vi.fn(), recover: vi.fn(async () => undefined) };
     const leases = { acquire: vi.fn(async () => ({ workerOwner: "supervisor:phase-9", workerLeaseExpiresAt: "2026-08-29T00:01:00.000Z" })) };
     const value = new DurableStaticReleaseOperator(requests, builds, reader, supervisor as never, leases, admission());
 
@@ -191,7 +194,9 @@ describe("DurableStaticReleaseOperator", () => {
       workerOwner: "supervisor:phase-9",
       workerLeaseExpiresAt: "2026-08-29T00:01:00.000Z"
     });
-    expect(requests.recordDeployment).toHaveBeenCalledWith(expect.objectContaining({ expectedVersion: "1.1.0", receipt }));
+    expect(requests.recordDeployment).toHaveBeenCalledWith(expect.objectContaining({ expectedVersion: "1.0.0", receipt }));
+    await value.finalize(operation);
+    expect(supervisor.recover).toHaveBeenCalledWith({ applicationId: "customer-alpha", environment: "production" });
   });
 
   it("denies durable deployment before request dispatch, worker lease, or supervisor work", async () => {
@@ -242,7 +247,7 @@ describe("DurableStaticReleaseOperator", () => {
   });
 
   it("rejects a durable request that changes the persisted version or source authority", async () => {
-    const requests = { readRequest: vi.fn(async () => ({ ...request("builder-attested"), version: "1.0.0" })), requestDeployment: vi.fn(), recordDeployment: vi.fn(), recoverDeployment: vi.fn() };
+    const requests = { readRequest: vi.fn(async () => ({ ...request("builder-attested"), version: "1.0.1" })), requestDeployment: vi.fn(), recordDeployment: vi.fn(), recoverDeployment: vi.fn() };
     const value = new DurableStaticReleaseOperator(requests, { verifiedBuild: vi.fn() }, { read: vi.fn() }, {} as never, { acquire: vi.fn() }, admission());
     await expect(value.validate(operation)).rejects.toMatchObject({ code: "AUTHORITY_MISMATCH" } satisfies Partial<StaticReleaseOperatorError>);
   });
@@ -265,7 +270,7 @@ describe("DurableStaticReleaseOperator", () => {
     const uninstallOperation = {
       ...operation,
       request: { ...operation.request, extension: { deliveryClass: "platform-plugin", id: "provider.schema-less" }, operation: "uninstall" },
-      plan: { ...operation.plan, plan: { version: "1.1.0", currentGenerationId: "customer-alpha-blue-1" } }
+      plan: { ...operation.plan, plan: { version: "1.0.0", currentGenerationId: "customer-alpha-blue-1" } }
     } as unknown as ExtensionOperationStatus;
     const requests = {
       readRequest: vi.fn(async () => ({ ...request("deployed"), receipt: uninstallReceipt })),
@@ -308,6 +313,6 @@ describe("DurableStaticReleaseOperator", () => {
 
     await expect(value.rollback(rollbackOperation)).resolves.toEqual(rollbackReceipt);
     expect(supervisor.rollback).toHaveBeenCalledWith({ applicationId: "customer-alpha", environment: "production", workerOwner: "supervisor:phase-9", workerLeaseExpiresAt: "2026-08-29T00:01:00.000Z" });
-    expect(requests.recordDeployment).toHaveBeenCalledWith(expect.objectContaining({ expectedVersion: "1.1.0", receipt: rollbackReceipt }));
+    expect(requests.recordDeployment).toHaveBeenCalledWith(expect.objectContaining({ expectedVersion: "1.0.0", receipt: rollbackReceipt }));
   });
 });

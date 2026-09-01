@@ -5,7 +5,7 @@
     "plugins": [
       "module.sales@1.0.0"
     ],
-    "theme": "minimal@0.0.0",
+    "theme": "minimal@1.0.0",
     "databaseAdapter": "postgres"
   },
   "migration": {

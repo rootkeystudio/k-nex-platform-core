@@ -33,6 +33,7 @@ function memoryStore() {
 
 test("proves a physical backup restores complete Sales runtime state into a clean database", { timeout: 180_000 }, async () => {
   const expectedInventory = observeRuntimeInventory(JSON.parse(readFileSync(new URL("../../customer-alpha/runtime-inventory.json", import.meta.url), "utf8")));
+  const expectedMigrationRevision = expectedInventory.migrationRevision;
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("backup_source").withStartupTimeout(120_000).start();
   const source = new pg.Pool({ connectionString: container.getConnectionUri() });
   let restored;
@@ -49,7 +50,7 @@ test("proves a physical backup restores complete Sales runtime state into a clea
       insert into workspace_layouts values (1, '{"theme":"minimal"}');
       insert into runtime_settings values (1, true);
       insert into durable_outbox values (1, 'delivered');
-      insert into k_nex_release_revision values ('customer.alpha', 6, 7, 'release-7');
+      insert into k_nex_release_revision values ('customer.alpha', ${expectedMigrationRevision - 1}, ${expectedMigrationRevision}, 'release-${expectedMigrationRevision}');
     `);
 
     const user = container.getUsername();
@@ -61,7 +62,7 @@ test("proves a physical backup restores complete Sales runtime state into a clea
     const backupContent = Buffer.from(encodedBackup.stdout.replace(/\s/gu, ""), "base64");
     const store = memoryStore();
     const backup = await executeDatabaseBackup({
-      backupId: "customer-alpha-7", applicationId: "customer.alpha", pluginId: "module.sales", migrationRevision: 7,
+      backupId: `customer-alpha-${expectedMigrationRevision}`, applicationId: "customer.alpha", pluginId: "module.sales", migrationRevision: expectedMigrationRevision,
       executor: {
         store, maximumBytes: 64 * 1024 * 1024, encryptionKeyReference: "secret:backup/customer-alpha",
         createBackup: async function* () { for (let offset = 0; offset < backupContent.byteLength; offset += 16 * 1024) yield backupContent.subarray(offset, offset + 16 * 1024); }
@@ -101,7 +102,7 @@ test("proves a physical backup restores complete Sales runtime state into a clea
         (select status from durable_outbox where id = 1) as outbox_status,
         (select revision from k_nex_release_revision where application_id = 'customer.alpha') as migration_revision
     `);
-    assert.deepEqual(evidence.rows, [{ task: "restore me", content_version: "2", theme: "minimal", integrations_enabled: false, outbox_status: "delivered", migration_revision: 7 }]);
+    assert.deepEqual(evidence.rows, [{ task: "restore me", content_version: "2", theme: "minimal", integrations_enabled: false, outbox_status: "delivered", migration_revision: expectedMigrationRevision }]);
     assert.equal(restoredInventoryMatches(expectedInventory, restoredInventory), true);
     assert.equal(backupIsRestorable(backup, restoreProof), true);
   } finally {

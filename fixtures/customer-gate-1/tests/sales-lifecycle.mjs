@@ -55,26 +55,34 @@ const store = new PostgresAuthorizationStore(pool, {
     ? "accepted"
     : "rejected"
 });
-const firstOwner = await bootstrapFirstOwner({
+const state = await store.readState("customer-gate-1", "production") ?? (await bootstrapFirstOwner({
   store,
   expected: { applicationId: "customer-gate-1", environment: "production", authorizationRevision: 0, lifecycleRevision: 0 },
   firstOwner: { kind: "user", id: String(user.id) }
-});
+})).state;
 const salesOwner = Object.freeze({ kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales", generation: 1 });
+const existingGeneration = await pool.query(
+  "select 1 from k_nex_extension_authorization_generations where application_id=$1 and delivery_class='platform-plugin' and extension_id='module.sales' and authorization_generation=1",
+  ["customer-gate-1"]
+);
+const existingRuntime = await pool.query(
+  "select 1 from runtime_extensions where application_id=$1 and environment=$2 and delivery_class='platform-plugin' and extension_id='module.sales'",
+  ["customer-gate-1", "production"]
+);
 await store.transaction({
   applicationId: "customer-gate-1",
   environment: "production",
-  authorizationRevision: firstOwner.state.authorizationRevision,
-  lifecycleRevision: firstOwner.state.lifecycleRevision
+  authorizationRevision: state.authorizationRevision,
+  lifecycleRevision: state.lifecycleRevision
 }, async (transaction) => {
-  await transaction.write({ kind: "extension-generation", generation: {
+  if (existingGeneration.rowCount === 0) await transaction.write({ kind: "extension-generation", generation: {
     schemaVersion: 1,
     applicationId: "customer-gate-1",
     owner: salesOwner,
     runtimeGenerationIds: ["static-module-sales-1"],
     state: "current",
-    authorizationRevision: firstOwner.state.authorizationRevision,
-    lifecycleRevision: firstOwner.state.lifecycleRevision
+    authorizationRevision: state.authorizationRevision,
+    lifecycleRevision: state.lifecycleRevision
   } });
   await transaction.write({ kind: "role", role: {
     schemaVersion: 1,
@@ -104,7 +112,7 @@ await store.transaction({
     revision: 0
   } });
 });
-await pool.query(
+if (existingRuntime.rowCount === 0) await pool.query(
   "insert into runtime_extensions (application_id, environment, delivery_class, extension_id, revision, disposition, active_generation_id, active_generation) values ($1,$2,$3,$4,1,'active',$5,$6::jsonb)",
   ["customer-gate-1", "production", "platform-plugin", "module.sales", "static-module-sales-1", JSON.stringify(staticAuthorizationBuild)]
 );

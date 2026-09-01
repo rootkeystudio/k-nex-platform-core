@@ -36,18 +36,18 @@ export interface ApplicationFactoryApplyResult {
 }
 
 const exactDependencies = Object.freeze({
-  "@k-nex/composition": "0.0.0",
-  "@k-nex/contracts": "0.0.0",
+  "@k-nex/composition": "1.0.0",
+  "@k-nex/contracts": "1.0.0",
   "@k-nex/module-sales": "1.0.0",
-  "@k-nex/payload-adapter": "0.0.0",
-  "@k-nex/runtime": "0.0.0",
-  "@k-nex/ui-builder-blocks": "0.0.0",
-  "@k-nex/ui-components": "0.0.0",
-  "@k-nex/ui-data": "0.0.0",
-  "@k-nex/ui-design-system-contracts": "0.0.0",
-  "@k-nex/ui-forms": "0.0.0",
-  "@k-nex/ui-pages": "0.0.0",
-  "@k-nex/ui-runtime": "0.0.0",
+  "@k-nex/payload-adapter": "1.0.0",
+  "@k-nex/runtime": "1.0.0",
+  "@k-nex/ui-builder-blocks": "1.0.0",
+  "@k-nex/ui-components": "1.0.0",
+  "@k-nex/ui-data": "1.0.0",
+  "@k-nex/ui-design-system-contracts": "1.0.0",
+  "@k-nex/ui-forms": "1.0.0",
+  "@k-nex/ui-pages": "1.0.0",
+  "@k-nex/ui-runtime": "1.0.0",
   "@payloadcms/db-postgres": "3.88.0",
   "@payloadcms/next": "3.88.0",
   "graphql": "16.14.2",
@@ -189,7 +189,7 @@ function applicationManifest(options: CreateKnexApplicationOptions, packageVersi
     framework: { payload: { database: { adapter: "postgres", package: "@payloadcms/db-postgres", connectionEnvironmentVariable: "DATABASE_URL" } } },
     plugins: [{ id: "module.sales", package: "@k-nex/module-sales", version: packageVersions.get("@k-nex/module-sales") ?? "1.0.0", enabled: true }],
     providers: {},
-    themes: { active: options.theme, package: `@k-nex/theme-${options.theme}`, version: packageVersions.get(`@k-nex/theme-${options.theme}`) ?? "0.0.0" },
+    themes: { active: options.theme, package: `@k-nex/theme-${options.theme}`, version: packageVersions.get(`@k-nex/theme-${options.theme}`) ?? "1.0.0" },
     development: { database: options.database === "docker-postgres" ? { mode: "docker-postgres", serviceName: "postgres" } : { mode: "external" } },
     build: { dockerfile: false, commitGeneratedRegistries: true, validateGeneratedFilesInCI: true },
     environment: { required: ["DATABASE_URL", "PAYLOAD_SECRET"] }
@@ -200,7 +200,7 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
   validOptions(options);
   const release = options.packageSource === undefined ? undefined : PackageReleaseManifestSchema.parse(options.packageSource.releaseManifest);
   const releasedPackages = new Map(release?.packages.map((entry) => [entry.package, entry.version]) ?? []);
-  const dependencyVersions = { ...exactDependencies, [`@k-nex/theme-${options.theme}`]: "0.0.0" };
+  const dependencyVersions = { ...exactDependencies, [`@k-nex/theme-${options.theme}`]: "1.0.0" };
   const artifacts = new Map<string, Uint8Array>();
   const artifactDigests: Record<string, string> = {};
   if (release !== undefined && options.packageSource !== undefined) {
@@ -247,7 +247,7 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
     ] }),
     "k-nex.app.json": json(manifest),
     "package.json": json({
-      name: options.applicationId, version: "0.0.0", private: true, type: "module", packageManager: "pnpm@11.9.0",
+      name: options.applicationId, version: "1.0.0", private: true, type: "module", packageManager: "pnpm@11.9.0",
       engines: { node: "24.19.0", pnpm: "11.9.0" },
       scripts: { build: "tsc -p tsconfig.json", migrate: "payload migrate", readiness: "node dist/k-nex-readiness.js" },
       dependencies,
@@ -257,7 +257,7 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
     "src/k-nex-registry.ts": registrySource(),
     "src/k-nex-readiness.ts": `import { kNexSalesRegistry } from "./k-nex-registry.js";\n\nif (kNexSalesRegistry.collections.length !== 2 || kNexSalesRegistry.registration.pluginId !== "module.sales" || kNexSalesRegistry.readiness.currentRevision < 1 || kNexSalesRegistry.defaultPages.length === 0) {\n  throw new Error("K-Nex Sales readiness is incomplete.");\n}\nconsole.log("K_NEX_SALES_READY");\n`,
     "src/migrations/20260827_000001_sales_baseline.ts": payloadBaselineMigrationSource(),
-    "src/migrations/20260827_000002_knex_bootstrap.ts": bootstrapMigrationSource(options.applicationId, release?.release.version ?? "0.2.0"),
+    "src/migrations/20260827_000002_knex_bootstrap.ts": bootstrapMigrationSource(options.applicationId, release?.release.version ?? "1.0.0"),
     "src/migrations/index.ts": `import * as baseline from "./20260827_000001_sales_baseline.js";\nimport * as bootstrap from "./20260827_000002_knex_bootstrap.js";\n\nexport const migrations = [\n  { name: "20260827_000001_sales_baseline", up: baseline.up, down: baseline.down },\n  { name: "20260827_000002_knex_bootstrap", up: bootstrap.up, down: bootstrap.down }\n];\n`,
     "src/payload.config.ts": payloadConfigSource(options.applicationId),
     "tsconfig.json": json({ compilerOptions: {

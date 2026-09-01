@@ -51,7 +51,7 @@ test("reauthorizes generation and actor authority and keeps replay denial across
     tokenId: tokenId ?? "capability-token-1", ...owner, generationId: generationId ?? "sales-generation-old", invocationId: invocationId ?? "capability-invocation-1",
     actor: { principalId: "user:one", effectiveActorId: "user:one", ...(delegationId ? { delegationId } : {}) }, correlationId: "capability-correlation-1",
     grants: [{ kind: "records", required: true, reason: "Read assigned sales tasks.", operations: ["query"], resources: [{ id: "sales.tasks", version: 1 }] }],
-    ...(drainLeaseId ? { drainLeaseId } : {}), ttlMs: 30_000
+    authorizationRevision: 0, lifecycleRevision: 0, ...(drainLeaseId ? { drainLeaseId } : {}), ttlMs: 30_000
   });
   const call = (token, generationId, sequence) => ({ token, invocationId: token === oldToken ? "capability-invocation-1" : token === revokedToken ? "capability-invocation-2" : token === actorRevokedToken ? "capability-invocation-actor-revoked" : "capability-invocation-3", generationId, sequence, capability: "records.query", payload: { query: "mine" }, signal: new AbortController().signal });
   let oldToken;

@@ -1,21 +1,21 @@
 # Project Status
 
-- **Updated:** 2026-09-01
+- **Updated:** 2026-09-02
 - **Phase:** Phase 10 — RBAC, Authorization, and Extension Bootstrap
 - **Active task:** P10.10 — Gate 10 closeout
-- **State:** In progress
+- **State:** Ready for phase review
 
 ## Last completed
 
-P10.9 delivers the reviewed system control plane. P10.10 preserves the exact frozen Sales release for inherited production gates while explicitly wiring current v1.0.0 workspace Sales only into development boot and P10 authorization proofs; no compatibility version or production path was added.
+P10.10 closes atomic static runtime/authorization convergence, current-v1 hosted evidence, stale cross-gate fixture snapshots, first-install/cross-plugin promotion races, and deterministic lifecycle/migration proofs without compatibility shims.
 
 ## Validation
 
-Exact Node 24.19.0: frozen install, Gate 1 exact composition, Sales canonical pack, P8 packed/generated evidence, fixture build, P10.6/P10.7 PostgreSQL 2/2, runner cancellation 20 repeated and reconciliation 42/42 PASS; diff and Docker/process cleanup PASS.
+Exact Node 24.19.0: focused Gate 10 11/11 plus Chromium marker PASS locally and in PR run 33565849308; runtime 513/513, payload adapter 143/143, static lifecycle race 2/2, Hot Application journey 1/1, retirement fence 1/1, and real static multi-process topology 1/1 PASS. Reused xhigh reviewer PASS.
 
 ## Next
 
-Rerun the phase-end `pnpm gate:10`, complete the truthful result, then use the same xhigh reviewer.
+User reviews PR #29. Do not merge or begin Phase 11 before project-manager PASS.
 
 ## Blockers
 

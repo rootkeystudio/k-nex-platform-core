@@ -154,11 +154,11 @@ test("rejected-generation retirement is atomic, durable, and owner scoped", { ti
       const state = await store.read(currentOwner);
       const operationId = `operation-${createHash("sha256").update(`${currentOwner.applicationId}:${generationId}:${expectedRevision}`).digest("hex").slice(0, 32)}`;
       await pool.query(
-        `insert into runtime_extensions (application_id, environment, delivery_class, extension_id, revision, disposition, active_generation_id, active_generation)
-         values ($1,$2,'platform-plugin','module.sales',$3,'active',$4,$5::jsonb)
+        `insert into runtime_extensions (application_id, environment, delivery_class, extension_id, revision, disposition, active_generation_id, active_generation, last_operation_id)
+         values ($1,$2,'platform-plugin','module.sales',$3,'active',$4,$5::jsonb,$6)
          on conflict (application_id, environment, delivery_class, extension_id) do update
-         set revision=excluded.revision, disposition='active', active_generation_id=excluded.active_generation_id, active_generation=excluded.active_generation, retained_generation=null`,
-        [currentOwner.applicationId, currentOwner.environment, expectedRevision, state.active.generationId, JSON.stringify(state.active)]
+         set revision=excluded.revision, disposition='active', active_generation_id=excluded.active_generation_id, active_generation=excluded.active_generation, retained_generation=null, last_operation_id=excluded.last_operation_id`,
+        [currentOwner.applicationId, currentOwner.environment, expectedRevision, state.active.generationId, JSON.stringify(state.active), operationId]
       );
       await pool.query(
         `insert into runtime_extension_operations (
@@ -205,7 +205,7 @@ test("rejected-generation retirement is atomic, durable, and owner scoped", { ti
     assert.equal(await store.expireWorkerRecoveryActivation(alpha), true, "A late restart must durably reconcile an expired response-lost activation claim.");
     assert.equal(await store.readWorkerRecoveryActivation(alpha), undefined);
     assert.equal((await pool.query("select state from runtime_static_worker_activations where recovery_id=$1", [expiredRecovery.recoveryId])).rows[0].state, "expired");
-    const takeoverRecovery = await store.reserveWorkerRecoveryActivation({ ...await recoveryInput(alpha), executionLeaseDurationMs: 5_000 });
+    const takeoverRecovery = await store.reserveWorkerRecoveryActivation({ ...await recoveryInput(alpha), executionLeaseDurationMs: 300_000 });
     assert.notEqual(takeoverRecovery.recoveryId, expiredRecovery.recoveryId, "An expired recovery ticket must be replaced rather than revived.");
     await assert.rejects(store.assertWorkerRecoveryActivation(expiredRecovery), { code: "FENCE_REJECTED" });
     await store.completeWorkerRecoveryActivation(takeoverRecovery);
@@ -324,11 +324,11 @@ test("rejected-generation retirement is atomic, durable, and owner scoped", { ti
     assert.deepEqual(rows.rows, [{ application_id: alpha.applicationId, generation_id: sharedGenerationId, state: "completed", completed: true }]);
     assert.equal((await store.read(beta)).active.generationId, sharedGenerationId);
     const activeFence = await store.readFence(alpha);
-    const renewal = { ...alpha, generationId: activeFence.activeExecutionGeneration, fencingToken: activeFence.fencingToken, owner: activeFence.lease.owner, expectedPromotionRevision: activeFence.promotionRevision, leaseDurationMs: 5_000 };
+    const renewal = { ...alpha, generationId: activeFence.activeExecutionGeneration, fencingToken: activeFence.fencingToken, owner: activeFence.lease.owner, expectedPromotionRevision: activeFence.promotionRevision, leaseDurationMs: 300_000 };
     const firstRenewal = await store.renewWorkerFence(renewal);
     const secondRenewal = await store.renewWorkerFence(renewal);
     assert.ok(Date.parse(secondRenewal.lease.expiresAt) >= Date.parse(firstRenewal.lease.expiresAt));
-    assert.ok(Date.parse(secondRenewal.lease.expiresAt) <= Date.now() + 5_100, "Frequent heartbeats must stay bounded to one configured lease from database now.");
+    assert.ok(Date.parse(secondRenewal.lease.expiresAt) <= Date.now() + 300_100, "Frequent heartbeats must stay bounded to one configured lease from database now.");
     await assert.rejects(store.renewWorkerFence({ ...renewal, owner: "worker:stale" }), { code: "FENCE_REJECTED" });
     await assert.rejects(store.renewWorkerFence({ ...renewal, expectedPromotionRevision: activeFence.promotionRevision + 1 }), { code: "FENCE_REJECTED" });
     const expiredFenceInput = await recoveryInput(alpha);

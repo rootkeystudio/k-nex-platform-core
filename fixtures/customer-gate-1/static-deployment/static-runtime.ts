@@ -16,9 +16,9 @@ import {
 import salesManifest from "@k-nex/module-sales/manifest" with { type: "json" };
 
 import config from "@payload-config";
-import resolvedJson from "../.k-nex/generated/k-nex.resolved.json" with { type: "json" };
-import { runtimeRegistration } from "../.k-nex/generated/runtime-registration.js";
-import { createFixtureCurrentAuthority, createFixtureStaticProcessIdentityProvider } from "../src/current-authority.js";
+import resolvedJson from "./k-nex-generated/k-nex.resolved.json" with { type: "json" };
+import { runtimeRegistration } from "./k-nex-generated/runtime-registration";
+import { createFixtureCurrentAuthority, createFixtureStaticProcessIdentityProvider } from "./current-authority";
 
 let runtimePromise: ReturnType<typeof initializeRuntime> | undefined;
 const staticOwner = Object.freeze({ applicationId: "customer-alpha", environment: "production" });

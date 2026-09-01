@@ -9,7 +9,7 @@ import pg from "pg";
 
 import { canonicalJson } from "@k-nex/contracts";
 import { ArtifactVerifier, buildBundle, CatalogClient, InMemoryCatalogCheckpointStore, sha256, VerifiedRemoteUiAssetService } from "@k-nex/extension-bundler";
-import { AuthorizationLifecycleProjector, PostgresRuntimeExtensionStore, PostgresVerifiedArtifactStore } from "@k-nex/payload-adapter";
+import { AuthorizationLifecycleProjector, PostgresRuntimeExtensionStore, PostgresVerifiedArtifactStore, SharedStaticPlatformPluginGenerationRebinder } from "@k-nex/payload-adapter";
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
 const fixtureDirectory = fileURLToPath(new URL("..", import.meta.url));
@@ -23,7 +23,8 @@ const owner = { applicationId: "customer-alpha", environment: "production", deli
 
 function lifecycleStore(pool, clock, artifacts) {
   return new PostgresRuntimeExtensionStore(pool, clock, digest("7"), {
-    authorizationLifecycleProjector: new AuthorizationLifecycleProjector((session, transition, priorGenerationEvidence) => artifacts.resolveAuthorizationLifecycleDescriptors(session, transition, priorGenerationEvidence))
+    authorizationLifecycleProjector: new AuthorizationLifecycleProjector((session, transition, priorGenerationEvidence) => artifacts.resolveAuthorizationLifecycleDescriptors(session, transition, priorGenerationEvidence)),
+    sharedStaticGenerationRebinder: new SharedStaticPlatformPluginGenerationRebinder()
   });
 }
 

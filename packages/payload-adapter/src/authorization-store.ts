@@ -30,6 +30,7 @@ import {
   type AuthorizationStore,
   type AuthorizationAuditEntry,
   type AuthorizationStoreMutation,
+  type AuthorizationStoreReadTransaction,
   type AuthorizationStoreTransaction,
   type AuthorizationSubjectValidator,
   type AuthorizationTransactionOutcome,
@@ -203,6 +204,27 @@ export class PostgresAuthorizationStore implements AuthorizationStore {
     return this.runTransaction(expected, work, false);
   }
 
+  async readTransaction<T>(expected: AuthorizationExpectedRevision, work: (transaction: AuthorizationStoreReadTransaction) => Promise<T>): Promise<AuthorizationTransactionOutcome<T>> {
+    const parsedExpected = parseAuthorizationExpectedRevision(expected);
+    const session = await this.pool.connect();
+    try {
+      await session.query("begin isolation level repeatable read read only");
+      const currentResult = await session.query<Row>(
+        `select application_id, authorization_revision, lifecycle_revision from k_nex_authorization_state where application_id=$1`,
+        [parsedExpected.applicationId]
+      );
+      const current = assertAuthorizationExpectedRevision(parsedExpected, currentResult.rows[0] ? state(currentResult.rows[0], parsedExpected.environment) : undefined);
+      const value = await work(this.readView(session, parsedExpected));
+      await session.query("commit");
+      return Object.freeze({ committed: true, value, state: current });
+    } catch (error) {
+      try { await session.query("rollback"); } catch { /* preserve original error */ }
+      throw error;
+    } finally {
+      session.release();
+    }
+  }
+
   async bootstrapFirstOwnerTransaction<T>(expected: AuthorizationExpectedRevision, work: (transaction: AuthorizationStoreTransaction) => Promise<T>): Promise<AuthorizationTransactionOutcome<T>> {
     return this.runTransaction(expected, work, true);
   }
@@ -260,7 +282,7 @@ export class PostgresAuthorizationStore implements AuthorizationStore {
     }
   }
 
-  private view(session: RuntimeExtensionSession, expected: AuthorizationExpectedRevision, current: AuthorizationState, mutations: AuthorizationStoreMutation[], bootstrap: boolean): AuthorizationStoreTransaction {
+  private readView(session: RuntimeExtensionSession, expected: AuthorizationExpectedRevision): AuthorizationStoreReadTransaction {
     const application = (applicationId: string) => sameApplication(expected, applicationId);
     return Object.freeze({
       readRole: async (applicationId: string, roleId: string) => {
@@ -311,7 +333,13 @@ export class PostgresAuthorizationStore implements AuthorizationStore {
         const result = await session.query<Row>(`select audit_id, application_id, environment, permission_id, outcome, reason, authorization_revision, lifecycle_revision, audit_json, created_at from k_nex_authorization_audit where application_id=$1 and environment=$2${input.afterAuditId === undefined ? "" : " and (created_at, audit_id) < (select created_at, audit_id from k_nex_authorization_audit where application_id=$1 and environment=$2 and audit_id=$3)"} order by created_at desc, audit_id desc limit $${input.afterAuditId === undefined ? 3 : 4}`,
           input.afterAuditId === undefined ? [expected.applicationId, expected.environment, input.limit] : [expected.applicationId, expected.environment, input.afterAuditId, input.limit]);
         return Object.freeze(result.rows.map(auditEntry));
-      },
+      }
+    });
+  }
+
+  private view(session: RuntimeExtensionSession, expected: AuthorizationExpectedRevision, current: AuthorizationState, mutations: AuthorizationStoreMutation[], bootstrap: boolean): AuthorizationStoreTransaction {
+    return Object.freeze({
+      ...this.readView(session, expected),
       write: async (value: AuthorizationStoreMutation) => {
         const mutation = await parseAuthorizationStoreMutation(value, this.subjectValidator);
         sameApplication(expected, mutationApplication(mutation));

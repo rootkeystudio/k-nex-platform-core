@@ -25,7 +25,7 @@ import {
   createPlatformPluginRegistrationAuthorizationContribution,
   type EffectiveAuthorizationCatalog
 } from "../src/authorization-registry.js";
-import type { AuthorizationStore, AuthorizationStoreTransaction } from "../src/authorization-store.js";
+import type { AuthorizationStore, AuthorizationStoreReadTransaction, AuthorizationStoreTransaction } from "../src/authorization-store.js";
 import { definePluginRegistration, executeRegistration } from "../src/registration-runtime.js";
 import { scopePlatformPluginRegistration } from "../src/plugin-lifecycle.js";
 
@@ -93,6 +93,7 @@ function extensionCatalog(input: Readonly<{
 
 class MemoryStore implements AuthorizationStore {
   transactionCalls = 0;
+  readTransactionCalls = 0;
   constructor(
     private current: AuthorizationState = state(),
     readonly roles: readonly Role[] = [role("role.one")],
@@ -116,19 +117,26 @@ class MemoryStore implements AuthorizationStore {
       this.#reading = false;
     }
   }
-  async transaction<T>(expected: AuthorizationState, work: (transaction: AuthorizationStoreTransaction) => Promise<T>) {
-    this.transactionCalls += 1;
+  private async transact<T>(expected: AuthorizationState, work: (transaction: AuthorizationStoreReadTransaction) => Promise<T>) {
     if (expected.authorizationRevision !== this.current.authorizationRevision || expected.lifecycleRevision !== this.current.lifecycleRevision) throw new Error("stale");
     const filter = (principal?: RoleAssignment["principal"]) => this.assignments.filter((value) => principal === undefined || value.principal.kind === principal.kind && value.principal.id === principal.id);
-    const transaction: AuthorizationStoreTransaction = {
+    const transaction: AuthorizationStoreReadTransaction = {
       readRole: async (_applicationId, roleId) => this.read(() => this.roles.find((value) => value.id === roleId)),
       listRoles: async () => this.read(() => this.roles),
       listGrants: async (_applicationId, roleId) => this.read(() => roleId === undefined ? this.grants : this.grants.filter((value) => value.roleId === roleId)),
       listAssignments: async (_applicationId, principal) => this.read(() => filter(principal)),
       listTemplateAdoptions: async () => this.read(() => []), listCatalogSnapshots: async () => this.read(() => []), listExtensionGenerations: async () => this.read(() => this.generationRows),
-      readBootstrapReceipt: async () => undefined, listAudits: async () => [], write: async () => { throw new Error("resolver must not write"); }
+      readBootstrapReceipt: async () => undefined, listAudits: async () => []
     };
     return Object.freeze({ committed: true as const, value: await work(transaction), state: this.current });
+  }
+  async readTransaction<T>(expected: AuthorizationState, work: (transaction: AuthorizationStoreReadTransaction) => Promise<T>) {
+    this.readTransactionCalls += 1;
+    return this.transact(expected, work);
+  }
+  async transaction<T>(expected: AuthorizationState, work: (transaction: AuthorizationStoreTransaction) => Promise<T>) {
+    this.transactionCalls += 1;
+    return this.transact(expected, async (read) => work({ ...read, write: async () => { throw new Error("resolver must not write"); } }));
   }
 }
 
@@ -142,6 +150,17 @@ function request(permissionId = "system.extensions.plan", scope = { kind: "appli
 }
 
 describe("effective authority resolver", () => {
+  it("reads authority through the read-only transaction", async () => {
+    const store = new MemoryStore();
+    const resolver = new EffectiveAuthorityResolver({ store, catalogProvider: provider(catalog()) });
+    const session = createTrustedAuthorizationSession({ schemaVersion: 1, applicationId, environment, correlationId: "correlation:read-only", principal: subject("user:one"), effectiveActor: subject("user:one") });
+
+    await expect(resolver.authorize(session, request())).resolves.toMatchObject({ outcome: "allow" });
+
+    expect(store.readTransactionCalls).toBe(1);
+    expect(store.transactionCalls).toBe(0);
+  });
+
   it("rejects raw and cloned sessions", async () => {
     const resolver = new EffectiveAuthorityResolver({ store: new MemoryStore(), catalogProvider: provider(catalog()) });
     const session = createTrustedAuthorizationSession({ schemaVersion: 1, applicationId, environment, correlationId: "correlation:one", principal: subject("user:one"), effectiveActor: subject("user:one") });
@@ -192,7 +211,8 @@ describe("effective authority resolver", () => {
     await resolver.authorize(two, request());
     store.setState(state(2, 2));
     await resolver.authorize(one, request());
-    expect(store.transactionCalls).toBe(3);
+    expect(store.readTransactionCalls).toBe(3);
+    expect(store.transactionCalls).toBe(0);
   });
 
   it("serializes reads within one durable transaction session", async () => {
@@ -213,7 +233,8 @@ describe("effective authority resolver", () => {
     store.setGenerations([generation(nextSalesOwner)]);
     store.setState(state(1, 2));
     await expect(resolver.authorize(session, salesRequest)).resolves.toMatchObject({ outcome: "deny", reason: "owner-not-effective" });
-    expect(store.transactionCalls).toBe(2);
+    expect(store.readTransactionCalls).toBe(2);
+    expect(store.transactionCalls).toBe(0);
   });
 
   it("keeps mixed system grants while dormant and orphaned extension grants deny", async () => {

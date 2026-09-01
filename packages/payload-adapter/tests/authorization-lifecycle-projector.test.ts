@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   AuthorizationLifecycleProjector,
+  SharedStaticPlatformPluginGenerationRebinder,
   type AuthorizationLifecycleCommittedTransition
 } from "../src/authorization-lifecycle-projector.js";
 import type { RuntimeExtensionSession } from "../src/runtime-extension-store.js";
@@ -199,5 +200,31 @@ describe("AuthorizationLifecycleProjector", () => {
       { owner: { generation: 1 }, state: "retired", runtimeGenerationIds: ["sales-generation-1"] },
       { owner: { generation: 2 }, state: "current", runtimeGenerationIds: ["sales-generation-2"] }
     ]);
+  });
+});
+
+describe("SharedStaticPlatformPluginGenerationRebinder", () => {
+  it("delegates the atomic rebind to the narrow database authority", async () => {
+    const query = vi.fn(async () => ({ rows: [{ k_nex_static_shared_generation_rebind: 1 }] }));
+    const session: RuntimeExtensionSession = { query, release: vi.fn() };
+    const receipt = {
+      schemaVersion: 1, receiptId: "receipt-static-green", operation: "promote", applicationId, environment,
+      activeGenerationId: "sales-static-green", previousGenerationId: "sales-static-blue", sourceCommit: "b".repeat(40),
+      compositionChangePlanDigest: `sha256:${"a".repeat(64)}`, buildEvidenceDigest: `sha256:${"b".repeat(64)}`,
+      applicationDigest: `sha256:${"c".repeat(64)}`, imageDigest: `sha256:${"d".repeat(64)}`, migrationRevision: 9,
+      workerFencingToken: 4, promotionRevision: 9, revisionBefore: 8, revisionAfter: 9,
+      rollbackWindow: { state: "open", windowId: "window-static-green", closesAt: "2026-09-02T00:00:00.000Z" }, contractCleanup: "blocked",
+      occurredAt: "2026-09-01T00:00:00.000Z"
+    } as const;
+
+    await new SharedStaticPlatformPluginGenerationRebinder().rebind({
+      session, applicationId, environment, previousGenerationId: "sales-static-blue",
+      receipt, excludeExtensionId: "module.sales", operationId: "operation-static-green"
+    });
+
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(query.mock.calls[0]?.[0]).toContain("public.k_nex_static_shared_generation_rebind");
+    expect(query.mock.calls[0]?.[1]?.slice(0, 3)).toEqual([applicationId, environment, "sales-static-blue"]);
+    expect(query.mock.calls[0]?.[1]?.slice(4)).toEqual(["module.sales", "operation-static-green"]);
   });
 });

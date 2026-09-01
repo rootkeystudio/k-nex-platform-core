@@ -89,7 +89,7 @@ Applications that enable visual editing declare the selected builder in `k-nex.a
   "builder": {
     "plugin": "builder.puck",
     "package": "@k-nex/builder-puck",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "profiles": {
       "cms": {
         "enabled": true,

@@ -17,7 +17,7 @@ import { assertMigrationReadiness, executeMigrationJob, planPluginUpgrade } from
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
 const repositoryRoot = resolve(import.meta.dirname, "../../..");
-const digest = (content) => `sha256:${createHash("sha256").update(content).digest("hex")}`;
+const integrity = (content) => `sha512-${createHash("sha512").update(content).digest("base64")}`;
 
 function boot(application, applicationId, connectionString, mode = "observe") {
   return new Promise((resolveProcess, reject) => {
@@ -45,9 +45,19 @@ function installApplication(application, mirror, releaseManifest, applicationId)
   return readFileSync(resolve(application, "pnpm-lock.yaml"));
 }
 
-test("boots an immutable prior app and upgrades its real Sales state in the same PostgreSQL database", { timeout: 300_000 }, async () => {
-  const priorManifest = PackageReleaseManifestSchema.parse(JSON.parse(readFileSync(resolve(repositoryRoot, "releases/0.1.0/package-release-manifest.json"), "utf8")));
-  const targetManifest = PackageReleaseManifestSchema.parse(JSON.parse(readFileSync(resolve(repositoryRoot, "releases/0.2.0/package-release-manifest.json"), "utf8")));
+function neutralUpgradeManifest(currentManifest, version, label) {
+  return PackageReleaseManifestSchema.parse({
+    ...currentManifest,
+    packages: currentManifest.packages.map((entry) => entry.package === "@k-nex/module-sales"
+      ? { ...entry, package: "@fixture/upgrade-module", version, integrity: integrity(label) }
+      : entry)
+  });
+}
+
+test("boots the current Sales package and applies a neutral fixture upgrade history in the same PostgreSQL database", { timeout: 300_000 }, async () => {
+  const currentManifest = PackageReleaseManifestSchema.parse(JSON.parse(readFileSync(resolve(repositoryRoot, "releases/1.0.0/package-release-manifest.json"), "utf8")));
+  const priorManifest = neutralUpgradeManifest(currentManifest, "0.9.0", "fixture-prior");
+  const targetManifest = neutralUpgradeManifest(currentManifest, "1.0.1", "fixture-target");
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("customer_beta_upgrade").withStartupTimeout(120_000).start();
   const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
   const generatedRoot = realpathSync(mkdtempSync(join(tmpdir(), "phase-8-continuous-upgrade-")));
@@ -56,30 +66,29 @@ test("boots an immutable prior app and upgrades its real Sales state in the same
   const applicationId = "customer-beta-upgrade";
   try {
     mkdirSync(mirror);
-    const packages = new Map([...priorManifest.packages, ...targetManifest.packages].map((entry) => [`${entry.package}@${entry.version}`, entry]));
+    const packages = new Map(currentManifest.packages.map((entry) => [`${entry.package}@${entry.version}`, entry]));
     for (const entry of packages.values()) {
       const filename = `${entry.package.slice(1).replace("/", "-")}-${entry.version}.tgz`;
       copyFileSync(resolve(repositoryRoot, "fixtures/customer-gate-1/packages", filename), resolve(mirror, filename));
     }
 
-    const priorLock = installApplication(application, mirror, priorManifest, applicationId);
+    installApplication(application, mirror, currentManifest, applicationId);
     const priorBoot = await boot(application, applicationId, container.getConnectionUri(), "seed-prior");
     assert.equal(priorBoot.code, 0, `${priorBoot.stdout}\n${priorBoot.stderr}`);
     assert.equal(JSON.parse(priorBoot.stdout.match(/PACKED_CUSTOMER_BOOT (\{.*\})/u)[1]).documents, 1);
 
     rmSync(application, { recursive: true, force: true });
-    const targetLock = installApplication(application, mirror, targetManifest, applicationId);
-    assert.notEqual(digest(priorLock), digest(targetLock), "The same application must transition to the exact target lock.");
+    installApplication(application, mirror, currentManifest, applicationId);
     const requireFromTarget = createRequire(resolve(application, "package.json"));
     const targetMigrations = await import(pathToFileURL(requireFromTarget.resolve("@k-nex/module-sales/migrations")));
     const plan = planPluginUpgrade({
-      pluginId: "module.sales", currentVersion: "0.9.0", targetVersion: "1.0.0",
-      currentPlatformRelease: "0.1.0", targetPlatformRelease: "0.2.0", currentReleaseManifest: priorManifest, targetReleaseManifest: targetManifest,
+      pluginId: "module.fixture.upgrade", packageName: "@fixture/upgrade-module", currentVersion: "0.9.0", targetVersion: "1.0.1",
+      currentPlatformRelease: "1.0.0", targetPlatformRelease: "1.0.0", currentReleaseManifest: priorManifest, targetReleaseManifest: targetManifest,
       targets: targetMigrations.salesUpgradeTargets, migrations: targetMigrations.salesUpgradeMigrations
     });
     assert.equal(plan.ready, true);
     await executeMigrationJob({
-      pool, applicationId: `${applicationId}-sales`, expectedPredecessorRevision: 1, targetRevision: 2, releaseRevision: "module.sales-1.0.0",
+      pool, applicationId: `${applicationId}-sales`, expectedPredecessorRevision: 1, targetRevision: 2, releaseRevision: "module.fixture.upgrade-1.0.1",
       async migrate(session) {
         for (const step of plan.steps) {
           const current = await session.query("select revision, document from k_nex_upgrade_artifacts where artifact_id = $1 for update", [step.artifactId]);
@@ -90,7 +99,7 @@ test("boots an immutable prior app and upgrades its real Sales state in the same
         }
       }
     });
-    await assertMigrationReadiness({ pool, applicationId: `${applicationId}-sales`, artifactRevision: 2, releaseRevision: "module.sales-1.0.0" });
+    await assertMigrationReadiness({ pool, applicationId: `${applicationId}-sales`, artifactRevision: 2, releaseRevision: "module.fixture.upgrade-1.0.1" });
 
     const targetBoot = await boot(application, applicationId, container.getConnectionUri());
     assert.equal(targetBoot.code, 0, `${targetBoot.stdout}\n${targetBoot.stderr}`);

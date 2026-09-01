@@ -28,8 +28,8 @@
     "socket.io": "4.8.3"
   },
   "peerDependencies": {
-    "@k-nex/contracts": "0.0.0",
-    "@k-nex/runtime": "0.0.0"
+    "@k-nex/contracts": "1.0.0",
+    "@k-nex/runtime": "1.0.0"
   },
   "devDependencies": {
     "@k-nex/contracts": "workspace:*",

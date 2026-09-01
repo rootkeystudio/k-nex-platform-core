@@ -20,7 +20,7 @@ describe("create-knex-app", () => {
     expect(first.files["compose.yaml"]).toContain("postgres:17.6-alpine@sha256:");
     const manifest = ApplicationManifestSchema.parse(JSON.parse(first.files["k-nex.app.json"]!));
     expect(manifest.plugins).toEqual([{ id: "module.sales", package: "@k-nex/module-sales", version: "1.0.0", enabled: true }]);
-    expect(JSON.parse(first.files["package.json"]!).dependencies).toMatchObject({ payload: "3.88.0", "@k-nex/module-sales": "1.0.0", "@k-nex/theme-minimal": "0.0.0" });
+    expect(JSON.parse(first.files["package.json"]!).dependencies).toMatchObject({ payload: "3.88.0", "@k-nex/module-sales": "1.0.0", "@k-nex/theme-minimal": "1.0.0" });
     expect(first.files["src/payload.config.ts"]).toContain("kNexSalesRegistry.collections");
     expect(first.files["src/payload.config.ts"]).toContain("prodMigrations: migrations");
     expect(first.files["src/payload.config.ts"]).toContain('kNexApplicationId: "customer-alpha"');
@@ -33,7 +33,7 @@ describe("create-knex-app", () => {
   });
 
   it("binds a generated application to every exact artifact in a packed release mirror", () => {
-    const release = JSON.parse(readFileSync(new URL("../../../releases/0.2.0/package-release-manifest.json", import.meta.url), "utf8"));
+    const release = JSON.parse(readFileSync(new URL("../../../releases/1.0.0/package-release-manifest.json", import.meta.url), "utf8"));
     const mirror = fileURLToPath(new URL("../../../fixtures/customer-gate-1/packages", import.meta.url));
     const plan = planCreateKnexApplication({
       applicationId: "packed-customer", applicationName: "Packed Customer", theme: "minimal", database: "external",
@@ -41,6 +41,8 @@ describe("create-knex-app", () => {
     });
     const packageJson = JSON.parse(plan.files["package.json"]!);
     const sales = release.packages.find((entry: { package: string }) => entry.package === "@k-nex/module-sales");
+    expect(release.release.version).toBe("1.0.0");
+    expect(sales.version).toBe("1.0.0");
     expect(packageJson.dependencies["@k-nex/module-sales"]).toBe(`file:.k-nex/packages/k-nex-module-sales-${sales.version}.tgz`);
     expect(plan.files["pnpm-workspace.yaml"]).toContain('"@k-nex/module-sales": "file:.k-nex/packages/k-nex-module-sales-');
     expect(JSON.parse(plan.files["k-nex.app.json"]!).plugins[0].version).toBe(sales.version);
@@ -48,7 +50,7 @@ describe("create-knex-app", () => {
   });
 
   it("rejects tampered mirrors and installs immutable bytes captured by the verified plan", () => {
-    const release = JSON.parse(readFileSync(new URL("../../../releases/0.2.0/package-release-manifest.json", import.meta.url), "utf8"));
+    const release = JSON.parse(readFileSync(new URL("../../../releases/1.0.0/package-release-manifest.json", import.meta.url), "utf8"));
     const source = fileURLToPath(new URL("../../../fixtures/customer-gate-1/packages", import.meta.url));
     const root = realpathSync(mkdtempSync(join(tmpdir(), "create-knex-app-mirror-"))); roots.push(root);
     const mirror = join(root, "mirror"); mkdirSync(mirror);
@@ -59,6 +61,8 @@ describe("create-knex-app", () => {
     const options = { applicationId: "packed-customer", applicationName: "Packed Customer", theme: "minimal", database: "external", packageSource: { kind: "packed-mirror", directory: mirror, releaseManifest: release } } as const;
     const plan = planCreateKnexApplication(options);
     const sales = release.packages.find((entry: { package: string }) => entry.package === "@k-nex/module-sales");
+    expect(release.release.version).toBe("1.0.0");
+    expect(sales.version).toBe("1.0.0");
     const filename = `${sales.package.slice(1).replace("/", "-")}-${sales.version}.tgz`;
     writeFileSync(join(mirror, filename), "replacement after planning");
     const target = join(root, "application");

@@ -11,7 +11,7 @@
     },
     "platformPlugins": {
       "module.sales": {
-        "activeGeneration": { "applicationDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111", "authority": "static-build", "buildEvidenceDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222", "compositionChangePlanDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333", "generationId": "customer-alpha-green-9", "imageDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444", "migrationRevision": 9, "receiptId": "deployment-receipt-9", "sourceCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "version": "1.1.0", "workerFencingToken": 9 },
+        "activeGeneration": { "applicationDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111", "authority": "static-build", "buildEvidenceDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222", "compositionChangePlanDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333", "generationId": "customer-alpha-green-9", "imageDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444", "migrationRevision": 9, "receiptId": "deployment-receipt-9", "sourceCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "version": "1.0.0", "workerFencingToken": 9 },
         "disposition": "active", "lastOperationId": "platform-operation-9", "lastReceiptId": "deployment-receipt-9", "revision": 9, "stateDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
       }
     },

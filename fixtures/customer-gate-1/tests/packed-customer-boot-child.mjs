@@ -44,7 +44,7 @@ try {
       artifact_id text primary key, kind text not null, revision integer not null, document jsonb not null
     )`);
     await payload.db.pool.query(`insert into k_nex_release_revision (application_id, predecessor_revision, revision, release_revision)
-      values ($1, 0, 1, 'module.sales-0.9.0') on conflict (application_id) do nothing`, [`${customer}-sales`]);
+      values ($1, 0, 1, 'module.fixture.upgrade-0.9.0') on conflict (application_id) do nothing`, [`${customer}-sales`]);
     for (const [artifactId, kind, document] of artifacts) {
       await payload.db.pool.query("insert into k_nex_upgrade_artifacts values ($1, $2, 1, $3::jsonb)", [artifactId, kind, JSON.stringify({ ...document, revision: 1 })]);
     }

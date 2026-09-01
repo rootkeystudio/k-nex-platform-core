@@ -57,7 +57,7 @@ export interface AuthorizationAuditEntry {
   readonly occurredAt: string;
 }
 
-export interface AuthorizationStoreTransaction {
+export interface AuthorizationStoreReadTransaction {
   readRole(applicationId: string, roleId: string): Promise<Role | undefined>;
   listRoles(applicationId: string): Promise<readonly Role[]>;
   listGrants(applicationId: string, roleId?: string): Promise<readonly RolePermissionGrant[]>;
@@ -67,6 +67,9 @@ export interface AuthorizationStoreTransaction {
   listExtensionGenerations(applicationId: string): Promise<readonly ExtensionAuthorizationGeneration[]>;
   readBootstrapReceipt(applicationId: string): Promise<BootstrapReceipt | undefined>;
   listAudits(input: Readonly<{ readonly applicationId: string; readonly afterAuditId?: string; readonly limit: number }>): Promise<readonly AuthorizationAuditEntry[]>;
+}
+
+export interface AuthorizationStoreTransaction extends AuthorizationStoreReadTransaction {
   write(mutation: AuthorizationStoreMutation): Promise<void>;
 }
 
@@ -85,6 +88,11 @@ export interface AuthorizationStore {
   transaction<T>(
     expected: AuthorizationExpectedRevision,
     work: (transaction: AuthorizationStoreTransaction) => Promise<T>
+  ): Promise<AuthorizationTransactionOutcome<T>>;
+  /** Reads one consistent, revision-checked snapshot without mutation authority. */
+  readTransaction<T>(
+    expected: AuthorizationExpectedRevision,
+    work: (transaction: AuthorizationStoreReadTransaction) => Promise<T>
   ): Promise<AuthorizationTransactionOutcome<T>>;
   /**
    * The only path allowed to create the immutable protected-role baseline and

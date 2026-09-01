@@ -9,7 +9,7 @@ import pg from "pg";
 import { chromium } from "playwright";
 
 import { ArtifactVerifier, buildBundle, canonicalJson, CatalogClient, InMemoryCatalogCheckpointStore, sha256 } from "@k-nex/extension-bundler";
-import { PostgresRuntimeExtensionStore, PostgresThemeProfileStore, PostgresVerifiedArtifactStore } from "@k-nex/payload-adapter";
+import { PostgresRuntimeExtensionStore, PostgresThemeProfileStore, PostgresVerifiedArtifactStore, SharedStaticPlatformPluginGenerationRebinder } from "@k-nex/payload-adapter";
 import { DurableDynamicArtifactPipeline, DurableDynamicGenerationRuntime, PluginManager, ReferenceThemeSkinGenerationWarmer, TrustedAutomationOperationAuthorizer } from "@k-nex/runtime";
 import { createThemeSkinCss, DurableThemeSkinResolver } from "@k-nex/ui-design-system-contracts";
 import { startThemeSkinFixedRouteHost } from "../dist/src/theme-skin-fixed-route-host.js";
@@ -86,7 +86,7 @@ function request(operation, version, expectedRevision) {
 function profile(state, revision, generation, version, previousRevisionId) {
   const revisionNumber = Number(revision.split("-").at(-1));
   return {
-    schemaVersion: 1, id: "theme-profile.public-skin", surface: "public", themeId: "theme.minimal", themeVersion: "1.0.0", palette: "light", mode: "light", values: {},
+    schemaVersion: 1, id: "skin.fixture.public", surface: "public", themeId: "theme.fixture.base", themeVersion: "1.0.0", palette: "light", mode: "light", values: {},
     ...(generation && version ? { skin: { id: "skin.neobrutalism", generationId: generation, version, palette: "skin.bright", values: {} } } : {}),
     revision: { id: revision, number: revisionNumber, createdAt: "2026-08-29T09:00:00.000Z", ...(previousRevisionId ? { previousRevisionId } : {}), state, ...(state === "published" ? { publishedAt: "2026-08-29T09:01:00.000Z" } : {}) }
   };
@@ -196,7 +196,7 @@ test("delivers Theme Skins from signed durable artifacts through PluginManager i
     }
     const resolver = new DurableThemeSkinResolver({ load: (authority) => artifacts.loadThemeSkin(authority) });
     const warmer = new ReferenceThemeSkinGenerationWarmer({ skins: { prepareSkin: async ({ artifact }) => { await resolver.generation(artifact.authority); } }, clock });
-    const extensionStore = new PostgresRuntimeExtensionStore(pool, clock, sha256(Buffer.from("theme-skin-store")));
+    const extensionStore = new PostgresRuntimeExtensionStore(pool, clock, sha256(Buffer.from("theme-skin-store")), { sharedStaticGenerationRebinder: new SharedStaticPlatformPluginGenerationRebinder() });
     const byVersion = new Map(releases.map((release) => [release.version, release]));
     const planner = {
       validate: async () => undefined,
@@ -244,7 +244,7 @@ test("delivers Theme Skins from signed durable artifacts through PluginManager i
 
     const recoveredArtifacts = new PostgresVerifiedArtifactStore(pool, verifier);
     const recoveredResolver = new DurableThemeSkinResolver({ load: (authority) => recoveredArtifacts.loadThemeSkin(authority) });
-    const recoveredManager = new PluginManager("theme-skin-recovery", new TrustedAutomationOperationAuthorizer("github-actions:phase-9"), planner, new PostgresRuntimeExtensionStore(pool, clock, sha256(Buffer.from("theme-skin-store"))), new DurableDynamicArtifactPipeline(recoveredArtifacts), { request: async () => { throw new Error("Static delivery is not used."); } }, { request: async () => { throw new Error("Static delivery is not used."); }, reverify: async () => false }, new DurableDynamicGenerationRuntime(recoveredArtifacts, new ReferenceThemeSkinGenerationWarmer({ skins: { prepareSkin: async ({ artifact }) => { await recoveredResolver.generation(artifact.authority); } }, clock })), clock);
+    const recoveredManager = new PluginManager("theme-skin-recovery", new TrustedAutomationOperationAuthorizer("github-actions:phase-9"), planner, new PostgresRuntimeExtensionStore(pool, clock, sha256(Buffer.from("theme-skin-store")), { sharedStaticGenerationRebinder: new SharedStaticPlatformPluginGenerationRebinder() }), new DurableDynamicArtifactPipeline(recoveredArtifacts), { request: async () => { throw new Error("Static delivery is not used."); } }, { request: async () => { throw new Error("Static delivery is not used."); }, reverify: async () => false }, new DurableDynamicGenerationRuntime(recoveredArtifacts, new ReferenceThemeSkinGenerationWarmer({ skins: { prepareSkin: async ({ artifact }) => { await recoveredResolver.generation(artifact.authority); } }, clock })), clock);
     assert.equal((await recoveredManager.inventory("customer-alpha", "production")).extensions.themeSkins["skin.neobrutalism"].activeGeneration.generationId, releases[1].generationId);
     const recoveredSkin = await recoveredResolver.resolve(releases[1].authority, second);
     assert.equal(recoveredSkin.generation.generationId, releases[1].generationId);
@@ -347,13 +347,14 @@ test("delivers Theme Skins from signed durable artifacts through PluginManager i
     await assertAssetStatus(skinHost, skinAssetPath(releases[0]), 200);
     await pool.query("delete from runtime_extension_artifact_bindings where generation_id=$1", [releases[0].generationId]);
     await assertAssetStatus(skinHost, skinAssetPath(releases[0]), 404);
+    await recoveredArtifacts.stage({ owner: releases[0].authority, authority: releases[0].authority, activation, verification: { catalog, artifact: releases[0].bundle.artifact, provenance: releases[0].bundle.provenance, deliveryClass: "theme-skin", id: releases[0].entry.id, version: releases[0].version, runtimeAbi: "1.0.0" } });
 
-    const reinstalled = await recoveredManager.plan(request("install", "1.2.0", disabled.revisionAfter));
+    const reinstalled = await recoveredManager.plan(request("install", "1.0.0", disabled.revisionAfter));
     await recoveredManager.stage(reinstalled.operationId);
     const reactivated = await recoveredManager.activate(reinstalled.operationId);
-    const skin7 = profile("published", "theme-skin.uninstall-skin-7", releases[2].generationId, releases[2].version, noSkin6.revision.id);
-    await profiles.stageDraft({ applicationId: "customer-alpha", environment: "production", profile: profile("draft", skin7.revision.id, releases[2].generationId, releases[2].version, noSkin6.revision.id) });
-    const uninstall = await recoveredManager.plan(request("uninstall", "1.2.0", reactivated.revisionAfter));
+    const skin7 = profile("published", "theme-skin.uninstall-skin-7", releases[0].generationId, releases[0].version, noSkin6.revision.id);
+    await profiles.stageDraft({ applicationId: "customer-alpha", environment: "production", profile: profile("draft", skin7.revision.id, releases[0].generationId, releases[0].version, noSkin6.revision.id) });
+    const uninstall = await recoveredManager.plan(request("uninstall", "1.0.0", reactivated.revisionAfter));
     await assert.rejects(recoveredManager.uninstall(uninstall.operationId), { code: "REFERENCE_CONFLICT" });
     await profiles.publish({ applicationId: "customer-alpha", environment: "production", expectedRevision: 8, profile: skin7 });
     await assert.rejects(recoveredManager.uninstall(uninstall.operationId), { code: "REFERENCE_CONFLICT" });
@@ -366,7 +367,7 @@ test("delivers Theme Skins from signed durable artifacts through PluginManager i
     await profiles.publish({ applicationId: "customer-alpha", environment: "production", expectedRevision: 10, profile: noSkin9 });
     const uninstalled = await recoveredManager.uninstall(uninstall.operationId);
     assert.equal(uninstalled.disposition, "removed");
-    await assertAssetStatus(skinHost, skinAssetPath(releases[2]), 404);
+    await assertAssetStatus(skinHost, skinAssetPath(releases[0]), 404);
     console.log('P9_THEME_SKIN_DURABLE_EVIDENCE={"scenarios":["signed-install-update-rollback","forged-row","altered-bytes","wrong-generation-artifact-file-digest","restore-pool-reconstruction","verified-asset-route-chromium-presentation","corrupt-rollback-route-denial","deleted-rollback-binding-route-denial","profile-reference-disposition","draft-disposition-race","disabled-retained-route","deleted-disabled-binding-route-denial","removed-asset-route-denial"]}');
   } finally {
     await skinHost?.close();

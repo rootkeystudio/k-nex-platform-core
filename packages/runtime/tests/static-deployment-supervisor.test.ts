@@ -104,6 +104,7 @@ function harness(build = trustedBuild(), now = new Date("2026-08-29T12:00:00.000
   const recoveryTicket = () => ({ ...owner, generationId: current.active.generationId, revision: current.revision, fencingToken: 5, promotionRevision: 1, leaseOwner: "worker:phase-9", executionLeaseDurationMs: 1_000, recoveryId: "33333333-3333-4333-8333-333333333333", recoveryExpiresAt: "2026-08-29T12:01:00.000Z" } as const);
   const state: StaticDeploymentState = {
     read: vi.fn(async () => current),
+    readServingGeneration: vi.fn(async () => current.active.generationId),
     readFence: vi.fn().mockResolvedValueOnce(fence(blue.generationId, 4, 0)).mockResolvedValue(fence(green.generationId, 5, 1)),
     isWorkerFenceLive: vi.fn(async () => true),
     promote: vi.fn(async (input) => {
@@ -264,6 +265,11 @@ describe("static deployment supervisor", () => {
     const value = harness();
     await expect(value.supervisor.deploy({ build: value.build.token, generationId: "customer-alpha-green-9", workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z", lifecycleAdmission }))
       .resolves.toMatchObject({ outcome: "promoted" });
+    expect(value.events).toEqual(["migrate", "start-passive", "promote"]);
+    vi.mocked(value.state.readServingGeneration).mockResolvedValueOnce(value.blue.generationId);
+    await value.supervisor.recover(owner);
+    expect(value.events).toEqual(["migrate", "start-passive", "promote"]);
+    await value.supervisor.recover(owner);
     expect(value.events).toEqual(["migrate", "start-passive", "promote", "activate-worker", "route-green", "realtime-resync", "drain-blue"]);
     expect(value.state.promote).toHaveBeenCalledWith(expect.objectContaining({ build: value.build.token, expectedFenceToken: 4, expectedRevision: 0 }));
   });
@@ -293,6 +299,7 @@ describe("static deployment supervisor", () => {
       lifecycleAdmission: { operationId: "operation-sales-recovery", expectedRevision: 2, extensionId: "module.sales", quarantineRecovery: true }
     }))
       .resolves.toMatchObject({ outcome: "promoted" });
+    await value.supervisor.recover(owner);
 
     expect(value.state.promote).toHaveBeenCalledWith(expect.objectContaining({ lifecycleAdmission: expect.objectContaining({ quarantineRecovery: true }) }));
     expect((await value.state.read(owner))?.rollback).toBeUndefined();
@@ -301,12 +308,13 @@ describe("static deployment supervisor", () => {
     expect(value.events).toEqual(["migrate", "start-passive", "promote", "activate-worker", "route-green", "realtime-resync", "drain-blue", "retire-green", "complete-rejected"]);
   });
 
-  it("recovers a worker that dies during successful deploy post-commit steps before returning", async () => {
+  it("recovers a worker that dies during post-reconciliation finalization", async () => {
     const value = harness();
     vi.mocked(value.gateway.converge).mockImplementationOnce(async () => { value.events.push("route-green"); value.setWorkerHealthy(false); });
 
     await expect(value.supervisor.deploy({ build: value.build.token, generationId: "customer-alpha-green-9", workerOwner: "worker:phase-9-green", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z", lifecycleAdmission }))
       .resolves.toMatchObject({ outcome: "promoted" });
+    await value.supervisor.recover(owner);
 
     expect(value.events).toEqual(["migrate", "start-passive", "promote", "activate-worker", "route-green", "realtime-resync", "drain-blue", "recover-active-worker"]);
   });
@@ -468,6 +476,7 @@ describe("static deployment supervisor", () => {
     vi.mocked(value.gateway.converge).mockImplementationOnce(async () => { value.events.push("route-green"); value.setWorkerHealthy(false); });
     await expect(value.supervisor.rollback({ ...owner, workerOwner: "worker:phase-9-blue", workerLeaseExpiresAt: "2026-08-29T12:30:00.000Z" }))
       .resolves.toMatchObject({ revisionAfter: 2 });
+    await value.supervisor.recover(owner);
     expect(value.artifacts.reverify).toHaveBeenCalledWith(value.blue);
     expect(value.generations.start).toHaveBeenCalledWith(expect.objectContaining({ generationId: value.blue.generationId, workerMode: "passive" }));
     expect(value.state.rollback).toHaveBeenCalledWith(expect.objectContaining({ expectedRevision: 1, expectedFenceToken: 5 }));

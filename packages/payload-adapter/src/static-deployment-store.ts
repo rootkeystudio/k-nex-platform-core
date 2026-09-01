@@ -288,6 +288,15 @@ export class PostgresStaticDeploymentStore {
     return result.rows[0] ? snapshot(owner, result.rows[0]) : undefined;
   }
 
+  async readServingGeneration(owner: Owner): Promise<string | undefined> {
+    assertOwner(owner);
+    const result = await this.pool.query<{ generation_id: string | null }>(
+      "select public.k_nex_static_serving_generation($1,$2) generation_id",
+      [owner.applicationId, owner.environment]
+    );
+    return result.rows[0]?.generation_id ?? undefined;
+  }
+
   async readFence(owner: Owner): Promise<WorkerGenerationFence | undefined> {
     assertOwner(owner);
     const result = await this.pool.query<FenceRow>(
@@ -326,11 +335,23 @@ export class PostgresStaticDeploymentStore {
       !Number.isSafeInteger(input.lifecycleAdmission.expectedRevision) || input.lifecycleAdmission.expectedRevision < 0 ||
       !/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/u.test(input.lifecycleAdmission.extensionId) ||
       typeof input.lifecycleAdmission.quarantineRecovery !== "boolean") fail("INPUT_INVALID", "Static lifecycle admission is invalid.");
-    const verified = this.builds.read(input.build);
-    const change = this.parseChange(verified.change.change);
-    const evidence = this.parseEvidence(verified.evidence);
-    const generation = await this.targetGeneration(input, change, evidence);
     return this.transaction(async (session) => {
+      // Serialize the shared application first: rebinding locks every retained
+      // plugin, while an operation admission locks only its target plugin.
+      await this.lock(session, input);
+      const current = await this.readLocked(session, input);
+      if (!current || current.revision !== input.expectedRevision) fail("REVISION_CONFLICT", "Static deployment revision changed before promotion.");
+      const serving = await session.query<{ generation_id: string | null }>(
+        "select public.k_nex_static_serving_generation($1,$2) generation_id",
+        [input.applicationId, input.environment]
+      );
+      if (serving.rows[0]?.generation_id !== current.active_generation_id) {
+        fail("REVISION_CONFLICT", "Current static deployment has not converged into runtime and authorization state.");
+      }
+      const verified = this.builds.read(input.build);
+      const change = this.parseChange(verified.change.change);
+      const evidence = this.parseEvidence(verified.evidence);
+      const generation = await this.targetGeneration(input, change, evidence);
       {
         const admission = input.lifecycleAdmission;
         if (change.plugin.id !== admission.extensionId) fail("EVIDENCE_MISMATCH", "Static lifecycle admission targets another plugin.");
@@ -339,30 +360,23 @@ export class PostgresStaticDeploymentStore {
           operation_id: string; expected_revision: number; phase: string; plan_json: Record<string, unknown>;
           lifecycle_revision: number; disposition: string;
         }>(
-          `select o.operation_id, o.expected_revision, o.phase, o.plan_json,
-                  e.revision lifecycle_revision, e.disposition
-           from runtime_extension_operations o
-           join runtime_extensions e on e.application_id=o.application_id and e.environment=o.environment
-             and e.delivery_class=o.delivery_class and e.extension_id=o.extension_id
-           where o.operation_id=$1 and o.application_id=$2 and o.environment=$3
-             and o.delivery_class='platform-plugin' and o.extension_id=$4
-           for update of o,e`,
+          `select * from public.k_nex_static_lifecycle_admission($1,$2,$3,$4)`,
           [admission.operationId, input.applicationId, input.environment, admission.extensionId]
         );
         const row = lifecycle.rows[0];
         const plan = row?.plan_json;
-        if (!row || row.expected_revision !== admission.expectedRevision || row.lifecycle_revision !== admission.expectedRevision ||
-          !["source-change-ready", "build-attested", "zero-downtime-eligible", "rollback-window-open"].includes(row.phase) ||
-          plan?.["executionClass"] !== "static-release" || plan?.["generationId"] !== input.generationId ||
-          plan?.["quarantineRecovery"] !== admission.quarantineRecovery ||
-          (row.disposition === "quarantined") !== admission.quarantineRecovery) {
-          fail("REVISION_CONFLICT", "Static lifecycle admission changed before promotion.");
-        }
+        const invalidAdmission = !row ? ["operation"] : [
+          ["operation-revision", row.expected_revision === admission.expectedRevision],
+          ["lifecycle-revision", Number.isSafeInteger(row.lifecycle_revision) && row.lifecycle_revision >= admission.expectedRevision],
+          ["phase", ["source-change-ready", "build-attested", "zero-downtime-eligible", "rollback-window-open"].includes(row.phase)],
+          ["execution-class", plan?.["executionClass"] === "static-release"],
+          ["generation", plan?.["generationId"] === input.generationId],
+          ["quarantine-plan", plan?.["quarantineRecovery"] === admission.quarantineRecovery],
+          ["quarantine-state", (row.disposition === "quarantined") === admission.quarantineRecovery]
+        ].filter(([, valid]) => !valid).map(([name]) => name);
+        if (invalidAdmission.length > 0) fail("REVISION_CONFLICT", `Static lifecycle admission changed before promotion: ${invalidAdmission.join(", ")}.`);
       }
-      await this.lock(session, input);
-      const current = await this.readLocked(session, input);
       const fence = await this.readFenceLocked(session, input);
-      if (!current || current.revision !== input.expectedRevision) fail("REVISION_CONFLICT", "Static deployment revision changed before promotion.");
       await this.assertNoLiveWorkerRecovery(session, input);
       assertNoReservedStep(current.transition_checkpoint);
       assertCompletedCheckpoint(current.transition_checkpoint);

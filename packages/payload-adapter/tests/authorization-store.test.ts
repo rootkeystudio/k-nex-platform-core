@@ -78,6 +78,24 @@ describe("PostgresAuthorizationStore", () => {
     ]);
   });
 
+  it("reads one revision-checked snapshot without a lock or write capability", async () => {
+    const value = harness();
+
+    const result = await value.store.readTransaction(expected, async (transaction) => {
+      expect("write" in transaction).toBe(false);
+      return transaction.listRoles(expected.applicationId);
+    });
+
+    expect(result).toMatchObject({ committed: true, state: expected, value: [] });
+    expect(value.queries).toEqual([
+      "begin isolation level repeatable read read only",
+      expect.stringContaining("from k_nex_authorization_state"),
+      expect.stringContaining("from k_nex_roles"),
+      "commit"
+    ]);
+    expect(value.queries.join("\n")).not.toMatch(/pg_advisory_xact_lock|for update|insert into|update k_nex_|authorization_outbox/i);
+  });
+
   it("initializes 0/0 state, locks it, writes one mutation, advances once, then commits", async () => {
     const value = harness({ state: { authorizationRevision: 0, lifecycleRevision: 0 } });
 
