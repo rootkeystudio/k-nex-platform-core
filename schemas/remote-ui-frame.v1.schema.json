@@ -486,6 +486,7 @@
         },
         "reason": {
           "enum": [
+            "authorization-revoked",
             "generation-retired",
             "session-ended",
             "protocol-failure"
