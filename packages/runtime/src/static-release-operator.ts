@@ -1,7 +1,14 @@
 import type { StaticDeploymentReceipt } from "@k-nex/contracts";
 
 import type { StaticReleaseOperator } from "./extension-operator-api.js";
-import type { ExtensionOperationStatus, ExtensionValidationReport } from "./plugin-manager.js";
+import {
+  extensionOperationActorMatches,
+  extensionOperationRequestDigest,
+  type ExtensionOperationAuthorizer,
+  type ExtensionOperationStatus,
+  type ExtensionValidationReport,
+  type OperationAuthorizationDecision
+} from "./plugin-manager.js";
 import type { VerifiedStaticApplicationBuild } from "./static-composition-authority.js";
 import type { DeploymentSupervisor, StaticDeploymentOutcome, VerifiedStaticBuildReader } from "./static-deployment-supervisor.js";
 
@@ -45,6 +52,25 @@ export interface StaticReleaseWorkerLeaseAuthority {
   acquire(operation: ExtensionOperationStatus): Promise<Readonly<{ workerOwner: string; workerLeaseExpiresAt: string }>>;
 }
 
+/** Rechecks the persisted operation through the server-side authorization boundary. */
+export interface StaticReleaseOperationAdmission {
+  admit(operation: ExtensionOperationStatus): Promise<OperationAuthorizationDecision>;
+}
+
+export class CurrentStaticReleaseOperationAdmission implements StaticReleaseOperationAdmission {
+  constructor(private readonly authorizer: ExtensionOperationAuthorizer) {}
+
+  async admit(operation: ExtensionOperationStatus): Promise<OperationAuthorizationDecision> {
+    const requestDigest = await extensionOperationRequestDigest(operation.request);
+    if (requestDigest !== operation.requestDigest) throw new StaticReleaseOperatorError("AUTHORITY_MISMATCH", "Durable operation request digest is invalid.");
+    const decision = await this.authorizer.authorize({ ...operation.request, requestDigest });
+    if (!extensionOperationActorMatches(decision.actor, operation.actor)) {
+      throw new StaticReleaseOperatorError("AUTHORITY_MISMATCH", "Current authority does not match the durable extension operation.");
+    }
+    return decision;
+  }
+}
+
 export class StaticReleaseOperatorError extends Error {
   constructor(readonly code: "INVALID_OPERATION" | "AUTHORITY_UNAVAILABLE" | "AUTHORITY_MISMATCH", message: string) {
     super(message);
@@ -58,10 +84,12 @@ export class DurableStaticReleaseOperator implements StaticReleaseOperator {
     private readonly builds: TrustedStaticReleaseBuildAuthority,
     private readonly verifiedBuilds: VerifiedStaticBuildReader,
     private readonly supervisor: DeploymentSupervisor,
-    private readonly workerLeases: StaticReleaseWorkerLeaseAuthority
+    private readonly workerLeases: StaticReleaseWorkerLeaseAuthority,
+    private readonly admission: StaticReleaseOperationAdmission
   ) {}
 
   async validate(operation: ExtensionOperationStatus): Promise<ExtensionValidationReport> {
+    await this.admit(operation);
     const request = await this.request(operation);
     if (request.status === "rejected") throw new StaticReleaseOperatorError("AUTHORITY_UNAVAILABLE", "Static release request was rejected by the trusted authority.");
     if (request.status === "build-requested") {
@@ -73,17 +101,22 @@ export class DurableStaticReleaseOperator implements StaticReleaseOperator {
 
   async execute(operation: ExtensionOperationStatus): Promise<StaticDeploymentOutcome> {
     if (operation.request.operation === "rollback") throw new StaticReleaseOperatorError("INVALID_OPERATION", "Static rollback must use the rollback operation path.");
+    await this.admit(operation);
     const request = await this.request(operation);
     if (request.status === "deployed") return Object.freeze({ outcome: "promoted", receipt: this.deployedReceipt(operation, request) });
     if (request.status !== "builder-attested" && request.status !== "deployment-requested") throw new StaticReleaseOperatorError("AUTHORITY_UNAVAILABLE", "Static release is not attested and ready for deployment.");
     const build = await this.build(operation, request);
+    await this.admit(operation);
     const dispatched = await this.requests.requestDeployment({ buildRequestDigest: request.buildRequestDigest, expectedVersion: request.version });
     this.assertRequest(operation, dispatched);
     if (dispatched.status === "deployed") return Object.freeze({ outcome: "promoted", receipt: this.deployedReceipt(operation, dispatched) });
     if (dispatched.status !== "deployment-requested") throw new StaticReleaseOperatorError("AUTHORITY_UNAVAILABLE", "Static release deployment request is unavailable.");
+    await this.admit(operation);
     const recovered = await this.recover(operation, dispatched, "promote");
     if (recovered) return Object.freeze({ outcome: "promoted", receipt: this.deployedReceipt(operation, recovered) });
+    await this.admit(operation);
     const lease = await this.workerLeases.acquire(operation);
+    await this.admit(operation);
     const outcome = await this.supervisor.deploy({ build, generationId: operation.plan!.generationId, ...lease });
     if (outcome.outcome === "maintenance-required") return outcome;
     if (outcome.receipt.activeGenerationId !== operation.plan!.generationId) throw new StaticReleaseOperatorError("AUTHORITY_MISMATCH", "Deployment receipt promoted a generation other than the durable operation target.");
@@ -94,17 +127,22 @@ export class DurableStaticReleaseOperator implements StaticReleaseOperator {
 
   async rollback(operation: ExtensionOperationStatus): Promise<StaticDeploymentReceipt> {
     if (operation.request.operation !== "rollback") throw new StaticReleaseOperatorError("INVALID_OPERATION", "Static rollback requires a rollback operation.");
+    await this.admit(operation);
     const request = await this.request(operation);
     if (request.status === "deployed") return this.rollbackReceipt(operation, request);
     if (request.status !== "builder-attested" && request.status !== "deployment-requested") throw new StaticReleaseOperatorError("AUTHORITY_UNAVAILABLE", "Static rollback is not backed by an attested durable release request.");
     await this.build(operation, request);
+    await this.admit(operation);
     const dispatched = await this.requests.requestDeployment({ buildRequestDigest: request.buildRequestDigest, expectedVersion: request.version });
     this.assertRequest(operation, dispatched);
     if (dispatched.status === "deployed") return this.rollbackReceipt(operation, dispatched);
     if (dispatched.status !== "deployment-requested") throw new StaticReleaseOperatorError("AUTHORITY_UNAVAILABLE", "Static rollback deployment request is unavailable.");
+    await this.admit(operation);
     const recovered = await this.recover(operation, dispatched, "rollback");
     if (recovered) return this.rollbackReceipt(operation, recovered);
+    await this.admit(operation);
     const lease = await this.workerLeases.acquire(operation);
+    await this.admit(operation);
     const receipt = await this.supervisor.rollback({ applicationId: operation.request.applicationId, environment: operation.request.environment, ...lease });
     if (receipt.activeGenerationId !== operation.plan!.generationId) throw new StaticReleaseOperatorError("AUTHORITY_MISMATCH", "Rollback receipt promoted a generation other than the durable operation target.");
     const persisted = await this.requests.recordDeployment({ buildRequestDigest: dispatched.buildRequestDigest, expectedVersion: dispatched.version, receipt });
@@ -119,6 +157,14 @@ export class DurableStaticReleaseOperator implements StaticReleaseOperator {
     if (!request) throw new StaticReleaseOperatorError("AUTHORITY_UNAVAILABLE", "Durable static release request is unavailable.");
     this.assertRequest(operation, request);
     return request;
+  }
+
+  private async admit(operation: ExtensionOperationStatus): Promise<void> {
+    try { await this.admission.admit(operation); }
+    catch (error) {
+      if (error instanceof StaticReleaseOperatorError) throw error;
+      throw new StaticReleaseOperatorError("AUTHORITY_UNAVAILABLE", "Current authority could not admit the durable extension operation.");
+    }
   }
 
   private async build(operation: ExtensionOperationStatus, request: DurableStaticReleaseRequest): Promise<VerifiedStaticApplicationBuild> {

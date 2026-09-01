@@ -115,11 +115,18 @@ self.onmessage = async (event) => {
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>Remote UI proof</title></head><body><main id="root"></main><script>window.__K_NEX_REMOTE_FRAME_URL__=${JSON.stringify(frameUrl)};window.__K_NEX_REMOTE_HOSTILE_FRAME_URL__=${JSON.stringify(hostileFrameUrl)};window.__K_NEX_REMOTE_SNAPSHOT__=${JSON.stringify(snapshot)}</script><script type="module" src="/host.js"></script></body></html>`;
   hostServer.removeAllListeners("request");
   hostServer.on("request", (request, response) => {
+    const url = new URL(request.url ?? "/", hostOrigin);
     if (request.url === "/host.js") { response.writeHead(200, { "content-type": "text/javascript", "x-content-type-options": "nosniff" }); response.end(hostScript); return; }
     if (request.url === "/api/extensions/remote-ui/authorize" && request.method === "POST") {
       remoteUiAuthorizationChecks += 1;
       const sessionId = /(?:^|;\s*)customer_session=([^;]+)/u.exec(request.headers.cookie ?? "")?.[1];
       response.writeHead(authorizedSessions.has(sessionId) ? 204 : 401, { "cache-control": "no-store" }); response.end(); return;
+    }
+    if (url.pathname === "/api/extensions/remote-ui/authorize-target" && request.method === "POST") {
+      remoteUiAuthorizationChecks += 1;
+      const target = `${url.searchParams.get("operation")}:${url.searchParams.get("targetId")}`;
+      const allowed = new Set(["source:sales.tasks", "source:sales.heartbeat", "action:sales.refresh"]);
+      response.writeHead(authorizedSessions.has(/(?:^|;\s*)customer_session=([^;]+)/u.exec(request.headers.cookie ?? "")?.[1]) && allowed.has(target) ? 204 : 401, { "cache-control": "no-store" }); response.end(); return;
     }
     if (request.url === "/api/extensions/remote-ui/test-revoke" && request.method === "POST") {
       const sessionId = /(?:^|;\s*)customer_session=([^;]+)/u.exec(request.headers.cookie ?? "")?.[1];

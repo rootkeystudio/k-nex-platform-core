@@ -71,7 +71,11 @@ export interface ExtensionCapabilityHandler {
  * still current. Phase 10 supplies the durable policy implementation.
  */
 export interface ExtensionCapabilityAuthority {
-  reauthorize(claims: ExtensionCapabilityClaims): boolean | Promise<boolean>;
+  reauthorize(claims: ExtensionCapabilityClaims, capability: Readonly<{
+    capability: ExtensionCapabilityId;
+    /** Exact signed manifest grants that authorize this callable host capability. */
+    grants: readonly ExtensionCapabilityGrant[];
+  }>): boolean | Promise<boolean>;
 }
 
 /**
@@ -248,12 +252,13 @@ export class ExtensionCapabilityGateway {
     call.signal.throwIfAborted();
     const claims = this.tokens.verify(call.token);
     if (claims.invocationId !== call.invocationId || claims.generationId !== call.generationId) fail("IDENTITY_MISMATCH", "Capability invocation identity does not match its token.");
-    if (!claims.grants.some((grant) => grantAllowsCapability(grant, call.capability))) fail("CAPABILITY_DENIED", "Capability operation was not granted to this invocation.");
+    const grants = Object.freeze(claims.grants.filter((grant) => grantAllowsCapability(grant, call.capability)));
+    if (grants.length === 0) fail("CAPABILITY_DENIED", "Capability operation was not granted to this invocation.");
     const handler = this.handlers[call.capability];
     if (!handler) fail("CAPABILITY_DENIED", "Capability has no registered host handler.");
     boundedJson(call.payload, this.limits.maxInputBytes, this.limits.maxDepth);
     const input = handler.validateInput(call.payload);
-    if (!await this.authority.reauthorize(claims)) fail("AUTHORITY_DENIED", "Capability invocation no longer has current generation or actor authority.");
+    if (!await this.authority.reauthorize(claims, Object.freeze({ capability: call.capability, grants }))) fail("AUTHORITY_DENIED", "Capability invocation no longer has current generation or actor authority.");
     call.signal.throwIfAborted();
     if (!await this.sequences.claim(claims, call.sequence, this.limits.maxCalls)) fail("SEQUENCE_INVALID", "Capability sequence is missing, replayed, or outside its call budget.");
     call.signal.throwIfAborted();

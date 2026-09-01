@@ -239,6 +239,7 @@ export interface ExtensionValidationReport {
 export interface ExtensionOperationStatus {
   readonly operationId: string;
   readonly request: ExtensionChangeRequest;
+  readonly requestDigest: string;
   readonly actor: ExtensionOperationActor;
   readonly phase: ExtensionOperationPhase;
   readonly plan?: PluginManagerPlan;
@@ -357,6 +358,16 @@ function validRequest(request: ExtensionChangeRequest): boolean {
 async function digest(value: unknown): Promise<string> {
   const bytes = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalJson(value)));
   return `sha256:${Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
+/** Canonical digest of the immutable request persisted with every extension operation. */
+export async function extensionOperationRequestDigest(request: ExtensionChangeRequest): Promise<string> {
+  if (!validRequest(request)) throw new TypeError("Extension operation request is invalid.");
+  return digest(request);
+}
+
+export function extensionOperationActorMatches(left: ExtensionOperationActor, right: ExtensionOperationActor): boolean {
+  return canonicalJson(left) === canonicalJson(right);
 }
 
 interface InventoryGenerationState {
@@ -517,7 +528,7 @@ export class PluginManager {
 
   async plan(request: ExtensionChangeRequest): Promise<PluginManagerPlan> {
     if (!validRequest(request)) throw new PluginManagerError("INVALID_REQUEST", "Extension change request is invalid.");
-    const requestDigest = await digest(request);
+    const requestDigest = await extensionOperationRequestDigest(request);
     const authorization = await this.authorizer.authorize({ ...request, requestDigest });
     await this.planner.validate(Object.freeze({ ...request }));
     await this.store.reconcileExpiredOperations({ applicationId: request.applicationId, environment: request.environment });
@@ -558,19 +569,22 @@ export class PluginManager {
       if (parsed.operation === "disable") {
         result = Object.freeze({ executionClass: "live-generation", operationId, plan: { ...parsed, operation: "disable" as const }, sourceCommit: planned.sourceCommit, generationId: planned.generationId });
       } else {
+        const sourceAuthorization = await this.reauthorize(claimedOperation);
         const sourceChange = await this.staticChanges.request({
           applicationId: request.applicationId,
           environment: request.environment,
           expectedSourceCommit: planned.sourceCommit,
           generationId: planned.generationId,
           plan: parsed
-        }, authorization);
-        const deployment = await this.deployments.request(sourceChange, authorization);
+        }, sourceAuthorization);
+        const deploymentAuthorization = await this.reauthorize(claimedOperation);
+        const deployment = await this.deployments.request(sourceChange, deploymentAuthorization);
         result = Object.freeze({ executionClass: "static-release", operationId, plan: parsed, generationId: planned.generationId, sourceChange, deployment });
       }
     } else {
       result = Object.freeze({ executionClass: "live-generation", operationId, plan: parsed, sourceCommit: planned.sourceCommit, generationId: planned.generationId });
     }
+    await this.reauthorize(claimedOperation);
     const saved = await this.store.savePlan(operationId, claimedOperation.leaseToken, result);
     if (result.executionClass === "static-release") await this.checkpointStaticPlan(saved);
     return result;
@@ -582,15 +596,26 @@ export class PluginManager {
     if (operation.plan.executionClass !== "live-generation") throw new PluginManagerError("WRONG_EXECUTION_CLASS", "Platform Plugin delivery is delegated to static source/build authority.");
     if (!["install", "update"].includes(operation.request.operation)) throw new PluginManagerError("INVALID_STATE", "Only install and update operations stage a live generation.");
     if (!["planning", "downloading", "verified", "staged"].includes(operation.phase)) throw new PluginManagerError("INVALID_STATE", `Extension operation cannot stage from ${operation.phase}.`);
+    await this.reauthorize(operation);
     const livePlan = dynamicPlan(operation.plan);
     let current = operation;
-    if (current.phase === "planning") current = (await this.store.transition({ operationId, leaseToken: current.leaseToken, expectedPhase: "planning", phase: "downloading" })).operation;
+    if (current.phase === "planning") {
+      await this.reauthorize(current);
+      current = (await this.store.transition({ operationId, leaseToken: current.leaseToken, expectedPhase: "planning", phase: "downloading" })).operation;
+    }
     const owner = authorityOwner(current.request);
+    if (!current.authority) await this.reauthorize(current);
     const authority = current.authority ?? await this.artifacts.stage({ plan: livePlan.plan, owner });
     assertAuthorityOwner(authority, owner);
-    if (current.phase === "downloading") current = (await this.store.transition({ operationId, leaseToken: current.leaseToken, expectedPhase: "downloading", phase: "verified", authority })).operation;
+    if (current.phase === "downloading") {
+      await this.reauthorize(current);
+      current = (await this.store.transition({ operationId, leaseToken: current.leaseToken, expectedPhase: "downloading", phase: "verified", authority })).operation;
+    }
     if (!await this.artifacts.reverify(authority, owner)) throw new PluginManagerError("ARTIFACT_AUTHORITY_REJECTED", "Staged artifact authority could not be reverified.");
-    if (current.phase === "verified") await this.store.transition({ operationId, leaseToken: current.leaseToken, expectedPhase: "verified", phase: "staged", authority });
+    if (current.phase === "verified") {
+      await this.reauthorize(current);
+      await this.store.transition({ operationId, leaseToken: current.leaseToken, expectedPhase: "verified", phase: "staged", authority });
+    }
     return authority;
   }
 
@@ -616,6 +641,7 @@ export class PluginManager {
     return Object.freeze({
       operationId: operation.operationId,
       request: operation.request,
+      requestDigest: operation.requestDigest,
       actor: operation.authorization.actor,
       phase: operation.phase,
       ...(operation.plan ? { plan: operation.plan } : {}),
@@ -626,6 +652,7 @@ export class PluginManager {
   async validate(operationId: string): Promise<ExtensionValidationReport> {
     const operation = await this.store.readOperation(operationId);
     if (!operation?.plan) throw new PluginManagerError("OPERATION_NOT_FOUND", "Planned extension operation is unavailable.");
+    await this.reauthorize(operation);
     if (operation.plan.executionClass === "static-release") {
       throw new PluginManagerError("WRONG_EXECUTION_CLASS", "Platform Plugin validation belongs to trusted source/build/deployment authority.");
     }
@@ -645,19 +672,25 @@ export class PluginManager {
     if (current.request.extension.deliveryClass === "platform-plugin") {
       throw new PluginManagerError("WRONG_EXECUTION_CLASS", "Platform Plugin delivery does not use live generation rollback.");
     }
+    await this.reauthorize(current);
     const livePlan = dynamicPlan(current.plan);
     const owner = authorityOwner(current.request);
     assertAuthorityOwner(current.authority, owner);
     if (current.phase === "staged") {
       if (!await this.artifacts.reverify(current.authority, owner)) throw new PluginManagerError("ARTIFACT_AUTHORITY_REJECTED", "Staged artifact authority could not be reverified.");
+      await this.reauthorize(current);
       const stage = await this.generationRuntime.prepare({ request: current.request, plan: livePlan, authority: current.authority });
+      await this.reauthorize(current);
       current = (await this.store.stageGeneration({ operationId, leaseToken: current.leaseToken, stage })).operation;
     } else if (current.phase === "warming") {
       if (!await this.artifacts.reverify(current.authority, owner)) throw new PluginManagerError("ARTIFACT_AUTHORITY_REJECTED", "Warming artifact authority could not be reverified.");
+      await this.reauthorize(current);
       const stage = await this.generationRuntime.prepare({ request: current.request, plan: livePlan, authority: current.authority });
+      await this.reauthorize(current);
       current = await this.store.refreshGenerationReadiness({ operationId, leaseToken: current.leaseToken, stage });
     }
     if (current.phase !== "warming") throw new PluginManagerError("INVALID_STATE", `Extension operation cannot activate from ${current.phase}.`);
+    await this.reauthorize(current);
     return this.store.activateGeneration(operationId, current.leaseToken);
   }
 
@@ -669,6 +702,7 @@ export class PluginManager {
       throw new PluginManagerError("INVALID_STATE", "Extension rollback operation is not ready.");
     }
     if (!this.generationRuntime) throw new PluginManagerError("INVALID_STATE", "Live generation preparation is unavailable.");
+    await this.reauthorize(current);
     const livePlan = dynamicPlan(current.plan);
     const owner = authorityOwner(current.request);
     const inventory = await this.store.inventory(current.request.applicationId, current.request.environment);
@@ -682,8 +716,10 @@ export class PluginManager {
     if (authority.generationId !== current.plan.generationId || !await this.artifacts.reverify(authority, owner)) {
       throw new PluginManagerError("ARTIFACT_AUTHORITY_REJECTED", "Retained artifact authority could not be reverified.");
     }
+    await this.reauthorize(current);
     const stage = await this.generationRuntime.prepare({ request: current.request, plan: livePlan, authority });
     assertFreshRollbackReadiness(stage, authority, current.plan.plan.version, this.clock.now());
+    await this.reauthorize(current);
     return this.store.rollbackGeneration(operationId, current.leaseToken, stage);
   }
 
@@ -696,11 +732,13 @@ export class PluginManager {
       }
       return persisted.result;
     }
+    await this.reauthorize(persisted);
     const current = await this.store.resumeOperation(operationId, this.workerId);
     if (!current.plan || current.plan.executionClass !== "static-release" || !["source-change-ready", "build-attested", "zero-downtime-eligible", "rollback-window-open"].includes(current.phase)) {
       throw new PluginManagerError("INVALID_STATE", "Static release operation is not ready for receipt reconciliation.");
     }
     assertStaticReceipt(current, receipt);
+    await this.reauthorize(current);
     return this.store.completeStaticRelease(operationId, current.leaseToken, receipt);
   }
 
@@ -708,6 +746,7 @@ export class PluginManager {
     const replay = await this.completedReceipt(operationId, ["disable"]);
     if (replay) return replay as ExtensionDispositionReceipt;
     const current = await this.dispositionOperation(operationId, "disable");
+    await this.reauthorize(current);
     return this.store.disableGeneration(operationId, current.leaseToken);
   }
 
@@ -715,6 +754,7 @@ export class PluginManager {
     const replay = await this.completedReceipt(operationId, ["uninstall"]);
     if (replay) return replay as ExtensionDispositionReceipt;
     const current = await this.dispositionOperation(operationId, "uninstall");
+    await this.reauthorize(current);
     return this.store.uninstallGeneration(operationId, current.leaseToken);
   }
 
@@ -731,8 +771,14 @@ export class PluginManager {
   private async checkpointStaticPlan(operation: RuntimeExtensionOperation): Promise<void> {
     if (operation.plan?.executionClass !== "static-release" || !["planning", "source-change-required"].includes(operation.phase)) return;
     let current = await this.store.resumeOperation(operation.operationId, this.workerId);
-    if (current.phase === "planning") current = (await this.store.transition({ operationId: current.operationId, leaseToken: current.leaseToken, expectedPhase: "planning", phase: "source-change-required" })).operation;
-    if (current.phase === "source-change-required") await this.store.transition({ operationId: current.operationId, leaseToken: current.leaseToken, expectedPhase: "source-change-required", phase: "source-change-ready" });
+    if (current.phase === "planning") {
+      await this.reauthorize(current);
+      current = (await this.store.transition({ operationId: current.operationId, leaseToken: current.leaseToken, expectedPhase: "planning", phase: "source-change-required" })).operation;
+    }
+    if (current.phase === "source-change-required") {
+      await this.reauthorize(current);
+      await this.store.transition({ operationId: current.operationId, leaseToken: current.leaseToken, expectedPhase: "source-change-required", phase: "source-change-ready" });
+    }
   }
 
   private async dispositionOperation(operationId: string, operation: "disable" | "uninstall"): Promise<RuntimeExtensionOperation> {
@@ -742,6 +788,19 @@ export class PluginManager {
     }
     if (current.request.extension.deliveryClass === "platform-plugin" && operation === "uninstall") {
       throw new PluginManagerError("WRONG_EXECUTION_CLASS", "Platform Plugin uninstall requires static source/build authority.");
+    }
+    await this.reauthorize(current);
+    return current;
+  }
+
+  private async reauthorize(operation: RuntimeExtensionOperation): Promise<OperationAuthorizationDecision> {
+    const requestDigest = await extensionOperationRequestDigest(operation.request);
+    if (requestDigest !== operation.requestDigest) throw new PluginManagerError("INVALID_STATE", "Persisted extension operation request digest is invalid.");
+    let current: OperationAuthorizationDecision;
+    try { current = await this.authorizer.authorize({ ...operation.request, requestDigest }); }
+    catch { throw new PluginManagerError("INVALID_STATE", "Current authority does not permit this extension operation."); }
+    if (!extensionOperationActorMatches(current.actor, operation.authorization.actor)) {
+      throw new PluginManagerError("INVALID_STATE", "Current authority no longer matches the persisted extension operation.");
     }
     return current;
   }

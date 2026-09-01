@@ -3,7 +3,14 @@ import { readFileSync } from "node:fs";
 import type { RuntimeExtensionInventory } from "@k-nex/contracts";
 import { describe, expect, it, vi } from "vitest";
 
-import { DurableStaticReleaseOperator, ExtensionOperatorApi, StaticReleaseOperatorError, type ExtensionOperationStatus } from "../src/index.js";
+import {
+  CurrentStaticReleaseOperationAdmission,
+  DurableStaticReleaseOperator,
+  ExtensionOperatorApi,
+  StaticReleaseOperatorError,
+  extensionOperationRequestDigest,
+  type ExtensionOperationStatus
+} from "../src/index.js";
 
 const load = (path: string) => JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8"));
 const inventory = load("../../../fixtures/extensions/valid/runtime-extension-inventory.json") as RuntimeExtensionInventory;
@@ -12,6 +19,7 @@ const remoteUiIsolation = load("../../../fixtures/extensions/valid/remote-ui-iso
 const dynamicOperation = {
   operationId: "operation-dynamic-1",
   request: { applicationId: "customer-alpha", environment: "production", extension: { deliveryClass: "hot-application", id: "app.sales-assistant" }, operation: "install", targetVersion: "1.0.0", expectedRevision: 0, idempotencyKey: "install:app.sales-assistant:1", correlationId: "correlation-dynamic-1" },
+  requestDigest: `sha256:${"a".repeat(64)}`,
   actor: { kind: "trusted-automation", identity: "github-actions:phase-9" },
   phase: "staged"
 } as ExtensionOperationStatus;
@@ -139,6 +147,26 @@ describe("DurableStaticReleaseOperator", () => {
     buildEvidenceDigest: buildDigest, applicationDigest, imageDigest,
     ...(status === "deployed" ? { generationId: "customer-alpha-green-1", migrationRevision: 2, workerFencingToken: 2, receipt } : {})
   });
+  const admission = () => ({ admit: vi.fn(async (value: ExtensionOperationStatus) => ({ actor: value.actor, decisionId: `sha256:${"b".repeat(64)}` })) });
+
+  it("admits a current decision with the original actor despite a changed decision id", async () => {
+    const bound = { ...operation, requestDigest: await extensionOperationRequestDigest(operation.request) };
+    const authorizer = { authorize: vi.fn(async () => ({ actor: bound.actor, decisionId: `sha256:${"9".repeat(64)}` })) };
+    const value = new CurrentStaticReleaseOperationAdmission(authorizer);
+
+    await expect(value.admit(bound)).resolves.toMatchObject({ actor: bound.actor });
+    expect(authorizer.authorize).toHaveBeenCalledWith(expect.objectContaining({
+      ...bound.request,
+      requestDigest: bound.requestDigest
+    }));
+  });
+
+  it("rejects an actor change through the concrete admission boundary", async () => {
+    const bound = { ...operation, requestDigest: await extensionOperationRequestDigest(operation.request) };
+    const value = new CurrentStaticReleaseOperationAdmission({ authorize: vi.fn(async () => ({ actor: { kind: "actor" as const, id: "user-2", approvalId: "approval-2" }, decisionId: `sha256:${"9".repeat(64)}` })) });
+
+    await expect(value.admit(bound)).rejects.toMatchObject({ code: "AUTHORITY_MISMATCH" });
+  });
 
   it("routes an attested durable release through the supervisor and persists the exact receipt", async () => {
     const token = {};
@@ -152,7 +180,7 @@ describe("DurableStaticReleaseOperator", () => {
     const reader = { read: vi.fn(() => ({ change: { planDigest, targetSourceCommit: sourceCommit }, evidenceDigest: buildDigest, evidence: { applicationSubject: { digest: applicationDigest }, imageSubject: { digest: imageDigest } } })) };
     const supervisor = { deploy: vi.fn(async () => ({ outcome: "promoted", receipt })), rollback: vi.fn() };
     const leases = { acquire: vi.fn(async () => ({ workerOwner: "supervisor:phase-9", workerLeaseExpiresAt: "2026-08-29T00:01:00.000Z" })) };
-    const value = new DurableStaticReleaseOperator(requests, builds, reader, supervisor as never, leases);
+    const value = new DurableStaticReleaseOperator(requests, builds, reader, supervisor as never, leases, admission());
 
     await expect(value.validate(operation)).resolves.toMatchObject({ valid: true, checks: expect.arrayContaining(["trusted-build", "exact-version"]) });
     await expect(value.execute(operation)).resolves.toEqual({ outcome: "promoted", receipt });
@@ -160,9 +188,56 @@ describe("DurableStaticReleaseOperator", () => {
     expect(requests.recordDeployment).toHaveBeenCalledWith(expect.objectContaining({ expectedVersion: "1.1.0", receipt }));
   });
 
+  it("denies durable deployment before request dispatch, worker lease, or supervisor work", async () => {
+    const token = {};
+    const requests = { readRequest: vi.fn(async () => request("builder-attested")), requestDeployment: vi.fn(), recordDeployment: vi.fn(), recoverDeployment: vi.fn() };
+    const reader = { read: vi.fn(() => ({ change: { planDigest, targetSourceCommit: sourceCommit }, evidenceDigest: buildDigest, evidence: { applicationSubject: { digest: applicationDigest }, imageSubject: { digest: imageDigest } } })) };
+    const supervisor = { deploy: vi.fn(), rollback: vi.fn() };
+    const leases = { acquire: vi.fn() };
+    const value = new DurableStaticReleaseOperator(requests, { verifiedBuild: vi.fn(async () => token) }, reader, supervisor as never, leases, { admit: vi.fn(async () => { throw new Error("revoked"); }) });
+
+    await expect(value.execute(operation)).rejects.toMatchObject({ code: "AUTHORITY_UNAVAILABLE" });
+    expect(requests.requestDeployment).not.toHaveBeenCalled();
+    expect(leases.acquire).not.toHaveBeenCalled();
+    expect(supervisor.deploy).not.toHaveBeenCalled();
+  });
+
+  it("denies every static operation before reading its durable request", async () => {
+    const denied = { admit: vi.fn(async () => { throw new Error("revoked"); }) };
+    const requests = { readRequest: vi.fn(), requestDeployment: vi.fn(), recordDeployment: vi.fn(), recoverDeployment: vi.fn() };
+    const value = new DurableStaticReleaseOperator(requests, { verifiedBuild: vi.fn() }, { read: vi.fn() }, {} as never, { acquire: vi.fn() }, denied);
+    const rollbackOperation = { ...operation, request: { ...operation.request, operation: "rollback" } } as ExtensionOperationStatus;
+
+    await expect(value.validate(operation)).rejects.toMatchObject({ code: "AUTHORITY_UNAVAILABLE" });
+    await expect(value.execute(operation)).rejects.toMatchObject({ code: "AUTHORITY_UNAVAILABLE" });
+    await expect(value.rollback(rollbackOperation)).rejects.toMatchObject({ code: "AUTHORITY_UNAVAILABLE" });
+
+    expect(denied.admit).toHaveBeenCalledTimes(3);
+    expect(requests.readRequest).not.toHaveBeenCalled();
+  });
+
+  it("reauthorizes after a blocking worker lease before supervisor dispatch", async () => {
+    const token = {};
+    const requests = { readRequest: vi.fn(async () => request("builder-attested")), requestDeployment: vi.fn(async () => request("deployment-requested")), recordDeployment: vi.fn(), recoverDeployment: vi.fn(async () => undefined) };
+    const reader = { read: vi.fn(() => ({ change: { planDigest, targetSourceCommit: sourceCommit }, evidenceDigest: buildDigest, evidence: { applicationSubject: { digest: applicationDigest }, imageSubject: { digest: imageDigest } } })) };
+    const supervisor = { deploy: vi.fn(), rollback: vi.fn() };
+    const leases = { acquire: vi.fn(async () => ({ workerOwner: "supervisor:phase-10", workerLeaseExpiresAt: "2026-09-01T00:01:00.000Z" })) };
+    const admit = vi.fn()
+      .mockResolvedValueOnce({ actor: operation.actor, decisionId: "decision-1" })
+      .mockResolvedValueOnce({ actor: operation.actor, decisionId: "decision-2" })
+      .mockResolvedValueOnce({ actor: operation.actor, decisionId: "decision-3" })
+      .mockResolvedValueOnce({ actor: operation.actor, decisionId: "decision-4" })
+      .mockRejectedValueOnce(new Error("revoked during lease"));
+    const value = new DurableStaticReleaseOperator(requests, { verifiedBuild: vi.fn(async () => token) }, reader, supervisor as never, leases, { admit });
+
+    await expect(value.execute(operation)).rejects.toMatchObject({ code: "AUTHORITY_UNAVAILABLE" });
+    expect(leases.acquire).toHaveBeenCalledOnce();
+    expect(supervisor.deploy).not.toHaveBeenCalled();
+  });
+
   it("rejects a durable request that changes the persisted version or source authority", async () => {
     const requests = { readRequest: vi.fn(async () => ({ ...request("builder-attested"), version: "1.0.0" })), requestDeployment: vi.fn(), recordDeployment: vi.fn(), recoverDeployment: vi.fn() };
-    const value = new DurableStaticReleaseOperator(requests, { verifiedBuild: vi.fn() }, { read: vi.fn() }, {} as never, { acquire: vi.fn() });
+    const value = new DurableStaticReleaseOperator(requests, { verifiedBuild: vi.fn() }, { read: vi.fn() }, {} as never, { acquire: vi.fn() }, admission());
     await expect(value.validate(operation)).rejects.toMatchObject({ code: "AUTHORITY_MISMATCH" } satisfies Partial<StaticReleaseOperatorError>);
   });
 
@@ -171,7 +246,7 @@ describe("DurableStaticReleaseOperator", () => {
       readRequest: vi.fn(async () => ({ ...request("deployed"), receipt: { ...receipt, imageDigest: `sha256:${"0".repeat(64)}` } })),
       requestDeployment: vi.fn(), recordDeployment: vi.fn(), recoverDeployment: vi.fn()
     };
-    const value = new DurableStaticReleaseOperator(requests, { verifiedBuild: vi.fn() }, { read: vi.fn() }, {} as never, { acquire: vi.fn() });
+    const value = new DurableStaticReleaseOperator(requests, { verifiedBuild: vi.fn() }, { read: vi.fn() }, {} as never, { acquire: vi.fn() }, admission());
     await expect(value.execute(operation)).rejects.toMatchObject({ code: "AUTHORITY_MISMATCH" } satisfies Partial<StaticReleaseOperatorError>);
   });
 
@@ -190,7 +265,7 @@ describe("DurableStaticReleaseOperator", () => {
       readRequest: vi.fn(async () => ({ ...request("deployed"), receipt: uninstallReceipt })),
       requestDeployment: vi.fn(), recordDeployment: vi.fn(), recoverDeployment: vi.fn()
     };
-    const value = new DurableStaticReleaseOperator(requests, { verifiedBuild: vi.fn() }, { read: vi.fn() }, {} as never, { acquire: vi.fn() });
+    const value = new DurableStaticReleaseOperator(requests, { verifiedBuild: vi.fn() }, { read: vi.fn() }, {} as never, { acquire: vi.fn() }, admission());
     await expect(value.execute(uninstallOperation)).rejects.toMatchObject({ code: "AUTHORITY_MISMATCH" } satisfies Partial<StaticReleaseOperatorError>);
   });
 
@@ -204,7 +279,7 @@ describe("DurableStaticReleaseOperator", () => {
     const token = {};
     const reader = { read: vi.fn(() => ({ change: { planDigest, targetSourceCommit: sourceCommit }, evidenceDigest: buildDigest, evidence: { applicationSubject: { digest: applicationDigest }, imageSubject: { digest: imageDigest } } })) };
     const supervisor = { deploy: vi.fn(), rollback: vi.fn() };
-    const value = new DurableStaticReleaseOperator(requests, { verifiedBuild: vi.fn(async () => token) }, reader, supervisor as never, { acquire: vi.fn() });
+    const value = new DurableStaticReleaseOperator(requests, { verifiedBuild: vi.fn(async () => token) }, reader, supervisor as never, { acquire: vi.fn() }, admission());
 
     await expect(value.execute(operation)).resolves.toEqual({ outcome: "promoted", receipt });
     expect(requests.recoverDeployment).toHaveBeenCalledWith(expect.objectContaining({ expectedRevision: operation.request.expectedRevision, targetGenerationId: "customer-alpha-green-1", operation: "promote" }));
@@ -223,7 +298,7 @@ describe("DurableStaticReleaseOperator", () => {
     };
     const reader = { read: vi.fn(() => ({ change: { planDigest, targetSourceCommit: sourceCommit }, evidenceDigest: buildDigest, evidence: { applicationSubject: { digest: applicationDigest }, imageSubject: { digest: imageDigest } } })) };
     const supervisor = { deploy: vi.fn(), rollback: vi.fn(async () => rollbackReceipt) };
-    const value = new DurableStaticReleaseOperator(requests, { verifiedBuild: vi.fn(async () => token) }, reader, supervisor as never, { acquire: vi.fn(async () => ({ workerOwner: "supervisor:phase-9", workerLeaseExpiresAt: "2026-08-29T00:01:00.000Z" })) });
+    const value = new DurableStaticReleaseOperator(requests, { verifiedBuild: vi.fn(async () => token) }, reader, supervisor as never, { acquire: vi.fn(async () => ({ workerOwner: "supervisor:phase-9", workerLeaseExpiresAt: "2026-08-29T00:01:00.000Z" })) }, admission());
 
     await expect(value.rollback(rollbackOperation)).resolves.toEqual(rollbackReceipt);
     expect(supervisor.rollback).toHaveBeenCalledWith({ applicationId: "customer-alpha", environment: "production", workerOwner: "supervisor:phase-9", workerLeaseExpiresAt: "2026-08-29T00:01:00.000Z" });

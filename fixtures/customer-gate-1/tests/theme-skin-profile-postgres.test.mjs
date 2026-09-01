@@ -216,7 +216,7 @@ test("delivers Theme Skins from signed durable artifacts through PluginManager i
     await manager.stage(install.operationId);
     const installed = await manager.activate(install.operationId);
     assert.equal(installed.generationId, releases[0].generationId);
-    let profiles = new PostgresThemeProfileStore(pool, clock);
+    let profiles = new PostgresThemeProfileStore(pool, clock, { authorize: () => true });
     const first = profile("published", "theme-skin.revision-1", releases[0].generationId, releases[0].version);
     await profiles.stageDraft({ applicationId: "customer-alpha", environment: "production", profile: profile("draft", first.revision.id, releases[0].generationId, releases[0].version) });
     await profiles.publish({ applicationId: "customer-alpha", environment: "production", expectedRevision: 0, profile: first });
@@ -240,7 +240,7 @@ test("delivers Theme Skins from signed durable artifacts through PluginManager i
     assert.equal(restored.exitCode, 0, restored.output);
     await pool.end();
     pool = new pg.Pool({ connectionString: container.getConnectionUri() });
-    profiles = new PostgresThemeProfileStore(pool, clock);
+    profiles = new PostgresThemeProfileStore(pool, clock, { authorize: () => true });
 
     const recoveredArtifacts = new PostgresVerifiedArtifactStore(pool, verifier);
     const recoveredResolver = new DurableThemeSkinResolver({ load: (authority) => recoveredArtifacts.loadThemeSkin(authority) });

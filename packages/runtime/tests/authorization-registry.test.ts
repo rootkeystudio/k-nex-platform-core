@@ -134,10 +134,12 @@ async function registeredHotContribution(options: Readonly<{
     metadata: {}, settings: {}, storageSchemaVersions: {}
   };
   const runner = { isolationProfile: hotProductionProfile, invoke: vi.fn(async (input) => options.runnerInvoke ? await options.runnerInvoke(input) : { schemaVersion: 1, outcome: "allow" }) };
+  const tokens = { issue: vi.fn(() => "capability-token") };
+  const capabilities = { authorize: vi.fn(async () => true) };
   const runtime = new AuthoritativeHotApplicationRuntime({
     inventory: vi.fn(async () => ({ extensions: { hotApplications: { [manifest.id]: { disposition: "active" as const, activeGeneration } } } })),
     acquireGenerationLease: vi.fn(async () => "lease-00000000-0000-4000-8000-000000000000"), releaseGenerationLease: vi.fn(async () => {})
-  } as never, { resolve: vi.fn(async () => artifact) } as never, { issue: vi.fn(() => "capability-token") } as never, runner, {
+  } as never, { resolve: vi.fn(async () => artifact) } as never, tokens as never, runner, capabilities, {
     applicationId: authority.applicationId, environment: authority.environment, appId: manifest.id
   }, "authorization-policy-gateway");
   const source = await runtime.createAuthorizationSource();
@@ -148,7 +150,7 @@ async function registeredHotContribution(options: Readonly<{
     runtimeGenerationIds: [runtimeGenerationId], state: options.state ?? "current", authorizationRevision: 1, lifecycleRevision: 1
   } as const;
   return Object.freeze({
-    manifest, generation, source, gateway, runner,
+    manifest, generation, source, gateway, runner, tokens, capabilities,
     contribution: createHotApplicationManifestAuthorizationContribution({
       source, generation, lifecycle: { enabled: options.enabled ?? true, ready: options.ready ?? true }
     })
@@ -206,6 +208,8 @@ describe("effective authorization registry", () => {
     const catalog = createCatalog({ extensions: [hot.contribution], executables: [executable] });
     await expect(catalog.execute({ ...evaluation("sales-assistant.tasks.read"), scope: { kind: "record", resource: "sales-assistant.tasks", recordId: "task:one" } }, new AbortController().signal)).resolves.toMatchObject({ outcome: "allow" });
     expect(hot.runner.invoke).toHaveBeenCalledWith(expect.objectContaining({ generationId: hot.generation.runtimeGenerationIds[0], artifactDigest: hotDigest("a"), input: expect.objectContaining({ kind: "authorization-policy-evaluation" }) }));
+    expect(hot.capabilities.authorize).not.toHaveBeenCalled();
+    expect(hot.tokens.issue).toHaveBeenCalledWith(expect.objectContaining({ grants: [] }));
     expectCode(() => createHotApplicationPolicyExecutable({
       kind: "hot-application", publisher: hot.manifest.permissions[0].publisher, bindingId: hot.manifest.policyBindings[0].id,
       policyReference: hot.manifest.policyBindings[0].policyReference, gateway: { evaluate() { return { schemaVersion: 1, outcome: "allow" }; } }

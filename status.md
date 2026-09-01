@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-09-01
 - **Phase:** Phase 10 — RBAC, Authorization, and Extension Bootstrap
-- **Active task:** P10.5 — Policy hooks across all boundaries
+- **Active task:** P10.6 — Protected roles and template bootstrap
 - **State:** Ready to start
 
 ## Last completed
 
-P10.4 added branded trusted sessions, requests, catalogs, and providers; current-revision assignment/role/grant/generation resolution; reducing principal/effective-actor intersection; bounded revision-keyed base-authority caching; exact descriptor-owner and current-generation filtering; per-call policy execution; canonical decisions; and a current-RBAC PluginManager authorizer requiring plan plus fixed lifecycle permissions. Raw/cloned authority, cross-actor/cache/generation reuse, dormant/orphan grants, mixed revisions, policy failure, and client permission/scope/actor forgery fail closed.
+P10.5 connected current authority to data/action/Payload/tool/realtime/route/page/navigation/Remote UI/settings/theme/Hot App capability/PluginManager/static deployment boundaries. Trusted actor/delegation sessions, exact server targets, continuation rechecks, timeout/failure closure, session/generation pinning, and pre-dispatch reauthorization prevent client forgery, actor confusion, stale continuation, and capability widening.
 
 ## Validation
 
-Focused only: runtime build plus authorization-registry/effective-authority/current-operation-authorizer 3 files/34 tests; customer fixture build; real PostgreSQL effective-authority/cache/revocation/lifecycle proof 1/1 under deprecation tracing; diff check; Docker cleanup. Same xhigh phase reviewer: PASS. Full suite intentionally deferred to phase closeout.
+Focused only: runtime/payload/UI/Sales/customer fixture builds; runtime current-authority/lifecycle/settings/operator 8 files/89 tests; payload authorization 2 files/7 tests; Remote UI host 1 file/16 tests; Sales MCP/settings proofs; standalone Chromium Remote UI PASS; real PostgreSQL + Chromium boundary/actor/race proof 1/1; diff check; Docker cleanup. Same xhigh reviewer: PASS. Full suite deferred to phase closeout.
 
 ## Next
 
-Implement P10.5 policy hooks across sources, actions, Payload, tools, jobs, realtime, routes/navigation, pages, remote UI, extension capabilities, settings, PluginManager, DeploymentSupervisor requests, and theme management.
+Implement P10.6 protected platform roles, one-time owner bootstrap, extension templates, tombstones, receipts, three-way compare/adoption, and copy-once behavior.
 
 ## Blockers
 

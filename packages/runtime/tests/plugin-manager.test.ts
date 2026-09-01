@@ -6,8 +6,10 @@ import type { ExtensionInstallPlan, RuntimeExtensionInventory, StaticComposition
 import {
   PluginManager,
   TrustedAutomationOperationAuthorizer,
+  extensionOperationRequestDigest,
   type ClaimOperationResult,
   type ExtensionChangeRequest,
+  type ExtensionOperationAuthorizer,
   type ExtensionActivationReceipt,
   type PluginManagerPlan,
   type RuntimeExtensionOperation,
@@ -153,7 +155,11 @@ class MemoryStore implements RuntimeExtensionStore {
   async liveGenerationLeaseCount() { return 0; }
 }
 
-function manager(store = new MemoryStore(), reverify = true) {
+function manager(
+  store = new MemoryStore(),
+  reverify = true,
+  authorizer: ExtensionOperationAuthorizer = new TrustedAutomationOperationAuthorizer("github-actions:phase-9")
+) {
   const planner = { validate: vi.fn(async () => undefined), plan: vi.fn(async (planning) => ({
     plan: { ...hotPlan, operationId: planning.operationId, operation: planning.operation, version: planning.targetVersion, expectedRevision: planning.expectedRevision, ...(planning.currentGenerationId ? { currentGenerationId: planning.currentGenerationId } : {}) },
     sourceCommit: "a".repeat(40), generationId: "sales-assistant-generation-1"
@@ -168,7 +174,13 @@ function manager(store = new MemoryStore(), reverify = true) {
     metadata: {}, settings: {}, storageSchemaVersions: {}
   })) };
   const clock = { now: () => new Date(Date.now()) };
-  return { value: new PluginManager("phase-9-worker", new TrustedAutomationOperationAuthorizer("github-actions:phase-9"), planner, store, artifacts, staticChanges, deployments, generationRuntime, clock), store, planner, artifacts, staticChanges, deployments, generationRuntime, clock };
+  return { value: new PluginManager("phase-9-worker", authorizer, planner, store, artifacts, staticChanges, deployments, generationRuntime, clock), store, planner, artifacts, staticChanges, deployments, generationRuntime, clock };
+}
+
+async function boundOperation(operation: RuntimeExtensionOperation): Promise<RuntimeExtensionOperation> {
+  const requestDigest = await extensionOperationRequestDigest(operation.request);
+  const authorization = await new TrustedAutomationOperationAuthorizer("github-actions:phase-9").authorize({ ...operation.request, requestDigest });
+  return { ...operation, requestDigest, authorization };
 }
 
 describe("PluginManager", () => {
@@ -187,6 +199,21 @@ describe("PluginManager", () => {
     expect(runtime.store.reconcileCount).toBe(2);
     runtime.store.operation = { ...runtime.store.operation!, phase: "failed" };
     await expect(runtime.value.stage(planned.operationId)).rejects.toMatchObject({ code: "INVALID_STATE" });
+  });
+
+  it("accepts a refreshed decision for the same actor and blocks actor changes before staging side effects", async () => {
+    const trustedActor = { kind: "trusted-automation" as const, identity: "github-actions:phase-9" };
+    const authorizer = {
+      authorize: vi.fn()
+        .mockResolvedValueOnce({ actor: trustedActor, decisionId: digest("1") })
+        .mockResolvedValueOnce({ actor: trustedActor, decisionId: digest("2") })
+        .mockResolvedValueOnce({ actor: { kind: "actor" as const, id: "user-1", approvalId: "approval-1" }, decisionId: digest("3") })
+    };
+    const runtime = manager(new MemoryStore(), true, authorizer);
+    const planned = await runtime.value.plan(request);
+    await expect(runtime.value.stage(planned.operationId)).rejects.toMatchObject({ code: "INVALID_STATE" });
+    expect(runtime.store.transitions).toEqual([]);
+    expect(runtime.artifacts.stage).not.toHaveBeenCalled();
   });
 
   it("runs mandatory lifecycle policy validation before claiming an operation", async () => {
@@ -327,7 +354,7 @@ describe("PluginManager", () => {
 
   it("rejects a forged live-generation Platform Plugin uninstall at execution", async () => {
     const runtime = manager();
-    runtime.store.operation = {
+    runtime.store.operation = await boundOperation({
       operationId: "extension-operation-forged-uninstall",
       request: { ...request, extension: { deliveryClass: "platform-plugin", id: "provider.schema-less" }, operation: "uninstall" },
       requestDigest: digest("1"), authorization: { actor: { kind: "trusted-automation", identity: "github-actions:phase-9" }, decisionId: digest("2") },
@@ -336,7 +363,7 @@ describe("PluginManager", () => {
         executionClass: "live-generation", operationId: "extension-operation-forged-uninstall", sourceCommit: "b".repeat(40), generationId: "customer-alpha-uninstall-13",
         plan: { ...hotPlan, deliveryClass: "platform-plugin", id: "provider.schema-less", operation: "uninstall", operationId: "extension-operation-forged-uninstall", currentGenerationId: "customer-alpha-green-12", targetGenerationId: "customer-alpha-uninstall-13", availability: { outcome: "maintenance-required", reasons: ["destructive-migration"] } }
       } as unknown as PluginManagerPlan
-    };
+    });
     await expect(runtime.value.uninstall(runtime.store.operation.operationId)).rejects.toMatchObject({ code: "WRONG_EXECUTION_CLASS" });
     expect(runtime.store.resumeCount).toBe(1);
   });
@@ -435,6 +462,22 @@ describe("PluginManager", () => {
     expect(runtime.generationRuntime.prepare).not.toHaveBeenCalled();
   });
 
+  it("reauthorizes after artifact reverify and before generation preparation", async () => {
+    let revoked = false;
+    const originalActor = { kind: "trusted-automation" as const, identity: "github-actions:phase-9" };
+    const authorizer = { authorize: vi.fn(async () => ({
+      actor: revoked ? { kind: "actor" as const, id: "user-revoked", approvalId: "approval-revoked" } : originalActor,
+      decisionId: digest(revoked ? "9" : "8")
+    })) };
+    const runtime = manager(new MemoryStore(), true, authorizer);
+    const planned = await runtime.value.plan(request);
+    await runtime.value.stage(planned.operationId);
+    runtime.artifacts.reverify.mockImplementationOnce(async () => { revoked = true; return true; });
+
+    await expect(runtime.value.activate(planned.operationId)).rejects.toMatchObject({ code: "INVALID_STATE" });
+    expect(runtime.generationRuntime.prepare).not.toHaveBeenCalled();
+  });
+
   it("reverifies and freshly warms the retained generation before the rollback pointer can change", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-29T09:00:30.000Z"));
@@ -485,11 +528,11 @@ describe("PluginManager", () => {
     vi.setSystemTime(new Date("2026-08-29T09:00:30.000Z"));
     const runtime = manager();
     const retained = { ...authority, generationId: "sales-assistant-generation-0" };
-    runtime.store.operation = {
+    runtime.store.operation = await boundOperation({
       operationId: "extension-operation-rollback", request: { ...request, operation: "rollback", expectedRevision: 1 }, requestDigest: digest("1"),
       authorization: { actor: { kind: "trusted-automation", identity: "github-actions:phase-9" }, decisionId: digest("2") }, phase: "planning", leaseToken: "lease-rollback",
       plan: { executionClass: "live-generation", operationId: "extension-operation-rollback", plan: { ...hotPlan, operation: "rollback", expectedRevision: 1, targetGenerationId: retained.generationId }, sourceCommit: retained.sourceCommit, generationId: retained.generationId }
-    };
+    });
     runtime.store.inventoryValue = {
       schemaVersion: 1, applicationId: request.applicationId, environment: request.environment, hostInventoryDigest: digest("7"), revision: 1,
       observedAt: "2026-08-29T09:00:00.000Z", stateDigest: digest("8"), extensions: {
@@ -527,9 +570,9 @@ describe("PluginManager", () => {
     expect(progress).toMatchObject({ operationId: planned.operationId, phase: "staged", actor: { kind: "trusted-automation" } });
     expect(progress).not.toHaveProperty("leaseToken");
 
-    runtime.store.operation = { ...runtime.store.operation!, request: { ...request, operation: "disable" }, phase: "planning" };
+    runtime.store.operation = await boundOperation({ ...runtime.store.operation!, request: { ...request, operation: "disable" }, phase: "planning" });
     await expect(runtime.value.disable(planned.operationId)).resolves.toMatchObject({ disposition: "disabled" });
-    runtime.store.operation = { ...runtime.store.operation!, request: { ...request, operation: "uninstall" }, phase: "planning" };
+    runtime.store.operation = await boundOperation({ ...runtime.store.operation!, request: { ...request, operation: "uninstall" }, phase: "planning" });
     await expect(runtime.value.uninstall(planned.operationId)).resolves.toMatchObject({ disposition: "removed" });
   });
 

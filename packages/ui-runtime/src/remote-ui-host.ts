@@ -35,6 +35,8 @@ export type RemoteUiSessionRequest = Readonly<Omit<RemoteUiSessionIdentity, "app
 
 export interface RemoteUiHostAdapter {
   authorize(identity: RemoteUiSessionIdentity, frame: RemoteUiFrame, signal: AbortSignal): boolean | Promise<boolean>;
+  /** Reauthorizes the exact server-declared target before source/action dispatch. */
+  authorizeTarget(identity: RemoteUiSessionIdentity, operation: "source" | "action", targetId: string, signal: AbortSignal): boolean | Promise<boolean>;
   render(root: RemoteUiNode, signal: AbortSignal): void | Promise<void>;
   fallback(code: "APP_FAILURE" | "PROTOCOL_FAILURE" | "UNAUTHORIZED", signal: AbortSignal): void | Promise<void>;
   focus(nodeId: string, signal: AbortSignal): void | Promise<void>;
@@ -193,6 +195,7 @@ export class RemoteUiHostSession {
     if (frame.type === "failure") { await this.controlledFailure("APP_FAILURE"); return; }
     const allowed = frame.operation === "source" ? this.identity.sources : this.identity.actions;
     if (!allowed.has(frame.targetId)) fail("TARGET_DENIED", "Remote UI data target is not declared.");
+    if (!await this.adapter.authorizeTarget(this.identity, frame.operation, frame.targetId, signal)) fail("UNAUTHORIZED", "Remote UI target authority is denied.");
     try {
       const output = await (frame.operation === "source" ? this.adapter.source(this.identity, frame.targetId, frame.input, signal) : this.adapter.action(this.identity, frame.targetId, frame.input, signal));
       if (!this.closed) this.send("response-ok", { requestId: frame.requestId, output });

@@ -18,9 +18,9 @@ const registry = new Map([
 ]);
 const root = { nodeId: "root", component: "stack", props: { gap: "medium" }, events: [], children: [{ nodeId: "refresh", component: "button", props: { label: "Refresh" }, events: [{ event: "press" as const, handlerId: "sales.refresh" }], children: [] }] };
 
-function adapter(): RemoteUiHostAdapter & { authorize: ReturnType<typeof vi.fn>; render: ReturnType<typeof vi.fn>; fallback: ReturnType<typeof vi.fn>; source: ReturnType<typeof vi.fn>; action: ReturnType<typeof vi.fn> } {
+function adapter(): RemoteUiHostAdapter & { authorize: ReturnType<typeof vi.fn>; authorizeTarget: ReturnType<typeof vi.fn>; render: ReturnType<typeof vi.fn>; fallback: ReturnType<typeof vi.fn>; source: ReturnType<typeof vi.fn>; action: ReturnType<typeof vi.fn> } {
   return {
-    authorize: vi.fn(async () => true), render: vi.fn(), fallback: vi.fn(), focus: vi.fn(), navigate: vi.fn(),
+    authorize: vi.fn(async () => true), authorizeTarget: vi.fn(async () => true), render: vi.fn(), fallback: vi.fn(), focus: vi.fn(), navigate: vi.fn(),
     source: vi.fn(async (_identity, _target, input) => ({ input })), action: vi.fn(async () => ({ changed: true }))
   };
 }
@@ -135,6 +135,20 @@ describe("remote UI host session authority", () => {
     await tick();
     expect(host.source).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "remote-session-1", generationId: "sales-generation-1", artifactDigest }), "sales.tasks", { page: 1 }, expect.any(AbortSignal));
     expect(Object.isFrozen(host.source.mock.calls[0]![0])).toBe(true);
+    channel.port2.close();
+  });
+
+  it("reauthorizes the exact declared target before browser-facing dispatch", async () => {
+    const { session, host } = opened();
+    host.authorizeTarget.mockResolvedValueOnce(false);
+    const channel = new MessageChannel();
+    session.start(channel.port1 as unknown as MessagePort);
+    channel.port2.postMessage(realmFrame(generation(), "request", { operation: "source", requestId: "source-denied-1", targetId: "sales.tasks", input: {} }));
+    await tick();
+
+    expect(host.authorizeTarget).toHaveBeenCalledWith(expect.anything(), "source", "sales.tasks", expect.any(AbortSignal));
+    expect(host.source).not.toHaveBeenCalled();
+    expect(host.fallback).toHaveBeenCalledWith("UNAUTHORIZED", expect.any(AbortSignal));
     channel.port2.close();
   });
 

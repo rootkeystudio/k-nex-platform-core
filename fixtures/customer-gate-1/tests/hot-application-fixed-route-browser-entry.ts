@@ -2,7 +2,7 @@ import { createOpaqueRemoteUiFrame, RemoteUiGenerationSessions, type RemoteUiCom
 
 declare global {
   interface Window {
-    __K_NEX_HOT_APPLICATION_ROUTE__: Readonly<{ applicationId: string; environment: "production"; appId: string; generationId: string; artifactDigest: string; revision: number; sessionId: string; route: string; routes: readonly string[]; sources: readonly string[]; remoteUiFrameUrl: string; snapshotUrl: string; sourceUrl: string; drainMs: number }>;
+    __K_NEX_HOT_APPLICATION_ROUTE__: Readonly<{ applicationId: string; environment: "production"; appId: string; generationId: string; artifactDigest: string; revision: number; sessionId: string; route: string; routes: readonly string[]; sources: readonly string[]; actions: readonly string[]; remoteUiFrameUrl: string; snapshotUrl: string; sourceUrl: string; drainMs: number }>;
     __K_NEX_HOT_APPLICATION_ROUTE_SESSION__?: Readonly<{ appId: string; generationId: string; route: string }>;
     __K_NEX_HOT_APPLICATION_LIFECYCLE_OBSERVATIONS__?: readonly Readonly<{ source: "snapshot-poll"; observedAt: number; generationId: string; revision: number; disposition: string; retirementScheduled: boolean; retirementCancelled: boolean }>[];
   }
@@ -52,10 +52,16 @@ function renderNode(node: RemoteUiNode): HTMLElement {
 
 const session = sessions.open(snapshot, {
   sessionId: configuration.sessionId, remoteUiFrameUrl: configuration.remoteUiFrameUrl, route: configuration.route, surface: "sales.screen",
-  sources: new Set(configuration.sources), actions: new Set(), routes: new Set(configuration.routes), assets: new Set()
+  sources: new Set(configuration.sources), actions: new Set(configuration.actions), routes: new Set(configuration.routes), assets: new Set()
 }, registry, {
   async authorize(_identity, _frame, signal) {
-    const response = await fetch("/api/extensions/remote-ui/authorize", { method: "POST", credentials: "same-origin", cache: "no-store", signal });
+    const query = new URLSearchParams({ sessionId: configuration.sessionId });
+    const response = await fetch(`/api/extensions/remote-ui/authorize?${query}`, { method: "POST", credentials: "same-origin", cache: "no-store", signal });
+    return response.status === 204;
+  },
+  async authorizeTarget(_identity, operation, targetId, signal) {
+    const query = new URLSearchParams({ operation, targetId, sessionId: configuration.sessionId });
+    const response = await fetch(`/api/extensions/remote-ui/authorize-target?${query}`, { method: "POST", credentials: "same-origin", cache: "no-store", signal });
     return response.status === 204;
   },
   render(tree: RemoteUiNode) { root.replaceChildren(renderNode(tree)); },

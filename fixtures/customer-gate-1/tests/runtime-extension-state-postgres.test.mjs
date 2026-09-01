@@ -13,7 +13,7 @@ import { chromium } from "playwright";
 import { ArtifactVerifier, buildBundle, canonicalJson, CatalogClient, InMemoryCatalogCheckpointStore, sha256 } from "@k-nex/extension-bundler";
 import { DockerHotApplicationSandboxSupervisor, dockerIsolationPolicyFromEnvironment } from "@k-nex/extension-runner";
 import { ActiveExtensionSecurityReconciler, PostgresCatalogCheckpointStore, PostgresExtensionCapabilityAuthority, PostgresExtensionCapabilitySequenceStore, PostgresRuntimeExtensionOutboxDispatcher, PostgresRuntimeExtensionStore, PostgresVerifiedArtifactStore, RuntimeStoreRunnerQuarantineAdapter } from "@k-nex/payload-adapter";
-import { AuthoritativeHotApplicationRuntime, DurableDynamicArtifactPipeline, DurableDynamicGenerationRuntime, ExtensionCapabilityGateway, HmacExtensionCapabilityTokens, PluginManager, ReferenceHotApplicationGenerationWarmer, TrustedAutomationOperationAuthorizer } from "@k-nex/runtime";
+import { AuthoritativeHotApplicationRuntime, createTrustedAuthorizationSession, createTrustedHotApplicationInvocationContext, DurableDynamicArtifactPipeline, DurableDynamicGenerationRuntime, ExtensionCapabilityGateway, HmacExtensionCapabilityTokens, isTrustedAuthorizationSession, PluginManager, ReferenceHotApplicationGenerationWarmer, TrustedAutomationOperationAuthorizer } from "@k-nex/runtime";
 import { startContinuousHttpProbe } from "./continuous-http-probe.mjs";
 import { startHotApplicationFixedRouteHost } from "./hot-application-fixed-route-host.mjs";
 
@@ -107,7 +107,7 @@ function startRuntimeExtensionService(connectionString, role) {
 
 function requestFixedRoute(host, path) {
   return new Promise((resolve, reject) => {
-    const request = httpsRequest(`${host.url}${path}`, { ca: host.tlsCertificate, rejectUnauthorized: true }, (response) => {
+    const request = httpsRequest(`${host.url}${path}`, { ca: host.tlsCertificate, rejectUnauthorized: true, headers: { cookie: "customer_session=customer-session-1" } }, (response) => {
       const chunks = [];
       response.on("data", (chunk) => chunks.push(chunk));
       response.on("end", () => resolve({ status: response.statusCode ?? 0, body: Buffer.concat(chunks) }));
@@ -116,6 +116,18 @@ function requestFixedRoute(host, path) {
     request.end();
   });
 }
+
+const phase9FixedRouteAuthorization = Object.freeze({
+  current(request) {
+    if (!/(?:^|;\s*)customer_session=customer-session-1(?:;|$)/u.test(request.headers.cookie ?? "")) return undefined;
+    return Object.freeze({
+      sessionId: "customer-session-1",
+      authorizeRoute: async () => true,
+      authorizeFrame: async () => true,
+      authorizeTarget: async () => true
+    });
+  }
+});
 
 async function listen(handler) {
   const server = createServer(handler);
@@ -957,7 +969,10 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
         },
         validateOutput: (value) => value
       }
-    }, new PostgresExtensionCapabilityAuthority(pool, { reauthorize: () => true }, clock), new PostgresExtensionCapabilitySequenceStore(pool, clock), clock, {
+    }, new PostgresExtensionCapabilityAuthority(pool, { reauthorize: (claims, capability) =>
+      claims.actor.principalId === "user:one" && claims.actor.effectiveActorId === "user:one" && capability.capability === "records.query" &&
+      capability.grants.length === 1 && capability.grants[0]?.kind === "records" && capability.grants[0].resources.some(({ id }) => id === "sales.records")
+    }, clock), new PostgresExtensionCapabilitySequenceStore(pool, clock), clock, {
       maxInputBytes: 65_536, maxOutputBytes: 131_072, maxDepth: 12, maxCalls: 8
     });
     const dockerExecutions = [];
@@ -982,16 +997,25 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       started(identity) { dockerExecutions.push({ event: "started", generationId: identity.generationId }); },
       stopped(identity) { dockerExecutions.push({ event: "stopped", generationId: identity.generationId }); }
     }, artifacts.runnerSource(), dockerIsolationPolicyFromEnvironment(process.env.K_NEX_RUNNER_ISOLATION_POLICY), "runner-supervisor-runtime-traffic");
-    const trafficRuntime = new AuthoritativeHotApplicationRuntime(storeB, artifacts, capabilityTokens, runner, {
+    const trafficRuntime = new AuthoritativeHotApplicationRuntime(storeB, artifacts, capabilityTokens, runner, { authorize: ({ session, grant }) =>
+      isTrustedAuthorizationSession(session) && session.principal.kind === "user" && session.principal.id === "user:one" &&
+      session.effectiveActor.kind === "user" && session.effectiveActor.id === "user:one" && grant.kind === "records" &&
+      grant.operations.length === 1 && grant.operations[0] === "query" && grant.resources.length === 1 && grant.resources[0]?.id === "sales.records"
+    }, {
       applicationId: "customer-alpha", environment: "production", appId: "app.sales-live"
     }, "runtime-traffic-gateway");
     let trafficSequence = 0;
-    const invokeTraffic = async (input = {}, expectedGeneration = undefined) => trafficRuntime.invoke({
-      input,
-      actor: { principalId: "user:one", effectiveActorId: "user:one" },
-      correlationId: `traffic-correlation-${++trafficSequence}`,
-      ...(expectedGeneration ? { expectedGeneration } : {})
-    });
+    const invokeTraffic = async (input = {}, expectedGeneration = undefined) => {
+      const correlationId = `traffic-correlation-${++trafficSequence}`;
+      const session = createTrustedAuthorizationSession({
+        schemaVersion: 1, applicationId: "customer-alpha", environment: "production", correlationId,
+        principal: { kind: "user", id: "user:one" }, effectiveActor: { kind: "user", id: "user:one" }
+      });
+      return trafficRuntime.invoke({
+        input, context: createTrustedHotApplicationInvocationContext({ session }),
+        ...(expectedGeneration ? { expectedGeneration } : {})
+      });
+    };
     let applicationTrafficReady = false;
     const gateway = await listen(async (_request, response) => {
       try {
@@ -1010,6 +1034,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     const pinnedSourceExecutions = [];
     const fixedRouteHost = await startHotApplicationFixedRouteHost({
       store: storeA, artifacts, applicationId: "customer-alpha", environment: "production", extension: identity,
+      authorization: phase9FixedRouteAuthorization,
       invokeSource: async ({ identity: routeSessionIdentity, expectedGeneration, input }) => {
         const barrier = sourceAdmissionBarrier;
         if (barrier?.sessionId === routeSessionIdentity.sessionId) {
@@ -1042,6 +1067,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     assert.equal(baselineServices.every((consumer) => consumer.pid !== process.pid), true, "runtime consumers must not run in the node:test parent process");
     browser = await chromium.launch();
     browserContext = await browser.newContext({ ignoreHTTPSErrors: true });
+    await browserContext.addCookies([{ name: "customer_session", value: "customer-session-1", url: fixedRouteHost.url, httpOnly: true, secure: true, sameSite: "Lax" }]);
     const browserPage = await browserContext.newPage();
     await browserPage.goto(browserHost.url);
     await browserPage.waitForFunction(() => typeof window.runtimeExtensionState === "function");
@@ -1244,7 +1270,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     await pool.query("update runtime_extensions set metadata_json='{\"corrupt\":true}'::jsonb where extension_id='app.sales-live'");
     assert.equal(await artifacts.resolve({ owner: { applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application", extensionId: "app.sales-live" }, generationId: updated.generationId, artifactDigest: byGeneration.get(updated.generationId).authority.artifactDigest }), undefined);
     await assert.rejects(manager.inventory("customer-alpha", "production"), { code: "ARTIFACT_AUTHORITY_REJECTED" });
-    const noFallbackHost = await startHotApplicationFixedRouteHost({ store: storeA, artifacts, applicationId: "customer-alpha", environment: "production", extension: identity, invokeSource: ({ input, expectedGeneration }) => invokeTraffic(input, expectedGeneration) });
+    const noFallbackHost = await startHotApplicationFixedRouteHost({ store: storeA, artifacts, applicationId: "customer-alpha", environment: "production", extension: identity, authorization: phase9FixedRouteAuthorization, invokeSource: ({ input, expectedGeneration }) => invokeTraffic(input, expectedGeneration) });
     hosts.push(noFallbackHost);
     assert.equal((await requestFixedRoute(noFallbackHost, "/apps/sales-live/activity/42")).status, 404, "a freshly started fixed host must reject missing durable PostgreSQL bytes instead of falling back to a digest");
     const restored = await container.exec(["pg_restore", "--clean", "--if-exists", "--no-owner", `--dbname=${uri.toString()}`, "/tmp/p9-extension.dump"]);
@@ -1255,7 +1281,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       assert.equal((await artifacts.read(release.authority.artifactDigest, release.authority.catalogDigest)).verified.artifactDigest, release.authority.artifactDigest);
     }
     assert.deepEqual(await invokeTraffic(), { marker: "sales-live-v2", generationId: updated.generationId });
-    const restartedFixedRouteHost = await startHotApplicationFixedRouteHost({ store: storeA, artifacts, applicationId: "customer-alpha", environment: "production", extension: identity, invokeSource: ({ input, expectedGeneration }) => invokeTraffic(input, expectedGeneration) });
+    const restartedFixedRouteHost = await startHotApplicationFixedRouteHost({ store: storeA, artifacts, applicationId: "customer-alpha", environment: "production", extension: identity, authorization: phase9FixedRouteAuthorization, invokeSource: ({ input, expectedGeneration }) => invokeTraffic(input, expectedGeneration) });
     hosts.push(restartedFixedRouteHost);
     const restoredRoutePage = await browserContext.newPage();
     await restoredRoutePage.goto(`${restartedFixedRouteHost.url}/apps/sales-live/activity/42`);

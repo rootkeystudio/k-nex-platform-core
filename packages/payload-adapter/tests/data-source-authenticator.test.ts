@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { DataSourceGatewayError } from "@k-nex/runtime";
 import type { PayloadRequest } from "payload";
@@ -27,7 +27,7 @@ function authenticator() {
       };
     },
     authorizationContext: () => ({ permissionRevision: "permissions-7" }),
-    requestContext: (request) => createPayloadPersistenceCapability(request, [{ collection: "sales-tasks", operations: ["find"] }])
+    requestContext: (request) => createPayloadPersistenceCapability(request, [{ collection: "sales-tasks", operations: ["find"] }], { authorize: () => true })
   });
 }
 
@@ -82,8 +82,17 @@ describe("Payload data-source authentication adapter", () => {
   });
 
   it("denies operations outside the platform-issued collection grant", async () => {
-    const context = createPayloadPersistenceCapability(rawRequest, [{ collection: "sales-tasks", operations: ["find"] }]);
+    const context = createPayloadPersistenceCapability(rawRequest, [{ collection: "sales-tasks", operations: ["find"] }], { authorize: () => true });
     await expect(context.payload.find({ collection: "users", overrideAccess: true })).rejects.toThrow(/denied/i);
     await expect(context.payload.update({ collection: "sales-tasks", overrideAccess: true })).rejects.toThrow(/denied/i);
+  });
+
+  it("reauthorizes before every Payload operation and never dispatches after denial", async () => {
+    const find = vi.fn();
+    const request = { ...rawRequest, payload: { find, create: vi.fn(), update: vi.fn() } } as unknown as PayloadRequest;
+    const context = createPayloadPersistenceCapability(request, [{ collection: "sales-tasks", operations: ["find"] }], { authorize: () => false });
+
+    await expect(context.payload.find({ collection: "sales-tasks", overrideAccess: true })).rejects.toThrow(/authority denied/i);
+    expect(find).not.toHaveBeenCalled();
   });
 });

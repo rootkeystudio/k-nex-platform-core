@@ -24,6 +24,7 @@ import resolvedJson from "../.k-nex/generated/k-nex.resolved.json" with { type: 
 import { runtimeRegistration } from "../.k-nex/generated/runtime-registration.js";
 import { createDataSourceQueryEndpoint } from "./data-source-endpoint.js";
 import { createActionEndpoint } from "./action-endpoint.js";
+import { createFixtureCurrentAuthority, type FixtureCurrentAuthority } from "./current-authority.js";
 import { applicationMigrationRevision } from "./migration-revision.js";
 import { createGate1RuntimeInventory, createRuntimeInventoryEndpoint } from "./runtime-inventory.js";
 
@@ -38,6 +39,8 @@ export interface Gate1Application extends ComposedPayloadApplication {
   readonly registration: RegistrationResult;
   readonly salesAvailability: PlatformPluginAvailability;
   readonly salesLifecycle: PlatformPluginLifecycleState;
+  readonly authority: FixtureCurrentAuthority;
+  readonly toolCatalog: ToolCatalog;
 }
 
 const usersCollection: CollectionConfig = {
@@ -92,10 +95,13 @@ export function createGate1Application(options: CreateGate1ApplicationOptions): 
   });
   const salesAvailability = reconcilePlatformPluginAvailability(registration, salesLifecycle);
   const scopedRegistration = scopePlatformPluginRegistration(registration, [salesAvailability]);
+  const authority = createFixtureCurrentAuthority(scopedRegistration);
   const inventory = createGate1RuntimeInventory(scopedRegistration);
   const tools = scopedRegistration.contributions.tools
     .map(({ value }) => value as AgentToolDescriptor);
-  const catalog = new ToolCatalog(scopedRegistration, { isVisible: () => true });
+  const catalog = new ToolCatalog(scopedRegistration, {
+    isVisible: (request) => authority.adapter.allows(request.authorizationContext as ReturnType<typeof authority.context>, authority.tool(request.descriptor))
+  });
   const mcp = tools.length === 0 ? undefined : createPayloadMcpPlugin({
     tools,
     catalog,
@@ -113,7 +119,7 @@ export function createGate1Application(options: CreateGate1ApplicationOptions): 
             effectiveActor: { kind: "user", id }
           },
           delegation: { kind: "fixture-mcp-lifecycle" },
-          authorizationContext: { kind: "fixture-mcp-lifecycle" },
+          authorizationContext: authority.context(_request, "payload-mcp", user),
           surface: "workspace",
           features: []
         };
@@ -126,12 +132,12 @@ export function createGate1Application(options: CreateGate1ApplicationOptions): 
       secret: options.payloadSecret,
       custom: { kNexApplicationId: "customer-gate-1" },
       plugins: mcp === undefined ? [] : [mcp],
-      endpoints: [createRuntimeInventoryEndpoint(inventory), createDataSourceQueryEndpoint(scopedRegistration), createActionEndpoint(scopedRegistration)]
+      endpoints: [createRuntimeInventoryEndpoint(inventory), createDataSourceQueryEndpoint(scopedRegistration, authority), createActionEndpoint(scopedRegistration, authority)]
     },
     baseCollections: [usersCollection],
     databaseUrl: options.databaseUrl,
     migrations: options.migrations,
     registration: scopedRegistration
   });
-  return Object.freeze({ ...application, registration: scopedRegistration, salesAvailability, salesLifecycle });
+  return Object.freeze({ ...application, registration: scopedRegistration, salesAvailability, salesLifecycle, authority, toolCatalog: catalog });
 }

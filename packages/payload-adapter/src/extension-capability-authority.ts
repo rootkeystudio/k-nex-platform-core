@@ -7,7 +7,10 @@ import type {
 import type { RuntimeExtensionPool } from "./runtime-extension-store.js";
 
 export interface ExtensionCapabilityPrincipalAuthority {
-  reauthorize(claims: ExtensionCapabilityClaims): boolean | Promise<boolean>;
+  reauthorize(claims: ExtensionCapabilityClaims, capability: Readonly<{
+    capability: import("@k-nex/runtime").ExtensionCapabilityId;
+    grants: readonly ExtensionCapabilityClaims["grants"][number][];
+  }>): boolean | Promise<boolean>;
 }
 
 export interface ExtensionCapabilityAuthorityClock {
@@ -26,8 +29,8 @@ export class PostgresExtensionCapabilityAuthority implements ExtensionCapability
     private readonly clock: ExtensionCapabilityAuthorityClock
   ) {}
 
-  async reauthorize(claims: ExtensionCapabilityClaims): Promise<boolean> {
-    if (!await this.principals.reauthorize(claims)) return false;
+  async reauthorize(claims: ExtensionCapabilityClaims, capability: Parameters<ExtensionCapabilityAuthority["reauthorize"]>[1]): Promise<boolean> {
+    if (!await this.principals.reauthorize(claims, capability)) return false;
     if (!claims.drainLeaseId) return false;
     const lease = await this.pool.query<{ lease_id: string }>(
       `select lease_id from runtime_extension_generation_leases

@@ -10,8 +10,12 @@ import { randomUUID } from "node:crypto";
 import type { ExtensionActorIdentity, ExtensionCapabilityTokenRequest, HmacExtensionCapabilityTokens } from "./extension-capability-gateway.js";
 import type { DurableDynamicArtifact, DurableDynamicArtifactStore } from "./dynamic-generation-runtime.js";
 import type { RuntimeExtensionStore } from "./plugin-manager.js";
+import {
+  createTrustedAuthorizationSession,
+  isTrustedAuthorizationSession,
+  type TrustedAuthorizationSession
+} from "./effective-authority.js";
 import type {
-  AuthorizationPolicyEvaluationInput,
   AuthorizationPolicyEvaluationOutcome,
   HotApplicationPolicyHostCapabilityGateway
 } from "./authorization-registry.js";
@@ -35,6 +39,7 @@ export interface AuthoritativeHotApplicationAuthorizationRecord {
 const authorizationSources = new WeakSet<object>();
 const authorizationSourceRecords = new WeakMap<object, AuthoritativeHotApplicationAuthorizationRecord>();
 const policyGatewayRecords = new WeakMap<object, AuthoritativeHotApplicationAuthorizationRecord>();
+const trafficContexts = new WeakSet<object>();
 
 /** Internal K-Nex authority check; raw objects and clones cannot satisfy it. */
 export function readAuthoritativeHotApplicationAuthorizationSource(value: unknown): AuthoritativeHotApplicationAuthorizationRecord | undefined {
@@ -90,10 +95,36 @@ export interface HotApplicationServerRunner {
   invoke(input: HotApplicationServerInvocation): Promise<unknown>;
 }
 
+export interface TrustedHotApplicationInvocationContext { readonly __opaqueTrustedHotApplicationInvocationContext?: never; }
+
+/** Mints the only caller identity accepted by the Hot Application traffic boundary. */
+export function createTrustedHotApplicationInvocationContext(value: Readonly<{ session: TrustedAuthorizationSession }>): TrustedHotApplicationInvocationContext {
+  if (!isTrustedAuthorizationSession(value.session)) throw new TypeError("Hot Application invocation requires a trusted authorization session.");
+  const context = Object.freeze({ session: value.session });
+  trafficContexts.add(context);
+  return context as unknown as TrustedHotApplicationInvocationContext;
+}
+
+function trustedInvocationContext(value: unknown): Readonly<{ session: TrustedAuthorizationSession }> | undefined {
+  return typeof value === "object" && value !== null && trafficContexts.has(value)
+    ? value as Readonly<{ session: TrustedAuthorizationSession }> : undefined;
+}
+
+/** The host owns capability-to-permission/scope mapping; applications only declare requested grants. */
+export interface HotApplicationCapabilityAuthorizer {
+  authorize(input: Readonly<{
+    session: TrustedAuthorizationSession;
+    applicationId: string;
+    environment: string;
+    appId: string;
+    generationId: string;
+    grant: ExtensionCapabilityTokenRequest["grants"][number];
+  }>): boolean | Promise<boolean>;
+}
+
 export interface HotApplicationTrafficRequest {
   readonly input: unknown;
-  readonly actor: ExtensionActorIdentity;
-  readonly correlationId: string;
+  readonly context: TrustedHotApplicationInvocationContext;
   readonly expectedGeneration?: Readonly<{ generationId: string; artifactDigest: `sha256:${string}` }>;
   readonly signal?: AbortSignal;
 }
@@ -107,6 +138,7 @@ export class AuthoritativeHotApplicationRuntime {
     private readonly artifacts: DurableDynamicArtifactStore,
     private readonly tokens: Pick<HmacExtensionCapabilityTokens, "issue">,
     private readonly runner: HotApplicationServerRunner,
+    private readonly capabilities: HotApplicationCapabilityAuthorizer,
     private readonly identity: Readonly<{ applicationId: string; environment: string; appId: string }>,
     private readonly holder: string = "hot-application-traffic",
   ) {
@@ -121,6 +153,14 @@ export class AuthoritativeHotApplicationRuntime {
   }
 
   async invoke(request: HotApplicationTrafficRequest): Promise<unknown> {
+    return this.invokeTrusted(request, false);
+  }
+
+  private async invokeTrusted(request: HotApplicationTrafficRequest, policyInvocation: boolean): Promise<unknown> {
+    const context = trustedInvocationContext(request.context);
+    if (!context || context.session.applicationId !== this.identity.applicationId || context.session.environment !== this.identity.environment) {
+      throw new Error("Hot Application invocation identity is not trusted for this application.");
+    }
     const extension = { deliveryClass: "hot-application" as const, id: this.identity.appId };
     const owner = { applicationId: this.identity.applicationId, environment: this.identity.environment, deliveryClass: "hot-application" as const, extensionId: this.identity.appId };
     const expected = request.expectedGeneration;
@@ -134,6 +174,21 @@ export class AuthoritativeHotApplicationRuntime {
       if (!artifact || !this.matches(active, artifact) || !isHotApplicationArtifact(artifact)) {
         throw new Error("The authoritative generation has no matching verified Hot Application bytes.");
       }
+      const authorized = policyInvocation ? [] : await Promise.all(artifact.hotApplicationManifest.capabilities.map(async (grant) => {
+        try {
+          const allowed = await this.capabilities.authorize({
+            session: context.session,
+            applicationId: this.identity.applicationId,
+            environment: this.identity.environment,
+            appId: this.identity.appId,
+            generationId: active.generationId,
+            grant
+          });
+          return Object.freeze({ grant, allowed });
+        } catch { return Object.freeze({ grant, allowed: false }); }
+      }));
+      if (authorized.some(({ grant, allowed }) => grant.required && !allowed)) throw new Error("Hot Application capability authority denied a required declared grant.");
+      const grants = authorized.filter(({ allowed }) => allowed).map(({ grant }) => grant);
       const ttlMs = Math.min(300_000, artifact.hotApplicationManifest.resourceBudget.maxWallTimeMs + 1_000);
       let leaseId: string;
       try {
@@ -162,10 +217,10 @@ export class AuthoritativeHotApplicationRuntime {
           appId: this.identity.appId,
           generationId: active.generationId,
           invocationId,
-          actor: request.actor,
-          correlationId: request.correlationId,
+          actor: actorFromSession(context.session),
+          correlationId: context.session.correlationId,
           drainLeaseId: leaseId,
-          grants: artifact.hotApplicationManifest.capabilities,
+          grants: grants as ExtensionCapabilityTokenRequest["grants"],
           ttlMs
         } satisfies ExtensionCapabilityTokenRequest);
         const budget = artifact.hotApplicationManifest.resourceBudget;
@@ -231,13 +286,21 @@ export class AuthoritativeHotApplicationRuntime {
           binding.publisher.deliveryClass !== "hot-application" || binding.publisher.extensionId !== record.extensionId) {
           throw new Error("Hot Application policy identity does not match the verified generation.");
         }
-        return await this.invoke({
-          input: Object.freeze({ schemaVersion: 1, kind: "authorization-policy-evaluation", binding: structuredClone(binding), evaluation: structuredClone(evaluation) }),
-          actor: policyActor(evaluation),
+        const session = createTrustedAuthorizationSession({
+          schemaVersion: 1,
+          applicationId: this.identity.applicationId,
+          environment: this.identity.environment,
           correlationId: `authorization-${randomUUID()}`,
+          principal: evaluation.principal,
+          effectiveActor: evaluation.effectiveActor,
+          ...(evaluation.delegation === undefined ? {} : { delegation: evaluation.delegation })
+        });
+        return await this.invokeTrusted({
+          input: Object.freeze({ schemaVersion: 1, kind: "authorization-policy-evaluation", binding: structuredClone(binding), evaluation: structuredClone(evaluation) }),
+          context: createTrustedHotApplicationInvocationContext({ session }),
           expectedGeneration: { generationId: record.generationId, artifactDigest: record.artifactDigest },
           signal
-        }) as AuthorizationPolicyEvaluationOutcome;
+        }, true) as AuthorizationPolicyEvaluationOutcome;
       }
     });
     policyGatewayRecords.set(gateway, record);
@@ -269,14 +332,14 @@ export class AuthoritativeHotApplicationRuntime {
   }
 }
 
-function samePolicyOwner(owner: ExtensionAuthorizationOwnerRef, source: AuthoritativeHotApplicationAuthorizationRecord): boolean {
-  return owner.deliveryClass === "hot-application" && owner.extensionId === source.extensionId;
+function actorFromSession(session: TrustedAuthorizationSession): ExtensionActorIdentity {
+  return Object.freeze({
+    principalId: session.principal.id,
+    effectiveActorId: session.effectiveActor.id,
+    ...(session.delegation === undefined ? {} : { delegationId: session.delegation.delegationId })
+  });
 }
 
-function policyActor(evaluation: AuthorizationPolicyEvaluationInput): ExtensionActorIdentity {
-  return Object.freeze({
-    principalId: evaluation.principal.id,
-    effectiveActorId: evaluation.effectiveActor.id,
-    ...(evaluation.delegation === undefined ? {} : { delegationId: evaluation.delegation.delegationId })
-  });
+function samePolicyOwner(owner: ExtensionAuthorizationOwnerRef, source: AuthoritativeHotApplicationAuthorizationRecord): boolean {
+  return owner.deliveryClass === "hot-application" && owner.extensionId === source.extensionId;
 }

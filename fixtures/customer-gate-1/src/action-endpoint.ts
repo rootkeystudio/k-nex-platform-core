@@ -1,11 +1,13 @@
 import {
   ActionGatewayError,
+  CurrentAuthorityActionGatewayPolicy,
   RegisteredActionGateway,
   type AuthenticatedActionRequest,
   type ScopedRegistrationResult
 } from "@k-nex/runtime";
-import { createPayloadPersistenceCapability } from "@k-nex/payload-adapter";
+import { createPayloadPersistenceCapability, CurrentAuthorityPayloadPersistenceAuthorizer } from "@k-nex/payload-adapter";
 import type { Endpoint, PayloadRequest } from "payload";
+import type { FixtureAuthorityContext, FixtureCurrentAuthority } from "./current-authority.js";
 
 interface ActionBody {
   readonly actionId?: unknown;
@@ -24,16 +26,11 @@ function actor(request: PayloadRequest) {
   return { principal: { kind: "user", id }, effectiveActor: { kind: "user", id } };
 }
 
-function fingerprint(request: PayloadRequest): string {
-  const email = typeof request.user === "object" && request.user !== null && "email" in request.user ? request.user.email : undefined;
-  return typeof email === "string" && email.startsWith("done@") ? "sales:done:full" : "sales:open:full";
-}
-
-function capability(request: PayloadRequest) {
+function capability(request: PayloadRequest, context: FixtureAuthorityContext, authority: FixtureCurrentAuthority) {
   return createPayloadPersistenceCapability(request, [
     { collection: "sales-tasks", operations: ["find", "create", "update"] },
     { collection: "sales-opportunities", operations: ["find", "update"] }
-  ]);
+  ], new CurrentAuthorityPayloadPersistenceAuthorizer(authority.adapter, context, ({ collection, operation }) => authority.payload(collection, operation)));
 }
 
 function docs(result: unknown): readonly Record<string, unknown>[] {
@@ -47,34 +44,39 @@ async function authorize(actionId: string, input: unknown, authenticated: Authen
   const id = details.id;
   if (typeof id !== "string") throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Action target is forbidden.");
   const context = authenticated.request as CapabilityRequest;
-  const permissionFingerprint = (authenticated.authorizationContext as { permissionFingerprint?: unknown }).permissionFingerprint;
-  const status = typeof permissionFingerprint === "string" && permissionFingerprint.includes(":done:") ? "done" : "open";
   const collection = actionId === "sales.task.update" ? "sales-tasks" : actionId === "sales.opportunity.stage.update" ? "sales-opportunities" : undefined;
-  const scope = actionId === "sales.task.update" ? { status: { equals: status } } : { stage: { equals: status === "open" ? "lead" : "won" } };
+  const scope = {};
   if (collection === undefined) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Action is forbidden.");
   const result = await context.payload.find({
     collection,
     overrideAccess: true,
     depth: 0,
     limit: 1,
-    where: { and: [{ id: { equals: id } }, scope] }
+    where: { id: { equals: id } }
   });
   if (docs(result).length !== 1) throw new ActionGatewayError("ACTION_TARGET_FORBIDDEN", 403, "Action target is forbidden.");
   return Object.freeze({ actionId, resourceId: id, scope });
 }
 
-export function createActionEndpoint(registration: ScopedRegistrationResult): Endpoint {
+export function createActionEndpoint(registration: ScopedRegistrationResult, authority: FixtureCurrentAuthority): Endpoint {
+  const policy = new CurrentAuthorityActionGatewayPolicy(
+    authority.adapter,
+    ({ authenticated }) => authenticated.authorizationContext as FixtureAuthorityContext,
+    (action, input) => authority.action(action, input),
+    { authorize: ({ action, input, authenticated }) => authorize(action.descriptor.id, input, authenticated) }
+  );
   const gateway = new RegisteredActionGateway(registration, {
     authenticate(request) {
       const raw = request.rawRequest as PayloadRequest;
+      const context = authority.context(raw, request.correlationId);
       return {
         actor: actor(raw),
-        request: capability(raw),
-        authorizationContext: { permissionFingerprint: fingerprint(raw) }
+        request: capability(raw, context, authority),
+        authorizationContext: context
       };
     }
   }, {
-    authorize: ({ action, input, authenticated }) => authorize(action.descriptor.id, input, authenticated)
+    authorize: policy.authorize.bind(policy)
   });
   return {
     method: "post",
