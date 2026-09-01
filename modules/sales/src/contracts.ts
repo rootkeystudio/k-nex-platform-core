@@ -4,7 +4,7 @@ import type {
   ActionDescriptor,
   DataSourceDescriptor,
   MetricScalar,
-  PermissionDescriptor,
+  AuthorizationPermissionDescriptor,
   PluginNavigationDescriptor,
   PluginPageTemplateDescriptor,
   PluginRouteDescriptor,
@@ -501,27 +501,23 @@ function permission(
   title: string,
   description: string,
   resource: string,
-  operation: PermissionDescriptor["operation"],
-  scope: PermissionDescriptor["policy"]["scope"]
-): PermissionDescriptor {
+  operation: AuthorizationPermissionDescriptor["operation"],
+  scope: AuthorizationPermissionDescriptor["scope"]
+): AuthorizationPermissionDescriptor {
   return {
+    schemaVersion: 1,
     id,
-    ownerPluginId: "module.sales",
+    publisher: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales" },
     title,
     description,
     audience: "authenticated",
     resource,
     operation,
-    policy: {
-      id: `sales.policy.${id.slice("sales.".length).replaceAll(".", "-")}`,
-      scope,
-      recordScoped: scope === "record" || scope === "field",
-      fieldScoped: scope === "field"
-    }
+    scope
   };
 }
 
-export const salesPermissionDescriptors: readonly PermissionDescriptor[] = Object.freeze([
+export const salesPermissionDescriptors: readonly AuthorizationPermissionDescriptor[] = Object.freeze([
   permission("sales.settings.read", "Read Sales settings", "Read non-secret Sales workspace settings.", "sales.settings", "read", "application"),
   permission("sales.settings.write", "Change Sales settings", "Change validated Sales workspace settings.", "sales.settings", "write", "application"),
   permission("sales.tasks.read", "Read Sales tasks", "Read actor-authorized Sales task records.", "sales.tasks", "read", "record"),

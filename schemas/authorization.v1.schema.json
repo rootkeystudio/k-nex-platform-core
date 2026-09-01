@@ -1,0 +1,1267 @@
+{
+  "$defs": {
+    "__schema0": {
+      "additionalProperties": false,
+      "properties": {
+        "audience": {
+          "$ref": "#/$defs/__schema16"
+        },
+        "description": {
+          "$ref": "#/$defs/__schema15"
+        },
+        "id": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "operation": {
+          "$ref": "#/$defs/__schema17"
+        },
+        "publisher": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "resource": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "scope": {
+          "$ref": "#/$defs/__schema18"
+        },
+        "title": {
+          "$ref": "#/$defs/__schema14"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "id",
+        "publisher",
+        "title",
+        "description",
+        "audience",
+        "resource",
+        "operation",
+        "scope"
+      ],
+      "type": "object"
+    },
+    "__schema1": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema10": {
+      "additionalProperties": false,
+      "properties": {
+        "deliveryClass": {
+          "$ref": "#/$defs/__schema12"
+        },
+        "extensionId": {
+          "$ref": "#/$defs/__schema13"
+        },
+        "kind": {
+          "$ref": "#/$defs/__schema11"
+        }
+      },
+      "required": [
+        "kind",
+        "deliveryClass",
+        "extensionId"
+      ],
+      "type": "object"
+    },
+    "__schema11": {
+      "const": "extension",
+      "type": "string"
+    },
+    "__schema12": {
+      "const": "hot-application",
+      "type": "string"
+    },
+    "__schema13": {
+      "maxLength": 128,
+      "pattern": "^app(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    },
+    "__schema14": {
+      "maxLength": 120,
+      "minLength": 1,
+      "type": "string"
+    },
+    "__schema15": {
+      "maxLength": 240,
+      "minLength": 1,
+      "type": "string"
+    },
+    "__schema16": {
+      "enum": [
+        "authenticated",
+        "service",
+        "system"
+      ],
+      "type": "string"
+    },
+    "__schema17": {
+      "enum": [
+        "read",
+        "write",
+        "manage",
+        "execute"
+      ],
+      "type": "string"
+    },
+    "__schema18": {
+      "enum": [
+        "application",
+        "record",
+        "field"
+      ],
+      "type": "string"
+    },
+    "__schema19": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema2": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "__schema20": {
+      "const": "deny",
+      "type": "string"
+    },
+    "__schema21": {
+      "maximum": 5000,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "__schema22": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema23": {
+      "enum": [
+        "system.role.owner",
+        "system.role.security-admin",
+        "system.role.extension-admin",
+        "system.role.user-admin",
+        "system.role.auditor"
+      ],
+      "type": "string"
+    },
+    "__schema24": {
+      "items": {
+        "$ref": "#/$defs/__schema2"
+      },
+      "maxItems": 512,
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "__schema25": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema26": {
+      "maxLength": 160,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]*$",
+      "type": "string"
+    },
+    "__schema27": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+      "type": "string"
+    },
+    "__schema28": {
+      "maxLength": 120,
+      "minLength": 1,
+      "type": "string"
+    },
+    "__schema29": {
+      "maxLength": 240,
+      "minLength": 1,
+      "type": "string"
+    },
+    "__schema3": {
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    },
+    "__schema30": {
+      "$ref": "#/$defs/__schema23"
+    },
+    "__schema31": {
+      "maximum": 1000000000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "__schema32": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema33": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/__schema5"
+        },
+        {
+          "$ref": "#/$defs/__schema34"
+        },
+        {
+          "$ref": "#/$defs/__schema36"
+        }
+      ]
+    },
+    "__schema34": {
+      "additionalProperties": false,
+      "properties": {
+        "deliveryClass": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "extensionId": {
+          "$ref": "#/$defs/__schema9"
+        },
+        "generation": {
+          "$ref": "#/$defs/__schema35"
+        },
+        "kind": {
+          "$ref": "#/$defs/__schema7"
+        }
+      },
+      "required": [
+        "kind",
+        "deliveryClass",
+        "extensionId",
+        "generation"
+      ],
+      "type": "object"
+    },
+    "__schema35": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "__schema36": {
+      "additionalProperties": false,
+      "properties": {
+        "deliveryClass": {
+          "$ref": "#/$defs/__schema12"
+        },
+        "extensionId": {
+          "$ref": "#/$defs/__schema13"
+        },
+        "generation": {
+          "$ref": "#/$defs/__schema35"
+        },
+        "kind": {
+          "$ref": "#/$defs/__schema11"
+        }
+      },
+      "required": [
+        "kind",
+        "deliveryClass",
+        "extensionId",
+        "generation"
+      ],
+      "type": "object"
+    },
+    "__schema37": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/__schema26"
+            },
+            "kind": {
+              "const": "user",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/__schema26"
+            },
+            "kind": {
+              "const": "service",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "__schema38": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema39": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/__schema6"
+        },
+        {
+          "$ref": "#/$defs/__schema10"
+        }
+      ]
+    },
+    "__schema4": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/__schema5"
+        },
+        {
+          "$ref": "#/$defs/__schema6"
+        },
+        {
+          "$ref": "#/$defs/__schema10"
+        }
+      ]
+    },
+    "__schema40": {
+      "enum": [
+        "automatic",
+        "manual"
+      ],
+      "type": "string"
+    },
+    "__schema41": {
+      "maxLength": 120,
+      "minLength": 1,
+      "type": "string"
+    },
+    "__schema42": {
+      "maxLength": 240,
+      "minLength": 1,
+      "type": "string"
+    },
+    "__schema43": {
+      "items": {
+        "$ref": "#/$defs/__schema2"
+      },
+      "maxItems": 256,
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "__schema44": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema45": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/__schema34"
+        },
+        {
+          "$ref": "#/$defs/__schema36"
+        }
+      ]
+    },
+    "__schema46": {
+      "items": {
+        "$ref": "#/$defs/__schema2"
+      },
+      "maxItems": 256,
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "__schema47": {
+      "const": "sha256-canonical-json-v1",
+      "type": "string"
+    },
+    "__schema48": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "__schema49": {
+      "enum": [
+        "instantiated-role",
+        "copied-permissions"
+      ],
+      "type": "string"
+    },
+    "__schema5": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "platform",
+          "type": "string"
+        },
+        "namespace": {
+          "const": "system",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "namespace"
+      ],
+      "type": "object"
+    },
+    "__schema50": {
+      "enum": [
+        "adopted",
+        "tombstoned"
+      ],
+      "type": "string"
+    },
+    "__schema51": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema52": {
+      "const": "administrative-non-authoritative",
+      "type": "string"
+    },
+    "__schema53": {
+      "enum": [
+        "inactive-extension-disabled",
+        "inactive-extension-not-ready",
+        "inactive-generation-retired",
+        "deprecated",
+        "orphaned-after-removal"
+      ],
+      "type": "string"
+    },
+    "__schema54": {
+      "$ref": "#/$defs/__schema33"
+    },
+    "__schema55": {
+      "pattern": "^[a-z][a-z0-9-]{2,127}$",
+      "type": "string"
+    },
+    "__schema56": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "type": "string"
+    },
+    "__schema57": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema58": {
+      "additionalProperties": false,
+      "properties": {
+        "delegationId": {
+          "$ref": "#/$defs/__schema26"
+        },
+        "delegator": {
+          "$ref": "#/$defs/__schema37"
+        },
+        "effect": {
+          "const": "reducing",
+          "type": "string"
+        }
+      },
+      "required": [
+        "delegationId",
+        "delegator",
+        "effect"
+      ],
+      "type": "object"
+    },
+    "__schema59": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "application",
+              "type": "string"
+            },
+            "resource": {
+              "$ref": "#/$defs/__schema3"
+            }
+          },
+          "required": [
+            "kind",
+            "resource"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "record",
+              "type": "string"
+            },
+            "recordId": {
+              "$ref": "#/$defs/__schema26"
+            },
+            "resource": {
+              "$ref": "#/$defs/__schema3"
+            }
+          },
+          "required": [
+            "kind",
+            "resource",
+            "recordId"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "fieldId": {
+              "$ref": "#/$defs/__schema3"
+            },
+            "kind": {
+              "const": "field",
+              "type": "string"
+            },
+            "recordId": {
+              "$ref": "#/$defs/__schema26"
+            },
+            "resource": {
+              "$ref": "#/$defs/__schema3"
+            }
+          },
+          "required": [
+            "kind",
+            "resource",
+            "recordId",
+            "fieldId"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "__schema6": {
+      "additionalProperties": false,
+      "properties": {
+        "deliveryClass": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "extensionId": {
+          "$ref": "#/$defs/__schema9"
+        },
+        "kind": {
+          "$ref": "#/$defs/__schema7"
+        }
+      },
+      "required": [
+        "kind",
+        "deliveryClass",
+        "extensionId"
+      ],
+      "type": "object"
+    },
+    "__schema60": {
+      "enum": [
+        "allow",
+        "deny"
+      ],
+      "type": "string"
+    },
+    "__schema61": {
+      "enum": [
+        "granted",
+        "permission-not-granted",
+        "owner-not-effective",
+        "assignment-revoked",
+        "delegation-reduced",
+        "approval-required",
+        "reauthentication-required",
+        "policy-denied"
+      ],
+      "type": "string"
+    },
+    "__schema62": {
+      "enum": [
+        "not-required",
+        "required",
+        "satisfied"
+      ],
+      "type": "string"
+    },
+    "__schema63": {
+      "enum": [
+        "not-required",
+        "required",
+        "satisfied"
+      ],
+      "type": "string"
+    },
+    "__schema64": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema65": {
+      "$ref": "#/$defs/__schema26"
+    },
+    "__schema66": {
+      "enum": [
+        "allow",
+        "deny"
+      ],
+      "type": "string"
+    },
+    "__schema67": {
+      "enum": [
+        "not-required",
+        "required",
+        "satisfied"
+      ],
+      "type": "string"
+    },
+    "__schema68": {
+      "enum": [
+        "not-required",
+        "required",
+        "satisfied"
+      ],
+      "type": "string"
+    },
+    "__schema7": {
+      "const": "extension",
+      "type": "string"
+    },
+    "__schema8": {
+      "const": "platform-plugin",
+      "type": "string"
+    },
+    "__schema9": {
+      "maxLength": 128,
+      "pattern": "^(module|provider|builder|theme|integration|preset)(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    }
+  },
+  "$id": "https://schemas.k-nex.dev/authorization.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "kNexAuthorizationOwnership": true,
+  "properties": {
+    "$schema": {
+      "const": "https://schemas.k-nex.dev/authorization.v1.schema.json",
+      "type": "string"
+    },
+    "contract": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/__schema0"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "failureMode": {
+              "$ref": "#/$defs/__schema20"
+            },
+            "id": {
+              "$ref": "#/$defs/__schema3"
+            },
+            "permissionId": {
+              "$ref": "#/$defs/__schema2"
+            },
+            "policyReference": {
+              "$ref": "#/$defs/__schema3"
+            },
+            "publisher": {
+              "$ref": "#/$defs/__schema4"
+            },
+            "schemaVersion": {
+              "$ref": "#/$defs/__schema19"
+            },
+            "scope": {
+              "$ref": "#/$defs/__schema18"
+            },
+            "timeoutMs": {
+              "$ref": "#/$defs/__schema21"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "id",
+            "publisher",
+            "permissionId",
+            "policyReference",
+            "scope",
+            "failureMode",
+            "timeoutMs"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/__schema23"
+            },
+            "permissionIds": {
+              "$ref": "#/$defs/__schema24"
+            },
+            "schemaVersion": {
+              "$ref": "#/$defs/__schema22"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "id",
+            "permissionIds"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "applicationId": {
+              "$ref": "#/$defs/__schema27"
+            },
+            "description": {
+              "$ref": "#/$defs/__schema29"
+            },
+            "id": {
+              "$ref": "#/$defs/__schema26"
+            },
+            "label": {
+              "$ref": "#/$defs/__schema28"
+            },
+            "protectedRoleId": {
+              "$ref": "#/$defs/__schema30"
+            },
+            "revision": {
+              "$ref": "#/$defs/__schema31"
+            },
+            "schemaVersion": {
+              "$ref": "#/$defs/__schema25"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "id",
+            "applicationId",
+            "label",
+            "revision"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "applicationId": {
+              "$ref": "#/$defs/__schema27"
+            },
+            "id": {
+              "$ref": "#/$defs/__schema26"
+            },
+            "owner": {
+              "$ref": "#/$defs/__schema33"
+            },
+            "permissionId": {
+              "$ref": "#/$defs/__schema2"
+            },
+            "revision": {
+              "$ref": "#/$defs/__schema31"
+            },
+            "roleId": {
+              "$ref": "#/$defs/__schema26"
+            },
+            "schemaVersion": {
+              "$ref": "#/$defs/__schema32"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "id",
+            "applicationId",
+            "roleId",
+            "permissionId",
+            "owner",
+            "revision"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "applicationId": {
+              "$ref": "#/$defs/__schema27"
+            },
+            "id": {
+              "$ref": "#/$defs/__schema26"
+            },
+            "principal": {
+              "$ref": "#/$defs/__schema37"
+            },
+            "revision": {
+              "$ref": "#/$defs/__schema31"
+            },
+            "roleId": {
+              "$ref": "#/$defs/__schema26"
+            },
+            "schemaVersion": {
+              "const": 1,
+              "type": "number"
+            },
+            "state": {
+              "enum": [
+                "active",
+                "revoked"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "id",
+            "applicationId",
+            "roleId",
+            "principal",
+            "state",
+            "revision"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "description": {
+              "$ref": "#/$defs/__schema42"
+            },
+            "id": {
+              "$ref": "#/$defs/__schema3"
+            },
+            "instantiation": {
+              "$ref": "#/$defs/__schema40"
+            },
+            "permissionIds": {
+              "$ref": "#/$defs/__schema43"
+            },
+            "publisher": {
+              "$ref": "#/$defs/__schema39"
+            },
+            "schemaVersion": {
+              "$ref": "#/$defs/__schema38"
+            },
+            "title": {
+              "$ref": "#/$defs/__schema41"
+            },
+            "version": {
+              "$ref": "#/$defs/__schema35"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "id",
+            "publisher",
+            "version",
+            "instantiation",
+            "title",
+            "permissionIds"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "applicationId": {
+              "$ref": "#/$defs/__schema27"
+            },
+            "digestAlgorithm": {
+              "$ref": "#/$defs/__schema47"
+            },
+            "id": {
+              "$ref": "#/$defs/__schema26"
+            },
+            "kind": {
+              "$ref": "#/$defs/__schema49"
+            },
+            "oldBaselineDigest": {
+              "$ref": "#/$defs/__schema48"
+            },
+            "oldBaselinePermissionIds": {
+              "$ref": "#/$defs/__schema46"
+            },
+            "owner": {
+              "$ref": "#/$defs/__schema45"
+            },
+            "publisher": {
+              "$ref": "#/$defs/__schema39"
+            },
+            "revision": {
+              "$ref": "#/$defs/__schema31"
+            },
+            "roleId": {
+              "$ref": "#/$defs/__schema26"
+            },
+            "schemaVersion": {
+              "$ref": "#/$defs/__schema44"
+            },
+            "state": {
+              "$ref": "#/$defs/__schema50"
+            },
+            "templateId": {
+              "$ref": "#/$defs/__schema3"
+            },
+            "templateVersion": {
+              "$ref": "#/$defs/__schema35"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "id",
+            "applicationId",
+            "roleId",
+            "templateId",
+            "publisher",
+            "owner",
+            "templateVersion",
+            "oldBaselinePermissionIds",
+            "digestAlgorithm",
+            "oldBaselineDigest",
+            "kind",
+            "state",
+            "revision"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "applicationId": {
+              "$ref": "#/$defs/__schema27"
+            },
+            "id": {
+              "$ref": "#/$defs/__schema26"
+            },
+            "owner": {
+              "$ref": "#/$defs/__schema54"
+            },
+            "permission": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "revision": {
+              "$ref": "#/$defs/__schema31"
+            },
+            "schemaVersion": {
+              "$ref": "#/$defs/__schema51"
+            },
+            "source": {
+              "$ref": "#/$defs/__schema52"
+            },
+            "state": {
+              "$ref": "#/$defs/__schema53"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "id",
+            "applicationId",
+            "source",
+            "permission",
+            "state",
+            "revision"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "applicationId": {
+              "$ref": "#/$defs/__schema27"
+            },
+            "authorizationRevision": {
+              "$ref": "#/$defs/__schema31"
+            },
+            "lifecycleRevision": {
+              "$ref": "#/$defs/__schema31"
+            },
+            "owner": {
+              "$ref": "#/$defs/__schema45"
+            },
+            "runtimeGenerationIds": {
+              "items": {
+                "$ref": "#/$defs/__schema55"
+              },
+              "maxItems": 16,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "schemaVersion": {
+              "const": 1,
+              "type": "number"
+            },
+            "state": {
+              "enum": [
+                "current",
+                "retired"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "applicationId",
+            "owner",
+            "runtimeGenerationIds",
+            "state",
+            "authorizationRevision",
+            "lifecycleRevision"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "applicationId": {
+              "$ref": "#/$defs/__schema27"
+            },
+            "authorizationRevision": {
+              "$ref": "#/$defs/__schema31"
+            },
+            "environment": {
+              "$ref": "#/$defs/__schema56"
+            },
+            "lifecycleRevision": {
+              "$ref": "#/$defs/__schema31"
+            },
+            "schemaVersion": {
+              "const": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "applicationId",
+            "environment",
+            "authorizationRevision",
+            "lifecycleRevision"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "applicationId": {
+              "$ref": "#/$defs/__schema27"
+            },
+            "authorizationRevision": {
+              "$ref": "#/$defs/__schema31"
+            },
+            "id": {
+              "$ref": "#/$defs/__schema26"
+            },
+            "ownerAssignmentId": {
+              "$ref": "#/$defs/__schema26"
+            },
+            "ownerPrincipal": {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/__schema26"
+                },
+                "kind": {
+                  "const": "user",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "type": "object"
+            },
+            "ownerRoleId": {
+              "const": "system.role.owner",
+              "type": "string"
+            },
+            "schemaVersion": {
+              "const": 1,
+              "type": "number"
+            },
+            "state": {
+              "const": "committed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "id",
+            "applicationId",
+            "ownerRoleId",
+            "ownerAssignmentId",
+            "ownerPrincipal",
+            "authorizationRevision",
+            "state"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "applicationId": {
+              "$ref": "#/$defs/__schema27"
+            },
+            "approval": {
+              "$ref": "#/$defs/__schema62"
+            },
+            "authorizationRevision": {
+              "$ref": "#/$defs/__schema31"
+            },
+            "correlationId": {
+              "$ref": "#/$defs/__schema26"
+            },
+            "decisionId": {
+              "$ref": "#/$defs/__schema26"
+            },
+            "delegation": {
+              "$ref": "#/$defs/__schema58"
+            },
+            "effectiveActor": {
+              "$ref": "#/$defs/__schema37"
+            },
+            "environment": {
+              "$ref": "#/$defs/__schema56"
+            },
+            "lifecycleRevision": {
+              "$ref": "#/$defs/__schema31"
+            },
+            "outcome": {
+              "$ref": "#/$defs/__schema60"
+            },
+            "owner": {
+              "$ref": "#/$defs/__schema33"
+            },
+            "permissionId": {
+              "$ref": "#/$defs/__schema2"
+            },
+            "principal": {
+              "$ref": "#/$defs/__schema37"
+            },
+            "reason": {
+              "$ref": "#/$defs/__schema61"
+            },
+            "reauthentication": {
+              "$ref": "#/$defs/__schema63"
+            },
+            "schemaVersion": {
+              "$ref": "#/$defs/__schema57"
+            },
+            "scope": {
+              "$ref": "#/$defs/__schema59"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "decisionId",
+            "correlationId",
+            "applicationId",
+            "environment",
+            "permissionId",
+            "owner",
+            "principal",
+            "effectiveActor",
+            "scope",
+            "authorizationRevision",
+            "lifecycleRevision",
+            "outcome",
+            "reason",
+            "approval",
+            "reauthentication"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "applicationId": {
+              "$ref": "#/$defs/__schema27"
+            },
+            "approval": {
+              "$ref": "#/$defs/__schema67"
+            },
+            "auditId": {
+              "$ref": "#/$defs/__schema26"
+            },
+            "authorizationRevision": {
+              "$ref": "#/$defs/__schema31"
+            },
+            "correlationId": {
+              "$ref": "#/$defs/__schema26"
+            },
+            "decisionId": {
+              "$ref": "#/$defs/__schema26"
+            },
+            "delegationId": {
+              "$ref": "#/$defs/__schema65"
+            },
+            "effectiveActor": {
+              "$ref": "#/$defs/__schema37"
+            },
+            "environment": {
+              "$ref": "#/$defs/__schema56"
+            },
+            "lifecycleRevision": {
+              "$ref": "#/$defs/__schema31"
+            },
+            "outcome": {
+              "$ref": "#/$defs/__schema66"
+            },
+            "owner": {
+              "$ref": "#/$defs/__schema33"
+            },
+            "permissionId": {
+              "$ref": "#/$defs/__schema2"
+            },
+            "principal": {
+              "$ref": "#/$defs/__schema37"
+            },
+            "reason": {
+              "$ref": "#/$defs/__schema61"
+            },
+            "reauthentication": {
+              "$ref": "#/$defs/__schema68"
+            },
+            "schemaVersion": {
+              "$ref": "#/$defs/__schema64"
+            },
+            "scope": {
+              "$ref": "#/$defs/__schema59"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "auditId",
+            "decisionId",
+            "correlationId",
+            "applicationId",
+            "environment",
+            "permissionId",
+            "owner",
+            "principal",
+            "effectiveActor",
+            "scope",
+            "authorizationRevision",
+            "lifecycleRevision",
+            "outcome",
+            "reason",
+            "approval",
+            "reauthentication"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "required": [
+    "$schema",
+    "contract"
+  ],
+  "title": "K-Nex Authorization Contracts v1",
+  "type": "object"
+}

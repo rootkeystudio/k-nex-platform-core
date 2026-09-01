@@ -1,0 +1,17 @@
+{
+  "$schema": "https://schemas.k-nex.dev/authorization.v1.schema.json",
+  "contract": {
+    "audience": "authenticated",
+    "description": "Create and change customer roles.",
+    "id": "system.roles.manage",
+    "operation": "manage",
+    "publisher": {
+      "kind": "platform",
+      "namespace": "system"
+    },
+    "resource": "system.roles",
+    "schemaVersion": 1,
+    "scope": "application",
+    "title": "Manage roles"
+  }
+}

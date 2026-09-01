@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schemas.k-nex.dev/authorization.v1.schema.json",
+  "contract": {
+    "id": "sales.analytics.template.viewer",
+    "instantiation": "automatic",
+    "permissionIds": [
+      "sales.analytics.reports.read"
+    ],
+    "policyReference": "sales.analytics.policy.viewer",
+    "publisher": {
+      "deliveryClass": "platform-plugin",
+      "extensionId": "module.sales.analytics",
+      "kind": "extension"
+    },
+    "schemaVersion": 1,
+    "title": "Sales analytics viewer",
+    "version": 1
+  }
+}

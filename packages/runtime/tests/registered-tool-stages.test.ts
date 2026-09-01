@@ -110,9 +110,9 @@ function registration() {
       pluginId: manifest.id,
       contracts(context) {
         context.register("permissions", "fixture.run", {
-          id: "fixture.run", ownerPluginId: manifest.id, title: "Run fixture", description: "Run fixture action.",
+          schemaVersion: 1, id: "fixture.run", publisher: { kind: "extension", deliveryClass: "platform-plugin", extensionId: manifest.id }, title: "Run fixture", description: "Run fixture action.",
           audience: "authenticated", resource: "fixture.action", operation: "execute",
-          policy: { id: "fixture.policy", scope: "application", recordScoped: false, fieldScoped: false }
+          scope: "application"
         });
         context.register("actions", actionDescriptor.id, definition);
         context.register("tools", tool.id, tool);

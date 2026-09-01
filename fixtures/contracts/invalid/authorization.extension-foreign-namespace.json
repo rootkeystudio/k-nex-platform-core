@@ -1,0 +1,18 @@
+{
+  "$schema": "https://schemas.k-nex.dev/authorization.v1.schema.json",
+  "contract": {
+    "audience": "authenticated",
+    "description": "An extension may not claim another extension namespace.",
+    "id": "sales.reports.read",
+    "operation": "read",
+    "publisher": {
+      "deliveryClass": "platform-plugin",
+      "extensionId": "module.sales.analytics",
+      "kind": "extension"
+    },
+    "resource": "sales.reports",
+    "schemaVersion": 1,
+    "scope": "record",
+    "title": "Read reports"
+  }
+}

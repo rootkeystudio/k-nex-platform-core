@@ -120,6 +120,7 @@ describe("P0.4 executable repository validation", () => {
       "VALID_FIXTURE_MISSING",
       "VALID_FIXTURE_MISSING",
       "VALID_FIXTURE_MISSING",
+      "VALID_FIXTURE_MISSING",
       "VALID_FIXTURE_MISSING"
     ]);
   });
@@ -127,6 +128,7 @@ describe("P0.4 executable repository validation", () => {
   it("identifies fixture schemas from declarations instead of filenames", () => {
     expect(declaredFixtureSchema({ $schema: "../../../schemas/application-manifest.v1.schema.json" })).toBe("application");
     expect(declaredFixtureSchema({ $schema: "../../../schemas/plugin-manifest.v1.schema.json" })).toBe("plugin");
+    expect(declaredFixtureSchema({ $schema: "https://schemas.k-nex.dev/authorization.v1.schema.json" })).toBe("authorization");
     expect(declaredFixtureSchema({})).toBeUndefined();
   });
 

@@ -2,6 +2,7 @@ export * from "./application-manifest.js";
 export * from "./architecture-registry.js";
 export * from "./action.js";
 export * from "./agent-tool.js";
+export * from "./authorization.js";
 export * from "./canonical-json.js";
 export * from "./cms-page-metadata.js";
 export * from "./data-source-binding.js";

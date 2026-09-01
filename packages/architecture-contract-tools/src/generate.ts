@@ -6,6 +6,8 @@ import {
   ActionDescriptorSchema,
   AgentToolDescriptorSchema,
   ApplicationManifestSchema,
+  AuthorizationContractsSchema,
+  authorizationContractsSchemaUrl,
   canonicalJson,
   CmsPageMetadataSchema,
   DurableEventEnvelopeSchema,
@@ -151,6 +153,16 @@ function pluginManifestJsonSchema(): unknown {
   return generated;
 }
 
+function authorizationContractsJsonSchema(): unknown {
+  const generated = identifiedJsonSchema(
+    AuthorizationContractsSchema,
+    authorizationContractsSchemaUrl,
+    "K-Nex Authorization Contracts v1"
+  ) as Record<string, unknown>;
+  generated.kNexAuthorizationOwnership = true;
+  return generated;
+}
+
 function referencedDefinition(schema: Record<string, any>, property: string): Record<string, any> {
   const reference = schema.properties?.[property]?.$ref as string | undefined;
   const definition = reference?.startsWith("#/$defs/") ? schema.$defs?.[reference.slice("#/$defs/".length)] : undefined;
@@ -226,7 +238,8 @@ const primaryArtifacts = [
   { path: "schemas/theme-profile.v1.schema.json", value: themeProfileJsonSchema() },
   { path: "schemas/theme-profile-publication-event.v1.schema.json", value: jsonSchema(ThemeProfilePublicationEventSchema) },
   { path: "schemas/ui-document.v1.schema.json", value: uiDocumentJsonSchema() },
-  { path: "schemas/cms-page-metadata.v1.schema.json", value: cmsPageMetadataJsonSchema() }
+  { path: "schemas/cms-page-metadata.v1.schema.json", value: cmsPageMetadataJsonSchema() },
+  { path: "schemas/authorization.v1.schema.json", value: authorizationContractsJsonSchema() }
 ] satisfies readonly Artifact[];
 
 const outputContractSchemas = [

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://schemas.k-nex.dev/authorization.v1.schema.json",
+  "contract": {
+    "id": "system.role.owner",
+    "permissionIds": [
+      "system.permissions.read",
+      "system.roles.manage"
+    ],
+    "schemaVersion": 1
+  }
+}

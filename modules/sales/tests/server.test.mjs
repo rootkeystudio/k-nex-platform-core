@@ -6,7 +6,7 @@ import {
   ActionDescriptorSchema,
   AgentToolDescriptorSchema,
   DataSourceDescriptorSchema,
-  PermissionDescriptorSchema,
+  AuthorizationPermissionDescriptorSchema,
   PluginNavigationDescriptorSchema,
   PluginPageTemplateDescriptorSchema,
   PluginRouteDescriptorSchema,
@@ -126,7 +126,7 @@ test("Sales registers three single-output data sources with valid descriptors", 
 
 test("Sales settings, permissions, routes, and navigation use strict platform contracts", () => {
   assert.equal(PluginSettingsDescriptorSchema.safeParse(salesWorkspaceSettingsDescriptor).success, true);
-  assert.equal(salesPermissionDescriptors.every((descriptor) => PermissionDescriptorSchema.safeParse(descriptor).success), true);
+  assert.equal(salesPermissionDescriptors.every((descriptor) => AuthorizationPermissionDescriptorSchema.safeParse(descriptor).success), true);
   assert.equal(salesRouteDescriptors.every((descriptor) => PluginRouteDescriptorSchema.safeParse(descriptor).success), true);
   assert.equal(salesNavigationDescriptors.every((descriptor) => PluginNavigationDescriptorSchema.safeParse(descriptor).success), true);
   assert.equal(salesRouteDescriptors.every(({ viewId }) => salesPageTemplates.some(({ id }) => id === viewId)), true);

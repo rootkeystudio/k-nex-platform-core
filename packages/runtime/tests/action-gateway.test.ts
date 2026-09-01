@@ -31,9 +31,9 @@ function registration() {
     installed: [{ package: { name: "fixture", version: "1.0.0", integrity: "sha512-fixture" }, manifest }],
     registrations: [{ pluginId: "module.fixture", contracts(context) {
       context.register("permissions", "fixture.write", {
-        id: "fixture.write", ownerPluginId: "module.fixture", title: "Write fixture", description: "Write fixture.",
+        schemaVersion: 1, id: "fixture.write", publisher: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.fixture" }, title: "Write fixture", description: "Write fixture.",
         audience: "authenticated", resource: "fixture.action", operation: "write",
-        policy: { id: "fixture.policy", scope: "application", recordScoped: false, fieldScoped: false }
+        scope: "application"
       });
       context.register("actions", "fixture.action.run", definition);
     }, dataHandlers(context) { context.bind("actions", "fixture.action.run", ({ authorizationContext }) => authorizationContext); } }]

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://schemas.k-nex.dev/authorization.v1.schema.json",
+  "contract": {
+    "applicationId": "customer-alpha",
+    "description": "Customer-owned Sales reporting role.",
+    "id": "sales-manager",
+    "label": "Sales Manager",
+    "revision": 3,
+    "schemaVersion": 1
+  }
+}

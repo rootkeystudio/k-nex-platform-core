@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schemas.k-nex.dev/authorization.v1.schema.json",
+  "contract": {
+    "applicationId": "customer-alpha",
+    "id": "sales-analytics-retired-report-read",
+    "permission": {
+      "audience": "authenticated",
+      "description": "Read actor-authorized Sales analytics reports.",
+      "id": "sales.analytics.reports.read",
+      "operation": "read",
+      "publisher": {
+        "deliveryClass": "platform-plugin",
+        "extensionId": "module.sales.analytics",
+        "kind": "extension"
+      },
+      "resource": "sales.analytics.reports",
+      "schemaVersion": 1,
+      "scope": "record",
+      "title": "Read Sales analytics reports"
+    },
+    "policyReference": "sales.analytics.policy.viewer",
+    "revision": 7,
+    "schemaVersion": 1,
+    "source": "administrative-non-authoritative",
+    "state": "inactive-generation-retired"
+  }
+}

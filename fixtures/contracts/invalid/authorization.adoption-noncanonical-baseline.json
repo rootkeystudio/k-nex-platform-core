@@ -1,0 +1,31 @@
+{
+  "$schema": "https://schemas.k-nex.dev/authorization.v1.schema.json",
+  "contract": {
+    "applicationId": "customer-alpha",
+    "digestAlgorithm": "sha256-canonical-json-v1",
+    "id": "sales-analytics-viewer-adoption",
+    "kind": "instantiated-role",
+    "oldBaselineDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "oldBaselinePermissionIds": [
+      "sales.analytics.z.read",
+      "sales.analytics.reports.read"
+    ],
+    "owner": {
+      "deliveryClass": "platform-plugin",
+      "extensionId": "module.sales.analytics",
+      "generation": 7,
+      "kind": "extension"
+    },
+    "publisher": {
+      "deliveryClass": "platform-plugin",
+      "extensionId": "module.sales.analytics",
+      "kind": "extension"
+    },
+    "revision": 6,
+    "roleId": "sales-manager",
+    "schemaVersion": 1,
+    "state": "adopted",
+    "templateId": "sales.analytics.template.viewer",
+    "templateVersion": 1
+  }
+}

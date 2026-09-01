@@ -255,14 +255,15 @@ function completeConsumer(
     pluginId: "module.consumer",
     contracts(context) {
       context.register("permissions", "consumer.permission", {
+        schemaVersion: 1,
         id: "consumer.permission",
-        ownerPluginId: "module.consumer",
+        publisher: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.consumer" },
         title: "Consumer read",
         description: "Read consumer resources.",
         audience: "authenticated",
         resource: "consumer.resource",
         operation: "read",
-        policy: { id: "consumer.policy.read", scope: "application", recordScoped: false, fieldScoped: false }
+        scope: "application"
       });
       context.register("settings", "consumer.setting", {
         id: "consumer.setting",
@@ -544,6 +545,17 @@ describe("phased registration runtime", () => {
         context.register("settings", "consumer.setting", {} as never);
       }
     }]), "INVALID_CONTRIBUTION");
+  });
+
+  it("requires permissions to be published by the registering platform plugin", () => {
+    const patch = (value: unknown): unknown => ({
+      ...(value as object),
+      publisher: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "provider.consumer" }
+    });
+    expectCode(
+      () => run([providerRegistration(), corruptedReference("contracts", "permissions", "consumer.permission", patch)]),
+      "INVALID_CONTRIBUTION"
+    );
   });
 
   it("reconciles every descriptor reference against its exact owned category", () => {

@@ -123,9 +123,9 @@ function registration(toolValues: readonly AgentToolDescriptor[] = [tool("sales.
     pluginId: manifest.id,
     contracts(context) {
       context.register("permissions", "sales.tasks.read", {
-        id: "sales.tasks.read", ownerPluginId: manifest.id, title: "Read tasks", description: "Read Sales tasks.",
+        schemaVersion: 1, id: "sales.tasks.read", publisher: { kind: "extension", deliveryClass: "platform-plugin", extensionId: manifest.id }, title: "Read tasks", description: "Read Sales tasks.",
         audience: "authenticated", resource: "sales.tasks", operation: "read",
-        policy: { id: "sales.tasks.policy", scope: "application", recordScoped: false, fieldScoped: false }
+        scope: "application"
       });
       context.register("sources", source.descriptor.id, source);
       for (const value of toolValues) context.register("tools", value.id, value);

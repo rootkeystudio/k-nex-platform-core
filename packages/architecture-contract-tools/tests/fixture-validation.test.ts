@@ -7,6 +7,7 @@ import addFormatsModule from "ajv-formats";
 import { describe, expect, it } from "vitest";
 
 import { type FixtureInput, type FixtureSchema, validateFixtures } from "../src/fixture-validation.js";
+import { registerAuthorizationOwnershipKeyword } from "../src/authorization-ownership.js";
 import { registerPluginContributionOwnershipKeyword } from "../src/plugin-contribution-ownership.js";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -27,9 +28,11 @@ const registry = await load<{
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 addFormatsModule.default(ajv);
 registerPluginContributionOwnershipKeyword(ajv);
+registerAuthorizationOwnershipKeyword(ajv);
 const validators = {
   application: ajv.compile(await load<AnySchema>("schemas/application-manifest.v1.schema.json")),
-  plugin: ajv.compile(await load<AnySchema>("schemas/plugin-manifest.v1.schema.json"))
+  plugin: ajv.compile(await load<AnySchema>("schemas/plugin-manifest.v1.schema.json")),
+  authorization: ajv.compile(await load<AnySchema>("schemas/authorization.v1.schema.json"))
 };
 
 const validPaths = [
@@ -37,9 +40,13 @@ const validPaths = [
   "fixtures/contracts/valid/application.minimal.json",
   "fixtures/customer-gate-1/k-nex.app.json",
   "fixtures/contracts/valid/provider.realtime.socketio.json",
-  "fixtures/contracts/valid/theme.minimal.json"
+  "fixtures/contracts/valid/theme.minimal.json",
+  "fixtures/contracts/valid/authorization.platform-descriptor.json"
 ];
-const validFixtures = await Promise.all(validPaths.map((path) => fixture(path, path.includes("application.") || path.endsWith("/k-nex.app.json") ? "application" : "plugin")));
+const validFixtures = await Promise.all(validPaths.map((path) => fixture(
+  path,
+  path.includes("authorization.") ? "authorization" : path.includes("application.") || path.endsWith("/k-nex.app.json") ? "application" : "plugin"
+)));
 const pluginCapabilities = new Map<string, ReadonlySet<string>>();
 for (const item of validFixtures.filter(({ schema }) => schema === "plugin")) {
   const manifest = item.value as { id: string; provides?: Array<{ capability: string }> };

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://schemas.k-nex.dev/authorization.v1.schema.json",
+  "contract": {
+    "applicationId": "customer-alpha",
+    "authorizationRevision": 1,
+    "id": "bootstrap-receipt-1",
+    "ownerAssignmentId": "system-owner-user-1",
+    "ownerPrincipal": {
+      "id": "user-1",
+      "kind": "user"
+    },
+    "ownerRoleId": "system.role.owner",
+    "schemaVersion": 1,
+    "state": "committed"
+  }
+}

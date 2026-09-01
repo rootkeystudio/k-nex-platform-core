@@ -3,7 +3,7 @@ import type {
   PluginContributionRequirement, PluginManifest, RegistrationPhase
 } from "@k-nex/contracts";
 import {
-  AgentToolDescriptorSchema, PermissionDescriptorSchema, PluginNavigationDescriptorSchema,
+  AgentToolDescriptorSchema, AuthorizationPermissionDescriptorSchema, PluginNavigationDescriptorSchema,
   PluginEventDescriptorSchema, PluginHealthAuditDescriptorSchema, PluginJobDescriptorSchema,
   PluginLifecycleDescriptorSchema, PluginLocalizationDescriptorSchema, PluginMigrationDescriptorSchema,
   PluginPageTemplateDescriptorSchema, PluginRouteDescriptorSchema, PluginSettingsDescriptorSchema,
@@ -181,7 +181,7 @@ function frozenClone<T>(value: T): T {
 
 function configurationContribution(kind: ContributionKind, id: string, pluginId: string, value: unknown): unknown {
   const schema = kind === "settings" ? PluginSettingsDescriptorSchema
-    : kind === "permissions" ? PermissionDescriptorSchema
+    : kind === "permissions" ? AuthorizationPermissionDescriptorSchema
       : kind === "routes" ? PluginRouteDescriptorSchema
         : kind === "navigation" ? PluginNavigationDescriptorSchema
           : kind === "pageTemplates" ? PluginPageTemplateDescriptorSchema
@@ -198,7 +198,12 @@ function configurationContribution(kind: ContributionKind, id: string, pluginId:
           : undefined;
   if (schema === undefined) return value;
   const parsed = schema.safeParse(value);
-  if (!parsed.success || parsed.data.id !== id || parsed.data.ownerPluginId !== pluginId) {
+  const publisher = parsed.success
+    ? (parsed.data as { readonly publisher?: { readonly kind?: string; readonly deliveryClass?: string; readonly extensionId?: string } }).publisher
+    : undefined;
+  if (!parsed.success || parsed.data.id !== id || (kind === "permissions"
+    ? publisher?.kind !== "extension" || publisher.deliveryClass !== "platform-plugin" || publisher.extensionId !== pluginId
+    : (parsed.data as { readonly ownerPluginId?: string }).ownerPluginId !== pluginId)) {
     fail("INVALID_CONTRIBUTION", `${kind} contribution identity must match ${pluginId}:${id}.`, [pluginId, kind, id]);
   }
   if ((kind === "components" || kind === "blocks") && (parsed.data as { readonly kind?: string }).kind !== (kind === "components" ? "component" : "block")) {

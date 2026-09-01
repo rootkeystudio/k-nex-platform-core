@@ -1,14 +1,16 @@
+import { AuthorizationContractsSchema } from "@k-nex/contracts";
 import type { ErrorObject, ValidateFunction } from "ajv";
 
 export const fixtureSchemas = [
   "application", "plugin", "hot-application-manifest", "theme-skin-manifest", "extension-bundle-manifest",
   "extension-capability-request", "extension-resource-budget", "extension-install-plan", "extension-install-receipt",
   "extension-generation", "extension-lifecycle-event", "migration-compatibility-plan", "remote-ui-isolation-profile", "runner-isolation-profile", "runtime-extension-inventory",
-  "static-composition-change-plan", "static-deployment-receipt", "trusted-application-build-evidence", "worker-generation-fence", "zero-downtime-eligibility"
+  "static-composition-change-plan", "static-deployment-receipt", "trusted-application-build-evidence", "worker-generation-fence", "zero-downtime-eligibility", "authorization"
 ] as const;
 export type FixtureSchema = (typeof fixtureSchemas)[number];
 export type DiagnosticCode =
   | "DUPLICATE_PLUGIN_ID"
+  | "AUTHORIZATION_OWNERSHIP_INVALID"
   | "IDENTITY_INVALID"
   | "LEGACY_SYMBOL_FORBIDDEN"
   | "LIFECYCLE_UNSUPPORTED"
@@ -83,6 +85,10 @@ function schemaPath(errors: ErrorObject[] | null | undefined): string {
   return first?.instancePath || "$";
 }
 
+function zodPath(path: readonly PropertyKey[]): string {
+  return path.length === 0 ? "$" : `$/${path.map(String).join("/")}`;
+}
+
 function semanticDiagnostic(
   fixture: FixtureInput,
   registry: Registry,
@@ -95,6 +101,18 @@ function semanticDiagnostic(
 
   if (fixture.value === null || typeof fixture.value !== "object") return undefined;
   const value = fixture.value as Record<string, unknown>;
+
+  if (fixture.schema === "authorization") {
+    const parsed = AuthorizationContractsSchema.safeParse(fixture.value);
+    const issue = !parsed.success ? parsed.error.issues.find(({ code }) => code === "custom") : undefined;
+    return issue === undefined ? undefined : diagnostic(
+      fixture.fixturePath,
+      "AUTHORIZATION_OWNERSHIP_INVALID",
+      zodPath(issue.path),
+      "Keep authorization ownership, generation, and decision invariants aligned with the canonical contract.",
+      "repository-semantic"
+    );
+  }
 
   if (fixture.schema === "plugin") {
     const lifecycle = value.lifecycle as Record<string, unknown> | undefined;
