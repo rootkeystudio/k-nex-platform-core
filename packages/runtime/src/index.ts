@@ -39,3 +39,5 @@ export * from "./static-release-operator.js";
 export * from "./extension-operator-api.js";
 export * from "./authorization-registry.js";
 export * from "./authorization-store.js";
+export * from "./effective-authority.js";
+export * from "./current-authority-operation-authorizer.js";

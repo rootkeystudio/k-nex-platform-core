@@ -96,6 +96,7 @@ export interface HotApplicationPolicyExecutableDeclaration {
 export type TrustedPolicyExecutable = PlatformPluginPolicyExecutableDeclaration | HotApplicationPolicyExecutableDeclaration;
 
 const trustedExecutables = new WeakSet<object>();
+const effectiveAuthorizationCatalogs = new WeakSet<object>();
 const platformPluginAuthorizationContributions = new WeakSet<object>();
 const hotApplicationAuthorizationContributions = new WeakSet<object>();
 const hotApplicationContributionSources = new WeakMap<object, AuthoritativeHotApplicationAuthorizationRecord>();
@@ -119,6 +120,11 @@ function parseExecutableIdentity(value: Readonly<{ publisher: unknown; bindingId
     bindingId: bindingId.data,
     policyReference: policyReference.data
   });
+}
+
+/** True only for the exact effective catalog constructed by this module. */
+export function isEffectiveAuthorizationCatalog(value: unknown): value is EffectiveAuthorizationCatalog {
+  return typeof value === "object" && value !== null && effectiveAuthorizationCatalogs.has(value);
 }
 
 export function createPlatformPluginPolicyExecutable(value: PlatformPluginPolicyExecutableDeclaration): TrustedPolicyExecutable {
@@ -545,7 +551,7 @@ export function createEffectiveAuthorizationCatalog(value: unknown): EffectiveAu
     const executable = boundExecutables.get(executionKey(binding.binding.publisher as ExtensionPermissionPublisherRef, binding.binding.id));
     if (executable) executableByPermission.set(binding.binding.permissionId, executable);
   }
-  return Object.freeze({
+  const catalog = Object.freeze({
     permissions,
     policyBindings,
     roleTemplates,
@@ -563,4 +569,6 @@ export function createEffectiveAuthorizationCatalog(value: unknown): EffectiveAu
       return invokeBound(executable, evaluation, signal);
     }
   });
+  effectiveAuthorizationCatalogs.add(catalog);
+  return catalog;
 }
