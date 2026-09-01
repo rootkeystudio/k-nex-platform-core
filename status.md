@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-09-01
 - **Phase:** Phase 10 — RBAC, Authorization, and Extension Bootstrap
-- **Active task:** P10.3 — PostgreSQL/Payload authorization storage
+- **Active task:** P10.4 — Effective authority resolver and caches
 - **State:** Ready to start
 
 ## Last completed
 
-P10.2 added the 19-permission static platform registry; branded lifecycle-scoped Platform Plugin contributions; active P9 verified-artifact Hot Application contributions; generation-scoped descriptor, policy-binding, and role-template reconciliation; trusted Platform Plugin executors; runner-backed Hot Application policy gateways; manifest/schema parity; and Sales bindings plus four role templates. Disabled, not-ready, retired, missing, duplicate, undeclared, wrong-owner, stale-artifact, raw-runtime, and snapshot authority paths fail closed.
+P10.3 added canonical authorization-store contracts; application-global authorization/lifecycle revisions; customer-owned PostgreSQL roles, grants, assignments, template adoptions, catalog snapshots, extension generations, bootstrap receipts, and audit storage; exact-revision transactional writes; user/service subject validation; generation-fenced RESTRICT relations; first-owner receipt integrity; and application-wide last-owner race safety. The current development fixture now uses current workspace Sales while immutable deployment archives remain isolated.
 
 ## Validation
 
-Focused only: contracts build plus 3 files/42 tests; runtime build plus 5 files/76 tests; Sales dependency build plus 15 server tests; UI runtime 4 tests; extension bundler 14 tests; two affected PostgreSQL fixture syntax checks; architecture tools build plus 2 files/12 tests, repository/generated-schema validation, package-local generated-clean, and reproducibility (`43c14689889b5d8043f7cb340fa569625a9687d0f77ca7b15b550551ab4269db`). Root generated-clean wrapper reached the clean result, then an unrelated customer fixture build rejected root pnpm 10.17.1 versus its required 11.9.0. Full suite intentionally deferred to phase closeout.
+Focused only: runtime build plus authorization-store 3/3; payload-adapter build plus authorization-store 8/8; customer fixture TypeScript build; real PostgreSQL migration/storage/rollback/isolation/bootstrap/owner-race proof 1/1; diff check; Docker cleanup. Same xhigh phase reviewer: PASS. Full suite intentionally deferred to phase closeout.
 
 ## Next
 
-Implement P10.3 additive customer-owned PostgreSQL/Payload authorization storage with relational constraints, optimistic revisions, rollback, and first-/last-owner race safety.
+Implement P10.4 effective authority resolution and revision-aware caches for principal/session/impersonation, assignments, grants, owner/generation/lifecycle, and application/record/field policy.
 
 ## Blockers
 

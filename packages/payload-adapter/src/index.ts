@@ -20,6 +20,7 @@ export * from "./catalog-checkpoint-store.js";
 export * from "./extension-capability-authority.js";
 export * from "./active-extension-security-reconciler.js";
 export * from "./runner-quarantine-adapter.js";
+export * from "./authorization-store.js";
 
 export type PayloadCompositionErrorCode =
   | "INVALID_DATABASE_URL"

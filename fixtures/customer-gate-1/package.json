@@ -21,7 +21,7 @@
     "@k-nex/contracts": "workspace:*",
     "@k-nex/extension-bundler": "workspace:*",
     "@k-nex/extension-runner": "workspace:*",
-    "@k-nex/module-sales": "file:packages/k-nex-module-sales-1.0.0.tgz",
+    "@k-nex/module-sales": "workspace:*",
     "@k-nex/payload-adapter": "workspace:*",
     "@k-nex/provider-realtime-socketio": "file:packages/k-nex-provider-realtime-socketio-1.0.0.tgz",
     "@payloadcms/db-postgres": "3.88.0",
