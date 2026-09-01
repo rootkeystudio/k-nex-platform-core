@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Review remediation slice 1 adds real grant deletion, same-ID assignment reactivation, exact mutation audit targets, revision/outbox invalidation, and lock-free administration read transactions.
+Review remediation slices 1–2 add reversible authorization mutations/read-only administration plus transaction-bound Sales record-scope admission with row-lock recheck and zero forbidden outbox effect.
 
 ## Validation
 
-Exact Node 24.19.0: contracts authorization 7/7, runtime system administration 10/10, and PostgreSQL adapter authorization-store 19/19 targeted tests PASS. No cumulative remediation-head run is claimed yet.
+Exact Node 24.19.0: prior authorization tests 36/36; persistence-capability 8/8; isolated real PostgreSQL Sales scope race 1/1; affected adapter/customer builds PASS. No cumulative remediation-head run is claimed yet.
 
 ## Next
 
-Close delegation escalation, Sales record-scope TOCTOU, protected-baseline evolution, UI controls, and real PostgreSQL concurrency proofs with isolated tests.
+Close delegation escalation, protected-baseline evolution, reversible UI controls, and real PostgreSQL administration-read concurrency proof with isolated tests.
 
 ## Blockers
 

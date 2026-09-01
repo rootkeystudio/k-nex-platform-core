@@ -5,7 +5,13 @@ import {
   type AuthenticatedActionRequest,
   type ScopedRegistrationResult
 } from "@k-nex/runtime";
-import { createPayloadPersistenceCapability, CurrentAuthorityPayloadPersistenceAuthorizer } from "@k-nex/payload-adapter";
+import { sql } from "@payloadcms/db-postgres";
+import {
+  activePayloadPostgresTransaction,
+  createPayloadPersistenceCapability,
+  CurrentAuthorityPayloadPersistenceAuthorizer,
+  type PayloadPersistenceCapabilityContext
+} from "@k-nex/payload-adapter";
 import type { Endpoint, PayloadRequest } from "payload";
 import type { FixtureAuthorityContext, FixtureCurrentAuthority, FixtureSalesProfile } from "./current-authority.js";
 
@@ -15,7 +21,8 @@ interface ActionBody {
 }
 
 interface CapabilityRequest {
-  readonly payload: { find(options: Readonly<Record<string, unknown>>): Promise<unknown> };
+  readonly transaction: { begin(): Promise<void> };
+  guard(input: Readonly<Record<string, unknown>>): Promise<boolean>;
 }
 
 function actor(request: PayloadRequest) {
@@ -27,15 +34,39 @@ function actor(request: PayloadRequest) {
 }
 
 function capability(request: PayloadRequest, context: FixtureAuthorityContext, authority: FixtureCurrentAuthority) {
+  const profile = authority.salesProfile(context);
   return createPayloadPersistenceCapability(request, [
     { collection: "sales-tasks", operations: ["find", "create", "update"] },
     { collection: "sales-opportunities", operations: ["find", "update"] }
-  ], new CurrentAuthorityPayloadPersistenceAuthorizer(authority.adapter, context, ({ collection, operation }) => authority.payload(collection, operation)));
+  ], new CurrentAuthorityPayloadPersistenceAuthorizer(authority.adapter, context, ({ collection, operation }) => authority.payload(collection, operation)), {
+    guard: (input) => lockScopedSalesTarget(request, profile, input)
+  });
 }
 
-function docs(result: unknown): readonly Record<string, unknown>[] {
-  if (typeof result !== "object" || result === null || !("docs" in result) || !Array.isArray(result.docs)) return [];
-  return result.docs.filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null);
+function resultRows(value: unknown): readonly unknown[] {
+  if (typeof value !== "object" || value === null || !("rows" in value) || !Array.isArray(value.rows)) {
+    throw new Error("Sales scope guard received an invalid Postgres result.");
+  }
+  return value.rows;
+}
+
+/** The table and scope-column branches are fixed host mappings, never request-controlled SQL identifiers. */
+async function lockScopedSalesTarget(request: PayloadRequest, profile: FixtureSalesProfile, input: Readonly<Record<string, unknown>>): Promise<boolean> {
+  if (typeof input.id !== "string") return false;
+  const transaction = await activePayloadPostgresTransaction(request);
+  if (input.collection === "sales-tasks") {
+    const status = profile === "done" ? "done" : "open";
+    return resultRows(await transaction.execute(sql`
+      SELECT "id" FROM "sales_tasks" WHERE "id" = ${input.id} AND "status" = ${status} FOR UPDATE
+    `)).length === 1;
+  }
+  if (input.collection === "sales-opportunities") {
+    const stage = profile === "done" ? "won" : "lead";
+    return resultRows(await transaction.execute(sql`
+      SELECT "id" FROM "sales_opportunities" WHERE "id" = ${input.id} AND "stage" = ${stage} FOR UPDATE
+    `)).length === 1;
+  }
+  return false;
 }
 
 function targetScope(collection: "sales-tasks" | "sales-opportunities", id: string, profile: FixtureSalesProfile) {
@@ -58,18 +89,13 @@ async function authorize(authority: FixtureCurrentAuthority, actionId: string, i
   const collection = actionId === "sales.task.update" ? "sales-tasks" : actionId === "sales.opportunity.stage.update" ? "sales-opportunities" : undefined;
   if (collection === undefined) throw new ActionGatewayError("ACTION_FORBIDDEN", 403, "Action is forbidden.");
   const scope = targetScope(collection, id, authority.salesProfile(authenticated.authorizationContext as FixtureAuthorityContext));
-  const result = await context.payload.find({
-    collection,
-    overrideAccess: true,
-    depth: 0,
-    limit: 1,
-    where: scope.where
-  });
-  if (docs(result).length !== 1) throw new ActionGatewayError("ACTION_TARGET_FORBIDDEN", 403, "Action target is forbidden.");
+  await context.transaction.begin();
+  if (await context.guard({ collection, id }) !== true) throw new ActionGatewayError("ACTION_TARGET_FORBIDDEN", 403, "Action target is forbidden.");
   return Object.freeze({ actionId, resourceId: id, scope });
 }
 
 export function createActionEndpoint(registration: ScopedRegistrationResult, authority: FixtureCurrentAuthority): Endpoint {
+  const scopedRequests = new WeakMap<PayloadRequest, PayloadPersistenceCapabilityContext>();
   const policy = new CurrentAuthorityActionGatewayPolicy(
     authority.adapter,
     ({ authenticated }) => authenticated.authorizationContext as FixtureAuthorityContext,
@@ -77,12 +103,16 @@ export function createActionEndpoint(registration: ScopedRegistrationResult, aut
     { authorize: ({ action, input, authenticated }) => authorize(authority, action.descriptor.id, input, authenticated) }
   );
   const gateway = new RegisteredActionGateway(registration, {
-    authenticate(request) {
+    async authenticate(request) {
       const raw = request.rawRequest as PayloadRequest;
       const context = authority.context(raw, request.correlationId);
+      const persistence = capability(raw, context, authority);
+      if (request.actionId === "sales.task.update" || request.actionId === "sales.opportunity.stage.update") {
+        scopedRequests.set(raw, persistence);
+      }
       return {
         actor: actor(raw),
-        request: capability(raw, context, authority),
+        request: persistence,
         authorizationContext: context
       };
     }
@@ -99,15 +129,25 @@ export function createActionEndpoint(registration: ScopedRegistrationResult, aut
         return Response.json({ code: "INVALID_ACTION_REQUEST", status: 400, detail: "Action request is invalid.", correlationId: "fixture-action" }, { status: 400 });
       }
       const idempotencyKey = request.headers.get("idempotency-key") ?? undefined;
-      const response = await gateway.execute({
-        correlationId: request.headers.get("x-correlation-id") ?? "fixture-action",
-        rawRequest: request,
-        actionId: body.actionId,
-        input: body.input,
-        ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
-        signal: request.signal ?? new AbortController().signal
-      });
-      return Response.json(response.body, { status: response.status });
+      try {
+        const response = await gateway.execute({
+          correlationId: request.headers.get("x-correlation-id") ?? "fixture-action",
+          rawRequest: request,
+          actionId: body.actionId,
+          input: body.input,
+          ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+          signal: request.signal ?? new AbortController().signal
+        });
+        const persistence = scopedRequests.get(request);
+        if (response.ok) await persistence?.transaction.commit();
+        else await persistence?.transaction.rollback();
+        return Response.json(response.body, { status: response.status });
+      } catch (error) {
+        await scopedRequests.get(request)?.transaction.rollback();
+        throw error;
+      } finally {
+        scopedRequests.delete(request);
+      }
     }
   };
 }

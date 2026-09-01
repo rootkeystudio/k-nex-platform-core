@@ -1,4 +1,4 @@
-import type { PayloadRequest } from "payload";
+import { commitTransaction, initTransaction, killTransaction, type PayloadRequest } from "payload";
 import { isCurrentAuthorityTarget, type CurrentAuthorityAdapter, type CurrentAuthorityTarget } from "@k-nex/runtime";
 
 export type PayloadPersistenceOperation = "find" | "create" | "update";
@@ -16,6 +16,19 @@ export interface PayloadPersistenceCapabilityContext {
   };
   readonly locale: PayloadRequest["locale"];
   readonly transactionID: PayloadRequest["transactionID"];
+  readonly transaction: PayloadPersistenceTransaction;
+  guard(input: Readonly<Record<string, unknown>>): Promise<boolean>;
+}
+
+export interface PayloadPersistenceTransaction {
+  begin(): Promise<void>;
+  commit(): Promise<void>;
+  rollback(): Promise<void>;
+}
+
+/** Hosts provide narrowly scoped checks that need the same request transaction as a subsequent write. */
+export interface PayloadPersistenceGuard {
+  guard(input: Readonly<Record<string, unknown>>): boolean | Promise<boolean>;
 }
 
 export interface PayloadPersistenceAuthorizer {
@@ -55,7 +68,8 @@ function permitted(grants: readonly PayloadPersistenceGrant[], operation: Payloa
 export function createPayloadPersistenceCapability(
   request: PayloadRequest,
   grants: readonly PayloadPersistenceGrant[],
-  authorizer: PayloadPersistenceAuthorizer
+  authorizer: PayloadPersistenceAuthorizer,
+  guard?: PayloadPersistenceGuard
 ): PayloadPersistenceCapabilityContext {
   const canonicalGrants = Object.freeze(grants.map((grant) => Object.freeze({
     collection: grant.collection,
@@ -69,6 +83,35 @@ export function createPayloadPersistenceCapability(
     const platformOptions = { ...options, req: request };
     return (request.payload[operation] as (value: unknown) => Promise<unknown>)(platformOptions);
   };
+  let ownsTransaction = false;
+  let started = false;
+  let settled = false;
+  const transaction: PayloadPersistenceTransaction = Object.freeze({
+    async begin() {
+      if (started) return;
+      ownsTransaction = await initTransaction(request);
+      started = true;
+      if (!ownsTransaction && (await request.transactionID) == null) {
+        throw new Error("Payload persistence capability could not begin a transaction.");
+      }
+    },
+    async commit() {
+      if (!ownsTransaction || settled) return;
+      try {
+        await commitTransaction(request);
+        settled = true;
+      } catch (error) {
+        await killTransaction(request);
+        settled = true;
+        throw error;
+      }
+    },
+    async rollback() {
+      if (!ownsTransaction || settled) return;
+      await killTransaction(request);
+      settled = true;
+    }
+  });
   return Object.freeze({
     payload: Object.freeze({
       find: (options: Readonly<Record<string, unknown>>) => invoke("find", options),
@@ -76,6 +119,11 @@ export function createPayloadPersistenceCapability(
       update: (options: Readonly<Record<string, unknown>>) => invoke("update", options)
     }),
     locale: request.locale,
-    transactionID: request.transactionID
+    get transactionID() { return request.transactionID; },
+    transaction,
+    async guard(input: Readonly<Record<string, unknown>>) {
+      if (guard === undefined) throw new Error("Payload persistence capability has no host guard.");
+      return await guard.guard(input);
+    }
   });
 }
