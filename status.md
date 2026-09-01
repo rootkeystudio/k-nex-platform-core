@@ -3,20 +3,20 @@
 - **Updated:** 2026-09-01
 - **Phase:** Phase 10 — RBAC, Authorization, and Extension Bootstrap
 - **Active task:** P10.10 — Gate 10 closeout
-- **State:** In progress
+- **State:** Blocked
 
 ## Last completed
 
-P10.9 delivers eight fixed accessible system pages backed by current RBAC, revision-fenced atomic mutations/audits, durable audit timestamps, selectable template copying, session-bound authoritative extension plans, context-bound lifecycle operators, and exact inventory/impact truth. P10.10 pre-review mapped the complete gate and identified the exact composite convergence evidence boundary.
+P10.9 delivers the reviewed system control plane. P10.10 added the truthful Gate 10/result drafts and repaired generated Remote UI schema drift. The phase gate then exposed an immutable Sales release-closure conflict: current P10 public contributions exist only in workspace source, not accepted Sales archives.
 
 ## Validation
 
-Focused only on exact Node 24.19.0: runtime administration 23; Payload adapter authorization store 16; UI pages 3; affected package/customer builds; real PostgreSQL/HTTP/Chromium system administration 1 with `P10_9_SYSTEM_ADMIN_POSTGRES_CHROMIUM_EVIDENCE=PASS`; diff checks; Docker/process cleanup. Same xhigh reviewer: PASS. Full suite remains deferred to P10.10.
+Exact Node 24.19.0: P10.9 focused proofs PASS; generated-clean PASS; runner cancellation fix 20 repeated and runner reconciliation 42/42 PASS; phase-end `pnpm gate:10` stopped at inherited Gate 1 because `module-sales` is a workspace link rather than an exact immutable release. Docker/process cleanup PASS.
 
 ## Next
 
-Implement the smallest truthful `gate:10` and Phase 10 result, then run the full phase gate and same xhigh review.
+After explicit release-decision authorization, create the smallest immutable Sales release closure, rerun `pnpm gate:10`, then use the same xhigh reviewer.
 
 ## Blockers
 
-None.
+Unplanned public/persisted release decision: Phase 10 Sales policy bindings/templates require a new immutable package release; `1.0.0`/`1.0.1` lack them and cannot be overwritten or falsely aliased. See `docs/implementation/phase-10-release-blocker.md`.
