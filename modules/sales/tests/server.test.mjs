@@ -7,13 +7,17 @@ import {
   AgentToolDescriptorSchema,
   DataSourceDescriptorSchema,
   AuthorizationPermissionDescriptorSchema,
+  PermissionPolicyBindingSchema,
+  PluginManifestSchema,
   PluginNavigationDescriptorSchema,
   PluginPageTemplateDescriptorSchema,
   PluginRouteDescriptorSchema,
   PluginSettingsDescriptorSchema,
   PluginUiContributionDescriptorSchema,
+  RoleTemplateSchema,
   canonicalJson
 } from "@k-nex/contracts";
+import salesManifest from "../k-nex.plugin.json" with { type: "json" };
 
 import {
   salesCreateTaskToolDescriptor,
@@ -21,8 +25,10 @@ import {
   salesNavigationDescriptors,
   salesOpportunitiesDescriptor,
   salesPermissionDescriptors,
+  salesPermissionPolicyBindings,
   salesRealtimeTopicDescriptors,
   salesRouteDescriptors,
+  salesRoleTemplates,
   salesSearchTasksDescriptor,
   salesTaskCreateDescriptor,
   salesTaskUpdateDescriptor,
@@ -112,6 +118,8 @@ test("Sales registers three single-output data sources with valid descriptors", 
   assert.deepEqual(contributions.filter(([kind]) => kind === "actions").map(([, id]) => id).sort(), ["sales.opportunity.stage.update", "sales.task.create", "sales.task.update"]);
   assert.deepEqual(contributions.filter(([kind]) => kind === "tools").map(([, id]) => id).sort(), ["sales.tools.create-task", "sales.tools.search-tasks"]);
   assert.deepEqual(contributions.filter(([kind]) => kind === "permissions").map(([, id]) => id).sort(), salesPermissionDescriptors.map(({ id }) => id).sort());
+  assert.deepEqual(contributions.filter(([kind]) => kind === "policyBindings").map(([, id]) => id).sort(), salesPermissionPolicyBindings.map(({ id }) => id).sort());
+  assert.deepEqual(contributions.filter(([kind]) => kind === "roleTemplates").map(([, id]) => id).sort(), salesRoleTemplates.map(({ id }) => id).sort());
   assert.deepEqual(contributions.filter(([kind]) => kind === "settings").map(([, id]) => id), [salesWorkspaceSettingsDescriptor.id]);
   assert.deepEqual(contributions.filter(([kind]) => kind === "routes").map(([, id]) => id).sort(), salesRouteDescriptors.map(({ id }) => id).sort());
   assert.deepEqual(contributions.filter(([kind]) => kind === "navigation").map(([, id]) => id), salesNavigationDescriptors.map(({ id }) => id));
@@ -139,6 +147,47 @@ test("Sales settings, permissions, routes, and navigation use strict platform co
   });
 });
 
+test("Sales policy bindings and role templates are static same-owner declarations", () => {
+  assert.equal(PluginManifestSchema.safeParse(salesManifest).success, true);
+  assert.equal(salesPermissionPolicyBindings.every((binding) => PermissionPolicyBindingSchema.safeParse(binding).success), true);
+  assert.equal(salesRoleTemplates.every((template) => RoleTemplateSchema.safeParse(template).success), true);
+
+  const permissionById = new Map(salesPermissionDescriptors.map((descriptor) => [descriptor.id, descriptor]));
+  const bindingByPermissionId = new Map(salesPermissionPolicyBindings.map((binding) => [binding.permissionId, binding]));
+  for (const binding of salesPermissionPolicyBindings) {
+    assert.deepEqual(binding.publisher, { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales" });
+    assert.equal(permissionById.get(binding.permissionId)?.scope, binding.scope);
+    assert.equal(binding.failureMode, "deny");
+    assert.equal(binding.timeoutMs > 0 && binding.timeoutMs <= 5_000, true);
+  }
+  for (const descriptor of salesPermissionDescriptors) {
+    if (descriptor.scope === "application") assert.equal(bindingByPermissionId.has(descriptor.id), false);
+    else {
+      const binding = bindingByPermissionId.get(descriptor.id);
+      assert.ok(binding, `${descriptor.id} must have one policy binding`);
+      assert.equal(binding.policyReference, descriptor.id.startsWith("sales.tasks.") ? "sales.tasks.domain" : "sales.opportunities.domain");
+    }
+  }
+  assert.equal(bindingByPermissionId.size, salesPermissionPolicyBindings.length);
+  assert.deepEqual(Object.keys(salesManifest.contributions.policyBindings).sort(), salesPermissionPolicyBindings.map(({ id }) => id).sort());
+  assert.deepEqual(Object.keys(salesManifest.contributions.roleTemplates).sort(), salesRoleTemplates.map(({ id }) => id).sort());
+
+  for (const template of salesRoleTemplates) {
+    assert.deepEqual(template.publisher, { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales" });
+    assert.deepEqual(template.permissionIds, [...template.permissionIds].sort());
+    assert.equal(template.permissionIds.every((permissionId) => permissionById.has(permissionId)), true);
+    assert.equal(Object.hasOwn(template, "assignments"), false);
+  }
+  assert.deepEqual(salesRoleTemplates.map(({ title }) => title), [
+    "Sales Viewer", "Sales Representative", "Sales Manager", "Sales Administrator"
+  ]);
+  for (let index = 1; index < salesRoleTemplates.length; index += 1) {
+    const previous = new Set(salesRoleTemplates[index - 1].permissionIds);
+    assert.equal(previous.size < salesRoleTemplates[index].permissionIds.length, true);
+    assert.equal([...previous].every((permissionId) => salesRoleTemplates[index].permissionIds.includes(permissionId)), true);
+  }
+});
+
 test("Sales registers source/action-backed tools with strict write policy", () => {
   assert.equal(AgentToolDescriptorSchema.safeParse(salesSearchTasksDescriptor).success, true);
   assert.equal(AgentToolDescriptorSchema.safeParse(salesCreateTaskToolDescriptor).success, true);
@@ -146,6 +195,7 @@ test("Sales registers source/action-backed tools with strict write policy", () =
   assert.equal(ActionDescriptorSchema.safeParse(salesTaskUpdateDescriptor).success, true);
   assert.equal(ActionDescriptorSchema.safeParse(salesOpportunityStageUpdateDescriptor).success, true);
   assert.deepEqual(salesSearchTasksDescriptor.invocation, { kind: "source", source: { id: "sales.tasks", version: 1 } });
+  assert.equal(salesSearchTasksDescriptor.policy, "sales.tasks.domain");
   assert.deepEqual(salesSearchTasksDescriptor.inputSchema.required, ["title"]);
   assert.deepEqual(Object.keys(salesSearchTasksDescriptor.inputSchema.properties), ["title"]);
   assert.deepEqual(salesCreateTaskToolDescriptor.invocation, { kind: "action", action: { id: "sales.task.create", version: 1 } });

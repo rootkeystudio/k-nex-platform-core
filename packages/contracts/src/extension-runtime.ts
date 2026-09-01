@@ -1,5 +1,6 @@
 import * as z from "zod";
 
+import { AuthorizationPermissionDescriptorSchema, PermissionPolicyBindingSchema, RoleTemplateSchema } from "./authorization.js";
 import { MillisecondTimestampSchema } from "./event.js";
 import { ExactSemverSchema, HotApplicationIdSchema, PluginIdSchema, ResourceIdSchema, ThemeSkinIdSchema } from "./identity.js";
 import { uniqueArray } from "./schema-helpers.js";
@@ -153,6 +154,9 @@ export const HotApplicationManifestSchema = z.strictObject({
   displayName: z.string().min(1).max(120),
   version: ExactSemverSchema,
   runtimeAbi: ExactSemverSchema,
+  permissions: uniqueArray(AuthorizationPermissionDescriptorSchema).max(extensionRuntimeCeilings.descriptors),
+  policyBindings: uniqueArray(PermissionPolicyBindingSchema).max(extensionRuntimeCeilings.descriptors),
+  roleTemplates: uniqueArray(RoleTemplateSchema).max(extensionRuntimeCeilings.descriptors).optional(),
   entrypoints: z.strictObject({ server: uniqueArray(HotApplicationServerEntrypointSchema).max(extensionRuntimeCeilings.entrypoints), ui: uniqueArray(HotApplicationUiEntrypointSchema).min(1).max(extensionRuntimeCeilings.entrypoints) }),
   capabilities: uniqueArray(ExtensionCapabilityRequestSchema).max(extensionRuntimeCeilings.capabilities),
   resourceBudget: HotApplicationResourceBudgetSchema,
@@ -169,6 +173,48 @@ export const HotApplicationManifestSchema = z.strictObject({
   assets: uniqueArray(ExtensionAssetPathSchema).max(extensionRuntimeCeilings.bundleFiles),
   localization: uniqueArray(localizationReferenceSchema).max(32),
   healthChecks: uniqueArray(z.strictObject({ id: ResourceIdSchema, entrypoint: HotApplicationServerEntrypointSchema })).max(8)
+}).superRefine((manifest, context) => {
+  const publisherMatchesManifest = (publisher: { kind: string; deliveryClass?: string; extensionId?: string }) => (
+    publisher.kind === "extension"
+    && publisher.deliveryClass === "hot-application"
+    && publisher.extensionId === manifest.id
+  );
+  const permissionIds = manifest.permissions.map(({ id }) => id);
+  const bindingIds = manifest.policyBindings.map(({ id }) => id);
+  const templateIds = manifest.roleTemplates?.map(({ id }) => id) ?? [];
+  if (new Set(permissionIds).size !== permissionIds.length) {
+    context.addIssue({ code: "custom", path: ["permissions"], message: "Hot Application permission descriptor IDs must be unique." });
+  }
+  if (new Set(bindingIds).size !== bindingIds.length) {
+    context.addIssue({ code: "custom", path: ["policyBindings"], message: "Hot Application policy binding IDs must be unique." });
+  }
+  if (new Set(templateIds).size !== templateIds.length) {
+    context.addIssue({ code: "custom", path: ["roleTemplates"], message: "Hot Application role template IDs must be unique." });
+  }
+  const descriptorIds = new Set(permissionIds);
+  for (const [index, descriptor] of manifest.permissions.entries()) {
+    if (!publisherMatchesManifest(descriptor.publisher)) {
+      context.addIssue({ code: "custom", path: ["permissions", index, "publisher"], message: "Hot Application authorization declarations must use this manifest's exact Hot Application publisher identity." });
+    }
+  }
+  for (const [index, binding] of manifest.policyBindings.entries()) {
+    if (!publisherMatchesManifest(binding.publisher)) {
+      context.addIssue({ code: "custom", path: ["policyBindings", index, "publisher"], message: "Hot Application authorization declarations must use this manifest's exact Hot Application publisher identity." });
+    }
+    if (!descriptorIds.has(binding.permissionId)) {
+      context.addIssue({ code: "custom", path: ["policyBindings", index, "permissionId"], message: "Hot Application policy bindings must reference a permission declared by this manifest." });
+    }
+  }
+  for (const [index, template] of (manifest.roleTemplates ?? []).entries()) {
+    if (!publisherMatchesManifest(template.publisher)) {
+      context.addIssue({ code: "custom", path: ["roleTemplates", index, "publisher"], message: "Hot Application authorization declarations must use this manifest's exact Hot Application publisher identity." });
+    }
+    for (const [permissionIndex, permissionId] of template.permissionIds.entries()) {
+      if (!descriptorIds.has(permissionId)) {
+        context.addIssue({ code: "custom", path: ["roleTemplates", index, "permissionIds", permissionIndex], message: "Hot Application role templates must reference permissions declared by this manifest." });
+      }
+    }
+  }
 }).meta({ $id: "https://schemas.k-nex.dev/hot-application-manifest/v1.json", title: "K-Nex Hot Application Manifest v1" });
 
 const tokenNameSchema = z.string().regex(/^--k-nex-skin-[a-z0-9-]{1,75}$/u);

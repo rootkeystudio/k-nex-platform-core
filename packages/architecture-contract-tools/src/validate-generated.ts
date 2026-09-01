@@ -43,6 +43,7 @@ import addFormatsModule from "ajv-formats";
 import { registerPluginContributionOwnershipKeyword } from "./plugin-contribution-ownership.js";
 import { registerMigrationRevisionKeyword } from "./migration-compatibility-plan.js";
 import { registerAuthorizationOwnershipKeyword } from "./authorization-ownership.js";
+import { registerHotApplicationAuthorizationKeyword } from "./hot-application-authorization.js";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const ajv = new Ajv2020({ allErrors: true, strict: true });
@@ -50,6 +51,7 @@ addFormatsModule.default(ajv);
 registerPluginContributionOwnershipKeyword(ajv);
 registerMigrationRevisionKeyword(ajv);
 registerAuthorizationOwnershipKeyword(ajv);
+registerHotApplicationAuthorizationKeyword(ajv);
 ajv.addKeyword({
   keyword: "kNexMaxCanonicalBytes",
   type: "object",

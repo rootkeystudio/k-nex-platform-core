@@ -4,11 +4,9 @@
   "assets": [],
   "capabilities": [],
   "deliveryClass": "hot-application",
-  "displayName": "Bad App",
+  "displayName": "Executable permission",
   "entrypoints": {
-    "server": [
-      "server/../escape.mjs"
-    ],
+    "server": [],
     "ui": [
       "ui/app.mjs"
     ]
@@ -19,7 +17,24 @@
   "localization": [],
   "logicFunctions": [],
   "navigation": [],
-  "permissions": [],
+  "permissions": [
+    {
+      "audience": "authenticated",
+      "description": "Read app-local data.",
+      "id": "bad.tasks.read",
+      "operation": "read",
+      "policy": "export default allow",
+      "publisher": {
+        "deliveryClass": "hot-application",
+        "extensionId": "app.bad",
+        "kind": "extension"
+      },
+      "resource": "bad.tasks",
+      "schemaVersion": 1,
+      "scope": "record",
+      "title": "Read tasks"
+    }
+  ],
   "policyBindings": [],
   "resourceBudget": {
     "maxAssetBytes": 1,

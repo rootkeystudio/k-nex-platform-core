@@ -4,11 +4,9 @@
   "assets": [],
   "capabilities": [],
   "deliveryClass": "hot-application",
-  "displayName": "Bad App",
+  "displayName": "Wrong publisher",
   "entrypoints": {
-    "server": [
-      "server/../escape.mjs"
-    ],
+    "server": [],
     "ui": [
       "ui/app.mjs"
     ]
@@ -19,8 +17,39 @@
   "localization": [],
   "logicFunctions": [],
   "navigation": [],
-  "permissions": [],
-  "policyBindings": [],
+  "permissions": [
+    {
+      "audience": "authenticated",
+      "description": "Read wrong-publisher data.",
+      "id": "other.tasks.read",
+      "operation": "read",
+      "publisher": {
+        "deliveryClass": "hot-application",
+        "extensionId": "app.other",
+        "kind": "extension"
+      },
+      "resource": "other.tasks",
+      "schemaVersion": 1,
+      "scope": "record",
+      "title": "Read other tasks"
+    }
+  ],
+  "policyBindings": [
+    {
+      "failureMode": "deny",
+      "id": "other.policy.tasks-read",
+      "permissionId": "other.tasks.read",
+      "policyReference": "other.policy.tasks-read",
+      "publisher": {
+        "deliveryClass": "hot-application",
+        "extensionId": "app.other",
+        "kind": "extension"
+      },
+      "schemaVersion": 1,
+      "scope": "record",
+      "timeoutMs": 5000
+    }
+  ],
   "resourceBudget": {
     "maxAssetBytes": 1,
     "maxBundleBytes": 1,

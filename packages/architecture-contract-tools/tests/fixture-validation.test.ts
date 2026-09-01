@@ -5,9 +5,11 @@ import { fileURLToPath } from "node:url";
 import { Ajv2020, type AnySchema } from "ajv/dist/2020.js";
 import addFormatsModule from "ajv-formats";
 import { describe, expect, it } from "vitest";
+import { HotApplicationManifestSchema } from "@k-nex/contracts";
 
 import { type FixtureInput, type FixtureSchema, validateFixtures } from "../src/fixture-validation.js";
 import { registerAuthorizationOwnershipKeyword } from "../src/authorization-ownership.js";
+import { registerHotApplicationAuthorizationKeyword } from "../src/hot-application-authorization.js";
 import { registerPluginContributionOwnershipKeyword } from "../src/plugin-contribution-ownership.js";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -29,9 +31,11 @@ const ajv = new Ajv2020({ allErrors: true, strict: true });
 addFormatsModule.default(ajv);
 registerPluginContributionOwnershipKeyword(ajv);
 registerAuthorizationOwnershipKeyword(ajv);
+registerHotApplicationAuthorizationKeyword(ajv);
 const validators = {
   application: ajv.compile(await load<AnySchema>("schemas/application-manifest.v1.schema.json")),
   plugin: ajv.compile(await load<AnySchema>("schemas/plugin-manifest.v1.schema.json")),
+  "hot-application-manifest": ajv.compile(await load<AnySchema>("schemas/hot-application-manifest.v1.schema.json")),
   authorization: ajv.compile(await load<AnySchema>("schemas/authorization.v1.schema.json"))
 };
 
@@ -103,5 +107,45 @@ describe("P0.3 contract fixtures", () => {
     const forward = validateFixtures(invalidFixtures, registry, validators, pluginCapabilities);
     const reverse = validateFixtures([...invalidFixtures].reverse(), registry, validators, pluginCapabilities);
     expect(reverse).toEqual(forward);
+  });
+});
+
+describe("P10.2 Hot Application authorization parity", () => {
+  it("keeps the generated schema aligned with the canonical manifest semantics", async () => {
+    const validate = validators["hot-application-manifest"];
+    const fixtures = [
+      { path: "fixtures/extensions/valid/hot-application.manifest.json", valid: true },
+      { path: "fixtures/extensions/invalid/hot-application.permission-wrong-publisher.json", valid: false },
+      { path: "fixtures/extensions/invalid/hot-application.policy-undeclared-permission.json", valid: false }
+    ] as const;
+    for (const fixture of fixtures) {
+      const value = await load(fixture.path);
+      expect(HotApplicationManifestSchema.safeParse(value).success, fixture.path).toBe(fixture.valid);
+      expect(validate(value), `${fixture.path}: ${ajv.errorsText(validate.errors)}`).toBe(fixture.valid);
+    }
+  });
+
+  it("reports cross-manifest authorization errors as repository semantics", async () => {
+    const fixtures = await Promise.all([
+      fixture("fixtures/extensions/invalid/hot-application.permission-wrong-publisher.json", "hot-application-manifest"),
+      fixture("fixtures/extensions/invalid/hot-application.policy-undeclared-permission.json", "hot-application-manifest")
+    ]);
+    expect(validateFixtures(fixtures, registry, validators, pluginCapabilities).map(({ code, validator }) => ({ code, validator }))).toEqual([
+      { code: "AUTHORIZATION_OWNERSHIP_INVALID", validator: "repository-semantic" },
+      { code: "AUTHORIZATION_OWNERSHIP_INVALID", validator: "repository-semantic" }
+    ]);
+  });
+
+  it("does not misclassify unrelated Hot Application refinements as authorization errors", async () => {
+    const value = await load<Record<string, unknown>>("fixtures/extensions/valid/hot-application.manifest.json");
+    const capabilities = value.capabilities as readonly unknown[];
+    const diagnostics = validateFixtures([{
+      fixturePath: "fixtures/extensions/invalid/hot-application.duplicate-capability.inline.json",
+      schema: "hot-application-manifest",
+      value: { ...value, capabilities: [capabilities[0], capabilities[0]] }
+    }], registry, validators, pluginCapabilities);
+    expect(diagnostics.map(({ code, validator }) => ({ code, validator }))).toEqual([
+      { code: "SCHEMA_INVALID", validator: "json-schema" }
+    ]);
   });
 });

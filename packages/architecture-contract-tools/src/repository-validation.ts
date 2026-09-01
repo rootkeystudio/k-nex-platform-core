@@ -10,6 +10,7 @@ import { fixtureSchemas, type FixtureInput, type FixtureSchema, validateFixtures
 import { registerPluginContributionOwnershipKeyword } from "./plugin-contribution-ownership.js";
 import { registerMigrationRevisionKeyword } from "./migration-compatibility-plan.js";
 import { registerAuthorizationOwnershipKeyword } from "./authorization-ownership.js";
+import { registerHotApplicationAuthorizationKeyword } from "./hot-application-authorization.js";
 
 export type RepositoryDiagnosticCode =
   | "ADR_EVIDENCE_INVALID"
@@ -414,6 +415,7 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
   registerPluginContributionOwnershipKeyword(ajv);
   registerMigrationRevisionKeyword(ajv);
   registerAuthorizationOwnershipKeyword(ajv);
+  registerHotApplicationAuthorizationKeyword(ajv);
   let validators: Partial<Record<FixtureSchema, ValidateFunction>>;
   try {
     validators = {

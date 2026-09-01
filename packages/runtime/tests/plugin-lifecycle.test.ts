@@ -41,7 +41,7 @@ const registration = {
   phases: [], inventory: [],
   contributions: {
     schema: [{ pluginId: "module.sales", id: "sales.tasks.collection", value: {} }],
-    migrations: [], services: [], permissions: [], settings: [], sources: [],
+    migrations: [], services: [], permissions: [], policyBindings: [], roleTemplates: [], settings: [], sources: [],
     actions: [{ pluginId: "module.sales", id: "sales.task.create", value: {} }], tools: [], events: [],
     jobs: [{ pluginId: "module.sales", id: "sales.job.audit", value: () => "ran" }], realtimeTopics: [],
     components: [], blocks: [{ pluginId: "module.sales", id: "sales.block.tasks", value: {} }],

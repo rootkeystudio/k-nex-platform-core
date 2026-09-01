@@ -5,12 +5,14 @@ import type {
   DataSourceDescriptor,
   MetricScalar,
   AuthorizationPermissionDescriptor,
+  PermissionPolicyBinding,
   PluginNavigationDescriptor,
   PluginPageTemplateDescriptor,
   PluginRouteDescriptor,
   PluginSettingsDescriptor,
   PluginSettingValue,
   PluginUiContributionDescriptor,
+  RoleTemplate,
   RuntimeSchema,
   TableRecords
 } from "@k-nex/contracts";
@@ -414,7 +416,7 @@ export const salesSearchTasksDescriptor: AgentToolDescriptor = {
   audience: "authenticated",
   surfaces: ["workspace"],
   permission: "sales.tasks.read",
-  policy: "sales.tasks.agent-read",
+  policy: "sales.tasks.domain",
   effect: "read-only",
   risk: "low",
   approval: "none",
@@ -531,6 +533,212 @@ export const salesPermissionDescriptors: readonly AuthorizationPermissionDescrip
   permission("sales.opportunities.stage.read", "Read opportunity stages", "Read opportunity stage fields.", "sales.opportunities.stage", "read", "field"),
   permission("sales.opportunities.value.read", "Read opportunity values", "Read opportunity value fields.", "sales.opportunities.value", "read", "field"),
   permission("sales.opportunities.write", "Change opportunity stages", "Change actor-authorized opportunity stages.", "sales.opportunities", "write", "record")
+]);
+
+const salesPermissionPublisher = {
+  kind: "extension",
+  deliveryClass: "platform-plugin",
+  extensionId: "module.sales"
+} as const;
+
+/** Static bindings for the existing Sales record and field policy seams. */
+export const salesPermissionPolicyBindings: readonly PermissionPolicyBinding[] = Object.freeze([
+  {
+    schemaVersion: 1,
+    id: "sales.policy.tasks.read",
+    publisher: salesPermissionPublisher,
+    permissionId: "sales.tasks.read",
+    policyReference: "sales.tasks.domain",
+    scope: "record",
+    failureMode: "deny",
+    timeoutMs: 1_000
+  },
+  {
+    schemaVersion: 1,
+    id: "sales.policy.tasks.title.read",
+    publisher: salesPermissionPublisher,
+    permissionId: "sales.tasks.title.read",
+    policyReference: "sales.tasks.domain",
+    scope: "field",
+    failureMode: "deny",
+    timeoutMs: 1_000
+  },
+  {
+    schemaVersion: 1,
+    id: "sales.policy.tasks.status.read",
+    publisher: salesPermissionPublisher,
+    permissionId: "sales.tasks.status.read",
+    policyReference: "sales.tasks.domain",
+    scope: "field",
+    failureMode: "deny",
+    timeoutMs: 1_000
+  },
+  {
+    schemaVersion: 1,
+    id: "sales.policy.tasks.revenue.read",
+    publisher: salesPermissionPublisher,
+    permissionId: "sales.tasks.revenue.read",
+    policyReference: "sales.tasks.domain",
+    scope: "field",
+    failureMode: "deny",
+    timeoutMs: 1_000
+  },
+  {
+    schemaVersion: 1,
+    id: "sales.policy.tasks.private-note.read",
+    publisher: salesPermissionPublisher,
+    permissionId: "sales.tasks.private-note.read",
+    policyReference: "sales.tasks.domain",
+    scope: "field",
+    failureMode: "deny",
+    timeoutMs: 1_000
+  },
+  {
+    schemaVersion: 1,
+    id: "sales.policy.tasks.write",
+    publisher: salesPermissionPublisher,
+    permissionId: "sales.tasks.write",
+    policyReference: "sales.tasks.domain",
+    scope: "record",
+    failureMode: "deny",
+    timeoutMs: 1_000
+  },
+  {
+    schemaVersion: 1,
+    id: "sales.policy.opportunities.read",
+    publisher: salesPermissionPublisher,
+    permissionId: "sales.opportunities.read",
+    policyReference: "sales.opportunities.domain",
+    scope: "record",
+    failureMode: "deny",
+    timeoutMs: 1_000
+  },
+  {
+    schemaVersion: 1,
+    id: "sales.policy.opportunities.name.read",
+    publisher: salesPermissionPublisher,
+    permissionId: "sales.opportunities.name.read",
+    policyReference: "sales.opportunities.domain",
+    scope: "field",
+    failureMode: "deny",
+    timeoutMs: 1_000
+  },
+  {
+    schemaVersion: 1,
+    id: "sales.policy.opportunities.stage.read",
+    publisher: salesPermissionPublisher,
+    permissionId: "sales.opportunities.stage.read",
+    policyReference: "sales.opportunities.domain",
+    scope: "field",
+    failureMode: "deny",
+    timeoutMs: 1_000
+  },
+  {
+    schemaVersion: 1,
+    id: "sales.policy.opportunities.value.read",
+    publisher: salesPermissionPublisher,
+    permissionId: "sales.opportunities.value.read",
+    policyReference: "sales.opportunities.domain",
+    scope: "field",
+    failureMode: "deny",
+    timeoutMs: 1_000
+  },
+  {
+    schemaVersion: 1,
+    id: "sales.policy.opportunities.write",
+    publisher: salesPermissionPublisher,
+    permissionId: "sales.opportunities.write",
+    policyReference: "sales.opportunities.domain",
+    scope: "record",
+    failureMode: "deny",
+    timeoutMs: 1_000
+  }
+]);
+
+/** Static Sales role defaults; customer roles and assignments remain platform-owned. */
+export const salesRoleTemplates: readonly RoleTemplate[] = Object.freeze([
+  {
+    schemaVersion: 1,
+    id: "sales.template.viewer",
+    publisher: salesPermissionPublisher,
+    version: 1,
+    instantiation: "manual",
+    title: "Sales Viewer",
+    description: "View core Sales tasks and opportunities.",
+    permissionIds: [
+      "sales.opportunities.name.read",
+      "sales.opportunities.read",
+      "sales.opportunities.stage.read",
+      "sales.tasks.read",
+      "sales.tasks.status.read",
+      "sales.tasks.title.read"
+    ]
+  },
+  {
+    schemaVersion: 1,
+    id: "sales.template.representative",
+    publisher: salesPermissionPublisher,
+    version: 1,
+    instantiation: "manual",
+    title: "Sales Representative",
+    description: "View core Sales data and manage assigned tasks.",
+    permissionIds: [
+      "sales.opportunities.name.read",
+      "sales.opportunities.read",
+      "sales.opportunities.stage.read",
+      "sales.tasks.private-note.read",
+      "sales.tasks.read",
+      "sales.tasks.status.read",
+      "sales.tasks.title.read",
+      "sales.tasks.write"
+    ]
+  },
+  {
+    schemaVersion: 1,
+    id: "sales.template.manager",
+    publisher: salesPermissionPublisher,
+    version: 1,
+    instantiation: "manual",
+    title: "Sales Manager",
+    description: "Manage the Sales pipeline and view revenue data.",
+    permissionIds: [
+      "sales.opportunities.name.read",
+      "sales.opportunities.read",
+      "sales.opportunities.stage.read",
+      "sales.opportunities.value.read",
+      "sales.opportunities.write",
+      "sales.tasks.private-note.read",
+      "sales.tasks.read",
+      "sales.tasks.revenue.read",
+      "sales.tasks.status.read",
+      "sales.tasks.title.read",
+      "sales.tasks.write"
+    ]
+  },
+  {
+    schemaVersion: 1,
+    id: "sales.template.administrator",
+    publisher: salesPermissionPublisher,
+    version: 1,
+    instantiation: "manual",
+    title: "Sales Administrator",
+    description: "Manage all Sales data and workspace settings.",
+    permissionIds: [
+      "sales.opportunities.name.read",
+      "sales.opportunities.read",
+      "sales.opportunities.stage.read",
+      "sales.opportunities.value.read",
+      "sales.opportunities.write",
+      "sales.settings.read",
+      "sales.settings.write",
+      "sales.tasks.private-note.read",
+      "sales.tasks.read",
+      "sales.tasks.revenue.read",
+      "sales.tasks.status.read",
+      "sales.tasks.title.read",
+      "sales.tasks.write"
+    ]
+  }
 ]);
 
 export const salesRouteDescriptors = Object.freeze([

@@ -6,7 +6,7 @@ const manifest = {
   schemaVersion: 1, deliveryClass: "hot-application", id: "app.foo.bar", displayName: "Dotted routes", version: "1.0.0", runtimeAbi: "1.0.0",
   entrypoints: { server: [], ui: ["ui/main.mjs"] }, capabilities: [],
   resourceBudget: { maxBundleBytes: 1, maxAssetBytes: 1, maxStorageBytes: 1, maxMemoryMiB: 1, maxCpuMilliCores: 1, maxWallTimeMs: 1, maxInputBytes: 1, maxOutputBytes: 1, maxLogBytes: 1, maxConcurrency: 1 },
-  settings: [], screens: [{ id: "foo.task", route: "/tasks/:taskid", entrypoint: "ui/main.mjs" }], navigation: [], sources: [], actions: [], tools: [], logicFunctions: [], eventSubscriptions: [], schedules: [], storageSchemas: [], assets: [], localization: [], healthChecks: []
+  permissions: [], policyBindings: [], settings: [], screens: [{ id: "foo.task", route: "/tasks/:taskid", entrypoint: "ui/main.mjs" }], navigation: [], sources: [], actions: [], tools: [], logicFunctions: [], eventSubscriptions: [], schedules: [], storageSchemas: [], assets: [], localization: [], healthChecks: []
 } as const;
 
 describe("Hot Application routes", () => {
@@ -21,6 +21,59 @@ describe("Hot Application routes", () => {
     expect(matchHotApplicationRoute("app.foo.bar", "/tasks/:taskid", "/apps/foo.bar/tasks/42/other")).toBe(false);
     expect(matchHotApplicationRoute("app.foo.bar", "/tasks/:taskid", "/apps/foo.bar/tasks/../admin")).toBe(false);
     expect(matchHotApplicationRoute("app.foo.bar", "/tasks/:taskid", "/apps/foo.bar/tasks/%2e%2e")).toBe(false);
+  });
+});
+
+describe("Hot Application authorization declarations", () => {
+  const authorization = {
+    permissions: [{
+      schemaVersion: 1,
+      id: "foo.bar.tasks.read",
+      publisher: { kind: "extension", deliveryClass: "hot-application", extensionId: "app.foo.bar" },
+      title: "Read tasks",
+      description: "Read actor-authorized tasks.",
+      audience: "authenticated",
+      resource: "foo.bar.tasks",
+      operation: "read",
+      scope: "record"
+    }],
+    policyBindings: [{
+      schemaVersion: 1,
+      id: "foo.bar.policy.tasks-read",
+      publisher: { kind: "extension", deliveryClass: "hot-application", extensionId: "app.foo.bar" },
+      permissionId: "foo.bar.tasks.read",
+      policyReference: "foo.bar.policy.tasks-read",
+      scope: "record",
+      failureMode: "deny",
+      timeoutMs: 5_000
+    }],
+    roleTemplates: [{
+      schemaVersion: 1,
+      id: "foo.bar.template.viewer",
+      publisher: { kind: "extension", deliveryClass: "hot-application", extensionId: "app.foo.bar" },
+      version: 1,
+      instantiation: "manual",
+      title: "Task viewer",
+      permissionIds: ["foo.bar.tasks.read"]
+    }]
+  } as const;
+
+  it("accepts only closed, manifest-owned data declarations", () => {
+    expect(HotApplicationManifestSchema.safeParse({ ...manifest, ...authorization }).success).toBe(true);
+    expect(HotApplicationManifestSchema.safeParse({ ...manifest, ...authorization, permissions: [{ ...authorization.permissions[0], policy: "export default allow" }] }).success).toBe(false);
+    expect(HotApplicationManifestSchema.safeParse({ ...manifest, permissions: undefined }).success).toBe(false);
+  });
+
+  it.each([
+    ["same-namespace Platform Plugin publisher", { ...authorization, permissions: [{ ...authorization.permissions[0], publisher: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.foo.bar" } }] }],
+    ["Theme Skin publisher", { ...authorization, permissions: [{ ...authorization.permissions[0], publisher: { kind: "extension", deliveryClass: "theme-skin", extensionId: "skin.foo.bar" } }] }],
+    ["system publisher", { ...authorization, policyBindings: [{ ...authorization.policyBindings[0], publisher: { kind: "platform", namespace: "system" } }] }],
+    ["undeclared permission", { ...authorization, policyBindings: [{ ...authorization.policyBindings[0], permissionId: "foo.bar.tasks.write" }] }],
+    ["undeclared template permission", { ...authorization, roleTemplates: [{ ...authorization.roleTemplates[0], permissionIds: ["foo.bar.tasks.write"] }] }],
+    ["duplicate descriptor ID", { ...authorization, permissions: [authorization.permissions[0], { ...authorization.permissions[0], title: "Duplicated task reader" }] }],
+    ["duplicate policy binding ID", { ...authorization, policyBindings: [authorization.policyBindings[0], { ...authorization.policyBindings[0], timeoutMs: 4_999 }] }]
+  ] as const)("rejects %s", (_name, invalidAuthorization) => {
+    expect(HotApplicationManifestSchema.safeParse({ ...manifest, ...invalidAuthorization }).success).toBe(false);
   });
 });
 

@@ -269,4 +269,5 @@ export class ExtensionCapabilityGateway {
     }
     return claims;
   }
+
 }

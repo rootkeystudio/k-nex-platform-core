@@ -32,9 +32,11 @@ import {
   salesOpportunityStageUpdateDescriptor,
   salesPageTemplates,
   salesPermissionDescriptors,
+  salesPermissionPolicyBindings,
   salesRealtimeTopicDescriptors,
   salesReferenceMetadata,
   salesRouteDescriptors,
+  salesRoleTemplates,
   salesSearchTasksDescriptor,
   salesTaskCreateDescriptor,
   salesTaskFields,
@@ -62,7 +64,9 @@ export {
   salesCreateTaskToolDescriptor,
   salesNavigationDescriptors,
   salesPermissionDescriptors,
+  salesPermissionPolicyBindings,
   salesRouteDescriptors,
+  salesRoleTemplates,
   salesSearchTasksDescriptor,
   salesTaskCreateDescriptor,
   salesTaskPageTemplate,
@@ -709,6 +713,8 @@ export const salesRegistration = definePluginRegistration({
   pluginId: "module.sales",
   contracts: (context) => {
     for (const descriptor of salesPermissionDescriptors) context.register("permissions", descriptor.id, descriptor);
+    for (const binding of salesPermissionPolicyBindings) context.register("policyBindings", binding.id, binding);
+    for (const template of salesRoleTemplates) context.register("roleTemplates", template.id, template);
     context.register("settings", salesWorkspaceSettingsDescriptor.id, salesWorkspaceSettingsDescriptor);
     context.register("sources", salesTotalPotentialRevenueDescriptor.id, salesTotalPotentialRevenueDefinition);
     context.register("sources", salesTasksDescriptor.id, salesTasksDefinition);

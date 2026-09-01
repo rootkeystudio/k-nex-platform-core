@@ -1,6 +1,8 @@
 import {
   RunnerIsolationProfileSchema,
+  type ExtensionAuthorizationOwnerRef,
   type HotApplicationManifest,
+  type PermissionPolicyBinding,
   type RunnerIsolationProfile
 } from "@k-nex/contracts";
 import { randomUUID } from "node:crypto";
@@ -8,13 +10,55 @@ import { randomUUID } from "node:crypto";
 import type { ExtensionActorIdentity, ExtensionCapabilityTokenRequest, HmacExtensionCapabilityTokens } from "./extension-capability-gateway.js";
 import type { DurableDynamicArtifact, DurableDynamicArtifactStore } from "./dynamic-generation-runtime.js";
 import type { RuntimeExtensionStore } from "./plugin-manager.js";
+import type {
+  AuthorizationPolicyEvaluationInput,
+  AuthorizationPolicyEvaluationOutcome,
+  HotApplicationPolicyHostCapabilityGateway
+} from "./authorization-registry.js";
 
 type ProductionRunnerIsolationProfile = Extract<RunnerIsolationProfile, { scope: "production" }>;
 type ActiveGeneration = NonNullable<ReturnType<AuthoritativeHotApplicationRuntime["active"]>>;
 type HotApplicationArtifact = DurableDynamicArtifact & Readonly<{ hotApplicationManifest: HotApplicationManifest }>;
 
+export interface AuthoritativeHotApplicationAuthorizationSource { readonly __opaqueHotApplicationAuthorizationSource?: never; }
+
+export interface AuthoritativeHotApplicationAuthorizationRecord {
+  readonly applicationId: string;
+  readonly environment: string;
+  readonly extensionId: string;
+  readonly generationId: string;
+  readonly artifactDigest: `sha256:${string}`;
+  readonly manifestDigest: `sha256:${string}`;
+  readonly manifest: HotApplicationManifest;
+}
+
+const authorizationSources = new WeakSet<object>();
+const authorizationSourceRecords = new WeakMap<object, AuthoritativeHotApplicationAuthorizationRecord>();
+const policyGatewayRecords = new WeakMap<object, AuthoritativeHotApplicationAuthorizationRecord>();
+
+/** Internal K-Nex authority check; raw objects and clones cannot satisfy it. */
+export function readAuthoritativeHotApplicationAuthorizationSource(value: unknown): AuthoritativeHotApplicationAuthorizationRecord | undefined {
+  return typeof value === "object" && value !== null && authorizationSources.has(value)
+    ? authorizationSourceRecords.get(value) : undefined;
+}
+
+/** Only AuthoritativeHotApplicationRuntime can mint this runner-backed policy route. */
+export function isRunnerBackedHotApplicationPolicyGateway(value: unknown): value is HotApplicationPolicyHostCapabilityGateway {
+  return readRunnerBackedHotApplicationPolicyGatewaySource(value) !== undefined;
+}
+
+export function readRunnerBackedHotApplicationPolicyGatewaySource(value: unknown): AuthoritativeHotApplicationAuthorizationRecord | undefined {
+  return typeof value === "object" && value !== null ? policyGatewayRecords.get(value) : undefined;
+}
+
 function isHotApplicationArtifact(artifact: DurableDynamicArtifact): artifact is HotApplicationArtifact {
   return artifact.authority.deliveryClass === "hot-application" && artifact.hotApplicationManifest?.deliveryClass === "hot-application";
+}
+
+function deepFreeze<T>(value: T): T {
+  if (typeof value !== "object" || value === null || Object.isFrozen(value)) return value;
+  for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child);
+  return Object.freeze(value);
 }
 
 export interface HotApplicationServerInvocation {
@@ -157,6 +201,60 @@ export class AuthoritativeHotApplicationRuntime {
     throw new Error("Hot Application active generation changed during lease acquisition.");
   }
 
+  /** Revalidates active inventory plus immutable bytes before exposing data-only authorization declarations. */
+  async createAuthorizationSource(): Promise<AuthoritativeHotApplicationAuthorizationSource> {
+    const { active, artifact } = await this.verifiedActive();
+    const source = Object.freeze({});
+    authorizationSourceRecords.set(source, Object.freeze({
+      applicationId: this.identity.applicationId,
+      environment: this.identity.environment,
+      extensionId: this.identity.appId,
+      generationId: active.generationId,
+      artifactDigest: active.artifactDigest as `sha256:${string}`,
+      manifestDigest: active.manifestDigest as `sha256:${string}`,
+      manifest: deepFreeze(structuredClone(artifact.hotApplicationManifest))
+    }));
+    authorizationSources.add(source);
+    return source;
+  }
+
+  /** Policy evaluation stays on the existing P9 invocation boundary; callbacks never cross this boundary. */
+  createAuthorizationPolicyGateway(source: AuthoritativeHotApplicationAuthorizationSource): HotApplicationPolicyHostCapabilityGateway {
+    const record = readAuthoritativeHotApplicationAuthorizationSource(source);
+    if (!record || record.applicationId !== this.identity.applicationId || record.environment !== this.identity.environment || record.extensionId !== this.identity.appId) {
+      throw new TypeError("Hot Application authorization source is not owned by this runtime.");
+    }
+    const gateway: HotApplicationPolicyHostCapabilityGateway = Object.freeze({
+      evaluate: async (input: Parameters<HotApplicationPolicyHostCapabilityGateway["evaluate"]>[0]) => {
+        const { owner, binding, evaluation, signal } = input;
+        if (!samePolicyOwner(owner, record) || binding.publisher.kind !== "extension" ||
+          binding.publisher.deliveryClass !== "hot-application" || binding.publisher.extensionId !== record.extensionId) {
+          throw new Error("Hot Application policy identity does not match the verified generation.");
+        }
+        return await this.invoke({
+          input: Object.freeze({ schemaVersion: 1, kind: "authorization-policy-evaluation", binding: structuredClone(binding), evaluation: structuredClone(evaluation) }),
+          actor: policyActor(evaluation),
+          correlationId: `authorization-${randomUUID()}`,
+          expectedGeneration: { generationId: record.generationId, artifactDigest: record.artifactDigest },
+          signal
+        }) as AuthorizationPolicyEvaluationOutcome;
+      }
+    });
+    policyGatewayRecords.set(gateway, record);
+    return gateway;
+  }
+
+  private async verifiedActive(): Promise<Readonly<{ active: ActiveGeneration; artifact: HotApplicationArtifact }>> {
+    const active = this.active(await this.store.inventory(this.identity.applicationId, this.identity.environment));
+    if (!active) throw new Error("Hot Application has no authoritative active generation.");
+    const owner = { applicationId: this.identity.applicationId, environment: this.identity.environment, deliveryClass: "hot-application" as const, extensionId: this.identity.appId };
+    const artifact = await this.artifacts.resolve({ owner, generationId: active.generationId, artifactDigest: active.artifactDigest });
+    if (!artifact || !this.matches(active, artifact) || !isHotApplicationArtifact(artifact)) {
+      throw new Error("The authoritative generation has no matching verified Hot Application bytes.");
+    }
+    return Object.freeze({ active, artifact });
+  }
+
   private active(inventory: Awaited<ReturnType<RuntimeExtensionStore["inventory"]>>) {
     const entry = inventory.extensions.hotApplications[this.identity.appId];
     return entry?.disposition === "active" ? entry.activeGeneration : undefined;
@@ -169,4 +267,16 @@ export class AuthoritativeHotApplicationRuntime {
       authority.artifactDigest === active.artifactDigest && authority.manifestDigest === active.manifestDigest && authority.catalogDigest === active.catalogDigest &&
       authority.provenanceDigest === active.provenanceDigest && authority.sbomDigest === active.sbomDigest;
   }
+}
+
+function samePolicyOwner(owner: ExtensionAuthorizationOwnerRef, source: AuthoritativeHotApplicationAuthorizationRecord): boolean {
+  return owner.deliveryClass === "hot-application" && owner.extensionId === source.extensionId;
+}
+
+function policyActor(evaluation: AuthorizationPolicyEvaluationInput): ExtensionActorIdentity {
+  return Object.freeze({
+    principalId: evaluation.principal.id,
+    effectiveActorId: evaluation.effectiveActor.id,
+    ...(evaluation.delegation === undefined ? {} : { delegationId: evaluation.delegation.delegationId })
+  });
 }

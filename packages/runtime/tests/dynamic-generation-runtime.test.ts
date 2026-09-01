@@ -33,7 +33,7 @@ const artifact: DurableDynamicArtifact = {
   authority, version: "1.0.0",
   hotApplicationManifest: {
     schemaVersion: 1, deliveryClass: "hot-application", id: request.extension.id, displayName: "Sales assistant", version: "1.0.0", runtimeAbi: "1.0.0",
-    entrypoints: { server: ["server/main.mjs"], ui: ["ui/main.mjs"] }, capabilities: plan.plan.requiredCapabilities, resourceBudget: plan.plan.resourceBudget,
+    entrypoints: { server: ["server/main.mjs"], ui: ["ui/main.mjs"] }, capabilities: plan.plan.requiredCapabilities, permissions: [], policyBindings: [], resourceBudget: plan.plan.resourceBudget,
     settings: [], screens: [{ id: "sales.screen", route: "/", entrypoint: "ui/main.mjs" }], navigation: [], sources: [], actions: [], tools: [], logicFunctions: [], eventSubscriptions: [], schedules: [], storageSchemas: [], assets: [], localization: [], healthChecks: []
   },
   capabilities: plan.plan.requiredCapabilities,
@@ -148,6 +148,23 @@ describe("durable dynamic generation adapters", () => {
       wallTimeMs: 5_000, inputBytes: 65_536, outputBytes: 131_072, logBytes: 65_536, maxConcurrency: 4
     } }));
     expect(leases).toEqual(["lease-00000000-0000-4000-8000-000000000000"]);
+  });
+
+  it("does not mint authorization authority from stale or mismatched durable artifacts", async () => {
+    const store = {
+      inventory: vi.fn(async () => inventory(activeGeneration())),
+      acquireGenerationLease: vi.fn(),
+      releaseGenerationLease: vi.fn()
+    };
+    const mismatches: DurableDynamicArtifact[] = [
+      { ...artifact, authority: { ...authority, artifactDigest: digest("9") } },
+      { ...artifact, authority: { ...authority, applicationId: "customer-beta" } },
+      { ...artifact, authority: { ...authority, generationId: "sales-assistant-generation-2" } }
+    ];
+    for (const mismatch of mismatches) {
+      const runtime = trafficRuntime(store, { invoke: vi.fn() }, { issue: vi.fn() }, mismatch);
+      await expect(runtime.createAuthorizationSource()).rejects.toThrow(/matching verified Hot Application bytes/u);
+    }
   });
 
   it("reselects G2 once when an unpinned lease acquisition observes a pointer switch", async () => {

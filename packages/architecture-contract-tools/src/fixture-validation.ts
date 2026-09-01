@@ -1,4 +1,4 @@
-import { AuthorizationContractsSchema } from "@k-nex/contracts";
+import { AuthorizationContractsSchema, HotApplicationManifestSchema } from "@k-nex/contracts";
 import type { ErrorObject, ValidateFunction } from "ajv";
 
 export const fixtureSchemas = [
@@ -110,6 +110,19 @@ function semanticDiagnostic(
       "AUTHORIZATION_OWNERSHIP_INVALID",
       zodPath(issue.path),
       "Keep authorization ownership, generation, and decision invariants aligned with the canonical contract.",
+      "repository-semantic"
+    );
+  }
+
+  if (fixture.schema === "hot-application-manifest") {
+    const parsed = HotApplicationManifestSchema.safeParse(fixture.value);
+    const issue = !parsed.success ? parsed.error.issues.find(({ code, path }) =>
+      code === "custom" && ["permissions", "policyBindings", "roleTemplates"].includes(String(path[0]))) : undefined;
+    return issue === undefined ? undefined : diagnostic(
+      fixture.fixturePath,
+      "AUTHORIZATION_OWNERSHIP_INVALID",
+      zodPath(issue.path),
+      "Keep Hot Application authorization declarations owned by this manifest and reference only its declared permissions.",
       "repository-semantic"
     );
   }

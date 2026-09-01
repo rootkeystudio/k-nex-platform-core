@@ -3,12 +3,13 @@ import type {
   PluginContributionRequirement, PluginManifest, RegistrationPhase
 } from "@k-nex/contracts";
 import {
-  AgentToolDescriptorSchema, AuthorizationPermissionDescriptorSchema, PluginNavigationDescriptorSchema,
+  AgentToolDescriptorSchema, AuthorizationPermissionDescriptorSchema, PermissionPolicyBindingSchema,
+  PluginNavigationDescriptorSchema,
   PluginEventDescriptorSchema, PluginHealthAuditDescriptorSchema, PluginJobDescriptorSchema,
   PluginLifecycleDescriptorSchema, PluginLocalizationDescriptorSchema, PluginMigrationDescriptorSchema,
   PluginPageTemplateDescriptorSchema, PluginRouteDescriptorSchema, PluginSettingsDescriptorSchema,
   PluginRealtimeTopicDescriptorSchema, PluginServiceDescriptorSchema, PluginTestingMetadataDescriptorSchema,
-  PluginUiContributionDescriptorSchema, assertDataSourceDefinition,
+  PluginUiContributionDescriptorSchema, RoleTemplateSchema, assertDataSourceDefinition,
   pluginContributionCategoryKeys, pluginContributionRegistry, registrationPhases
 } from "@k-nex/contracts";
 import * as semver from "semver";
@@ -182,6 +183,8 @@ function frozenClone<T>(value: T): T {
 function configurationContribution(kind: ContributionKind, id: string, pluginId: string, value: unknown): unknown {
   const schema = kind === "settings" ? PluginSettingsDescriptorSchema
     : kind === "permissions" ? AuthorizationPermissionDescriptorSchema
+      : kind === "policyBindings" ? PermissionPolicyBindingSchema
+        : kind === "roleTemplates" ? RoleTemplateSchema
       : kind === "routes" ? PluginRouteDescriptorSchema
         : kind === "navigation" ? PluginNavigationDescriptorSchema
           : kind === "pageTemplates" ? PluginPageTemplateDescriptorSchema
@@ -201,9 +204,11 @@ function configurationContribution(kind: ContributionKind, id: string, pluginId:
   const publisher = parsed.success
     ? (parsed.data as { readonly publisher?: { readonly kind?: string; readonly deliveryClass?: string; readonly extensionId?: string } }).publisher
     : undefined;
-  if (!parsed.success || parsed.data.id !== id || (kind === "permissions"
-    ? publisher?.kind !== "extension" || publisher.deliveryClass !== "platform-plugin" || publisher.extensionId !== pluginId
-    : (parsed.data as { readonly ownerPluginId?: string }).ownerPluginId !== pluginId)) {
+  const authorizationContribution = kind === "permissions" || kind === "policyBindings" || kind === "roleTemplates";
+  const identityMatches = parsed.success && (authorizationContribution
+    ? publisher?.kind === "extension" && publisher.deliveryClass === "platform-plugin" && publisher.extensionId === pluginId
+    : (parsed.data as { readonly ownerPluginId?: string }).ownerPluginId === pluginId);
+  if (!parsed.success || parsed.data.id !== id || !identityMatches) {
     fail("INVALID_CONTRIBUTION", `${kind} contribution identity must match ${pluginId}:${id}.`, [pluginId, kind, id]);
   }
   if ((kind === "components" || kind === "blocks") && (parsed.data as { readonly kind?: string }).kind !== (kind === "components" ? "component" : "block")) {
@@ -443,6 +448,14 @@ export function executeRegistration(options: ExecuteRegistrationOptions): Regist
     }
     for (const [actionId, value] of byKind.get("actions") ?? []) {
       reference("actions", actionId, "permissions", (value as ActionDefinition).descriptor.permission);
+    }
+    for (const [bindingId, value] of byKind.get("policyBindings") ?? []) {
+      reference("policyBindings", bindingId, "permissions", (value as { readonly permissionId: string }).permissionId);
+    }
+    for (const [templateId, value] of byKind.get("roleTemplates") ?? []) {
+      for (const permissionId of (value as { readonly permissionIds: readonly string[] }).permissionIds) {
+        reference("roleTemplates", templateId, "permissions", permissionId);
+      }
     }
     for (const [routeId, value] of byKind.get("routes") ?? []) {
       const descriptor = value as { readonly permission: string; readonly viewId: string };

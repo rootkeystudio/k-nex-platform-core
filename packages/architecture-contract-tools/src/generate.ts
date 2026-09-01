@@ -153,6 +153,12 @@ function pluginManifestJsonSchema(): unknown {
   return generated;
 }
 
+function hotApplicationManifestJsonSchema(): unknown {
+  const generated = jsonSchema(HotApplicationManifestSchema) as Record<string, unknown>;
+  generated.kNexHotApplicationAuthorization = true;
+  return generated;
+}
+
 function authorizationContractsJsonSchema(): unknown {
   const generated = identifiedJsonSchema(
     AuthorizationContractsSchema,
@@ -209,7 +215,7 @@ const primaryArtifacts = [
   { path: "schemas/action.v1.schema.json", value: jsonSchema(ActionDescriptorSchema) },
   { path: "schemas/agent-tool.v1.schema.json", value: jsonSchema(AgentToolDescriptorSchema) },
   { path: "schemas/plugin-manifest.v1.schema.json", value: pluginManifestJsonSchema() },
-  { path: "schemas/hot-application-manifest.v1.schema.json", value: jsonSchema(HotApplicationManifestSchema) },
+  { path: "schemas/hot-application-manifest.v1.schema.json", value: hotApplicationManifestJsonSchema() },
   { path: "schemas/theme-skin-manifest.v1.schema.json", value: jsonSchema(ThemeSkinManifestSchema) },
   { path: "schemas/extension-bundle-manifest.v1.schema.json", value: jsonSchema(ExtensionBundleManifestSchema) },
   { path: "schemas/extension-capability-request.v1.schema.json", value: identifiedJsonSchema(ExtensionCapabilityRequestSchema, "https://schemas.k-nex.dev/extension-capability-request/v1.json", "K-Nex Extension Capability Request v1") },
