@@ -8,6 +8,7 @@ import {
   protectedRoleIds,
   templateBaselineDigestAlgorithm,
   type AuthorizationOwnerRef,
+  type AuthorizationDecisionAudit,
   type ExtensionAuthorizationOwnerRef,
   type Role,
   type RoleTemplate,
@@ -30,6 +31,8 @@ export interface InstantiateRoleTemplateInput {
   readonly expected: AuthorizationExpectedRevision;
   readonly effectiveTemplate: EffectiveRoleTemplate;
   readonly role: Readonly<{ readonly id: string; readonly label: string; readonly description?: string }>;
+  /** A server-authorized mutation may attach its decision audit to this same transaction. */
+  readonly audit?: AuthorizationDecisionAudit;
 }
 
 export interface ReconcileAutomaticRoleTemplatesInput {
@@ -44,6 +47,8 @@ export interface CopyTemplatePermissionsInput {
   readonly effectiveTemplate: EffectiveRoleTemplate;
   readonly roleId: string;
   readonly permissionIds: readonly string[];
+  /** A server-authorized mutation may attach its decision audit to this same transaction. */
+  readonly audit?: AuthorizationDecisionAudit;
 }
 
 export interface TombstoneAutomaticRoleTemplateInput {
@@ -72,6 +77,7 @@ export async function instantiateRoleTemplate(input: InstantiateRoleTemplateInpu
       fail("REVISION_CONFLICT", "Template role target already exists.");
     }
     await writeRoleTemplate(transaction, role, effectiveTemplate, adoption);
+    await writeAudit(transaction, input.audit);
     return adoption;
   });
 }
@@ -132,6 +138,7 @@ export async function copyTemplatePermissionsToRole(input: CopyTemplatePermissio
     }
     const adoption = createAdoption(expected.applicationId, role.id, effectiveTemplate, permissionIds, "copied-permissions", revision);
     await transaction.write({ kind: "template-adoption", adoption });
+    await writeAudit(transaction, input.audit);
     return adoption;
   });
 }
@@ -266,6 +273,10 @@ async function writeRoleTemplate(transaction: AuthorizationStoreTransaction, rol
     await transaction.write({ kind: "grant", grant: createGrant(role.applicationId, role.id, permissionId, effectiveTemplate.owner, role.revision) });
   }
   await transaction.write({ kind: "template-adoption", adoption });
+}
+
+async function writeAudit(transaction: AuthorizationStoreTransaction, audit: AuthorizationDecisionAudit | undefined): Promise<void> {
+  if (audit !== undefined) await transaction.write({ kind: "audit", audit });
 }
 
 async function editableRole(transaction: AuthorizationStoreTransaction, applicationId: string, roleId: string): Promise<Role> {

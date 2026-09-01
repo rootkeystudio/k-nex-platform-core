@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import type { AuthorizationDecisionAudit } from "@k-nex/contracts";
 import { PostgresAuthorizationStore } from "../src/authorization-store.js";
 import type { RuntimeExtensionPool, RuntimeExtensionSession } from "../src/runtime-extension-store.js";
 import { bootstrapFirstOwner, protectedPlatformRoleBaselines } from "@k-nex/runtime";
@@ -11,7 +12,7 @@ const descriptor = {
   description: "Manage customer roles.", audience: "authenticated", resource: "system.roles", operation: "manage", scope: "application"
 } as const;
 
-function harness(options: Readonly<{ state?: Partial<typeof expected>; activeOwner?: boolean; otherOwners?: number; roleRow?: Record<string, unknown>; adoptionRow?: Record<string, unknown>; bootstrapAssignment?: Record<string, unknown>; protectedGrantRoleId?: string; outboxFailure?: boolean }> = {}) {
+function harness(options: Readonly<{ state?: Partial<typeof expected>; activeOwner?: boolean; otherOwners?: number; roleRow?: Record<string, unknown>; adoptionRow?: Record<string, unknown>; auditRows?: readonly Record<string, unknown>[]; bootstrapAssignment?: Record<string, unknown>; protectedGrantRoleId?: string; outboxFailure?: boolean }> = {}) {
   const current = { ...expected, ...options.state };
   const queries: string[] = [];
   let writtenOwnerAssignment: Record<string, unknown> | undefined;
@@ -20,6 +21,7 @@ function harness(options: Readonly<{ state?: Partial<typeof expected>; activeOwn
     if (text.startsWith("select application_id, authorization_revision")) return { rows: [{ application_id: current.applicationId, authorization_revision: current.authorizationRevision, lifecycle_revision: current.lifecycleRevision }] as T[] };
     if (text.startsWith("select application_id, role_id")) return { rows: options.roleRow ? [options.roleRow] as T[] : [] as T[] };
     if (text.startsWith("select application_id, adoption_id")) return { rows: options.adoptionRow ? [options.adoptionRow] as T[] : [] as T[] };
+    if (text.startsWith("select audit_id, application_id")) return { rows: options.auditRows ? [...options.auditRows] as T[] : [] as T[] };
     if (text.startsWith("update k_nex_authorization_state")) {
       current.authorizationRevision = values[1] as number;
       current.lifecycleRevision = values[2] as number;
@@ -39,6 +41,24 @@ function harness(options: Readonly<{ state?: Partial<typeof expected>; activeOwn
   const session: RuntimeExtensionSession = { query, release: vi.fn() };
   const pool: RuntimeExtensionPool = { connect: vi.fn(async () => session), query };
   return { current, query, queries, store: new PostgresAuthorizationStore(pool) };
+}
+
+function audit(auditId: string): AuthorizationDecisionAudit {
+  return {
+    schemaVersion: 1, auditId, decisionId: `decision-${auditId}`, correlationId: `correlation-${auditId}`,
+    applicationId: expected.applicationId, environment: expected.environment, permissionId: descriptor.id,
+    owner: descriptor.publisher, principal: { kind: "user", id: "user-1" }, effectiveActor: { kind: "user", id: "user-1" },
+    scope: { kind: "application", resource: "system.roles" }, authorizationRevision: expected.authorizationRevision,
+    lifecycleRevision: expected.lifecycleRevision, outcome: "allow", reason: "granted", approval: "not-required", reauthentication: "not-required"
+  };
+}
+
+function auditRow(value: AuthorizationDecisionAudit, createdAt: unknown): Record<string, unknown> {
+  return {
+    audit_id: value.auditId, application_id: value.applicationId, environment: value.environment, permission_id: value.permissionId,
+    outcome: value.outcome, reason: value.reason, authorization_revision: value.authorizationRevision,
+    lifecycle_revision: value.lifecycleRevision, audit_json: value, created_at: createdAt
+  };
 }
 
 describe("PostgresAuthorizationStore", () => {
@@ -198,6 +218,40 @@ describe("PostgresAuthorizationStore", () => {
     expect(result.state).toMatchObject({ authorizationRevision: 5, lifecycleRevision: 3 });
     expect(mixed.queries.filter((query) => query.startsWith("update k_nex_authorization_state"))).toHaveLength(1);
     expect(mixed.queries.filter((query) => query.includes("k_nex_authorization_outbox"))).toHaveLength(1);
+  });
+
+  it("projects durable audit timestamps in newest-first database order and pages from the cursor tuple", async () => {
+    const older = audit("audit-older");
+    const alpha = audit("audit-alpha");
+    const omega = audit("audit-omega");
+    const first = harness({ auditRows: [
+      auditRow(omega, new Date("2026-09-01T12:01:00.000Z")),
+      auditRow(alpha, new Date("2026-09-01T12:01:00.000Z")),
+      auditRow(older, new Date("2026-09-01T12:00:00.000Z"))
+    ] });
+
+    await expect(first.store.transaction(expected, (transaction) => transaction.listAudits({ applicationId: expected.applicationId, limit: 3 }))).resolves.toMatchObject({ value: [
+      { audit: omega, occurredAt: "2026-09-01T12:01:00.000Z" },
+      { audit: alpha, occurredAt: "2026-09-01T12:01:00.000Z" },
+      { audit: older, occurredAt: "2026-09-01T12:00:00.000Z" }
+    ] });
+    const firstQuery = first.query.mock.calls.find(([query]) => String(query).startsWith("select audit_id, application_id"));
+    expect(firstQuery?.[0]).toContain("order by created_at desc, audit_id desc");
+
+    const after = harness({ auditRows: [auditRow(older, "2026-09-01T12:00:00.000Z")] });
+    await expect(after.store.transaction(expected, (transaction) => transaction.listAudits({ applicationId: expected.applicationId, afterAuditId: alpha.auditId, limit: 3 }))).resolves.toMatchObject({ value: [
+      { audit: older, occurredAt: "2026-09-01T12:00:00.000Z" }
+    ] });
+    const afterQuery = after.query.mock.calls.find(([query]) => String(query).startsWith("select audit_id, application_id"));
+    expect(afterQuery?.[0]).toContain("(created_at, audit_id) < (select created_at, audit_id");
+    expect(afterQuery?.[1]).toEqual([expected.applicationId, expected.environment, alpha.auditId, 3]);
+  });
+
+  it("fails closed when a persisted audit timestamp cannot be parsed", async () => {
+    const value = harness({ auditRows: [auditRow(audit("audit-invalid-time"), "not-a-timestamp")] });
+
+    await expect(value.store.transaction(expected, (transaction) => transaction.listAudits({ applicationId: expected.applicationId, limit: 1 }))).rejects.toMatchObject({ code: "MUTATION_INVALID" });
+    expect(value.queries.at(-1)).toBe("rollback");
   });
 
   it("rolls back the authorization write when its transactional outbox write fails", async () => {

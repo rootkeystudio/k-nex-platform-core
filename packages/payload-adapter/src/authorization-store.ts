@@ -28,6 +28,7 @@ import {
   parseAuthorizationExpectedRevision,
   parseAuthorizationStoreMutation,
   type AuthorizationStore,
+  type AuthorizationAuditEntry,
   type AuthorizationStoreMutation,
   type AuthorizationStoreTransaction,
   type AuthorizationSubjectValidator,
@@ -150,6 +151,14 @@ function audit(row: Row): AuthorizationDecisionAudit {
     fail("MUTATION_INVALID", "Persisted authorization audit projection is inconsistent.");
   }
   return value;
+}
+
+function auditEntry(row: Row): AuthorizationAuditEntry {
+  const value = row.created_at;
+  if (!(value instanceof Date) && typeof value !== "string") fail("MUTATION_INVALID", "Persisted authorization audit timestamp is invalid.");
+  const occurredAt = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(occurredAt.valueOf())) fail("MUTATION_INVALID", "Persisted authorization audit timestamp is invalid.");
+  return Object.freeze({ audit: audit(row), occurredAt: occurredAt.toISOString() });
 }
 
 function sameApplication(expected: AuthorizationExpectedRevision, applicationId: string): void {
@@ -299,9 +308,9 @@ export class PostgresAuthorizationStore implements AuthorizationStore {
       listAudits: async (input: Readonly<{ readonly applicationId: string; readonly afterAuditId?: string; readonly limit: number }>) => {
         application(input.applicationId);
         if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 1_000 || (input.afterAuditId !== undefined && typeof input.afterAuditId !== "string")) fail("MUTATION_INVALID", "Authorization audit page is invalid.");
-        const result = await session.query<Row>(`select audit_id, application_id, environment, permission_id, outcome, reason, authorization_revision, lifecycle_revision, audit_json from k_nex_authorization_audit where application_id=$1 and environment=$2${input.afterAuditId === undefined ? "" : " and audit_id>$3"} order by audit_id limit $${input.afterAuditId === undefined ? 3 : 4}`,
+        const result = await session.query<Row>(`select audit_id, application_id, environment, permission_id, outcome, reason, authorization_revision, lifecycle_revision, audit_json, created_at from k_nex_authorization_audit where application_id=$1 and environment=$2${input.afterAuditId === undefined ? "" : " and (created_at, audit_id) < (select created_at, audit_id from k_nex_authorization_audit where application_id=$1 and environment=$2 and audit_id=$3)"} order by created_at desc, audit_id desc limit $${input.afterAuditId === undefined ? 3 : 4}`,
           input.afterAuditId === undefined ? [expected.applicationId, expected.environment, input.limit] : [expected.applicationId, expected.environment, input.afterAuditId, input.limit]);
-        return Object.freeze(result.rows.map(audit));
+        return Object.freeze(result.rows.map(auditEntry));
       },
       write: async (value: AuthorizationStoreMutation) => {
         const mutation = await parseAuthorizationStoreMutation(value, this.subjectValidator);

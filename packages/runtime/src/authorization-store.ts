@@ -51,6 +51,12 @@ export type AuthorizationStoreMutation =
   | Readonly<{ readonly kind: "bootstrap-receipt"; readonly receipt: BootstrapReceipt }>
   | Readonly<{ readonly kind: "audit"; readonly audit: AuthorizationDecisionAudit }>;
 
+/** A durable audit record with its database-assigned occurrence time. */
+export interface AuthorizationAuditEntry {
+  readonly audit: AuthorizationDecisionAudit;
+  readonly occurredAt: string;
+}
+
 export interface AuthorizationStoreTransaction {
   readRole(applicationId: string, roleId: string): Promise<Role | undefined>;
   listRoles(applicationId: string): Promise<readonly Role[]>;
@@ -60,7 +66,7 @@ export interface AuthorizationStoreTransaction {
   listCatalogSnapshots(applicationId: string): Promise<readonly PermissionCatalogSnapshot[]>;
   listExtensionGenerations(applicationId: string): Promise<readonly ExtensionAuthorizationGeneration[]>;
   readBootstrapReceipt(applicationId: string): Promise<BootstrapReceipt | undefined>;
-  listAudits(input: Readonly<{ readonly applicationId: string; readonly afterAuditId?: string; readonly limit: number }>): Promise<readonly AuthorizationDecisionAudit[]>;
+  listAudits(input: Readonly<{ readonly applicationId: string; readonly afterAuditId?: string; readonly limit: number }>): Promise<readonly AuthorizationAuditEntry[]>;
   write(mutation: AuthorizationStoreMutation): Promise<void>;
 }
 

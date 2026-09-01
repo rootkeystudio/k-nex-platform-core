@@ -49,3 +49,5 @@ export * from "./current-authority-operation-authorizer.js";
 export * from "./current-authority-adapter.js";
 export * from "./current-authority-policies.js";
 export * from "./authorization-revision-consumer.js";
+export * from "./system-access-administration.js";
+export * from "./system-extension-administration.js";

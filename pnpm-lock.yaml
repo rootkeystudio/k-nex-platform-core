@@ -49,6 +49,9 @@ importers:
       '@k-nex/ui-design-system-contracts':
         specifier: workspace:*
         version: link:../../packages/ui-design-system-contracts
+      '@k-nex/ui-pages':
+        specifier: workspace:*
+        version: link:../../packages/ui-pages
       '@k-nex/ui-runtime':
         specifier: workspace:*
         version: link:../../packages/ui-runtime
@@ -80,6 +83,12 @@ importers:
       '@types/node':
         specifier: 24.13.3
         version: 24.13.3
+      '@types/react':
+        specifier: 19.2.18
+        version: 19.2.18
+      '@types/react-dom':
+        specifier: 19.2.4
+        version: 19.2.4(@types/react@19.2.18)
       esbuild:
         specifier: 0.28.2
         version: 0.28.2

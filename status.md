@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-09-01
 - **Phase:** Phase 10 — RBAC, Authorization, and Extension Bootstrap
-- **Active task:** P10.9 — System access and extension administration UI
+- **Active task:** P10.10 — Gate 10 closeout
 - **State:** Ready to start
 
 ## Last completed
 
-P10.8 adds transactional authorization invalidations, a leased durable outbox worker, authoritative revision polling, seven-boundary fanout including realtime, signed runner revision fences with active cancellation, synchronous browser/source clearing, and exact Remote UI route-session admission fencing. Lost delivery, crash redelivery, revoke/regrant replay, and stale result races fail closed without restart.
+P10.9 delivers eight fixed accessible system pages backed by current RBAC, revision-fenced atomic mutations/audits, durable audit timestamps, selectable template copying, session-bound authoritative extension plans, context-bound lifecycle operators, and exact inventory/impact truth.
 
 ## Validation
 
-Focused only: changed package/fixture builds; contracts 4; runtime 63; payload adapter 26; UI runtime 17; runner reconciliation 42; host admission 2; real PostgreSQL outbox convergence 1; real PostgreSQL/Chromium assignment revocation 1; syntax/diff checks; Docker/process cleanup. Same xhigh reviewer: PASS. Full suite deferred to P10.10.
+Focused only on exact Node 24.19.0: runtime administration 23; Payload adapter authorization store 16; UI pages 3; affected package/customer builds; real PostgreSQL/HTTP/Chromium system administration 1 with `P10_9_SYSTEM_ADMIN_POSTGRES_CHROMIUM_EVIDENCE=PASS`; diff checks; Docker/process cleanup. Same xhigh reviewer: PASS. Full suite remains deferred to P10.10.
 
 ## Next
 
-P10.9: review existing system UI/action/source/component contracts, then implement the smallest authorized roles, permissions, assignments, templates, audit, and extension administration journeys in documented order.
+P10.10: pre-review Gate 10/result conventions, implement the smallest truthful `gate:10` and Phase 10 result, then run the full phase gate and same xhigh review.
 
 ## Blockers
 
