@@ -48,3 +48,4 @@ export * from "./effective-authority.js";
 export * from "./current-authority-operation-authorizer.js";
 export * from "./current-authority-adapter.js";
 export * from "./current-authority-policies.js";
+export * from "./authorization-revision-consumer.js";

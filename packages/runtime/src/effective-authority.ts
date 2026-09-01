@@ -308,7 +308,7 @@ export class EffectiveAuthorityResolver {
         reason = "granted";
       } else {
         try {
-          const policy = await catalog.execute({ schemaVersion: 1, applicationId: session.applicationId, permissionId: request.permissionId, scope: request.scope, principal: session.principal, effectiveActor: session.effectiveActor, ...(session.delegation === undefined ? {} : { delegation: session.delegation }), facts: request.facts }, signal);
+          const policy = await catalog.execute({ schemaVersion: 1, applicationId: session.applicationId, authorizationRevision: current.authorizationRevision, lifecycleRevision: current.lifecycleRevision, permissionId: request.permissionId, scope: request.scope, principal: session.principal, effectiveActor: session.effectiveActor, ...(session.delegation === undefined ? {} : { delegation: session.delegation }), facts: request.facts }, signal);
           if (policy.outcome === "allow") {
             outcome = "allow";
             reason = "granted";

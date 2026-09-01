@@ -1,9 +1,9 @@
 import type { Payload } from "payload";
 
 export const applicationMigrationRevision = Object.freeze({
-  migrationName: "20260901_000020_template_tombstones",
-  predecessor: 19,
-  current: 20
+  migrationName: "20260901_000021_authorization_outbox",
+  predecessor: 20,
+  current: 21
 });
 
 export class MigrationRevisionError extends Error {

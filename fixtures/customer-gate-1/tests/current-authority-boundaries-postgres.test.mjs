@@ -197,6 +197,10 @@ test("P10.5 current authority denies fixture source/action before handler, cache
       applicationId,
       environment: "production",
       authorization: {
+        async revision() {
+          const state = await authorizationStore.readState(applicationId, "production");
+          return state && { authorizationRevision: state.authorizationRevision, authorizationProof: `${state.authorizationRevision}:${state.lifecycleRevision}:remote-ui` };
+        },
         current(request) {
           const opaqueSession = /(?:^|;\s*)customer_session=([^;]+)/u.exec(request.headers.cookie ?? "")?.[1];
           return opaqueSession ? remoteSessions.get(opaqueSession) : undefined;
@@ -283,6 +287,34 @@ test("P10.5 current authority denies fixture source/action before handler, cache
       assert.equal((await racedRoute.content()).includes("hot-application-route"), false);
       assert.equal(remoteHost.routeRequests.length, 1, "raced route must not create another route session");
       remoteSessions.set("remote-user-a", remoteUserA);
+
+      const revocationRoute = await browserContext.newPage();
+      const revocationResponse = await revocationRoute.goto(`${remoteHost.url}/apps/sales-live`);
+      assert.equal(revocationResponse?.status(), 200);
+      await revocationRoute.locator("iframe").waitFor();
+      const routeSessionsBeforeRevocation = remoteHost.routeRequests.length;
+      const authorizationState = await authorizationStore.readState(applicationId, "production");
+      assert.ok(authorizationState);
+      // Same-URL reload: arm navigation before revocation and await the new document, not only response headers.
+      const reloadedDenial = revocationRoute.waitForNavigation({ waitUntil: "load" });
+      const revoked = await authorizationStore.transaction({
+        applicationId,
+        environment: "production",
+        authorizationRevision: authorizationState.authorizationRevision,
+        lifecycleRevision: authorizationState.lifecycleRevision
+      }, async (transaction) => {
+        await transaction.write({ kind: "assignment", assignment: {
+          schemaVersion: 1, applicationId, id: "fixture.sales.user", roleId: "fixture.sales",
+          principal: { kind: "user", id: String(user.id) }, state: "revoked", revision: authorizationState.authorizationRevision
+        } });
+      });
+      assert.equal((await reloadedDenial)?.status(), 403);
+      assert.equal((await revocationRoute.content()).includes("hot-application-route"), false, "authorization revocation must remove the prior private route DOM");
+      assert.equal(await revocationRoute.locator("iframe").count(), 0, "authorization revocation must dispose the prior Remote UI realm before fresh route admission");
+      assert.equal(remoteHost.routeRequests.length, routeSessionsBeforeRevocation, "a denied fresh route admission must not reuse or create a route session");
+      assert.equal(revoked.state.authorizationRevision > authorizationState.authorizationRevision, true);
+      assert.equal(sourceDispatches, 0, "revocation must not dispatch a source after private DOM teardown");
+      assert.equal(remoteHost.sourceRequests.length, 0, "revocation must not admit a source/action request");
     } finally {
       await browserContext?.close();
       await browser?.close();

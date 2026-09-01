@@ -13,7 +13,7 @@ const token = () => tokens.issue({
   tokenId: "capability-token-1", applicationId: "customer-alpha", environment: "production", appId: "app.sales-assistant",
   generationId: "sales-assistant-generation-1", invocationId: "runner-invocation-1",
   actor: { principalId: "user:one", effectiveActorId: "user:one" }, correlationId: "runner-correlation-1",
-  grants: [{ kind: "records", required: true, reason: "Read assigned sales tasks.", operations: ["query"], resources: [{ id: "sales.tasks", version: 1 }] }], ttlMs: 30_000
+  grants: [{ kind: "records", required: true, reason: "Read assigned sales tasks.", operations: ["query"], resources: [{ id: "sales.tasks", version: 1 }] }], authorizationRevision: 1, lifecycleRevision: 1, ttlMs: 30_000
 });
 const handler: ExtensionCapabilityHandler = {
   validateInput(value) { if (typeof value !== "object" || value === null) throw new Error("invalid input"); return value; },
@@ -32,6 +32,15 @@ function gateway() {
 }
 
 describe("extension capability authority", () => {
+  it("requires and signs the exact authorization revision pair", () => {
+    expect(tokens.verify(token())).toMatchObject({ authorizationRevision: 1, lifecycleRevision: 1 });
+    expect(() => tokens.issue({
+      tokenId: "capability-token-missing-revision", applicationId: "customer-alpha", environment: "production", appId: "app.sales-assistant",
+      generationId: "sales-assistant-generation-1", invocationId: "runner-invocation-missing-revision",
+      actor: { principalId: "user:one", effectiveActorId: "user:one" }, correlationId: "runner-correlation-missing-revision", grants: [], ttlMs: 30_000
+    } as never)).toThrow(/claims are invalid/u);
+  });
+
   it("binds declared capability calls to short-lived app, generation, invocation, actor, and sequence identity", async () => {
     const value = token();
     await expect(gateway().invoke({ token: value, invocationId: "runner-invocation-1", generationId: "sales-assistant-generation-1", sequence: 1, capability: "records.query", payload: { query: "mine" }, signal: new AbortController().signal }))
@@ -61,7 +70,7 @@ describe("extension capability authority", () => {
       tokenId: "capability-token-2", applicationId: "customer-alpha", environment: "production", appId: "app.sales-assistant",
       generationId: "sales-assistant-generation-1", invocationId: "runner-invocation-2",
       actor: { principalId: "user:one", effectiveActorId: "user:one" }, correlationId: "runner-correlation-2",
-      grants: [{ kind: "records", required: true, reason: "Read assigned sales tasks.", operations: ["query"], resources: [{ id: "sales.tasks", version: 1 }] }], ttlMs: 30_000
+      grants: [{ kind: "records", required: true, reason: "Read assigned sales tasks.", operations: ["query"], resources: [{ id: "sales.tasks", version: 1 }] }], authorizationRevision: 1, lifecycleRevision: 1, ttlMs: 30_000
     });
     const calls = new ExtensionCapabilityGateway(tokens, { "records.query": handler, "records.action": handler }, { reauthorize: () => true }, new InMemoryExtensionCapabilitySequenceStoreForTests(clock), clock, { maxInputBytes: 1024, maxOutputBytes: 1024, maxDepth: 4, maxCalls: 2 });
     await expect(calls.invoke({ token: value, invocationId: "runner-invocation-2", generationId: "sales-assistant-generation-1", sequence: 1, capability: "records.action", payload: {}, signal: new AbortController().signal }))
@@ -78,7 +87,7 @@ describe("extension capability authority", () => {
     const value = tokens.issue({
       tokenId: "capability-token-3", applicationId: "customer-alpha", environment: "production", appId: "app.sales-assistant",
       generationId: "sales-assistant-generation-1", invocationId: "runner-invocation-3",
-      actor: { principalId: "user:one", effectiveActorId: "user:one" }, correlationId: "runner-correlation-3", grants: [], ttlMs: 30_000
+      actor: { principalId: "user:one", effectiveActorId: "user:one" }, correlationId: "runner-correlation-3", grants: [], authorizationRevision: 1, lifecycleRevision: 1, ttlMs: 30_000
     });
     await expect(gateway().invoke({ token: value, invocationId: "runner-invocation-3", generationId: "sales-assistant-generation-1", sequence: 1, capability: "records.query", payload: {}, signal: new AbortController().signal }))
       .rejects.toMatchObject({ code: "CAPABILITY_DENIED" });

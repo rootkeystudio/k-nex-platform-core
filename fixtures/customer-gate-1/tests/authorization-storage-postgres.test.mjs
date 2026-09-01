@@ -19,7 +19,8 @@ const tables = [
   "k_nex_permission_catalog_snapshots",
   "k_nex_authorization_state",
   "k_nex_authorization_bootstrap_receipts",
-  "k_nex_authorization_audit"
+  "k_nex_authorization_audit",
+  "k_nex_authorization_outbox"
 ];
 const ownerRole = (applicationId) => ({ schemaVersion: 1, id: "system.role.owner", applicationId, label: "Owner", protectedRoleId: "system.role.owner", revision: 0 });
 const ownerAssignment = (applicationId, id, subjectId, state = "active") => ({ schemaVersion: 1, id, applicationId, roleId: "system.role.owner", principal: { kind: "user", id: subjectId }, state, revision: 0 });
@@ -69,9 +70,10 @@ test("migrates P10.3 authorization storage with customer isolation and generatio
       [tables]
     );
     assert.deepEqual(migrated.rows.map(({ table_name }) => table_name), [...tables].sort());
-    assert.deepEqual((await pool.query("select predecessor_revision, revision from k_nex_migration_revision where id=1")).rows, [{ predecessor_revision: 19, revision: 20 }]);
+    assert.deepEqual((await pool.query("select predecessor_revision, revision from k_nex_migration_revision where id=1")).rows, [{ predecessor_revision: 20, revision: 21 }]);
     assert.equal((await pool.query("select count(*)::int as count from payload_migrations where name='20260901_000019_authorization_storage'")).rows[0].count, 1);
     assert.equal((await pool.query("select count(*)::int as count from payload_migrations where name='20260901_000020_template_tombstones'")).rows[0].count, 1);
+    assert.equal((await pool.query("select count(*)::int as count from payload_migrations where name='20260901_000021_authorization_outbox'")).rows[0].count, 1);
 
     await assert.rejects(insertRole("customer-alpha", "system.role.owner"), /k_nex_roles_protected_marker_check/u);
     await assert.rejects(insertRole("customer-alpha", "system.role.owner", "system.role.auditor"), /k_nex_roles_protected_marker_check/u);
@@ -197,6 +199,24 @@ test("migrates P10.3 authorization storage with customer isolation and generatio
     const afterSecondOwner = await store.transaction(expectedRevision(afterBootstrap), async (transaction) => {
       await transaction.write({ kind: "assignment", assignment: ownerAssignment(gamma.applicationId, "owner-second", "user:second") });
     });
+    assert.deepEqual((await pool.query(
+      `select application_id, environment, authorization_revision, lifecycle_revision, event_json
+       from k_nex_authorization_outbox
+       where application_id=$1 and environment=$2 and authorization_revision=$3 and lifecycle_revision=$4`,
+      [gamma.applicationId, gamma.environment, afterSecondOwner.state.authorizationRevision, afterSecondOwner.state.lifecycleRevision]
+    )).rows, [{
+      application_id: gamma.applicationId,
+      environment: gamma.environment,
+      authorization_revision: afterSecondOwner.state.authorizationRevision,
+      lifecycle_revision: afterSecondOwner.state.lifecycleRevision,
+      event_json: {
+        applicationId: gamma.applicationId,
+        environment: gamma.environment,
+        scope: "application",
+        authorizationRevision: afterSecondOwner.state.authorizationRevision,
+        lifecycleRevision: afterSecondOwner.state.lifecycleRevision
+      }
+    }]);
     const revoke = (assignmentId, subjectId) => store.transaction(expectedRevision(afterSecondOwner.state), async (transaction) => {
       await transaction.write({ kind: "assignment", assignment: ownerAssignment(gamma.applicationId, assignmentId, subjectId, "revoked") });
     });

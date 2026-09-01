@@ -18,6 +18,7 @@ import {
 } from "@k-nex/runtime";
 
 import type { RuntimeExtensionSession } from "./runtime-extension-store.js";
+import { writeAuthorizationInvalidationOutbox } from "./authorization-outbox.js";
 
 type Row = Record<string, unknown>;
 
@@ -124,7 +125,9 @@ export class AuthorizationLifecycleProjector {
       [current.applicationId, plan.lifecycleRevision, current.authorizationRevision, current.lifecycleRevision]
     );
     if (advanced.rows.length !== 1) fail("REVISION_CONFLICT", "Authorization state revision changed before lifecycle projection.");
-    return Object.freeze({ plan, state: parseState(advanced.rows[0], transition.environment) });
+    const state = parseState(advanced.rows[0], transition.environment);
+    await writeAuthorizationInvalidationOutbox(session, { ...state, scope: "environment" });
+    return Object.freeze({ plan, state });
   }
 }
 

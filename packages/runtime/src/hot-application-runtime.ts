@@ -75,6 +75,8 @@ export interface HotApplicationServerInvocation {
   readonly invocationId: string;
   readonly drainLeaseId: string;
   readonly token: string;
+  readonly authorizationRevision: number;
+  readonly lifecycleRevision: number;
   readonly input: unknown;
   readonly limits: Readonly<{
     cpuMilliCores: number;
@@ -99,16 +101,41 @@ export interface HotApplicationServerRunner {
 export interface TrustedHotApplicationInvocationContext { readonly __opaqueTrustedHotApplicationInvocationContext?: never; }
 
 /** Mints the only caller identity accepted by the Hot Application traffic boundary. */
-export function createTrustedHotApplicationInvocationContext(value: Readonly<{ session: TrustedAuthorizationSession }>): TrustedHotApplicationInvocationContext {
+export function createTrustedHotApplicationInvocationContext(value: Readonly<{
+  session: TrustedAuthorizationSession;
+  revision: Readonly<{ authorizationRevision: number; lifecycleRevision: number }>;
+}>): TrustedHotApplicationInvocationContext {
   if (!isTrustedAuthorizationSession(value.session)) throw new TypeError("Hot Application invocation requires a trusted authorization session.");
-  const context = Object.freeze({ session: value.session });
+  if (!validRevision(value.revision)) throw new TypeError("Hot Application invocation requires a current authorization revision.");
+  const context = Object.freeze({ session: value.session, revision: Object.freeze({ ...value.revision }) });
   trafficContexts.add(context);
   return context as unknown as TrustedHotApplicationInvocationContext;
 }
 
-function trustedInvocationContext(value: unknown): Readonly<{ session: TrustedAuthorizationSession }> | undefined {
+function trustedInvocationContext(value: unknown): Readonly<{
+  session: TrustedAuthorizationSession;
+  revision: Readonly<{ authorizationRevision: number; lifecycleRevision: number }>;
+}> | undefined {
   return typeof value === "object" && value !== null && trafficContexts.has(value)
-    ? value as Readonly<{ session: TrustedAuthorizationSession }> : undefined;
+    ? value as Readonly<{ session: TrustedAuthorizationSession; revision: Readonly<{ authorizationRevision: number; lifecycleRevision: number }> }> : undefined;
+}
+
+function validRevision(value: Readonly<{ authorizationRevision: number; lifecycleRevision: number }>): boolean {
+  return Number.isSafeInteger(value.authorizationRevision) && value.authorizationRevision >= 0 &&
+    Number.isSafeInteger(value.lifecycleRevision) && value.lifecycleRevision >= 0;
+}
+
+function authorizationRevision(
+  context: Readonly<{ revision: Readonly<{ authorizationRevision: number; lifecycleRevision: number }> }> ,
+  decisions: readonly (HotApplicationCapabilityAuthorizationResult | undefined)[]
+): Readonly<{ authorizationRevision: number; lifecycleRevision: number }> {
+  if (!validRevision(context.revision) || decisions.some((decision) => decision === undefined || !validRevision(decision))) {
+    throw new Error("Hot Application capability authority is unavailable.");
+  }
+  if (decisions.some((decision) => decision!.authorizationRevision !== context.revision.authorizationRevision || decision!.lifecycleRevision !== context.revision.lifecycleRevision)) {
+    throw new Error("Hot Application capability authority changed while minting this invocation.");
+  }
+  return context.revision;
 }
 
 /** The host owns capability-to-permission/scope mapping; applications only declare requested grants. */
@@ -120,7 +147,14 @@ export interface HotApplicationCapabilityAuthorizer {
     appId: string;
     generationId: string;
     grant: ExtensionCapabilityTokenRequest["grants"][number];
-  }>): boolean | Promise<boolean>;
+  }>): HotApplicationCapabilityAuthorizationResult | undefined | Promise<HotApplicationCapabilityAuthorizationResult | undefined>;
+}
+
+/** A current-authority decision is the only source for invocation revisions. */
+export interface HotApplicationCapabilityAuthorizationResult {
+  readonly allowed: boolean;
+  readonly authorizationRevision: number;
+  readonly lifecycleRevision: number;
 }
 
 export interface HotApplicationTrafficRequest {
@@ -177,7 +211,7 @@ export class AuthoritativeHotApplicationRuntime {
       }
       const authorized = policyInvocation ? [] : await Promise.all(artifact.hotApplicationManifest.capabilities.map(async (grant) => {
         try {
-          const allowed = await this.capabilities.authorize({
+          const decision = await this.capabilities.authorize({
             session: context.session,
             applicationId: this.identity.applicationId,
             environment: this.identity.environment,
@@ -185,11 +219,13 @@ export class AuthoritativeHotApplicationRuntime {
             generationId: active.generationId,
             grant
           });
-          return Object.freeze({ grant, allowed });
-        } catch { return Object.freeze({ grant, allowed: false }); }
+          return Object.freeze({ grant, decision });
+        } catch { return Object.freeze({ grant, decision: undefined }); }
       }));
-      if (authorized.some(({ grant, allowed }) => grant.required && !allowed)) throw new Error("Hot Application capability authority denied a required declared grant.");
-      const grants = authorized.filter(({ allowed }) => allowed).map(({ grant }) => grant);
+      const revision = authorizationRevision(context, authorized.map(({ decision }) => decision));
+      if (authorized.some(({ decision }) => decision === undefined)) throw new Error("Hot Application capability authority is unavailable.");
+      if (authorized.some(({ grant, decision }) => grant.required && !decision!.allowed)) throw new Error("Hot Application capability authority denied a required declared grant.");
+      const grants = authorized.filter(({ decision }) => decision!.allowed).map(({ grant }) => grant);
       const ttlMs = Math.min(300_000, artifact.hotApplicationManifest.resourceBudget.maxWallTimeMs + 1_000);
       let leaseId: string;
       try {
@@ -222,6 +258,8 @@ export class AuthoritativeHotApplicationRuntime {
           correlationId: context.session.correlationId,
           drainLeaseId: leaseId,
           grants: grants as ExtensionCapabilityTokenRequest["grants"],
+          authorizationRevision: revision.authorizationRevision,
+          lifecycleRevision: revision.lifecycleRevision,
           ttlMs
         } satisfies ExtensionCapabilityTokenRequest);
         const budget = artifact.hotApplicationManifest.resourceBudget;
@@ -235,6 +273,8 @@ export class AuthoritativeHotApplicationRuntime {
           invocationId,
           drainLeaseId: leaseId,
           token,
+          authorizationRevision: revision.authorizationRevision,
+          lifecycleRevision: revision.lifecycleRevision,
           input: request.input,
           limits: {
             cpuMilliCores: Math.min(budget.maxCpuMilliCores, this.profile.limits.cpuMilliCores),
@@ -299,7 +339,13 @@ export class AuthoritativeHotApplicationRuntime {
         });
         return await this.invokeTrusted({
           input: Object.freeze({ schemaVersion: 1, kind: "authorization-policy-evaluation", binding: structuredClone(binding), evaluation: structuredClone(evaluation) }),
-          context: createTrustedHotApplicationInvocationContext({ session }),
+          context: createTrustedHotApplicationInvocationContext({
+            session,
+            revision: {
+              authorizationRevision: evaluation.authorizationRevision,
+              lifecycleRevision: evaluation.lifecycleRevision
+            }
+          }),
           expectedGeneration: { generationId: record.generationId, artifactDigest: record.artifactDigest },
           signal
         }, true) as AuthorizationPolicyEvaluationOutcome;

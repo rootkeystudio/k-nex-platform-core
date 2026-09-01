@@ -54,7 +54,7 @@ function platformExecutable() {
 
 function evaluation(permissionId = "sales.policy.read") {
   return {
-    schemaVersion: 1, applicationId: "customer-alpha", permissionId,
+    schemaVersion: 1, applicationId: "customer-alpha", authorizationRevision: 1, lifecycleRevision: 1, permissionId,
     scope: { kind: "application", resource: "sales.policy" },
     principal: { kind: "user", id: "user:one" }, effectiveActor: { kind: "user", id: "user:one" }, facts: { recordCount: 1 }
   };
@@ -137,7 +137,7 @@ async function registeredHotContribution(options: Readonly<{
   };
   const runner = { isolationProfile: hotProductionProfile, invoke: vi.fn(async (input) => options.runnerInvoke ? await options.runnerInvoke(input) : { schemaVersion: 1, outcome: "allow" }) };
   const tokens = { issue: vi.fn(() => "capability-token") };
-  const capabilities = { authorize: vi.fn(async () => true) };
+  const capabilities = { authorize: vi.fn(async () => ({ allowed: true, authorizationRevision: 1, lifecycleRevision: 1 })) };
   const runtime = new AuthoritativeHotApplicationRuntime({
     inventory: vi.fn(async () => ({ extensions: { hotApplications: { [manifest.id]: { disposition: "active" as const, activeGeneration } } } })),
     acquireGenerationLease: vi.fn(async () => "lease-00000000-0000-4000-8000-000000000000"), releaseGenerationLease: vi.fn(async () => {})
@@ -241,7 +241,7 @@ describe("effective authorization registry", () => {
     expect(catalog.roleTemplates.map(({ template: entry }) => entry.id)).toContain("sales-assistant.template.viewer");
     expect(catalog.roleTemplates.find(({ template: entry }) => entry.id === "sales-assistant.template.viewer")?.template.instantiation).toBe("automatic");
     await expect(catalog.execute({
-      schemaVersion: 1, applicationId: "customer-alpha", permissionId: "sales-assistant.tasks.read",
+      schemaVersion: 1, applicationId: "customer-alpha", authorizationRevision: 1, lifecycleRevision: 1, permissionId: "sales-assistant.tasks.read",
       scope: { kind: "record", resource: "sales-assistant.tasks", recordId: "task:one" },
       principal: { kind: "user", id: "user:one" }, effectiveActor: { kind: "user", id: "user:one" }, facts: {}
     }, new AbortController().signal)).resolves.toMatchObject({ outcome: "allow" });

@@ -128,6 +128,23 @@ describe("source revision convergence", () => {
     expect(test.fetch).toHaveBeenCalledTimes(1);
   });
 
+  it("clears private data synchronously for an authorization invalidation before asynchronous reauthorization", async () => {
+    let resolveAuthorization: ((value: boolean) => void) | undefined;
+    const authorize = vi.fn()
+      .mockResolvedValueOnce(true)
+      .mockImplementationOnce(() => new Promise<boolean>((resolve) => { resolveAuthorization = resolve; }));
+    const fetch = vi.fn(async () => ({ data: "private", revision: 1 }));
+    const controller = new SourceConvergenceController({ authorize, fetch, freshness: "standard", surface: "workspace" });
+    await controller.initialize();
+
+    const reauthorization = controller.handleAuthorizationInvalidation();
+    expect(controller.state).toMatchObject({ data: null, revision: null, status: "stale" });
+    expect(authorize).toHaveBeenCalledTimes(2);
+    resolveAuthorization!(false);
+    await expect(reauthorization).resolves.toMatchObject({ data: null, revision: null, status: "forbidden" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects revision regression without overwriting newer cached state", async () => {
     const test = harness();
     test.snapshot({ data: "newer", revision: 5 });

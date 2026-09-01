@@ -12,7 +12,7 @@ import { migrations } from "../dist/src/migrations/index.js";
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
 const applicationId = "customer-template-tombstone-down";
-const tombstoneMigration = migrations.at(-1);
+const tombstoneMigration = migrations.at(-2);
 const migrationDirectory = fileURLToPath(new URL("../src/migrations/", import.meta.url));
 
 test("rolls back independent template tombstones through Payload's migration API", { timeout: 180_000 }, async () => {
@@ -27,7 +27,7 @@ test("rolls back independent template tombstones through Payload's migration API
     process.env.NODE_ENV = "production";
     const application = createGate1Application({
       databaseUrl: container.getConnectionUri(),
-      migrations: migrations.slice(0, -1),
+      migrations: migrations.slice(0, -2),
       payloadSecret: "p10-6-template-tombstone-down"
     });
     payload = await getPayload({ config: buildConfig(application.config), key: "p10-6-template-tombstone-down" });

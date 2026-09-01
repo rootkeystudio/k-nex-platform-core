@@ -35,7 +35,7 @@ export async function startHotApplicationFixedRouteHost({ store, artifacts, appl
   if (!artifacts || typeof artifacts.readRemoteUi !== "function") throw new TypeError("Fixed route host requires a verified artifact reader.");
   if (environment !== "production") throw new TypeError("Fixed route host requires the production environment.");
   if (typeof invokeSource !== "function") throw new TypeError("Fixed route host requires a bounded source gateway.");
-  if (!authorization || typeof authorization.current !== "function") {
+  if (!authorization || typeof authorization.current !== "function" || typeof authorization.revision !== "function") {
     throw new TypeError("Fixed route host requires current Remote UI authorization.");
   }
   const hostScript = await readFile(hostScriptPath);
@@ -45,12 +45,36 @@ export async function startHotApplicationFixedRouteHost({ store, artifacts, appl
   const revokedSessions = new Set();
   const routeSessions = new Map();
   let nextRouteSession = 0;
+  const authorizationAdmission = async (request) => {
+    const admission = await authorization.revision(request);
+    if (!admission || !Number.isSafeInteger(admission.authorizationRevision) || admission.authorizationRevision < 0 ||
+      typeof admission.authorizationProof !== "string" || admission.authorizationProof.length < 1 || admission.authorizationProof.length > 512) return undefined;
+    return Object.freeze({ authorizationRevision: admission.authorizationRevision, authorizationProof: admission.authorizationProof });
+  };
+  const authorizationHeaders = (admission) => admission
+    ? { "x-k-nex-authorization-revision": String(admission.authorizationRevision), "x-k-nex-authorization-proof": admission.authorizationProof }
+    : {};
+  const sameAuthorizationAdmission = (left, right) => left?.authorizationRevision === right?.authorizationRevision && left?.authorizationProof === right?.authorizationProof;
   const currentAuthorization = async (request, routeSession = undefined) => {
     const current = await authorization.current(request);
     if (!current || typeof current.sessionId !== "string" || !current.sessionId || revokedSessions.has(current.sessionId) ||
       typeof current.authorizeRoute !== "function" || typeof current.authorizeFrame !== "function" || typeof current.authorizeTarget !== "function" ||
       (routeSession && routeSession.sessionId !== current.sessionId)) return undefined;
     return current;
+  };
+  const currentRouteSessionAuthorization = async (request, routeSession) => {
+    if (!routeSession) return undefined;
+    const current = await currentAuthorization(request, routeSession);
+    if (!current) {
+      routeSessions.delete(routeSession.identity.sessionId);
+      return undefined;
+    }
+    const admission = await authorizationAdmission(request);
+    if (!admission || !sameAuthorizationAdmission(routeSession.admission, admission)) {
+      routeSessions.delete(routeSession.identity.sessionId);
+      return Object.freeze({ admission });
+    }
+    return Object.freeze({ current, admission });
   };
   const activeGeneration = async (generationId) => {
     const inventory = await store.inventory(applicationId, environment);
@@ -119,19 +143,21 @@ export async function startHotApplicationFixedRouteHost({ store, artifacts, appl
       if (url.pathname === "/host-route.js") { response.writeHead(200, { "content-type": "text/javascript", "x-content-type-options": "nosniff" }); response.end(hostScript); return; }
       if (url.pathname === "/api/extensions/remote-ui/authorize" && request.method === "POST") {
         const routeSession = routeSessions.get(url.searchParams.get("sessionId") ?? "");
-        const currentAuthorizationSession = await currentAuthorization(request, routeSession);
-        const allowed = currentAuthorizationSession && routeSession && await currentAuthorizationSession.authorizeFrame(routeSession.identity, signal);
-        response.writeHead(allowed ? 204 : 401, { "cache-control": "no-store" }).end(); return;
+        const authorizationBefore = await currentRouteSessionAuthorization(request, routeSession);
+        const allowed = authorizationBefore?.current && await authorizationBefore.current.authorizeFrame(routeSession.identity, signal);
+        const authorizationAfter = allowed && await currentRouteSessionAuthorization(request, routeSession);
+        response.writeHead(authorizationAfter?.current ? 204 : 401, { "cache-control": "no-store" }).end(); return;
       }
       if (url.pathname === "/api/extensions/remote-ui/authorize-target" && request.method === "POST") {
         const routeSession = routeSessions.get(url.searchParams.get("sessionId") ?? "");
         const operation = url.searchParams.get("operation");
         const targetId = url.searchParams.get("targetId");
         const targets = operation === "source" ? routeSession?.sources : operation === "action" ? routeSession?.actions : undefined;
-        const currentAuthorizationSession = await currentAuthorization(request, routeSession);
-        const allowed = currentAuthorizationSession && routeSession && typeof targetId === "string" && targets?.has(targetId) &&
-          await currentAuthorizationSession.authorizeTarget(routeSession.identity, operation, targetId, signal);
-        response.writeHead(allowed ? 204 : 401, { "cache-control": "no-store" }).end(); return;
+        const authorizationBefore = await currentRouteSessionAuthorization(request, routeSession);
+        const allowed = authorizationBefore?.current && typeof targetId === "string" && targets?.has(targetId) &&
+          await authorizationBefore.current.authorizeTarget(routeSession.identity, operation, targetId, signal);
+        const authorizationAfter = allowed && await currentRouteSessionAuthorization(request, routeSession);
+        response.writeHead(authorizationAfter?.current ? 204 : 401, { "cache-control": "no-store" }).end(); return;
       }
       if (url.pathname === "/api/extensions/remote-ui/test-revoke" && request.method === "POST") {
         const currentAuthorizationSession = await currentAuthorization(request);
@@ -139,13 +165,17 @@ export async function startHotApplicationFixedRouteHost({ store, artifacts, appl
       }
       if (url.pathname === "/api/extensions/remote-ui/snapshot" && request.method === "GET") {
         const routeSession = routeSessions.get(url.searchParams.get("session") ?? "");
-        const currentAuthorizationSession = await currentAuthorization(request, routeSession);
-        if (!routeSession || !currentAuthorizationSession || !await currentAuthorizationSession.authorizeFrame(routeSession.identity, signal)) { response.writeHead(401, { "cache-control": "no-store" }).end(); return; }
+        const authorizationBefore = await currentRouteSessionAuthorization(request, routeSession);
+        if (!authorizationBefore?.current) { response.writeHead(401, { "cache-control": "no-store", ...authorizationHeaders(authorizationBefore?.admission) }).end(); return; }
+        if (!await authorizationBefore.current.authorizeFrame(routeSession.identity, signal)) { response.writeHead(401, { "cache-control": "no-store", ...authorizationHeaders(authorizationBefore.admission) }).end(); return; }
         const snapshot = await durableSnapshot(routeSession);
         if (!snapshot) { response.writeHead(404, { "cache-control": "no-store" }).end(); return; }
-        const continuationAuthorizationSession = await currentAuthorization(request, routeSession);
-        if (!continuationAuthorizationSession || !await continuationAuthorizationSession.authorizeFrame(routeSession.identity, signal)) { response.writeHead(401, { "cache-control": "no-store" }).end(); return; }
-        response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" }).end(JSON.stringify(snapshot)); return;
+        const authorizationAfter = await currentRouteSessionAuthorization(request, routeSession);
+        if (!authorizationAfter?.current) { response.writeHead(401, { "cache-control": "no-store", ...authorizationHeaders(authorizationAfter?.admission) }).end(); return; }
+        if (!await authorizationAfter.current.authorizeFrame(routeSession.identity, signal)) { response.writeHead(401, { "cache-control": "no-store", ...authorizationHeaders(authorizationAfter.admission) }).end(); return; }
+        const authorizationFinal = await currentRouteSessionAuthorization(request, routeSession);
+        if (!authorizationFinal?.current) { response.writeHead(401, { "cache-control": "no-store", ...authorizationHeaders(authorizationFinal?.admission) }).end(); return; }
+        response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" }).end(JSON.stringify({ ...snapshot, ...authorizationFinal.admission })); return;
       }
       if (url.pathname === "/api/extensions/remote-ui/source" && request.method === "POST") {
         const body = await jsonBody(request);
@@ -154,8 +184,8 @@ export async function startHotApplicationFixedRouteHost({ store, artifacts, appl
         if (!routeSession || !identity || identity.applicationId !== routeSession.identity.applicationId || identity.environment !== routeSession.identity.environment || identity.appId !== routeSession.identity.appId || identity.generationId !== routeSession.identity.generationId || identity.artifactDigest !== routeSession.identity.artifactDigest || identity.sessionId !== routeSession.identity.sessionId || typeof body.targetId !== "string" || !routeSession.sources.has(body.targetId)) {
           response.writeHead(401, { "cache-control": "no-store" }).end(); return;
         }
-        const currentAuthorizationSession = await currentAuthorization(request, routeSession);
-        const targetAllowed = currentAuthorizationSession && await currentAuthorizationSession.authorizeTarget(routeSession.identity, "source", body.targetId, signal);
+        const authorizationBefore = await currentRouteSessionAuthorization(request, routeSession);
+        const targetAllowed = authorizationBefore?.current && await authorizationBefore.current.authorizeTarget(routeSession.identity, "source", body.targetId, signal);
         if (!targetAllowed) {
           response.writeHead(401, { "cache-control": "no-store" }).end(); return;
         }
@@ -164,11 +194,14 @@ export async function startHotApplicationFixedRouteHost({ store, artifacts, appl
           sourceRequests.push(Object.freeze({ sessionId: routeSession.identity.sessionId, generationId: routeSession.identity.generationId, artifactDigest: routeSession.identity.artifactDigest, targetId: body.targetId, status: "denied" }));
           response.writeHead(409, { "cache-control": "no-store" }).end(); return;
         }
-        const continuationAuthorizationSession = await currentAuthorization(request, routeSession);
-        if (!continuationAuthorizationSession || !await continuationAuthorizationSession.authorizeTarget(routeSession.identity, "source", body.targetId, signal)) {
+        const authorizationAfter = await currentRouteSessionAuthorization(request, routeSession);
+        if (!authorizationAfter?.current || !await authorizationAfter.current.authorizeTarget(routeSession.identity, "source", body.targetId, signal)) {
           response.writeHead(401, { "cache-control": "no-store" }).end(); return;
         }
         const expectedGeneration = Object.freeze({ generationId: routeSession.identity.generationId, artifactDigest: routeSession.identity.artifactDigest });
+        if (!(await currentRouteSessionAuthorization(request, routeSession))?.current) {
+          response.writeHead(401, { "cache-control": "no-store" }).end(); return;
+        }
         sourceRequests.push(Object.freeze({ sessionId: routeSession.identity.sessionId, generationId: expectedGeneration.generationId, artifactDigest: expectedGeneration.artifactDigest, targetId: body.targetId, status: "admitted", input: body.input }));
         try {
           const output = await invokeSource(Object.freeze({ identity: routeSession.identity, expectedGeneration, targetId: body.targetId, input: body.input }));
@@ -184,16 +217,20 @@ export async function startHotApplicationFixedRouteHost({ store, artifacts, appl
       if (!current) { response.writeHead(404).end(); return; }
       const currentAuthorizationSession = await currentAuthorization(request);
       if (!currentAuthorizationSession) { response.writeHead(401, { "cache-control": "no-store" }).end(); return; }
-      if (!await currentAuthorizationSession.authorizeRoute({ ...current.identity, appId: extension.id }, signal)) { response.writeHead(403, { "cache-control": "no-store" }).end(); return; }
+      const authorizationBefore = await authorizationAdmission(request);
+      if (!authorizationBefore) { response.writeHead(503, { "cache-control": "no-store" }).end(); return; }
+      if (!await currentAuthorizationSession.authorizeRoute({ ...current.identity, appId: extension.id }, signal)) { response.writeHead(403, { "cache-control": "no-store", ...authorizationHeaders(authorizationBefore) }).end(); return; }
       const snapshot = await routeSnapshot(url.pathname, current);
       if (!snapshot) { response.writeHead(404).end(); return; }
       const continuationAuthorizationSession = await currentAuthorization(request, currentAuthorizationSession);
-      if (!continuationAuthorizationSession || !await continuationAuthorizationSession.authorizeRoute({ ...snapshot.active.identity, appId: extension.id }, signal)) { response.writeHead(403, { "cache-control": "no-store" }).end(); return; }
+      if (!continuationAuthorizationSession || !await continuationAuthorizationSession.authorizeRoute({ ...snapshot.active.identity, appId: extension.id }, signal)) { response.writeHead(403, { "cache-control": "no-store", ...authorizationHeaders(authorizationBefore) }).end(); return; }
+      const authorizationAfter = await authorizationAdmission(request);
+      if (!authorizationAfter || !sameAuthorizationAdmission(authorizationBefore, authorizationAfter)) { response.writeHead(503, { "cache-control": "no-store" }).end(); return; }
       const routeSessionId = `route-session-${++nextRouteSession}`;
       const identity = Object.freeze({ applicationId, environment: "production", appId: snapshot.route.appId, generationId: snapshot.active.identity.generationId, artifactDigest: snapshot.active.identity.artifactDigest, sessionId: routeSessionId });
       routeRequests.push({ route: snapshot.route.route, generationId: snapshot.active.identity.generationId, hadSession: true });
-      const configuration = { ...identity, revision: snapshot.active.revision, route: snapshot.route.route, routes: snapshot.active.manifest.screens.map((screen) => screen.route), sources: snapshot.active.manifest.sources.map((source) => source.id), actions: snapshot.active.manifest.actions.map((action) => action.id), remoteUiFrameUrl: `${extensionOrigin}/api/extensions/apps/${extension.id}/assets/${snapshot.active.identity.generationId}/${snapshot.bootstrap.bootstrapDigest}/frame.html`, snapshotUrl: `/api/extensions/remote-ui/snapshot?session=${routeSessionId}`, sourceUrl: "/api/extensions/remote-ui/source", drainMs: 10_000 };
-      routeSessions.set(routeSessionId, Object.freeze({ identity, sessionId: currentAuthorizationSession.sessionId, sources: new Set(configuration.sources), actions: new Set(configuration.actions) }));
+      const configuration = { ...identity, revision: snapshot.active.revision, ...authorizationAfter, route: snapshot.route.route, routes: snapshot.active.manifest.screens.map((screen) => screen.route), sources: snapshot.active.manifest.sources.map((source) => source.id), actions: snapshot.active.manifest.actions.map((action) => action.id), remoteUiFrameUrl: `${extensionOrigin}/api/extensions/apps/${extension.id}/assets/${snapshot.active.identity.generationId}/${snapshot.bootstrap.bootstrapDigest}/frame.html`, snapshotUrl: `/api/extensions/remote-ui/snapshot?session=${routeSessionId}`, sourceUrl: "/api/extensions/remote-ui/source", drainMs: 10_000 };
+      routeSessions.set(routeSessionId, Object.freeze({ identity, sessionId: currentAuthorizationSession.sessionId, admission: authorizationAfter, sources: new Set(configuration.sources), actions: new Set(configuration.actions) }));
       response.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
       response.end(`<!doctype html><html><body><main id="hot-application-route"></main><script>window.__K_NEX_HOT_APPLICATION_ROUTE__=${JSON.stringify(configuration)}</script><script type="module" src="/host-route.js"></script></body></html>`);
     } catch (error) { routeErrors.push(error instanceof Error ? error.message : "fixed-route-host-failed"); response.writeHead(404).end(); }

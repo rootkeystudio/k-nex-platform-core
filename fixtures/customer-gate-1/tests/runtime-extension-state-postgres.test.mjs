@@ -137,6 +137,7 @@ function requestFixedRoute(host, path) {
 }
 
 const phase9FixedRouteAuthorization = Object.freeze({
+  revision: async () => ({ authorizationRevision: 0, authorizationProof: "phase9-fixed-route-authority" }),
   current(request) {
     if (!/(?:^|;\s*)customer_session=customer-session-1(?:;|$)/u.test(request.headers.cookie ?? "")) return undefined;
     return Object.freeze({
@@ -1025,6 +1026,8 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
       isTrustedAuthorizationSession(session) && session.principal.kind === "user" && session.principal.id === "user:one" &&
       session.effectiveActor.kind === "user" && session.effectiveActor.id === "user:one" && grant.kind === "records" &&
       grant.operations.length === 1 && grant.operations[0] === "query" && grant.resources.length === 1 && grant.resources[0]?.id === "sales.records"
+      ? { allowed: true, authorizationRevision: 1, lifecycleRevision: 1 }
+      : { allowed: false, authorizationRevision: 1, lifecycleRevision: 1 }
     }, {
       applicationId: "customer-alpha", environment: "production", appId: "app.sales-live"
     }, "runtime-traffic-gateway");
@@ -1036,7 +1039,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
         principal: { kind: "user", id: "user:one" }, effectiveActor: { kind: "user", id: "user:one" }
       });
       return trafficRuntime.invoke({
-        input, context: createTrustedHotApplicationInvocationContext({ session }),
+        input, context: createTrustedHotApplicationInvocationContext({ session, revision: { authorizationRevision: 1, lifecycleRevision: 1 } }),
         ...(expectedGeneration ? { expectedGeneration } : {})
       });
     };

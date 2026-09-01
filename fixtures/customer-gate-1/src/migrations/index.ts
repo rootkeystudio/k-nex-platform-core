@@ -18,6 +18,7 @@ import * as migration_20260829_000017_static_release_authority from "./20260829_
 import * as migration_20260829_000018_runner_quarantine from "./20260829_000018_runner_quarantine.js";
 import * as migration_20260901_000019_authorization_storage from "./20260901_000019_authorization_storage.js";
 import * as migration_20260901_000020_template_tombstones from "./20260901_000020_template_tombstones.js";
+import * as migration_20260901_000021_authorization_outbox from "./20260901_000021_authorization_outbox.js";
 
 import type { CustomerPayloadMigration } from "@k-nex/payload-adapter";
 
@@ -121,5 +122,10 @@ export const migrations: CustomerPayloadMigration[] = [
     up: migration_20260901_000020_template_tombstones.up,
     down: migration_20260901_000020_template_tombstones.down,
     name: "20260901_000020_template_tombstones"
+  },
+  {
+    up: migration_20260901_000021_authorization_outbox.up,
+    down: migration_20260901_000021_authorization_outbox.down,
+    name: "20260901_000021_authorization_outbox"
   }
 ];

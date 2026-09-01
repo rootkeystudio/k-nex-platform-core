@@ -138,7 +138,7 @@ describe("current authority policy wrappers", () => {
     await expect(authorization.authorize({
       session: session(), applicationId: "customer-alpha", environment: "production",
       appId: "app.sales", generationId: "sales-generation", grant
-    })).resolves.toBe(false);
+    })).resolves.toEqual({ allowed: false, authorizationRevision: 1, lifecycleRevision: 1 });
   });
 
   it("rechecks only server-registered remote frame, source, and action targets", async () => {

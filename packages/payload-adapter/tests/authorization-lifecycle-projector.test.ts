@@ -54,6 +54,7 @@ function harness(options: Readonly<{
     if (text.startsWith("insert into k_nex_extension_authorization_generations")) return { rows: [] as T[] };
     if (text.startsWith("delete from k_nex_permission_catalog_snapshots")) return { rows: [] as T[] };
     if (text.startsWith("insert into k_nex_permission_catalog_snapshots")) return { rows: [] as T[] };
+    if (text.startsWith("insert into k_nex_authorization_outbox")) return { rows: [] as T[] };
     if (text.startsWith("update k_nex_authorization_state")) {
       state.authorizationRevision = values[2] as number;
       state.lifecycleRevision = values[1] as number;
@@ -87,11 +88,16 @@ describe("AuthorizationLifecycleProjector", () => {
       expect.stringContaining("from k_nex_extension_authorization_generations"),
       expect.stringContaining("insert into k_nex_extension_authorization_generations"),
       expect.stringContaining("insert into k_nex_permission_catalog_snapshots"),
-      expect.stringContaining("update k_nex_authorization_state")
+      expect.stringContaining("update k_nex_authorization_state"),
+      expect.stringContaining("insert into k_nex_authorization_outbox")
     ]);
     expect(resolver).toHaveBeenCalledWith(value.session, lifecycle("disable", "disabled", 9));
     expect(value.queries.some((query) => query.startsWith("delete from k_nex_permission_catalog_snapshots"))).toBe(false);
-    expect(value.query.mock.calls.at(-1)?.[1]).toEqual([applicationId, 3, 4, 2]);
+    const advance = value.query.mock.calls.find(([text]) => String(text).startsWith("update k_nex_authorization_state"));
+    expect(advance?.[1]).toEqual([applicationId, 3, 4, 2]);
+    const outbox = value.query.mock.calls.find(([text]) => String(text).includes("k_nex_authorization_outbox"));
+    expect(outbox?.[1]?.slice(1, 5)).toEqual([applicationId, environment, 4, 3]);
+    expect(JSON.parse(outbox?.[1]?.[5] as string)).toEqual({ applicationId, environment, scope: "environment", authorizationRevision: 4, lifecycleRevision: 3 });
   });
 
   it("leaves the caller transaction unchanged when trusted descriptor resolution fails", async () => {

@@ -22,6 +22,7 @@ export * from "./active-extension-security-reconciler.js";
 export * from "./runner-quarantine-adapter.js";
 export * from "./authorization-store.js";
 export * from "./authorization-lifecycle-projector.js";
+export * from "./authorization-outbox.js";
 export * from "./platform-plugin-authorization-descriptors.js";
 
 export type PayloadCompositionErrorCode =

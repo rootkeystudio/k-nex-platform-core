@@ -2,7 +2,7 @@ import { createOpaqueRemoteUiFrame, RemoteUiGenerationSessions, type RemoteUiCom
 
 declare global {
   interface Window {
-    __K_NEX_HOT_APPLICATION_ROUTE__: Readonly<{ applicationId: string; environment: "production"; appId: string; generationId: string; artifactDigest: string; revision: number; sessionId: string; route: string; routes: readonly string[]; sources: readonly string[]; actions: readonly string[]; remoteUiFrameUrl: string; snapshotUrl: string; sourceUrl: string; drainMs: number }>;
+    __K_NEX_HOT_APPLICATION_ROUTE__: Readonly<{ applicationId: string; environment: "production"; appId: string; generationId: string; artifactDigest: string; revision: number; authorizationRevision: number; authorizationProof: string; sessionId: string; route: string; routes: readonly string[]; sources: readonly string[]; actions: readonly string[]; remoteUiFrameUrl: string; snapshotUrl: string; sourceUrl: string; drainMs: number }>;
     __K_NEX_HOT_APPLICATION_ROUTE_SESSION__?: Readonly<{ appId: string; generationId: string; route: string }>;
     __K_NEX_HOT_APPLICATION_LIFECYCLE_OBSERVATIONS__?: readonly Readonly<{ source: "snapshot-poll"; observedAt: number; generationId: string; revision: number; disposition: string; retirementScheduled: boolean; retirementCancelled: boolean }>[];
   }
@@ -24,6 +24,12 @@ const snapshot: RemoteUiGenerationSnapshot = Object.freeze({
   generationId: configuration.generationId, artifactDigest: configuration.artifactDigest, revision: configuration.revision, disposition: "active"
 });
 sessions.observe(snapshot, configuration.drainMs);
+sessions.admitAuthorization({
+  applicationId: configuration.applicationId,
+  environment: configuration.environment,
+  authorizationRevision: configuration.authorizationRevision,
+  authorizationProof: configuration.authorizationProof
+});
 const lifecycleObservations: Readonly<{ source: "snapshot-poll"; observedAt: number; generationId: string; revision: number; disposition: string; retirementScheduled: boolean; retirementCancelled: boolean }>[] = [];
 Object.defineProperty(window, "__K_NEX_HOT_APPLICATION_LIFECYCLE_OBSERVATIONS__", {
   enumerable: false,
@@ -32,6 +38,8 @@ Object.defineProperty(window, "__K_NEX_HOT_APPLICATION_LIFECYCLE_OBSERVATIONS__"
 });
 
 let activeSession: RemoteUiHostSession | undefined;
+let authorizationRevision = configuration.authorizationRevision;
+let freshAdmissionRequested = false;
 function renderNode(node: RemoteUiNode): HTMLElement {
   if (node.component === "stack") {
     const element = document.createElement("div");
@@ -82,10 +90,34 @@ const remote = createOpaqueRemoteUiFrame(document, session, configuration.remote
 root.before(remote.iframe);
 window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__ = Object.freeze({ appId: configuration.appId, generationId: configuration.generationId, route: configuration.route });
 
+function requestFreshAdmission(revision: number): void {
+  if (freshAdmissionRequested) return;
+  freshAdmissionRequested = true;
+  clearInterval(pollTimer);
+  activeSession?.dispose("authorization-revoked");
+  activeSession = undefined;
+  sessions.revokeAuthorization({ applicationId: configuration.applicationId, environment: configuration.environment, authorizationRevision: revision });
+  remote.dispose();
+  window.__K_NEX_HOT_APPLICATION_ROUTE_SESSION__ = undefined;
+  root.replaceChildren();
+  window.location.reload();
+}
+
 const poll = async (): Promise<void> => {
   const response = await fetch(configuration.snapshotUrl, { credentials: "same-origin", cache: "no-store" });
-  if (response.status !== 200) return;
-  const observed = await response.json() as RemoteUiGenerationSnapshot;
+  if (response.status === 401 || response.status === 403) {
+    const revision = Number(response.headers.get("x-k-nex-authorization-revision"));
+    requestFreshAdmission(Number.isSafeInteger(revision) && revision >= 0 ? revision : authorizationRevision);
+    return;
+  }
+  if (response.status !== 200) {
+    return;
+  }
+  const observed = await response.json() as RemoteUiGenerationSnapshot & Readonly<{ authorizationRevision: number; authorizationProof: string }>;
+  if (observed.authorizationRevision > authorizationRevision) {
+    requestFreshAdmission(observed.authorizationRevision);
+    return;
+  }
   const retirementScheduled = observed.disposition === "active" && observed.generationId !== configuration.generationId;
   const retirementCancelled = observed.disposition === "active" && observed.generationId === configuration.generationId && lifecycleObservations.some((entry) => entry.retirementScheduled);
   sessions.observe(observed, configuration.drainMs);

@@ -51,6 +51,8 @@ export class AuthorizationRegistryError extends Error {
 export interface AuthorizationPolicyEvaluationInput {
   readonly schemaVersion: 1;
   readonly applicationId: string;
+  readonly authorizationRevision: number;
+  readonly lifecycleRevision: number;
   readonly permissionId: string;
   readonly scope: AuthorizationScope;
   readonly principal: AuthorizationSubject;
@@ -475,10 +477,14 @@ function sameHotApplicationSource(
 
 function parseEvaluation(value: unknown): AuthorizationPolicyEvaluationInput | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
-  const allowed = ["applicationId", "delegation", "effectiveActor", "facts", "permissionId", "principal", "schemaVersion", "scope"];
+  const allowed = ["applicationId", "authorizationRevision", "delegation", "effectiveActor", "facts", "lifecycleRevision", "permissionId", "principal", "schemaVersion", "scope"];
   const input = value as Record<string, unknown>;
   const expected = input.delegation === undefined ? allowed.filter((key) => key !== "delegation") : allowed;
-  if (!exactKeys(input, expected) || input.schemaVersion !== 1 || typeof input.applicationId !== "string" || !applicationIdPattern.test(input.applicationId)) return undefined;
+  const authorizationRevision = input.authorizationRevision;
+  const lifecycleRevision = input.lifecycleRevision;
+  if (!exactKeys(input, expected) || input.schemaVersion !== 1 || typeof input.applicationId !== "string" || !applicationIdPattern.test(input.applicationId) ||
+    typeof authorizationRevision !== "number" || !Number.isSafeInteger(authorizationRevision) || authorizationRevision < 0 ||
+    typeof lifecycleRevision !== "number" || !Number.isSafeInteger(lifecycleRevision) || lifecycleRevision < 0) return undefined;
   const permissionId = AuthorizationPermissionIdSchema.safeParse(input.permissionId);
   const scope = AuthorizationScopeSchema.safeParse(input.scope);
   const principal = AuthorizationSubjectSchema.safeParse(input.principal);
@@ -486,7 +492,7 @@ function parseEvaluation(value: unknown): AuthorizationPolicyEvaluationInput | u
   const delegation = input.delegation === undefined ? undefined : AuthorizationDelegationSchema.safeParse(input.delegation);
   if (!permissionId.success || !scope.success || !principal.success || !effectiveActor.success || delegation !== undefined && !delegation.success || !boundedJson(input.facts, maximumPolicyFactsBytes, maximumPolicyFactsDepth)) return undefined;
   try {
-    return deepFreeze({ schemaVersion: 1, applicationId: input.applicationId, permissionId: permissionId.data, scope: detached(scope.data), principal: detached(principal.data), effectiveActor: detached(effectiveActor.data), ...(delegation === undefined ? {} : { delegation: detached(delegation.data) }), facts: detached(input.facts) });
+    return deepFreeze({ schemaVersion: 1, applicationId: input.applicationId, authorizationRevision, lifecycleRevision, permissionId: permissionId.data, scope: detached(scope.data), principal: detached(principal.data), effectiveActor: detached(effectiveActor.data), ...(delegation === undefined ? {} : { delegation: detached(delegation.data) }), facts: detached(input.facts) });
   } catch { return undefined; }
 }
 

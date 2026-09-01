@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 
 import type { VerifiedArtifactOwner, VerifiedArtifactRunnerSource } from "@k-nex/extension-bundler";
-import type { ExtensionCapabilityGateway, ExtensionCapabilityId } from "@k-nex/runtime";
+import type { AuthorizationRevisionInvalidation, ExtensionCapabilityGateway, ExtensionCapabilityId } from "@k-nex/runtime";
 
 import { createDockerRunnerIsolationProfile, dockerRunnerHardLimits, type DockerRunnerIsolationProfile } from "./isolation-profile.js";
 import { assertDockerSecurityPolicy, runnerSeccompProfile, type DockerIsolationPolicy } from "./policy.js";
@@ -46,6 +46,8 @@ export interface RunnerInvocationRequest {
   readonly invocationId: string;
   readonly drainLeaseId: string;
   readonly token: string;
+  readonly authorizationRevision: number;
+  readonly lifecycleRevision: number;
   readonly input: unknown;
   readonly limits: RunnerInvocationLimits;
   readonly signal?: AbortSignal;
@@ -75,10 +77,15 @@ export interface RunnerObservationSink {
   stopped(identity: RunnerGenerationIdentity, containerName: string): void | Promise<void>;
 }
 
+/** Receives at-least-once authorization revision invalidations from the host. */
+export interface RunnerAuthorizationRevocationSink {
+  invalidateAuthorization(invalidation: AuthorizationRevisionInvalidation): boolean;
+}
+
 export class RunnerInvocationError extends Error {
   cleanupFailed = false;
 
-  constructor(readonly code: "RUNNER_UNAVAILABLE" | "GENERATION_DRAINING" | "GENERATION_QUARANTINED" | "CONCURRENCY_EXHAUSTED" | "INVOCATION_INVALID" | "INVOCATION_TIMEOUT" | "OUTPUT_BUDGET_EXCEEDED" | "PROTOCOL_VIOLATION" | "POLICY_UNAVAILABLE" | "POLICY_VIOLATION" | "CONTAINER_FAILED" | "APPLICATION_FAILED", message: string) {
+  constructor(readonly code: "RUNNER_UNAVAILABLE" | "GENERATION_DRAINING" | "GENERATION_QUARANTINED" | "AUTHORIZATION_REVOKED" | "CONCURRENCY_EXHAUSTED" | "INVOCATION_INVALID" | "INVOCATION_TIMEOUT" | "OUTPUT_BUDGET_EXCEEDED" | "PROTOCOL_VIOLATION" | "POLICY_UNAVAILABLE" | "POLICY_VIOLATION" | "CONTAINER_FAILED" | "APPLICATION_FAILED", message: string) {
     super(message);
     this.name = "RunnerInvocationError";
   }
@@ -96,13 +103,14 @@ interface ResolvedRunnerInvocation extends RunnerInvocationRequest, RunnerGenera
 }
 
 interface GenerationState {
+  readonly identity: RunnerGenerationIdentity;
   accepting: boolean;
   active: number;
   failures: number;
   quarantined: boolean;
   readonly workloadUser: number;
   readonly containers: Set<string>;
-  readonly invocations: Map<string, { readonly containerName: string; readonly cancel: () => void }>;
+  readonly invocations: Map<string, { readonly containerName: string; readonly cancel: (error: RunnerInvocationError) => void }>;
   terminalQuarantine?: {
     readonly identity: RunnerGenerationIdentity;
     readonly reason: RunnerTerminalQuarantineReason;
@@ -136,6 +144,10 @@ function generationKey(identity: RunnerGenerationIdentity): string {
   return `${identity.applicationId}/${identity.environment}/${identity.appId}/${identity.generationId}`;
 }
 
+function environmentKey(invalidation: Pick<AuthorizationRevisionInvalidation, "applicationId" | "environment">): string {
+  return `${invalidation.applicationId}/${invalidation.environment}`;
+}
+
 function identity(request: RunnerInvocationRequest): RunnerGenerationIdentity {
   return { applicationId: request.owner.applicationId, environment: request.owner.environment, appId: request.owner.extensionId, generationId: request.generationId };
 }
@@ -156,7 +168,8 @@ function validateRequest(request: RunnerInvocationRequest): void {
   const limits = request.limits;
   if (!recordPattern.test(request.invocationId) ||
     request.owner.deliveryClass !== "hot-application" || !/^sha256:[0-9a-f]{64}$/u.test(request.artifactDigest) || !/^server\/[a-zA-Z0-9._/-]+\.mjs$/u.test(request.serverEntrypoint) || request.serverEntrypoint.includes("..") ||
-    !drainLeasePattern.test(request.drainLeaseId) || request.token.length < 32 || request.token.length > 8192 || jsonBytes(request.input) > limits.inputBytes ||
+    !drainLeasePattern.test(request.drainLeaseId) || request.token.length < 32 || request.token.length > 8192 ||
+    !Number.isSafeInteger(request.authorizationRevision) || request.authorizationRevision < 0 || !Number.isSafeInteger(request.lifecycleRevision) || request.lifecycleRevision < 0 || jsonBytes(request.input) > limits.inputBytes ||
     !Number.isSafeInteger(limits.cpuMilliCores) || limits.cpuMilliCores < 1 || limits.cpuMilliCores > dockerRunnerHardLimits.cpuMilliCores ||
     !Number.isSafeInteger(limits.memoryMiB) || limits.memoryMiB < 16 || limits.memoryMiB > dockerRunnerHardLimits.memoryMiB ||
     !Number.isSafeInteger(limits.processes) || limits.processes < 1 || limits.processes > dockerRunnerHardLimits.processes ||
@@ -169,6 +182,14 @@ function validateRequest(request: RunnerInvocationRequest): void {
     !Number.isSafeInteger(limits.maxConcurrency) || limits.maxConcurrency < 1 || limits.maxConcurrency > 64) {
     throw new RunnerInvocationError("INVOCATION_INVALID", "Runner invocation identity or limits are invalid.");
   }
+}
+
+function revisionAtLeast(
+  value: Readonly<{ authorizationRevision: number; lifecycleRevision: number }>,
+  floor: Readonly<{ authorizationRevision: number | undefined; lifecycleRevision: number | undefined }>
+): boolean {
+  return (floor.authorizationRevision === undefined || value.authorizationRevision >= floor.authorizationRevision) &&
+    (floor.lifecycleRevision === undefined || value.lifecycleRevision >= floor.lifecycleRevision);
 }
 
 function exactKeys(value: RunnerFrame, keys: readonly string[]): boolean {
@@ -224,9 +245,11 @@ function procReadFailure(file: "uid_map" | "status", error: unknown): string {
   return `proc-read-failed(file=${file},reason=${error instanceof Error && /\bENOENT\b/u.test(error.message) ? "enoent" : "other"})`;
 }
 
-export class DockerHotApplicationSandboxSupervisor {
+export class DockerHotApplicationSandboxSupervisor implements RunnerAuthorizationRevocationSink {
   readonly isolationProfile?: DockerRunnerIsolationProfile;
   private readonly generations = new Map<string, GenerationState>();
+  private readonly authorizationRevisions = new Map<string, number>();
+  private readonly lifecycleRevisions = new Map<string, number>();
   private readonly workloadUsers = new Map<number, string>();
   private startup?: Promise<number>;
 
@@ -259,7 +282,12 @@ export class DockerHotApplicationSandboxSupervisor {
     }
     const claims = this.gateway.assertInvocationIdentity(request.token, { ...runnerIdentity, invocationId: request.invocationId });
     if (claims.drainLeaseId !== request.drainLeaseId) throw new RunnerInvocationError("INVOCATION_INVALID", "Runner invocation drain lease does not match its token.");
+    if (claims.authorizationRevision !== request.authorizationRevision || claims.lifecycleRevision !== request.lifecycleRevision) {
+      throw new RunnerInvocationError("INVOCATION_INVALID", "Runner invocation authorization revision does not match its token.");
+    }
+    if (!revisionAtLeast(request, this.revisionFloor(runnerIdentity))) throw new RunnerInvocationError("AUTHORIZATION_REVOKED", "Runner invocation authorization predates its invalidation floor.");
     if (!await this.authority.admit(runnerIdentity, request.drainLeaseId)) throw new RunnerInvocationError("GENERATION_QUARANTINED", "Runner generation is not authoritatively admitted.");
+    if (!revisionAtLeast(request, this.revisionFloor(runnerIdentity))) throw new RunnerInvocationError("AUTHORIZATION_REVOKED", "Runner invocation authorization was revoked.");
     if (!state.accepting) throw new RunnerInvocationError("GENERATION_DRAINING", "Runner generation is draining.");
     if (state.active >= request.limits.maxConcurrency) throw new RunnerInvocationError("CONCURRENCY_EXHAUSTED", "Runner generation concurrency is exhausted.");
     state.active += 1;
@@ -272,19 +300,23 @@ export class DockerHotApplicationSandboxSupervisor {
       try { source = (await this.artifacts.load({ owner: { ...request.owner, generationId: request.generationId }, artifactDigest: request.artifactDigest, serverEntrypoint: request.serverEntrypoint })).source; } catch {
         throw new RunnerInvocationError("INVOCATION_INVALID", "Runner artifact identity is not present in the verified inventory.");
       }
+      if (!revisionAtLeast(request, this.revisionFloor(runnerIdentity))) throw new RunnerInvocationError("AUTHORIZATION_REVOKED", "Runner invocation authorization was revoked.");
       if (state.quarantined) throw new RunnerInvocationError("GENERATION_QUARANTINED", "Runner generation is quarantined.");
       if (!state.accepting) throw new RunnerInvocationError("GENERATION_DRAINING", "Runner generation is draining.");
       if (!await this.authority.admit(runnerIdentity, request.drainLeaseId)) throw new RunnerInvocationError("GENERATION_QUARANTINED", "Runner generation is not authoritatively admitted.");
+      if (!revisionAtLeast(request, this.revisionFloor(runnerIdentity))) throw new RunnerInvocationError("AUTHORIZATION_REVOKED", "Runner invocation authorization was revoked.");
       if (state.quarantined) throw new RunnerInvocationError("GENERATION_QUARANTINED", "Runner generation is quarantined.");
       if (!state.accepting) throw new RunnerInvocationError("GENERATION_DRAINING", "Runner generation is draining.");
+      if (!revisionAtLeast(request, this.revisionFloor(runnerIdentity))) throw new RunnerInvocationError("AUTHORIZATION_REVOKED", "Runner invocation authorization was revoked.");
       resolved = { ...request, ...runnerIdentity, source };
       containerName = `k-nex-${resolved.appId.replaceAll(".", "-")}-${resolved.generationId}-${randomUUID().slice(0, 8)}`.slice(0, 120);
       state.containers.add(containerName);
       result = await this.runContainer(resolved, containerName, state.workloadUser);
+      if (!revisionAtLeast(request, this.revisionFloor(runnerIdentity))) throw new RunnerInvocationError("AUTHORIZATION_REVOKED", "Runner invocation authorization was revoked.");
       if (state.quarantined) throw new RunnerInvocationError("GENERATION_QUARANTINED", "Runner generation was quarantined while this invocation was running.");
     } catch (error) {
       const normalized = error instanceof RunnerInvocationError ? error : new RunnerInvocationError("CONTAINER_FAILED", "Runner container failed.");
-      state.failures += 1;
+      if (normalized.code !== "AUTHORIZATION_REVOKED") state.failures += 1;
       const quarantineReason = isTerminalQuarantineReason(normalized.code) ? normalized.code : normalized.cleanupFailed ? "CONTAINER_FAILED" : undefined;
       if (resolved && containerName && quarantineReason) {
         state.quarantined = true;
@@ -302,6 +334,9 @@ export class DockerHotApplicationSandboxSupervisor {
           if (invocationError) invocationError.cleanupFailed = true;
           else invocationError = new RunnerInvocationError("CONTAINER_FAILED", "Runner container stop observation failed.");
         }
+        if (!invocationError && !revisionAtLeast(request, this.revisionFloor(runnerIdentity))) {
+          invocationError = new RunnerInvocationError("AUTHORIZATION_REVOKED", "Runner invocation authorization was revoked.");
+        }
         if (!invocationError && state.quarantined) {
           invocationError = new RunnerInvocationError("GENERATION_QUARANTINED", "Runner generation was quarantined while this invocation was stopping.");
         }
@@ -315,6 +350,25 @@ export class DockerHotApplicationSandboxSupervisor {
     validateIdentity(identity);
     const state = this.state(identity);
     return Object.freeze({ accepting: state.accepting, activeInvocations: state.active, quarantined: state.quarantined, failures: state.failures });
+  }
+
+  /** Ends only current work for an advanced authorization revision; new admitted work remains eligible. */
+  invalidateAuthorization(invalidation: AuthorizationRevisionInvalidation): boolean {
+    if (!applicationPattern.test(invalidation.applicationId) || !environmentPattern.test(invalidation.environment) ||
+      (invalidation.scope !== "application" && invalidation.scope !== "environment") ||
+      !Number.isSafeInteger(invalidation.authorizationRevision) || invalidation.authorizationRevision < 0 ||
+      !Number.isSafeInteger(invalidation.lifecycleRevision) || invalidation.lifecycleRevision < 0) return false;
+    const authorizationScope = invalidation.scope === "application";
+    const key = authorizationScope ? invalidation.applicationId : environmentKey(invalidation);
+    const revisions = authorizationScope ? this.authorizationRevisions : this.lifecycleRevisions;
+    const revision = authorizationScope ? invalidation.authorizationRevision : invalidation.lifecycleRevision;
+    if (revision <= (revisions.get(key) ?? 0)) return false;
+    revisions.set(key, revision);
+    for (const state of this.generations.values()) {
+      if (state.identity.applicationId !== invalidation.applicationId || !authorizationScope && state.identity.environment !== invalidation.environment) continue;
+      for (const { cancel } of state.invocations.values()) cancel(new RunnerInvocationError("AUTHORIZATION_REVOKED", "Runner invocation authorization was revoked."));
+    }
+    return true;
   }
 
   /** No runner survives a supervisor restart: protocol state cannot be reattached safely. */
@@ -343,10 +397,14 @@ export class DockerHotApplicationSandboxSupervisor {
       let workloadUser = 10_000 + createHash("sha256").update(key).digest().readUInt32BE(0) % 50_000;
       while (this.workloadUsers.has(workloadUser) && this.workloadUsers.get(workloadUser) !== key) workloadUser = workloadUser === 59_999 ? 10_000 : workloadUser + 1;
       this.workloadUsers.set(workloadUser, key);
-      state = { accepting: true, active: 0, failures: 0, quarantined: false, workloadUser, containers: new Set(), invocations: new Map() };
+      state = { identity: { ...identity }, accepting: true, active: 0, failures: 0, quarantined: false, workloadUser, containers: new Set(), invocations: new Map() };
       this.generations.set(key, state);
     }
     return state;
+  }
+
+  private revisionFloor(identity: RunnerGenerationIdentity): Readonly<{ authorizationRevision: number | undefined; lifecycleRevision: number | undefined }> {
+    return Object.freeze({ authorizationRevision: this.authorizationRevisions.get(identity.applicationId), lifecycleRevision: this.lifecycleRevisions.get(environmentKey(identity)) });
   }
 
   private runContainer(request: ResolvedRunnerInvocation, containerName: string, workloadUser: number): Promise<unknown> {
@@ -465,7 +523,7 @@ export class DockerHotApplicationSandboxSupervisor {
       const finish = (value: unknown) => settle({ value });
       state.invocations.set(invocationKey, {
         containerName,
-        cancel: () => fail(new RunnerInvocationError("GENERATION_QUARANTINED", "Runner generation was quarantined while this invocation was running."))
+        cancel: fail
       });
       registered = true;
       const abort = () => fail(invokeAcknowledged
@@ -475,6 +533,9 @@ export class DockerHotApplicationSandboxSupervisor {
       const timer = setTimeout(() => fail(invokeAcknowledged
         ? new RunnerInvocationError("INVOCATION_TIMEOUT", "Runner invocation exceeded its wall-time budget.")
         : startupUnavailable("Runner invocation timed out before the runner acknowledged source handoff.")), request.limits.wallTimeMs);
+      if (!revisionAtLeast(request, this.revisionFloor(request))) {
+        fail(new RunnerInvocationError("AUTHORIZATION_REVOKED", "Runner invocation authorization was revoked before source handoff."));
+      }
       child.on("error", () => { if (!terminal && !exitObserved) fail(new RunnerInvocationError("RUNNER_UNAVAILABLE", "Docker runner is unavailable.")); });
       child.stdin.on("error", () => { if (!terminal && !exitObserved) fail(invokeAcknowledged
         ? new RunnerInvocationError("CONTAINER_FAILED", "Runner stdin could not accept a protocol frame.")
@@ -567,10 +628,18 @@ export class DockerHotApplicationSandboxSupervisor {
             return;
           }
           if (controller.signal.aborted) return;
+          if (!revisionAtLeast(request, this.revisionFloor(request))) {
+            fail(new RunnerInvocationError("AUTHORIZATION_REVOKED", "Runner invocation authorization was revoked before source handoff."));
+            return;
+          }
           policyInspected = true;
           try { await this.observationSink.started(request, containerName); }
           catch { fail(startupUnavailable("Runner start observation did not complete before source handoff.")); return; }
           if (controller.signal.aborted) return;
+          if (!revisionAtLeast(request, this.revisionFloor(request))) {
+            fail(new RunnerInvocationError("AUTHORIZATION_REVOKED", "Runner invocation authorization was revoked before source handoff."));
+            return;
+          }
           invokeSent = write({ type: "invoke", schemaVersion: 1, invocationId: request.invocationId, generationId: request.generationId, token: request.token, source: request.source, input: request.input, maxInputBytes: request.limits.inputBytes, maxOutputBytes: request.limits.outputBytes });
         })();
       });
@@ -726,7 +795,7 @@ export class DockerHotApplicationSandboxSupervisor {
       },
       reason
     };
-    for (const { containerName, cancel } of state.invocations.values()) if (containerName !== currentContainer) cancel();
+    for (const { containerName, cancel } of state.invocations.values()) if (containerName !== currentContainer) cancel(new RunnerInvocationError("GENERATION_QUARANTINED", "Runner generation was quarantined while this invocation was running."));
   }
 
   private async inspectRunningContainer(containerName: string): Promise<Record<string, unknown>> {

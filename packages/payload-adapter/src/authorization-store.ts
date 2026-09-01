@@ -36,6 +36,7 @@ import {
 } from "@k-nex/runtime";
 
 import type { RuntimeExtensionPool, RuntimeExtensionSession } from "./runtime-extension-store.js";
+import { writeAuthorizationInvalidationOutbox } from "./authorization-outbox.js";
 
 type Row = Record<string, unknown>;
 
@@ -220,6 +221,12 @@ export class PostgresAuthorizationStore implements AuthorizationStore {
       const next = changes.authorization || changes.lifecycle
         ? await this.advance(session, current, changes)
         : current;
+      if (changes.authorization || changes.lifecycle) {
+        await writeAuthorizationInvalidationOutbox(session, {
+          ...next,
+          scope: changes.authorization ? "application" : "environment"
+        });
+      }
       await session.query("commit");
       return Object.freeze({ committed: true, value, state: next });
     } catch (error) {

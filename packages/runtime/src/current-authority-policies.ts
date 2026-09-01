@@ -12,7 +12,7 @@ import type {
   DataSourcePolicyService
 } from "./data-source-authorization.js";
 import type { RealtimeSubscriptionContext, RealtimeTopicDefinition } from "./realtime.js";
-import type { HotApplicationCapabilityAuthorizer } from "./hot-application-runtime.js";
+import type { HotApplicationCapabilityAuthorizer, HotApplicationCapabilityAuthorizationResult } from "./hot-application-runtime.js";
 import type { PluginSettingsAuthorizer } from "./plugin-settings.js";
 import { ToolGatewayError, type ToolAuthorizationEvaluator, type ToolExecutionContext } from "./tool-gateway.js";
 import { canonicalJson, ExtensionCapabilityRequestSchema, type AgentToolDescriptor, type DataSourceDescriptor, type PluginSettingsDescriptor } from "@k-nex/contracts";
@@ -321,13 +321,20 @@ export class CurrentAuthorityHotApplicationCapabilityAuthorization<TContext> imp
     if (!capabilityRegistries.has(targets)) throw new TypeError("Capability authority target registry is not trusted.");
   }
 
-  async authorize(input: HotApplicationCapabilityInput): Promise<boolean> {
+  async authorize(input: HotApplicationCapabilityInput): Promise<HotApplicationCapabilityAuthorizationResult | undefined> {
     let targets: readonly CurrentAuthorityTarget[];
-    try { targets = this.targets.grantTargets({ applicationId: input.applicationId, environment: input.environment, appId: input.appId, generationId: input.generationId, grant: input.grant }) ?? []; } catch { return false; }
-    if (targets.length === 0) return false;
+    try { targets = this.targets.grantTargets({ applicationId: input.applicationId, environment: input.environment, appId: input.appId, generationId: input.generationId, grant: input.grant }) ?? []; } catch { return undefined; }
+    if (targets.length === 0) return undefined;
     const context = this.context(input);
-    for (const target of targets) if (!await permits(this.authority, context, () => target)) return false;
-    return true;
+    let revision: Readonly<{ authorizationRevision: number; lifecycleRevision: number }> | undefined;
+    for (const target of targets) {
+      const decision = await this.authority.authorize(context, target);
+      if (!decision) return undefined;
+      if (revision === undefined) revision = Object.freeze({ authorizationRevision: decision.authorizationRevision, lifecycleRevision: decision.lifecycleRevision });
+      else if (revision.authorizationRevision !== decision.authorizationRevision || revision.lifecycleRevision !== decision.lifecycleRevision) return undefined;
+      if (decision.outcome !== "allow") return Object.freeze({ allowed: false, ...revision });
+    }
+    return revision === undefined ? undefined : Object.freeze({ allowed: true, ...revision });
   }
 }
 

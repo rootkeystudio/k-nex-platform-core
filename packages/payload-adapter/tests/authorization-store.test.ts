@@ -11,7 +11,7 @@ const descriptor = {
   description: "Manage customer roles.", audience: "authenticated", resource: "system.roles", operation: "manage", scope: "application"
 } as const;
 
-function harness(options: Readonly<{ state?: Partial<typeof expected>; activeOwner?: boolean; otherOwners?: number; roleRow?: Record<string, unknown>; adoptionRow?: Record<string, unknown>; bootstrapAssignment?: Record<string, unknown>; protectedGrantRoleId?: string }> = {}) {
+function harness(options: Readonly<{ state?: Partial<typeof expected>; activeOwner?: boolean; otherOwners?: number; roleRow?: Record<string, unknown>; adoptionRow?: Record<string, unknown>; bootstrapAssignment?: Record<string, unknown>; protectedGrantRoleId?: string; outboxFailure?: boolean }> = {}) {
   const current = { ...expected, ...options.state };
   const queries: string[] = [];
   let writtenOwnerAssignment: Record<string, unknown> | undefined;
@@ -25,6 +25,7 @@ function harness(options: Readonly<{ state?: Partial<typeof expected>; activeOwn
       current.lifecycleRevision = values[2] as number;
       return { rows: [{ application_id: current.applicationId, authorization_revision: current.authorizationRevision, lifecycle_revision: current.lifecycleRevision }] as T[] };
     }
+    if (text.startsWith("insert into k_nex_authorization_outbox") && options.outboxFailure) throw new Error("outbox unavailable");
     if (text.startsWith("insert into k_nex_role_assignments")) {
       writtenOwnerAssignment = { role_id: values[2], subject_kind: values[3], subject_id: values[4], state: values[5] };
       return { rows: [] as T[] };
@@ -71,6 +72,7 @@ describe("PostgresAuthorizationStore", () => {
       expect.stringContaining("from k_nex_authorization_state"), expect.stringContaining("insert into k_nex_roles")
     ]);
     expect(value.queries.at(-1)).toBe("commit");
+    expect(value.queries.at(-2)).toContain("insert into k_nex_authorization_outbox");
     const lockKey = value.query.mock.calls[1]?.[1]?.[0];
     expect(typeof lockKey).toBe("string");
     expect(JSON.parse(lockKey as string)).toEqual([expected.applicationId, "authorization-state"]);
@@ -185,6 +187,7 @@ describe("PostgresAuthorizationStore", () => {
     const auditOnly = harness();
     await auditOnly.store.transaction(expected, async (transaction) => transaction.write({ kind: "audit", audit }));
     expect(auditOnly.queries.some((query) => query.startsWith("update k_nex_authorization_state"))).toBe(false);
+    expect(auditOnly.queries.some((query) => query.includes("k_nex_authorization_outbox"))).toBe(false);
 
     const mixed = harness();
     const snapshot = { schemaVersion: 1, id: "snapshot-1", applicationId: expected.applicationId, source: "administrative-non-authoritative", permission: descriptor, state: "deprecated", owner: descriptor.publisher, revision: 1 } as const;
@@ -194,6 +197,16 @@ describe("PostgresAuthorizationStore", () => {
     });
     expect(result.state).toMatchObject({ authorizationRevision: 5, lifecycleRevision: 3 });
     expect(mixed.queries.filter((query) => query.startsWith("update k_nex_authorization_state"))).toHaveLength(1);
+    expect(mixed.queries.filter((query) => query.includes("k_nex_authorization_outbox"))).toHaveLength(1);
+  });
+
+  it("rolls back the authorization write when its transactional outbox write fails", async () => {
+    const value = harness({ outboxFailure: true });
+
+    await expect(value.store.transaction(expected, async (transaction) => transaction.write({ kind: "role", role }))).rejects.toThrow("outbox unavailable");
+    expect(value.queries.some((query) => query.startsWith("insert into k_nex_roles"))).toBe(true);
+    expect(value.queries.at(-1)).toBe("rollback");
+    expect(value.queries).not.toContain("commit");
   });
 
   it("rejects concurrent last-owner revocation under the application transaction lock", async () => {
