@@ -35,8 +35,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/extension-runner
       '@k-nex/module-sales':
-        specifier: workspace:*
-        version: link:../../modules/sales
+        specifier: file:packages/k-nex-module-sales-1.0.0.tgz
+        version: file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz(@k-nex/contracts@packages+contracts)(@k-nex/payload-adapter@packages+payload-adapter)(@k-nex/runtime@packages+runtime)(@k-nex/ui-design-system-contracts@packages+ui-design-system-contracts)(@k-nex/ui-pages@packages+ui-pages)(@k-nex/ui-runtime@packages+ui-runtime)(react@19.2.8)
       '@k-nex/payload-adapter':
         specifier: workspace:*
         version: link:../../packages/payload-adapter
@@ -77,6 +77,9 @@ importers:
         specifier: 19.2.8
         version: 19.2.8(react@19.2.8)
     devDependencies:
+      '@k-nex/module-sales-current':
+        specifier: workspace:@k-nex/module-sales@*
+        version: link:../../modules/sales
       '@testcontainers/postgresql':
         specifier: 12.1.0
         version: 12.1.0
@@ -1683,6 +1686,37 @@ packages:
 
   '@jsdevtools/ono@7.1.3':
     resolution: {integrity: sha512-4JQNk+3mVzK3xh2rqd6RB4J46qUR19azEHBneZyTZM+c456qOrbbM/5xcR8huNCCcbVt7+UmizG6GuUvPvKUYg==}
+
+  '@k-nex/module-sales@file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz':
+    resolution: {integrity: sha512-qDm4VY2AEG8m7578O+LYPVjJqZ3iCR/i53sxRhCKqW2VdXEao80aSVt+NrgvayDLpnA/6vT6dAs+0TR8klqo+g==, tarball: file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz}
+    version: 1.0.0
+    peerDependencies:
+      '@k-nex/contracts': 0.0.0
+      '@k-nex/payload-adapter': 0.0.0
+      '@k-nex/runtime': 0.0.0
+      '@k-nex/ui-builder-blocks': 0.0.0
+      '@k-nex/ui-components': 0.0.0
+      '@k-nex/ui-data': 0.0.0
+      '@k-nex/ui-design-system-contracts': 0.0.0
+      '@k-nex/ui-forms': 0.0.0
+      '@k-nex/ui-pages': 0.0.0
+      '@k-nex/ui-runtime': 0.0.0
+      react: ^18.0.0 || ^19.0.0
+    peerDependenciesMeta:
+      '@k-nex/ui-builder-blocks':
+        optional: true
+      '@k-nex/ui-components':
+        optional: true
+      '@k-nex/ui-data':
+        optional: true
+      '@k-nex/ui-design-system-contracts':
+        optional: true
+      '@k-nex/ui-forms':
+        optional: true
+      '@k-nex/ui-pages':
+        optional: true
+      react:
+        optional: true
 
   '@k-nex/provider-realtime-socketio@file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz':
     resolution: {integrity: sha512-U0EHH5c1wuehYok+qms1r6HOKRR1NcSzAepoB0GbLJc8t1+3hY73CwXuu6uK4ZEO5yhSsTJW7lTOOGaMEn/RiA==, tarball: file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz}
@@ -5616,6 +5650,17 @@ snapshots:
   '@js-sdsl/ordered-map@4.4.2': {}
 
   '@jsdevtools/ono@7.1.3': {}
+
+  '@k-nex/module-sales@file:fixtures/customer-gate-1/packages/k-nex-module-sales-1.0.0.tgz(@k-nex/contracts@packages+contracts)(@k-nex/payload-adapter@packages+payload-adapter)(@k-nex/runtime@packages+runtime)(@k-nex/ui-design-system-contracts@packages+ui-design-system-contracts)(@k-nex/ui-pages@packages+ui-pages)(@k-nex/ui-runtime@packages+ui-runtime)(react@19.2.8)':
+    dependencies:
+      '@k-nex/contracts': link:packages/contracts
+      '@k-nex/payload-adapter': link:packages/payload-adapter
+      '@k-nex/runtime': link:packages/runtime
+      '@k-nex/ui-runtime': link:packages/ui-runtime
+    optionalDependencies:
+      '@k-nex/ui-design-system-contracts': link:packages/ui-design-system-contracts
+      '@k-nex/ui-pages': link:packages/ui-pages
+      react: 19.2.8
 
   '@k-nex/provider-realtime-socketio@file:fixtures/customer-gate-1/packages/k-nex-provider-realtime-socketio-1.0.0.tgz(@k-nex/contracts@packages+contracts)(@k-nex/runtime@packages+runtime)':
     dependencies:

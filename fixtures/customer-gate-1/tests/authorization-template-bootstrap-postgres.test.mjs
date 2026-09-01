@@ -4,8 +4,8 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
-import salesManifest from "@k-nex/module-sales/manifest" with { type: "json" };
-import { salesPermissionDescriptors, salesRegistration } from "@k-nex/module-sales/server";
+import salesManifest from "@k-nex/module-sales-current/manifest" with { type: "json" };
+import { salesPermissionDescriptors, salesRegistration } from "@k-nex/module-sales-current/server";
 import {
   bootstrapFirstOwner,
   compareInstantiatedRoleTemplate,

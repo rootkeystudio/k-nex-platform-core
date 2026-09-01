@@ -10,7 +10,8 @@ import {
   type RegistrationResult
 } from "@k-nex/runtime";
 import { PluginManifestSchema, type AgentToolDescriptor } from "@k-nex/contracts";
-import manifestJson from "@k-nex/module-sales/manifest" with { type: "json" };
+import manifestJson from "@k-nex/module-sales-current/manifest" with { type: "json" };
+import { salesRegistration } from "@k-nex/module-sales-current/server";
 import providerManifestJson from "@k-nex/provider-realtime-socketio/manifest" with { type: "json" };
 import type { CollectionConfig } from "payload";
 import {
@@ -87,7 +88,7 @@ export function createGate1Application(options: CreateGate1ApplicationOptions): 
       { package: { name: providerPlugin.package, version: providerPlugin.version, integrity: providerPlugin.integrity }, manifest: providerManifest }
     ],
     registrations: [
-      runtimeRegistration["module.sales"].salesRegistration,
+      salesRegistration,
       runtimeRegistration["provider.realtime.socketio"].socketIoRealtimeProviderRegistration
     ]
   });
