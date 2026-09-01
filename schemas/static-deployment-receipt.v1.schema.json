@@ -267,6 +267,117 @@
           "$ref": "#/$defs/__schema7"
         },
         "contractCleanup": {
+          "const": "blocked",
+          "type": "string"
+        },
+        "environment": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "imageDigest": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "migrationRevision": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "occurredAt": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "operation": {
+          "const": "promote",
+          "type": "string"
+        },
+        "previousGenerationId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "promotionRevision": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "receiptId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "revisionAfter": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "revisionBefore": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "rollbackWindow": {
+          "additionalProperties": false,
+          "properties": {
+            "closedAt": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "state": {
+              "const": "closed",
+              "type": "string"
+            },
+            "windowId": {
+              "$ref": "#/$defs/__schema3"
+            }
+          },
+          "required": [
+            "state",
+            "windowId",
+            "closedAt"
+          ],
+          "type": "object"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "sourceCommit": {
+          "$ref": "#/$defs/__schema6"
+        },
+        "workerFencingToken": {
+          "$ref": "#/$defs/__schema9"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "receiptId",
+        "applicationId",
+        "environment",
+        "activeGenerationId",
+        "sourceCommit",
+        "compositionChangePlanDigest",
+        "buildEvidenceDigest",
+        "applicationDigest",
+        "imageDigest",
+        "migrationRevision",
+        "workerFencingToken",
+        "promotionRevision",
+        "revisionBefore",
+        "revisionAfter",
+        "occurredAt",
+        "operation",
+        "previousGenerationId",
+        "rollbackWindow",
+        "contractCleanup"
+      ],
+      "type": "object"
+    },
+    "__schema13": {
+      "additionalProperties": false,
+      "properties": {
+        "$schema": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "activeGenerationId": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "applicationDigest": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "applicationId": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "buildEvidenceDigest": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "compositionChangePlanDigest": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "contractCleanup": {
           "const": "eligible",
           "type": "string"
         },
@@ -393,7 +504,7 @@
   },
   "$id": "https://schemas.k-nex.dev/static-deployment-receipt/v1.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "oneOf": [
+  "anyOf": [
     {
       "$ref": "#/$defs/__schema0"
     },
@@ -402,6 +513,9 @@
     },
     {
       "$ref": "#/$defs/__schema12"
+    },
+    {
+      "$ref": "#/$defs/__schema13"
     }
   ],
   "title": "K-Nex Static Deployment Receipt v1"

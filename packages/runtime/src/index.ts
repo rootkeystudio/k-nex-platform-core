@@ -42,6 +42,8 @@ export * from "./protected-role-baselines.js";
 export * from "./protected-role-bootstrap.js";
 export * from "./role-template-bootstrap.js";
 export * from "./authorization-store.js";
+export * from "./authorization-lifecycle.js";
+export * from "./retained-grant-adoption.js";
 export * from "./effective-authority.js";
 export * from "./current-authority-operation-authorizer.js";
 export * from "./current-authority-adapter.js";

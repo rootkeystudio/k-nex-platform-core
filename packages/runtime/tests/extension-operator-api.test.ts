@@ -138,7 +138,7 @@ describe("DurableStaticReleaseOperator", () => {
       executionClass: "static-release", operationId: "operation-static-1", generationId: "customer-alpha-green-1",
       plan: { version: "1.1.0" },
       sourceChange: { planDigest, targetSourceCommit: sourceCommit },
-      deployment: { buildRequestDigest: `sha256:${"a".repeat(64)}`, sourceCommit }
+      deployment: { buildRequestDigest: `sha256:${"a".repeat(64)}`, sourceCommit }, quarantineRecovery: true
     }
   } as unknown as ExtensionOperationStatus;
   const request = (status: "builder-attested" | "deployment-requested" | "deployed") => ({
@@ -184,7 +184,13 @@ describe("DurableStaticReleaseOperator", () => {
 
     await expect(value.validate(operation)).resolves.toMatchObject({ valid: true, checks: expect.arrayContaining(["trusted-build", "exact-version"]) });
     await expect(value.execute(operation)).resolves.toEqual({ outcome: "promoted", receipt });
-    expect(supervisor.deploy).toHaveBeenCalledWith({ build: token, generationId: "customer-alpha-green-1", workerOwner: "supervisor:phase-9", workerLeaseExpiresAt: "2026-08-29T00:01:00.000Z" });
+    expect(supervisor.deploy).toHaveBeenCalledWith({
+      build: token,
+      generationId: "customer-alpha-green-1",
+      lifecycleAdmission: { operationId: operation.operationId, expectedRevision: operation.request.expectedRevision, extensionId: "module.sales", quarantineRecovery: true },
+      workerOwner: "supervisor:phase-9",
+      workerLeaseExpiresAt: "2026-08-29T00:01:00.000Z"
+    });
     expect(requests.recordDeployment).toHaveBeenCalledWith(expect.objectContaining({ expectedVersion: "1.1.0", receipt }));
   });
 

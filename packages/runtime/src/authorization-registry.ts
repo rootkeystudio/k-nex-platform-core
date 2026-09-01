@@ -97,6 +97,11 @@ export type TrustedPolicyExecutable = PlatformPluginPolicyExecutableDeclaration 
 
 const trustedExecutables = new WeakSet<object>();
 const effectiveAuthorizationCatalogs = new WeakSet<object>();
+const effectiveAuthorizationCatalogApplications = new WeakMap<object, string>();
+const effectiveAuthorizationCatalogBindings = new WeakMap<object, Readonly<{
+  lifecycleRevision: number;
+  activeGenerations: ReadonlyMap<string, ExtensionAuthorizationGeneration>;
+}>>();
 const effectiveRoleTemplateApplications = new WeakMap<object, string>();
 const platformPluginAuthorizationContributions = new WeakSet<object>();
 const hotApplicationAuthorizationContributions = new WeakSet<object>();
@@ -126,6 +131,50 @@ function parseExecutableIdentity(value: Readonly<{ publisher: unknown; bindingId
 /** True only for the exact effective catalog constructed by this module. */
 export function isEffectiveAuthorizationCatalog(value: unknown): value is EffectiveAuthorizationCatalog {
   return typeof value === "object" && value !== null && effectiveAuthorizationCatalogs.has(value);
+}
+
+/** True only for an exact effective catalog created for this customer application. */
+export function isEffectiveAuthorizationCatalogForApplication(value: unknown, applicationId: string): value is EffectiveAuthorizationCatalog {
+  return typeof value === "object" && value !== null && effectiveAuthorizationCatalogApplications.get(value) === applicationId;
+}
+
+/** True only for a catalog from this exact authoritative lifecycle revision. */
+export function isEffectiveAuthorizationCatalogForLifecycle(
+  value: unknown,
+  applicationId: string,
+  lifecycleRevision: number
+): value is EffectiveAuthorizationCatalog {
+  return isEffectiveAuthorizationCatalogForApplication(value, applicationId) &&
+    effectiveAuthorizationCatalogBindings.get(value)?.lifecycleRevision === lifecycleRevision;
+}
+
+/** True only for a catalog from this exact lifecycle revision with this active owner generation. */
+export function isEffectiveAuthorizationCatalogForLifecycleOwner(
+  value: unknown,
+  applicationId: string,
+  lifecycleRevision: number,
+  owner: ExtensionAuthorizationOwnerRef
+): value is EffectiveAuthorizationCatalog {
+  if (!isEffectiveAuthorizationCatalogForLifecycle(value, applicationId, lifecycleRevision)) return false;
+  const binding = effectiveAuthorizationCatalogBindings.get(value);
+  return binding?.activeGenerations.has(ownerKey(owner)) === true;
+}
+
+/**
+ * True only when this catalog was built from this exact active authorization-generation row.
+ * This binds numeric owner, runtime generation IDs, and authorization/lifecycle revisions.
+ */
+export function isEffectiveAuthorizationCatalogForGeneration(
+  value: unknown,
+  generationValue: unknown
+): value is EffectiveAuthorizationCatalog {
+  const generation = ExtensionAuthorizationGenerationSchema.safeParse(generationValue);
+  if (!generation.success || generation.data.state !== "current" ||
+    !isEffectiveAuthorizationCatalogForApplication(value, generation.data.applicationId)) {
+    return false;
+  }
+  const catalogGeneration = effectiveAuthorizationCatalogBindings.get(value)?.activeGenerations.get(ownerKey(generation.data.owner));
+  return catalogGeneration !== undefined && canonicalJson(catalogGeneration) === canonicalJson(generation.data);
 }
 
 /** True only for an exact catalog-produced role-template entry bound to this customer application. */
@@ -203,7 +252,9 @@ interface LifecycleState { readonly enabled: boolean; readonly ready: boolean; }
 interface ParsedContribution {
   readonly applicationId: string;
   readonly owner: ExtensionAuthorizationOwnerRef;
+  readonly generation: ExtensionAuthorizationGeneration;
   readonly active: boolean;
+  readonly lifecycleRevision: number;
   readonly descriptors: readonly AuthorizationPermissionDescriptor[];
   readonly bindings: readonly PermissionPolicyBinding[];
   readonly templates: readonly RoleTemplate[];
@@ -283,6 +334,8 @@ export function createHotApplicationManifestAuthorizationContribution(value: unk
 export function createPlatformPluginRegistrationAuthorizationContribution(value: Readonly<{
   registration: ScopedRegistrationResult;
   generation: unknown;
+  /** Durable runtime state may only remove availability from the static registration. */
+  lifecycleOverride?: Readonly<{ enabled: boolean; ready: boolean }>;
 }>): Readonly<{
   owner: ExtensionAuthorizationOwnerRef;
   generation: ExtensionAuthorizationGeneration;
@@ -305,10 +358,11 @@ export function createPlatformPluginRegistrationAuthorizationContribution(value:
       .filter(({ pluginId: registeredPluginId }) => registeredPluginId === pluginId)
       .map(({ value: contribution }) => detached(contribution) as T);
   const enabled = platformPluginEnabledInRegistration(value.registration, pluginId);
+  const override = value.lifecycleOverride === undefined ? undefined : parseLifecycle(value.lifecycleOverride);
   const contribution = deepFreeze({
     owner: detached(generation.data.owner),
     generation: detached(generation.data),
-    lifecycle: Object.freeze({ enabled, ready: enabled }),
+    lifecycle: Object.freeze({ enabled: enabled && (override?.enabled ?? true), ready: enabled && (override?.ready ?? true) }),
     descriptors: contributionValues<AuthorizationPermissionDescriptor>("permissions"),
     bindings: contributionValues<PermissionPolicyBinding>("policyBindings"),
     templates: contributionValues<RoleTemplate>("roleTemplates")
@@ -375,18 +429,27 @@ function parseContribution(value: unknown): ParsedContribution {
   for (const template of templates) for (const permissionId of template.permissionIds) {
     if (!descriptorIds.has(permissionId)) fail("INVALID_TEMPLATE", `Role template ${template.id} references an undeclared permission.`);
   }
-  return Object.freeze({ applicationId: generation.data.applicationId, owner: detached(owner.data), active: generation.data.state === "current" && lifecycle.enabled && lifecycle.ready, descriptors, bindings, templates });
+  return Object.freeze({
+    applicationId: generation.data.applicationId,
+    owner: detached(owner.data),
+    generation: detached(generation.data),
+    active: generation.data.state === "current" && lifecycle.enabled && lifecycle.ready,
+    lifecycleRevision: generation.data.lifecycleRevision,
+    descriptors,
+    bindings,
+    templates
+  });
 }
 
-function parseRoot(value: unknown): Readonly<{ applicationId: string; extensions: readonly unknown[]; executables: readonly unknown[] }> {
-  if (typeof value !== "object" || value === null || Array.isArray(value) || !exactKeys(value, ["applicationId", "executables", "extensions"])) {
+function parseRoot(value: unknown): Readonly<{ applicationId: string; lifecycleRevision: number; extensions: readonly unknown[]; executables: readonly unknown[] }> {
+  if (typeof value !== "object" || value === null || Array.isArray(value) || !exactKeys(value, ["applicationId", "executables", "extensions", "lifecycleRevision"])) {
     if (PermissionCatalogSnapshotSchema.safeParse(value).success) fail("SNAPSHOT_NOT_AUTHORITY", "Administrative permission snapshots cannot authorize.");
     fail("INVALID_INPUT", "Effective catalog input must contain only extension contributions and trusted executables.");
   }
   const input = value as Record<string, unknown>;
-  if (typeof input.applicationId !== "string" || !applicationIdPattern.test(input.applicationId)
+  if (typeof input.applicationId !== "string" || !applicationIdPattern.test(input.applicationId) || typeof input.lifecycleRevision !== "number" || !Number.isSafeInteger(input.lifecycleRevision) || input.lifecycleRevision < 0
     || !Array.isArray(input.extensions) || !Array.isArray(input.executables)) fail("INVALID_INPUT", "Effective catalog input is invalid.");
-  return Object.freeze({ applicationId: input.applicationId, extensions: input.extensions, executables: input.executables });
+  return Object.freeze({ applicationId: input.applicationId, lifecycleRevision: input.lifecycleRevision, extensions: input.extensions, executables: input.executables });
 }
 
 function parseTrustedExecutable(value: unknown): TrustedPolicyExecutable {
@@ -406,7 +469,8 @@ function sameHotApplicationSource(
   right: AuthoritativeHotApplicationAuthorizationRecord
 ): boolean {
   return left.applicationId === right.applicationId && left.environment === right.environment && left.extensionId === right.extensionId &&
-    left.generationId === right.generationId && left.artifactDigest === right.artifactDigest && left.manifestDigest === right.manifestDigest;
+    left.generationId === right.generationId && left.sourceCommit === right.sourceCommit &&
+    left.artifactDigest === right.artifactDigest && left.manifestDigest === right.manifestDigest;
 }
 
 function parseEvaluation(value: unknown): AuthorizationPolicyEvaluationInput | undefined {
@@ -515,6 +579,9 @@ export function createEffectiveAuthorizationCatalog(value: unknown): EffectiveAu
       templateIds.add(template.id);
     }
   }
+  if (contributions.some(({ lifecycleRevision }) => lifecycleRevision > input.lifecycleRevision)) {
+    fail("INVALID_LIFECYCLE", "Extension generation cannot be newer than its effective catalog.");
+  }
   const executables = input.executables.map(parseTrustedExecutable);
   const executableByBinding = new Map<string, TrustedPolicyExecutable>();
   for (const executable of executables) {
@@ -577,5 +644,12 @@ export function createEffectiveAuthorizationCatalog(value: unknown): EffectiveAu
     }
   });
   effectiveAuthorizationCatalogs.add(catalog);
+  effectiveAuthorizationCatalogApplications.set(catalog, input.applicationId);
+  effectiveAuthorizationCatalogBindings.set(catalog, Object.freeze({
+    lifecycleRevision: input.lifecycleRevision,
+    activeGenerations: new Map(contributions
+      .filter(({ active }) => active)
+      .map(({ owner, generation }) => [ownerKey(owner), generation]))
+  }));
   return catalog;
 }

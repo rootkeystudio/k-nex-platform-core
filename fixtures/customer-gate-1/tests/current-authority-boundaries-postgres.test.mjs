@@ -9,6 +9,8 @@ import { chromium } from "playwright";
 import { PostgresAuthorizationStore } from "@k-nex/payload-adapter";
 import { createPayloadRequest } from "payload";
 import pg from "pg";
+
+import { installStaticAuthorizationEnvironment, staticAuthorizationBuild } from "./static-authorization-build.mjs";
 import { startHotApplicationFixedRouteHost } from "./hot-application-fixed-route-host.mjs";
 
 const image = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
@@ -17,6 +19,8 @@ const applicationId = "customer-gate-1";
 const owner = Object.freeze({ kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales", generation: 1 });
 const readPermissions = ["sales.tasks.read", "sales.tasks.title.read", "sales.tasks.status.read", "sales.tasks.revenue.read"];
 const sha256 = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
+
+installStaticAuthorizationEnvironment();
 
 function deferredRead() {
   let reached;
@@ -44,7 +48,7 @@ function boot(connectionString) {
   });
 }
 
-async function seed(store, userId) {
+async function seed(store, database, userId) {
   const first = await store.transaction({ applicationId, environment: "production", authorizationRevision: 0, lifecycleRevision: 0 }, async (transaction) => {
     await transaction.write({ kind: "extension-generation", generation: { schemaVersion: 1, applicationId, owner, runtimeGenerationIds: ["static-module-sales-1"], state: "current", authorizationRevision: 0, lifecycleRevision: 0 } });
     await transaction.write({ kind: "role", role: { schemaVersion: 1, applicationId, id: "fixture.sales", label: "Fixture Sales", revision: 0 } });
@@ -55,6 +59,10 @@ async function seed(store, userId) {
       await transaction.write({ kind: "grant", grant: { schemaVersion: 1, applicationId, id: `fixture.${permissionId}`, roleId: "fixture.sales", permissionId, owner, revision: 0 } });
     }
   });
+  await database.query(
+    "insert into runtime_extensions (application_id, environment, delivery_class, extension_id, revision, disposition, active_generation_id, active_generation) values ($1,$2,$3,$4,1,'active',$5,$6::jsonb)",
+    [applicationId, "production", "platform-plugin", "module.sales", "static-module-sales-1", JSON.stringify(staticAuthorizationBuild)]
+  );
 }
 
 function hotApplicationFixture() {
@@ -208,7 +216,7 @@ test("P10.5 current authority denies fixture source/action before handler, cache
       assert.equal(remoteHost.routeRequests.length, 0, "denied route must not create a route session");
       assert.equal(remote.artifactReads(), 0, "anonymous route must not read verified bytes");
 
-      await seed(authorizationStore, user.id);
+      await seed(authorizationStore, pool, user.id);
       const sourceAllowed = await source.handler(await request("/k-nex/data-source-query", sourceBody));
       assert.equal(sourceAllowed.status, 200);
       assert.ok(finds > 0);

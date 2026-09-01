@@ -48,7 +48,7 @@ export interface StaticDeploymentSnapshot {
 export type StaticDeploymentTransitionStep = "activate-worker" | "converge-gateway" | "reconnect-realtime" | "drain-previous" | "drain-retained" | "retire-retained";
 
 export interface StaticDeploymentTransitionCheckpoint {
-  readonly kind: "promote" | "rollback" | "retire-rollback";
+  readonly kind: "promote" | "rollback" | "retire-rollback" | "promote-retire-previous";
   readonly revision: number;
   readonly activeGenerationId: string;
   readonly previousGenerationId: string;
@@ -73,6 +73,13 @@ export interface StaticPromotionReadiness {
   readonly gatewayCapacity: true;
   readonly realtimeReady: true;
   readonly observedAt: string;
+}
+
+export interface StaticDeploymentLifecycleAdmission {
+  readonly operationId: string;
+  readonly expectedRevision: number;
+  readonly extensionId: string;
+  readonly quarantineRecovery: boolean;
 }
 
 export interface StaticGenerationIdentity {
@@ -200,6 +207,7 @@ export interface StaticDeploymentState {
     workerLeaseExpiresAt: string;
     build: VerifiedStaticApplicationBuild;
     readiness: StaticPromotionReadiness;
+    lifecycleAdmission: StaticDeploymentLifecycleAdmission;
   }>): Promise<StaticDeploymentReceipt>;
   rollback(input: Owner & Readonly<{
     expectedRevision: number;
@@ -294,7 +302,11 @@ export class DeploymentSupervisor {
     generationId: string;
     workerOwner: string;
     workerLeaseExpiresAt: string;
+    lifecycleAdmission: StaticDeploymentLifecycleAdmission;
   }>): Promise<StaticDeploymentOutcome> {
+    if (typeof input.lifecycleAdmission !== "object" || input.lifecycleAdmission === null) {
+      throw new StaticDeploymentSupervisorError("STATE_UNAVAILABLE", "Static promotion requires durable lifecycle admission.");
+    }
     const verified = this.builds.read(input.build);
     const change = verified.change.change;
     if (change.migration.steps.some((step) => step.phase === "offline-required")) {
@@ -349,7 +361,8 @@ export class DeploymentSupervisor {
         workerOwner: input.workerOwner,
         workerLeaseExpiresAt: input.workerLeaseExpiresAt,
         build: input.build,
-        readiness
+        readiness,
+        lifecycleAdmission: input.lifecycleAdmission
       });
     } catch (error) {
       await this.cleanRejectedPromotion(owner, input.generationId, error);
@@ -512,7 +525,8 @@ export class DeploymentSupervisor {
     const steps: Record<StaticDeploymentTransitionCheckpoint["kind"], readonly StaticDeploymentTransitionStep[]> = {
       promote: ["activate-worker", "converge-gateway", "reconnect-realtime", "drain-previous"],
       rollback: ["activate-worker", "converge-gateway", "reconnect-realtime", "drain-previous"],
-      "retire-rollback": ["drain-retained", "retire-retained"]
+      "retire-rollback": ["drain-retained", "retire-retained"],
+      "promote-retire-previous": ["activate-worker", "converge-gateway", "reconnect-realtime", "drain-previous", "retire-retained"]
     };
     while (true) {
       const current = await this.requireState(owner);

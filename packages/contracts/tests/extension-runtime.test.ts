@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ExtensionInstallPlanSchema, HotApplicationConcreteRouteSchema, HotApplicationManifestSchema, MigrationCompatibilityPlanSchema, StaticCompositionChangePlanSchema, ThemeSkinTokenValueSchema, hotApplicationHostRouteTemplate, matchHotApplicationRoute } from "../src/extension-runtime.js";
+import { ExtensionInstallPlanSchema, HotApplicationConcreteRouteSchema, HotApplicationManifestSchema, MigrationCompatibilityPlanSchema, StaticCompositionChangePlanSchema, StaticDeploymentReceiptSchema, ThemeSkinTokenValueSchema, hotApplicationHostRouteTemplate, matchHotApplicationRoute } from "../src/extension-runtime.js";
 
 const manifest = {
   schemaVersion: 1, deliveryClass: "hot-application", id: "app.foo.bar", displayName: "Dotted routes", version: "1.0.0", runtimeAbi: "1.0.0",
@@ -147,5 +147,35 @@ describe("Migration-free compatibility plans", () => {
     for (const [baseRevision, targetRevision] of [[12, 13], [13, 12]]) {
       expect(StaticCompositionChangePlanSchema.safeParse({ ...staticPlan, migration: { ...staticPlan.migration, baseRevision, targetRevision } }).success).toBe(false);
     }
+  });
+});
+
+describe("Static deployment receipts", () => {
+  it("reports quarantine recovery promotion as immediately non-rollbackable", () => {
+    const occurredAt = "2026-09-01T00:00:00.000Z";
+    const parsed = StaticDeploymentReceiptSchema.parse({
+      schemaVersion: 1,
+      receiptId: "static-quarantine-recovery-1",
+      operation: "promote",
+      applicationId: "customer-alpha",
+      environment: "production",
+      activeGenerationId: "customer-alpha-green-12",
+      previousGenerationId: "customer-alpha-blue-11",
+      sourceCommit: "a".repeat(40),
+      compositionChangePlanDigest: `sha256:${"b".repeat(64)}`,
+      buildEvidenceDigest: `sha256:${"c".repeat(64)}`,
+      applicationDigest: `sha256:${"d".repeat(64)}`,
+      imageDigest: `sha256:${"e".repeat(64)}`,
+      migrationRevision: 12,
+      workerFencingToken: 2,
+      promotionRevision: 1,
+      revisionBefore: 0,
+      revisionAfter: 1,
+      rollbackWindow: { state: "closed", windowId: "quarantine-recovery-window-1", closedAt: occurredAt },
+      contractCleanup: "blocked",
+      occurredAt
+    });
+
+    expect(parsed.rollbackWindow.state).toBe("closed");
   });
 });

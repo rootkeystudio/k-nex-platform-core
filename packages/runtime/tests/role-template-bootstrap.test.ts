@@ -76,7 +76,7 @@ function effectiveTemplate(applicationId = expected.applicationId, version = 1, 
     registration: scopePlatformPluginRegistration(executeRegistration({ graph, installed, registrations: [registration] }), []),
     generation: { schemaVersion: 1, applicationId, owner: identity.owner, runtimeGenerationIds: ["sales-generation-1"], state: "current", authorizationRevision: 1, lifecycleRevision: 1 }
   });
-  return createEffectiveAuthorizationCatalog({ applicationId, extensions: [contribution], executables: [] }).roleTemplates[0]!;
+  return createEffectiveAuthorizationCatalog({ applicationId, lifecycleRevision: 1, extensions: [contribution], executables: [] }).roleTemplates[0]!;
 }
 
 class MemoryStore implements AuthorizationStore {

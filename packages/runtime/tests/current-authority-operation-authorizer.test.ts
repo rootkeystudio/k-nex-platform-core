@@ -73,6 +73,7 @@ function request(input: Partial<OperationAuthorizationRequest> = {}): OperationA
 describe("CurrentAuthorityOperationAuthorizer", () => {
   it.each([
     ["hot install", request(), ["system.extensions.plan", "system.extensions.install-hot"], "system.extensions"],
+    ["re-enable", request({ operation: "enable" }), ["system.extensions.plan", "system.extensions.enable"], "system.extensions"],
     ["platform install", request({ extension: { deliveryClass: "platform-plugin", id: "module.sales" } }), ["system.extensions.plan", "system.extensions.deploy-platform-plugin"], "system.extensions"],
     ["theme install", request({ extension: { deliveryClass: "theme-skin", id: "skin.minimal-accent" } }), ["system.extensions.plan", "system.themes.manage"], "system.themes"],
     ["update", request({ operation: "update" }), ["system.extensions.plan", "system.extensions.update"], "system.extensions"],
@@ -111,6 +112,16 @@ describe("CurrentAuthorityOperationAuthorizer", () => {
     const approvalChanged = await harness({ actor: Object.freeze({ ...actor, approvalId: "approval:second-change" }) }).authorizer.authorize(baseRequest);
     expect(differentContext.decisionId).not.toBe(first.decisionId);
     expect(approvalChanged.decisionId).not.toBe(first.decisionId);
+  });
+
+  it("requires enable permission for a disabled-install re-enable", async () => {
+    const value = harness({ decide: (input, trustedSession) => decision(
+      trustedSession,
+      input,
+      input.permissionId === "system.extensions.enable" ? "deny" : "allow"
+    ) });
+    await expect(value.authorizer.authorize(request({ operation: "enable" }))).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    expect(value.authorize.mock.calls.map(([, input]) => input.permissionId).sort()).toEqual(["system.extensions.enable", "system.extensions.plan"]);
   });
 
   it.each([

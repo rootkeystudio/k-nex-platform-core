@@ -570,6 +570,33 @@ export async function runDeploymentSupervisor({ event, ready }) {
     }
     return { request, build: authority.verify(greenBuild.change, greenBuild.evidence) };
   }
+  async function promotionContext(command) {
+    if (!command.operationId) throw commandError(409, "Promotion command requires durable lifecycle admission.", "REVISION_CONFLICT");
+    const result = await pool.query(
+      `select operation_id, application_id, environment, delivery_class, extension_id, expected_revision, phase, plan_json
+       from runtime_extension_operations where operation_id=$1`,
+      [command.operationId]
+    );
+    const operation = result.rows[0];
+    const plan = operation?.plan_json;
+    const install = plan?.plan;
+    if (!operation || operation.application_id !== command.applicationId || operation.environment !== command.environment ||
+      operation.delivery_class !== "platform-plugin" || operation.delivery_class !== command.deliveryClass ||
+      operation.extension_id !== command.extensionId || operation.expected_revision !== command.lifecycleExpectedRevision ||
+      !["source-change-ready", "build-attested", "zero-downtime-eligible", "rollback-window-open"].includes(operation.phase) ||
+      plan?.executionClass !== "static-release" || plan.operationId !== operation.operation_id || plan.generationId !== command.generationId ||
+      install?.operationId !== operation.operation_id || install?.id !== operation.extension_id || install?.expectedRevision !== operation.expected_revision ||
+      install?.targetGenerationId !== command.generationId || canonicalJson(plan.sourceChange) !== canonicalJson(greenBuild.change) ||
+      plan.deployment?.buildRequestDigest !== command.buildRequestDigest || plan.deployment?.sourceCommit !== greenBuild.sourceCommit) {
+      throw commandError(409, "Promotion command does not bind the exact persisted lifecycle release plan.", "REVISION_CONFLICT");
+    }
+    return {
+      operationId: operation.operation_id,
+      expectedRevision: operation.expected_revision,
+      extensionId: operation.extension_id,
+      quarantineRecovery: plan.quarantineRecovery === true
+    };
+  }
   async function maintenanceContext(command) {
     const result = await pool.query(
       "select operation_id, application_id, environment, delivery_class, extension_id, expected_revision, phase, authorization_json, plan_json from runtime_extension_operations where operation_id=$1",
@@ -678,6 +705,7 @@ export async function runDeploymentSupervisor({ event, ready }) {
       return supervisor.rollback({ ...owner, workerOwner: command.workerOwner, workerLeaseExpiresAt: command.workerLeaseExpiresAt });
     }
     if (command.operation !== "promote") throw commandError(400, "Deployment command operation is not accepted.");
+    const lifecycleAdmission = await promotionContext(command);
     const { request, build } = await verified(command);
     const state = await store.read(owner);
     if (!state) throw commandError(409, "Static deployment is not initialized.");
@@ -688,7 +716,7 @@ export async function runDeploymentSupervisor({ event, ready }) {
       return { outcome: "promoted", receipt, recovered: true };
     }
     if (state.revision !== command.expectedRevision) throw commandError(409, "Promotion command revision is stale.", "REVISION_CONFLICT");
-    const outcome = await supervisor.deploy({ build, generationId: command.generationId, workerOwner: command.workerOwner, workerLeaseExpiresAt: command.workerLeaseExpiresAt });
+    const outcome = await supervisor.deploy({ build, generationId: command.generationId, workerOwner: command.workerOwner, workerLeaseExpiresAt: command.workerLeaseExpiresAt, lifecycleAdmission });
     if (outcome.outcome === "promoted" && request.status === "deployment-requested") await releases.recordDeployment({ buildRequestDigest: request.buildRequestDigest, expectedVersion: request.version, receipt: outcome.receipt });
     await event("supervisor-lifecycle-executed", { operation: command.operation, generationId: command.generationId, buildRequestDigest: command.buildRequestDigest, outcome: outcome.outcome, backfillBatches: migrations.backfillBatches });
     return outcome;

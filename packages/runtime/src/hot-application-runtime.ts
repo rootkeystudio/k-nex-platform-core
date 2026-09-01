@@ -31,6 +31,7 @@ export interface AuthoritativeHotApplicationAuthorizationRecord {
   readonly environment: string;
   readonly extensionId: string;
   readonly generationId: string;
+  readonly sourceCommit: string;
   readonly artifactDigest: `sha256:${string}`;
   readonly manifestDigest: `sha256:${string}`;
   readonly manifest: HotApplicationManifest;
@@ -265,6 +266,7 @@ export class AuthoritativeHotApplicationRuntime {
       environment: this.identity.environment,
       extensionId: this.identity.appId,
       generationId: active.generationId,
+      sourceCommit: active.sourceCommit,
       artifactDigest: active.artifactDigest as `sha256:${string}`,
       manifestDigest: active.manifestDigest as `sha256:${string}`,
       manifest: deepFreeze(structuredClone(artifact.hotApplicationManifest))

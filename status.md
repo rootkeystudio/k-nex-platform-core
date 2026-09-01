@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-09-01
 - **Phase:** Phase 10 — RBAC, Authorization, and Extension Bootstrap
-- **Active task:** P10.7 — Lifecycle and generation integration
+- **Active task:** P10.8 — Live authorization revision and revocation
 - **State:** Ready to start
 
 ## Last completed
 
-P10.6 added immutable protected-role baselines, strict one-time first-owner bootstrap, app-branded automatic/manual templates, copy-once/compare/adoption semantics, independent durable tombstones, and migration revision 20. Protected-role mutation and bootstrap replay close safely; copied customer roles remain independent.
+P10.7 projects Platform Plugin and Hot Application lifecycle changes into immutable authorization generations, retains customer grants only through explicit adoption, and binds real static/Hot request authority to current lifecycle/RBAC state. Quarantine recovery atomically prevents rollback authority; stale Blue, anonymous, and wrong-user Sales mutations fail closed.
 
 ## Validation
 
-Focused only: contracts build + 7 tests; runtime build + 30 tests; payload adapter build + 13 tests; schema/fixture parity 10 tests; Hot registry 13 tests; customer fixture build; real PostgreSQL template/bootstrap, storage, and migration rollback/reapply proofs 3/3; diff check; Docker cleanup. Same xhigh reviewer: PASS. Full suite deferred to phase closeout.
+Focused only: contracts 29; runtime 56; payload adapter 30; package/fixture builds; real PostgreSQL lifecycle/current-authority/disable-race/asset and stale-promotion/retirement proofs 7/7; syntax/diff checks; Docker cleanup. Same xhigh reviewer: PASS. Full static/phase suite deferred to phase closeout.
 
 ## Next
 
-P10.7: first seed RBAC in the standalone sales lifecycle fixture (`sales-lifecycle.mjs:48`), then wire disable/re-enable/update/uninstall/quarantine to effective catalogs, current generations, retained grants, and explicit adoption.
+P10.8: review existing authorization outbox/revision consumers, then implement the smallest end-to-end revocation convergence slice across server, runner, browser/remote UI, and realtime without restart.
 
 ## Blockers
 

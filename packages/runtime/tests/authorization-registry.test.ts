@@ -11,6 +11,7 @@ import {
   createHotApplicationPolicyExecutable,
   createPlatformPluginRegistrationAuthorizationContribution,
   createPlatformPluginPolicyExecutable,
+  isEffectiveAuthorizationCatalogForGeneration,
   isEffectiveRoleTemplateForApplication,
   platformPermissionDescriptors
 } from "../src/authorization-registry.js";
@@ -63,8 +64,8 @@ function expectCode(action: () => unknown, code: string) {
   expect(action).toThrow(expect.objectContaining({ code } satisfies Partial<AuthorizationRegistryError>));
 }
 
-function createCatalog(input: Readonly<{ extensions: readonly unknown[]; executables: readonly unknown[] }>) {
-  return createEffectiveAuthorizationCatalog({ applicationId: "customer-alpha", ...input });
+function createCatalog(input: Readonly<{ extensions: readonly unknown[]; executables: readonly unknown[]; lifecycleRevision?: number }>) {
+  return createEffectiveAuthorizationCatalog({ applicationId: "customer-alpha", lifecycleRevision: input.lifecycleRevision ?? 1, ...input });
 }
 
 function registeredPlatformContribution(options: Readonly<{
@@ -263,6 +264,30 @@ describe("effective authorization registry", () => {
     expect(isEffectiveRoleTemplateForApplication(effectiveTemplate, "customer-alpha")).toBe(true);
     expect(isEffectiveRoleTemplateForApplication(effectiveTemplate, "customer-beta")).toBe(false);
     expect(isEffectiveRoleTemplateForApplication({ ...effectiveTemplate }, "customer-alpha")).toBe(false);
+  });
+
+  it("brands each active owner to its exact authorization-generation tuple", () => {
+    const contribution = registeredPlatformContribution({ bindings: [] });
+    const catalog = createCatalog({ extensions: [contribution], executables: [] });
+    expect(isEffectiveAuthorizationCatalogForGeneration(catalog, contribution.generation)).toBe(true);
+    const laterRoot = createCatalog({ extensions: [contribution], executables: [], lifecycleRevision: contribution.generation.lifecycleRevision + 1 });
+    expect(isEffectiveAuthorizationCatalogForGeneration(laterRoot, contribution.generation)).toBe(true);
+    expect(isEffectiveAuthorizationCatalogForGeneration(catalog, {
+      ...contribution.generation,
+      runtimeGenerationIds: ["sales-generation-other"]
+    })).toBe(false);
+    expect(isEffectiveAuthorizationCatalogForGeneration(catalog, {
+      ...contribution.generation,
+      authorizationRevision: contribution.generation.authorizationRevision + 1
+    })).toBe(false);
+    expect(isEffectiveAuthorizationCatalogForGeneration(catalog, {
+      ...contribution.generation,
+      lifecycleRevision: contribution.generation.lifecycleRevision + 1
+    })).toBe(false);
+    expect(isEffectiveAuthorizationCatalogForGeneration(catalog, {
+      ...contribution.generation,
+      owner: { ...contribution.generation.owner, generation: contribution.generation.owner.generation + 1 }
+    })).toBe(false);
   });
 
   it("accepts only branded static registration and verified manifest contributions", async () => {

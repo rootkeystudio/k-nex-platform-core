@@ -20,6 +20,10 @@ import type {
   VerifiedGenerationAuthorityOwner
 } from "@k-nex/runtime";
 
+import type {
+  AuthorizationLifecycleCommittedTransition,
+  AuthorizationLifecycleDescriptorResolver
+} from "./authorization-lifecycle-projector.js";
 import { runtimeExtensionIdentityKey, type RuntimeExtensionPool, type RuntimeExtensionSession } from "./runtime-extension-store.js";
 
 export class VerifiedArtifactStoreError extends Error {
@@ -94,6 +98,37 @@ function assertAuthority(stage: VerifiedDynamicArtifactStage, verified: Verified
   }
 }
 
+type PriorHotGenerationEvidence = Readonly<{
+  applicationId: string;
+  environment: string;
+  deliveryClass: "hot-application";
+  extensionId: string;
+  generationId: string;
+  sourceCommit: string;
+  artifactDigest: string;
+  manifestDigest: string;
+  catalogDigest: string;
+  provenanceDigest: string;
+  sbomDigest: string;
+}>;
+
+function priorHotGenerationEvidence(value: unknown, transition: AuthorizationLifecycleCommittedTransition): PriorHotGenerationEvidence {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    fail("ARTIFACT_INVALID", "Incompatible update has no prior Hot Application generation evidence.");
+  }
+  const record = value as Record<string, unknown>;
+  const keys = ["applicationId", "environment", "deliveryClass", "extensionId", "generationId", "sourceCommit", "artifactDigest", "manifestDigest", "catalogDigest", "provenanceDigest", "sbomDigest"] as const;
+  if (record.authority !== "verified-bundle" || keys.some((key) => typeof record[key] !== "string") ||
+    record.applicationId !== transition.applicationId || record.environment !== transition.environment ||
+    record.deliveryClass !== "hot-application" || record.extensionId !== transition.id ||
+    !/^sha256:[0-9a-f]{64}$/u.test(record.artifactDigest as string) || !/^sha256:[0-9a-f]{64}$/u.test(record.manifestDigest as string) ||
+    !/^sha256:[0-9a-f]{64}$/u.test(record.catalogDigest as string) || !/^sha256:[0-9a-f]{64}$/u.test(record.provenanceDigest as string) ||
+    !/^sha256:[0-9a-f]{64}$/u.test(record.sbomDigest as string)) {
+    fail("ARTIFACT_INVALID", "Prior Hot Application evidence does not bind this immutable extension generation.");
+  }
+  return Object.freeze(Object.fromEntries(keys.map((key) => [key, record[key]])) as PriorHotGenerationEvidence);
+}
+
 /**
  * PostgreSQL-backed content-addressed artifact inventory. It deliberately
  * stores original bytes and re-runs verification when bytes are read so a
@@ -102,6 +137,54 @@ function assertAuthority(stage: VerifiedDynamicArtifactStage, verified: Verified
  */
 export class PostgresVerifiedArtifactStore implements DurableDynamicArtifactStore, VerifiedRemoteUiArtifactReader, VerifiedThemeSkinArtifactReader {
   constructor(private readonly pool: RuntimeExtensionPool, private readonly verifier: ArtifactVerifier) {}
+
+  /** Resolves authorization descriptors only from the immutable generation named by a committed Hot Application transition. */
+  async resolveAuthorizationLifecycleDescriptors(
+    session: Pick<RuntimeExtensionSession, "query">,
+    transition: AuthorizationLifecycleCommittedTransition,
+    priorGenerationEvidence?: unknown
+  ): ReturnType<AuthorizationLifecycleDescriptorResolver> {
+    if (transition.deliveryClass !== "hot-application") {
+      fail("ARTIFACT_UNAVAILABLE", "Authorization descriptors are unavailable for this delivery class.");
+    }
+    const securityQuarantine = transition.eventType === "extension.security-quarantine";
+    const evidence = priorGenerationEvidence === undefined
+      ? transition.evidence
+      : priorHotGenerationEvidence(priorGenerationEvidence, transition);
+    const binding = await this.binding(session, {
+      applicationId: transition.applicationId,
+      environment: transition.environment,
+      deliveryClass: "hot-application",
+      extensionId: transition.id,
+      generationId: evidence.generationId
+    }, evidence.artifactDigest, securityQuarantine && priorGenerationEvidence === undefined ? undefined : evidence.catalogDigest);
+    if (!binding) fail("ARTIFACT_UNAVAILABLE", "Hot Application generation is not bound to the transition artifact.");
+    const verified = await this.verified(session, binding.artifact_digest, binding.catalog_digest);
+    if (!verified || verified.manifest.deliveryClass !== "hot-application" || !verified.hotApplicationManifest) {
+      fail("ARTIFACT_UNAVAILABLE", "Hot Application authorization manifest is unavailable.");
+    }
+    const durable = await this.durable(binding, verified, binding.catalog_digest);
+    const expectedAuthority = {
+      applicationId: transition.applicationId,
+      environment: transition.environment,
+      deliveryClass: transition.deliveryClass,
+      extensionId: transition.id,
+      generationId: evidence.generationId,
+      sourceCommit: evidence.sourceCommit,
+      artifactDigest: evidence.artifactDigest,
+      manifestDigest: evidence.manifestDigest,
+      catalogDigest: securityQuarantine && priorGenerationEvidence === undefined ? binding.catalog_digest : evidence.catalogDigest,
+      provenanceDigest: evidence.provenanceDigest,
+      sbomDigest: evidence.sbomDigest
+    };
+    if (!same(durable.authority, expectedAuthority) ||
+      transition.eventType === "extension.security-quarantine" && binding.version !== transition.evidence.version) {
+      fail("ARTIFACT_INVALID", "Hot Application generation authority does not exactly match lifecycle evidence.");
+    }
+    return Object.freeze(verified.hotApplicationManifest.permissions
+      .map((permission) => structuredClone(permission))
+      .sort((left, right) => left.id.localeCompare(right.id)));
+  }
 
   async stage(input: VerifiedDynamicArtifactStage): Promise<DurableDynamicArtifact> {
     const verified = await this.verifier.verify(input.verification);

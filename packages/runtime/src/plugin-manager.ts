@@ -16,6 +16,8 @@ import {
 } from "@k-nex/contracts";
 
 export type ExtensionManagerOperation = "install" | "update" | "disable" | "rollback" | "uninstall";
+/** Internal authorization-only operation: a disabled install re-enables its retained lifecycle. */
+type ExtensionAuthorizationOperation = ExtensionManagerOperation | "enable";
 export type { ExtensionOperationPhase } from "@k-nex/contracts";
 
 export interface ExtensionChangeRequest {
@@ -40,7 +42,7 @@ export interface OperationAuthorizationRequest {
   readonly applicationId: string;
   readonly environment: string;
   readonly extension: ExtensionIdentity;
-  readonly operation: ExtensionManagerOperation;
+  readonly operation: ExtensionAuthorizationOperation;
   readonly requestDigest: string;
   readonly expectedRevision: number;
 }
@@ -279,7 +281,7 @@ export type DynamicPluginManagerPlan = Readonly<{
 export type PluginManagerPlan =
   | DynamicPluginManagerPlan
   | Readonly<{ executionClass: "live-generation"; operationId: string; plan: Extract<ExtensionInstallPlan, { deliveryClass: "platform-plugin" }> & { operation: "disable" }; sourceCommit: string; generationId: string }>
-  | Readonly<{ executionClass: "static-release"; operationId: string; plan: Extract<ExtensionInstallPlan, { deliveryClass: "platform-plugin" }>; generationId: string; sourceChange: StaticCompositionChangeResult; deployment: TrustedDeploymentRequest }>;
+  | Readonly<{ executionClass: "static-release"; operationId: string; plan: Extract<ExtensionInstallPlan, { deliveryClass: "platform-plugin" }>; generationId: string; sourceChange: StaticCompositionChangeResult; deployment: TrustedDeploymentRequest; quarantineRecovery: boolean }>;
 
 export interface RuntimeExtensionOperation {
   readonly operationId: string;
@@ -372,6 +374,7 @@ export function extensionOperationActorMatches(left: ExtensionOperationActor, ri
 
 interface InventoryGenerationState {
   readonly revision: number;
+  readonly disposition: "fresh" | "active" | "disabled" | "quarantined" | "retirement-pending" | "removed";
   readonly currentGenerationId?: string;
   readonly rollbackGenerationId?: string;
   readonly currentVersion?: string;
@@ -381,23 +384,48 @@ function inventoryGenerationState(inventory: RuntimeExtensionInventory, request:
   const entries = request.extension.deliveryClass === "platform-plugin" ? inventory.extensions.platformPlugins
     : request.extension.deliveryClass === "hot-application" ? inventory.extensions.hotApplications : inventory.extensions.themeSkins;
   const entry = entries[request.extension.id];
-  if (!entry) return Object.freeze({ revision: 0 });
-  if (entry.disposition === "removed") return Object.freeze({ revision: entry.revision });
+  if (!entry) return Object.freeze({ revision: 0, disposition: "fresh" });
+  if (entry.disposition === "removed") return Object.freeze({ revision: entry.revision, disposition: "removed" });
   if (entry.disposition !== "active") return Object.freeze({
     revision: entry.revision,
+    disposition: entry.disposition,
     ...(entry.retainedGeneration ? { currentGenerationId: entry.retainedGeneration.generationId, currentVersion: entry.retainedGeneration.version } : {})
   });
   return Object.freeze({
     revision: entry.revision,
+    disposition: "active",
     currentGenerationId: entry.activeGeneration.generationId,
     currentVersion: entry.activeGeneration.version,
     ...(entry.rollbackGeneration ? { rollbackGenerationId: entry.rollbackGeneration.generationId } : {})
   });
 }
 
+type OperationAdmission = Readonly<Partial<Record<ExtensionManagerOperation, ExtensionAuthorizationOperation>>>;
+
+const operationAdmission: Readonly<Record<InventoryGenerationState["disposition"], OperationAdmission>> = Object.freeze({
+  fresh: Object.freeze({ install: "install" }),
+  removed: Object.freeze({ install: "install" }),
+  active: Object.freeze({ update: "update", disable: "disable", rollback: "rollback", uninstall: "uninstall" }),
+  disabled: Object.freeze({ install: "enable", uninstall: "uninstall" }),
+  quarantined: Object.freeze({ update: "update", uninstall: "uninstall" }),
+  "retirement-pending": Object.freeze({})
+});
+
+function admittedAuthorizationOperation(request: ExtensionChangeRequest, inventory: InventoryGenerationState): ExtensionAuthorizationOperation {
+  const operation = operationAdmission[inventory.disposition][request.operation];
+  if (!operation) throw new PluginManagerError("INVALID_STATE", `Extension ${request.operation} is not allowed while ${inventory.disposition}.`);
+  return operation;
+}
+
 function assertNoActiveDowngrade(request: ExtensionChangeRequest, inventory: InventoryGenerationState): void {
   if (["install", "update"].includes(request.operation) && inventory.currentVersion && compareExactSemverPrecedence(request.targetVersion, inventory.currentVersion) < 0) {
     throw new PluginManagerError("PLAN_MISMATCH", "Install and update cannot downgrade the active extension version.");
+  }
+}
+
+function assertRetainedReleaseReenable(request: ExtensionChangeRequest, inventory: InventoryGenerationState): void {
+  if (inventory.disposition === "disabled" && request.operation === "install" && request.targetVersion !== inventory.currentVersion) {
+    throw new PluginManagerError("PLAN_MISMATCH", "Re-enable must target the exact retained extension release.");
   }
 }
 
@@ -529,7 +557,10 @@ export class PluginManager {
   async plan(request: ExtensionChangeRequest): Promise<PluginManagerPlan> {
     if (!validRequest(request)) throw new PluginManagerError("INVALID_REQUEST", "Extension change request is invalid.");
     const requestDigest = await extensionOperationRequestDigest(request);
-    const authorization = await this.authorizer.authorize({ ...request, requestDigest });
+    const inventory = inventoryGenerationState(await this.store.inventory(request.applicationId, request.environment), request);
+    assertRetainedReleaseReenable(request, inventory);
+    const authorizationOperation = admittedAuthorizationOperation(request, inventory);
+    const authorization = await this.authorizer.authorize({ ...request, operation: authorizationOperation, requestDigest });
     await this.planner.validate(Object.freeze({ ...request }));
     await this.store.reconcileExpiredOperations({ applicationId: request.applicationId, environment: request.environment });
     let claim: ClaimOperationResult;
@@ -549,7 +580,6 @@ export class PluginManager {
       throw new PluginManagerError("INVALID_STATE", "Only the same unfinished operation may resume planning.");
     }
     const claimedOperation = claim.status === "replay" ? await this.store.resumeOperation(claim.operation.operationId, this.workerId) : claim.operation;
-    const inventory = inventoryGenerationState(await this.store.inventory(request.applicationId, request.environment), request);
     assertInventoryCanPlan(request, inventory);
 
     const planned = await this.planner.plan(Object.freeze({
@@ -579,7 +609,8 @@ export class PluginManager {
         }, sourceAuthorization);
         const deploymentAuthorization = await this.reauthorize(claimedOperation);
         const deployment = await this.deployments.request(sourceChange, deploymentAuthorization);
-        result = Object.freeze({ executionClass: "static-release", operationId, plan: parsed, generationId: planned.generationId, sourceChange, deployment });
+        result = Object.freeze({ executionClass: "static-release", operationId, plan: parsed, generationId: planned.generationId, sourceChange, deployment,
+          quarantineRecovery: request.operation === "update" && inventory.disposition === "quarantined" });
       }
     } else {
       result = Object.freeze({ executionClass: "live-generation", operationId, plan: parsed, sourceCommit: planned.sourceCommit, generationId: planned.generationId });
@@ -797,7 +828,14 @@ export class PluginManager {
     const requestDigest = await extensionOperationRequestDigest(operation.request);
     if (requestDigest !== operation.requestDigest) throw new PluginManagerError("INVALID_STATE", "Persisted extension operation request digest is invalid.");
     let current: OperationAuthorizationDecision;
-    try { current = await this.authorizer.authorize({ ...operation.request, requestDigest }); }
+    try {
+      const inventory = inventoryGenerationState(await this.store.inventory(operation.request.applicationId, operation.request.environment), operation.request);
+      current = await this.authorizer.authorize({
+        ...operation.request,
+        operation: admittedAuthorizationOperation(operation.request, inventory),
+        requestDigest
+      });
+    }
     catch { throw new PluginManagerError("INVALID_STATE", "Current authority does not permit this extension operation."); }
     if (!extensionOperationActorMatches(current.actor, operation.authorization.actor)) {
       throw new PluginManagerError("INVALID_STATE", "Current authority no longer matches the persisted extension operation.");

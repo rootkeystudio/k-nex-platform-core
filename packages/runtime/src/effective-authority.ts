@@ -15,7 +15,7 @@ import {
   type RolePermissionGrant
 } from "@k-nex/contracts";
 
-import { isEffectiveAuthorizationCatalog, type EffectiveAuthorizationCatalog } from "./authorization-registry.js";
+import { isEffectiveAuthorizationCatalogForLifecycle, type EffectiveAuthorizationCatalog } from "./authorization-registry.js";
 import type { AuthorizationExpectedRevision, AuthorizationStore } from "./authorization-store.js";
 
 type AuthorizationDelegation = ReturnType<typeof AuthorizationDelegationSchema.parse>;
@@ -242,7 +242,8 @@ export class EffectiveAuthorityResolver {
     const current = await this.#store.readState(session.applicationId, session.environment);
     if (current === undefined) fail("AUTHORITY_UNAVAILABLE", "Authorization state is unavailable.");
     const catalogValue = await this.#catalogProvider.current({ applicationId: session.applicationId, lifecycleRevision: current.lifecycleRevision });
-    if (catalogValue === undefined || catalogValue.applicationId !== session.applicationId || catalogValue.lifecycleRevision !== current.lifecycleRevision || !isEffectiveAuthorizationCatalog(catalogValue.catalog)) {
+    if (catalogValue === undefined || catalogValue.applicationId !== session.applicationId || catalogValue.lifecycleRevision !== current.lifecycleRevision ||
+      !isEffectiveAuthorizationCatalogForLifecycle(catalogValue.catalog, session.applicationId, current.lifecycleRevision)) {
       fail("AUTHORITY_UNAVAILABLE", "Current effective authorization catalog is unavailable.");
     }
     const expected: AuthorizationExpectedRevision = Object.freeze({ applicationId: session.applicationId, environment: session.environment, authorizationRevision: current.authorizationRevision, lifecycleRevision: current.lifecycleRevision });

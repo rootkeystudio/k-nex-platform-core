@@ -27,6 +27,7 @@ import type {
   StagedGenerationActivation,
   VerifiedGenerationAuthority
 } from "@k-nex/runtime";
+import type { AuthorizationLifecycleProjectionInput } from "./authorization-lifecycle-projector.js";
 
 export interface RuntimeExtensionQueryResult<T> {
   readonly rows: readonly T[];
@@ -45,6 +46,10 @@ export interface RuntimeExtensionPool {
 
 export interface RuntimeExtensionClock {
   now(): Date;
+}
+
+interface RuntimeExtensionAuthorizationLifecycleProjector {
+  project(input: AuthorizationLifecycleProjectionInput): Promise<unknown>;
 }
 
 const runnerQuarantineReasons = Object.freeze({
@@ -341,6 +346,10 @@ function assertPlanIdentity(row: OperationRow, plan: PluginManagerPlan, state: E
   if (row.delivery_class !== "platform-plugin" && plan.executionClass !== "live-generation") {
     fail("GENERATION_MISMATCH", "Dynamic extension operation cannot use static release authority.");
   }
+  if (plan.executionClass === "static-release" && plan.quarantineRecovery !==
+      (row.operation_kind === "update" && state.disposition === "quarantined")) {
+    fail("GENERATION_MISMATCH", "Static quarantine recovery authority does not match durable lifecycle state.");
+  }
   if (["install", "update"].includes(row.operation_kind)) {
     if (planned.targetGenerationId === state.active_generation_id || planned.targetGenerationId === state.rollback_generation_id) {
       fail("GENERATION_MISMATCH", "Install and update target generations must be fresh.");
@@ -358,7 +367,7 @@ function assertPlanIdentity(row: OperationRow, plan: PluginManagerPlan, state: E
   }
 }
 
-function transitionEvidence(row: OperationRow, authority: VerifiedGenerationAuthority | undefined, staticReceipt?: StaticDeploymentReceipt, staticGeneration?: Record<string, unknown>) {
+function transitionEvidence(row: OperationRow, authority: VerifiedGenerationAuthority | undefined, staticReceipt?: StaticDeploymentReceipt, retainedGeneration?: Record<string, unknown>) {
   const plan = row.plan_json;
   if (!plan) fail("STATE_INVALID", "A lifecycle transition requires a persisted plan.");
   if (plan.executionClass === "static-release") {
@@ -375,17 +384,20 @@ function transitionEvidence(row: OperationRow, authority: VerifiedGenerationAuth
     };
   }
   if (row.delivery_class === "platform-plugin") {
-    if (!staticGeneration || typeof staticGeneration["sourceCommit"] !== "string" || typeof staticGeneration["compositionChangePlanDigest"] !== "string" || typeof staticGeneration["generationId"] !== "string") {
+    if (!retainedGeneration || typeof retainedGeneration["sourceCommit"] !== "string" || typeof retainedGeneration["compositionChangePlanDigest"] !== "string" || typeof retainedGeneration["generationId"] !== "string") {
       fail("STATE_INVALID", "Runtime-only Platform Plugin transition is missing its retained static generation evidence.");
     }
     return {
-      sourceCommit: staticGeneration["sourceCommit"],
-      compositionChangePlanDigest: staticGeneration["compositionChangePlanDigest"],
-      generationId: staticGeneration["generationId"],
-      ...(typeof staticGeneration["buildEvidenceDigest"] === "string" ? { buildEvidenceDigest: staticGeneration["buildEvidenceDigest"] } : {}),
-      ...(typeof staticGeneration["applicationDigest"] === "string" ? { applicationDigest: staticGeneration["applicationDigest"] } : {}),
-      ...(typeof staticGeneration["imageDigest"] === "string" ? { imageDigest: staticGeneration["imageDigest"] } : {})
+      sourceCommit: retainedGeneration["sourceCommit"],
+      compositionChangePlanDigest: retainedGeneration["compositionChangePlanDigest"],
+      generationId: retainedGeneration["generationId"],
+      ...(typeof retainedGeneration["buildEvidenceDigest"] === "string" ? { buildEvidenceDigest: retainedGeneration["buildEvidenceDigest"] } : {}),
+      ...(typeof retainedGeneration["applicationDigest"] === "string" ? { applicationDigest: retainedGeneration["applicationDigest"] } : {}),
+      ...(typeof retainedGeneration["imageDigest"] === "string" ? { imageDigest: retainedGeneration["imageDigest"] } : {})
     };
+  }
+  if (row.delivery_class === "hot-application" && !authority && retainedGeneration) {
+    return retainedHotApplicationEvidence(row, retainedGeneration);
   }
   return {
     sourceCommit: authority?.sourceCommit ?? plan.sourceCommit,
@@ -398,6 +410,28 @@ function transitionEvidence(row: OperationRow, authority: VerifiedGenerationAuth
       sbomDigest: authority.sbomDigest
     } : {})
   };
+}
+
+function retainedHotApplicationEvidence(row: OperationRow, retainedGeneration: Record<string, unknown>) {
+  const sourceCommit = retainedGeneration["sourceCommit"];
+  const artifactDigest = retainedGeneration["artifactDigest"];
+  const manifestDigest = retainedGeneration["manifestDigest"];
+  const catalogDigest = retainedGeneration["catalogDigest"];
+  const provenanceDigest = retainedGeneration["provenanceDigest"];
+  const sbomDigest = retainedGeneration["sbomDigest"];
+  const generationId = retainedGeneration["generationId"];
+  if (retainedGeneration["authority"] !== "verified-bundle" || retainedGeneration["applicationId"] !== row.application_id ||
+    retainedGeneration["environment"] !== row.environment || retainedGeneration["deliveryClass"] !== row.delivery_class ||
+    retainedGeneration["extensionId"] !== row.extension_id || typeof generationId !== "string" || !validRecordId(generationId) ||
+    typeof sourceCommit !== "string" || !/^[0-9a-f]{40}$/u.test(sourceCommit) ||
+    typeof artifactDigest !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(artifactDigest) ||
+    typeof manifestDigest !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(manifestDigest) ||
+    typeof catalogDigest !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(catalogDigest) ||
+    typeof provenanceDigest !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(provenanceDigest) ||
+    typeof sbomDigest !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(sbomDigest)) {
+    fail("GENERATION_MISMATCH", "Retained Hot Application generation evidence does not bind the exact verified extension owner.");
+  }
+  return { sourceCommit, artifactDigest, generationId, manifestDigest, catalogDigest, provenanceDigest, sbomDigest };
 }
 
 function lifecycleState(phase: ExtensionOperationPhase): ExtensionLifecycleEvent["lifecycleState"] {
@@ -433,16 +467,23 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
   private readonly leaseMs: number;
   private readonly maxConcurrentOperations: number;
   private readonly reconciliationBatchSize: number;
+  private readonly authorizationLifecycleProjector: RuntimeExtensionAuthorizationLifecycleProjector | undefined;
 
   constructor(
     private readonly pool: RuntimeExtensionPool,
     private readonly clock: RuntimeExtensionClock,
     private readonly hostInventoryDigest: string,
-    options: Readonly<{ leaseMs?: number; maxConcurrentOperations?: number; reconciliationBatchSize?: number }> = {}
+    options: Readonly<{
+      leaseMs?: number;
+      maxConcurrentOperations?: number;
+      reconciliationBatchSize?: number;
+      authorizationLifecycleProjector?: RuntimeExtensionAuthorizationLifecycleProjector;
+    }> = {}
   ) {
     this.leaseMs = options.leaseMs ?? 30_000;
     this.maxConcurrentOperations = options.maxConcurrentOperations ?? 16;
     this.reconciliationBatchSize = options.reconciliationBatchSize ?? this.maxConcurrentOperations;
+    this.authorizationLifecycleProjector = options.authorizationLifecycleProjector;
     if (!/^sha256:[0-9a-f]{64}$/u.test(hostInventoryDigest) || !Number.isSafeInteger(this.leaseMs) || this.leaseMs < 1 ||
       !Number.isSafeInteger(this.maxConcurrentOperations) || this.maxConcurrentOperations < 1 || this.maxConcurrentOperations > 512 ||
       !Number.isSafeInteger(this.reconciliationBatchSize) || this.reconciliationBatchSize < 1 || this.reconciliationBatchSize > 512) {
@@ -726,9 +767,16 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
       const inventoryRevision = await this.advanceInventoryRevision(session, row.application_id, row.environment);
       const { receiptId } = evidenceIds(row, revision);
       const activeGeneration = this.bundleGenerationEvidence(generation, receiptId);
-      const previousGeneration = state.active_generation;
+      const previousGeneration = state.active_generation ?? state.retained_generation;
       const previousGenerationId = previousGeneration ? state.active_generation_id ?? undefined : undefined;
-      const rollbackAvailable = Boolean(previousGeneration && generation.compatibility_json.status === "compatible");
+      const recoveredFromQuarantine = state.disposition === "quarantined";
+      const rollbackAvailable = !recoveredFromQuarantine && Boolean(previousGeneration && generation.compatibility_json.status === "compatible");
+      const updateCompatibility = row.operation_kind === "update"
+        ? state.disposition === "quarantined" ? "incompatible" : this.updateAuthorizationCompatibility(generation.compatibility_json, rollbackAvailable)
+        : undefined;
+      const priorGenerationEvidence = row.operation_kind === "update"
+        ? previousGeneration ?? fail("STATE_INVALID", "Update has no active immutable generation evidence.")
+        : undefined;
       const updated = await session.query(
         `update runtime_extensions set revision=$5, disposition='active', active_generation_id=$6, active_generation=$7::jsonb,
            rollback_generation_id=$8, rollback_generation=$9::jsonb, retained_generation=null,
@@ -738,7 +786,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
         [row.application_id, row.environment, row.delivery_class, row.extension_id, revision, generation.generation_id, JSON.stringify(activeGeneration),
           rollbackAvailable ? previousGenerationId : null, rollbackAvailable ? JSON.stringify(previousGeneration) : null,
           JSON.stringify(generation.activation_json.metadata), JSON.stringify(generation.activation_json.settings), JSON.stringify(generation.activation_json.storageSchemaVersions),
-          JSON.stringify(generation.compatibility_json), row.operation_id, state.revision]
+          rollbackAvailable ? JSON.stringify(generation.compatibility_json) : null, row.operation_id, state.revision]
       );
       if (updated.rowCount !== 1) fail("REVISION_CONFLICT", "Runtime extension revision changed before activation.");
       await session.query(
@@ -748,6 +796,13 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
         [row.application_id, row.environment, row.delivery_class, row.extension_id, generation.generation_id, previousGenerationId ?? generation.generation_id, receiptId]
       );
       const event = await this.writeTransitionEvidence(session, row, "completed", row.authority_json, revision, inventoryRevision);
+      await this.projectAuthorizationLifecycle(
+        session,
+        event,
+        [generation.generation_id],
+        updateCompatibility,
+        priorGenerationEvidence
+      );
       const receipt: ExtensionActivationReceipt = Object.freeze({
         receiptId: event.receiptId, operationId: row.operation_id, operation: row.operation_kind as "install" | "update",
         generationId: generation.generation_id, ...(previousGenerationId ? { previousGenerationId } : {}), revisionBefore: state.revision,
@@ -846,6 +901,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
       );
       const authority = target.authority_json;
       const event = await this.writeTransitionEvidence(session, row, "completed", authority, revision, inventoryRevision);
+      await this.projectAuthorizationLifecycle(session, event, [target.generation_id]);
       const receipt: ExtensionActivationReceipt = Object.freeze({
         receiptId: event.receiptId, operationId: row.operation_id, operation: "rollback", generationId: state.rollback_generation_id,
         previousGenerationId: state.active_generation_id, revisionBefore: state.revision, revisionAfter: revision, inventoryRevision,
@@ -887,11 +943,15 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
       );
       const state = stateResult.rows[0];
       if (!state) fail("STATE_INVALID", "Runtime extension state is unavailable.");
+      assertPlanIdentity(row, plan, state);
       const revision = state.revision + 1;
       const inventoryRevision = await this.advanceInventoryRevision(session, row.application_id, row.environment);
-      const previousGeneration = state.active_generation;
+      const previousGeneration = state.active_generation ?? state.retained_generation;
       const active = !["disable", "uninstall"].includes(row.operation_kind);
-      const retained = active && previousGeneration && receipt.rollbackWindow.state === "open" ? previousGeneration : null;
+      const recoveredFromQuarantine = state.disposition === "quarantined";
+      const retained = active && !recoveredFromQuarantine
+        ? previousGeneration && receipt.rollbackWindow.state === "open" ? previousGeneration : null
+        : previousGeneration;
       const activeGeneration = active ? this.staticGenerationEvidence(plan, receipt) : null;
       const disposition = row.operation_kind === "disable" ? "disabled" : row.operation_kind === "uninstall" ? "removed" : "active";
       const updated = await session.query(
@@ -900,11 +960,26 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
          where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4 and revision=$13`,
         [row.application_id, row.environment, row.delivery_class, row.extension_id, revision, disposition,
           active ? receipt.activeGenerationId : null, active ? JSON.stringify(activeGeneration) : null,
-          retained ? String(retained["generationId"]) : null, retained ? JSON.stringify(retained) : null,
+          active && !recoveredFromQuarantine && retained ? String(retained["generationId"]) : null,
+          active && !recoveredFromQuarantine && retained ? JSON.stringify(retained) : null,
           !active && previousGeneration ? JSON.stringify(previousGeneration) : null, row.operation_id, state.revision]
       );
       if (updated.rowCount !== 1) fail("REVISION_CONFLICT", "Runtime extension revision changed before static receipt reconciliation.");
-      await this.writeTransitionEvidence(session, row, "completed", undefined, revision, inventoryRevision, undefined, receipt);
+      const event = await this.writeTransitionEvidence(session, row, "completed", undefined, revision, inventoryRevision, disposition, receipt);
+      const previousRuntimeGenerationId = stateCurrentGenerationId(state);
+      const updateCompatibility = row.operation_kind === "update"
+        ? state.disposition === "quarantined" ? "incompatible" : this.updateAuthorizationCompatibilityFromStaticReceipt(receipt)
+        : undefined;
+      const priorGenerationEvidence = row.operation_kind === "update"
+        ? previousGeneration ?? fail("STATE_INVALID", "Static update has no active immutable generation evidence.")
+        : undefined;
+      await this.projectAuthorizationLifecycle(
+        session,
+        event,
+        [active ? receipt.activeGenerationId : previousRuntimeGenerationId ?? fail("STATE_INVALID", "Static disposition has no prior plugin generation.")],
+        updateCompatibility,
+        priorGenerationEvidence
+      );
       await this.completeOperation(session, row, receipt);
       return receipt;
     });
@@ -990,7 +1065,8 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
         catalogDigest: input.decision.catalogDigest,
         occurredAt: timestamp(this.clock)
       });
-      await this.writeSecurityQuarantineEvidence(session, input, transition, receipt);
+      const event = await this.writeSecurityQuarantineEvidence(session, input, transition, receipt);
+      await this.projectAuthorizationLifecycle(session, event, [input.generationId]);
       return receipt;
     });
   }
@@ -1071,7 +1147,8 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
         inventoryRevision,
         occurredAt: timestamp(this.clock)
       });
-      await this.writeRunnerQuarantineEvidence(session, row, input, transition, receipt);
+      const event = await this.writeRunnerQuarantineEvidence(session, row, input, transition, receipt);
+      await this.projectAuthorizationLifecycle(session, event, [input.generationId]);
       return receipt;
     });
   }
@@ -1145,6 +1222,10 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
         );
       }
       const event = await this.writeTransitionEvidence(session, row, "completed", undefined, revision, inventoryRevision, disposition, undefined, previousGeneration ?? undefined);
+      if (row.delivery_class !== "theme-skin") {
+        if (!previousGenerationId) fail("STATE_INVALID", `${operationKind} has no current runtime generation.`);
+        await this.projectAuthorizationLifecycle(session, event, [previousGenerationId]);
+      }
       const receipt: ExtensionDispositionReceipt = Object.freeze({
         receiptId: event.receiptId,
         operationId: row.operation_id,
@@ -1282,7 +1363,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
     input: Parameters<RuntimeExtensionStore["quarantineRunnerGeneration"]>[0],
     ids: Readonly<{ quarantineDigest: string; quarantineTransitionId: string; receiptId: string; auditId: string; eventId: string }>,
     receipt: ExtensionRunnerQuarantineReceipt
-  ): Promise<void> {
+  ): Promise<ExtensionLifecycleEvent> {
     const event = ExtensionLifecycleEventSchema.parse({
       schemaVersion: 1,
       applicationId: input.applicationId,
@@ -1328,6 +1409,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
       `update runtime_extensions set last_receipt_id=$4, state_digest=$5 where application_id=$1 and environment=$2 and delivery_class='hot-application' and extension_id=$3`,
       [input.applicationId, input.environment, input.appId, ids.receiptId, await sha256({ event, reason: input.reason })]
     );
+    return event;
   }
 
   private async writeSecurityQuarantineEvidence(
@@ -1335,7 +1417,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
     input: Parameters<RuntimeExtensionStore["quarantineActiveGeneration"]>[0],
     ids: Readonly<{ decisionDigest: string; securityTransitionId: string; receiptId: string; auditId: string; eventId: string }>,
     receipt: ExtensionSecurityQuarantineReceipt
-  ): Promise<void> {
+  ): Promise<ExtensionSecurityQuarantineEvent> {
     const event = ExtensionSecurityQuarantineEventSchema.parse({
       schemaVersion: 1,
       eventId: ids.eventId,
@@ -1392,6 +1474,42 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
       `update runtime_extensions set last_receipt_id=$5, state_digest=$6 where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4`,
       [input.applicationId, input.environment, input.extension.deliveryClass, input.extension.id, ids.receiptId, await sha256(event)]
     );
+    return event;
+  }
+
+  private async projectAuthorizationLifecycle(
+    session: RuntimeExtensionSession,
+    transition: ExtensionLifecycleEvent | ExtensionSecurityQuarantineEvent,
+    runtimeGenerationIds: readonly [string],
+    updateCompatibility?: "compatible" | "incompatible",
+    priorGenerationEvidence?: unknown
+  ): Promise<void> {
+    if (transition.deliveryClass === "theme-skin") return;
+    if (!this.authorizationLifecycleProjector) {
+      fail("STATE_INVALID", "Platform Plugin and Hot Application terminal transitions require an authorization lifecycle projector.");
+    }
+    await this.authorizationLifecycleProjector.project({
+      session,
+      transition,
+      runtimeGenerationIds,
+      ...(updateCompatibility === undefined ? {} : { updateCompatibility }),
+      ...(priorGenerationEvidence === undefined ? {} : { priorGenerationEvidence })
+    });
+  }
+
+  private updateAuthorizationCompatibility(
+    compatibility: StagedGenerationActivation["compatibility"],
+    rollbackAvailable: boolean
+  ): "compatible" | "incompatible" {
+    return rollbackAvailable && compatibility.status === "compatible" && Date.parse(compatibility.closesAt) > this.clock.now().valueOf()
+      ? "compatible"
+      : "incompatible";
+  }
+
+  private updateAuthorizationCompatibilityFromStaticReceipt(receipt: StaticDeploymentReceipt): "compatible" | "incompatible" {
+    return receipt.operation === "promote" && receipt.rollbackWindow.state === "open" && Date.parse(receipt.rollbackWindow.closesAt) > this.clock.now().valueOf()
+      ? "compatible"
+      : "incompatible";
   }
 
   private async transaction<T>(work: (session: RuntimeExtensionSession) => Promise<T>): Promise<T> {
@@ -1488,7 +1606,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
     );
   }
 
-  private async appendTransition(session: RuntimeExtensionSession, row: OperationRow, phase: ExtensionOperationPhase, authority: VerifiedGenerationAuthority | undefined, staticGeneration?: Record<string, unknown>): Promise<ExtensionLifecycleEvent> {
+  private async appendTransition(session: RuntimeExtensionSession, row: OperationRow, phase: ExtensionOperationPhase, authority: VerifiedGenerationAuthority | undefined, retainedGeneration?: Record<string, unknown>): Promise<ExtensionLifecycleEvent> {
     const identity = identityKey(row);
     await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [identity]);
     const state = await session.query<{ revision: number }>(
@@ -1499,7 +1617,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
     const revision = state.rows[0]?.revision;
     if (!revision) fail("STATE_INVALID", "Runtime extension revision update failed.");
     const inventoryRevision = await this.advanceInventoryRevision(session, row.application_id, row.environment);
-    return this.writeTransitionEvidence(session, row, phase, authority, revision, inventoryRevision, undefined, undefined, staticGeneration);
+    return this.writeTransitionEvidence(session, row, phase, authority, revision, inventoryRevision, undefined, undefined, retainedGeneration);
   }
 
   private async writeTransitionEvidence(
@@ -1511,7 +1629,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
     inventoryRevision: number,
     lifecycle?: ExtensionLifecycleEvent["lifecycleState"],
     staticReceipt?: StaticDeploymentReceipt,
-    staticGeneration?: Record<string, unknown>
+    retainedGeneration?: Record<string, unknown>
   ): Promise<ExtensionLifecycleEvent> {
     const ids = evidenceIds(row, revision);
     const receiptId = staticReceipt?.receiptId ?? ids.receiptId;
@@ -1537,7 +1655,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
       occurredAt: timestamp(this.clock),
       deliveryClass: row.delivery_class,
       id: row.extension_id,
-      evidence: transitionEvidence(row, authority ?? row.authority_json ?? undefined, staticReceipt, staticGeneration)
+      evidence: transitionEvidence(row, authority ?? row.authority_json ?? undefined, staticReceipt, retainedGeneration)
     });
     const eventJson = JSON.stringify(event);
     await session.query(

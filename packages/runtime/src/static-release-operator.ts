@@ -117,7 +117,19 @@ export class DurableStaticReleaseOperator implements StaticReleaseOperator {
     await this.admit(operation);
     const lease = await this.workerLeases.acquire(operation);
     await this.admit(operation);
-    const outcome = await this.supervisor.deploy({ build, generationId: operation.plan!.generationId, ...lease });
+    const plan = operation.plan;
+    if (!plan || plan.executionClass !== "static-release") throw new StaticReleaseOperatorError("INVALID_OPERATION", "Static release operator requires a static-release operation plan.");
+    const outcome = await this.supervisor.deploy({
+      build,
+      generationId: plan.generationId,
+      lifecycleAdmission: {
+        operationId: operation.operationId,
+        expectedRevision: operation.request.expectedRevision,
+        extensionId: operation.request.extension.id,
+        quarantineRecovery: plan.quarantineRecovery
+      },
+      ...lease
+    });
     if (outcome.outcome === "maintenance-required") return outcome;
     if (outcome.receipt.activeGenerationId !== operation.plan!.generationId) throw new StaticReleaseOperatorError("AUTHORITY_MISMATCH", "Deployment receipt promoted a generation other than the durable operation target.");
     const persisted = await this.requests.recordDeployment({ buildRequestDigest: dispatched.buildRequestDigest, expectedVersion: dispatched.version, receipt: outcome.receipt });

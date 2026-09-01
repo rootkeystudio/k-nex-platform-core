@@ -7,6 +7,9 @@ import { PostgresAuthorizationStore } from "@k-nex/payload-adapter";
 import { bootstrapFirstOwner } from "@k-nex/runtime";
 
 import { bootGate1Application } from "../dist/src/boot.js";
+import { installStaticAuthorizationEnvironment, staticAuthorizationBuild } from "./static-authorization-build.mjs";
+
+installStaticAuthorizationEnvironment();
 
 const key = process.env.BOOT_KEY;
 const password = "gate1-authenticated-query-password";
@@ -92,6 +95,10 @@ await store.transaction({
   await seedRole("fixture.sales-operator", salesPermissions, ["gate1@example.test", "gate1-peer@example.test", "done@example.test"]);
   await seedRole("fixture.sales-operator-no-note", salesPermissions.filter((permissionId) => permissionId !== "sales.tasks.private-note.read"), ["no-note@example.test"]);
 });
+await pool.query(
+  "insert into runtime_extensions (application_id, environment, delivery_class, extension_id, revision, disposition, active_generation_id, active_generation) values ($1,$2,$3,$4,1,'active',$5,$6::jsonb)",
+  ["customer-gate-1", "production", "platform-plugin", "module.sales", "static-module-sales-1", JSON.stringify(staticAuthorizationBuild)]
+);
 const openTask = await payload.create({
   collection: "sales-tasks",
   data: { title: "Authenticated Gate 1 query", status: "open", potentialRevenue: "100", privateNote: "open-secret" }

@@ -40,8 +40,8 @@ const assignment = (id: string, roleId: string, principal: ReturnType<typeof sub
 const grant = (id: string, roleId: string, permissionId: string, owner: AuthorizationOwnerRef): RolePermissionGrant => ({ schemaVersion: 1, id, applicationId, roleId, permissionId, owner, revision: 1 });
 const generation = (owner = salesOwner, generationState: "current" | "retired" = "current"): ExtensionAuthorizationGeneration => ({ schemaVersion: 1, applicationId, owner, runtimeGenerationIds: ["sales-generation-1"], state: generationState, authorizationRevision: 1, lifecycleRevision: 1 });
 
-function catalog(): EffectiveAuthorizationCatalog {
-  return createEffectiveAuthorizationCatalog({ applicationId, extensions: [], executables: [] });
+function catalog(lifecycleRevision = 1): EffectiveAuthorizationCatalog {
+  return createEffectiveAuthorizationCatalog({ applicationId, lifecycleRevision, extensions: [], executables: [] });
 }
 
 function extensionCatalog(input: Readonly<{
@@ -50,6 +50,7 @@ function extensionCatalog(input: Readonly<{
   resource: string;
   scope?: "application" | "record" | "field";
   execute?: () => unknown | Promise<unknown>;
+  lifecycleRevision?: number;
 }>): EffectiveAuthorizationCatalog {
   const publisher = { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales" } as const;
   const owner = input.owner ?? salesOwner;
@@ -78,15 +79,16 @@ function extensionCatalog(input: Readonly<{
     context.register("permissions", descriptor.id, descriptor);
     if (policyBinding !== undefined) context.register("policyBindings", policyBinding.id, policyBinding);
   } });
+  const lifecycleRevision = input.lifecycleRevision ?? 1;
   const contribution = createPlatformPluginRegistrationAuthorizationContribution({
     registration: scopePlatformPluginRegistration(executeRegistration({ graph, installed, registrations: [registration] }), []),
-    generation: { schemaVersion: 1, applicationId, owner, runtimeGenerationIds: ["sales-generation-1"], state: "current", authorizationRevision: 1, lifecycleRevision: 1 }
+    generation: { schemaVersion: 1, applicationId, owner, runtimeGenerationIds: ["sales-generation-1"], state: "current", authorizationRevision: 1, lifecycleRevision }
   });
   const executable = policyBinding === undefined ? [] : [createPlatformPluginPolicyExecutable({
     kind: "platform-plugin", publisher, bindingId: policyBinding.id, policyReference: policyBinding.policyReference,
     executor: { evaluate: () => input.execute!() as never }
   })];
-  return createEffectiveAuthorizationCatalog({ applicationId, extensions: [contribution], executables: executable });
+  return createEffectiveAuthorizationCatalog({ applicationId, lifecycleRevision, extensions: [contribution], executables: executable });
 }
 
 class MemoryStore implements AuthorizationStore {
@@ -162,6 +164,15 @@ describe("effective authority resolver", () => {
     await expect(new EffectiveAuthorityResolver({ store: new MemoryStore(), catalogProvider: provider(factoryCatalog) }).authorize(session, request())).resolves.toMatchObject({ outcome: "allow", reason: "granted" });
   });
 
+  it("rejects an exact catalog branded for an older lifecycle revision", async () => {
+    const session = createTrustedAuthorizationSession({ schemaVersion: 1, applicationId, environment, correlationId: "correlation:catalog-revision", principal: subject("user:one"), effectiveActor: subject("user:one") });
+    const resolver = new EffectiveAuthorityResolver({
+      store: new MemoryStore(state(1, 2)),
+      catalogProvider: createAuthorizationCatalogProvider(() => ({ applicationId, lifecycleRevision: 2, catalog: catalog(1) }))
+    });
+    await expect(resolver.authorize(session, request())).rejects.toMatchObject({ code: "AUTHORITY_UNAVAILABLE" } satisfies Partial<EffectiveAuthorityError>);
+  });
+
   it("intersects principal and delegated effective actor", async () => {
     const store = new MemoryStore(state(), [role("one"), role("two")], [grant("one", "one", "system.extensions.plan", platformOwner), grant("two", "two", "system.extensions.plan", platformOwner)], [assignment("one", "one", subject("user:one")), assignment("two", "two", subject("user:two"))]);
     const resolver = new EffectiveAuthorityResolver({ store, catalogProvider: provider(catalog()) });
@@ -173,7 +184,7 @@ describe("effective authority resolver", () => {
 
   it("isolates cache by actor and both revisions", async () => {
     const store = new MemoryStore();
-    const resolver = new EffectiveAuthorityResolver({ store, catalogProvider: createAuthorizationCatalogProvider(({ lifecycleRevision }) => ({ applicationId, lifecycleRevision, catalog: catalog() })) });
+    const resolver = new EffectiveAuthorityResolver({ store, catalogProvider: createAuthorizationCatalogProvider(({ lifecycleRevision }) => ({ applicationId, lifecycleRevision, catalog: catalog(lifecycleRevision) })) });
     const one = createTrustedAuthorizationSession({ schemaVersion: 1, applicationId, environment, correlationId: "correlation:one", principal: subject("user:one"), effectiveActor: subject("user:one") });
     const two = createTrustedAuthorizationSession({ schemaVersion: 1, applicationId, environment, correlationId: "correlation:two", principal: subject("user:two"), effectiveActor: subject("user:two") });
     await resolver.authorize(one, request());
@@ -194,7 +205,7 @@ describe("effective authority resolver", () => {
     const nextSalesOwner = { ...salesOwner, generation: 8 } as const;
     const store = new MemoryStore(state(1, 1), [role("sales")], [grant("sales", "sales", "sales.records.read", salesOwner)], [assignment("sales", "sales", subject("user:one"))], [generation(salesOwner)]);
     const resolver = new EffectiveAuthorityResolver({ store, catalogProvider: createAuthorizationCatalogProvider(({ lifecycleRevision }) => ({
-      applicationId, lifecycleRevision, catalog: extensionCatalog({ permissionId: "sales.records.read", owner: lifecycleRevision === 1 ? salesOwner : nextSalesOwner, resource: "sales.records", scope: "record" })
+      applicationId, lifecycleRevision, catalog: extensionCatalog({ permissionId: "sales.records.read", owner: lifecycleRevision === 1 ? salesOwner : nextSalesOwner, resource: "sales.records", scope: "record", lifecycleRevision })
     })) });
     const session = createTrustedAuthorizationSession({ schemaVersion: 1, applicationId, environment, correlationId: "correlation:one", principal: subject("user:one"), effectiveActor: subject("user:one") });
     const salesRequest = request("sales.records.read", { kind: "record", resource: "sales.records", recordId: "record:one" });

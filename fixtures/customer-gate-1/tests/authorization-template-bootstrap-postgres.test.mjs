@@ -90,7 +90,7 @@ function salesCatalog() {
   const executables = scoped.contributions.policyBindings.filter(({ pluginId }) => pluginId === "module.sales").map(({ value }) =>
     createPlatformPluginPolicyExecutable({ kind: "platform-plugin", publisher: value.publisher, bindingId: value.id, policyReference: value.policyReference, executor: { evaluate: () => ({ schemaVersion: 1, outcome: "allow" }) } })
   );
-  return createEffectiveAuthorizationCatalog({ applicationId, extensions: [contribution], executables });
+  return createEffectiveAuthorizationCatalog({ applicationId, lifecycleRevision: 1, extensions: [contribution], executables });
 }
 
 function testSalesTemplate(template, descriptorIds, templateOwner = owner) {
@@ -115,11 +115,11 @@ function testSalesTemplate(template, descriptorIds, templateOwner = owner) {
     registration: scoped,
     generation: { schemaVersion: 1, applicationId, owner: templateOwner, runtimeGenerationIds: ["sales-template-generation"], state: "current", authorizationRevision: 1, lifecycleRevision: 1 }
   });
-  return createEffectiveAuthorizationCatalog({ applicationId, extensions: [contribution], executables: [] }).roleTemplates[0];
+  return createEffectiveAuthorizationCatalog({ applicationId, lifecycleRevision: 1, extensions: [contribution], executables: [] }).roleTemplates[0];
 }
 
 function ownerAuthority(store, principalId) {
-  const catalog = createEffectiveAuthorizationCatalog({ applicationId, extensions: [], executables: [] });
+  const catalog = createEffectiveAuthorizationCatalog({ applicationId, lifecycleRevision: 0, extensions: [], executables: [] });
   const resolver = new EffectiveAuthorityResolver({
     store,
     catalogProvider: createAuthorizationCatalogProvider(({ applicationId: requested, lifecycleRevision }) =>

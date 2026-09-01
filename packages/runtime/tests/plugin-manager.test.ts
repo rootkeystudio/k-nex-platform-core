@@ -219,6 +219,18 @@ describe("PluginManager", () => {
   it("runs mandatory lifecycle policy validation before claiming an operation", async () => {
     const runtime = manager();
     const claimOperation = vi.spyOn(runtime.store, "claimOperation");
+    runtime.store.inventoryValue = {
+      ...emptyInventory(), revision: 1, extensions: { hotApplications: {}, themeSkins: {}, platformPlugins: {
+        "module.sales": {
+          disposition: "active", revision: 1, lastOperationId: "extension-operation-active", lastReceiptId: "extension-receipt-active", stateDigest: digest("9"),
+          activeGeneration: {
+            authority: "static-build", generationId: "customer-alpha-green-1", version: "1.0.0", sourceCommit: "a".repeat(40),
+            compositionChangePlanDigest: digest("a"), buildEvidenceDigest: digest("b"), applicationDigest: digest("c"), imageDigest: digest("d"), migrationRevision: 1,
+            workerFencingToken: 1, receiptId: "extension-receipt-active"
+          }
+        }
+      } }
+    };
     runtime.planner.validate.mockRejectedValueOnce(Object.assign(new Error("Plugin module.sales does not support uninstall."), { code: "OPERATION_UNSUPPORTED" }));
     await expect(runtime.value.plan({
       ...request, extension: { deliveryClass: "platform-plugin", id: "module.sales" }, operation: "uninstall",
@@ -268,6 +280,35 @@ describe("PluginManager", () => {
     theme.deployments.request.mockResolvedValue({ status: "build-requested", buildRequestDigest: digest("9"), sourceCommit: "b".repeat(40) });
     await expect(theme.value.plan(themeRequest)).resolves.toMatchObject({ executionClass: "static-release" });
     expect(theme.artifacts.stage).not.toHaveBeenCalled();
+  });
+
+  it("durably marks a static update planned from quarantined inventory for rollback closure", async () => {
+    const runtime = manager();
+    const platformRequest: ExtensionChangeRequest = {
+      ...request, extension: { deliveryClass: "platform-plugin", id: "module.sales" }, operation: "update", targetVersion: "1.0.1",
+      expectedRevision: 2, idempotencyKey: "update:module.sales:quarantined", correlationId: "update-module-sales-quarantined"
+    };
+    runtime.store.inventoryValue = {
+      schemaVersion: 1, applicationId: request.applicationId, environment: request.environment, hostInventoryDigest: digest("7"), revision: 2,
+      observedAt: "2026-08-29T09:00:00.000Z", stateDigest: digest("8"), extensions: { hotApplications: {}, themeSkins: {}, platformPlugins: {
+        "module.sales": { disposition: "quarantined", revision: 2, lastOperationId: "extension-operation-quarantined", lastReceiptId: "extension-receipt-quarantined", stateDigest: digest("9"), retainedGeneration: {
+          authority: "static-build", generationId: "customer-alpha-blue-8", version: "1.0.0", sourceCommit: "a".repeat(40),
+          compositionChangePlanDigest: digest("a"), buildEvidenceDigest: digest("b"), applicationDigest: digest("c"), imageDigest: digest("d"), migrationRevision: 1,
+          workerFencingToken: 4, receiptId: "static-receipt-blue"
+        } }
+      } }
+    };
+    const platformPlan: ExtensionInstallPlan = {
+      schemaVersion: 1, planId: "sales-quarantine-update", operationId: "placeholder", operation: "update", version: "1.0.1", artifactDigest: digest("a"),
+      expectedRevision: 2, currentGenerationId: "customer-alpha-blue-8", targetGenerationId: "customer-alpha-green-9", approvalRequired: false,
+      rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "platform-plugin", id: "module.sales",
+      availability: { outcome: "zero-downtime-eligible", checks: { oldGenerationHealthy: true, expandCompatibleMigration: true, writerReaderOverlap: true, workerDrain: true, realtimeConvergence: true, targetReadiness: true, inventoryMatch: true, rollbackCompatible: true } }
+    };
+    runtime.planner.plan.mockImplementation(async (planning) => ({ plan: { ...platformPlan, operationId: planning.operationId }, sourceCommit: "a".repeat(40), generationId: "customer-alpha-green-9" }));
+    runtime.staticChanges.request.mockResolvedValue({ status: "source-change-ready", planDigest: digest("f"), targetSourceCommit: "b".repeat(40), change: staticChange });
+    runtime.deployments.request.mockResolvedValue({ status: "build-requested", buildRequestDigest: digest("9"), sourceCommit: "b".repeat(40) });
+
+    await expect(runtime.value.plan(platformRequest)).resolves.toMatchObject({ executionClass: "static-release", quarantineRecovery: true });
   });
 
   it("keeps Platform Plugin disable on the current application generation without source/build work", async () => {
@@ -445,6 +486,81 @@ describe("PluginManager", () => {
     await expect(reused.value.plan(update)).rejects.toMatchObject({ code: "PLAN_MISMATCH" });
   });
 
+  it("admits lifecycle operations only for their current disposition before downstream work", async () => {
+    const active = manager();
+    active.store.inventoryValue = {
+      ...emptyInventory(), revision: 1, extensions: { platformPlugins: {}, themeSkins: {}, hotApplications: {
+        "app.sales-assistant": {
+          disposition: "active", revision: 1, lastOperationId: "extension-operation-active", lastReceiptId: "extension-receipt-active", stateDigest: digest("9"),
+          activeGeneration: { authority: "verified-bundle", version: "1.0.0", receiptId: "extension-receipt-active", ...authority }
+        }
+      } }
+    };
+    const activeClaim = vi.spyOn(active.store, "claimOperation");
+    await expect(active.value.plan({ ...request, expectedRevision: 1, idempotencyKey: "install:app.sales-assistant:active" })).rejects.toMatchObject({ code: "INVALID_STATE" });
+    expect(active.planner.validate).not.toHaveBeenCalled();
+    expect(active.planner.plan).not.toHaveBeenCalled();
+    expect(activeClaim).not.toHaveBeenCalled();
+    expect(active.artifacts.stage).not.toHaveBeenCalled();
+    expect(active.staticChanges.request).not.toHaveBeenCalled();
+    expect(active.deployments.request).not.toHaveBeenCalled();
+
+    const quarantined = manager();
+    quarantined.store.inventoryValue = {
+      ...emptyInventory(), revision: 2, extensions: { platformPlugins: {}, themeSkins: {}, hotApplications: {
+        "app.sales-assistant": {
+          disposition: "quarantined", revision: 2, lastOperationId: "extension-operation-quarantined", lastReceiptId: "extension-receipt-quarantined", stateDigest: digest("8"),
+          retainedGeneration: { authority: "verified-bundle", version: "1.0.0", receiptId: "extension-receipt-quarantined", ...authority }
+        }
+      } }
+    };
+    const quarantinedClaim = vi.spyOn(quarantined.store, "claimOperation");
+    await expect(quarantined.value.plan({ ...request, expectedRevision: 2, idempotencyKey: "install:app.sales-assistant:quarantined" })).rejects.toMatchObject({ code: "INVALID_STATE" });
+    expect(quarantined.planner.validate).not.toHaveBeenCalled();
+    expect(quarantined.planner.plan).not.toHaveBeenCalled();
+    expect(quarantinedClaim).not.toHaveBeenCalled();
+
+    const disabledUpdate = manager();
+    disabledUpdate.store.inventoryValue = {
+      ...emptyInventory(), revision: 3, extensions: { platformPlugins: {}, themeSkins: {}, hotApplications: {
+        "app.sales-assistant": {
+          disposition: "disabled", revision: 3, lastOperationId: "extension-operation-disabled", lastReceiptId: "extension-receipt-disabled", stateDigest: digest("7"),
+          retainedGeneration: { authority: "verified-bundle", version: "1.0.0", receiptId: "extension-receipt-disabled", ...authority }
+        }
+      } }
+    };
+    const disabledUpdateClaim = vi.spyOn(disabledUpdate.store, "claimOperation");
+    await expect(disabledUpdate.value.plan({ ...request, operation: "update", targetVersion: "1.0.1", expectedRevision: 3, idempotencyKey: "update:app.sales-assistant:disabled" })).rejects.toMatchObject({ code: "INVALID_STATE" });
+    expect(disabledUpdate.planner.validate).not.toHaveBeenCalled();
+    expect(disabledUpdate.planner.plan).not.toHaveBeenCalled();
+    expect(disabledUpdateClaim).not.toHaveBeenCalled();
+
+    const reenableAuthorizer = { authorize: vi.fn(async () => ({ actor: { kind: "trusted-automation" as const, identity: "github-actions:phase-9" }, decisionId: digest("1") })) };
+    const disabled = manager(new MemoryStore(), true, reenableAuthorizer);
+    disabled.store.inventoryValue = {
+      ...emptyInventory(), revision: 3, extensions: { platformPlugins: {}, themeSkins: {}, hotApplications: {
+        "app.sales-assistant": {
+          disposition: "disabled", revision: 3, lastOperationId: "extension-operation-disabled", lastReceiptId: "extension-receipt-disabled", stateDigest: digest("7"),
+          retainedGeneration: { authority: "verified-bundle", version: "1.0.0", receiptId: "extension-receipt-disabled", ...authority }
+        }
+      } }
+    };
+    disabled.planner.plan.mockImplementation(async (planning) => ({
+      plan: { ...hotPlan, operationId: planning.operationId, version: planning.targetVersion, expectedRevision: planning.expectedRevision,
+        currentGenerationId: planning.currentGenerationId, targetGenerationId: "sales-assistant-generation-2" },
+      sourceCommit: "a".repeat(40), generationId: "sales-assistant-generation-2"
+    }));
+    const disabledClaim = vi.spyOn(disabled.store, "claimOperation");
+    await expect(disabled.value.plan({ ...request, targetVersion: "1.0.1", expectedRevision: 3, idempotencyKey: "install:app.sales-assistant:wrong-retained-release" })).rejects.toMatchObject({ code: "PLAN_MISMATCH" });
+    expect(reenableAuthorizer.authorize).not.toHaveBeenCalled();
+    expect(disabled.planner.validate).not.toHaveBeenCalled();
+    expect(disabled.planner.plan).not.toHaveBeenCalled();
+    expect(disabledClaim).not.toHaveBeenCalled();
+
+    await expect(disabled.value.plan({ ...request, targetVersion: "1.0.0", expectedRevision: 3, idempotencyKey: "install:app.sales-assistant:reenable" })).resolves.toMatchObject({ generationId: "sales-assistant-generation-2" });
+    expect(reenableAuthorizer.authorize).toHaveBeenCalledWith(expect.objectContaining({ operation: "enable" }));
+  });
+
   it("rejects an otherwise-valid authority copied to another extension owner", async () => {
     const runtime = manager();
     runtime.artifacts.stage.mockResolvedValue({ ...authority, extensionId: "app.forecast" });
@@ -571,6 +687,11 @@ describe("PluginManager", () => {
     expect(progress).not.toHaveProperty("leaseToken");
 
     runtime.store.operation = await boundOperation({ ...runtime.store.operation!, request: { ...request, operation: "disable" }, phase: "planning" });
+    runtime.store.inventoryValue = {
+      ...emptyInventory(), revision: 1, extensions: { platformPlugins: {}, themeSkins: {}, hotApplications: {
+        "app.sales-assistant": { disposition: "active", revision: 1, lastOperationId: "extension-operation-1", lastReceiptId: "extension-receipt-1", stateDigest: digest("9"), activeGeneration: { authority: "verified-bundle", version: "1.0.0", receiptId: "extension-receipt-1", ...authority } }
+      } }
+    };
     await expect(runtime.value.disable(planned.operationId)).resolves.toMatchObject({ disposition: "disabled" });
     runtime.store.operation = await boundOperation({ ...runtime.store.operation!, request: { ...request, operation: "uninstall" }, phase: "planning" });
     await expect(runtime.value.uninstall(planned.operationId)).resolves.toMatchObject({ disposition: "removed" });
@@ -592,6 +713,11 @@ describe("PluginManager", () => {
         authorization: { actor: { kind: "trusted-automation", identity: "github-actions:phase-9" }, decisionId: digest("2") },
         phase: "completed", leaseToken: "completed-lease", plan: { executionClass: "live-generation", operationId: "extension-operation-1", plan: { ...hotPlan, operationId: "extension-operation-1", operation: entry.operation, targetGenerationId: authority.generationId }, sourceCommit: authority.sourceCommit, generationId: authority.generationId },
         result: { ...entry.receipt, operationId: "extension-operation-1" }
+      };
+      runtime.store.inventoryValue = entry.operation === "install" ? emptyInventory() : {
+        ...emptyInventory(), revision: 1, extensions: { platformPlugins: {}, themeSkins: {}, hotApplications: {
+          "app.sales-assistant": { disposition: "active", revision: 1, lastOperationId: "extension-operation-1", lastReceiptId: "extension-receipt-1", stateDigest: digest("9"), activeGeneration: { authority: "verified-bundle", version: "1.0.0", receiptId: "extension-receipt-1", ...authority } }
+        } }
       };
       if (entry.operation !== "rollback") await expect(runtime.value.plan(completedRequest)).resolves.toEqual(runtime.store.operation.plan);
       const replay = entry.operation === "rollback" ? runtime.value.rollback("extension-operation-1")

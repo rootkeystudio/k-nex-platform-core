@@ -24,7 +24,13 @@ import resolvedJson from "../.k-nex/generated/k-nex.resolved.json" with { type: 
 import { runtimeRegistration } from "../.k-nex/generated/runtime-registration.js";
 import { createDataSourceQueryEndpoint } from "./data-source-endpoint.js";
 import { createActionEndpoint } from "./action-endpoint.js";
-import { createFixtureCurrentAuthority, type FixtureCurrentAuthority } from "./current-authority.js";
+import {
+  createFixtureCurrentAuthority,
+  createFixtureHotApplicationRuntimeRegistry,
+  createFixtureStaticProcessIdentityProvider,
+  type FixtureCurrentAuthority,
+  type FixtureHotApplicationRuntimeRegistry
+} from "./current-authority.js";
 import { applicationMigrationRevision } from "./migration-revision.js";
 import { createGate1RuntimeInventory, createRuntimeInventoryEndpoint } from "./runtime-inventory.js";
 
@@ -33,6 +39,8 @@ export interface CreateGate1ApplicationOptions {
   readonly migrations: readonly CustomerPayloadMigration[];
   readonly payloadSecret: string;
   readonly salesEnabled?: boolean;
+  /** The host-owned registry is read at authorization time, never captured at boot. */
+  readonly hotAuthorizationRuntimeRegistry?: FixtureHotApplicationRuntimeRegistry;
 }
 
 export interface Gate1Application extends ComposedPayloadApplication {
@@ -40,6 +48,7 @@ export interface Gate1Application extends ComposedPayloadApplication {
   readonly salesAvailability: PlatformPluginAvailability;
   readonly salesLifecycle: PlatformPluginLifecycleState;
   readonly authority: FixtureCurrentAuthority;
+  readonly hotAuthorizationRuntimeRegistry: FixtureHotApplicationRuntimeRegistry;
   readonly toolCatalog: ToolCatalog;
 }
 
@@ -95,7 +104,8 @@ export function createGate1Application(options: CreateGate1ApplicationOptions): 
   });
   const salesAvailability = reconcilePlatformPluginAvailability(registration, salesLifecycle);
   const scopedRegistration = scopePlatformPluginRegistration(registration, [salesAvailability]);
-  const authority = createFixtureCurrentAuthority(scopedRegistration);
+  const hotAuthorizationRuntimeRegistry = options.hotAuthorizationRuntimeRegistry ?? createFixtureHotApplicationRuntimeRegistry();
+  const authority = createFixtureCurrentAuthority(scopedRegistration, createFixtureStaticProcessIdentityProvider(), hotAuthorizationRuntimeRegistry);
   const inventory = createGate1RuntimeInventory(scopedRegistration);
   const tools = scopedRegistration.contributions.tools
     .map(({ value }) => value as AgentToolDescriptor);
@@ -139,5 +149,5 @@ export function createGate1Application(options: CreateGate1ApplicationOptions): 
     migrations: options.migrations,
     registration: scopedRegistration
   });
-  return Object.freeze({ ...application, registration: scopedRegistration, salesAvailability, salesLifecycle, authority, toolCatalog: catalog });
+  return Object.freeze({ ...application, registration: scopedRegistration, salesAvailability, salesLifecycle, authority, hotAuthorizationRuntimeRegistry, toolCatalog: catalog });
 }

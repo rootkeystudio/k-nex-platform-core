@@ -90,7 +90,7 @@ test("P10.4 resolves current PostgreSQL authority without cache or client-forger
       validate: (currentApplicationId, subject) => currentApplicationId === applicationId && subject.kind === "user" &&
         ["user:admin", "user:other", "user:mixed"].includes(subject.id) ? "accepted" : "rejected"
     });
-    const catalog = createEffectiveAuthorizationCatalog({ applicationId, extensions: [], executables: [] });
+    const catalog = createEffectiveAuthorizationCatalog({ applicationId, lifecycleRevision: 0, extensions: [], executables: [] });
     const resolver = new EffectiveAuthorityResolver({
       store,
       catalogProvider: createAuthorizationCatalogProvider(({ applicationId: requested, lifecycleRevision }) =>

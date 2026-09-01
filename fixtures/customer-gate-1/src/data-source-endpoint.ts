@@ -91,9 +91,11 @@ function queryGateway(registration: RegistrationResult, authority: FixtureCurren
         };
       },
       authorizationContext(request) {
+        if (request.user === null) return Object.freeze({});
         return context(request, request.headers.get("x-correlation-id") ?? "fixture-query", authority);
       },
       requestContext(request) {
+        if (request.user === null) return Object.freeze({});
         const current = context(request, request.headers.get("x-correlation-id") ?? "fixture-query", authority);
         return createPayloadPersistenceCapability(request, [
           { collection: "sales-tasks", operations: ["find"] },

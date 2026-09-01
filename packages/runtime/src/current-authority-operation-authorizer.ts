@@ -41,6 +41,7 @@ type RequiredPermission = Readonly<{ permissionId: string; resource: "system.ext
 const planPermission = Object.freeze({ permissionId: "system.extensions.plan", resource: "system.extensions" } satisfies RequiredPermission);
 
 function operationPermission(request: OperationAuthorizationRequest): RequiredPermission | undefined {
+  if (request.operation === "enable") return Object.freeze({ permissionId: "system.extensions.enable", resource: "system.extensions" });
   if (request.operation === "install") {
     if (request.extension.deliveryClass === "hot-application") return Object.freeze({ permissionId: "system.extensions.install-hot", resource: "system.extensions" });
     if (request.extension.deliveryClass === "platform-plugin") return Object.freeze({ permissionId: "system.extensions.deploy-platform-plugin", resource: "system.extensions" });
@@ -58,7 +59,7 @@ function operationPermission(request: OperationAuthorizationRequest): RequiredPe
 
 function validRequest(request: OperationAuthorizationRequest): boolean {
   return /^[a-z][a-z0-9-]{2,127}$/u.test(request.applicationId) && /^[a-z][a-z0-9-]{1,63}$/u.test(request.environment) &&
-    ExtensionIdentitySchema.safeParse(request.extension).success && /^(?:install|update|disable|rollback|uninstall)$/u.test(request.operation) &&
+    ExtensionIdentitySchema.safeParse(request.extension).success && /^(?:install|enable|update|disable|rollback|uninstall)$/u.test(request.operation) &&
     /^sha256:[0-9a-f]{64}$/u.test(request.requestDigest) && Number.isSafeInteger(request.expectedRevision) && request.expectedRevision >= 0;
 }
 

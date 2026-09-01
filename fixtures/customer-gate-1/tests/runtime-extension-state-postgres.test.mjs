@@ -12,7 +12,7 @@ import { chromium } from "playwright";
 
 import { ArtifactVerifier, buildBundle, canonicalJson, CatalogClient, InMemoryCatalogCheckpointStore, sha256 } from "@k-nex/extension-bundler";
 import { DockerHotApplicationSandboxSupervisor, dockerIsolationPolicyFromEnvironment } from "@k-nex/extension-runner";
-import { ActiveExtensionSecurityReconciler, PostgresCatalogCheckpointStore, PostgresExtensionCapabilityAuthority, PostgresExtensionCapabilitySequenceStore, PostgresRuntimeExtensionOutboxDispatcher, PostgresRuntimeExtensionStore, PostgresVerifiedArtifactStore, RuntimeStoreRunnerQuarantineAdapter } from "@k-nex/payload-adapter";
+import { ActiveExtensionSecurityReconciler, AuthorizationLifecycleProjector, PostgresCatalogCheckpointStore, PostgresExtensionCapabilityAuthority, PostgresExtensionCapabilitySequenceStore, PostgresRuntimeExtensionOutboxDispatcher, PostgresRuntimeExtensionStore, PostgresVerifiedArtifactStore, RuntimeStoreRunnerQuarantineAdapter } from "@k-nex/payload-adapter";
 import { AuthoritativeHotApplicationRuntime, createTrustedAuthorizationSession, createTrustedHotApplicationInvocationContext, DurableDynamicArtifactPipeline, DurableDynamicGenerationRuntime, ExtensionCapabilityGateway, HmacExtensionCapabilityTokens, isTrustedAuthorizationSession, PluginManager, ReferenceHotApplicationGenerationWarmer, TrustedAutomationOperationAuthorizer } from "@k-nex/runtime";
 import { startContinuousHttpProbe } from "./continuous-http-probe.mjs";
 import { startHotApplicationFixedRouteHost } from "./hot-application-fixed-route-host.mjs";
@@ -25,6 +25,25 @@ const publisherKeys = generateKeyPairSync("ed25519");
 const catalogKeys = generateKeyPairSync("ed25519");
 const publisher = { identity: "customer-gate-1-hot-app-publisher", publicKey: publisherKeys.publicKey.export({ type: "spki", format: "pem" }).toString() };
 const catalogSigner = { identity: "customer-gate-1-hot-app-catalog", publicKey: catalogKeys.publicKey.export({ type: "spki", format: "pem" }).toString() };
+let stateCatalogSequence = 100;
+
+function lifecycleProjector(artifacts) {
+  return new AuthorizationLifecycleProjector((session, transition, priorGenerationEvidence) => artifacts.resolveAuthorizationLifecycleDescriptors(session, transition, priorGenerationEvidence));
+}
+
+function lifecycleStore(pool, clock, artifacts, options = {}) {
+  return new PostgresRuntimeExtensionStore(pool, clock, digest("7"), {
+    ...options,
+    authorizationLifecycleProjector: lifecycleProjector(artifacts)
+  });
+}
+
+function stateArtifacts(pool, now) {
+  return new PostgresVerifiedArtifactStore(pool, new ArtifactVerifier(
+    new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, new InMemoryCatalogCheckpointStore(), () => now.valueOf()),
+    { [publisher.identity]: publisher.publicKey }
+  ));
+}
 function boot(connectionString) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ["tests/boot-once.mjs"], {
@@ -154,26 +173,25 @@ function stateRequest(id, key, options = {}) {
   };
 }
 
-function statePlan(operationId, change, generation = 1) {
-  const generationId = `${change.extension.id.replaceAll(".", "-")}-generation-${generation}`;
+function statePlan(operationId, change, release) {
   return {
-    executionClass: "live-generation", operationId, sourceCommit: "a".repeat(40), generationId,
+    executionClass: "live-generation", operationId, sourceCommit: release.authority.sourceCommit, generationId: release.generationId,
     plan: {
-      schemaVersion: 1, planId: `${generationId}-plan`, operationId, operation: change.operation, version: change.targetVersion,
-      artifactDigest: digest(String(generation)), expectedRevision: change.expectedRevision, targetGenerationId: generationId,
+      schemaVersion: 1, planId: `${release.generationId}-plan`, operationId, operation: change.operation, version: change.targetVersion,
+      artifactDigest: release.authority.artifactDigest, expectedRevision: change.expectedRevision, targetGenerationId: release.generationId,
       approvalRequired: false, rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "hot-application", id: change.extension.id,
-      availability: { outcome: "live-generation", activation: "atomic-generation-pointer" }, requiredCapabilities: [],
+      availability: { outcome: "live-generation", activation: "atomic-generation-pointer" }, requiredCapabilities: release.bundle.manifest.capabilities,
       resourceBudget: { maxBundleBytes: 1_048_576, maxAssetBytes: 262_144, maxStorageBytes: 1_048_576, maxMemoryMiB: 128, maxCpuMilliCores: 500, maxWallTimeMs: 5_000, maxInputBytes: 65_536, maxOutputBytes: 131_072, maxLogBytes: 65_536, maxConcurrency: 4 }
     }
   };
 }
 
-function stateAuthority(change, generationId, generation = 1) {
-  return {
-    applicationId: change.applicationId, environment: change.environment, deliveryClass: change.extension.deliveryClass,
-    extensionId: change.extension.id, generationId, sourceCommit: "a".repeat(40), artifactDigest: digest(String(generation)),
-    manifestDigest: digest("b"), catalogDigest: digest("c"), provenanceDigest: digest("d"), sbomDigest: digest("e")
-  };
+function stateRelease(change, generation = 1) {
+  const generationId = `${change.extension.id.replaceAll(".", "-")}-generation-${generation}`;
+  const release = releaseDefinition(generation, change.targetVersion, `${change.extension.id}-state-${generation}`, {
+    status: "compatible", windowId: `state-window-${generation}`, closesAt: "2030-01-01T00:00:00.000Z", migrationDigest: digest("1"), dataRevision: generation
+  }, { extensionId: change.extension.id, generationId });
+  return verifiedRelease(release, signedCatalog([release.entry], ++stateCatalogSequence));
 }
 
 function stateActivation(authority, now, version = "1.0.0") {
@@ -192,12 +210,14 @@ function claimState(store, change, requestDigest, workerId) {
   });
 }
 
-async function prepareStateGeneration(store, change, requestDigest, workerId, now) {
+async function prepareStateGeneration(store, artifacts, change, requestDigest, workerId, now) {
+  const release = stateRelease(change);
+  await artifacts.stage(release.stage);
   const claimed = await claimState(store, change, requestDigest, workerId);
   assert.equal(claimed.status, "claimed");
-  let operation = await store.savePlan(claimed.operation.operationId, claimed.operation.leaseToken, statePlan(claimed.operation.operationId, change));
+  let operation = await store.savePlan(claimed.operation.operationId, claimed.operation.leaseToken, statePlan(claimed.operation.operationId, change, release));
   operation = (await store.transition({ operationId: operation.operationId, leaseToken: operation.leaseToken, expectedPhase: "planning", phase: "downloading" })).operation;
-  const authority = stateAuthority(change, operation.plan.generationId);
+  const authority = release.authority;
   operation = (await store.transition({ operationId: operation.operationId, leaseToken: operation.leaseToken, expectedPhase: "downloading", phase: "verified", authority })).operation;
   operation = (await store.transition({ operationId: operation.operationId, leaseToken: operation.leaseToken, expectedPhase: "verified", phase: "staged", authority })).operation;
   await store.stageGeneration({ operationId: operation.operationId, leaseToken: operation.leaseToken, stage: stateActivation(authority, now, change.targetVersion) });
@@ -249,11 +269,12 @@ async function waitForRuntimeExtensionLock(pool) {
   assert.fail("Rollback never waited on its runtime extension advisory lock.");
 }
 
-function releaseDefinition(generation, version, marker, compatibility) {
-  const generationId = `app-sales-live-generation-${generation}`;
+function releaseDefinition(generation, version, marker, compatibility, identity = {}) {
+  const extensionId = identity.extensionId ?? "app.sales-live";
+  const generationId = identity.generationId ?? `${extensionId.replaceAll(".", "-")}-generation-${generation}`;
   const bundle = buildBundle({
     manifest: {
-      schemaVersion: 1, deliveryClass: "hot-application", id: "app.sales-live", displayName: "Sales live", version, runtimeAbi: "1.0.0",
+      schemaVersion: 1, deliveryClass: "hot-application", id: extensionId, displayName: "Sales live", version, runtimeAbi: "1.0.0",
       entrypoints: { server: ["server/main.mjs"], ui: ["ui/main.mjs"] },
       capabilities: [{ kind: "records", required: true, reason: "Read the bounded Hot Application fixture.", operations: ["query"], resources: [{ id: "sales.records", version: 1 }] }], permissions: [], policyBindings: [],
       resourceBudget: { maxBundleBytes: 1_048_576, maxAssetBytes: 262_144, maxStorageBytes: 1_048_576, maxMemoryMiB: 128, maxCpuMilliCores: 500, maxWallTimeMs: 5_000, maxInputBytes: 65_536, maxOutputBytes: 131_072, maxLogBytes: 65_536, maxConcurrency: 4 },
@@ -271,8 +292,8 @@ function releaseDefinition(generation, version, marker, compatibility) {
   return {
     generationId, version, marker, bundle, compatibility,
     entry: {
-      deliveryClass: "hot-application", id: "app.sales-live", version, runtimeAbi: "1.0.0", publisher,
-      source: { ...source, assetUrl: `https://github.com/k-nex/customer-gate-1-apps/releases/download/${version}/app.sales-live.tar.gz` },
+      deliveryClass: "hot-application", id: extensionId, version, runtimeAbi: "1.0.0", publisher,
+      source: { ...source, assetUrl: `https://github.com/k-nex/customer-gate-1-apps/releases/download/${version}/${extensionId}.tar.gz` },
       artifactDigest: sha256(bundle.artifact), manifestDigest: sha256(Buffer.from(canonicalJson(bundle.manifest))), sbomDigest: sha256(bundle.sbom), provenanceDigest: sha256(bundle.provenance),
       support: "supported", review: "approved", security: "clear", revoked: false
     }
@@ -307,7 +328,7 @@ function securityEntry(id, state, disposition = "clear", overrides = {}) {
 
 function verifiedRelease(release, catalog) {
   const authority = {
-    applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application", extensionId: "app.sales-live", generationId: release.generationId,
+    applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application", extensionId: release.entry.id, generationId: release.generationId,
     sourceCommit: source.commit, artifactDigest: release.entry.artifactDigest, manifestDigest: release.entry.manifestDigest, catalogDigest: sha256(Buffer.from(canonicalJson(catalog))), provenanceDigest: release.entry.provenanceDigest, sbomDigest: release.entry.sbomDigest
   };
   return {
@@ -315,7 +336,7 @@ function verifiedRelease(release, catalog) {
     authority,
     stage: {
       owner: { applicationId: authority.applicationId, environment: authority.environment, deliveryClass: authority.deliveryClass, extensionId: authority.extensionId, generationId: authority.generationId },
-      verification: { catalog, artifact: release.bundle.artifact, provenance: release.bundle.provenance, deliveryClass: "hot-application", id: "app.sales-live", version: release.version, runtimeAbi: "1.0.0" },
+      verification: { catalog, artifact: release.bundle.artifact, provenance: release.bundle.provenance, deliveryClass: "hot-application", id: release.entry.id, version: release.version, runtimeAbi: "1.0.0" },
       authority,
       activation: { compatibility: release.compatibility, metadata: { navigation: `${release.generationId}:navigation` }, settings: { locale: "en" }, storageSchemaVersions: { "sales.records": Number(release.generationId.at(-1)) } }
     }
@@ -392,8 +413,6 @@ test("preserves accepted artifacts while reconciling fresh revocation decisions 
   const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
   let now = new Date("2026-08-29T09:00:00.000Z");
   const clock = { now: () => now };
-  const storeA = new PostgresRuntimeExtensionStore(pool, clock, digest("7"));
-  const storeB = new PostgresRuntimeExtensionStore(pool, clock, digest("7"));
   try {
     await boot(container.getConnectionUri());
 
@@ -402,6 +421,9 @@ test("preserves accepted artifacts while reconciling fresh revocation decisions 
     const checkpoints = new PostgresCatalogCheckpointStore(pool, { applicationId: "customer-alpha", environment: "production" });
     const verifier = new ArtifactVerifier(new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, checkpoints, () => now.valueOf()), { [publisher.identity]: publisher.publicKey });
     const artifacts = new PostgresVerifiedArtifactStore(pool, verifier);
+    const lifecycleArtifacts = stateArtifacts(pool, now);
+    const storeA = lifecycleStore(pool, clock, lifecycleArtifacts);
+    const storeB = lifecycleStore(pool, clock, lifecycleArtifacts);
     const acceptedRelease = verifiedRelease(release, acceptedCatalog);
     await artifacts.stage(acceptedRelease.stage);
     now = new Date("2026-08-29T09:02:00.000Z");
@@ -414,7 +436,7 @@ test("preserves accepted artifacts while reconciling fresh revocation decisions 
     await assert.rejects(artifacts.read(release.entry.artifactDigest, acceptedRelease.authority.catalogDigest), { code: "ARTIFACT_INVALID" });
 
     const change = stateRequest("app.sales-security", "security-reconcile");
-    const warming = await prepareStateGeneration(storeA, change, digest("a"), "security-worker", now);
+    const warming = await prepareStateGeneration(storeA, lifecycleArtifacts, change, digest("a"), "security-worker", now);
     const activated = await storeA.activateGeneration(warming.operationId, warming.leaseToken);
     const extension = change.extension;
     const active = (await storeA.inventory(change.applicationId, change.environment)).extensions.hotApplications[extension.id].activeGeneration;
@@ -517,7 +539,7 @@ test("preserves accepted artifacts while reconciling fresh revocation decisions 
     assert.deepEqual(await evidence(extension.id), { receipts: 1, audits: 1, outbox: 1 });
 
     const lostAckChange = stateRequest("app.sales-security-lost-ack", "security-lost-ack");
-    const lostAckWarming = await prepareStateGeneration(storeA, lostAckChange, digest("b"), "security-lost-ack-worker", now);
+    const lostAckWarming = await prepareStateGeneration(storeA, lifecycleArtifacts, lostAckChange, digest("b"), "security-lost-ack-worker", now);
     await storeA.activateGeneration(lostAckWarming.operationId, lostAckWarming.leaseToken);
     const lostAckActive = (await storeA.inventory(lostAckChange.applicationId, lostAckChange.environment)).extensions.hotApplications[lostAckChange.extension.id].activeGeneration;
     const lostAckCatalog = signedCatalog([securityEntry(lostAckChange.extension.id, lostAckActive, "revoked")], 6, "2030-01-01T00:00:00.000Z");
@@ -539,7 +561,7 @@ test("preserves accepted artifacts while reconciling fresh revocation decisions 
     assert.deepEqual(await evidence(lostAckChange.extension.id), { receipts: 1, audits: 1, outbox: 1 });
 
     const preReceiptChange = stateRequest("app.sales-security-pre-receipt", "security-pre-receipt");
-    const preReceiptWarming = await prepareStateGeneration(storeA, preReceiptChange, digest("c"), "security-pre-receipt-worker", now);
+    const preReceiptWarming = await prepareStateGeneration(storeA, lifecycleArtifacts, preReceiptChange, digest("c"), "security-pre-receipt-worker", now);
     await storeA.activateGeneration(preReceiptWarming.operationId, preReceiptWarming.leaseToken);
     const preReceiptActive = (await storeA.inventory(preReceiptChange.applicationId, preReceiptChange.environment)).extensions.hotApplications[preReceiptChange.extension.id].activeGeneration;
     const preReceiptCatalog = signedCatalog([securityEntry(preReceiptChange.extension.id, preReceiptActive, "security-compromised")], 7, "2030-01-01T00:00:00.000Z");
@@ -587,7 +609,7 @@ test("preserves accepted artifacts while reconciling fresh revocation decisions 
     assert.deepEqual(await evidence(preReceiptChange.extension.id), { receipts: 1, audits: 1, outbox: 1 });
 
     const advisoryChange = stateRequest("app.sales-security-advisory", "security-advisory");
-    const advisoryWarming = await prepareStateGeneration(storeA, advisoryChange, digest("d"), "security-advisory-worker", now);
+    const advisoryWarming = await prepareStateGeneration(storeA, lifecycleArtifacts, advisoryChange, digest("d"), "security-advisory-worker", now);
     await storeA.activateGeneration(advisoryWarming.operationId, advisoryWarming.leaseToken);
     const advisoryActive = (await storeA.inventory(advisoryChange.applicationId, advisoryChange.environment)).extensions.hotApplications[advisoryChange.extension.id].activeGeneration;
     const advisoryCatalog = signedCatalog([securityEntry(advisoryChange.extension.id, advisoryActive, "security-advisory")], 8, "2030-01-01T00:00:00.000Z");
@@ -618,7 +640,7 @@ test("preserves accepted artifacts while reconciling fresh revocation decisions 
       }
     ].entries()) {
       const change = stateRequest(securityCase.id, `${securityCase.id}-reconcile`);
-      const warming = await prepareStateGeneration(storeA, change, digest(String(index + 1)), `${securityCase.id}-worker`, now);
+      const warming = await prepareStateGeneration(storeA, lifecycleArtifacts, change, digest(String(index + 1)), `${securityCase.id}-worker`, now);
       await storeA.activateGeneration(warming.operationId, warming.leaseToken);
       const active = (await storeA.inventory(change.applicationId, change.environment)).extensions.hotApplications[change.extension.id].activeGeneration;
       const currentCatalog = securityCase.catalog(active);
@@ -648,16 +670,17 @@ test("persists exact active-generation POLICY_VIOLATION runner quarantine across
   const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
   const now = new Date("2026-08-29T09:00:00.000Z");
   const clock = { now: () => now };
-  const store = new PostgresRuntimeExtensionStore(pool, clock, digest("7"));
-  const competingStore = new PostgresRuntimeExtensionStore(pool, clock, digest("7"));
+  const artifacts = stateArtifacts(pool, now);
+  const store = lifecycleStore(pool, clock, artifacts);
+  const competingStore = lifecycleStore(pool, clock, artifacts);
   try {
     await boot(container.getConnectionUri());
     const change = stateRequest("app.sales-runner-quarantine", "runner-quarantine");
-    const warming = await prepareStateGeneration(store, change, digest("a"), "runner-quarantine-worker", now);
+    const warming = await prepareStateGeneration(store, artifacts, change, digest("a"), "runner-quarantine-worker", now);
     const activated = await store.activateGeneration(warming.operationId, warming.leaseToken);
     const active = (await store.inventory(change.applicationId, change.environment)).extensions.hotApplications[change.extension.id].activeGeneration;
     const siblingChange = stateRequest("app.sales-runner-sibling", "runner-quarantine-sibling");
-    const siblingWarming = await prepareStateGeneration(store, siblingChange, digest("b"), "runner-quarantine-sibling-worker", now);
+    const siblingWarming = await prepareStateGeneration(store, artifacts, siblingChange, digest("b"), "runner-quarantine-sibling-worker", now);
     const siblingActivated = await store.activateGeneration(siblingWarming.operationId, siblingWarming.leaseToken);
     const sibling = (await store.inventory(siblingChange.applicationId, siblingChange.environment)).extensions.hotApplications[siblingChange.extension.id].activeGeneration;
     const adapter = new RuntimeStoreRunnerQuarantineAdapter(store);
@@ -702,7 +725,7 @@ test("persists exact active-generation POLICY_VIOLATION runner quarantine across
     const receipt = (await pool.query("select receipt_json from runtime_extension_runner_quarantine_receipts where application_id=$1 and extension_id=$2", [change.applicationId, change.extension.id])).rows[0].receipt_json;
     assert.deepEqual(await store.quarantineRunnerGeneration(request), receipt, "the exact runner quarantine request must replay its original receipt");
     const beforeReplay = await pool.query("select (select count(*)::int from runtime_extension_runner_quarantine_receipts) receipts, (select count(*)::int from runtime_extension_audit) audits, (select count(*)::int from runtime_extension_outbox where event_json->>'receiptId'=$1) outbox", [receipt.receiptId]);
-    const restartedAdapter = new RuntimeStoreRunnerQuarantineAdapter(new PostgresRuntimeExtensionStore(pool, clock, digest("7")));
+    const restartedAdapter = new RuntimeStoreRunnerQuarantineAdapter(lifecycleStore(pool, clock, artifacts));
     assert.equal(receipt.reason, "POLICY_VIOLATION");
     assert.equal(receipt.generationId, active.generationId);
     assert.equal(receipt.revisionBefore, activated.revisionAfter);
@@ -755,8 +778,9 @@ test("rejects SCN-12 activation races and SCN-13 stale operation replays in Post
   const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
   let now = new Date("2026-08-29T09:00:00.000Z");
   const clock = { now: () => now };
-  const storeA = new PostgresRuntimeExtensionStore(pool, clock, digest("7"), { leaseMs: 1_000, maxConcurrentOperations: 2 });
-  const storeB = new PostgresRuntimeExtensionStore(pool, clock, digest("7"), { leaseMs: 1_000, maxConcurrentOperations: 2 });
+  const artifacts = stateArtifacts(pool, now);
+  const storeA = lifecycleStore(pool, clock, artifacts, { leaseMs: 1_000, maxConcurrentOperations: 2 });
+  const storeB = lifecycleStore(pool, clock, artifacts, { leaseMs: 1_000, maxConcurrentOperations: 2 });
   try {
     await boot(container.getConnectionUri());
     const firstRequest = stateRequest("app.sales-race", "install:app.sales-race:1");
@@ -789,7 +813,7 @@ test("rejects SCN-12 activation races and SCN-13 stale operation replays in Post
     await storeB.transition({ operationId: secondResumed.operationId, leaseToken: secondResumed.leaseToken, expectedPhase: "planning", phase: "failed" });
 
     const activeVersionRequest = stateRequest("app.sales-semver", "install:app.sales-semver:1-0-1", { version: "1.0.1" });
-    const activeVersionOperation = await prepareStateGeneration(storeA, activeVersionRequest, digest("e"), "semver-worker", now);
+    const activeVersionOperation = await prepareStateGeneration(storeA, artifacts, activeVersionRequest, digest("e"), "semver-worker", now);
     const activeVersionReceipt = await storeA.activateGeneration(activeVersionOperation.operationId, activeVersionOperation.leaseToken);
     await assert.rejects(
       claimState(storeB, stateRequest("app.sales-semver", "update:app.sales-semver:1-0-0-attacker", { operation: "update", version: "1.0.0+attacker", expectedRevision: activeVersionReceipt.revisionAfter }), digest("f"), "semver-attacker"),
@@ -797,7 +821,7 @@ test("rejects SCN-12 activation races and SCN-13 stale operation replays in Post
     );
 
     const activationRequest = stateRequest("app.sales-activation", "install:app.sales-activation:1");
-    const warming = await prepareStateGeneration(storeA, activationRequest, digest("6"), "activation-worker", now);
+    const warming = await prepareStateGeneration(storeA, artifacts, activationRequest, digest("6"), "activation-worker", now);
     await pool.query("create function p9_fail_activation_race() returns trigger language plpgsql as $$ begin raise exception 'simulated crash before pointer commit'; end $$");
     await pool.query("create trigger p9_fail_activation_race after update on runtime_extensions for each row when (new.active_generation_id='app-sales-activation-generation-1') execute function p9_fail_activation_race()");
     await assert.rejects(storeA.activateGeneration(warming.operationId, warming.leaseToken), /simulated crash before pointer commit/);
@@ -892,8 +916,6 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
   const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
   let now = new Date("2026-08-29T09:00:00.000Z");
   const clock = { now: () => now };
-  const storeA = new PostgresRuntimeExtensionStore(pool, clock, digest("7"));
-  const storeB = new PostgresRuntimeExtensionStore(pool, clock, digest("7"));
   const hosts = [];
   const consumerFleet = [];
   let browser;
@@ -919,6 +941,8 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     const byGeneration = new Map(releases.map((release) => [release.generationId, release]));
     const verifier = new ArtifactVerifier(new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, new InMemoryCatalogCheckpointStore()), { [publisher.identity]: publisher.publicKey });
     const artifacts = new PostgresVerifiedArtifactStore(pool, verifier);
+    const storeA = lifecycleStore(pool, clock, artifacts);
+    const storeB = lifecycleStore(pool, clock, artifacts);
     await Promise.all(releases.map((release) => artifacts.stage(release.stage)));
     const storedBytes = await pool.query("select artifact_digest, octet_length(artifact_bytes)::int artifact_bytes, (select octet_length(provenance_bytes)::int from runtime_extension_artifact_acceptances where artifact_digest=runtime_extension_artifacts.artifact_digest) provenance_bytes from runtime_extension_artifacts order by artifact_digest");
     assert.equal(storedBytes.rows.length, 5);

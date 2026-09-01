@@ -1,14 +1,43 @@
 import { readFile } from "node:fs/promises";
+import { timingSafeEqual } from "node:crypto";
 import { join } from "node:path";
 import pg from "pg";
 import { sql } from "@payloadcms/db-postgres";
 import { createPayloadRequest, getPayload } from "payload";
 import { salesTaskCreateHandler } from "@k-nex/module-sales/server";
 import { activePayloadPostgresTransaction, runtimeExtensionIdentityKey } from "@k-nex/payload-adapter";
+import { PluginManifestSchema } from "@k-nex/contracts";
+import {
+  createPlatformPluginLifecycleState,
+  executeRegistration,
+  reconcilePlatformPluginAvailability,
+  scopePlatformPluginRegistration
+} from "@k-nex/runtime";
+import salesManifest from "@k-nex/module-sales/manifest" with { type: "json" };
 
 import config from "@payload-config";
+import resolvedJson from "../.k-nex/generated/k-nex.resolved.json" with { type: "json" };
+import { runtimeRegistration } from "../.k-nex/generated/runtime-registration.js";
+import { createFixtureCurrentAuthority, createFixtureStaticProcessIdentityProvider } from "../src/current-authority.js";
 
 let runtimePromise: ReturnType<typeof initializeRuntime> | undefined;
+const staticOwner = Object.freeze({ applicationId: "customer-alpha", environment: "production" });
+const staticIdentity = createFixtureStaticProcessIdentityProvider(staticOwner);
+const staticRegistration = (() => {
+  const manifest = PluginManifestSchema.parse(salesManifest);
+  const plugin = resolvedJson.plugins.find(({ id }) => id === manifest.id);
+  if (!plugin) throw new Error("Static release is missing Sales registration identity.");
+  const registration = executeRegistration({
+    graph: { resolverVersion: "1.0.0", plugins: [{ id: manifest.id, kind: manifest.kind, package: manifest.package, version: manifest.version, integrity: plugin.integrity, required: plugin.required, optional: plugin.optional }], capabilityProviders: [], registrationOrder: [manifest.id] },
+    installed: [{ package: { name: manifest.package, version: manifest.version, integrity: plugin.integrity }, manifest }],
+    registrations: [runtimeRegistration["module.sales"].salesRegistration]
+  });
+  return scopePlatformPluginRegistration(registration, [reconcilePlatformPluginAvailability(registration, createPlatformPluginLifecycleState({
+    pluginId: manifest.id, catalogStatus: "supported", package: { status: "installed", name: manifest.package, version: manifest.version, integrity: plugin.integrity }, enabled: true,
+    configuration: { revision: 1, ready: true }, migration: { current: 1, required: 1, ready: true }, dataState: "active", releaseStatus: "supported"
+  }))]);
+})();
+const staticAuthority = createFixtureCurrentAuthority(staticRegistration, staticIdentity, undefined, staticOwner);
 
 async function initializeRuntime() {
   const payload = await getPayload({ config });
@@ -20,7 +49,7 @@ async function initializeRuntime() {
   const databaseUrl = process.env.DATABASE_URL;
   const expectedSchemaRevision = Number(process.env.K_NEX_SCHEMA_REVISION);
   const processIdentity = process.env.K_NEX_WEB_PROCESS_IDENTITY;
-  if (!databaseUrl || !Number.isSafeInteger(expectedSchemaRevision) || !processIdentity || !payload.config.collections.some(({ slug }) => slug === "sales-opportunities") || !payload.config.collections.some(({ slug }) => slug === "sales-tasks")) {
+  if (!databaseUrl || !smokeToken || !Number.isSafeInteger(expectedSchemaRevision) || !processIdentity || !payload.config.collections.some(({ slug }) => slug === "sales-opportunities") || !payload.config.collections.some(({ slug }) => slug === "sales-tasks")) {
     throw new Error("Customer Payload/Next runtime is missing its registry or versioned database authority.");
   }
   const pool = new pg.Pool({ connectionString: databaseUrl, max: 2 });
@@ -58,8 +87,13 @@ async function leastPrivilegeProof() {
 }
 
 async function salesOperationProof(request: Request) {
-  const { payload, pool } = await runtime();
+  const { generation, payload, pool, smokeToken } = await runtime();
+  const supplied = Buffer.from(request.headers.get("authorization") ?? "");
+  const expected = Buffer.from(`Bearer ${smokeToken}:p10-static-sales-user`);
+  if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) return { authorized: false };
+  const user = { collection: "users" as const, id: "p10-static-sales-user", email: "fixture@example.test" };
   const payloadRequest = await createPayloadRequest({ config: payload.config, request });
+  payloadRequest.user = user;
   const transactionID = await payloadRequest.payload.db.beginTransaction();
   if (transactionID === null || transactionID === undefined) throw new Error("Sales action proof could not open a Payload transaction.");
   payloadRequest.transactionID = transactionID;
@@ -71,15 +105,23 @@ async function salesOperationProof(request: Request) {
       deliveryClass: "platform-plugin",
       extensionId: "module.sales"
     })}, 0))`);
-    const lifecycle = await transaction.execute(sql`select disposition from p9_static_sales_lifecycle_authority`);
-    if (lifecycle.rows[0]?.disposition !== "active") {
+    const lifecycle = await transaction.execute(sql`
+      select disposition, active_generation_id
+      from runtime_extensions
+      where application_id='customer-alpha' and environment='production'
+        and delivery_class='platform-plugin' and extension_id='module.sales'
+    `);
+    const context = staticAuthority.context(payloadRequest, "p10-static-sales-operation");
+    if (lifecycle.rows[0]?.disposition !== "active" || lifecycle.rows[0]?.active_generation_id !== generation ||
+      !await staticAuthority.adapter.allows(context, staticAuthority.payload("sales-tasks", "create"), request.signal)) {
       await payloadRequest.payload.db.rollbackTransaction(transactionID);
       return { authorized: false };
     }
+    const exactActor = { kind: "user" as const, id: String(user.id) };
     const task = await salesTaskCreateHandler({
-      actor: { principal: { kind: "service", id: "p9-static-sales-proof" }, effectiveActor: { kind: "service", id: "p9-static-sales-proof" } },
+      actor: { principal: exactActor, effectiveActor: exactActor },
       request: payloadRequest,
-      authorizationContext: { permissionFingerprint: "p9-static-sales-proof" },
+      authorizationContext: { permissionFingerprint: context.permissionFingerprint },
       input: await request.json(),
       idempotencyKey: request.headers.get("x-idempotency-key") ?? "p9-static-sales-action",
       signal: request.signal
