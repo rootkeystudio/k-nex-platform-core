@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Review remediation slices 1–6 close reversible grant/assignment UI, atomic Sales scope admission, delegation dominance, protected-role baseline reconciliation, and nonblocking repeatable-read administration.
+Review remediation slices 1–7 close reversible access UI, Sales scope admission, delegation dominance, protected-baseline evolution, nonblocking reads, and direct reconciliation-capability bypass.
 
 ## Validation
 
-Exact Node 24.19.0: prior authorization tests 36/36; persistence-capability 8/8; Sales race 1/1; delegation 22/22; protected baseline 28/28 unit plus PG 1/1; read concurrency PG 1/1; UI 3/3 plus PG/Chromium 1/1; affected builds/contracts PASS. No cumulative remediation-head run is claimed yet.
+Exact Node 24.19.0: focused Gate 10 passed 14/14 before xhigh corrections; protected boundary builds, store 19/19, runtime 24/24, and real PostgreSQL direct-misuse 1/1 PASS. Final corrected focused/cumulative runs are not claimed yet.
 
 ## Next
 
-Run focused Gate 10, refresh result metadata/claims, then reused Sol-xhigh phase review.
+Close protected-assignment admission and PostgreSQL escalation evidence, then rerun focused Gate 10 and reused Sol-xhigh review.
 
 ## Blockers
 

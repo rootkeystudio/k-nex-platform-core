@@ -126,6 +126,34 @@ test("reconciles only an exact recognized protected baseline through real Postgr
   try {
     await boot(container.getConnectionUri());
     const store = new PostgresAuthorizationStore(pool);
+    const misuseApplicationId = "customer-protected-direct-misuse";
+    await seedRecognizedV1(pool, misuseApplicationId);
+    const misuseState = await store.readState(misuseApplicationId, environment);
+    assert.ok(misuseState);
+    const misuseBefore = await durableCounts(pool, misuseApplicationId);
+    await assert.rejects(store.reconcileProtectedRoleBaselineTransaction(
+      expected(misuseState, misuseApplicationId),
+      { version: prior.version, digest: prior.digest },
+      async (transaction) => {
+        const receipt = await transaction.readBootstrapReceipt(misuseApplicationId);
+        assert.ok(receipt);
+        await transaction.write({ kind: "bootstrap-receipt", receipt: {
+          ...receipt,
+          protectedBaselineVersion: currentProtectedPlatformRoleBaselineRelease.version,
+          protectedBaselineDigest: currentProtectedPlatformRoleBaselineRelease.digest,
+          authorizationRevision: misuseState.authorizationRevision + 1
+        } });
+        await transaction.write({ kind: "audit", audit: audit(misuseApplicationId, misuseState, "direct-misuse") });
+      }
+    ), { code: "REVISION_CONFLICT" });
+    assert.deepEqual(await durableCounts(pool, misuseApplicationId), misuseBefore, "Direct receipt-only capability misuse rolls back without revision or durable writes.");
+    await assert.rejects(store.reconcileProtectedRoleBaselineTransaction(
+      expected(misuseState, misuseApplicationId),
+      { version: prior.version, digest: `sha256:${"0".repeat(64)}` },
+      async () => assert.fail("Unknown predecessor must fail before the reconciliation callback.")
+    ), { code: "MUTATION_INVALID" });
+    assert.deepEqual(await durableCounts(pool, misuseApplicationId), misuseBefore, "Unknown direct predecessor rolls back without writes.");
+
     const applicationId = "customer-protected-upgrade";
     await seedRecognizedV1(pool, applicationId);
     const before = await store.readState(applicationId, environment);

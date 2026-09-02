@@ -115,6 +115,7 @@ export interface AuthorizationStore {
 export interface ProtectedRoleBaselineReconciliationStore {
   reconcileProtectedRoleBaselineTransaction<T>(
     expected: AuthorizationExpectedRevision,
+    expectedPrior: Readonly<{ readonly version: number; readonly digest: string }>,
     work: (transaction: AuthorizationStoreTransaction) => Promise<T>
   ): Promise<AuthorizationTransactionOutcome<T>>;
 }

@@ -23,6 +23,7 @@ import {
 } from "@k-nex/contracts";
 import {
   AuthorizationStoreError,
+  assertExactProtectedRoleBaselineState,
   assertFirstOwnerBootstrapMutations,
   assertAuthorizationExpectedRevision,
   currentProtectedPlatformRoleBaselineRelease,
@@ -31,6 +32,7 @@ import {
   isProtectedPlatformRoleGrant,
   parseAuthorizationExpectedRevision,
   parseAuthorizationStoreMutation,
+  recognizedProtectedPlatformRoleBaselineRelease,
   type AuthorizationStore,
   type AuthorizationAuditEntry,
   type AuthorizationStoreMutation,
@@ -237,11 +239,11 @@ export class PostgresAuthorizationStore implements AuthorizationStore, Protected
     return this.runTransaction(expected, work, true);
   }
 
-  async reconcileProtectedRoleBaselineTransaction<T>(expected: AuthorizationExpectedRevision, work: (transaction: AuthorizationStoreTransaction) => Promise<T>): Promise<AuthorizationTransactionOutcome<T>> {
-    return this.runTransaction(expected, work, false, true);
+  async reconcileProtectedRoleBaselineTransaction<T>(expected: AuthorizationExpectedRevision, expectedPrior: Readonly<{ readonly version: number; readonly digest: string }>, work: (transaction: AuthorizationStoreTransaction) => Promise<T>): Promise<AuthorizationTransactionOutcome<T>> {
+    return this.runTransaction(expected, work, false, expectedPrior);
   }
 
-  private async runTransaction<T>(expected: AuthorizationExpectedRevision, work: (transaction: AuthorizationStoreTransaction) => Promise<T>, bootstrap: boolean, reconciliation = false): Promise<AuthorizationTransactionOutcome<T>> {
+  private async runTransaction<T>(expected: AuthorizationExpectedRevision, work: (transaction: AuthorizationStoreTransaction) => Promise<T>, bootstrap: boolean, reconciliation?: Readonly<{ readonly version: number; readonly digest: string }>): Promise<AuthorizationTransactionOutcome<T>> {
     const parsedExpected = parseAuthorizationExpectedRevision(expected);
     const session = await this.pool.connect();
     try {
@@ -257,11 +259,15 @@ export class PostgresAuthorizationStore implements AuthorizationStore, Protected
       const current = assertAuthorizationExpectedRevision(parsedExpected, locked.rows[0] ? state(locked.rows[0], parsedExpected.environment) : undefined);
       const mutations: AuthorizationStoreMutation[] = [];
       let removedGrant = false;
-      const view = this.view(session, parsedExpected, current, mutations, bootstrap, reconciliation, () => { removedGrant = true; });
+      const view = this.view(session, parsedExpected, current, mutations, bootstrap, reconciliation !== undefined, () => { removedGrant = true; });
       if (bootstrap) await this.assertBootstrapEmpty(view, parsedExpected.applicationId);
+      const priorReceipt = reconciliation === undefined ? undefined : await this.assertProtectedBaselineReconciliationPrior(view, parsedExpected, reconciliation);
       const value = await work(view);
       if (bootstrap) assertFirstOwnerBootstrapMutations(parsedExpected, mutations);
-      if (reconciliation) this.assertProtectedBaselineReconciliationMutations(parsedExpected, mutations);
+      if (reconciliation !== undefined) {
+        this.assertProtectedBaselineReconciliationMutations(parsedExpected, mutations);
+        await this.assertProtectedBaselineReconciliationFinal(view, parsedExpected, priorReceipt!);
+      }
       const changes = revisionChanges(mutations, removedGrant);
       const next = changes.authorization || changes.lifecycle
         ? await this.advance(session, current, changes)
@@ -414,6 +420,32 @@ export class PostgresAuthorizationStore implements AuthorizationStore, Protected
       audits[0]!.audit.permissionId !== "system.roles.manage" || audits[0]!.audit.owner.kind !== "platform" || audits[0]!.audit.owner.namespace !== "system" || audits[0]!.audit.outcome !== "allow" ||
       audits[0]!.audit.operation !== protectedRoleBaselineReconciliationOperation || audits[0]!.audit.target !== protectedRoleBaselineReconciliationTarget) {
       fail("MUTATION_INVALID", "Protected baseline reconciliation requires its current receipt and exact audit.");
+    }
+  }
+
+  private async assertProtectedBaselineReconciliationPrior(view: AuthorizationStoreTransaction, expected: AuthorizationExpectedRevision, expectedPrior: Readonly<{ readonly version: number; readonly digest: string }>): Promise<BootstrapReceipt> {
+    const prior = recognizedProtectedPlatformRoleBaselineRelease(expectedPrior.version, expectedPrior.digest);
+    if (prior === undefined || prior.version >= currentProtectedPlatformRoleBaselineRelease.version) {
+      fail("MUTATION_INVALID", "Protected role baseline predecessor is not recognized for reconciliation.");
+    }
+    const receipt = await view.readBootstrapReceipt(expected.applicationId);
+    if (receipt === undefined || receipt.protectedBaselineVersion !== prior.version || receipt.protectedBaselineDigest !== prior.digest) {
+      fail("REVISION_CONFLICT", "Protected role baseline receipt does not match the expected predecessor.");
+    }
+    await assertExactProtectedRoleBaselineState(view, expected, prior);
+    return receipt;
+  }
+
+  private async assertProtectedBaselineReconciliationFinal(view: AuthorizationStoreTransaction, expected: AuthorizationExpectedRevision, priorReceipt: BootstrapReceipt): Promise<void> {
+    await assertExactProtectedRoleBaselineState(view, expected, currentProtectedPlatformRoleBaselineRelease);
+    const receipt = await view.readBootstrapReceipt(expected.applicationId);
+    if (receipt === undefined || receipt.id !== priorReceipt.id || receipt.ownerRoleId !== priorReceipt.ownerRoleId ||
+      receipt.ownerAssignmentId !== priorReceipt.ownerAssignmentId || receipt.ownerPrincipal.kind !== priorReceipt.ownerPrincipal.kind ||
+      receipt.ownerPrincipal.id !== priorReceipt.ownerPrincipal.id || receipt.state !== priorReceipt.state ||
+      receipt.protectedBaselineVersion !== currentProtectedPlatformRoleBaselineRelease.version ||
+      receipt.protectedBaselineDigest !== currentProtectedPlatformRoleBaselineRelease.digest ||
+      receipt.authorizationRevision !== expected.authorizationRevision + 1) {
+      fail("REVISION_CONFLICT", "Protected role baseline reconciliation did not produce the exact compiled target receipt.");
     }
   }
 

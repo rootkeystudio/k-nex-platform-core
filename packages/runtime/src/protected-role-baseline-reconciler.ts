@@ -48,12 +48,12 @@ export async function reconcileProtectedRoleBaseline(
   }
   const audit = reconciliationAudit(input.audit, expected);
 
-  return input.store.reconcileProtectedRoleBaselineTransaction(expected, async (transaction) => {
+  return input.store.reconcileProtectedRoleBaselineTransaction(expected, input.expectedPrior, async (transaction) => {
     const receipt = await transaction.readBootstrapReceipt(expected.applicationId);
     if (receipt === undefined || receipt.protectedBaselineVersion !== prior.version || receipt.protectedBaselineDigest !== prior.digest) {
       fail("REVISION_CONFLICT", "Protected role baseline receipt does not match the expected predecessor.");
     }
-    await assertExactProtectedBaseline(transaction, expected, prior);
+    await assertExactProtectedRoleBaselineState(transaction, expected, prior);
 
     const current = currentProtectedPlatformRoleBaselineRelease;
     const currentKeys = grantKeys(current);
@@ -91,7 +91,7 @@ export async function reconcileProtectedRoleBaseline(
   });
 }
 
-async function assertExactProtectedBaseline(
+export async function assertExactProtectedRoleBaselineState(
   transaction: AuthorizationStoreTransaction,
   expected: AuthorizationExpectedRevision,
   release: ProtectedPlatformRoleBaselineRelease
