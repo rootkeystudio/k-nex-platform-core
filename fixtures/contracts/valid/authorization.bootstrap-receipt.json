@@ -10,6 +10,8 @@
       "kind": "user"
     },
     "ownerRoleId": "system.role.owner",
+    "protectedBaselineDigest": "sha256:d149e0acfc0ffcdeed9577e27ad885a83217d129a6d244ca5d9d283f1d821426",
+    "protectedBaselineVersion": 2,
     "schemaVersion": 1,
     "state": "committed"
   }

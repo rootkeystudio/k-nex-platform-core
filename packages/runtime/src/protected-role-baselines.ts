@@ -37,6 +37,12 @@ export interface CompareTemplateBaselineInput {
   readonly newBaselinePermissionIds: readonly string[];
 }
 
+export interface ProtectedPlatformRoleBaselineRelease {
+  readonly version: number;
+  readonly digest: string;
+  readonly baselines: readonly ProtectedRoleBaseline[];
+}
+
 const compare = (left: string, right: string): number => left < right ? -1 : left > right ? 1 : 0;
 const platformPermissionIds = new Set(platformPermissionDescriptors.map(({ id }) => id));
 
@@ -60,6 +66,73 @@ function protectedBaseline(id: ProtectedRoleId, permissionIds: readonly string[]
 }
 
 const allPlatformPermissionIds = Object.freeze([...platformPermissionIds].sort(compare));
+
+const protectedPlatformRoleLabels = Object.freeze({
+  "system.role.owner": "Owner",
+  "system.role.security-admin": "Security administrator",
+  "system.role.extension-admin": "Extension administrator",
+  "system.role.user-admin": "User administrator",
+  "system.role.auditor": "Auditor"
+} satisfies Record<ProtectedRoleId, string>);
+
+export { protectedPlatformRoleLabels };
+
+/** The last shipped protected baseline, retained only to recognize a safe upgrade source. */
+const protectedPlatformRoleBaselinesV1: readonly ProtectedRoleBaseline[] = Object.freeze([
+  protectedBaseline("system.role.owner", [
+    "system.authorization.audit.read",
+    "system.extensions.deploy-platform-plugin",
+    "system.extensions.disable",
+    "system.extensions.enable",
+    "system.extensions.install-hot",
+    "system.extensions.plan",
+    "system.extensions.quarantine",
+    "system.extensions.read",
+    "system.extensions.rollback",
+    "system.extensions.uninstall",
+    "system.extensions.update",
+    "system.permissions.read",
+    "system.role-assignments.manage",
+    "system.role-assignments.read",
+    "system.roles.manage",
+    "system.roles.read",
+    "system.settings.manage",
+    "system.settings.read",
+    "system.themes.manage"
+  ]),
+  protectedBaseline("system.role.security-admin", [
+    "system.authorization.audit.read",
+    "system.permissions.read",
+    "system.role-assignments.manage",
+    "system.role-assignments.read",
+    "system.roles.manage",
+    "system.roles.read"
+  ]),
+  protectedBaseline("system.role.extension-admin", [
+    "system.extensions.disable",
+    "system.extensions.enable",
+    "system.extensions.install-hot",
+    "system.extensions.plan",
+    "system.extensions.quarantine",
+    "system.extensions.read",
+    "system.extensions.rollback",
+    "system.extensions.uninstall",
+    "system.extensions.update",
+    "system.permissions.read"
+  ]),
+  protectedBaseline("system.role.user-admin", [
+    "system.permissions.read",
+    "system.role-assignments.manage",
+    "system.role-assignments.read",
+    "system.roles.read"
+  ]),
+  protectedBaseline("system.role.auditor", [
+    "system.authorization.audit.read",
+    "system.permissions.read",
+    "system.role-assignments.read",
+    "system.roles.read"
+  ])
+]);
 
 /** Immutable platform-owned baselines; labels are deliberately absent from authority. */
 export const protectedPlatformRoleBaselines: readonly ProtectedRoleBaseline[] = Object.freeze([
@@ -101,6 +174,31 @@ export const protectedPlatformRoleBaselines: readonly ProtectedRoleBaseline[] = 
 if (protectedPlatformRoleBaselines.length !== protectedRoleIds.length ||
   protectedPlatformRoleBaselines.some((baseline, index) => baseline.id !== protectedRoleIds[index])) {
   throw new TemplateBaselineError("INVALID_BASELINE", "Protected role baselines must cover each protected role exactly once.");
+}
+
+function digestProtectedPlatformRoleBaselines(version: number, baselines: readonly ProtectedRoleBaseline[]): string {
+  return `sha256:${createHash("sha256").update(canonicalJson({ schemaVersion: 1, version, baselines })).digest("hex")}`;
+}
+
+function baselineRelease(version: number, baselines: readonly ProtectedRoleBaseline[]): ProtectedPlatformRoleBaselineRelease {
+  if (!Number.isSafeInteger(version) || version < 1 ||
+    baselines.length !== protectedRoleIds.length || baselines.some((baseline, index) => baseline.id !== protectedRoleIds[index])) {
+    throw new TemplateBaselineError("INVALID_BASELINE", "Protected role baseline release is invalid.");
+  }
+  return Object.freeze({ version, digest: digestProtectedPlatformRoleBaselines(version, baselines), baselines });
+}
+
+/** Compiled current target; callers cannot provide protected baseline content. */
+export const currentProtectedPlatformRoleBaselineRelease = baselineRelease(2, protectedPlatformRoleBaselines);
+
+/** Static recognized sources only. Unknown versions or digests fail closed. */
+export const recognizedProtectedPlatformRoleBaselineReleases: readonly ProtectedPlatformRoleBaselineRelease[] = Object.freeze([
+  baselineRelease(1, protectedPlatformRoleBaselinesV1),
+  currentProtectedPlatformRoleBaselineRelease
+]);
+
+export function recognizedProtectedPlatformRoleBaselineRelease(version: number, digest: string): ProtectedPlatformRoleBaselineRelease | undefined {
+  return recognizedProtectedPlatformRoleBaselineReleases.find((release) => release.version === version && release.digest === digest);
 }
 
 /** SHA-256 over the canonical JSON representation of a sorted unique permission baseline. */

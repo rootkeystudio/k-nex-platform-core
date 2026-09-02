@@ -40,6 +40,7 @@ export * from "./extension-operator-api.js";
 export * from "./authorization-registry.js";
 export * from "./protected-role-baselines.js";
 export * from "./protected-role-bootstrap.js";
+export * from "./protected-role-baseline-reconciler.js";
 export * from "./role-template-bootstrap.js";
 export * from "./authorization-store.js";
 export * from "./authorization-lifecycle.js";

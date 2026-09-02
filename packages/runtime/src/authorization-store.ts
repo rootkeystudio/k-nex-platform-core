@@ -107,6 +107,18 @@ export interface AuthorizationStore {
   ): Promise<AuthorizationTransactionOutcome<T>>;
 }
 
+/**
+ * Trusted platform-release capability for immutable protected baseline evolution.
+ * It is deliberately absent from AuthorizationStore, which is the only store
+ * surface provided to customer administration services.
+ */
+export interface ProtectedRoleBaselineReconciliationStore {
+  reconcileProtectedRoleBaselineTransaction<T>(
+    expected: AuthorizationExpectedRevision,
+    work: (transaction: AuthorizationStoreTransaction) => Promise<T>
+  ): Promise<AuthorizationTransactionOutcome<T>>;
+}
+
 export function parseAuthorizationExpectedRevision(value: unknown): AuthorizationExpectedRevision {
   const input = exactObject(value, ["applicationId", "environment", "authorizationRevision", "lifecycleRevision"]);
   const parsed = AuthorizationStateSchema.safeParse({ schemaVersion: 1, ...input });

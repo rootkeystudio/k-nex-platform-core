@@ -14,6 +14,7 @@
     "environment": "production",
     "lifecycleRevision": 12,
     "outcome": "allow",
+    "operation": "read-roles",
     "owner": {
       "deliveryClass": "platform-plugin",
       "extensionId": "module.sales.analytics",
@@ -32,6 +33,7 @@
       "kind": "record",
       "recordId": "report-1",
       "resource": "sales.analytics.reports"
-    }
+    },
+    "target": "system.roles"
   }
 }

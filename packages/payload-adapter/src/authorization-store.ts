@@ -25,6 +25,10 @@ import {
   AuthorizationStoreError,
   assertFirstOwnerBootstrapMutations,
   assertAuthorizationExpectedRevision,
+  currentProtectedPlatformRoleBaselineRelease,
+  isCurrentProtectedRoleBaselineGrant,
+  isCurrentProtectedRoleBaselineGrantKey,
+  isProtectedPlatformRoleGrant,
   parseAuthorizationExpectedRevision,
   parseAuthorizationStoreMutation,
   type AuthorizationStore,
@@ -34,7 +38,10 @@ import {
   type AuthorizationStoreTransaction,
   type AuthorizationSubjectValidator,
   type AuthorizationTransactionOutcome,
-  type AuthorizationExpectedRevision
+  type AuthorizationExpectedRevision,
+  type ProtectedRoleBaselineReconciliationStore,
+  protectedRoleBaselineReconciliationOperation,
+  protectedRoleBaselineReconciliationTarget
 } from "@k-nex/runtime";
 
 import type { RuntimeExtensionPool, RuntimeExtensionSession } from "./runtime-extension-store.js";
@@ -140,6 +147,7 @@ function receipt(row: Row): BootstrapReceipt {
   return parse(BootstrapReceiptSchema, {
     schemaVersion: 1, id: string(row.receipt_id), applicationId: string(row.application_id), ownerRoleId: string(row.owner_role_id),
     ownerAssignmentId: string(row.owner_assignment_id), ownerPrincipal: { kind: string(row.owner_principal_kind), id: string(row.owner_principal_id) },
+    protectedBaselineVersion: integer(row.protected_baseline_version), protectedBaselineDigest: string(row.protected_baseline_digest),
     authorizationRevision: integer(row.authorization_revision), state: string(row.state)
   });
 }
@@ -189,7 +197,7 @@ function revisionChanges(mutations: readonly AuthorizationStoreMutation[], remov
   });
 }
 
-export class PostgresAuthorizationStore implements AuthorizationStore {
+export class PostgresAuthorizationStore implements AuthorizationStore, ProtectedRoleBaselineReconciliationStore {
   constructor(private readonly pool: RuntimeExtensionPool, private readonly subjectValidator?: AuthorizationSubjectValidator) {}
 
   async readState(applicationId: string, environment: string): Promise<AuthorizationState | undefined> {
@@ -229,7 +237,11 @@ export class PostgresAuthorizationStore implements AuthorizationStore {
     return this.runTransaction(expected, work, true);
   }
 
-  private async runTransaction<T>(expected: AuthorizationExpectedRevision, work: (transaction: AuthorizationStoreTransaction) => Promise<T>, bootstrap: boolean): Promise<AuthorizationTransactionOutcome<T>> {
+  async reconcileProtectedRoleBaselineTransaction<T>(expected: AuthorizationExpectedRevision, work: (transaction: AuthorizationStoreTransaction) => Promise<T>): Promise<AuthorizationTransactionOutcome<T>> {
+    return this.runTransaction(expected, work, false, true);
+  }
+
+  private async runTransaction<T>(expected: AuthorizationExpectedRevision, work: (transaction: AuthorizationStoreTransaction) => Promise<T>, bootstrap: boolean, reconciliation = false): Promise<AuthorizationTransactionOutcome<T>> {
     const parsedExpected = parseAuthorizationExpectedRevision(expected);
     const session = await this.pool.connect();
     try {
@@ -245,10 +257,11 @@ export class PostgresAuthorizationStore implements AuthorizationStore {
       const current = assertAuthorizationExpectedRevision(parsedExpected, locked.rows[0] ? state(locked.rows[0], parsedExpected.environment) : undefined);
       const mutations: AuthorizationStoreMutation[] = [];
       let removedGrant = false;
-      const view = this.view(session, parsedExpected, current, mutations, bootstrap, () => { removedGrant = true; });
+      const view = this.view(session, parsedExpected, current, mutations, bootstrap, reconciliation, () => { removedGrant = true; });
       if (bootstrap) await this.assertBootstrapEmpty(view, parsedExpected.applicationId);
       const value = await work(view);
       if (bootstrap) assertFirstOwnerBootstrapMutations(parsedExpected, mutations);
+      if (reconciliation) this.assertProtectedBaselineReconciliationMutations(parsedExpected, mutations);
       const changes = revisionChanges(mutations, removedGrant);
       const next = changes.authorization || changes.lifecycle
         ? await this.advance(session, current, changes)
@@ -325,7 +338,7 @@ export class PostgresAuthorizationStore implements AuthorizationStore {
       },
       readBootstrapReceipt: async (applicationId: string) => {
         application(applicationId);
-        const result = await session.query<Row>(`select application_id, receipt_id, owner_role_id, owner_assignment_id, owner_principal_kind, owner_principal_id, authorization_revision, state from k_nex_authorization_bootstrap_receipts where application_id=$1`, [expected.applicationId]);
+        const result = await session.query<Row>(`select application_id, receipt_id, owner_role_id, owner_assignment_id, owner_principal_kind, owner_principal_id, protected_baseline_version, protected_baseline_digest, authorization_revision, state from k_nex_authorization_bootstrap_receipts where application_id=$1`, [expected.applicationId]);
         return result.rows[0] ? receipt(result.rows[0]) : undefined;
       },
       listAudits: async (input: Readonly<{ readonly applicationId: string; readonly afterAuditId?: string; readonly limit: number }>) => {
@@ -338,7 +351,7 @@ export class PostgresAuthorizationStore implements AuthorizationStore {
     });
   }
 
-  private view(session: RuntimeExtensionSession, expected: AuthorizationExpectedRevision, current: AuthorizationState, mutations: AuthorizationStoreMutation[], bootstrap: boolean, onGrantRemoval: () => void): AuthorizationStoreTransaction {
+  private view(session: RuntimeExtensionSession, expected: AuthorizationExpectedRevision, current: AuthorizationState, mutations: AuthorizationStoreMutation[], bootstrap: boolean, reconciliation: boolean, onGrantRemoval: () => void): AuthorizationStoreTransaction {
     return Object.freeze({
       ...this.readView(session, expected),
       removeGrant: async (applicationId: string, grantId: string) => {
@@ -347,7 +360,8 @@ export class PostgresAuthorizationStore implements AuthorizationStore {
         const found = await session.query<Row>(`select application_id, grant_id, role_id, permission_id, owner_kind, owner_namespace, owner_delivery_class, owner_extension_id, owner_generation, revision from k_nex_role_permission_grants where application_id=$1 and grant_id=$2 for update`, [expected.applicationId, grantId]);
         if (found.rows[0] === undefined) return undefined;
         const existing = grant(found.rows[0]);
-        if (!bootstrap && protectedRoleIds.includes(existing.roleId as typeof protectedRoleIds[number])) fail("MUTATION_INVALID", "Protected role grants may not be removed.");
+        if (!bootstrap && !reconciliation && protectedRoleIds.includes(existing.roleId as typeof protectedRoleIds[number])) fail("MUTATION_INVALID", "Protected role grants may not be removed.");
+        if (reconciliation && (!isProtectedPlatformRoleGrant(existing) || isCurrentProtectedRoleBaselineGrantKey(existing))) fail("MUTATION_INVALID", "Protected baseline reconciliation may remove only superseded protected platform grants.");
         await session.query(`delete from k_nex_role_permission_grants where application_id=$1 and grant_id=$2`, [expected.applicationId, grantId]);
         onGrantRemoval();
         return existing;
@@ -358,9 +372,10 @@ export class PostgresAuthorizationStore implements AuthorizationStore {
         if (mutation.kind === "audit" && (mutation.audit.environment !== expected.environment || mutation.audit.authorizationRevision !== current.authorizationRevision || mutation.audit.lifecycleRevision !== current.lifecycleRevision)) {
           fail("REVISION_CONFLICT", "Authorization audit must bind the transaction's current revisions.");
         }
-        if (!bootstrap) await this.assertRegularMutationAllowed(session, mutation);
+        if (!bootstrap && !reconciliation) await this.assertRegularMutationAllowed(session, mutation);
+        if (reconciliation) this.assertProtectedBaselineReconciliationMutation(mutation, expected);
         if (mutation.kind === "assignment") await this.assertOwnerRevocationSafe(session, mutation.assignment);
-        await this.write(session, mutation);
+        await this.write(session, mutation, reconciliation);
         mutations.push(mutation);
       }
     });
@@ -383,6 +398,25 @@ export class PostgresAuthorizationStore implements AuthorizationStore {
     }
   }
 
+  private assertProtectedBaselineReconciliationMutation(mutation: AuthorizationStoreMutation, expected: AuthorizationExpectedRevision): void {
+    if (mutation.kind === "bootstrap-receipt" || mutation.kind === "audit") return;
+    if (mutation.kind === "grant" && isCurrentProtectedRoleBaselineGrant(mutation.grant, expected.authorizationRevision)) return;
+    fail("MUTATION_INVALID", "Protected baseline reconciliation may change only protected platform grants, its receipt, and its audit.");
+  }
+
+  private assertProtectedBaselineReconciliationMutations(expected: AuthorizationExpectedRevision, mutations: readonly AuthorizationStoreMutation[]): void {
+    const receipts = mutations.filter((mutation): mutation is Extract<AuthorizationStoreMutation, { readonly kind: "bootstrap-receipt" }> => mutation.kind === "bootstrap-receipt");
+    const audits = mutations.filter((mutation): mutation is Extract<AuthorizationStoreMutation, { readonly kind: "audit" }> => mutation.kind === "audit");
+    if (receipts.length !== 1 || audits.length !== 1 ||
+      receipts[0]!.receipt.protectedBaselineVersion !== currentProtectedPlatformRoleBaselineRelease.version ||
+      receipts[0]!.receipt.protectedBaselineDigest !== currentProtectedPlatformRoleBaselineRelease.digest ||
+      receipts[0]!.receipt.authorizationRevision !== expected.authorizationRevision + 1 ||
+      audits[0]!.audit.permissionId !== "system.roles.manage" || audits[0]!.audit.owner.kind !== "platform" || audits[0]!.audit.owner.namespace !== "system" || audits[0]!.audit.outcome !== "allow" ||
+      audits[0]!.audit.operation !== protectedRoleBaselineReconciliationOperation || audits[0]!.audit.target !== protectedRoleBaselineReconciliationTarget) {
+      fail("MUTATION_INVALID", "Protected baseline reconciliation requires its current receipt and exact audit.");
+    }
+  }
+
   private async assertOwnerRevocationSafe(session: RuntimeExtensionSession, value: RoleAssignment): Promise<void> {
     const existing = await session.query<Row>(`select role_id, state from k_nex_role_assignments where application_id=$1 and assignment_id=$2 for update`, [value.applicationId, value.id]);
     const row = existing.rows[0];
@@ -392,7 +426,7 @@ export class PostgresAuthorizationStore implements AuthorizationStore {
     if (integer(others.rows[0]?.count) < 1) fail("REVISION_CONFLICT", "The last active owner assignment cannot be revoked.");
   }
 
-  private async write(session: RuntimeExtensionSession, mutation: AuthorizationStoreMutation): Promise<void> {
+  private async write(session: RuntimeExtensionSession, mutation: AuthorizationStoreMutation, reconciliation: boolean): Promise<void> {
     switch (mutation.kind) {
       case "role": return this.writeRole(session, mutation.role);
       case "grant": return this.writeGrant(session, mutation.grant);
@@ -400,7 +434,7 @@ export class PostgresAuthorizationStore implements AuthorizationStore {
       case "template-adoption": return this.writeAdoption(session, mutation.adoption);
       case "catalog-snapshot": return this.writeSnapshot(session, mutation.snapshot);
       case "extension-generation": return this.writeGeneration(session, mutation.generation);
-      case "bootstrap-receipt": return this.writeReceipt(session, mutation.receipt);
+      case "bootstrap-receipt": return this.writeReceipt(session, mutation.receipt, reconciliation);
       case "audit": return this.writeAudit(session, mutation.audit);
     }
   }
@@ -431,14 +465,18 @@ export class PostgresAuthorizationStore implements AuthorizationStore {
     await session.query(`insert into k_nex_extension_authorization_generations (application_id, delivery_class, extension_id, authorization_generation, runtime_generation_ids, state, authorization_revision, lifecycle_revision) values ($1,$2,$3,$4,$5::jsonb,$6,$7,$8) on conflict (application_id, delivery_class, extension_id, authorization_generation) do update set runtime_generation_ids=excluded.runtime_generation_ids, state=excluded.state, authorization_revision=excluded.authorization_revision, lifecycle_revision=excluded.lifecycle_revision, updated_at=now()`, [value.applicationId, value.owner.deliveryClass, value.owner.extensionId, value.owner.generation, canonicalJson(value.runtimeGenerationIds), value.state, value.authorizationRevision, value.lifecycleRevision]);
   }
 
-  private async writeReceipt(session: RuntimeExtensionSession, value: BootstrapReceipt): Promise<void> {
+  private async writeReceipt(session: RuntimeExtensionSession, value: BootstrapReceipt, reconciliation: boolean): Promise<void> {
     const assignment = await session.query<Row>(`select role_id, subject_kind, subject_id, state from k_nex_role_assignments where application_id=$1 and assignment_id=$2 for update`, [value.applicationId, value.ownerAssignmentId]);
     const row = assignment.rows[0];
     if (row === undefined || string(row.role_id) !== value.ownerRoleId || string(row.subject_kind) !== value.ownerPrincipal.kind ||
       string(row.subject_id) !== value.ownerPrincipal.id || string(row.state) !== "active") {
       fail("REVISION_CONFLICT", "Bootstrap receipt requires its exact active owner assignment.");
     }
-    await session.query(`insert into k_nex_authorization_bootstrap_receipts (application_id, receipt_id, owner_role_id, owner_assignment_id, owner_principal_kind, owner_principal_id, authorization_revision, state) values ($1,$2,$3,$4,$5,$6,$7,$8)`, [value.applicationId, value.id, value.ownerRoleId, value.ownerAssignmentId, value.ownerPrincipal.kind, value.ownerPrincipal.id, value.authorizationRevision, value.state]);
+    const result = await session.query<Row>(reconciliation
+      ? `insert into k_nex_authorization_bootstrap_receipts (application_id, receipt_id, owner_role_id, owner_assignment_id, owner_principal_kind, owner_principal_id, protected_baseline_version, protected_baseline_digest, authorization_revision, state) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) on conflict (application_id) do update set protected_baseline_version=excluded.protected_baseline_version, protected_baseline_digest=excluded.protected_baseline_digest, authorization_revision=excluded.authorization_revision where k_nex_authorization_bootstrap_receipts.receipt_id=excluded.receipt_id and k_nex_authorization_bootstrap_receipts.owner_role_id=excluded.owner_role_id and k_nex_authorization_bootstrap_receipts.owner_assignment_id=excluded.owner_assignment_id and k_nex_authorization_bootstrap_receipts.owner_principal_kind=excluded.owner_principal_kind and k_nex_authorization_bootstrap_receipts.owner_principal_id=excluded.owner_principal_id and k_nex_authorization_bootstrap_receipts.state=excluded.state returning receipt_id`
+      : `insert into k_nex_authorization_bootstrap_receipts (application_id, receipt_id, owner_role_id, owner_assignment_id, owner_principal_kind, owner_principal_id, protected_baseline_version, protected_baseline_digest, authorization_revision, state) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning receipt_id`,
+    [value.applicationId, value.id, value.ownerRoleId, value.ownerAssignmentId, value.ownerPrincipal.kind, value.ownerPrincipal.id, value.protectedBaselineVersion, value.protectedBaselineDigest, value.authorizationRevision, value.state]);
+    if (result.rows.length !== 1) fail("REVISION_CONFLICT", "Protected baseline receipt cannot change its first-owner identity.");
   }
 
   private async writeAudit(session: RuntimeExtensionSession, value: AuthorizationDecisionAudit): Promise<void> {

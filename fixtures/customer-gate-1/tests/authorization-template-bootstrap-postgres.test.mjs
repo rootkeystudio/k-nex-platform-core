@@ -10,6 +10,7 @@ import {
   bootstrapFirstOwner,
   compareInstantiatedRoleTemplate,
   copyTemplatePermissionsToRole,
+  currentProtectedPlatformRoleBaselineRelease,
   createAuthorizationCatalogProvider,
   createEffectiveAuthorizationCatalog,
   createEffectiveAuthorizationRequest,
@@ -191,7 +192,7 @@ test("P10.6 persists protected roles and Sales template bootstrap through Postgr
       await transaction.write({ kind: "grant", grant: { schemaVersion: 1, id: protectedGrant.grant_id, applicationId, roleId: "customer.immutability-probe", permissionId: protectedGrant.permission_id, owner: platform, revision: protectedState.authorizationRevision + 1 } });
     }), { code: "MUTATION_INVALID" }, "A protected grant ID cannot be moved to an editable role.");
     await assert.rejects(store.transaction(expected(protectedState), async (transaction) => {
-      await transaction.write({ kind: "bootstrap-receipt", receipt: { schemaVersion: 1, id: "regular-bootstrap-receipt", applicationId, ownerRoleId: "system.role.owner", ownerAssignmentId: protectedOwner.assignment_id, ownerPrincipal: { kind: "user", id: protectedOwner.subject_id }, authorizationRevision: protectedState.authorizationRevision, state: "committed" } });
+      await transaction.write({ kind: "bootstrap-receipt", receipt: { schemaVersion: 1, id: "regular-bootstrap-receipt", applicationId, ownerRoleId: "system.role.owner", ownerAssignmentId: protectedOwner.assignment_id, ownerPrincipal: { kind: "user", id: protectedOwner.subject_id }, protectedBaselineVersion: currentProtectedPlatformRoleBaselineRelease.version, protectedBaselineDigest: currentProtectedPlatformRoleBaselineRelease.digest, authorizationRevision: protectedState.authorizationRevision, state: "committed" } });
     }), { code: "MUTATION_INVALID" }, "Regular transactions cannot write bootstrap receipts.");
     const protectedAfter = await Promise.all([
       pool.query("select role_id, label, description, protected_role_id, revision from k_nex_roles where application_id=$1 and protected_role_id is not null order by role_id", [applicationId]),

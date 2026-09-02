@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { AuthorizationSubjectSchema, canonicalJson, type BootstrapReceipt, type ProtectedRoleId } from "@k-nex/contracts";
+import { AuthorizationSubjectSchema, canonicalJson, type BootstrapReceipt } from "@k-nex/contracts";
 
 import {
   AuthorizationStoreError,
@@ -10,7 +10,11 @@ import {
   type AuthorizationStoreMutation,
   type AuthorizationTransactionOutcome
 } from "./authorization-store.js";
-import { protectedPlatformRoleBaselines } from "./protected-role-baselines.js";
+import {
+  currentProtectedPlatformRoleBaselineRelease,
+  protectedPlatformRoleBaselines,
+  protectedPlatformRoleLabels
+} from "./protected-role-baselines.js";
 
 export interface BootstrapFirstOwnerInput {
   readonly store: AuthorizationStore;
@@ -30,14 +34,16 @@ export async function bootstrapFirstOwner(input: BootstrapFirstOwnerInput): Prom
   }
 
   const { applicationId } = expected;
-  const ownerAssignmentId = bootstrapId(applicationId, "owner-assignment", owner.data.id);
+  const ownerAssignmentId = protectedRoleBootstrapId(applicationId, "owner-assignment", owner.data.id);
   const receipt: BootstrapReceipt = {
     schemaVersion: 1,
-    id: bootstrapId(applicationId, "receipt", ownerAssignmentId),
+    id: protectedRoleBootstrapId(applicationId, "receipt", ownerAssignmentId),
     applicationId,
     ownerRoleId: "system.role.owner",
     ownerAssignmentId,
     ownerPrincipal: owner.data,
+    protectedBaselineVersion: currentProtectedPlatformRoleBaselineRelease.version,
+    protectedBaselineDigest: currentProtectedPlatformRoleBaselineRelease.digest,
     authorizationRevision: 1,
     state: "committed"
   };
@@ -48,14 +54,14 @@ export async function bootstrapFirstOwner(input: BootstrapFirstOwnerInput): Prom
         schemaVersion: 1,
         id: baseline.id,
         applicationId,
-        label: protectedRoleLabels[baseline.id],
+        label: protectedPlatformRoleLabels[baseline.id],
         protectedRoleId: baseline.id,
         revision: 1
       } });
       for (const permissionId of baseline.permissionIds) {
         await transaction.write({ kind: "grant", grant: {
           schemaVersion: 1,
-          id: bootstrapId(applicationId, "grant", baseline.id, permissionId),
+          id: protectedRoleBootstrapId(applicationId, "grant", baseline.id, permissionId),
           applicationId,
           roleId: baseline.id,
           permissionId,
@@ -98,7 +104,7 @@ export function assertFirstOwnerBootstrapMutations(expected: AuthorizationExpect
   }
   for (const baseline of protectedPlatformRoleBaselines) {
     const role = rolesById.get(baseline.id);
-    if (role === undefined || role.protectedRoleId !== baseline.id || role.label !== protectedRoleLabels[baseline.id]) {
+    if (role === undefined || role.protectedRoleId !== baseline.id || role.label !== protectedPlatformRoleLabels[baseline.id]) {
       fail("MUTATION_INVALID", "First-owner bootstrap must create each protected role exactly once.");
     }
   }
@@ -107,30 +113,22 @@ export function assertFirstOwnerBootstrapMutations(expected: AuthorizationExpect
   const actualGrantKeys = new Set(grants.map(({ grant }) => `${grant.roleId}\u0000${grant.permissionId}`));
   const grantIds = new Set(grants.map(({ grant }) => grant.id));
   if (grants.length !== expectedGrantKeys.size || actualGrantKeys.size !== expectedGrantKeys.size || grantIds.size !== grants.length ||
-    grants.some(({ grant }) => grant.applicationId !== expected.applicationId || grant.id !== bootstrapId(expected.applicationId, "grant", grant.roleId, grant.permissionId) || grant.revision !== 1 || grant.owner.kind !== "platform" || grant.owner.namespace !== "system" || !expectedGrantKeys.has(`${grant.roleId}\u0000${grant.permissionId}`))) {
+    grants.some(({ grant }) => grant.applicationId !== expected.applicationId || grant.id !== protectedRoleBootstrapId(expected.applicationId, "grant", grant.roleId, grant.permissionId) || grant.revision !== 1 || grant.owner.kind !== "platform" || grant.owner.namespace !== "system" || !expectedGrantKeys.has(`${grant.roleId}\u0000${grant.permissionId}`))) {
     fail("MUTATION_INVALID", "First-owner bootstrap grants must exactly match the protected platform baselines.");
   }
 
   const assignment = assignments[0]!.assignment;
   const receipt = receipts[0]!.receipt;
-  if (assignment.applicationId !== expected.applicationId || assignment.id !== bootstrapId(expected.applicationId, "owner-assignment", assignment.principal.id) || assignment.roleId !== "system.role.owner" || assignment.principal.kind !== "user" || assignment.state !== "active" || assignment.revision !== 1 ||
-    receipt.applicationId !== expected.applicationId || receipt.id !== bootstrapId(expected.applicationId, "receipt", assignment.id) || receipt.authorizationRevision !== 1 || receipt.ownerRoleId !== assignment.roleId || receipt.ownerAssignmentId !== assignment.id || receipt.ownerPrincipal.kind !== assignment.principal.kind || receipt.ownerPrincipal.id !== assignment.principal.id) {
+  if (assignment.applicationId !== expected.applicationId || assignment.id !== protectedRoleBootstrapId(expected.applicationId, "owner-assignment", assignment.principal.id) || assignment.roleId !== "system.role.owner" || assignment.principal.kind !== "user" || assignment.state !== "active" || assignment.revision !== 1 ||
+    receipt.applicationId !== expected.applicationId || receipt.id !== protectedRoleBootstrapId(expected.applicationId, "receipt", assignment.id) || receipt.protectedBaselineVersion !== currentProtectedPlatformRoleBaselineRelease.version || receipt.protectedBaselineDigest !== currentProtectedPlatformRoleBaselineRelease.digest || receipt.authorizationRevision !== 1 || receipt.ownerRoleId !== assignment.roleId || receipt.ownerAssignmentId !== assignment.id || receipt.ownerPrincipal.kind !== assignment.principal.kind || receipt.ownerPrincipal.id !== assignment.principal.id) {
     fail("MUTATION_INVALID", "First-owner bootstrap receipt must bind its one active owner assignment at revision 1.");
   }
 }
 
-function bootstrapId(applicationId: string, kind: string, ...parts: readonly string[]): string {
+export function protectedRoleBootstrapId(applicationId: string, kind: string, ...parts: readonly string[]): string {
   const digest = createHash("sha256").update(canonicalJson([applicationId, kind, ...parts])).digest("hex");
   return `bootstrap.${kind}.${digest}`;
 }
-
-const protectedRoleLabels: Readonly<Record<ProtectedRoleId, string>> = {
-  "system.role.owner": "Owner",
-  "system.role.security-admin": "Security administrator",
-  "system.role.extension-admin": "Extension administrator",
-  "system.role.user-admin": "User administrator",
-  "system.role.auditor": "Auditor"
-} as const;
 
 function fail(code: "MUTATION_INVALID" | "REVISION_CONFLICT" | "SUBJECT_INVALID", message: string): never {
   throw new AuthorizationStoreError(code, message);

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AuthorizationDecisionAudit } from "@k-nex/contracts";
 import { PostgresAuthorizationStore } from "../src/authorization-store.js";
 import type { RuntimeExtensionPool, RuntimeExtensionSession } from "../src/runtime-extension-store.js";
-import { bootstrapFirstOwner, protectedPlatformRoleBaselines } from "@k-nex/runtime";
+import { bootstrapFirstOwner, currentProtectedPlatformRoleBaselineRelease, protectedPlatformRoleBaselines } from "@k-nex/runtime";
 
 const expected = { applicationId: "customer-alpha", environment: "production", authorizationRevision: 4, lifecycleRevision: 2 } as const;
 const role = { schemaVersion: 1, id: "sales.manager", applicationId: expected.applicationId, label: "Sales Manager", revision: 1 } as const;
@@ -29,6 +29,7 @@ function harness(options: Readonly<{ state?: Partial<typeof expected>; activeOwn
       return { rows: [{ application_id: current.applicationId, authorization_revision: current.authorizationRevision, lifecycle_revision: current.lifecycleRevision }] as T[] };
     }
     if (text.startsWith("insert into k_nex_authorization_outbox") && options.outboxFailure) throw new Error("outbox unavailable");
+    if (text.startsWith("insert into k_nex_authorization_bootstrap_receipts")) return { rows: [{ receipt_id: values[1] }] as T[] };
     if (text.startsWith("insert into k_nex_role_assignments")) {
       writtenOwnerAssignment = { role_id: values[2], subject_kind: values[3], subject_id: values[4], state: values[5] };
       return { rows: [] as T[] };
@@ -323,7 +324,7 @@ describe("PostgresAuthorizationStore", () => {
 
   it("rejects bootstrap receipts outside the dedicated first-owner path", async () => {
     const value = harness({ bootstrapAssignment: { role_id: "system.role.owner", subject_kind: "user", subject_id: "user-1", state: "revoked" } });
-    const receipt = { schemaVersion: 1, id: "receipt-1", applicationId: expected.applicationId, ownerRoleId: "system.role.owner", ownerAssignmentId: "owner-assignment-1", ownerPrincipal: { kind: "user", id: "user-1" }, authorizationRevision: 5, state: "committed" } as const;
+    const receipt = { schemaVersion: 1, id: "receipt-1", applicationId: expected.applicationId, ownerRoleId: "system.role.owner", ownerAssignmentId: "owner-assignment-1", ownerPrincipal: { kind: "user", id: "user-1" }, protectedBaselineVersion: currentProtectedPlatformRoleBaselineRelease.version, protectedBaselineDigest: currentProtectedPlatformRoleBaselineRelease.digest, authorizationRevision: 5, state: "committed" } as const;
 
     await expect(value.store.transaction(expected, async (transaction) => transaction.write({ kind: "bootstrap-receipt", receipt }))).rejects.toMatchObject({ code: "MUTATION_INVALID" });
     expect(value.queries.some((query) => query.includes("insert into k_nex_authorization_bootstrap_receipts"))).toBe(false);

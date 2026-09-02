@@ -183,6 +183,8 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
       "owner_assignment_id" varchar(160) NOT NULL,
       "owner_principal_kind" varchar(16) NOT NULL,
       "owner_principal_id" varchar(160) NOT NULL,
+      "protected_baseline_version" integer NOT NULL,
+      "protected_baseline_digest" varchar(71) NOT NULL,
       "authorization_revision" integer NOT NULL,
       "state" varchar(16) NOT NULL,
       "created_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
@@ -192,6 +194,8 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
       CONSTRAINT "k_nex_authorization_bootstrap_receipts_application_key" UNIQUE ("application_id"),
       CONSTRAINT "k_nex_authorization_bootstrap_receipts_assignment_key" UNIQUE ("application_id", "owner_assignment_id"),
       CONSTRAINT "k_nex_authorization_bootstrap_receipts_owner_check" CHECK ("owner_role_id" = 'system.role.owner' AND "owner_principal_kind" = 'user'),
+      CONSTRAINT "k_nex_authorization_bootstrap_receipts_protected_baseline_version_check" CHECK ("protected_baseline_version" BETWEEN 1 AND 9007199254740991),
+      CONSTRAINT "k_nex_authorization_bootstrap_receipts_protected_baseline_digest_check" CHECK ("protected_baseline_digest" ~ '^sha256:[0-9a-f]{64}$'),
       CONSTRAINT "k_nex_authorization_bootstrap_receipts_revision_check" CHECK ("authorization_revision" BETWEEN 0 AND 1000000000),
       CONSTRAINT "k_nex_authorization_bootstrap_receipts_state_check" CHECK ("state" = 'committed')
     );

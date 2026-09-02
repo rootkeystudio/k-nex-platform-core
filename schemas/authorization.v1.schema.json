@@ -1082,6 +1082,12 @@
               "const": "system.role.owner",
               "type": "string"
             },
+            "protectedBaselineDigest": {
+              "$ref": "#/$defs/__schema49"
+            },
+            "protectedBaselineVersion": {
+              "$ref": "#/$defs/__schema35"
+            },
             "schemaVersion": {
               "const": 1,
               "type": "number"
@@ -1098,6 +1104,8 @@
             "ownerRoleId",
             "ownerAssignmentId",
             "ownerPrincipal",
+            "protectedBaselineVersion",
+            "protectedBaselineDigest",
             "authorizationRevision",
             "state"
           ],
@@ -1211,6 +1219,9 @@
             "lifecycleRevision": {
               "$ref": "#/$defs/__schema31"
             },
+            "operation": {
+              "$ref": "#/$defs/__schema26"
+            },
             "outcome": {
               "$ref": "#/$defs/__schema67"
             },
@@ -1234,6 +1245,9 @@
             },
             "scope": {
               "$ref": "#/$defs/__schema60"
+            },
+            "target": {
+              "$ref": "#/$defs/__schema26"
             }
           },
           "required": [
@@ -1248,6 +1262,8 @@
             "principal",
             "effectiveActor",
             "scope",
+            "operation",
+            "target",
             "authorizationRevision",
             "lifecycleRevision",
             "outcome",

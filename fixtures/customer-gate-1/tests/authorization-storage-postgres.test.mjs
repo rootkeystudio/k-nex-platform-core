@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
-import { bootstrapFirstOwner, parseAuthorizationStoreMutation } from "@k-nex/runtime";
+import { bootstrapFirstOwner, currentProtectedPlatformRoleBaselineRelease, parseAuthorizationStoreMutation } from "@k-nex/runtime";
 import { PostgresAuthorizationStore } from "@k-nex/payload-adapter";
 import pg from "pg";
 
@@ -24,7 +24,7 @@ const tables = [
 ];
 const ownerRole = (applicationId) => ({ schemaVersion: 1, id: "system.role.owner", applicationId, label: "Owner", protectedRoleId: "system.role.owner", revision: 0 });
 const ownerAssignment = (applicationId, id, subjectId, state = "active") => ({ schemaVersion: 1, id, applicationId, roleId: "system.role.owner", principal: { kind: "user", id: subjectId }, state, revision: 0 });
-const bootstrapReceipt = (applicationId, id, assignmentId, subjectId) => ({ schemaVersion: 1, id, applicationId, ownerRoleId: "system.role.owner", ownerAssignmentId: assignmentId, ownerPrincipal: { kind: "user", id: subjectId }, authorizationRevision: 0, state: "committed" });
+const bootstrapReceipt = (applicationId, id, assignmentId, subjectId) => ({ schemaVersion: 1, id, applicationId, ownerRoleId: "system.role.owner", ownerAssignmentId: assignmentId, ownerPrincipal: { kind: "user", id: subjectId }, protectedBaselineVersion: currentProtectedPlatformRoleBaselineRelease.version, protectedBaselineDigest: currentProtectedPlatformRoleBaselineRelease.digest, authorizationRevision: 0, state: "committed" });
 const expectedRevision = ({ applicationId, environment, authorizationRevision, lifecycleRevision }) => ({ applicationId, environment, authorizationRevision, lifecycleRevision });
 
 function boot(connectionString) {
@@ -124,14 +124,16 @@ test("migrates P10.3 authorization storage with customer isolation and generatio
     );
     await pool.query(
       `insert into k_nex_authorization_bootstrap_receipts
-       (application_id, receipt_id, owner_role_id, owner_assignment_id, owner_principal_kind, owner_principal_id, authorization_revision, state)
-       values ('customer-alpha', 'first-owner-receipt', 'system.role.owner', 'first-owner', 'user', 'user:owner', 0, 'committed')`
+        (application_id, receipt_id, owner_role_id, owner_assignment_id, owner_principal_kind, owner_principal_id, protected_baseline_version, protected_baseline_digest, authorization_revision, state)
+       values ('customer-alpha', 'first-owner-receipt', 'system.role.owner', 'first-owner', 'user', 'user:owner', $1, $2, 0, 'committed')`,
+      [currentProtectedPlatformRoleBaselineRelease.version, currentProtectedPlatformRoleBaselineRelease.digest]
     );
     await assert.rejects(
       pool.query(
         `insert into k_nex_authorization_bootstrap_receipts
-         (application_id, receipt_id, owner_role_id, owner_assignment_id, owner_principal_kind, owner_principal_id, authorization_revision, state)
-         values ('customer-alpha', 'replayed-owner-receipt', 'system.role.owner', 'first-owner', 'user', 'user:owner', 0, 'committed')`
+         (application_id, receipt_id, owner_role_id, owner_assignment_id, owner_principal_kind, owner_principal_id, protected_baseline_version, protected_baseline_digest, authorization_revision, state)
+         values ('customer-alpha', 'replayed-owner-receipt', 'system.role.owner', 'first-owner', 'user', 'user:owner', $1, $2, 0, 'committed')`,
+        [currentProtectedPlatformRoleBaselineRelease.version, currentProtectedPlatformRoleBaselineRelease.digest]
       ),
       /k_nex_authorization_bootstrap_receipts_(application|assignment)_key/u,
       "The persisted first-owner receipt must be single-use."

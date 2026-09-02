@@ -339,6 +339,8 @@ export const BootstrapReceiptSchema = z.strictObject({
   ownerRoleId: z.literal("system.role.owner"),
   ownerAssignmentId: identifierSchema,
   ownerPrincipal: z.strictObject({ kind: z.literal("user"), id: identifierSchema }),
+  protectedBaselineVersion: positiveSafeIntegerSchema,
+  protectedBaselineDigest: sha256DigestSchema,
   authorizationRevision: revisionSchema,
   state: z.literal("committed")
 });

@@ -6,8 +6,10 @@ import { platformPermissionDescriptors } from "../src/authorization-registry.js"
 import {
   TemplateBaselineError,
   compareTemplateBaseline,
+  currentProtectedPlatformRoleBaselineRelease,
   digestTemplateBaseline,
-  protectedPlatformRoleBaselines
+  protectedPlatformRoleBaselines,
+  recognizedProtectedPlatformRoleBaselineReleases
 } from "../src/protected-role-baselines.js";
 
 describe("protected role and template baseline kernel", () => {
@@ -34,6 +36,16 @@ describe("protected role and template baseline kernel", () => {
     ]);
     expect(byId["system.role.user-admin"]).toEqual(["system.role-assignments.manage", "system.role-assignments.read", "system.roles.read"]);
     expect(byId["system.role.auditor"]).toEqual(["system.authorization.audit.read", "system.permissions.read", "system.role-assignments.read", "system.roles.read"]);
+  });
+
+  it("freezes the recognized v1 source while making the v2 permission delta explicit", () => {
+    const v1 = recognizedProtectedPlatformRoleBaselineReleases.find(({ version }) => version === 1)!;
+    expect(v1.digest).toBe("sha256:c6e4f32c71cd2b1a90536302a7c3b3dd800147c3b6b8909462546bb1b8e3b341");
+    expect(v1.baselines.find(({ id }) => id === "system.role.owner")?.permissionIds).toHaveLength(19);
+    expect(v1.baselines.find(({ id }) => id === "system.role.extension-admin")?.permissionIds).not.toContain("system.extensions.deploy-platform-plugin");
+    expect(currentProtectedPlatformRoleBaselineRelease.baselines.find(({ id }) => id === "system.role.extension-admin")?.permissionIds).toContain("system.extensions.deploy-platform-plugin");
+    expect(v1.baselines.find(({ id }) => id === "system.role.user-admin")?.permissionIds).toContain("system.permissions.read");
+    expect(currentProtectedPlatformRoleBaselineRelease.baselines.find(({ id }) => id === "system.role.user-admin")?.permissionIds).not.toContain("system.permissions.read");
   });
 
   it("creates deterministic baseline digests and rejects a tampered stored baseline", () => {
