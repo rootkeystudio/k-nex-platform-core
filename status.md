@@ -11,7 +11,7 @@ Review remediation slices 10–11 restore canonical fixture validation and decou
 
 ## Validation
 
-Exact Node 24.19.0: canonical generated-fixture validation PASS; affected adapter/fixture builds and real PostgreSQL Owner A→B handoff/reconciliation 1/1 PASS. Replacement cumulative exact-head run is not claimed yet.
+Exact Node 24.19.0: canonical generated-fixture validation PASS; affected builds, real PostgreSQL Owner A→B handoff 1/1, and focused Gate 10 15/15 PASS. Replacement cumulative exact-head run is not claimed yet.
 
 ## Next
 
