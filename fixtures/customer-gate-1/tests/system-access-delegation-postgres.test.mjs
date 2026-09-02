@@ -58,7 +58,7 @@ test("P10.10 blocks User Admin and Security Admin escalation at the PostgreSQL a
   const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
   try {
     await boot(container.getConnectionUri());
-    const acceptedUsers = new Set(["user:owner", "user:user-admin", "user:security-admin", "user:second-owner"]);
+    const acceptedUsers = new Set(["user:owner", "user:user-admin", "user:security-admin", "user:former-owner", "user:second-owner"]);
     const store = new PostgresAuthorizationStore(pool, { validate: (_applicationId, subject) => subject.kind === "user" && acceptedUsers.has(subject.id) ? "accepted" : "rejected" });
     await bootstrapFirstOwner({ store, expected: { applicationId, environment, authorizationRevision: 0, lifecycleRevision: 0 }, firstOwner: { kind: "user", id: "user:owner" } });
 
@@ -88,14 +88,22 @@ test("P10.10 blocks User Admin and Security Admin escalation at the PostgreSQL a
 
     await access.createAssignment({ context: context("owner"), expected: await expected(store), assignment: { id: "user-admin-assignment", roleId: "system.role.user-admin", principal: { kind: "user", id: "user:user-admin" } } });
     await access.createAssignment({ context: context("owner"), expected: await expected(store), assignment: { id: "security-admin-assignment", roleId: "system.role.security-admin", principal: { kind: "user", id: "user:security-admin" } } });
+    await access.createAssignment({ context: context("owner"), expected: await expected(store), assignment: { id: "former-owner", roleId: "system.role.owner", principal: { kind: "user", id: "user:former-owner" } } });
+    await access.revokeAssignment({ context: context("owner"), expected: await expected(store), assignmentId: "former-owner" });
     await access.createRole({ context: context("owner"), expected: await expected(store), role: { id: "customer.synthesized", label: "Synthesized escalation target" } });
 
+    const activeOwner = await pool.query("select assignment_id from k_nex_role_assignments where application_id=$1 and role_id='system.role.owner' and subject_id='user:owner' and state='active'", [applicationId]);
+    assert.equal(activeOwner.rows.length, 1);
     const beforeDenied = await durableState(pool);
     const deniedExpected = await expected(store);
+    const admissionsBeforeDenied = protectedAdmissions.length;
     await assert.rejects(access.createAssignment({ context: context("user-admin"), expected: deniedExpected, assignment: { id: "forged-owner", roleId: "system.role.owner", principal: { kind: "user", id: "user:second-owner" } } }), { code: "UNAUTHORIZED" });
     await assert.rejects(access.createAssignment({ context: context("security-admin"), expected: deniedExpected, assignment: { id: "forged-extension-admin", roleId: "system.role.extension-admin", principal: { kind: "user", id: "user:second-owner" } } }), { code: "UNAUTHORIZED" });
+    await assert.rejects(access.revokeAssignment({ context: context("user-admin"), expected: deniedExpected, assignmentId: activeOwner.rows[0].assignment_id }), { code: "UNAUTHORIZED" });
+    await assert.rejects(access.reactivateAssignment({ context: context("user-admin"), expected: deniedExpected, assignmentId: "former-owner" }), { code: "UNAUTHORIZED" });
     await assert.rejects(access.addPermission({ context: context("security-admin"), expected: deniedExpected, roleId: "customer.synthesized", permissionId: "system.extensions.deploy-platform-plugin" }), { code: "UNAUTHORIZED" });
     await assert.rejects(access.createAssignment({ context: context("security-admin"), expected: deniedExpected, assignment: { id: "self-escalation", roleId: "customer.synthesized", principal: { kind: "user", id: "user:security-admin" } } }), { code: "UNAUTHORIZED" });
+    assert.equal(protectedAdmissions.length, admissionsBeforeDenied, "Denied protected create, revoke, and reactivate never invoke the approval verifier.");
     assert.deepEqual(await durableState(pool), beforeDenied, "Denied direct and synthesized/self escalation writes no state, grant, assignment, audit, revision, or outbox row.");
 
     const beforeOwner = await expected(store);

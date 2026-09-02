@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Review remediation slices 1–8 also bind protected assignments to locked server targets with satisfied approval/reauthentication and real PostgreSQL escalation denial.
+Review remediation slice 9 prechecks locked delegation authority before protected-assignment approval/reauthentication; denied create, revoke, and reactivate cannot invoke that verifier.
 
 ## Validation
 
-Exact Node 24.19.0: corrected focused Gate 10 passes 15/15 named PostgreSQL/Chromium tests; store 19/19 and runtime 24/24 focused tests PASS. Final cumulative exact-head run is not claimed yet.
+Exact Node 24.19.0: affected builds PASS; administration unit 15/15 and real PostgreSQL delegation 1/1 PASS. Earlier corrected focused Gate 10 passed 15/15; final cumulative exact-head run is not claimed yet.
 
 ## Next
 

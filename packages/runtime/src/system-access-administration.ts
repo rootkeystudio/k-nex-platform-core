@@ -241,10 +241,10 @@ export class SystemAccessAdministrationService<TContext> {
       const role = await requiredRole(transaction, expected.applicationId, stringValue(value.roleId), false);
       const assignment = RoleAssignmentSchema.safeParse({ schemaVersion: 1, applicationId: expected.applicationId, id: value.id, roleId: value.roleId, principal: value.principal, state: "active", revision: nextRevision(expected) });
       if (!assignment.success) invalid("Role assignment is invalid.");
+      assertAssignmentDelegable(await delegationAuthority(transaction, expected.applicationId, catalog, genericDecision), role, assignment.data.principal);
       const decision = isProtectedRole(role)
-        ? await this.admitProtectedAssignment(input.context, expected, "create-assignment", role, assignment.data.id, assignment.data.principal)
+        ? await this.admitProtectedAssignment(input.context, expected, "create-assignment", role, assignment.data.id, assignment.data.principal, genericDecision)
         : genericDecision;
-      assertAssignmentDelegable(await delegationAuthority(transaction, expected.applicationId, catalog, decision), role, assignment.data.principal);
       if ((await transaction.listAssignments(expected.applicationId)).some((candidate) => candidate.id === assignment.data.id)) conflict("Role assignment already exists.");
       await transaction.write({ kind: "assignment", assignment: assignment.data });
       await transaction.write({ kind: "audit", audit: audit(decision, "create-assignment", isProtectedRole(role) ? protectedAssignmentAuditTarget("create-assignment", role, assignment.data) : auditSubject(assignment.data)) });
@@ -264,10 +264,10 @@ export class SystemAccessAdministrationService<TContext> {
       if (assignment === undefined) invalid("Role assignment does not exist.");
       if (assignment.state === "revoked") conflict("Role assignment is already revoked.");
       const role = await requiredRole(transaction, expected.applicationId, assignment.roleId, false);
+      assertProtectedAssignmentChange(await delegationAuthority(transaction, expected.applicationId, catalog, genericDecision), role);
       const decision = isProtectedRole(role)
-        ? await this.admitProtectedAssignment(input.context, expected, "revoke-assignment", role, assignment.id, assignment.principal)
+        ? await this.admitProtectedAssignment(input.context, expected, "revoke-assignment", role, assignment.id, assignment.principal, genericDecision)
         : genericDecision;
-      assertProtectedAssignmentChange(await delegationAuthority(transaction, expected.applicationId, catalog, decision), role);
       const revoked = RoleAssignmentSchema.parse({ ...assignment, state: "revoked", revision: nextRevision(expected) });
       await transaction.write({ kind: "assignment", assignment: revoked });
       await transaction.write({ kind: "audit", audit: audit(decision, "revoke-assignment", isProtectedRole(role) ? protectedAssignmentAuditTarget("revoke-assignment", role, revoked) : auditSubject(revoked)) });
@@ -287,10 +287,10 @@ export class SystemAccessAdministrationService<TContext> {
         if (assignment === undefined) invalid("Role assignment does not exist.");
         if (assignment.state === "active") conflict("Role assignment is already active.");
         const role = await requiredRole(transaction, expected.applicationId, assignment.roleId, false);
+        assertAssignmentDelegable(await delegationAuthority(transaction, expected.applicationId, catalog, genericDecision), role, assignment.principal);
         const decision = isProtectedRole(role)
-          ? await this.admitProtectedAssignment(input.context, expected, "reactivate-assignment", role, assignment.id, assignment.principal)
+          ? await this.admitProtectedAssignment(input.context, expected, "reactivate-assignment", role, assignment.id, assignment.principal, genericDecision)
           : genericDecision;
-        assertAssignmentDelegable(await delegationAuthority(transaction, expected.applicationId, catalog, decision), role, assignment.principal);
         const active = RoleAssignmentSchema.parse({ ...assignment, state: "active", revision: nextRevision(expected) });
         await transaction.write({ kind: "assignment", assignment: active });
         await transaction.write({ kind: "audit", audit: audit(decision, "reactivate-assignment", isProtectedRole(role) ? protectedAssignmentAuditTarget("reactivate-assignment", role, active) : active.id) });
@@ -389,12 +389,14 @@ export class SystemAccessAdministrationService<TContext> {
     return decision;
   }
 
-  private async admitProtectedAssignment(context: TContext, expected: AuthorizationExpectedRevision, operation: ProtectedAssignmentOperation, role: Role, assignmentId: string, principal: AuthorizationSubject): Promise<AuthorizationDecision> {
+  private async admitProtectedAssignment(context: TContext, expected: AuthorizationExpectedRevision, operation: ProtectedAssignmentOperation, role: Role, assignmentId: string, principal: AuthorizationSubject, admittedActor: AuthorizationDecision): Promise<AuthorizationDecision> {
     const target = protectedAssignmentAuthorityTarget(operation, role, assignmentId, principal);
     const decision = await this.options.authority.authorize(context, target);
     if (!allowed(decision, target) || decision.applicationId !== expected.applicationId || decision.environment !== expected.environment ||
       decision.authorizationRevision !== expected.authorizationRevision || decision.lifecycleRevision !== expected.lifecycleRevision ||
-      decision.approval !== "not-required" || decision.reauthentication !== "not-required") {
+      decision.approval !== "not-required" || decision.reauthentication !== "not-required" ||
+      !sameSubject(decision.principal, admittedActor.principal) || !sameSubject(decision.effectiveActor, admittedActor.effectiveActor) ||
+      canonicalJson(decision.delegation ?? null) !== canonicalJson(admittedActor.delegation ?? null)) {
       if (decision !== undefined && (decision.authorizationRevision !== expected.authorizationRevision || decision.lifecycleRevision !== expected.lifecycleRevision)) conflict("Authorization decision revision is stale.");
       unauthorized();
     }
