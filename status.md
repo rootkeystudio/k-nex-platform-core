@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-09-02
 - **Phase:** Phase 11 — System Settings and Extension Operations
-- **Active task:** P11.7 — implement deployment, backup, and health operations control plane
+- **Active task:** P11.8 — deliver fixed accessible administration journeys
 - **State:** In progress
 
 ## Last completed
 
-P11.7c adds revision-fenced aggregation over authoritative operation references and same-owner safe health, plus a separate worker-only executor that contains raw operator failures. PostgreSQL backup/restore authority, exact replay, lease recovery, clean-restore proof, immutable receipts, audit, and outbox remain complete.
+P11.7 is complete: current-authority operations service, authoritative reference/health aggregation, customer PostgreSQL backup/restore authority, exact replay, lease recovery, separate worker execution, clean-restore proof, immutable receipts, audit/outbox, and fixed operations pages. Conflicting inventory initialization now fails closed.
 
 ## Validation
 
-Exact Node 24.19.0: P11.7 operations service/aggregation 6/6 plus runtime/payload/customer builds; real PostgreSQL operations authority/worker 1/1 covers response loss, restart leases, failure containment, proof, immutability, audit, and outbox. P11.6 focused integrity and real PostgreSQL/Chromium fixture passed. Docker clean.
+Exact Node 24.19.0: P11.7 integrity: service/aggregation 6/6, administration pages 3/3, runtime/payload/customer builds, and real PostgreSQL authority/worker 1/1 covering response loss, restart leases, failure containment, proof, immutability, audit, outbox. P11.6 focused integrity passed. Docker clean.
 
 ## Next
 
-P11.7d add operations list/detail pages and focused route semantics, then run P11.7 integrity review.
+P11.8a wire fixed settings/theme/operations routes and no-JavaScript POST paths through current-authority services.
 
 ## Blockers
 

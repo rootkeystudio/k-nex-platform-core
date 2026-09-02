@@ -41,6 +41,8 @@ export class PostgresSystemOperationsStore implements SystemOperationsOperator {
        on conflict (application_id, environment) do nothing`,
       [input.applicationId, input.environment, input.inventoryDigest]
     );
+    const current = await this.state(input.applicationId, input.environment);
+    if (!current || current.inventoryDigest !== input.inventoryDigest) fail("INVENTORY_CHANGED", "Existing system operations inventory does not match initialization.");
   }
 
   async state(applicationId: string, environment: string): Promise<Readonly<{ operationsRevision: number; inventoryDigest: string }> | undefined> {
@@ -58,6 +60,7 @@ export class PostgresSystemOperationsStore implements SystemOperationsOperator {
       const state = await this.lockState(session, input.applicationId, input.environment);
       if (state.operations_revision !== input.expectedOperationsRevision || state.inventory_digest !== input.expectedInventoryDigest) fail("REVISION_CONFLICT", "Operations inventory observation is stale.");
       if (state.inventory_digest === input.inventoryDigest) return state.operations_revision;
+      if (state.operations_revision >= 1_000_000_000) fail("REVISION_CONFLICT", "System operations revision is exhausted.");
       const revision = state.operations_revision + 1;
       await session.query(`update k_nex_system_operations_state set operations_revision=$3, inventory_digest=$4, updated_at=now() where application_id=$1 and environment=$2`, [input.applicationId, input.environment, revision, input.inventoryDigest]);
       await this.outbox(session, input.applicationId, input.environment, revision, { type: "operations.inventory", inventoryDigest: input.inventoryDigest });

@@ -242,6 +242,38 @@ export interface SystemThemeProfileDetailViewModel extends SystemAdministrationP
   readonly rollback?: SystemAdministrationAction;
 }
 
+export interface SystemOperationListItem {
+  readonly id: string;
+  readonly source: string;
+  readonly href: string;
+  readonly state: string;
+  readonly receipt: string;
+}
+
+export interface SystemHealthListItem {
+  readonly id: string;
+  readonly source: string;
+  readonly state: string;
+  readonly revision: string;
+  readonly checks: string;
+}
+
+export interface SystemOperationsViewModel extends SystemAdministrationPageView {
+  readonly operations: readonly SystemOperationListItem[];
+  readonly health: readonly SystemHealthListItem[];
+  readonly backup?: SystemAdministrationAction;
+  readonly restoreDrill?: SystemAdministrationAction;
+}
+
+export interface SystemOperationDetailViewModel extends SystemAdministrationPageView {
+  readonly operationId: string;
+  readonly source: string;
+  readonly operationState: string;
+  readonly receipt: string;
+  readonly inventory: string;
+  readonly audit: string;
+}
+
 const systemNavigation = [
   { id: "roles", label: "Roles", href: "/system/access/roles" },
   { id: "permissions", label: "Permissions", href: "/system/access/permissions" },
@@ -249,7 +281,8 @@ const systemNavigation = [
   { id: "templates", label: "Templates", href: "/system/access/templates" },
   { id: "audit", label: "Authorization audit", href: "/system/access/audit" },
   { id: "extensions", label: "Extensions", href: "/system/extensions" },
-  { id: "themes", label: "Themes", href: "/system/themes" }
+  { id: "themes", label: "Themes", href: "/system/themes" },
+  { id: "operations", label: "Operations", href: "/system/operations" }
 ] as const;
 
 function administrationNavigation(current: string): ReactElement {
@@ -363,5 +396,19 @@ export function SystemThemeProfileDetailPage({ view }: { readonly view: SystemTh
     <section aria-label="Theme Profile identity"><Heading level={2}>{view.profileLabel}</Heading><Text>{view.profileId}</Text></section>
     {rows("Theme Profile state", ["Surface", "Package", "Skin", "Publication", "Accessibility"], [[view.surface, view.package, view.skin, view.publication, view.accessibility]])}
     <section aria-label="Theme Profile actions"><Heading level={2}>Theme Profile actions</Heading>{actions.length === 0 ? <Text>No server-authorized actions are available.</Text> : <List>{actions.map((action) => <li key={action.label}>{actionControl(action)}</li>)}</List>}</section>
+  </Stack>);
+}
+
+export function SystemOperationsPage({ view }: { readonly view: SystemOperationsViewModel }): ReactElement {
+  return administrationPage(view, "operations", <Stack gap="content">
+    <section aria-label="Operation requests"><Heading level={2}>Operations</Heading>{view.backup === undefined ? null : actionControl(view.backup)}{view.restoreDrill === undefined ? null : actionControl(view.restoreDrill)}{rows("Operations", ["Operation", "Source", "State", "Receipt"], view.operations.map((item) => [<a key={item.id} href={item.href}>{item.id}</a>, item.source, item.state, item.receipt]))}</section>
+    <section aria-label="System health"><Heading level={2}>System health</Heading>{rows("System health", ["Source", "State", "Revision", "Checks"], view.health.map((item) => [item.source, item.state, item.revision, item.checks]))}</section>
+  </Stack>);
+}
+
+export function SystemOperationDetailPage({ view }: { readonly view: SystemOperationDetailViewModel }): ReactElement {
+  return administrationPage(view, "operations", <Stack gap="content">
+    <section aria-label="Operation identity"><Heading level={2}>{view.operationId}</Heading><Badge>{view.operationState}</Badge></section>
+    <dl><dt>Source</dt><dd>{view.source}</dd><dt>Receipt</dt><dd>{view.receipt}</dd><dt>Inventory</dt><dd>{view.inventory}</dd><dt>Audit</dt><dd>{view.audit}</dd></dl>
   </Stack>);
 }
