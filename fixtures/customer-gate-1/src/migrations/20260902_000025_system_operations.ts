@@ -22,6 +22,8 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
       "expected_operations_revision" integer NOT NULL,
       "expected_inventory_digest" varchar(71) NOT NULL,
       "idempotency_key" varchar(160) NOT NULL,
+      "authority_json" jsonb NOT NULL,
+      "authority_digest" varchar(71) NOT NULL,
       "request_json" jsonb NOT NULL,
       "state" varchar(16) DEFAULT 'pending' NOT NULL,
       "lease_owner" varchar(128),
@@ -31,7 +33,7 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
       "created_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
       CONSTRAINT "k_nex_system_operation_requests_state_fk" FOREIGN KEY ("application_id", "environment") REFERENCES "k_nex_system_operations_state" ("application_id", "environment") ON DELETE RESTRICT,
       CONSTRAINT "k_nex_system_operation_requests_replay_key" UNIQUE ("application_id", "environment", "kind", "idempotency_key"),
-      CONSTRAINT "k_nex_system_operation_requests_check" CHECK ("operation_id" ~ '^[a-z][a-z0-9-]{2,127}$' AND "request_id" ~ '^[a-z][a-z0-9-]{2,127}$' AND "kind" IN ('backup','restore-drill') AND "expected_operations_revision" BETWEEN 0 AND 1000000000 AND "expected_inventory_digest" ~ '^sha256:[0-9a-f]{64}$' AND "idempotency_key" ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$' AND jsonb_typeof("request_json")='object' AND (("state"='pending' AND "lease_owner" IS NULL AND "lease_token" IS NULL AND "lease_expires_at" IS NULL) OR ("state"='processing' AND "lease_owner" IS NOT NULL AND "lease_token" IS NOT NULL AND "lease_expires_at" IS NOT NULL) OR ("state"='terminal' AND "lease_owner" IS NULL AND "lease_token" IS NULL AND "lease_expires_at" IS NULL)))
+      CONSTRAINT "k_nex_system_operation_requests_check" CHECK ("operation_id" ~ '^[a-z][a-z0-9-]{2,127}$' AND "request_id" ~ '^[a-z][a-z0-9-]{2,127}$' AND "kind" IN ('backup','restore-drill') AND "expected_operations_revision" BETWEEN 0 AND 1000000000 AND "expected_inventory_digest" ~ '^sha256:[0-9a-f]{64}$' AND "authority_digest" ~ '^sha256:[0-9a-f]{64}$' AND "idempotency_key" ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$' AND jsonb_typeof("authority_json")='object' AND jsonb_typeof("request_json")='object' AND (("state"='pending' AND "lease_owner" IS NULL AND "lease_token" IS NULL AND "lease_expires_at" IS NULL) OR ("state"='processing' AND "lease_owner" IS NOT NULL AND "lease_token" IS NOT NULL AND "lease_expires_at" IS NOT NULL) OR ("state"='terminal' AND "lease_owner" IS NULL AND "lease_token" IS NULL AND "lease_expires_at" IS NULL)))
     );
     CREATE INDEX "k_nex_system_operation_requests_claim_idx" ON "k_nex_system_operation_requests" ("application_id", "environment", "state", "lease_expires_at", "created_at");
 
@@ -42,11 +44,12 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
       "application_id" varchar(128) NOT NULL,
       "environment" varchar(64) NOT NULL,
       "terminal" boolean NOT NULL,
+      "authority_digest" varchar(71) NOT NULL,
       "receipt_json" jsonb NOT NULL,
       "occurred_at" timestamp(3) with time zone NOT NULL,
       CONSTRAINT "k_nex_system_operation_receipts_request_fk" FOREIGN KEY ("operation_id") REFERENCES "k_nex_system_operation_requests" ("operation_id") ON DELETE RESTRICT,
       CONSTRAINT "k_nex_system_operation_receipts_terminal_key" UNIQUE NULLS NOT DISTINCT ("operation_id", "terminal"),
-      CONSTRAINT "k_nex_system_operation_receipts_check" CHECK ("receipt_id" ~ '^[a-z][a-z0-9-]{2,127}$' AND "request_id" ~ '^[a-z][a-z0-9-]{2,127}$' AND jsonb_typeof("receipt_json")='object' AND NOT ("receipt_json" ?| ARRAY['url','repository','credential','password','secret','token','encryptionKey','rawError']))
+      CONSTRAINT "k_nex_system_operation_receipts_check" CHECK ("receipt_id" ~ '^[a-z][a-z0-9-]{2,127}$' AND "request_id" ~ '^[a-z][a-z0-9-]{2,127}$' AND "authority_digest" ~ '^sha256:[0-9a-f]{64}$' AND jsonb_typeof("receipt_json")='object' AND NOT ("receipt_json" ?| ARRAY['url','repository','credential','password','secret','token','encryptionKey','rawError']))
     );
 
     CREATE TABLE "k_nex_system_operation_audit" (
@@ -59,10 +62,12 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
       "operations_revision" integer NOT NULL,
       "requested_by_kind" varchar(16) NOT NULL,
       "requested_by_id" varchar(160) NOT NULL,
+      "authority_json" jsonb NOT NULL,
+      "authority_digest" varchar(71) NOT NULL,
       "created_at" timestamp(3) with time zone NOT NULL,
       CONSTRAINT "k_nex_system_operation_audit_state_fk" FOREIGN KEY ("application_id", "environment") REFERENCES "k_nex_system_operations_state" ("application_id", "environment") ON DELETE RESTRICT,
       CONSTRAINT "k_nex_system_operation_audit_request_fk" FOREIGN KEY ("operation_id") REFERENCES "k_nex_system_operation_requests" ("operation_id") ON DELETE RESTRICT,
-      CONSTRAINT "k_nex_system_operation_audit_check" CHECK ("audit_id" ~ '^[a-z][a-z0-9-]{2,127}$' AND "kind" IN ('backup','restore-drill') AND "outcome" IN ('accepted','completed','failed') AND "operations_revision" BETWEEN 1 AND 1000000000 AND "requested_by_kind" IN ('user','service') AND "requested_by_id" ~ '^[A-Za-z0-9][A-Za-z0-9._:@/-]*$')
+      CONSTRAINT "k_nex_system_operation_audit_check" CHECK ("audit_id" ~ '^[a-z][a-z0-9-]{2,127}$' AND "kind" IN ('backup','restore-drill') AND "outcome" IN ('accepted','completed','failed') AND "operations_revision" BETWEEN 1 AND 1000000000 AND "requested_by_kind" IN ('user','service') AND "requested_by_id" ~ '^[A-Za-z0-9][A-Za-z0-9._:@/-]*$' AND "authority_digest" ~ '^sha256:[0-9a-f]{64}$' AND jsonb_typeof("authority_json")='object')
     );
 
     CREATE TABLE "k_nex_system_operation_outbox" (

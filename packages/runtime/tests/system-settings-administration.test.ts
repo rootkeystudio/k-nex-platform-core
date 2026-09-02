@@ -138,6 +138,7 @@ function harness(options: Readonly<{
     store,
     service: new SystemSettingsAdministrationService<Context>({
       authority, descriptorSource, state: stateSource, store,
+      evidence: { verify: async () => ({ reauthentication: "satisfied", evidenceId: "settings-evidence-test", verifiedAt: "2026-09-01T23:59:00.000Z", expiresAt: "2026-09-02T00:01:00.000Z" }) },
       metadata: { id: (kind) => `settings-${kind}-test`, now: () => new Date("2026-09-02T00:00:00.000Z") }
     })
   };
@@ -256,6 +257,7 @@ describe("P11.3d system settings administration reads", () => {
       pendingDocument: { schemaVersion: 1, state: "pending-generation-validation", identity: pendingIdentity, documentRevision: 1, settingsRevision: 1, values: { region: "eu-west" } },
       expectedDocumentRevision: 0, expectedSettingsRevision: 0, state: "pending-validation", attempts: 0,
       requestedBy: { kind: "user", id: "admin" }, idempotencyKey: "weather-adopt-0001", revision: 1,
+      authorityDigest: `sha256:${"a".repeat(64)}`,
       updatedAt: "2026-09-02T00:00:00.000Z"
     }));
     await expect(value.service.adopt({

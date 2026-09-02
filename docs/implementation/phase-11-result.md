@@ -1,10 +1,10 @@
 # Phase 11 Result — System Settings and Extension Operations
 
-- **Date:** 2026-09-02
+- **Date:** 2026-09-03
 - **Gate:** Gate 11
 - **Accepted base:** Phase 10 / PR #29
 - **Decision:** **READY FOR PHASE REVIEW**
-- **Review state:** Local focused Gate 11 must pass; reused Sol-xhigh review and exact-head CI remain pending.
+- **Review state:** Blocking owner-review findings fixed; local focused Gate 11 passes; replacement exact-head CI/re-review remain pending.
 
 ## Scope proved
 
@@ -34,6 +34,16 @@ A staged Hot Application that needs generation-validated settings reserves one f
 `pnpm gate:11:focused` runs the Phase 11 contract/unit selection plus real PostgreSQL settings, catalog, operations, convergence, real HTTP, and Chromium journeys. It requires exact named tests, evidence markers, all 13 required attack classes, accepted inherited Gate 9–10 results, the Sales-only boundary, and this task matrix.
 
 `pnpm gate:11` is the cumulative manual/main command and first runs Gate 0–10. Pull requests run only the focused Phase 11 command so they do not repeat the hour-long cumulative chain. One explicit exact-head Linux/AppArmor cumulative Gate 0–11 run is still required before merge.
+
+## Blocking review closure
+
+- Application boot now reconciles only the exact protected-baseline v2 predecessor to v3 before readiness; real PostgreSQL upgrade proof authorizes the new Phase 11 control-plane permissions.
+- Settings changes, retained adoption, and secret bind/unbind require server-owned, operation-bound, expiring, one-use reauthentication evidence. Generation validation re-enters current authority before claim and promotion; concurrent revocation yields a durable `permission-revoked` terminal receipt.
+- Settings reads use one repeatable-read read-only PostgreSQL snapshot. Required secrets use explicit `secret-reference` fields and browser-safe host slot aliases; provider keys remain host-only.
+- Settings, catalog, and operations persist principal, effective actor, reducing delegation, concrete permission intents, revisions, and a canonical digest bound to replay, receipts, and audit.
+- Official catalog refresh is exposed only through the fixed `system.catalog.refresh` current-authority service and host route, with real HTTP/PostgreSQL/Chromium proof.
+- The thirteen attack classes now reference exact executed assertions/process markers and fail the corpus if any mapping is missing or unexecuted.
+- `fast-uri` is pinned to patched `3.1.6`; compatibility passed generated contract compilation and the 30-test architecture validator. `pnpm audit --audit-level high` reports no high-severity findings.
 
 ## Known limits and next decision
 

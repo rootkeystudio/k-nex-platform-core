@@ -625,6 +625,16 @@
       "type": "string"
     },
     "__schema45": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "__schema46": {
+      "$ref": "#/$defs/__schema40"
+    },
+    "__schema47": {
+      "$ref": "#/$defs/__schema48"
+    },
+    "__schema48": {
       "allOf": [
         {
           "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
@@ -636,34 +646,9 @@
       "maxLength": 64,
       "type": "string"
     },
-    "__schema46": {
-      "const": 1,
-      "type": "number"
-    },
-    "__schema47": {
-      "const": 1,
-      "type": "number"
-    },
-    "__schema48": {
-      "enum": [
-        "effective",
-        "pending-validation",
-        "diagnostic-disabled",
-        "diagnostic-retired"
-      ],
-      "type": "string"
-    },
     "__schema49": {
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema50"
-      },
-      "kNexMaxCanonicalBytes": 16384,
-      "maxProperties": 128,
-      "minProperties": 0,
-      "propertyNames": {
-        "$ref": "#/$defs/__schema16"
-      },
-      "type": "object"
+      "const": 1,
+      "type": "number"
     },
     "__schema5": {
       "additionalProperties": false,
@@ -686,6 +671,36 @@
       "type": "object"
     },
     "__schema50": {
+      "const": "satisfied",
+      "type": "string"
+    },
+    "__schema51": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema52": {
+      "enum": [
+        "waiting-configuration",
+        "effective",
+        "pending-validation",
+        "diagnostic-disabled",
+        "diagnostic-retired"
+      ],
+      "type": "string"
+    },
+    "__schema53": {
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema54"
+      },
+      "kNexMaxCanonicalBytes": 16384,
+      "maxProperties": 128,
+      "minProperties": 0,
+      "propertyNames": {
+        "$ref": "#/$defs/__schema16"
+      },
+      "type": "object"
+    },
+    "__schema54": {
       "oneOf": [
         {
           "additionalProperties": false,
@@ -732,21 +747,21 @@
         }
       ]
     },
-    "__schema51": {
+    "__schema55": {
       "$ref": "#/$defs/__schema40"
     },
-    "__schema52": {
+    "__schema56": {
       "const": 1,
       "type": "number"
     },
-    "__schema53": {
+    "__schema57": {
       "additionalProperties": false,
       "properties": {
         "digest": {
-          "$ref": "#/$defs/__schema54"
+          "$ref": "#/$defs/__schema45"
         },
         "observedAt": {
-          "$ref": "#/$defs/__schema45"
+          "$ref": "#/$defs/__schema48"
         },
         "releaseCount": {
           "maximum": 10000,
@@ -765,51 +780,9 @@
       ],
       "type": "object"
     },
-    "__schema54": {
-      "pattern": "^sha256:[0-9a-f]{64}$",
-      "type": "string"
-    },
-    "__schema55": {
-      "const": 1,
-      "type": "number"
-    },
-    "__schema56": {
-      "const": 1,
-      "type": "number"
-    },
-    "__schema57": {
-      "additionalProperties": false,
-      "properties": {
-        "operationId": {
-          "$ref": "#/$defs/__schema40"
-        },
-        "source": {
-          "const": "backup",
-          "type": "string"
-        }
-      },
-      "required": [
-        "source",
-        "operationId"
-      ],
-      "type": "object"
-    },
     "__schema58": {
-      "additionalProperties": false,
-      "properties": {
-        "operationId": {
-          "$ref": "#/$defs/__schema40"
-        },
-        "source": {
-          "const": "restore-drill",
-          "type": "string"
-        }
-      },
-      "required": [
-        "source",
-        "operationId"
-      ],
-      "type": "object"
+      "const": 1,
+      "type": "number"
     },
     "__schema59": {
       "const": 1,
@@ -825,6 +798,44 @@
         "operationId": {
           "$ref": "#/$defs/__schema40"
         },
+        "source": {
+          "const": "backup",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "operationId"
+      ],
+      "type": "object"
+    },
+    "__schema61": {
+      "additionalProperties": false,
+      "properties": {
+        "operationId": {
+          "$ref": "#/$defs/__schema40"
+        },
+        "source": {
+          "const": "restore-drill",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "operationId"
+      ],
+      "type": "object"
+    },
+    "__schema62": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema63": {
+      "additionalProperties": false,
+      "properties": {
+        "operationId": {
+          "$ref": "#/$defs/__schema40"
+        },
         "receiptId": {
           "$ref": "#/$defs/__schema40"
         },
@@ -840,7 +851,7 @@
       ],
       "type": "object"
     },
-    "__schema61": {
+    "__schema64": {
       "additionalProperties": false,
       "properties": {
         "operationId": {
@@ -861,7 +872,7 @@
       ],
       "type": "object"
     },
-    "__schema62": {
+    "__schema65": {
       "enum": [
         "catalog-available",
         "planning",
@@ -881,7 +892,7 @@
       ],
       "type": "string"
     },
-    "__schema63": {
+    "__schema66": {
       "enum": [
         "available",
         "unavailable",
@@ -889,10 +900,10 @@
       ],
       "type": "string"
     },
-    "__schema64": {
-      "$ref": "#/$defs/__schema54"
+    "__schema67": {
+      "$ref": "#/$defs/__schema45"
     },
-    "__schema65": {
+    "__schema68": {
       "oneOf": [
         {
           "additionalProperties": false,
@@ -1030,20 +1041,20 @@
         }
       ]
     },
-    "__schema66": {
+    "__schema69": {
       "const": "required",
       "type": "string"
     },
-    "__schema67": {
+    "__schema7": {
+      "const": "platform-plugin",
+      "type": "string"
+    },
+    "__schema70": {
       "enum": [
         "platform-plugin",
         "hot-application",
         "theme-skin"
       ],
-      "type": "string"
-    },
-    "__schema7": {
-      "const": "platform-plugin",
       "type": "string"
     },
     "__schema8": {
@@ -1161,10 +1172,80 @@
           "type": "object"
         },
         {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "action": {
+                  "const": "bind",
+                  "type": "string"
+                },
+                "expectedDocumentRevision": {
+                  "$ref": "#/$defs/__schema35"
+                },
+                "expectedSettingsRevision": {
+                  "$ref": "#/$defs/__schema35"
+                },
+                "field": {
+                  "$ref": "#/$defs/__schema16"
+                },
+                "idempotencyKey": {
+                  "$ref": "#/$defs/__schema36"
+                },
+                "slotAlias": {
+                  "pattern": "^[a-z][a-z0-9-]{2,63}$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "action",
+                "field",
+                "slotAlias",
+                "expectedDocumentRevision",
+                "expectedSettingsRevision",
+                "idempotencyKey"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "action": {
+                  "const": "unbind",
+                  "type": "string"
+                },
+                "expectedDocumentRevision": {
+                  "$ref": "#/$defs/__schema35"
+                },
+                "expectedSettingsRevision": {
+                  "$ref": "#/$defs/__schema35"
+                },
+                "field": {
+                  "$ref": "#/$defs/__schema16"
+                },
+                "idempotencyKey": {
+                  "$ref": "#/$defs/__schema36"
+                }
+              },
+              "required": [
+                "action",
+                "field",
+                "expectedDocumentRevision",
+                "expectedSettingsRevision",
+                "idempotencyKey"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        {
           "additionalProperties": false,
           "properties": {
             "attempts": {
               "$ref": "#/$defs/__schema42"
+            },
+            "authorityDigest": {
+              "$ref": "#/$defs/__schema45"
             },
             "expectedDocumentRevision": {
               "$ref": "#/$defs/__schema35"
@@ -1177,6 +1258,12 @@
             },
             "identity": {
               "$ref": "#/$defs/__schema24"
+            },
+            "leaseExpiresAt": {
+              "$ref": "#/$defs/__schema47"
+            },
+            "leaseOwner": {
+              "$ref": "#/$defs/__schema46"
             },
             "operationId": {
               "$ref": "#/$defs/__schema40"
@@ -1197,7 +1284,7 @@
               "$ref": "#/$defs/__schema41"
             },
             "updatedAt": {
-              "$ref": "#/$defs/__schema45"
+              "$ref": "#/$defs/__schema48"
             }
           },
           "required": [
@@ -1210,6 +1297,7 @@
             "state",
             "attempts",
             "requestedBy",
+            "authorityDigest",
             "idempotencyKey",
             "revision",
             "updatedAt"
@@ -1221,6 +1309,9 @@
             {
               "additionalProperties": false,
               "properties": {
+                "authorityDigest": {
+                  "$ref": "#/$defs/__schema45"
+                },
                 "changedFields": {
                   "items": {
                     "$ref": "#/$defs/__schema16"
@@ -1242,7 +1333,7 @@
                   "$ref": "#/$defs/__schema40"
                 },
                 "occurredAt": {
-                  "$ref": "#/$defs/__schema45"
+                  "$ref": "#/$defs/__schema48"
                 },
                 "operationId": {
                   "$ref": "#/$defs/__schema40"
@@ -1251,6 +1342,9 @@
                   "const": "promoted",
                   "type": "string"
                 },
+                "reauthentication": {
+                  "$ref": "#/$defs/__schema50"
+                },
                 "receiptId": {
                   "$ref": "#/$defs/__schema40"
                 },
@@ -1258,7 +1352,7 @@
                   "$ref": "#/$defs/__schema43"
                 },
                 "schemaVersion": {
-                  "$ref": "#/$defs/__schema46"
+                  "$ref": "#/$defs/__schema49"
                 },
                 "settingsRevision": {
                   "$ref": "#/$defs/__schema13"
@@ -1270,6 +1364,8 @@
                 "operationId",
                 "identity",
                 "requestedBy",
+                "authorityDigest",
+                "reauthentication",
                 "idempotencyKey",
                 "occurredAt",
                 "outcome",
@@ -1283,6 +1379,9 @@
             {
               "additionalProperties": false,
               "properties": {
+                "authorityDigest": {
+                  "$ref": "#/$defs/__schema45"
+                },
                 "idempotencyKey": {
                   "$ref": "#/$defs/__schema36"
                 },
@@ -1290,7 +1389,7 @@
                   "$ref": "#/$defs/__schema24"
                 },
                 "occurredAt": {
-                  "$ref": "#/$defs/__schema45"
+                  "$ref": "#/$defs/__schema48"
                 },
                 "operationId": {
                   "$ref": "#/$defs/__schema40"
@@ -1307,9 +1406,13 @@
                     "generation-not-current",
                     "generation-not-ready",
                     "schema-validation-failed",
-                    "descriptor-disabled"
+                    "descriptor-disabled",
+                    "permission-revoked"
                   ],
                   "type": "string"
+                },
+                "reauthentication": {
+                  "$ref": "#/$defs/__schema50"
                 },
                 "receiptId": {
                   "$ref": "#/$defs/__schema40"
@@ -1318,7 +1421,7 @@
                   "$ref": "#/$defs/__schema43"
                 },
                 "schemaVersion": {
-                  "$ref": "#/$defs/__schema46"
+                  "$ref": "#/$defs/__schema49"
                 }
               },
               "required": [
@@ -1327,6 +1430,8 @@
                 "operationId",
                 "identity",
                 "requestedBy",
+                "authorityDigest",
+                "reauthentication",
                 "idempotencyKey",
                 "occurredAt",
                 "outcome",
@@ -1346,7 +1451,7 @@
               "$ref": "#/$defs/__schema40"
             },
             "occurredAt": {
-              "$ref": "#/$defs/__schema45"
+              "$ref": "#/$defs/__schema48"
             },
             "schemaVersion": {
               "const": 1,
@@ -1372,25 +1477,25 @@
               "$ref": "#/$defs/__schema0"
             },
             "documentRevision": {
-              "$ref": "#/$defs/__schema13"
+              "$ref": "#/$defs/__schema35"
             },
             "fields": {
-              "$ref": "#/$defs/__schema49"
+              "$ref": "#/$defs/__schema53"
             },
             "identity": {
               "$ref": "#/$defs/__schema24"
             },
             "pendingOperationId": {
-              "$ref": "#/$defs/__schema51"
+              "$ref": "#/$defs/__schema55"
             },
             "schemaVersion": {
-              "$ref": "#/$defs/__schema47"
+              "$ref": "#/$defs/__schema51"
             },
             "settingsRevision": {
-              "$ref": "#/$defs/__schema13"
+              "$ref": "#/$defs/__schema35"
             },
             "state": {
-              "$ref": "#/$defs/__schema48"
+              "$ref": "#/$defs/__schema52"
             }
           },
           "required": [
@@ -1413,7 +1518,7 @@
                   "$ref": "#/$defs/__schema35"
                 },
                 "schemaVersion": {
-                  "$ref": "#/$defs/__schema52"
+                  "$ref": "#/$defs/__schema56"
                 },
                 "state": {
                   "const": "no-accepted-snapshot",
@@ -1431,16 +1536,16 @@
               "additionalProperties": false,
               "properties": {
                 "accepted": {
-                  "$ref": "#/$defs/__schema53"
+                  "$ref": "#/$defs/__schema57"
                 },
                 "catalogRevision": {
                   "$ref": "#/$defs/__schema35"
                 },
                 "schemaVersion": {
-                  "$ref": "#/$defs/__schema52"
+                  "$ref": "#/$defs/__schema56"
                 },
                 "staged": {
-                  "$ref": "#/$defs/__schema53"
+                  "$ref": "#/$defs/__schema57"
                 },
                 "state": {
                   "const": "staged-reconciliation",
@@ -1459,13 +1564,13 @@
               "additionalProperties": false,
               "properties": {
                 "accepted": {
-                  "$ref": "#/$defs/__schema53"
+                  "$ref": "#/$defs/__schema57"
                 },
                 "catalogRevision": {
                   "$ref": "#/$defs/__schema35"
                 },
                 "schemaVersion": {
-                  "$ref": "#/$defs/__schema52"
+                  "$ref": "#/$defs/__schema56"
                 },
                 "state": {
                   "const": "accepted",
@@ -1503,6 +1608,9 @@
             {
               "additionalProperties": false,
               "properties": {
+                "authorityDigest": {
+                  "$ref": "#/$defs/__schema45"
+                },
                 "expectedCatalogRevision": {
                   "$ref": "#/$defs/__schema35"
                 },
@@ -1519,14 +1627,14 @@
                   "$ref": "#/$defs/__schema13"
                 },
                 "schemaVersion": {
-                  "$ref": "#/$defs/__schema55"
+                  "$ref": "#/$defs/__schema58"
                 },
                 "state": {
                   "const": "fetching",
                   "type": "string"
                 },
                 "updatedAt": {
-                  "$ref": "#/$defs/__schema45"
+                  "$ref": "#/$defs/__schema48"
                 }
               },
               "required": [
@@ -1534,6 +1642,7 @@
                 "refreshId",
                 "expectedCatalogRevision",
                 "requestedBy",
+                "authorityDigest",
                 "idempotencyKey",
                 "revision",
                 "updatedAt",
@@ -1544,6 +1653,9 @@
             {
               "additionalProperties": false,
               "properties": {
+                "authorityDigest": {
+                  "$ref": "#/$defs/__schema45"
+                },
                 "expectedCatalogRevision": {
                   "$ref": "#/$defs/__schema35"
                 },
@@ -1560,17 +1672,17 @@
                   "$ref": "#/$defs/__schema13"
                 },
                 "schemaVersion": {
-                  "$ref": "#/$defs/__schema55"
+                  "$ref": "#/$defs/__schema58"
                 },
                 "staged": {
-                  "$ref": "#/$defs/__schema53"
+                  "$ref": "#/$defs/__schema57"
                 },
                 "state": {
                   "const": "staged-reconciliation",
                   "type": "string"
                 },
                 "updatedAt": {
-                  "$ref": "#/$defs/__schema45"
+                  "$ref": "#/$defs/__schema48"
                 }
               },
               "required": [
@@ -1578,6 +1690,7 @@
                 "refreshId",
                 "expectedCatalogRevision",
                 "requestedBy",
+                "authorityDigest",
                 "idempotencyKey",
                 "revision",
                 "updatedAt",
@@ -1594,7 +1707,10 @@
               "additionalProperties": false,
               "properties": {
                 "accepted": {
-                  "$ref": "#/$defs/__schema53"
+                  "$ref": "#/$defs/__schema57"
+                },
+                "authorityDigest": {
+                  "$ref": "#/$defs/__schema45"
                 },
                 "catalogRevision": {
                   "$ref": "#/$defs/__schema13"
@@ -1603,7 +1719,7 @@
                   "$ref": "#/$defs/__schema36"
                 },
                 "occurredAt": {
-                  "$ref": "#/$defs/__schema45"
+                  "$ref": "#/$defs/__schema48"
                 },
                 "outcome": {
                   "const": "accepted",
@@ -1637,6 +1753,7 @@
                 "accepted",
                 "reconciledReleaseCount",
                 "requestedBy",
+                "authorityDigest",
                 "idempotencyKey",
                 "occurredAt"
               ],
@@ -1645,11 +1762,14 @@
             {
               "additionalProperties": false,
               "properties": {
+                "authorityDigest": {
+                  "$ref": "#/$defs/__schema45"
+                },
                 "idempotencyKey": {
                   "$ref": "#/$defs/__schema36"
                 },
                 "occurredAt": {
-                  "$ref": "#/$defs/__schema45"
+                  "$ref": "#/$defs/__schema48"
                 },
                 "outcome": {
                   "const": "rejected",
@@ -1685,6 +1805,7 @@
                 "outcome",
                 "reason",
                 "requestedBy",
+                "authorityDigest",
                 "idempotencyKey",
                 "occurredAt"
               ],
@@ -1716,14 +1837,17 @@
                 "applicationId": {
                   "$ref": "#/$defs/__schema25"
                 },
-                "createdAt": {
+                "authorityDigest": {
                   "$ref": "#/$defs/__schema45"
+                },
+                "createdAt": {
+                  "$ref": "#/$defs/__schema48"
                 },
                 "environment": {
                   "$ref": "#/$defs/__schema26"
                 },
                 "expectedInventoryDigest": {
-                  "$ref": "#/$defs/__schema54"
+                  "$ref": "#/$defs/__schema45"
                 },
                 "expectedOperationsRevision": {
                   "$ref": "#/$defs/__schema35"
@@ -1736,7 +1860,7 @@
                   "type": "string"
                 },
                 "reference": {
-                  "$ref": "#/$defs/__schema57"
+                  "$ref": "#/$defs/__schema60"
                 },
                 "requestId": {
                   "$ref": "#/$defs/__schema40"
@@ -1745,7 +1869,7 @@
                   "$ref": "#/$defs/__schema43"
                 },
                 "schemaVersion": {
-                  "$ref": "#/$defs/__schema56"
+                  "$ref": "#/$defs/__schema59"
                 }
               },
               "required": [
@@ -1756,6 +1880,7 @@
                 "expectedOperationsRevision",
                 "expectedInventoryDigest",
                 "requestedBy",
+                "authorityDigest",
                 "idempotencyKey",
                 "createdAt",
                 "kind",
@@ -1769,14 +1894,17 @@
                 "applicationId": {
                   "$ref": "#/$defs/__schema25"
                 },
-                "createdAt": {
+                "authorityDigest": {
                   "$ref": "#/$defs/__schema45"
+                },
+                "createdAt": {
+                  "$ref": "#/$defs/__schema48"
                 },
                 "environment": {
                   "$ref": "#/$defs/__schema26"
                 },
                 "expectedInventoryDigest": {
-                  "$ref": "#/$defs/__schema54"
+                  "$ref": "#/$defs/__schema45"
                 },
                 "expectedOperationsRevision": {
                   "$ref": "#/$defs/__schema35"
@@ -1789,7 +1917,7 @@
                   "type": "string"
                 },
                 "reference": {
-                  "$ref": "#/$defs/__schema58"
+                  "$ref": "#/$defs/__schema61"
                 },
                 "requestId": {
                   "$ref": "#/$defs/__schema40"
@@ -1798,7 +1926,7 @@
                   "$ref": "#/$defs/__schema43"
                 },
                 "schemaVersion": {
-                  "$ref": "#/$defs/__schema56"
+                  "$ref": "#/$defs/__schema59"
                 }
               },
               "required": [
@@ -1809,6 +1937,7 @@
                 "expectedOperationsRevision",
                 "expectedInventoryDigest",
                 "requestedBy",
+                "authorityDigest",
                 "idempotencyKey",
                 "createdAt",
                 "kind",
@@ -1826,11 +1955,14 @@
                 "applicationId": {
                   "$ref": "#/$defs/__schema25"
                 },
+                "authorityDigest": {
+                  "$ref": "#/$defs/__schema45"
+                },
                 "environment": {
                   "$ref": "#/$defs/__schema26"
                 },
                 "expectedInventoryDigest": {
-                  "$ref": "#/$defs/__schema54"
+                  "$ref": "#/$defs/__schema45"
                 },
                 "idempotencyKey": {
                   "$ref": "#/$defs/__schema36"
@@ -1840,7 +1972,7 @@
                   "type": "string"
                 },
                 "occurredAt": {
-                  "$ref": "#/$defs/__schema45"
+                  "$ref": "#/$defs/__schema48"
                 },
                 "outcome": {
                   "const": "accepted",
@@ -1848,132 +1980,6 @@
                 },
                 "reason": {
                   "const": "accepted",
-                  "type": "string"
-                },
-                "receiptId": {
-                  "$ref": "#/$defs/__schema40"
-                },
-                "reference": {
-                  "$ref": "#/$defs/__schema57"
-                },
-                "requestId": {
-                  "$ref": "#/$defs/__schema40"
-                },
-                "requestedBy": {
-                  "$ref": "#/$defs/__schema43"
-                },
-                "schemaVersion": {
-                  "$ref": "#/$defs/__schema59"
-                }
-              },
-              "required": [
-                "schemaVersion",
-                "receiptId",
-                "requestId",
-                "applicationId",
-                "environment",
-                "expectedInventoryDigest",
-                "requestedBy",
-                "idempotencyKey",
-                "occurredAt",
-                "kind",
-                "reference",
-                "outcome",
-                "reason"
-              ],
-              "type": "object"
-            },
-            {
-              "additionalProperties": false,
-              "properties": {
-                "applicationId": {
-                  "$ref": "#/$defs/__schema25"
-                },
-                "environment": {
-                  "$ref": "#/$defs/__schema26"
-                },
-                "expectedInventoryDigest": {
-                  "$ref": "#/$defs/__schema54"
-                },
-                "idempotencyKey": {
-                  "$ref": "#/$defs/__schema36"
-                },
-                "kind": {
-                  "const": "restore-drill",
-                  "type": "string"
-                },
-                "occurredAt": {
-                  "$ref": "#/$defs/__schema45"
-                },
-                "outcome": {
-                  "const": "accepted",
-                  "type": "string"
-                },
-                "reason": {
-                  "const": "accepted",
-                  "type": "string"
-                },
-                "receiptId": {
-                  "$ref": "#/$defs/__schema40"
-                },
-                "reference": {
-                  "$ref": "#/$defs/__schema58"
-                },
-                "requestId": {
-                  "$ref": "#/$defs/__schema40"
-                },
-                "requestedBy": {
-                  "$ref": "#/$defs/__schema43"
-                },
-                "schemaVersion": {
-                  "$ref": "#/$defs/__schema59"
-                }
-              },
-              "required": [
-                "schemaVersion",
-                "receiptId",
-                "requestId",
-                "applicationId",
-                "environment",
-                "expectedInventoryDigest",
-                "requestedBy",
-                "idempotencyKey",
-                "occurredAt",
-                "kind",
-                "reference",
-                "outcome",
-                "reason"
-              ],
-              "type": "object"
-            },
-            {
-              "additionalProperties": false,
-              "properties": {
-                "applicationId": {
-                  "$ref": "#/$defs/__schema25"
-                },
-                "environment": {
-                  "$ref": "#/$defs/__schema26"
-                },
-                "expectedInventoryDigest": {
-                  "$ref": "#/$defs/__schema54"
-                },
-                "idempotencyKey": {
-                  "$ref": "#/$defs/__schema36"
-                },
-                "kind": {
-                  "const": "backup",
-                  "type": "string"
-                },
-                "occurredAt": {
-                  "$ref": "#/$defs/__schema45"
-                },
-                "outcome": {
-                  "const": "completed",
-                  "type": "string"
-                },
-                "reason": {
-                  "const": "completed",
                   "type": "string"
                 },
                 "receiptId": {
@@ -1989,7 +1995,7 @@
                   "$ref": "#/$defs/__schema43"
                 },
                 "schemaVersion": {
-                  "$ref": "#/$defs/__schema59"
+                  "$ref": "#/$defs/__schema62"
                 }
               },
               "required": [
@@ -2000,6 +2006,7 @@
                 "environment",
                 "expectedInventoryDigest",
                 "requestedBy",
+                "authorityDigest",
                 "idempotencyKey",
                 "occurredAt",
                 "kind",
@@ -2015,11 +2022,14 @@
                 "applicationId": {
                   "$ref": "#/$defs/__schema25"
                 },
+                "authorityDigest": {
+                  "$ref": "#/$defs/__schema45"
+                },
                 "environment": {
                   "$ref": "#/$defs/__schema26"
                 },
                 "expectedInventoryDigest": {
-                  "$ref": "#/$defs/__schema54"
+                  "$ref": "#/$defs/__schema45"
                 },
                 "idempotencyKey": {
                   "$ref": "#/$defs/__schema36"
@@ -2029,14 +2039,14 @@
                   "type": "string"
                 },
                 "occurredAt": {
-                  "$ref": "#/$defs/__schema45"
+                  "$ref": "#/$defs/__schema48"
                 },
                 "outcome": {
-                  "const": "completed",
+                  "const": "accepted",
                   "type": "string"
                 },
                 "reason": {
-                  "const": "completed",
+                  "const": "accepted",
                   "type": "string"
                 },
                 "receiptId": {
@@ -2052,7 +2062,7 @@
                   "$ref": "#/$defs/__schema43"
                 },
                 "schemaVersion": {
-                  "$ref": "#/$defs/__schema59"
+                  "$ref": "#/$defs/__schema62"
                 }
               },
               "required": [
@@ -2063,6 +2073,7 @@
                 "environment",
                 "expectedInventoryDigest",
                 "requestedBy",
+                "authorityDigest",
                 "idempotencyKey",
                 "occurredAt",
                 "kind",
@@ -2078,11 +2089,14 @@
                 "applicationId": {
                   "$ref": "#/$defs/__schema25"
                 },
+                "authorityDigest": {
+                  "$ref": "#/$defs/__schema45"
+                },
                 "environment": {
                   "$ref": "#/$defs/__schema26"
                 },
                 "expectedInventoryDigest": {
-                  "$ref": "#/$defs/__schema54"
+                  "$ref": "#/$defs/__schema45"
                 },
                 "idempotencyKey": {
                   "$ref": "#/$defs/__schema36"
@@ -2092,7 +2106,141 @@
                   "type": "string"
                 },
                 "occurredAt": {
+                  "$ref": "#/$defs/__schema48"
+                },
+                "outcome": {
+                  "const": "completed",
+                  "type": "string"
+                },
+                "reason": {
+                  "const": "completed",
+                  "type": "string"
+                },
+                "receiptId": {
+                  "$ref": "#/$defs/__schema40"
+                },
+                "reference": {
+                  "$ref": "#/$defs/__schema63"
+                },
+                "requestId": {
+                  "$ref": "#/$defs/__schema40"
+                },
+                "requestedBy": {
+                  "$ref": "#/$defs/__schema43"
+                },
+                "schemaVersion": {
+                  "$ref": "#/$defs/__schema62"
+                }
+              },
+              "required": [
+                "schemaVersion",
+                "receiptId",
+                "requestId",
+                "applicationId",
+                "environment",
+                "expectedInventoryDigest",
+                "requestedBy",
+                "authorityDigest",
+                "idempotencyKey",
+                "occurredAt",
+                "kind",
+                "reference",
+                "outcome",
+                "reason"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "applicationId": {
+                  "$ref": "#/$defs/__schema25"
+                },
+                "authorityDigest": {
                   "$ref": "#/$defs/__schema45"
+                },
+                "environment": {
+                  "$ref": "#/$defs/__schema26"
+                },
+                "expectedInventoryDigest": {
+                  "$ref": "#/$defs/__schema45"
+                },
+                "idempotencyKey": {
+                  "$ref": "#/$defs/__schema36"
+                },
+                "kind": {
+                  "const": "restore-drill",
+                  "type": "string"
+                },
+                "occurredAt": {
+                  "$ref": "#/$defs/__schema48"
+                },
+                "outcome": {
+                  "const": "completed",
+                  "type": "string"
+                },
+                "reason": {
+                  "const": "completed",
+                  "type": "string"
+                },
+                "receiptId": {
+                  "$ref": "#/$defs/__schema40"
+                },
+                "reference": {
+                  "$ref": "#/$defs/__schema64"
+                },
+                "requestId": {
+                  "$ref": "#/$defs/__schema40"
+                },
+                "requestedBy": {
+                  "$ref": "#/$defs/__schema43"
+                },
+                "schemaVersion": {
+                  "$ref": "#/$defs/__schema62"
+                }
+              },
+              "required": [
+                "schemaVersion",
+                "receiptId",
+                "requestId",
+                "applicationId",
+                "environment",
+                "expectedInventoryDigest",
+                "requestedBy",
+                "authorityDigest",
+                "idempotencyKey",
+                "occurredAt",
+                "kind",
+                "reference",
+                "outcome",
+                "reason"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "applicationId": {
+                  "$ref": "#/$defs/__schema25"
+                },
+                "authorityDigest": {
+                  "$ref": "#/$defs/__schema45"
+                },
+                "environment": {
+                  "$ref": "#/$defs/__schema26"
+                },
+                "expectedInventoryDigest": {
+                  "$ref": "#/$defs/__schema45"
+                },
+                "idempotencyKey": {
+                  "$ref": "#/$defs/__schema36"
+                },
+                "kind": {
+                  "const": "backup",
+                  "type": "string"
+                },
+                "occurredAt": {
+                  "$ref": "#/$defs/__schema48"
                 },
                 "outcome": {
                   "const": "rejected",
@@ -2110,7 +2258,7 @@
                   "$ref": "#/$defs/__schema40"
                 },
                 "reference": {
-                  "$ref": "#/$defs/__schema60"
+                  "$ref": "#/$defs/__schema63"
                 },
                 "requestId": {
                   "$ref": "#/$defs/__schema40"
@@ -2119,7 +2267,7 @@
                   "$ref": "#/$defs/__schema43"
                 },
                 "schemaVersion": {
-                  "$ref": "#/$defs/__schema59"
+                  "$ref": "#/$defs/__schema62"
                 }
               },
               "required": [
@@ -2130,6 +2278,7 @@
                 "environment",
                 "expectedInventoryDigest",
                 "requestedBy",
+                "authorityDigest",
                 "idempotencyKey",
                 "occurredAt",
                 "kind",
@@ -2145,11 +2294,14 @@
                 "applicationId": {
                   "$ref": "#/$defs/__schema25"
                 },
+                "authorityDigest": {
+                  "$ref": "#/$defs/__schema45"
+                },
                 "environment": {
                   "$ref": "#/$defs/__schema26"
                 },
                 "expectedInventoryDigest": {
-                  "$ref": "#/$defs/__schema54"
+                  "$ref": "#/$defs/__schema45"
                 },
                 "idempotencyKey": {
                   "$ref": "#/$defs/__schema36"
@@ -2159,7 +2311,7 @@
                   "type": "string"
                 },
                 "occurredAt": {
-                  "$ref": "#/$defs/__schema45"
+                  "$ref": "#/$defs/__schema48"
                 },
                 "outcome": {
                   "const": "rejected",
@@ -2177,7 +2329,7 @@
                   "$ref": "#/$defs/__schema40"
                 },
                 "reference": {
-                  "$ref": "#/$defs/__schema61"
+                  "$ref": "#/$defs/__schema64"
                 },
                 "requestId": {
                   "$ref": "#/$defs/__schema40"
@@ -2186,7 +2338,7 @@
                   "$ref": "#/$defs/__schema43"
                 },
                 "schemaVersion": {
-                  "$ref": "#/$defs/__schema59"
+                  "$ref": "#/$defs/__schema62"
                 }
               },
               "required": [
@@ -2197,6 +2349,7 @@
                 "environment",
                 "expectedInventoryDigest",
                 "requestedBy",
+                "authorityDigest",
                 "idempotencyKey",
                 "occurredAt",
                 "kind",
@@ -2212,11 +2365,14 @@
                 "applicationId": {
                   "$ref": "#/$defs/__schema25"
                 },
+                "authorityDigest": {
+                  "$ref": "#/$defs/__schema45"
+                },
                 "environment": {
                   "$ref": "#/$defs/__schema26"
                 },
                 "expectedInventoryDigest": {
-                  "$ref": "#/$defs/__schema54"
+                  "$ref": "#/$defs/__schema45"
                 },
                 "idempotencyKey": {
                   "$ref": "#/$defs/__schema36"
@@ -2226,7 +2382,7 @@
                   "type": "string"
                 },
                 "occurredAt": {
-                  "$ref": "#/$defs/__schema45"
+                  "$ref": "#/$defs/__schema48"
                 },
                 "outcome": {
                   "const": "failed",
@@ -2243,7 +2399,7 @@
                   "$ref": "#/$defs/__schema40"
                 },
                 "reference": {
-                  "$ref": "#/$defs/__schema60"
+                  "$ref": "#/$defs/__schema63"
                 },
                 "requestId": {
                   "$ref": "#/$defs/__schema40"
@@ -2252,7 +2408,7 @@
                   "$ref": "#/$defs/__schema43"
                 },
                 "schemaVersion": {
-                  "$ref": "#/$defs/__schema59"
+                  "$ref": "#/$defs/__schema62"
                 }
               },
               "required": [
@@ -2263,6 +2419,7 @@
                 "environment",
                 "expectedInventoryDigest",
                 "requestedBy",
+                "authorityDigest",
                 "idempotencyKey",
                 "occurredAt",
                 "kind",
@@ -2278,11 +2435,14 @@
                 "applicationId": {
                   "$ref": "#/$defs/__schema25"
                 },
+                "authorityDigest": {
+                  "$ref": "#/$defs/__schema45"
+                },
                 "environment": {
                   "$ref": "#/$defs/__schema26"
                 },
                 "expectedInventoryDigest": {
-                  "$ref": "#/$defs/__schema54"
+                  "$ref": "#/$defs/__schema45"
                 },
                 "idempotencyKey": {
                   "$ref": "#/$defs/__schema36"
@@ -2292,7 +2452,7 @@
                   "type": "string"
                 },
                 "occurredAt": {
-                  "$ref": "#/$defs/__schema45"
+                  "$ref": "#/$defs/__schema48"
                 },
                 "outcome": {
                   "const": "failed",
@@ -2309,7 +2469,7 @@
                   "$ref": "#/$defs/__schema40"
                 },
                 "reference": {
-                  "$ref": "#/$defs/__schema61"
+                  "$ref": "#/$defs/__schema64"
                 },
                 "requestId": {
                   "$ref": "#/$defs/__schema40"
@@ -2318,7 +2478,7 @@
                   "$ref": "#/$defs/__schema43"
                 },
                 "schemaVersion": {
-                  "$ref": "#/$defs/__schema59"
+                  "$ref": "#/$defs/__schema62"
                 }
               },
               "required": [
@@ -2329,6 +2489,7 @@
                 "environment",
                 "expectedInventoryDigest",
                 "requestedBy",
+                "authorityDigest",
                 "idempotencyKey",
                 "occurredAt",
                 "kind",
@@ -2362,7 +2523,7 @@
               "$ref": "#/$defs/__schema40"
             },
             "observedAt": {
-              "$ref": "#/$defs/__schema45"
+              "$ref": "#/$defs/__schema48"
             },
             "revision": {
               "$ref": "#/$defs/__schema13"
@@ -2419,7 +2580,7 @@
                   "type": "string"
                 },
                 "availability": {
-                  "$ref": "#/$defs/__schema63"
+                  "$ref": "#/$defs/__schema66"
                 },
                 "deliveryClass": {
                   "const": "hot-application",
@@ -2433,20 +2594,20 @@
                   "$ref": "#/$defs/__schema2"
                 },
                 "impactDigest": {
-                  "$ref": "#/$defs/__schema64"
+                  "$ref": "#/$defs/__schema67"
                 },
                 "lifecycleState": {
-                  "$ref": "#/$defs/__schema62"
+                  "$ref": "#/$defs/__schema65"
                 },
                 "operationReference": {
-                  "$ref": "#/$defs/__schema65"
+                  "$ref": "#/$defs/__schema68"
                 },
                 "permissionId": {
                   "const": "system.extensions.install-live",
                   "type": "string"
                 },
                 "reauthentication": {
-                  "$ref": "#/$defs/__schema66"
+                  "$ref": "#/$defs/__schema69"
                 }
               },
               "required": [
@@ -2474,7 +2635,7 @@
                   "type": "string"
                 },
                 "availability": {
-                  "$ref": "#/$defs/__schema63"
+                  "$ref": "#/$defs/__schema66"
                 },
                 "deliveryClass": {
                   "const": "theme-skin",
@@ -2488,20 +2649,20 @@
                   "$ref": "#/$defs/__schema2"
                 },
                 "impactDigest": {
-                  "$ref": "#/$defs/__schema64"
+                  "$ref": "#/$defs/__schema67"
                 },
                 "lifecycleState": {
-                  "$ref": "#/$defs/__schema62"
+                  "$ref": "#/$defs/__schema65"
                 },
                 "operationReference": {
-                  "$ref": "#/$defs/__schema65"
+                  "$ref": "#/$defs/__schema68"
                 },
                 "permissionId": {
                   "const": "system.extensions.install-live",
                   "type": "string"
                 },
                 "reauthentication": {
-                  "$ref": "#/$defs/__schema66"
+                  "$ref": "#/$defs/__schema69"
                 }
               },
               "required": [
@@ -2529,7 +2690,7 @@
                   "type": "string"
                 },
                 "availability": {
-                  "$ref": "#/$defs/__schema63"
+                  "$ref": "#/$defs/__schema66"
                 },
                 "deliveryClass": {
                   "const": "platform-plugin",
@@ -2543,20 +2704,20 @@
                   "$ref": "#/$defs/__schema2"
                 },
                 "impactDigest": {
-                  "$ref": "#/$defs/__schema64"
+                  "$ref": "#/$defs/__schema67"
                 },
                 "lifecycleState": {
-                  "$ref": "#/$defs/__schema62"
+                  "$ref": "#/$defs/__schema65"
                 },
                 "operationReference": {
-                  "$ref": "#/$defs/__schema65"
+                  "$ref": "#/$defs/__schema68"
                 },
                 "permissionId": {
                   "const": "system.extensions.deploy-platform-plugin",
                   "type": "string"
                 },
                 "reauthentication": {
-                  "$ref": "#/$defs/__schema66"
+                  "$ref": "#/$defs/__schema69"
                 }
               },
               "required": [
@@ -2584,10 +2745,10 @@
                   "type": "string"
                 },
                 "availability": {
-                  "$ref": "#/$defs/__schema63"
+                  "$ref": "#/$defs/__schema66"
                 },
                 "deliveryClass": {
-                  "$ref": "#/$defs/__schema67"
+                  "$ref": "#/$defs/__schema70"
                 },
                 "executableOperation": {
                   "const": "install",
@@ -2597,20 +2758,20 @@
                   "$ref": "#/$defs/__schema2"
                 },
                 "impactDigest": {
-                  "$ref": "#/$defs/__schema64"
+                  "$ref": "#/$defs/__schema67"
                 },
                 "lifecycleState": {
-                  "$ref": "#/$defs/__schema62"
+                  "$ref": "#/$defs/__schema65"
                 },
                 "operationReference": {
-                  "$ref": "#/$defs/__schema65"
+                  "$ref": "#/$defs/__schema68"
                 },
                 "permissionId": {
                   "const": "system.extensions.enable",
                   "type": "string"
                 },
                 "reauthentication": {
-                  "$ref": "#/$defs/__schema66"
+                  "$ref": "#/$defs/__schema69"
                 }
               },
               "required": [
@@ -2638,10 +2799,10 @@
                   "type": "string"
                 },
                 "availability": {
-                  "$ref": "#/$defs/__schema63"
+                  "$ref": "#/$defs/__schema66"
                 },
                 "deliveryClass": {
-                  "$ref": "#/$defs/__schema67"
+                  "$ref": "#/$defs/__schema70"
                 },
                 "executableOperation": {
                   "const": "update",
@@ -2651,20 +2812,20 @@
                   "$ref": "#/$defs/__schema2"
                 },
                 "impactDigest": {
-                  "$ref": "#/$defs/__schema64"
+                  "$ref": "#/$defs/__schema67"
                 },
                 "lifecycleState": {
-                  "$ref": "#/$defs/__schema62"
+                  "$ref": "#/$defs/__schema65"
                 },
                 "operationReference": {
-                  "$ref": "#/$defs/__schema65"
+                  "$ref": "#/$defs/__schema68"
                 },
                 "permissionId": {
                   "const": "system.extensions.update",
                   "type": "string"
                 },
                 "reauthentication": {
-                  "$ref": "#/$defs/__schema66"
+                  "$ref": "#/$defs/__schema69"
                 }
               },
               "required": [
@@ -2692,10 +2853,10 @@
                   "type": "string"
                 },
                 "availability": {
-                  "$ref": "#/$defs/__schema63"
+                  "$ref": "#/$defs/__schema66"
                 },
                 "deliveryClass": {
-                  "$ref": "#/$defs/__schema67"
+                  "$ref": "#/$defs/__schema70"
                 },
                 "executableOperation": {
                   "const": "disable",
@@ -2705,20 +2866,20 @@
                   "$ref": "#/$defs/__schema2"
                 },
                 "impactDigest": {
-                  "$ref": "#/$defs/__schema64"
+                  "$ref": "#/$defs/__schema67"
                 },
                 "lifecycleState": {
-                  "$ref": "#/$defs/__schema62"
+                  "$ref": "#/$defs/__schema65"
                 },
                 "operationReference": {
-                  "$ref": "#/$defs/__schema65"
+                  "$ref": "#/$defs/__schema68"
                 },
                 "permissionId": {
                   "const": "system.extensions.disable",
                   "type": "string"
                 },
                 "reauthentication": {
-                  "$ref": "#/$defs/__schema66"
+                  "$ref": "#/$defs/__schema69"
                 }
               },
               "required": [
@@ -2746,10 +2907,10 @@
                   "type": "string"
                 },
                 "availability": {
-                  "$ref": "#/$defs/__schema63"
+                  "$ref": "#/$defs/__schema66"
                 },
                 "deliveryClass": {
-                  "$ref": "#/$defs/__schema67"
+                  "$ref": "#/$defs/__schema70"
                 },
                 "executableOperation": {
                   "const": "rollback",
@@ -2759,20 +2920,20 @@
                   "$ref": "#/$defs/__schema2"
                 },
                 "impactDigest": {
-                  "$ref": "#/$defs/__schema64"
+                  "$ref": "#/$defs/__schema67"
                 },
                 "lifecycleState": {
-                  "$ref": "#/$defs/__schema62"
+                  "$ref": "#/$defs/__schema65"
                 },
                 "operationReference": {
-                  "$ref": "#/$defs/__schema65"
+                  "$ref": "#/$defs/__schema68"
                 },
                 "permissionId": {
                   "const": "system.extensions.rollback",
                   "type": "string"
                 },
                 "reauthentication": {
-                  "$ref": "#/$defs/__schema66"
+                  "$ref": "#/$defs/__schema69"
                 }
               },
               "required": [
@@ -2800,10 +2961,10 @@
                   "type": "string"
                 },
                 "availability": {
-                  "$ref": "#/$defs/__schema63"
+                  "$ref": "#/$defs/__schema66"
                 },
                 "deliveryClass": {
-                  "$ref": "#/$defs/__schema67"
+                  "$ref": "#/$defs/__schema70"
                 },
                 "executableOperation": {
                   "const": "uninstall",
@@ -2813,20 +2974,20 @@
                   "$ref": "#/$defs/__schema2"
                 },
                 "impactDigest": {
-                  "$ref": "#/$defs/__schema64"
+                  "$ref": "#/$defs/__schema67"
                 },
                 "lifecycleState": {
-                  "$ref": "#/$defs/__schema62"
+                  "$ref": "#/$defs/__schema65"
                 },
                 "operationReference": {
-                  "$ref": "#/$defs/__schema65"
+                  "$ref": "#/$defs/__schema68"
                 },
                 "permissionId": {
                   "const": "system.extensions.uninstall",
                   "type": "string"
                 },
                 "reauthentication": {
-                  "$ref": "#/$defs/__schema66"
+                  "$ref": "#/$defs/__schema69"
                 }
               },
               "required": [

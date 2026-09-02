@@ -1,8 +1,10 @@
 import {
+  AdministrationActorEnvelopeSchema,
   AuthorizationSubjectSchema,
   OperationsCenterReceiptSchema,
   OperationsCenterRequestSchema,
   canonicalJson,
+  type AdministrationActorEnvelope,
   type OperationsCenterReceipt,
   type OperationsCenterRequest
 } from "@k-nex/contracts";
@@ -68,15 +70,16 @@ export class PostgresSystemOperationsStore implements SystemOperationsOperator {
     });
   }
 
-  async replay(input: Readonly<{ kind: SystemOperationKind; applicationId: string; environment: string; expectedOperationsRevision: number; requestedBy: OperationsCenterRequest["requestedBy"]; idempotencyKey: string }>): Promise<OperationsCenterReceipt | undefined> {
+  async replay(input: Readonly<{ kind: SystemOperationKind; applicationId: string; environment: string; expectedOperationsRevision: number; requestedBy: OperationsCenterRequest["requestedBy"]; authorityEnvelope: AdministrationActorEnvelope; idempotencyKey: string }>): Promise<OperationsCenterReceipt | undefined> {
     assertScope(input.applicationId, input.environment);
     const requestedBy = AuthorizationSubjectSchema.parse(input.requestedBy);
+    const { digest: authorityDigest } = await authority(input.authorityEnvelope, input.kind, input.applicationId, input.environment, requestedBy);
     assertRevision(input.expectedOperationsRevision);
     if ((input.kind !== "backup" && input.kind !== "restore-drill") || !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$/u.test(input.idempotencyKey)) fail("INVALID", "System operation replay is invalid.");
     const request = await this.pool.query<RequestRow>(`select operation_id, request_json, state, lease_token from k_nex_system_operation_requests where application_id=$1 and environment=$2 and kind=$3 and idempotency_key=$4`, [input.applicationId, input.environment, input.kind, input.idempotencyKey]);
     if (!request.rows[0]) return undefined;
     const parsed = OperationsCenterRequestSchema.parse(request.rows[0].request_json);
-    if (parsed.expectedOperationsRevision !== input.expectedOperationsRevision || parsed.requestedBy.kind !== requestedBy.kind || parsed.requestedBy.id !== requestedBy.id) fail("REVISION_CONFLICT", "System operation replay binding changed.");
+    if (parsed.expectedOperationsRevision !== input.expectedOperationsRevision || parsed.requestedBy.kind !== requestedBy.kind || parsed.requestedBy.id !== requestedBy.id || parsed.authorityDigest !== authorityDigest) fail("REVISION_CONFLICT", "System operation replay binding changed.");
     const receipt = await this.pool.query<ReceiptRow>(`select receipt_json from k_nex_system_operation_receipts where operation_id=$1 order by terminal desc limit 1`, [request.rows[0].operation_id]);
     if (!receipt.rows[0]) fail("INVALID", "System operation replay receipt is unavailable.");
     return Object.freeze(OperationsCenterReceiptSchema.parse(receipt.rows[0].receipt_json));
@@ -87,6 +90,7 @@ export class PostgresSystemOperationsStore implements SystemOperationsOperator {
     assertRevision(input.expectedOperationsRevision);
     if (input.kind !== "backup" && input.kind !== "restore-drill" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$/u.test(input.idempotencyKey)) fail("INVALID", "System operation request is invalid.");
     const requestedBy = AuthorizationSubjectSchema.parse(input.requestedBy);
+    const { envelope: authorityEnvelope, digest: authorityDigest } = await authority(input.authorityEnvelope, input.kind, input.applicationId, input.environment, requestedBy);
     return this.transaction(async (session) => {
       const state = await this.lockState(session, input.applicationId, input.environment);
       const replay = await session.query<RequestRow>(
@@ -95,25 +99,25 @@ export class PostgresSystemOperationsStore implements SystemOperationsOperator {
       );
       if (replay.rows[0]) {
         const request = OperationsCenterRequestSchema.parse(replay.rows[0].request_json);
-        if (request.expectedInventoryDigest !== input.expectedInventoryDigest || request.requestedBy.kind !== requestedBy.kind || request.requestedBy.id !== requestedBy.id) fail("REVISION_CONFLICT", "System operation idempotency key is bound to another request.");
+        if (request.expectedInventoryDigest !== input.expectedInventoryDigest || request.requestedBy.kind !== requestedBy.kind || request.requestedBy.id !== requestedBy.id || request.authorityDigest !== authorityDigest) fail("REVISION_CONFLICT", "System operation idempotency key is bound to another request.");
         return this.latestReceipt(session, replay.rows[0].operation_id);
       }
       if (state.operations_revision !== input.expectedOperationsRevision) fail("REVISION_CONFLICT", "System operation revision changed.");
       if (state.inventory_digest !== input.expectedInventoryDigest) fail("INVENTORY_CHANGED", "System operation inventory changed.");
-      const fingerprint = { ...input, requestedBy };
+      const fingerprint = { ...input, requestedBy, authorityEnvelope, authorityDigest };
       const operationId = await identifier(`${input.kind}-operation`, fingerprint);
       const requestId = await identifier(`${input.kind}-request`, fingerprint);
       const createdAt = timestamp(this.clock);
       const request = OperationsCenterRequestSchema.parse({ schemaVersion: 1, requestId, applicationId: input.applicationId, environment: input.environment, kind: input.kind,
-        expectedOperationsRevision: input.expectedOperationsRevision, expectedInventoryDigest: input.expectedInventoryDigest, requestedBy, idempotencyKey: input.idempotencyKey,
+        expectedOperationsRevision: input.expectedOperationsRevision, expectedInventoryDigest: input.expectedInventoryDigest, requestedBy, authorityDigest, idempotencyKey: input.idempotencyKey,
         reference: { source: input.kind, operationId }, createdAt });
       const receipt = OperationsCenterReceiptSchema.parse({ schemaVersion: 1, receiptId: await identifier(`${input.kind}-accepted`, fingerprint), requestId,
         applicationId: input.applicationId, environment: input.environment, kind: input.kind, expectedInventoryDigest: input.expectedInventoryDigest,
-        requestedBy, idempotencyKey: input.idempotencyKey, reference: request.reference, outcome: "accepted", reason: "accepted", occurredAt: createdAt });
+        requestedBy, authorityDigest, idempotencyKey: input.idempotencyKey, reference: request.reference, outcome: "accepted", reason: "accepted", occurredAt: createdAt });
       await session.query(
-        `insert into k_nex_system_operation_requests (operation_id, request_id, application_id, environment, kind, expected_operations_revision, expected_inventory_digest, idempotency_key, request_json)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)`,
-        [operationId, requestId, input.applicationId, input.environment, input.kind, input.expectedOperationsRevision, input.expectedInventoryDigest, input.idempotencyKey, JSON.stringify(request)]
+        `insert into k_nex_system_operation_requests (operation_id, request_id, application_id, environment, kind, expected_operations_revision, expected_inventory_digest, idempotency_key, authority_json, authority_digest, request_json)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11::jsonb)`,
+        [operationId, requestId, input.applicationId, input.environment, input.kind, input.expectedOperationsRevision, input.expectedInventoryDigest, input.idempotencyKey, JSON.stringify(authorityEnvelope), authorityDigest, JSON.stringify(request)]
       );
       await this.receipt(session, operationId, receipt, false);
       await this.advance(session, request, receipt, "accepted", state.operations_revision + 1);
@@ -154,7 +158,7 @@ export class PostgresSystemOperationsStore implements SystemOperationsOperator {
       const occurredAt = timestamp(this.clock);
       const receipt = OperationsCenterReceiptSchema.parse({ schemaVersion: 1, receiptId: await identifier(`${request.kind}-${proof.outcome}`, { operationId, proof }), requestId: request.requestId,
         applicationId: request.applicationId, environment: request.environment, kind: request.kind, expectedInventoryDigest: request.expectedInventoryDigest,
-        requestedBy: request.requestedBy, idempotencyKey: request.idempotencyKey, reference: { source: request.kind, operationId, receiptId: proof.referenceReceiptId },
+        requestedBy: request.requestedBy, authorityDigest: request.authorityDigest, idempotencyKey: request.idempotencyKey, reference: { source: request.kind, operationId, receiptId: proof.referenceReceiptId },
         outcome: proof.outcome, reason: proof.outcome === "completed" ? "completed" : proof.reason, occurredAt });
       await session.query(`update k_nex_system_operation_requests set state='terminal', lease_owner=null, lease_token=null, lease_expires_at=null, updated_at=now() where operation_id=$1`, [operationId]);
       await this.receipt(session, operationId, receipt, true);
@@ -170,13 +174,17 @@ export class PostgresSystemOperationsStore implements SystemOperationsOperator {
   }
 
   private async receipt(session: RuntimeExtensionSession, operationId: string, receipt: OperationsCenterReceipt, terminal: boolean): Promise<void> {
-    await session.query(`insert into k_nex_system_operation_receipts (receipt_id, operation_id, request_id, application_id, environment, terminal, receipt_json, occurred_at) values ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::timestamptz)`, [receipt.receiptId, operationId, receipt.requestId, receipt.applicationId, receipt.environment, terminal, JSON.stringify(receipt), receipt.occurredAt]);
+    await session.query(`insert into k_nex_system_operation_receipts (receipt_id, operation_id, request_id, application_id, environment, terminal, authority_digest, receipt_json, occurred_at) values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::timestamptz)`, [receipt.receiptId, operationId, receipt.requestId, receipt.applicationId, receipt.environment, terminal, receipt.authorityDigest, JSON.stringify(receipt), receipt.occurredAt]);
   }
 
   private async advance(session: RuntimeExtensionSession, request: OperationsCenterRequest, receipt: OperationsCenterReceipt, outcome: "accepted" | "completed" | "failed", revision: number): Promise<void> {
     await session.query(`update k_nex_system_operations_state set operations_revision=$3, updated_at=now() where application_id=$1 and environment=$2`, [request.applicationId, request.environment, revision]);
     const auditId = await identifier("operations-audit", { operationId: request.reference.operationId, outcome, revision });
-    await session.query(`insert into k_nex_system_operation_audit (audit_id, application_id, environment, operation_id, kind, outcome, operations_revision, requested_by_kind, requested_by_id, created_at) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::timestamptz)`, [auditId, request.applicationId, request.environment, request.reference.operationId, request.kind, outcome, revision, request.requestedBy.kind, request.requestedBy.id, receipt.occurredAt]);
+    const authorityResult = await session.query<{ authority_json: unknown; authority_digest: string }>(`select authority_json, authority_digest from k_nex_system_operation_requests where operation_id=$1`, [request.reference.operationId]);
+    const authorityRow = authorityResult.rows[0];
+    if (!authorityRow || authorityRow.authority_digest !== request.authorityDigest) fail("INVALID", "System operation authority evidence is unavailable.");
+    const authorityEnvelope = AdministrationActorEnvelopeSchema.parse(authorityRow.authority_json);
+    await session.query(`insert into k_nex_system_operation_audit (audit_id, application_id, environment, operation_id, kind, outcome, operations_revision, requested_by_kind, requested_by_id, authority_json, authority_digest, created_at) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12::timestamptz)`, [auditId, request.applicationId, request.environment, request.reference.operationId, request.kind, outcome, revision, request.requestedBy.kind, request.requestedBy.id, JSON.stringify(authorityEnvelope), request.authorityDigest, receipt.occurredAt]);
     await this.outbox(session, request.applicationId, request.environment, revision, { type: "operations.receipt", operationId: request.reference.operationId, receipt });
   }
 
@@ -223,5 +231,16 @@ function assertDigest(value: string): void { if (!/^sha256:[0-9a-f]{64}$/u.test(
 function assertRevision(value: number): void { if (!Number.isSafeInteger(value) || value < 0 || value > 1_000_000_000) fail("INVALID", "System operations revision is invalid."); }
 function validId(value: string): boolean { return /^[a-z][a-z0-9-]{2,127}$/u.test(value); }
 function timestamp(clock: RuntimeExtensionClock): string { const value = clock.now(); if (!(value instanceof Date) || Number.isNaN(value.valueOf())) fail("INVALID", "System operations clock is invalid."); return value.toISOString(); }
+async function authority(value: unknown, kind: SystemOperationKind, applicationId: string, environment: string, requestedBy: OperationsCenterRequest["requestedBy"]): Promise<Readonly<{ envelope: AdministrationActorEnvelope; digest: string }>> {
+  const envelope = AdministrationActorEnvelopeSchema.parse(value);
+  const permissionId = kind === "backup" ? "system.operations.backup" : "system.operations.restore-drill";
+  if (envelope.applicationId !== applicationId || envelope.environment !== environment || envelope.effectiveActor.kind !== requestedBy.kind || envelope.effectiveActor.id !== requestedBy.id ||
+    envelope.permissions.length !== 1 || envelope.permissions[0]?.permissionId !== permissionId || envelope.permissions[0].scope.kind !== "application" || envelope.permissions[0].scope.resource !== "system.operations") {
+    fail("INVALID", "System operation authority evidence is invalid.");
+  }
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalJson(envelope)));
+  const digest = `sha256:${Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+  return Object.freeze({ envelope, digest });
+}
 async function identifier(prefix: string, value: unknown): Promise<string> { const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalJson(value))); const hex = Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join(""); return `${prefix}-${hex.slice(0, 32)}`; }
 function fail(code: SystemOperationsStoreErrorCode, message: string): never { throw new SystemOperationsStoreError(code, message); }

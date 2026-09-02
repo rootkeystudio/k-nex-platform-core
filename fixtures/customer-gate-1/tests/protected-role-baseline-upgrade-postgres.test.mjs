@@ -9,6 +9,7 @@ import {
   EffectiveAuthorityResolver,
   SystemAccessAdministrationService,
   createAuthorizationCatalogProvider,
+  createCurrentAuthorityTarget,
   createEffectiveAuthorizationCatalog,
   createTrustedAuthorizationSession,
   currentProtectedPlatformRoleBaselineRelease,
@@ -133,6 +134,43 @@ test("reconciles only an exact recognized protected baseline through real Postgr
   try {
     await boot(container.getConnectionUri());
     const store = new PostgresAuthorizationStore(pool, { validate: (_applicationId, subject) => subject.kind === "user" && ["user:owner", "user:owner-b"].includes(subject.id) ? "accepted" : "rejected" });
+
+    const releaseApplicationId = "customer-gate-1";
+    await seedRecognizedV2(pool, releaseApplicationId);
+    await boot(container.getConnectionUri());
+    const releaseState = await store.readState(releaseApplicationId, environment);
+    assert.ok(releaseState);
+    assert.equal(releaseState.authorizationRevision, 8, "Application boot must apply the exact v2 to v3 release reconciliation before readiness.");
+    const releaseCatalog = createEffectiveAuthorizationCatalog({ applicationId: releaseApplicationId, lifecycleRevision: 0, extensions: [], executables: [] });
+    const releaseProvider = createAuthorizationCatalogProvider(({ applicationId: requested, lifecycleRevision }) =>
+      requested === releaseApplicationId && lifecycleRevision === 0 ? { applicationId: releaseApplicationId, lifecycleRevision, catalog: releaseCatalog } : undefined);
+    const releaseSession = createTrustedAuthorizationSession({
+      schemaVersion: 1, applicationId: releaseApplicationId, environment, correlationId: "phase-11-release-upgrade",
+      principal: { kind: "user", id: "user:owner" }, effectiveActor: { kind: "user", id: "user:owner" }
+    });
+    const releaseAuthority = new CurrentAuthorityAdapter({ current: () => releaseSession }, new EffectiveAuthorityResolver({ store, catalogProvider: releaseProvider }));
+    for (const [permissionId, resource] of [
+      ["system.extensions.install-live", "system.extensions"],
+      ["system.catalog.refresh", "system.catalog"],
+      ["system.themes.read", "system.themes"],
+      ["system.operations.read", "system.operations"]
+    ]) {
+      const decision = await releaseAuthority.authorize(undefined, createCurrentAuthorityTarget({
+        permissionId,
+        scope: { kind: "application", resource },
+        facts: { boundary: "phase-11-release-upgrade-proof" }
+      }));
+      assert.equal(decision.outcome, "allow", `${permissionId} must authorize after the application release path upgrades v2.`);
+    }
+    assert.equal((await pool.query(
+      "select count(*)::int as count from k_nex_authorization_audit where application_id=$1 and audit_json->>'operation'=$2",
+      [releaseApplicationId, protectedRoleBaselineReconciliationOperation]
+    )).rows[0].count, 1);
+    assert.equal((await pool.query(
+      "select count(*)::int as count from k_nex_authorization_outbox where application_id=$1 and authorization_revision=8",
+      [releaseApplicationId]
+    )).rows[0].count, 1);
+
     const misuseApplicationId = "customer-protected-direct-misuse";
     await seedRecognizedV2(pool, misuseApplicationId);
     const misuseState = await store.readState(misuseApplicationId, environment);
@@ -286,6 +324,7 @@ test("reconciles only an exact recognized protected baseline through real Postgr
       }), { code: "REVISION_CONFLICT" });
       assert.deepEqual(await durableCounts(pool, tamperedApplicationId), tamperedBefore, `Tampered ${suffix} prior state fails closed without writes.`);
     }
+    console.log("P11_PROTECTED_BASELINE_RELEASE_UPGRADE_EVIDENCE=PASS");
   } finally {
     try {
       await pool.end();

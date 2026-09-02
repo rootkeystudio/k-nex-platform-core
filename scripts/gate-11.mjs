@@ -28,5 +28,5 @@ for (const marker of [
 ]) assert.ok(result.includes(marker), `Phase 11 result is missing: ${marker}`);
 for (let task = 1; task <= 10; task += 1) assert.ok(result.includes(`P11.${task}`), `Phase 11 result is missing task P11.${task}.`);
 
-console.log(JSON.stringify({ gate: "Gate 11", attackCorpus: "PASS", processProofs: 8, referenceModules: ["sales"] }, null, 2));
+console.log(JSON.stringify({ gate: "Gate 11", attackCorpus: "PASS", processProofs: 9, referenceModules: ["sales"] }, null, 2));
 console.log("GATE_11_PASS");

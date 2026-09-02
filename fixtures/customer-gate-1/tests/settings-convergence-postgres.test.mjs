@@ -48,12 +48,17 @@ async function waitFor(predicate, message) {
 
 function write(revision, enabled, target = identity, prefix = "settings") {
   const next = revision + 1;
+  const actor = { kind: "user", id: "user:owner" };
+  const permission = (decisionId) => ({ decisionId, permissionId: "system.settings.manage", owner: { kind: "platform", namespace: "system" }, scope: { kind: "application", resource: "system.settings" } });
   return {
     identity: target,
     document: { expectedDocumentRevision: revision, expectedSettingsRevision: revision, values: { enabled } },
     operation: { operationId: `${prefix}-operation-${next}`, idempotencyKey: `${prefix}-convergence-${next}` },
     receipt: { receiptId: `${prefix}-receipt-${next}`, invalidationId: `${prefix}-event-${next}`, occurredAt: `2026-09-02T00:00:0${next}.000Z` },
-    actor: { kind: "user", id: "user:owner" },
+    actor,
+    authorityEnvelope: { schemaVersion: 1, applicationId: target.applicationId, environment: target.environment, principal: actor, effectiveActor: actor,
+      authorizationRevision: 0, lifecycleRevision: 0, permissions: [permission(`${prefix}-manage-${next}`), permission(`${prefix}-descriptor-${next}`)],
+      reauthentication: { evidenceId: `${prefix}-evidence-${next}`, verifiedAt: "2026-09-02T00:00:00.000Z", expiresAt: "2026-09-02T00:01:00.000Z" } },
     authority: { schemaVersion: 1, applicationId: target.applicationId, environment: target.environment, authorizationRevision: 0, lifecycleRevision: 0 },
     auditId: `${prefix}-audit-${next}`,
     changedFields: ["enabled"]

@@ -6,7 +6,10 @@ import { PostgresCatalogMirrorStore } from "../src/catalog-mirror-store.js";
 import type { RuntimeExtensionPool, RuntimeExtensionSession } from "../src/runtime-extension-store.js";
 
 const owner = { applicationId: "customer-alpha", environment: "production" } as const;
-const refresh = { refreshId: "catalog-refresh-1", expectedCatalogRevision: 0, requestedBy: { kind: "user", id: "user-1" }, idempotencyKey: "catalog-refresh-key-1" } as const;
+const actor = { kind: "user" as const, id: "user-1" };
+const authorityEnvelope = { schemaVersion: 1 as const, ...owner, principal: actor, effectiveActor: actor, authorizationRevision: 1, lifecycleRevision: 1, permissions: [{ decisionId: "catalog-decision", permissionId: "system.catalog.refresh", owner: { kind: "platform" as const, namespace: "system" as const }, scope: { kind: "application" as const, resource: "system.catalog" } }] };
+const authorityDigest = `sha256:${createHash("sha256").update(canonicalJson(authorityEnvelope)).digest("hex")}`;
+const refresh = { refreshId: "catalog-refresh-1", expectedCatalogRevision: 0, requestedBy: actor, authorityEnvelope, idempotencyKey: "catalog-refresh-key-1" } as const;
 const keys = generateKeyPairSync("ed25519");
 const publicKey = keys.publicKey.export({ type: "spki", format: "pem" }).toString();
 const payload = { schemaVersion: 1, sequence: 1, expiresAt: "2030-01-02T00:00:00.000Z", entries: [{ deliveryClass: "hot-application", id: "app.sales", version: "1.0.0", runtimeAbi: "1.0.0", publisher: { identity: "catalog-publisher", publicKey }, source: { repository: "https://github.com/k-nex/official-apps", commit: "0123456789abcdef0123456789abcdef01234567", assetUrl: "https://github.com/k-nex/official-apps/releases/download/v1.0.0/app.sales.tar.gz" }, artifactDigest: `sha256:${"a".repeat(64)}`, manifestDigest: `sha256:${"b".repeat(64)}`, sbomDigest: `sha256:${"c".repeat(64)}`, provenanceDigest: `sha256:${"d".repeat(64)}`, support: "supported", review: "approved", security: "clear", revoked: false }] } as const;
@@ -21,13 +24,13 @@ function harness() {
   let stagedState = false;
   const query = vi.fn(async <T extends object>(text: string, values: readonly unknown[] = []) => {
     queries.push(text);
-    if (text.startsWith("select expected_catalog_revision, idempotency_key")) return { rows: [] as T[] };
+    if (text.startsWith("select expected_catalog_revision, authority_digest")) return { rows: [] as T[] };
     if (text.startsWith("select * from k_nex_catalog_refresh_operations")) return { rows: operation ? [operation] as T[] : [] as T[] };
     if (text.startsWith("select sequence, payload_digest, release_count, observed_at from k_nex_catalog_mirror_snapshots")) return { rows: [{ sequence: snapshot.sequence, payload_digest: snapshot.digest, release_count: snapshot.releaseCount, observed_at: snapshot.observedAt }] as T[] };
     if (text.startsWith("select catalog_revision, staged_snapshot_id")) return { rows: [{ catalog_revision: 0, staged_snapshot_id: stagedState ? snapshot.snapshotId : null }] as T[] };
     if (text.startsWith("select signer_identity, sequence")) return { rows: [] as T[] };
     if (text.startsWith("insert into k_nex_catalog_refresh_operations")) {
-      operation = { refresh_id: refresh.refreshId, expected_catalog_revision: 0, staged_snapshot_id: snapshot.snapshotId, requested_by_kind: "user", requested_by_id: "user-1", idempotency_key: refresh.idempotencyKey, state: "staged-reconciliation", revision: 1, updated_at: snapshot.observedAt };
+      operation = { refresh_id: refresh.refreshId, expected_catalog_revision: 0, staged_snapshot_id: snapshot.snapshotId, requested_by_kind: "user", requested_by_id: "user-1", authority_json: authorityEnvelope, authority_digest: authorityDigest, idempotency_key: refresh.idempotencyKey, state: "staged-reconciliation", revision: 1, updated_at: snapshot.observedAt };
     }
     if (text.startsWith("update k_nex_catalog_mirror_state set staged_snapshot_id")) stagedState = true;
     if (text.startsWith("update k_nex_catalog_refresh_operations set revision=revision+1")) {

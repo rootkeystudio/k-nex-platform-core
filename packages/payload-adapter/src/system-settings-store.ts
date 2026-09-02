@@ -1,4 +1,5 @@
 import {
+  AdministrationAuthorityEnvelopeSchema,
   AuthorizationStateSchema,
   AuthorizationSubjectSchema,
   EffectiveSettingsDocumentSchema,
@@ -12,6 +13,7 @@ import {
   canonicalJson,
   type AuthorizationSubject,
   type AuthorizationState,
+  type AdministrationAuthorityEnvelope,
   type EffectiveSettingsDocument,
   type ResumableSettingsOperation,
   type SettingsDocumentIdentity,
@@ -47,6 +49,7 @@ export interface ImmediateSystemSettingsWrite {
   readonly operation: Readonly<{ readonly operationId: unknown; readonly idempotencyKey: unknown }>;
   readonly receipt: Readonly<{ readonly receiptId: unknown; readonly invalidationId: unknown; readonly occurredAt: unknown }>;
   readonly actor: unknown;
+  readonly authorityEnvelope: unknown;
   readonly authority: unknown;
   readonly auditId: unknown;
   readonly changedFields: unknown;
@@ -85,6 +88,8 @@ interface ReceiptRow {
   requested_by_id: string;
   idempotency_key: string;
   request_digest: string;
+  authority_json: unknown;
+  authority_digest: string;
   outcome: string;
   receipt_json: unknown;
   occurred_at: unknown;
@@ -111,6 +116,8 @@ interface OperationRow {
   requested_by_id: string;
   idempotency_key: string;
   request_digest: string;
+  authority_json: unknown;
+  authority_digest: string;
   revision: number | string;
   lease_owner: string | null;
   lease_expires_at: unknown | null;
@@ -129,6 +136,8 @@ interface ParsedWrite {
   readonly occurredAt: string;
   readonly actor: AuthorizationSubject;
   readonly authority: AuthorizationState;
+  readonly authorityEnvelope: AdministrationAuthorityEnvelope;
+  readonly authorityDigest: string;
   readonly auditId: string;
   readonly changedFields: readonly string[];
   readonly requestDigest: string;
@@ -159,6 +168,11 @@ export interface SettingsOperationTransition extends SettingsOperationIdentity {
 export interface SettingsValidationClaim {
   readonly operation: ResumableSettingsOperation;
   readonly runtimeGenerationId: string;
+}
+
+export interface SettingsValidationAuthority {
+  readonly operation: ResumableSettingsOperation;
+  readonly authority: AdministrationAuthorityEnvelope;
 }
 
 export interface SettingsOperationPromotion extends GenerationValidatedSystemSettingsWrite {
@@ -263,7 +277,11 @@ function receiptMatches(row: ReceiptRow, input: ParsedWrite): SettingsTerminalRe
   const receipt = SettingsTerminalReceiptSchema.safeParse(row.receipt_json);
   if (!receipt.success) fail("STATE", "Stored system settings receipt is invalid.");
   const owner = ownerColumns(input.identity);
-  if (!/^sha256:[0-9a-f]{64}$/u.test(row.request_digest)) fail("STATE", "Stored system settings receipt is invalid.");
+  if (!/^sha256:[0-9a-f]{64}$/u.test(row.request_digest)) {
+    fail("STATE", "Stored system settings receipt is invalid.");
+  }
+  const persistedAuthority = parse(AdministrationAuthorityEnvelopeSchema, row.authority_json);
+  if (row.authority_digest !== input.authorityDigest || canonicalJson(persistedAuthority) !== canonicalJson(input.authorityEnvelope)) return undefined;
   if (row.request_digest !== input.requestDigest
     || row.application_id !== input.identity.applicationId || row.environment !== input.identity.environment
     || row.descriptor_id !== input.identity.descriptorId || integer(row.descriptor_schema_version) !== input.identity.descriptorSchemaVersion
@@ -275,7 +293,8 @@ function receiptMatches(row: ReceiptRow, input: ParsedWrite): SettingsTerminalRe
     || receipt.data.receiptId !== row.receipt_id
     || receipt.data.operationId !== row.operation_id
     || receipt.data.occurredAt !== timestamp(row.occurred_at) || canonicalJson(receipt.data.identity) !== canonicalJson(input.identity)
-    || canonicalJson(receipt.data.requestedBy) !== canonicalJson(input.actor) || receipt.data.idempotencyKey !== input.idempotencyKey) {
+    || canonicalJson(receipt.data.requestedBy) !== canonicalJson(input.actor) || receipt.data.idempotencyKey !== input.idempotencyKey
+    || receipt.data.authorityDigest !== input.authorityDigest || receipt.data.reauthentication !== "satisfied") {
     return undefined;
   }
   return receipt.data;
@@ -307,6 +326,7 @@ function operation(identity: SettingsDocumentIdentity, row: OperationRow): Resum
     state: row.state,
     attempts: integer(row.attempts),
     requestedBy: { kind: row.requested_by_kind, id: row.requested_by_id },
+    authorityDigest: row.authority_digest,
     idempotencyKey: row.idempotency_key,
     revision: integer(row.revision),
     ...(row.lease_owner == null ? {} : { leaseOwner: row.lease_owner, leaseExpiresAt: timestamp(row.lease_expires_at) }),
@@ -328,7 +348,9 @@ function operationMatchesCore(row: OperationRow, input: ParsedWrite): ResumableS
   const parsed = operation(input.identity, row);
   if (row.request_digest !== input.requestDigest
     || parsed.expectedDocumentRevision !== input.expectedDocumentRevision || parsed.expectedSettingsRevision !== input.expectedSettingsRevision
-    || parsed.idempotencyKey !== input.idempotencyKey || canonicalJson(parsed.requestedBy) !== canonicalJson(input.actor)) {
+    || parsed.idempotencyKey !== input.idempotencyKey || canonicalJson(parsed.requestedBy) !== canonicalJson(input.actor)
+    || parsed.authorityDigest !== input.authorityDigest
+    || canonicalJson(parse(AdministrationAuthorityEnvelopeSchema, row.authority_json)) !== canonicalJson(input.authorityEnvelope)) {
     return undefined;
   }
   return parsed;
@@ -375,14 +397,19 @@ export class PostgresSystemSettingsStore {
   async read(identityValue: unknown): Promise<SystemSettingsSnapshot | undefined> {
     const identity = parse(SettingsDocumentIdentitySchema, identityValue);
     const owner = ownerColumns(identity);
+    const session = await this.pool.connect();
     try {
-      const currentState = await this.pool.query<StateRow>(
+      await session.query("begin isolation level repeatable read read only");
+      const currentState = await session.query<StateRow>(
         "select settings_revision from k_nex_system_settings_state where application_id=$1 and environment=$2",
         [identity.applicationId, identity.environment]
       );
       const row = currentState.rows[0];
-      if (!row) return undefined;
-      const currentDocument = await this.pool.query<DocumentRow>(
+      if (!row) {
+        await session.query("commit");
+        return undefined;
+      }
+      const currentDocument = await session.query<DocumentRow>(
         `select owner_kind, owner_namespace, owner_delivery_class, owner_extension_id, owner_generation, document_revision, settings_revision, values_json
          from k_nex_system_settings_documents where application_id=$1 and environment=$2 and descriptor_id=$3 and descriptor_schema_version=$4 and owner_scope_key=$5`,
         [identity.applicationId, identity.environment, identity.descriptorId, identity.descriptorSchemaVersion, owner.ownerScopeKey]
@@ -391,8 +418,12 @@ export class PostgresSystemSettingsStore {
       const parsedDocument = currentDocument.rows[0] ? document(identity, currentDocument.rows[0]) : undefined;
       if (parsedDocument && parsedDocument.settingsRevision > parsedState.settingsRevision) fail("STATE", "Stored system settings revisions are invalid.");
       const result: SystemSettingsSnapshot = { state: parsedState, ...(parsedDocument ? { document: parsedDocument } : {}) };
+      await session.query("commit");
       return Object.freeze(result);
-    } catch (error) { databaseError(error); }
+    } catch (error) {
+      try { await session.query("rollback"); } catch { /* preserve root error */ }
+      databaseError(error);
+    } finally { session.release(); }
   }
 
   async writeImmediate(value: unknown): Promise<SettingsTerminalReceipt> {
@@ -417,7 +448,7 @@ export class PostgresSystemSettingsStore {
         const replayResult = await session.query<ReceiptRow>(
           `select receipt_id, operation_id, application_id, environment, descriptor_id, descriptor_schema_version, owner_scope_key,
              owner_kind, owner_namespace, owner_delivery_class, owner_extension_id, owner_generation,
-             requested_by_kind, requested_by_id, idempotency_key, request_digest, outcome, receipt_json, occurred_at
+             requested_by_kind, requested_by_id, idempotency_key, request_digest, authority_json, authority_digest, outcome, receipt_json, occurred_at
            from k_nex_system_settings_receipts
            where (application_id=$1 and environment=$2 and descriptor_id=$3 and descriptor_schema_version=$4 and owner_scope_key=$5 and idempotency_key=$6)
               or operation_id=$7 or receipt_id=$8 for update`,
@@ -452,6 +483,8 @@ export class PostgresSystemSettingsStore {
           operationId: input.operationId,
           identity: input.identity,
           requestedBy: input.actor,
+          authorityDigest: input.authorityDigest,
+          reauthentication: "satisfied",
           idempotencyKey: input.idempotencyKey,
           occurredAt: input.occurredAt,
           outcome: "promoted",
@@ -486,23 +519,24 @@ export class PostgresSystemSettingsStore {
         await session.query(
           `insert into k_nex_system_settings_receipts
             (receipt_id, operation_id, application_id, environment, descriptor_id, descriptor_schema_version, owner_scope_key, owner_kind, owner_namespace,
-             owner_delivery_class, owner_extension_id, owner_generation, requested_by_kind, requested_by_id, idempotency_key, request_digest, outcome, receipt_json, occurred_at)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'promoted',$17::jsonb,$18::timestamptz)`,
+             owner_delivery_class, owner_extension_id, owner_generation, requested_by_kind, requested_by_id, idempotency_key, request_digest,
+             authority_json, authority_digest, outcome, receipt_json, occurred_at)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18,'promoted',$19::jsonb,$20::timestamptz)`,
           [receipt.receiptId, receipt.operationId, input.identity.applicationId, input.identity.environment, input.identity.descriptorId,
             input.identity.descriptorSchemaVersion, owner.ownerScopeKey, owner.ownerKind, owner.ownerNamespace, owner.ownerDeliveryClass,
             owner.ownerExtensionId, owner.ownerGeneration, input.actor.kind, input.actor.id, input.idempotencyKey, input.requestDigest,
-            canonicalJson(receipt), receipt.occurredAt]
+            canonicalJson(input.authorityEnvelope), input.authorityDigest, canonicalJson(receipt), receipt.occurredAt]
         );
         await session.query(
           `insert into k_nex_system_settings_audit
             (audit_id, operation_id, receipt_id, application_id, environment, descriptor_id, descriptor_schema_version, owner_scope_key, owner_kind,
              owner_namespace, owner_delivery_class, owner_extension_id, owner_generation, requested_by_kind, requested_by_id, outcome,
-             document_revision, settings_revision, changed_fields_json)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'applied',$16,$17,$18::jsonb)`,
+             authority_json, authority_digest, reauthentication, document_revision, settings_revision, changed_fields_json)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'applied',$16::jsonb,$17,'satisfied',$18,$19,$20::jsonb)`,
           [input.auditId, receipt.operationId, receipt.receiptId, input.identity.applicationId, input.identity.environment, input.identity.descriptorId,
             input.identity.descriptorSchemaVersion, owner.ownerScopeKey, owner.ownerKind, owner.ownerNamespace, owner.ownerDeliveryClass,
-            owner.ownerExtensionId, owner.ownerGeneration, input.actor.kind, input.actor.id, receipt.documentRevision, receipt.settingsRevision,
-            canonicalJson(receipt.changedFields)]
+            owner.ownerExtensionId, owner.ownerGeneration, input.actor.kind, input.actor.id, canonicalJson(input.authorityEnvelope), input.authorityDigest,
+            receipt.documentRevision, receipt.settingsRevision, canonicalJson(receipt.changedFields)]
         );
         await session.query(
           `insert into k_nex_system_settings_outbox
@@ -561,12 +595,12 @@ export class PostgresSystemSettingsStore {
           `insert into k_nex_system_settings_operations
             (operation_id, application_id, environment, descriptor_id, descriptor_schema_version, owner_scope_key, owner_kind, owner_namespace,
              owner_delivery_class, owner_extension_id, owner_generation, pending_document_json, expected_document_revision, expected_settings_revision,
-             state, requested_by_kind, requested_by_id, idempotency_key, request_digest)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,'pending-validation',$15,$16,$17,$18)`,
+             state, requested_by_kind, requested_by_id, idempotency_key, request_digest, authority_json, authority_digest)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,'pending-validation',$15,$16,$17,$18,$19::jsonb,$20)`,
           [input.operationId, input.identity.applicationId, input.identity.environment, input.identity.descriptorId, input.identity.descriptorSchemaVersion,
             owner.ownerScopeKey, owner.ownerKind, owner.ownerNamespace, owner.ownerDeliveryClass, owner.ownerExtensionId, owner.ownerGeneration,
             canonicalJson(pending), input.expectedDocumentRevision, input.expectedSettingsRevision, input.actor.kind, input.actor.id,
-            input.idempotencyKey, input.requestDigest]
+            input.idempotencyKey, input.requestDigest, canonicalJson(input.authorityEnvelope), input.authorityDigest]
         );
         const inserted = await session.query<OperationRow>(
           `select ${this.operationColumns} from k_nex_system_settings_operations where operation_id=$1`, [input.operationId]
@@ -613,6 +647,7 @@ export class PostgresSystemSettingsStore {
       operation: { operationId: input.operationId, idempotencyKey: input.idempotencyKey },
       receipt: { receiptId: input.receiptId, invalidationId: input.invalidationId, occurredAt: input.occurredAt },
       actor: input.actor,
+      authorityEnvelope: input.authorityEnvelope,
       authority: input.authority,
       auditId: input.auditId,
       changedFields: Object.keys(values).sort()
@@ -638,6 +673,29 @@ export class PostgresSystemSettingsStore {
     } catch (error) { databaseError(error); }
   }
 
+  /** Trusted worker read; the browser-facing operation exposes only authorityDigest. */
+  async readGenerationValidatedAuthority(value: unknown): Promise<SettingsValidationAuthority | undefined> {
+    const request = exactObject(value, ["identity", "operationId"]);
+    const identity = parse(SettingsDocumentIdentitySchema, request.identity);
+    const operationId = parseOperationId(request.operationId);
+    try {
+      const active = await this.pool.query<OperationRow>(
+        `select ${this.operationColumns} from k_nex_system_settings_operations where operation_id=$1`, [operationId]
+      );
+      if (active.rows.length > 1) fail("STATE", "Stored system settings operation is invalid.");
+      const row = active.rows[0];
+      if (!row) return undefined;
+      const authority = parse(AdministrationAuthorityEnvelopeSchema, row.authority_json);
+      const digest = await sha256(authority);
+      if (digest !== row.authority_digest) fail("STATE", "Stored settings authority envelope is invalid.");
+      const parsedOperation = operation(identity, row);
+      if (parsedOperation.operationId !== operationId || parsedOperation.authorityDigest !== digest) {
+        fail("STATE", "Stored settings authority envelope is invalid.");
+      }
+      return Object.freeze({ operation: parsedOperation, authority });
+    } catch (error) { databaseError(error); }
+  }
+
   async transitionGenerationValidated(value: unknown): Promise<ResumableSettingsOperation> {
     const request = exactObject(value, ["identity", "operationId", "expectedOperationRevision", "state", "authority"]);
     const identity = parse(SettingsDocumentIdentitySchema, request.identity);
@@ -658,7 +716,9 @@ export class PostgresSystemSettingsStore {
           || (current.state === "validating" && request.state === "promotion-blocked");
         if (current.revision !== expectedRevision || !allowed) fail("REVISION", "System settings operation revision changed.");
         const updated = await session.query<OperationRow>(
-          `update k_nex_system_settings_operations set state=$2, attempts=attempts+1, revision=revision+1, updated_at=now()
+          `update k_nex_system_settings_operations set state=$2::varchar, attempts=attempts+1, revision=revision+1,
+             lease_owner=case when $2::varchar='promotion-blocked' then null else lease_owner end,
+             lease_expires_at=case when $2::varchar='promotion-blocked' then null else lease_expires_at end, updated_at=now()
            where operation_id=$1 and revision=$3 returning ${this.operationColumns}`,
           [operationId, request.state, expectedRevision]
         );
@@ -742,13 +802,14 @@ export class PostgresSystemSettingsStore {
   }
 
   async failGenerationValidated(value: unknown): Promise<SettingsTerminalReceipt> {
-    const keys = ["identity", "document", "operation", "receipt", "actor", "authority", "auditId", "changedFields", "expectedOperationRevision", "reason"];
+    const keys = ["identity", "document", "operation", "receipt", "actor", "authorityEnvelope", "authority", "auditId", "changedFields", "expectedOperationRevision", "reason"];
     const withLease = typeof value === "object" && value !== null && Object.hasOwn(value, "leaseOwner");
     const request = exactObject(value, withLease ? [...keys, "leaseOwner"] : keys);
-    const input = await this.input({ identity: request.identity, document: request.document, operation: request.operation, receipt: request.receipt, actor: request.actor, authority: request.authority, auditId: request.auditId, changedFields: request.changedFields });
+    const input = await this.input({ identity: request.identity, document: request.document, operation: request.operation, receipt: request.receipt, actor: request.actor, authorityEnvelope: request.authorityEnvelope, authority: request.authority, auditId: request.auditId, changedFields: request.changedFields }, false);
     const expectedRevision = positiveOrZero(request.expectedOperationRevision);
     const failureProbe = parse(SettingsTerminalReceiptSchema, {
       schemaVersion: 1, receiptId: input.receiptId, operationId: input.operationId, identity: input.identity, requestedBy: input.actor,
+      authorityDigest: input.authorityDigest, reauthentication: "satisfied",
       idempotencyKey: input.idempotencyKey, occurredAt: input.occurredAt, outcome: "validation-failed", reason: request.reason
     });
     if (expectedRevision === 0 || failureProbe.outcome === "promoted") fail("INVALID", "System settings input is invalid.");
@@ -770,6 +831,7 @@ export class PostgresSystemSettingsStore {
         }
         const receipt = parse(SettingsTerminalReceiptSchema, {
           schemaVersion: 1, receiptId: input.receiptId, operationId: input.operationId, identity: input.identity, requestedBy: input.actor,
+          authorityDigest: input.authorityDigest, reauthentication: "satisfied",
           idempotencyKey: input.idempotencyKey, occurredAt: input.occurredAt,
           outcome: active.state === "promotion-blocked" ? "promotion-invalidated" : "validation-failed", reason: failureProbe.reason
         });
@@ -784,11 +846,11 @@ export class PostgresSystemSettingsStore {
   private readonly operationColumns = `operation_id, application_id, environment, descriptor_id, descriptor_schema_version,
     owner_scope_key, owner_kind, owner_namespace, owner_delivery_class, owner_extension_id, owner_generation,
     pending_document_json, expected_document_revision, expected_settings_revision, state, attempts, requested_by_kind,
-    requested_by_id, idempotency_key, request_digest, revision, lease_owner, lease_expires_at, updated_at`;
+    requested_by_id, idempotency_key, request_digest, authority_json, authority_digest, revision, lease_owner, lease_expires_at, updated_at`;
 
   private readonly receiptColumns = `receipt_id, operation_id, application_id, environment, descriptor_id, descriptor_schema_version,
     owner_scope_key, owner_kind, owner_namespace, owner_delivery_class, owner_extension_id, owner_generation,
-    requested_by_kind, requested_by_id, idempotency_key, request_digest, outcome, receipt_json, occurred_at`;
+    requested_by_kind, requested_by_id, idempotency_key, request_digest, authority_json, authority_digest, outcome, receipt_json, occurred_at`;
 
   private async lockScope(session: RuntimeExtensionSession, identity: SettingsDocumentIdentity): Promise<void> {
     if (identity.owner.kind === "extension") {
@@ -948,6 +1010,7 @@ export class PostgresSystemSettingsStore {
 
   private readReceipt(identity: SettingsDocumentIdentity, operationId: string, row: ReceiptRow): SettingsTerminalReceipt {
     const receipt = parse(SettingsTerminalReceiptSchema, row.receipt_json);
+    const authority = parse(AdministrationAuthorityEnvelopeSchema, row.authority_json);
     const owner = ownerColumns(identity);
     if (!/^sha256:[0-9a-f]{64}$/u.test(row.request_digest) || row.operation_id !== operationId
       || row.application_id !== identity.applicationId || row.environment !== identity.environment || row.descriptor_id !== identity.descriptorId
@@ -957,7 +1020,10 @@ export class PostgresSystemSettingsStore {
       || receipt.operationId !== operationId || receipt.operationId !== row.operation_id || canonicalJson(receipt.identity) !== canonicalJson(identity)
       || receipt.receiptId !== row.receipt_id || receipt.idempotencyKey !== row.idempotency_key
       || receipt.outcome !== row.outcome || receipt.occurredAt !== timestamp(row.occurred_at)
-      || canonicalJson(receipt.requestedBy) !== canonicalJson({ kind: row.requested_by_kind, id: row.requested_by_id })) {
+      || canonicalJson(receipt.requestedBy) !== canonicalJson({ kind: row.requested_by_kind, id: row.requested_by_id })
+      || receipt.authorityDigest !== row.authority_digest || receipt.reauthentication !== "satisfied"
+      || authority.applicationId !== identity.applicationId || authority.environment !== identity.environment
+      || canonicalJson(authority.effectiveActor) !== canonicalJson(receipt.requestedBy)) {
       fail("STATE", "Stored system settings receipt is invalid.");
     }
     return receipt;
@@ -966,7 +1032,8 @@ export class PostgresSystemSettingsStore {
   private promotedReceipt(input: ParsedWrite, pending: ResumableSettingsOperation["pendingDocument"]): Extract<SettingsTerminalReceipt, { outcome: "promoted" }> {
     const result = parse(SettingsTerminalReceiptSchema, {
       schemaVersion: 1, receiptId: input.receiptId, operationId: input.operationId, identity: input.identity,
-      requestedBy: input.actor, idempotencyKey: input.idempotencyKey, occurredAt: input.occurredAt, outcome: "promoted",
+      requestedBy: input.actor, authorityDigest: input.authorityDigest, reauthentication: "satisfied",
+      idempotencyKey: input.idempotencyKey, occurredAt: input.occurredAt, outcome: "promoted",
       documentRevision: pending.documentRevision, settingsRevision: pending.settingsRevision,
       changedFields: input.changedFields, invalidationId: input.invalidationId
     });
@@ -997,23 +1064,24 @@ export class PostgresSystemSettingsStore {
     await session.query(
       `insert into k_nex_system_settings_receipts
         (receipt_id, operation_id, application_id, environment, descriptor_id, descriptor_schema_version, owner_scope_key, owner_kind, owner_namespace,
-         owner_delivery_class, owner_extension_id, owner_generation, requested_by_kind, requested_by_id, idempotency_key, request_digest, outcome, receipt_json, occurred_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'promoted',$17::jsonb,$18::timestamptz)`,
+         owner_delivery_class, owner_extension_id, owner_generation, requested_by_kind, requested_by_id, idempotency_key, request_digest,
+         authority_json, authority_digest, outcome, receipt_json, occurred_at)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18,'promoted',$19::jsonb,$20::timestamptz)`,
       [receipt.receiptId, receipt.operationId, input.identity.applicationId, input.identity.environment, input.identity.descriptorId,
         input.identity.descriptorSchemaVersion, owner.ownerScopeKey, owner.ownerKind, owner.ownerNamespace, owner.ownerDeliveryClass,
         owner.ownerExtensionId, owner.ownerGeneration, input.actor.kind, input.actor.id, input.idempotencyKey, input.requestDigest,
-        canonicalJson(receipt), receipt.occurredAt]
+        canonicalJson(input.authorityEnvelope), input.authorityDigest, canonicalJson(receipt), receipt.occurredAt]
     );
     await session.query(
       `insert into k_nex_system_settings_audit
         (audit_id, operation_id, receipt_id, application_id, environment, descriptor_id, descriptor_schema_version, owner_scope_key, owner_kind,
          owner_namespace, owner_delivery_class, owner_extension_id, owner_generation, requested_by_kind, requested_by_id, outcome,
-         document_revision, settings_revision, changed_fields_json)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'applied',$16,$17,$18::jsonb)`,
+         authority_json, authority_digest, reauthentication, document_revision, settings_revision, changed_fields_json)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'applied',$16::jsonb,$17,'satisfied',$18,$19,$20::jsonb)`,
       [input.auditId, receipt.operationId, receipt.receiptId, input.identity.applicationId, input.identity.environment, input.identity.descriptorId,
         input.identity.descriptorSchemaVersion, owner.ownerScopeKey, owner.ownerKind, owner.ownerNamespace, owner.ownerDeliveryClass,
-        owner.ownerExtensionId, owner.ownerGeneration, input.actor.kind, input.actor.id, receipt.documentRevision, receipt.settingsRevision,
-        canonicalJson(receipt.changedFields)]
+        owner.ownerExtensionId, owner.ownerGeneration, input.actor.kind, input.actor.id, canonicalJson(input.authorityEnvelope), input.authorityDigest,
+        receipt.documentRevision, receipt.settingsRevision, canonicalJson(receipt.changedFields)]
     );
     await session.query(
       `insert into k_nex_system_settings_outbox
@@ -1030,39 +1098,42 @@ export class PostgresSystemSettingsStore {
     await session.query(
       `insert into k_nex_system_settings_receipts
         (receipt_id, operation_id, application_id, environment, descriptor_id, descriptor_schema_version, owner_scope_key, owner_kind, owner_namespace,
-         owner_delivery_class, owner_extension_id, owner_generation, requested_by_kind, requested_by_id, idempotency_key, request_digest, outcome, receipt_json, occurred_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::jsonb,$19::timestamptz)`,
+         owner_delivery_class, owner_extension_id, owner_generation, requested_by_kind, requested_by_id, idempotency_key, request_digest,
+         authority_json, authority_digest, outcome, receipt_json, occurred_at)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18,$19,$20::jsonb,$21::timestamptz)`,
       [receipt.receiptId, receipt.operationId, input.identity.applicationId, input.identity.environment, input.identity.descriptorId,
         input.identity.descriptorSchemaVersion, owner.ownerScopeKey, owner.ownerKind, owner.ownerNamespace, owner.ownerDeliveryClass,
         owner.ownerExtensionId, owner.ownerGeneration, input.actor.kind, input.actor.id, input.idempotencyKey, input.requestDigest,
-        receipt.outcome, canonicalJson(receipt), receipt.occurredAt]
+        canonicalJson(input.authorityEnvelope), input.authorityDigest, receipt.outcome, canonicalJson(receipt), receipt.occurredAt]
     );
     await session.query(
       `insert into k_nex_system_settings_audit
         (audit_id, operation_id, receipt_id, application_id, environment, descriptor_id, descriptor_schema_version, owner_scope_key, owner_kind,
-         owner_namespace, owner_delivery_class, owner_extension_id, owner_generation, requested_by_kind, requested_by_id, outcome, changed_fields_json)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'[]'::jsonb)`,
+         owner_namespace, owner_delivery_class, owner_extension_id, owner_generation, requested_by_kind, requested_by_id, outcome,
+         authority_json, authority_digest, reauthentication, changed_fields_json)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18,'satisfied','[]'::jsonb)`,
       [input.auditId, receipt.operationId, receipt.receiptId, input.identity.applicationId, input.identity.environment, input.identity.descriptorId,
         input.identity.descriptorSchemaVersion, owner.ownerScopeKey, owner.ownerKind, owner.ownerNamespace, owner.ownerDeliveryClass,
-        owner.ownerExtensionId, owner.ownerGeneration, input.actor.kind, input.actor.id, receipt.outcome]
+        owner.ownerExtensionId, owner.ownerGeneration, input.actor.kind, input.actor.id, receipt.outcome,
+        canonicalJson(input.authorityEnvelope), input.authorityDigest]
     );
   }
 
   private async operationWrite(value: unknown): Promise<{ input: ParsedWrite; expectedRevision: number; leaseOwner?: string }> {
-    const keys = ["identity", "document", "operation", "receipt", "actor", "authority", "auditId", "changedFields", "expectedOperationRevision"];
+    const keys = ["identity", "document", "operation", "receipt", "actor", "authorityEnvelope", "authority", "auditId", "changedFields", "expectedOperationRevision"];
     const withLease = typeof value === "object" && value !== null && Object.hasOwn(value, "leaseOwner");
     const request = exactObject(value, withLease ? [...keys, "leaseOwner"] : keys);
     const expectedRevision = positiveOrZero(request.expectedOperationRevision);
     if (expectedRevision === 0) fail("INVALID", "System settings input is invalid.");
     return {
-      input: await this.input({ identity: request.identity, document: request.document, operation: request.operation, receipt: request.receipt, actor: request.actor, authority: request.authority, auditId: request.auditId, changedFields: request.changedFields }),
+      input: await this.input({ identity: request.identity, document: request.document, operation: request.operation, receipt: request.receipt, actor: request.actor, authorityEnvelope: request.authorityEnvelope, authority: request.authority, auditId: request.auditId, changedFields: request.changedFields }, false),
       expectedRevision,
       ...(withLease ? { leaseOwner: parseOperationId(request.leaseOwner) } : {})
     };
   }
 
-  private async input(value: unknown): Promise<ParsedWrite> {
-    const input = exactObject(value, ["identity", "document", "operation", "receipt", "actor", "authority", "auditId", "changedFields"]);
+  private async input(value: unknown, requireCurrentEnvelope = true): Promise<ParsedWrite> {
+    const input = exactObject(value, ["identity", "document", "operation", "receipt", "actor", "authorityEnvelope", "authority", "auditId", "changedFields"]);
     const documentInput = exactObject(input.document, ["expectedDocumentRevision", "expectedSettingsRevision", "values"]);
     const operation = exactObject(input.operation, ["operationId", "idempotencyKey"]);
     const receipt = exactObject(input.receipt, ["receiptId", "invalidationId", "occurredAt"]);
@@ -1071,12 +1142,25 @@ export class PostgresSystemSettingsStore {
     const expectedSettingsRevision = positiveOrZero(documentInput.expectedSettingsRevision);
     const actor = parse(AuthorizationSubjectSchema, input.actor);
     const authority = this.authority(identity, input.authority);
+    const authorityEnvelope = parse(AdministrationAuthorityEnvelopeSchema, input.authorityEnvelope);
+    if (authorityEnvelope.applicationId !== identity.applicationId || authorityEnvelope.environment !== identity.environment
+      || canonicalJson(authorityEnvelope.effectiveActor) !== canonicalJson(actor)
+      || requireCurrentEnvelope && (authorityEnvelope.authorizationRevision !== authority.authorizationRevision
+        || authorityEnvelope.lifecycleRevision !== authority.lifecycleRevision)
+      || Date.parse(authorityEnvelope.reauthentication.verifiedAt) > Date.parse(String(receipt.occurredAt))
+      || Date.parse(authorityEnvelope.reauthentication.expiresAt) <= Date.parse(String(receipt.occurredAt))
+      || !authorityEnvelope.permissions.some(({ permissionId, scope }) => permissionId === "system.settings.manage"
+        && scope.kind === "application" && scope.resource === "system.settings")
+      || authorityEnvelope.permissions.length < 2) fail("INVALID", "System settings authority envelope is invalid.");
+    const authorityDigest = await sha256(authorityEnvelope);
     const preview = parse(SettingsTerminalReceiptSchema, {
       schemaVersion: 1,
       receiptId: receipt.receiptId,
       operationId: operation.operationId,
       identity,
       requestedBy: actor,
+      authorityDigest: "sha256:" + "0".repeat(64),
+      reauthentication: "satisfied",
       idempotencyKey: operation.idempotencyKey,
       occurredAt: receipt.occurredAt,
       outcome: "promoted",
@@ -1109,6 +1193,7 @@ export class PostgresSystemSettingsStore {
       values: candidate.values,
       idempotencyKey: preview.idempotencyKey,
       actor,
+      authorityDigest,
       changedFields
     });
     return Object.freeze({
@@ -1123,6 +1208,8 @@ export class PostgresSystemSettingsStore {
       occurredAt: preview.occurredAt,
       actor,
       authority,
+      authorityEnvelope,
+      authorityDigest,
       auditId: auditProbe.invalidationId,
       changedFields,
       requestDigest

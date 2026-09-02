@@ -1,10 +1,13 @@
 import { createHash } from "node:crypto";
 
 import {
+  AdministrationAuthorityEnvelopeSchema,
   AuthorizationStateSchema,
   ResumableSettingsOperationSchema,
   SettingsDocumentIdentitySchema,
   SettingsTerminalReceiptSchema,
+  canonicalJson,
+  type AdministrationAuthorityEnvelope,
   type AuthorizationState,
   type PendingSettingsCandidate,
   type ResumableSettingsOperation,
@@ -29,6 +32,14 @@ export interface SettingsValidationCoordinatorOptions {
   readonly store: PostgresSystemSettingsStore;
   readonly validator: SettingsGenerationValidator;
   readonly readAuthority: (applicationId: string, environment: string) => Promise<AuthorizationState>;
+  readonly currentAuthority: Readonly<{
+    reauthorize(input: Readonly<{
+      authority: AdministrationAuthorityEnvelope;
+      identity: SettingsDocumentIdentity;
+      operationId: string;
+      phase: "claim" | "promote";
+    }>): Promise<boolean>;
+  }>;
   readonly leaseOwner: string;
   readonly now?: () => Date;
   readonly leaseMilliseconds?: number;
@@ -44,6 +55,9 @@ export class SettingsValidationCoordinator {
   }
 
   async run(value: Readonly<{ identity: unknown; operationId: unknown }>): Promise<SettingsTerminalReceipt> {
+    if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).sort().join("\0") !== "identity\0operationId") {
+      throw new TypeError("Settings operation identity is invalid.");
+    }
     const identity = SettingsDocumentIdentitySchema.parse(value.identity);
     if (typeof value.operationId !== "string" || !/^[a-z][a-z0-9-]{2,127}$/u.test(value.operationId)) {
       throw new TypeError("Settings operation identity is invalid.");
@@ -53,8 +67,22 @@ export class SettingsValidationCoordinator {
     const terminal = SettingsTerminalReceiptSchema.safeParse(existing);
     if (terminal.success) return terminal.data;
     const resumable = ResumableSettingsOperationSchema.parse(existing);
+    const secure = await this.options.store.readGenerationValidatedAuthority({ identity, operationId: resumable.operationId });
+    if (!secure || secure.operation.revision !== resumable.revision) {
+      throw new SystemSettingsStoreError("REVISION", "System settings operation changed before authorization.");
+    }
+    const authorityIntent = AdministrationAuthorityEnvelopeSchema.parse(secure.authority);
 
     const authority = await this.authority(identity);
+    if (!await this.reauthorize(authorityIntent, identity, resumable.operationId, "claim")) {
+      const blocked = await this.options.store.transitionGenerationValidated({
+        identity, operationId: resumable.operationId, expectedOperationRevision: resumable.revision,
+        state: "promotion-blocked", authority
+      });
+      const finishedAt = (this.options.now ?? (() => new Date()))().toISOString();
+      const write = await this.write(blocked, authorityIntent, authority, finishedAt);
+      return this.options.store.failGenerationValidated({ ...write, expectedOperationRevision: blocked.revision, reason: "permission-revoked" });
+    }
     const now = (this.options.now ?? (() => new Date()))();
     const expires = new Date(now.valueOf() + (this.options.leaseMilliseconds ?? 60_000));
     const claim = await this.options.store.claimGenerationValidated({
@@ -73,7 +101,15 @@ export class SettingsValidationCoordinator {
     });
     const latestAuthority = await this.authority(identity);
     const finishedAt = (this.options.now ?? (() => new Date()))().toISOString();
-    const write = await this.write(claim.operation, latestAuthority, finishedAt);
+    const write = await this.write(claim.operation, authorityIntent, latestAuthority, finishedAt);
+    if (!await this.reauthorize(authorityIntent, identity, claim.operation.operationId, "promote")) {
+      const blocked = await this.options.store.transitionGenerationValidated({
+        identity, operationId: claim.operation.operationId, expectedOperationRevision: claim.operation.revision,
+        state: "promotion-blocked", authority: latestAuthority
+      });
+      const blockedWrite = await this.write(blocked, authorityIntent, latestAuthority, finishedAt);
+      return this.options.store.failGenerationValidated({ ...blockedWrite, expectedOperationRevision: blocked.revision, reason: "permission-revoked" });
+    }
     return validation.ready
       ? this.options.store.promoteGenerationValidated({ ...write, expectedOperationRevision: claim.operation.revision, leaseOwner: this.options.leaseOwner })
       : this.options.store.failGenerationValidated({ ...write, expectedOperationRevision: claim.operation.revision, leaseOwner: this.options.leaseOwner, reason: validation.reason });
@@ -87,12 +123,13 @@ export class SettingsValidationCoordinator {
     return parsed.data;
   }
 
-  private async write(operation: ResumableSettingsOperation, authority: AuthorizationState, occurredAt: string): Promise<Record<string, unknown>> {
+  private async write(operation: ResumableSettingsOperation, authorityEnvelope: AdministrationAuthorityEnvelope, authority: AuthorizationState, occurredAt: string): Promise<Record<string, unknown>> {
     const snapshot = await this.options.store.read(operation.identity);
     const before = snapshot?.document?.values ?? {};
     const after = operation.pendingDocument.values;
     const changedFields = [...new Set([...Object.keys(before), ...Object.keys(after)])]
-      .filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key])).sort();
+      .filter((key) => !Object.hasOwn(before, key) || !Object.hasOwn(after, key)
+        || canonicalJson(before[key]) !== canonicalJson(after[key])).sort();
     return {
       identity: operation.identity,
       document: {
@@ -107,10 +144,16 @@ export class SettingsValidationCoordinator {
         occurredAt
       },
       actor: operation.requestedBy,
+      authorityEnvelope,
       authority,
       auditId: stableId(operation.operationId, "audit"),
       changedFields
     };
+  }
+
+  private async reauthorize(authority: AdministrationAuthorityEnvelope, identity: SettingsDocumentIdentity, operationId: string, phase: "claim" | "promote"): Promise<boolean> {
+    try { return await this.options.currentAuthority.reauthorize({ authority, identity, operationId, phase }) === true; }
+    catch { return false; }
   }
 }
 

@@ -44,6 +44,8 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
       "staged_snapshot_id" varchar(128),
       "requested_by_kind" varchar(16) NOT NULL,
       "requested_by_id" varchar(160) NOT NULL,
+      "authority_json" jsonb NOT NULL,
+      "authority_digest" varchar(71) NOT NULL,
       "idempotency_key" varchar(160) NOT NULL,
       "state" varchar(32) DEFAULT 'fetching' NOT NULL,
       "revision" integer DEFAULT 1 NOT NULL,
@@ -53,7 +55,7 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
       CONSTRAINT "k_nex_catalog_refresh_operations_snapshot_fk" FOREIGN KEY ("application_id", "environment", "staged_snapshot_id") REFERENCES "k_nex_catalog_mirror_snapshots" ("application_id", "environment", "snapshot_id") ON DELETE RESTRICT,
       CONSTRAINT "k_nex_catalog_refresh_operations_owner_id_key" UNIQUE ("application_id", "environment", "refresh_id"),
       CONSTRAINT "k_nex_catalog_refresh_operations_replay_key" UNIQUE ("application_id", "environment", "idempotency_key"),
-      CONSTRAINT "k_nex_catalog_refresh_operations_identity_check" CHECK ("refresh_id" ~ '^[a-z][a-z0-9-]{2,127}$' AND "expected_catalog_revision" BETWEEN 0 AND 1000000000 AND "revision" BETWEEN 1 AND 1000000000 AND "requested_by_kind" IN ('user','service') AND "requested_by_id" ~ '^[A-Za-z0-9][A-Za-z0-9._:@/-]*$' AND "idempotency_key" ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$' AND (("state"='fetching' AND "staged_snapshot_id" IS NULL) OR ("state"='staged-reconciliation' AND "staged_snapshot_id" IS NOT NULL) OR ("state"='terminal')))
+      CONSTRAINT "k_nex_catalog_refresh_operations_identity_check" CHECK ("refresh_id" ~ '^[a-z][a-z0-9-]{2,127}$' AND "expected_catalog_revision" BETWEEN 0 AND 1000000000 AND "revision" BETWEEN 1 AND 1000000000 AND "requested_by_kind" IN ('user','service') AND "requested_by_id" ~ '^[A-Za-z0-9][A-Za-z0-9._:@/-]*$' AND jsonb_typeof("authority_json")='object' AND "authority_digest" ~ '^sha256:[0-9a-f]{64}$' AND "idempotency_key" ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$' AND (("state"='fetching' AND "staged_snapshot_id" IS NULL) OR ("state"='staged-reconciliation' AND "staged_snapshot_id" IS NOT NULL) OR ("state"='terminal')))
     );
 
     CREATE TABLE "k_nex_catalog_refresh_receipts" (
@@ -62,13 +64,14 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
       "application_id" varchar(128) NOT NULL,
       "environment" varchar(64) NOT NULL,
       "expected_catalog_revision" integer NOT NULL,
+      "authority_digest" varchar(71) NOT NULL,
       "idempotency_key" varchar(160) NOT NULL,
       "receipt_json" jsonb NOT NULL,
       "occurred_at" timestamp(3) with time zone NOT NULL,
       CONSTRAINT "k_nex_catalog_refresh_receipts_state_fk" FOREIGN KEY ("application_id", "environment") REFERENCES "k_nex_catalog_mirror_state" ("application_id", "environment") ON DELETE RESTRICT,
       CONSTRAINT "k_nex_catalog_refresh_receipts_operation_fk" FOREIGN KEY ("application_id", "environment", "refresh_id") REFERENCES "k_nex_catalog_refresh_operations" ("application_id", "environment", "refresh_id") ON DELETE RESTRICT,
       CONSTRAINT "k_nex_catalog_refresh_receipts_replay_key" UNIQUE ("application_id", "environment", "idempotency_key"),
-      CONSTRAINT "k_nex_catalog_refresh_receipts_identity_check" CHECK ("receipt_id" ~ '^[a-z][a-z0-9-]{2,127}$' AND "refresh_id" ~ '^[a-z][a-z0-9-]{2,127}$' AND "expected_catalog_revision" BETWEEN 0 AND 1000000000 AND "idempotency_key" ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$'),
+      CONSTRAINT "k_nex_catalog_refresh_receipts_identity_check" CHECK ("receipt_id" ~ '^[a-z][a-z0-9-]{2,127}$' AND "refresh_id" ~ '^[a-z][a-z0-9-]{2,127}$' AND "expected_catalog_revision" BETWEEN 0 AND 1000000000 AND "authority_digest" ~ '^sha256:[0-9a-f]{64}$' AND "idempotency_key" ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$'),
       CONSTRAINT "k_nex_catalog_refresh_receipts_safe_check" CHECK (jsonb_typeof("receipt_json")='object' AND NOT ("receipt_json" ?| ARRAY['url','repository','signer','publicKey','signature','trustRoot','token','secret']))
     );
 
@@ -96,13 +99,15 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
       "environment" varchar(64) NOT NULL,
       "catalog_revision" integer NOT NULL,
       "outcome" varchar(16) NOT NULL,
+      "authority_json" jsonb NOT NULL,
+      "authority_digest" varchar(71) NOT NULL,
       "sequence" bigint NOT NULL,
       "payload_digest" varchar(71) NOT NULL,
       "release_count" integer NOT NULL,
       "created_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
       CONSTRAINT "k_nex_catalog_refresh_audit_receipt_fk" FOREIGN KEY ("receipt_id") REFERENCES "k_nex_catalog_refresh_receipts" ("receipt_id") ON DELETE RESTRICT,
       CONSTRAINT "k_nex_catalog_refresh_audit_state_fk" FOREIGN KEY ("application_id", "environment") REFERENCES "k_nex_catalog_mirror_state" ("application_id", "environment") ON DELETE RESTRICT,
-      CONSTRAINT "k_nex_catalog_refresh_audit_identity_check" CHECK ("audit_id" ~ '^[a-z][a-z0-9-]{2,127}$' AND "catalog_revision" BETWEEN 0 AND 1000000000 AND "outcome"='accepted' AND "sequence" BETWEEN 1 AND 9007199254740991 AND "payload_digest" ~ '^sha256:[0-9a-f]{64}$' AND "release_count" BETWEEN 0 AND 10000)
+      CONSTRAINT "k_nex_catalog_refresh_audit_identity_check" CHECK ("audit_id" ~ '^[a-z][a-z0-9-]{2,127}$' AND "catalog_revision" BETWEEN 0 AND 1000000000 AND "outcome"='accepted' AND jsonb_typeof("authority_json")='object' AND "authority_digest" ~ '^sha256:[0-9a-f]{64}$' AND "sequence" BETWEEN 1 AND 9007199254740991 AND "payload_digest" ~ '^sha256:[0-9a-f]{64}$' AND "release_count" BETWEEN 0 AND 10000)
     );
 
     CREATE TABLE "k_nex_catalog_refresh_outbox" (

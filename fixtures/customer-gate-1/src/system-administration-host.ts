@@ -24,6 +24,8 @@ import {
   SystemAccessAdministrationError,
   SystemAccessAdministrationService,
   type ActivePermissionGroup,
+  SystemCatalogAdministrationError,
+  SystemCatalogAdministrationService,
   SystemExtensionAdministrationError,
   SystemExtensionAdministrationService,
   SystemOperationsAdministrationError,
@@ -41,6 +43,7 @@ type Expected = Readonly<{ readonly applicationId: string; readonly environment:
 
 export interface SystemAdministrationHostOptions<TContext extends Context> {
   readonly access: SystemAccessAdministrationService<TContext>;
+  readonly catalog: SystemCatalogAdministrationService<TContext>;
   readonly extensions: SystemExtensionAdministrationService<TContext>;
   readonly settings: SystemSettingsAdministrationService<TContext>;
   readonly themes: SystemThemeAdministrationService<TContext>;
@@ -214,6 +217,11 @@ async function renderRoute<TContext extends Context>(options: SystemAdministrati
 async function action<TContext extends Context>(options: SystemAdministrationHostOptions<TContext>, request: IncomingMessage, response: ServerResponse, path: string, planned: Map<string, PlanState>): Promise<void> {
   const context = options.context(request);
   const body = await parseBody(request);
+  const secretRoute = /^\/api\/system\/settings\/([^/]+)\/secret$/u.exec(path);
+  if (secretRoute) {
+    const settingsId = decodeURIComponent(secretRoute[1]!);
+    return writeJson(response, 200, await options.settings.secret({ context, settingsId, secret: body as never }));
+  }
   if (path.startsWith("/api/system/settings/")) {
     const settingsId = decodePathSegment(path, "/api/system/settings/");
     const value = exact(body, ["expectedDocumentRevision", "expectedSettingsRevision", "idempotencyKey", "values"]);
@@ -232,6 +240,10 @@ async function action<TContext extends Context>(options: SystemAdministrationHos
   if (path === "/api/system/operations/backup" || path === "/api/system/operations/restore-drill") {
     const value = exact(body, ["request"]);
     return writeJson(response, 200, await options.operations.request({ context, kind: path.endsWith("backup") ? "backup" : "restore-drill", request: value.request }));
+  }
+  if (path === "/api/system/catalog/refresh") {
+    const value = exact(body, ["request"]);
+    return writeJson(response, 200, await options.catalog.refresh({ context, request: value.request }));
   }
   if (path === "/api/system/access/templates/instantiate") {
     const value = exact(body, ["expected", "role", "templateId"]);
@@ -341,7 +353,7 @@ async function planLabel<TContext extends Context>(options: SystemAdministration
 
 class RouteError extends Error { constructor(readonly status: number, message: string) { super(message); } }
 function writeError(response: ServerResponse, error: unknown): void {
-  const status = error instanceof RouteError ? error.status : error instanceof SystemAccessAdministrationError || error instanceof SystemExtensionAdministrationError || error instanceof SystemSettingsAdministrationError || error instanceof SystemThemeAdministrationError || error instanceof SystemOperationsAdministrationError
+  const status = error instanceof RouteError ? error.status : error instanceof SystemAccessAdministrationError || error instanceof SystemCatalogAdministrationError || error instanceof SystemExtensionAdministrationError || error instanceof SystemSettingsAdministrationError || error instanceof SystemThemeAdministrationError || error instanceof SystemOperationsAdministrationError
     ? error.code === "REVISION_CONFLICT" ? 409 : error.code === "UNAUTHORIZED" || error.code === "APPROVAL_REQUIRED" ? 403 : 400 : 500;
   writeJson(response, status, { error: status === 500 ? "Internal server error." : "Request denied." });
 }

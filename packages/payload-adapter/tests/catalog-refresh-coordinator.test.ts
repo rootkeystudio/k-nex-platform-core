@@ -8,7 +8,10 @@ import { CatalogMirrorStoreError, type CatalogMirrorRefresh } from "../src/catal
 
 const digest = (character: string) => `sha256:${character.repeat(64)}`;
 const owner = { applicationId: "customer-alpha", environment: "production" } as const;
-const refresh: CatalogMirrorRefresh = { refreshId: "catalog-refresh-1", expectedCatalogRevision: 0, requestedBy: { kind: "user", id: "user-1" }, idempotencyKey: "catalog-refresh-key-1" };
+const actor = { kind: "user" as const, id: "user-1" };
+const authorityEnvelope = { schemaVersion: 1 as const, ...owner, principal: actor, effectiveActor: actor, authorizationRevision: 1, lifecycleRevision: 1, permissions: [{ decisionId: "catalog-decision", permissionId: "system.catalog.refresh", owner: { kind: "platform" as const, namespace: "system" as const }, scope: { kind: "application" as const, resource: "system.catalog" } }] };
+const authorityDigest = sha256(Buffer.from(canonicalJson(authorityEnvelope)));
+const refresh: CatalogMirrorRefresh = { refreshId: "catalog-refresh-1", expectedCatalogRevision: 0, requestedBy: actor, authorityEnvelope, idempotencyKey: "catalog-refresh-key-1" };
 const payload = { sequence: 1, entries: [{ deliveryClass: "hot-application", id: "app.sales", version: "1.0.0" }] };
 const snapshotDigest = sha256(Buffer.from(canonicalJson(payload)));
 const snapshot = {
@@ -17,7 +20,7 @@ const snapshot = {
   checkpoint: { signerIdentity: "catalog-signer", sequence: 1, payloadDigest: snapshotDigest, highestVersions: { "hot-application:app.sales": "1.0.0" } }
 } as unknown as VerifiedCatalogSnapshot;
 const stagedSnapshot = { snapshotId: "catalog-snapshot-1", signedCatalog: snapshot.catalog, signerIdentity: "catalog-signer", sequence: 1, digest: snapshotDigest, releaseCount: 1, observedAt: "2026-09-02T00:00:00.000Z" } as const;
-const fetching = { schemaVersion: 1, refreshId: refresh.refreshId, expectedCatalogRevision: 0, requestedBy: refresh.requestedBy, idempotencyKey: refresh.idempotencyKey, state: "fetching", revision: 1, updatedAt: "2026-09-02T00:00:00.000Z" } as const;
+const fetching = { schemaVersion: 1, refreshId: refresh.refreshId, expectedCatalogRevision: 0, requestedBy: refresh.requestedBy, authorityDigest, idempotencyKey: refresh.idempotencyKey, state: "fetching", revision: 1, updatedAt: "2026-09-02T00:00:00.000Z" } as const;
 const staged = { ...fetching, state: "staged-reconciliation" as const, revision: 2, staged: { sequence: 1, digest: stagedSnapshot.digest, releaseCount: 1, observedAt: stagedSnapshot.observedAt } };
 
 function inventory(quarantined = false): RuntimeExtensionInventory {

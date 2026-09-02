@@ -210,6 +210,17 @@ export class PostgresAuthorizationStore implements AuthorizationStore, Protected
     return result.rows[0] ? state(result.rows[0], environment) : undefined;
   }
 
+  async readProtectedRoleBaselineReceipt(applicationId: string): Promise<BootstrapReceipt | undefined> {
+    const result = await this.pool.query<Row>(
+      `select application_id, receipt_id, owner_role_id, owner_assignment_id, owner_principal_kind, owner_principal_id,
+              protected_baseline_version, protected_baseline_digest, authorization_revision, state
+       from k_nex_authorization_bootstrap_receipts where application_id=$1`,
+      [applicationId]
+    );
+    if (result.rows.length > 1) fail("MUTATION_INVALID", "Persisted protected baseline receipt is invalid.");
+    return result.rows[0] ? receipt(result.rows[0]) : undefined;
+  }
+
   async transaction<T>(expected: AuthorizationExpectedRevision, work: (transaction: AuthorizationStoreTransaction) => Promise<T>): Promise<AuthorizationTransactionOutcome<T>> {
     return this.runTransaction(expected, work, false);
   }

@@ -1,7 +1,10 @@
 import * as z from "zod";
 
 import {
+  AuthorizationDelegationSchema,
   AuthorizationOwnerRefSchema,
+  AuthorizationPermissionIdSchema,
+  AuthorizationScopeSchema,
   AuthorizationSubjectSchema,
   PermissionPublisherRefSchema,
   isPermissionOwnedByOwner,
@@ -57,6 +60,42 @@ const settingsIdentityBase = {
   owner: AuthorizationOwnerRefSchema,
   descriptorSchemaVersion: positiveRevisionSchema
 } as const;
+
+const administrationAuthorityPermissionSchema = z.strictObject({
+  decisionId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:@/-]*$/u).max(160),
+  permissionId: AuthorizationPermissionIdSchema,
+  owner: AuthorizationOwnerRefSchema,
+  scope: AuthorizationScopeSchema
+});
+
+const administrationActorEnvelopeBase = {
+  schemaVersion: z.literal(1),
+  applicationId: applicationIdSchema,
+  environment: environmentSchema,
+  principal: AuthorizationSubjectSchema,
+  effectiveActor: AuthorizationSubjectSchema,
+  delegation: AuthorizationDelegationSchema.optional(),
+  authorizationRevision: revisionSchema,
+  lifecycleRevision: revisionSchema,
+  permissions: uniqueArray(administrationAuthorityPermissionSchema).min(1).max(4)
+} as const;
+
+/** Persist-safe originating actor, delegation, and concrete authority intents. */
+export const AdministrationActorEnvelopeSchema = z.strictObject(administrationActorEnvelopeBase);
+
+/** Persist-safe originating authority plus settings reauthentication metadata. */
+export const AdministrationAuthorityEnvelopeSchema = z.strictObject({
+  ...administrationActorEnvelopeBase,
+  reauthentication: z.strictObject({
+    evidenceId: recordIdSchema,
+    verifiedAt: MillisecondTimestampSchema,
+    expiresAt: MillisecondTimestampSchema
+  })
+}).superRefine((value, context) => {
+  if (Date.parse(value.reauthentication.expiresAt) <= Date.parse(value.reauthentication.verifiedAt)) {
+    context.addIssue({ code: "custom", path: ["reauthentication", "expiresAt"], message: "Reauthentication evidence must expire after verification." });
+  }
+});
 
 /** Static trusted, closed data-only settings definition. */
 export const SystemSettingsDescriptorSchema = z.strictObject({
@@ -123,6 +162,25 @@ export const SettingsAdoptionInputSchema = z.strictObject({
   idempotencyKey: idempotencyKeySchema
 });
 
+/** Browser input selects only a host-configured opaque slot alias; provider keys never cross this boundary. */
+export const SettingsSecretBindingInputSchema = z.discriminatedUnion("action", [
+  z.strictObject({
+    action: z.literal("bind"),
+    field: settingKeySchema,
+    slotAlias: z.string().regex(/^[a-z][a-z0-9-]{2,63}$/u),
+    expectedDocumentRevision: revisionSchema,
+    expectedSettingsRevision: revisionSchema,
+    idempotencyKey: idempotencyKeySchema
+  }),
+  z.strictObject({
+    action: z.literal("unbind"),
+    field: settingKeySchema,
+    expectedDocumentRevision: revisionSchema,
+    expectedSettingsRevision: revisionSchema,
+    idempotencyKey: idempotencyKeySchema
+  })
+]);
+
 /** Mutable work record for a generation-validated write. Terminal results live only in SettingsTerminalReceipt. */
 export const ResumableSettingsOperationSchema = z.strictObject({
   schemaVersion: z.literal(1),
@@ -134,6 +192,7 @@ export const ResumableSettingsOperationSchema = z.strictObject({
   state: z.enum(["pending-validation", "validating", "promotion-blocked"]),
   attempts: z.number().finite().int().nonnegative().max(1_000_000),
   requestedBy: AuthorizationSubjectSchema,
+  authorityDigest: digestSchema,
   idempotencyKey: idempotencyKeySchema,
   revision: positiveRevisionSchema,
   leaseOwner: recordIdSchema.optional(),
@@ -160,6 +219,8 @@ const terminalSettingsReceiptBase = {
   operationId: recordIdSchema,
   identity: SettingsDocumentIdentitySchema,
   requestedBy: AuthorizationSubjectSchema,
+  authorityDigest: digestSchema,
+  reauthentication: z.literal("satisfied"),
   idempotencyKey: idempotencyKeySchema,
   occurredAt: MillisecondTimestampSchema
 } as const;
@@ -177,7 +238,7 @@ export const SettingsTerminalReceiptSchema = z.discriminatedUnion("outcome", [
   z.strictObject({
     ...terminalSettingsReceiptBase,
     outcome: z.enum(["validation-failed", "promotion-invalidated"]),
-    reason: z.enum(["generation-not-current", "generation-not-ready", "schema-validation-failed", "descriptor-disabled"])
+    reason: z.enum(["generation-not-current", "generation-not-ready", "schema-validation-failed", "descriptor-disabled", "permission-revoked"])
   })
 ]);
 
@@ -282,6 +343,7 @@ const resumableCatalogRefreshOperationBase = {
   refreshId: recordIdSchema,
   expectedCatalogRevision: revisionSchema,
   requestedBy: AuthorizationSubjectSchema,
+  authorityDigest: digestSchema,
   idempotencyKey: idempotencyKeySchema,
   revision: positiveRevisionSchema,
   updatedAt: MillisecondTimestampSchema
@@ -304,6 +366,7 @@ export const CatalogRefreshReceiptSchema = z.discriminatedUnion("outcome", [
     accepted: catalogSnapshotSchema,
     reconciledReleaseCount: z.number().finite().int().nonnegative().max(10_000),
     requestedBy: AuthorizationSubjectSchema,
+    authorityDigest: digestSchema,
     idempotencyKey: idempotencyKeySchema,
     occurredAt: MillisecondTimestampSchema
   }),
@@ -314,6 +377,7 @@ export const CatalogRefreshReceiptSchema = z.discriminatedUnion("outcome", [
     outcome: z.literal("rejected"),
     reason: z.enum(["stale-revision", "fetch-failed", "snapshot-invalid", "snapshot-replayed"]),
     requestedBy: AuthorizationSubjectSchema,
+    authorityDigest: digestSchema,
     idempotencyKey: idempotencyKeySchema,
     occurredAt: MillisecondTimestampSchema
   })
@@ -356,6 +420,7 @@ const operationsCenterRequestBase = {
   expectedOperationsRevision: revisionSchema,
   expectedInventoryDigest: digestSchema,
   requestedBy: AuthorizationSubjectSchema,
+  authorityDigest: digestSchema,
   idempotencyKey: idempotencyKeySchema,
   createdAt: MillisecondTimestampSchema
 } as const;
@@ -374,6 +439,7 @@ const operationsCenterReceiptBase = {
   environment: environmentSchema,
   expectedInventoryDigest: digestSchema,
   requestedBy: AuthorizationSubjectSchema,
+  authorityDigest: digestSchema,
   idempotencyKey: idempotencyKeySchema,
   occurredAt: MillisecondTimestampSchema
 } as const;
@@ -435,6 +501,7 @@ export const SystemAdministrationContractValueSchema = z.union([
   SettingsStoredDocumentSchema,
   SettingsStateSchema,
   SettingsChangeInputSchema,
+  SettingsSecretBindingInputSchema,
   ResumableSettingsOperationSchema,
   SettingsTerminalReceiptSchema,
   SettingsInvalidationSchema,
@@ -456,6 +523,8 @@ export const SystemAdministrationContractsSchema = z.strictObject({
 });
 
 export type SystemSettingsDescriptor = z.infer<typeof SystemSettingsDescriptorSchema>;
+export type AdministrationAuthorityEnvelope = z.infer<typeof AdministrationAuthorityEnvelopeSchema>;
+export type AdministrationActorEnvelope = z.infer<typeof AdministrationActorEnvelopeSchema>;
 export type SystemSettingsFieldDescriptor = z.infer<typeof PluginSettingFieldSchema>;
 export type SettingsDocumentIdentity = z.infer<typeof SettingsDocumentIdentitySchema>;
 export type EffectiveSettingsDocument = z.infer<typeof EffectiveSettingsDocumentSchema>;
@@ -464,6 +533,7 @@ export type SettingsStoredDocument = z.infer<typeof SettingsStoredDocumentSchema
 export type SettingsState = z.infer<typeof SettingsStateSchema>;
 export type SettingsChangeInput = z.infer<typeof SettingsChangeInputSchema>;
 export type SettingsAdoptionInput = z.infer<typeof SettingsAdoptionInputSchema>;
+export type SettingsSecretBindingInput = z.infer<typeof SettingsSecretBindingInputSchema>;
 export type ResumableSettingsOperation = z.infer<typeof ResumableSettingsOperationSchema>;
 export type SettingsTerminalReceipt = z.infer<typeof SettingsTerminalReceiptSchema>;
 export type SettingsInvalidation = z.infer<typeof SettingsInvalidationSchema>;

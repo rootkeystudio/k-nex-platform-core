@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { AuthorizationDecision } from "@k-nex/contracts";
+import { canonicalJson, type AdministrationActorEnvelope, type AuthorizationDecision } from "@k-nex/contracts";
 
 import { CompositeSystemOperationsProjection, SystemOperationsAdministrationService } from "../src/system-operations-administration.js";
 
@@ -17,12 +17,24 @@ function decision(permissionId: string, outcome: "allow" | "deny" = "allow"): Au
   };
 }
 
+function envelope(permissionId: string): AdministrationActorEnvelope {
+  const value = decision(permissionId);
+  return { schemaVersion: 1, applicationId: value.applicationId, environment: value.environment, principal: value.principal, effectiveActor: value.effectiveActor,
+    authorizationRevision: value.authorizationRevision, lifecycleRevision: value.lifecycleRevision,
+    permissions: [{ decisionId: value.decisionId, permissionId: value.permissionId, owner: value.owner, scope: value.scope }] };
+}
+
+async function authorityDigest(value: unknown): Promise<string> {
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalJson(value)));
+  return `sha256:${Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
 function harness(options: Readonly<{ outcome?: "allow" | "deny"; evidence?: { reauthentication: "satisfied"; approval: "not-required" | "satisfied" } }> = {}) {
   const authority = { authorize: vi.fn(async (_context: unknown, target: { permissionId: string }) => decision(target.permissionId, options.outcome)) };
   const source = { read: vi.fn(async () => ({ operationsRevision: state.operationsRevision, inventoryDigest: digest, references: [{ source: "deployment" as const, receiptId: "deployment-receipt-1" }], health: [{ schemaVersion: 1 as const, observationId: "health-observation-1", applicationId: state.applicationId, environment: state.environment, source: "deployment" as const, state: "ready" as const, revision: 1, checkIds: ["deployment.ready"], observedAt: "2026-09-02T00:00:00.000Z" }] })) };
-  const operator = { replay: vi.fn(async () => undefined), submit: vi.fn(async (input: { kind: "backup" | "restore-drill"; applicationId: string; environment: string; expectedInventoryDigest: string; requestedBy: typeof actor; idempotencyKey: string }) => ({
+  const operator = { replay: vi.fn(async () => undefined), submit: vi.fn(async (input: { kind: "backup" | "restore-drill"; applicationId: string; environment: string; expectedInventoryDigest: string; requestedBy: typeof actor; authorityEnvelope: AdministrationActorEnvelope; idempotencyKey: string }) => ({
     schemaVersion: 1 as const, receiptId: `${input.kind}-receipt-1`, requestId: `${input.kind}-request-1`, kind: input.kind,
-    applicationId: input.applicationId, environment: input.environment, expectedInventoryDigest: input.expectedInventoryDigest, requestedBy: input.requestedBy,
+    applicationId: input.applicationId, environment: input.environment, expectedInventoryDigest: input.expectedInventoryDigest, requestedBy: input.requestedBy, authorityDigest: await authorityDigest(input.authorityEnvelope),
     idempotencyKey: input.idempotencyKey, reference: { source: input.kind, operationId: `${input.kind}-operation-1` }, outcome: "accepted" as const, reason: "accepted" as const,
     occurredAt: "2026-09-02T00:00:00.000Z"
   })) };
@@ -60,7 +72,7 @@ describe("system operations administration", () => {
     const value = harness();
     await expect(value.service.request({ context: {}, kind: "backup", request: { expectedOperationsRevision: 7, idempotencyKey: "backup-request-1" } })).resolves.toMatchObject({ kind: "backup", outcome: "accepted" });
     expect(value.authority.authorize).toHaveBeenCalledWith({}, expect.objectContaining({ permissionId: "system.operations.backup" }));
-    expect(value.operator.submit).toHaveBeenCalledWith(expect.objectContaining({ applicationId: state.applicationId, environment: state.environment, expectedInventoryDigest: digest, requestedBy: actor }));
+    expect(value.operator.submit).toHaveBeenCalledWith(expect.objectContaining({ applicationId: state.applicationId, environment: state.environment, expectedInventoryDigest: digest, requestedBy: actor, authorityEnvelope: expect.objectContaining({ principal: actor, effectiveActor: actor, permissions: [expect.objectContaining({ permissionId: "system.operations.backup" })] }) }));
     await expect(value.service.request({ context: {}, kind: "backup", request: { expectedOperationsRevision: 7, idempotencyKey: "backup-request-2", inventoryDigest: digest } })).rejects.toMatchObject({ code: "REQUEST_INVALID" });
   });
 
@@ -74,7 +86,7 @@ describe("system operations administration", () => {
 
   it("returns an exact actor-bound replay before rejecting the now-stale original revision", async () => {
     const value = harness();
-    const receipt = await value.operator.submit({ kind: "backup", applicationId: state.applicationId, environment: state.environment, expectedInventoryDigest: digest, requestedBy: actor, idempotencyKey: "backup-replay-1" });
+    const receipt = await value.operator.submit({ kind: "backup", applicationId: state.applicationId, environment: state.environment, expectedInventoryDigest: digest, requestedBy: actor, authorityEnvelope: envelope("system.operations.backup"), idempotencyKey: "backup-replay-1" });
     value.operator.replay.mockResolvedValueOnce(receipt);
     await expect(value.service.request({ context: {}, kind: "backup", request: { expectedOperationsRevision: 0, idempotencyKey: "backup-replay-1" } })).resolves.toEqual(receipt);
     expect(value.operator.submit).toHaveBeenCalledOnce();

@@ -7,7 +7,7 @@ import { buildConfig, getPayload } from "payload";
 import pg from "pg";
 
 import { AuthorizationLifecycleProjector, PostgresSystemSettingsStore, SettingsValidationCoordinator } from "@k-nex/payload-adapter";
-import { projectSettingsAdministrationView } from "@k-nex/runtime";
+import { CurrentAuthorityAdapter, PersistedSettingsAuthorityReauthorizer, createTrustedAuthorizationSession, projectSettingsAdministrationView } from "@k-nex/runtime";
 import { createGate1Application } from "../dist/src/create-application.js";
 import { migrations } from "../dist/src/migrations/index.js";
 
@@ -36,6 +36,19 @@ async function insertAuthorizationState(pool, id) {
 
 function authoritySnapshot(id, targetEnvironment = environment, authorizationRevision = 0, lifecycleRevision = 0) {
   return { schemaVersion: 1, applicationId: id, environment: targetEnvironment, authorizationRevision, lifecycleRevision };
+}
+
+function authorityEnvelope(authority, actor = { kind: "user", id: "user:owner" }) {
+  return {
+    ...authority,
+    principal: actor,
+    effectiveActor: actor,
+    permissions: [
+      { decisionId: "settings-manage-decision", permissionId: "system.settings.manage", owner: { kind: "platform", namespace: "system" }, scope: { kind: "application", resource: "system.settings" } },
+      { decisionId: "settings-descriptor-decision", permissionId: "sales.settings.write", owner: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales", generation: 1 }, scope: { kind: "application", resource: "sales.settings" } }
+    ],
+    reauthentication: { evidenceId: "settings-reauth-evidence", verifiedAt: "2026-09-01T00:00:00.000Z", expiresAt: "2026-09-03T00:00:00.000Z" }
+  };
 }
 
 async function insertGeneration(pool, id, generation = 1) {
@@ -434,6 +447,7 @@ test("P11.2b persists immediate settings atomically through real PostgreSQL", { 
     receipt: { receiptId, invalidationId, occurredAt },
     actor: { kind: "user", id: "user:owner" },
     authority,
+    authorityEnvelope: authorityEnvelope(authority),
     auditId,
     changedFields
   });
@@ -459,12 +473,15 @@ test("P11.2b persists immediate settings atomically through real PostgreSQL", { 
       values: { enabled: true }
     });
     const receipt = await store.writeImmediate(first);
+    assert.match(receipt.authorityDigest, /^sha256:[0-9a-f]{64}$/u);
     assert.deepEqual(receipt, {
       schemaVersion: 1,
       receiptId: "settings-immediate-receipt-1",
       operationId: "settings-immediate-operation-1",
       identity,
       requestedBy: { kind: "user", id: "user:owner" },
+      authorityDigest: receipt.authorityDigest,
+      reauthentication: "satisfied",
       idempotencyKey: "p11-immediate-replay-0001",
       occurredAt: "2026-09-02T00:00:00.000Z",
       outcome: "promoted",
@@ -488,19 +505,24 @@ test("P11.2b persists immediate settings atomically through real PostgreSQL", { 
       (error) => error?.code === "IDEMPOTENCY"
     );
     await assert.rejects(
-      store.writeImmediate({ ...first, authority: authoritySnapshot(applicationId, environment, 1) }),
+      store.writeImmediate({
+        ...first,
+        authority: authoritySnapshot(applicationId, environment, 1),
+        authorityEnvelope: authorityEnvelope(authoritySnapshot(applicationId, environment, 1))
+      }),
       (error) => error?.code === "REVISION",
       "A changed authority snapshot cannot replay a prior browser request."
     );
     await pool.query("update k_nex_authorization_state set authorization_revision=1 where application_id=$1", [applicationId]);
     currentAuthorizationRevision = 1;
-    assert.deepEqual(await store.writeImmediate({
+    await assert.rejects(store.writeImmediate({
       ...first,
       operation: { ...first.operation, operationId: "settings-immediate-operation-after-authority" },
       receipt: { receiptId: "settings-immediate-receipt-after-authority", invalidationId: "settings-immediate-event-after-authority", occurredAt: "2026-09-02T00:00:02.000Z" },
       authority: authoritySnapshot(applicationId, environment, 1),
+      authorityEnvelope: authorityEnvelope(authoritySnapshot(applicationId, environment, 1)),
       auditId: "settings-immediate-audit-after-authority"
-    }), receipt, "A currently-authorized retry returns the original receipt after an authority revision advance.");
+    }), (error) => error?.code === "IDEMPOTENCY", "Idempotency is bound to the originating authority envelope.");
     await assert.rejects(
       store.writeImmediate(write({
         expectedDocumentRevision: 0,
@@ -655,6 +677,42 @@ test("P11.2b persists immediate settings atomically through real PostgreSQL", { 
       [applicationId, environment]
     ), beforeRevocationRace, "A stale authority write cannot partially commit after revocation.");
 
+    const snapshotApplicationId = "customer-settings-snapshot";
+    const snapshotIdentity = { ...identity, applicationId: snapshotApplicationId };
+    await insertAuthorizationState(pool, snapshotApplicationId);
+    await insertState(pool, snapshotApplicationId);
+    await insertDocument(pool, snapshotApplicationId, environment, snapshotIdentity.descriptorId, platformOwner, { enabled: true });
+    await pool.query("update k_nex_system_settings_state set settings_revision=1 where application_id=$1 and environment=$2", [snapshotApplicationId, environment]);
+    let releaseRead;
+    let observedState;
+    const readHeld = new Promise((resolve) => { observedState = resolve; });
+    const continueRead = new Promise((resolve) => { releaseRead = resolve; });
+    const snapshotPool = {
+      query: (...args) => pool.query(...args),
+      async connect() {
+        const client = await pool.connect();
+        return {
+          async query(text, params) {
+            const result = await client.query(text, params);
+            if (typeof text === "string" && text.startsWith("select settings_revision") && !text.includes("for update")) {
+              observedState();
+              await continueRead;
+            }
+            return result;
+          },
+          release: () => client.release()
+        };
+      }
+    };
+    const heldSnapshot = new PostgresSystemSettingsStore(snapshotPool).read(snapshotIdentity);
+    await readHeld;
+    await new PostgresSystemSettingsStore(pool).writeImmediate({
+      ...write({ target: snapshotIdentity, expectedDocumentRevision: 1, expectedSettingsRevision: 1, idempotencyKey: "settings-snapshot-write-1", operationId: "settings-snapshot-operation", receiptId: "settings-snapshot-receipt", invalidationId: "settings-snapshot-event", auditId: "settings-snapshot-audit", changedFields: ["enabled"], values: { enabled: false }, authority: authoritySnapshot(snapshotApplicationId) }),
+      authorityEnvelope: authorityEnvelope(authoritySnapshot(snapshotApplicationId))
+    });
+    releaseRead();
+    assert.deepEqual(await heldSnapshot, { state: { schemaVersion: 1, applicationId: snapshotApplicationId, environment, settingsRevision: 1 }, document: { schemaVersion: 1, state: "effective", identity: snapshotIdentity, documentRevision: 1, settingsRevision: 1, values: { enabled: true } } }, "A held read returns one repeatable PostgreSQL snapshot while a concurrent write commits.");
+
     const secondaryIdentity = { ...identity, descriptorId: "system.notifications" };
     await store.writeImmediate(write({
       target: secondaryIdentity,
@@ -729,6 +787,7 @@ test("P11.2c resumes generation-validated settings operations through real Postg
     descriptorSchemaVersion: 1,
     owner: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales", generation: 1 }
   };
+  let currentAuthorizationRevision = 0;
   const write = ({
     target = identity,
     descriptorId = target.descriptorId,
@@ -741,7 +800,7 @@ test("P11.2c resumes generation-validated settings operations through real Postg
     auditId,
     changedFields,
     values,
-    authority = authoritySnapshot(target.applicationId, target.environment),
+    authority = authoritySnapshot(target.applicationId, target.environment, currentAuthorizationRevision),
     occurredAt = "2026-09-02T00:00:00.000Z"
   }) => ({
     identity: { ...target, descriptorId },
@@ -750,6 +809,7 @@ test("P11.2c resumes generation-validated settings operations through real Postg
     receipt: { receiptId, invalidationId, occurredAt },
     actor: { kind: "user", id: "user:owner" },
     authority,
+    authorityEnvelope: authorityEnvelope(authority),
     auditId,
     changedFields
   });
@@ -961,6 +1021,67 @@ test("P11.2c resumes generation-validated settings operations through real Postg
     const terminalized = await store.failGenerationValidated({ ...loser[0], expectedOperationRevision: loser[1].revision, reason: "generation-not-ready" });
     assert.equal(terminalized.outcome, "validation-failed", "The stale global-revision loser remains resumable and terminalizable.");
 
+    await pool.query("insert into k_nex_roles (application_id, role_id, label) values ($1,'customer.settings-admin','Settings admin')", [applicationId]);
+    await pool.query(
+      `insert into k_nex_role_permission_grants
+        (application_id, grant_id, role_id, permission_id, owner_kind, owner_namespace, owner_delivery_class, owner_extension_id, owner_generation)
+       values ($1,'customer.settings-manage-grant','customer.settings-admin','system.settings.manage','platform','system',null,null,null),
+              ($1,'customer.sales-settings-grant','customer.settings-admin','sales.settings.write','extension',null,'platform-plugin','module.sales',1)`,
+      [applicationId]
+    );
+    await pool.query(
+      `insert into k_nex_role_assignments (application_id, assignment_id, role_id, subject_kind, subject_id, state)
+       values ($1,'customer.settings-admin-assignment','customer.settings-admin','user','user:owner','active')`, [applicationId]
+    );
+    const revocationRace = write({
+      descriptorId: "sales.permission-race", expectedSettingsRevision: 2,
+      idempotencyKey: "p11-pending-permission-race-0001", operationId: "settings-permission-race-operation",
+      receiptId: "settings-permission-race-receipt", invalidationId: "settings-permission-race-event",
+      auditId: "settings-permission-race-audit", changedFields: ["enabled"], values: { enabled: true }
+    });
+    const permissionPending = await store.beginGenerationValidated(revocationRace);
+    const trusted = createTrustedAuthorizationSession({ schemaVersion: 1, applicationId, environment, correlationId: "settings-permission-race", principal: revocationRace.actor, effectiveActor: revocationRace.actor });
+    const authorityAdapter = new CurrentAuthorityAdapter({ current: async () => trusted }, { authorize: async (current, request) => {
+      const [grant, revision] = await Promise.all([
+        pool.query(`select permission.owner_kind, permission.owner_namespace, permission.owner_delivery_class, permission.owner_extension_id, permission.owner_generation
+          from k_nex_role_assignments assignment join k_nex_role_permission_grants permission
+            on permission.application_id=assignment.application_id and permission.role_id=assignment.role_id
+          where assignment.application_id=$1 and assignment.subject_kind=$2 and assignment.subject_id=$3 and assignment.state='active' and permission.permission_id=$4`,
+        [applicationId, current.principal.kind, current.principal.id, request.permissionId]),
+        pool.query("select authorization_revision, lifecycle_revision from k_nex_authorization_state where application_id=$1", [applicationId])
+      ]);
+      const row = grant.rows[0]; const state = revision.rows[0];
+      return { schemaVersion: 1, decisionId: request.decisionId, correlationId: current.correlationId, applicationId, environment,
+        permissionId: request.permissionId, owner: row?.owner_kind === "platform" ? { kind: "platform", namespace: row.owner_namespace }
+          : { kind: "extension", deliveryClass: row?.owner_delivery_class, extensionId: row?.owner_extension_id, generation: Number(row?.owner_generation) },
+        principal: current.principal, effectiveActor: current.effectiveActor, scope: request.scope,
+        authorizationRevision: state.authorization_revision, lifecycleRevision: state.lifecycle_revision,
+        outcome: row ? "allow" : "deny", reason: row ? "granted" : "permission-not-granted", approval: "not-required", reauthentication: "not-required" };
+    } }, 5_000);
+    const reauthorizer = new PersistedSettingsAuthorityReauthorizer(authorityAdapter, { current: async () => ({}) });
+    let releaseValidation; let validationStarted;
+    const validationGate = new Promise((resolve) => { releaseValidation = resolve; });
+    const validationReady = new Promise((resolve) => { validationStarted = resolve; });
+    const storeAuthority = async () => { const row = (await pool.query("select authorization_revision, lifecycle_revision from k_nex_authorization_state where application_id=$1", [applicationId])).rows[0]; return authoritySnapshot(applicationId, environment, row.authorization_revision, row.lifecycle_revision); };
+    const coordinator = new SettingsValidationCoordinator({
+      store, leaseOwner: "permission-race-worker", readAuthority: storeAuthority, currentAuthority: reauthorizer,
+      validator: { validate: async () => { validationStarted(); await validationGate; return { ready: true }; } },
+      now: (() => { const values = [new Date("2026-09-02T00:00:00.000Z"), new Date("2026-09-02T00:00:01.000Z")]; return () => values.shift() ?? new Date("2026-09-02T00:00:01.000Z"); })()
+    });
+    const racedValidation = coordinator.run({ identity: revocationRace.identity, operationId: permissionPending.operationId });
+    await Promise.race([
+      validationReady,
+      racedValidation.then((value) => { throw new Error(`Validation terminated before the validator started: ${JSON.stringify(value)}`); })
+    ]);
+    await pool.query("update k_nex_role_assignments set state='revoked', revision=revision+1 where application_id=$1 and assignment_id='customer.settings-admin-assignment'", [applicationId]);
+    await pool.query("update k_nex_authorization_state set authorization_revision=authorization_revision+1 where application_id=$1", [applicationId]);
+    currentAuthorizationRevision = 1;
+    releaseValidation();
+    const revoked = await racedValidation;
+    assert.deepEqual({ outcome: revoked.outcome, reason: revoked.reason }, { outcome: "promotion-invalidated", reason: "permission-revoked" });
+    assert.equal((await store.read(revocationRace.identity))?.document, undefined);
+    assert.equal((await pool.query("select count(*)::int as count from k_nex_system_settings_outbox where event_id=$1", [revocationRace.receipt.invalidationId])).rows[0].count, 0);
+
     const disableRace = write({
       descriptorId: "sales.disable-race",
       expectedSettingsRevision: 2,
@@ -978,7 +1099,7 @@ test("P11.2c resumes generation-validated settings operations through real Postg
       operationId: disableRace.operation.operationId,
       expectedOperationRevision: disablePending.revision,
       state: "validating",
-      authority: authoritySnapshot(applicationId)
+      authority: authoritySnapshot(applicationId, environment, currentAuthorizationRevision)
     });
     const lifecycle = await pool.connect();
     try {
@@ -1121,7 +1242,7 @@ test("P11.3 promotes settings before the exact pending Hot Application generatio
       document: { expectedDocumentRevision: 0, expectedSettingsRevision: 1, values: {} },
       operation: { operationId: "weather-settings-operation", idempotencyKey: "weather-settings-0001" },
       receipt: { receiptId: "weather-settings-receipt", invalidationId: "weather-settings-invalidation", occurredAt: "2026-09-02T00:00:00.000Z" },
-      actor: { kind: "user", id: "admin" }, authority, auditId: "weather-settings-audit", changedFields: []
+      actor: { kind: "user", id: "admin" }, authority, authorityEnvelope: authorityEnvelope(authority, { kind: "user", id: "admin" }), auditId: "weather-settings-audit", changedFields: []
       }
     });
     await store.claimGenerationValidated({
@@ -1134,6 +1255,7 @@ test("P11.3 promotes settings before the exact pending Hot Application generatio
       store,
       validator: { validate: async ({ runtimeGenerationId }) => { validatedGenerations.push(runtimeGenerationId); return { ready: true }; } },
       readAuthority: async () => authority,
+      currentAuthority: { reauthorize: async ({ authority: intent }) => intent.effectiveActor.id === "admin" },
       leaseOwner: "replacement-worker",
       now: () => times.shift()
     });

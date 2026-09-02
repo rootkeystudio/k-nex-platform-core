@@ -1,4 +1,5 @@
 import {
+  AdministrationActorEnvelopeSchema,
   AuthorizationSubjectSchema,
   CatalogRefreshObservationSchema,
   CatalogRefreshReceiptSchema,
@@ -6,6 +7,7 @@ import {
   canonicalJson,
   ExactSemverSchema,
   type AuthorizationSubject,
+  type AdministrationActorEnvelope,
   type CatalogRefreshObservation,
   type CatalogRefreshReceipt,
   type ResumableCatalogRefreshOperation
@@ -19,7 +21,7 @@ export interface CatalogMirrorOwner { readonly applicationId: string; readonly e
 export interface CatalogMirrorCheckpoint { readonly signerIdentity: string; readonly sequence: number; readonly payloadDigest: string; readonly highestVersions: Readonly<Record<string, string>>; }
 /** Signed catalog bytes are accepted only after the caller's verifier succeeds. They are never projected by this store. */
 export interface VerifiedCatalogMirrorSnapshot { readonly snapshotId: string; readonly signedCatalog: unknown; readonly signerIdentity: string; readonly sequence: number; readonly digest: string; readonly releaseCount: number; readonly observedAt: string; }
-export interface CatalogMirrorRefresh { readonly refreshId: string; readonly expectedCatalogRevision: number; readonly requestedBy: AuthorizationSubject; readonly idempotencyKey: string; }
+export interface CatalogMirrorRefresh { readonly refreshId: string; readonly expectedCatalogRevision: number; readonly requestedBy: AuthorizationSubject; readonly authorityEnvelope: AdministrationActorEnvelope; readonly idempotencyKey: string; }
 export interface CatalogReconciliationRequirement { readonly deliveryClass: "hot-application" | "theme-skin"; readonly extensionId: string; readonly generationId: string; readonly decisionDigest: string; }
 
 export class CatalogMirrorStoreError extends Error {
@@ -53,6 +55,7 @@ function exact<T>(schema: { safeParse(value: unknown): { success: true; data: T 
   if (!parsed.success || canonicalJson(parsed.data) !== canonicalJson(value)) fail(code, "Catalog mirror value is invalid.");
   return Object.freeze(parsed.data);
 }
+function authorityDigest(value: AdministrationActorEnvelope): string { return `sha256:${createHash("sha256").update(canonicalJson(value)).digest("hex")}`; }
 function same(left: CatalogMirrorCheckpoint | undefined, right: CatalogMirrorCheckpoint | undefined): boolean { return canonicalJson(left ?? null) === canonicalJson(right ?? null); }
 function checkpoint(row: Row): CatalogMirrorCheckpoint {
   const highestVersions = object(row.highest_versions);
@@ -69,6 +72,7 @@ function operation(row: Row, staged?: ReturnType<typeof snapshot>): ResumableCat
   const base = {
     schemaVersion: 1, refreshId: String(row.refresh_id), expectedCatalogRevision: integer(row.expected_catalog_revision, 0, 1_000_000_000, "operation revision"),
     requestedBy: { kind: String(row.requested_by_kind), id: String(row.requested_by_id) }, idempotencyKey: String(row.idempotency_key),
+    authorityDigest: String(row.authority_digest),
     revision: integer(row.revision, 1, 1_000_000_000, "operation revision"), updatedAt: timestamp(row.updated_at)
   } as const;
   return String(row.state) === "fetching" ? exact(ResumableCatalogRefreshOperationSchema, { ...base, state: "fetching" }) : exact(ResumableCatalogRefreshOperationSchema, { ...base, state: "staged-reconciliation", staged });
@@ -128,7 +132,7 @@ export class PostgresCatalogMirrorStore {
       const nextRevision = state.catalogRevision + 1;
       await session.query(`update k_nex_catalog_mirror_state set staged_snapshot_id=$3, catalog_revision=$4, updated_at=now() where application_id=$1 and environment=$2 and catalog_revision=$5`, [this.owner.applicationId, this.owner.environment, value.snapshotId, nextRevision, state.catalogRevision]);
       if (existing) await session.query(`update k_nex_catalog_refresh_operations set staged_snapshot_id=$2, state='staged-reconciliation', revision=revision+1, updated_at=now() where refresh_id=$1 and revision=$3 and state='fetching'`, [refresh.refreshId, value.snapshotId, integer(existing.revision, 1, 1_000_000_000, "operation revision")]);
-      else await session.query(`insert into k_nex_catalog_refresh_operations (refresh_id, application_id, environment, expected_catalog_revision, staged_snapshot_id, requested_by_kind, requested_by_id, idempotency_key, state) values ($1,$2,$3,$4,$5,$6,$7,$8,'staged-reconciliation')`, [refresh.refreshId, this.owner.applicationId, this.owner.environment, refresh.expectedCatalogRevision, value.snapshotId, refresh.requestedBy.kind, refresh.requestedBy.id, refresh.idempotencyKey]);
+      else await session.query(`insert into k_nex_catalog_refresh_operations (refresh_id, application_id, environment, expected_catalog_revision, staged_snapshot_id, requested_by_kind, requested_by_id, authority_json, authority_digest, idempotency_key, state) values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,'staged-reconciliation')`, [refresh.refreshId, this.owner.applicationId, this.owner.environment, refresh.expectedCatalogRevision, value.snapshotId, refresh.requestedBy.kind, refresh.requestedBy.id, canonicalJson(refresh.authorityEnvelope), authorityDigest(refresh.authorityEnvelope), refresh.idempotencyKey]);
       for (const requirement of requirements) await session.query(`insert into k_nex_catalog_reconciliation_requirements (application_id, environment, refresh_id, delivery_class, extension_id, generation_id, decision_digest) values ($1,$2,$3,$4,$5,$6,$7)`, [this.owner.applicationId, this.owner.environment, refresh.refreshId, requirement.deliveryClass, requirement.extensionId, requirement.generationId, requirement.decisionDigest]);
       const inserted = await this.operationByKeys(session, refresh);
       if (!inserted) fail("STATE", "Catalog refresh operation is unavailable.");
@@ -186,12 +190,12 @@ export class PostgresCatalogMirrorStore {
       const requirements = await session.query<Row>(`select r.delivery_class, r.extension_id, r.generation_id, r.decision_digest, r.terminal_state, r.security_receipt_id, s.receipt_id as verified_receipt_id from k_nex_catalog_reconciliation_requirements r left join runtime_extension_security_receipts s on s.receipt_id=r.security_receipt_id and s.application_id=r.application_id and s.environment=r.environment and s.delivery_class=r.delivery_class and s.extension_id=r.extension_id and s.generation_id=r.generation_id and s.decision_digest=r.decision_digest where r.application_id=$1 and r.environment=$2 and r.refresh_id=$3 for update of r`, [this.owner.applicationId, this.owner.environment, refresh.refreshId]);
       if (requirements.rows.length !== input.reconciledReleaseCount || requirements.rows.some((row) => (row.terminal_state !== "clear" && row.terminal_state !== "quarantined") || (row.terminal_state === "quarantined" && !row.verified_receipt_id))) fail("STATE", "Catalog reconciliation is not terminal.");
       const catalogRevision = state.catalogRevision + 1;
-      const receipt = exact(CatalogRefreshReceiptSchema, { schemaVersion: 1, receiptId: input.receiptId, refreshId: refresh.refreshId, outcome: "accepted", catalogRevision, accepted, reconciledReleaseCount: input.reconciledReleaseCount, requestedBy: refresh.requestedBy, idempotencyKey: refresh.idempotencyKey, occurredAt: new Date(input.occurredAt).toISOString() });
+      const receipt = exact(CatalogRefreshReceiptSchema, { schemaVersion: 1, receiptId: input.receiptId, refreshId: refresh.refreshId, outcome: "accepted", catalogRevision, accepted, reconciledReleaseCount: input.reconciledReleaseCount, requestedBy: refresh.requestedBy, authorityDigest: authorityDigest(refresh.authorityEnvelope), idempotencyKey: refresh.idempotencyKey, occurredAt: new Date(input.occurredAt).toISOString() });
       await session.query(`update k_nex_catalog_mirror_state set staged_snapshot_id=null, accepted_snapshot_id=$3, catalog_revision=$4, updated_at=now() where application_id=$1 and environment=$2 and catalog_revision=$5`, [this.owner.applicationId, this.owner.environment, String(active.staged_snapshot_id), catalogRevision, state.catalogRevision]);
       await session.query(`update k_nex_catalog_refresh_operations set state='terminal', revision=revision+1, updated_at=now() where refresh_id=$1 and revision=$2`, [refresh.refreshId, input.expectedOperationRevision]);
-      await session.query(`insert into k_nex_catalog_refresh_receipts (receipt_id, refresh_id, application_id, environment, expected_catalog_revision, idempotency_key, receipt_json, occurred_at) values ($1,$2,$3,$4,$5,$6,$7::jsonb,$8)`, [receipt.receiptId, refresh.refreshId, this.owner.applicationId, this.owner.environment, refresh.expectedCatalogRevision, refresh.idempotencyKey, canonicalJson(receipt), receipt.occurredAt]);
+      await session.query(`insert into k_nex_catalog_refresh_receipts (receipt_id, refresh_id, application_id, environment, expected_catalog_revision, authority_digest, idempotency_key, receipt_json, occurred_at) values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9)`, [receipt.receiptId, refresh.refreshId, this.owner.applicationId, this.owner.environment, refresh.expectedCatalogRevision, receipt.authorityDigest, refresh.idempotencyKey, canonicalJson(receipt), receipt.occurredAt]);
       if (receipt.outcome !== "accepted") fail("STATE", "Catalog acceptance receipt is invalid.");
-      await session.query(`insert into k_nex_catalog_refresh_audit (audit_id, receipt_id, application_id, environment, catalog_revision, outcome, sequence, payload_digest, release_count) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [input.auditId, receipt.receiptId, this.owner.applicationId, this.owner.environment, catalogRevision, receipt.outcome, receipt.accepted.sequence, receipt.accepted.digest, receipt.accepted.releaseCount]);
+      await session.query(`insert into k_nex_catalog_refresh_audit (audit_id, receipt_id, application_id, environment, catalog_revision, outcome, authority_json, authority_digest, sequence, payload_digest, release_count) values ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$11)`, [input.auditId, receipt.receiptId, this.owner.applicationId, this.owner.environment, catalogRevision, receipt.outcome, canonicalJson(refresh.authorityEnvelope), receipt.authorityDigest, receipt.accepted.sequence, receipt.accepted.digest, receipt.accepted.releaseCount]);
       await session.query(`insert into k_nex_catalog_refresh_outbox (event_id, receipt_id, application_id, environment, catalog_revision, occurred_at) values ($1,$2,$3,$4,$5,$6)`, [input.eventId, receipt.receiptId, this.owner.applicationId, this.owner.environment, catalogRevision, receipt.occurredAt]);
       return receipt;
     });
@@ -209,7 +213,7 @@ export class PostgresCatalogMirrorStore {
       }
       const state = await this.lockedState(session);
       if (state.catalogRevision !== refresh.expectedCatalogRevision) fail("REVISION", "Catalog revision changed before refresh.");
-      await session.query(`insert into k_nex_catalog_refresh_operations (refresh_id, application_id, environment, expected_catalog_revision, requested_by_kind, requested_by_id, idempotency_key, state) values ($1,$2,$3,$4,$5,$6,$7,'fetching')`, [refresh.refreshId, this.owner.applicationId, this.owner.environment, refresh.expectedCatalogRevision, refresh.requestedBy.kind, refresh.requestedBy.id, refresh.idempotencyKey]);
+      await session.query(`insert into k_nex_catalog_refresh_operations (refresh_id, application_id, environment, expected_catalog_revision, requested_by_kind, requested_by_id, authority_json, authority_digest, idempotency_key, state) values ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,'fetching')`, [refresh.refreshId, this.owner.applicationId, this.owner.environment, refresh.expectedCatalogRevision, refresh.requestedBy.kind, refresh.requestedBy.id, canonicalJson(refresh.authorityEnvelope), authorityDigest(refresh.authorityEnvelope), refresh.idempotencyKey]);
       const inserted = await this.operationByKeys(session, refresh); if (!inserted) fail("STATE", "Catalog refresh operation is unavailable.");
       return operation(inserted);
     });
@@ -223,16 +227,21 @@ export class PostgresCatalogMirrorStore {
       const replay = await this.receiptByRefresh(session, refresh.refreshId, refresh); if (replay) return replay;
       const active = await this.operationByKeys(session, refresh);
       if (!active || !this.sameRefresh(active, refresh) || integer(active.revision, 1, 1_000_000_000, "operation revision") !== input.expectedOperationRevision) fail("REVISION", "Catalog refresh state changed before rejection.");
-      const receipt = exact(CatalogRefreshReceiptSchema, { schemaVersion: 1, receiptId: input.receiptId, refreshId: refresh.refreshId, outcome: "rejected", reason: input.reason, requestedBy: refresh.requestedBy, idempotencyKey: refresh.idempotencyKey, occurredAt: new Date(input.occurredAt).toISOString() });
+      const receipt = exact(CatalogRefreshReceiptSchema, { schemaVersion: 1, receiptId: input.receiptId, refreshId: refresh.refreshId, outcome: "rejected", reason: input.reason, requestedBy: refresh.requestedBy, authorityDigest: authorityDigest(refresh.authorityEnvelope), idempotencyKey: refresh.idempotencyKey, occurredAt: new Date(input.occurredAt).toISOString() });
       await session.query(`update k_nex_catalog_refresh_operations set state='terminal', revision=revision+1, updated_at=now() where refresh_id=$1 and revision=$2`, [refresh.refreshId, input.expectedOperationRevision]);
-      await session.query(`insert into k_nex_catalog_refresh_receipts (receipt_id, refresh_id, application_id, environment, expected_catalog_revision, idempotency_key, receipt_json, occurred_at) values ($1,$2,$3,$4,$5,$6,$7::jsonb,$8)`, [receipt.receiptId, refresh.refreshId, this.owner.applicationId, this.owner.environment, refresh.expectedCatalogRevision, refresh.idempotencyKey, canonicalJson(receipt), receipt.occurredAt]);
+      await session.query(`insert into k_nex_catalog_refresh_receipts (receipt_id, refresh_id, application_id, environment, expected_catalog_revision, authority_digest, idempotency_key, receipt_json, occurred_at) values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9)`, [receipt.receiptId, refresh.refreshId, this.owner.applicationId, this.owner.environment, refresh.expectedCatalogRevision, receipt.authorityDigest, refresh.idempotencyKey, canonicalJson(receipt), receipt.occurredAt]);
       return receipt;
     });
   }
 
   private refresh(value: CatalogMirrorRefresh): CatalogMirrorRefresh {
     if (!recordPattern.test(value.refreshId) || !Number.isSafeInteger(value.expectedCatalogRevision) || value.expectedCatalogRevision < 0 || value.expectedCatalogRevision > 1_000_000_000 || !idempotencyPattern.test(value.idempotencyKey)) fail("INVALID", "Catalog refresh input is invalid.");
-    return Object.freeze({ ...value, requestedBy: exact(AuthorizationSubjectSchema, value.requestedBy) });
+    const requestedBy = exact(AuthorizationSubjectSchema, value.requestedBy);
+    const authorityEnvelope = exact(AdministrationActorEnvelopeSchema, value.authorityEnvelope);
+    if (authorityEnvelope.applicationId !== this.owner.applicationId || authorityEnvelope.environment !== this.owner.environment
+      || canonicalJson(authorityEnvelope.effectiveActor) !== canonicalJson(requestedBy)
+      || !authorityEnvelope.permissions.some(({ permissionId, scope }) => permissionId === "system.catalog.refresh" && scope.kind === "application" && scope.resource === "system.catalog")) fail("INVALID", "Catalog refresh authority is invalid.");
+    return Object.freeze({ ...value, requestedBy, authorityEnvelope });
   }
   private verified(snapshotValue: VerifiedCatalogMirrorSnapshot, expectedCheckpoint: CatalogMirrorCheckpoint | undefined, next: CatalogMirrorCheckpoint) {
     const snapshot = object(snapshotValue); const check = (value: CatalogMirrorCheckpoint | undefined) => value === undefined || (typeof value.signerIdentity === "string" && /^[a-z0-9][a-z0-9.-]*$/u.test(value.signerIdentity) && Number.isSafeInteger(value.sequence) && value.sequence >= 1 && digestPattern.test(value.payloadDigest) && Object.entries(object(value.highestVersions)).every(([key, version]) => key.length > 0 && ExactSemverSchema.safeParse(version).success));
@@ -283,7 +292,7 @@ export class PostgresCatalogMirrorStore {
       return Object.freeze({ ...requirement, terminalState, ...(securityReceiptId ? { securityReceiptId } : {}) });
     }));
   }
-  private async receiptByRefresh(session: RuntimeExtensionSession, refreshId: string, refresh?: CatalogMirrorRefresh): Promise<CatalogRefreshReceipt | undefined> { const result = await session.query<Row>(`select expected_catalog_revision, idempotency_key, receipt_json from k_nex_catalog_refresh_receipts where application_id=$1 and environment=$2 and refresh_id=$3 for update`, [this.owner.applicationId, this.owner.environment, refreshId]); if (!result.rows[0]) return undefined; const receipt = exact(CatalogRefreshReceiptSchema, result.rows[0].receipt_json, "STATE"); if (refresh && (integer(result.rows[0].expected_catalog_revision, 0, 1_000_000_000, "receipt revision") !== refresh.expectedCatalogRevision || String(result.rows[0].idempotency_key) !== refresh.idempotencyKey || canonicalJson(receipt.requestedBy) !== canonicalJson(refresh.requestedBy))) fail("IDEMPOTENCY", "Catalog refresh replay does not match its receipt."); return receipt; }
+  private async receiptByRefresh(session: RuntimeExtensionSession, refreshId: string, refresh?: CatalogMirrorRefresh): Promise<CatalogRefreshReceipt | undefined> { const result = await session.query<Row>(`select expected_catalog_revision, authority_digest, idempotency_key, receipt_json from k_nex_catalog_refresh_receipts where application_id=$1 and environment=$2 and refresh_id=$3 for update`, [this.owner.applicationId, this.owner.environment, refreshId]); if (!result.rows[0]) return undefined; const receipt = exact(CatalogRefreshReceiptSchema, result.rows[0].receipt_json, "STATE"); if (refresh && (integer(result.rows[0].expected_catalog_revision, 0, 1_000_000_000, "receipt revision") !== refresh.expectedCatalogRevision || String(result.rows[0].authority_digest) !== authorityDigest(refresh.authorityEnvelope) || String(result.rows[0].idempotency_key) !== refresh.idempotencyKey || canonicalJson(receipt.requestedBy) !== canonicalJson(refresh.requestedBy))) fail("IDEMPOTENCY", "Catalog refresh replay does not match its receipt."); return receipt; }
   private async pointerSnapshot(pointer: string): Promise<VerifiedCatalogMirrorSnapshot | undefined> {
     const result = await this.pool.query<Row>(`select ${pointer} as pointer_id, x.snapshot_id, x.signer_identity, x.sequence, x.payload_digest, x.release_count, x.observed_at, x.snapshot_json from k_nex_catalog_mirror_state s left join k_nex_catalog_mirror_snapshots x on x.application_id=s.application_id and x.environment=s.environment and x.snapshot_id=${pointer} where s.application_id=$1 and s.environment=$2`, [this.owner.applicationId, this.owner.environment]);
     const row = result.rows[0]; if (!row || row.pointer_id === null || row.pointer_id === undefined) return undefined;
@@ -293,6 +302,6 @@ export class PostgresCatalogMirrorStore {
   }
   private requirements(values: readonly CatalogReconciliationRequirement[]): readonly CatalogReconciliationRequirement[] { const seen = new Set<string>(); return values.map((value) => { if ((value.deliveryClass !== "hot-application" && value.deliveryClass !== "theme-skin") || !/^(app|skin)\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)*$/u.test(value.extensionId) || !recordPattern.test(value.generationId) || !digestPattern.test(value.decisionDigest)) fail("INVALID", "Catalog reconciliation requirement is invalid."); const key = canonicalJson([value.deliveryClass, value.extensionId, value.generationId]); if (seen.has(key)) fail("INVALID", "Catalog reconciliation requirement is duplicated."); seen.add(key); return Object.freeze({ ...value }); }).sort((left, right) => canonicalJson([left.deliveryClass, left.extensionId, left.generationId]).localeCompare(canonicalJson([right.deliveryClass, right.extensionId, right.generationId]))); }
   private assertOwner(owner: CatalogMirrorOwner): void { if (owner.applicationId !== this.owner.applicationId || owner.environment !== this.owner.environment) fail("INVALID", "Catalog mirror owner does not match this store."); }
-  private sameRefresh(row: Row, refresh: CatalogMirrorRefresh): boolean { return String(row.refresh_id) === refresh.refreshId && integer(row.expected_catalog_revision, 0, 1_000_000_000, "operation revision") === refresh.expectedCatalogRevision && String(row.idempotency_key) === refresh.idempotencyKey && canonicalJson({ kind: row.requested_by_kind, id: row.requested_by_id }) === canonicalJson(refresh.requestedBy); }
+  private sameRefresh(row: Row, refresh: CatalogMirrorRefresh): boolean { return String(row.refresh_id) === refresh.refreshId && integer(row.expected_catalog_revision, 0, 1_000_000_000, "operation revision") === refresh.expectedCatalogRevision && String(row.authority_digest) === authorityDigest(refresh.authorityEnvelope) && canonicalJson(row.authority_json) === canonicalJson(refresh.authorityEnvelope) && String(row.idempotency_key) === refresh.idempotencyKey && canonicalJson({ kind: row.requested_by_kind, id: row.requested_by_id }) === canonicalJson(refresh.requestedBy); }
   private async transaction<T>(work: (session: RuntimeExtensionSession) => Promise<T>): Promise<T> { const session = await this.pool.connect(); try { await session.query("begin"); const result = await work(session); await session.query("commit"); return result; } catch (error) { try { await session.query("rollback"); } catch { /* retain cause */ } throw error; } finally { session.release(); } }
 }

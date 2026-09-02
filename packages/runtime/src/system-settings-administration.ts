@@ -1,4 +1,5 @@
 import {
+  AdministrationAuthorityEnvelopeSchema,
   AuthorizationStateSchema,
   ResourceIdSchema,
   ResumableSettingsOperationSchema,
@@ -6,17 +7,20 @@ import {
   SettingsAdministrationViewSchema,
   SettingsChangeInputSchema,
   SettingsDocumentIdentitySchema,
+  SettingsSecretBindingInputSchema,
   SettingsStateSchema,
   SettingsStoredDocumentSchema,
   SettingsTerminalReceiptSchema,
   SystemSettingsDescriptorSchema,
   canonicalJson,
+  type AdministrationAuthorityEnvelope,
   type AuthorizationDecision,
   type AuthorizationState,
   type SettingsAdministrationView,
   type SettingsAdoptionInput,
   type SettingsChangeInput,
   type SettingsDocumentIdentity,
+  type SettingsSecretBindingInput,
   type SettingsState,
   type SettingsStoredDocument,
   type SettingsTerminalReceipt,
@@ -68,8 +72,43 @@ export interface SystemSettingsAdministrationMetadata {
   now(): unknown;
 }
 
+/** Atomically verifies and consumes fresh evidence; exact idempotent retries may reuse only the same binding. */
+export interface SystemSettingsMutationEvidenceVerifier<TContext> {
+  verify(input: Readonly<{
+    context: TContext;
+    operation: "change" | "retained-adoption" | "secret-bind" | "secret-unbind";
+    identity: SettingsDocumentIdentity;
+    decision: AuthorizationDecision;
+    descriptorDecision: AuthorizationDecision;
+    expectedDocumentRevision: number;
+    expectedSettingsRevision: number;
+    changedFields: readonly string[];
+    idempotencyKey: string;
+  }>): Promise<Readonly<{
+    reauthentication: "satisfied";
+    evidenceId: string;
+    verifiedAt: string;
+    expiresAt: string;
+  }> | undefined> | Readonly<{
+    reauthentication: "satisfied";
+    evidenceId: string;
+    verifiedAt: string;
+    expiresAt: string;
+  }> | undefined;
+}
+
 export interface SystemSettingsAdministrationStateSource {
   readState(applicationId: string, environment: string): Promise<AuthorizationState | undefined> | AuthorizationState | undefined;
+}
+
+/** Resolves a browser-safe alias to one host-configured secret reference. */
+export interface SystemSettingsSecretBindingResolver<TContext> {
+  resolve(input: Readonly<{
+    context: TContext;
+    identity: SettingsDocumentIdentity;
+    field: string;
+    slotAlias: string;
+  }>): Promise<PluginSettingValue | undefined> | PluginSettingValue | undefined;
 }
 
 export interface SystemSettingsAdministrationOptions<TContext> {
@@ -77,6 +116,8 @@ export interface SystemSettingsAdministrationOptions<TContext> {
   readonly descriptorSource: SystemSettingsDescriptorSource;
   readonly state: SystemSettingsAdministrationStateSource;
   readonly store: SystemSettingsAdministrationStore;
+  readonly evidence: SystemSettingsMutationEvidenceVerifier<TContext>;
+  readonly secrets?: SystemSettingsSecretBindingResolver<TContext>;
   readonly metadata?: SystemSettingsAdministrationMetadata;
 }
 
@@ -130,7 +171,7 @@ export class SystemSettingsAdministrationService<TContext> {
     const decision = await this.admit(input.context, changeTarget);
     const record = (await this.records(decision)).find((candidate) => candidate.descriptor.id === input.settingsId);
     if (!record) invalid("Settings ID is unavailable.");
-    await this.descriptorDecision(input.context, decision, record, record.descriptor.changePermission);
+    const descriptorDecision = await this.descriptorDecision(input.context, decision, record, record.descriptor.changePermission);
     if (record.lifecycle !== "active" && !(record.lifecycle === "pending-configuration" && record.descriptor.validation === "generation-validated")) {
       stateInvalid("Only active or pending-configuration generation-validated settings may change.");
     }
@@ -144,8 +185,9 @@ export class SystemSettingsAdministrationService<TContext> {
     }
     const values = candidateValues(record.descriptor, snapshot?.document, change.data);
     const changedFields = changed(snapshot?.document?.values, values);
+    const evidence = await this.evidence(input.context, "change", record.identity, decision, descriptorDecision, change.data, changedFields);
     await this.current(decision);
-    const write = this.write(record.identity, decision, change.data, values, changedFields);
+    const write = this.write(record.identity, decision, descriptorDecision, evidence, change.data, values, changedFields);
     try {
       const result = record.descriptor.validation === "immediate"
         ? await this.options.store.writeImmediate(write)
@@ -164,16 +206,60 @@ export class SystemSettingsAdministrationService<TContext> {
     if (!record || record.lifecycle !== "pending-configuration" || record.descriptor.validation !== "generation-validated") {
       stateInvalid("Only pending Hot Application settings may adopt retained values.");
     }
-    await this.descriptorDecision(input.context, decision, record, record.descriptor.changePermission);
+    const descriptorDecision = await this.descriptorDecision(input.context, decision, record, record.descriptor.changePermission);
     await this.current(decision);
     const snapshot = await this.snapshot(record.identity);
     if ((snapshot?.document?.documentRevision ?? 0) !== adoption.data.expectedDocumentRevision
       || (snapshot?.state.settingsRevision ?? 0) !== adoption.data.expectedSettingsRevision) {
       conflict("Settings revisions changed before adoption.");
     }
-    const write = this.write(record.identity, decision, { ...adoption.data, values: {} }, {}, []);
+    const adoptedFields = Object.keys(record.descriptor.fields).sort();
+    const evidence = await this.evidence(input.context, "retained-adoption", record.identity, decision, descriptorDecision, adoption.data, adoptedFields);
+    await this.current(decision);
+    const write = this.write(record.identity, decision, descriptorDecision, evidence, { ...adoption.data, values: {} }, {}, []);
     try {
       return parseChangeResult(await this.options.store.beginRetainedAdoption({ descriptor: record.descriptor, write }), "generation-validated");
+    } catch (error) { mapStoreError(error); }
+  }
+
+  async secret(input: Readonly<{ readonly context: TContext; readonly settingsId: string; readonly secret: SettingsSecretBindingInput }>): Promise<SettingsTerminalReceipt | ResumableSettingsOperation> {
+    exactInput(input, ["context", "secret", "settingsId"]);
+    if (!ResourceIdSchema.safeParse(input.settingsId).success) invalid("Settings ID is invalid.");
+    const secret = SettingsSecretBindingInputSchema.safeParse(input.secret);
+    if (!secret.success) invalid("Secret binding input is invalid.");
+    const decision = await this.admit(input.context, changeTarget);
+    const record = (await this.records(decision)).find((candidate) => candidate.descriptor.id === input.settingsId);
+    if (!record || record.lifecycle !== "active" && !(record.lifecycle === "pending-configuration" && record.descriptor.validation === "generation-validated")) {
+      stateInvalid("Only active or pending-configuration generation-validated settings may bind secrets.");
+    }
+    if (record.descriptor.fields[secret.data.field]?.type !== "secret-reference") invalid("Secret field is invalid.");
+    const descriptorDecision = await this.descriptorDecision(input.context, decision, record, record.descriptor.changePermission);
+    await this.current(decision);
+    const snapshot = await this.snapshot(record.identity);
+    const documentRevision = snapshot?.document?.documentRevision ?? 0;
+    const settingsRevision = snapshot?.state.settingsRevision ?? 0;
+    if (secret.data.expectedDocumentRevision !== documentRevision || secret.data.expectedSettingsRevision !== settingsRevision) conflict("Settings revisions changed before secret binding.");
+    const values: Record<string, PluginSettingValue> = { ...(snapshot?.document?.values ?? {}) };
+    if (secret.data.action === "unbind") delete values[secret.data.field];
+    else {
+      let resolved: PluginSettingValue | undefined;
+      try { resolved = await this.options.secrets?.resolve({ context: input.context, identity: record.identity, field: secret.data.field, slotAlias: secret.data.slotAlias }); }
+      catch { stateInvalid("Secret slot is unavailable."); }
+      if (resolved === undefined || typeof resolved !== "object" || resolved === null || !("kind" in resolved) || resolved.kind !== "secret-reference") stateInvalid("Secret slot is unavailable.");
+      values[secret.data.field] = resolved;
+    }
+    let validated: Readonly<Record<string, PluginSettingValue>>;
+    try { validated = validateSystemSettingsValues(record.descriptor, values); }
+    catch { invalid("Secret binding leaves settings invalid."); }
+    const changedFields = changed(snapshot?.document?.values, validated);
+    if (changedFields.length !== 1 || changedFields[0] !== secret.data.field) invalid("Secret binding does not change the selected field.");
+    const operation = secret.data.action === "bind" ? "secret-bind" : "secret-unbind";
+    const evidence = await this.evidence(input.context, operation, record.identity, decision, descriptorDecision, secret.data, changedFields);
+    await this.current(decision);
+    const write = this.write(record.identity, decision, descriptorDecision, evidence, { ...secret.data, values: {} }, validated, changedFields);
+    try {
+      const result = record.descriptor.validation === "immediate" ? await this.options.store.writeImmediate(write) : await this.options.store.beginGenerationValidated(write);
+      return parseChangeResult(result, record.descriptor.validation);
     } catch (error) { mapStoreError(error); }
   }
 
@@ -261,6 +347,8 @@ export class SystemSettingsAdministrationService<TContext> {
   private write(
     identity: SettingsDocumentIdentity,
     decision: AuthorizationDecision,
+    descriptorDecision: AuthorizationDecision,
+    evidence: AdministrationAuthorityEnvelope["reauthentication"],
     change: SettingsChangeInput,
     values: Readonly<Record<string, unknown>>,
     changedFields: readonly string[]
@@ -290,6 +378,20 @@ export class SystemSettingsAdministrationService<TContext> {
       operation: Object.freeze({ operationId, idempotencyKey: change.idempotencyKey }),
       receipt: Object.freeze({ receiptId, invalidationId, occurredAt }),
       actor: decision.effectiveActor,
+      authorityEnvelope: AdministrationAuthorityEnvelopeSchema.parse({
+        schemaVersion: 1,
+        applicationId: decision.applicationId,
+        environment: decision.environment,
+        principal: decision.principal,
+        effectiveActor: decision.effectiveActor,
+        ...(decision.delegation === undefined ? {} : { delegation: decision.delegation }),
+        authorizationRevision: decision.authorizationRevision,
+        lifecycleRevision: decision.lifecycleRevision,
+        permissions: [decision, descriptorDecision]
+          .map(({ decisionId, permissionId, owner, scope }) => ({ decisionId, permissionId, owner, scope }))
+          .sort((left, right) => left.permissionId.localeCompare(right.permissionId)),
+        reauthentication: evidence
+      }),
       authority: Object.freeze({
         schemaVersion: 1 as const,
         applicationId: decision.applicationId,
@@ -300,6 +402,31 @@ export class SystemSettingsAdministrationService<TContext> {
       auditId,
       changedFields
     });
+  }
+
+  private async evidence(
+    context: TContext,
+    operation: "change" | "retained-adoption" | "secret-bind" | "secret-unbind",
+    identity: SettingsDocumentIdentity,
+    decision: AuthorizationDecision,
+    descriptorDecision: AuthorizationDecision,
+    revisions: Readonly<{ expectedDocumentRevision: number; expectedSettingsRevision: number; idempotencyKey: string }>,
+    changedFields: readonly string[]
+  ): Promise<AdministrationAuthorityEnvelope["reauthentication"]> {
+    let evidence: Awaited<ReturnType<SystemSettingsMutationEvidenceVerifier<TContext>["verify"]>>;
+    try {
+      evidence = await this.options.evidence.verify({
+        context, operation, identity, decision, descriptorDecision,
+        expectedDocumentRevision: revisions.expectedDocumentRevision,
+        expectedSettingsRevision: revisions.expectedSettingsRevision,
+        changedFields,
+        idempotencyKey: revisions.idempotencyKey
+      });
+    } catch { unauthorized(); }
+    if (evidence?.reauthentication !== "satisfied" || !validId(evidence.evidenceId)
+      || !validTimestamp(evidence.verifiedAt) || !validTimestamp(evidence.expiresAt)
+      || Date.parse(evidence.expiresAt) <= Date.parse(evidence.verifiedAt)) unauthorized();
+    return Object.freeze({ evidenceId: evidence.evidenceId, verifiedAt: evidence.verifiedAt, expiresAt: evidence.expiresAt });
   }
 }
 
@@ -410,6 +537,11 @@ function timestamp(value: unknown): string {
   const result = value.toISOString();
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(result)) stateInvalid("Settings write metadata is invalid.");
   return result;
+}
+
+function validTimestamp(value: unknown): value is string {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value)
+    && Number.isFinite(Date.parse(value));
 }
 
 function validId(value: unknown): value is string { return typeof value === "string" && /^[a-z][a-z0-9-]{2,127}$/u.test(value); }

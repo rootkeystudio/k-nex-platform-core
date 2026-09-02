@@ -101,8 +101,9 @@ async function relay() {
   };
 }
 
-function refresh(id, revision) {
-  return { refreshId: id, expectedCatalogRevision: revision, requestedBy: { kind: "service", id: "catalog-proof" }, idempotencyKey: `${id}-idempotency` };
+function refresh(id, revision, targetOwner = owner) {
+  const requestedBy = { kind: "service", id: "catalog-proof" };
+  return { refreshId: id, expectedCatalogRevision: revision, requestedBy, authorityEnvelope: { schemaVersion: 1, ...targetOwner, principal: requestedBy, effectiveActor: requestedBy, authorizationRevision: 1, lifecycleRevision: 1, permissions: [{ decisionId: "catalog-proof-decision", permissionId: "system.catalog.refresh", owner: { kind: "platform", namespace: "system" }, scope: { kind: "application", resource: "system.catalog" } }] }, idempotencyKey: `${id}-idempotency` };
 }
 
 function coordinator(pool, targetOwner, reader, catalog, verifier, reconciler) {
@@ -207,7 +208,7 @@ test("P11.4 consumes a bounded official catalog through real HTTP and PostgreSQL
     const highInput = signed(signer, catalogKeys.privateKey, 9, [release(publisherKeys, "1.2.0")]);
     const highSnapshot = await high.verifySnapshot(highInput);
     const raceMirror = new PostgresCatalogMirrorStore(pool, raceOwner);
-    const raceRefresh = refresh("catalog-race-stage", 0);
+    const raceRefresh = refresh("catalog-race-stage", 0, raceOwner);
     await raceMirror.begin(raceRefresh);
     await Promise.allSettled([
       raceMirror.stageVerified({
@@ -244,7 +245,7 @@ test("P11.4 consumes a bounded official catalog through real HTTP and PostgreSQL
     };
     const finalCoordinator = new CatalogRefreshCoordinator({ owner: finalOwner, reader: finalReader, catalog: finalCatalog, checkpoints: finalCheckpoints, verifier: finalVerifier, mirror: finalMirrorPort, extensions: finalExtensions, reconciler: finalReconciler });
     await send(signed(signer, catalogKeys.privateKey, 1, [v1]));
-    await assert.rejects(finalCoordinator.refresh(refresh("catalog-refresh-final-check", 0)), /inventory changed before catalog acceptance/u);
+    await assert.rejects(finalCoordinator.refresh(refresh("catalog-refresh-final-check", 0, finalOwner)), /inventory changed before catalog acceptance/u);
     assert.equal(await finalMirror.readAcceptedSnapshot(), undefined, "An inventory revision change during final check cannot advance the pointer.");
 
     const replayOwner = { applicationId: "customer-catalog-replay", environment: "production" };
@@ -254,7 +255,7 @@ test("P11.4 consumes a bounded official catalog through real HTTP and PostgreSQL
     const replayReader = new OfficialGithubCatalogReader({ endpoint, transport: http.transport, maxBytes: 4_096 });
     const replayStore = coordinator(pool, replayOwner, replayReader, replayCatalog, replayVerifier, new ActiveExtensionSecurityReconciler(replayVerifier, new PostgresRuntimeExtensionStore(pool, clock, digest("8"), { sharedStaticGenerationRebinder: new SharedStaticPlatformPluginGenerationRebinder() })));
     await send(signed(signer, catalogKeys.privateKey, 1, [v1]));
-    const request = refresh("catalog-refresh-race-replay", 0);
+    const request = refresh("catalog-refresh-race-replay", 0, replayOwner);
     const outcomes = await Promise.all([replayStore.value.refresh(request), replayStore.value.refresh(request)]);
     assert.deepEqual(outcomes, [outcomes[0], outcomes[0]], "Concurrent replay returns one deterministic terminal receipt.");
     assert.equal(outcomes[0].outcome, "accepted");

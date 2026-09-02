@@ -10,6 +10,18 @@ const identity = {
   owner: { kind: "extension", deliveryClass: "hot-application", extensionId: "app.weather", generation: 3 }
 } as const;
 const authority = { schemaVersion: 1, applicationId: "customer-alpha", environment: "production", authorizationRevision: 4, lifecycleRevision: 8 } as const;
+const authorityDigest = `sha256:${"a".repeat(64)}`;
+const authorityEnvelope = {
+  ...authority,
+  principal: { kind: "user", id: "principal-admin" },
+  effectiveActor: { kind: "user", id: "admin" },
+  delegation: { delegationId: "settings-delegation", delegator: { kind: "user", id: "principal-admin" }, effect: "reducing" },
+  permissions: [
+    { decisionId: "settings-manage-decision", permissionId: "system.settings.manage", owner: { kind: "platform", namespace: "system" }, scope: { kind: "application", resource: "system.settings" } },
+    { decisionId: "weather-change-decision", permissionId: "weather.settings.write", owner: identity.owner, scope: { kind: "application", resource: "weather.settings" } }
+  ],
+  reauthentication: { evidenceId: "settings-evidence-current", verifiedAt: "2026-09-01T23:59:00.000Z", expiresAt: "2026-09-02T00:01:00.000Z" }
+} as const;
 const pending = {
   schemaVersion: 1,
   operationId: "settings-operation-weather",
@@ -23,6 +35,7 @@ const pending = {
   state: "pending-validation",
   attempts: 0,
   requestedBy: { kind: "user", id: "admin" },
+  authorityDigest,
   idempotencyKey: "weather-settings-1",
   revision: 1,
   updatedAt: "2026-09-02T00:00:00.000Z"
@@ -31,7 +44,7 @@ const pending = {
 function promoted() {
   return {
     schemaVersion: 1, receiptId: "settings-receipt-weather", operationId: pending.operationId, identity,
-    requestedBy: pending.requestedBy, idempotencyKey: pending.idempotencyKey, occurredAt: "2026-09-02T00:00:01.000Z",
+    requestedBy: pending.requestedBy, authorityDigest, reauthentication: "satisfied", idempotencyKey: pending.idempotencyKey, occurredAt: "2026-09-02T00:00:01.000Z",
     outcome: "promoted", documentRevision: 1, settingsRevision: 1, changedFields: ["region"],
     invalidationId: "settings-invalidation-weather"
   } as const;
@@ -44,6 +57,7 @@ describe("SettingsValidationCoordinator", () => {
       leaseOwner: "settings-worker-one", leaseExpiresAt: "2026-09-02T00:01:00.000Z" } as const;
     const store = {
       readGenerationValidated: vi.fn(async () => pending),
+      readGenerationValidatedAuthority: vi.fn(async () => ({ operation: pending, authority: authorityEnvelope })),
       claimGenerationValidated: vi.fn(async () => ({ operation: claimed, runtimeGenerationId: "weather-runtime-3" })),
       read: vi.fn(async () => ({ state: { schemaVersion: 1, applicationId: identity.applicationId, environment: identity.environment, settingsRevision: 0 } })),
       promoteGenerationValidated: vi.fn(async () => terminal),
@@ -53,6 +67,7 @@ describe("SettingsValidationCoordinator", () => {
     const times = [new Date("2026-09-02T00:00:00.000Z"), new Date("2026-09-02T00:00:01.000Z")];
     const coordinator = new SettingsValidationCoordinator({
       store: store as never, validator, readAuthority: async () => authority,
+      currentAuthority: { reauthorize: vi.fn(async () => true) },
       leaseOwner: "settings-worker-one", now: () => times.shift()!
     });
 
@@ -67,7 +82,7 @@ describe("SettingsValidationCoordinator", () => {
     const store = { readGenerationValidated: vi.fn(async () => terminal) };
     const validator = { validate: vi.fn() };
     const coordinator = new SettingsValidationCoordinator({
-      store: store as never, validator: validator as never, readAuthority: vi.fn(), leaseOwner: "settings-worker-one"
+      store: store as never, validator: validator as never, readAuthority: vi.fn(), currentAuthority: { reauthorize: vi.fn() }, leaseOwner: "settings-worker-one"
     });
     await expect(coordinator.run({ identity, operationId: pending.operationId })).resolves.toEqual(terminal);
     expect(validator.validate).not.toHaveBeenCalled();

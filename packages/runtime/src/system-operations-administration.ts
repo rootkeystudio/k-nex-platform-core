@@ -1,9 +1,11 @@
 import {
+  AdministrationActorEnvelopeSchema,
   OperationsCenterReceiptSchema,
   OperationsCenterReferenceSchema,
   OperationsCenterRequestInputSchema,
   SystemHealthObservationSchema,
   canonicalJson,
+  type AdministrationActorEnvelope,
   type AuthorizationDecision,
   type AuthorizationState,
   type OperationsCenterReceipt,
@@ -77,7 +79,7 @@ export class CompositeSystemOperationsProjection implements SystemOperationsProj
 }
 
 export interface SystemOperationsOperator {
-  replay(input: Readonly<{ kind: SystemOperationKind; applicationId: string; environment: string; expectedOperationsRevision: number; requestedBy: AuthorizationDecision["effectiveActor"]; idempotencyKey: string }>): Promise<OperationsCenterReceipt | undefined>;
+  replay(input: Readonly<{ kind: SystemOperationKind; applicationId: string; environment: string; expectedOperationsRevision: number; requestedBy: AuthorizationDecision["effectiveActor"]; authorityEnvelope: AdministrationActorEnvelope; idempotencyKey: string }>): Promise<OperationsCenterReceipt | undefined>;
   submit(input: Readonly<{
     readonly kind: SystemOperationKind;
     readonly applicationId: string;
@@ -85,6 +87,7 @@ export interface SystemOperationsOperator {
     readonly expectedOperationsRevision: number;
     readonly expectedInventoryDigest: string;
     readonly requestedBy: AuthorizationDecision["effectiveActor"];
+    readonly authorityEnvelope: AdministrationActorEnvelope;
     readonly idempotencyKey: string;
   }>): Promise<OperationsCenterReceipt>;
 }
@@ -132,9 +135,11 @@ export class SystemOperationsAdministrationService<TContext> {
     if (!request.success) invalid();
     const decision = await this.authorize(input.context, input.kind);
     const state = await this.current(decision);
+    const authorityEnvelope = actorEnvelope(decision);
+    const authorityDigest = await digest(authorityEnvelope);
     const operator = await this.operator(input.context);
-    const replay = await operator.replay({ kind: input.kind, applicationId: decision.applicationId, environment: decision.environment, expectedOperationsRevision: request.data.expectedOperationsRevision, requestedBy: decision.effectiveActor, idempotencyKey: request.data.idempotencyKey });
-    if (replay) return this.receipt(replay, input.kind, decision, undefined, request.data.idempotencyKey);
+    const replay = await operator.replay({ kind: input.kind, applicationId: decision.applicationId, environment: decision.environment, expectedOperationsRevision: request.data.expectedOperationsRevision, requestedBy: decision.effectiveActor, authorityEnvelope, idempotencyKey: request.data.idempotencyKey });
+    if (replay) return this.receipt(replay, input.kind, decision, undefined, authorityDigest, request.data.idempotencyKey);
     if (request.data.expectedOperationsRevision !== state.operationsRevision) conflict();
     const evidence = await this.options.evidence.verify({ context: input.context, kind: input.kind, decision, state });
     if (evidence?.reauthentication !== "satisfied") unauthorized();
@@ -148,9 +153,10 @@ export class SystemOperationsAdministrationService<TContext> {
       expectedOperationsRevision: state.operationsRevision,
       expectedInventoryDigest: state.inventoryDigest,
       requestedBy: decision.effectiveActor,
+      authorityEnvelope,
       idempotencyKey: request.data.idempotencyKey
     });
-    return this.receipt(receipt, input.kind, decision, state.inventoryDigest, request.data.idempotencyKey);
+    return this.receipt(receipt, input.kind, decision, state.inventoryDigest, authorityDigest, request.data.idempotencyKey);
   }
 
   private async authorize(context: TContext, operation: "read" | SystemOperationKind): Promise<AuthorizationDecision> {
@@ -175,14 +181,34 @@ export class SystemOperationsAdministrationService<TContext> {
     throw new SystemOperationsAdministrationError("OPERATOR_UNAVAILABLE", "Trusted operations operator is unavailable.");
   }
 
-  private receipt(value: unknown, kind: SystemOperationKind, decision: AuthorizationDecision, inventoryDigest: string | undefined, idempotencyKey: string): OperationsCenterReceipt {
+  private receipt(value: unknown, kind: SystemOperationKind, decision: AuthorizationDecision, inventoryDigest: string | undefined, authorityDigest: string, idempotencyKey: string): OperationsCenterReceipt {
     const receipt = OperationsCenterReceiptSchema.safeParse(value);
     if (!receipt.success || receipt.data.kind !== kind || receipt.data.applicationId !== decision.applicationId ||
       receipt.data.environment !== decision.environment || inventoryDigest !== undefined && receipt.data.expectedInventoryDigest !== inventoryDigest ||
       receipt.data.requestedBy.kind !== decision.effectiveActor.kind || receipt.data.requestedBy.id !== decision.effectiveActor.id ||
+      receipt.data.authorityDigest !== authorityDigest ||
       receipt.data.idempotencyKey !== idempotencyKey) throw new SystemOperationsAdministrationError("OPERATOR_UNAVAILABLE", "Trusted operation receipt is invalid.");
     return Object.freeze(receipt.data);
   }
+}
+
+function actorEnvelope(decision: AuthorizationDecision): AdministrationActorEnvelope {
+  return AdministrationActorEnvelopeSchema.parse({
+    schemaVersion: 1,
+    applicationId: decision.applicationId,
+    environment: decision.environment,
+    principal: decision.principal,
+    effectiveActor: decision.effectiveActor,
+    ...(decision.delegation === undefined ? {} : { delegation: decision.delegation }),
+    authorizationRevision: decision.authorizationRevision,
+    lifecycleRevision: decision.lifecycleRevision,
+    permissions: [{ decisionId: decision.decisionId, permissionId: decision.permissionId, owner: decision.owner, scope: decision.scope }]
+  });
+}
+
+async function digest(value: unknown): Promise<string> {
+  const bytes = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalJson(value)));
+  return `sha256:${Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
 function validateProjection(value: Awaited<ReturnType<SystemOperationsProjectionSource["read"]>>, state: SystemOperationsState): void {

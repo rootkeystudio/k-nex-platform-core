@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
+import { canonicalJson } from "@k-nex/contracts";
 import { PostgresSystemOperationsStore, SystemOperationsWorker } from "@k-nex/payload-adapter";
 import pg from "pg";
 
@@ -25,7 +26,20 @@ function boot(connectionString) {
 }
 
 function request(kind, expectedOperationsRevision, idempotencyKey, requestedBy = actor, digest = inventoryDigest) {
-  return { kind, applicationId, environment, expectedOperationsRevision, expectedInventoryDigest: digest, requestedBy, idempotencyKey };
+  return { kind, applicationId, environment, expectedOperationsRevision, expectedInventoryDigest: digest, requestedBy, authorityEnvelope: envelope(kind, requestedBy), idempotencyKey };
+}
+
+function envelope(kind, requestedBy = actor) {
+  return {
+    schemaVersion: 1, applicationId, environment, principal: requestedBy, effectiveActor: requestedBy,
+    authorizationRevision: 1, lifecycleRevision: 1,
+    permissions: [{ decisionId: `decision-${kind}-1`, permissionId: kind === "backup" ? "system.operations.backup" : "system.operations.restore-drill", owner: { kind: "platform", namespace: "system" }, scope: { kind: "application", resource: "system.operations" } }]
+  };
+}
+
+async function authorityDigest(value) {
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalJson(value)));
+  return `sha256:${Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
 test("P11.7 persists replay-safe backup and restore-drill authority with leases, audit, and outbox", { timeout: 180_000 }, async () => {
@@ -40,8 +54,10 @@ test("P11.7 persists replay-safe backup and restore-drill authority with leases,
     const accepted = await store.submit(request("backup", 0, "backup-idempotency-1"));
     assert.equal(accepted.outcome, "accepted");
     assert.deepEqual(await store.submit(request("backup", 0, "backup-idempotency-1")), accepted, "response-loss retry returns exact accepted receipt");
-    assert.deepEqual(await store.replay({ kind: "backup", applicationId, environment, expectedOperationsRevision: 0, requestedBy: actor, idempotencyKey: "backup-idempotency-1" }), accepted);
-    await assert.rejects(store.replay({ kind: "backup", applicationId, environment, expectedOperationsRevision: 0, requestedBy: { kind: "user", id: "user:other" }, idempotencyKey: "backup-idempotency-1" }), { code: "REVISION_CONFLICT" });
+    assert.equal(accepted.authorityDigest, await authorityDigest(envelope("backup")));
+    assert.deepEqual(await store.replay({ kind: "backup", applicationId, environment, expectedOperationsRevision: 0, requestedBy: actor, authorityEnvelope: envelope("backup"), idempotencyKey: "backup-idempotency-1" }), accepted);
+    const other = { kind: "user", id: "user:other" };
+    await assert.rejects(store.replay({ kind: "backup", applicationId, environment, expectedOperationsRevision: 0, requestedBy: other, authorityEnvelope: envelope("backup", other), idempotencyKey: "backup-idempotency-1" }), { code: "REVISION_CONFLICT" });
 
     const claimed = await store.claim({ applicationId, environment, workerId: "backup-worker-1", leaseSeconds: 30 });
     assert.ok(claimed);
@@ -75,7 +91,10 @@ test("P11.7 persists replay-safe backup and restore-drill authority with leases,
       (select count(*)::int from k_nex_system_operation_outbox) outbox`)).rows[0];
     assert.deepEqual(counts, { requests: 2, receipts: 4, audits: 4, outbox: 4 });
     await assert.rejects(pool.query("update k_nex_system_operation_receipts set receipt_json='{}'::jsonb where receipt_id=$1", [accepted.receiptId]), /immutable/u);
-    const serialized = JSON.stringify(await pool.query("select request_json, receipt_json from k_nex_system_operation_requests cross join k_nex_system_operation_receipts limit 1"));
+    const audit = (await pool.query("select authority_json, authority_digest from k_nex_system_operation_audit order by created_at limit 1")).rows[0];
+    assert.equal(audit.authority_digest, accepted.authorityDigest);
+    assert.deepEqual(audit.authority_json.principal, actor);
+    const serialized = JSON.stringify(await pool.query("select request_json, authority_json, receipt_json from k_nex_system_operation_requests cross join k_nex_system_operation_receipts limit 1"));
     assert.doesNotMatch(serialized, /password|credential|encryptionKey|rawError/u);
     console.log("P11_7_SYSTEM_OPERATIONS_POSTGRES_EVIDENCE=PASS");
   } finally {

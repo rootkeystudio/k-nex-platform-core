@@ -62,6 +62,8 @@ function harness(options: Readonly<{
   states?: readonly AuthorizationState[];
   immediate?: unknown;
   generation?: unknown;
+  evidence?: unknown;
+  evidenceVerifier?: (input: any) => unknown;
 }> = {}) {
   const d = options.descriptor ?? descriptor(options.validation);
   const current = document(d);
@@ -73,7 +75,8 @@ function harness(options: Readonly<{
   const stateSource = { readState: vi.fn(async () => states.shift() ?? state()) };
   const receipt = (write: any) => ({
     schemaVersion: 1, outcome: "promoted", receiptId: write.receipt.receiptId, operationId: write.operation.operationId,
-    identity: write.identity, requestedBy: write.actor, idempotencyKey: write.operation.idempotencyKey, occurredAt: write.receipt.occurredAt,
+    identity: write.identity, requestedBy: write.actor, authorityDigest: `sha256:${"a".repeat(64)}`, reauthentication: "satisfied",
+    idempotencyKey: write.operation.idempotencyKey, occurredAt: write.receipt.occurredAt,
     documentRevision: write.document.expectedDocumentRevision + 1, settingsRevision: write.document.expectedSettingsRevision + 1,
     changedFields: write.changedFields, invalidationId: write.receipt.invalidationId
   });
@@ -82,14 +85,18 @@ function harness(options: Readonly<{
     pendingDocument: { schemaVersion: 1, state: "pending-generation-validation", identity: write.identity, documentRevision: 4, settingsRevision: 9, values: write.document.values },
     expectedDocumentRevision: write.document.expectedDocumentRevision, expectedSettingsRevision: write.document.expectedSettingsRevision,
     state: "pending-validation", attempts: 0, requestedBy: write.actor, idempotencyKey: write.operation.idempotencyKey, revision: 1, updatedAt: write.receipt.occurredAt
+    , authorityDigest: `sha256:${"a".repeat(64)}`
   });
   const store = {
     read: vi.fn(async () => options.snapshot === undefined ? { state: { schemaVersion: 1, applicationId: expected.applicationId, environment: expected.environment, settingsRevision: 8 }, document: current } : options.snapshot),
     writeImmediate: vi.fn(async (write: any) => options.immediate ?? receipt(write)),
-    beginGenerationValidated: vi.fn(async (write: any) => options.generation ?? operation(write))
+    beginGenerationValidated: vi.fn(async (write: any) => options.generation ?? operation(write)),
+    beginRetainedAdoption: vi.fn()
   };
   const metadata = { id: vi.fn((kind: string) => `${kind}-settings-change-1`), now: vi.fn(() => new Date("2026-09-02T10:00:00.000Z")) };
-  return { d, current, resolver, descriptorSource, stateSource, store, metadata, service: new SystemSettingsAdministrationService<Context>({ authority, descriptorSource, state: stateSource, store, metadata }) };
+  const evidence = { verify: vi.fn(async (input: any) => options.evidenceVerifier ? options.evidenceVerifier(input) : options.evidence === undefined ? ({ reauthentication: "satisfied" as const, evidenceId: "settings-evidence-1", verifiedAt: "2026-09-02T09:59:00.000Z", expiresAt: "2026-09-02T10:01:00.000Z" }) : options.evidence) };
+  const secrets = { resolve: vi.fn(async () => ({ kind: "secret-reference" as const, provider: "environment" as const, key: "SALES_API_TOKEN_ROTATED" })) };
+  return { d, current, resolver, descriptorSource, stateSource, store, metadata, evidence, secrets, service: new SystemSettingsAdministrationService<Context>({ authority, descriptorSource, state: stateSource, store, metadata, evidence, secrets }) };
 }
 
 describe("P11.3e system settings administration changes", () => {
@@ -134,6 +141,67 @@ describe("P11.3e system settings administration changes", () => {
     expect(write.changedFields).toEqual(["pageSize"]);
     expect(JSON.stringify(write)).not.toContain("browser-secret");
     expect(JSON.stringify(result)).not.toContain("SALES_API_TOKEN");
+  });
+
+  it("requires current, bound reauthentication evidence and persists only safe proof metadata", async () => {
+    for (const evidence of [null, { reauthentication: "satisfied", evidenceId: "settings-evidence-1", verifiedAt: "2026-09-02T10:01:00.000Z", expiresAt: "2026-09-02T10:00:00.000Z" }, { reauthentication: "satisfied", evidenceId: "forged id", verifiedAt: "2026-09-02T09:59:00.000Z", expiresAt: "2026-09-02T10:01:00.000Z" }]) {
+      const value = harness({ evidence });
+      await expect(value.service.change({ context: {}, settingsId: value.d.id, change: change() })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+      expect(value.store.writeImmediate).not.toHaveBeenCalled();
+    }
+    const value = harness();
+    await value.service.change({ context: {}, settingsId: value.d.id, change: change() });
+    expect(value.evidence.verify).toHaveBeenCalledWith(expect.objectContaining({
+      operation: "change", identity: identity(value.d), expectedDocumentRevision: 3, expectedSettingsRevision: 8,
+      changedFields: ["pageSize"], idempotencyKey: "settings-change-1",
+      decision: expect.objectContaining({ principal: session.principal, effectiveActor: session.effectiveActor }),
+      descriptorDecision: expect.objectContaining({ permissionId: "sales.settings.write" })
+    }));
+    const persisted = value.store.writeImmediate.mock.calls[0]![0];
+    expect(persisted.authorityEnvelope).toMatchObject({ principal: session.principal, effectiveActor: session.effectiveActor, reauthentication: { evidenceId: "settings-evidence-1" } });
+    expect(JSON.stringify(persisted)).not.toContain("browser-secret");
+  });
+
+  it("rejects missing, stale, substituted, cross-actor, and replayed reauthentication evidence", async () => {
+    type Proof = Readonly<{ evidenceId: string; principalId: string; effectiveActorId: string; descriptorId: string; ownerGeneration: number; operation: string; changedFields: string; expectedDocumentRevision: number; expectedSettingsRevision: number; idempotencyKey: string; verifiedAt: string; expiresAt: string }>;
+    const base: Proof = { evidenceId: "settings-one-use-proof", principalId: "admin", effectiveActorId: "admin", descriptorId: "sales.settings.workspace", ownerGeneration: 2, operation: "change", changedFields: "pageSize", expectedDocumentRevision: 3, expectedSettingsRevision: 8, idempotencyKey: "settings-change-1", verifiedAt: "2026-09-02T09:59:00.000Z", expiresAt: "2026-09-02T10:01:00.000Z" };
+    const consumed = new Map<string, string>();
+    let proof: Proof | undefined;
+    const verifier = (input: any) => {
+      if (!proof || Date.parse(proof.expiresAt) <= Date.parse("2026-09-02T10:00:00.000Z") || proof.principalId !== input.decision.principal.id || proof.effectiveActorId !== input.decision.effectiveActor.id ||
+        proof.descriptorId !== input.identity.descriptorId || proof.ownerGeneration !== input.identity.owner.generation || proof.operation !== input.operation || proof.changedFields !== input.changedFields.join(",") ||
+        proof.expectedDocumentRevision !== input.expectedDocumentRevision || proof.expectedSettingsRevision !== input.expectedSettingsRevision || proof.idempotencyKey !== input.idempotencyKey) return undefined;
+      const binding = JSON.stringify({ principal: input.decision.principal, effectiveActor: input.decision.effectiveActor, delegation: input.decision.delegation, identity: input.identity, operation: input.operation, changedFields: input.changedFields, expectedDocumentRevision: input.expectedDocumentRevision, expectedSettingsRevision: input.expectedSettingsRevision, authorizationRevision: input.decision.authorizationRevision, lifecycleRevision: input.decision.lifecycleRevision, idempotencyKey: input.idempotencyKey });
+      const prior = consumed.get(proof.evidenceId);
+      if (prior !== undefined && prior !== binding) return undefined;
+      consumed.set(proof.evidenceId, binding);
+      return { reauthentication: "satisfied" as const, evidenceId: proof.evidenceId, verifiedAt: proof.verifiedAt, expiresAt: proof.expiresAt };
+    };
+    const value = harness({ evidenceVerifier: verifier });
+    for (const candidate of [undefined, { ...base, expiresAt: "2026-09-02T09:59:30.000Z" }, { ...base, descriptorId: "sales.settings.other" }, { ...base, principalId: "other-admin" }] as const) {
+      proof = candidate;
+      await expect(value.service.change({ context: {}, settingsId: value.d.id, change: change() })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    }
+    proof = base;
+    await expect(value.service.change({ context: {}, settingsId: value.d.id, change: change() })).resolves.toMatchObject({ outcome: "promoted" });
+    proof = { ...base, idempotencyKey: "settings-change-2" };
+    await expect(value.service.change({ context: {}, settingsId: value.d.id, change: { ...change(), idempotencyKey: "settings-change-2" } })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    expect(value.store.writeImmediate).toHaveBeenCalledTimes(1);
+  });
+
+  it("binds and unbinds only host-owned secret slots with reauthentication", async () => {
+    const value = harness();
+    await value.service.secret({ context: {}, settingsId: value.d.id, secret: { action: "bind", field: "apiToken", slotAlias: "sales-primary", expectedDocumentRevision: 3, expectedSettingsRevision: 8, idempotencyKey: "settings-secret-bind-1" } });
+    expect(value.secrets.resolve).toHaveBeenCalledWith(expect.objectContaining({ field: "apiToken", slotAlias: "sales-primary" }));
+    expect(value.evidence.verify).toHaveBeenCalledWith(expect.objectContaining({ operation: "secret-bind", changedFields: ["apiToken"] }));
+    const write = value.store.writeImmediate.mock.calls[0]![0];
+    expect(write.document.values.apiToken).toEqual({ kind: "secret-reference", provider: "environment", key: "SALES_API_TOKEN_ROTATED" });
+    expect(JSON.stringify(await value.service.detail({ context: {}, settingsId: value.d.id }))).not.toContain("SALES_API_TOKEN");
+
+    const unbind = harness({ descriptor: { ...descriptor(), fields: { ...descriptor().fields, apiToken: { type: "secret-reference", required: false } } } });
+    await unbind.service.secret({ context: {}, settingsId: unbind.d.id, secret: { action: "unbind", field: "apiToken", expectedDocumentRevision: 3, expectedSettingsRevision: 8, idempotencyKey: "settings-secret-unbind-1" } });
+    expect(unbind.store.writeImmediate.mock.calls[0]![0].document.values).not.toHaveProperty("apiToken");
+    expect(unbind.evidence.verify).toHaveBeenCalledWith(expect.objectContaining({ operation: "secret-unbind" }));
   });
 
   it("uses the current global revision when another descriptor advanced settings state", async () => {

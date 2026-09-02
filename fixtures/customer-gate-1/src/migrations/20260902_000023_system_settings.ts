@@ -74,6 +74,8 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
       "requested_by_id" varchar(160) NOT NULL,
       "idempotency_key" varchar(160) NOT NULL,
       "request_digest" varchar(71) NOT NULL,
+      "authority_json" jsonb DEFAULT '{}'::jsonb NOT NULL,
+      "authority_digest" varchar(71) DEFAULT 'sha256:0000000000000000000000000000000000000000000000000000000000000000' NOT NULL,
       "revision" integer DEFAULT 1 NOT NULL,
       "lease_owner" varchar(128),
       "lease_expires_at" timestamp(3) with time zone,
@@ -90,6 +92,7 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
         AND "requested_by_kind" IN ('user','service') AND "requested_by_id" ~ '^[A-Za-z0-9][A-Za-z0-9._:@/-]*$'
         AND "idempotency_key" ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$'
         AND "request_digest" ~ '^sha256:[0-9a-f]{64}$'
+        AND "authority_digest" ~ '^sha256:[0-9a-f]{64}$' AND jsonb_typeof("authority_json")='object'
         AND (("lease_owner" IS NULL AND "lease_expires_at" IS NULL) OR ("state"='validating' AND "lease_owner" ~ '^[a-z][a-z0-9-]{2,127}$' AND "lease_expires_at" IS NOT NULL))
       ),
       CONSTRAINT "k_nex_system_settings_operations_owner_check" CHECK (
@@ -124,6 +127,8 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
       "requested_by_id" varchar(160) NOT NULL,
       "idempotency_key" varchar(160) NOT NULL,
       "request_digest" varchar(71) NOT NULL,
+      "authority_json" jsonb DEFAULT '{}'::jsonb NOT NULL,
+      "authority_digest" varchar(71) DEFAULT 'sha256:0000000000000000000000000000000000000000000000000000000000000000' NOT NULL,
       "outcome" varchar(32) NOT NULL,
       "receipt_json" jsonb NOT NULL,
       "occurred_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
@@ -137,6 +142,7 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
         AND "descriptor_schema_version" BETWEEN 1 AND 1000000000 AND "requested_by_kind" IN ('user','service')
         AND "requested_by_id" ~ '^[A-Za-z0-9][A-Za-z0-9._:@/-]*$'
         AND "idempotency_key" ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$' AND "request_digest" ~ '^sha256:[0-9a-f]{64}$'
+        AND "authority_digest" ~ '^sha256:[0-9a-f]{64}$' AND jsonb_typeof("authority_json")='object'
         AND "outcome" IN ('promoted','validation-failed','promotion-invalidated')
       ),
       CONSTRAINT "k_nex_system_settings_receipts_owner_check" CHECK (
@@ -171,6 +177,9 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
       "requested_by_kind" varchar(16) NOT NULL,
       "requested_by_id" varchar(160) NOT NULL,
       "outcome" varchar(32) NOT NULL,
+      "authority_json" jsonb DEFAULT '{}'::jsonb NOT NULL,
+      "authority_digest" varchar(71) DEFAULT 'sha256:0000000000000000000000000000000000000000000000000000000000000000' NOT NULL,
+      "reauthentication" varchar(16) DEFAULT 'satisfied' NOT NULL,
       "document_revision" integer,
       "settings_revision" integer,
       "changed_fields_json" jsonb NOT NULL,
@@ -181,6 +190,7 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
         AND "descriptor_schema_version" BETWEEN 1 AND 1000000000 AND "requested_by_kind" IN ('user','service')
         AND "requested_by_id" ~ '^[A-Za-z0-9][A-Za-z0-9._:@/-]*$'
         AND "outcome" IN ('applied','validation-failed','promotion-invalidated')
+        AND "authority_digest" ~ '^sha256:[0-9a-f]{64}$' AND jsonb_typeof("authority_json")='object' AND "reauthentication"='satisfied'
         AND ("document_revision" IS NULL OR "document_revision" BETWEEN 1 AND 1000000000)
         AND ("settings_revision" IS NULL OR "settings_revision" BETWEEN 1 AND 1000000000)
       ),

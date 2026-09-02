@@ -50,7 +50,13 @@ const vitestProofs = [
   ]],
   ["settings-change", "@k-nex/runtime", "tests/system-settings-administration-change.test.ts", [
     "rejects forged top-level and change fields before authority",
+    "requires current, bound reauthentication evidence and persists only safe proof metadata",
+    "rejects missing, stale, substituted, cross-actor, and replayed reauthentication evidence",
+    "binds and unbinds only host-owned secret slots with reauthentication",
     "rechecks current state before writing, maps actual store errors, and rejects malformed store results"
+  ]],
+  ["settings-current-authority", "@k-nex/runtime", "tests/settings-operation-current-authority.test.ts", [
+    "denies promotion after either captured permission is revoked"
   ]],
   ["effective-settings", "@k-nex/runtime", "tests/effective-settings-provider.test.ts", [
     "re-resolves the active exact owner around the authoritative document read",
@@ -75,18 +81,23 @@ const vitestProofs = [
 ];
 
 const proofResults = [];
+const passedProofs = new Set();
 for (const [id, workspace, file, names] of vitestProofs) {
   const output = run(id, "pnpm", ["--filter", workspace, "exec", "vitest", "run", file, "--reporter=json"]);
   const report = JSON.parse(output.trim());
   assert.equal(report.success, true, `${id} reported failure.`);
   assert.equal(report.numFailedTests, 0, `${id} reported a failed test.`);
   const passed = report.testResults.flatMap((result) => result.assertionResults).filter((test) => test.status === "passed").map((test) => test.title);
-  for (const name of names) assert.equal(passed.filter((actual) => actual === name).length, 1, `${id} omitted ${name}.`);
+  for (const name of names) {
+    assert.equal(passed.filter((actual) => actual === name).length, 1, `${id} omitted ${name}.`);
+    passedProofs.add(`vitest:${id}:${name}`);
+  }
   proofResults.push({ id, passed: report.numPassedTests, selected: names.length });
 }
 
 run("customer fixture build", "pnpm", ["--filter", "@k-nex/customer-gate-1", "build"]);
 const nodeTests = [
+  "tests/protected-role-baseline-upgrade-postgres.test.mjs",
   "tests/system-settings-storage-postgres.test.mjs",
   "tests/catalog-refresh-postgres.test.mjs",
   "tests/settings-convergence-postgres.test.mjs",
@@ -94,22 +105,38 @@ const nodeTests = [
   "tests/system-settings-theme-operations-browser.test.mjs"
 ];
 const tap = run("Phase 11 PostgreSQL/HTTP/Chromium proofs", process.execPath, ["--test", "--test-concurrency=1", "--test-reporter=tap", ...nodeTests], fixture);
-assert.equal(Number(/^# pass (\d+)$/mu.exec(tap)?.[1]), 8, "Phase 11 process proofs must pass exactly eight tests.");
-for (const marker of ["P11_7_SYSTEM_OPERATIONS_POSTGRES_EVIDENCE=PASS", "P11_8_FIXED_ADMINISTRATION_POSTGRES_CHROMIUM_EVIDENCE=PASS", "P11_9_EFFECTIVE_SETTINGS_CONVERGENCE_EVIDENCE=PASS"]) {
+assert.equal(Number(/^# pass (\d+)$/mu.exec(tap)?.[1]), 9, "Phase 11 process proofs must pass exactly nine tests.");
+for (const marker of ["P11_PROTECTED_BASELINE_RELEASE_UPGRADE_EVIDENCE=PASS", "P11_7_SYSTEM_OPERATIONS_POSTGRES_EVIDENCE=PASS", "P11_8_FIXED_ADMINISTRATION_POSTGRES_CHROMIUM_EVIDENCE=PASS", "P11_9_EFFECTIVE_SETTINGS_CONVERGENCE_EVIDENCE=PASS"]) {
   assert.match(tap, new RegExp(`^# ${marker}$`, "mu"), `Missing ${marker}.`);
+  passedProofs.add(`process:${marker}`);
 }
 
 for (const result of ["docs/implementation/phase-9-result.md", "docs/implementation/phase-10-result.md"]) {
   assert.match(readFileSync(resolve(root, result), "utf8"), /\*\*Decision:\*\* \*\*ACCEPTED\*\*/u, `${result} is not accepted inherited attack evidence.`);
+  passedProofs.add(`inherited:${result}`);
 }
 
-const attacks = [
-  "descriptor-or-executable-value", "secret-exfiltration", "cross-owner-settings", "client-selected-authority",
-  "catalog-network-or-trust-forgery", "invalid-refresh-pointer-replacement", "stale-approval-or-cross-actor-replay",
-  "theme-class-confusion", "unverified-theme-publication", "forged-health-or-operation-receipt",
-  "lost-invalidation", "generation-resurrection", "docker-repository-or-backup-authority-escape"
-];
-assert.equal(new Set(attacks).size, 13);
+const attackProofs = {
+  "descriptor-or-executable-value": ["vitest:settings-admission:projects active, pending, disabled, and retired records without secret references"],
+  "secret-exfiltration": ["vitest:settings-change:binds and unbinds only host-owned secret slots with reauthentication", "process:P11_8_FIXED_ADMINISTRATION_POSTGRES_CHROMIUM_EVIDENCE=PASS"],
+  "cross-owner-settings": ["vitest:effective-settings:never returns pending, disabled, retired, stale-owner, or invalid values"],
+  "client-selected-authority": ["vitest:settings-change:rejects forged top-level and change fields before authority", "vitest:operations-authority:derives owner, inventory, actor, and permission while rejecting client authority fields", "process:P11_PROTECTED_BASELINE_RELEASE_UPGRADE_EVIDENCE=PASS"],
+  "catalog-network-or-trust-forgery": ["vitest:catalog-network:accepts only one exact configured GitHub release asset API endpoint", "vitest:catalog-network:rejects redirects outside GitHub asset storage and redirect loops"],
+  "invalid-refresh-pointer-replacement": ["vitest:catalog-refresh:persists fetch failure without replacing prior pointer"],
+  "stale-approval-or-cross-actor-replay": ["vitest:settings-change:rejects missing, stale, substituted, cross-actor, and replayed reauthentication evidence", "vitest:settings-current-authority:denies promotion after either captured permission is revoked", "vitest:operations-authority:returns an exact actor-bound replay before rejecting the now-stale original revision"],
+  "theme-class-confusion": ["vitest:theme-authority:keeps Package, Skin, and Profile classes distinct and blocks referenced package removal"],
+  "unverified-theme-publication": ["vitest:theme-publication:rejects a failed preview without writing profile state"],
+  "forged-health-or-operation-receipt": ["vitest:operations-authority:derives owner, inventory, actor, and permission while rejecting client authority fields", "process:P11_7_SYSTEM_OPERATIONS_POSTGRES_EVIDENCE=PASS"],
+  "lost-invalidation": ["process:P11_9_EFFECTIVE_SETTINGS_CONVERGENCE_EVIDENCE=PASS"],
+  "generation-resurrection": ["vitest:settings-coordinator:leases, validates, and promotes only the exact staged runtime generation", "vitest:effective-settings:never returns pending, disabled, retired, stale-owner, or invalid values"],
+  "docker-repository-or-backup-authority-escape": ["process:P11_7_SYSTEM_OPERATIONS_POSTGRES_EVIDENCE=PASS", "inherited:docs/implementation/phase-10-result.md"]
+};
+const attacks = Object.keys(attackProofs);
+assert.equal(new Set(attacks).size, 13, "Phase 11 must machine-map exactly 13 attack classes.");
+for (const [attack, proofs] of Object.entries(attackProofs)) {
+  assert.ok(proofs.length > 0, `${attack} has no executable proof mapping.`);
+  for (const proof of proofs) assert.ok(passedProofs.has(proof), `${attack} references an unexecuted proof: ${proof}`);
+}
 
-console.log(JSON.stringify({ phase: 11, status: "PASS", attacks, focusedProofs: proofResults, processProofs: 8, inheritedGates: [9, 10] }, null, 2));
+console.log(JSON.stringify({ phase: 11, status: "PASS", attacks: attackProofs, focusedProofs: proofResults, processProofs: 9, inheritedGates: [9, 10] }, null, 2));
 console.log("P11_ATTACK_CORPUS_PASS");
