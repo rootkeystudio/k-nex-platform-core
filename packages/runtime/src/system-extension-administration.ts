@@ -27,12 +27,23 @@ export interface SystemExtensionAdministrationStateSource {
   readState(applicationId: string, environment: string): Promise<AuthorizationState | undefined>;
 }
 
-export interface SystemExtensionOperationApprovalVerifier<TContext> {
+/**
+ * Server-owned lifecycle evidence bound to one mutation boundary. Browser
+ * requests never carry approval or reauthentication evidence.
+ */
+export interface SystemExtensionLifecycleEvidenceVerifier<TContext> {
   verify(input: Readonly<{
-    context: TContext;
-    expected: SystemExtensionExpectedRevision;
-    operation: ExtensionOperationStatus;
-  }>): Promise<boolean> | boolean;
+    readonly context: TContext;
+    readonly expected: SystemExtensionExpectedRevision;
+    readonly operation: ExtensionOperationStatus;
+    readonly boundary: "validate" | "execute";
+  }>): Promise<Readonly<{
+    readonly approval: "not-required" | "satisfied";
+    readonly reauthentication: "satisfied";
+  }> | undefined> | Readonly<{
+    readonly approval: "not-required" | "satisfied";
+    readonly reauthentication: "satisfied";
+  }> | undefined;
 }
 
 /** Trusted server boundary that binds the Phase 9 operator to the current opaque request context. */
@@ -44,7 +55,7 @@ export interface SystemExtensionAdministrationOptions<TContext> {
   readonly operator: SystemExtensionOperatorProvider<TContext>;
   readonly authority: CurrentAuthorityAdapter<TContext>;
   readonly state: SystemExtensionAdministrationStateSource;
-  readonly approval?: SystemExtensionOperationApprovalVerifier<TContext>;
+  readonly lifecycleEvidence: SystemExtensionLifecycleEvidenceVerifier<TContext>;
 }
 
 export interface SystemExtensionExpectedRevision extends AuthorizationExpectedRevision {
@@ -174,6 +185,7 @@ export class SystemExtensionAdministrationService<TContext> {
     await this.current(expected, operator);
     const operation = await this.boundOperation(expected, operator, input.operationId);
     await this.current(expected, operator, operation.request.extension);
+    await this.verifyLifecycleEvidence(input.context, expected, operation, "validate");
     const report = await this.prepare(operator, expected, operation);
     await this.current(expected, operator, operation.request.extension);
     return report;
@@ -197,11 +209,7 @@ export class SystemExtensionAdministrationService<TContext> {
       if (!report.valid) unavailable("The current extension operation is not ready for execution.");
       await this.current(expected, operator, operation.request.extension);
     }
-    if (operation.plan!.plan.approvalRequired) {
-      if (!this.options.approval || !await this.options.approval.verify({ context: input.context, expected, operation })) {
-        throw new SystemExtensionAdministrationError("APPROVAL_REQUIRED", "A server-verified approval is required for this extension operation.");
-      }
-    }
+    await this.verifyLifecycleEvidence(input.context, expected, operation, "execute");
     const result = await execute(operator, operation);
     return Object.freeze({ result, status: operationStatus(await operator.operation(operation.operationId)) });
   }
@@ -257,6 +265,24 @@ export class SystemExtensionAdministrationService<TContext> {
       return operator.validate(staged.operationId);
     }
     return operator.validate(operation.operationId);
+  }
+
+  private async verifyLifecycleEvidence(
+    context: TContext,
+    expected: SystemExtensionExpectedRevision,
+    operation: ExtensionOperationStatus,
+    boundary: "validate" | "execute"
+  ): Promise<void> {
+    const evidence = await this.options.lifecycleEvidence.verify({ context, expected, operation, boundary });
+    if (operation.plan!.plan.approvalRequired && evidence?.approval !== "satisfied") {
+      throw new SystemExtensionAdministrationError("APPROVAL_REQUIRED", "A server-verified approval is required for this extension operation.");
+    }
+    if (evidence?.reauthentication !== "satisfied") {
+      unauthorized();
+    }
+    if (!operation.plan!.plan.approvalRequired && evidence.approval !== "not-required" && evidence.approval !== "satisfied") {
+      unauthorized();
+    }
   }
 
   private async planDecision(context: TContext, expected: SystemExtensionExpectedRevision): Promise<void> {

@@ -95,7 +95,7 @@ test("P10.9 proves fixed host routes, RBAC actions, lifecycle truth, and Chromiu
     ]);
     const authority = new CurrentAuthorityAdapter({ current(context) { return context?.session ? sessions.get(context.session) : undefined; } }, resolver);
     const access = new SystemAccessAdministrationService({ store, catalogProvider: provider, authority, protectedAssignmentAdmission: { verify: async () => ({ approval: "satisfied", reauthentication: "satisfied" }) } });
-    let approval = false;
+    let lifecycleEvidence = { approval: "not-required", reauthentication: "satisfied" };
     let operatorCalls = 0;
     let activationCalls = 0;
     const operations = new Map();
@@ -111,10 +111,11 @@ test("P10.9 proves fixed host routes, RBAC actions, lifecycle truth, and Chromiu
         platformPlugins: { "module.reports": { disposition: "active", revision: 6 }, "module.sales": { disposition: "disabled", revision: 7 } }
       } }, health: records.map(({ extension }) => ({ extension, state: extension.id === "module.sales" ? "healthy" : "degraded" })) }; },
       async plan(input) { operatorCalls += 1; const current = operation(input); operations.set(input.idempotencyKey, current); return current.plan; }, async operation(operationId) { operatorCalls += 1; return [...operations.values()].find((current) => current.operationId === operationId) ?? operation({ applicationId, environment, extension: { deliveryClass: "hot-application", id: "app.sales-assistant" }, operation: "install", targetVersion: "1.0.0", expectedRevision: 4, idempotencyKey: "system-administration-plan" }); },
+      async validate(operationId) { operatorCalls += 1; const current = [...operations.values()].find((candidate) => candidate.operationId === operationId); assert.ok(current, "only a stored operation can be validated"); return { operationId, executionClass: current.plan.executionClass, phase: current.phase, valid: true, checks: ["fixture-validated-operation"] }; },
       async activate() { operatorCalls += 1; activationCalls += 1; return { receiptId: "receipt-system-administration" }; }, async rollback() { throw new Error("not used"); }, async disable() { throw new Error("not used"); }, async uninstall() { throw new Error("not used"); }
     };
     const planOnlyOperator = Object.freeze({ ...operator, async activate() { throw new SystemExtensionAdministrationError("UNAUTHORIZED", "Bound plan-only operator denies lifecycle execution."); } });
-    const extensions = new SystemExtensionAdministrationService({ operator: { resolve(context) { return context?.session === "plan-only" ? planOnlyOperator : context?.session === "owner" ? operator : undefined; } }, authority, state: store, approval: { verify: async () => approval } });
+    const extensions = new SystemExtensionAdministrationService({ operator: { resolve(context) { return context?.session === "plan-only" ? planOnlyOperator : context?.session === "owner" ? operator : undefined; } }, authority, state: store, lifecycleEvidence: { verify: async () => lifecycleEvidence } });
     host = await startSystemAdministrationHost({ access, extensions, context(requestMessage) { const token = /(?:^|;\\s*)system_session=([^;]+)/u.exec(requestMessage.headers.cookie ?? "")?.[1]; return token ? { session: token } : undefined; }, sessionKey(context) { return context?.session; }, async expected(extension) { const state = await store.readState(applicationId, environment); assert.ok(state); const revision = extension?.id === "app.sales-assistant" ? 4 : extension?.id === "skin.accent" ? 5 : extension?.id === "module.reports" ? 6 : extension?.id === "module.sales" ? 7 : 0; return { ...state, inventoryRevision: 7, extensionRevision: revision }; } });
 
     const beforeDenied = operatorCalls;
@@ -245,8 +246,8 @@ test("P10.9 proves fixed host routes, RBAC actions, lifecycle truth, and Chromiu
     await actionPage.goto(`${host.url}/system/extensions/app.sales-assistant`);
     assert.equal((await submit(actionPage, "Plan install"))?.status(), 200, "Chromium submits extension plan form");
     await actionPage.goto(`${host.url}/system/extensions/app.sales-assistant`);
-    assert.equal((await submit(actionPage, "Execute planned operation"))?.status(), 403, "approval-required browser execution must not activate without a verifier");
-    approval = true;
+    assert.equal((await submit(actionPage, "Execute planned operation"))?.status(), 403, "approval-required browser execution must not activate without current server evidence");
+    lifecycleEvidence = { approval: "satisfied", reauthentication: "satisfied" };
     await actionPage.goto(`${host.url}/system/extensions/app.sales-assistant`);
     assert.equal((await submit(actionPage, "Execute planned operation"))?.status(), 200, "Chromium submits approved extension execution form");
     const planOnlyExtension = { deliveryClass: "hot-application", id: "app.sales-assistant" };

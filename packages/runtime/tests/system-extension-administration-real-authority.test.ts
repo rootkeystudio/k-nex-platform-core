@@ -248,7 +248,8 @@ describe("system extension administration real authority chain", () => {
     const service = new SystemExtensionAdministrationService<BrowserContext>({
       authority: new CurrentAuthorityAdapter({ current: async (context) => context.session }, resolver),
       operator: { resolve: (context) => operators.get(context) },
-      state: { readState: async (): Promise<AuthorizationState> => ({ schemaVersion: 1, ...expected }) }
+      state: { readState: async (): Promise<AuthorizationState> => ({ schemaVersion: 1, ...expected }) },
+      lifecycleEvidence: { verify: async () => ({ approval: "not-required", reauthentication: "satisfied" }) }
     });
 
     await expect(service.plan({ context: plannerOnly, expected, request: request() })).rejects.toMatchObject({ code: "UNAUTHORIZED" });

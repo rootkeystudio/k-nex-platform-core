@@ -75,7 +75,7 @@ function harness(options: Readonly<{
   readonly inventoryRevision?: number;
   readonly targetRevision?: number;
   readonly operation?: ExtensionOperationStatus;
-  readonly approval?: boolean;
+  readonly evidence?: "missing" | "forged" | "expired" | Readonly<{ readonly approval: "not-required" | "satisfied"; readonly reauthentication: "satisfied" }>;
   readonly provider?: (context: TestContext, fallback: ExtensionOperatorApi) => Promise<ExtensionOperatorApi | undefined> | ExtensionOperatorApi | undefined;
 }> = {}) {
   const resolver = { authorize: vi.fn(async (current: TrustedAuthorizationSession, input: EffectiveAuthorizationRequest) => decision(input, current, options.outcome)) };
@@ -92,9 +92,13 @@ function harness(options: Readonly<{
     activate: vi.fn(async () => ({ receiptId: "receipt-system-extension-1" })), rollback: vi.fn(), disable: vi.fn(), uninstall: vi.fn()
   } as unknown as ExtensionOperatorApi;
   const state = { readState: vi.fn(async () => options.state ? options.state() : authorizationState()) };
-  const approval = options.approval === undefined ? undefined : { verify: vi.fn(async () => options.approval) };
+  const lifecycleEvidence = { verify: vi.fn(async () => {
+    if (options.evidence === "missing" || options.evidence === "expired") return undefined;
+    if (options.evidence === "forged") return { approval: "satisfied", reauthentication: "not-required" } as never;
+    return options.evidence ?? { approval: "not-required" as const, reauthentication: "satisfied" as const };
+  }) };
   const operatorProvider = { resolve: vi.fn(async (context: TestContext) => options.provider ? options.provider(context, operator) : operator) };
-  return { resolver, authority, operator, operatorProvider, state, approval, service: new SystemExtensionAdministrationService<TestContext>({ operator: operatorProvider, authority, state, ...(approval ? { approval } : {}) }) };
+  return { resolver, authority, operator, operatorProvider, state, lifecycleEvidence, service: new SystemExtensionAdministrationService<TestContext>({ operator: operatorProvider, authority, state, lifecycleEvidence }) };
 }
 
 describe("system extension administration", () => {
@@ -238,38 +242,74 @@ describe("system extension administration", () => {
     expect(operationAuthorizer).toHaveBeenCalledWith(expect.objectContaining({ operation: "install" }));
   });
 
-  it("requires a server-side operation-bound approval and rechecks state before execution", async () => {
+  it("requires server-owned operation-bound lifecycle evidence and rechecks state before execution", async () => {
     const operation = {
       operationId: "operation-system-extension-1", request: { applicationId: expected.applicationId, environment: expected.environment, extension: { deliveryClass: "hot-application", id: "app.sales-assistant" }, operation: "install", targetVersion: "1.0.0", expectedRevision: expected.extensionRevision, idempotencyKey: "system-extension-install-1", correlationId: "system-extension-administration" },
       requestDigest: `sha256:${"b".repeat(64)}`, actor: { kind: "actor", id: "admin", approvalId: "server-approval" }, phase: "staged", plan: { ...plan("hot-application"), plan: { ...plan("hot-application").plan, approvalRequired: true } }
     } as unknown as ExtensionOperationStatus;
-    const denied = harness({ operation });
+    const denied = harness({ operation, evidence: "missing" });
     await expect(denied.service.execute({ context: {}, expected, operationId: operation.operationId })).rejects.toMatchObject({ code: "APPROVAL_REQUIRED" } satisfies Partial<SystemExtensionAdministrationError>);
     expect(denied.operator.activate).not.toHaveBeenCalled();
 
-    const admitted = harness({ operation, approval: true });
+    const admitted = harness({ operation, evidence: { approval: "satisfied", reauthentication: "satisfied" } });
     await expect(admitted.service.execute({ context: {}, expected, operationId: operation.operationId })).resolves.toMatchObject({ status: { operationId: operation.operationId } });
-    expect(admitted.approval!.verify).toHaveBeenCalledWith(expect.objectContaining({ operation, expected }));
+    expect(admitted.lifecycleEvidence.verify).toHaveBeenCalledWith(expect.objectContaining({ operation, expected, boundary: "execute" }));
     expect(admitted.operator.activate).toHaveBeenCalledWith(operation.operationId);
     expect(admitted.state.readState).toHaveBeenCalledTimes(3);
     expect(admitted.operatorProvider.resolve).toHaveBeenCalledTimes(1);
   });
 
-  it("checks approval after validation so a revoked approval cannot activate a staged generation", async () => {
+  it("checks fresh lifecycle evidence after validation so lost reauthentication cannot activate a staged generation", async () => {
     const operation = {
       operationId: "operation-system-extension-1", request: { applicationId: expected.applicationId, environment: expected.environment, extension: { deliveryClass: "hot-application", id: "app.sales-assistant" }, operation: "install", targetVersion: "1.0.0", expectedRevision: expected.extensionRevision, idempotencyKey: "system-extension-install-1", correlationId: "system-extension-administration" },
       requestDigest: `sha256:${"b".repeat(64)}`, actor: { kind: "actor", id: "admin", approvalId: "server-approval" }, phase: "staged", plan: { ...plan("hot-application"), plan: { ...plan("hot-application").plan, approvalRequired: true } }
     } as unknown as ExtensionOperationStatus;
-    const value = harness({ operation, approval: true });
-    let approved = true;
-    (value.approval!.verify as ReturnType<typeof vi.fn>).mockImplementation(async () => approved);
+    const value = harness({ operation, evidence: { approval: "satisfied", reauthentication: "satisfied" } });
+    let reauthenticated = true;
+    (value.lifecycleEvidence.verify as ReturnType<typeof vi.fn>).mockImplementation(async () => ({
+      approval: "satisfied" as const,
+      reauthentication: reauthenticated ? "satisfied" as const : "not-required"
+    } as never));
     (value.operator.validate as ReturnType<typeof vi.fn>).mockImplementation(async () => {
-      approved = false;
+      reauthenticated = false;
       return { operationId: operation.operationId, executionClass: "live-generation", phase: "staged", valid: true, checks: ["verified-bundle", "generation-authority"] };
     });
-    await expect(value.service.execute({ context: {}, expected, operationId: operation.operationId })).rejects.toMatchObject({ code: "APPROVAL_REQUIRED" } satisfies Partial<SystemExtensionAdministrationError>);
-    expect(value.approval!.verify).toHaveBeenCalledOnce();
+    await expect(value.service.execute({ context: {}, expected, operationId: operation.operationId })).rejects.toMatchObject({ code: "UNAUTHORIZED" } satisfies Partial<SystemExtensionAdministrationError>);
+    expect(value.lifecycleEvidence.verify).toHaveBeenCalledOnce();
     expect(value.operator.activate).not.toHaveBeenCalled();
+  });
+
+  it("requires unforgeable reauthentication before validation staging and accepts no-approval plans without fabricated approval", async () => {
+    const operation = {
+      operationId: "operation-system-extension-1", request: { applicationId: expected.applicationId, environment: expected.environment, extension: { deliveryClass: "hot-application", id: "app.sales-assistant" }, operation: "install", targetVersion: "1.0.0", expectedRevision: expected.extensionRevision, idempotencyKey: "system-extension-install-1", correlationId: "system-extension-administration" },
+      requestDigest: `sha256:${"b".repeat(64)}`, actor: { kind: "actor", id: "admin", approvalId: "server-approval" }, phase: "planning", plan: plan("hot-application")
+    } as unknown as ExtensionOperationStatus;
+    const missing = harness({ operation, evidence: "missing" });
+    await expect(missing.service.validate({ context: {}, expected, operationId: operation.operationId })).rejects.toMatchObject({ code: "UNAUTHORIZED" } satisfies Partial<SystemExtensionAdministrationError>);
+    expect(missing.lifecycleEvidence.verify).toHaveBeenCalledWith(expect.objectContaining({ boundary: "validate", operation }));
+    expect(missing.operator.stage).not.toHaveBeenCalled();
+    expect(missing.operator.validate).not.toHaveBeenCalled();
+
+    const forged = harness({ operation, evidence: "forged" });
+    await expect(forged.service.validate({ context: {}, expected, operationId: operation.operationId })).rejects.toMatchObject({ code: "UNAUTHORIZED" } satisfies Partial<SystemExtensionAdministrationError>);
+    expect(forged.operator.stage).not.toHaveBeenCalled();
+
+    const expired = harness({ operation, evidence: "expired" });
+    await expect(expired.service.validate({ context: {}, expected, operationId: operation.operationId })).rejects.toMatchObject({ code: "UNAUTHORIZED" } satisfies Partial<SystemExtensionAdministrationError>);
+    expect(expired.operator.stage).not.toHaveBeenCalled();
+
+    const noApproval = harness({ operation, evidence: { approval: "not-required", reauthentication: "satisfied" } });
+    (noApproval.operator.stage as ReturnType<typeof vi.fn>).mockImplementation(async () => { (operation as { phase: string }).phase = "staged"; });
+    await expect(noApproval.service.validate({ context: {}, expected, operationId: operation.operationId })).resolves.toMatchObject({ valid: true });
+    await expect(noApproval.service.execute({ context: {}, expected, operationId: operation.operationId })).resolves.toMatchObject({ status: { operationId: operation.operationId } });
+    expect(noApproval.lifecycleEvidence.verify.mock.calls.map(([input]) => input.boundary)).toEqual(["validate", "execute"]);
+  });
+
+  it("rejects client-supplied lifecycle evidence fields", async () => {
+    const value = harness();
+    await expect(value.service.validate({ context: {}, expected, operationId: "operation-system-extension-1", evidence: { approval: "satisfied", reauthentication: "satisfied" } } as never)).rejects.toMatchObject({ code: "REQUEST_INVALID" } satisfies Partial<SystemExtensionAdministrationError>);
+    expect(value.lifecycleEvidence.verify).not.toHaveBeenCalled();
+    expect(value.operator.stage).not.toHaveBeenCalled();
   });
 
   it("requires durable live preparation before activation and returns the persisted terminal status", async () => {
@@ -292,7 +332,7 @@ describe("system extension administration", () => {
       (operation as { result?: unknown }).result = { receiptId: "receipt-system-extension-terminal" };
       return { receiptId: "receipt-system-extension-terminal" };
     });
-    const recreated = new SystemExtensionAdministrationService<TestContext>({ operator: value.operatorProvider, authority: value.authority, state: value.state });
+    const recreated = new SystemExtensionAdministrationService<TestContext>({ operator: value.operatorProvider, authority: value.authority, state: value.state, lifecycleEvidence: value.lifecycleEvidence });
     await expect(recreated.execute({ context: {}, expected, operationId: operation.operationId })).resolves.toMatchObject({
       status: { operationId: operation.operationId, phase: "completed", result: { receiptId: "receipt-system-extension-terminal" } }
     });
@@ -345,7 +385,7 @@ describe("system extension administration", () => {
       operationId: "operation-system-extension-static", request: { applicationId: expected.applicationId, environment: expected.environment, extension: { deliveryClass: "platform-plugin", id: "module.sales" }, operation: "install", targetVersion: "1.0.0", expectedRevision: expected.extensionRevision, idempotencyKey: "system-extension-static-1", correlationId: "system-extension-administration" },
       requestDigest: `sha256:${"b".repeat(64)}`, actor: { kind: "actor", id: "admin", approvalId: "server-approval" }, phase: "source-change-ready", plan: plan("platform-plugin", "maintenance-required")
     } as unknown as ExtensionOperationStatus;
-    const value = harness({ operation, approval: true });
+    const value = harness({ operation });
     await expect(value.service.execute({ context: {}, expected, operationId: operation.operationId })).rejects.toMatchObject({ code: "EXECUTION_UNAVAILABLE" } satisfies Partial<SystemExtensionAdministrationError>);
     expect(value.operator.activate).not.toHaveBeenCalled();
   });
@@ -356,9 +396,9 @@ describe("system extension administration", () => {
       requestDigest: `sha256:${"b".repeat(64)}`, actor: { kind: "actor", id: "admin", approvalId: "server-approval" }, phase: "staged", plan: { ...plan("hot-application"), plan: { ...plan("hot-application").plan, approvalRequired: true } }
     } as unknown as ExtensionOperationStatus;
     let reads = 0;
-    const value = harness({ operation, approval: true, state: () => ++reads === 1 ? authorizationState() : { ...authorizationState(), lifecycleRevision: expected.lifecycleRevision + 1 } });
+    const value = harness({ operation, state: () => ++reads === 1 ? authorizationState() : { ...authorizationState(), lifecycleRevision: expected.lifecycleRevision + 1 } });
     await expect(value.service.execute({ context: {}, expected, operationId: operation.operationId })).rejects.toMatchObject({ code: "REVISION_CONFLICT" } satisfies Partial<SystemExtensionAdministrationError>);
-    expect(value.approval!.verify).not.toHaveBeenCalled();
+    expect(value.lifecycleEvidence.verify).not.toHaveBeenCalled();
     expect(value.operator.activate).not.toHaveBeenCalled();
     expect(value.operatorProvider.resolve).toHaveBeenCalledTimes(1);
   });
