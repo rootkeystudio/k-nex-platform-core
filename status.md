@@ -7,15 +7,15 @@
 
 ## Last completed
 
-P11.6 is complete: current-authority profile list/read/manage, fresh verified Package/Skin preview, atomic publication/rollback, distinct administration projections, reference blocking, fixed editable pages, and serialized host-owned Remote UI presentation. App frames cannot inject presentation. Local review fixes corrected semver release selection, list authority, and profile render/update ordering.
+P11.7a adds the narrow current-authority operations service. It projects only authoritative references and safe health, derives application/environment/inventory/actor server-side, fences revisions, requires reauthentication plus restore approval, and accepts only a context-bound trusted operator. P11.6 remains complete.
 
 ## Validation
 
-Exact Node 24.19.0: P11.6 Remote UI host 18/18, administration pages 3/3, theme projection 3/3, authority/profile list 5/5; affected package builds pass. Real PostgreSQL/Chromium Theme Skin/Profile 1/1 covers invalid preview, publication races, verified generation, references, recovery, and accessibility. Docker clean.
+Exact Node 24.19.0: P11.7 operations service 4/4 plus runtime build. P11.6 Remote UI 18/18, pages 3/3, projection 3/3, authority/profile list 5/5 and real PostgreSQL/Chromium Theme Skin/Profile 1/1 passed. Docker clean.
 
 ## Next
 
-P11.7a pre-task review, then freeze the narrow operation projection/request boundary without duplicating authoritative state.
+P11.7b add durable request/receipt, audit, outbox, replay, crash-resume, and operator-restart authority in customer PostgreSQL.
 
 ## Blockers
 

@@ -55,3 +55,4 @@ export * from "./system-access-administration.js";
 export * from "./system-extension-administration.js";
 export * from "./system-settings-administration.js";
 export * from "./system-theme-administration.js";
+export * from "./system-operations-administration.js";
