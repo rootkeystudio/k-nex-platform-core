@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-09-02
 - **Phase:** Phase 10 — RBAC, Authorization, and Extension Bootstrap
-- **Active task:** P10.10 — phase review handoff
-- **State:** Ready for phase review
+- **Active task:** P10.10 — cumulative cross-gate remediation
+- **State:** In progress
 
 ## Last completed
 
-Review remediation slice 12 aligns the stale Gate 2A permission fixture with canonical publisher identity; the reused Sol-xhigh reviewer returned PASS.
+Review remediation slice 13 regenerates the Sales reference from its manifest so Phase 10 policy bindings and role templates are included.
 
 ## Validation
 
-Exact Node 24.19.0: isolated Gate 2A attack corpus/direct output probe and focused Gate 10 15/15 PASS. Replacement cumulative exact-head run is not claimed yet.
+Exact Node 24.19.0: generated Sales reference and isolated Sales plugin conformance PASS. Replacement exact-head checks are not claimed yet.
 
 ## Next
 
-Freeze this head; obtain focused PR and one replacement cumulative Linux/AppArmor exact-head run, then merge on owner authorization.
+Reuse Sol-xhigh review, then push replacement exact head for focused and cumulative CI; merge only when both pass.
 
 ## Blockers
 
