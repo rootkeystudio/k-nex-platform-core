@@ -7,11 +7,11 @@
 
 ## Last completed
 
-P11.5 accepted-catalog source and authoritative action projection are complete: only the verified unexpired accepted mirror feeds dynamic releases; PluginManager and administration share one inventory admission table; catalog policy, strict newer updates, exact retained-generation re-enable, rollback, quarantine, and retirement states fail closed. P11.4 passed reused Sol-xhigh review. P11.3's reviewed safe foundation remains checkpointed with its unresolved architecture decisions documented.
+P11.5 accepted-catalog source, authoritative action projection, and separate global-inventory/target-entry revision fences are complete. Only the verified unexpired accepted mirror feeds dynamic releases; PluginManager and administration share one admission table; exact retained-generation re-enable, update, rollback, quarantine, and retirement states fail closed. P11.4 passed reused Sol-xhigh review. P11.3's reviewed safe foundation remains checkpointed with its unresolved architecture decisions documented.
 
 ## Validation
 
-Exact Node 24.19.0: P11.5 runtime build + focused administration 19/19; payload-adapter build + accepted-catalog source 4/4. P11.4 extension-bundler 23/23, payload-adapter 45/45, customer build, and real PostgreSQL/HTTP proof 1/1; `git diff --check`; Docker empty. Migrated fixture callers: remote UI and theme proofs PASS; runtime proof 5/6, with only the pre-existing production AppArmor scenario unavailable on Docker Desktop after two attempts.
+Exact Node 24.19.0: P11.5 runtime build + focused revision/administration/manager 42/42; payload-adapter build + accepted-catalog 4/4; customer build + real PostgreSQL/Chromium administration proof 1/1; `git diff --check`; Docker empty. P11.4 focused bundler 23/23, adapter 45/45, real PostgreSQL/HTTP 1/1. Migrated runtime fixture proof remains 5/6 because the pre-existing production AppArmor scenario is unavailable on Docker Desktop after two attempts.
 
 ## Next
 

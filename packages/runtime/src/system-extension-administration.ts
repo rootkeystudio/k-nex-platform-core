@@ -48,6 +48,7 @@ export interface SystemExtensionAdministrationOptions<TContext> {
 }
 
 export interface SystemExtensionExpectedRevision extends AuthorizationExpectedRevision {
+  readonly inventoryRevision: number;
   readonly extensionRevision: number;
 }
 
@@ -148,7 +149,7 @@ export class SystemExtensionAdministrationService<TContext> {
     const request = parseRequest(input.request, expected);
     await this.planDecision(input.context, expected);
     const operator = await this.operator(input.context);
-    await this.current(expected, operator);
+    await this.current(expected, operator, request.extension);
     const plan = await operator.plan(request);
     return Object.freeze({
       operationId: plan.operationId,
@@ -174,7 +175,7 @@ export class SystemExtensionAdministrationService<TContext> {
         throw new SystemExtensionAdministrationError("APPROVAL_REQUIRED", "A server-verified approval is required for this extension operation.");
       }
     }
-    await this.current(expected, operator);
+    await this.current(expected, operator, operation.request.extension);
     const result = await execute(operator, operation);
     return Object.freeze({ result, status: operationStatus(await operator.operation(operation.operationId)) });
   }
@@ -197,7 +198,7 @@ export class SystemExtensionAdministrationService<TContext> {
     }
   }
 
-  private async current(expected: SystemExtensionExpectedRevision, operator: ExtensionOperatorApi): Promise<void> {
+  private async current(expected: SystemExtensionExpectedRevision, operator: ExtensionOperatorApi, extension?: ExtensionIdentity): Promise<void> {
     const [current, status] = await Promise.all([
       this.options.state.readState(expected.applicationId, expected.environment),
       operator.status(expected.applicationId, expected.environment)
@@ -205,7 +206,10 @@ export class SystemExtensionAdministrationService<TContext> {
     if (!current || current.authorizationRevision !== expected.authorizationRevision || current.lifecycleRevision !== expected.lifecycleRevision) {
       conflict("Authorization or lifecycle state changed before extension operation.");
     }
-    if (status.inventory.revision !== expected.extensionRevision) conflict("Extension inventory changed before extension operation.");
+    if (status.inventory.revision !== expected.inventoryRevision) conflict("Extension inventory changed before extension operation.");
+    if (extension && inventoryEntryRevision(status.inventory, extension) !== expected.extensionRevision) {
+      conflict("Target extension changed before extension operation.");
+    }
   }
 
   private async planDecision(context: TContext, expected: SystemExtensionExpectedRevision): Promise<void> {
@@ -292,6 +296,13 @@ function sameIdentity(left: ExtensionIdentity, right: ExtensionIdentity): boolea
 
 function identityKey(extension: ExtensionIdentity): string { return `${extension.deliveryClass}:${extension.id}`; }
 
+/** Revision fencing reads only the target entry's persisted revision, not generation evidence. */
+function inventoryEntryRevision(inventory: ExtensionSystemStatus["inventory"], extension: ExtensionIdentity): number {
+  const entries = extension.deliveryClass === "platform-plugin" ? inventory.extensions.platformPlugins
+    : extension.deliveryClass === "hot-application" ? inventory.extensions.hotApplications : inventory.extensions.themeSkins;
+  return entries[extension.id]?.revision ?? 0;
+}
+
 async function execute(operator: ExtensionOperatorApi, operation: ExtensionOperationStatus): Promise<Awaited<ReturnType<ExtensionOperatorApi["activate"]>>> {
   switch (operation.request.operation) {
     case "install":
@@ -326,11 +337,11 @@ function operationStatus(operation: ExtensionOperationStatus): SystemExtensionOp
 }
 
 function parseExpected(value: unknown): SystemExtensionExpectedRevision {
-  const input = exactObject(value, ["applicationId", "authorizationRevision", "environment", "extensionRevision", "lifecycleRevision"]);
-  if (!validOwner(input.applicationId) || !validOwnerEnvironment(input.environment) || !revision(input.authorizationRevision) || !revision(input.lifecycleRevision) || !revision(input.extensionRevision)) {
+  const input = exactObject(value, ["applicationId", "authorizationRevision", "environment", "extensionRevision", "inventoryRevision", "lifecycleRevision"]);
+  if (!validOwner(input.applicationId) || !validOwnerEnvironment(input.environment) || !revision(input.authorizationRevision) || !revision(input.lifecycleRevision) || !revision(input.inventoryRevision) || !revision(input.extensionRevision)) {
     conflict("Extension administration expected revision is invalid.");
   }
-  return Object.freeze({ applicationId: input.applicationId, environment: input.environment, authorizationRevision: input.authorizationRevision, lifecycleRevision: input.lifecycleRevision, extensionRevision: input.extensionRevision });
+  return Object.freeze({ applicationId: input.applicationId, environment: input.environment, authorizationRevision: input.authorizationRevision, lifecycleRevision: input.lifecycleRevision, inventoryRevision: input.inventoryRevision, extensionRevision: input.extensionRevision });
 }
 
 function parseRequest(value: unknown, expected: SystemExtensionExpectedRevision): ExtensionChangeRequest {

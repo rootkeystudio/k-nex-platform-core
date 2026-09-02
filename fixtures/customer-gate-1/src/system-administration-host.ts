@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement, type ReactElement } from "react";
+import { ExtensionIdentitySchema, type ExtensionIdentity } from "@k-nex/contracts";
 
 import {
   SystemAssignmentsPage,
@@ -24,7 +25,7 @@ import {
 } from "@k-nex/runtime";
 
 type Context = object | undefined;
-type Expected = Readonly<{ readonly applicationId: string; readonly environment: string; readonly authorizationRevision: number; readonly lifecycleRevision: number; readonly extensionRevision: number }>;
+type Expected = Readonly<{ readonly applicationId: string; readonly environment: string; readonly authorizationRevision: number; readonly lifecycleRevision: number; readonly inventoryRevision: number; readonly extensionRevision: number }>;
 
 export interface SystemAdministrationHostOptions<TContext extends Context> {
   readonly access: SystemAccessAdministrationService<TContext>;
@@ -34,7 +35,7 @@ export interface SystemAdministrationHostOptions<TContext extends Context> {
   /** Opaque, host-owned session key. It scopes short-lived extension plan state. */
   sessionKey(context: TContext): string | undefined;
   /** Reads the current database/inventory revisions immediately before a mutation. */
-  expected(): Promise<Expected>;
+  expected(extension?: ExtensionIdentity): Promise<Expected>;
 }
 
 export interface SystemAdministrationHost {
@@ -82,7 +83,7 @@ export async function startSystemAdministrationHost<TContext extends Context>(op
   });
 }
 
-type PlanState = Readonly<{ readonly expected: Expected; readonly display: string; readonly impact: SystemExtensionPlan["impact"]; readonly operationId: string }>;
+type PlanState = Readonly<{ readonly extension: ExtensionIdentity; readonly expected: Expected; readonly display: string; readonly impact: SystemExtensionPlan["impact"]; readonly operationId: string }>;
 
 async function renderRoute<TContext extends Context>(options: SystemAdministrationHostOptions<TContext>, request: IncomingMessage, response: ServerResponse, path: string, planned: Map<string, PlanState>): Promise<void> {
   const context = options.context(request);
@@ -138,14 +139,14 @@ async function renderRoute<TContext extends Context>(options: SystemAdministrati
   } else if (path === "/system/extensions") {
     const [extensions, status] = await Promise.all([options.extensions.list({ context }), options.extensions.status({ context })]);
     const expected = await options.expected();
-    page = createElement(SystemExtensionsPage, { view: { title: "Extensions", revision: revision(expected), extensions: await Promise.all(extensions.map(async (extension) => ({ id: extension.extension.id, label: extension.displayName, href: `/system/extensions/${extension.extension.id}`, deliveryClassLabel: deliveryLabel(extension.extension.deliveryClass), availabilityLabel: await planLabel(options, context, planned, extension.extension.id, expected), lifecycleLabel: inventoryDisposition(status.inventory, extension.extension), revision: String(status.inventory.revision) }))) } });
+    page = createElement(SystemExtensionsPage, { view: { title: "Extensions", revision: revision(expected), extensions: await Promise.all(extensions.map(async (extension) => ({ id: extension.extension.id, label: extension.displayName, href: `/system/extensions/${extension.extension.id}`, deliveryClassLabel: deliveryLabel(extension.extension.deliveryClass), availabilityLabel: await planLabel(options, context, planned, extension.extension, await options.expected(extension.extension)), lifecycleLabel: inventoryDisposition(status.inventory, extension.extension), revision: String(status.inventory.revision) }))) } });
   } else {
     const extensionId = decodePathSegment(path, "/system/extensions/");
     const [records, status] = await Promise.all([options.extensions.list({ context, includeUnavailable: true }), options.extensions.status({ context })]);
     const extension = records.find((candidate) => candidate.extension.id === extensionId);
     if (!extension) throw new RouteError(404, "Extension not found.");
-    const expected = await options.expected();
-    const currentPlan = await planStatus(options, context, planned, extensionId, expected);
+    const expected = await options.expected(extension.extension);
+    const currentPlan = await planStatus(options, context, planned, extension.extension, expected);
     const requestValue = { extension: extension.extension, operation: "install", targetVersion: extension.version, idempotencyKey: `system-plan-${extensionId.replace(/[^a-z]/gu, "")}` };
     page = createElement(SystemExtensionDetailPage, { view: { title: "Extension", revision: revision(expected), extensionLabel: extension.displayName, extensionId, deliveryClassLabel: deliveryLabel(extension.extension.deliveryClass), availabilityLabel: currentPlan?.display ?? "Plan required", lifecycleLabel: inventoryDisposition(status.inventory, extension.extension), impact: currentPlan === undefined ? "Server plan required before execution." : JSON.stringify(currentPlan.impact), approval: currentPlan?.status.approvalRequired ? "Server verification required when the plan requires approval." : "No approval required by the authoritative plan.", audit: "Server action is audited with the current revision.",
       plan: form("Plan install", "/api/system/extensions/plan", { expected: extensionExpected(expected), request: requestValue }),
@@ -193,10 +194,11 @@ async function action<TContext extends Context>(options: SystemAdministrationHos
     const value = exact(body, ["expected", "request"]);
     const plan = await options.extensions.plan({ context, expected: value.expected, request: value.request });
     const requestValue = exact(value.request, ["extension", "idempotencyKey", "operation", "targetVersion"]);
-    const extension = exact(requestValue.extension, ["deliveryClass", "id"]);
+    const extension = ExtensionIdentitySchema.safeParse(requestValue.extension);
+    if (!extension.success) throw new RouteError(400, "Request body is invalid.");
     const expected = expectedValue(value.expected);
-    const key = planKey(options, context, string(extension.id));
-    planned.set(key, Object.freeze({ expected, display: displayLabel(plan.display.outcome), impact: plan.impact, operationId: plan.operationId }));
+    const key = planKey(options, context, extension.data.id);
+    planned.set(key, Object.freeze({ extension: extension.data, expected, display: displayLabel(plan.display.outcome), impact: plan.impact, operationId: plan.operationId }));
     return writeJson(response, 200, plan);
   }
   if (path.startsWith("/api/system/extensions/") && path.endsWith("/execute")) {
@@ -239,9 +241,9 @@ function document(page: ReactElement): string {
 function isRoleRoute(path: string): boolean { return /^\/system\/access\/roles\/[A-Za-z0-9._-]+$/u.test(path); }
 function isExtensionRoute(path: string): boolean { return /^\/system\/extensions\/[A-Za-z0-9._-]+$/u.test(path); }
 function decodePathSegment(path: string, prefix: string): string { return decodeURIComponent(path.slice(prefix.length)); }
-function revision(expected: Expected): string { return `${expected.authorizationRevision}/${expected.lifecycleRevision}/${expected.extensionRevision}`; }
+function revision(expected: Expected): string { return `${expected.authorizationRevision}/${expected.lifecycleRevision}/${expected.inventoryRevision}/${expected.extensionRevision}`; }
 function accessExpected(expected: Expected): Readonly<{ readonly applicationId: string; readonly environment: string; readonly authorizationRevision: number; readonly lifecycleRevision: number }> { return { applicationId: expected.applicationId, environment: expected.environment, authorizationRevision: expected.authorizationRevision, lifecycleRevision: expected.lifecycleRevision }; }
-function extensionExpected(expected: Expected): Expected { return { ...accessExpected(expected), extensionRevision: expected.extensionRevision }; }
+function extensionExpected(expected: Expected): Expected { return { ...accessExpected(expected), inventoryRevision: expected.inventoryRevision, extensionRevision: expected.extensionRevision }; }
 function ownerLabel(owner: { readonly kind: string; readonly extensionId?: string }): string { return owner.kind === "platform" ? "Platform system" : owner.extensionId ?? "Extension"; }
 function deliveryLabel(value: string): string { return value === "hot-application" ? "Hot Application" : value === "theme-skin" ? "Theme Skin" : "Platform Plugin"; }
 function availabilityLabel(_value: { readonly availability: string }): string { return "Plan required"; }
@@ -249,14 +251,14 @@ function displayLabel(value: string): string { return value === "install-live" ?
 function form(label: string, actionUrl: string, fields: Readonly<Record<string, unknown>>) { return { label, form: { actionUrl, hiddenFields: Object.entries(fields).map(([name, value]) => ({ name, value: typeof value === "string" ? value : JSON.stringify(value) })) } }; }
 function selectionForm(label: string, actionUrl: string, fields: Readonly<Record<string, unknown>>, name: string, selectionLabel: string, values: readonly string[]) { return { label, form: { ...form(label, actionUrl, fields).form, selection: { name, label: selectionLabel, options: values.map((value) => ({ value, label: value })) } } }; }
 function planKey<TContext extends Context>(options: SystemAdministrationHostOptions<TContext>, context: TContext, extensionId: string): string { const key = options.sessionKey(context); if (!key) throw new RouteError(403, "A session-bound extension plan is required."); return `${key}\u0000${extensionId}`; }
-function sameExpected(left: Expected, right: Expected): boolean { return left.applicationId === right.applicationId && left.environment === right.environment && left.authorizationRevision === right.authorizationRevision && left.lifecycleRevision === right.lifecycleRevision && left.extensionRevision === right.extensionRevision; }
-function expectedValue(value: unknown): Expected { const input = exact(value, ["applicationId", "authorizationRevision", "environment", "extensionRevision", "lifecycleRevision"]); if (typeof input.applicationId !== "string" || typeof input.environment !== "string" || ![input.authorizationRevision, input.lifecycleRevision, input.extensionRevision].every((revision) => typeof revision === "number" && Number.isSafeInteger(revision) && revision >= 0)) throw new RouteError(400, "Request body is invalid."); return input as Expected; }
+function sameExpected(left: Expected, right: Expected): boolean { return left.applicationId === right.applicationId && left.environment === right.environment && left.authorizationRevision === right.authorizationRevision && left.lifecycleRevision === right.lifecycleRevision && left.inventoryRevision === right.inventoryRevision && left.extensionRevision === right.extensionRevision; }
+function expectedValue(value: unknown): Expected { const input = exact(value, ["applicationId", "authorizationRevision", "environment", "extensionRevision", "inventoryRevision", "lifecycleRevision"]); if (typeof input.applicationId !== "string" || typeof input.environment !== "string" || ![input.authorizationRevision, input.lifecycleRevision, input.inventoryRevision, input.extensionRevision].every((revision) => typeof revision === "number" && Number.isSafeInteger(revision) && revision >= 0)) throw new RouteError(400, "Request body is invalid."); return input as Expected; }
 function inventoryDisposition(inventory: Awaited<ReturnType<SystemExtensionAdministrationService<Context>["status"]>>["inventory"], extension: { readonly deliveryClass: string; readonly id: string }): string {
   const entries = extension.deliveryClass === "hot-application" ? inventory.extensions.hotApplications : extension.deliveryClass === "theme-skin" ? inventory.extensions.themeSkins : inventory.extensions.platformPlugins;
   return entries[extension.id]?.disposition ?? "not-installed";
 }
-async function planStatus<TContext extends Context>(options: SystemAdministrationHostOptions<TContext>, context: TContext, planned: Map<string, PlanState>, extensionId: string, expected: Expected): Promise<(PlanState & { readonly status: Awaited<ReturnType<SystemExtensionAdministrationService<TContext>["operationStatus"]>> }) | undefined> { const state = planned.get(planKey(options, context, extensionId)); if (!state || !sameExpected(state.expected, expected)) return undefined; const status = await options.extensions.operationStatus({ context, operationId: state.operationId }); return status.extension.id === extensionId ? Object.freeze({ ...state, status }) : undefined; }
-async function planLabel<TContext extends Context>(options: SystemAdministrationHostOptions<TContext>, context: TContext, planned: Map<string, PlanState>, extensionId: string, expected: Expected): Promise<string> { return (await planStatus(options, context, planned, extensionId, expected))?.display ?? "Plan required"; }
+async function planStatus<TContext extends Context>(options: SystemAdministrationHostOptions<TContext>, context: TContext, planned: Map<string, PlanState>, extension: ExtensionIdentity, expected: Expected): Promise<(PlanState & { readonly status: Awaited<ReturnType<SystemExtensionAdministrationService<TContext>["operationStatus"]>> }) | undefined> { const state = planned.get(planKey(options, context, extension.id)); if (!state || state.extension.deliveryClass !== extension.deliveryClass || !sameExpected(state.expected, expected)) return undefined; const status = await options.extensions.operationStatus({ context, operationId: state.operationId }); return status.extension.deliveryClass === extension.deliveryClass && status.extension.id === extension.id ? Object.freeze({ ...state, status }) : undefined; }
+async function planLabel<TContext extends Context>(options: SystemAdministrationHostOptions<TContext>, context: TContext, planned: Map<string, PlanState>, extension: ExtensionIdentity, expected: Expected): Promise<string> { return (await planStatus(options, context, planned, extension, expected))?.display ?? "Plan required"; }
 
 class RouteError extends Error { constructor(readonly status: number, message: string) { super(message); } }
 function writeError(response: ServerResponse, error: unknown): void {

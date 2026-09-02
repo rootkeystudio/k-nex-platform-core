@@ -24,6 +24,7 @@ const expected = Object.freeze({
   environment: "production",
   authorizationRevision: 4,
   lifecycleRevision: 7,
+  inventoryRevision: 7,
   extensionRevision: 0
 });
 const digest = (character: string) => `sha256:${character.repeat(64)}`;
@@ -42,7 +43,7 @@ function inventory(): RuntimeExtensionInventory {
     applicationId: expected.applicationId,
     environment: expected.environment,
     hostInventoryDigest: digest("a"),
-    revision: expected.extensionRevision,
+    revision: expected.inventoryRevision,
     observedAt: "2026-09-01T00:00:00.000Z",
     stateDigest: digest("b"),
     extensions: { hotApplications: {}, platformPlugins: {}, themeSkins: {} }

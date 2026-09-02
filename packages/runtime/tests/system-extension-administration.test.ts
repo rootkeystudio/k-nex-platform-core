@@ -8,7 +8,7 @@ import { type ExtensionOperatorApi } from "../src/extension-operator-api.js";
 import { type ExtensionChangeRequest, type ExtensionOperationStatus, type PluginManagerPlan } from "../src/plugin-manager.js";
 import { projectExtensionAdministrationActions, SystemExtensionAdministrationError, SystemExtensionAdministrationService } from "../src/system-extension-administration.js";
 
-const expected = Object.freeze({ applicationId: "customer-alpha", environment: "production", authorizationRevision: 4, lifecycleRevision: 7, extensionRevision: 3 });
+const expected = Object.freeze({ applicationId: "customer-alpha", environment: "production", authorizationRevision: 4, lifecycleRevision: 7, inventoryRevision: 9, extensionRevision: 0 });
 const session = createTrustedAuthorizationSession({ schemaVersion: 1, applicationId: expected.applicationId, environment: expected.environment, correlationId: "system-extension-test", principal: { kind: "user", id: "admin" }, effectiveActor: { kind: "user", id: "admin" } });
 
 type TestContext = Readonly<Record<never, never>>;
@@ -73,6 +73,7 @@ function harness(options: Readonly<{
   readonly outcome?: "allow" | "deny";
   readonly state?: () => AuthorizationState | undefined;
   readonly inventoryRevision?: number;
+  readonly targetRevision?: number;
   readonly operation?: ExtensionOperationStatus;
   readonly approval?: boolean;
   readonly provider?: (context: TestContext, fallback: ExtensionOperatorApi) => Promise<ExtensionOperatorApi | undefined> | ExtensionOperatorApi | undefined;
@@ -80,7 +81,12 @@ function harness(options: Readonly<{
   const resolver = { authorize: vi.fn(async (current: TrustedAuthorizationSession, input: EffectiveAuthorizationRequest) => decision(input, current, options.outcome)) };
   const authority = new CurrentAuthorityAdapter({ current: async () => session }, resolver as never);
   const operator = {
-    catalogList: vi.fn(async () => []), catalogDetail: vi.fn(async () => undefined), status: vi.fn(async () => ({ applicationId: expected.applicationId, environment: expected.environment, inventory: { revision: options.inventoryRevision ?? expected.extensionRevision } })),
+    catalogList: vi.fn(async () => []), catalogDetail: vi.fn(async () => undefined), status: vi.fn(async () => ({ applicationId: expected.applicationId, environment: expected.environment, inventory: {
+      revision: options.inventoryRevision ?? expected.inventoryRevision,
+      extensions: { platformPlugins: { "module.reports": { disposition: "removed", revision: expected.inventoryRevision } }, themeSkins: {}, hotApplications: options.targetRevision === undefined ? {} : {
+        "app.sales-assistant": { disposition: "active", revision: options.targetRevision }
+      } }
+    } })),
     plan: vi.fn(async () => plan("hot-application")), operation: vi.fn(async () => options.operation), activate: vi.fn(async () => ({ receiptId: "receipt-system-extension-1" })), rollback: vi.fn(), disable: vi.fn(), uninstall: vi.fn()
   } as unknown as ExtensionOperatorApi;
   const state = { readState: vi.fn(async () => options.state ? options.state() : authorizationState()) };
@@ -198,15 +204,18 @@ describe("system extension administration", () => {
     await expect(value.service.plan({ context: {}, expected, request: request() })).resolves.toMatchObject({ impact: nextPlan.plan, display });
   });
 
-  it("binds lifecycle input to current server owner and all three expected revisions", async () => {
+  it("separately fences global inventory history and a target revision without reading generation evidence", async () => {
     const value = harness();
     await value.service.plan({ context: {}, expected, request: request() });
     expect(value.operator.plan).toHaveBeenCalledWith(expect.objectContaining({ applicationId: expected.applicationId, environment: expected.environment, expectedRevision: expected.extensionRevision }));
     await expect(value.service.plan({ context: {}, expected: { ...expected, authorizationRevision: 5 }, request: request() })).rejects.toMatchObject({ code: "REVISION_CONFLICT" } satisfies Partial<SystemExtensionAdministrationError>);
     await expect(value.service.plan({ context: {}, expected, request: { ...request() as object, actor: { kind: "actor", approvalId: "forged" } } })).rejects.toMatchObject({ code: "REQUEST_INVALID" } satisfies Partial<SystemExtensionAdministrationError>);
-    const staleInventory = harness({ inventoryRevision: expected.extensionRevision + 1 });
+    const staleInventory = harness({ inventoryRevision: expected.inventoryRevision + 1 });
     await expect(staleInventory.service.plan({ context: {}, expected, request: request() })).rejects.toMatchObject({ code: "REVISION_CONFLICT" } satisfies Partial<SystemExtensionAdministrationError>);
     expect(staleInventory.operator.plan).not.toHaveBeenCalled();
+    const staleTarget = harness({ targetRevision: 1 });
+    await expect(staleTarget.service.plan({ context: {}, expected, request: request() })).rejects.toMatchObject({ code: "REVISION_CONFLICT" } satisfies Partial<SystemExtensionAdministrationError>);
+    expect(staleTarget.operator.plan).not.toHaveBeenCalled();
   });
 
   it("denies plan dispatch before the operator sees a revoked caller", async () => {

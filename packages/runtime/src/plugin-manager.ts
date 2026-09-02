@@ -430,7 +430,7 @@ function admittedAuthorizationOperation(request: ExtensionChangeRequest, invento
 function assertNoActiveDowngrade(request: ExtensionChangeRequest, inventory: ExtensionInventoryState): void {
   const comparison = inventory.currentVersion === undefined ? undefined : compareExactSemverPrecedence(request.targetVersion, inventory.currentVersion);
   if ((request.operation === "install" && comparison !== undefined && comparison < 0) ||
-    (inventory.disposition === "active" && request.operation === "update" && comparison !== undefined && comparison <= 0)) {
+    (["active", "quarantined"].includes(inventory.disposition) && request.operation === "update" && comparison !== undefined && comparison <= 0)) {
     throw new PluginManagerError("PLAN_MISMATCH", "Install and update must target a newer extension version when one is active.");
   }
 }

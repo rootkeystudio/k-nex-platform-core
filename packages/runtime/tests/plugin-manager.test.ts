@@ -285,7 +285,7 @@ describe("PluginManager", () => {
   it("durably marks a static update planned from quarantined inventory for rollback closure", async () => {
     const runtime = manager();
     const platformRequest: ExtensionChangeRequest = {
-      ...request, extension: { deliveryClass: "platform-plugin", id: "module.fixture.plugin" }, operation: "update", targetVersion: "1.0.0",
+      ...request, extension: { deliveryClass: "platform-plugin", id: "module.fixture.plugin" }, operation: "update", targetVersion: "1.0.1",
       expectedRevision: 2, idempotencyKey: "update:module.fixture.plugin:quarantined", correlationId: "update-module-fixture-plugin-quarantined"
     };
     runtime.store.inventoryValue = {
@@ -299,7 +299,7 @@ describe("PluginManager", () => {
       } }
     };
     const platformPlan: ExtensionInstallPlan = {
-      schemaVersion: 1, planId: "fixture-quarantine-update", operationId: "placeholder", operation: "update", version: "1.0.0", artifactDigest: digest("a"),
+      schemaVersion: 1, planId: "fixture-quarantine-update", operationId: "placeholder", operation: "update", version: "1.0.1", artifactDigest: digest("a"),
       expectedRevision: 2, currentGenerationId: "customer-alpha-blue-8", targetGenerationId: "customer-alpha-green-9", approvalRequired: false,
       rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "platform-plugin", id: "module.fixture.plugin",
       availability: { outcome: "zero-downtime-eligible", checks: { oldGenerationHealthy: true, expandCompatibleMigration: true, writerReaderOverlap: true, workerDrain: true, realtimeConvergence: true, targetReadiness: true, inventoryMatch: true, rollbackCompatible: true } }
@@ -552,6 +552,11 @@ describe("PluginManager", () => {
     expect(quarantined.planner.validate).not.toHaveBeenCalled();
     expect(quarantined.planner.plan).not.toHaveBeenCalled();
     expect(quarantinedClaim).not.toHaveBeenCalled();
+
+    const quarantinedUpdate = manager();
+    quarantinedUpdate.store.inventoryValue = quarantined.store.inventoryValue;
+    await expect(quarantinedUpdate.value.plan({ ...request, operation: "update", targetVersion: "1.0.0", expectedRevision: 2, idempotencyKey: "update:app.fixture.assistant:quarantined-same-version" })).rejects.toMatchObject({ code: "PLAN_MISMATCH" });
+    expect(quarantinedUpdate.planner.plan).not.toHaveBeenCalled();
 
     const disabledUpdate = manager();
     disabledUpdate.store.inventoryValue = {
