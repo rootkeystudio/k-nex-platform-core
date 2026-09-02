@@ -223,6 +223,18 @@ test("P11.4 consumes a bounded official catalog through real HTTP and PostgreSQL
     await responseLoss("stage", "stage");
     await responseLoss("terminal", "terminal");
 
+    const tamperOwner = { applicationId: "customer-catalog-tamper", environment: "production" };
+    await pool.query("insert into k_nex_authorization_state (application_id, authorization_revision, lifecycle_revision) values ($1,1,1)", [tamperOwner.applicationId]);
+    const tamperRefresh = refresh("catalog-refresh-tamper", 0, tamperOwner);
+    const tamperPhases = [];
+    const tamper = coordinator(pool, tamperOwner, reader, catalog, verifier, reconciler, { reauthorize: async ({ phase }) => { tamperPhases.push(phase); return { schemaVersion: 1, ...tamperOwner, authorizationRevision: 1, lifecycleRevision: 1 }; } });
+    await tamper.mirror.begin(tamperRefresh);
+    await pool.query("update k_nex_catalog_refresh_operations set authority_json=$4::jsonb where application_id=$1 and environment=$2 and refresh_id=$3", [tamperOwner.applicationId, tamperOwner.environment, tamperRefresh.refreshId, JSON.stringify({ ...tamperRefresh.authorityEnvelope, authorizationRevision: 2 })]);
+    await assert.rejects(tamper.value.refresh(tamperRefresh), { code: "STATE", message: "Persisted catalog refresh authority digest is invalid." });
+    assert.deepEqual(tamperPhases, ["begin"], "Corrupt recovered authority reached resume authorization.");
+    assert.deepEqual((await pool.query("select staged_snapshot_id, accepted_snapshot_id from k_nex_catalog_mirror_state where application_id=$1 and environment=$2", [tamperOwner.applicationId, tamperOwner.environment])).rows, [{ staged_snapshot_id: null, accepted_snapshot_id: null }], "Corrupt authority moved a catalog pointer.");
+    assert.equal((await pool.query("select count(*)::int count from k_nex_catalog_refresh_receipts where application_id=$1 and environment=$2", [tamperOwner.applicationId, tamperOwner.environment])).rows[0].count, 0, "Corrupt authority produced a receipt.");
+
     const acceptedPointer = async () => (await primary.mirror.readAcceptedSnapshot())?.sequence;
     const poisonCatalog = signed(signer, catalogKeys.privateKey, 2, [v1]);
     const poisonAuthority = { ...activeGeneration(), catalogDigest: digest("e") };

@@ -153,10 +153,14 @@ export class PostgresCatalogMirrorStore {
 
   async readRefreshAuthority(refreshId: string): Promise<CatalogMirrorRefresh | undefined> {
     if (!recordPattern.test(refreshId)) throw new TypeError("Catalog refresh id is invalid.");
-    const result = await this.pool.query<Row>(`select refresh_id, expected_catalog_revision, requested_by_kind, requested_by_id, authority_json, idempotency_key from k_nex_catalog_refresh_operations where application_id=$1 and environment=$2 and refresh_id=$3`, [this.owner.applicationId, this.owner.environment, refreshId]);
+    const result = await this.pool.query<Row>(`select o.*, s.sequence, s.payload_digest, s.release_count, s.observed_at from k_nex_catalog_refresh_operations o left join k_nex_catalog_mirror_snapshots s on s.snapshot_id=o.staged_snapshot_id where o.application_id=$1 and o.environment=$2 and o.refresh_id=$3 and o.state in ('fetching','staged-reconciliation')`, [this.owner.applicationId, this.owner.environment, refreshId]);
     const row = result.rows[0];
     if (!row) return undefined;
-    return this.refresh({ refreshId: String(row.refresh_id), expectedCatalogRevision: integer(row.expected_catalog_revision, 0, 1_000_000_000, "operation revision"), requestedBy: { kind: String(row.requested_by_kind), id: String(row.requested_by_id) } as AuthorizationSubject, authorityEnvelope: exact(AdministrationActorEnvelopeSchema, row.authority_json, "STATE"), idempotencyKey: String(row.idempotency_key) });
+    const authorityEnvelope = exact(AdministrationActorEnvelopeSchema, row.authority_json, "STATE");
+    const persistedDigest = String(row.authority_digest);
+    const projection = operation(row, row.staged_snapshot_id ? snapshot(row) : undefined);
+    if (persistedDigest !== authorityDigest(authorityEnvelope) || projection.authorityDigest !== persistedDigest) fail("STATE", "Persisted catalog refresh authority digest is invalid.");
+    return this.refresh({ refreshId: projection.refreshId, expectedCatalogRevision: projection.expectedCatalogRevision, requestedBy: projection.requestedBy, authorityEnvelope, idempotencyKey: projection.idempotencyKey });
   }
 
   /** Replaces stale lifecycle requirements without advancing the staged catalog pointer. */

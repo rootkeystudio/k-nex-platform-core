@@ -1,4 +1,4 @@
-import { createOpaqueRemoteUiFrame, RemoteUiGenerationSessions, type RemoteUiComponentDefinition, type RemoteUiGenerationSnapshot, type RemoteUiNode } from "@k-nex/ui-runtime";
+import { createOpaqueRemoteUiFrame, RemoteUiGenerationSessions, type RemoteUiComponentDefinition, type RemoteUiGenerationSnapshot, type RemoteUiHostPresentation, type RemoteUiNode } from "@k-nex/ui-runtime";
 
 declare global {
   interface Window {
@@ -13,6 +13,8 @@ declare global {
     __K_NEX_REMOTE_SOURCE_CALLS__?: number;
     __K_NEX_REMOTE_SOURCE_TARGETS__?: string[];
     __K_NEX_REMOTE_ACTION_CALLS__?: number;
+    __K_NEX_REMOTE_PRESENTATIONS__?: RemoteUiHostPresentation[];
+    __K_NEX_REMOTE_UPDATE_PRESENTATION__?: () => Promise<void>;
   }
 }
 
@@ -50,6 +52,8 @@ function element(node: RemoteUiNode): HTMLElement {
 
 const sessions = new RemoteUiGenerationSessions();
 const snapshot = window.__K_NEX_REMOTE_SNAPSHOT__;
+const presentation = { profileRevisionId: "profile-revision-1", themeId: "theme.default", themeVersion: "1.0.0", surface: "admin", mode: "light" } as const;
+const publishedPresentation = { profileRevisionId: "profile-revision-2", themeId: "theme.contrast", themeVersion: "1.0.0", surface: "admin", mode: "dark" } as const;
 sessions.observe(snapshot, 100);
 const authorize = async (_identity: unknown, _frame: unknown, signal?: AbortSignal): Promise<boolean> => {
   const response = await fetch("/api/extensions/remote-ui/authorize", { method: "POST", credentials: "same-origin", cache: "no-store", signal });
@@ -69,11 +73,12 @@ sessions.admitAuthorization({
 });
 session = sessions.open(snapshot, {
   sessionId: "remote-session-1", remoteUiFrameUrl: window.__K_NEX_REMOTE_FRAME_URL__, route: "/apps/sales-assistant", surface: "sales.assistant-screen",
-  sources: new Set(["sales.tasks", "sales.heartbeat"]), actions: new Set(["sales.refresh"]), routes: new Set(["/"]), assets: new Set()
+  sources: new Set(["sales.tasks", "sales.heartbeat"]), actions: new Set(["sales.refresh"]), routes: new Set(["/"]), assets: new Set(), presentation
 }, registry, {
   authorize,
   authorizeTarget,
-  render(tree) {
+  render(tree, hostPresentation) {
+    (window.__K_NEX_REMOTE_PRESENTATIONS__ ??= []).push(hostPresentation);
     root.replaceChildren(element(tree));
     const probe = root.querySelector<HTMLElement>("[data-node-id=probe]")?.textContent;
     if (probe) window.__K_NEX_REMOTE_PROBE__ = JSON.parse(probe) as Record<string, string>;
@@ -89,6 +94,7 @@ session = sessions.open(snapshot, {
   source: async (_identity, targetId) => { window.__K_NEX_REMOTE_SOURCE_CALLS__ = (window.__K_NEX_REMOTE_SOURCE_CALLS__ ?? 0) + 1; (window.__K_NEX_REMOTE_SOURCE_TARGETS__ ??= []).push(targetId); if (targetId === "sales.heartbeat") window.__K_NEX_REMOTE_HEARTBEATS__ = (window.__K_NEX_REMOTE_HEARTBEATS__ ?? 0) + 1; return { targetId, rows: 2 }; },
   action: async (_identity, targetId) => { window.__K_NEX_REMOTE_ACTION_CALLS__ = (window.__K_NEX_REMOTE_ACTION_CALLS__ ?? 0) + 1; return { targetId, changed: true }; }
 });
+window.__K_NEX_REMOTE_UPDATE_PRESENTATION__ = () => session.updatePresentation(publishedPresentation);
 try {
   createOpaqueRemoteUiFrame(document, session, window.__K_NEX_REMOTE_HOSTILE_FRAME_URL__, "Hostile isolated application");
   throw new Error("Remote UI host accepted a hostile frame origin.");
