@@ -193,13 +193,62 @@ export interface SystemExtensionDetailViewModel extends SystemAdministrationPage
   readonly actions?: readonly SystemAdministrationAction[];
 }
 
+export interface SystemThemePackageListItem {
+  readonly id: string;
+  readonly label: string;
+  readonly version: string;
+  readonly surfaces: string;
+  readonly availability: string;
+  readonly referenceImpact: string;
+}
+
+export interface SystemThemeSkinListItem {
+  readonly id: string;
+  readonly label: string;
+  readonly version: string;
+  readonly lifecycle: string;
+  readonly actions: string;
+}
+
+export interface SystemThemeProfileListItem {
+  readonly id: string;
+  readonly label: string;
+  readonly href: string;
+  readonly surface: string;
+  readonly package: string;
+  readonly skin: string;
+  readonly revision: string;
+  readonly accessibility: string;
+}
+
+export interface SystemThemesViewModel extends SystemAdministrationPageView {
+  readonly packages: readonly SystemThemePackageListItem[];
+  readonly skins: readonly SystemThemeSkinListItem[];
+  readonly profiles: readonly SystemThemeProfileListItem[];
+}
+
+export interface SystemThemeProfileDetailViewModel extends SystemAdministrationPageView {
+  readonly profileLabel: string;
+  readonly profileId: string;
+  readonly surface: string;
+  readonly package: string;
+  readonly skin: string;
+  readonly publication: string;
+  readonly accessibility: string;
+  readonly preview?: SystemAdministrationAction;
+  readonly stage?: SystemAdministrationAction;
+  readonly publish?: SystemAdministrationAction;
+  readonly rollback?: SystemAdministrationAction;
+}
+
 const systemNavigation = [
   { id: "roles", label: "Roles", href: "/system/access/roles" },
   { id: "permissions", label: "Permissions", href: "/system/access/permissions" },
   { id: "assignments", label: "Assignments", href: "/system/access/assignments" },
   { id: "templates", label: "Templates", href: "/system/access/templates" },
   { id: "audit", label: "Authorization audit", href: "/system/access/audit" },
-  { id: "extensions", label: "Extensions", href: "/system/extensions" }
+  { id: "extensions", label: "Extensions", href: "/system/extensions" },
+  { id: "themes", label: "Themes", href: "/system/themes" }
 ] as const;
 
 function administrationNavigation(current: string): ReactElement {
@@ -295,5 +344,22 @@ export function SystemExtensionDetailPage({ view }: { readonly view: SystemExten
     <section aria-label="Delivery truth">{rows("Extension delivery truth", ["Class", "Availability", "Lifecycle"], [[view.deliveryClassLabel, view.availabilityLabel, view.lifecycleLabel]])}</section>
     <section aria-label="Operation safeguards"><Heading level={2}>Operation safeguards</Heading><dl><dt>Impact</dt><dd>{view.impact}</dd><dt>Approval</dt><dd>{view.approval}</dd><dt>Audit</dt><dd>{view.audit}</dd></dl></section>
     <section aria-label="Extension actions"><Heading level={2}>Extension actions</Heading>{actions.length === 0 ? <Text>No server-authorized actions are available.</Text> : <List>{actions.map((action, index) => <li key={`${action.label}-${index}`}>{actionControl(action)}</li>)}</List>}</section>
+  </Stack>);
+}
+
+export function SystemThemesPage({ view }: { readonly view: SystemThemesViewModel }): ReactElement {
+  return administrationPage(view, "themes", <Stack gap="content">
+    <section aria-label="Theme Packages"><Heading level={2}>Theme Packages</Heading>{rows("Theme Packages", ["Package", "Version", "Surfaces", "Availability", "Reference impact"], view.packages.map((item) => [item.label, item.version, item.surfaces, item.availability, item.referenceImpact]))}</section>
+    <section aria-label="Theme Skins"><Heading level={2}>Theme Skins</Heading>{rows("Theme Skins", ["Skin", "Version", "Lifecycle", "Actions"], view.skins.map((item) => [item.label, item.version, item.lifecycle, item.actions]))}</section>
+    <section aria-label="Theme Profiles"><Heading level={2}>Theme Profiles</Heading>{rows("Theme Profiles", ["Profile", "Surface", "Package", "Skin", "Revision", "Accessibility"], view.profiles.map((item) => [<a key={item.id} href={item.href}>{item.label}</a>, item.surface, item.package, item.skin, item.revision, item.accessibility]))}</section>
+  </Stack>);
+}
+
+export function SystemThemeProfileDetailPage({ view }: { readonly view: SystemThemeProfileDetailViewModel }): ReactElement {
+  const actions = [view.preview, view.stage, view.publish, view.rollback].filter((action): action is SystemAdministrationAction => action !== undefined);
+  return administrationPage(view, "themes", <Stack gap="content">
+    <section aria-label="Theme Profile identity"><Heading level={2}>{view.profileLabel}</Heading><Text>{view.profileId}</Text></section>
+    {rows("Theme Profile state", ["Surface", "Package", "Skin", "Publication", "Accessibility"], [[view.surface, view.package, view.skin, view.publication, view.accessibility]])}
+    <section aria-label="Theme Profile actions"><Heading level={2}>Theme Profile actions</Heading>{actions.length === 0 ? <Text>No server-authorized actions are available.</Text> : <List>{actions.map((action) => <li key={action.label}>{actionControl(action)}</li>)}</List>}</section>
   </Stack>);
 }
