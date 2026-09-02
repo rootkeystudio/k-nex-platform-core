@@ -9,8 +9,7 @@ import type {
   PluginNavigationDescriptor,
   PluginPageTemplateDescriptor,
   PluginRouteDescriptor,
-  PluginSettingsDescriptor,
-  PluginSettingValue,
+  SystemSettingsDescriptor,
   PluginUiContributionDescriptor,
   RoleTemplate,
   RuntimeSchema,
@@ -450,10 +449,12 @@ export const salesCreateTaskToolDescriptor: AgentToolDescriptor = {
   audit: { category: "sales.task.create", resourcePath: "/id" }
 };
 
-export const salesWorkspaceSettingsDescriptor: PluginSettingsDescriptor = {
-  id: "sales.settings.workspace",
-  ownerPluginId: "module.sales",
+export const salesWorkspaceSettingsDescriptor: SystemSettingsDescriptor = {
   schemaVersion: 1,
+  id: "sales.settings.workspace",
+  publisher: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales" },
+  descriptorSchemaVersion: 1,
+  validation: "immediate",
   fields: {
     defaultTaskPageSize: {
       type: "integer",
@@ -483,12 +484,8 @@ export const salesWorkspaceSettingsDescriptor: PluginSettingsDescriptor = {
       description: "Ordered reference pipeline stages."
     }
   },
-  surface: "workspace",
-  audience: "authenticated",
   readPermission: "sales.settings.read",
-  changePermission: "sales.settings.write",
-  featureRevision: 1,
-  publicationRevision: 1
+  changePermission: "sales.settings.write"
 };
 
 export type SalesWorkspaceSettings = Readonly<{
@@ -496,7 +493,7 @@ export type SalesWorkspaceSettings = Readonly<{
   showPotentialRevenue: boolean;
   defaultPage: "overview" | "tasks" | "opportunities";
   pipelineStages: readonly string[];
-}> & Readonly<Record<string, PluginSettingValue>>;
+}>;
 
 function permission(
   id: string,

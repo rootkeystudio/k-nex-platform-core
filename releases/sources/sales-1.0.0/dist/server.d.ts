@@ -1,10 +1,10 @@
 import { type DataSourceDefinition } from "@k-nex/contracts";
 import { createOutboxRealtimeRelay } from "@k-nex/payload-adapter";
-import type { ActionDefinition, ActionHandler, DataSourceHandler, PluginSettingsRuntimeDefinition } from "@k-nex/runtime";
+import type { ActionDefinition, ActionHandler, DataSourceHandler } from "@k-nex/runtime";
 import type { CollectionConfig } from "payload";
 import type { CollectionAfterChangeHook } from "payload";
-import { type SalesWorkspaceSettings, type CreateTaskInput, type CreateTaskOutput, type UpdateOpportunityStageInput, type UpdateOpportunityStageOutput, type UpdateTaskInput, type UpdateTaskOutput } from "./contracts.js";
-export { salesCreateTaskToolDescriptor, salesNavigationDescriptors, salesPermissionDescriptors, salesRouteDescriptors, salesSearchTasksDescriptor, salesTaskCreateDescriptor, salesTaskPageTemplate, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor, salesWorkspaceSettingsDescriptor } from "./contracts.js";
+import { type CreateTaskInput, type CreateTaskOutput, type UpdateOpportunityStageInput, type UpdateOpportunityStageOutput, type UpdateTaskInput, type UpdateTaskOutput } from "./contracts.js";
+export { salesCreateTaskToolDescriptor, salesNavigationDescriptors, salesPermissionDescriptors, salesPermissionPolicyBindings, salesRouteDescriptors, salesRoleTemplates, salesSearchTasksDescriptor, salesTaskCreateDescriptor, salesTaskPageTemplate, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor, salesWorkspaceSettingsDescriptor } from "./contracts.js";
 export declare const salesEventAfterChange: CollectionAfterChangeHook;
 export declare function createSalesRealtimeRelay(gateway: Parameters<typeof createOutboxRealtimeRelay>[0]["gateway"]): import("@k-nex/payload-adapter").OutboxSubscriber;
 export declare function salesPipelineAuditJob(input: {
@@ -36,8 +36,11 @@ export declare const salesTaskUpdateHandler: ActionHandler<UpdateTaskInput, Upda
 export declare const salesOpportunityStageUpdateHandler: ActionHandler<UpdateOpportunityStageInput, UpdateOpportunityStageOutput>;
 export declare const salesTasksCollection: CollectionConfig;
 export declare const salesOpportunitiesCollection: CollectionConfig;
-export declare const salesWorkspaceSettingsDefinition: PluginSettingsRuntimeDefinition<SalesWorkspaceSettings>;
-export declare const salesDefaultSettings: import("@k-nex/runtime").ResolvedPluginSettings<SalesWorkspaceSettings>;
+export declare const salesDefaultSettings: Readonly<Record<string, string | number | boolean | string[] | {
+    kind: "secret-reference";
+    provider: "environment";
+    key: string;
+} | null>>;
 export declare const salesRegistration: Readonly<{
     readonly pluginId: "module.sales";
     readonly contracts: (context: import("@k-nex/runtime").ContractsRegistrationContext) => void;

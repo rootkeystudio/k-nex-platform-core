@@ -3,7 +3,6 @@ import * as z from "zod";
 import { PluginIdSchema, ResourceIdSchema } from "./identity.js";
 import { uniqueArray } from "./schema-helpers.js";
 
-const settingKeyPattern = /^[a-z][A-Za-z0-9]*$/;
 const routeParameterNamePattern = /^[A-Za-z][A-Za-z0-9]*$/;
 const secretLikeSettingKeyPattern = /(password|secret|token|credential|privateKey|apiKey)$/i;
 const reservedSettingTerms = [
@@ -99,46 +98,12 @@ export function pluginSettingFieldIssues(
   return Object.freeze(issues.map((issue) => Object.freeze({ ...issue, path: Object.freeze([...issue.path]) })));
 }
 
-const settingFieldsSchema = z.record(z.string().regex(settingKeyPattern), PluginSettingFieldSchema)
-  .check((context) => {
-    if (Object.keys(context.value).length === 0) context.issues.push({ code: "custom", input: context.value, message: "Settings fields cannot be empty." });
-  })
-  .meta({ minProperties: 1 });
-
 const surfaceSchema = z.enum(["workspace", "cms", "public", "driver", "mobile", "system"]);
 const audienceSchema = z.enum(["public", "authenticated", "system"]);
 
 function ownedByPlugin(pluginId: string, resourceId: string): boolean {
   return resourceId.startsWith(`${pluginId.split(".")[1]}.`);
 }
-
-export const PluginSettingsDescriptorSchema = z.strictObject({
-  id: ResourceIdSchema,
-  ownerPluginId: PluginIdSchema,
-  schemaVersion: z.number().int().positive(),
-  fields: settingFieldsSchema,
-  surface: surfaceSchema,
-  audience: audienceSchema,
-  readPermission: ResourceIdSchema,
-  changePermission: ResourceIdSchema,
-  featureRevision: z.number().int().nonnegative(),
-  publicationRevision: z.number().int().nonnegative()
-}).check((context) => {
-  const descriptor = context.value;
-  if (!ownedByPlugin(descriptor.ownerPluginId, descriptor.id)) {
-    context.issues.push({ code: "custom", input: descriptor.id, path: ["id"], message: "Settings ID must use the owner plugin namespace." });
-  }
-  for (const issue of pluginSettingFieldIssues(descriptor.fields)) {
-    context.issues.push({ code: "custom", input: issue.input, path: ["fields", ...issue.path], message: issue.message });
-  }
-});
-
-export const PluginSettingsDocumentSchema = z.strictObject({
-  settingsId: ResourceIdSchema,
-  schemaVersion: z.number().int().positive(),
-  revision: z.number().int().positive(),
-  values: z.record(z.string().regex(settingKeyPattern), PluginSettingValueSchema)
-});
 
 export const RouteParameterDescriptorSchema = z.strictObject({
   type: z.enum(["string", "integer", "boolean"])
@@ -188,8 +153,6 @@ export const PluginNavigationDescriptorSchema = z.strictObject({
 export type SecretReference = z.infer<typeof SecretReferenceSchema>;
 export type PluginSettingValue = z.infer<typeof PluginSettingValueSchema>;
 export type PluginSettingField = z.infer<typeof PluginSettingFieldSchema>;
-export type PluginSettingsDescriptor = z.infer<typeof PluginSettingsDescriptorSchema>;
-export type PluginSettingsDocument = z.infer<typeof PluginSettingsDocumentSchema>;
 export type RouteParameterDescriptor = z.infer<typeof RouteParameterDescriptorSchema>;
 export type PluginRouteDescriptor = z.infer<typeof PluginRouteDescriptorSchema>;
 export type PluginRouteParameterValue = z.infer<typeof PluginRouteParameterValueSchema>;

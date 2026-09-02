@@ -3,20 +3,20 @@
 - **Updated:** 2026-09-02
 - **Phase:** Phase 11 — System Settings and Extension Operations
 - **Active task:** P11.3 — settings service and convergence
-- **State:** In progress
+- **State:** Blocked
 
 ## Last completed
 
-P11.2 added constrained customer PostgreSQL settings storage, immediate and resumable generation-validated writes, immutable receipts, atomic audit/outbox invalidation, lifecycle/generation fencing, deterministic replay/races, and schema-failure preservation. Reused Sol-xhigh review: PASS.
+P11.2 passed. P11.3 checkpoint adds verified static/Hot descriptors, current-RBAC projected reads and immediate changes, generation-fenced store integration, scoped outbox/polling signals, and stale-revision/read-race fixes. It does not complete P11.3.
 
 ## Validation
 
-Exact Node 24.19.0: payload-adapter and customer fixture builds; P11.2 real PostgreSQL migration/isolation/immediate/resume/race/crash/rollback/security tests, 3/3; `git diff --check`; reused Sol-xhigh P11.2 review — PASS.
+Exact Node 24.19.0: focused contracts 8/8, bundler 4/4, runtime P11.3 29/29, adapter descriptor/artifact/outbox 30/30, Sales 15/15; runtime/adapter/customer builds; focused real PostgreSQL settings storage, settings convergence, and authorization convergence proofs PASS; `git diff --check`; Docker empty.
 
 ## Next
 
-Implement P11.3 current-authority settings service, descriptors/value projection, lifecycle convergence, invalidation polling, and server view models.
+Accepted plan/ADR amendment must resolve the documented P11.3 lifecycle/settings decisions. Under explicit project-manager skip authorization, checkpoint safe work and continue independent P11.4 without claiming P11.3 completion.
 
 ## Blockers
 
-None.
+P11.3 cannot complete until the persisted pre-activation identity, generation-validation coordinator, required-unset administration view, effective consumer path, and explicit reinstall adoption are specified. See `docs/implementation/phase-11-p11.3-blocker.md`.

@@ -77,6 +77,7 @@ describe("P11.1 system administration contracts", () => {
   it("redacts secret references from administration views", () => {
     const view = { schemaVersion: 1, identity, descriptor, state: "effective", documentRevision: 3, settingsRevision: 8, fields: { apiToken: { kind: "redacted-secret" }, pageSize: { kind: "visible-value", value: 50 } } } as const;
     expect(SettingsAdministrationViewSchema.safeParse(view).success).toBe(true);
+    expect(SettingsAdministrationViewSchema.safeParse({ ...view, documentRevision: 0, settingsRevision: 0 }).success).toBe(true);
     expect(SettingsAdministrationViewSchema.safeParse({ ...view, fields: { apiToken: { kind: "visible-value", value: "SALES_REPORTS_TOKEN" } } }).success).toBe(false);
     expect(SettingsAdministrationViewSchema.safeParse({ ...view, fields: {} }).success).toBe(false);
     expect(SettingsAdministrationViewSchema.safeParse({ ...view, fields: { apiToken: { kind: "redacted-secret" }, pageSize: { kind: "visible-value", value: "not-an-integer" } } }).success).toBe(false);

@@ -25,6 +25,8 @@ export * from "./authorization-lifecycle-projector.js";
 export * from "./authorization-outbox.js";
 export * from "./platform-plugin-authorization-descriptors.js";
 export * from "./system-settings-store.js";
+export * from "./system-settings-outbox.js";
+export * from "./system-settings-descriptor-source.js";
 
 export type PayloadCompositionErrorCode =
   | "INVALID_DATABASE_URL"

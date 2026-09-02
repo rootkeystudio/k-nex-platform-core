@@ -1,4 +1,5 @@
 import {
+  AuthorizationStateSchema,
   AuthorizationSubjectSchema,
   EffectiveSettingsDocumentSchema,
   PendingSettingsCandidateSchema,
@@ -9,6 +10,7 @@ import {
   SettingsTerminalReceiptSchema,
   canonicalJson,
   type AuthorizationSubject,
+  type AuthorizationState,
   type EffectiveSettingsDocument,
   type ResumableSettingsOperation,
   type SettingsDocumentIdentity,
@@ -43,11 +45,17 @@ export interface ImmediateSystemSettingsWrite {
   readonly operation: Readonly<{ readonly operationId: unknown; readonly idempotencyKey: unknown }>;
   readonly receipt: Readonly<{ readonly receiptId: unknown; readonly invalidationId: unknown; readonly occurredAt: unknown }>;
   readonly actor: unknown;
+  readonly authority: unknown;
   readonly auditId: unknown;
   readonly changedFields: unknown;
 }
 
 interface StateRow { settings_revision: number | string; }
+interface AuthorizationStateRow {
+  application_id: string;
+  authorization_revision: number | string;
+  lifecycle_revision: number | string;
+}
 interface DocumentRow {
   owner_kind: string;
   owner_namespace: string | null;
@@ -116,6 +124,7 @@ interface ParsedWrite {
   readonly invalidationId: string;
   readonly occurredAt: string;
   readonly actor: AuthorizationSubject;
+  readonly authority: AuthorizationState;
   readonly auditId: string;
   readonly changedFields: readonly string[];
   readonly requestDigest: string;
@@ -140,6 +149,7 @@ export interface SettingsOperationIdentity {
 export interface SettingsOperationTransition extends SettingsOperationIdentity {
   readonly expectedOperationRevision: unknown;
   readonly state: unknown;
+  readonly authority: unknown;
 }
 
 export interface SettingsOperationPromotion extends GenerationValidatedSystemSettingsWrite {
@@ -245,7 +255,7 @@ function receiptMatches(row: ReceiptRow, input: ParsedWrite): SettingsTerminalRe
   if (!receipt.success) fail("STATE", "Stored system settings receipt is invalid.");
   const owner = ownerColumns(input.identity);
   if (!/^sha256:[0-9a-f]{64}$/u.test(row.request_digest)) fail("STATE", "Stored system settings receipt is invalid.");
-  if (row.request_digest !== input.requestDigest || row.receipt_id !== input.receiptId || row.operation_id !== input.operationId
+  if (row.request_digest !== input.requestDigest
     || row.application_id !== input.identity.applicationId || row.environment !== input.identity.environment
     || row.descriptor_id !== input.identity.descriptorId || integer(row.descriptor_schema_version) !== input.identity.descriptorSchemaVersion
     || row.owner_scope_key !== owner.ownerScopeKey || row.owner_kind !== owner.ownerKind || row.owner_namespace !== owner.ownerNamespace
@@ -253,8 +263,8 @@ function receiptMatches(row: ReceiptRow, input: ParsedWrite): SettingsTerminalRe
     || (row.owner_generation === null ? null : integer(row.owner_generation)) !== owner.ownerGeneration
     || row.requested_by_kind !== input.actor.kind || row.requested_by_id !== input.actor.id
     || row.idempotency_key !== input.idempotencyKey || row.outcome !== receipt.data.outcome
-    || receipt.data.receiptId !== row.receipt_id || receipt.data.receiptId !== input.receiptId
-    || receipt.data.operationId !== row.operation_id || receipt.data.operationId !== input.operationId
+    || receipt.data.receiptId !== row.receipt_id
+    || receipt.data.operationId !== row.operation_id
     || receipt.data.occurredAt !== timestamp(row.occurred_at) || canonicalJson(receipt.data.identity) !== canonicalJson(input.identity)
     || canonicalJson(receipt.data.requestedBy) !== canonicalJson(input.actor) || receipt.data.idempotencyKey !== input.idempotencyKey) {
     return undefined;
@@ -303,15 +313,20 @@ function operationScopeMatches(row: OperationRow, identity: SettingsDocumentIden
     && (row.owner_generation === null ? null : integer(row.owner_generation)) === owner.ownerGeneration;
 }
 
-function operationMatches(row: OperationRow, input: ParsedWrite): ResumableSettingsOperation | undefined {
+function operationMatchesCore(row: OperationRow, input: ParsedWrite): ResumableSettingsOperation | undefined {
   if (!operationScopeMatches(row, input.identity)) return undefined;
   const parsed = operation(input.identity, row);
-  if (row.operation_id !== input.operationId || row.request_digest !== input.requestDigest
+  if (row.request_digest !== input.requestDigest
     || parsed.expectedDocumentRevision !== input.expectedDocumentRevision || parsed.expectedSettingsRevision !== input.expectedSettingsRevision
     || parsed.idempotencyKey !== input.idempotencyKey || canonicalJson(parsed.requestedBy) !== canonicalJson(input.actor)) {
     return undefined;
   }
   return parsed;
+}
+
+function operationMatches(row: OperationRow, input: ParsedWrite): ResumableSettingsOperation | undefined {
+  if (row.operation_id !== input.operationId) return undefined;
+  return operationMatchesCore(row, input);
 }
 
 function isCurrentGeneration(identity: SettingsDocumentIdentity, row: { state: string } | undefined): boolean {
@@ -376,6 +391,8 @@ export class PostgresSystemSettingsStore {
       return await this.transaction(async (session) => {
         const owner = ownerColumns(input.identity);
         await this.lockScope(session, input.identity);
+        await this.assertAuthority(session, input.identity, input.authority);
+        await this.lockSettingsState(session, input.identity);
         const stateResult = await session.query<StateRow>(
           "select settings_revision from k_nex_system_settings_state where application_id=$1 and environment=$2 for update",
           [input.identity.applicationId, input.identity.environment]
@@ -397,7 +414,7 @@ export class PostgresSystemSettingsStore {
           [input.identity.applicationId, input.identity.environment, input.identity.descriptorId, input.identity.descriptorSchemaVersion,
             owner.ownerScopeKey, input.idempotencyKey, input.operationId, input.receiptId]
         );
-        if (replayResult.rows.length > 1) fail("STATE", "System settings replay state is invalid.");
+        if (replayResult.rows.length > 1) fail("IDEMPOTENCY", "System settings identifiers collide with another request.");
         if (replayResult.rows[0]) {
           const replay = receiptMatches(replayResult.rows[0], input);
           if (!replay) fail("IDEMPOTENCY", "System settings idempotency key was reused with a different request.");
@@ -498,6 +515,8 @@ export class PostgresSystemSettingsStore {
       return await this.transaction(async (session) => {
         const owner = ownerColumns(input.identity);
         await this.lockScope(session, input.identity);
+        await this.assertAuthority(session, input.identity, input.authority);
+        await this.lockSettingsState(session, input.identity);
         const existing = await this.findTerminal(session, input);
         if (existing) return existing;
         const operations = await session.query<OperationRow>(
@@ -508,9 +527,9 @@ export class PostgresSystemSettingsStore {
           [input.identity.applicationId, input.identity.environment, input.identity.descriptorId, input.identity.descriptorSchemaVersion,
             owner.ownerScopeKey, input.idempotencyKey, input.operationId]
         );
-        if (operations.rows.length > 1) fail("STATE", "System settings replay state is invalid.");
+        if (operations.rows.length > 1) fail("IDEMPOTENCY", "System settings identifiers collide with another request.");
         if (operations.rows[0]) {
-          const replay = operationMatches(operations.rows[0], input);
+          const replay = operationMatchesCore(operations.rows[0], input);
           if (!replay) fail("IDEMPOTENCY", "System settings idempotency key was reused with a different request.");
           return replay;
         }
@@ -567,14 +586,16 @@ export class PostgresSystemSettingsStore {
   }
 
   async transitionGenerationValidated(value: unknown): Promise<ResumableSettingsOperation> {
-    const request = exactObject(value, ["identity", "operationId", "expectedOperationRevision", "state"]);
+    const request = exactObject(value, ["identity", "operationId", "expectedOperationRevision", "state", "authority"]);
     const identity = parse(SettingsDocumentIdentitySchema, request.identity);
     const operationId = parseOperationId(request.operationId);
     const expectedRevision = positiveOrZero(request.expectedOperationRevision);
+    const authority = this.authority(identity, request.authority);
     if (expectedRevision === 0 || (request.state !== "validating" && request.state !== "promotion-blocked")) fail("INVALID", "System settings input is invalid.");
     try {
       return await this.transaction(async (session) => {
         await this.lockScope(session, identity);
+        await this.assertAuthority(session, identity, authority);
         const found = await session.query<OperationRow>(
           `select ${this.operationColumns} from k_nex_system_settings_operations where operation_id=$1 for update`, [operationId]
         );
@@ -599,6 +620,8 @@ export class PostgresSystemSettingsStore {
     try {
       return await this.transaction(async (session) => {
         await this.lockScope(session, input.identity);
+        await this.assertAuthority(session, input.identity, input.authority);
+        await this.lockSettingsState(session, input.identity);
         const replay = await this.findTerminal(session, input);
         if (replay) return replay;
         const owner = ownerColumns(input.identity);
@@ -628,8 +651,8 @@ export class PostgresSystemSettingsStore {
   }
 
   async failGenerationValidated(value: unknown): Promise<SettingsTerminalReceipt> {
-    const request = exactObject(value, ["identity", "document", "operation", "receipt", "actor", "auditId", "changedFields", "expectedOperationRevision", "reason"]);
-    const input = await this.input({ identity: request.identity, document: request.document, operation: request.operation, receipt: request.receipt, actor: request.actor, auditId: request.auditId, changedFields: request.changedFields });
+    const request = exactObject(value, ["identity", "document", "operation", "receipt", "actor", "authority", "auditId", "changedFields", "expectedOperationRevision", "reason"]);
+    const input = await this.input({ identity: request.identity, document: request.document, operation: request.operation, receipt: request.receipt, actor: request.actor, authority: request.authority, auditId: request.auditId, changedFields: request.changedFields });
     const expectedRevision = positiveOrZero(request.expectedOperationRevision);
     const failureProbe = parse(SettingsTerminalReceiptSchema, {
       schemaVersion: 1, receiptId: input.receiptId, operationId: input.operationId, identity: input.identity, requestedBy: input.actor,
@@ -639,6 +662,8 @@ export class PostgresSystemSettingsStore {
     try {
       return await this.transaction(async (session) => {
         await this.lockScope(session, input.identity);
+        await this.assertAuthority(session, input.identity, input.authority);
+        await this.lockSettingsState(session, input.identity);
         const replay = await this.findTerminal(session, input);
         if (replay) return replay;
         const owner = ownerColumns(input.identity);
@@ -676,6 +701,31 @@ export class PostgresSystemSettingsStore {
       ])]);
     }
     await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [canonicalJson(identity)]);
+  }
+
+  private async assertAuthority(session: RuntimeExtensionSession, identity: SettingsDocumentIdentity, authority: AuthorizationState): Promise<void> {
+    const result = await session.query<AuthorizationStateRow>(
+      `select application_id, authorization_revision, lifecycle_revision
+       from k_nex_authorization_state where application_id=$1 for share`,
+      [identity.applicationId]
+    );
+    const row = result.rows[0];
+    const current = row === undefined ? undefined : AuthorizationStateSchema.safeParse({
+      schemaVersion: 1,
+      applicationId: row.application_id,
+      environment: identity.environment,
+      authorizationRevision: integer(row.authorization_revision),
+      lifecycleRevision: integer(row.lifecycle_revision)
+    });
+    if (current === undefined || !current.success || current.data.applicationId !== identity.applicationId || current.data.environment !== identity.environment) {
+      fail("STATE", "Authorization state is unavailable.");
+    }
+    if (current.data.authorizationRevision !== authority.authorizationRevision || current.data.lifecycleRevision !== authority.lifecycleRevision) {
+      fail("REVISION", "Authorization or lifecycle state changed before settings write.");
+    }
+  }
+
+  private async lockSettingsState(session: RuntimeExtensionSession, identity: SettingsDocumentIdentity): Promise<void> {
     await session.query(
       "insert into k_nex_system_settings_state (application_id, environment) values ($1,$2) on conflict do nothing",
       [identity.applicationId, identity.environment]
@@ -741,7 +791,7 @@ export class PostgresSystemSettingsStore {
       [input.identity.applicationId, input.identity.environment, input.identity.descriptorId, input.identity.descriptorSchemaVersion,
         owner.ownerScopeKey, input.idempotencyKey, input.operationId, input.receiptId]
     );
-    if (result.rows.length > 1) fail("STATE", "System settings replay state is invalid.");
+    if (result.rows.length > 1) fail("IDEMPOTENCY", "System settings identifiers collide with another request.");
     if (!result.rows[0]) return undefined;
     const replay = receiptMatches(result.rows[0], input);
     if (!replay) fail("IDEMPOTENCY", "System settings idempotency key was reused with a different request.");
@@ -851,14 +901,14 @@ export class PostgresSystemSettingsStore {
   }
 
   private async operationWrite(value: unknown): Promise<{ input: ParsedWrite; expectedRevision: number }> {
-    const request = exactObject(value, ["identity", "document", "operation", "receipt", "actor", "auditId", "changedFields", "expectedOperationRevision"]);
+    const request = exactObject(value, ["identity", "document", "operation", "receipt", "actor", "authority", "auditId", "changedFields", "expectedOperationRevision"]);
     const expectedRevision = positiveOrZero(request.expectedOperationRevision);
     if (expectedRevision === 0) fail("INVALID", "System settings input is invalid.");
-    return { input: await this.input({ identity: request.identity, document: request.document, operation: request.operation, receipt: request.receipt, actor: request.actor, auditId: request.auditId, changedFields: request.changedFields }), expectedRevision };
+    return { input: await this.input({ identity: request.identity, document: request.document, operation: request.operation, receipt: request.receipt, actor: request.actor, authority: request.authority, auditId: request.auditId, changedFields: request.changedFields }), expectedRevision };
   }
 
   private async input(value: unknown): Promise<ParsedWrite> {
-    const input = exactObject(value, ["identity", "document", "operation", "receipt", "actor", "auditId", "changedFields"]);
+    const input = exactObject(value, ["identity", "document", "operation", "receipt", "actor", "authority", "auditId", "changedFields"]);
     const documentInput = exactObject(input.document, ["expectedDocumentRevision", "expectedSettingsRevision", "values"]);
     const operation = exactObject(input.operation, ["operationId", "idempotencyKey"]);
     const receipt = exactObject(input.receipt, ["receiptId", "invalidationId", "occurredAt"]);
@@ -866,6 +916,7 @@ export class PostgresSystemSettingsStore {
     const expectedDocumentRevision = positiveOrZero(documentInput.expectedDocumentRevision);
     const expectedSettingsRevision = positiveOrZero(documentInput.expectedSettingsRevision);
     const actor = parse(AuthorizationSubjectSchema, input.actor);
+    const authority = this.authority(identity, input.authority);
     const preview = parse(SettingsTerminalReceiptSchema, {
       schemaVersion: 1,
       receiptId: receipt.receiptId,
@@ -902,13 +953,8 @@ export class PostgresSystemSettingsStore {
       expectedDocumentRevision,
       expectedSettingsRevision,
       values: candidate.values,
-      operationId: preview.operationId,
       idempotencyKey: preview.idempotencyKey,
-      receiptId: preview.receiptId,
-      invalidationId: preview.invalidationId,
-      occurredAt: preview.occurredAt,
       actor,
-      auditId: auditProbe.invalidationId,
       changedFields
     });
     return Object.freeze({
@@ -922,10 +968,19 @@ export class PostgresSystemSettingsStore {
       invalidationId: preview.invalidationId,
       occurredAt: preview.occurredAt,
       actor,
+      authority,
       auditId: auditProbe.invalidationId,
       changedFields,
       requestDigest
     });
+  }
+
+  private authority(identity: SettingsDocumentIdentity, value: unknown): AuthorizationState {
+    const authority = parse(AuthorizationStateSchema, value);
+    if (authority.applicationId !== identity.applicationId || authority.environment !== identity.environment) {
+      fail("INVALID", "System settings input is invalid.");
+    }
+    return authority;
   }
 
   private async transaction<T>(work: (session: RuntimeExtensionSession) => Promise<T>): Promise<T> {

@@ -85,6 +85,58 @@ function resolverHarness(row: ReturnType<typeof binding> | null = binding()) {
   return { query, session, pool, verifier, store: new PostgresVerifiedArtifactStore(pool as any, verifier as any) };
 }
 
+const settingsIdentity = {
+  applicationId: authority.applicationId,
+  environment: authority.environment,
+  appId: authority.extensionId,
+  generationId: authority.generationId,
+  artifactDigest
+} as const;
+
+function settingsReaderHarness(options: Readonly<{
+  lifecycle?: "active" | "disabled" | "quarantined" | "retired" | "stale";
+  bindingRow?: ReturnType<typeof binding> | null;
+  artifact?: boolean;
+  acceptance?: boolean;
+  corrupt?: boolean;
+}> = {}) {
+  const queries: string[] = [];
+  const lifecycle = options.lifecycle ?? "active";
+  const row = options.bindingRow === undefined ? binding() : options.bindingRow;
+  const session = {
+    query: vi.fn(async (text: string, values?: readonly unknown[]) => {
+      queries.push(text);
+      if (text.includes("from runtime_extension_artifact_bindings")) {
+        if (values?.length === 4) return { rows: row ? [row] : [] };
+        const exact = JSON.stringify(values) === JSON.stringify([
+          authority.applicationId, authority.environment, authority.extensionId, authority.generationId, artifactDigest
+        ]);
+        return { rows: lifecycle === "active" && exact && row ? [row] : [] };
+      }
+      if (text.includes("from runtime_extension_artifacts")) {
+        return { rows: options.artifact === false ? [] : [{ artifact_digest: artifactDigest, artifact_bytes: Buffer.from("bundle") }] };
+      }
+      if (text.includes("from runtime_extension_artifact_acceptances")) {
+        return { rows: options.acceptance === false ? [] : [{
+          artifact_digest: artifactDigest, catalog_digest: authority.catalogDigest, catalog_json: catalog,
+          provenance_bytes: Buffer.from("provenance"), delivery_class: authority.deliveryClass,
+          extension_id: authority.extensionId, version: "1.0.0", runtime_abi: "1.0.0"
+        }] };
+      }
+      return { rows: [] };
+    }),
+    release: vi.fn()
+  };
+  const pool = { connect: vi.fn(async () => session), query: vi.fn((text: string, values?: readonly unknown[]) => session.query(text, values)) };
+  const verifier = {
+    verifyAccepted: vi.fn(async () => {
+      if (options.corrupt) throw new Error("corrupt verified evidence");
+      return verified;
+    })
+  };
+  return { queries, session, pool, verifier, store: new PostgresVerifiedArtifactStore(pool as any, verifier as any) };
+}
+
 describe("PostgresVerifiedArtifactStore Remote UI reader", () => {
   it("rejects poisoned accepted evidence before creating a binding", async () => {
     const writes: string[] = [];
@@ -183,6 +235,82 @@ describe("PostgresVerifiedArtifactStore Remote UI reader", () => {
     expect(queries.some((query) => query.includes("runtime_extension_artifact_acceptances where artifact_digest=$1 and catalog_digest=$2"))).toBe(true);
     expect(pool.query).not.toHaveBeenCalled();
     expect(session.release).toHaveBeenCalledOnce();
+  });
+});
+
+describe("PostgresVerifiedArtifactStore settings descriptor reader", () => {
+  it("returns only the exact active reverified Hot Application generation through the lifecycle lock", async () => {
+    const value = settingsReaderHarness();
+
+    await expect(value.store.readSettingsDescriptors(settingsIdentity)).resolves.toMatchObject({
+      artifactDigest,
+      catalogDigest: authority.catalogDigest
+    });
+
+    const activeBindingQuery = value.queries.find((query) => query.includes("from runtime_extension_artifact_bindings"));
+    expect(value.session.query.mock.calls.find(([text]) => String(text).includes("from runtime_extension_artifact_bindings"))?.[1]).toEqual([
+      authority.applicationId, authority.environment, authority.extensionId, authority.generationId, artifactDigest
+    ]);
+    expect(activeBindingQuery).toContain("e.disposition='active'");
+    expect(activeBindingQuery).toContain("e.active_generation_id=b.generation_id");
+    expect(activeBindingQuery).toContain("g.state='active'");
+    expect(activeBindingQuery).toContain("g.authority_json=b.authority_json");
+    expect(activeBindingQuery).toContain("g.server_generation_id=b.generation_id");
+    expect(value.queries.findIndex((query) => query.startsWith("select pg_advisory_xact_lock"))).toBeLessThan(
+      value.queries.findIndex((query) => query.includes("from runtime_extension_artifact_bindings"))
+    );
+    expect(value.verifier.verifyAccepted).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed for an application, environment, app, generation, or artifact digest mismatch", async () => {
+    for (const identity of [
+      { ...settingsIdentity, applicationId: "customer-beta" },
+      { ...settingsIdentity, environment: "staging" },
+      { ...settingsIdentity, appId: "app.other" },
+      { ...settingsIdentity, generationId: "sales-generation-2" },
+      { ...settingsIdentity, artifactDigest: `sha256:${"e".repeat(64)}` as const }
+    ]) {
+      const value = settingsReaderHarness();
+      await expect(value.store.readSettingsDescriptors(identity)).resolves.toBeUndefined();
+      expect(value.verifier.verifyAccepted).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each(["disabled", "quarantined", "retired", "stale"] as const)("fails closed for a %s lifecycle generation", async (lifecycle) => {
+    const value = settingsReaderHarness({ lifecycle });
+
+    await expect(value.store.readSettingsDescriptors(settingsIdentity)).resolves.toBeUndefined();
+    expect(value.verifier.verifyAccepted).not.toHaveBeenCalled();
+  });
+
+  it("fails closed for missing, corrupt, or unverified durable artifact evidence", async () => {
+    const invalidBinding = binding();
+    invalidBinding.authority_json = { ...authority, generationId: "sales-generation-2" } as any;
+    for (const options of [
+      { bindingRow: null },
+      { artifact: false },
+      { acceptance: false },
+      { corrupt: true },
+      { bindingRow: invalidBinding }
+    ]) {
+      const value = settingsReaderHarness(options);
+      await expect(value.store.readSettingsDescriptors(settingsIdentity)).resolves.toBeUndefined();
+    }
+  });
+
+  it("reverifies an exact immutable generation for lifecycle-bound diagnostic discovery", async () => {
+    const value = settingsReaderHarness({ lifecycle: "disabled" });
+
+    await expect(value.store.readSettingsDescriptorGeneration({
+      applicationId: authority.applicationId,
+      environment: authority.environment,
+      extensionId: authority.extensionId,
+      generationId: authority.generationId
+    })).resolves.toMatchObject({ artifactDigest, catalogDigest: authority.catalogDigest });
+    expect(value.pool.query).toHaveBeenCalledWith(expect.stringContaining("delivery_class='hot-application'"), [
+      authority.applicationId, authority.environment, authority.extensionId, authority.generationId
+    ]);
+    expect(value.verifier.verifyAccepted).toHaveBeenCalledOnce();
   });
 });
 

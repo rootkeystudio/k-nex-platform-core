@@ -363,7 +363,7 @@ export const salesSearchTasksDescriptor = {
     audience: "authenticated",
     surfaces: ["workspace"],
     permission: "sales.tasks.read",
-    policy: "sales.tasks.agent-read",
+    policy: "sales.tasks.domain",
     effect: "read-only",
     risk: "low",
     approval: "none",
@@ -396,9 +396,11 @@ export const salesCreateTaskToolDescriptor = {
     audit: { category: "sales.task.create", resourcePath: "/id" }
 };
 export const salesWorkspaceSettingsDescriptor = {
-    id: "sales.settings.workspace",
-    ownerPluginId: "module.sales",
     schemaVersion: 1,
+    id: "sales.settings.workspace",
+    publisher: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales" },
+    descriptorSchemaVersion: 1,
+    validation: "immediate",
     fields: {
         defaultTaskPageSize: {
             type: "integer",
@@ -428,28 +430,20 @@ export const salesWorkspaceSettingsDescriptor = {
             description: "Ordered reference pipeline stages."
         }
     },
-    surface: "workspace",
-    audience: "authenticated",
     readPermission: "sales.settings.read",
-    changePermission: "sales.settings.write",
-    featureRevision: 1,
-    publicationRevision: 1
+    changePermission: "sales.settings.write"
 };
 function permission(id, title, description, resource, operation, scope) {
     return {
+        schemaVersion: 1,
         id,
-        ownerPluginId: "module.sales",
+        publisher: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales" },
         title,
         description,
         audience: "authenticated",
         resource,
         operation,
-        policy: {
-            id: `sales.policy.${id.slice("sales.".length).replaceAll(".", "-")}`,
-            scope,
-            recordScoped: scope === "record" || scope === "field",
-            fieldScoped: scope === "field"
-        }
+        scope
     };
 }
 export const salesPermissionDescriptors = Object.freeze([
@@ -466,6 +460,209 @@ export const salesPermissionDescriptors = Object.freeze([
     permission("sales.opportunities.stage.read", "Read opportunity stages", "Read opportunity stage fields.", "sales.opportunities.stage", "read", "field"),
     permission("sales.opportunities.value.read", "Read opportunity values", "Read opportunity value fields.", "sales.opportunities.value", "read", "field"),
     permission("sales.opportunities.write", "Change opportunity stages", "Change actor-authorized opportunity stages.", "sales.opportunities", "write", "record")
+]);
+const salesPermissionPublisher = {
+    kind: "extension",
+    deliveryClass: "platform-plugin",
+    extensionId: "module.sales"
+};
+/** Static bindings for the existing Sales record and field policy seams. */
+export const salesPermissionPolicyBindings = Object.freeze([
+    {
+        schemaVersion: 1,
+        id: "sales.policy.tasks.read",
+        publisher: salesPermissionPublisher,
+        permissionId: "sales.tasks.read",
+        policyReference: "sales.tasks.domain",
+        scope: "record",
+        failureMode: "deny",
+        timeoutMs: 1_000
+    },
+    {
+        schemaVersion: 1,
+        id: "sales.policy.tasks.title.read",
+        publisher: salesPermissionPublisher,
+        permissionId: "sales.tasks.title.read",
+        policyReference: "sales.tasks.domain",
+        scope: "field",
+        failureMode: "deny",
+        timeoutMs: 1_000
+    },
+    {
+        schemaVersion: 1,
+        id: "sales.policy.tasks.status.read",
+        publisher: salesPermissionPublisher,
+        permissionId: "sales.tasks.status.read",
+        policyReference: "sales.tasks.domain",
+        scope: "field",
+        failureMode: "deny",
+        timeoutMs: 1_000
+    },
+    {
+        schemaVersion: 1,
+        id: "sales.policy.tasks.revenue.read",
+        publisher: salesPermissionPublisher,
+        permissionId: "sales.tasks.revenue.read",
+        policyReference: "sales.tasks.domain",
+        scope: "field",
+        failureMode: "deny",
+        timeoutMs: 1_000
+    },
+    {
+        schemaVersion: 1,
+        id: "sales.policy.tasks.private-note.read",
+        publisher: salesPermissionPublisher,
+        permissionId: "sales.tasks.private-note.read",
+        policyReference: "sales.tasks.domain",
+        scope: "field",
+        failureMode: "deny",
+        timeoutMs: 1_000
+    },
+    {
+        schemaVersion: 1,
+        id: "sales.policy.tasks.write",
+        publisher: salesPermissionPublisher,
+        permissionId: "sales.tasks.write",
+        policyReference: "sales.tasks.domain",
+        scope: "record",
+        failureMode: "deny",
+        timeoutMs: 1_000
+    },
+    {
+        schemaVersion: 1,
+        id: "sales.policy.opportunities.read",
+        publisher: salesPermissionPublisher,
+        permissionId: "sales.opportunities.read",
+        policyReference: "sales.opportunities.domain",
+        scope: "record",
+        failureMode: "deny",
+        timeoutMs: 1_000
+    },
+    {
+        schemaVersion: 1,
+        id: "sales.policy.opportunities.name.read",
+        publisher: salesPermissionPublisher,
+        permissionId: "sales.opportunities.name.read",
+        policyReference: "sales.opportunities.domain",
+        scope: "field",
+        failureMode: "deny",
+        timeoutMs: 1_000
+    },
+    {
+        schemaVersion: 1,
+        id: "sales.policy.opportunities.stage.read",
+        publisher: salesPermissionPublisher,
+        permissionId: "sales.opportunities.stage.read",
+        policyReference: "sales.opportunities.domain",
+        scope: "field",
+        failureMode: "deny",
+        timeoutMs: 1_000
+    },
+    {
+        schemaVersion: 1,
+        id: "sales.policy.opportunities.value.read",
+        publisher: salesPermissionPublisher,
+        permissionId: "sales.opportunities.value.read",
+        policyReference: "sales.opportunities.domain",
+        scope: "field",
+        failureMode: "deny",
+        timeoutMs: 1_000
+    },
+    {
+        schemaVersion: 1,
+        id: "sales.policy.opportunities.write",
+        publisher: salesPermissionPublisher,
+        permissionId: "sales.opportunities.write",
+        policyReference: "sales.opportunities.domain",
+        scope: "record",
+        failureMode: "deny",
+        timeoutMs: 1_000
+    }
+]);
+/** Static Sales role defaults; customer roles and assignments remain platform-owned. */
+export const salesRoleTemplates = Object.freeze([
+    {
+        schemaVersion: 1,
+        id: "sales.template.viewer",
+        publisher: salesPermissionPublisher,
+        version: 1,
+        instantiation: "manual",
+        title: "Sales Viewer",
+        description: "View core Sales tasks and opportunities.",
+        permissionIds: [
+            "sales.opportunities.name.read",
+            "sales.opportunities.read",
+            "sales.opportunities.stage.read",
+            "sales.tasks.read",
+            "sales.tasks.status.read",
+            "sales.tasks.title.read"
+        ]
+    },
+    {
+        schemaVersion: 1,
+        id: "sales.template.representative",
+        publisher: salesPermissionPublisher,
+        version: 1,
+        instantiation: "manual",
+        title: "Sales Representative",
+        description: "View core Sales data and manage assigned tasks.",
+        permissionIds: [
+            "sales.opportunities.name.read",
+            "sales.opportunities.read",
+            "sales.opportunities.stage.read",
+            "sales.tasks.private-note.read",
+            "sales.tasks.read",
+            "sales.tasks.status.read",
+            "sales.tasks.title.read",
+            "sales.tasks.write"
+        ]
+    },
+    {
+        schemaVersion: 1,
+        id: "sales.template.manager",
+        publisher: salesPermissionPublisher,
+        version: 1,
+        instantiation: "manual",
+        title: "Sales Manager",
+        description: "Manage the Sales pipeline and view revenue data.",
+        permissionIds: [
+            "sales.opportunities.name.read",
+            "sales.opportunities.read",
+            "sales.opportunities.stage.read",
+            "sales.opportunities.value.read",
+            "sales.opportunities.write",
+            "sales.tasks.private-note.read",
+            "sales.tasks.read",
+            "sales.tasks.revenue.read",
+            "sales.tasks.status.read",
+            "sales.tasks.title.read",
+            "sales.tasks.write"
+        ]
+    },
+    {
+        schemaVersion: 1,
+        id: "sales.template.administrator",
+        publisher: salesPermissionPublisher,
+        version: 1,
+        instantiation: "manual",
+        title: "Sales Administrator",
+        description: "Manage all Sales data and workspace settings.",
+        permissionIds: [
+            "sales.opportunities.name.read",
+            "sales.opportunities.read",
+            "sales.opportunities.stage.read",
+            "sales.opportunities.value.read",
+            "sales.opportunities.write",
+            "sales.settings.read",
+            "sales.settings.write",
+            "sales.tasks.private-note.read",
+            "sales.tasks.read",
+            "sales.tasks.revenue.read",
+            "sales.tasks.status.read",
+            "sales.tasks.title.read",
+            "sales.tasks.write"
+        ]
+    }
 ]);
 export const salesRouteDescriptors = Object.freeze([
     {

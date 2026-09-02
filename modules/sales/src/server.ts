@@ -11,10 +11,9 @@ import type {
   ActionDefinition,
   ActionHandler,
   DataSourceHandler,
-  DataSourceHandlerRequest,
-  PluginSettingsRuntimeDefinition
+  DataSourceHandlerRequest
 } from "@k-nex/runtime";
-import { DataSourceGatewayError, definePluginRegistration, resolvePluginSettings } from "@k-nex/runtime";
+import { DataSourceGatewayError, definePluginRegistration, projectSystemSettingsValues } from "@k-nex/runtime";
 import type { CollectionConfig } from "payload";
 import type { CollectionAfterChangeHook, PayloadRequest } from "payload";
 
@@ -50,7 +49,6 @@ import {
   salesUpdateTaskInputRuntimeSchema,
   salesUpdateTaskOutputRuntimeSchema,
   salesWorkspaceSettingsDescriptor,
-  type SalesWorkspaceSettings,
   type CreateTaskInput,
   type CreateTaskOutput,
   type UpdateOpportunityStageInput,
@@ -691,23 +689,7 @@ export const salesOpportunitiesCollection: CollectionConfig = {
   indexes: [{ fields: ["stage"] }]
 };
 
-export const salesWorkspaceSettingsDefinition: PluginSettingsRuntimeDefinition<SalesWorkspaceSettings> = {
-  descriptor: salesWorkspaceSettingsDescriptor,
-  migrations: [],
-  schema: {
-    safeParse(value: unknown) {
-      if (!isRecord(value) || Object.keys(value).sort().join("\u0000") !== "defaultPage\u0000defaultTaskPageSize\u0000pipelineStages\u0000showPotentialRevenue" ||
-        !Number.isSafeInteger(value.defaultTaskPageSize) || Number(value.defaultTaskPageSize) < 1 || Number(value.defaultTaskPageSize) > 100 ||
-        typeof value.showPotentialRevenue !== "boolean" || !["overview", "tasks", "opportunities"].includes(value.defaultPage as string) ||
-        !Array.isArray(value.pipelineStages) || value.pipelineStages.join("\u0000") !== "lead\u0000qualified\u0000won\u0000lost") {
-        return invalidOutput("Sales workspace settings must match the strict current schema.");
-      }
-      return { success: true as const, data: value as SalesWorkspaceSettings };
-    }
-  }
-};
-
-export const salesDefaultSettings = resolvePluginSettings(salesWorkspaceSettingsDefinition);
+export const salesDefaultSettings = projectSystemSettingsValues(salesWorkspaceSettingsDescriptor);
 
 export const salesRegistration = definePluginRegistration({
   pluginId: "module.sales",

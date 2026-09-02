@@ -1,4 +1,4 @@
-import type { AgentToolDescriptor, AgentToolJsonSchema, ActionDescriptor, DataSourceDescriptor, MetricScalar, PermissionDescriptor, PluginPageTemplateDescriptor, PluginSettingsDescriptor, PluginSettingValue, PluginUiContributionDescriptor, RuntimeSchema, TableRecords } from "@k-nex/contracts";
+import type { AgentToolDescriptor, AgentToolJsonSchema, ActionDescriptor, DataSourceDescriptor, MetricScalar, AuthorizationPermissionDescriptor, PermissionPolicyBinding, PluginPageTemplateDescriptor, SystemSettingsDescriptor, PluginUiContributionDescriptor, RoleTemplate, RuntimeSchema, TableRecords } from "@k-nex/contracts";
 export declare const salesTaskFields: NonNullable<DataSourceDescriptor["outputFields"]>;
 export declare const salesTotalPotentialRevenueDescriptor: DataSourceDescriptor;
 export declare const salesTasksDescriptor: DataSourceDescriptor;
@@ -79,14 +79,18 @@ export declare const salesTaskUpdateDescriptor: ActionDescriptor;
 export declare const salesOpportunityStageUpdateDescriptor: ActionDescriptor;
 export declare const salesSearchTasksDescriptor: AgentToolDescriptor;
 export declare const salesCreateTaskToolDescriptor: AgentToolDescriptor;
-export declare const salesWorkspaceSettingsDescriptor: PluginSettingsDescriptor;
+export declare const salesWorkspaceSettingsDescriptor: SystemSettingsDescriptor;
 export type SalesWorkspaceSettings = Readonly<{
     defaultTaskPageSize: number;
     showPotentialRevenue: boolean;
     defaultPage: "overview" | "tasks" | "opportunities";
     pipelineStages: readonly string[];
-}> & Readonly<Record<string, PluginSettingValue>>;
-export declare const salesPermissionDescriptors: readonly PermissionDescriptor[];
+}>;
+export declare const salesPermissionDescriptors: readonly AuthorizationPermissionDescriptor[];
+/** Static bindings for the existing Sales record and field policy seams. */
+export declare const salesPermissionPolicyBindings: readonly PermissionPolicyBinding[];
+/** Static Sales role defaults; customer roles and assignments remain platform-owned. */
+export declare const salesRoleTemplates: readonly RoleTemplate[];
 export declare const salesRouteDescriptors: readonly {
     id: string;
     ownerPluginId: string;

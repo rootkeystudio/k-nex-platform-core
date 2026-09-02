@@ -213,8 +213,8 @@ export const SettingsAdministrationViewSchema = z.strictObject({
   identity: SettingsDocumentIdentitySchema,
   descriptor: SystemSettingsDescriptorSchema,
   state: z.enum(["effective", "pending-validation", "diagnostic-disabled", "diagnostic-retired"]),
-  documentRevision: positiveRevisionSchema,
-  settingsRevision: positiveRevisionSchema,
+  documentRevision: revisionSchema,
+  settingsRevision: revisionSchema,
   fields: administrationFieldsSchema,
   pendingOperationId: recordIdSchema.optional()
 }).superRefine((view, context) => {
@@ -442,6 +442,7 @@ export const SystemAdministrationContractsSchema = z.strictObject({
 });
 
 export type SystemSettingsDescriptor = z.infer<typeof SystemSettingsDescriptorSchema>;
+export type SystemSettingsFieldDescriptor = z.infer<typeof PluginSettingFieldSchema>;
 export type SettingsDocumentIdentity = z.infer<typeof SettingsDocumentIdentitySchema>;
 export type EffectiveSettingsDocument = z.infer<typeof EffectiveSettingsDocumentSchema>;
 export type PendingSettingsCandidate = z.infer<typeof PendingSettingsCandidateSchema>;

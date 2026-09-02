@@ -15,7 +15,6 @@ import {
 } from "../src/current-authority-policies.js";
 import { CurrentAuthorityAdapter, createCurrentAuthorityTarget } from "../src/current-authority-adapter.js";
 import { createTrustedAuthorizationSession, type EffectiveAuthorityResolver, type EffectiveAuthorizationRequest, type TrustedAuthorizationSession } from "../src/effective-authority.js";
-import { PluginSettingsService } from "../src/plugin-settings.js";
 
 const session = (): TrustedAuthorizationSession => createTrustedAuthorizationSession({
   schemaVersion: 1, applicationId: "customer-alpha", environment: "production", correlationId: "correlation:one",
@@ -93,11 +92,6 @@ describe("current authority policy wrappers", () => {
     await expect(settings.change({}, { id: "sales.settings" } as never, change)).resolves.toBeUndefined();
     expect(read).not.toHaveBeenCalled();
     expect(change).not.toHaveBeenCalled();
-
-    const store = { read: vi.fn(), replace: vi.fn() };
-    const service = new PluginSettingsService(store, settings);
-    await expect(service.read({ descriptor: { id: "sales.settings", readPermission: "system.settings.read" } } as never, {})).rejects.toMatchObject({ code: "ACCESS_DENIED" });
-    expect(store.read).not.toHaveBeenCalled();
 
     const projection = new CurrentAuthorityPermissionProjection(adapter({ "system.settings.read": "allow", "system.settings.manage": "deny" }), (_kind, descriptor) => target(descriptor.permission));
     await expect(projection.allowsRoute({}, { id: "sales.route.orders", permission: "system.settings.read" })).resolves.toBe(true);

@@ -9,6 +9,8 @@ import {
   type VerifiedArtifactGenerationOwner,
   type VerifiedArtifactRunnerSource,
   type VerifiedRemoteUiArtifactReader,
+  type VerifiedSettingsDescriptorArtifactIdentity,
+  type VerifiedSettingsDescriptorArtifactReader,
   type VerifiedThemeSkinArtifactReader
 } from "@k-nex/extension-bundler";
 import type {
@@ -74,7 +76,22 @@ interface BindingRow {
   version: string;
 }
 
-interface ActiveRemoteUiRow extends BindingRow {}
+interface ActiveHotApplicationRow extends BindingRow {}
+
+type ActiveHotApplicationArtifactIdentity = Readonly<{
+  applicationId: string;
+  environment: string;
+  extensionId: string;
+  generationId: string;
+  artifactDigest: Digest;
+}>;
+
+export type VerifiedSettingsDescriptorGenerationIdentity = Readonly<{
+  applicationId: string;
+  environment: string;
+  extensionId: string;
+  generationId: string;
+}>;
 
 function fail(code: VerifiedArtifactStoreError["code"], message: string): never {
   throw new VerifiedArtifactStoreError(code, message);
@@ -135,7 +152,7 @@ function priorHotGenerationEvidence(value: unknown, transition: AuthorizationLif
  * restored database cannot silently turn an inventory row into executable UI
  * or runner source.
  */
-export class PostgresVerifiedArtifactStore implements DurableDynamicArtifactStore, VerifiedRemoteUiArtifactReader, VerifiedThemeSkinArtifactReader {
+export class PostgresVerifiedArtifactStore implements DurableDynamicArtifactStore, VerifiedRemoteUiArtifactReader, VerifiedSettingsDescriptorArtifactReader, VerifiedThemeSkinArtifactReader {
   constructor(private readonly pool: RuntimeExtensionPool, private readonly verifier: ArtifactVerifier) {}
 
   /** Resolves authorization descriptors only from the immutable generation named by a committed Hot Application transition. */
@@ -248,18 +265,47 @@ export class PostgresVerifiedArtifactStore implements DurableDynamicArtifactStor
     return verified ? Object.freeze({ artifactDigest, catalogDigest, verified }) : undefined;
   }
 
-  async readRemoteUi(identity: Readonly<{
-    applicationId: string;
-    environment: string;
-    extensionId: string;
-    generationId: string;
-    artifactDigest: Digest;
-  }>): Promise<StagedArtifact | undefined> {
+  async readRemoteUi(identity: ActiveHotApplicationArtifactIdentity): Promise<StagedArtifact | undefined> {
+    return this.readActiveHotApplicationArtifact(identity);
+  }
+
+  async readSettingsDescriptors(identity: VerifiedSettingsDescriptorArtifactIdentity): Promise<StagedArtifact | undefined> {
+    try {
+      return await this.readActiveHotApplicationArtifact({
+        applicationId: identity.applicationId,
+        environment: identity.environment,
+        extensionId: identity.appId,
+        generationId: identity.generationId,
+        artifactDigest: identity.artifactDigest
+      });
+    } catch (error) {
+      if (error instanceof VerifiedArtifactStoreError) return undefined;
+      throw error;
+    }
+  }
+
+  /** Re-verifies one immutable Hot Application binding for diagnostic settings discovery. Lifecycle authority stays with the caller. */
+  async readSettingsDescriptorGeneration(identity: VerifiedSettingsDescriptorGenerationIdentity): Promise<StagedArtifact | undefined> {
+    const result = await this.pool.query<BindingRow>(
+      `select application_id, environment, delivery_class, extension_id, generation_id, artifact_digest, catalog_digest, authority_json, activation_json, version
+       from runtime_extension_artifact_bindings
+       where application_id=$1 and environment=$2 and delivery_class='hot-application' and extension_id=$3 and generation_id=$4`,
+      [identity.applicationId, identity.environment, identity.extensionId, identity.generationId]
+    );
+    const binding = result.rows[0];
+    if (!binding) return undefined;
+    const verified = await this.verified(this.pool, binding.artifact_digest, binding.catalog_digest, true);
+    if (!verified) return undefined;
+    await this.durable(binding, verified, binding.catalog_digest);
+    return Object.freeze({ artifactDigest: binding.artifact_digest, catalogDigest: binding.catalog_digest, verified });
+  }
+
+  private async readActiveHotApplicationArtifact(identity: ActiveHotApplicationArtifactIdentity): Promise<StagedArtifact | undefined> {
     return this.transaction(async (session) => {
       await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [runtimeExtensionIdentityKey({
         applicationId: identity.applicationId, environment: identity.environment, deliveryClass: "hot-application", extensionId: identity.extensionId
       })]);
-      const binding = await this.activeRemoteUiBinding(session, identity);
+      const binding = await this.activeHotApplicationBinding(session, identity);
       if (!binding) return undefined;
       const verified = await this.verified(session, binding.artifact_digest, binding.catalog_digest);
       if (!verified) return undefined;
@@ -410,19 +456,13 @@ export class PostgresVerifiedArtifactStore implements DurableDynamicArtifactStor
   }
 
   /**
-   * This is the Remote UI read linearization point. The serving path accepts
-   * bytes only when the immutable artifact binding, canonical active evidence,
-   * activation receipt, and unified server/UI/storage generation are all the
-   * same durable row.
+   * This is the active Hot Application artifact read linearization point.
+   * Remote UI and settings accept bytes only when the immutable binding,
+   * canonical active evidence, activation receipt, and unified server/UI/
+   * storage generation are all the same durable row.
    */
-  private async activeRemoteUiBinding(session: Pick<RuntimeExtensionSession, "query">, identity: Readonly<{
-    applicationId: string;
-    environment: string;
-    extensionId: string;
-    generationId: string;
-    artifactDigest: Digest;
-  }>): Promise<ActiveRemoteUiRow | undefined> {
-    const result = await session.query<ActiveRemoteUiRow>(
+  private async activeHotApplicationBinding(session: Pick<RuntimeExtensionSession, "query">, identity: ActiveHotApplicationArtifactIdentity): Promise<ActiveHotApplicationRow | undefined> {
+    const result = await session.query<ActiveHotApplicationRow>(
       `select b.application_id as application_id, b.environment as environment, b.delivery_class as delivery_class,
               b.extension_id as extension_id, b.generation_id as generation_id, b.artifact_digest as artifact_digest, b.catalog_digest as catalog_digest,
               b.authority_json as authority_json, b.activation_json as activation_json, b.version as version

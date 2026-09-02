@@ -7,6 +7,7 @@ import { buildConfig, getPayload } from "payload";
 import pg from "pg";
 
 import { PostgresSystemSettingsStore } from "@k-nex/payload-adapter";
+import { projectSettingsAdministrationView } from "@k-nex/runtime";
 import { createGate1Application } from "../dist/src/create-application.js";
 import { migrations } from "../dist/src/migrations/index.js";
 
@@ -27,6 +28,14 @@ function identityColumns(owner) {
 
 async function insertState(pool, id, targetEnvironment = environment) {
   await pool.query("insert into k_nex_system_settings_state (application_id, environment) values ($1,$2)", [id, targetEnvironment]);
+}
+
+async function insertAuthorizationState(pool, id) {
+  await pool.query("insert into k_nex_authorization_state (application_id) values ($1) on conflict do nothing", [id]);
+}
+
+function authoritySnapshot(id, targetEnvironment = environment, authorizationRevision = 0, lifecycleRevision = 0) {
+  return { schemaVersion: 1, applicationId: id, environment: targetEnvironment, authorizationRevision, lifecycleRevision };
 }
 
 async function insertGeneration(pool, id, generation = 1) {
@@ -404,6 +413,7 @@ test("P11.2b persists immediate settings atomically through real PostgreSQL", { 
     owner: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales", generation: 1 }
   };
   const extensionGenerationTwo = { ...extensionIdentity, owner: { ...extensionIdentity.owner, generation: 2 } };
+  let currentAuthorizationRevision = 0;
   const write = ({
     target = identity,
     expectedDocumentRevision = 0,
@@ -414,13 +424,16 @@ test("P11.2b persists immediate settings atomically through real PostgreSQL", { 
     invalidationId,
     auditId,
     changedFields,
-    values
+    values,
+    authority = authoritySnapshot(target.applicationId, target.environment, currentAuthorizationRevision),
+    occurredAt = "2026-09-02T00:00:00.000Z"
   }) => ({
     identity: target,
     document: { expectedDocumentRevision, expectedSettingsRevision, values },
     operation: { operationId, idempotencyKey },
-    receipt: { receiptId, invalidationId, occurredAt: "2026-09-02T00:00:00.000Z" },
+    receipt: { receiptId, invalidationId, occurredAt },
     actor: { kind: "user", id: "user:owner" },
+    authority,
     auditId,
     changedFields
   });
@@ -434,6 +447,7 @@ test("P11.2b persists immediate settings atomically through real PostgreSQL", { 
     payload = await getPayload({ config: buildConfig(application.config), key: "p11-system-settings-immediate" });
     payloadPool = payload.db.pool;
     payloadPool.on("error", () => {});
+    await insertAuthorizationState(pool, applicationId);
     const store = new PostgresSystemSettingsStore(pool);
     const first = write({
       idempotencyKey: "p11-immediate-replay-0001",
@@ -460,10 +474,33 @@ test("P11.2b persists immediate settings atomically through real PostgreSQL", { 
       invalidationId: "settings-immediate-event-1"
     });
     assert.deepEqual(await store.writeImmediate(first), receipt, "Exact response-lost replay returns immutable receipt.");
+    assert.deepEqual(await store.writeImmediate({
+      ...first,
+      operation: { ...first.operation, operationId: "settings-immediate-operation-retry" },
+      receipt: { receiptId: "settings-immediate-receipt-retry", invalidationId: "settings-immediate-event-retry", occurredAt: "2026-09-02T00:00:01.000Z" },
+      auditId: "settings-immediate-audit-retry"
+    }), receipt, "Browser retries ignore regenerated server receipt metadata.");
+    assert.deepEqual((await pool.query(
+      "select count(*)::int as receipts, (select count(*)::int from k_nex_system_settings_audit) as audits, (select count(*)::int from k_nex_system_settings_outbox) as outbox from k_nex_system_settings_receipts"
+    )).rows, [{ receipts: 1, audits: 1, outbox: 1 }]);
     await assert.rejects(
       store.writeImmediate({ ...first, document: { ...first.document, values: { enabled: false } } }),
       (error) => error?.code === "IDEMPOTENCY"
     );
+    await assert.rejects(
+      store.writeImmediate({ ...first, authority: authoritySnapshot(applicationId, environment, 1) }),
+      (error) => error?.code === "REVISION",
+      "A changed authority snapshot cannot replay a prior browser request."
+    );
+    await pool.query("update k_nex_authorization_state set authorization_revision=1 where application_id=$1", [applicationId]);
+    currentAuthorizationRevision = 1;
+    assert.deepEqual(await store.writeImmediate({
+      ...first,
+      operation: { ...first.operation, operationId: "settings-immediate-operation-after-authority" },
+      receipt: { receiptId: "settings-immediate-receipt-after-authority", invalidationId: "settings-immediate-event-after-authority", occurredAt: "2026-09-02T00:00:02.000Z" },
+      authority: authoritySnapshot(applicationId, environment, 1),
+      auditId: "settings-immediate-audit-after-authority"
+    }), receipt, "A currently-authorized retry returns the original receipt after an authority revision advance.");
     await assert.rejects(
       store.writeImmediate(write({
         expectedDocumentRevision: 0,
@@ -573,6 +610,91 @@ test("P11.2b persists immediate settings atomically through real PostgreSQL", { 
               (select jsonb_agg(to_jsonb(k_nex_system_settings_outbox)) from k_nex_system_settings_outbox)::text as outbox`
     );
     assert.equal(`${safeRows.rows[0].audit}${safeRows.rows[0].outbox}`.includes("SETTINGS_TEST_SECRET"), false, "Audit/outbox never contain settings reference values.");
+
+    const beforeRevocationRace = await pool.query(
+      `select (select settings_revision from k_nex_system_settings_state where application_id=$1 and environment=$2)::int as settings_revision,
+              (select count(*)::int from k_nex_system_settings_documents where application_id=$1 and environment=$2 and descriptor_id='system.authority-race') as documents,
+              (select count(*)::int from k_nex_system_settings_operations where operation_id='settings-authority-race-operation') as operations,
+              (select count(*)::int from k_nex_system_settings_receipts where operation_id='settings-authority-race-operation') as receipts,
+              (select count(*)::int from k_nex_system_settings_audit where operation_id='settings-authority-race-operation') as audits,
+              (select count(*)::int from k_nex_system_settings_outbox where event_id='settings-authority-race-event') as outbox`,
+      [applicationId, environment]
+    );
+    const revocation = await pool.connect();
+    try {
+      await revocation.query("begin");
+      await revocation.query("update k_nex_authorization_state set authorization_revision=2 where application_id=$1", [applicationId]);
+      const staleWrite = store.writeImmediate(write({
+        target: { ...identity, descriptorId: "system.authority-race", owner: { kind: "platform", namespace: "system" } },
+        expectedSettingsRevision: 2,
+        idempotencyKey: "p11-immediate-authority-race-0001",
+        operationId: "settings-authority-race-operation",
+        receiptId: "settings-authority-race-receipt",
+        invalidationId: "settings-authority-race-event",
+        auditId: "settings-authority-race-audit",
+        changedFields: ["enabled"],
+        values: { enabled: true }
+      }));
+      let settled = false;
+      void staleWrite.then(() => { settled = true; }, () => { settled = true; });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      assert.equal(settled, false, "Settings write waits behind the authorization revision lock.");
+      await revocation.query("commit");
+      await assert.rejects(staleWrite, (error) => error?.code === "REVISION");
+    } finally {
+      try { await revocation.query("rollback"); } catch { /* transaction already committed */ }
+      revocation.release();
+    }
+    assert.deepEqual(await pool.query(
+      `select (select settings_revision from k_nex_system_settings_state where application_id=$1 and environment=$2)::int as settings_revision,
+              (select count(*)::int from k_nex_system_settings_documents where application_id=$1 and environment=$2 and descriptor_id='system.authority-race') as documents,
+              (select count(*)::int from k_nex_system_settings_operations where operation_id='settings-authority-race-operation') as operations,
+              (select count(*)::int from k_nex_system_settings_receipts where operation_id='settings-authority-race-operation') as receipts,
+              (select count(*)::int from k_nex_system_settings_audit where operation_id='settings-authority-race-operation') as audits,
+              (select count(*)::int from k_nex_system_settings_outbox where event_id='settings-authority-race-event') as outbox`,
+      [applicationId, environment]
+    ), beforeRevocationRace, "A stale authority write cannot partially commit after revocation.");
+
+    const secondaryIdentity = { ...identity, descriptorId: "system.notifications" };
+    await store.writeImmediate(write({
+      target: secondaryIdentity,
+      expectedSettingsRevision: 2,
+      idempotencyKey: "p11-immediate-secondary-0001",
+      operationId: "settings-immediate-secondary-operation",
+      receiptId: "settings-immediate-secondary-receipt",
+      invalidationId: "settings-immediate-secondary-event",
+      auditId: "settings-immediate-secondary-audit",
+      changedFields: ["enabled"],
+      values: { enabled: true },
+      authority: authoritySnapshot(applicationId, environment, 2)
+    }));
+    const originalAfterSecondary = await store.read(identity);
+    assert.equal(originalAfterSecondary?.document?.settingsRevision, 1, "A descriptor retains its historical document revision marker.");
+    assert.equal(originalAfterSecondary?.state.settingsRevision, 3, "Reads expose the current application/environment settings revision.");
+    const displayed = projectSettingsAdministrationView({
+      schemaVersion: 1,
+      id: identity.descriptorId,
+      publisher: { kind: "platform", namespace: "system" },
+      descriptorSchemaVersion: 1,
+      validation: "immediate",
+      fields: { enabled: { type: "boolean", required: true, default: false } },
+      readPermission: "system.settings.read",
+      changePermission: "system.settings.manage"
+    }, originalAfterSecondary.document, originalAfterSecondary.state.settingsRevision);
+    assert.equal(displayed.settingsRevision, 3);
+    const afterDisplayedChange = await store.writeImmediate(write({
+      expectedDocumentRevision: displayed.documentRevision,
+      expectedSettingsRevision: displayed.settingsRevision,
+      idempotencyKey: "p11-immediate-displayed-revision-0001",
+      operationId: "settings-immediate-displayed-revision-operation",
+      receiptId: "settings-immediate-displayed-revision-receipt",
+      invalidationId: "settings-immediate-displayed-revision-event",
+      auditId: "settings-immediate-displayed-revision-audit",
+      changedFields: ["enabled"],
+      values: { enabled: false },
+      authority: authoritySnapshot(applicationId, environment, 2)
+    }));
+    assert.equal(afterDisplayedChange.settingsRevision, 4, "The exact displayed global revision remains usable after another descriptor changed.");
   } finally {
     try {
       await payload?.destroy();
@@ -618,13 +740,16 @@ test("P11.2c resumes generation-validated settings operations through real Postg
     invalidationId,
     auditId,
     changedFields,
-    values
+    values,
+    authority = authoritySnapshot(target.applicationId, target.environment),
+    occurredAt = "2026-09-02T00:00:00.000Z"
   }) => ({
     identity: { ...target, descriptorId },
     document: { expectedDocumentRevision, expectedSettingsRevision, values },
     operation: { operationId, idempotencyKey },
-    receipt: { receiptId, invalidationId, occurredAt: "2026-09-02T00:00:00.000Z" },
+    receipt: { receiptId, invalidationId, occurredAt },
     actor: { kind: "user", id: "user:owner" },
+    authority,
     auditId,
     changedFields
   });
@@ -634,6 +759,7 @@ test("P11.2c resumes generation-validated settings operations through real Postg
     payload = await getPayload({ config: buildConfig(application.config), key: "p11-system-settings-pending" });
     payloadPool = payload.db.pool;
     payloadPool.on("error", () => {});
+    await insertAuthorizationState(pool, applicationId);
     await insertGeneration(pool, applicationId, 1);
     await insertActiveLifecycle(pool, applicationId);
     const store = new PostgresSystemSettingsStore(pool);
@@ -656,10 +782,16 @@ test("P11.2c resumes generation-validated settings operations through real Postg
       store.beginGenerationValidated({ ...first, document: { ...first.document, values: { timezone: "UTC" } } }),
       (error) => error?.code === "IDEMPOTENCY"
     );
-    await assert.rejects(
-      store.beginGenerationValidated({ ...first, operation: { ...first.operation, operationId: "settings-pending-operation-other" } }),
-      (error) => error?.code === "IDEMPOTENCY"
-    );
+    assert.deepEqual(await store.beginGenerationValidated({
+      ...first,
+      operation: { ...first.operation, operationId: "settings-pending-operation-other" },
+      receipt: { receiptId: "settings-pending-receipt-retry", invalidationId: "settings-pending-event-retry", occurredAt: "2026-09-02T00:00:01.000Z" },
+      auditId: "settings-pending-audit-retry"
+    }), pending, "Browser retries return the stored operation despite regenerated server metadata.");
+    assert.deepEqual((await pool.query(
+      "select count(*)::int as count from k_nex_system_settings_operations where operation_id=$1",
+      [first.operation.operationId]
+    )).rows, [{ count: 1 }]);
     assert.deepEqual(await store.readGenerationValidated({ identity, operationId: first.operation.operationId }), pending, "A new process can resume pending work.");
     await assert.rejects(
       store.readGenerationValidated({ identity: { ...identity, environment: "staging" }, operationId: first.operation.operationId }),
@@ -674,10 +806,10 @@ test("P11.2c resumes generation-validated settings operations through real Postg
       store.readGenerationValidated({ identity: { ...identity, owner: { ...identity.owner, generation: 2 } }, operationId: first.operation.operationId }),
       (error) => error?.code === "STATE"
     );
-    const validating = await store.transitionGenerationValidated({ identity, operationId: first.operation.operationId, expectedOperationRevision: 1, state: "validating" });
+    const validating = await store.transitionGenerationValidated({ identity, operationId: first.operation.operationId, expectedOperationRevision: 1, state: "validating", authority: authoritySnapshot(applicationId) });
     assert.deepEqual({ state: validating.state, attempts: validating.attempts, revision: validating.revision }, { state: "validating", attempts: 1, revision: 2 });
     await assert.rejects(
-      store.transitionGenerationValidated({ identity, operationId: first.operation.operationId, expectedOperationRevision: 1, state: "validating" }),
+      store.transitionGenerationValidated({ identity, operationId: first.operation.operationId, expectedOperationRevision: 1, state: "validating", authority: authoritySnapshot(applicationId) }),
       (error) => error?.code === "REVISION"
     );
     const [promoted, promotedReplay] = await Promise.all([
@@ -721,12 +853,12 @@ test("P11.2c resumes generation-validated settings operations through real Postg
       values: { enabled: false }
     });
     const failurePending = await store.beginGenerationValidated(failure);
-    const failureValidating = await store.transitionGenerationValidated({ identity: failure.identity, operationId: failure.operation.operationId, expectedOperationRevision: failurePending.revision, state: "validating" });
+    const failureValidating = await store.transitionGenerationValidated({ identity: failure.identity, operationId: failure.operation.operationId, expectedOperationRevision: failurePending.revision, state: "validating", authority: authoritySnapshot(applicationId) });
     await assert.rejects(
-      store.transitionGenerationValidated({ identity: failure.identity, operationId: failure.operation.operationId, expectedOperationRevision: failurePending.revision, state: "promotion-blocked" }),
+      store.transitionGenerationValidated({ identity: failure.identity, operationId: failure.operation.operationId, expectedOperationRevision: failurePending.revision, state: "promotion-blocked", authority: authoritySnapshot(applicationId) }),
       (error) => error?.code === "REVISION"
     );
-    const blocked = await store.transitionGenerationValidated({ identity: failure.identity, operationId: failure.operation.operationId, expectedOperationRevision: failureValidating.revision, state: "promotion-blocked" });
+    const blocked = await store.transitionGenerationValidated({ identity: failure.identity, operationId: failure.operation.operationId, expectedOperationRevision: failureValidating.revision, state: "promotion-blocked", authority: authoritySnapshot(applicationId) });
     await assert.rejects(
       store.failGenerationValidated({ ...failure, expectedOperationRevision: 1, reason: "descriptor-disabled" }),
       (error) => error?.code === "REVISION"
@@ -753,7 +885,8 @@ test("P11.2c resumes generation-validated settings operations through real Postg
       identity: schemaMigration.identity,
       operationId: schemaMigration.operation.operationId,
       expectedOperationRevision: schemaPending.revision,
-      state: "validating"
+      state: "validating",
+      authority: authoritySnapshot(applicationId)
     });
     const schemaFailed = await store.failGenerationValidated({
       ...schemaMigration,
@@ -776,7 +909,7 @@ test("P11.2c resumes generation-validated settings operations through real Postg
       values: { enabled: true }
     });
     const collisionPending = await store.beginGenerationValidated(collision);
-    const collisionValidating = await store.transitionGenerationValidated({ identity: collision.identity, operationId: collision.operation.operationId, expectedOperationRevision: collisionPending.revision, state: "validating" });
+    const collisionValidating = await store.transitionGenerationValidated({ identity: collision.identity, operationId: collision.operation.operationId, expectedOperationRevision: collisionPending.revision, state: "validating", authority: authoritySnapshot(applicationId) });
     await assert.rejects(
       store.promoteGenerationValidated({ ...collision, expectedOperationRevision: collisionValidating.revision }),
       (error) => error?.code === "STATE"
@@ -812,8 +945,8 @@ test("P11.2c resumes generation-validated settings operations through real Postg
     });
     const [raceOnePending, raceTwoPending] = await Promise.all([store.beginGenerationValidated(raceOne), store.beginGenerationValidated(raceTwo)]);
     const [raceOneValidating, raceTwoValidating] = await Promise.all([
-      store.transitionGenerationValidated({ identity: raceOne.identity, operationId: raceOne.operation.operationId, expectedOperationRevision: raceOnePending.revision, state: "validating" }),
-      store.transitionGenerationValidated({ identity: raceTwo.identity, operationId: raceTwo.operation.operationId, expectedOperationRevision: raceTwoPending.revision, state: "validating" })
+      store.transitionGenerationValidated({ identity: raceOne.identity, operationId: raceOne.operation.operationId, expectedOperationRevision: raceOnePending.revision, state: "validating", authority: authoritySnapshot(applicationId) }),
+      store.transitionGenerationValidated({ identity: raceTwo.identity, operationId: raceTwo.operation.operationId, expectedOperationRevision: raceTwoPending.revision, state: "validating", authority: authoritySnapshot(applicationId) })
     ]);
     const raceResults = await Promise.allSettled([
       new PostgresSystemSettingsStore(pool).promoteGenerationValidated({ ...raceOne, expectedOperationRevision: raceOneValidating.revision }),
@@ -844,7 +977,8 @@ test("P11.2c resumes generation-validated settings operations through real Postg
       identity: disableRace.identity,
       operationId: disableRace.operation.operationId,
       expectedOperationRevision: disablePending.revision,
-      state: "validating"
+      state: "validating",
+      authority: authoritySnapshot(applicationId)
     });
     const lifecycle = await pool.connect();
     try {
