@@ -75,6 +75,8 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
       "idempotency_key" varchar(160) NOT NULL,
       "request_digest" varchar(71) NOT NULL,
       "revision" integer DEFAULT 1 NOT NULL,
+      "lease_owner" varchar(128),
+      "lease_expires_at" timestamp(3) with time zone,
       "updated_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
       "created_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
       CONSTRAINT "k_nex_system_settings_operations_state_fk" FOREIGN KEY ("application_id", "environment") REFERENCES "k_nex_system_settings_state" ("application_id", "environment") ON DELETE RESTRICT,
@@ -88,6 +90,7 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
         AND "requested_by_kind" IN ('user','service') AND "requested_by_id" ~ '^[A-Za-z0-9][A-Za-z0-9._:@/-]*$'
         AND "idempotency_key" ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$'
         AND "request_digest" ~ '^sha256:[0-9a-f]{64}$'
+        AND (("lease_owner" IS NULL AND "lease_expires_at" IS NULL) OR ("state"='validating' AND "lease_owner" ~ '^[a-z][a-z0-9-]{2,127}$' AND "lease_expires_at" IS NOT NULL))
       ),
       CONSTRAINT "k_nex_system_settings_operations_owner_check" CHECK (
         ("owner_kind"='platform' AND "owner_scope_key"='platform:system' AND "owner_namespace" IS NOT NULL AND "owner_namespace"='system'

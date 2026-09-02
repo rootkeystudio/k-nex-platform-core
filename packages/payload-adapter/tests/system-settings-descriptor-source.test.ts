@@ -51,6 +51,21 @@ function verifiedHotArtifact() {
 }
 
 describe("PostgresSystemSettingsDescriptorSource", () => {
+  it("exposes an exact waiting Hot Application generation before activation", async () => {
+    const query = vi.fn(async (text: string) => text.includes("from k_nex_extension_authorization_generations") ? { rows: [
+      { delivery_class: "hot-application", extension_id: "app.weather", authorization_generation: 2,
+        runtime_generation_ids: ["weather-runtime-2"], state: "pending-configuration", disposition: "removed",
+        active_generation_id: null, retained_generation: null, operation_phase: "waiting-configuration" }
+    ] } : { rows: [] });
+    const source = new PostgresSystemSettingsDescriptorSource({ query } as never, {
+      platformPlugins: { resolve: () => [] }, hotApplications: { resolve: () => [weather] }
+    });
+
+    await expect(source.list("customer-alpha", "production")).resolves.toEqual([
+      expect.objectContaining({ lifecycle: "pending-configuration", identity: expect.objectContaining({ owner: expect.objectContaining({ generation: 2 }) }) })
+    ]);
+  });
+
   it("binds platform, active, disabled, and document-backed retired definitions without reading values", async () => {
     const query = vi.fn(async (text: string) => text.includes("from k_nex_extension_authorization_generations") ? { rows: [
       { delivery_class: "platform-plugin", extension_id: "module.sales", authorization_generation: "2", runtime_generation_ids: ["sales-runtime-2"], state: "current", disposition: "active", active_generation_id: "sales-runtime-2", retained_generation: null },

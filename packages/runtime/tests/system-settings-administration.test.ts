@@ -40,6 +40,19 @@ function descriptor(id = "sales.settings.workspace"): SystemSettingsDescriptor {
   };
 }
 
+function pendingDescriptor(): SystemSettingsDescriptor {
+  return {
+    schemaVersion: 1,
+    id: "weather.settings.runtime",
+    publisher: { kind: "extension", deliveryClass: "hot-application", extensionId: "app.weather" },
+    descriptorSchemaVersion: 2,
+    validation: "generation-validated",
+    fields: { region: { type: "string", required: true }, refreshSeconds: { type: "integer", required: true, default: 60 } },
+    readPermission: "weather.settings.read",
+    changePermission: "weather.settings.write"
+  };
+}
+
 function identity(value: SystemSettingsDescriptor): SettingsDocumentIdentity {
   return {
     applicationId: expected.applicationId,
@@ -76,7 +89,9 @@ function decision(request: EffectiveAuthorizationRequest, current: TrustedAuthor
     permissionId: request.permissionId,
     owner: request.permissionId.startsWith("system.")
       ? { kind: "platform", namespace: "system" }
-      : { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales", generation: 2 },
+      : request.permissionId.startsWith("weather.")
+        ? { kind: "extension", deliveryClass: "hot-application", extensionId: "app.weather", generation: 3 }
+        : { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales", generation: 2 },
     principal: current.principal,
     effectiveActor: current.effectiveActor,
     scope: request.scope,
@@ -111,14 +126,20 @@ function harness(options: Readonly<{
   const descriptorSource = { list: vi.fn(async () => records) };
   const authorityStates = [...(options.authorityStates ?? [])];
   const stateSource = { readState: vi.fn(async () => authorityStates.shift() ?? (options.authorityState === undefined ? state() : options.authorityState)) };
-  const store = { read: vi.fn(async () => options.snapshot === undefined ? { state: { schemaVersion: 1, applicationId: expected.applicationId, environment: expected.environment, settingsRevision: 8 }, document: stored(d) } : options.snapshot) };
+  const store = {
+    read: vi.fn(async () => options.snapshot === undefined ? { state: { schemaVersion: 1, applicationId: expected.applicationId, environment: expected.environment, settingsRevision: 8 }, document: stored(d) } : options.snapshot),
+    writeImmediate: vi.fn(), beginGenerationValidated: vi.fn(), beginRetainedAdoption: vi.fn()
+  };
   return {
     d,
     resolver,
     descriptorSource,
     stateSource,
     store,
-    service: new SystemSettingsAdministrationService<Context>({ authority, descriptorSource, state: stateSource, store })
+    service: new SystemSettingsAdministrationService<Context>({
+      authority, descriptorSource, state: stateSource, store,
+      metadata: { id: (kind) => `settings-${kind}-test`, now: () => new Date("2026-09-02T00:00:00.000Z") }
+    })
   };
 }
 
@@ -204,6 +225,51 @@ describe("P11.3d system settings administration reads", () => {
     // The default harness snapshot is explicit; force the adapter's absent-snapshot case.
     snapshotMissing.store.read.mockResolvedValueOnce(undefined);
     await expect(snapshotMissing.service.detail({ context: {}, settingsId: snapshotMissing.d.id })).resolves.toMatchObject({ documentRevision: 0, settingsRevision: 0 });
+  });
+
+  it("projects missing required values only for a pending configuration generation", async () => {
+    const d = pendingDescriptor();
+    const pendingIdentity = {
+      applicationId: expected.applicationId, environment: expected.environment, descriptorId: d.id,
+      descriptorSchemaVersion: d.descriptorSchemaVersion,
+      owner: { kind: "extension", deliveryClass: "hot-application", extensionId: "app.weather", generation: 3 }
+    } as const;
+    const value = harness({ records: [{ descriptor: d, identity: pendingIdentity, lifecycle: "pending-configuration" }] });
+    value.store.read.mockResolvedValueOnce(undefined);
+    await expect(value.service.detail({ context: {}, settingsId: d.id })).resolves.toMatchObject({
+      state: "waiting-configuration", documentRevision: 0,
+      fields: { region: { kind: "unset" }, refreshSeconds: { kind: "visible-value", value: 60 } }
+    });
+  });
+
+  it("starts reviewed adoption without accepting source generation or retained values from the browser", async () => {
+    const d = pendingDescriptor();
+    const pendingIdentity = {
+      applicationId: expected.applicationId, environment: expected.environment, descriptorId: d.id,
+      descriptorSchemaVersion: d.descriptorSchemaVersion,
+      owner: { kind: "extension", deliveryClass: "hot-application", extensionId: "app.weather", generation: 3 }
+    } as const;
+    const value = harness({ records: [{ descriptor: d, identity: pendingIdentity, lifecycle: "pending-configuration" }], snapshot: undefined });
+    value.store.read.mockResolvedValue(undefined);
+    value.store.beginRetainedAdoption.mockImplementation(async ({ write }) => ({
+      schemaVersion: 1, operationId: write.operation.operationId, identity: pendingIdentity,
+      pendingDocument: { schemaVersion: 1, state: "pending-generation-validation", identity: pendingIdentity, documentRevision: 1, settingsRevision: 1, values: { region: "eu-west" } },
+      expectedDocumentRevision: 0, expectedSettingsRevision: 0, state: "pending-validation", attempts: 0,
+      requestedBy: { kind: "user", id: "admin" }, idempotencyKey: "weather-adopt-0001", revision: 1,
+      updatedAt: "2026-09-02T00:00:00.000Z"
+    }));
+    await expect(value.service.adopt({
+      context: {}, settingsId: d.id,
+      adoption: { expectedDocumentRevision: 0, expectedSettingsRevision: 0, idempotencyKey: "weather-adopt-0001" }
+    })).resolves.toMatchObject({ state: "pending-validation", identity: pendingIdentity });
+    expect(value.store.beginRetainedAdoption).toHaveBeenCalledWith({
+      descriptor: d,
+      write: expect.objectContaining({ identity: pendingIdentity, document: expect.objectContaining({ values: {} }), changedFields: [] })
+    });
+    await expect(value.service.adopt({
+      context: {}, settingsId: d.id,
+      adoption: { expectedDocumentRevision: 0, expectedSettingsRevision: 0, idempotencyKey: "weather-adopt-0001", sourceGeneration: 1 } as never
+    })).rejects.toMatchObject({ code: "REQUEST_INVALID" });
   });
 
   it("projects active, pending, disabled, and retired records without secret references", async () => {

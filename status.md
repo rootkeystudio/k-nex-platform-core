@@ -7,15 +7,15 @@
 
 ## Last completed
 
-P11.3f reserves one final numeric Hot Application authorization generation in inert `pending-configuration`, bound to one runtime generation. The lifecycle planner promotes only that exact fence; mismatches fail closed. The v1 migration and contract enforce the same boundary.
+P11.3 is complete. Hot Application settings now use an inert reserved generation, required-unset waiting views, explicit server-derived reinstall adoption, leased exact-generation validation, settings-first promotion, immutable replay, and activation refusal until settings terminalize.
 
 ## Validation
 
-Exact Node 24.19.0: authorization contract 8/8; authorization lifecycle 13/13; runtime and Payload adapter builds; diff check. No cumulative/full suite run.
+Exact Node 24.19.0: focused runtime settings/provider 15/15; Payload descriptor/coordinator 8/8; real PostgreSQL P11.3 pending/adoption/activation 1/1; affected P11.2c 1/1; contracts/runtime/Payload/customer builds and diff check. Docker clean. No cumulative/full suite run.
 
 ## Next
 
-P11.3g add the restart-safe settings coordinator, required-unset projection, and explicit reinstall adoption with isolated proofs.
+Run the Phase 11 result document and full Gate 11 integrity fixture, fix any phase gaps, then request the reused Sol-xhigh phase review.
 
 ## Blockers
 

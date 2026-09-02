@@ -6,7 +6,7 @@ import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { buildConfig, getPayload } from "payload";
 import pg from "pg";
 
-import { PostgresSystemSettingsStore } from "@k-nex/payload-adapter";
+import { AuthorizationLifecycleProjector, PostgresSystemSettingsStore, SettingsValidationCoordinator } from "@k-nex/payload-adapter";
 import { projectSettingsAdministrationView } from "@k-nex/runtime";
 import { createGate1Application } from "../dist/src/create-application.js";
 import { migrations } from "../dist/src/migrations/index.js";
@@ -1004,6 +1004,180 @@ test("P11.2c resumes generation-validated settings operations through real Postg
     assert.equal((await pool.query("select count(*)::int as count from k_nex_system_settings_receipts where operation_id=$1", [disableRace.operation.operationId])).rows[0].count, 0);
     assert.equal((await pool.query("select count(*)::int as count from k_nex_system_settings_audit where operation_id=$1", [disableRace.operation.operationId])).rows[0].count, 0);
     assert.equal((await pool.query("select count(*)::int as count from k_nex_system_settings_outbox where event_id=$1", [disableRace.receipt.invalidationId])).rows[0].count, 0);
+  } finally {
+    try {
+      await payload?.destroy();
+      for (const client of payloadPool?._clients ?? []) {
+        try { client.release(); } catch (error) {
+          if (!(error instanceof Error) || !error.message.includes("already been released")) throw error;
+        }
+      }
+      await payloadPool?.end();
+    } finally {
+      try { await pool.end(); } finally {
+        try { await container.stop(); } finally {
+          if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+          else process.env.NODE_ENV = originalNodeEnv;
+        }
+      }
+    }
+  }
+});
+
+test("P11.3 promotes settings before the exact pending Hot Application generation activates", { timeout: 180_000 }, async () => {
+  const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("system_settings_pending_activation").withStartupTimeout(120_000).start();
+  const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
+  pool.on("error", () => {});
+  let payload;
+  let payloadPool;
+  const originalNodeEnv = process.env.NODE_ENV;
+  const appId = "customer-settings-pending";
+  const generationId = "weather-generation-1";
+  try {
+    process.env.NODE_ENV = "production";
+    const application = createGate1Application({ databaseUrl: container.getConnectionUri(), migrations, payloadSecret: "p11-system-settings-pending-activation" });
+    payload = await getPayload({ config: buildConfig(application.config), key: "p11-system-settings-pending-activation" });
+    payloadPool = payload.db.pool;
+    payloadPool.on("error", () => {});
+    await pool.query("insert into k_nex_authorization_state (application_id) values ($1)", [appId]);
+    await pool.query("insert into k_nex_system_settings_state (application_id, environment) values ($1,$2)", [appId, environment]);
+    await pool.query(
+      `insert into k_nex_extension_authorization_generations
+        (application_id, delivery_class, extension_id, authorization_generation, runtime_generation_ids, state)
+       values ($1,'hot-application','app.weather',1,'["weather-generation-old"]'::jsonb,'retired')`, [appId]
+    );
+    await pool.query(
+      `insert into k_nex_system_settings_documents
+        (application_id, environment, descriptor_id, descriptor_schema_version, owner_scope_key, owner_kind,
+         owner_delivery_class, owner_extension_id, owner_generation, document_revision, settings_revision, values_json)
+       values ($1,$2,'weather.settings.runtime',1,'hot-application:app.weather:1','extension',
+         'hot-application','app.weather',1,1,1,'{"region":"eu-west"}'::jsonb)`, [appId, environment]
+    );
+    await pool.query("update k_nex_system_settings_state set settings_revision=1 where application_id=$1 and environment=$2", [appId, environment]);
+    await pool.query(
+      `insert into runtime_extensions (application_id, environment, delivery_class, extension_id)
+       values ($1,$2,'hot-application','app.weather')`, [appId, environment]
+    );
+    await pool.query(
+      `insert into runtime_extension_generations
+        (application_id, environment, delivery_class, extension_id, generation_id, version, authority_json, authority_digest, state)
+       values ($1,$2,'hot-application','app.weather',$3,'1.0.0','{}'::jsonb,$4,'staged')`,
+      [appId, environment, generationId, `sha256:${"1".repeat(64)}`]
+    );
+    await pool.query(
+      `insert into runtime_extension_operations
+        (operation_id, application_id, environment, delivery_class, extension_id, operation_kind, idempotency_key,
+         request_digest, request_json, authorization_json, expected_revision, phase, lease_owner, lease_token, lease_expires_at, plan_json)
+       values ('weather-install-operation',$1,$2,'hot-application','app.weather','install','weather-install-0001',$3,
+         '{}'::jsonb,'{}'::jsonb,0,'waiting-configuration','lifecycle-worker','lease-token',now()+interval '5 minutes',$4::jsonb)`,
+      [appId, environment, `sha256:${"2".repeat(64)}`, JSON.stringify({ generationId })]
+    );
+
+    const projector = new AuthorizationLifecycleProjector(async () => []);
+    const reservationSession = await pool.connect();
+    let reservation;
+    try {
+      await reservationSession.query("begin");
+      reservation = await projector.reservePendingConfiguration({
+        session: reservationSession, applicationId: appId, environment, extensionId: "app.weather", runtimeGenerationId: generationId
+      });
+      await reservationSession.query("commit");
+    } finally { reservationSession.release(); }
+    assert.equal(reservation.plan.generations[1].state, "pending-configuration");
+    const identity = {
+      applicationId: appId, environment, descriptorId: "weather.settings.runtime", descriptorSchemaVersion: 1,
+      owner: { kind: "extension", deliveryClass: "hot-application", extensionId: "app.weather", generation: 2 }
+    };
+    const activationEvent = {
+      schemaVersion: 1, applicationId: appId, environment, eventId: "weather-activation-event", eventType: "extension.lifecycle-transition",
+      operationId: "weather-install-operation", operation: "install", operationPhase: "completed", lifecycleState: "active",
+      expectedRevision: 0, revision: 1, inventoryRevision: 1,
+      actor: { kind: "trusted-automation", identity: "test.lifecycle" }, receiptId: "weather-activation-receipt",
+      auditId: "weather-activation-audit", idempotencyKey: "weather-activation-0001", correlationId: "weather-activation-correlation",
+      occurredAt: "2026-09-02T00:00:04.000Z", deliveryClass: "hot-application", id: "app.weather",
+      evidence: { sourceCommit: "a".repeat(40), artifactDigest: `sha256:${"b".repeat(64)}`, generationId }
+    };
+    const deniedActivation = await pool.connect();
+    try {
+      await deniedActivation.query("begin");
+      await assert.rejects(
+        projector.project({ session: deniedActivation, transition: activationEvent, runtimeGenerationIds: [generationId] }),
+        (error) => error?.code === "REVISION_CONFLICT"
+      );
+      await deniedActivation.query("rollback");
+    } finally { deniedActivation.release(); }
+    const store = new PostgresSystemSettingsStore(pool);
+    const authority = authoritySnapshot(appId, environment, 0, 1);
+    const pending = await store.beginRetainedAdoption({
+      descriptor: {
+        schemaVersion: 1, id: "weather.settings.runtime",
+        publisher: { kind: "extension", deliveryClass: "hot-application", extensionId: "app.weather" },
+        descriptorSchemaVersion: 1, validation: "generation-validated",
+        fields: { region: { type: "string", required: true } },
+        readPermission: "weather.settings.read", changePermission: "weather.settings.manage"
+      },
+      write: {
+      identity,
+      document: { expectedDocumentRevision: 0, expectedSettingsRevision: 1, values: {} },
+      operation: { operationId: "weather-settings-operation", idempotencyKey: "weather-settings-0001" },
+      receipt: { receiptId: "weather-settings-receipt", invalidationId: "weather-settings-invalidation", occurredAt: "2026-09-02T00:00:00.000Z" },
+      actor: { kind: "user", id: "admin" }, authority, auditId: "weather-settings-audit", changedFields: []
+      }
+    });
+    await store.claimGenerationValidated({
+      identity, operationId: pending.operationId, expectedOperationRevision: pending.revision, authority,
+      leaseOwner: "crashed-worker", now: "2026-09-02T00:00:00.000Z", leaseExpiresAt: "2026-09-02T00:00:01.000Z"
+    });
+    const validatedGenerations = [];
+    const times = [new Date("2026-09-02T00:00:02.000Z"), new Date("2026-09-02T00:00:03.000Z")];
+    const coordinator = new SettingsValidationCoordinator({
+      store,
+      validator: { validate: async ({ runtimeGenerationId }) => { validatedGenerations.push(runtimeGenerationId); return { ready: true }; } },
+      readAuthority: async () => authority,
+      leaseOwner: "replacement-worker",
+      now: () => times.shift()
+    });
+    const promoted = await coordinator.run({ identity, operationId: pending.operationId });
+    assert.equal(promoted.outcome, "promoted");
+    assert.deepEqual(validatedGenerations, [generationId]);
+    assert.deepEqual(await coordinator.run({ identity, operationId: pending.operationId }), promoted, "Response-loss replay returns the immutable receipt.");
+    assert.equal((await pool.query(
+      "select state from k_nex_extension_authorization_generations where application_id=$1 and extension_id='app.weather' and authorization_generation=2",
+      [appId]
+    )).rows[0].state, "pending-configuration", "Settings promotion cannot authorize the pending generation.");
+
+    const activationSession = await pool.connect();
+    try {
+      await activationSession.query("begin");
+      await activationSession.query(
+        `update runtime_extensions set revision=1, disposition='active', active_generation_id=$3, active_generation='{}'::jsonb
+         where application_id=$1 and environment=$2 and delivery_class='hot-application' and extension_id='app.weather'`,
+        [appId, environment, generationId]
+      );
+      await activationSession.query(
+        `update runtime_extension_generations set state='active'
+         where application_id=$1 and environment=$2 and delivery_class='hot-application' and extension_id='app.weather' and generation_id=$3`,
+        [appId, environment, generationId]
+      );
+      await activationSession.query("update runtime_extension_operations set phase='completed' where operation_id='weather-install-operation'");
+      await projector.project({
+        session: activationSession,
+        transition: activationEvent,
+        runtimeGenerationIds: [generationId]
+      });
+      await activationSession.query("commit");
+    } catch (error) {
+      await activationSession.query("rollback");
+      throw error;
+    } finally { activationSession.release(); }
+    assert.deepEqual((await pool.query(
+      "select authorization_generation, state, runtime_generation_ids from k_nex_extension_authorization_generations where application_id=$1 and extension_id='app.weather'",
+      [appId]
+    )).rows, [
+      { authorization_generation: "1", state: "retired", runtime_generation_ids: ["weather-generation-old"] },
+      { authorization_generation: "2", state: "current", runtime_generation_ids: [generationId] }
+    ]);
+    assert.deepEqual((await store.read(identity)).document.values, { region: "eu-west" });
   } finally {
     try {
       await payload?.destroy();

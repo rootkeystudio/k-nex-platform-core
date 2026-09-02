@@ -4,6 +4,7 @@ import {
   EffectiveSettingsDocumentSchema,
   PendingSettingsCandidateSchema,
   ResumableSettingsOperationSchema,
+  SystemSettingsDescriptorSchema,
   SettingsDocumentIdentitySchema,
   SettingsInvalidationSchema,
   SettingsStateSchema,
@@ -18,6 +19,7 @@ import {
   type SettingsState,
   type SettingsTerminalReceipt
 } from "@k-nex/contracts";
+import { projectSystemSettingsValues } from "@k-nex/runtime";
 
 import type { RuntimeExtensionPool, RuntimeExtensionSession } from "./runtime-extension-store.js";
 
@@ -110,6 +112,8 @@ interface OperationRow {
   idempotency_key: string;
   request_digest: string;
   revision: number | string;
+  lease_owner: string | null;
+  lease_expires_at: unknown | null;
   updated_at: unknown;
 }
 
@@ -150,6 +154,11 @@ export interface SettingsOperationTransition extends SettingsOperationIdentity {
   readonly expectedOperationRevision: unknown;
   readonly state: unknown;
   readonly authority: unknown;
+}
+
+export interface SettingsValidationClaim {
+  readonly operation: ResumableSettingsOperation;
+  readonly runtimeGenerationId: string;
 }
 
 export interface SettingsOperationPromotion extends GenerationValidatedSystemSettingsWrite {
@@ -300,6 +309,7 @@ function operation(identity: SettingsDocumentIdentity, row: OperationRow): Resum
     requestedBy: { kind: row.requested_by_kind, id: row.requested_by_id },
     idempotencyKey: row.idempotency_key,
     revision: integer(row.revision),
+    ...(row.lease_owner == null ? {} : { leaseOwner: row.lease_owner, leaseExpiresAt: timestamp(row.lease_expires_at) }),
     updatedAt: timestamp(row.updated_at)
   });
 }
@@ -533,6 +543,7 @@ export class PostgresSystemSettingsStore {
           if (!replay) fail("IDEMPOTENCY", "System settings idempotency key was reused with a different request.");
           return replay;
         }
+        await this.assertConfigurableGeneration(session, input.identity);
         const current = await this.currentDocument(session, input.identity, true);
         if ((current.document?.documentRevision ?? 0) !== input.expectedDocumentRevision || current.state.settingsRevision !== input.expectedSettingsRevision) {
           fail("REVISION", "System settings revision changed.");
@@ -564,6 +575,48 @@ export class PostgresSystemSettingsStore {
         return operation(input.identity, inserted.rows[0]!);
       });
     } catch (error) { databaseError(error); }
+  }
+
+  /** Starts explicit reinstall adoption without accepting a browser-supplied source generation or values. */
+  async beginRetainedAdoption(value: unknown): Promise<ResumableSettingsOperation | SettingsTerminalReceipt> {
+    const request = exactObject(value, ["descriptor", "write"]);
+    const descriptor = parse(SystemSettingsDescriptorSchema, request.descriptor);
+    const input = await this.input(request.write);
+    if (input.identity.owner.kind !== "extension" || input.identity.owner.deliveryClass !== "hot-application"
+      || descriptor.validation !== "generation-validated" || descriptor.id !== input.identity.descriptorId
+      || descriptor.descriptorSchemaVersion !== input.identity.descriptorSchemaVersion
+      || descriptor.publisher.kind !== "extension" || descriptor.publisher.deliveryClass !== input.identity.owner.deliveryClass
+      || descriptor.publisher.extensionId !== input.identity.owner.extensionId || input.expectedDocumentRevision !== 0
+      || Object.keys(input.values).length !== 0 || input.changedFields.length !== 0) {
+      fail("INVALID", "System settings adoption input is invalid.");
+    }
+    const source = await this.pool.query<{ values_json: unknown }>(
+      `select document.values_json
+       from k_nex_system_settings_documents document
+       join k_nex_extension_authorization_generations generation
+         on generation.application_id=document.application_id and generation.delivery_class=document.owner_delivery_class
+         and generation.extension_id=document.owner_extension_id and generation.authorization_generation=document.owner_generation
+       where document.application_id=$1 and document.environment=$2 and document.descriptor_id=$3
+         and document.owner_delivery_class=$4 and document.owner_extension_id=$5
+         and document.owner_generation<>$6 and generation.state='retired'
+       order by document.owner_generation desc limit 1`,
+      [input.identity.applicationId, input.identity.environment, input.identity.descriptorId,
+        input.identity.owner.deliveryClass, input.identity.owner.extensionId, input.identity.owner.generation]
+    );
+    if (!source.rows[0]) fail("STATE", "Retained system settings are unavailable for adoption.");
+    let values: Readonly<Record<string, unknown>>;
+    try { values = projectSystemSettingsValues(descriptor, source.rows[0].values_json as never); }
+    catch { fail("STATE", "Retained system settings require explicit configuration."); }
+    return this.beginGenerationValidated({
+      identity: input.identity,
+      document: { expectedDocumentRevision: input.expectedDocumentRevision, expectedSettingsRevision: input.expectedSettingsRevision, values },
+      operation: { operationId: input.operationId, idempotencyKey: input.idempotencyKey },
+      receipt: { receiptId: input.receiptId, invalidationId: input.invalidationId, occurredAt: input.occurredAt },
+      actor: input.actor,
+      authority: input.authority,
+      auditId: input.auditId,
+      changedFields: Object.keys(values).sort()
+    });
   }
 
   async readGenerationValidated(value: unknown): Promise<ResumableSettingsOperation | SettingsTerminalReceipt | undefined> {
@@ -615,8 +668,43 @@ export class PostgresSystemSettingsStore {
     } catch (error) { databaseError(error); }
   }
 
+  async claimGenerationValidated(value: unknown): Promise<SettingsValidationClaim> {
+    const request = exactObject(value, ["identity", "operationId", "expectedOperationRevision", "authority", "leaseOwner", "now", "leaseExpiresAt"]);
+    const identity = parse(SettingsDocumentIdentitySchema, request.identity);
+    const operationId = parseOperationId(request.operationId);
+    const expectedRevision = positiveOrZero(request.expectedOperationRevision);
+    const authority = this.authority(identity, request.authority);
+    const leaseOwner = parseOperationId(request.leaseOwner);
+    const now = timestamp(request.now);
+    const leaseExpiresAt = timestamp(request.leaseExpiresAt);
+    if (expectedRevision === 0 || leaseExpiresAt <= now) fail("INVALID", "System settings validation lease is invalid.");
+    try {
+      return await this.transaction(async (session) => {
+        await this.lockScope(session, identity);
+        await this.assertAuthority(session, identity, authority);
+        const found = await session.query<OperationRow>(
+          `select ${this.operationColumns} from k_nex_system_settings_operations where operation_id=$1 for update`, [operationId]
+        );
+        if (!found.rows[0]) fail("STATE", "System settings operation is unavailable.");
+        const current = operation(identity, found.rows[0]);
+        const leaseAvailable = current.state === "pending-validation" || current.state === "validating"
+          && (current.leaseOwner === leaseOwner || current.leaseExpiresAt! <= now);
+        if (current.revision !== expectedRevision || !leaseAvailable) fail("REVISION", "System settings validation lease is unavailable.");
+        const runtimeGenerationId = await this.assertConfigurableGeneration(session, identity);
+        const updated = await session.query<OperationRow>(
+          `update k_nex_system_settings_operations
+           set state='validating', attempts=attempts+1, revision=revision+1, lease_owner=$2, lease_expires_at=$3::timestamptz, updated_at=now()
+           where operation_id=$1 and revision=$4 returning ${this.operationColumns}`,
+          [operationId, leaseOwner, leaseExpiresAt, expectedRevision]
+        );
+        if (updated.rows.length !== 1) fail("REVISION", "System settings operation revision changed.");
+        return Object.freeze({ operation: operation(identity, updated.rows[0]!), runtimeGenerationId });
+      });
+    } catch (error) { databaseError(error); }
+  }
+
   async promoteGenerationValidated(value: unknown): Promise<SettingsTerminalReceipt> {
-    const { input, expectedRevision } = await this.operationWrite(value);
+    const { input, expectedRevision, leaseOwner } = await this.operationWrite(value);
     try {
       return await this.transaction(async (session) => {
         await this.lockScope(session, input.identity);
@@ -632,12 +720,15 @@ export class PostgresSystemSettingsStore {
         const active = operationMatches(found.rows[0], input);
         if (!active) fail("IDEMPOTENCY", "System settings operation identity does not match.");
         if (active.revision !== expectedRevision || active.state !== "validating") fail("REVISION", "System settings operation revision changed.");
+        if (leaseOwner !== undefined && (active.leaseOwner !== leaseOwner || active.leaseExpiresAt! <= input.occurredAt)) {
+          fail("REVISION", "System settings validation lease changed or expired.");
+        }
         const current = await this.currentDocument(session, input.identity, true);
         if ((current.document?.documentRevision ?? 0) !== active.expectedDocumentRevision || current.state.settingsRevision !== active.expectedSettingsRevision) {
           fail("REVISION", "System settings revision changed.");
         }
         assertChangedFields(input.changedFields, current.document?.values, active.pendingDocument.values);
-        await this.assertActiveGeneration(session, input.identity);
+        await this.assertConfigurableGeneration(session, input.identity);
         const receipt = this.promotedReceipt(input, active.pendingDocument);
         const invalidation = parse(SettingsInvalidationSchema, {
           schemaVersion: 1, invalidationId: input.invalidationId, identity: input.identity,
@@ -651,7 +742,9 @@ export class PostgresSystemSettingsStore {
   }
 
   async failGenerationValidated(value: unknown): Promise<SettingsTerminalReceipt> {
-    const request = exactObject(value, ["identity", "document", "operation", "receipt", "actor", "authority", "auditId", "changedFields", "expectedOperationRevision", "reason"]);
+    const keys = ["identity", "document", "operation", "receipt", "actor", "authority", "auditId", "changedFields", "expectedOperationRevision", "reason"];
+    const withLease = typeof value === "object" && value !== null && Object.hasOwn(value, "leaseOwner");
+    const request = exactObject(value, withLease ? [...keys, "leaseOwner"] : keys);
     const input = await this.input({ identity: request.identity, document: request.document, operation: request.operation, receipt: request.receipt, actor: request.actor, authority: request.authority, auditId: request.auditId, changedFields: request.changedFields });
     const expectedRevision = positiveOrZero(request.expectedOperationRevision);
     const failureProbe = parse(SettingsTerminalReceiptSchema, {
@@ -672,6 +765,9 @@ export class PostgresSystemSettingsStore {
         const active = operationMatches(found.rows[0], input);
         if (!active) fail("IDEMPOTENCY", "System settings operation identity does not match.");
         if (active.revision !== expectedRevision || (active.state !== "validating" && active.state !== "promotion-blocked")) fail("REVISION", "System settings operation revision changed.");
+        if (withLease && (active.leaseOwner !== parseOperationId(request.leaseOwner) || active.leaseExpiresAt! <= input.occurredAt)) {
+          fail("REVISION", "System settings validation lease changed or expired.");
+        }
         const receipt = parse(SettingsTerminalReceiptSchema, {
           schemaVersion: 1, receiptId: input.receiptId, operationId: input.operationId, identity: input.identity, requestedBy: input.actor,
           idempotencyKey: input.idempotencyKey, occurredAt: input.occurredAt,
@@ -688,7 +784,7 @@ export class PostgresSystemSettingsStore {
   private readonly operationColumns = `operation_id, application_id, environment, descriptor_id, descriptor_schema_version,
     owner_scope_key, owner_kind, owner_namespace, owner_delivery_class, owner_extension_id, owner_generation,
     pending_document_json, expected_document_revision, expected_settings_revision, state, attempts, requested_by_kind,
-    requested_by_id, idempotency_key, request_digest, revision, updated_at`;
+    requested_by_id, idempotency_key, request_digest, revision, lease_owner, lease_expires_at, updated_at`;
 
   private readonly receiptColumns = `receipt_id, operation_id, application_id, environment, descriptor_id, descriptor_schema_version,
     owner_scope_key, owner_kind, owner_namespace, owner_delivery_class, owner_extension_id, owner_generation,
@@ -762,6 +858,58 @@ export class PostgresSystemSettingsStore {
       || current.runtime_state !== "active" || current.generation_bound !== true) {
       fail("STATE", "System settings generation is not active and current.");
     }
+  }
+
+  private async assertConfigurableGeneration(session: RuntimeExtensionSession, identity: SettingsDocumentIdentity): Promise<string> {
+    if (identity.owner.kind === "platform") return "platform";
+    await session.query(
+      `select 1 from runtime_extensions
+       where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4 for update`,
+      [identity.applicationId, identity.environment, identity.owner.deliveryClass, identity.owner.extensionId]
+    );
+    await session.query(
+      `select generation_id from runtime_extension_generations
+       where application_id=$1 and environment=$2 and delivery_class=$3 and extension_id=$4 for update`,
+      [identity.applicationId, identity.environment, identity.owner.deliveryClass, identity.owner.extensionId]
+    );
+    const result = await session.query<{
+      authorization_state: string;
+      disposition: string | null;
+      active_generation_id: string | null;
+      runtime_generation_id: string | null;
+      runtime_state: string | null;
+      generation_bound: boolean;
+      waiting_configuration: boolean;
+    }>(
+      `select g.state as authorization_state, e.disposition, e.active_generation_id,
+              x.generation_id as runtime_generation_id, x.state as runtime_state,
+              g.runtime_generation_ids ? x.generation_id as generation_bound,
+              exists (
+                select 1 from runtime_extension_operations operation
+                where operation.application_id=g.application_id and operation.environment=$5
+                  and operation.delivery_class=g.delivery_class and operation.extension_id=g.extension_id
+                  and operation.phase='waiting-configuration'
+                  and operation.plan_json->>'generationId'=g.runtime_generation_ids->>0
+              ) as waiting_configuration
+       from k_nex_extension_authorization_generations g
+       left join runtime_extensions e on e.application_id=g.application_id and e.environment=$5
+         and e.delivery_class=g.delivery_class and e.extension_id=g.extension_id
+       left join runtime_extension_generations x on x.application_id=g.application_id and x.environment=$5
+         and x.delivery_class=g.delivery_class and x.extension_id=g.extension_id
+         and x.generation_id=case when g.state='current' then e.active_generation_id else g.runtime_generation_ids->>0 end
+       where g.application_id=$1 and g.delivery_class=$2 and g.extension_id=$3 and g.authorization_generation=$4
+       for update of g`,
+      [identity.applicationId, identity.owner.deliveryClass, identity.owner.extensionId, identity.owner.generation, identity.environment]
+    );
+    const row = result.rows[0];
+    const current = row?.authorization_state === "current" && row.disposition === "active"
+      && row.active_generation_id === row.runtime_generation_id && row.runtime_state === "active" && row.generation_bound;
+    const pending = row?.authorization_state === "pending-configuration" && identity.owner.deliveryClass === "hot-application"
+      && row.runtime_state === "staged" && row.generation_bound && row.waiting_configuration;
+    if ((!current && !pending) || row?.runtime_generation_id == null) {
+      fail("STATE", "System settings generation is neither active-current nor exact waiting configuration.");
+    }
+    return row.runtime_generation_id;
   }
 
   private async currentDocument(session: RuntimeExtensionSession, identity: SettingsDocumentIdentity, locked: boolean): Promise<{ state: SettingsState; document?: EffectiveSettingsDocument }> {
@@ -900,11 +1048,17 @@ export class PostgresSystemSettingsStore {
     );
   }
 
-  private async operationWrite(value: unknown): Promise<{ input: ParsedWrite; expectedRevision: number }> {
-    const request = exactObject(value, ["identity", "document", "operation", "receipt", "actor", "authority", "auditId", "changedFields", "expectedOperationRevision"]);
+  private async operationWrite(value: unknown): Promise<{ input: ParsedWrite; expectedRevision: number; leaseOwner?: string }> {
+    const keys = ["identity", "document", "operation", "receipt", "actor", "authority", "auditId", "changedFields", "expectedOperationRevision"];
+    const withLease = typeof value === "object" && value !== null && Object.hasOwn(value, "leaseOwner");
+    const request = exactObject(value, withLease ? [...keys, "leaseOwner"] : keys);
     const expectedRevision = positiveOrZero(request.expectedOperationRevision);
     if (expectedRevision === 0) fail("INVALID", "System settings input is invalid.");
-    return { input: await this.input({ identity: request.identity, document: request.document, operation: request.operation, receipt: request.receipt, actor: request.actor, authority: request.authority, auditId: request.auditId, changedFields: request.changedFields }), expectedRevision };
+    return {
+      input: await this.input({ identity: request.identity, document: request.document, operation: request.operation, receipt: request.receipt, actor: request.actor, authority: request.authority, auditId: request.auditId, changedFields: request.changedFields }),
+      expectedRevision,
+      ...(withLease ? { leaseOwner: parseOperationId(request.leaseOwner) } : {})
+    };
   }
 
   private async input(value: unknown): Promise<ParsedWrite> {

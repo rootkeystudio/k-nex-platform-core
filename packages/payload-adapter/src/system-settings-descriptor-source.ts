@@ -54,6 +54,7 @@ interface GenerationRow {
   disposition: string | null;
   active_generation_id: string | null;
   retained_generation: unknown;
+  operation_phase: string | null;
 }
 
 interface DocumentIdentityRow {
@@ -84,12 +85,20 @@ export class PostgresSystemSettingsDescriptorSource implements SystemSettingsDes
     const [generationRows, documentRows] = await Promise.all([
       this.pool.query<GenerationRow>(
         `select g.delivery_class, g.extension_id, g.authorization_generation, g.runtime_generation_ids, g.state,
-                e.disposition, e.active_generation_id, e.retained_generation
+                e.disposition, e.active_generation_id, e.retained_generation, o.phase as operation_phase
          from k_nex_extension_authorization_generations g
          left join runtime_extensions e
            on e.application_id=g.application_id and e.environment=$2 and e.delivery_class=g.delivery_class and e.extension_id=g.extension_id
+         left join lateral (
+           select phase from runtime_extension_operations operation
+           where operation.application_id=g.application_id and operation.environment=$2
+             and operation.delivery_class=g.delivery_class and operation.extension_id=g.extension_id
+             and operation.plan_json->>'generationId'=g.runtime_generation_ids->>0
+           order by operation.created_at desc limit 1
+         ) o on true
          where g.application_id=$1 and g.delivery_class in ('platform-plugin','hot-application')
-         order by case when g.state='current' then 0 else 1 end, g.delivery_class, g.extension_id, g.authorization_generation desc`,
+         order by case when g.state='pending-configuration' then 0 when g.state='current' then 1 else 2 end,
+           g.delivery_class, g.extension_id, g.authorization_generation desc`,
         [applicationId, environment]
       ),
       this.pool.query<DocumentIdentityRow>(
@@ -224,7 +233,7 @@ function descriptors(values: readonly unknown[], kind: "platform" | "platform-pl
 function lifecycleGeneration(row: GenerationRow, runtimeGenerationIds: readonly string[]): Readonly<{
   deliveryClass: "platform-plugin" | "hot-application";
   extensionId: string;
-  lifecycle: "active" | "disabled" | "retired";
+  lifecycle: "pending-configuration" | "active" | "disabled" | "retired";
   runtimeGenerationIds: readonly string[];
 }> | undefined {
   if ((row.delivery_class !== "platform-plugin" && row.delivery_class !== "hot-application") ||
@@ -234,6 +243,15 @@ function lifecycleGeneration(row: GenerationRow, runtimeGenerationIds: readonly 
   if (row.state === "retired") return Object.freeze({
     deliveryClass: row.delivery_class, extensionId: row.extension_id, lifecycle: "retired", runtimeGenerationIds
   });
+  if (row.state === "pending-configuration") {
+    if (row.delivery_class !== "hot-application" || runtimeGenerationIds.length !== 1 || row.operation_phase !== "waiting-configuration") {
+      throw new Error("Pending settings generation does not match a waiting Hot Application operation.");
+    }
+    return Object.freeze({
+      deliveryClass: row.delivery_class, extensionId: row.extension_id,
+      lifecycle: "pending-configuration", runtimeGenerationIds
+    });
+  }
   if (row.state !== "current") throw new Error("Persisted settings generation state is invalid.");
   if (row.disposition === "active" && row.active_generation_id && runtimeGenerationIds.includes(row.active_generation_id)) {
     return Object.freeze({

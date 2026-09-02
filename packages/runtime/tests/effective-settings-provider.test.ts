@@ -18,6 +18,7 @@ describe("EffectiveSettingsProvider", () => {
 
   it("never returns pending, disabled, retired, stale-owner, or invalid values", async () => {
     for (const record of [
+      { descriptor, identity, lifecycle: "pending-configuration" as const },
       { descriptor, identity, lifecycle: "disabled" as const },
       { descriptor, identity, lifecycle: "retired" as const }
     ]) {

@@ -116,6 +116,13 @@ export const SettingsChangeInputSchema = z.strictObject({
   values: browserSettingsValuesSchema
 });
 
+/** Browser input for reviewed reinstall adoption; source and target generations are server-derived. */
+export const SettingsAdoptionInputSchema = z.strictObject({
+  expectedDocumentRevision: revisionSchema,
+  expectedSettingsRevision: revisionSchema,
+  idempotencyKey: idempotencyKeySchema
+});
+
 /** Mutable work record for a generation-validated write. Terminal results live only in SettingsTerminalReceipt. */
 export const ResumableSettingsOperationSchema = z.strictObject({
   schemaVersion: z.literal(1),
@@ -129,6 +136,8 @@ export const ResumableSettingsOperationSchema = z.strictObject({
   requestedBy: AuthorizationSubjectSchema,
   idempotencyKey: idempotencyKeySchema,
   revision: positiveRevisionSchema,
+  leaseOwner: recordIdSchema.optional(),
+  leaseExpiresAt: MillisecondTimestampSchema.optional(),
   updatedAt: MillisecondTimestampSchema
 }).superRefine((operation, context) => {
   if (operation.pendingDocument.identity.applicationId !== operation.identity.applicationId
@@ -137,6 +146,10 @@ export const ResumableSettingsOperationSchema = z.strictObject({
     || operation.pendingDocument.identity.descriptorSchemaVersion !== operation.identity.descriptorSchemaVersion
     || JSON.stringify(operation.pendingDocument.identity.owner) !== JSON.stringify(operation.identity.owner)) {
     context.addIssue({ code: "custom", path: ["pendingDocument", "identity"], message: "A pending document must retain the exact operation identity." });
+  }
+  if ((operation.leaseOwner === undefined) !== (operation.leaseExpiresAt === undefined)
+    || operation.state !== "validating" && operation.leaseOwner !== undefined) {
+    context.addIssue({ code: "custom", path: ["leaseOwner"], message: "Only a validating operation may hold one complete lease." });
   }
 });
 
@@ -193,9 +206,10 @@ function ownerMatchesDescriptorPublisher(owner: z.infer<typeof AuthorizationOwne
 
 function projectedValueMatchesDefinition(
   definition: z.infer<typeof PluginSettingFieldSchema>,
-  field: z.infer<typeof administrationProjectedFieldSchema>
+  field: z.infer<typeof administrationProjectedFieldSchema>,
+  waitingConfiguration: boolean
 ): boolean {
-  if (field.kind === "unset") return !definition.required;
+  if (field.kind === "unset") return waitingConfiguration || !definition.required;
   if (definition.type === "secret-reference") return field.kind === "redacted-secret";
   if (field.kind !== "visible-value") return false;
   const value = field.value;
@@ -212,7 +226,7 @@ export const SettingsAdministrationViewSchema = z.strictObject({
   schemaVersion: z.literal(1),
   identity: SettingsDocumentIdentitySchema,
   descriptor: SystemSettingsDescriptorSchema,
-  state: z.enum(["effective", "pending-validation", "diagnostic-disabled", "diagnostic-retired"]),
+  state: z.enum(["waiting-configuration", "effective", "pending-validation", "diagnostic-disabled", "diagnostic-retired"]),
   documentRevision: revisionSchema,
   settingsRevision: revisionSchema,
   fields: administrationFieldsSchema,
@@ -232,7 +246,7 @@ export const SettingsAdministrationViewSchema = z.strictObject({
     const definition = view.descriptor.fields[key];
     if (definition === undefined) {
       context.addIssue({ code: "custom", path: ["fields", key], message: "Administration projections may expose only descriptor fields." });
-    } else if (!projectedValueMatchesDefinition(definition, field)) {
+    } else if (!projectedValueMatchesDefinition(definition, field, view.state === "waiting-configuration")) {
       context.addIssue({ code: "custom", path: ["fields", key], message: "Administration projection values and redaction must follow the descriptor field definition." });
     }
   }
@@ -449,6 +463,7 @@ export type PendingSettingsCandidate = z.infer<typeof PendingSettingsCandidateSc
 export type SettingsStoredDocument = z.infer<typeof SettingsStoredDocumentSchema>;
 export type SettingsState = z.infer<typeof SettingsStateSchema>;
 export type SettingsChangeInput = z.infer<typeof SettingsChangeInputSchema>;
+export type SettingsAdoptionInput = z.infer<typeof SettingsAdoptionInputSchema>;
 export type ResumableSettingsOperation = z.infer<typeof ResumableSettingsOperationSchema>;
 export type SettingsTerminalReceipt = z.infer<typeof SettingsTerminalReceiptSchema>;
 export type SettingsInvalidation = z.infer<typeof SettingsInvalidationSchema>;

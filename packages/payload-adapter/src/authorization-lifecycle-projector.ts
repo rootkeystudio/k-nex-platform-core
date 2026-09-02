@@ -4,6 +4,7 @@ import {
   ExtensionAuthorizationGenerationSchema,
   ExtensionLifecycleEventSchema,
   ExtensionSecurityQuarantineEventSchema,
+  SettingsTerminalReceiptSchema,
   canonicalJson,
   type AuthorizationState,
   type ExtensionAuthorizationGeneration,
@@ -104,7 +105,12 @@ export class AuthorizationLifecycleProjector {
       [input.applicationId, input.extensionId]
     );
     const plan = planPendingAuthorizationGeneration({
-      expected: current,
+      expected: {
+        applicationId: current.applicationId,
+        environment: current.environment,
+        authorizationRevision: current.authorizationRevision,
+        lifecycleRevision: current.lifecycleRevision
+      },
       extensionId: input.extensionId,
       runtimeGenerationId: input.runtimeGenerationId,
       existingGenerations: lockedGenerations.rows.map(parseGeneration)
@@ -140,6 +146,27 @@ export class AuthorizationLifecycleProjector {
       [transition.applicationId, transition.deliveryClass, transition.id]
     );
     const existingGenerations = Object.freeze(lockedGenerations.rows.map(parseGeneration));
+    const pending = existingGenerations.find((generation) => generation.state === "pending-configuration");
+    if (pending && transition.eventType === "extension.lifecycle-transition" && transition.lifecycleState === "active") {
+      const receipts = await session.query<Row>(
+        `select receipt_json from k_nex_system_settings_receipts
+         where application_id=$1 and environment=$2 and owner_delivery_class=$3 and owner_extension_id=$4
+           and owner_generation=$5 and outcome='promoted' for share`,
+        [transition.applicationId, transition.environment, transition.deliveryClass, transition.id, pending.owner.generation]
+      );
+      const operations = await session.query<Row>(
+        `select operation_id from k_nex_system_settings_operations
+         where application_id=$1 and environment=$2 and owner_delivery_class=$3 and owner_extension_id=$4 and owner_generation=$5 for share`,
+        [transition.applicationId, transition.environment, transition.deliveryClass, transition.id, pending.owner.generation]
+      );
+      const valid = receipts.rows.length > 0 && receipts.rows.every(({ receipt_json }) => {
+        const receipt = SettingsTerminalReceiptSchema.safeParse(receipt_json);
+        return receipt.success && receipt.data.outcome === "promoted" && canonicalJson(receipt.data.identity.owner) === canonicalJson(pending.owner);
+      });
+      if (!valid || operations.rows.length > 0) {
+        fail("REVISION_CONFLICT", "Pending Hot Application authorization cannot activate before exact-generation settings terminalize.");
+      }
+    }
     assertPriorEvidenceFence(input.priorGenerationEvidence, input.updateCompatibility, existingGenerations);
     const descriptors = transition.deliveryClass === "theme-skin" ? [] : await this.resolveDescriptors(session, transition);
     const descriptorIds = descriptors.map((descriptor) => {

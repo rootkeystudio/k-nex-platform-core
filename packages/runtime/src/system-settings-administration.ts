@@ -2,6 +2,7 @@ import {
   AuthorizationStateSchema,
   ResourceIdSchema,
   ResumableSettingsOperationSchema,
+  SettingsAdoptionInputSchema,
   SettingsAdministrationViewSchema,
   SettingsChangeInputSchema,
   SettingsDocumentIdentitySchema,
@@ -13,6 +14,7 @@ import {
   type AuthorizationDecision,
   type AuthorizationState,
   type SettingsAdministrationView,
+  type SettingsAdoptionInput,
   type SettingsChangeInput,
   type SettingsDocumentIdentity,
   type SettingsState,
@@ -39,7 +41,7 @@ export class SystemSettingsAdministrationError extends Error {
 export interface SystemSettingsDescriptorRecord {
   readonly descriptor: SystemSettingsDescriptor;
   readonly identity: SettingsDocumentIdentity;
-  readonly lifecycle: "active" | "disabled" | "retired";
+  readonly lifecycle: "pending-configuration" | "active" | "disabled" | "retired";
 }
 
 export interface SystemSettingsDescriptorSource {
@@ -56,6 +58,7 @@ export interface SystemSettingsAdministrationStore {
   read(identity: SettingsDocumentIdentity): Promise<SystemSettingsSnapshot | undefined> | SystemSettingsSnapshot | undefined;
   writeImmediate(input: unknown): Promise<unknown> | unknown;
   beginGenerationValidated(input: unknown): Promise<unknown> | unknown;
+  beginRetainedAdoption(input: unknown): Promise<unknown> | unknown;
 }
 
 /** Server-owned IDs and time for persisted receipts. */
@@ -128,7 +131,9 @@ export class SystemSettingsAdministrationService<TContext> {
     const record = (await this.records(decision)).find((candidate) => candidate.descriptor.id === input.settingsId);
     if (!record) invalid("Settings ID is unavailable.");
     await this.descriptorDecision(input.context, decision, record, record.descriptor.changePermission);
-    if (record.lifecycle !== "active") stateInvalid("Only active settings may change.");
+    if (record.lifecycle !== "active" && !(record.lifecycle === "pending-configuration" && record.descriptor.validation === "generation-validated")) {
+      stateInvalid("Only active or pending-configuration generation-validated settings may change.");
+    }
     await this.current(decision);
     const snapshot = await this.snapshot(record.identity);
     if (snapshot?.document !== undefined && snapshot.document.state !== "effective") stateInvalid("Settings snapshot is not effective.");
@@ -146,6 +151,29 @@ export class SystemSettingsAdministrationService<TContext> {
         ? await this.options.store.writeImmediate(write)
         : await this.options.store.beginGenerationValidated(write);
       return parseChangeResult(result, record.descriptor.validation);
+    } catch (error) { mapStoreError(error); }
+  }
+
+  async adopt(input: Readonly<{ readonly context: TContext; readonly settingsId: string; readonly adoption: SettingsAdoptionInput }>): Promise<SettingsTerminalReceipt | ResumableSettingsOperation> {
+    exactInput(input, ["adoption", "context", "settingsId"]);
+    if (!ResourceIdSchema.safeParse(input.settingsId).success) invalid("Settings ID is invalid.");
+    const adoption = SettingsAdoptionInputSchema.safeParse(input.adoption);
+    if (!adoption.success) invalid("Settings adoption input is invalid.");
+    const decision = await this.admit(input.context, changeTarget);
+    const record = (await this.records(decision)).find((candidate) => candidate.descriptor.id === input.settingsId);
+    if (!record || record.lifecycle !== "pending-configuration" || record.descriptor.validation !== "generation-validated") {
+      stateInvalid("Only pending Hot Application settings may adopt retained values.");
+    }
+    await this.descriptorDecision(input.context, decision, record, record.descriptor.changePermission);
+    await this.current(decision);
+    const snapshot = await this.snapshot(record.identity);
+    if ((snapshot?.document?.documentRevision ?? 0) !== adoption.data.expectedDocumentRevision
+      || (snapshot?.state.settingsRevision ?? 0) !== adoption.data.expectedSettingsRevision) {
+      conflict("Settings revisions changed before adoption.");
+    }
+    const write = this.write(record.identity, decision, { ...adoption.data, values: {} }, {}, []);
+    try {
+      return parseChangeResult(await this.options.store.beginRetainedAdoption({ descriptor: record.descriptor, write }), "generation-validated");
     } catch (error) { mapStoreError(error); }
   }
 
@@ -214,7 +242,9 @@ export class SystemSettingsAdministrationService<TContext> {
           record.descriptor,
           parsed.document,
           parsed.state.settingsRevision,
-          record.lifecycle === "active" ? undefined : record.lifecycle === "disabled" ? "diagnostic-disabled" : "diagnostic-retired"
+          record.lifecycle === "active" ? undefined
+            : record.lifecycle === "pending-configuration" ? "waiting-configuration"
+              : record.lifecycle === "disabled" ? "diagnostic-disabled" : "diagnostic-retired"
         );
       } catch { stateInvalid("Settings projection is invalid."); }
     }
@@ -315,7 +345,12 @@ function parseSnapshot(value: unknown, identity: SettingsDocumentIdentity): Syst
 
 function defaultView(record: SystemSettingsDescriptorRecord, settingsRevision: number): SettingsAdministrationView {
   try {
-    const values = projectSystemSettingsValues(record.descriptor);
+    const values = record.lifecycle === "pending-configuration"
+      ? Object.fromEntries(Object.entries(record.descriptor.fields).flatMap(([key, field]) => {
+        const value = "default" in field ? field.default : undefined;
+        return value === undefined ? [] : [[key, value]];
+      }))
+      : projectSystemSettingsValues(record.descriptor);
     const fields = Object.fromEntries(Object.entries(record.descriptor.fields).map(([key, definition]) => {
       const value = values[key];
       return [key, definition.type === "secret-reference"
@@ -326,7 +361,9 @@ function defaultView(record: SystemSettingsDescriptorRecord, settingsRevision: n
       schemaVersion: 1,
       identity: record.identity,
       descriptor: record.descriptor,
-      state: record.lifecycle === "active" ? "effective" : record.lifecycle === "disabled" ? "diagnostic-disabled" : "diagnostic-retired",
+      state: record.lifecycle === "active" ? "effective"
+        : record.lifecycle === "pending-configuration" ? "waiting-configuration"
+          : record.lifecycle === "disabled" ? "diagnostic-disabled" : "diagnostic-retired",
       documentRevision: 0,
       settingsRevision,
       fields
@@ -408,7 +445,9 @@ function ownerMatches(identity: SettingsDocumentIdentity, descriptor: SystemSett
 }
 
 function sameIdentity(left: SettingsDocumentIdentity, right: SettingsDocumentIdentity): boolean { return canonicalJson(left) === canonicalJson(right); }
-function isLifecycle(value: unknown): value is SystemSettingsDescriptorRecord["lifecycle"] { return value === "active" || value === "disabled" || value === "retired"; }
+function isLifecycle(value: unknown): value is SystemSettingsDescriptorRecord["lifecycle"] {
+  return value === "pending-configuration" || value === "active" || value === "disabled" || value === "retired";
+}
 function exactInput(value: unknown, keys: readonly string[]): void { if (!exactObject(value, keys)) invalid("Settings administration input is invalid."); }
 function exactObject(value: unknown, keys: readonly string[], optional: readonly string[] = []): value is Readonly<Record<string, unknown>> {
   if (typeof value !== "object" || value === null || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) return false;
