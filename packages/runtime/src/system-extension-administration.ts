@@ -13,7 +13,7 @@ import { CurrentAuthorityAdapter, createCurrentAuthorityTarget } from "./current
 import { ExtensionOperatorApi, type ExtensionCatalogRecord, type ExtensionSystemStatus } from "./extension-operator-api.js";
 import { admittedExtensionOperations, extensionInventoryState, type ExtensionChangeRequest, type ExtensionInventoryState, type ExtensionOperationStatus, type PluginManagerPlan } from "./plugin-manager.js";
 
-export type SystemExtensionAdministrationErrorCode = "UNAUTHORIZED" | "REVISION_CONFLICT" | "REQUEST_INVALID" | "APPROVAL_REQUIRED";
+export type SystemExtensionAdministrationErrorCode = "UNAUTHORIZED" | "REVISION_CONFLICT" | "REQUEST_INVALID" | "APPROVAL_REQUIRED" | "EXECUTION_UNAVAILABLE";
 
 export class SystemExtensionAdministrationError extends Error {
   constructor(readonly code: SystemExtensionAdministrationErrorCode, message: string) {
@@ -160,6 +160,25 @@ export class SystemExtensionAdministrationService<TContext> {
     });
   }
 
+  /**
+   * Stages only live install/update bytes, then asks the owning authority for
+   * validation. The durable PluginManager operation remains the only state
+   * record across page reloads and worker recreation.
+   */
+  async validate(input: Readonly<{ readonly context: TContext; readonly expected: unknown; readonly operationId: string }>): Promise<Awaited<ReturnType<ExtensionOperatorApi["validate"]>>> {
+    exactInput(input, ["context", "expected", "operationId"]);
+    const expected = parseExpected(input.expected);
+    if (!validId(input.operationId)) invalid("Extension operation ID is invalid.");
+    await this.planDecision(input.context, expected);
+    const operator = await this.operator(input.context);
+    await this.current(expected, operator);
+    const operation = await this.boundOperation(expected, operator, input.operationId);
+    await this.current(expected, operator, operation.request.extension);
+    const report = await this.prepare(operator, expected, operation);
+    await this.current(expected, operator, operation.request.extension);
+    return report;
+  }
+
   async execute(input: Readonly<{ readonly context: TContext; readonly expected: unknown; readonly operationId: string }>): Promise<SystemExtensionExecution> {
     exactInput(input, ["context", "expected", "operationId"]);
     const expected = parseExpected(input.expected);
@@ -167,15 +186,22 @@ export class SystemExtensionAdministrationService<TContext> {
     await this.planDecision(input.context, expected);
     const operator = await this.operator(input.context);
     await this.current(expected, operator);
-    const operation = await operator.operation(input.operationId);
-    if (operation.request.applicationId !== expected.applicationId || operation.request.environment !== expected.environment ||
-      operation.request.expectedRevision !== expected.extensionRevision || !operation.plan) conflict("Extension operation is stale or unavailable.");
-    if (operation.plan.plan.approvalRequired) {
+    const operation = await this.boundOperation(expected, operator, input.operationId);
+    if (staticExecutionUnavailable(operation)) unavailable("This Platform Plugin plan requires explicit maintenance or is not supported; web administration cannot execute it.");
+    await this.current(expected, operator, operation.request.extension);
+    if (liveActivation(operation) || operation.plan!.executionClass === "static-release") {
+      if (liveActivation(operation) && !validLiveActivationPhase(operation.phase)) {
+        unavailable("Live extension install and update must be staged and validated before execution.");
+      }
+      const report = await operator.validate(operation.operationId);
+      if (!report.valid) unavailable("The current extension operation is not ready for execution.");
+      await this.current(expected, operator, operation.request.extension);
+    }
+    if (operation.plan!.plan.approvalRequired) {
       if (!this.options.approval || !await this.options.approval.verify({ context: input.context, expected, operation })) {
         throw new SystemExtensionAdministrationError("APPROVAL_REQUIRED", "A server-verified approval is required for this extension operation.");
       }
     }
-    await this.current(expected, operator, operation.request.extension);
     const result = await execute(operator, operation);
     return Object.freeze({ result, status: operationStatus(await operator.operation(operation.operationId)) });
   }
@@ -210,6 +236,27 @@ export class SystemExtensionAdministrationService<TContext> {
     if (extension && inventoryEntryRevision(status.inventory, extension) !== expected.extensionRevision) {
       conflict("Target extension changed before extension operation.");
     }
+  }
+
+  private async boundOperation(expected: SystemExtensionExpectedRevision, operator: ExtensionOperatorApi, operationId: string): Promise<ExtensionOperationStatus> {
+    const operation = await operator.operation(operationId);
+    if (operation.request.applicationId !== expected.applicationId || operation.request.environment !== expected.environment ||
+      operation.request.expectedRevision !== expected.extensionRevision || !operation.plan) conflict("Extension operation is stale or unavailable.");
+    return operation;
+  }
+
+  private async prepare(
+    operator: ExtensionOperatorApi,
+    expected: SystemExtensionExpectedRevision,
+    operation: ExtensionOperationStatus
+  ): Promise<Awaited<ReturnType<ExtensionOperatorApi["validate"]>>> {
+    if (operation.plan!.executionClass === "live-generation" && ["install", "update"].includes(operation.request.operation)) {
+      await operator.stage(operation.operationId);
+      const staged = await this.boundOperation(expected, operator, operation.operationId);
+      await this.current(expected, operator, staged.request.extension);
+      return operator.validate(staged.operationId);
+    }
+    return operator.validate(operation.operationId);
   }
 
   private async planDecision(context: TContext, expected: SystemExtensionExpectedRevision): Promise<void> {
@@ -313,6 +360,19 @@ async function execute(operator: ExtensionOperatorApi, operation: ExtensionOpera
   }
 }
 
+function liveActivation(operation: ExtensionOperationStatus): boolean {
+  return operation.plan?.executionClass === "live-generation" && ["install", "update"].includes(operation.request.operation);
+}
+
+function validLiveActivationPhase(phase: ExtensionOperationStatus["phase"]): boolean {
+  return phase === "staged" || phase === "warming";
+}
+
+function staticExecutionUnavailable(operation: ExtensionOperationStatus): boolean {
+  return operation.plan?.executionClass === "static-release" &&
+    ["maintenance-required", "unsupported"].includes(operation.plan.plan.availability.outcome);
+}
+
 function display(plan: PluginManagerPlan): SystemExtensionDisplay {
   const impact = plan.plan;
   if (impact.deliveryClass === "hot-application" || impact.deliveryClass === "theme-skin") {
@@ -391,4 +451,5 @@ function revision(value: unknown): value is number { return typeof value === "nu
 function validId(value: string): boolean { return /^[a-z][a-z0-9-]{2,127}$/u.test(value); }
 function invalid(message: string): never { throw new SystemExtensionAdministrationError("REQUEST_INVALID", message); }
 function conflict(message: string): never { throw new SystemExtensionAdministrationError("REVISION_CONFLICT", message); }
+function unavailable(message: string): never { throw new SystemExtensionAdministrationError("EXECUTION_UNAVAILABLE", message); }
 function unauthorized(): never { throw new SystemExtensionAdministrationError("UNAUTHORIZED", "Current authority does not permit extension administration."); }
