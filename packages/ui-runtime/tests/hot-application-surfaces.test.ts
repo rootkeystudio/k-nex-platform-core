@@ -12,7 +12,7 @@ const registration = {
 
 const dottedManifest = {
   schemaVersion: 1, deliveryClass: "hot-application", id: "app.foo.bar", displayName: "Dotted routes", version: "1.0.0", runtimeAbi: "1.0.0",
-  entrypoints: { server: [], ui: ["ui/main.mjs"] }, capabilities: [],
+  entrypoints: { server: [], ui: ["ui/main.mjs"] }, capabilities: [], permissions: [], policyBindings: [],
   resourceBudget: { maxBundleBytes: 1, maxAssetBytes: 1, maxStorageBytes: 1, maxMemoryMiB: 1, maxCpuMilliCores: 1, maxWallTimeMs: 1, maxInputBytes: 1, maxOutputBytes: 1, maxLogBytes: 1, maxConcurrency: 1 },
   settings: [], screens: [
     { id: "foo.home", route: "/", entrypoint: "ui/main.mjs" },

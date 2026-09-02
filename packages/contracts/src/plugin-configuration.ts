@@ -119,30 +119,6 @@ export const PluginSettingsDocumentSchema = z.strictObject({
   values: z.record(z.string().regex(settingKeyPattern), PluginSettingValueSchema)
 });
 
-export const PermissionDescriptorSchema = z.strictObject({
-  id: ResourceIdSchema,
-  ownerPluginId: PluginIdSchema,
-  title: z.string().min(1).max(120),
-  description: z.string().min(1).max(240),
-  audience: audienceSchema,
-  resource: ResourceIdSchema,
-  operation: z.enum(["read", "write", "manage", "execute"]),
-  policy: z.strictObject({
-    id: ResourceIdSchema,
-    scope: z.enum(["application", "record", "field"]),
-    recordScoped: z.boolean(),
-    fieldScoped: z.boolean()
-  })
-}).check((context) => {
-  const descriptor = context.value;
-  if (!ownedByPlugin(descriptor.ownerPluginId, descriptor.id) || !ownedByPlugin(descriptor.ownerPluginId, descriptor.policy.id)) {
-    context.issues.push({ code: "custom", input: descriptor.id, path: ["id"], message: "Permission and policy IDs must use the owner plugin namespace." });
-  }
-  if (descriptor.policy.scope === "field" && !descriptor.policy.fieldScoped || descriptor.policy.scope === "record" && !descriptor.policy.recordScoped) {
-    context.issues.push({ code: "custom", input: descriptor.policy, path: ["policy"], message: "Permission policy scope metadata is inconsistent." });
-  }
-});
-
 export const RouteParameterDescriptorSchema = z.strictObject({
   type: z.enum(["string", "integer", "boolean"])
 });
@@ -193,7 +169,6 @@ export type PluginSettingValue = z.infer<typeof PluginSettingValueSchema>;
 export type PluginSettingField = z.infer<typeof PluginSettingFieldSchema>;
 export type PluginSettingsDescriptor = z.infer<typeof PluginSettingsDescriptorSchema>;
 export type PluginSettingsDocument = z.infer<typeof PluginSettingsDocumentSchema>;
-export type PermissionDescriptor = z.infer<typeof PermissionDescriptorSchema>;
 export type RouteParameterDescriptor = z.infer<typeof RouteParameterDescriptorSchema>;
 export type PluginRouteDescriptor = z.infer<typeof PluginRouteDescriptorSchema>;
 export type PluginRouteParameterValue = z.infer<typeof PluginRouteParameterValueSchema>;

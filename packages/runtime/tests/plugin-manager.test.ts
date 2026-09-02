@@ -6,8 +6,10 @@ import type { ExtensionInstallPlan, RuntimeExtensionInventory, StaticComposition
 import {
   PluginManager,
   TrustedAutomationOperationAuthorizer,
+  extensionOperationRequestDigest,
   type ClaimOperationResult,
   type ExtensionChangeRequest,
+  type ExtensionOperationAuthorizer,
   type ExtensionActivationReceipt,
   type PluginManagerPlan,
   type RuntimeExtensionOperation,
@@ -22,27 +24,27 @@ const staticChange = JSON.parse(readFileSync(new URL("../../../fixtures/extensio
 const request: ExtensionChangeRequest = {
   applicationId: "customer-alpha",
   environment: "production",
-  extension: { deliveryClass: "hot-application", id: "app.sales-assistant" },
+  extension: { deliveryClass: "hot-application", id: "app.fixture.assistant" },
   operation: "install",
   targetVersion: "1.0.0",
   expectedRevision: 0,
-  idempotencyKey: "install:app.sales-assistant:1",
+  idempotencyKey: "install:app.fixture.assistant:1",
   correlationId: "extension-correlation-1"
 };
 
 const hotPlan: ExtensionInstallPlan = {
   schemaVersion: 1,
-  planId: "sales-assistant-plan-1",
-  operationId: "sales-assistant-operation-1",
+  planId: "fixture-assistant-plan-1",
+  operationId: "fixture-assistant-operation-1",
   operation: "install",
   version: "1.0.0",
   artifactDigest: digest("a"),
   expectedRevision: 0,
-  targetGenerationId: "sales-assistant-generation-1",
+  targetGenerationId: "fixture-assistant-generation-1",
   approvalRequired: false,
   rollback: { available: true, windowSeconds: 86_400 },
   deliveryClass: "hot-application",
-  id: "app.sales-assistant",
+  id: "app.fixture.assistant",
   availability: { outcome: "live-generation", activation: "atomic-generation-pointer" },
   requiredCapabilities: [],
   resourceBudget: {
@@ -56,8 +58,8 @@ const authority: VerifiedGenerationAuthority = {
   applicationId: "customer-alpha",
   environment: "production",
   deliveryClass: "hot-application",
-  extensionId: "app.sales-assistant",
-  generationId: "sales-assistant-generation-1",
+  extensionId: "app.fixture.assistant",
+  generationId: "fixture-assistant-generation-1",
   sourceCommit: "a".repeat(40),
   artifactDigest: digest("a"),
   manifestDigest: digest("b"),
@@ -153,10 +155,14 @@ class MemoryStore implements RuntimeExtensionStore {
   async liveGenerationLeaseCount() { return 0; }
 }
 
-function manager(store = new MemoryStore(), reverify = true) {
+function manager(
+  store = new MemoryStore(),
+  reverify = true,
+  authorizer: ExtensionOperationAuthorizer = new TrustedAutomationOperationAuthorizer("github-actions:phase-9")
+) {
   const planner = { validate: vi.fn(async () => undefined), plan: vi.fn(async (planning) => ({
     plan: { ...hotPlan, operationId: planning.operationId, operation: planning.operation, version: planning.targetVersion, expectedRevision: planning.expectedRevision, ...(planning.currentGenerationId ? { currentGenerationId: planning.currentGenerationId } : {}) },
-    sourceCommit: "a".repeat(40), generationId: "sales-assistant-generation-1"
+    sourceCommit: "a".repeat(40), generationId: "fixture-assistant-generation-1"
   })) };
   const artifacts = { stage: vi.fn(async () => authority), reverify: vi.fn(async () => reverify) };
   const staticChanges = { request: vi.fn() };
@@ -168,7 +174,13 @@ function manager(store = new MemoryStore(), reverify = true) {
     metadata: {}, settings: {}, storageSchemaVersions: {}
   })) };
   const clock = { now: () => new Date(Date.now()) };
-  return { value: new PluginManager("phase-9-worker", new TrustedAutomationOperationAuthorizer("github-actions:phase-9"), planner, store, artifacts, staticChanges, deployments, generationRuntime, clock), store, planner, artifacts, staticChanges, deployments, generationRuntime, clock };
+  return { value: new PluginManager("phase-9-worker", authorizer, planner, store, artifacts, staticChanges, deployments, generationRuntime, clock), store, planner, artifacts, staticChanges, deployments, generationRuntime, clock };
+}
+
+async function boundOperation(operation: RuntimeExtensionOperation): Promise<RuntimeExtensionOperation> {
+  const requestDigest = await extensionOperationRequestDigest(operation.request);
+  const authorization = await new TrustedAutomationOperationAuthorizer("github-actions:phase-9").authorize({ ...operation.request, requestDigest });
+  return { ...operation, requestDigest, authorization };
 }
 
 describe("PluginManager", () => {
@@ -180,8 +192,8 @@ describe("PluginManager", () => {
     expect(planned.executionClass).toBe("live-generation");
     await expect(runtime.value.stage(planned.operationId)).resolves.toEqual(authority);
     expect(runtime.store.transitions).toEqual(["planning->downloading", "downloading->verified", "verified->staged"]);
-    expect(runtime.artifacts.stage).toHaveBeenCalledWith({ plan: expect.objectContaining({ ...hotPlan, operationId: planned.operationId }), owner: { applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application", extensionId: "app.sales-assistant" } });
-    expect(runtime.artifacts.reverify).toHaveBeenCalledWith(authority, { applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application", extensionId: "app.sales-assistant" });
+    expect(runtime.artifacts.stage).toHaveBeenCalledWith({ plan: expect.objectContaining({ ...hotPlan, operationId: planned.operationId }), owner: { applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application", extensionId: "app.fixture.assistant" } });
+    expect(runtime.artifacts.reverify).toHaveBeenCalledWith(authority, { applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application", extensionId: "app.fixture.assistant" });
     await expect(runtime.value.plan(request)).resolves.toBe(planned);
     expect(runtime.planner.plan).toHaveBeenCalledTimes(1);
     expect(runtime.store.reconcileCount).toBe(2);
@@ -189,15 +201,42 @@ describe("PluginManager", () => {
     await expect(runtime.value.stage(planned.operationId)).rejects.toMatchObject({ code: "INVALID_STATE" });
   });
 
+  it("accepts a refreshed decision for the same actor and blocks actor changes before staging side effects", async () => {
+    const trustedActor = { kind: "trusted-automation" as const, identity: "github-actions:phase-9" };
+    const authorizer = {
+      authorize: vi.fn()
+        .mockResolvedValueOnce({ actor: trustedActor, decisionId: digest("1") })
+        .mockResolvedValueOnce({ actor: trustedActor, decisionId: digest("2") })
+        .mockResolvedValueOnce({ actor: { kind: "actor" as const, id: "user-1", approvalId: "approval-1" }, decisionId: digest("3") })
+    };
+    const runtime = manager(new MemoryStore(), true, authorizer);
+    const planned = await runtime.value.plan(request);
+    await expect(runtime.value.stage(planned.operationId)).rejects.toMatchObject({ code: "INVALID_STATE" });
+    expect(runtime.store.transitions).toEqual([]);
+    expect(runtime.artifacts.stage).not.toHaveBeenCalled();
+  });
+
   it("runs mandatory lifecycle policy validation before claiming an operation", async () => {
     const runtime = manager();
     const claimOperation = vi.spyOn(runtime.store, "claimOperation");
-    runtime.planner.validate.mockRejectedValueOnce(Object.assign(new Error("Plugin module.sales does not support uninstall."), { code: "OPERATION_UNSUPPORTED" }));
+    runtime.store.inventoryValue = {
+      ...emptyInventory(), revision: 1, extensions: { hotApplications: {}, themeSkins: {}, platformPlugins: {
+        "module.fixture.plugin": {
+          disposition: "active", revision: 1, lastOperationId: "extension-operation-active", lastReceiptId: "extension-receipt-active", stateDigest: digest("9"),
+          activeGeneration: {
+            authority: "static-build", generationId: "customer-alpha-green-1", version: "1.0.0", sourceCommit: "a".repeat(40),
+            compositionChangePlanDigest: digest("a"), buildEvidenceDigest: digest("b"), applicationDigest: digest("c"), imageDigest: digest("d"), migrationRevision: 1,
+            workerFencingToken: 1, receiptId: "extension-receipt-active"
+          }
+        }
+      } }
+    };
+    runtime.planner.validate.mockRejectedValueOnce(Object.assign(new Error("Plugin module.fixture.plugin does not support uninstall."), { code: "OPERATION_UNSUPPORTED" }));
     await expect(runtime.value.plan({
-      ...request, extension: { deliveryClass: "platform-plugin", id: "module.sales" }, operation: "uninstall",
-      idempotencyKey: "uninstall:module.sales:unsupported", correlationId: "uninstall-module-sales-unsupported"
+      ...request, extension: { deliveryClass: "platform-plugin", id: "module.fixture.plugin" }, operation: "uninstall",
+      idempotencyKey: "uninstall:module.fixture.plugin:unsupported", correlationId: "uninstall-module-fixture-plugin-unsupported"
     })).rejects.toMatchObject({ code: "OPERATION_UNSUPPORTED" });
-    expect(runtime.planner.validate).toHaveBeenCalledWith(expect.objectContaining({ operation: "uninstall", extension: { deliveryClass: "platform-plugin", id: "module.sales" } }));
+    expect(runtime.planner.validate).toHaveBeenCalledWith(expect.objectContaining({ operation: "uninstall", extension: { deliveryClass: "platform-plugin", id: "module.fixture.plugin" } }));
     expect(claimOperation).not.toHaveBeenCalled();
     expect(runtime.store.operation).toBeUndefined();
     expect(runtime.planner.plan).not.toHaveBeenCalled();
@@ -214,11 +253,11 @@ describe("PluginManager", () => {
 
   it("delegates module and executable theme Platform Plugins to source and trusted-build authorities", async () => {
     const runtime = manager();
-    const platformRequest: ExtensionChangeRequest = { ...request, extension: { deliveryClass: "platform-plugin", id: "module.sales" }, idempotencyKey: "install:module.sales:1" };
+    const platformRequest: ExtensionChangeRequest = { ...request, extension: { deliveryClass: "platform-plugin", id: "module.fixture.plugin" }, idempotencyKey: "install:module.fixture.plugin:1" };
     const platformPlan: ExtensionInstallPlan = {
       schemaVersion: 1, planId: hotPlan.planId, operationId: hotPlan.operationId, operation: "install", version: "1.0.0",
       artifactDigest: digest("a"), expectedRevision: 0, targetGenerationId: "customer-alpha-green-1", approvalRequired: false,
-      rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "platform-plugin", id: "module.sales",
+      rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "platform-plugin", id: "module.fixture.plugin",
       availability: { outcome: "maintenance-required", reasons: ["destructive-migration"] }
     };
     runtime.planner.plan.mockImplementation(async (planning) => ({ plan: { ...platformPlan, operationId: planning.operationId }, sourceCommit: "b".repeat(40), generationId: "customer-alpha-green-1" }));
@@ -235,33 +274,62 @@ describe("PluginManager", () => {
     expect(runtime.deployments.request).toHaveBeenCalledOnce();
 
     const theme = manager();
-    const themeRequest: ExtensionChangeRequest = { ...request, extension: { deliveryClass: "platform-plugin", id: "theme.minimal" }, idempotencyKey: "install:theme.minimal:1" };
-    theme.planner.plan.mockImplementation(async (planning) => ({ plan: { ...platformPlan, id: "theme.minimal", operationId: planning.operationId }, sourceCommit: "b".repeat(40), generationId: "customer-alpha-green-1" }));
+    const themeRequest: ExtensionChangeRequest = { ...request, extension: { deliveryClass: "platform-plugin", id: "module.fixture.theme" }, idempotencyKey: "install:module.fixture.theme:1" };
+    theme.planner.plan.mockImplementation(async (planning) => ({ plan: { ...platformPlan, id: "module.fixture.theme", operationId: planning.operationId }, sourceCommit: "b".repeat(40), generationId: "customer-alpha-green-1" }));
     theme.staticChanges.request.mockResolvedValue({ status: "source-change-ready", planDigest: digest("f"), targetSourceCommit: "b".repeat(40), change: staticChange });
     theme.deployments.request.mockResolvedValue({ status: "build-requested", buildRequestDigest: digest("9"), sourceCommit: "b".repeat(40) });
     await expect(theme.value.plan(themeRequest)).resolves.toMatchObject({ executionClass: "static-release" });
     expect(theme.artifacts.stage).not.toHaveBeenCalled();
   });
 
+  it("durably marks a static update planned from quarantined inventory for rollback closure", async () => {
+    const runtime = manager();
+    const platformRequest: ExtensionChangeRequest = {
+      ...request, extension: { deliveryClass: "platform-plugin", id: "module.fixture.plugin" }, operation: "update", targetVersion: "1.0.0",
+      expectedRevision: 2, idempotencyKey: "update:module.fixture.plugin:quarantined", correlationId: "update-module-fixture-plugin-quarantined"
+    };
+    runtime.store.inventoryValue = {
+      schemaVersion: 1, applicationId: request.applicationId, environment: request.environment, hostInventoryDigest: digest("7"), revision: 2,
+      observedAt: "2026-08-29T09:00:00.000Z", stateDigest: digest("8"), extensions: { hotApplications: {}, themeSkins: {}, platformPlugins: {
+        "module.fixture.plugin": { disposition: "quarantined", revision: 2, lastOperationId: "extension-operation-quarantined", lastReceiptId: "extension-receipt-quarantined", stateDigest: digest("9"), retainedGeneration: {
+          authority: "static-build", generationId: "customer-alpha-blue-8", version: "1.0.0", sourceCommit: "a".repeat(40),
+          compositionChangePlanDigest: digest("a"), buildEvidenceDigest: digest("b"), applicationDigest: digest("c"), imageDigest: digest("d"), migrationRevision: 1,
+          workerFencingToken: 4, receiptId: "static-receipt-blue"
+        } }
+      } }
+    };
+    const platformPlan: ExtensionInstallPlan = {
+      schemaVersion: 1, planId: "fixture-quarantine-update", operationId: "placeholder", operation: "update", version: "1.0.0", artifactDigest: digest("a"),
+      expectedRevision: 2, currentGenerationId: "customer-alpha-blue-8", targetGenerationId: "customer-alpha-green-9", approvalRequired: false,
+      rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "platform-plugin", id: "module.fixture.plugin",
+      availability: { outcome: "zero-downtime-eligible", checks: { oldGenerationHealthy: true, expandCompatibleMigration: true, writerReaderOverlap: true, workerDrain: true, realtimeConvergence: true, targetReadiness: true, inventoryMatch: true, rollbackCompatible: true } }
+    };
+    runtime.planner.plan.mockImplementation(async (planning) => ({ plan: { ...platformPlan, operationId: planning.operationId }, sourceCommit: "a".repeat(40), generationId: "customer-alpha-green-9" }));
+    runtime.staticChanges.request.mockResolvedValue({ status: "source-change-ready", planDigest: digest("f"), targetSourceCommit: "b".repeat(40), change: staticChange });
+    runtime.deployments.request.mockResolvedValue({ status: "build-requested", buildRequestDigest: digest("9"), sourceCommit: "b".repeat(40) });
+
+    await expect(runtime.value.plan(platformRequest)).resolves.toMatchObject({ executionClass: "static-release", quarantineRecovery: true });
+  });
+
   it("keeps Platform Plugin disable on the current application generation without source/build work", async () => {
     const runtime = manager();
     const platformRequest: ExtensionChangeRequest = {
       ...request,
-      extension: { deliveryClass: "platform-plugin", id: "module.sales" },
+      extension: { deliveryClass: "platform-plugin", id: "module.fixture.plugin" },
       operation: "disable",
-      targetVersion: "1.0.1",
+      targetVersion: "1.0.0",
       expectedRevision: 4,
-      idempotencyKey: "disable:module.sales:4",
-      correlationId: "disable-module-sales-4"
+      idempotencyKey: "disable:module.fixture.plugin:4",
+      correlationId: "disable-module-fixture-plugin-4"
     };
     runtime.store.inventoryValue = {
       schemaVersion: 1, applicationId: request.applicationId, environment: request.environment, hostInventoryDigest: digest("7"), revision: 4,
       observedAt: "2026-08-29T09:00:00.000Z", stateDigest: digest("8"), extensions: {
         hotApplications: {}, themeSkins: {}, platformPlugins: {
-          "module.sales": {
+          "module.fixture.plugin": {
             disposition: "active", revision: 4, lastOperationId: "extension-operation-previous", lastReceiptId: "extension-receipt-previous", stateDigest: digest("9"),
             activeGeneration: {
-              authority: "static-build", generationId: "customer-alpha-green-12", version: "1.0.1", sourceCommit: "b".repeat(40),
+              authority: "static-build", generationId: "customer-alpha-green-12", version: "1.0.0", sourceCommit: "b".repeat(40),
               compositionChangePlanDigest: digest("a"), buildEvidenceDigest: digest("b"), applicationDigest: digest("c"), imageDigest: digest("d"),
               migrationRevision: 12, workerFencingToken: 2, receiptId: "static-receipt-previous"
             }
@@ -270,9 +338,9 @@ describe("PluginManager", () => {
       }
     };
     const disablePlan: ExtensionInstallPlan = {
-      schemaVersion: 1, planId: "sales-disable-4", operationId: "placeholder", operation: "disable", version: "1.0.1", artifactDigest: digest("a"),
+      schemaVersion: 1, planId: "fixture-disable-4", operationId: "placeholder", operation: "disable", version: "1.0.0", artifactDigest: digest("a"),
       expectedRevision: 4, currentGenerationId: "customer-alpha-green-12", targetGenerationId: "customer-alpha-green-12", approvalRequired: true,
-      rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "platform-plugin", id: "module.sales",
+      rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "platform-plugin", id: "module.fixture.plugin",
       availability: { outcome: "zero-downtime-eligible", checks: { oldGenerationHealthy: true, expandCompatibleMigration: true, writerReaderOverlap: true, workerDrain: true, realtimeConvergence: true, targetReadiness: true, inventoryMatch: true, rollbackCompatible: true } }
     };
     runtime.planner.plan.mockImplementation(async (planning) => ({
@@ -292,24 +360,57 @@ describe("PluginManager", () => {
     await expect(freshGeneration.value.plan(platformRequest)).rejects.toMatchObject({ code: "PLAN_MISMATCH" });
   });
 
+  it("re-enables an exact retained Platform Plugin release through a fresh application generation", async () => {
+    const runtime = manager();
+    const platformRequest: ExtensionChangeRequest = {
+      ...request, extension: { deliveryClass: "platform-plugin", id: "module.fixture.plugin" }, targetVersion: "1.0.0", expectedRevision: 4,
+      idempotencyKey: "install:module.fixture.plugin:reenable", correlationId: "reenable-module-fixture-plugin"
+    };
+    runtime.store.inventoryValue = {
+      schemaVersion: 1, applicationId: request.applicationId, environment: request.environment, hostInventoryDigest: digest("7"), revision: 4,
+      observedAt: "2026-08-29T09:00:00.000Z", stateDigest: digest("8"), extensions: { hotApplications: {}, themeSkins: {}, platformPlugins: {
+        "module.fixture.plugin": { disposition: "disabled", revision: 4, lastOperationId: "extension-operation-disabled", lastReceiptId: "extension-receipt-disabled", stateDigest: digest("9"), retainedGeneration: {
+          authority: "static-build", generationId: "customer-alpha-green-12", version: "1.0.0", sourceCommit: "b".repeat(40),
+          compositionChangePlanDigest: digest("a"), buildEvidenceDigest: digest("b"), applicationDigest: digest("c"), imageDigest: digest("d"), migrationRevision: 12,
+          workerFencingToken: 2, receiptId: "static-receipt-disabled"
+        } }
+      } }
+    };
+    const platformPlan: ExtensionInstallPlan = {
+      schemaVersion: 1, planId: "fixture-reenable-5", operationId: "placeholder", operation: "install", version: "1.0.0", artifactDigest: digest("a"),
+      expectedRevision: 4, currentGenerationId: "customer-alpha-green-12", targetGenerationId: "customer-alpha-reenable-13", approvalRequired: true,
+      rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "platform-plugin", id: "module.fixture.plugin",
+      availability: { outcome: "zero-downtime-eligible", checks: { oldGenerationHealthy: true, expandCompatibleMigration: true, writerReaderOverlap: true, workerDrain: true, realtimeConvergence: true, targetReadiness: true, inventoryMatch: true, rollbackCompatible: true } }
+    };
+    runtime.planner.plan.mockImplementation(async (planning) => ({ plan: { ...platformPlan, operationId: planning.operationId }, sourceCommit: "c".repeat(40), generationId: "customer-alpha-reenable-13" }));
+    runtime.staticChanges.request.mockResolvedValue({ status: "source-change-ready", planDigest: digest("e"), targetSourceCommit: "c".repeat(40), change: staticChange });
+    runtime.deployments.request.mockResolvedValue({ status: "build-requested", buildRequestDigest: digest("f"), sourceCommit: "c".repeat(40) });
+    await expect(runtime.value.plan(platformRequest)).resolves.toMatchObject({ executionClass: "static-release", generationId: "customer-alpha-reenable-13" });
+
+    const reused = manager();
+    reused.store.inventoryValue = runtime.store.inventoryValue;
+    reused.planner.plan.mockImplementation(async (planning) => ({ plan: { ...platformPlan, operationId: planning.operationId, targetGenerationId: "customer-alpha-green-12" }, sourceCommit: "c".repeat(40), generationId: "customer-alpha-green-12" }));
+    await expect(reused.value.plan(platformRequest)).rejects.toMatchObject({ code: "PLAN_MISMATCH" });
+  });
+
   it("requires a fresh static release generation for a supported Platform Plugin uninstall", async () => {
     const runtime = manager();
     const platformRequest: ExtensionChangeRequest = {
-      ...request, extension: { deliveryClass: "platform-plugin", id: "provider.schema-less" }, operation: "uninstall", targetVersion: "1.0.1",
+      ...request, extension: { deliveryClass: "platform-plugin", id: "provider.schema-less" }, operation: "uninstall", targetVersion: "1.0.0",
       expectedRevision: 4, idempotencyKey: "uninstall:provider.schema-less:4", correlationId: "uninstall-schema-less-4"
     };
     runtime.store.inventoryValue = {
       schemaVersion: 1, applicationId: request.applicationId, environment: request.environment, hostInventoryDigest: digest("7"), revision: 4,
       observedAt: "2026-08-29T09:00:00.000Z", stateDigest: digest("8"), extensions: { hotApplications: {}, themeSkins: {}, platformPlugins: {
         "provider.schema-less": { disposition: "active", revision: 4, lastOperationId: "extension-operation-previous", lastReceiptId: "extension-receipt-previous", stateDigest: digest("9"), activeGeneration: {
-          authority: "static-build", generationId: "customer-alpha-green-12", version: "1.0.1", sourceCommit: "b".repeat(40),
+          authority: "static-build", generationId: "customer-alpha-green-12", version: "1.0.0", sourceCommit: "b".repeat(40),
           compositionChangePlanDigest: digest("a"), buildEvidenceDigest: digest("b"), applicationDigest: digest("c"), imageDigest: digest("d"), migrationRevision: 12,
           workerFencingToken: 2, receiptId: "static-receipt-previous"
         } }
       } }
     };
     const uninstallPlan: ExtensionInstallPlan = {
-      schemaVersion: 1, planId: "schema-less-uninstall-5", operationId: "placeholder", operation: "uninstall", version: "1.0.1", artifactDigest: digest("a"),
+      schemaVersion: 1, planId: "schema-less-uninstall-5", operationId: "placeholder", operation: "uninstall", version: "1.0.0", artifactDigest: digest("a"),
       expectedRevision: 4, currentGenerationId: "customer-alpha-green-12", targetGenerationId: "customer-alpha-uninstall-13", approvalRequired: true,
       rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "platform-plugin", id: "provider.schema-less",
       availability: { outcome: "zero-downtime-eligible", checks: { oldGenerationHealthy: true, expandCompatibleMigration: true, writerReaderOverlap: true, workerDrain: true, realtimeConvergence: true, targetReadiness: true, inventoryMatch: true, rollbackCompatible: true } }
@@ -327,7 +428,7 @@ describe("PluginManager", () => {
 
   it("rejects a forged live-generation Platform Plugin uninstall at execution", async () => {
     const runtime = manager();
-    runtime.store.operation = {
+    runtime.store.operation = await boundOperation({
       operationId: "extension-operation-forged-uninstall",
       request: { ...request, extension: { deliveryClass: "platform-plugin", id: "provider.schema-less" }, operation: "uninstall" },
       requestDigest: digest("1"), authorization: { actor: { kind: "trusted-automation", identity: "github-actions:phase-9" }, decisionId: digest("2") },
@@ -336,18 +437,18 @@ describe("PluginManager", () => {
         executionClass: "live-generation", operationId: "extension-operation-forged-uninstall", sourceCommit: "b".repeat(40), generationId: "customer-alpha-uninstall-13",
         plan: { ...hotPlan, deliveryClass: "platform-plugin", id: "provider.schema-less", operation: "uninstall", operationId: "extension-operation-forged-uninstall", currentGenerationId: "customer-alpha-green-12", targetGenerationId: "customer-alpha-uninstall-13", availability: { outcome: "maintenance-required", reasons: ["destructive-migration"] } }
       } as unknown as PluginManagerPlan
-    };
+    });
     await expect(runtime.value.uninstall(runtime.store.operation.operationId)).rejects.toMatchObject({ code: "WRONG_EXECUTION_CLASS" });
     expect(runtime.store.resumeCount).toBe(1);
   });
 
   it("reconciles only the exact authoritative static receipt and replays it without a second inventory write", async () => {
     const runtime = manager();
-    const platformRequest: ExtensionChangeRequest = { ...request, extension: { deliveryClass: "platform-plugin", id: "module.sales" }, idempotencyKey: "install:module.sales:receipt" };
+    const platformRequest: ExtensionChangeRequest = { ...request, extension: { deliveryClass: "platform-plugin", id: "module.fixture.plugin" }, idempotencyKey: "install:module.fixture.plugin:receipt" };
     const platformPlan: ExtensionInstallPlan = {
       schemaVersion: 1, planId: hotPlan.planId, operationId: hotPlan.operationId, operation: "install", version: "1.0.0",
       artifactDigest: digest("a"), expectedRevision: 0, targetGenerationId: "customer-alpha-green-1", approvalRequired: false,
-      rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "platform-plugin", id: "module.sales",
+      rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "platform-plugin", id: "module.fixture.plugin",
       availability: { outcome: "maintenance-required", reasons: ["destructive-migration"] }
     };
     runtime.planner.plan.mockImplementation(async (planning) => ({ plan: { ...platformPlan, operationId: planning.operationId }, sourceCommit: "b".repeat(40), generationId: "customer-alpha-green-1" }));
@@ -369,13 +470,13 @@ describe("PluginManager", () => {
 
   it("rejects planner mismatches and unverified inventory authority", async () => {
     const runtime = manager(undefined, false);
-    runtime.planner.plan.mockResolvedValue({ plan: { ...hotPlan, id: "app.other" }, sourceCommit: "a".repeat(40), generationId: "sales-assistant-generation-1" });
+    runtime.planner.plan.mockResolvedValue({ plan: { ...hotPlan, id: "app.other" }, sourceCommit: "a".repeat(40), generationId: "fixture-assistant-generation-1" });
     await expect(runtime.value.plan(request)).rejects.toMatchObject({ code: "PLAN_MISMATCH" });
 
     runtime.store.inventoryValue = {
       schemaVersion: 1, applicationId: "customer-alpha", environment: "production", hostInventoryDigest: digest("7"), revision: 1,
       observedAt: "2026-08-29T09:00:00.000Z", stateDigest: digest("8"), extensions: {
-        platformPlugins: {}, themeSkins: {}, hotApplications: { "app.sales-assistant": {
+        platformPlugins: {}, themeSkins: {}, hotApplications: { "app.fixture.assistant": {
           disposition: "active", revision: 1, lastOperationId: "extension-operation-1", lastReceiptId: "extension-receipt-1", stateDigest: digest("9"),
           activeGeneration: { authority: "verified-bundle", version: "1.0.0", receiptId: "extension-receipt-1", ...authority }
         } }
@@ -390,37 +491,112 @@ describe("PluginManager", () => {
       schemaVersion: 1, applicationId: request.applicationId, environment: request.environment, hostInventoryDigest: digest("7"), revision: 5,
       observedAt: "2026-08-29T09:00:00.000Z", stateDigest: digest("8"), extensions: {
         platformPlugins: {}, themeSkins: {}, hotApplications: {
-          "app.sales-assistant": {
+          "app.fixture.assistant": {
             disposition: "active", revision: 5, lastOperationId: "extension-operation-previous", lastReceiptId: "extension-receipt-previous", stateDigest: digest("9"),
-            activeGeneration: { authority: "verified-bundle", version: "1.0.1", receiptId: "extension-receipt-previous", ...authority, generationId: "sales-assistant-generation-active" },
-            rollbackGeneration: { authority: "verified-bundle", version: "1.5.0", receiptId: "extension-receipt-rollback", ...authority, generationId: "sales-assistant-generation-rollback" }
+            activeGeneration: { authority: "verified-bundle", version: "1.0.1", receiptId: "extension-receipt-previous", ...authority, generationId: "fixture-assistant-generation-active" },
+            rollbackGeneration: { authority: "verified-bundle", version: "1.5.0", receiptId: "extension-receipt-rollback", ...authority, generationId: "fixture-assistant-generation-rollback" }
           }
         }
       }
     };
-    const update: ExtensionChangeRequest = { ...request, operation: "update", targetVersion: "2.1.0", expectedRevision: 5, idempotencyKey: "update:app.sales-assistant:2-1-0" };
+    const update: ExtensionChangeRequest = { ...request, operation: "update", targetVersion: "2.1.0", expectedRevision: 5, idempotencyKey: "update:app.fixture.assistant:2-1-0" };
     const planned = await runtime.value.plan(update);
     expect(runtime.planner.plan).toHaveBeenLastCalledWith(expect.objectContaining({
-      operationId: planned.operationId, currentGenerationId: "sales-assistant-generation-active", rollbackGenerationId: "sales-assistant-generation-rollback"
+      operationId: planned.operationId, currentGenerationId: "fixture-assistant-generation-active", rollbackGenerationId: "fixture-assistant-generation-rollback"
     }));
 
     const downgrade = manager();
     downgrade.store.inventoryValue = runtime.store.inventoryValue;
-    const downgradeRequest: ExtensionChangeRequest = { ...update, targetVersion: "1.0.0+attacker", idempotencyKey: "update:app.sales-assistant:1-0-0-attacker" };
+    const downgradeRequest: ExtensionChangeRequest = { ...update, targetVersion: "1.0.0+attacker", idempotencyKey: "update:app.fixture.assistant:1-0-0-attacker" };
     await expect(downgrade.value.plan(downgradeRequest)).rejects.toMatchObject({ code: "PLAN_MISMATCH" });
 
     const reused = manager();
     reused.store.inventoryValue = runtime.store.inventoryValue;
     reused.planner.plan.mockImplementation(async (planning) => ({
-      plan: { ...hotPlan, operationId: planning.operationId, operation: "update", version: "2.1.0", expectedRevision: 5, currentGenerationId: planning.currentGenerationId, targetGenerationId: "sales-assistant-generation-active" },
-      sourceCommit: "a".repeat(40), generationId: "sales-assistant-generation-active"
+      plan: { ...hotPlan, operationId: planning.operationId, operation: "update", version: "2.1.0", expectedRevision: 5, currentGenerationId: planning.currentGenerationId, targetGenerationId: "fixture-assistant-generation-active" },
+      sourceCommit: "a".repeat(40), generationId: "fixture-assistant-generation-active"
     }));
     await expect(reused.value.plan(update)).rejects.toMatchObject({ code: "PLAN_MISMATCH" });
   });
 
+  it("admits lifecycle operations only for their current disposition before downstream work", async () => {
+    const active = manager();
+    active.store.inventoryValue = {
+      ...emptyInventory(), revision: 1, extensions: { platformPlugins: {}, themeSkins: {}, hotApplications: {
+        "app.fixture.assistant": {
+          disposition: "active", revision: 1, lastOperationId: "extension-operation-active", lastReceiptId: "extension-receipt-active", stateDigest: digest("9"),
+          activeGeneration: { authority: "verified-bundle", version: "1.0.0", receiptId: "extension-receipt-active", ...authority }
+        }
+      } }
+    };
+    const activeClaim = vi.spyOn(active.store, "claimOperation");
+    await expect(active.value.plan({ ...request, expectedRevision: 1, idempotencyKey: "install:app.fixture.assistant:active" })).rejects.toMatchObject({ code: "INVALID_STATE" });
+    expect(active.planner.validate).not.toHaveBeenCalled();
+    expect(active.planner.plan).not.toHaveBeenCalled();
+    expect(activeClaim).not.toHaveBeenCalled();
+    expect(active.artifacts.stage).not.toHaveBeenCalled();
+    expect(active.staticChanges.request).not.toHaveBeenCalled();
+    expect(active.deployments.request).not.toHaveBeenCalled();
+
+    const quarantined = manager();
+    quarantined.store.inventoryValue = {
+      ...emptyInventory(), revision: 2, extensions: { platformPlugins: {}, themeSkins: {}, hotApplications: {
+        "app.fixture.assistant": {
+          disposition: "quarantined", revision: 2, lastOperationId: "extension-operation-quarantined", lastReceiptId: "extension-receipt-quarantined", stateDigest: digest("8"),
+          retainedGeneration: { authority: "verified-bundle", version: "1.0.0", receiptId: "extension-receipt-quarantined", ...authority }
+        }
+      } }
+    };
+    const quarantinedClaim = vi.spyOn(quarantined.store, "claimOperation");
+    await expect(quarantined.value.plan({ ...request, expectedRevision: 2, idempotencyKey: "install:app.fixture.assistant:quarantined" })).rejects.toMatchObject({ code: "INVALID_STATE" });
+    expect(quarantined.planner.validate).not.toHaveBeenCalled();
+    expect(quarantined.planner.plan).not.toHaveBeenCalled();
+    expect(quarantinedClaim).not.toHaveBeenCalled();
+
+    const disabledUpdate = manager();
+    disabledUpdate.store.inventoryValue = {
+      ...emptyInventory(), revision: 3, extensions: { platformPlugins: {}, themeSkins: {}, hotApplications: {
+        "app.fixture.assistant": {
+          disposition: "disabled", revision: 3, lastOperationId: "extension-operation-disabled", lastReceiptId: "extension-receipt-disabled", stateDigest: digest("7"),
+          retainedGeneration: { authority: "verified-bundle", version: "1.0.0", receiptId: "extension-receipt-disabled", ...authority }
+        }
+      } }
+    };
+    const disabledUpdateClaim = vi.spyOn(disabledUpdate.store, "claimOperation");
+    await expect(disabledUpdate.value.plan({ ...request, operation: "update", targetVersion: "1.0.1", expectedRevision: 3, idempotencyKey: "update:app.fixture.assistant:disabled" })).rejects.toMatchObject({ code: "INVALID_STATE" });
+    expect(disabledUpdate.planner.validate).not.toHaveBeenCalled();
+    expect(disabledUpdate.planner.plan).not.toHaveBeenCalled();
+    expect(disabledUpdateClaim).not.toHaveBeenCalled();
+
+    const reenableAuthorizer = { authorize: vi.fn(async () => ({ actor: { kind: "trusted-automation" as const, identity: "github-actions:phase-9" }, decisionId: digest("1") })) };
+    const disabled = manager(new MemoryStore(), true, reenableAuthorizer);
+    disabled.store.inventoryValue = {
+      ...emptyInventory(), revision: 3, extensions: { platformPlugins: {}, themeSkins: {}, hotApplications: {
+        "app.fixture.assistant": {
+          disposition: "disabled", revision: 3, lastOperationId: "extension-operation-disabled", lastReceiptId: "extension-receipt-disabled", stateDigest: digest("7"),
+          retainedGeneration: { authority: "verified-bundle", version: "1.0.0", receiptId: "extension-receipt-disabled", ...authority }
+        }
+      } }
+    };
+    disabled.planner.plan.mockImplementation(async (planning) => ({
+      plan: { ...hotPlan, operationId: planning.operationId, version: planning.targetVersion, expectedRevision: planning.expectedRevision,
+        currentGenerationId: planning.currentGenerationId, targetGenerationId: "fixture-assistant-generation-1" },
+      sourceCommit: "a".repeat(40), generationId: "fixture-assistant-generation-1"
+    }));
+    const disabledClaim = vi.spyOn(disabled.store, "claimOperation");
+    await expect(disabled.value.plan({ ...request, targetVersion: "1.0.1", expectedRevision: 3, idempotencyKey: "install:app.fixture.assistant:wrong-retained-release" })).rejects.toMatchObject({ code: "PLAN_MISMATCH" });
+    expect(reenableAuthorizer.authorize).not.toHaveBeenCalled();
+    expect(disabled.planner.validate).not.toHaveBeenCalled();
+    expect(disabled.planner.plan).not.toHaveBeenCalled();
+    expect(disabledClaim).not.toHaveBeenCalled();
+
+    await expect(disabled.value.plan({ ...request, targetVersion: "1.0.0", expectedRevision: 3, idempotencyKey: "install:app.fixture.assistant:reenable" })).resolves.toMatchObject({ generationId: "fixture-assistant-generation-1" });
+    expect(reenableAuthorizer.authorize).toHaveBeenCalledWith(expect.objectContaining({ operation: "enable" }));
+  });
+
   it("rejects an otherwise-valid authority copied to another extension owner", async () => {
     const runtime = manager();
-    runtime.artifacts.stage.mockResolvedValue({ ...authority, extensionId: "app.forecast" });
+    runtime.artifacts.stage.mockResolvedValue({ ...authority, extensionId: "app.fixture.forecast" });
     const planned = await runtime.value.plan(request);
     await expect(runtime.value.stage(planned.operationId)).rejects.toMatchObject({ code: "ARTIFACT_AUTHORITY_REJECTED" });
     expect(runtime.artifacts.reverify).not.toHaveBeenCalled();
@@ -435,15 +611,31 @@ describe("PluginManager", () => {
     expect(runtime.generationRuntime.prepare).not.toHaveBeenCalled();
   });
 
+  it("reauthorizes after artifact reverify and before generation preparation", async () => {
+    let revoked = false;
+    const originalActor = { kind: "trusted-automation" as const, identity: "github-actions:phase-9" };
+    const authorizer = { authorize: vi.fn(async () => ({
+      actor: revoked ? { kind: "actor" as const, id: "user-revoked", approvalId: "approval-revoked" } : originalActor,
+      decisionId: digest(revoked ? "9" : "8")
+    })) };
+    const runtime = manager(new MemoryStore(), true, authorizer);
+    const planned = await runtime.value.plan(request);
+    await runtime.value.stage(planned.operationId);
+    runtime.artifacts.reverify.mockImplementationOnce(async () => { revoked = true; return true; });
+
+    await expect(runtime.value.activate(planned.operationId)).rejects.toMatchObject({ code: "INVALID_STATE" });
+    expect(runtime.generationRuntime.prepare).not.toHaveBeenCalled();
+  });
+
   it("reverifies and freshly warms the retained generation before the rollback pointer can change", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-29T09:00:30.000Z"));
-    const retained = { ...authority, generationId: "sales-assistant-generation-0" };
+    const retained = { ...authority, generationId: "fixture-assistant-generation-0" };
     const rollbackRequest: ExtensionChangeRequest = {
       ...request,
       operation: "rollback",
       expectedRevision: 1,
-      idempotencyKey: "rollback:app.sales-assistant:1"
+      idempotencyKey: "rollback:app.fixture.assistant:1"
     };
     const runtime = manager();
     runtime.planner.plan.mockImplementation(async (planning) => ({
@@ -454,7 +646,7 @@ describe("PluginManager", () => {
     runtime.store.inventoryValue = {
       schemaVersion: 1, applicationId: request.applicationId, environment: request.environment, hostInventoryDigest: digest("7"), revision: 1,
       observedAt: "2026-08-29T09:00:00.000Z", stateDigest: digest("8"), extensions: {
-        platformPlugins: {}, themeSkins: {}, hotApplications: { "app.sales-assistant": {
+        platformPlugins: {}, themeSkins: {}, hotApplications: { "app.fixture.assistant": {
           disposition: "active", revision: 1, lastOperationId: "extension-operation-1", lastReceiptId: "extension-receipt-1", stateDigest: digest("9"),
           activeGeneration: { authority: "verified-bundle", version: "1.0.0", receiptId: "extension-receipt-1", ...authority },
           rollbackGeneration: { authority: "verified-bundle", version: "1.0.0", receiptId: "extension-receipt-0", ...retained }
@@ -484,16 +676,16 @@ describe("PluginManager", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-29T09:00:30.000Z"));
     const runtime = manager();
-    const retained = { ...authority, generationId: "sales-assistant-generation-0" };
-    runtime.store.operation = {
+    const retained = { ...authority, generationId: "fixture-assistant-generation-0" };
+    runtime.store.operation = await boundOperation({
       operationId: "extension-operation-rollback", request: { ...request, operation: "rollback", expectedRevision: 1 }, requestDigest: digest("1"),
       authorization: { actor: { kind: "trusted-automation", identity: "github-actions:phase-9" }, decisionId: digest("2") }, phase: "planning", leaseToken: "lease-rollback",
       plan: { executionClass: "live-generation", operationId: "extension-operation-rollback", plan: { ...hotPlan, operation: "rollback", expectedRevision: 1, targetGenerationId: retained.generationId }, sourceCommit: retained.sourceCommit, generationId: retained.generationId }
-    };
+    });
     runtime.store.inventoryValue = {
       schemaVersion: 1, applicationId: request.applicationId, environment: request.environment, hostInventoryDigest: digest("7"), revision: 1,
       observedAt: "2026-08-29T09:00:00.000Z", stateDigest: digest("8"), extensions: {
-        platformPlugins: {}, themeSkins: {}, hotApplications: { "app.sales-assistant": {
+        platformPlugins: {}, themeSkins: {}, hotApplications: { "app.fixture.assistant": {
           disposition: "active", revision: 1, lastOperationId: "extension-operation-1", lastReceiptId: "extension-receipt-1", stateDigest: digest("9"),
           activeGeneration: { authority: "verified-bundle", version: "1.0.0", receiptId: "extension-receipt-1", ...authority },
           rollbackGeneration: { authority: "verified-bundle", version: "1.0.0", receiptId: "extension-receipt-0", ...retained }
@@ -527,9 +719,14 @@ describe("PluginManager", () => {
     expect(progress).toMatchObject({ operationId: planned.operationId, phase: "staged", actor: { kind: "trusted-automation" } });
     expect(progress).not.toHaveProperty("leaseToken");
 
-    runtime.store.operation = { ...runtime.store.operation!, request: { ...request, operation: "disable" }, phase: "planning" };
+    runtime.store.operation = await boundOperation({ ...runtime.store.operation!, request: { ...request, operation: "disable" }, phase: "planning" });
+    runtime.store.inventoryValue = {
+      ...emptyInventory(), revision: 1, extensions: { platformPlugins: {}, themeSkins: {}, hotApplications: {
+        "app.fixture.assistant": { disposition: "active", revision: 1, lastOperationId: "extension-operation-1", lastReceiptId: "extension-receipt-1", stateDigest: digest("9"), activeGeneration: { authority: "verified-bundle", version: "1.0.0", receiptId: "extension-receipt-1", ...authority } }
+      } }
+    };
     await expect(runtime.value.disable(planned.operationId)).resolves.toMatchObject({ disposition: "disabled" });
-    runtime.store.operation = { ...runtime.store.operation!, request: { ...request, operation: "uninstall" }, phase: "planning" };
+    runtime.store.operation = await boundOperation({ ...runtime.store.operation!, request: { ...request, operation: "uninstall" }, phase: "planning" });
     await expect(runtime.value.uninstall(planned.operationId)).resolves.toMatchObject({ disposition: "removed" });
   });
 
@@ -537,18 +734,23 @@ describe("PluginManager", () => {
     const cases = [
       { operation: "install" as const, receipt: { receiptId: "install-receipt", operation: "install" as const, generationId: authority.generationId, revisionBefore: 0, revisionAfter: 1, inventoryRevision: 1, compatibility: { status: "compatible" as const, windowId: "rollback-window-1", closesAt: "2026-08-30T09:00:00.000Z", migrationDigest: digest("6"), dataRevision: 1 }, rollback: "unavailable" as const, occurredAt: "2026-08-29T09:00:00.000Z" } },
       { operation: "update" as const, receipt: { receiptId: "update-receipt", operation: "update" as const, generationId: authority.generationId, revisionBefore: 1, revisionAfter: 2, inventoryRevision: 2, compatibility: { status: "compatible" as const, windowId: "rollback-window-1", closesAt: "2026-08-30T09:00:00.000Z", migrationDigest: digest("6"), dataRevision: 1 }, rollback: "available" as const, occurredAt: "2026-08-29T09:00:00.000Z" } },
-      { operation: "rollback" as const, receipt: { receiptId: "rollback-receipt", operation: "rollback" as const, generationId: "sales-assistant-generation-0", revisionBefore: 2, revisionAfter: 3, inventoryRevision: 3, compatibility: { status: "compatible" as const, windowId: "rollback-window-1", closesAt: "2026-08-30T09:00:00.000Z", migrationDigest: digest("6"), dataRevision: 1 }, rollback: "available" as const, occurredAt: "2026-08-29T09:00:00.000Z" } },
+      { operation: "rollback" as const, receipt: { receiptId: "rollback-receipt", operation: "rollback" as const, generationId: "fixture-assistant-generation-0", revisionBefore: 2, revisionAfter: 3, inventoryRevision: 3, compatibility: { status: "compatible" as const, windowId: "rollback-window-1", closesAt: "2026-08-30T09:00:00.000Z", migrationDigest: digest("6"), dataRevision: 1 }, rollback: "available" as const, occurredAt: "2026-08-29T09:00:00.000Z" } },
       { operation: "disable" as const, receipt: { receiptId: "disable-receipt", operation: "disable" as const, disposition: "disabled" as const, revisionBefore: 3, revisionAfter: 4, inventoryRevision: 4, occurredAt: "2026-08-29T09:00:00.000Z" } },
       { operation: "uninstall" as const, receipt: { receiptId: "uninstall-receipt", operation: "uninstall" as const, disposition: "removed" as const, revisionBefore: 4, revisionAfter: 5, inventoryRevision: 5, occurredAt: "2026-08-29T09:00:00.000Z" } }
     ];
     for (const entry of cases) {
       const runtime = manager();
-      const completedRequest = { ...request, operation: entry.operation, idempotencyKey: `${entry.operation}:app.sales-assistant:lost-response` };
+      const completedRequest = { ...request, operation: entry.operation, idempotencyKey: `${entry.operation}:app.fixture.assistant:lost-response` };
       runtime.store.operation = {
         operationId: "extension-operation-1", request: completedRequest, requestDigest: digest("1"),
         authorization: { actor: { kind: "trusted-automation", identity: "github-actions:phase-9" }, decisionId: digest("2") },
         phase: "completed", leaseToken: "completed-lease", plan: { executionClass: "live-generation", operationId: "extension-operation-1", plan: { ...hotPlan, operationId: "extension-operation-1", operation: entry.operation, targetGenerationId: authority.generationId }, sourceCommit: authority.sourceCommit, generationId: authority.generationId },
         result: { ...entry.receipt, operationId: "extension-operation-1" }
+      };
+      runtime.store.inventoryValue = entry.operation === "install" ? emptyInventory() : {
+        ...emptyInventory(), revision: 1, extensions: { platformPlugins: {}, themeSkins: {}, hotApplications: {
+          "app.fixture.assistant": { disposition: "active", revision: 1, lastOperationId: "extension-operation-1", lastReceiptId: "extension-receipt-1", stateDigest: digest("9"), activeGeneration: { authority: "verified-bundle", version: "1.0.0", receiptId: "extension-receipt-1", ...authority } }
+        } }
       };
       if (entry.operation !== "rollback") await expect(runtime.value.plan(completedRequest)).resolves.toEqual(runtime.store.operation.plan);
       const replay = entry.operation === "rollback" ? runtime.value.rollback("extension-operation-1")

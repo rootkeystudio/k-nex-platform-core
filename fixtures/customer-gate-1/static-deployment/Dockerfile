@@ -8,13 +8,17 @@ COPY static-deployment/operator-packages /tmp/operator-packages
 RUN npm install --no-save --legacy-peer-deps --ignore-scripts --no-audit --no-fund /tmp/operator-packages/*.tgz
 ARG K_NEX_SOURCE_COMMIT
 ARG K_NEX_APPLICATION_DIGEST
+ARG K_NEX_IMAGE_GENERATION
 ARG K_NEX_FIXTURE_LABEL
 LABEL org.opencontainers.image.revision=${K_NEX_SOURCE_COMMIT}
 LABEL dev.k-nex.application-digest=${K_NEX_APPLICATION_DIGEST}
+LABEL dev.k-nex.image-generation=${K_NEX_IMAGE_GENERATION}
 LABEL p9-fixture=${K_NEX_FIXTURE_LABEL}
 ENV K_NEX_SOURCE_COMMIT=${K_NEX_SOURCE_COMMIT}
 ENV K_NEX_APPLICATION_DIGEST=${K_NEX_APPLICATION_DIGEST}
+ENV K_NEX_IMAGE_GENERATION=${K_NEX_IMAGE_GENERATION}
 COPY src ./src
+COPY .k-nex/generated ./src/k-nex-generated
 COPY k-nex.app.json ./
 COPY static-deployment/tsconfig.next.json ./tsconfig.json
 COPY static-deployment/tsconfig.customer.json ./

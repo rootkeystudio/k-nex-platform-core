@@ -3,46 +3,34 @@
   "deployments": [
     {
       "applicationId": "customer-alpha",
-      "platformRelease": "0.2.0",
-      "deploymentId": "deploy:customer-alpha:2026.08",
-      "inventoryDigest": "sha256:6a750f217a4b5d2d0ee8234defbeaf2a10c812688a22649835cb60df611aebcd"
+      "platformRelease": "1.0.0",
+      "deploymentId": "deploy:customer-alpha:1.0.0",
+      "inventoryDigest": "sha256:f2a003999c4d34c1e70699685813009e108cbfcd44a153c2b54fc8dbaf1a0d82",
+      "restoreInventoryDigest": "sha256:101179fd92e6f7af66f2f9191376c196cc1c0dd8085466888178f1fb30c2b9c1"
     },
     {
       "applicationId": "customer-beta",
-      "platformRelease": "0.1.0",
-      "deploymentId": "deploy:customer-beta:2026.06",
-      "inventoryDigest": "sha256:46a82639cedd53911bb9a6a4461592dee9b89c56ec9e9298ae9500115531cf48"
+      "platformRelease": "1.0.0",
+      "deploymentId": "deploy:customer-beta:1.0.0",
+      "inventoryDigest": "sha256:b6eef4159d3a6bd209c89f7325ac25a933811b1a3967d8b8cc92d73e5b92223f",
+      "restoreInventoryDigest": "sha256:5971379e9aca49dbe3b6a3ea18e3dcffc3718c5dc4ac8fa5ec653903ac7482eb"
     }
   ],
-  "vulnerability": {
-    "package": "@k-nex/module-sales",
-    "affectedRange": "<1.0.1",
-    "targetVersion": "1.0.1",
-    "affectedApplications": [
-      "customer-alpha",
-      "customer-beta"
-    ]
-  },
-  "generatedPatchUpdates": [
-    {
-      "applicationId": "customer-alpha",
-      "repository": "rootkeystudio/customer-alpha",
-      "baseInventoryDigest": "sha256:6a750f217a4b5d2d0ee8234defbeaf2a10c812688a22649835cb60df611aebcd"
-    },
-    {
-      "applicationId": "customer-beta",
-      "repository": "rootkeystudio/customer-beta",
-      "baseInventoryDigest": "sha256:46a82639cedd53911bb9a6a4461592dee9b89c56ec9e9298ae9500115531cf48"
-    }
-  ],
-  "previousReleaseUpgrade": {
-    "applicationId": "customer-beta",
-    "postgresProof": "previous-release-upgrade-postgres.test.mjs",
-    "stepCount": 8
+  "releasePolicy": {
+    "productRelease": "1.0.0",
+    "productVersionTransitions": "none"
   },
   "restore": {
-    "applicationId": "customer-alpha",
-    "postgresProof": "backup-restore-postgres.test.mjs",
-    "expectedOperationalInventoryDigest": "sha256:8989b001a879716a4cf7e6d643bd3d98cf144fd1a08283e5adf125a5dcdf0f8c"
+    "postgresProof": "fixtures/customer-gate-1/tests/backup-restore-postgres.test.mjs",
+    "applications": [
+      {
+        "applicationId": "customer-alpha",
+        "expectedOperationalInventoryDigest": "sha256:101179fd92e6f7af66f2f9191376c196cc1c0dd8085466888178f1fb30c2b9c1"
+      },
+      {
+        "applicationId": "customer-beta",
+        "expectedOperationalInventoryDigest": "sha256:5971379e9aca49dbe3b6a3ea18e3dcffc3718c5dc4ac8fa5ec653903ac7482eb"
+      }
+    ]
   }
 }

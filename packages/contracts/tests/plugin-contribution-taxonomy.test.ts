@@ -21,7 +21,7 @@ const manifest = {
 
 describe("P6.1 plugin contribution taxonomy", () => {
   it("exposes every canonical category with its registration metadata", () => {
-    expect(pluginContributionCategoryKeys).toHaveLength(20);
+    expect(pluginContributionCategoryKeys).toHaveLength(22);
     expect(Object.keys(pluginContributionRegistry)).toEqual(pluginContributionCategoryKeys);
     for (const metadata of Object.values(pluginContributionRegistry)) {
       expect(metadata.registrationPhase).toBeTruthy();
@@ -70,5 +70,32 @@ describe("P6.1 plugin contribution taxonomy", () => {
       ...manifest,
       contributions: { lifecycle: { "sales.lifecycle.install": "required" } }
     }).success).toBe(true);
+  });
+
+  it("accepts data-only policy-binding and role-template declarations", () => {
+    expect(PluginManifestSchema.safeParse({
+      ...manifest,
+      contributions: {
+        policyBindings: { "sales.policy.tasks-read": "required" },
+        roleTemplates: { "sales.template.viewer": "optional" }
+      }
+    }).success).toBe(true);
+  });
+
+  it("rejects unknown and wrong-shaped policy-binding and role-template declarations", () => {
+    expect(PluginManifestSchema.safeParse({
+      ...manifest,
+      contributions: {
+        policyBindings: { "sales.policy.tasks-read": "required" },
+        roleTemplate: { "sales.template.viewer": "optional" }
+      }
+    }).success).toBe(false);
+    expect(PluginManifestSchema.safeParse({
+      ...manifest,
+      contributions: {
+        policyBindings: [{ id: "sales.policy.tasks-read" }],
+        roleTemplates: { "sales.template.viewer": { schemaVersion: 1 } }
+      }
+    }).success).toBe(false);
   });
 });

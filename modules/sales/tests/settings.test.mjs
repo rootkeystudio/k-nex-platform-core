@@ -18,16 +18,14 @@ test("Sales persisted settings enforce read/change permissions and drive workspa
       document = structuredClone(candidate);
       return structuredClone(document);
     }
-  });
-  const readActor = { permissions: new Set(["sales.settings.read"]) };
-  const changeActor = { permissions: new Set(["sales.settings.write"]) };
-  await assert.rejects(service.read(salesWorkspaceSettingsDefinition, { permissions: new Set() }), (error) => error.code === "ACCESS_DENIED");
+  }, { authorize: ({ operation, context }) => operation === context });
+  await assert.rejects(service.read(salesWorkspaceSettingsDefinition, "none"), (error) => error.code === "ACCESS_DENIED");
   await assert.rejects(service.change({
-    definition: salesWorkspaceSettingsDefinition, actor: readActor, expectedRevision: 3, values: document.values
+    definition: salesWorkspaceSettingsDefinition, context: "read", expectedRevision: 3, values: document.values
   }), (error) => error.code === "ACCESS_DENIED");
   const changed = await service.change({
     definition: salesWorkspaceSettingsDefinition,
-    actor: changeActor,
+    context: "change",
     expectedRevision: 3,
     values: { ...document.values, defaultTaskPageSize: 50, showPotentialRevenue: false, defaultPage: "opportunities" }
   });
@@ -35,12 +33,12 @@ test("Sales persisted settings enforce read/change permissions and drive workspa
     routeId: "sales.route.opportunities", taskPageSize: 50, showPotentialRevenue: false,
     pipelineStages: ["lead", "qualified", "won", "lost"]
   });
-  assert.equal((await service.read(salesWorkspaceSettingsDefinition, readActor)).revision, 4);
+  assert.equal((await service.read(salesWorkspaceSettingsDefinition, "read")).revision, 4);
   await assert.rejects(service.change({
-    definition: salesWorkspaceSettingsDefinition, actor: changeActor, expectedRevision: 3, values: changed.values
+    definition: salesWorkspaceSettingsDefinition, context: "change", expectedRevision: 3, values: changed.values
   }), (error) => error.code === "REVISION_CONFLICT");
   await assert.rejects(service.change({
-    definition: salesWorkspaceSettingsDefinition, actor: changeActor, expectedRevision: 4,
+    definition: salesWorkspaceSettingsDefinition, context: "change", expectedRevision: 4,
     values: { ...changed.values, apiKey: "must-never-be-a-setting" }
   }), (error) => error.code === "FIELD_UNKNOWN");
 });

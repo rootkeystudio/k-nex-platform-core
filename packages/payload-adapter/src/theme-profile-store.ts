@@ -8,8 +8,10 @@ import {
 } from "@k-nex/contracts";
 
 import type { RuntimeExtensionClock, RuntimeExtensionPool, RuntimeExtensionSession } from "./runtime-extension-store.js";
+import { createCurrentAuthorityTarget, type CurrentAuthorityAdapter } from "@k-nex/runtime";
 
 export type ThemeProfileStoreErrorCode =
+  | "ACCESS_DENIED"
   | "PROFILE_INVALID"
   | "REVISION_CONFLICT"
   | "DRAFT_CONFLICT"
@@ -52,6 +54,23 @@ interface Owner {
   readonly applicationId: string;
   readonly environment: string;
   readonly profileId: string;
+}
+
+export interface ThemeProfileAuthorizer {
+  authorize(input: Readonly<{ operation: "read" | "stage" | "publish" | "rollback"; owner: Owner }>): boolean | Promise<boolean>;
+}
+
+/** All Theme Profile mutations use the fixed platform-owned theme management permission. */
+export class CurrentAuthorityThemeProfileAuthorizer<TContext> implements ThemeProfileAuthorizer {
+  constructor(private readonly authority: CurrentAuthorityAdapter<TContext>, private readonly context: (owner: Owner) => TContext) {}
+
+  authorize(input: Parameters<ThemeProfileAuthorizer["authorize"]>[0]): Promise<boolean> {
+    return this.authority.allows(this.context(input.owner), createCurrentAuthorityTarget({
+      permissionId: "system.themes.manage",
+      scope: { kind: "application", resource: "system.themes" },
+      facts: { operation: input.operation, profileId: input.owner.profileId }
+    }));
+  }
 }
 
 function fail(code: ThemeProfileStoreErrorCode, message: string): never {
@@ -101,10 +120,15 @@ function snapshot(owner: Owner, row: PublicationRow): ThemeProfilePublicationSna
 }
 
 export class PostgresThemeProfileStore {
-  constructor(private readonly pool: RuntimeExtensionPool, private readonly clock: RuntimeExtensionClock) {}
+  constructor(
+    private readonly pool: RuntimeExtensionPool,
+    private readonly clock: RuntimeExtensionClock,
+    private readonly authorizer: ThemeProfileAuthorizer
+  ) {}
 
   async read(owner: Owner): Promise<ThemeProfilePublicationSnapshot | undefined> {
     assertOwner(owner);
+    await this.authorize("read", owner);
     const result = await this.pool.query<PublicationRow>(
       `select revision, active_revision_id, active_profile, previous_revision_id, previous_profile, draft_revision_id, draft_profile, state_digest
        from runtime_theme_profile_publications where application_id=$1 and environment=$2 and profile_id=$3`,
@@ -117,6 +141,7 @@ export class PostgresThemeProfileStore {
     const profile = parseProfile(input.profile, "draft");
     const owner = { applicationId: input.applicationId, environment: input.environment, profileId: profile.id };
     assertOwner(owner);
+    await this.authorize("stage", owner);
     return this.transaction(async (session) => {
       await this.lockOwner(session, owner);
       await session.query(
@@ -148,6 +173,7 @@ export class PostgresThemeProfileStore {
     const profile = parseProfile(input.profile, "published");
     const owner = { applicationId: input.applicationId, environment: input.environment, profileId: profile.id };
     assertOwner(owner);
+    await this.authorize("publish", owner);
     if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0 || input.expectedRevision > 999_999_999) fail("REVISION_CONFLICT", "Theme profile expected revision is invalid.");
     return this.transaction(async (session) => {
       await this.lockOwner(session, owner);
@@ -165,6 +191,7 @@ export class PostgresThemeProfileStore {
   async rollback(input: Owner & Readonly<{ expectedRevision: number }>): Promise<ThemeProfilePublicationReceipt> {
     const owner = { applicationId: input.applicationId, environment: input.environment, profileId: input.profileId };
     assertOwner(owner);
+    await this.authorize("rollback", owner);
     if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 1 || input.expectedRevision > 999_999_999) fail("REVISION_CONFLICT", "Theme profile expected revision is invalid.");
     return this.transaction(async (session) => {
       await this.lockOwner(session, owner);
@@ -268,5 +295,12 @@ export class PostgresThemeProfileStore {
     } finally {
       session.release();
     }
+  }
+
+  private async authorize(operation: "read" | "stage" | "publish" | "rollback", owner: Owner): Promise<void> {
+    try {
+      if (await this.authorizer.authorize({ operation, owner }) === true) return;
+    } catch { /* fail closed */ }
+    fail("ACCESS_DENIED", "Current authority denied the Theme Profile operation.");
   }
 }

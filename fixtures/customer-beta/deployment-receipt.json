@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "deploymentId": "deploy:customer-beta:2026.06",
+  "deploymentId": "deploy:customer-beta:1.0.0",
   "applicationId": "customer-beta",
   "environment": "staging",
-  "deployedAt": "2026-08-27T12:15:00.000Z",
+  "deployedAt": "2026-09-01T12:15:00.000Z",
   "approvedBy": {
     "kind": "workflow",
-    "identity": "rootkeystudio/k-nex-platform-core/.github/workflows/deploy.yml@1b85599d919482a16885a922d816d7a3a1006082"
+    "identity": "rootkeystudio/k-nex-platform-core/.github/workflows/deploy.yml@8aa6a9b1c5c775fcb6225b61d1c8352e9f99306e"
   },
-  "artifactDigest": "sha256:a120a0f051ab42bcd9b3e33689d489c85dc68836c19822b57df1bba00d846582",
-  "inventoryDigest": "sha256:46a82639cedd53911bb9a6a4461592dee9b89c56ec9e9298ae9500115531cf48",
-  "migrationRevision": 6,
+  "artifactDigest": "sha256:57ed06a142712bb9466d5343889d5144d405bd2d68edb68615de7f78dc27b1de",
+  "inventoryDigest": "sha256:b6eef4159d3a6bd209c89f7325ac25a933811b1a3967d8b8cc92d73e5b92223f",
+  "migrationRevision": 1,
   "smoke": {
     "status": "passed",
     "checks": [

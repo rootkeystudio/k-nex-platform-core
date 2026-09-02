@@ -43,6 +43,7 @@ export interface StaticReleaseOperator {
   validate(operation: ExtensionOperationStatus): Promise<ExtensionValidationReport>;
   execute(operation: ExtensionOperationStatus): Promise<StaticDeploymentOutcome>;
   rollback(operation: ExtensionOperationStatus): Promise<StaticDeploymentReceipt>;
+  finalize(operation: ExtensionOperationStatus): Promise<void>;
 }
 
 export interface ExtensionHealthObservation {
@@ -124,6 +125,7 @@ export class ExtensionOperatorApi {
     if (operation.plan?.executionClass !== "static-release") return this.manager.rollback(operationId);
     const receipt = await this.staticReleases.rollback(operation);
     await this.manager.completeStaticRelease(operation.operationId, receipt);
+    await this.staticReleases.finalize(operation);
     return receipt;
   }
 
@@ -180,7 +182,10 @@ export class ExtensionOperatorApi {
   }
 
   private async reconcileStatic(operation: ExtensionOperationStatus, outcome: StaticDeploymentOutcome): Promise<StaticDeploymentOutcome> {
-    if (outcome.outcome === "promoted") await this.manager.completeStaticRelease(operation.operationId, outcome.receipt);
+    if (outcome.outcome === "promoted") {
+      await this.manager.completeStaticRelease(operation.operationId, outcome.receipt);
+      await this.staticReleases.finalize(operation);
+    }
     return outcome;
   }
 }

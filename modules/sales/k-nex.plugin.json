@@ -53,6 +53,25 @@
       "sales.tasks.title.read": "required",
       "sales.tasks.write": "required"
     },
+    "policyBindings": {
+      "sales.policy.opportunities.name.read": "required",
+      "sales.policy.opportunities.read": "required",
+      "sales.policy.opportunities.stage.read": "required",
+      "sales.policy.opportunities.value.read": "required",
+      "sales.policy.opportunities.write": "required",
+      "sales.policy.tasks.private-note.read": "required",
+      "sales.policy.tasks.read": "required",
+      "sales.policy.tasks.revenue.read": "required",
+      "sales.policy.tasks.status.read": "required",
+      "sales.policy.tasks.title.read": "required",
+      "sales.policy.tasks.write": "required"
+    },
+    "roleTemplates": {
+      "sales.template.administrator": "required",
+      "sales.template.manager": "required",
+      "sales.template.representative": "required",
+      "sales.template.viewer": "required"
+    },
     "settings": {
       "sales.settings.workspace": "required"
     },

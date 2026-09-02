@@ -24,7 +24,7 @@
     {
       "id": "module.sales",
       "package": "@k-nex/module-sales",
-      "version": "0.9.0",
+      "version": "1.0.0",
       "enabled": true
     }
   ],
@@ -32,7 +32,7 @@
   "themes": {
     "active": "neobrutalism",
     "package": "@k-nex/theme-neobrutalism",
-    "version": "0.0.0"
+    "version": "1.0.0"
   },
   "development": {
     "database": {

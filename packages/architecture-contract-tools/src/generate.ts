@@ -6,6 +6,8 @@ import {
   ActionDescriptorSchema,
   AgentToolDescriptorSchema,
   ApplicationManifestSchema,
+  AuthorizationContractsSchema,
+  authorizationContractsSchemaUrl,
   canonicalJson,
   CmsPageMetadataSchema,
   DurableEventEnvelopeSchema,
@@ -16,6 +18,7 @@ import {
   ExtensionInstallPlanSchema,
   ExtensionInstallReceiptSchema,
   ExtensionLifecycleEventSchema,
+  ExtensionSharedStaticGenerationRebindEventSchema,
   ExtensionResourceBudgetSchema,
   HotApplicationManifestSchema,
   MigrationCompatibilityPlanSchema,
@@ -151,6 +154,22 @@ function pluginManifestJsonSchema(): unknown {
   return generated;
 }
 
+function hotApplicationManifestJsonSchema(): unknown {
+  const generated = jsonSchema(HotApplicationManifestSchema) as Record<string, unknown>;
+  generated.kNexHotApplicationAuthorization = true;
+  return generated;
+}
+
+function authorizationContractsJsonSchema(): unknown {
+  const generated = identifiedJsonSchema(
+    AuthorizationContractsSchema,
+    authorizationContractsSchemaUrl,
+    "K-Nex Authorization Contracts v1"
+  ) as Record<string, unknown>;
+  generated.kNexAuthorizationOwnership = true;
+  return generated;
+}
+
 function referencedDefinition(schema: Record<string, any>, property: string): Record<string, any> {
   const reference = schema.properties?.[property]?.$ref as string | undefined;
   const definition = reference?.startsWith("#/$defs/") ? schema.$defs?.[reference.slice("#/$defs/".length)] : undefined;
@@ -197,7 +216,7 @@ const primaryArtifacts = [
   { path: "schemas/action.v1.schema.json", value: jsonSchema(ActionDescriptorSchema) },
   { path: "schemas/agent-tool.v1.schema.json", value: jsonSchema(AgentToolDescriptorSchema) },
   { path: "schemas/plugin-manifest.v1.schema.json", value: pluginManifestJsonSchema() },
-  { path: "schemas/hot-application-manifest.v1.schema.json", value: jsonSchema(HotApplicationManifestSchema) },
+  { path: "schemas/hot-application-manifest.v1.schema.json", value: hotApplicationManifestJsonSchema() },
   { path: "schemas/theme-skin-manifest.v1.schema.json", value: jsonSchema(ThemeSkinManifestSchema) },
   { path: "schemas/extension-bundle-manifest.v1.schema.json", value: jsonSchema(ExtensionBundleManifestSchema) },
   { path: "schemas/extension-capability-request.v1.schema.json", value: identifiedJsonSchema(ExtensionCapabilityRequestSchema, "https://schemas.k-nex.dev/extension-capability-request/v1.json", "K-Nex Extension Capability Request v1") },
@@ -205,6 +224,7 @@ const primaryArtifacts = [
   { path: "schemas/extension-install-plan.v1.schema.json", value: jsonSchema(ExtensionInstallPlanSchema) },
   { path: "schemas/extension-install-receipt.v1.schema.json", value: jsonSchema(ExtensionInstallReceiptSchema) },
   { path: "schemas/extension-lifecycle-event.v1.schema.json", value: jsonSchema(ExtensionLifecycleEventSchema) },
+  { path: "schemas/extension-shared-static-generation-rebind-event.v1.schema.json", value: jsonSchema(ExtensionSharedStaticGenerationRebindEventSchema) },
   { path: "schemas/extension-generation.v1.schema.json", value: jsonSchema(ExtensionGenerationSchema) },
   { path: "schemas/zero-downtime-eligibility.v1.schema.json", value: jsonSchema(ZeroDowntimeEligibilitySchema) },
   { path: "schemas/remote-ui-isolation-profile.v1.schema.json", value: jsonSchema(RemoteUiIsolationProfileSchema) },
@@ -226,7 +246,8 @@ const primaryArtifacts = [
   { path: "schemas/theme-profile.v1.schema.json", value: themeProfileJsonSchema() },
   { path: "schemas/theme-profile-publication-event.v1.schema.json", value: jsonSchema(ThemeProfilePublicationEventSchema) },
   { path: "schemas/ui-document.v1.schema.json", value: uiDocumentJsonSchema() },
-  { path: "schemas/cms-page-metadata.v1.schema.json", value: cmsPageMetadataJsonSchema() }
+  { path: "schemas/cms-page-metadata.v1.schema.json", value: cmsPageMetadataJsonSchema() },
+  { path: "schemas/authorization.v1.schema.json", value: authorizationContractsJsonSchema() }
 ] satisfies readonly Artifact[];
 
 const outputContractSchemas = [

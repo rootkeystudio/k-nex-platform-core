@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  PermissionDescriptorSchema,
   PluginNavigationDescriptorSchema,
   PluginRouteDescriptorSchema,
   PluginSettingsDescriptorSchema,
@@ -23,17 +22,6 @@ const settings = {
   changePermission: "sales.settings.write",
   featureRevision: 1,
   publicationRevision: 1
-} as const;
-
-const permission = {
-  id: "sales.tasks.read",
-  ownerPluginId: "module.sales",
-  title: "Read Sales tasks",
-  description: "Read actor-authorized Sales task projections.",
-  audience: "authenticated",
-  resource: "sales.tasks",
-  operation: "read",
-  policy: { id: "sales.policy.tasks-read", scope: "record", recordScoped: true, fieldScoped: false }
 } as const;
 
 const route = {
@@ -72,14 +60,6 @@ describe("P6.3 plugin configuration contracts", () => {
     expect(PluginSettingsDescriptorSchema.safeParse({
       ...settings,
       fields: { apiToken: { type: "string", required: true } }
-    }).success).toBe(false);
-  });
-
-  it("accepts consistent permission policy metadata and rejects inconsistent field scope", () => {
-    expect(PermissionDescriptorSchema.safeParse(permission).success).toBe(true);
-    expect(PermissionDescriptorSchema.safeParse({
-      ...permission,
-      policy: { ...permission.policy, scope: "field", fieldScoped: false }
     }).success).toBe(false);
   });
 

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schemas.k-nex.dev/authorization.v1.schema.json",
+  "contract": {
+    "applicationId": "customer-alpha",
+    "authorizationRevision": 8,
+    "lifecycleRevision": 12,
+    "owner": {
+      "deliveryClass": "platform-plugin",
+      "extensionId": "module.sales.analytics",
+      "generation": "sales-generation-7",
+      "kind": "extension"
+    },
+    "runtimeGenerationIds": [
+      "sales-generation-7"
+    ],
+    "schemaVersion": 1,
+    "state": "current"
+  }
+}

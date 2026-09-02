@@ -2,67 +2,71 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { canonicalJson } from "../packages/contracts/dist/index.js";
 import { resolvePnpmLock } from "../packages/composition/dist/index.js";
-import { createDeploymentReceipt, createGitHubHostedAttestationVerifier, observeRuntimeInventory } from "../packages/runtime/dist/index.js";
-import { assertPhase8ReleaseSnapshot } from "./lib/phase-8-provenance.mjs";
+import { createDeploymentReceipt, createGitHubHostedAttestationVerifier, observeRuntimeInventory, runtimeInventoryDigest, runtimeInventoryStateDigest } from "../packages/runtime/dist/index.js";
+import { assertPhase8ReleaseSnapshot, bundledFile } from "./lib/phase-8-provenance.mjs";
 
-const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
-const sourceCommit = process.argv[2];
-if (!/^[0-9a-f]{40}$/u.test(sourceCommit)) throw new Error("A full source commit SHA is required.");
+const root = resolve(import.meta.dirname, "..");
+const evidence = resolve(root, "release-evidence/phase-8-v1");
 const sha256 = (content) => `sha256:${createHash("sha256").update(content).digest("hex")}`;
-const hostedVerifier = createGitHubHostedAttestationVerifier({ repository: "rootkeystudio/k-nex-platform-core", workflow: "release-evidence.yml", predicateType: "https://k-nex.dev/provenance/v1" });
-const bundledText = (bundle, path) => {
-  const file = bundle.files.find((entry) => entry.path === path);
-  if (file === undefined || file.digest !== sha256(Buffer.from(file.content, "base64"))) throw new Error(`Hosted bundle file is missing or invalid: ${path}`);
-  return Buffer.from(file.content, "base64").toString("utf8");
-};
+const readJson = (path) => JSON.parse(readFileSync(path, "utf8"));
+const writeJson = (path, value) => writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+const hostedVerifier = createGitHubHostedAttestationVerifier({
+  repository: "rootkeystudio/k-nex-platform-core",
+  workflow: "release-evidence.yml",
+  predicateType: "https://k-nex.dev/provenance/v1"
+});
 
-for (const [customer, target] of [["customer-alpha", false], ["customer-beta", false], ["customer-alpha", true], ["customer-beta", true]]) {
-  const root = resolve(repositoryRoot, "fixtures", customer);
-  const manifestPath = `fixtures/${customer}/k-nex.app.json`;
-  const lockPath = `fixtures/${customer}/pnpm-lock.yaml`;
-  const planPath = `fixtures/${customer}/.k-nex/application-plan.json`;
-  const hostedRoot = target ? resolve(repositoryRoot, "release-evidence/phase-8/targets", customer) :
-    resolve(repositoryRoot, "release-evidence/phase-8", customer === "customer-alpha" ? "" : "customer-beta");
-  const bundle = JSON.parse(readFileSync(resolve(hostedRoot, `${customer}.application-bundle.json`), "utf8"));
-  assert.equal(bundle.sourceCommit, sourceCommit);
-  assertPhase8ReleaseSnapshot(repositoryRoot, bundle);
-  const applicationManifest = JSON.parse(bundledText(bundle, "application/k-nex.app.json"));
-  const salesVersion = applicationManifest.plugins.find(({ id }) => id === "module.sales")?.version;
-  if (typeof salesVersion !== "string") throw new Error(`${customer} does not declare Sales.`);
-  const verification = JSON.parse(readFileSync(resolve(hostedRoot, "hosted/application-verification.json"), "utf8"));
+const deployments = [];
+for (const [customer, environment, observedAt, deployedAt] of [
+  ["customer-alpha", "production", "2026-09-01T12:00:00.000Z", "2026-09-01T12:05:00.000Z"],
+  ["customer-beta", "staging", "2026-09-01T12:10:00.000Z", "2026-09-01T12:15:00.000Z"]
+]) {
+  const customerRoot = resolve(root, "fixtures", customer);
+  const location = resolve(evidence, "customers", customer);
+  const bundle = readJson(resolve(location, `${customer}.application-bundle.json`));
+  assert.equal(bundle.release, "1.0.0");
+  assertPhase8ReleaseSnapshot(root, bundle);
+  const verification = readJson(resolve(location, "hosted/application-verification.json"));
+  assert.equal(verification.length, 1, `${customer} must have exactly one hosted application verification.`);
   const attestation = await hostedVerifier.verify(verification[0]);
+  assert.equal(bundle.sourceCommit, attestation.sourceCommit);
   const materials = new Map(attestation.materials.map(({ name, digest }) => [name, digest]));
-  const plan = JSON.parse(bundledText(bundle, "application/.k-nex/application-plan.json"));
-  const overrides = JSON.parse(readFileSync(resolve(root, "customer-overrides.json"), "utf8"));
-  const currentObservation = JSON.parse(readFileSync(resolve(root, "deployment-observation.json"), "utf8"));
-  const observation = target ? { ...currentObservation, platformRelease: "0.2.1", migrationRevision: 8,
-    deploymentId: `deploy:${customer}:security-0.2.1`, observedAt: customer === "customer-alpha" ? "2026-08-27T13:00:00.000Z" : "2026-08-27T13:10:00.000Z",
-    deployedAt: customer === "customer-alpha" ? "2026-08-27T13:05:00.000Z" : "2026-08-27T13:15:00.000Z" } : currentObservation;
-  const lockContent = bundledText(bundle, "application/pnpm-lock.yaml");
-  if (!target) {
-    assert.equal(canonicalJson(JSON.parse(readFileSync(resolve(root, "k-nex.app.json"), "utf8"))), canonicalJson(applicationManifest), `${manifestPath} differs from the signed application bundle.`);
-    assert.equal(canonicalJson(JSON.parse(readFileSync(resolve(root, ".k-nex/application-plan.json"), "utf8"))), canonicalJson(plan), `${planPath} differs from the signed application bundle.`);
-    assert.equal(readFileSync(resolve(root, "pnpm-lock.yaml"), "utf8"), lockContent, `${lockPath} differs from the signed application bundle.`);
-  }
-  assert.equal(attestation.subjectDigest, sha256(canonicalJson(bundle)));
+  const applicationManifest = bundledFile(bundle, "application/k-nex.app.json");
+  const lockContent = bundledFile(bundle, "application/pnpm-lock.yaml").toString("utf8");
+  const planContent = bundledFile(bundle, "application/.k-nex/application-plan.json").toString("utf8");
+  const sbom = readJson(resolve(location, "sbom.cdx.json"));
+  const bundleSbom = bundledFile(bundle, "evidence/sbom.cdx.json");
+  assert.equal(canonicalJson(sbom), bundleSbom.toString("utf8"), `${customer} SBOM differs from its application bundle.`);
+  assert.ok(readFileSync(resolve(customerRoot, "k-nex.app.json")).equals(applicationManifest), `${customer} manifest differs from its signed application bundle.`);
+  assert.ok(readFileSync(resolve(customerRoot, "pnpm-lock.yaml")).equals(Buffer.from(lockContent)), `${customer} lock differs from its signed application bundle.`);
+  assert.equal(canonicalJson(readJson(resolve(customerRoot, ".k-nex/application-plan.json"))), canonicalJson(JSON.parse(planContent)), `${customer} plan differs from its signed application bundle.`);
   const resolvedLock = resolvePnpmLock(lockContent);
-  const packageInventory = resolvedLock.components.map(({ name, version, integrity }) => ({ package: name, version, integrity }))
+  const packages = resolvedLock.components.map(({ name, version, integrity }) => ({ package: name, version, integrity }))
     .sort((left, right) => `${left.package}@${left.version}`.localeCompare(`${right.package}@${right.version}`));
-  assert.equal(canonicalJson(packageInventory), canonicalJson(bundle.installedPackages), `${customer} ${target ? "target" : "current"} bundle differs from its frozen lock closure.`);
+  assert.equal(canonicalJson(packages), canonicalJson(bundle.installedPackages), `${customer} bundle differs from its frozen lock closure.`);
+  assert.equal(materials.get("application-manifest"), sha256(applicationManifest));
+  assert.equal(materials.get("lockfile"), sha256(lockContent));
+  assert.equal(materials.get("resolved-graph-or-plan"), sha256(canonicalJson(JSON.parse(planContent))));
+  assert.equal(materials.get("sbom"), sha256(canonicalJson(sbom)));
+  assert.equal(materials.get("package-release-manifest"), bundle.releaseManifestDigest);
+  assert.equal(materials.get("lock-runtime-closure"), bundle.closureDigest);
+  assert.equal(materials.get("release-closure"), bundle.closureDigest);
+
+  const manifest = JSON.parse(applicationManifest.toString("utf8"));
+  const overrides = readJson(resolve(customerRoot, "customer-overrides.json"));
   const inventory = observeRuntimeInventory({
     schemaVersion: 1,
     applicationId: customer,
     repository: `rootkeystudio/${customer}`,
-    environment: observation.environment,
-    platformRelease: observation.platformRelease,
-    observedAt: observation.observedAt,
+    environment,
+    platformRelease: "1.0.0",
+    observedAt,
     artifactDigest: sha256(canonicalJson(bundle)),
     releaseEvidence: {
-      sourceCommit,
+      sourceCommit: attestation.sourceCommit,
       workflowIdentity: attestation.workflowIdentity,
       manifestDigest: materials.get("application-manifest"),
       lockfileDigest: materials.get("lockfile"),
@@ -71,20 +75,41 @@ for (const [customer, target] of [["customer-alpha", false], ["customer-beta", f
       sbomDigest: materials.get("sbom"),
       provenanceDigest: sha256(canonicalJson(attestation))
     },
-    packages: packageInventory,
-    plugins: applicationManifest.plugins,
-    migrationRevision: observation.migrationRevision,
+    packages,
+    plugins: manifest.plugins,
+    migrationRevision: bundle.targetMigrationRevision,
     settings: [{ id: "sales.settings", schemaVersion: 1, revision: 1 }],
     templates: overrides.defaultPages.map((id) => ({ id, templateVersion: 1, revision: 1 })),
-    health: { status: "ready", checks: observation.healthChecks }
+    health: { status: "ready", checks: ["database", "default-pages", "sales-registration"] }
   });
   const receipt = createDeploymentReceipt({
     inventory,
-    deploymentId: observation.deploymentId,
-    deployedAt: observation.deployedAt,
-    approvedBy: { kind: "workflow", identity: `rootkeystudio/k-nex-platform-core/.github/workflows/deploy.yml@${sourceCommit}` },
-    smoke: { status: "passed", checks: observation.smokeChecks }
+    deploymentId: `deploy:${customer}:1.0.0`,
+    deployedAt,
+    approvedBy: { kind: "workflow", identity: `rootkeystudio/k-nex-platform-core/.github/workflows/deploy.yml@${attestation.sourceCommit}` },
+    smoke: { status: "passed", checks: ["authenticated-sales", "public-shell"] }
   });
-  writeFileSync(resolve(root, target ? "security-target-runtime-inventory.json" : "runtime-inventory.json"), `${JSON.stringify(inventory, null, 2)}\n`, "utf8");
-  writeFileSync(resolve(root, target ? "security-target-deployment-receipt.json" : "deployment-receipt.json"), `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
+  const restore = {
+    schemaVersion: 1,
+    backupRestoreFixture: "fixtures/customer-gate-1/tests/backup-restore-postgres.test.mjs",
+    expectedOperationalInventoryDigest: runtimeInventoryStateDigest(inventory),
+    observation: "clean-restored PostgreSQL runtime inventory",
+    execution: "required-by-customer-postgres-suite",
+    externalEffects: "disabled-before-readiness"
+  };
+  writeJson(resolve(customerRoot, "runtime-inventory.json"), inventory);
+  writeJson(resolve(customerRoot, "deployment-receipt.json"), receipt);
+  writeJson(resolve(customerRoot, "restore-redeployment-proof.json"), restore);
+  deployments.push({ applicationId: customer, platformRelease: inventory.platformRelease, deploymentId: receipt.deploymentId, inventoryDigest: runtimeInventoryDigest(inventory), restoreInventoryDigest: restore.expectedOperationalInventoryDigest });
 }
+
+writeJson(resolve(root, "docs/implementation/phase-8-fleet-evidence.json"), {
+  schemaVersion: 1,
+  deployments,
+  releasePolicy: { productRelease: "1.0.0", productVersionTransitions: "none" },
+  restore: {
+    postgresProof: "fixtures/customer-gate-1/tests/backup-restore-postgres.test.mjs",
+    applications: deployments.map(({ applicationId, restoreInventoryDigest }) => ({ applicationId, expectedOperationalInventoryDigest: restoreInventoryDigest }))
+  }
+});
+process.stdout.write(`P8_V1_DEPLOYMENT_EVIDENCE_GENERATED ${deployments.length}\n`);

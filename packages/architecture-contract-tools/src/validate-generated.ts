@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -6,6 +6,7 @@ import {
   ActionDescriptorSchema,
   AgentToolDescriptorSchema,
   ApplicationManifestSchema,
+  AuthorizationContractsSchema,
   canonicalJson,
   CmsPageMetadataSchema,
   DurableEventEnvelopeSchema,
@@ -15,6 +16,7 @@ import {
   ExtensionInstallPlanSchema,
   ExtensionInstallReceiptSchema,
   ExtensionLifecycleEventSchema,
+  ExtensionSharedStaticGenerationRebindEventSchema,
   ExtensionResourceBudgetSchema,
   HotApplicationManifestSchema,
   isEventSecretFieldName,
@@ -41,12 +43,16 @@ import addFormatsModule from "ajv-formats";
 
 import { registerPluginContributionOwnershipKeyword } from "./plugin-contribution-ownership.js";
 import { registerMigrationRevisionKeyword } from "./migration-compatibility-plan.js";
+import { registerAuthorizationOwnershipKeyword } from "./authorization-ownership.js";
+import { registerHotApplicationAuthorizationKeyword } from "./hot-application-authorization.js";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 addFormatsModule.default(ajv);
 registerPluginContributionOwnershipKeyword(ajv);
 registerMigrationRevisionKeyword(ajv);
+registerAuthorizationOwnershipKeyword(ajv);
+registerHotApplicationAuthorizationKeyword(ajv);
 ajv.addKeyword({
   keyword: "kNexMaxCanonicalBytes",
   type: "object",
@@ -126,6 +132,7 @@ for (const relativePath of [
   "schemas/extension-install-plan.v1.schema.json",
   "schemas/extension-install-receipt.v1.schema.json",
   "schemas/extension-lifecycle-event.v1.schema.json",
+  "schemas/extension-shared-static-generation-rebind-event.v1.schema.json",
   "schemas/extension-generation.v1.schema.json",
   "schemas/zero-downtime-eligibility.v1.schema.json",
   "schemas/remote-ui-isolation-profile.v1.schema.json",
@@ -145,6 +152,7 @@ for (const relativePath of [
   "schemas/theme-profile-publication-event.v1.schema.json",
   "schemas/ui-document.v1.schema.json",
   "schemas/cms-page-metadata.v1.schema.json",
+  "schemas/authorization.v1.schema.json",
   "fixtures/actions/valid/complete.json",
   "fixtures/actions/invalid/non-canonical-id.json",
   "fixtures/agent-tools/valid/read.json",
@@ -187,6 +195,14 @@ for (const relativePath of [
   await loadCanonical(relativePath);
 }
 
+const authorizationFixtures = (await Promise.all(["valid", "invalid"].map(async (category) =>
+  (await readdir(resolve(repositoryRoot, "fixtures/contracts", category)))
+    .filter((name) => name.startsWith("authorization.") && name.endsWith(".json"))
+    .sort()
+    .map((name) => ({ path: `fixtures/contracts/${category}/${name}`, valid: category === "valid" }))
+))).flat().sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+for (const { path } of authorizationFixtures) await loadCanonical(path);
+
 const pluginSchema = await load<AnySchema>("schemas/plugin-manifest.v1.schema.json");
 const actionSchema = await load<AnySchema>("schemas/action.v1.schema.json");
 const agentToolSchema = await load<AnySchema>("schemas/agent-tool.v1.schema.json");
@@ -198,6 +214,7 @@ const themeProfileSchema = await load<AnySchema>("schemas/theme-profile.v1.schem
 const themeProfilePublicationEventSchema = await load<AnySchema>("schemas/theme-profile-publication-event.v1.schema.json");
 const uiDocumentSchema = await load<AnySchema>("schemas/ui-document.v1.schema.json");
 const cmsPageMetadataSchema = await load<AnySchema>("schemas/cms-page-metadata.v1.schema.json");
+const authorizationSchema = await load<AnySchema>("schemas/authorization.v1.schema.json");
 const validatePlugin = ajv.compile(pluginSchema);
 const validateAction = ajv.compile(actionSchema);
 const validateAgentTool = ajv.compile(agentToolSchema);
@@ -209,6 +226,7 @@ const validateThemeProfile = ajv.compile(themeProfileSchema);
 const validateThemeProfilePublicationEvent = ajv.compile(themeProfilePublicationEventSchema);
 const validateUiDocument = ajv.compile(uiDocumentSchema);
 const validateCmsPageMetadata = ajv.compile(cmsPageMetadataSchema);
+const validateAuthorization = ajv.compile(authorizationSchema);
 
 const extensionSchemas = {
   "extension-bundle-manifest": { authoring: ExtensionBundleManifestSchema, generated: "schemas/extension-bundle-manifest.v1.schema.json" },
@@ -217,6 +235,7 @@ const extensionSchemas = {
   "extension-install-plan": { authoring: ExtensionInstallPlanSchema, generated: "schemas/extension-install-plan.v1.schema.json" },
   "extension-install-receipt": { authoring: ExtensionInstallReceiptSchema, generated: "schemas/extension-install-receipt.v1.schema.json" },
   "extension-lifecycle-event": { authoring: ExtensionLifecycleEventSchema, generated: "schemas/extension-lifecycle-event.v1.schema.json" },
+  "extension-shared-static-generation-rebind-event": { authoring: ExtensionSharedStaticGenerationRebindEventSchema, generated: "schemas/extension-shared-static-generation-rebind-event.v1.schema.json" },
   "extension-resource-budget": { authoring: ExtensionResourceBudgetSchema, generated: "schemas/extension-resource-budget.v1.schema.json" },
   "hot-application-manifest": { authoring: HotApplicationManifestSchema, generated: "schemas/hot-application-manifest.v1.schema.json" },
   "migration-compatibility-plan": { authoring: MigrationCompatibilityPlanSchema, generated: "schemas/migration-compatibility-plan.v1.schema.json" },
@@ -259,6 +278,21 @@ if (!generatedContracts.artifacts.includes("schemas/theme-profile-publication-ev
 }
 if (!generatedContracts.artifacts.includes("schemas/cms-page-metadata.v1.schema.json")) {
   throw new Error("Generated artifact inventory is missing schemas/cms-page-metadata.v1.schema.json.");
+}
+if (!generatedContracts.artifacts.includes("schemas/authorization.v1.schema.json")) {
+  throw new Error("Generated artifact inventory is missing schemas/authorization.v1.schema.json.");
+}
+
+for (const fixture of authorizationFixtures) {
+  const value = await load(fixture.path);
+  const zodValid = AuthorizationContractsSchema.safeParse(value).success;
+  const jsonSchemaValid = validateAuthorization(value);
+  if (fixture.valid && (!zodValid || !jsonSchemaValid)) {
+    throw new Error(`Valid ${fixture.path} must pass both Zod and generated JSON Schema validation: ${ajv.errorsText(validateAuthorization.errors)}`);
+  }
+  if (!fixture.valid && (zodValid || jsonSchemaValid)) {
+    throw new Error(`Invalid ${fixture.path} must fail both Zod and generated JSON Schema validation.`);
+  }
 }
 for (const { generated } of Object.values(extensionSchemas)) {
   if (!generatedContracts.artifacts.includes(generated)) throw new Error(`Generated artifact inventory is missing ${generated}.`);
@@ -472,6 +506,7 @@ const extensionValidFixtures = [
   "fixtures/extensions/valid/hot-application.install-receipt.json",
   "fixtures/extensions/valid/hot-application.manifest.json",
   "fixtures/extensions/valid/extension-lifecycle-event.json",
+  "fixtures/extensions/valid/extension-shared-static-generation-rebind-event.json",
   "fixtures/extensions/valid/migration-compatibility-plan.json",
   "fixtures/extensions/valid/platform-plugin.bundle.json",
   "fixtures/extensions/valid/platform-plugin.eligibility.json",

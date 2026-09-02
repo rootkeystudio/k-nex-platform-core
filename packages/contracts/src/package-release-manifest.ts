@@ -20,15 +20,15 @@ export const PackageReleaseManifestSchema = z.strictObject({
   schemaVersion: z.literal(1),
   release: z.strictObject({
     version: ExactSemverSchema,
-    channel: z.literal("pre-v1"),
-    versioningPolicy: z.literal("semver-pre-v1"),
+    channel: z.literal("current"),
+    versioningPolicy: z.literal("semver-v1"),
     compatibilityPolicy: z.literal("exact-framework-tuple")
   }),
   framework: SupportedFrameworkTupleSchema,
   packages: z.array(ReleasePackageSchema).min(1),
   supportWindow: z.strictObject({
-    policy: z.literal("current-and-one-prior-minor"),
-    supportedReleases: uniqueArray(ExactSemverSchema).min(1).max(2),
+    policy: z.literal("single-current-release"),
+    supportedReleases: uniqueArray(ExactSemverSchema).length(1),
     securityFixes: z.literal("all-supported-releases")
   })
 }).superRefine((manifest, context) => {
@@ -38,13 +38,8 @@ export const PackageReleaseManifestSchema = z.strictObject({
     packageNames.add(entry.package);
     if (JSON.stringify(entry.peerCompatibility) !== JSON.stringify(manifest.framework)) context.addIssue({ code: "custom", path: ["packages", index, "peerCompatibility"], message: "Release package peer compatibility must equal the exact release framework tuple." });
   }
-  const [current, prior] = manifest.supportWindow.supportedReleases;
+  const [current] = manifest.supportWindow.supportedReleases;
   if (current !== manifest.release.version) context.addIssue({ code: "custom", path: ["supportWindow", "supportedReleases", 0], message: "The current supported release must equal release.version." });
-  if (prior !== undefined) {
-    const [currentMajor, currentMinor] = current!.split(".").map(Number);
-    const [priorMajor, priorMinor] = prior.split(".").map(Number);
-    if (priorMajor !== currentMajor || priorMinor !== currentMinor! - 1) context.addIssue({ code: "custom", path: ["supportWindow", "supportedReleases", 1], message: "The supported prior release must be from the immediately preceding minor in the same major line." });
-  }
 }).meta({
   $id: "https://schemas.k-nex.dev/package-release-manifest/v1.json",
   title: "K-Nex Package Release Manifest v1"

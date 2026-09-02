@@ -1,0 +1,80 @@
+{
+  "$schema": "../../../schemas/hot-application-manifest.v1.schema.json",
+  "actions": [],
+  "assets": [],
+  "capabilities": [],
+  "deliveryClass": "hot-application",
+  "displayName": "Undeclared permission",
+  "entrypoints": {
+    "server": [],
+    "ui": [
+      "ui/app.mjs"
+    ]
+  },
+  "eventSubscriptions": [],
+  "healthChecks": [],
+  "id": "app.bad",
+  "localization": [],
+  "logicFunctions": [],
+  "navigation": [],
+  "permissions": [
+    {
+      "audience": "authenticated",
+      "description": "Read app-local data.",
+      "id": "bad.tasks.read",
+      "operation": "read",
+      "publisher": {
+        "deliveryClass": "hot-application",
+        "extensionId": "app.bad",
+        "kind": "extension"
+      },
+      "resource": "bad.tasks",
+      "schemaVersion": 1,
+      "scope": "record",
+      "title": "Read tasks"
+    }
+  ],
+  "policyBindings": [
+    {
+      "failureMode": "deny",
+      "id": "bad.policy.tasks-write",
+      "permissionId": "bad.tasks.write",
+      "policyReference": "bad.policy.tasks-write",
+      "publisher": {
+        "deliveryClass": "hot-application",
+        "extensionId": "app.bad",
+        "kind": "extension"
+      },
+      "schemaVersion": 1,
+      "scope": "record",
+      "timeoutMs": 5000
+    }
+  ],
+  "resourceBudget": {
+    "maxAssetBytes": 1,
+    "maxBundleBytes": 1,
+    "maxConcurrency": 1,
+    "maxCpuMilliCores": 1,
+    "maxInputBytes": 1,
+    "maxLogBytes": 1,
+    "maxMemoryMiB": 1,
+    "maxOutputBytes": 1,
+    "maxStorageBytes": 1,
+    "maxWallTimeMs": 1
+  },
+  "runtimeAbi": "1.0.0",
+  "schedules": [],
+  "schemaVersion": 1,
+  "screens": [
+    {
+      "entrypoint": "ui/app.mjs",
+      "id": "bad.screen",
+      "route": "/"
+    }
+  ],
+  "settings": [],
+  "sources": [],
+  "storageSchemas": [],
+  "tools": [],
+  "version": "1.0.0"
+}

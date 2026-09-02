@@ -9,7 +9,7 @@ import pg from "pg";
 
 import { canonicalJson } from "@k-nex/contracts";
 import { ArtifactVerifier, buildBundle, CatalogClient, InMemoryCatalogCheckpointStore, sha256, VerifiedRemoteUiAssetService } from "@k-nex/extension-bundler";
-import { PostgresRuntimeExtensionStore, PostgresVerifiedArtifactStore } from "@k-nex/payload-adapter";
+import { AuthorizationLifecycleProjector, PostgresRuntimeExtensionStore, PostgresVerifiedArtifactStore, SharedStaticPlatformPluginGenerationRebinder } from "@k-nex/payload-adapter";
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
 const fixtureDirectory = fileURLToPath(new URL("..", import.meta.url));
@@ -20,6 +20,13 @@ const catalogKeys = generateKeyPairSync("ed25519");
 const publisher = { identity: "customer-gate-1-remote-ui-publisher", publicKey: publisherKeys.publicKey.export({ type: "spki", format: "pem" }).toString() };
 const catalogSigner = { identity: "customer-gate-1-remote-ui-catalog", publicKey: catalogKeys.publicKey.export({ type: "spki", format: "pem" }).toString() };
 const owner = { applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application", extensionId: "app.sales-live" };
+
+function lifecycleStore(pool, clock, artifacts) {
+  return new PostgresRuntimeExtensionStore(pool, clock, digest("7"), {
+    authorizationLifecycleProjector: new AuthorizationLifecycleProjector((session, transition, priorGenerationEvidence) => artifacts.resolveAuthorizationLifecycleDescriptors(session, transition, priorGenerationEvidence)),
+    sharedStaticGenerationRebinder: new SharedStaticPlatformPluginGenerationRebinder()
+  });
+}
 
 function boot(connectionString) {
   return new Promise((resolve, reject) => {
@@ -46,7 +53,7 @@ function release(generation, version, marker, compatibility = { status: "compati
   const bundle = buildBundle({
     manifest: {
       schemaVersion: 1, deliveryClass: "hot-application", id: owner.extensionId, displayName: "Sales live", version, runtimeAbi: "1.0.0",
-      entrypoints: { server: ["server/main.mjs"], ui: ["ui/main.mjs"] }, capabilities: [],
+      entrypoints: { server: ["server/main.mjs"], ui: ["ui/main.mjs"] }, capabilities: [], permissions: [], policyBindings: [],
       resourceBudget: { maxBundleBytes: 1_048_576, maxAssetBytes: 262_144, maxStorageBytes: 1_048_576, maxMemoryMiB: 128, maxCpuMilliCores: 500, maxWallTimeMs: 5_000, maxInputBytes: 65_536, maxOutputBytes: 131_072, maxLogBytes: 65_536, maxConcurrency: 4 },
       settings: [], screens: [{ id: "sales.screen", route: "/", entrypoint: "ui/main.mjs" }], navigation: [], sources: [], actions: [], tools: [], logicFunctions: [], eventSubscriptions: [], schedules: [], storageSchemas: [], assets: ["assets/marker.txt"], localization: [{ locale: "en", path: "locales/en.json" }], healthChecks: []
     },
@@ -145,8 +152,8 @@ test("PostgreSQL Remote UI reads are generation-linearized, restart-safe, and fa
   const makeArtifacts = (candidatePool) => new PostgresVerifiedArtifactStore(candidatePool, new ArtifactVerifier(new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, new InMemoryCatalogCheckpointStore(), () => now.valueOf()), { [publisher.identity]: publisher.publicKey }));
   try {
     await boot(connectionString);
-    let store = new PostgresRuntimeExtensionStore(pool, { now: () => now }, digest("7"));
     let artifacts = makeArtifacts(pool);
+    let store = lifecycleStore(pool, { now: () => now }, artifacts);
     const service = new VerifiedRemoteUiAssetService(artifacts);
     const a = release(1, "1.0.0", "verified-a");
     const b = release(2, "1.1.0", "verified-b");
@@ -170,8 +177,8 @@ test("PostgreSQL Remote UI reads are generation-linearized, restart-safe, and fa
 
     await pool.end();
     pool = new pg.Pool({ connectionString });
-    store = new PostgresRuntimeExtensionStore(pool, { now: () => now }, digest("7"));
     artifacts = makeArtifacts(pool);
+    store = lifecycleStore(pool, { now: () => now }, artifacts);
     const restartedService = new VerifiedRemoteUiAssetService(artifacts);
     assert.deepEqual(Buffer.from((await restartedService.read(assetRequest(a))).body), Buffer.from(a.marker), "a reconstructed pool/store must reverify and return the exact stored bytes");
     await Promise.all([

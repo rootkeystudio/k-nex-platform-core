@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   AuthoritativeHotApplicationRuntime,
+  createTrustedAuthorizationSession,
+  createTrustedHotApplicationInvocationContext,
   DurableDynamicArtifactPipeline,
   DurableDynamicGenerationRuntime,
   ReferenceHotApplicationGenerationWarmer,
@@ -33,7 +35,7 @@ const artifact: DurableDynamicArtifact = {
   authority, version: "1.0.0",
   hotApplicationManifest: {
     schemaVersion: 1, deliveryClass: "hot-application", id: request.extension.id, displayName: "Sales assistant", version: "1.0.0", runtimeAbi: "1.0.0",
-    entrypoints: { server: ["server/main.mjs"], ui: ["ui/main.mjs"] }, capabilities: plan.plan.requiredCapabilities, resourceBudget: plan.plan.resourceBudget,
+    entrypoints: { server: ["server/main.mjs"], ui: ["ui/main.mjs"] }, capabilities: plan.plan.requiredCapabilities, permissions: [], policyBindings: [], resourceBudget: plan.plan.resourceBudget,
     settings: [], screens: [{ id: "sales.screen", route: "/", entrypoint: "ui/main.mjs" }], navigation: [], sources: [], actions: [], tools: [], logicFunctions: [], eventSubscriptions: [], schedules: [], storageSchemas: [], assets: [], localization: [], healthChecks: []
   },
   capabilities: plan.plan.requiredCapabilities,
@@ -55,6 +57,7 @@ const productionProfile = {
   rpc: { transport: "structured-host-rpc-only", schemaValidated: true, shortLivedGenerationActorIdentity: true }
 } as const;
 const manifestCapabilities = plan.plan.requiredCapabilities;
+const capabilityAuthorization = { allowed: true, authorizationRevision: 1, lifecycleRevision: 1 } as const;
 
 function activeGeneration(authorityForGeneration = authority) {
   return { authority: "verified-bundle" as const, ...authorityForGeneration, version: "1.0.0", receiptId: "receipt-runtime-1" };
@@ -66,8 +69,17 @@ function inventory(active: ReturnType<typeof activeGeneration>) {
 
 function trafficRuntime(store: any, runner: any, tokens: any, productionArtifact: DurableDynamicArtifact) {
   return new AuthoritativeHotApplicationRuntime(store, { resolve: vi.fn(async ({ generationId }: { generationId: string }) => generationId === productionArtifact.authority.generationId ? productionArtifact : undefined) }, tokens, { isolationProfile: productionProfile, ...runner }, {
+    authorize: vi.fn(async () => capabilityAuthorization)
+  }, {
     applicationId: authority.applicationId, environment: authority.environment, appId: authority.extensionId
   }, "runtime-traffic-gateway");
+}
+
+function context(correlationId: string) {
+  return createTrustedHotApplicationInvocationContext({ session: createTrustedAuthorizationSession({
+    schemaVersion: 1, applicationId: authority.applicationId, environment: authority.environment, correlationId,
+    principal: { kind: "user", id: "user:one" }, effectiveActor: { kind: "user", id: "user:one" }
+  }), revision: { authorizationRevision: 1, lifecycleRevision: 1 } });
 }
 
 describe("durable dynamic generation adapters", () => {
@@ -137,8 +149,7 @@ describe("durable dynamic generation adapters", () => {
 
     await expect(runtime.invoke({
       input: { marker: "traffic" },
-      actor: { principalId: "user:one", effectiveActorId: "user:one" },
-      correlationId: "traffic-correlation-1",
+      context: context("traffic-correlation-1"),
       expectedGeneration: { generationId: authority.generationId, artifactDigest: authority.artifactDigest }
     })).resolves.toEqual({ generationId: authority.generationId, artifactDigest: authority.artifactDigest });
 
@@ -148,6 +159,23 @@ describe("durable dynamic generation adapters", () => {
       wallTimeMs: 5_000, inputBytes: 65_536, outputBytes: 131_072, logBytes: 65_536, maxConcurrency: 4
     } }));
     expect(leases).toEqual(["lease-00000000-0000-4000-8000-000000000000"]);
+  });
+
+  it("does not mint authorization authority from stale or mismatched durable artifacts", async () => {
+    const store = {
+      inventory: vi.fn(async () => inventory(activeGeneration())),
+      acquireGenerationLease: vi.fn(),
+      releaseGenerationLease: vi.fn()
+    };
+    const mismatches: DurableDynamicArtifact[] = [
+      { ...artifact, authority: { ...authority, artifactDigest: digest("9") } },
+      { ...artifact, authority: { ...authority, applicationId: "customer-beta" } },
+      { ...artifact, authority: { ...authority, generationId: "sales-assistant-generation-2" } }
+    ];
+    for (const mismatch of mismatches) {
+      const runtime = trafficRuntime(store, { invoke: vi.fn() }, { issue: vi.fn() }, mismatch);
+      await expect(runtime.createAuthorizationSource()).rejects.toThrow(/matching verified Hot Application bytes/u);
+    }
   });
 
   it("reselects G2 once when an unpinned lease acquisition observes a pointer switch", async () => {
@@ -167,11 +195,11 @@ describe("durable dynamic generation adapters", () => {
     };
     const artifacts = { resolve: vi.fn(async ({ generationId }: { generationId: string }) => generationId === authority.generationId ? artifact : nextArtifact) };
     const runner = { isolationProfile: productionProfile, invoke: vi.fn(async (input) => input.generationId) };
-    const runtime = new AuthoritativeHotApplicationRuntime(store as any, artifacts, { issue: vi.fn(() => "capability-token") } as any, runner, {
+    const runtime = new AuthoritativeHotApplicationRuntime(store as any, artifacts, { issue: vi.fn(() => "capability-token") } as any, runner, { authorize: vi.fn(async () => capabilityAuthorization) }, {
       applicationId: authority.applicationId, environment: authority.environment, appId: authority.extensionId
     }, "runtime-traffic-gateway");
 
-    await expect(runtime.invoke({ input: {}, actor: { principalId: "user:one", effectiveActorId: "user:one" }, correlationId: "traffic-correlation-unpinned" })).resolves.toBe(nextAuthority.generationId);
+    await expect(runtime.invoke({ input: {}, context: context("traffic-correlation-unpinned") })).resolves.toBe(nextAuthority.generationId);
     expect(store.acquireGenerationLease).toHaveBeenNthCalledWith(1, expect.objectContaining({ generationId: authority.generationId }));
     expect(store.acquireGenerationLease).toHaveBeenNthCalledWith(2, expect.objectContaining({ generationId: nextAuthority.generationId }));
     expect(artifacts.resolve).toHaveBeenNthCalledWith(1, expect.objectContaining({ generationId: authority.generationId }));
@@ -190,7 +218,7 @@ describe("durable dynamic generation adapters", () => {
     const runner = { invoke: vi.fn() };
     const runtime = trafficRuntime(store, runner, { issue: vi.fn() }, artifact);
 
-    await expect(runtime.invoke({ input: {}, actor: { principalId: "user:one", effectiveActorId: "user:one" }, correlationId: "traffic-correlation-2" })).rejects.toBe(leaseError);
+    await expect(runtime.invoke({ input: {}, context: context("traffic-correlation-2") })).rejects.toBe(leaseError);
     expect(store.acquireGenerationLease).toHaveBeenCalledTimes(1);
     expect(runner.invoke).not.toHaveBeenCalled();
   });
@@ -208,11 +236,11 @@ describe("durable dynamic generation adapters", () => {
     const artifacts = { resolve: vi.fn(async ({ generationId }: { generationId: string }) => generationId === authority.generationId
       ? artifact : nextArtifact) };
     const runner = { isolationProfile: productionProfile, invoke: vi.fn(async (input) => input.generationId) };
-    const runtime = new AuthoritativeHotApplicationRuntime(store as any, artifacts, { issue: vi.fn(() => "capability-token") } as any, runner, {
+    const runtime = new AuthoritativeHotApplicationRuntime(store as any, artifacts, { issue: vi.fn(() => "capability-token") } as any, runner, { authorize: vi.fn(async () => capabilityAuthorization) }, {
       applicationId: authority.applicationId, environment: authority.environment, appId: authority.extensionId
     }, "runtime-traffic-gateway");
 
-    await expect(runtime.invoke({ input: {}, actor: { principalId: "user:one", effectiveActorId: "user:one" }, correlationId: "traffic-correlation-3", expectedGeneration: { generationId: authority.generationId, artifactDigest: authority.artifactDigest } })).rejects.toThrow("changed after UI admission");
+    await expect(runtime.invoke({ input: {}, context: context("traffic-correlation-3"), expectedGeneration: { generationId: authority.generationId, artifactDigest: authority.artifactDigest } })).rejects.toThrow("changed after UI admission");
     expect(store.acquireGenerationLease).toHaveBeenCalledOnce();
     expect(store.acquireGenerationLease).toHaveBeenCalledWith(expect.objectContaining({ generationId: authority.generationId }));
     expect(runner.invoke).not.toHaveBeenCalled();
@@ -228,7 +256,58 @@ describe("durable dynamic generation adapters", () => {
     };
     const runtime = trafficRuntime(store, { invoke: vi.fn(async () => { throw runnerFailure; }) }, { issue: vi.fn(() => "capability-token") }, artifact);
 
-    await expect(runtime.invoke({ input: {}, actor: { principalId: "user:one", effectiveActorId: "user:one" }, correlationId: "traffic-correlation-4", expectedGeneration: { generationId: authority.generationId, artifactDigest: authority.artifactDigest } })).rejects.toBe(runnerFailure);
+    await expect(runtime.invoke({ input: {}, context: context("traffic-correlation-4"), expectedGeneration: { generationId: authority.generationId, artifactDigest: authority.artifactDigest } })).rejects.toBe(runnerFailure);
     expect(released).toEqual(["lease-00000000-0000-4000-8000-000000000000"]);
+  });
+
+  it("rejects raw or cloned invocation contexts before capability or runner work", async () => {
+    const store = { inventory: vi.fn(), acquireGenerationLease: vi.fn(), releaseGenerationLease: vi.fn() };
+    const runtime = trafficRuntime(store, { invoke: vi.fn() }, { issue: vi.fn() }, artifact);
+
+    await expect(runtime.invoke({ input: {}, context: {} as never })).rejects.toThrow(/not trusted/u);
+    await expect(runtime.invoke({ input: {}, context: structuredClone(context("traffic-correlation-cloned")) })).rejects.toThrow(/not trusted/u);
+    expect(store.inventory).not.toHaveBeenCalled();
+  });
+
+  it("intersects every declared grant before token issue, including jobs.schedule", async () => {
+    const jobs = { kind: "jobs" as const, required: false, reason: "Schedule follow-up.", operations: ["schedule"] as const, scheduleIds: ["sales.follow-up"] };
+    const constrained: DurableDynamicArtifact = {
+      ...artifact,
+      hotApplicationManifest: { ...artifact.hotApplicationManifest!, capabilities: [...artifact.hotApplicationManifest!.capabilities, jobs] }
+    };
+    const store = {
+      inventory: vi.fn(async () => inventory(activeGeneration())),
+      acquireGenerationLease: vi.fn(async () => "lease-00000000-0000-4000-8000-000000000000"),
+      releaseGenerationLease: vi.fn(async () => {})
+    };
+    const tokens = { issue: vi.fn(() => "capability-token") };
+    const capabilities = { authorize: vi.fn(async ({ grant }: { grant: { kind: string } }) => ({ ...capabilityAuthorization, allowed: grant.kind !== "jobs" })) };
+    const runner = { isolationProfile: productionProfile, invoke: vi.fn(async () => "ok") };
+    const runtime = new AuthoritativeHotApplicationRuntime(store as never, { resolve: vi.fn(async () => constrained) } as never, tokens as never, runner, capabilities, {
+      applicationId: authority.applicationId, environment: authority.environment, appId: authority.extensionId
+    }, "runtime-traffic-gateway");
+
+    await expect(runtime.invoke({ input: {}, context: context("traffic-capability-intersection") })).resolves.toBe("ok");
+    expect(capabilities.authorize).toHaveBeenCalledWith(expect.objectContaining({ grant: jobs }));
+    expect(tokens.issue).toHaveBeenCalledWith(expect.objectContaining({ grants: manifestCapabilities }));
+  });
+
+  it("fails closed when current capability decisions do not match the traffic boundary revision", async () => {
+    const store = {
+      inventory: vi.fn(async () => inventory(activeGeneration())),
+      acquireGenerationLease: vi.fn(async () => "lease-00000000-0000-4000-8000-000000000000"),
+      releaseGenerationLease: vi.fn(async () => {})
+    };
+    const tokens = { issue: vi.fn(() => "capability-token") };
+    const runner = { isolationProfile: productionProfile, invoke: vi.fn(async () => "unexpected") };
+    const runtime = new AuthoritativeHotApplicationRuntime(store as never, { resolve: vi.fn(async () => artifact) } as never, tokens as never, runner, {
+      authorize: vi.fn(async () => ({ allowed: true, authorizationRevision: 2, lifecycleRevision: 1 }))
+    }, {
+      applicationId: authority.applicationId, environment: authority.environment, appId: authority.extensionId
+    }, "runtime-traffic-gateway");
+
+    await expect(runtime.invoke({ input: {}, context: context("traffic-revision-mismatch") })).rejects.toThrow(/changed while minting/u);
+    expect(tokens.issue).not.toHaveBeenCalled();
+    expect(runner.invoke).not.toHaveBeenCalled();
   });
 });

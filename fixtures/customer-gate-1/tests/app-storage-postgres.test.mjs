@@ -287,7 +287,8 @@ test("proves revisioned, quota-limited, schema-validated, backed-up, cross-app i
     const token = tokens.issue({
       tokenId: "storage-token-1", applicationId: "customer-alpha", environment: "production", appId: "app.sales-assistant",
       generationId: "sales-assistant-generation-1", invocationId: "storage-invocation-1", actor: { principalId: "user:one", effectiveActorId: "user:one" },
-      correlationId: "storage-correlation-1", grants: [{ kind: "app-storage", required: true, reason: "Read saved sales assistant preferences.", operations: ["get"], schemaIds: ["sales.preferences"] }], ttlMs: 30_000
+      correlationId: "storage-correlation-1", grants: [{ kind: "app-storage", required: true, reason: "Read saved sales assistant preferences.", operations: ["get"], schemaIds: ["sales.preferences"] }],
+      authorizationRevision: 0, lifecycleRevision: 0, ttlMs: 30_000
     });
     const gateway = new ExtensionCapabilityGateway(tokens, createAppStorageCapabilityHandlers(storage), { reauthorize: () => true }, new InMemoryExtensionCapabilitySequenceStoreForTests(now), now, { maxInputBytes: 1024, maxOutputBytes: 2048, maxDepth: 8, maxCalls: 4 });
     await assert.rejects(gateway.invoke({

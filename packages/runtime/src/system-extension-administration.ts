@@ -1,0 +1,293 @@
+import {
+  ExtensionIdentitySchema,
+  type AuthorizationDecision,
+  type AuthorizationState,
+  type ExtensionIdentity
+} from "@k-nex/contracts";
+
+import { type AuthorizationExpectedRevision } from "./authorization-store.js";
+import { CurrentAuthorityAdapter, createCurrentAuthorityTarget } from "./current-authority-adapter.js";
+import { ExtensionOperatorApi, type ExtensionCatalogRecord, type ExtensionSystemStatus } from "./extension-operator-api.js";
+import type { ExtensionChangeRequest, ExtensionOperationStatus, PluginManagerPlan } from "./plugin-manager.js";
+
+export type SystemExtensionAdministrationErrorCode = "UNAUTHORIZED" | "REVISION_CONFLICT" | "REQUEST_INVALID" | "APPROVAL_REQUIRED";
+
+export class SystemExtensionAdministrationError extends Error {
+  constructor(readonly code: SystemExtensionAdministrationErrorCode, message: string) {
+    super(message);
+    this.name = "SystemExtensionAdministrationError";
+  }
+}
+
+/** Current PostgreSQL-backed authority/lifecycle state; this facade owns no cache or shadow revision. */
+export interface SystemExtensionAdministrationStateSource {
+  readState(applicationId: string, environment: string): Promise<AuthorizationState | undefined>;
+}
+
+export interface SystemExtensionOperationApprovalVerifier<TContext> {
+  verify(input: Readonly<{
+    context: TContext;
+    expected: SystemExtensionExpectedRevision;
+    operation: ExtensionOperationStatus;
+  }>): Promise<boolean> | boolean;
+}
+
+/** Trusted server boundary that binds the Phase 9 operator to the current opaque request context. */
+export interface SystemExtensionOperatorProvider<TContext> {
+  resolve(context: TContext): Promise<ExtensionOperatorApi | undefined> | ExtensionOperatorApi | undefined;
+}
+
+export interface SystemExtensionAdministrationOptions<TContext> {
+  readonly operator: SystemExtensionOperatorProvider<TContext>;
+  readonly authority: CurrentAuthorityAdapter<TContext>;
+  readonly state: SystemExtensionAdministrationStateSource;
+  readonly approval?: SystemExtensionOperationApprovalVerifier<TContext>;
+}
+
+export interface SystemExtensionExpectedRevision extends AuthorizationExpectedRevision {
+  readonly extensionRevision: number;
+}
+
+export type SystemExtensionDisplay =
+  | Readonly<{ readonly outcome: "install-live"; readonly deliveryClass: "hot-application" | "theme-skin" }>
+  | Readonly<{ readonly outcome: "no-outage-deployment"; readonly deliveryClass: "platform-plugin" }>
+  | Readonly<{ readonly outcome: "maintenance-required"; readonly deliveryClass: "platform-plugin"; readonly reasons: readonly string[] }>
+  | Readonly<{ readonly outcome: "unsupported"; readonly deliveryClass: "platform-plugin"; readonly reasons: readonly string[] }>;
+
+export interface SystemExtensionPlan {
+  readonly operationId: string;
+  readonly executionClass: PluginManagerPlan["executionClass"];
+  /** The manager's canonical plan is the impact preview; no client reclassifies it. */
+  readonly impact: PluginManagerPlan["plan"];
+  readonly approvalRequired: boolean;
+  readonly display: SystemExtensionDisplay;
+}
+
+export interface SystemExtensionExecution {
+  readonly result: Awaited<ReturnType<ExtensionOperatorApi["activate"]>>;
+  readonly status: SystemExtensionOperationStatus;
+}
+
+/** Deliberately excludes the persisted actor, approval ID, request digest, and idempotency key. */
+export interface SystemExtensionOperationStatus {
+  readonly operationId: string;
+  readonly operation: ExtensionChangeRequest["operation"];
+  readonly extension: ExtensionIdentity;
+  readonly phase: ExtensionOperationStatus["phase"];
+  readonly executionClass?: PluginManagerPlan["executionClass"];
+  readonly approvalRequired?: boolean;
+  readonly result?: ExtensionOperationStatus["result"];
+}
+
+const readTarget = createCurrentAuthorityTarget({
+  permissionId: "system.extensions.read",
+  scope: { kind: "application", resource: "system.extensions" },
+  facts: { boundary: "system-extension-administration" }
+});
+const planTarget = createCurrentAuthorityTarget({
+  permissionId: "system.extensions.plan",
+  scope: { kind: "application", resource: "system.extensions" },
+  facts: { boundary: "system-extension-administration" }
+});
+
+/**
+ * Server-only facade for `/system/extensions`. Client input never supplies an
+ * authority target, actor, approval, application owner, or lifecycle scope.
+ */
+export class SystemExtensionAdministrationService<TContext> {
+  constructor(private readonly options: SystemExtensionAdministrationOptions<TContext>) {}
+
+  async list(input: Readonly<{ readonly context: TContext; readonly includeUnavailable?: boolean }>): Promise<readonly ExtensionCatalogRecord[]> {
+    exactInput(input, ["context", "includeUnavailable"], ["includeUnavailable"]);
+    if (input.includeUnavailable !== undefined && typeof input.includeUnavailable !== "boolean") invalid("Extension catalog input is invalid.");
+    await this.readDecision(input.context);
+    return (await this.operator(input.context)).catalogList(input.includeUnavailable === true ? { includeUnavailable: true } : {});
+  }
+
+  async detail(input: Readonly<{ readonly context: TContext; readonly extension: unknown; readonly version: string }>): Promise<ExtensionCatalogRecord | undefined> {
+    exactInput(input, ["context", "extension", "version"]);
+    const extension = ExtensionIdentitySchema.safeParse(input.extension);
+    if (!extension.success || typeof input.version !== "string") invalid("Extension catalog detail is invalid.");
+    await this.readDecision(input.context);
+    return (await this.operator(input.context)).catalogDetail(extension.data, input.version);
+  }
+
+  async status(input: Readonly<{ readonly context: TContext }>): Promise<ExtensionSystemStatus> {
+    exactInput(input, ["context"]);
+    const decision = await this.readDecision(input.context);
+    return (await this.operator(input.context)).status(decision.applicationId, decision.environment);
+  }
+
+  async operationStatus(input: Readonly<{ readonly context: TContext; readonly operationId: string }>): Promise<SystemExtensionOperationStatus> {
+    exactInput(input, ["context", "operationId"]);
+    if (!validId(input.operationId)) invalid("Extension operation ID is invalid.");
+    const decision = await this.readDecision(input.context);
+    const operation = await (await this.operator(input.context)).operation(input.operationId);
+    if (operation.request.applicationId !== decision.applicationId || operation.request.environment !== decision.environment) unauthorized();
+    return operationStatus(operation);
+  }
+
+  async plan(input: Readonly<{ readonly context: TContext; readonly expected: unknown; readonly request: unknown }>): Promise<SystemExtensionPlan> {
+    exactInput(input, ["context", "expected", "request"]);
+    const expected = parseExpected(input.expected);
+    const request = parseRequest(input.request, expected);
+    await this.planDecision(input.context, expected);
+    const operator = await this.operator(input.context);
+    await this.current(expected, operator);
+    const plan = await operator.plan(request);
+    return Object.freeze({
+      operationId: plan.operationId,
+      executionClass: plan.executionClass,
+      impact: plan.plan,
+      approvalRequired: plan.plan.approvalRequired,
+      display: display(plan)
+    });
+  }
+
+  async execute(input: Readonly<{ readonly context: TContext; readonly expected: unknown; readonly operationId: string }>): Promise<SystemExtensionExecution> {
+    exactInput(input, ["context", "expected", "operationId"]);
+    const expected = parseExpected(input.expected);
+    if (!validId(input.operationId)) invalid("Extension operation ID is invalid.");
+    await this.planDecision(input.context, expected);
+    const operator = await this.operator(input.context);
+    await this.current(expected, operator);
+    const operation = await operator.operation(input.operationId);
+    if (operation.request.applicationId !== expected.applicationId || operation.request.environment !== expected.environment ||
+      operation.request.expectedRevision !== expected.extensionRevision || !operation.plan) conflict("Extension operation is stale or unavailable.");
+    if (operation.plan.plan.approvalRequired) {
+      if (!this.options.approval || !await this.options.approval.verify({ context: input.context, expected, operation })) {
+        throw new SystemExtensionAdministrationError("APPROVAL_REQUIRED", "A server-verified approval is required for this extension operation.");
+      }
+    }
+    await this.current(expected, operator);
+    const result = await execute(operator, operation);
+    return Object.freeze({ result, status: operationStatus(await operator.operation(operation.operationId)) });
+  }
+
+  private async readDecision(context: TContext): Promise<AuthorizationDecision> {
+    const decision = await this.options.authority.authorize(context, readTarget);
+    if (!allowsRead(decision)) unauthorized();
+    const current = await this.options.state.readState(decision.applicationId, decision.environment);
+    if (!current || current.authorizationRevision !== decision.authorizationRevision || current.lifecycleRevision !== decision.lifecycleRevision) conflict("Authorization state changed before extension administration.");
+    return decision;
+  }
+
+  private async operator(context: TContext): Promise<ExtensionOperatorApi> {
+    try {
+      const operator = await this.options.operator.resolve(context);
+      if (!operator) unauthorized();
+      return operator;
+    } catch {
+      unauthorized();
+    }
+  }
+
+  private async current(expected: SystemExtensionExpectedRevision, operator: ExtensionOperatorApi): Promise<void> {
+    const [current, status] = await Promise.all([
+      this.options.state.readState(expected.applicationId, expected.environment),
+      operator.status(expected.applicationId, expected.environment)
+    ]);
+    if (!current || current.authorizationRevision !== expected.authorizationRevision || current.lifecycleRevision !== expected.lifecycleRevision) {
+      conflict("Authorization or lifecycle state changed before extension operation.");
+    }
+    if (status.inventory.revision !== expected.extensionRevision) conflict("Extension inventory changed before extension operation.");
+  }
+
+  private async planDecision(context: TContext, expected: SystemExtensionExpectedRevision): Promise<void> {
+    const decision = await this.options.authority.authorize(context, planTarget);
+    if (!allowsPlan(decision) || decision.applicationId !== expected.applicationId || decision.environment !== expected.environment) unauthorized();
+    if (decision.authorizationRevision !== expected.authorizationRevision || decision.lifecycleRevision !== expected.lifecycleRevision) {
+      conflict("Authorization decision is stale for extension planning.");
+    }
+  }
+}
+
+async function execute(operator: ExtensionOperatorApi, operation: ExtensionOperationStatus): Promise<Awaited<ReturnType<ExtensionOperatorApi["activate"]>>> {
+  switch (operation.request.operation) {
+    case "install":
+    case "update": return operator.activate(operation.operationId);
+    case "rollback": return operator.rollback(operation.operationId);
+    case "disable": return operator.disable(operation.operationId);
+    case "uninstall": return operator.uninstall(operation.operationId);
+  }
+}
+
+function display(plan: PluginManagerPlan): SystemExtensionDisplay {
+  const impact = plan.plan;
+  if (impact.deliveryClass === "hot-application" || impact.deliveryClass === "theme-skin") {
+    return Object.freeze({ outcome: "install-live", deliveryClass: impact.deliveryClass });
+  }
+  switch (impact.availability.outcome) {
+    case "zero-downtime-eligible": return Object.freeze({ outcome: "no-outage-deployment", deliveryClass: "platform-plugin" });
+    case "maintenance-required": return Object.freeze({ outcome: "maintenance-required", deliveryClass: "platform-plugin", reasons: impact.availability.reasons });
+    case "unsupported": return Object.freeze({ outcome: "unsupported", deliveryClass: "platform-plugin", reasons: impact.availability.reasons });
+  }
+}
+
+function operationStatus(operation: ExtensionOperationStatus): SystemExtensionOperationStatus {
+  return Object.freeze({
+    operationId: operation.operationId,
+    operation: operation.request.operation,
+    extension: Object.freeze({ ...operation.request.extension }),
+    phase: operation.phase,
+    ...(operation.plan ? { executionClass: operation.plan.executionClass, approvalRequired: operation.plan.plan.approvalRequired } : {}),
+    ...(operation.result ? { result: operation.result } : {})
+  });
+}
+
+function parseExpected(value: unknown): SystemExtensionExpectedRevision {
+  const input = exactObject(value, ["applicationId", "authorizationRevision", "environment", "extensionRevision", "lifecycleRevision"]);
+  if (!validOwner(input.applicationId) || !validOwnerEnvironment(input.environment) || !revision(input.authorizationRevision) || !revision(input.lifecycleRevision) || !revision(input.extensionRevision)) {
+    conflict("Extension administration expected revision is invalid.");
+  }
+  return Object.freeze({ applicationId: input.applicationId, environment: input.environment, authorizationRevision: input.authorizationRevision, lifecycleRevision: input.lifecycleRevision, extensionRevision: input.extensionRevision });
+}
+
+function parseRequest(value: unknown, expected: SystemExtensionExpectedRevision): ExtensionChangeRequest {
+  const input = exactObject(value, ["extension", "idempotencyKey", "operation", "targetVersion"]);
+  const extension = ExtensionIdentitySchema.safeParse(input.extension);
+  const operation = input.operation;
+  const targetVersion = input.targetVersion;
+  const idempotencyKey = input.idempotencyKey;
+  if (!extension.success || typeof operation !== "string" || !["install", "update", "disable", "rollback", "uninstall"].includes(operation) || typeof targetVersion !== "string" ||
+    typeof idempotencyKey !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$/u.test(idempotencyKey)) invalid("Extension lifecycle request is invalid.");
+  return Object.freeze({
+    applicationId: expected.applicationId,
+    environment: expected.environment,
+    extension: extension.data,
+    operation: operation as ExtensionChangeRequest["operation"],
+    targetVersion,
+    expectedRevision: expected.extensionRevision,
+    idempotencyKey,
+    correlationId: "system-extension-administration"
+  });
+}
+
+function allowsRead(decision: AuthorizationDecision | undefined): decision is AuthorizationDecision {
+  return decision?.outcome === "allow" && decision.permissionId === readTarget.permissionId && decision.scope.kind === "application" &&
+    decision.scope.resource === "system.extensions";
+}
+
+function allowsPlan(decision: AuthorizationDecision | undefined): decision is AuthorizationDecision {
+  return decision?.outcome === "allow" && decision.permissionId === planTarget.permissionId && decision.scope.kind === "application" &&
+    decision.scope.resource === "system.extensions";
+}
+
+function exactInput(value: unknown, keys: readonly string[], optional: readonly string[] = []): void { exactObject(value, keys, optional); }
+
+function exactObject(value: unknown, keys: readonly string[], optional: readonly string[] = []): Readonly<Record<string, unknown>> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) invalid("Extension administration input is invalid.");
+  const input = value as Readonly<Record<string, unknown>>;
+  const actual = Object.keys(input).sort();
+  const allowed = [...keys].sort();
+  if (actual.some((key) => !allowed.includes(key)) || keys.some((key) => !optional.includes(key) && !(key in input))) invalid("Extension administration input is invalid.");
+  return input;
+}
+
+function validOwner(value: unknown): value is string { return typeof value === "string" && /^[a-z][a-z0-9-]{2,127}$/u.test(value); }
+function validOwnerEnvironment(value: unknown): value is string { return typeof value === "string" && /^[a-z][a-z0-9-]{1,63}$/u.test(value); }
+function revision(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value >= 0; }
+function validId(value: string): boolean { return /^[a-z][a-z0-9-]{2,127}$/u.test(value); }
+function invalid(message: string): never { throw new SystemExtensionAdministrationError("REQUEST_INVALID", message); }
+function conflict(message: string): never { throw new SystemExtensionAdministrationError("REVISION_CONFLICT", message); }
+function unauthorized(): never { throw new SystemExtensionAdministrationError("UNAUTHORIZED", "Current authority does not permit extension administration."); }

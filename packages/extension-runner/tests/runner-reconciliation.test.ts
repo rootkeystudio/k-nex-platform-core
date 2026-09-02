@@ -19,6 +19,8 @@ function request(overrides: Record<string, unknown> = {}) {
     invocationId: "runner-invocation-restart",
     drainLeaseId,
     token: "x".repeat(32),
+    authorizationRevision: 0,
+    lifecycleRevision: 0,
     input: {},
     limits: { cpuMilliCores: 1, memoryMiB: 16, processes: 1, openFiles: 16, tempBytes: 4096, wallTimeMs: 1, inputBytes: 1024, outputBytes: 1024, logBytes: 1024, maxConcurrency: 1 },
     ...overrides
@@ -30,7 +32,7 @@ function runner(
   tokenLeaseId = drainLeaseId,
   supervisorIdentity = "runner-supervisor-alpha"
 ) {
-  return new DockerHotApplicationSandboxSupervisor({ assertInvocationIdentity() { return { drainLeaseId: tokenLeaseId }; } } as never, { async quarantine() {} }, authority, { async started() {}, async stopped() {} }, { async load() { throw new Error("artifact reads must not run"); } } as never, dockerAppArmorPolicy, supervisorIdentity);
+  return new DockerHotApplicationSandboxSupervisor({ assertInvocationIdentity() { return { drainLeaseId: tokenLeaseId, authorizationRevision: 0, lifecycleRevision: 0 }; } } as never, { async quarantine() {} }, authority, { async started() {}, async stopped() {} }, { async load() { throw new Error("artifact reads must not run"); } } as never, dockerAppArmorPolicy, supervisorIdentity);
 }
 
 function child() {
@@ -315,6 +317,125 @@ describe("runner startup reconciliation", () => {
     expect(supervisor.runContainer).not.toHaveBeenCalled();
   });
 
+  it("does not launch or hand off source when authorization advances after final admission", async () => {
+    let supervisor: any;
+    const admit = vi.fn(async () => {
+      if (admit.mock.calls.length === 2) {
+        supervisor.invalidateAuthorization({ applicationId: orphan.applicationId, environment: orphan.environment, scope: "application", authorizationRevision: 1, lifecycleRevision: 0 });
+      }
+      return true;
+    });
+    supervisor = runner({ active: async () => false, admit }) as any;
+    supervisor.dockerOutput = vi.fn(async () => "");
+    supervisor.artifacts = { load: vi.fn(async () => ({ source: "export default () => null" })) };
+    supervisor.runContainer = vi.fn(async () => ({ stale: true }));
+
+    await expect(supervisor.invoke(request({ invocationId: "runner-revoked-after-final-admission", limits: { ...request().limits, wallTimeMs: 10_000 } }))).rejects.toMatchObject({ code: "AUTHORIZATION_REVOKED" });
+    expect(admit).toHaveBeenCalledTimes(2);
+    expect(supervisor.runContainer).not.toHaveBeenCalled();
+  });
+
+  it("revokes only active work for an advanced authorization revision without quarantining the generation", async () => {
+    const supervisor = runner({ active: async () => false, admit: async () => true }) as any;
+    const quarantine = vi.fn();
+    supervisor.quarantineSink = { quarantine };
+    supervisor.kill = vi.fn(async () => {});
+    const matchingProcess = child();
+    const environmentProcess = child();
+    const applicationProcess = child();
+    const matching = { ...request({ invocationId: "runner-revoked-active", limits: { ...request().limits, wallTimeMs: 10_000 } }), ...orphan, source: "export default () => null" };
+    const otherEnvironment = { ...matching, owner: { ...matching.owner, environment: "staging" }, environment: "staging", invocationId: "runner-revoked-staging" };
+    const otherApplication = { ...matching, owner: { ...matching.owner, applicationId: "customer-bravo" }, applicationId: "customer-bravo", invocationId: "runner-revoked-other-application" };
+    const matchingOutcome = supervisor.exchange(matchingProcess, matching, "runner-revoked-active", 10_000, vi.fn());
+    const environmentOutcome = supervisor.exchange(environmentProcess, otherEnvironment, "runner-revoked-staging", 10_000, vi.fn());
+    const applicationOutcome = supervisor.exchange(applicationProcess, otherApplication, "runner-revoked-other-application", 10_000, vi.fn());
+
+    await acknowledge(supervisor, matchingProcess, matching.invocationId);
+    await acknowledge(supervisor, environmentProcess, otherEnvironment.invocationId);
+    await acknowledge(supervisor, applicationProcess, otherApplication.invocationId);
+    const invalidation = { applicationId: orphan.applicationId, environment: orphan.environment, scope: "application" as const, authorizationRevision: 7, lifecycleRevision: 4 };
+    expect(supervisor.invalidateAuthorization(invalidation)).toBe(true);
+    expect(supervisor.invalidateAuthorization(invalidation)).toBe(false);
+    matchingProcess.emit("close", 137);
+
+    await expect(matchingOutcome).rejects.toMatchObject({ code: "AUTHORIZATION_REVOKED" });
+    expect(supervisor.health(orphan)).toMatchObject({ accepting: true, quarantined: false, failures: 0 });
+    expect(quarantine).not.toHaveBeenCalled();
+
+    environmentProcess.emit("close", 137);
+    applicationProcess.stdout.write(`${frame("result", { invocationId: otherApplication.invocationId, ok: true, output: { application: "survived" } })}\n`);
+    applicationProcess.emit("close", 0);
+    await expect(environmentOutcome).rejects.toMatchObject({ code: "AUTHORIZATION_REVOKED" });
+    await expect(applicationOutcome).resolves.toEqual({ application: "survived" });
+
+    supervisor.dockerOutput = vi.fn(async () => "");
+    supervisor.artifacts = { load: vi.fn(async () => ({ source: "export default () => null" })) };
+    supervisor.runContainer = vi.fn(async () => ({ newlyAuthorized: true }));
+    supervisor.gateway = { assertInvocationIdentity() { return { drainLeaseId, authorizationRevision: 7, lifecycleRevision: 4 }; } };
+    await expect(supervisor.invoke(request({ invocationId: "runner-newly-authorized", authorizationRevision: 7, lifecycleRevision: 4, limits: { ...request().limits, wallTimeMs: 10_000 } }))).resolves.toEqual({ newlyAuthorized: true });
+
+    const lifecycleProcess = child();
+    const lifecycleInvocation = { ...matching, invocationId: "runner-lifecycle-revoked", authorizationRevision: 7, lifecycleRevision: 4 };
+    const lifecycleOutcome = supervisor.exchange(lifecycleProcess, lifecycleInvocation, "runner-lifecycle-revoked", 10_000, vi.fn());
+    await acknowledge(supervisor, lifecycleProcess, lifecycleInvocation.invocationId);
+    const lifecycleInvalidation = { ...invalidation, scope: "environment" as const, lifecycleRevision: 5 };
+    expect(supervisor.invalidateAuthorization(lifecycleInvalidation)).toBe(true);
+    expect(supervisor.invalidateAuthorization(lifecycleInvalidation)).toBe(false);
+    expect(supervisor.invalidateAuthorization({ ...lifecycleInvalidation, authorizationRevision: 6 })).toBe(false);
+    lifecycleProcess.emit("close", 137);
+    await expect(lifecycleOutcome).rejects.toMatchObject({ code: "AUTHORIZATION_REVOKED" });
+  });
+
+  it("does not launch an invocation when authorization revokes during its artifact read", async () => {
+    const supervisor = runner({ active: async () => false, admit: async () => true }) as any;
+    const source = deferred<{ source: string }>();
+    supervisor.dockerOutput = vi.fn(async () => "");
+    supervisor.artifacts = { load: vi.fn(() => source.promise) };
+    supervisor.runContainer = vi.fn(async () => null);
+    const invocation = supervisor.invoke(request({ invocationId: "runner-revoked-before-launch", limits: { ...request().limits, wallTimeMs: 10_000 } }));
+
+    await vi.waitFor(() => expect(supervisor.artifacts.load).toHaveBeenCalledOnce());
+    expect(supervisor.invalidateAuthorization({ applicationId: orphan.applicationId, environment: orphan.environment, scope: "environment", authorizationRevision: 0, lifecycleRevision: 1 })).toBe(true);
+    source.resolve({ source: "export default () => null" });
+
+    await expect(invocation).rejects.toMatchObject({ code: "AUTHORIZATION_REVOKED" });
+    expect(supervisor.runContainer).not.toHaveBeenCalled();
+    expect(supervisor.health(orphan)).toMatchObject({ accepting: true, quarantined: false, failures: 0 });
+  });
+
+  it("rejects a stale token at an already-observed authorization floor before artifact work and preserves the next revision", async () => {
+    const supervisor = runner({ active: async () => false, admit: async () => true }) as any;
+    supervisor.dockerOutput = vi.fn(async () => "");
+    supervisor.artifacts = { load: vi.fn(async () => ({ source: "export default () => null" })) };
+    supervisor.runContainer = vi.fn(async () => ({ current: true }));
+    expect(supervisor.invalidateAuthorization({ applicationId: orphan.applicationId, environment: orphan.environment, scope: "application", authorizationRevision: 4, lifecycleRevision: 2 })).toBe(true);
+
+    supervisor.gateway = { assertInvocationIdentity() { return { drainLeaseId, authorizationRevision: 3, lifecycleRevision: 2 }; } };
+    await expect(supervisor.invoke(request({ authorizationRevision: 3, lifecycleRevision: 2, limits: { ...request().limits, wallTimeMs: 10_000 } }))).rejects.toMatchObject({ code: "AUTHORIZATION_REVOKED" });
+    expect(supervisor.artifacts.load).not.toHaveBeenCalled();
+
+    supervisor.gateway = { assertInvocationIdentity() { return { drainLeaseId, authorizationRevision: 4, lifecycleRevision: 2 }; } };
+    await expect(supervisor.invoke(request({ invocationId: "runner-current-after-floor", authorizationRevision: 4, lifecycleRevision: 2, limits: { ...request().limits, wallTimeMs: 10_000 } }))).resolves.toEqual({ current: true });
+    expect(supervisor.artifacts.load).toHaveBeenCalledOnce();
+  });
+
+  it("cancels an invocation invalidated after runner registration and before source handoff", async () => {
+    const supervisor = runner({ active: async () => false, admit: async () => true }) as any;
+    const process = child();
+    const writes: string[] = [];
+    process.stdin.on("data", (chunk: Buffer) => { writes.push(chunk.toString("utf8")); });
+    process.kill = vi.fn(() => { process.emit("close", 137); return true; });
+    supervisor.kill = vi.fn(async () => {});
+    const invocation = { ...request({ invocationId: "runner-revoked-before-handoff", limits: { ...request().limits, wallTimeMs: 10_000 } }), ...orphan, source: "export default () => null" };
+    const outcome = supervisor.exchange(process, invocation, "runner-revoked-before-handoff", 10_000, vi.fn());
+
+    expect(supervisor.invalidateAuthorization({ applicationId: orphan.applicationId, environment: orphan.environment, scope: "application", authorizationRevision: 1, lifecycleRevision: 0 })).toBe(true);
+    process.emit("spawn");
+
+    await expect(outcome).rejects.toMatchObject({ code: "AUTHORIZATION_REVOKED" });
+    expect(writes).toEqual([]);
+  });
+
   it("does not write an invoke frame when deferred inspection resolves after timeout", async () => {
     vi.useFakeTimers();
     try {
@@ -537,7 +658,7 @@ describe("runner startup reconciliation", () => {
       capabilitySignal = signal;
       return capability.promise;
     });
-    supervisor.gateway = { assertInvocationIdentity() { return { drainLeaseId }; }, invoke };
+    supervisor.gateway = { assertInvocationIdentity() { return { drainLeaseId, authorizationRevision: 0, lifecycleRevision: 0 }; }, invoke };
     supervisor.dockerOutput = vi.fn(async () => "");
     supervisor.artifacts = { load: vi.fn(async () => ({ source: "export default () => null" })) };
     supervisor.inspectSecurity = vi.fn(async () => {});
@@ -622,6 +743,33 @@ describe("runner startup reconciliation", () => {
     await expect(successError).resolves.toMatchObject({ code: "GENERATION_QUARANTINED" });
     await expect(violationError).resolves.toMatchObject({ code: "POLICY_VIOLATION" });
     expect(supervisor.observationSink.stopped).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not return a completed result when authorization or lifecycle revision revokes during stop observation", async () => {
+    const supervisor = runner({ active: async () => false, admit: async () => true }) as any;
+    const process = child();
+    const stopped = deferred<void>();
+    supervisor.dockerOutput = vi.fn(async () => "");
+    supervisor.artifacts = { load: vi.fn(async () => ({ source: "export default () => null" })) };
+    supervisor.inspectSecurity = vi.fn(async () => {});
+    supervisor.observationSink = { async started() {}, stopped: vi.fn(() => stopped.promise) };
+    supervisor.kill = vi.fn(async () => {});
+    supervisor.runContainer = vi.fn((invocation: unknown, containerName: string, workloadUser: number) => supervisor.exchange(process, invocation, containerName, workloadUser, vi.fn()));
+
+    const outcome = supervisor.invoke(request({ invocationId: "runner-stop-race-revoked", limits: { ...request().limits, wallTimeMs: 10_000 } }));
+    await vi.waitFor(() => expect(supervisor.runContainer).toHaveBeenCalledOnce());
+    process.emit("spawn");
+    await vi.waitFor(() => expect(process.stdin.readableLength).toBeGreaterThan(0));
+    process.stdout.write(`${invocationAcknowledgement("runner-stop-race-revoked")}\n${frame("result", { invocationId: "runner-stop-race-revoked", ok: true, output: { done: true } })}\n`);
+    process.emit("close", 0);
+    await vi.waitFor(() => expect(supervisor.observationSink.stopped).toHaveBeenCalledOnce());
+
+    expect(supervisor.invalidateAuthorization({ applicationId: orphan.applicationId, environment: orphan.environment, scope: "application", authorizationRevision: 1, lifecycleRevision: 0 })).toBe(true);
+    expect(supervisor.invalidateAuthorization({ applicationId: orphan.applicationId, environment: orphan.environment, scope: "environment", authorizationRevision: 1, lifecycleRevision: 1 })).toBe(true);
+    stopped.resolve();
+
+    await expect(outcome).rejects.toMatchObject({ code: "AUTHORIZATION_REVOKED" });
+    expect(supervisor.health(orphan)).toMatchObject({ accepting: true, quarantined: false, failures: 0 });
   });
 
   it("treats rejected start observation as host-only policy failure before source handoff", async () => {

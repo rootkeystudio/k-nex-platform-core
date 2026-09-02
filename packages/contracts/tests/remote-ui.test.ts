@@ -25,6 +25,10 @@ describe("remote UI wire contract", () => {
     }
   });
 
+  it("accepts authorization-revoked disposal frames", () => {
+    expect(RemoteUiFrameSchema.parse({ ...identity, direction: "host-to-realm", type: "dispose", reason: "authorization-revoked" })).toMatchObject({ type: "dispose", reason: "authorization-revoked" });
+  });
+
   it("rejects executable props, unknown frames, mixed direction, and unbounded trees", () => {
     expect(RemoteUiNodeSchema.safeParse({ ...root, props: { onClick: () => undefined } }).success).toBe(false);
     expect(RemoteUiFrameSchema.safeParse({ ...identity, direction: "host-to-realm", type: "render", root }).success).toBe(false);

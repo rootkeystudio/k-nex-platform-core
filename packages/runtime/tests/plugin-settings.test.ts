@@ -138,14 +138,12 @@ describe("P6.3 plugin settings runtime", () => {
         document = structuredClone(candidate);
         return structuredClone(document);
       }
-    });
-    const readActor = { permissions: new Set([descriptor.readPermission]) };
-    const changeActor = { permissions: new Set([descriptor.changePermission]) };
-    await expect(service.read(definition(), { permissions: new Set() })).rejects.toMatchObject({ code: "ACCESS_DENIED" });
-    await expect(service.change({ definition: definition(), actor: readActor, expectedRevision: 4, values: { defaultTaskPageSize: 50, showPotentialRevenue: true } })).rejects.toMatchObject({ code: "ACCESS_DENIED" });
-    await expect(service.change({ definition: definition(), actor: changeActor, expectedRevision: 3, values: { defaultTaskPageSize: 50, showPotentialRevenue: true } })).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
-    expect(await service.change({ definition: definition(), actor: changeActor, expectedRevision: 4, values: { defaultTaskPageSize: 50, showPotentialRevenue: false } })).toMatchObject({ revision: 5, values: { defaultTaskPageSize: 50, showPotentialRevenue: false } });
-    expect(await service.read(definition(), readActor)).toMatchObject({ revision: 5, values: { defaultTaskPageSize: 50, showPotentialRevenue: false } });
+    }, { authorize: ({ operation, context }) => operation === context });
+    await expect(service.read(definition(), "none")).rejects.toMatchObject({ code: "ACCESS_DENIED" });
+    await expect(service.change({ definition: definition(), context: "read", expectedRevision: 4, values: { defaultTaskPageSize: 50, showPotentialRevenue: true } })).rejects.toMatchObject({ code: "ACCESS_DENIED" });
+    await expect(service.change({ definition: definition(), context: "change", expectedRevision: 3, values: { defaultTaskPageSize: 50, showPotentialRevenue: true } })).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+    expect(await service.change({ definition: definition(), context: "change", expectedRevision: 4, values: { defaultTaskPageSize: 50, showPotentialRevenue: false } })).toMatchObject({ revision: 5, values: { defaultTaskPageSize: 50, showPotentialRevenue: false } });
+    expect(await service.read(definition(), "read")).toMatchObject({ revision: 5, values: { defaultTaskPageSize: 50, showPotentialRevenue: false } });
   });
 
   it("persists the normalized settings candidate including defaults and schema transforms", async () => {
@@ -177,11 +175,11 @@ describe("P6.3 plugin settings runtime", () => {
         document = structuredClone(candidate);
         return structuredClone(document);
       }
-    });
+    }, { authorize: ({ operation }) => operation === "change" });
 
     const changed = await service.change({
       definition: normalizingDefinition,
-      actor: { permissions: new Set([descriptor.changePermission]) },
+      context: "current-session",
       expectedRevision: 4,
       values: { defaultTaskPageSize: 50 } as Values
     });

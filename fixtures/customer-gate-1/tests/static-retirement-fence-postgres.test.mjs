@@ -150,6 +150,27 @@ test("rejected-generation retirement is atomic, durable, and owner scoped", { ti
       store.initialize({ ...beta, generation: baseGeneration(betaRelease.change), workerOwner: "worker:beta", workerFencingToken: 1, workerLeaseExpiresAt: leaseExpiresAt }),
       store.initialize({ ...gamma, generation: baseGeneration(gammaRelease.change), workerOwner: "worker:gamma", workerFencingToken: 1, workerLeaseExpiresAt: leaseExpiresAt })
     ]);
+    const lifecycleAdmission = async (currentOwner, generationId, expectedRevision) => {
+      const state = await store.read(currentOwner);
+      const operationId = `operation-${createHash("sha256").update(`${currentOwner.applicationId}:${generationId}:${expectedRevision}`).digest("hex").slice(0, 32)}`;
+      await pool.query(
+        `insert into runtime_extensions (application_id, environment, delivery_class, extension_id, revision, disposition, active_generation_id, active_generation, last_operation_id)
+         values ($1,$2,'platform-plugin','module.sales',$3,'active',$4,$5::jsonb,$6)
+         on conflict (application_id, environment, delivery_class, extension_id) do update
+         set revision=excluded.revision, disposition='active', active_generation_id=excluded.active_generation_id, active_generation=excluded.active_generation, retained_generation=null, last_operation_id=excluded.last_operation_id`,
+        [currentOwner.applicationId, currentOwner.environment, expectedRevision, state.active.generationId, JSON.stringify(state.active), operationId]
+      );
+      await pool.query(
+        `insert into runtime_extension_operations (
+           operation_id, application_id, environment, delivery_class, extension_id, operation_kind, idempotency_key,
+           request_digest, request_json, authorization_json, expected_revision, phase, lease_owner, lease_token, lease_expires_at, plan_json
+         ) values ($1,$2,$3,'platform-plugin','module.sales','update',$4,$5,'{}'::jsonb,'{}'::jsonb,$6,'source-change-ready','worker:test','lease-test',$7,$8::jsonb)
+         on conflict (operation_id) do update set expected_revision=excluded.expected_revision, phase=excluded.phase, plan_json=excluded.plan_json`,
+        [operationId, currentOwner.applicationId, currentOwner.environment, `promote:${generationId}`, digest(operationId), expectedRevision, leaseExpiresAt,
+          JSON.stringify({ executionClass: "static-release", operationId, generationId, quarantineRecovery: false, plan: { id: "module.sales" } })]
+      );
+      return { operationId, expectedRevision, extensionId: "module.sales", quarantineRecovery: false };
+    };
 
     const alphaInitialRecoveryInput = await recoveryInput(alpha);
     const recovery = await store.reserveWorkerRecoveryActivation(alphaInitialRecoveryInput);
@@ -157,7 +178,7 @@ test("rejected-generation retirement is atomic, durable, and owner scoped", { ti
     assert.deepEqual(await store.readWorkerRecoveryActivation(alpha), recovery, "A response-lost recovery must remain discoverable for exact completion replay.");
     assert.deepEqual(await store.reserveWorkerRecoveryActivation(await recoveryInput(alpha)), recovery, "A live recovery claim must replay its exact durable ticket.");
     await assert.rejects(
-      store.promote({ ...alpha, expectedRevision: 0, expectedFenceToken: 1, generationId: "recovery-blocked-green-12", workerOwner: "worker:alpha", workerLeaseExpiresAt: leaseExpiresAt, build: alphaToken, readiness: readiness(alphaRelease, "recovery-blocked-green-12") }),
+      store.promote({ ...alpha, expectedRevision: 0, expectedFenceToken: 1, generationId: "recovery-blocked-green-12", workerOwner: "worker:alpha", workerLeaseExpiresAt: leaseExpiresAt, build: alphaToken, readiness: readiness(alphaRelease, "recovery-blocked-green-12"), lifecycleAdmission: await lifecycleAdmission(alpha, "recovery-blocked-green-12", 0) }),
       { code: "REVISION_CONFLICT" },
       "A live worker-recovery ticket must fence competing pointer mutation."
     );
@@ -184,7 +205,7 @@ test("rejected-generation retirement is atomic, durable, and owner scoped", { ti
     assert.equal(await store.expireWorkerRecoveryActivation(alpha), true, "A late restart must durably reconcile an expired response-lost activation claim.");
     assert.equal(await store.readWorkerRecoveryActivation(alpha), undefined);
     assert.equal((await pool.query("select state from runtime_static_worker_activations where recovery_id=$1", [expiredRecovery.recoveryId])).rows[0].state, "expired");
-    const takeoverRecovery = await store.reserveWorkerRecoveryActivation({ ...await recoveryInput(alpha), executionLeaseDurationMs: 5_000 });
+    const takeoverRecovery = await store.reserveWorkerRecoveryActivation({ ...await recoveryInput(alpha), executionLeaseDurationMs: 300_000 });
     assert.notEqual(takeoverRecovery.recoveryId, expiredRecovery.recoveryId, "An expired recovery ticket must be replaced rather than revived.");
     await assert.rejects(store.assertWorkerRecoveryActivation(expiredRecovery), { code: "FENCE_REJECTED" });
     await store.completeWorkerRecoveryActivation(takeoverRecovery);
@@ -201,7 +222,7 @@ test("rejected-generation retirement is atomic, durable, and owner scoped", { ti
       store.promote({
         ...alpha, expectedRevision: 0, expectedFenceToken: 3, generationId: oneShotGenerationId,
         workerOwner: "worker:alpha", workerLeaseExpiresAt: leaseExpiresAt,
-        build: alphaToken, readiness: readiness(alphaRelease, oneShotGenerationId)
+        build: alphaToken, readiness: readiness(alphaRelease, oneShotGenerationId), lifecycleAdmission: await lifecycleAdmission(alpha, oneShotGenerationId, 0)
       }),
       { code: "REVISION_CONFLICT" },
       "A completed cleanup tombstone must keep the same owner/generation identity one-shot so stale retirement cannot race a reused ID."
@@ -211,13 +232,13 @@ test("rejected-generation retirement is atomic, durable, and owner scoped", { ti
     await store.promote({
       ...gamma, expectedRevision: 0, expectedFenceToken: 1, generationId: normalGenerationId,
       workerOwner: "worker:gamma-green", workerLeaseExpiresAt: leaseExpiresAt,
-      build: gammaToken, readiness: readiness(gammaRelease, normalGenerationId)
+      build: gammaToken, readiness: readiness(gammaRelease, normalGenerationId), lifecycleAdmission: await lifecycleAdmission(gamma, normalGenerationId, 0)
     });
     await assert.rejects(
       store.promote({
         ...gamma, expectedRevision: 1, expectedFenceToken: 2, generationId: "unfinished-promotion-green-13",
         workerOwner: "worker:gamma-green", workerLeaseExpiresAt: leaseExpiresAt,
-        build: gammaToken, readiness: readiness(gammaRelease, "unfinished-promotion-green-13")
+        build: gammaToken, readiness: readiness(gammaRelease, "unfinished-promotion-green-13"), lifecycleAdmission: await lifecycleAdmission(gamma, "unfinished-promotion-green-13", 1)
       }),
       { code: "REVISION_CONFLICT" },
       "Promotion must not overwrite an unfinished prior transition checkpoint."
@@ -258,7 +279,7 @@ test("rejected-generation retirement is atomic, durable, and owner scoped", { ti
       store.promote({
         ...gamma, expectedRevision: 3, expectedFenceToken: 2, generationId: "shared-blue-11",
         workerOwner: "worker:gamma-reused", workerLeaseExpiresAt: leaseExpiresAt,
-        build: gammaToken, readiness: readiness(gammaRelease, "shared-blue-11")
+        build: gammaToken, readiness: readiness(gammaRelease, "shared-blue-11"), lifecycleAdmission: await lifecycleAdmission(gamma, "shared-blue-11", 3)
       }),
       { code: "REVISION_CONFLICT" },
       "Completed normal rollback retirement must preserve the protected same-owner tombstone."
@@ -266,12 +287,13 @@ test("rejected-generation retirement is atomic, durable, and owner scoped", { ti
 
     const raceGenerationId = "shared-race-green-12";
     const racedStore = new PostgresStaticDeploymentStore(barrierPool(pool), { now: () => now }, reader);
+    const raceLifecycleAdmission = await lifecycleAdmission(alpha, raceGenerationId, 0);
     const [reservationOutcome, promotionOutcome] = await Promise.allSettled([
       racedStore.reserveGenerationRetirement({ ...alpha, generationId: raceGenerationId }),
       racedStore.promote({
         ...alpha, expectedRevision: 0, expectedFenceToken: takeoverRecovery.fencingToken, generationId: raceGenerationId,
         workerOwner: "worker:alpha", workerLeaseExpiresAt: leaseExpiresAt,
-        build: alphaToken, readiness: readiness(alphaRelease, raceGenerationId)
+        build: alphaToken, readiness: readiness(alphaRelease, raceGenerationId), lifecycleAdmission: raceLifecycleAdmission
       })
     ]);
     assert.equal(reservationOutcome.status, "fulfilled", reservationOutcome.reason?.stack ?? reservationOutcome.reason?.message);
@@ -290,7 +312,7 @@ test("rejected-generation retirement is atomic, durable, and owner scoped", { ti
     const betaReceipt = await store.promote({
       ...beta, expectedRevision: 0, expectedFenceToken: 2, generationId: sharedGenerationId,
       workerOwner: "worker:beta", workerLeaseExpiresAt: leaseExpiresAt,
-      build: betaToken, readiness: readiness(betaRelease, sharedGenerationId)
+      build: betaToken, readiness: readiness(betaRelease, sharedGenerationId), lifecycleAdmission: await lifecycleAdmission(beta, sharedGenerationId, 0)
     });
     assert.equal(betaReceipt.activeGenerationId, sharedGenerationId, "Alpha's reservation must not fence Beta's same-ID generation.");
     await store.completeGenerationRetirement(alphaReservation);
@@ -301,12 +323,13 @@ test("rejected-generation retirement is atomic, durable, and owner scoped", { ti
     );
     assert.deepEqual(rows.rows, [{ application_id: alpha.applicationId, generation_id: sharedGenerationId, state: "completed", completed: true }]);
     assert.equal((await store.read(beta)).active.generationId, sharedGenerationId);
+    await pool.query("update runtime_worker_generation_fences set lease_expires_at=now()+interval '5 minutes' where application_id=$1 and environment=$2", [alpha.applicationId, alpha.environment]);
     const activeFence = await store.readFence(alpha);
-    const renewal = { ...alpha, generationId: activeFence.activeExecutionGeneration, fencingToken: activeFence.fencingToken, owner: activeFence.lease.owner, expectedPromotionRevision: activeFence.promotionRevision, leaseDurationMs: 5_000 };
+    const renewal = { ...alpha, generationId: activeFence.activeExecutionGeneration, fencingToken: activeFence.fencingToken, owner: activeFence.lease.owner, expectedPromotionRevision: activeFence.promotionRevision, leaseDurationMs: 300_000 };
     const firstRenewal = await store.renewWorkerFence(renewal);
     const secondRenewal = await store.renewWorkerFence(renewal);
     assert.ok(Date.parse(secondRenewal.lease.expiresAt) >= Date.parse(firstRenewal.lease.expiresAt));
-    assert.ok(Date.parse(secondRenewal.lease.expiresAt) <= Date.now() + 5_100, "Frequent heartbeats must stay bounded to one configured lease from database now.");
+    assert.ok(Date.parse(secondRenewal.lease.expiresAt) <= Date.now() + 300_100, "Frequent heartbeats must stay bounded to one configured lease from database now.");
     await assert.rejects(store.renewWorkerFence({ ...renewal, owner: "worker:stale" }), { code: "FENCE_REJECTED" });
     await assert.rejects(store.renewWorkerFence({ ...renewal, expectedPromotionRevision: activeFence.promotionRevision + 1 }), { code: "FENCE_REJECTED" });
     const expiredFenceInput = await recoveryInput(alpha);

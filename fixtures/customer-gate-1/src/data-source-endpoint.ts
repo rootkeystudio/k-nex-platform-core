@@ -2,6 +2,7 @@ import type { DataSourceDefinition } from "@k-nex/contracts";
 import {
   BoundedQueryBudgetEvaluator,
   CanonicalOutputContractValidator,
+  CurrentAuthorityDataSourcePolicy,
   DataSourceGateway,
   DataSourceGatewayError,
   DefinitionSourceSchemaValidator,
@@ -16,8 +17,9 @@ import {
   type RegistrationResult,
   type RegisteredDataSource
 } from "@k-nex/runtime";
-import { createPayloadPersistenceCapability, PayloadRequestAuthenticator } from "@k-nex/payload-adapter";
+import { createPayloadPersistenceCapability, CurrentAuthorityPayloadPersistenceAuthorizer, PayloadRequestAuthenticator } from "@k-nex/payload-adapter";
 import type { Endpoint, PayloadRequest } from "payload";
+import type { FixtureAuthorityContext, FixtureCurrentAuthority, FixtureSalesProfile } from "./current-authority.js";
 
 interface QueryBody {
   readonly sourceId?: unknown;
@@ -25,21 +27,6 @@ interface QueryBody {
   readonly input?: unknown;
   readonly query?: unknown;
   readonly selectedFields?: unknown;
-}
-
-interface SalesAuthorizationContext {
-  readonly permissionFingerprint: string;
-}
-
-function fingerprint(request: PayloadRequest): string {
-  const email = typeof request.user === "object" && request.user !== null && "email" in request.user
-    ? request.user.email
-    : undefined;
-  if (typeof email !== "string") return "sales:none";
-  if (email.startsWith("required-denied@")) return "sales:open:required-denied";
-  if (email.startsWith("no-note@")) return "sales:open:required";
-  if (email.startsWith("done@")) return "sales:done:full";
-  return "sales:open:full";
 }
 
 function catalog(registration: RegistrationResult) {
@@ -54,36 +41,42 @@ function catalog(registration: RegistrationResult) {
   return { lookup: (sourceId: string) => sources.get(sourceId) };
 }
 
-const salesPolicy: DataSourcePolicyService = {
-  authorize({ authorizationContext, descriptor }) {
-    const context = authorizationContext as Partial<SalesAuthorizationContext>;
-    const permissionFingerprint = context.permissionFingerprint;
-    const sourceAllowed = typeof permissionFingerprint === "string" && permissionFingerprint.startsWith("sales:");
-    const status = permissionFingerprint?.includes(":done:") ? "done" : "open";
-    const taskFields = permissionFingerprint?.endsWith(":full")
-      ? ["title", "status", "potential-revenue", "private-note"]
-      : permissionFingerprint?.endsWith(":required")
-        ? ["title", "status", "potential-revenue"]
-        : ["title", "status"];
+function taskStatus(profile: FixtureSalesProfile): "open" | "done" {
+  return profile === "done" ? "done" : "open";
+}
+
+function opportunityStage(profile: FixtureSalesProfile): "lead" | "won" {
+  return profile === "done" ? "won" : "lead";
+}
+
+function salesPolicy(authority: FixtureCurrentAuthority): DataSourcePolicyService {
+  return {
+    authorize({ descriptor, authorizationContext }) {
+      const profile = authority.salesProfile(authorizationContext as FixtureAuthorityContext);
     if (descriptor.id === "sales.tasks") return {
-      sourceAllowed,
-      recordScope: { kind: "sales.tasks", where: { status: { equals: status } } },
-      allowedFields: taskFields
+      sourceAllowed: true,
+      recordScope: { kind: "sales.tasks", where: { status: { equals: taskStatus(profile) } } },
+      allowedFields: ["title", "status", "potential-revenue", "private-note"]
     };
     if (descriptor.id === "sales.opportunities") return {
-      sourceAllowed,
-      recordScope: { kind: "sales.opportunities", where: { stage: { equals: status === "open" ? "lead" : "won" } } },
-      allowedFields: permissionFingerprint?.endsWith(":full") ? ["name", "stage", "value"] : ["name", "stage"]
+      sourceAllowed: true,
+      recordScope: { kind: "sales.opportunities", where: { stage: { equals: opportunityStage(profile) } } },
+      allowedFields: ["name", "stage", "value"]
     };
     return {
-      sourceAllowed: sourceAllowed && descriptor.id === "sales.total-potential-revenue",
-      recordScope: { kind: "sales.tasks", where: { status: { equals: status } } },
+      sourceAllowed: descriptor.id === "sales.total-potential-revenue",
+      recordScope: { kind: "sales.tasks", where: { status: { equals: taskStatus(profile) } } },
       allowedFields: []
     };
+    }
   }
-};
+}
 
-function queryGateway(registration: RegistrationResult): DataSourceGateway {
+function context(request: PayloadRequest, correlationId: string, authority: FixtureCurrentAuthority): FixtureAuthorityContext {
+  return authority.context(request, correlationId);
+}
+
+function queryGateway(registration: RegistrationResult, authority: FixtureCurrentAuthority): DataSourceGateway {
   return new DataSourceGateway({
     authenticator: new PayloadRequestAuthenticator({
       actor(request) {
@@ -98,18 +91,26 @@ function queryGateway(registration: RegistrationResult): DataSourceGateway {
         };
       },
       authorizationContext(request) {
-        return { permissionFingerprint: fingerprint(request) };
+        if (request.user === null) return Object.freeze({});
+        return context(request, request.headers.get("x-correlation-id") ?? "fixture-query", authority);
       },
       requestContext(request) {
+        if (request.user === null) return Object.freeze({});
+        const current = context(request, request.headers.get("x-correlation-id") ?? "fixture-query", authority);
         return createPayloadPersistenceCapability(request, [
           { collection: "sales-tasks", operations: ["find"] },
           { collection: "sales-opportunities", operations: ["find"] }
-        ]);
+        ], new CurrentAuthorityPayloadPersistenceAuthorizer(authority.adapter, current, ({ collection, operation }) => authority.payload(collection, operation)));
       }
     }),
     catalog: catalog(registration),
     surfaceAudience: new DescriptorSurfaceAudienceGuard(),
-    authorization: new PolicyAuthorizationEvaluator(salesPolicy),
+    authorization: new PolicyAuthorizationEvaluator(new CurrentAuthorityDataSourcePolicy(
+      authority.adapter,
+      (request) => request.authorizationContext as FixtureAuthorityContext,
+      { source: (descriptor, surface) => authority.source(descriptor, surface), field: (descriptor, fieldId, surface) => authority.field(descriptor, fieldId, surface) },
+      salesPolicy(authority)
+    )),
     budget: new BoundedQueryBudgetEvaluator(),
     dispatcher: new RegisteredHandlerDispatcher(),
     sourceSchema: new DefinitionSourceSchemaValidator(),
@@ -121,8 +122,8 @@ function queryGateway(registration: RegistrationResult): DataSourceGateway {
   });
 }
 
-export function createDataSourceQueryEndpoint(registration: RegistrationResult): Endpoint {
-  const gateway = queryGateway(registration);
+export function createDataSourceQueryEndpoint(registration: RegistrationResult, authority: FixtureCurrentAuthority): Endpoint {
+  const gateway = queryGateway(registration, authority);
   const problemDetails = new SafeProblemDetailsSerializer();
   return {
     method: "post",

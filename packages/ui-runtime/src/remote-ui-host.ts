@@ -6,6 +6,10 @@ export interface RemoteUiComponentDefinition {
 }
 
 export interface RemoteUiGenerationOwner { readonly applicationId: string; readonly environment: string; readonly appId: string; }
+export interface RemoteUiAuthorizationScope { readonly applicationId: string; readonly environment: string; }
+export interface RemoteUiAuthorizationInvalidation extends RemoteUiAuthorizationScope { readonly authorizationRevision: number; }
+/** Opaque evidence from the host's authoritative authorization read; it is never app-controlled. */
+export interface RemoteUiAuthorizationAdmission extends RemoteUiAuthorizationInvalidation { readonly authorizationProof: string; }
 export type RemoteUiGenerationDisposition = "active" | "disabled" | "quarantined" | "removed";
 /** Ephemeral projection of the durable extension inventory authority. */
 export interface RemoteUiGenerationSnapshot extends RemoteUiGenerationOwner {
@@ -35,6 +39,8 @@ export type RemoteUiSessionRequest = Readonly<Omit<RemoteUiSessionIdentity, "app
 
 export interface RemoteUiHostAdapter {
   authorize(identity: RemoteUiSessionIdentity, frame: RemoteUiFrame, signal: AbortSignal): boolean | Promise<boolean>;
+  /** Reauthorizes the exact server-declared target before source/action dispatch. */
+  authorizeTarget(identity: RemoteUiSessionIdentity, operation: "source" | "action", targetId: string, signal: AbortSignal): boolean | Promise<boolean>;
   render(root: RemoteUiNode, signal: AbortSignal): void | Promise<void>;
   fallback(code: "APP_FAILURE" | "PROTOCOL_FAILURE" | "UNAUTHORIZED", signal: AbortSignal): void | Promise<void>;
   focus(nodeId: string, signal: AbortSignal): void | Promise<void>;
@@ -137,7 +143,7 @@ export class RemoteUiHostSession {
     this.send("event", { nodeId, event, handlerId: binding.handlerId, payload });
   }
 
-  dispose(reason: "generation-retired" | "session-ended" | "protocol-failure" = "session-ended"): void {
+  dispose(reason: "authorization-revoked" | "generation-retired" | "session-ended" | "protocol-failure" = "session-ended"): void {
     if (this.closed) return;
     this.closed = true;
     this.abortController.abort();
@@ -193,6 +199,7 @@ export class RemoteUiHostSession {
     if (frame.type === "failure") { await this.controlledFailure("APP_FAILURE"); return; }
     const allowed = frame.operation === "source" ? this.identity.sources : this.identity.actions;
     if (!allowed.has(frame.targetId)) fail("TARGET_DENIED", "Remote UI data target is not declared.");
+    if (!await this.adapter.authorizeTarget(this.identity, frame.operation, frame.targetId, signal)) fail("UNAUTHORIZED", "Remote UI target authority is denied.");
     try {
       const output = await (frame.operation === "source" ? this.adapter.source(this.identity, frame.targetId, frame.input, signal) : this.adapter.action(this.identity, frame.targetId, frame.input, signal));
       if (!this.closed) this.send("response-ok", { requestId: frame.requestId, output });
@@ -233,6 +240,8 @@ export class RemoteUiGenerationSessions {
   private readonly observed = new Map<string, RemoteUiGenerationSnapshot>();
   private readonly sessions = new Map<string, Set<RemoteUiHostSession>>();
   private readonly pendingRetirements = new Map<string, symbol>();
+  private readonly admissions = new Map<string, RemoteUiAuthorizationAdmission>();
+  private readonly revokedRevisions = new Map<string, number>();
 
   constructor(private readonly schedule: (work: () => void, delayMs: number) => unknown = (work, delayMs) => setTimeout(work, delayMs)) {}
 
@@ -254,6 +263,7 @@ export class RemoteUiGenerationSessions {
       this.disposeOwner(snapshot, "protocol-failure");
       return;
     }
+    if (!this.admissions.has(remoteUiAuthorizationScopeKey(snapshot))) return;
     this.active.set(ownerKey, snapshot);
     this.pendingRetirements.delete(remoteUiGenerationKey(snapshot, snapshot.generationId));
     if (active && active.generationId !== snapshot.generationId) this.drain(active, drainMs);
@@ -284,6 +294,46 @@ export class RemoteUiGenerationSessions {
     this.sessions.delete(key);
     for (const session of sessions) session.dispose("generation-retired");
     return count;
+  }
+
+  /** Ends live realms and removes admission after an authoritative authorization advance. */
+  revokeAuthorization(invalidationInput: RemoteUiAuthorizationInvalidation): number {
+    const invalidation = remoteUiAuthorizationInvalidation(invalidationInput);
+    const scopeKey = remoteUiAuthorizationScopeKey(invalidation);
+    const revoked = this.revokedRevisions.get(scopeKey);
+    const admission = this.admissions.get(scopeKey);
+    if ((revoked !== undefined && invalidation.authorizationRevision <= revoked) || (admission !== undefined && invalidation.authorizationRevision < admission.authorizationRevision)) return 0;
+    this.revokedRevisions.set(scopeKey, invalidation.authorizationRevision);
+    this.admissions.delete(scopeKey);
+    const prefix = `${scopeKey}\0`;
+    let count = 0;
+    for (const key of this.active.keys()) if (key.startsWith(prefix)) this.active.delete(key);
+    for (const key of this.pendingRetirements.keys()) if (key.startsWith(prefix)) this.pendingRetirements.delete(key);
+    for (const [key, sessions] of [...this.sessions]) {
+      if (!key.startsWith(prefix)) continue;
+      this.sessions.delete(key);
+      for (const session of sessions) {
+        count += 1;
+        session.dispose("authorization-revoked");
+      }
+    }
+    return count;
+  }
+
+  /** Reopens only observed active generations after the host re-reads and proves current authority. */
+  admitAuthorization(admissionInput: RemoteUiAuthorizationAdmission): void {
+    const admission = remoteUiAuthorizationAdmission(admissionInput);
+    const scopeKey = remoteUiAuthorizationScopeKey(admission);
+    const revoked = this.revokedRevisions.get(scopeKey);
+    if (revoked !== undefined && admission.authorizationRevision < revoked) throw new TypeError("Remote UI authorization admission regresses a revoked revision.");
+    const current = this.admissions.get(scopeKey);
+    if (current && admission.authorizationRevision < current.authorizationRevision) throw new TypeError("Remote UI authorization admissions must advance monotonically.");
+    if (current && admission.authorizationRevision === current.authorizationRevision) {
+      if (current.authorizationProof === admission.authorizationProof) return;
+      throw new TypeError("Remote UI authorization admission proof conflicts at the same revision.");
+    }
+    this.admissions.set(scopeKey, admission);
+    for (const [ownerKey, snapshot] of this.observed) if (ownerKey.startsWith(`${scopeKey}\0`) && snapshot.disposition === "active") this.active.set(ownerKey, snapshot);
   }
 
   private drain(snapshot: RemoteUiGenerationSnapshot, drainMs: number): void {
@@ -317,8 +367,26 @@ export class RemoteUiGenerationSessions {
 }
 
 function remoteUiGenerationOwner(owner: RemoteUiGenerationOwner): RemoteUiGenerationOwner {
-  if (!/^[a-z][a-z0-9-]{2,127}$/u.test(owner.applicationId) || !/^[a-z][a-z0-9-]{1,63}$/u.test(owner.environment) || !/^app(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$/u.test(owner.appId)) throw new TypeError("Remote UI generation owner is invalid.");
-  return Object.freeze({ applicationId: owner.applicationId, environment: owner.environment, appId: owner.appId });
+  const scope = remoteUiAuthorizationScope(owner);
+  if (!/^app(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$/u.test(owner.appId)) throw new TypeError("Remote UI generation owner is invalid.");
+  return Object.freeze({ ...scope, appId: owner.appId });
+}
+
+function remoteUiAuthorizationScope(scope: RemoteUiAuthorizationScope): RemoteUiAuthorizationScope {
+  if (!/^[a-z][a-z0-9-]{2,127}$/u.test(scope.applicationId) || !/^[a-z][a-z0-9-]{1,63}$/u.test(scope.environment)) throw new TypeError("Remote UI authorization scope is invalid.");
+  return Object.freeze({ applicationId: scope.applicationId, environment: scope.environment });
+}
+
+function remoteUiAuthorizationInvalidation(invalidation: RemoteUiAuthorizationInvalidation): RemoteUiAuthorizationInvalidation {
+  const scope = remoteUiAuthorizationScope(invalidation);
+  if (!Number.isSafeInteger(invalidation.authorizationRevision) || invalidation.authorizationRevision < 0) throw new TypeError("Remote UI authorization revision is invalid.");
+  return Object.freeze({ ...scope, authorizationRevision: invalidation.authorizationRevision });
+}
+
+function remoteUiAuthorizationAdmission(admission: RemoteUiAuthorizationAdmission): RemoteUiAuthorizationAdmission {
+  const invalidation = remoteUiAuthorizationInvalidation(admission);
+  if (typeof admission.authorizationProof !== "string" || admission.authorizationProof.length < 1 || admission.authorizationProof.length > 512) throw new TypeError("Remote UI authorization proof is invalid.");
+  return Object.freeze({ ...invalidation, authorizationProof: admission.authorizationProof });
 }
 
 function remoteUiGenerationSnapshot(snapshot: RemoteUiGenerationSnapshot): RemoteUiGenerationSnapshot {
@@ -334,6 +402,7 @@ function sameSnapshot(left: RemoteUiGenerationSnapshot, right: RemoteUiGeneratio
 function validRecordId(value: string): boolean { return /^[a-z][a-z0-9-]{2,127}$/u.test(value); }
 function validGenerationId(generationId: string): boolean { return validRecordId(generationId); }
 function remoteUiGenerationOwnerKey(owner: RemoteUiGenerationOwner): string { return `${owner.applicationId}\0${owner.environment}\0${owner.appId}`; }
+function remoteUiAuthorizationScopeKey(scope: RemoteUiAuthorizationScope): string { return `${scope.applicationId}\0${scope.environment}`; }
 function remoteUiGenerationKey(owner: RemoteUiGenerationOwner, generationId: string): string { return `${remoteUiGenerationOwnerKey(owner)}\0${generationId}`; }
 
 export function createOpaqueRemoteUiFrame(document: Document, session: RemoteUiHostSession, source: string, title: string, options: RemoteUiFrameOptions = {}): Readonly<{ iframe: HTMLIFrameElement; dispose(): void }> {

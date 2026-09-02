@@ -4,9 +4,23 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { sql } from "@payloadcms/db-postgres";
-import { salesTaskCreateHandler } from "@k-nex/module-sales/server";
+import salesManifest from "@k-nex/module-sales/manifest" with { type: "json" };
+import { salesRegistration, salesTaskCreateHandler } from "@k-nex/module-sales/server";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
-import { activePayloadPostgresTransaction, PostgresRuntimeExtensionStore, runtimeExtensionIdentityKey } from "@k-nex/payload-adapter";
+import {
+  AuthorizationLifecycleProjector,
+  activePayloadPostgresTransaction,
+  PostgresRuntimeExtensionStore,
+  SharedStaticPlatformPluginGenerationRebinder,
+  createStaticPlatformPluginAuthorizationDescriptorResolver,
+  runtimeExtensionIdentityKey
+} from "@k-nex/payload-adapter";
+import {
+  createPlatformPluginLifecycleState,
+  executeRegistration,
+  reconcilePlatformPluginAvailability,
+  scopePlatformPluginRegistration
+} from "@k-nex/runtime";
 import pg from "pg";
 import { createPayloadRequest, getPayload } from "payload";
 
@@ -21,6 +35,35 @@ const activeGeneration = Object.freeze({
   buildEvidenceDigest: `sha256:${"c".repeat(64)}`, applicationDigest: `sha256:${"d".repeat(64)}`,
   imageDigest: `sha256:${"e".repeat(64)}`, migrationRevision: 11, workerFencingToken: 1, receiptId: "receipt-sales-race"
 });
+
+function scopedSalesRegistration() {
+  const registration = executeRegistration({
+    graph: {
+      resolverVersion: "1.0.0",
+      plugins: [{
+        id: salesManifest.id, kind: salesManifest.kind, package: salesManifest.package, version: salesManifest.version,
+        integrity: "sha512-c2FsZXM=", required: [], optional: []
+      }],
+      capabilityProviders: [],
+      registrationOrder: [salesManifest.id]
+    },
+    installed: [{
+      package: { name: salesManifest.package, version: salesManifest.version, integrity: "sha512-c2FsZXM=" }, manifest: salesManifest
+    }],
+    registrations: [salesRegistration]
+  });
+  const availability = reconcilePlatformPluginAvailability(registration, createPlatformPluginLifecycleState({
+    pluginId: salesManifest.id,
+    catalogStatus: "supported",
+    package: { status: "installed", name: salesManifest.package, version: salesManifest.version, integrity: "sha512-c2FsZXM=" },
+    enabled: true,
+    configuration: { revision: 1, ready: true },
+    migration: { current: 1, required: 1, ready: true },
+    dataState: "active",
+    releaseStatus: "supported"
+  }));
+  return scopePlatformPluginRegistration(registration, [availability]);
+}
 
 function boot(connectionString) {
   return new Promise((resolve, reject) => {
@@ -59,6 +102,50 @@ function disablePlan(operationId) {
       requiredCapabilities: [], resourceBudget: { maxBundleBytes: 1_048_576, maxAssetBytes: 262_144, maxStorageBytes: 1_048_576, maxMemoryMiB: 128, maxCpuMilliCores: 500, maxWallTimeMs: 5_000, maxInputBytes: 65_536, maxOutputBytes: 131_072, maxLogBytes: 65_536, maxConcurrency: 4 }
     }
   };
+}
+
+function activeSalesLifecycleEvent() {
+  return {
+    schemaVersion: 1,
+    applicationId: identity.applicationId,
+    environment: identity.environment,
+    eventId: "p10-sales-race-install-event",
+    eventType: "extension.lifecycle-transition",
+    operationId: "p10-sales-race-install-operation",
+    operation: "install",
+    operationPhase: "completed",
+    lifecycleState: "active",
+    expectedRevision: 0,
+    revision: 1,
+    inventoryRevision: 1,
+    actor: { kind: "trusted-automation", identity: "github-actions:phase-9" },
+    receiptId: "p10-sales-race-install-receipt",
+    auditId: "p10-sales-race-install-audit",
+    idempotencyKey: "p10-sales-race-install",
+    correlationId: "p10-sales-race-install",
+    occurredAt: "2026-08-31T00:00:00.000Z",
+    deliveryClass: identity.deliveryClass,
+    id: identity.extensionId,
+    evidence: {
+      sourceCommit: activeGeneration.sourceCommit,
+      compositionChangePlanDigest: activeGeneration.compositionChangePlanDigest,
+      generationId: activeGeneration.generationId
+    }
+  };
+}
+
+async function seedActiveSalesAuthorization(pool, projector) {
+  const session = await pool.connect();
+  try {
+    await session.query("begin");
+    await projector.project({ session, transition: activeSalesLifecycleEvent(), runtimeGenerationIds: [activeGeneration.generationId] });
+    await session.query("commit");
+  } catch (error) {
+    await session.query("rollback");
+    throw error;
+  } finally {
+    session.release();
+  }
 }
 
 async function admitSales(payload, input, idempotencyKey) {
@@ -121,7 +208,17 @@ async function proveRace(connectionString) {
       [identity.applicationId, identity.environment, identity.deliveryClass, identity.extensionId, activeGeneration.generationId, JSON.stringify(activeGeneration)]
     );
     await pool.query("insert into runtime_extension_inventory_revisions (application_id, environment, revision) values ($1,$2,0)", [identity.applicationId, identity.environment]);
-    const store = new PostgresRuntimeExtensionStore(pool, { now: () => new Date("2026-08-31T00:00:00.000Z") }, `sha256:${"a".repeat(64)}`);
+    const authorizationLifecycleProjector = new AuthorizationLifecycleProjector(
+      createStaticPlatformPluginAuthorizationDescriptorResolver({
+        applicationId: identity.applicationId,
+        registrations: [{ sourceCommit: activeGeneration.sourceCommit, registration: scopedSalesRegistration() }]
+      })
+    );
+    await seedActiveSalesAuthorization(pool, authorizationLifecycleProjector);
+    const store = new PostgresRuntimeExtensionStore(pool, { now: () => new Date("2026-08-31T00:00:00.000Z") }, `sha256:${"a".repeat(64)}`, {
+      authorizationLifecycleProjector,
+      sharedStaticGenerationRebinder: new SharedStaticPlatformPluginGenerationRebinder()
+    });
     const change = {
       ...identity, extension: { deliveryClass: identity.deliveryClass, id: identity.extensionId }, operation: "disable", targetVersion: "1.0.0", expectedRevision: 0,
       idempotencyKey: "p9-sales-disable-race", correlationId: "p9-sales-disable-race"

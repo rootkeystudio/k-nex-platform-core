@@ -11,7 +11,7 @@
       "additionalProperties": false,
       "properties": {
         "channel": {
-          "const": "pre-v1",
+          "const": "current",
           "type": "string"
         },
         "compatibilityPolicy": {
@@ -22,7 +22,7 @@
           "$ref": "#/$defs/__schema3"
         },
         "versioningPolicy": {
-          "const": "semver-pre-v1",
+          "const": "semver-v1",
           "type": "string"
         }
       },
@@ -121,7 +121,7 @@
       "additionalProperties": false,
       "properties": {
         "policy": {
-          "const": "current-and-one-prior-minor",
+          "const": "single-current-release",
           "type": "string"
         },
         "securityFixes": {
@@ -132,7 +132,7 @@
           "items": {
             "$ref": "#/$defs/__schema3"
           },
-          "maxItems": 2,
+          "maxItems": 1,
           "minItems": 1,
           "type": "array",
           "uniqueItems": true

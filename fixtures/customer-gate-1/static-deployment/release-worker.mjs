@@ -11,6 +11,7 @@ const required = (name) => {
 };
 
 const generationId = required("K_NEX_GENERATION");
+const imageGenerationId = required("K_NEX_IMAGE_GENERATION");
 const controlToken = required("K_NEX_WORKER_CONTROL_TOKEN");
 const port = Number(required("P9_RELEASE_WORKER_PORT"));
 const sourceCommit = required("K_NEX_SOURCE_COMMIT");
@@ -20,6 +21,7 @@ if (!Number.isInteger(port)) throw new Error("The release worker control port mu
 
 const release = JSON.parse(await readFile(new URL("./release.json", import.meta.url), "utf8"));
 if (release.plugin?.id !== "module.sales") throw new Error("The release worker image must carry only the attested Sales module fixture.");
+if (release.generationId !== imageGenerationId) throw new Error("The release worker image generation must match its immutable image metadata.");
 const pool = new pg.Pool({ connectionString: required("DATABASE_URL"), max: 1 });
 const store = new PostgresStaticDeploymentStore(pool, { now: () => new Date() });
 let mode = "passive";

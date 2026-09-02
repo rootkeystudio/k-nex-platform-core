@@ -1,0 +1,18 @@
+{
+  "$schema": "https://schemas.k-nex.dev/authorization.v1.schema.json",
+  "contract": {
+    "audience": "system",
+    "description": "An extension may not claim the reserved system namespace.",
+    "id": "system.roles.manage",
+    "operation": "manage",
+    "publisher": {
+      "deliveryClass": "platform-plugin",
+      "extensionId": "module.system",
+      "kind": "extension"
+    },
+    "resource": "system.roles",
+    "schemaVersion": 1,
+    "scope": "application",
+    "title": "Manage roles"
+  }
+}

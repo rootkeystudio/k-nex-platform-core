@@ -184,6 +184,8 @@ function consumerManifest(overrides: Partial<PluginManifest> = {}): PluginManife
       migrations: { "consumer.migration": "required" },
       services: { "consumer.service": "required" },
       permissions: { "consumer.permission": "required" },
+      policyBindings: { "consumer.policy.read": "required" },
+      roleTemplates: { "consumer.template.viewer": "required" },
       settings: { "consumer.setting": "required" },
       sources: { "consumer.source": "required" },
       actions: { "consumer.action": "required" },
@@ -255,14 +257,34 @@ function completeConsumer(
     pluginId: "module.consumer",
     contracts(context) {
       context.register("permissions", "consumer.permission", {
+        schemaVersion: 1,
         id: "consumer.permission",
-        ownerPluginId: "module.consumer",
+        publisher: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.consumer" },
         title: "Consumer read",
         description: "Read consumer resources.",
         audience: "authenticated",
         resource: "consumer.resource",
         operation: "read",
-        policy: { id: "consumer.policy.read", scope: "application", recordScoped: false, fieldScoped: false }
+        scope: "application"
+      });
+      context.register("policyBindings", "consumer.policy.read", {
+        schemaVersion: 1,
+        id: "consumer.policy.read",
+        publisher: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.consumer" },
+        permissionId: "consumer.permission",
+        policyReference: "consumer.policy.read-handler",
+        scope: "application",
+        failureMode: "deny",
+        timeoutMs: 1_000
+      });
+      context.register("roleTemplates", "consumer.template.viewer", {
+        schemaVersion: 1,
+        id: "consumer.template.viewer",
+        publisher: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.consumer" },
+        version: 1,
+        instantiation: "manual",
+        title: "Consumer viewer",
+        permissionIds: ["consumer.permission"]
       });
       context.register("settings", "consumer.setting", {
         id: "consumer.setting",
@@ -485,6 +507,8 @@ describe("phased registration runtime", () => {
           migrations: ["consumer.migration"],
           services: ["consumer.service"],
           permissions: ["consumer.permission"],
+          policyBindings: ["consumer.policy.read"],
+          roleTemplates: ["consumer.template.viewer"],
           settings: ["consumer.setting"],
           sources: ["consumer.source"],
           actions: ["consumer.action"],
@@ -544,6 +568,62 @@ describe("phased registration runtime", () => {
         context.register("settings", "consumer.setting", {} as never);
       }
     }]), "INVALID_CONTRIBUTION");
+  });
+
+  it("requires permissions to be published by the registering platform plugin", () => {
+    const patch = (value: unknown): unknown => ({
+      ...(value as object),
+      publisher: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "provider.consumer" }
+    });
+    expectCode(
+      () => run([providerRegistration(), corruptedReference("contracts", "permissions", "consumer.permission", patch)]),
+      "INVALID_CONTRIBUTION"
+    );
+  });
+
+  it("registers and reconciles platform-plugin policy bindings and role templates", () => {
+    const result = run([providerRegistration(), completeConsumer()]);
+
+    expect(result.contributions.policyBindings).toMatchObject([{ pluginId: "module.consumer", id: "consumer.policy.read" }]);
+    expect(result.contributions.roleTemplates).toMatchObject([{ pluginId: "module.consumer", id: "consumer.template.viewer" }]);
+  });
+
+  it("requires declared policy bindings and role templates to register", () => {
+    const consumer = completeConsumer();
+    expectCode(() => run([providerRegistration(), {
+      ...consumer,
+      contracts(context) {
+        consumer.contracts?.({
+          ...context,
+          register: ((kind: string, id: string, value: unknown) => {
+            if (kind !== "policyBindings" && kind !== "roleTemplates") context.register(kind as never, id, value);
+          }) as typeof context.register
+        });
+      }
+    }]), "INVENTORY_MISMATCH");
+  });
+
+  it("rejects undeclared, foreign-owner, and missing policy/template permissions", () => {
+    const manifest = consumerManifest({
+      contributions: { ...consumerManifest().contributions, policyBindings: undefined }
+    });
+    expectCode(() => run([providerRegistration(), completeConsumer()], [providerManifest(), manifest]), "UNDECLARED_CONTRIBUTION");
+
+    const patch = (value: unknown): unknown => ({
+      ...(value as object),
+      publisher: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "provider.storage" }
+    });
+    expectCode(() => run([providerRegistration(), corruptedReference("contracts", "policyBindings", "consumer.policy.read", patch)]), "INVALID_CONTRIBUTION");
+    expectCode(() => run([providerRegistration(), corruptedReference("contracts", "roleTemplates", "consumer.template.viewer", patch)]), "INVALID_CONTRIBUTION");
+
+    const missingPermission = (value: unknown): unknown => ({
+      ...(value as object),
+      ...(value as { readonly permissionIds?: readonly string[] }).permissionIds === undefined
+        ? { permissionId: "consumer.permission.missing" }
+        : { permissionIds: ["consumer.permission.missing"] }
+    });
+    expectCode(() => run([providerRegistration(), corruptedReference("contracts", "policyBindings", "consumer.policy.read", missingPermission)]), "INVENTORY_MISMATCH");
+    expectCode(() => run([providerRegistration(), corruptedReference("contracts", "roleTemplates", "consumer.template.viewer", missingPermission)]), "INVENTORY_MISMATCH");
   });
 
   it("reconciles every descriptor reference against its exact owned category", () => {

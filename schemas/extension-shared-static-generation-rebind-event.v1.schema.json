@@ -1,0 +1,168 @@
+{
+  "$defs": {
+    "__schema0": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "__schema1": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema10": {
+      "additionalProperties": false,
+      "properties": {
+        "applicationDigest": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "buildEvidenceDigest": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "buildRequestDigest": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "compositionChangePlanDigest": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "generationId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "imageDigest": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "sourceCommit": {
+          "pattern": "^[0-9a-f]{40}$",
+          "type": "string"
+        },
+        "workerFencingToken": {
+          "$ref": "#/$defs/__schema9"
+        }
+      },
+      "required": [
+        "sourceCommit",
+        "compositionChangePlanDigest",
+        "generationId",
+        "workerFencingToken"
+      ],
+      "type": "object"
+    },
+    "__schema11": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "__schema12": {
+      "allOf": [
+        {
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
+        },
+        {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        }
+      ],
+      "maxLength": 64,
+      "type": "string"
+    },
+    "__schema2": {
+      "pattern": "^[a-z][a-z0-9-]{2,127}$",
+      "type": "string"
+    },
+    "__schema3": {
+      "const": "extension.shared-static-generation-rebind",
+      "type": "string"
+    },
+    "__schema4": {
+      "pattern": "^[a-z][a-z0-9-]{2,127}$",
+      "type": "string"
+    },
+    "__schema5": {
+      "pattern": "^[a-z][a-z0-9-]{1,63}$",
+      "type": "string"
+    },
+    "__schema6": {
+      "const": "platform-plugin",
+      "type": "string"
+    },
+    "__schema7": {
+      "maxLength": 128,
+      "pattern": "^(module|provider|builder|theme|integration|preset)(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$",
+      "type": "string"
+    },
+    "__schema8": {
+      "maximum": 1000000000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "__schema9": {
+      "exclusiveMinimum": 0,
+      "maximum": 1000000000,
+      "type": "integer"
+    }
+  },
+  "$id": "https://schemas.k-nex.dev/extension-shared-static-generation-rebind-event/v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "applicationId": {
+      "$ref": "#/$defs/__schema4"
+    },
+    "deliveryClass": {
+      "$ref": "#/$defs/__schema6"
+    },
+    "environment": {
+      "$ref": "#/$defs/__schema5"
+    },
+    "eventId": {
+      "$ref": "#/$defs/__schema2"
+    },
+    "eventType": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "evidence": {
+      "$ref": "#/$defs/__schema10"
+    },
+    "expectedRevision": {
+      "$ref": "#/$defs/__schema8"
+    },
+    "id": {
+      "$ref": "#/$defs/__schema7"
+    },
+    "inventoryRevision": {
+      "$ref": "#/$defs/__schema9"
+    },
+    "occurredAt": {
+      "$ref": "#/$defs/__schema12"
+    },
+    "previousGenerationId": {
+      "$ref": "#/$defs/__schema2"
+    },
+    "receiptId": {
+      "$ref": "#/$defs/__schema2"
+    },
+    "revision": {
+      "$ref": "#/$defs/__schema9"
+    },
+    "schemaVersion": {
+      "$ref": "#/$defs/__schema1"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "eventId",
+    "eventType",
+    "receiptId",
+    "applicationId",
+    "environment",
+    "deliveryClass",
+    "id",
+    "expectedRevision",
+    "revision",
+    "inventoryRevision",
+    "previousGenerationId",
+    "evidence",
+    "occurredAt"
+  ],
+  "title": "K-Nex Shared Static Generation Rebind Event v1",
+  "type": "object"
+}

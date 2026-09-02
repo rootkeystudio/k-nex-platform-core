@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { ExtensionLifecycleEventSchema, ExtensionSecurityQuarantineEventSchema } from "@k-nex/contracts";
+import { ExtensionLifecycleEventSchema, ExtensionSecurityQuarantineEventSchema, ExtensionSharedStaticGenerationRebindEventSchema } from "@k-nex/contracts";
 import type { RuntimeExtensionInvalidation } from "@k-nex/runtime";
 
 import type { RuntimeExtensionPool } from "./runtime-extension-store.js";
@@ -44,9 +44,12 @@ function boundedInteger(value: number, name: string, minimum: number, maximum: n
 }
 
 function invalidation(row: RuntimeExtensionOutboxRow): RuntimeExtensionInvalidation {
-  const event = (row.event_json as { eventType?: unknown }).eventType === "extension.security-quarantine"
+  const eventType = (row.event_json as { eventType?: unknown }).eventType;
+  const event = eventType === "extension.security-quarantine"
     ? ExtensionSecurityQuarantineEventSchema.parse(row.event_json)
-    : ExtensionLifecycleEventSchema.parse(row.event_json);
+    : eventType === "extension.shared-static-generation-rebind"
+      ? ExtensionSharedStaticGenerationRebindEventSchema.parse(row.event_json)
+      : ExtensionLifecycleEventSchema.parse(row.event_json);
   if (event.applicationId !== row.application_id || event.environment !== row.environment || event.deliveryClass !== row.delivery_class ||
     event.id !== row.extension_id || event.inventoryRevision !== row.inventory_revision) {
     throw new Error("Runtime extension outbox event does not match its persisted invalidation identity.");

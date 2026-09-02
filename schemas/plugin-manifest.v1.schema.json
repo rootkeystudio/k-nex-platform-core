@@ -246,7 +246,13 @@
         "permissions": {
           "$ref": "#/$defs/__schema23"
         },
+        "policyBindings": {
+          "$ref": "#/$defs/__schema23"
+        },
         "realtimeTopics": {
+          "$ref": "#/$defs/__schema23"
+        },
+        "roleTemplates": {
           "$ref": "#/$defs/__schema23"
         },
         "routes": {

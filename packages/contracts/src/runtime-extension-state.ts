@@ -129,6 +129,25 @@ export const ExtensionSecurityQuarantineEventSchema = z.discriminatedUnion("deli
   z.strictObject({ ...SecurityQuarantineEventBase, deliveryClass: z.literal("theme-skin"), id: ThemeSkinIdSchema })
 ]).meta({ $id: "https://schemas.k-nex.dev/extension-security-quarantine-event/v1.json", title: "K-Nex Extension Security Quarantine Event v1" });
 
+/** A retained Platform Plugin followed a shared static application image transition. */
+export const ExtensionSharedStaticGenerationRebindEventSchema = z.strictObject({
+  "$schema": z.string().max(512).optional(),
+  schemaVersion: z.literal(1),
+  eventId: RecordIdSchema,
+  eventType: z.literal("extension.shared-static-generation-rebind"),
+  receiptId: RecordIdSchema,
+  applicationId: ApplicationIdSchema,
+  environment: EnvironmentSchema,
+  deliveryClass: z.literal("platform-plugin"),
+  id: PluginIdSchema,
+  expectedRevision: RevisionSchema,
+  revision: PositiveRevisionSchema,
+  inventoryRevision: PositiveRevisionSchema,
+  previousGenerationId: RecordIdSchema,
+  evidence: PlatformTransitionEvidenceSchema.extend({ workerFencingToken: PositiveRevisionSchema }),
+  occurredAt: MillisecondTimestampSchema
+}).meta({ $id: "https://schemas.k-nex.dev/extension-shared-static-generation-rebind-event/v1.json", title: "K-Nex Shared Static Generation Rebind Event v1" });
+
 const BundleGenerationEvidenceBase = {
   authority: z.literal("verified-bundle"),
   applicationId: ApplicationIdSchema,
@@ -214,4 +233,5 @@ export type ExtensionOperationActor = z.infer<typeof ExtensionOperationActorSche
 export type ExtensionOperationPhase = z.infer<typeof ExtensionOperationPhaseSchema>;
 export type ExtensionLifecycleEvent = z.infer<typeof ExtensionLifecycleEventSchema>;
 export type ExtensionSecurityQuarantineEvent = z.infer<typeof ExtensionSecurityQuarantineEventSchema>;
+export type ExtensionSharedStaticGenerationRebindEvent = z.infer<typeof ExtensionSharedStaticGenerationRebindEventSchema>;
 export type RuntimeExtensionInventory = z.infer<typeof RuntimeExtensionInventorySchema>;

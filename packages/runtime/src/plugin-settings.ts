@@ -47,8 +47,13 @@ export interface ResolvedPluginSettings<T extends Readonly<Record<string, Plugin
   readonly values: T;
 }
 
-export interface PluginSettingsActor {
-  readonly permissions: ReadonlySet<string>;
+export interface PluginSettingsAuthorizer<TContext> {
+  authorize(input: Readonly<{
+    operation: "read" | "change";
+    descriptor: PluginSettingsDescriptor;
+    context: TContext;
+    signal: AbortSignal;
+  }>): boolean | Promise<boolean>;
 }
 
 export interface PluginSettingsStore {
@@ -56,24 +61,27 @@ export interface PluginSettingsStore {
   replace(document: PluginSettingsDocument, expectedRevision: number): Promise<PluginSettingsDocument | undefined>;
 }
 
-export class PluginSettingsService {
-  constructor(private readonly store: PluginSettingsStore) {}
+export class PluginSettingsService<TContext> {
+  constructor(private readonly store: PluginSettingsStore, private readonly authorizer: PluginSettingsAuthorizer<TContext>) {}
 
   async read<T extends Readonly<Record<string, PluginSettingValue>>>(
     definition: PluginSettingsRuntimeDefinition<T>,
-    actor: PluginSettingsActor
+    context: TContext,
+    signal: AbortSignal = new AbortController().signal
   ): Promise<ResolvedPluginSettings<T>> {
-    if (!actor.permissions.has(definition.descriptor.readPermission)) fail("ACCESS_DENIED", "Plugin settings read access is denied.");
+    if (!await this.authorized({ operation: "read", descriptor: definition.descriptor, context, signal })) fail("ACCESS_DENIED", "Plugin settings read access is denied.");
     return resolvePluginSettings(definition, await this.store.read(definition.descriptor.id));
   }
 
   async change<T extends Readonly<Record<string, PluginSettingValue>>>(input: {
     readonly definition: PluginSettingsRuntimeDefinition<T>;
-    readonly actor: PluginSettingsActor;
+    readonly context: TContext;
     readonly expectedRevision: number;
     readonly values: T;
+    readonly signal?: AbortSignal;
   }): Promise<ResolvedPluginSettings<T>> {
-    if (!input.actor.permissions.has(input.definition.descriptor.changePermission)) fail("ACCESS_DENIED", "Plugin settings change access is denied.");
+    const signal = input.signal ?? new AbortController().signal;
+    if (!await this.authorized({ operation: "change", descriptor: input.definition.descriptor, context: input.context, signal })) fail("ACCESS_DENIED", "Plugin settings change access is denied.");
     const current = await this.store.read(input.definition.descriptor.id);
     if (current === undefined || current.revision !== input.expectedRevision) fail("REVISION_CONFLICT", "Plugin settings revision changed before update.");
     const candidate: PluginSettingsDocument = {
@@ -91,6 +99,12 @@ export class PluginSettingsService {
     }, input.expectedRevision);
     if (replaced === undefined) fail("REVISION_CONFLICT", "Plugin settings revision changed during update.");
     return resolvePluginSettings(input.definition, replaced);
+  }
+
+  private async authorized(input: Parameters<PluginSettingsAuthorizer<TContext>["authorize"]>[0]): Promise<boolean> {
+    if (input.signal.aborted) return false;
+    try { return await this.authorizer.authorize(input) === true && !input.signal.aborted; }
+    catch { return false; }
   }
 }
 

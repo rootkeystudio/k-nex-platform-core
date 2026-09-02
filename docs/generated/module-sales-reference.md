@@ -22,7 +22,9 @@
 | navigation | sales.navigation.opportunities, sales.navigation.overview, sales.navigation.settings, sales.navigation.tasks |
 | pageTemplates | sales.page.opportunities, sales.page.overview, sales.page.settings, sales.page.tasks |
 | permissions | sales.opportunities.name.read, sales.opportunities.read, sales.opportunities.stage.read, sales.opportunities.value.read, sales.opportunities.write, sales.settings.read, sales.settings.write, sales.tasks.private-note.read, sales.tasks.read, sales.tasks.revenue.read, sales.tasks.status.read, sales.tasks.title.read, sales.tasks.write |
+| policyBindings | sales.policy.opportunities.name.read, sales.policy.opportunities.read, sales.policy.opportunities.stage.read, sales.policy.opportunities.value.read, sales.policy.opportunities.write, sales.policy.tasks.private-note.read, sales.policy.tasks.read, sales.policy.tasks.revenue.read, sales.policy.tasks.status.read, sales.policy.tasks.title.read, sales.policy.tasks.write |
 | realtimeTopics | sales.realtime.opportunities, sales.realtime.tasks |
+| roleTemplates | sales.template.administrator, sales.template.manager, sales.template.representative, sales.template.viewer |
 | routes | sales.route.opportunities, sales.route.overview, sales.route.settings, sales.route.tasks |
 | schema | sales.opportunities.collection, sales.tasks.collection |
 | services | sales.service.domain |

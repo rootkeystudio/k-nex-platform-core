@@ -55,11 +55,24 @@ const authorize = async (_identity: unknown, _frame: unknown, signal?: AbortSign
   const response = await fetch("/api/extensions/remote-ui/authorize", { method: "POST", credentials: "same-origin", cache: "no-store", signal });
   return response.status === 204;
 };
+const authorizeTarget = async (_identity: unknown, operation: "source" | "action", targetId: string, signal: AbortSignal): Promise<boolean> => {
+  const query = new URLSearchParams({ operation, targetId });
+  const response = await fetch(`/api/extensions/remote-ui/authorize-target?${query}`, { method: "POST", credentials: "same-origin", cache: "no-store", signal });
+  return response.status === 204;
+};
+if (!await authorize(undefined, undefined)) throw new Error("Remote UI initial authorization was denied.");
+sessions.admitAuthorization({
+  applicationId: snapshot.applicationId,
+  environment: snapshot.environment,
+  authorizationRevision: 1,
+  authorizationProof: "initial-authorize-response"
+});
 session = sessions.open(snapshot, {
   sessionId: "remote-session-1", remoteUiFrameUrl: window.__K_NEX_REMOTE_FRAME_URL__, route: "/apps/sales-assistant", surface: "sales.assistant-screen",
   sources: new Set(["sales.tasks", "sales.heartbeat"]), actions: new Set(["sales.refresh"]), routes: new Set(["/"]), assets: new Set()
 }, registry, {
   authorize,
+  authorizeTarget,
   render(tree) {
     root.replaceChildren(element(tree));
     const probe = root.querySelector<HTMLElement>("[data-node-id=probe]")?.textContent;

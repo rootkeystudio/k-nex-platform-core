@@ -1,11 +1,14 @@
 import { createServer } from "node:http";
 import { execFile } from "node:child_process";
 import { createHash, sign } from "node:crypto";
+import { readdirSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import pg from "pg";
-import { canonicalJson } from "@k-nex/contracts";
+import { fileURLToPath } from "node:url";
+import { loadInstalledPlatformPluginManifests, resolvePlatformPluginGraph, writeStaticArtifacts } from "@k-nex/composition";
+import { ApplicationManifestSchema, canonicalJson, supportedFrameworkTuple } from "@k-nex/contracts";
 import { PostgresStaticCompositionCheckpointStore, PostgresStaticDeploymentStore, PostgresTrustedBuildDeploymentClient } from "@k-nex/payload-adapter";
 import { DeterministicStaticCompositionChangeAuthority } from "@k-nex/runtime";
 import { runDeploymentSupervisor } from "./deployment-supervisor-process.mjs";
@@ -16,6 +19,8 @@ const databaseUrl = process.env.DATABASE_URL;
 const instance = process.env.P9_PROCESS_INSTANCE;
 const generation = process.env.P9_PROCESS_GENERATION;
 const controlPort = Number(process.env.P9_CONTROL_PORT);
+const fixtureRoot = fileURLToPath(new URL("..", import.meta.url));
+const repositoryLock = fileURLToPath(new URL("../../../pnpm-lock.yaml", import.meta.url));
 
 if (!role || !databaseUrl || !instance) throw new Error("Phase 9 process topology requires a role, instance, and PostgreSQL authority.");
 
@@ -23,15 +28,15 @@ const pool = new pg.Pool({ connectionString: databaseUrl, max: 2 });
 const sha256 = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 const digestJson = (value) => sha256(canonicalJson(value));
 const operatorPackages = Object.freeze([
-  { name: "@k-nex/contracts", version: "0.0.0", path: "static-deployment/operator-packages/k-nex-contracts-0.0.0.tgz" },
-  { name: "@k-nex/composition", version: "0.0.0", path: "static-deployment/operator-packages/k-nex-composition-0.0.0.tgz" },
-  { name: "@k-nex/extension-bundler", version: "0.0.0", path: "static-deployment/operator-packages/k-nex-extension-bundler-0.0.0.tgz" },
-  { name: "@k-nex/runtime", version: "0.0.0", path: "static-deployment/operator-packages/k-nex-runtime-0.0.0.tgz" },
-  { name: "@k-nex/payload-adapter", version: "0.0.0", path: "static-deployment/operator-packages/k-nex-payload-adapter-0.0.0.tgz" }
+  { name: "@k-nex/contracts", version: "1.0.0", path: "static-deployment/operator-packages/k-nex-contracts-1.0.0.tgz" },
+  { name: "@k-nex/composition", version: "1.0.0", path: "static-deployment/operator-packages/k-nex-composition-1.0.0.tgz" },
+  { name: "@k-nex/extension-bundler", version: "1.0.0", path: "static-deployment/operator-packages/k-nex-extension-bundler-1.0.0.tgz" },
+  { name: "@k-nex/runtime", version: "1.0.0", path: "static-deployment/operator-packages/k-nex-runtime-1.0.0.tgz" },
+  { name: "@k-nex/payload-adapter", version: "1.0.0", path: "static-deployment/operator-packages/k-nex-payload-adapter-1.0.0.tgz" }
 ]);
 const sourceFiles = Object.freeze([
-  "k-nex.app.json", "package.json", "package-lock.json", ".k-nex/generated/resolved-graph.json",
-  "tsconfig.json", "src/boot.ts", "src/k-nex-readiness.ts", "src/k-nex-registry.ts", "src/payload.config.ts", "src/migrations/20260827_000001_sales_baseline.ts", "src/migrations/20260827_000002_knex_bootstrap.ts", "src/migrations/index.ts",
+  "k-nex.app.json", "package.json", "package-lock.json", ".k-nex/generated/environment-schema.ts", ".k-nex/generated/k-nex.resolved.json", ".k-nex/generated/payload-contributions.ts", ".k-nex/generated/plugin-registry.ts", ".k-nex/generated/runtime-registration.ts", ".k-nex/generated/resolved-graph.json",
+  "tsconfig.json", "src/boot.ts", "src/current-authority.ts", "src/k-nex-readiness.ts", "src/k-nex-registry.ts", "src/payload.config.ts", ...readdirSync(new URL("../src/migrations/", import.meta.url)).sort().map((name) => `src/migrations/${name}`),
   "static-deployment/Dockerfile", "static-deployment/customer-application-gate.mjs", "static-deployment/deployment-supervisor-process.mjs", "static-deployment/healthcheck.mjs", "static-deployment/next.config.mjs", "static-deployment/payload.config.ts", "static-deployment/release-worker.mjs", "static-deployment/release.json", "static-deployment/static-runtime.ts", "static-deployment/topology-process.mjs", "static-deployment/tsconfig.customer.json", "static-deployment/tsconfig.next.json", "static-deployment/web-admin-container.mjs",
   "static-deployment/app/layout.tsx", "static-deployment/app/page.tsx", "static-deployment/app/api/[...slug]/route.ts", "static-deployment/app/[endpoint]/route.ts",
   "static-deployment-migration.ts",
@@ -83,7 +88,7 @@ async function fileDigest(path) { return sha256(await readFile(path)); }
 async function composition(sourceDirectory) {
   const pkg = await readJson(join(sourceDirectory, "package.json"));
   const salesTarball = pkg.dependencies?.["@k-nex/module-sales"]?.replace("file:", "");
-  if (salesTarball !== "packages/k-nex-module-sales-1.0.1.tgz" && salesTarball !== "packages/k-nex-module-sales-1.0.0.tgz") throw new Error("Customer package closure is not an approved module.sales archive.");
+  if (salesTarball !== "packages/k-nex-module-sales-1.0.0.tgz") throw new Error("Customer package closure is not an approved module.sales archive.");
   const providerTarball = pkg.dependencies?.["@k-nex/provider-realtime-socketio"]?.replace("file:", "");
   if (providerTarball && providerTarball !== "packages/k-nex-provider-realtime-socketio-1.0.0.tgz") throw new Error("Customer package closure contains an unapproved realtime provider archive.");
   const digests = Object.fromEntries(await Promise.all([...sourceFiles, salesTarball, ...(providerTarball ? ["src/k-nex-provider-registry.ts", providerTarball] : [])].map(async (path) => [path, await fileDigest(join(sourceDirectory, path))])));
@@ -114,6 +119,24 @@ async function regenerateLockAndGraph(sourceDirectory) {
     moduleSales: { version: sales.version, resolved: sales.resolved, integrity: sales.integrity },
     ...(provider ? { providerRealtimeSocketio: { version: provider.version, resolved: provider.resolved, integrity: provider.integrity } } : {})
   });
+}
+
+async function regenerateStaticArtifacts(sourceDirectory) {
+  const applicationManifest = ApplicationManifestSchema.parse(await readJson(join(sourceDirectory, "k-nex.app.json")));
+  const prior = await readJson(join(sourceDirectory, ".k-nex", "generated", "k-nex.resolved.json"));
+  const framework = {
+    core: supportedFrameworkTuple.core,
+    payload: supportedFrameworkTuple.payload,
+    node: applicationManifest.runtime.node,
+    pnpm: applicationManifest.runtime.packageManagerVersion,
+    payloadDatabaseAdapter: supportedFrameworkTuple.payloadDatabaseAdapter
+  };
+  const packages = [...applicationManifest.plugins.map(({ package: name, version }) => ({ name, version })), ...Object.values(applicationManifest.providers).map(({ package: name, version }) => ({ name, version }))]
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .filter((entry, index, entries) => index === 0 || entries[index - 1]?.name !== entry.name);
+  const installed = loadInstalledPlatformPluginManifests({ applicationRoot: fixtureRoot, lockfilePath: repositoryLock, lockfileImporter: "fixtures/customer-gate-1", packages, framework });
+  const resolvedGraph = resolvePlatformPluginGraph({ plugins: applicationManifest.plugins, providers: applicationManifest.providers, installed });
+  writeStaticArtifacts(sourceDirectory, { applicationManifest, resolvedGraph, installed, framework, customerConfigFingerprint: prior.customerConfigFingerprint });
 }
 
 function staticChangeRequest(source, plan, approved) {
@@ -211,7 +234,7 @@ async function sourceAuthority() {
   if (!approvedDigest || !/^[0-9a-f]{40}$/u.test(expectedBase ?? "")) throw new Error("Source authority requires fixed approved input and expected base digests.");
   if (await fileDigest(approvedPath) !== approvedDigest) throw new Error("Source authority rejected altered approved input.");
   const approved = await readJson(approvedPath);
-  const salesUpdate = approved.plugin?.id === "module.sales" && approved.plugin?.version === "1.0.1" && approved.plugin?.packageSpec === "file:packages/k-nex-module-sales-1.0.1.tgz" && (approved.operation ?? "update") === "update";
+  const salesUpdate = approved.plugin?.id === "module.sales" && approved.plugin?.version === "1.0.0" && approved.plugin?.packageSpec === "file:packages/k-nex-module-sales-1.0.0.tgz" && (approved.operation ?? "update") === "update";
   const providerUninstall = approved.plugin?.id === "provider.realtime.socketio" && approved.plugin?.version === "1.0.0" && approved.plugin?.packageSpec === "file:packages/k-nex-provider-realtime-socketio-1.0.0.tgz" && approved.operation === "uninstall";
   if (approved.applicationId !== "customer-alpha" || approved.environment !== "production" || (!salesUpdate && !providerUninstall)) {
     throw new Error("Source authority rejected an unapproved static composition request.");
@@ -226,6 +249,7 @@ async function sourceAuthority() {
     if (providerUninstall) {
       manifest.plugins = manifest.plugins.filter((candidate) => candidate.id !== approved.plugin.id);
       delete manifest.providers["realtime.gateway"];
+      delete manifest.runtime.realtime;
     } else plugin.version = approved.plugin.version;
     await writeJson(manifestPath, manifest);
     const packagePath = join(sourceDirectory, "package.json");
@@ -238,18 +262,23 @@ async function sourceAuthority() {
     if (!providerUninstall) {
       const release = await readJson(releasePath);
       release.plugin.version = approved.plugin.version;
+      release.generationId = approved.generationId ?? "customer-alpha-green-12";
       await writeJson(releasePath, release);
     }
     await regenerateLockAndGraph(sourceDirectory);
-    await git(sourceDirectory, ["add", "--all", "k-nex.app.json", "package.json", "package-lock.json", ".k-nex/generated/resolved-graph.json", "src/k-nex-provider-registry.ts", ...(providerUninstall ? [] : ["static-deployment/release.json"])]);
-    await git(sourceDirectory, ["commit", "--quiet", "-m", providerUninstall ? "customer: uninstall realtime provider" : "customer: update module.sales to 1.0.1"]);
+    await regenerateStaticArtifacts(sourceDirectory);
+    const mutated = (await git(sourceDirectory, ["diff", "--name-only", "--no-renames", "HEAD"])).stdout
+      .trim().split("\n").filter(Boolean).sort();
+    if (mutated.length === 0) throw new Error("Source authority rejected an empty approved composition change.");
+    await git(sourceDirectory, ["add", "--all"]);
+    await git(sourceDirectory, ["commit", "--quiet", "-m", providerUninstall ? "customer: uninstall realtime provider" : "customer: rebuild module.sales 1.0.0"]);
     const targetSourceCommit = await sourceCommit(sourceDirectory);
     const target = await composition(sourceDirectory);
-    const result = { schemaVersion: 1, applicationId: approved.applicationId, environment: approved.environment, expectedBase, targetSourceCommit, base: base.composition, target: target.composition, plugin: { id: approved.plugin.id, version: approved.plugin.version }, approvedInputDigest: approvedDigest };
+    const result = { schemaVersion: 1, applicationId: approved.applicationId, environment: approved.environment, expectedBase, targetSourceCommit, base: base.composition, target: target.composition, plugin: { id: approved.plugin.id, version: approved.plugin.version }, approvedInputDigest: approvedDigest, mutated };
     await writeJson(resultPath, result);
     await event("source-committed", {
       expectedBase, targetSourceCommit, approvedInputDigest: approvedDigest,
-      mutated: ["k-nex.app.json", "package.json", "package-lock.json", ".k-nex/generated/resolved-graph.json", providerUninstall ? "src/k-nex-provider-registry.ts" : "static-deployment/release.json"]
+      mutated
     });
     ready({ sourceCommit: targetSourceCommit, sourceResultDigest: await fileDigest(resultPath) });
     await authorizeSourceChange(sourceDirectory, approved, result, buildResultPath, authorityResultPath, artifactWaitTimeout);
@@ -300,12 +329,14 @@ async function builder() {
   await writeFile(applicationPath, applicationBundle);
   const applicationDigest = sha256(applicationBundle);
   const tag = `knex-p9-customer-alpha:${source.targetSourceCommit.slice(0, 12)}`;
+  const imageGenerationId = (await readJson(join(sourceDirectory, "static-deployment", "release.json"))).generationId;
+  if (typeof imageGenerationId !== "string" || imageGenerationId.length === 0) throw new Error("Builder requires immutable image generation metadata.");
   const fixtureLabel = process.env.P9_FIXTURE_LABEL;
   if (!fixtureLabel) throw new Error("P9_FIXTURE_LABEL is required by the trusted builder.");
-  await execute("docker", ["build", "--pull=false", "--file", "static-deployment/Dockerfile", "--tag", tag, "--build-arg", `K_NEX_SOURCE_COMMIT=${source.targetSourceCommit}`, "--build-arg", `K_NEX_APPLICATION_DIGEST=${applicationDigest}`, "--build-arg", `K_NEX_FIXTURE_LABEL=${fixtureLabel}`, "."], { cwd: sourceDirectory, maxBuffer: 8 * 1024 * 1024 });
+  await execute("docker", ["build", "--pull=false", "--file", "static-deployment/Dockerfile", "--tag", tag, "--build-arg", `K_NEX_SOURCE_COMMIT=${source.targetSourceCommit}`, "--build-arg", `K_NEX_APPLICATION_DIGEST=${applicationDigest}`, "--build-arg", `K_NEX_IMAGE_GENERATION=${imageGenerationId}`, "--build-arg", `K_NEX_FIXTURE_LABEL=${fixtureLabel}`, "."], { cwd: sourceDirectory, maxBuffer: 8 * 1024 * 1024 });
   const inspection = JSON.parse((await execute("docker", ["image", "inspect", tag], { maxBuffer: 1024 * 1024 })).stdout)[0];
   const imageDigest = inspection.Id;
-  if (!/^sha256:[0-9a-f]{64}$/u.test(imageDigest) || inspection.Config.Labels["org.opencontainers.image.revision"] !== source.targetSourceCommit || inspection.Config.Labels["dev.k-nex.application-digest"] !== applicationDigest) throw new Error("Builder rejected immutable image labels or digest.");
+  if (!/^sha256:[0-9a-f]{64}$/u.test(imageDigest) || inspection.Config.Labels["org.opencontainers.image.revision"] !== source.targetSourceCommit || inspection.Config.Labels["dev.k-nex.application-digest"] !== applicationDigest || inspection.Config.Labels["dev.k-nex.image-generation"] !== imageGenerationId) throw new Error("Builder rejected immutable image labels or digest.");
   const sbom = { bomFormat: "CycloneDX", components: materials.packageClosure.map(({ name, version, digest }) => ({ name, version, hashes: [{ alg: "SHA-256", content: digest.slice(7) }] })), sourceCommit: source.targetSourceCommit };
   const sbomPath = join(artifactsDirectory, `${source.targetSourceCommit}.sbom.json`);
   await writeJson(sbomPath, sbom);
@@ -406,7 +437,7 @@ async function worker() {
 async function gateway() {
   const server = createServer(async (request, response) => {
     try {
-      const state = await pool.query("select active_generation_id, revision from runtime_static_deployments where application_id='customer-alpha' and environment='production'");
+      const state = await pool.query("select d.revision, public.k_nex_static_serving_generation(d.application_id,d.environment) active_generation_id from runtime_static_deployments d where application_id='customer-alpha' and environment='production'");
       const current = state.rows[0];
       if (!current) throw new Error("No active PostgreSQL deployment authority.");
       if (request.url === "/p9-authority") {

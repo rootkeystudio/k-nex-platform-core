@@ -1,0 +1,24 @@
+{
+  "$schema": "../../../schemas/extension-shared-static-generation-rebind-event.v1.schema.json",
+  "applicationId": "customer-alpha",
+  "deliveryClass": "platform-plugin",
+  "environment": "production",
+  "eventId": "static-rebind-event-9",
+  "eventType": "extension.shared-static-generation-rebind",
+  "evidence": {
+    "applicationDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "compositionChangePlanDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "generationId": "static-generation-green-9",
+    "imageDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "sourceCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "workerFencingToken": 9
+  },
+  "expectedRevision": 8,
+  "id": "module.sales",
+  "inventoryRevision": 19,
+  "occurredAt": "2026-08-29T09:00:00.000Z",
+  "previousGenerationId": "static-generation-blue-8",
+  "receiptId": "static-receipt-9",
+  "revision": 9,
+  "schemaVersion": 1
+}

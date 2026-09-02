@@ -33,6 +33,9 @@ export interface ExtensionCapabilityClaims {
   /** A persisted lease acquired before a generation is superseded. */
   readonly drainLeaseId?: string;
   readonly grants: readonly ExtensionCapabilityGrant[];
+  /** Exact authoritative state used to mint this invocation capability. */
+  readonly authorizationRevision: number;
+  readonly lifecycleRevision: number;
   readonly issuedAt: string;
   readonly expiresAt: string;
 }
@@ -71,7 +74,11 @@ export interface ExtensionCapabilityHandler {
  * still current. Phase 10 supplies the durable policy implementation.
  */
 export interface ExtensionCapabilityAuthority {
-  reauthorize(claims: ExtensionCapabilityClaims): boolean | Promise<boolean>;
+  reauthorize(claims: ExtensionCapabilityClaims, capability: Readonly<{
+    capability: ExtensionCapabilityId;
+    /** Exact signed manifest grants that authorize this callable host capability. */
+    grants: readonly ExtensionCapabilityGrant[];
+  }>): boolean | Promise<boolean>;
 }
 
 /**
@@ -110,15 +117,19 @@ function parseTimestamp(value: unknown): number {
 function parseClaims(value: unknown): ExtensionCapabilityClaims {
   if (typeof value !== "object" || value === null || Array.isArray(value)) fail("TOKEN_INVALID", "Capability token claims are invalid.");
   const claims = value as Record<string, unknown>;
-  const expectedKeys = ["actor", "appId", "applicationId", "correlationId", "environment", "expiresAt", "generationId", "grants", "invocationId", "issuedAt", "schemaVersion", "tokenId"];
+  const expectedKeys = ["actor", "appId", "applicationId", "authorizationRevision", "correlationId", "environment", "expiresAt", "generationId", "grants", "invocationId", "issuedAt", "lifecycleRevision", "schemaVersion", "tokenId"];
   const claimKeys = Object.keys(claims).sort().join("\0");
   const normalKeys = expectedKeys.sort().join("\0");
   const drainingKeys = [...expectedKeys, "drainLeaseId"].sort().join("\0");
+  const authorizationRevision = claims.authorizationRevision;
+  const lifecycleRevision = claims.lifecycleRevision;
   if ((claimKeys !== normalKeys && claimKeys !== drainingKeys) || claims.schemaVersion !== 1 ||
     typeof claims.applicationId !== "string" || !idPattern.test(claims.applicationId) || typeof claims.environment !== "string" || !/^[a-z][a-z0-9-]{1,63}$/u.test(claims.environment) ||
     typeof claims.appId !== "string" || !appIdPattern.test(claims.appId) || typeof claims.generationId !== "string" || !idPattern.test(claims.generationId) ||
     typeof claims.invocationId !== "string" || !idPattern.test(claims.invocationId) || typeof claims.tokenId !== "string" || !idPattern.test(claims.tokenId) ||
     typeof claims.correlationId !== "string" || !idPattern.test(claims.correlationId) ||
+    typeof authorizationRevision !== "number" || !Number.isSafeInteger(authorizationRevision) || authorizationRevision < 0 ||
+    typeof lifecycleRevision !== "number" || !Number.isSafeInteger(lifecycleRevision) || lifecycleRevision < 0 ||
     (claims.drainLeaseId !== undefined && (typeof claims.drainLeaseId !== "string" || !drainLeasePattern.test(claims.drainLeaseId))) ||
     !Array.isArray(claims.grants) || claims.grants.length > 16 ||
     typeof claims.actor !== "object" || claims.actor === null || Array.isArray(claims.actor)) fail("TOKEN_INVALID", "Capability token claims are invalid.");
@@ -248,12 +259,13 @@ export class ExtensionCapabilityGateway {
     call.signal.throwIfAborted();
     const claims = this.tokens.verify(call.token);
     if (claims.invocationId !== call.invocationId || claims.generationId !== call.generationId) fail("IDENTITY_MISMATCH", "Capability invocation identity does not match its token.");
-    if (!claims.grants.some((grant) => grantAllowsCapability(grant, call.capability))) fail("CAPABILITY_DENIED", "Capability operation was not granted to this invocation.");
+    const grants = Object.freeze(claims.grants.filter((grant) => grantAllowsCapability(grant, call.capability)));
+    if (grants.length === 0) fail("CAPABILITY_DENIED", "Capability operation was not granted to this invocation.");
     const handler = this.handlers[call.capability];
     if (!handler) fail("CAPABILITY_DENIED", "Capability has no registered host handler.");
     boundedJson(call.payload, this.limits.maxInputBytes, this.limits.maxDepth);
     const input = handler.validateInput(call.payload);
-    if (!await this.authority.reauthorize(claims)) fail("AUTHORITY_DENIED", "Capability invocation no longer has current generation or actor authority.");
+    if (!await this.authority.reauthorize(claims, Object.freeze({ capability: call.capability, grants }))) fail("AUTHORITY_DENIED", "Capability invocation no longer has current generation or actor authority.");
     call.signal.throwIfAborted();
     if (!await this.sequences.claim(claims, call.sequence, this.limits.maxCalls)) fail("SEQUENCE_INVALID", "Capability sequence is missing, replayed, or outside its call budget.");
     call.signal.throwIfAborted();
@@ -269,4 +281,5 @@ export class ExtensionCapabilityGateway {
     }
     return claims;
   }
+
 }

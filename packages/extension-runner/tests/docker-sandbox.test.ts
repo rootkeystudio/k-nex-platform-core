@@ -55,6 +55,7 @@ async function request(store: VerifiedArtifactStore, generationId: string, sourc
     schemaVersion: 1 as const, deliveryClass: "hot-application" as const, id: target.appId, displayName: "Runner fixture", version: "1.0.0", runtimeAbi: "1.0.0",
     entrypoints: { server: ["server/main.mjs"], ui: ["ui/main.mjs"] },
     capabilities: options.capabilities ?? [],
+    permissions: [], policyBindings: [],
     resourceBudget: { maxBundleBytes: 1_048_576, maxAssetBytes: 1_024, maxStorageBytes: 1_024, maxMemoryMiB: 64, maxCpuMilliCores: 250, maxWallTimeMs: 10_000, maxInputBytes: 8_192, maxOutputBytes: 8_192, maxLogBytes: 8_192, maxConcurrency: 2 },
     settings: [], screens: [{ id: "runner.screen", route: "/", entrypoint: "ui/main.mjs" }], navigation: [], sources: [], actions: [], tools: [], logicFunctions: [], eventSubscriptions: [], schedules: [], storageSchemas: [], assets: [], localization: [], healthChecks: []
   };
@@ -74,9 +75,9 @@ async function request(store: VerifiedArtifactStore, generationId: string, sourc
   const token = tokens.issue({
     tokenId: `runner-token-${sequence}`, ...target, invocationId,
     actor: { principalId: "user:one", effectiveActorId: "user:one" }, correlationId: `runner-correlation-${sequence}`,
-    drainLeaseId, grants: options.grants ?? [{ kind: "records", required: true, reason: "Read fixture records.", operations: ["query"], resources: [{ id: "sales.tasks", version: 1 }] }], ttlMs: 30_000
+    drainLeaseId, grants: options.grants ?? [{ kind: "records", required: true, reason: "Read fixture records.", operations: ["query"], resources: [{ id: "sales.tasks", version: 1 }] }], authorizationRevision: 0, lifecycleRevision: 0, ttlMs: 30_000
   });
-  return { owner: { applicationId: owner.applicationId, environment: owner.environment, deliveryClass: owner.deliveryClass, extensionId: owner.extensionId }, generationId, artifactDigest: verified.artifactDigest, serverEntrypoint: "server/main.mjs", invocationId, drainLeaseId, token, input: { marker: invocationId }, limits: { ...limits, ...(options.wallTimeMs === undefined ? {} : { wallTimeMs: options.wallTimeMs }) } };
+  return { owner: { applicationId: owner.applicationId, environment: owner.environment, deliveryClass: owner.deliveryClass, extensionId: owner.extensionId }, generationId, artifactDigest: verified.artifactDigest, serverEntrypoint: "server/main.mjs", invocationId, drainLeaseId, token, authorizationRevision: 0, lifecycleRevision: 0, input: { marker: invocationId }, limits: { ...limits, ...(options.wallTimeMs === undefined ? {} : { wallTimeMs: options.wallTimeMs }) } };
 }
 
 async function inspectContainer(name: string): Promise<Record<string, any>> {

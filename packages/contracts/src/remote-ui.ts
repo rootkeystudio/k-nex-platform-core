@@ -63,7 +63,7 @@ export const RemoteUiFrameSchema = z.discriminatedUnion("type", [
   z.strictObject({ ...common, direction: z.literal("host-to-realm"), type: z.literal("event"), nodeId, event: z.enum(["press", "change", "submit", "selection-change"]), handlerId: ResourceIdSchema, payload: jsonValue }),
   z.strictObject({ ...common, direction: z.literal("host-to-realm"), type: z.literal("response-ok"), requestId: recordId, output: jsonValue }),
   z.strictObject({ ...common, direction: z.literal("host-to-realm"), type: z.literal("response-error"), requestId: recordId, code: z.enum(["UNAUTHORIZED", "TARGET_UNAVAILABLE", "REQUEST_INVALID", "REQUEST_FAILED"]) }),
-  z.strictObject({ ...common, direction: z.literal("host-to-realm"), type: z.literal("dispose"), reason: z.enum(["generation-retired", "session-ended", "protocol-failure"]) })
+  z.strictObject({ ...common, direction: z.literal("host-to-realm"), type: z.literal("dispose"), reason: z.enum(["authorization-revoked", "generation-retired", "session-ended", "protocol-failure"]) })
 ]).meta({ $id: "https://schemas.k-nex.dev/remote-ui-frame/v1.json", title: "K-Nex Remote UI Frame v1" });
 
 export type RemoteUiFrame = z.output<typeof RemoteUiFrameSchema>;

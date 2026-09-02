@@ -1,25 +1,180 @@
 {
   "$schema": "../../../schemas/hot-application-manifest.v1.schema.json",
-  "actions": [{ "id": "sales.assistant-action", "path": "schemas/actions/assistant.json" }],
-  "assets": ["assets/assistant-logo.svg"],
-  "capabilities": [{ "kind": "records", "operations": ["query"], "reason": "Read assigned Sales tasks.", "required": true, "resources": [{ "id": "sales.tasks", "version": 1 }] }],
-  "displayName": "Sales Assistant",
-  "entrypoints": { "server": ["server/assistant.mjs"], "ui": ["ui/assistant.mjs"] },
-  "eventSubscriptions": [{ "eventType": "sales.task-created", "logicFunctionId": "sales.assistant-handler" }],
-  "healthChecks": [{ "entrypoint": "server/assistant.mjs", "id": "sales.assistant-health" }],
-  "id": "app.sales-assistant",
+  "actions": [
+    {
+      "id": "sales.assistant-action",
+      "path": "schemas/actions/assistant.json"
+    }
+  ],
+  "assets": [
+    "assets/assistant-logo.svg"
+  ],
+  "capabilities": [
+    {
+      "kind": "records",
+      "operations": [
+        "query"
+      ],
+      "reason": "Read assigned Sales tasks.",
+      "required": true,
+      "resources": [
+        {
+          "id": "sales.tasks",
+          "version": 1
+        }
+      ]
+    }
+  ],
   "deliveryClass": "hot-application",
-  "localization": [{ "locale": "en", "path": "locales/en.json" }],
-  "logicFunctions": [{ "entrypoint": "server/assistant.mjs", "id": "sales.assistant-handler" }],
-  "navigation": [{ "id": "sales.assistant-nav", "screenId": "sales.assistant-screen", "title": "Assistant" }],
-  "resourceBudget": { "maxAssetBytes": 262144, "maxBundleBytes": 1048576, "maxConcurrency": 4, "maxCpuMilliCores": 500, "maxInputBytes": 65536, "maxLogBytes": 65536, "maxMemoryMiB": 128, "maxOutputBytes": 131072, "maxStorageBytes": 1048576, "maxWallTimeMs": 5000 },
+  "displayName": "Sales Assistant",
+  "entrypoints": {
+    "server": [
+      "server/assistant.mjs"
+    ],
+    "ui": [
+      "ui/assistant.mjs"
+    ]
+  },
+  "eventSubscriptions": [
+    {
+      "eventType": "sales.task-created",
+      "logicFunctionId": "sales.assistant-handler"
+    }
+  ],
+  "healthChecks": [
+    {
+      "entrypoint": "server/assistant.mjs",
+      "id": "sales.assistant-health"
+    }
+  ],
+  "id": "app.sales-assistant",
+  "localization": [
+    {
+      "locale": "en",
+      "path": "locales/en.json"
+    }
+  ],
+  "logicFunctions": [
+    {
+      "entrypoint": "server/assistant.mjs",
+      "id": "sales.assistant-handler"
+    }
+  ],
+  "navigation": [
+    {
+      "id": "sales.assistant-nav",
+      "screenId": "sales.assistant-screen",
+      "title": "Assistant"
+    }
+  ],
+  "permissions": [
+    {
+      "audience": "authenticated",
+      "description": "Read actor-authorized Sales Assistant task summaries.",
+      "id": "sales-assistant.tasks.read",
+      "operation": "read",
+      "publisher": {
+        "deliveryClass": "hot-application",
+        "extensionId": "app.sales-assistant",
+        "kind": "extension"
+      },
+      "resource": "sales-assistant.tasks",
+      "schemaVersion": 1,
+      "scope": "record",
+      "title": "Read Sales Assistant tasks"
+    }
+  ],
+  "policyBindings": [
+    {
+      "failureMode": "deny",
+      "id": "sales-assistant.policy.tasks-read",
+      "permissionId": "sales-assistant.tasks.read",
+      "policyReference": "sales-assistant.policy.tasks-read",
+      "publisher": {
+        "deliveryClass": "hot-application",
+        "extensionId": "app.sales-assistant",
+        "kind": "extension"
+      },
+      "schemaVersion": 1,
+      "scope": "record",
+      "timeoutMs": 5000
+    }
+  ],
+  "resourceBudget": {
+    "maxAssetBytes": 262144,
+    "maxBundleBytes": 1048576,
+    "maxConcurrency": 4,
+    "maxCpuMilliCores": 500,
+    "maxInputBytes": 65536,
+    "maxLogBytes": 65536,
+    "maxMemoryMiB": 128,
+    "maxOutputBytes": 131072,
+    "maxStorageBytes": 1048576,
+    "maxWallTimeMs": 5000
+  },
+  "roleTemplates": [
+    {
+      "id": "sales-assistant.template.viewer",
+      "instantiation": "automatic",
+      "permissionIds": [
+        "sales-assistant.tasks.read"
+      ],
+      "publisher": {
+        "deliveryClass": "hot-application",
+        "extensionId": "app.sales-assistant",
+        "kind": "extension"
+      },
+      "schemaVersion": 1,
+      "title": "Sales Assistant Viewer",
+      "version": 1
+    }
+  ],
   "runtimeAbi": "1.0.0",
-  "schedules": [{ "id": "sales.assistant-refresh", "intervalSeconds": 300, "logicFunctionId": "sales.assistant-handler" }],
+  "schedules": [
+    {
+      "id": "sales.assistant-refresh",
+      "intervalSeconds": 300,
+      "logicFunctionId": "sales.assistant-handler"
+    }
+  ],
   "schemaVersion": 1,
-  "screens": [{ "entrypoint": "ui/assistant.mjs", "id": "sales.assistant-screen", "route": "/" }],
-  "settings": [{ "id": "sales.assistant-settings", "path": "schemas/settings/assistant.json" }],
-  "sources": [{ "id": "sales.assistant-source", "path": "schemas/sources/assistant.json" }],
-  "storageSchemas": [{ "id": "sales.assistant-storage", "indexes": [{ "path": "/taskId", "unique": true }], "quotaBytes": 1048576, "schemaPath": "schemas/storage/assistant.json" }],
-  "tools": [{ "id": "sales.assistant-tool", "path": "schemas/tools/assistant.json" }],
+  "screens": [
+    {
+      "entrypoint": "ui/assistant.mjs",
+      "id": "sales.assistant-screen",
+      "route": "/"
+    }
+  ],
+  "settings": [
+    {
+      "id": "sales.assistant-settings",
+      "path": "schemas/settings/assistant.json"
+    }
+  ],
+  "sources": [
+    {
+      "id": "sales.assistant-source",
+      "path": "schemas/sources/assistant.json"
+    }
+  ],
+  "storageSchemas": [
+    {
+      "id": "sales.assistant-storage",
+      "indexes": [
+        {
+          "path": "/taskId",
+          "unique": true
+        }
+      ],
+      "quotaBytes": 1048576,
+      "schemaPath": "schemas/storage/assistant.json"
+    }
+  ],
+  "tools": [
+    {
+      "id": "sales.assistant-tool",
+      "path": "schemas/tools/assistant.json"
+    }
+  ],
   "version": "1.0.0"
 }

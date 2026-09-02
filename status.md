@@ -1,22 +1,22 @@
 # Project Status
 
-- **Updated:** 2026-09-01
-- **Phase:** Phase 9 — Dynamic Application Runtime and Zero-Downtime Delivery
-- **Active task:** P9.10 — Gate 9 closeout
+- **Updated:** 2026-09-02
+- **Phase:** Phase 10 — RBAC, Authorization, and Extension Bootstrap
+- **Active task:** P10.10 — phase review handoff
 - **State:** Ready for phase review
 
 ## Last completed
 
-All PR #28 owner findings are closed. The complete-snapshot catalog reconciliation fails closed, and the retirement race now uses its durable takeover fence token with deterministic lease timing.
+Review remediation slice 15 restores Phase 8's exact gate-decision markers; isolated Gate 8 and reused Sol-xhigh review PASS.
 
 ## Validation
 
-GitHub Actions run `33446485924` passed strict Linux/AppArmor, Docker, Chromium, and every Gate 0–9 executable proof, including both retirement PostgreSQL executions. It failed only because the result artifact still carried its pre-closeout marker; the documentation-closeout exact-head rerun is pending.
+Exact Node 24.19.0: isolated Gate 8, including hosted evidence checks and real PostgreSQL restore, PASS (`TMPDIR=/private/tmp` for canonical macOS temp path). Replacement exact-head checks are not claimed yet.
 
 ## Next
 
-Require the documentation-closeout exact-head `validate` check to pass, then await designated review and merge of PR #28. Do not start P10.1 before merge.
+Freeze this head; obtain focused PR and one replacement cumulative Linux/AppArmor exact-head run, then merge on owner authorization.
 
 ## Blockers
 
-None.
+Blocking owner review on PR #29; do not merge or begin Phase 11.

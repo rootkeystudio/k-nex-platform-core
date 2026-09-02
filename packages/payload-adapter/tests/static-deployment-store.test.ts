@@ -220,12 +220,44 @@ describe("PostgresStaticDeploymentStore.listPendingGenerationRetirements", () =>
     const query = vi.fn(async (text: string, values?: readonly unknown[]) => {
       if (["begin", "commit", "rollback"].includes(text) || text.startsWith("select pg_advisory_xact_lock")) return { rows: [] };
       if (text.startsWith("select * from runtime_static_deployments")) return { rows: [{ active_generation_id: "customer-alpha-green-9", rollback_generation_id: null }] };
-      if (text.startsWith("select * from runtime_static_generation_retirements")) return { rows: retirements.slice(0, Number(values?.[4])) };
+      if (text.startsWith("select * from runtime_static_generation_retirements")) return { rows: retirements.slice(0, Number(values?.[5])) };
       throw new Error(`Unexpected query: ${text}`);
     });
     const session = { query, release: vi.fn() } as unknown as RuntimeExtensionSession;
     const store = new PostgresStaticDeploymentStore({ connect: vi.fn(async () => session), query } as unknown as RuntimeExtensionPool, { now: () => now }, { read: vi.fn() } as never);
 
     await expect(store.listPendingGenerationRetirements({ ...owner, limit: 32 })).resolves.toHaveLength(32);
+  });
+});
+
+describe("PostgresStaticDeploymentStore.rollback", () => {
+  it("rejects a quarantined recovery after its prior static generation was closed and retired", async () => {
+    const generation = (generationId: string) => ({
+      generationId, sourceCommit: "a".repeat(40), compositionChangePlanDigest: resultDigest, buildEvidenceDigest: resultDigest,
+      applicationDigest: resultDigest, imageDigest: resultDigest, imageReference: `ghcr.io/k-nex/test@${resultDigest}`, migrationRevision: 1
+    });
+    const row = {
+      revision: 1, active_generation_id: "customer-alpha-green-9", active_generation: generation("customer-alpha-green-9"),
+      rollback_generation_id: null, rollback_generation: null,
+      rollback_window: { state: "closed", contractCleanup: "eligible", retiredGenerationId: "customer-alpha-blue-8" },
+      transition_checkpoint: null, state_digest: resultDigest
+    };
+    const fence = {
+      active_execution_generation: "customer-alpha-green-9", fencing_token: 5, lease_owner: "worker:green",
+      lease_expires_at: "2026-08-29T12:02:00.000Z", promotion_revision: 1
+    };
+    const query = vi.fn(async (text: string) => {
+      if (["begin", "commit", "rollback"].includes(text) || text.startsWith("select pg_advisory_xact_lock")) return { rows: [] };
+      if (text.startsWith("select * from runtime_static_deployments")) return { rows: [row] };
+      if (text.startsWith("select * from runtime_worker_generation_fences")) return { rows: [fence] };
+      if (text.startsWith("select * from runtime_static_worker_activations")) return { rows: [] };
+      throw new Error(`Unexpected query: ${text}`);
+    });
+    const session = { query, release: vi.fn() } as unknown as RuntimeExtensionSession;
+    const store = new PostgresStaticDeploymentStore({ connect: vi.fn(async () => session), query } as unknown as RuntimeExtensionPool, { now: () => now }, { read: vi.fn() } as never);
+
+    await expect(store.rollback({ ...owner, expectedRevision: 1, expectedFenceToken: 5, workerOwner: "worker:green", workerLeaseExpiresAt: "2026-08-29T12:02:00.000Z" }))
+      .rejects.toMatchObject<Partial<StaticDeploymentStoreError>>({ code: "ROLLBACK_UNAVAILABLE" });
+    expect(query.mock.calls.some(([text]) => typeof text === "string" && text.startsWith("update runtime_static_deployments"))).toBe(false);
   });
 });

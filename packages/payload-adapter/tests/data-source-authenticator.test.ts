@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { DataSourceGatewayError } from "@k-nex/runtime";
 import type { PayloadRequest } from "payload";
@@ -27,7 +27,7 @@ function authenticator() {
       };
     },
     authorizationContext: () => ({ permissionRevision: "permissions-7" }),
-    requestContext: (request) => createPayloadPersistenceCapability(request, [{ collection: "sales-tasks", operations: ["find"] }])
+    requestContext: (request) => createPayloadPersistenceCapability(request, [{ collection: "sales-tasks", operations: ["find"] }], { authorize: () => true })
   });
 }
 
@@ -82,8 +82,66 @@ describe("Payload data-source authentication adapter", () => {
   });
 
   it("denies operations outside the platform-issued collection grant", async () => {
-    const context = createPayloadPersistenceCapability(rawRequest, [{ collection: "sales-tasks", operations: ["find"] }]);
+    const context = createPayloadPersistenceCapability(rawRequest, [{ collection: "sales-tasks", operations: ["find"] }], { authorize: () => true });
     await expect(context.payload.find({ collection: "users", overrideAccess: true })).rejects.toThrow(/denied/i);
     await expect(context.payload.update({ collection: "sales-tasks", overrideAccess: true })).rejects.toThrow(/denied/i);
+  });
+
+  it("reauthorizes before every Payload operation and never dispatches after denial", async () => {
+    const find = vi.fn();
+    const request = { ...rawRequest, payload: { find, create: vi.fn(), update: vi.fn() } } as unknown as PayloadRequest;
+    const context = createPayloadPersistenceCapability(request, [{ collection: "sales-tasks", operations: ["find"] }], { authorize: () => false });
+
+    await expect(context.payload.find({ collection: "sales-tasks", overrideAccess: true })).rejects.toThrow(/authority denied/i);
+    expect(find).not.toHaveBeenCalled();
+  });
+
+  it("owns only the transaction it starts and exposes its host guard", async () => {
+    const beginTransaction = vi.fn(async () => "tx-owned");
+    const commitTransaction = vi.fn(async () => undefined);
+    const rollbackTransaction = vi.fn(async () => undefined);
+    const request = {
+      ...rawRequest,
+      transactionID: undefined,
+      payload: { find: vi.fn(), create: vi.fn(), update: vi.fn(), db: { beginTransaction, commitTransaction, rollbackTransaction } }
+    } as unknown as PayloadRequest;
+    const context = createPayloadPersistenceCapability(request, [{ collection: "sales-tasks", operations: ["find"] }], { authorize: () => true }, {
+      guard: async (input) => input.id === "task-1"
+    });
+
+    await context.transaction.begin();
+    expect(context.transactionID).toBe("tx-owned");
+    expect(await context.guard({ id: "task-1" })).toBe(true);
+    await context.transaction.commit();
+    await context.transaction.rollback();
+    expect(beginTransaction).toHaveBeenCalledOnce();
+    expect(commitTransaction).toHaveBeenCalledExactlyOnceWith("tx-owned");
+    expect(rollbackTransaction).not.toHaveBeenCalled();
+
+    const inherited = createPayloadPersistenceCapability({
+      ...request,
+      transactionID: "tx-inherited"
+    } as PayloadRequest, [{ collection: "sales-tasks", operations: ["find"] }], { authorize: () => true });
+    await inherited.transaction.begin();
+    await inherited.transaction.rollback();
+    expect(beginTransaction).toHaveBeenCalledOnce();
+    expect(rollbackTransaction).not.toHaveBeenCalled();
+  });
+
+  it("rolls back and clears an owned request transaction when commit fails", async () => {
+    const beginTransaction = vi.fn(async () => "tx-failed");
+    const commitTransaction = vi.fn(async () => { throw new Error("commit failed"); });
+    const rollbackTransaction = vi.fn(async () => undefined);
+    const request = {
+      ...rawRequest,
+      transactionID: undefined,
+      payload: { find: vi.fn(), create: vi.fn(), update: vi.fn(), db: { beginTransaction, commitTransaction, rollbackTransaction } }
+    } as unknown as PayloadRequest;
+    const context = createPayloadPersistenceCapability(request, [{ collection: "sales-tasks", operations: ["find"] }], { authorize: () => true });
+
+    await context.transaction.begin();
+    await expect(context.transaction.commit()).rejects.toThrow("commit failed");
+    expect(rollbackTransaction).toHaveBeenCalledExactlyOnceWith("tx-failed");
+    expect(request.transactionID).toBeUndefined();
   });
 });

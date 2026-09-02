@@ -14,7 +14,7 @@ const extensionPublisher = { identity: "k-nex-extension-author", publicKey: exte
 const manifest: BundleBuildInput["manifest"] = {
   schemaVersion: 1, deliveryClass: "hot-application", id: "app.sales-fixture", displayName: "Sales fixture", version: "1.0.0", runtimeAbi: "1.0.0",
   entrypoints: { server: ["server/main.mjs"], ui: ["ui/main.mjs"] },
-  capabilities: [],
+  capabilities: [], permissions: [], policyBindings: [],
   resourceBudget: { maxBundleBytes: 1024 * 1024, maxAssetBytes: 1024, maxStorageBytes: 1024, maxMemoryMiB: 64, maxCpuMilliCores: 100, maxWallTimeMs: 1000, maxInputBytes: 1024, maxOutputBytes: 1024, maxLogBytes: 1024, maxConcurrency: 1 },
   settings: [], screens: [{ id: "sales.screen", route: "/", entrypoint: "ui/main.mjs" }], navigation: [], sources: [], actions: [], tools: [], logicFunctions: [], eventSubscriptions: [], schedules: [], storageSchemas: [], assets: [], localization: [], healthChecks: []
 };

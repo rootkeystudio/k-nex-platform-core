@@ -1,0 +1,10 @@
+{
+  "$schema": "https://schemas.k-nex.dev/authorization.v1.schema.json",
+  "contract": {
+    "applicationId": "customer-alpha",
+    "id": "system.role.owner",
+    "label": "Owner",
+    "revision": 1,
+    "schemaVersion": 1
+  }
+}

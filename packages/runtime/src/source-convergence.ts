@@ -5,7 +5,7 @@ export const sourceFreshnessIntervalsMs = Object.freeze({
 });
 
 export type SourceFreshnessClass = keyof typeof sourceFreshnessIntervalsMs;
-export type SourceConvergenceReason = "initial" | "invalidation" | "reconnect" | "focus" | "periodic";
+export type SourceConvergenceReason = "initial" | "invalidation" | "authorization" | "reconnect" | "focus" | "periodic";
 
 export interface AuthoritativeSourceSnapshot<T> {
   readonly data: T;
@@ -45,6 +45,7 @@ export class SourceConvergenceController<T> {
   private readonly refreshTimeoutMs: number;
   private stateValue: SourceConvergenceState<T> = Object.freeze({ data: null, lastValidatedAt: null, revision: null, status: "idle" });
   private refreshPromise: Promise<SourceConvergenceState<T>> | undefined;
+  private refreshController: AbortController | undefined;
   private minimumRevision = 0;
   private periodicTimer: ReturnType<typeof setInterval> | undefined;
   private signalCleanup: readonly (() => void)[] = [];
@@ -95,6 +96,15 @@ export class SourceConvergenceController<T> {
     return this.refresh("invalidation");
   }
 
+  /** Clears private state before reauthorizing; source revision hints never take this path. */
+  handleAuthorizationInvalidation(): Promise<SourceConvergenceState<T>> {
+    this.minimumRevision = 0;
+    this.stateValue = Object.freeze({ data: null, lastValidatedAt: this.clock(), revision: null, status: "stale" });
+    this.refreshController?.abort();
+    const refresh = this.refreshPromise;
+    return refresh ? refresh.then(() => this.refresh("authorization"), () => this.refresh("authorization")) : this.refresh("authorization");
+  }
+
   handleReconnect(): Promise<SourceConvergenceState<T>> {
     this.stateValue = Object.freeze({ ...this.stateValue, status: "stale" });
     return this.refresh("reconnect");
@@ -117,6 +127,7 @@ export class SourceConvergenceController<T> {
   private refresh(reason: SourceConvergenceReason): Promise<SourceConvergenceState<T>> {
     if (this.refreshPromise) return this.refreshPromise;
     const controller = new AbortController();
+    this.refreshController = controller;
     let timer: ReturnType<typeof setTimeout>;
     const timeout = new Promise<SourceConvergenceState<T>>((resolve) => {
       timer = setTimeout(() => {
@@ -127,7 +138,10 @@ export class SourceConvergenceController<T> {
       (timer as unknown as { unref?(): void }).unref?.();
     });
     const refresh = Promise.race([this.runRefresh(reason, controller.signal), timeout]).finally(() => clearTimeout(timer));
-    this.refreshPromise = refresh.finally(() => { this.refreshPromise = undefined; });
+    this.refreshPromise = refresh.finally(() => {
+      if (this.refreshController === controller) this.refreshController = undefined;
+      this.refreshPromise = undefined;
+    });
     return this.refreshPromise;
   }
 

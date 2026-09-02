@@ -3,8 +3,13 @@ import { createHmac } from "node:crypto";
 
 import pg from "pg";
 import { createPayloadRequest } from "payload";
+import { PostgresAuthorizationStore } from "@k-nex/payload-adapter";
+import { bootstrapFirstOwner } from "@k-nex/runtime";
 
 import { bootGate1Application } from "../dist/src/boot.js";
+import { installStaticAuthorizationEnvironment, staticAuthorizationBuild } from "./static-authorization-build.mjs";
+
+installStaticAuthorizationEnvironment();
 
 const bootKey = process.env.BOOT_KEY;
 const payload = await bootGate1Application({ key: bootKey });
@@ -14,6 +19,77 @@ const owner = await payload.create({
 });
 const actor = { ...owner, collection: "users" };
 const validSecret = "f4ba11f7-8f49-40dd-8c4f-4bda4d5ec948";
+const pool = payload.db?.pool;
+assert.ok(pool && typeof pool === "object" && "connect" in pool && "query" in pool);
+const store = new PostgresAuthorizationStore(pool, {
+  validate: (applicationId, subject) => applicationId === "customer-gate-1" && subject.kind === "user" && subject.id === String(owner.id)
+    ? "accepted"
+    : "rejected"
+});
+const initialState = await store.readState("customer-gate-1", "production");
+const state = initialState === undefined
+  ? (await bootstrapFirstOwner({
+    store,
+    expected: { applicationId: "customer-gate-1", environment: "production", authorizationRevision: 0, lifecycleRevision: 0 },
+    firstOwner: { kind: "user", id: String(owner.id) }
+  })).state
+  : initialState;
+const salesOwner = Object.freeze({ kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales", generation: 1 });
+const existingGeneration = await pool.query(
+  "select 1 from k_nex_extension_authorization_generations where application_id=$1 and delivery_class='platform-plugin' and extension_id='module.sales' and authorization_generation=1",
+  ["customer-gate-1"]
+);
+const existingRuntime = await pool.query(
+  "select 1 from runtime_extensions where application_id=$1 and environment=$2 and delivery_class='platform-plugin' and extension_id='module.sales'",
+  ["customer-gate-1", "production"]
+);
+await store.transaction({
+  applicationId: "customer-gate-1",
+  environment: "production",
+  authorizationRevision: state.authorizationRevision,
+  lifecycleRevision: state.lifecycleRevision
+}, async (transaction) => {
+  if (existingGeneration.rowCount === 0) await transaction.write({ kind: "extension-generation", generation: {
+    schemaVersion: 1,
+    applicationId: "customer-gate-1",
+    owner: salesOwner,
+    runtimeGenerationIds: ["static-module-sales-1"],
+    state: "current",
+    authorizationRevision: state.authorizationRevision,
+    lifecycleRevision: state.lifecycleRevision
+  } });
+  await transaction.write({ kind: "role", role: {
+    schemaVersion: 1,
+    id: "fixture.mcp-sales-tools",
+    applicationId: "customer-gate-1",
+    label: "Fixture MCP Sales tools",
+    revision: 0
+  } });
+  for (const permissionId of ["sales.tasks.read", "sales.tasks.write"]) {
+    await transaction.write({ kind: "grant", grant: {
+      schemaVersion: 1,
+      id: `fixture.mcp-sales-tools.${permissionId}`,
+      applicationId: "customer-gate-1",
+      roleId: "fixture.mcp-sales-tools",
+      permissionId,
+      owner: salesOwner,
+      revision: 0
+    } });
+  }
+  await transaction.write({ kind: "assignment", assignment: {
+    schemaVersion: 1,
+    id: "fixture.mcp-sales-tools.owner",
+    applicationId: "customer-gate-1",
+    roleId: "fixture.mcp-sales-tools",
+    principal: { kind: "user", id: String(owner.id) },
+    state: "active",
+    revision: 0
+  } });
+});
+if (existingRuntime.rowCount === 0) await pool.query(
+  "insert into runtime_extensions (application_id, environment, delivery_class, extension_id, revision, disposition, active_generation_id, active_generation) values ($1,$2,$3,$4,1,'active',$5,$6::jsonb)",
+  ["customer-gate-1", "production", "platform-plugin", "module.sales", "static-module-sales-1", JSON.stringify(staticAuthorizationBuild)]
+);
 
 try {
   await assert.rejects(payload.create({

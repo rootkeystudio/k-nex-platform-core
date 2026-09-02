@@ -1,0 +1,17 @@
+{
+  "$schema": "https://schemas.k-nex.dev/authorization.v1.schema.json",
+  "contract": {
+    "applicationId": "customer-alpha",
+    "id": "sales-analytics-read-grant",
+    "owner": {
+      "deliveryClass": "platform-plugin",
+      "extensionId": "module.sales.analytics",
+      "generation": 7,
+      "kind": "extension"
+    },
+    "permissionId": "sales.analytics.reports.read",
+    "revision": 4,
+    "roleId": "sales-manager",
+    "schemaVersion": 1
+  }
+}

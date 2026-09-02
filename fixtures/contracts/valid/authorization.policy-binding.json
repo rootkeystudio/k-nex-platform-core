@@ -1,0 +1,17 @@
+{
+  "$schema": "https://schemas.k-nex.dev/authorization.v1.schema.json",
+  "contract": {
+    "failureMode": "deny",
+    "id": "sales.analytics.policy.reports-read",
+    "permissionId": "sales.analytics.reports.read",
+    "policyReference": "sales.analytics.policy.reports-read",
+    "publisher": {
+      "deliveryClass": "platform-plugin",
+      "extensionId": "module.sales.analytics",
+      "kind": "extension"
+    },
+    "schemaVersion": 1,
+    "scope": "record",
+    "timeoutMs": 1000
+  }
+}

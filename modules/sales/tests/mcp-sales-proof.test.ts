@@ -228,7 +228,7 @@ describe("P2A.8 Sales tool proof", () => {
         authorizationContext: () => ({ permissionFingerprint: "sales:open:full" }),
         requestContext: (request) => createPayloadPersistenceCapability(request, [
           { collection: "sales-tasks", operations: ["find", "create"] }
-        ])
+        ], { authorize: () => true })
       }),
       catalog: sourceCatalog,
       surfaceAudience: new DescriptorSurfaceAudienceGuard(),
@@ -275,7 +275,7 @@ describe("P2A.8 Sales tool proof", () => {
             authorizationContext: () => catalogContext.authorizationContext,
             requestContext: (payloadRequest) => createPayloadPersistenceCapability(payloadRequest, [
               { collection: "sales-tasks", operations: ["find", "create"] }
-            ])
+            ], { authorize: () => true })
           }).authenticate({
             correlationId: request.correlationId,
             rawRequest: request.rawRequest,

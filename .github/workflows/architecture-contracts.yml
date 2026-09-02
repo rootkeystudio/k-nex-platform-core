@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -31,8 +32,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Configure Gate 9 Linux runner isolation
+        if: github.event_name != 'pull_request'
         run: node scripts/setup-gate-9-linux-isolation.mjs
       - name: Run Gate 9 Docker runner preflight
+        if: github.event_name != 'pull_request'
         run: |
           pnpm --filter '@k-nex/extension-runner...' -r build
           pnpm --filter @k-nex/extension-runner test:docker
@@ -40,8 +43,15 @@ jobs:
           K_NEX_RUNNER_ISOLATION_POLICY: apparmor
       - name: Install browser proofs
         run: pnpm exec playwright install --with-deps chromium
-      - name: Run Phase 0 through Gate 9
-        run: pnpm gate:9
+      - name: Build Phase 10 contract dependencies
+        if: github.event_name == 'pull_request'
+        run: pnpm --filter '@k-nex/architecture-contract-tools...' --filter '@k-nex/customer-gate-1...' -r build
+      - name: Run Phase 10 focused evidence
+        if: github.event_name == 'pull_request'
+        run: node scripts/gate-10.mjs
+      - name: Run Phase 0 through Gate 10
+        if: github.event_name != 'pull_request'
+        run: pnpm gate:10
         env:
           K_NEX_RUNNER_ISOLATION_POLICY: apparmor
       - name: Verify exact-head repository evidence

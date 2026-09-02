@@ -1,0 +1,39 @@
+{
+  "$schema": "https://schemas.k-nex.dev/authorization.v1.schema.json",
+  "contract": {
+    "applicationId": "customer-alpha",
+    "approval": "satisfied",
+    "auditId": "audit-1",
+    "authorizationRevision": 8,
+    "correlationId": "correlation-1",
+    "decisionId": "decision-1",
+    "effectiveActor": {
+      "id": "user-1",
+      "kind": "user"
+    },
+    "environment": "production",
+    "lifecycleRevision": 12,
+    "operation": "read-roles",
+    "outcome": "allow",
+    "owner": {
+      "deliveryClass": "platform-plugin",
+      "extensionId": "module.sales.analytics",
+      "generation": 7,
+      "kind": "extension"
+    },
+    "permissionId": "sales.analytics.reports.read",
+    "principal": {
+      "id": "user-1",
+      "kind": "user"
+    },
+    "reason": "granted",
+    "reauthentication": "not-required",
+    "schemaVersion": 1,
+    "scope": {
+      "kind": "record",
+      "recordId": "report-1",
+      "resource": "sales.analytics.reports"
+    },
+    "target": "system.roles"
+  }
+}

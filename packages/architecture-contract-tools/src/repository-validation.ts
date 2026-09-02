@@ -9,6 +9,8 @@ import addFormatsModule from "ajv-formats";
 import { fixtureSchemas, type FixtureInput, type FixtureSchema, validateFixtures } from "./fixture-validation.js";
 import { registerPluginContributionOwnershipKeyword } from "./plugin-contribution-ownership.js";
 import { registerMigrationRevisionKeyword } from "./migration-compatibility-plan.js";
+import { registerAuthorizationOwnershipKeyword } from "./authorization-ownership.js";
+import { registerHotApplicationAuthorizationKeyword } from "./hot-application-authorization.js";
 
 export type RepositoryDiagnosticCode =
   | "ADR_EVIDENCE_INVALID"
@@ -289,6 +291,7 @@ export function declaredFixtureSchema(value: unknown): FixtureSchema | undefined
   if (schema.endsWith("/extension-install-receipt.v1.schema.json")) return "extension-install-receipt";
   if (schema.endsWith("/extension-generation.v1.schema.json")) return "extension-generation";
   if (schema.endsWith("/extension-lifecycle-event.v1.schema.json")) return "extension-lifecycle-event";
+  if (schema.endsWith("/extension-shared-static-generation-rebind-event.v1.schema.json")) return "extension-shared-static-generation-rebind-event";
   if (schema.endsWith("/migration-compatibility-plan.v1.schema.json")) return "migration-compatibility-plan";
   if (schema.endsWith("/remote-ui-isolation-profile.v1.schema.json")) return "remote-ui-isolation-profile";
   if (schema.endsWith("/runner-isolation-profile.v1.schema.json")) return "runner-isolation-profile";
@@ -298,6 +301,7 @@ export function declaredFixtureSchema(value: unknown): FixtureSchema | undefined
   if (schema.endsWith("/trusted-application-build-evidence.v1.schema.json")) return "trusted-application-build-evidence";
   if (schema.endsWith("/worker-generation-fence.v1.schema.json")) return "worker-generation-fence";
   if (schema.endsWith("/zero-downtime-eligibility.v1.schema.json")) return "zero-downtime-eligibility";
+  if (schema.endsWith("/authorization.v1.schema.json")) return "authorization";
   return undefined;
 }
 
@@ -307,7 +311,8 @@ export function validateValidFixtureCoverage(fixtures: readonly FixtureInput[]):
     [fixtures.some(({ schema }) => schema === "application"), "customer application"],
     [manifests.some(({ id }) => id === "module.sales"), "module.sales plugin"],
     [manifests.some(({ kind, lifecycle }) => kind === "provider" && (lifecycle as Record<string, unknown> | undefined)?.ownsPayloadSchema === false), "schema-less provider"],
-    [manifests.some(({ kind }) => kind === "theme" || kind === "builder"), "theme or builder plugin"]
+    [manifests.some(({ kind }) => kind === "theme" || kind === "builder"), "theme or builder plugin"],
+    [fixtures.some(({ schema }) => schema === "authorization"), "authorization contract"]
   ] as const;
   return requirements.filter(([present]) => !present).map(([, label]) =>
     diagnostic("fixtures/contracts/valid", "VALID_FIXTURE_MISSING", "$", `Required valid fixture category is missing: ${label}.`, "Restore a schema-declared fixture for every P0.3 valid category.", "fixture-coverage")
@@ -386,6 +391,7 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
   const extensionInstallReceiptSchema = await loadJson(root, "schemas/extension-install-receipt.v1.schema.json", diagnostics);
   const extensionGenerationSchema = await loadJson(root, "schemas/extension-generation.v1.schema.json", diagnostics);
   const extensionLifecycleEventSchema = await loadJson(root, "schemas/extension-lifecycle-event.v1.schema.json", diagnostics);
+  const extensionSharedStaticGenerationRebindEventSchema = await loadJson(root, "schemas/extension-shared-static-generation-rebind-event.v1.schema.json", diagnostics);
   const migrationCompatibilityPlanSchema = await loadJson(root, "schemas/migration-compatibility-plan.v1.schema.json", diagnostics);
   const remoteUiIsolationProfileSchema = await loadJson(root, "schemas/remote-ui-isolation-profile.v1.schema.json", diagnostics);
   const runnerIsolationProfileSchema = await loadJson(root, "schemas/runner-isolation-profile.v1.schema.json", diagnostics);
@@ -395,9 +401,10 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
   const trustedApplicationBuildEvidenceSchema = await loadJson(root, "schemas/trusted-application-build-evidence.v1.schema.json", diagnostics);
   const workerGenerationFenceSchema = await loadJson(root, "schemas/worker-generation-fence.v1.schema.json", diagnostics);
   const zeroDowntimeEligibilitySchema = await loadJson(root, "schemas/zero-downtime-eligibility.v1.schema.json", diagnostics);
+  const authorizationSchema = await loadJson(root, "schemas/authorization.v1.schema.json", diagnostics);
   const expectedValue = await loadJson(root, "fixtures/contracts/expected-diagnostics.json", diagnostics);
   const extensionExpectedValue = await loadJson(root, "fixtures/extensions/expected-diagnostics.json", diagnostics);
-  if (registryValue === undefined || pluginSchema === undefined || applicationSchema === undefined || hotApplicationSchema === undefined || themeSkinSchema === undefined || extensionBundleSchema === undefined || extensionCapabilitySchema === undefined || extensionBudgetSchema === undefined || extensionInstallPlanSchema === undefined || extensionInstallReceiptSchema === undefined || extensionGenerationSchema === undefined || extensionLifecycleEventSchema === undefined || migrationCompatibilityPlanSchema === undefined || remoteUiIsolationProfileSchema === undefined || runnerIsolationProfileSchema === undefined || runtimeExtensionInventorySchema === undefined || staticCompositionChangePlanSchema === undefined || staticDeploymentReceiptSchema === undefined || trustedApplicationBuildEvidenceSchema === undefined || workerGenerationFenceSchema === undefined || zeroDowntimeEligibilitySchema === undefined || expectedValue === undefined || extensionExpectedValue === undefined) return sortDiagnostics(diagnostics);
+  if (registryValue === undefined || pluginSchema === undefined || applicationSchema === undefined || hotApplicationSchema === undefined || themeSkinSchema === undefined || extensionBundleSchema === undefined || extensionCapabilitySchema === undefined || extensionBudgetSchema === undefined || extensionInstallPlanSchema === undefined || extensionInstallReceiptSchema === undefined || extensionGenerationSchema === undefined || extensionLifecycleEventSchema === undefined || extensionSharedStaticGenerationRebindEventSchema === undefined || migrationCompatibilityPlanSchema === undefined || remoteUiIsolationProfileSchema === undefined || runnerIsolationProfileSchema === undefined || runtimeExtensionInventorySchema === undefined || staticCompositionChangePlanSchema === undefined || staticDeploymentReceiptSchema === undefined || trustedApplicationBuildEvidenceSchema === undefined || workerGenerationFenceSchema === undefined || zeroDowntimeEligibilitySchema === undefined || authorizationSchema === undefined || expectedValue === undefined || extensionExpectedValue === undefined) return sortDiagnostics(diagnostics);
 
   const registry = registryValue as Registry;
   const expectedResult = validateExpectedDiagnostics(expectedValue);
@@ -409,6 +416,8 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
   addFormatsModule.default(ajv);
   registerPluginContributionOwnershipKeyword(ajv);
   registerMigrationRevisionKeyword(ajv);
+  registerAuthorizationOwnershipKeyword(ajv);
+  registerHotApplicationAuthorizationKeyword(ajv);
   let validators: Partial<Record<FixtureSchema, ValidateFunction>>;
   try {
     validators = {
@@ -423,6 +432,7 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
       "extension-install-receipt": ajv.compile(extensionInstallReceiptSchema as AnySchema),
       "extension-generation": ajv.compile(extensionGenerationSchema as AnySchema),
       "extension-lifecycle-event": ajv.compile(extensionLifecycleEventSchema as AnySchema),
+      "extension-shared-static-generation-rebind-event": ajv.compile(extensionSharedStaticGenerationRebindEventSchema as AnySchema),
       "migration-compatibility-plan": ajv.compile(migrationCompatibilityPlanSchema as AnySchema),
       "remote-ui-isolation-profile": ajv.compile(remoteUiIsolationProfileSchema as AnySchema),
       "runner-isolation-profile": ajv.compile(runnerIsolationProfileSchema as AnySchema),
@@ -431,7 +441,8 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
       "static-deployment-receipt": ajv.compile(staticDeploymentReceiptSchema as AnySchema),
       "trusted-application-build-evidence": ajv.compile(trustedApplicationBuildEvidenceSchema as AnySchema),
       "worker-generation-fence": ajv.compile(workerGenerationFenceSchema as AnySchema),
-      "zero-downtime-eligibility": ajv.compile(zeroDowntimeEligibilitySchema as AnySchema)
+      "zero-downtime-eligibility": ajv.compile(zeroDowntimeEligibilitySchema as AnySchema),
+      authorization: ajv.compile(authorizationSchema as AnySchema)
     };
   } catch (error) {
     diagnostics.push(diagnostic("schemas", "SCHEMA_INVALID", "$", error instanceof Error ? error.message : "Generated schema compilation failed.", "Regenerate or correct the contract schemas.", "json-schema"));

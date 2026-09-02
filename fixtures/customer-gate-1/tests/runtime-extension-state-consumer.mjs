@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 
 import pg from "pg";
 
-import { PostgresRuntimeExtensionStore } from "@k-nex/payload-adapter";
+import { PostgresRuntimeExtensionStore, SharedStaticPlatformPluginGenerationRebinder } from "@k-nex/payload-adapter";
 import { RuntimeExtensionRevisionConsumer } from "@k-nex/runtime";
 
 const configuration = JSON.parse(process.env.P9_RUNTIME_CONSUMER_CONFIGURATION ?? "{}");
@@ -12,7 +12,7 @@ if (!required.every((key) => typeof configuration[key] === "string" && configura
 }
 
 const pool = new pg.Pool({ connectionString: configuration.databaseUrl });
-const store = new PostgresRuntimeExtensionStore(pool, { now: () => new Date() }, configuration.auditKey ?? "sha256:7777777777777777777777777777777777777777777777777777777777777777");
+const store = new PostgresRuntimeExtensionStore(pool, { now: () => new Date() }, configuration.auditKey ?? "sha256:7777777777777777777777777777777777777777777777777777777777777777", { sharedStaticGenerationRebinder: new SharedStaticPlatformPluginGenerationRebinder() });
 const extension = { deliveryClass: configuration.deliveryClass, id: configuration.extensionId };
 const pollIntervalMs = configuration.pollIntervalMs ?? 30_000;
 if (!Number.isSafeInteger(pollIntervalMs) || pollIntervalMs < 50 || pollIntervalMs > 300_000) throw new Error("Runtime extension consumer polling interval is invalid.");

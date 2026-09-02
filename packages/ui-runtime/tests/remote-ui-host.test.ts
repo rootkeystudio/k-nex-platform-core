@@ -7,6 +7,7 @@ import { createOpaqueRemoteUiFrame, RemoteUiGenerationSessions, type RemoteUiGen
 const artifactDigest = `sha256:${"a".repeat(64)}`;
 const assetDigest = "a".repeat(64);
 const owner = { applicationId: "customer-alpha", environment: "production", appId: "app.sales-assistant" };
+const authorization = (authorizationRevision = 1, authorizationProof = "authorization-proof-1") => ({ applicationId: owner.applicationId, environment: owner.environment, authorizationRevision, authorizationProof });
 const generation = (generationId = "sales-generation-1", revision = 1, disposition: RemoteUiGenerationSnapshot["disposition"] = "active"): RemoteUiGenerationSnapshot => ({ ...owner, generationId, artifactDigest, revision, disposition });
 const request = (sessionId = "remote-session-1", generationId = "sales-generation-1"): RemoteUiSessionRequest => ({
   sessionId, remoteUiFrameUrl: `https://extensions.example/api/extensions/apps/app.sales-assistant/assets/${generationId}/sha256:${assetDigest}/frame.html`, route: "/apps/sales-assistant", surface: "sales.assistant-screen",
@@ -18,9 +19,9 @@ const registry = new Map([
 ]);
 const root = { nodeId: "root", component: "stack", props: { gap: "medium" }, events: [], children: [{ nodeId: "refresh", component: "button", props: { label: "Refresh" }, events: [{ event: "press" as const, handlerId: "sales.refresh" }], children: [] }] };
 
-function adapter(): RemoteUiHostAdapter & { authorize: ReturnType<typeof vi.fn>; render: ReturnType<typeof vi.fn>; fallback: ReturnType<typeof vi.fn>; source: ReturnType<typeof vi.fn>; action: ReturnType<typeof vi.fn> } {
+function adapter(): RemoteUiHostAdapter & { authorize: ReturnType<typeof vi.fn>; authorizeTarget: ReturnType<typeof vi.fn>; render: ReturnType<typeof vi.fn>; fallback: ReturnType<typeof vi.fn>; source: ReturnType<typeof vi.fn>; action: ReturnType<typeof vi.fn> } {
   return {
-    authorize: vi.fn(async () => true), render: vi.fn(), fallback: vi.fn(), focus: vi.fn(), navigate: vi.fn(),
+    authorize: vi.fn(async () => true), authorizeTarget: vi.fn(async () => true), render: vi.fn(), fallback: vi.fn(), focus: vi.fn(), navigate: vi.fn(),
     source: vi.fn(async (_identity, _target, input) => ({ input })), action: vi.fn(async () => ({ changed: true }))
   };
 }
@@ -28,6 +29,7 @@ function adapter(): RemoteUiHostAdapter & { authorize: ReturnType<typeof vi.fn>;
 function opened(snapshot = generation(), host = adapter(), scheduled: Array<() => void> = []): Readonly<{ sessions: RemoteUiGenerationSessions; session: ReturnType<RemoteUiGenerationSessions["open"]>; host: typeof host; scheduled: typeof scheduled }> {
   const sessions = new RemoteUiGenerationSessions((work) => scheduled.push(work));
   sessions.observe(snapshot, 100);
+  sessions.admitAuthorization(authorization());
   return { sessions, session: sessions.open(snapshot, request("remote-session-1", snapshot.generationId), registry, host), host, scheduled };
 }
 
@@ -42,6 +44,8 @@ describe("remote UI host session authority", () => {
     const second = generation("sales-generation-2", 2);
     const sessions = new RemoteUiGenerationSessions();
     sessions.observe(first, 100);
+    expect(() => sessions.open(first, request(), registry, adapter())).toThrow("current active generation snapshot");
+    sessions.admitAuthorization(authorization());
     expect(sessions.open(first, request(), registry, adapter()).identity).toMatchObject({ ...owner, generationId: first.generationId, artifactDigest });
     sessions.observe(second, 100);
     expect(() => sessions.open(first, request(), registry, adapter())).toThrow("current active generation snapshot");
@@ -52,6 +56,7 @@ describe("remote UI host session authority", () => {
     const sessions = new RemoteUiGenerationSessions();
     const first = generation();
     sessions.observe(first, 100);
+    sessions.admitAuthorization(authorization());
     expect(() => sessions.observe(first, 100)).not.toThrow();
     expect(() => sessions.observe({ ...first, generationId: "sales-generation-2", revision: 1 }, 100)).toThrow("same revision must match");
     sessions.observe(generation("sales-generation-2", 2), 100);
@@ -64,6 +69,7 @@ describe("remote UI host session authority", () => {
     const second = generation("sales-generation-2", 2);
     const sessions = new RemoteUiGenerationSessions((work) => scheduled.push(work));
     sessions.observe(first, 100);
+    sessions.admitAuthorization(authorization());
     const old = sessions.open(first, request(), registry, adapter());
     const disposeOld = vi.spyOn(old, "dispose");
     sessions.observe(second, 100);
@@ -79,6 +85,7 @@ describe("remote UI host session authority", () => {
     const second = generation("sales-generation-2", 2);
     const sessions = new RemoteUiGenerationSessions((work) => scheduled.push(work));
     sessions.observe(first, 100);
+    sessions.admitAuthorization(authorization());
     const old = sessions.open(first, request(), registry, adapter());
     const disposeOld = vi.spyOn(old, "dispose");
     sessions.observe(second, 100);
@@ -97,6 +104,7 @@ describe("remote UI host session authority", () => {
     const restored = generation("sales-generation-1", 3);
     const sessions = new RemoteUiGenerationSessions((work) => scheduled.push(work));
     sessions.observe(first, 100);
+    sessions.admitAuthorization(authorization());
     const old = sessions.open(first, request(), registry, adapter());
     const disposeOld = vi.spyOn(old, "dispose");
     sessions.observe(second, 100);
@@ -127,6 +135,43 @@ describe("remote UI host session authority", () => {
     expect(sessions.retire(owner, first.generationId)).toBe(0);
   });
 
+  it("revokes every live app realm in one application environment and needs a newer authoritative readmission", () => {
+    const sessions = new RemoteUiGenerationSessions();
+    const first = generation();
+    const sibling = { ...generation("sales-generation-2"), appId: "app.sales-dashboard" };
+    const otherEnvironment = { ...generation("sales-generation-3"), environment: "staging" };
+    sessions.observe(first, 100);
+    sessions.observe(sibling, 100);
+    sessions.observe(otherEnvironment, 100);
+    sessions.admitAuthorization(authorization());
+    sessions.admitAuthorization({ ...authorization(), environment: "staging" });
+    const firstSession = sessions.open(first, request(), registry, adapter());
+    const siblingSession = sessions.open(sibling, request("remote-session-2", sibling.generationId), registry, adapter());
+    const otherEnvironmentSession = sessions.open(otherEnvironment, request("remote-session-3", otherEnvironment.generationId), registry, adapter());
+    const disposeFirst = vi.spyOn(firstSession, "dispose");
+    const disposeSibling = vi.spyOn(siblingSession, "dispose");
+    const disposeOtherEnvironment = vi.spyOn(otherEnvironmentSession, "dispose");
+
+    expect(sessions.revokeAuthorization({ applicationId: owner.applicationId, environment: owner.environment, authorizationRevision: 2 })).toBe(2);
+    expect(disposeFirst).toHaveBeenCalledWith("authorization-revoked");
+    expect(disposeSibling).toHaveBeenCalledWith("authorization-revoked");
+    expect(disposeOtherEnvironment).not.toHaveBeenCalled();
+    expect(() => sessions.open(first, request("remote-session-4"), registry, adapter())).toThrow("current active generation snapshot");
+    expect(sessions.revokeAuthorization({ applicationId: owner.applicationId, environment: owner.environment, authorizationRevision: 2 })).toBe(0);
+    sessions.observe(first, 100);
+    expect(() => sessions.open(first, request("remote-session-4"), registry, adapter())).toThrow("current active generation snapshot");
+    expect(() => sessions.admitAuthorization(authorization(1, "stale-proof"))).toThrow("regresses a revoked revision");
+    sessions.admitAuthorization(authorization(2, "authorization-proof-2"));
+    expect(() => sessions.admitAuthorization(authorization(2, "authorization-proof-2"))).not.toThrow();
+    expect(() => sessions.admitAuthorization(authorization(2, "conflicting-proof"))).toThrow("proof conflicts");
+    expect(sessions.revokeAuthorization({ applicationId: owner.applicationId, environment: owner.environment, authorizationRevision: 1 })).toBe(0);
+    expect(() => sessions.open(first, request("remote-session-4"), registry, adapter())).not.toThrow();
+    expect(() => sessions.open(otherEnvironment, request("remote-session-5", otherEnvironment.generationId), registry, adapter())).not.toThrow();
+    expect(disposeFirst).toHaveBeenCalledOnce();
+    expect(disposeSibling).toHaveBeenCalledOnce();
+    expect(sessions.retire(otherEnvironment, otherEnvironment.generationId)).toBe(2);
+  });
+
   it("passes the admitted immutable session identity to bounded source and action gateways", async () => {
     const { session, host } = opened();
     const channel = new MessageChannel();
@@ -135,6 +180,20 @@ describe("remote UI host session authority", () => {
     await tick();
     expect(host.source).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "remote-session-1", generationId: "sales-generation-1", artifactDigest }), "sales.tasks", { page: 1 }, expect.any(AbortSignal));
     expect(Object.isFrozen(host.source.mock.calls[0]![0])).toBe(true);
+    channel.port2.close();
+  });
+
+  it("reauthorizes the exact declared target before browser-facing dispatch", async () => {
+    const { session, host } = opened();
+    host.authorizeTarget.mockResolvedValueOnce(false);
+    const channel = new MessageChannel();
+    session.start(channel.port1 as unknown as MessagePort);
+    channel.port2.postMessage(realmFrame(generation(), "request", { operation: "source", requestId: "source-denied-1", targetId: "sales.tasks", input: {} }));
+    await tick();
+
+    expect(host.authorizeTarget).toHaveBeenCalledWith(expect.anything(), "source", "sales.tasks", expect.any(AbortSignal));
+    expect(host.source).not.toHaveBeenCalled();
+    expect(host.fallback).toHaveBeenCalledWith("UNAUTHORIZED", expect.any(AbortSignal));
     channel.port2.close();
   });
 

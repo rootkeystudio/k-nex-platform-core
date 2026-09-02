@@ -49,5 +49,100 @@
     "schema": "plugin",
     "validator": "json-schema",
     "code": "SCHEMA_INVALID"
+  },
+  "fixtures/contracts/invalid/authorization.adoption-digest-algorithm.json": {
+    "schema": "authorization",
+    "validator": "json-schema",
+    "code": "SCHEMA_INVALID"
+  },
+  "fixtures/contracts/invalid/authorization.adoption-noncanonical-baseline.json": {
+    "schema": "authorization",
+    "validator": "repository-semantic",
+    "code": "AUTHORIZATION_OWNERSHIP_INVALID"
+  },
+  "fixtures/contracts/invalid/authorization.assignment-temporal.json": {
+    "schema": "authorization",
+    "validator": "json-schema",
+    "code": "SCHEMA_INVALID"
+  },
+  "fixtures/contracts/invalid/authorization.decision-incoherent.json": {
+    "schema": "authorization",
+    "validator": "repository-semantic",
+    "code": "AUTHORIZATION_OWNERSHIP_INVALID"
+  },
+  "fixtures/contracts/invalid/authorization.extension-foreign-namespace.json": {
+    "schema": "authorization",
+    "validator": "repository-semantic",
+    "code": "AUTHORIZATION_OWNERSHIP_INVALID"
+  },
+  "fixtures/contracts/invalid/authorization.extension-reserved-namespace-descriptor.json": {
+    "schema": "authorization",
+    "validator": "repository-semantic",
+    "code": "AUTHORIZATION_OWNERSHIP_INVALID"
+  },
+  "fixtures/contracts/invalid/authorization.extension-reserved-namespace-grant.json": {
+    "schema": "authorization",
+    "validator": "repository-semantic",
+    "code": "AUTHORIZATION_OWNERSHIP_INVALID"
+  },
+  "fixtures/contracts/invalid/authorization.extension-system-claim.json": {
+    "schema": "authorization",
+    "validator": "repository-semantic",
+    "code": "AUTHORIZATION_OWNERSHIP_INVALID"
+  },
+  "fixtures/contracts/invalid/authorization.generation-runtime-id-as-owner-generation.json": {
+    "schema": "authorization",
+    "validator": "json-schema",
+    "code": "SCHEMA_INVALID"
+  },
+  "fixtures/contracts/invalid/authorization.grant-generationless-owner.json": {
+    "schema": "authorization",
+    "validator": "json-schema",
+    "code": "SCHEMA_INVALID"
+  },
+  "fixtures/contracts/invalid/authorization.role-label-authority.json": {
+    "schema": "authorization",
+    "validator": "json-schema",
+    "code": "SCHEMA_INVALID"
+  },
+  "fixtures/contracts/invalid/authorization.role-reserved-id-without-protected-id.json": {
+    "schema": "authorization",
+    "validator": "repository-semantic",
+    "code": "AUTHORIZATION_OWNERSHIP_INVALID"
+  },
+  "fixtures/contracts/invalid/authorization.snapshot-effective-catalog.json": {
+    "schema": "authorization",
+    "validator": "json-schema",
+    "code": "SCHEMA_INVALID"
+  },
+  "fixtures/contracts/invalid/authorization.snapshot-executable-content.json": {
+    "schema": "authorization",
+    "validator": "json-schema",
+    "code": "SCHEMA_INVALID"
+  },
+  "fixtures/contracts/invalid/authorization.snapshot-owner-identity-mismatch.json": {
+    "schema": "authorization",
+    "validator": "repository-semantic",
+    "code": "AUTHORIZATION_OWNERSHIP_INVALID"
+  },
+  "fixtures/contracts/invalid/authorization.template-assignment.json": {
+    "schema": "authorization",
+    "validator": "json-schema",
+    "code": "SCHEMA_INVALID"
+  },
+  "fixtures/contracts/invalid/authorization.template-executable-content.json": {
+    "schema": "authorization",
+    "validator": "json-schema",
+    "code": "SCHEMA_INVALID"
+  },
+  "fixtures/contracts/invalid/authorization.template-foreign-permission.json": {
+    "schema": "authorization",
+    "validator": "repository-semantic",
+    "code": "AUTHORIZATION_OWNERSHIP_INVALID"
+  },
+  "fixtures/contracts/invalid/authorization.theme-skin-publisher.json": {
+    "schema": "authorization",
+    "validator": "json-schema",
+    "code": "SCHEMA_INVALID"
   }
 }
