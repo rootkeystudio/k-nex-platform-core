@@ -13,8 +13,8 @@
     },
     "environment": "production",
     "lifecycleRevision": 12,
-    "outcome": "allow",
     "operation": "read-roles",
+    "outcome": "allow",
     "owner": {
       "deliveryClass": "platform-plugin",
       "extensionId": "module.sales.analytics",

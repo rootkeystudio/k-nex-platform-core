@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-09-02
 - **Phase:** Phase 10 — RBAC, Authorization, and Extension Bootstrap
-- **Active task:** P10.10 — phase review handoff
-- **State:** Ready for phase review
+- **Active task:** P10.10 — owner re-review remediation
+- **State:** In progress
 
 ## Last completed
 
-All Phase 10 slices and review corrections are complete; the reused Sol-xhigh reviewer returned PASS.
+Review remediation slice 10 restores canonical key order for the decision-audit fixture so cumulative Phase 0 validation can run.
 
 ## Validation
 
-Exact Node 24.19.0: affected builds PASS; administration unit 15/15, real PostgreSQL delegation 1/1, and corrected focused Gate 10 15/15 PASS. Final cumulative exact-head run is not claimed yet.
+Exact Node 24.19.0: architecture-contract tools build and generated-fixture validation PASS. Replacement cumulative exact-head run is not claimed yet.
 
 ## Next
 
-Freeze this head; obtain focused PR and one cumulative Linux/AppArmor exact-head run, then owner review.
+Fix transferable Owner receipt custody with real PostgreSQL handoff proof; then focused review/gates and replacement exact-head CI.
 
 ## Blockers
 
