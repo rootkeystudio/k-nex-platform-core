@@ -2,17 +2,23 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement, type ReactElement } from "react";
-import { ExtensionIdentitySchema, type ExtensionIdentity } from "@k-nex/contracts";
+import { ExtensionIdentitySchema, type ExtensionIdentity, type OperationsCenterReference, type SettingsAdministrationView, type ThemeProfile } from "@k-nex/contracts";
 
 import {
   SystemAssignmentsPage,
   SystemAuthorizationAuditPage,
   SystemExtensionDetailPage,
   SystemExtensionsPage,
+  SystemOperationDetailPage,
+  SystemOperationsPage,
   SystemPermissionsPage,
   SystemRoleDetailPage,
   SystemRolesPage,
-  SystemTemplatesPage
+  SystemSettingsDetailPage,
+  SystemSettingsPage,
+  SystemTemplatesPage,
+  SystemThemeProfileDetailPage,
+  SystemThemesPage
 } from "@k-nex/ui-pages";
 import {
   SystemAccessAdministrationError,
@@ -20,6 +26,12 @@ import {
   type ActivePermissionGroup,
   SystemExtensionAdministrationError,
   SystemExtensionAdministrationService,
+  SystemOperationsAdministrationError,
+  SystemOperationsAdministrationService,
+  SystemSettingsAdministrationError,
+  SystemSettingsAdministrationService,
+  SystemThemeAdministrationError,
+  SystemThemeAdministrationService,
   type SystemExtensionExpectedRevision,
   type SystemExtensionPlan
 } from "@k-nex/runtime";
@@ -30,6 +42,9 @@ type Expected = Readonly<{ readonly applicationId: string; readonly environment:
 export interface SystemAdministrationHostOptions<TContext extends Context> {
   readonly access: SystemAccessAdministrationService<TContext>;
   readonly extensions: SystemExtensionAdministrationService<TContext>;
+  readonly settings: SystemSettingsAdministrationService<TContext>;
+  readonly themes: SystemThemeAdministrationService<TContext>;
+  readonly operations: SystemOperationsAdministrationService<TContext>;
   /** Session selection is host-owned; request bodies never select an actor. */
   context(request: IncomingMessage): TContext;
   /** Opaque, host-owned session key. It scopes short-lived extension plan state. */
@@ -46,7 +61,7 @@ export interface SystemAdministrationHost {
 
 const routeIds = new Set([
   "/system/access/roles", "/system/access/permissions", "/system/access/assignments", "/system/access/templates",
-  "/system/access/audit", "/system/extensions"
+  "/system/access/audit", "/system/extensions", "/system/settings", "/system/themes", "/system/operations"
 ]);
 
 const apiPrefix = "/api/system/";
@@ -60,7 +75,7 @@ export async function startSystemAdministrationHost<TContext extends Context>(op
   const server = createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? "/", "http://system-administration.invalid");
-      if (request.method === "GET" && (routeIds.has(url.pathname) || isRoleRoute(url.pathname) || isExtensionRoute(url.pathname))) {
+      if (request.method === "GET" && (routeIds.has(url.pathname) || isRoleRoute(url.pathname) || isExtensionRoute(url.pathname) || isSettingsRoute(url.pathname) || isThemeProfileRoute(url.pathname) || isOperationRoute(url.pathname))) {
         await renderRoute(options, request, response, url.pathname, planned);
         return;
       }
@@ -136,6 +151,47 @@ async function renderRoute<TContext extends Context>(options: SystemAdministrati
     const audits = await options.access.audits({ context, limit: 100 });
     const expected = await options.expected();
     page = createElement(SystemAuthorizationAuditPage, { view: { title: "Authorization audit", revision: revision(expected), events: audits.map(({ audit, occurredAt }) => ({ id: audit.auditId, occurredAt, outcome: audit.outcome, reason: audit.reason, permission: audit.permissionId, owner: ownerLabel(audit.owner), revision: `${audit.authorizationRevision}/${audit.lifecycleRevision}` })) } });
+  } else if (path === "/system/settings") {
+    const settings = await options.settings.list({ context });
+    page = createElement(SystemSettingsPage, { view: { title: "Settings", settings: settings.map((item) => ({ id: item.identity.descriptorId, label: item.identity.descriptorId, href: `/system/settings/${item.identity.descriptorId}`, owner: ownerLabel(item.identity.owner), state: item.state, revision: `${item.documentRevision}/${item.settingsRevision}` })) } });
+  } else if (isSettingsRoute(path)) {
+    const settingsId = decodePathSegment(path, "/system/settings/");
+    const item = await options.settings.detail({ context, settingsId });
+    if (!item) throw new RouteError(404, "Settings not found.");
+    page = createElement(SystemSettingsDetailPage, { view: { title: "Settings", settingsId, settingsLabel: settingsId, owner: ownerLabel(item.identity.owner), documentState: item.state,
+      fields: Object.entries(item.fields).map(([id, field]) => ({ id, label: id, value: field.kind === "visible-value" ? String(field.value) : field.kind === "redacted-secret" ? "••••••" : "—", state: field.kind })),
+      save: textForm("Save settings", `/api/system/settings/${encodeURIComponent(settingsId)}`, { expectedDocumentRevision: item.documentRevision, expectedSettingsRevision: item.settingsRevision, idempotencyKey: `settings-save-${settingsId.replace(/[^a-z]/gu, "")}` }, "values", "Settings JSON", JSON.stringify(visibleSettings(item))) } });
+  } else if (path === "/system/themes") {
+    const themes = await options.themes.list({ context });
+    page = createElement(SystemThemesPage, { view: { title: "Themes",
+      packages: themes.packages.map((item) => ({ id: item.id, label: item.displayName, version: item.version, surfaces: item.surfaces.join(", "), availability: item.availability, referenceImpact: item.removal === "blocked" ? `Blocked by ${item.references.length} profile reference(s)` : "No references" })),
+      skins: themes.skins.map((item) => ({ id: item.id, label: item.id, version: item.version ?? "—", lifecycle: item.disposition, actions: item.actions.map((action) => action.action).join(", ") || "None" })),
+      profiles: themes.profiles.map((item) => { const profile = item.draft ?? item.active ?? item.previous; return { id: item.profileId, label: item.profileId, href: `/system/themes/profiles/${item.profileId}`, surface: profile?.surface ?? "—", package: profile ? `${profile.themeId}@${profile.themeVersion}` : "—", skin: profile?.skin ? `${profile.skin.id}@${profile.skin.version}` : "None", revision: String(item.revision), accessibility: profile ? "validated" : "unavailable" }; }) } });
+  } else if (isThemeProfileRoute(path)) {
+    const profileId = decodePathSegment(path, "/system/themes/profiles/");
+    const item = await options.themes.detail({ context, profileId });
+    if (!item) throw new RouteError(404, "Theme Profile not found.");
+    const profile = item.draft ?? item.active ?? item.previous;
+    if (!profile) throw new RouteError(404, "Theme Profile has no revision.");
+    const base = `/api/system/themes/profiles/${encodeURIComponent(profileId)}`;
+    page = createElement(SystemThemeProfileDetailPage, { view: { title: "Theme Profile", profileLabel: profileId, profileId, surface: profile.surface, package: `${profile.themeId}@${profile.themeVersion}`, skin: profile.skin ? `${profile.skin.id}@${profile.skin.version}` : "None", publication: profile.revision.state, accessibility: "validated",
+      preview: textForm("Preview profile", `${base}/preview`, { expectedRevision: item.revision }, "profile", "Theme Profile JSON", JSON.stringify(profile)),
+      stage: textForm("Stage profile", `${base}/stage`, {}, "profile", "Theme Profile JSON", JSON.stringify(profile)),
+      ...(item.draft ? { publish: form("Publish profile", `${base}/publish`, { expectedRevision: item.revision, profile: publishedProfile(item.draft) }) } : {}),
+      ...(item.previous ? { rollback: form("Rollback profile", `${base}/rollback`, { expectedRevision: item.revision }) } : {}) } });
+  } else if (path === "/system/operations") {
+    const operations = await options.operations.read({ context });
+    page = createElement(SystemOperationsPage, { view: { title: "Operations", revision: String(operations.operationsRevision),
+      operations: operations.references.map((reference) => ({ id: operationReferenceId(reference), source: reference.source, href: `/system/operations/${operationReferenceId(reference)}`, state: "authoritative", receipt: "receiptId" in reference ? reference.receiptId ?? "pending" : "pending" })),
+      health: operations.health.map((item) => ({ id: item.observationId, source: item.source, state: item.state, revision: String(item.revision), checks: item.checkIds.join(", ") })),
+      backup: form("Request backup", "/api/system/operations/backup", { request: { expectedOperationsRevision: operations.operationsRevision, idempotencyKey: `backup-request-${operations.operationsRevision}` } }),
+      restoreDrill: { ...form("Request restore drill", "/api/system/operations/restore-drill", { request: { expectedOperationsRevision: operations.operationsRevision, idempotencyKey: `restore-request-${operations.operationsRevision}` } }), confirmation: { title: "Approve clean restore drill", description: "A separate trusted operator restores into a clean environment.", confirmLabel: "Approve restore drill" } } } });
+  } else if (isOperationRoute(path)) {
+    const operationId = decodePathSegment(path, "/system/operations/");
+    const operations = await options.operations.read({ context });
+    const reference = operations.references.find((item) => operationReferenceId(item) === operationId);
+    if (!reference) throw new RouteError(404, "Operation not found.");
+    page = createElement(SystemOperationDetailPage, { view: { title: "Operation", operationId, source: reference.source, operationState: "authoritative", receipt: "receiptId" in reference ? reference.receiptId ?? "pending" : "pending", inventory: operations.inventoryDigest, audit: "Current-authority projection" } });
   } else if (path === "/system/extensions") {
     const [extensions, status] = await Promise.all([options.extensions.list({ context }), options.extensions.status({ context })]);
     const expected = await options.expected();
@@ -158,6 +214,25 @@ async function renderRoute<TContext extends Context>(options: SystemAdministrati
 async function action<TContext extends Context>(options: SystemAdministrationHostOptions<TContext>, request: IncomingMessage, response: ServerResponse, path: string, planned: Map<string, PlanState>): Promise<void> {
   const context = options.context(request);
   const body = await parseBody(request);
+  if (path.startsWith("/api/system/settings/")) {
+    const settingsId = decodePathSegment(path, "/api/system/settings/");
+    const value = exact(body, ["expectedDocumentRevision", "expectedSettingsRevision", "idempotencyKey", "values"]);
+    return writeJson(response, 200, await options.settings.change({ context, settingsId, change: { expectedDocumentRevision: integer(value.expectedDocumentRevision), expectedSettingsRevision: integer(value.expectedSettingsRevision), idempotencyKey: string(value.idempotencyKey), values: value.values as never } }));
+  }
+  if (path.startsWith("/api/system/themes/profiles/")) {
+    const match = /^\/api\/system\/themes\/profiles\/([^/]+)\/(preview|stage|publish|rollback)$/u.exec(path);
+    if (!match) throw new RouteError(404, "Action route not found.");
+    const profileId = decodeURIComponent(match[1]!);
+    if (match[2] === "rollback") { const value = exact(body, ["expectedRevision"]); return writeJson(response, 200, await options.themes.rollback({ context, profileId, expectedRevision: integer(value.expectedRevision) })); }
+    if (match[2] === "stage") { const value = exact(body, ["profile"]); return writeJson(response, 200, await options.themes.stage({ context, profile: value.profile })); }
+    const value = exact(body, ["expectedRevision", "profile"]);
+    if ((value.profile as { id?: unknown })?.id !== profileId) throw new RouteError(400, "Theme Profile identity does not match route.");
+    return writeJson(response, 200, match[2] === "preview" ? await options.themes.preview({ context, profile: value.profile, expectedRevision: integer(value.expectedRevision) }) : await options.themes.publish({ context, profile: value.profile, expectedRevision: integer(value.expectedRevision) }));
+  }
+  if (path === "/api/system/operations/backup" || path === "/api/system/operations/restore-drill") {
+    const value = exact(body, ["request"]);
+    return writeJson(response, 200, await options.operations.request({ context, kind: path.endsWith("backup") ? "backup" : "restore-drill", request: value.request }));
+  }
   if (path === "/api/system/access/templates/instantiate") {
     const value = exact(body, ["expected", "role", "templateId"]);
     return writeJson(response, 200, await options.access.instantiateTemplate({ context, expected: value.expected, role: value.role, templateId: string(value.templateId) }));
@@ -240,6 +315,9 @@ function document(page: ReactElement): string {
 
 function isRoleRoute(path: string): boolean { return /^\/system\/access\/roles\/[A-Za-z0-9._-]+$/u.test(path); }
 function isExtensionRoute(path: string): boolean { return /^\/system\/extensions\/[A-Za-z0-9._-]+$/u.test(path); }
+function isSettingsRoute(path: string): boolean { return /^\/system\/settings\/[A-Za-z0-9._-]+$/u.test(path); }
+function isThemeProfileRoute(path: string): boolean { return /^\/system\/themes\/profiles\/[A-Za-z0-9._-]+$/u.test(path); }
+function isOperationRoute(path: string): boolean { return /^\/system\/operations\/[A-Za-z0-9._-]+$/u.test(path); }
 function decodePathSegment(path: string, prefix: string): string { return decodeURIComponent(path.slice(prefix.length)); }
 function revision(expected: Expected): string { return `${expected.authorizationRevision}/${expected.lifecycleRevision}/${expected.inventoryRevision}/${expected.extensionRevision}`; }
 function accessExpected(expected: Expected): Readonly<{ readonly applicationId: string; readonly environment: string; readonly authorizationRevision: number; readonly lifecycleRevision: number }> { return { applicationId: expected.applicationId, environment: expected.environment, authorizationRevision: expected.authorizationRevision, lifecycleRevision: expected.lifecycleRevision }; }
@@ -249,6 +327,7 @@ function deliveryLabel(value: string): string { return value === "hot-applicatio
 function availabilityLabel(_value: { readonly availability: string }): string { return "Plan required"; }
 function displayLabel(value: string): string { return value === "install-live" ? "Install live" : value === "no-outage-deployment" ? "No-outage deployment" : value; }
 function form(label: string, actionUrl: string, fields: Readonly<Record<string, unknown>>) { return { label, form: { actionUrl, hiddenFields: Object.entries(fields).map(([name, value]) => ({ name, value: typeof value === "string" ? value : JSON.stringify(value) })) } }; }
+function textForm(label: string, actionUrl: string, fields: Readonly<Record<string, unknown>>, name: string, textLabel: string, value: string) { return { ...form(label, actionUrl, fields), form: { ...form(label, actionUrl, fields).form, textArea: { name, label: textLabel, value } } }; }
 function selectionForm(label: string, actionUrl: string, fields: Readonly<Record<string, unknown>>, name: string, selectionLabel: string, values: readonly string[]) { return { label, form: { ...form(label, actionUrl, fields).form, selection: { name, label: selectionLabel, options: values.map((value) => ({ value, label: value })) } } }; }
 function planKey<TContext extends Context>(options: SystemAdministrationHostOptions<TContext>, context: TContext, extensionId: string): string { const key = options.sessionKey(context); if (!key) throw new RouteError(403, "A session-bound extension plan is required."); return `${key}\u0000${extensionId}`; }
 function sameExpected(left: Expected, right: Expected): boolean { return left.applicationId === right.applicationId && left.environment === right.environment && left.authorizationRevision === right.authorizationRevision && left.lifecycleRevision === right.lifecycleRevision && left.inventoryRevision === right.inventoryRevision && left.extensionRevision === right.extensionRevision; }
@@ -262,7 +341,7 @@ async function planLabel<TContext extends Context>(options: SystemAdministration
 
 class RouteError extends Error { constructor(readonly status: number, message: string) { super(message); } }
 function writeError(response: ServerResponse, error: unknown): void {
-  const status = error instanceof RouteError ? error.status : error instanceof SystemAccessAdministrationError || error instanceof SystemExtensionAdministrationError
+  const status = error instanceof RouteError ? error.status : error instanceof SystemAccessAdministrationError || error instanceof SystemExtensionAdministrationError || error instanceof SystemSettingsAdministrationError || error instanceof SystemThemeAdministrationError || error instanceof SystemOperationsAdministrationError
     ? error.code === "REVISION_CONFLICT" ? 409 : error.code === "UNAUTHORIZED" || error.code === "APPROVAL_REQUIRED" ? 403 : 400 : 500;
   writeJson(response, status, { error: status === 500 ? "Internal server error." : "Request denied." });
 }
@@ -278,7 +357,7 @@ async function parseBody(request: IncomingMessage): Promise<unknown> {
     for (const [name, value] of fields) {
       if (name === "permissionIds") { const selected = result[name] ?? []; if (!Array.isArray(selected)) throw new RouteError(400, "Request body is invalid."); result[name] = [...selected, value]; continue; }
       if (name in result) throw new RouteError(400, "Request body is invalid.");
-      result[name] = ["assignment", "expected", "request", "role"].includes(name) ? parse(value) : value;
+      result[name] = ["assignment", "expected", "profile", "request", "role", "values"].includes(name) ? parse(value) : value;
     }
     return result;
   }
@@ -290,3 +369,7 @@ function exact(value: unknown, keys: readonly string[]): Readonly<Record<string,
   return value as Readonly<Record<string, unknown>>;
 }
 function string(value: unknown): string { if (typeof value !== "string") throw new RouteError(400, "Request body is invalid."); return value; }
+function integer(value: unknown): number { const number = typeof value === "string" && /^\d+$/u.test(value) ? Number(value) : value; if (typeof number !== "number" || !Number.isSafeInteger(number) || number < 0) throw new RouteError(400, "Request body is invalid."); return number; }
+function visibleSettings(item: SettingsAdministrationView): Readonly<Record<string, unknown>> { return Object.fromEntries(Object.entries(item.fields).flatMap(([id, field]) => field.kind === "visible-value" ? [[id, field.value]] : [])); }
+function publishedProfile(profile: ThemeProfile): ThemeProfile { return { ...profile, revision: { ...profile.revision, state: "published", publishedAt: new Date().toISOString() } } as ThemeProfile; }
+function operationReferenceId(reference: OperationsCenterReference): string { return "operationId" in reference ? reference.operationId : "refreshId" in reference ? reference.refreshId : reference.receiptId; }

@@ -261,6 +261,7 @@ export class SystemSettingsAdministrationService<TContext> {
       receipt: Object.freeze({ receiptId, invalidationId, occurredAt }),
       actor: decision.effectiveActor,
       authority: Object.freeze({
+        schemaVersion: 1 as const,
         applicationId: decision.applicationId,
         environment: decision.environment,
         authorizationRevision: decision.authorizationRevision,

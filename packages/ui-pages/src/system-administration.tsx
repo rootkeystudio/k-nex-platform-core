@@ -274,7 +274,37 @@ export interface SystemOperationDetailViewModel extends SystemAdministrationPage
   readonly audit: string;
 }
 
+export interface SystemSettingsListItem {
+  readonly id: string;
+  readonly label: string;
+  readonly href: string;
+  readonly owner: string;
+  readonly state: string;
+  readonly revision: string;
+}
+
+export interface SystemSettingsViewModel extends SystemAdministrationPageView {
+  readonly settings: readonly SystemSettingsListItem[];
+}
+
+export interface SystemSettingsFieldItem {
+  readonly id: string;
+  readonly label: string;
+  readonly value: string;
+  readonly state: string;
+}
+
+export interface SystemSettingsDetailViewModel extends SystemAdministrationPageView {
+  readonly settingsId: string;
+  readonly settingsLabel: string;
+  readonly owner: string;
+  readonly documentState: string;
+  readonly fields: readonly SystemSettingsFieldItem[];
+  readonly save?: SystemAdministrationAction;
+}
+
 const systemNavigation = [
+  { id: "settings", label: "Settings", href: "/system/settings" },
   { id: "roles", label: "Roles", href: "/system/access/roles" },
   { id: "permissions", label: "Permissions", href: "/system/access/permissions" },
   { id: "assignments", label: "Assignments", href: "/system/access/assignments" },
@@ -410,5 +440,17 @@ export function SystemOperationDetailPage({ view }: { readonly view: SystemOpera
   return administrationPage(view, "operations", <Stack gap="content">
     <section aria-label="Operation identity"><Heading level={2}>{view.operationId}</Heading><Badge>{view.operationState}</Badge></section>
     <dl><dt>Source</dt><dd>{view.source}</dd><dt>Receipt</dt><dd>{view.receipt}</dd><dt>Inventory</dt><dd>{view.inventory}</dd><dt>Audit</dt><dd>{view.audit}</dd></dl>
+  </Stack>);
+}
+
+export function SystemSettingsPage({ view }: { readonly view: SystemSettingsViewModel }): ReactElement {
+  return administrationPage(view, "settings", rows("Settings", ["Settings", "Owner", "State", "Revision"], view.settings.map((item) => [<a key={item.id} href={item.href}>{item.label}</a>, item.owner, item.state, item.revision])));
+}
+
+export function SystemSettingsDetailPage({ view }: { readonly view: SystemSettingsDetailViewModel }): ReactElement {
+  return administrationPage(view, "settings", <Stack gap="content">
+    <section aria-label="Settings identity"><Heading level={2}>{view.settingsLabel}</Heading><Text>{view.settingsId}</Text><Text>{view.owner}</Text><Badge>{view.documentState}</Badge></section>
+    {rows("Settings fields", ["Field", "Value", "State"], view.fields.map((field) => [field.label, field.value, field.state]))}
+    {view.save === undefined ? null : <section aria-label="Settings action">{actionControl(view.save)}</section>}
   </Stack>);
 }

@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   SystemAuthorizationAuditPage, SystemAssignmentsPage, SystemExtensionDetailPage, SystemExtensionsPage,
   SystemPermissionsPage, SystemRoleDetailPage, SystemRolesPage, SystemTemplatesPage,
-  SystemOperationDetailPage, SystemOperationsPage, SystemThemeProfileDetailPage, SystemThemesPage
+  SystemOperationDetailPage, SystemOperationsPage, SystemSettingsDetailPage, SystemSettingsPage, SystemThemeProfileDetailPage, SystemThemesPage
 } from "../src/index.js";
 
 const action = { label: "Review and apply", confirmation: { title: "Confirm change", description: "The server will recheck authority, revision, impact, approval, and audit requirements." } };
@@ -24,7 +24,7 @@ function formAction(label: string, actionUrl: string) {
 }
 
 describe("system administration pages", () => {
-  it("renders the twelve fixed administration routes from server-produced view models", () => {
+  it("renders the fourteen fixed administration routes from server-produced view models", () => {
     const pages = [
       <SystemRolesPage view={{ title: "Roles", roles: [{ id: "owner", label: "Owner", href: "/system/access/roles/owner", permissionCount: "2", assignmentCount: "1", state: "active" }], createRole: formAction("Create role", "/api/system/access/roles") }} />,
       <SystemRoleDetailPage view={{ title: "Role", roleLabel: "Manager", roleState: "active", activePermissionGroups: [{ owner: "Platform system", resources: [{ resource: "roles", operations: [{ operation: "manage", permissions: [{ label: "system.roles.manage", add: formAction("Add permission", "/api/system/access/roles/manager/permissions"), remove: formAction("Remove permission", "/api/system/access/grants/grant-roles-manage/remove") }] }] }] }], templates: [{ id: "sales-manager", title: "Sales manager", instantiate: formAction("Instantiate template", "/api/system/access/templates/instantiate"), copySelected: formAction("Copy template permissions", "/api/system/access/templates/copy") }], inactiveDiagnostics: [{ id: "retired", label: "sales.pipeline.manage", state: "inactive-generation-retired", detail: "The retired generation cannot authorize." }], save: action }} />,
@@ -37,12 +37,14 @@ describe("system administration pages", () => {
       <SystemThemesPage view={{ title: "Themes", packages: [{ id: "theme.default", label: "Default", version: "1.0.0", surfaces: "admin, public", availability: "installed", referenceImpact: "Blocked by 1 profile" }], skins: [{ id: "skin.accent", label: "Accent", version: "1.0.0", lifecycle: "active", actions: "Disable, uninstall" }], profiles: [{ id: "profile.admin", label: "Admin", href: "/system/themes/profiles/profile.admin", surface: "admin", package: "theme.default@1.0.0", skin: "skin.accent@1.0.0", revision: "2", accessibility: "passed" }] }} />,
       <SystemThemeProfileDetailPage view={{ title: "Theme Profile", profileLabel: "Admin", profileId: "profile.admin", surface: "admin", package: "theme.default@1.0.0", skin: "skin.accent@1.0.0", publication: "draft", accessibility: "passed", preview: formAction("Preview profile", "/api/system/themes/profiles/profile.admin/preview"), stage: { ...formAction("Stage profile", "/api/system/themes/profiles/profile.admin/stage"), form: { ...formAction("Stage profile", "/api/system/themes/profiles/profile.admin/stage").form, textArea: { name: "profile", label: "Theme Profile JSON", value: '{"schemaVersion":1}' } } }, publish: formAction("Publish profile", "/api/system/themes/profiles/profile.admin/publish"), rollback: formAction("Rollback profile", "/api/system/themes/profiles/profile.admin/rollback") }} />,
       <SystemOperationsPage view={{ title: "Operations", revision: "7", operations: [{ id: "backup-operation-1", source: "backup", href: "/system/operations/backup-operation-1", state: "completed", receipt: "backup-receipt-1" }], health: [{ id: "health-1", source: "backup", state: "ready", revision: "7", checks: "backup.fresh, restore.clean" }], backup: formAction("Request backup", "/api/system/operations/backup"), restoreDrill: { ...formAction("Request restore drill", "/api/system/operations/restore-drill"), confirmation: { title: "Approve clean restore drill", description: "A separate operator restores into a clean environment.", confirmLabel: "Approve restore drill" } } }} />,
-      <SystemOperationDetailPage view={{ title: "Operation", operationId: "backup-operation-1", source: "backup", operationState: "completed", receipt: "backup-receipt-1", inventory: "sha256:aaaa", audit: "user:owner" }} />
+      <SystemOperationDetailPage view={{ title: "Operation", operationId: "backup-operation-1", source: "backup", operationState: "completed", receipt: "backup-receipt-1", inventory: "sha256:aaaa", audit: "user:owner" }} />,
+      <SystemSettingsPage view={{ title: "Settings", settings: [{ id: "platform.general", label: "General", href: "/system/settings/platform.general", owner: "Platform system", state: "effective", revision: "3" }] }} />,
+      <SystemSettingsDetailPage view={{ title: "Settings", settingsId: "platform.general", settingsLabel: "General", owner: "Platform system", documentState: "effective", fields: [{ id: "siteName", label: "Site name", value: "K-Nex", state: "visible" }, { id: "apiKey", label: "API key", value: "••••••", state: "secret-reference" }], save: { ...formAction("Save settings", "/api/system/settings/platform.general"), form: { ...formAction("Save settings", "/api/system/settings/platform.general").form, textArea: { name: "values", label: "Settings JSON", value: '{"siteName":"K-Nex"}' } } } }} />
     ];
     const markup = pages.map((page) => renderToStaticMarkup(page)).join("\n");
-    expect(markup.match(/<main/g)).toHaveLength(12);
-    expect(markup.match(/data-k-nex-component="skip-link"/g)).toHaveLength(12);
-    expect(markup.match(/aria-label="System administration"/g)).toHaveLength(12);
+    expect(markup.match(/<main/g)).toHaveLength(14);
+    expect(markup.match(/data-k-nex-component="skip-link"/g)).toHaveLength(14);
+    expect(markup.match(/aria-label="System administration"/g)).toHaveLength(14);
     expect(markup).toContain("Active permissions");
     expect(markup).toContain("inactive-generation-retired");
     expect(markup).toContain("Data may be stale");
@@ -64,6 +66,8 @@ describe("system administration pages", () => {
     expect(markup).toContain('action="/api/system/operations/backup"');
     expect(markup).toContain("Approve clean restore drill");
     expect(markup).toContain('aria-label="System health"');
+    expect(markup).toContain('action="/api/system/settings/platform.general"');
+    expect(markup).toContain("••••••");
   });
 
   it("renders server-projected native POST forms without client authority fields", () => {

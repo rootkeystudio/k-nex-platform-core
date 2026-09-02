@@ -129,7 +129,7 @@ describe("P11.3e system settings administration changes", () => {
     const write = value.store.writeImmediate.mock.calls[0]![0];
     expect(write.identity).toEqual(identity(value.d));
     expect(write.actor).toEqual(session.effectiveActor);
-    expect(write.authority).toEqual(expected);
+    expect(write.authority).toEqual({ schemaVersion: 1, ...expected });
     expect(write.document.values).toEqual({ pageSize: 60, apiToken: value.current.values.apiToken });
     expect(write.changedFields).toEqual(["pageSize"]);
     expect(JSON.stringify(write)).not.toContain("browser-secret");
