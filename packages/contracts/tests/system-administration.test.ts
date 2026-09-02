@@ -20,6 +20,7 @@ import {
 } from "../src/index.js";
 
 const digest = (character: string) => `sha256:${character.repeat(64)}`;
+const authorityDigest = digest("d");
 const timestamp = "2026-09-02T12:00:00.000Z";
 const publisher = { kind: "extension", deliveryClass: "hot-application", extensionId: "app.sales.reports" } as const;
 const owner = { ...publisher, generation: 7 } as const;
@@ -63,12 +64,12 @@ describe("P11.1 system administration contracts", () => {
     expect(SettingsChangeInputSchema.safeParse({ ...input, values: { apiToken: stored.values.apiToken } }).success).toBe(false);
     expect(SettingsChangeInputSchema.safeParse({ ...input, values: {} }).success).toBe(false);
 
-    const operation = { schemaVersion: 1, operationId: "settings-operation-1", identity, pendingDocument: { ...stored, state: "pending-generation-validation", documentRevision: 4 }, expectedDocumentRevision: 3, expectedSettingsRevision: 8, state: "pending-validation", attempts: 0, requestedBy: { kind: "user", id: "user-1" }, idempotencyKey: input.idempotencyKey, revision: 1, updatedAt: timestamp } as const;
+    const operation = { schemaVersion: 1, operationId: "settings-operation-1", identity, pendingDocument: { ...stored, state: "pending-generation-validation", documentRevision: 4 }, expectedDocumentRevision: 3, expectedSettingsRevision: 8, state: "pending-validation", attempts: 0, requestedBy: { kind: "user", id: "user-1" }, authorityDigest, idempotencyKey: input.idempotencyKey, revision: 1, updatedAt: timestamp } as const;
     expect(ResumableSettingsOperationSchema.safeParse(operation).success).toBe(true);
     expect(ResumableSettingsOperationSchema.safeParse({ ...operation, state: "promoted" }).success).toBe(false);
     expect(ResumableSettingsOperationSchema.safeParse({ ...operation, pendingDocument: { ...operation.pendingDocument, identity: { ...identity, environment: "staging" } } }).success).toBe(false);
 
-    const receipt = { schemaVersion: 1, receiptId: "settings-receipt-1", operationId: operation.operationId, identity, requestedBy: operation.requestedBy, idempotencyKey: input.idempotencyKey, occurredAt: timestamp, outcome: "promoted", documentRevision: 4, settingsRevision: 9, changedFields: ["pageSize"], invalidationId: "settings-invalidation-1" } as const;
+    const receipt = { schemaVersion: 1, receiptId: "settings-receipt-1", operationId: operation.operationId, identity, requestedBy: operation.requestedBy, authorityDigest, reauthentication: "satisfied", idempotencyKey: input.idempotencyKey, occurredAt: timestamp, outcome: "promoted", documentRevision: 4, settingsRevision: 9, changedFields: ["pageSize"], invalidationId: "settings-invalidation-1" } as const;
     expect(SettingsTerminalReceiptSchema.safeParse(receipt).success).toBe(true);
     expect(SettingsTerminalReceiptSchema.safeParse({ ...receipt, values: { apiToken: stored.values.apiToken } }).success).toBe(false);
     expect(SettingsInvalidationSchema.safeParse({ schemaVersion: 1, invalidationId: receipt.invalidationId, identity, settingsRevision: 9, occurredAt: timestamp }).success).toBe(true);
@@ -99,11 +100,11 @@ describe("P11.1 system administration contracts", () => {
     expect(CatalogRefreshObservationSchema.safeParse({ schemaVersion: 1, catalogRevision: 5, state: "staged-reconciliation", staged: accepted, accepted }).success).toBe(true);
     expect(CatalogRefreshObservationSchema.safeParse({ schemaVersion: 1, catalogRevision: 5, state: "staged-reconciliation", accepted }).success).toBe(false);
     expect(CatalogRefreshObservationSchema.safeParse({ schemaVersion: 1, catalogRevision: 5, state: "accepted", staged: accepted, accepted }).success).toBe(false);
-    const operation = { schemaVersion: 1, refreshId: "catalog-refresh-1", expectedCatalogRevision: 4, state: "staged-reconciliation", staged: { ...accepted, sequence: 5 }, requestedBy: { kind: "user", id: "user-1" }, idempotencyKey: input.idempotencyKey, revision: 2, updatedAt: timestamp } as const;
+    const operation = { schemaVersion: 1, refreshId: "catalog-refresh-1", expectedCatalogRevision: 4, state: "staged-reconciliation", staged: { ...accepted, sequence: 5 }, requestedBy: { kind: "user", id: "user-1" }, authorityDigest, idempotencyKey: input.idempotencyKey, revision: 2, updatedAt: timestamp } as const;
     expect(ResumableCatalogRefreshOperationSchema.safeParse(operation).success).toBe(true);
     expect(ResumableCatalogRefreshOperationSchema.safeParse({ ...operation, state: "fetching" }).success).toBe(false);
     expect(ResumableCatalogRefreshOperationSchema.safeParse({ ...operation, staged: undefined }).success).toBe(false);
-    const receipt = { schemaVersion: 1, receiptId: "catalog-receipt-1", refreshId: "catalog-refresh-1", outcome: "accepted", catalogRevision: 5, accepted: { ...accepted, sequence: 5 }, reconciledReleaseCount: 2, requestedBy: { kind: "user", id: "user-1" }, idempotencyKey: input.idempotencyKey, occurredAt: timestamp } as const;
+    const receipt = { schemaVersion: 1, receiptId: "catalog-receipt-1", refreshId: "catalog-refresh-1", outcome: "accepted", catalogRevision: 5, accepted: { ...accepted, sequence: 5 }, reconciledReleaseCount: 2, requestedBy: { kind: "user", id: "user-1" }, authorityDigest, idempotencyKey: input.idempotencyKey, occurredAt: timestamp } as const;
     expect(CatalogRefreshReceiptSchema.safeParse(receipt).success).toBe(true);
     expect(CatalogRefreshReceiptSchema.safeParse({ ...receipt, signer: "untrusted" }).success).toBe(false);
     expect(CatalogRefreshReceiptSchema.safeParse({ schemaVersion: 1, receiptId: "catalog-receipt-2", refreshId: "catalog-refresh-1", outcome: "rejected", reason: "security-reconciliation-pending", requestedBy: operation.requestedBy, idempotencyKey: input.idempotencyKey, occurredAt: timestamp }).success).toBe(false);
@@ -113,11 +114,11 @@ describe("P11.1 system administration contracts", () => {
     const input = { expectedOperationsRevision: 4, idempotencyKey: "backup-request-1" } as const;
     expect(OperationsCenterRequestInputSchema.safeParse(input).success).toBe(true);
     expect(OperationsCenterRequestInputSchema.safeParse({ ...input, target: "database" }).success).toBe(false);
-    const request = { schemaVersion: 1, requestId: "operations-request-1", kind: "backup", applicationId: "customer-alpha", environment: "production", expectedOperationsRevision: 4, expectedInventoryDigest: digest("c"), requestedBy: { kind: "user", id: "user-1" }, idempotencyKey: input.idempotencyKey, reference: { source: "backup", operationId: "backup-operation-1" }, createdAt: timestamp } as const;
+    const request = { schemaVersion: 1, requestId: "operations-request-1", kind: "backup", applicationId: "customer-alpha", environment: "production", expectedOperationsRevision: 4, expectedInventoryDigest: digest("c"), requestedBy: { kind: "user", id: "user-1" }, authorityDigest, idempotencyKey: input.idempotencyKey, reference: { source: "backup", operationId: "backup-operation-1" }, createdAt: timestamp } as const;
     expect(OperationsCenterRequestSchema.safeParse(request).success).toBe(true);
     expect(OperationsCenterRequestSchema.safeParse({ ...request, reference: { source: "restore-drill", operationId: "restore-drill-operation-1" } }).success).toBe(false);
     expect(OperationsCenterRequestSchema.safeParse({ ...request, reference: { ...request.reference, receiptId: "backup-receipt-1" } }).success).toBe(false);
-    const receipt = { schemaVersion: 1, receiptId: "operations-receipt-1", requestId: request.requestId, kind: "backup", applicationId: request.applicationId, environment: request.environment, expectedInventoryDigest: request.expectedInventoryDigest, requestedBy: request.requestedBy, idempotencyKey: request.idempotencyKey, reference: { ...request.reference, receiptId: "backup-receipt-1" }, outcome: "completed", reason: "completed", occurredAt: timestamp } as const;
+    const receipt = { schemaVersion: 1, receiptId: "operations-receipt-1", requestId: request.requestId, kind: "backup", applicationId: request.applicationId, environment: request.environment, expectedInventoryDigest: request.expectedInventoryDigest, requestedBy: request.requestedBy, authorityDigest, idempotencyKey: request.idempotencyKey, reference: { ...request.reference, receiptId: "backup-receipt-1" }, outcome: "completed", reason: "completed", occurredAt: timestamp } as const;
     expect(OperationsCenterReceiptSchema.safeParse(receipt).success).toBe(true);
     expect(OperationsCenterReceiptSchema.safeParse({ ...receipt, outcome: "completed", reason: "approval-required" }).success).toBe(false);
     expect(OperationsCenterReceiptSchema.safeParse({ ...receipt, outcome: "rejected", reason: "verification-failed" }).success).toBe(false);

@@ -11,7 +11,7 @@ P11.10 and the blocking owner-review fixes are complete: v2→v3 release boot, s
 
 ## Validation
 
-Exact Node 24.19.0: focused Gate 11 PASS with selected contract/unit proofs, 9 real PostgreSQL/HTTP/Chromium tests, 13 machine-mapped attack classes, accepted Gate 9–10 inheritance, and Sales-only boundary. Architecture validator 30/30 PASS; high-severity audit count zero.
+Exact Node 24.19.0: focused Gate 11 and replacement PR CI PASS; 9 real process proofs, 13 machine-mapped attacks, architecture validator 30/30, and high-severity audit count zero. First cumulative run found three stale contract fixtures; isolated system-administration contracts now 6/6 PASS.
 
 ## Next
 
@@ -19,4 +19,4 @@ Push the Phase 11 review-fix head, obtain replacement exact-head focused CI/re-r
 
 ## Blockers
 
-Replacement exact-head CI and owner re-review are pending; prior reviewed head is red and superseded locally.
+Replacement exact-head CI rerun, cumulative Gate 0–11 rerun, and owner re-review are pending.
