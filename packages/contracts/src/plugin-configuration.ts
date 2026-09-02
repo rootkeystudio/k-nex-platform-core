@@ -11,6 +11,10 @@ const reservedSettingTerms = [
   "migration", "plugin", "provider", "route", "schema", "source", "tool", "topology"
 ] as const;
 
+export function isSecretLikeSettingKey(key: string): boolean {
+  return secretLikeSettingKeyPattern.test(key);
+}
+
 export const SecretReferenceSchema = z.strictObject({
   kind: z.literal("secret-reference"),
   provider: z.literal("environment"),
@@ -61,6 +65,40 @@ export const PluginSettingFieldSchema = z.discriminatedUnion("type", [
   })
 ]);
 
+export interface PluginSettingFieldIssue {
+  readonly input: unknown;
+  readonly path: readonly string[];
+  readonly message: string;
+}
+
+/** Shared semantic validation for every trusted data-only settings descriptor. */
+export function pluginSettingFieldIssues(
+  fields: Readonly<Record<string, z.infer<typeof PluginSettingFieldSchema>>>
+): readonly PluginSettingFieldIssue[] {
+  const issues: PluginSettingFieldIssue[] = [];
+  for (const [key, field] of Object.entries(fields)) {
+    const normalizedKey = key.toLowerCase();
+    if (reservedSettingTerms.some((term) => normalizedKey.includes(term))) {
+      issues.push({ input: key, path: [key], message: "Settings cannot control executable contributions or application topology." });
+    }
+    if (isSecretLikeSettingKey(key) && field.type !== "secret-reference") {
+      issues.push({ input: key, path: [key], message: "Secret-like settings must use secret references." });
+    }
+    if (field.type === "integer") {
+      if (field.minimum !== undefined && field.maximum !== undefined && field.minimum > field.maximum) {
+        issues.push({ input: field, path: [key], message: "Integer setting bounds are invalid." });
+      }
+      if (field.default !== undefined && (field.minimum !== undefined && field.default < field.minimum || field.maximum !== undefined && field.default > field.maximum)) {
+        issues.push({ input: field.default, path: [key, "default"], message: "Integer setting default is outside its bounds." });
+      }
+    }
+    if (field.type === "string" && field.default !== undefined && field.allowed !== undefined && !field.allowed.includes(field.default)) {
+      issues.push({ input: field.default, path: [key, "default"], message: "String setting default is not allowed." });
+    }
+  }
+  return Object.freeze(issues.map((issue) => Object.freeze({ ...issue, path: Object.freeze([...issue.path]) })));
+}
+
 const settingFieldsSchema = z.record(z.string().regex(settingKeyPattern), PluginSettingFieldSchema)
   .check((context) => {
     if (Object.keys(context.value).length === 0) context.issues.push({ code: "custom", input: context.value, message: "Settings fields cannot be empty." });
@@ -90,25 +128,8 @@ export const PluginSettingsDescriptorSchema = z.strictObject({
   if (!ownedByPlugin(descriptor.ownerPluginId, descriptor.id)) {
     context.issues.push({ code: "custom", input: descriptor.id, path: ["id"], message: "Settings ID must use the owner plugin namespace." });
   }
-  for (const [key, field] of Object.entries(descriptor.fields)) {
-    const normalizedKey = key.toLowerCase();
-    if (reservedSettingTerms.some((term) => normalizedKey.includes(term))) {
-      context.issues.push({ code: "custom", input: key, path: ["fields", key], message: "Settings cannot control executable contributions or application topology." });
-    }
-    if (secretLikeSettingKeyPattern.test(key) && field.type !== "secret-reference") {
-      context.issues.push({ code: "custom", input: key, path: ["fields", key], message: "Secret-like settings must use secret references." });
-    }
-    if (field.type === "integer") {
-      if (field.minimum !== undefined && field.maximum !== undefined && field.minimum > field.maximum) {
-        context.issues.push({ code: "custom", input: field, path: ["fields", key], message: "Integer setting bounds are invalid." });
-      }
-      if (field.default !== undefined && (field.minimum !== undefined && field.default < field.minimum || field.maximum !== undefined && field.default > field.maximum)) {
-        context.issues.push({ code: "custom", input: field.default, path: ["fields", key, "default"], message: "Integer setting default is outside its bounds." });
-      }
-    }
-    if (field.type === "string" && field.default !== undefined && field.allowed !== undefined && !field.allowed.includes(field.default)) {
-      context.issues.push({ code: "custom", input: field.default, path: ["fields", key, "default"], message: "String setting default is not allowed." });
-    }
+  for (const issue of pluginSettingFieldIssues(descriptor.fields)) {
+    context.issues.push({ code: "custom", input: issue.input, path: ["fields", ...issue.path], message: issue.message });
   }
 });
 

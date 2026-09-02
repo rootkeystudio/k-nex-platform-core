@@ -1,0 +1,1 @@
+{"$schema":"https://schemas.k-nex.dev/system-administration/v1.schema.json","contract":{"expectedCatalogRevision":4,"idempotencyKey":"catalog-refresh-1","url":"https://evil.test/catalog"}}

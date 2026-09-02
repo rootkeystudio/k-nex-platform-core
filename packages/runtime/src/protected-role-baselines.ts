@@ -57,15 +57,38 @@ function isCanonicalPermissionIds(value: readonly string[], canonical: readonly 
   return value.length === canonical.length && value.every((permissionId, index) => permissionId === canonical[index]);
 }
 
-function protectedBaseline(id: ProtectedRoleId, permissionIds: readonly string[]): ProtectedRoleBaseline {
+function protectedBaseline(id: ProtectedRoleId, permissionIds: readonly string[], knownPermissionIds = platformPermissionIds): ProtectedRoleBaseline {
   const parsed = ProtectedRoleBaselineSchema.safeParse({ schemaVersion: 1, id, permissionIds: canonicalPermissionIds(permissionIds) });
-  if (!parsed.success || parsed.data.permissionIds.some((permissionId) => !platformPermissionIds.has(permissionId))) {
+  if (!parsed.success || parsed.data.permissionIds.some((permissionId) => !knownPermissionIds.has(permissionId))) {
     throw new TemplateBaselineError("INVALID_BASELINE", `Protected role ${id} has an invalid platform baseline.`);
   }
   return Object.freeze({ ...parsed.data, permissionIds: Object.freeze([...parsed.data.permissionIds]) as unknown as string[] });
 }
 
 const allPlatformPermissionIds = Object.freeze([...platformPermissionIds].sort(compare));
+/** Exact former-current v2 permission universe. Never derive history from the current registry. */
+const allPlatformPermissionIdsV2 = Object.freeze([
+  "system.authorization.audit.read",
+  "system.extensions.deploy-platform-plugin",
+  "system.extensions.disable",
+  "system.extensions.enable",
+  "system.extensions.install-hot",
+  "system.extensions.plan",
+  "system.extensions.quarantine",
+  "system.extensions.read",
+  "system.extensions.rollback",
+  "system.extensions.uninstall",
+  "system.extensions.update",
+  "system.permissions.read",
+  "system.role-assignments.manage",
+  "system.role-assignments.read",
+  "system.roles.manage",
+  "system.roles.read",
+  "system.settings.manage",
+  "system.settings.read",
+  "system.themes.manage"
+]);
+const platformPermissionIdsV2 = new Set(allPlatformPermissionIdsV2);
 
 const protectedPlatformRoleLabels = Object.freeze({
   "system.role.owner": "Owner",
@@ -77,10 +100,18 @@ const protectedPlatformRoleLabels = Object.freeze({
 
 export { protectedPlatformRoleLabels };
 
-/** The last shipped protected baseline, retained only to recognize a safe upgrade source. */
-const protectedPlatformRoleBaselinesV1: readonly ProtectedRoleBaseline[] = Object.freeze([
-  protectedBaseline("system.role.owner", [
+/** The exact prior release, retained only to recognize the v2 → v3 upgrade. */
+const protectedPlatformRoleBaselinesV2: readonly ProtectedRoleBaseline[] = Object.freeze([
+  protectedBaseline("system.role.owner", allPlatformPermissionIdsV2, platformPermissionIdsV2),
+  protectedBaseline("system.role.security-admin", [
     "system.authorization.audit.read",
+    "system.permissions.read",
+    "system.role-assignments.manage",
+    "system.role-assignments.read",
+    "system.roles.manage",
+    "system.roles.read"
+  ], platformPermissionIdsV2),
+  protectedBaseline("system.role.extension-admin", [
     "system.extensions.deploy-platform-plugin",
     "system.extensions.disable",
     "system.extensions.enable",
@@ -91,47 +122,19 @@ const protectedPlatformRoleBaselinesV1: readonly ProtectedRoleBaseline[] = Objec
     "system.extensions.rollback",
     "system.extensions.uninstall",
     "system.extensions.update",
-    "system.permissions.read",
-    "system.role-assignments.manage",
-    "system.role-assignments.read",
-    "system.roles.manage",
-    "system.roles.read",
-    "system.settings.manage",
-    "system.settings.read",
-    "system.themes.manage"
-  ]),
-  protectedBaseline("system.role.security-admin", [
-    "system.authorization.audit.read",
-    "system.permissions.read",
-    "system.role-assignments.manage",
-    "system.role-assignments.read",
-    "system.roles.manage",
-    "system.roles.read"
-  ]),
-  protectedBaseline("system.role.extension-admin", [
-    "system.extensions.disable",
-    "system.extensions.enable",
-    "system.extensions.install-hot",
-    "system.extensions.plan",
-    "system.extensions.quarantine",
-    "system.extensions.read",
-    "system.extensions.rollback",
-    "system.extensions.uninstall",
-    "system.extensions.update",
     "system.permissions.read"
-  ]),
+  ], platformPermissionIdsV2),
   protectedBaseline("system.role.user-admin", [
-    "system.permissions.read",
     "system.role-assignments.manage",
     "system.role-assignments.read",
     "system.roles.read"
-  ]),
+  ], platformPermissionIdsV2),
   protectedBaseline("system.role.auditor", [
     "system.authorization.audit.read",
     "system.permissions.read",
     "system.role-assignments.read",
     "system.roles.read"
-  ])
+  ], platformPermissionIdsV2)
 ]);
 
 /** Immutable platform-owned baselines; labels are deliberately absent from authority. */
@@ -146,17 +149,20 @@ export const protectedPlatformRoleBaselines: readonly ProtectedRoleBaseline[] = 
     "system.roles.read"
   ]),
   protectedBaseline("system.role.extension-admin", [
+    "system.catalog.refresh",
     "system.extensions.deploy-platform-plugin",
     "system.extensions.disable",
     "system.extensions.enable",
-    "system.extensions.install-hot",
+    "system.extensions.install-live",
     "system.extensions.plan",
     "system.extensions.quarantine",
     "system.extensions.read",
     "system.extensions.rollback",
     "system.extensions.uninstall",
     "system.extensions.update",
-    "system.permissions.read"
+    "system.operations.read",
+    "system.themes.manage",
+    "system.themes.read"
   ]),
   protectedBaseline("system.role.user-admin", [
     "system.role-assignments.manage",
@@ -167,7 +173,9 @@ export const protectedPlatformRoleBaselines: readonly ProtectedRoleBaseline[] = 
     "system.authorization.audit.read",
     "system.permissions.read",
     "system.role-assignments.read",
-    "system.roles.read"
+    "system.roles.read",
+    "system.operations.read",
+    "system.themes.read"
   ])
 ]);
 
@@ -189,11 +197,17 @@ function baselineRelease(version: number, baselines: readonly ProtectedRoleBasel
 }
 
 /** Compiled current target; callers cannot provide protected baseline content. */
-export const currentProtectedPlatformRoleBaselineRelease = baselineRelease(2, protectedPlatformRoleBaselines);
+export const currentProtectedPlatformRoleBaselineRelease = baselineRelease(3, protectedPlatformRoleBaselines);
+
+const expectedProtectedPlatformRoleBaselineV2Digest = "sha256:d149e0acfc0ffcdeed9577e27ad885a83217d129a6d244ca5d9d283f1d821426";
+const protectedPlatformRoleBaselineReleaseV2 = baselineRelease(2, protectedPlatformRoleBaselinesV2);
+if (protectedPlatformRoleBaselineReleaseV2.digest !== expectedProtectedPlatformRoleBaselineV2Digest) {
+  throw new TemplateBaselineError("DIGEST_MISMATCH", "The immutable protected role baseline v2 digest changed.");
+}
 
 /** Static recognized sources only. Unknown versions or digests fail closed. */
 export const recognizedProtectedPlatformRoleBaselineReleases: readonly ProtectedPlatformRoleBaselineRelease[] = Object.freeze([
-  baselineRelease(1, protectedPlatformRoleBaselinesV1),
+  protectedPlatformRoleBaselineReleaseV2,
   currentProtectedPlatformRoleBaselineRelease
 ]);
 

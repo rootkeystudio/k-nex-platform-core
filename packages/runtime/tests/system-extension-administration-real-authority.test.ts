@@ -200,7 +200,7 @@ describe("system extension administration real authority chain", () => {
       [extensionAdmin.actor.id, new Set([
         "system.extensions.read",
         "system.extensions.plan",
-        "system.extensions.install-hot",
+        "system.extensions.install-live",
         "system.extensions.deploy-platform-plugin",
         "system.extensions.update",
         "system.extensions.disable",
@@ -252,7 +252,7 @@ describe("system extension administration real authority chain", () => {
 
     await expect(service.plan({ context: plannerOnly, expected, request: request() })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     expect(resolver.authorize.mock.calls.map(([, input]) => input.permissionId).sort()).toEqual([
-      "system.extensions.install-hot",
+      "system.extensions.install-live",
       "system.extensions.plan",
       "system.extensions.plan"
     ]);
@@ -265,8 +265,8 @@ describe("system extension administration real authority chain", () => {
     resolver.authorize.mockClear();
     const created = await service.plan({ context: extensionAdmin, expected, request: request() });
     expect(resolver.authorize.mock.calls.map(([, input]) => input.permissionId).sort()).toEqual([
-      "system.extensions.install-hot",
-      "system.extensions.install-hot",
+      "system.extensions.install-live",
+      "system.extensions.install-live",
       "system.extensions.plan",
       "system.extensions.plan",
       "system.extensions.plan"

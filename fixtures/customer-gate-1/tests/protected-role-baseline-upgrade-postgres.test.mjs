@@ -25,8 +25,9 @@ import pg from "pg";
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
 const fixtureDirectory = fileURLToPath(new URL("..", import.meta.url));
 const environment = "production";
-const prior = recognizedProtectedPlatformRoleBaselineReleases.find(({ version }) => version === 1);
-assert.ok(prior, "The v1 protected baseline must remain a compiled upgrade source.");
+const prior = recognizedProtectedPlatformRoleBaselineReleases.find(({ version }) => version === 2);
+assert.ok(prior, "The v2 protected baseline must remain the compiled upgrade source.");
+assert.equal(prior.digest, "sha256:d149e0acfc0ffcdeed9577e27ad885a83217d129a6d244ca5d9d283f1d821426", "The upgrade source must be the exact former current v2 baseline.");
 
 function boot(connectionString) {
   return new Promise((resolve, reject) => {
@@ -77,7 +78,7 @@ function audit(applicationId, state, suffix) {
   };
 }
 
-async function seedRecognizedV1(pool, applicationId, options = {}) {
+async function seedRecognizedV2(pool, applicationId, options = {}) {
   await pool.query(
     "insert into k_nex_authorization_state (application_id, authorization_revision, lifecycle_revision) values ($1, 7, 0)",
     [applicationId]
@@ -98,19 +99,19 @@ async function seedRecognizedV1(pool, applicationId, options = {}) {
   }
   if (options.tamperGrant === true) {
     await pool.query(
-      "update k_nex_role_permission_grants set permission_id='system.settings.manage' where application_id=$1 and role_id='system.role.user-admin' and permission_id='system.permissions.read'",
+      "update k_nex_role_permission_grants set permission_id='system.roles.read' where application_id=$1 and role_id='system.role.extension-admin' and permission_id='system.extensions.install-hot'",
       [applicationId]
     );
   }
   await pool.query(
     `insert into k_nex_role_assignments (application_id, assignment_id, role_id, subject_kind, subject_id, state, revision)
-     values ($1,'protected-v1-owner','system.role.owner','user','user:owner','active',1)`,
+     values ($1,'protected-v2-owner','system.role.owner','user','user:owner','active',1)`,
     [applicationId]
   );
   await pool.query(
     `insert into k_nex_authorization_bootstrap_receipts
      (application_id, receipt_id, owner_role_id, owner_assignment_id, owner_principal_kind, owner_principal_id, protected_baseline_version, protected_baseline_digest, authorization_revision, state)
-     values ($1,'protected-v1-receipt','system.role.owner','protected-v1-owner','user','user:owner',$2,$3,1,'committed')`,
+     values ($1,'protected-v2-receipt','system.role.owner','protected-v2-owner','user','user:owner',$2,$3,1,'committed')`,
     [applicationId, prior.version, options.tamperDigest === true ? `sha256:${"0".repeat(64)}` : prior.digest]
   );
 }
@@ -133,7 +134,7 @@ test("reconciles only an exact recognized protected baseline through real Postgr
     await boot(container.getConnectionUri());
     const store = new PostgresAuthorizationStore(pool, { validate: (_applicationId, subject) => subject.kind === "user" && ["user:owner", "user:owner-b"].includes(subject.id) ? "accepted" : "rejected" });
     const misuseApplicationId = "customer-protected-direct-misuse";
-    await seedRecognizedV1(pool, misuseApplicationId);
+    await seedRecognizedV2(pool, misuseApplicationId);
     const misuseState = await store.readState(misuseApplicationId, environment);
     assert.ok(misuseState);
     const misuseBefore = await durableCounts(pool, misuseApplicationId);
@@ -161,7 +162,7 @@ test("reconciles only an exact recognized protected baseline through real Postgr
     assert.deepEqual(await durableCounts(pool, misuseApplicationId), misuseBefore, "Unknown direct predecessor rolls back without writes.");
 
     const applicationId = "customer-protected-upgrade";
-    await seedRecognizedV1(pool, applicationId);
+    await seedRecognizedV2(pool, applicationId);
     const before = await store.readState(applicationId, environment);
     assert.ok(before);
 
@@ -199,7 +200,7 @@ test("reconciles only an exact recognized protected baseline through real Postgr
     assert.deepEqual(await durableCounts(pool, applicationId), afterSuccess, "Replay conflicts without writes.");
 
     const handoffApplicationId = "customer-protected-owner-handoff";
-    await seedRecognizedV1(pool, handoffApplicationId);
+    await seedRecognizedV2(pool, handoffApplicationId);
     const handoffCatalog = createEffectiveAuthorizationCatalog({ applicationId: handoffApplicationId, lifecycleRevision: 0, extensions: [], executables: [] });
     const handoffProvider = createAuthorizationCatalogProvider(({ applicationId: requested, lifecycleRevision }) => requested === handoffApplicationId && lifecycleRevision === 0 ? { applicationId: handoffApplicationId, lifecycleRevision, catalog: handoffCatalog } : undefined);
     const handoffSession = createTrustedAuthorizationSession({
@@ -222,20 +223,20 @@ test("reconciles only an exact recognized protected baseline through real Postgr
     const ownerB = await handoffAccess.createAssignment({
       context: undefined,
       expected: expected(handoffBefore, handoffApplicationId),
-      assignment: { id: "protected-v1-owner-b", roleId: "system.role.owner", principal: { kind: "user", id: "user:owner-b" } }
+      assignment: { id: "protected-v2-owner-b", roleId: "system.role.owner", principal: { kind: "user", id: "user:owner-b" } }
     });
     const ownerARevoked = await handoffAccess.revokeAssignment({
       context: undefined,
       expected: expected(ownerB.state, handoffApplicationId),
-      assignmentId: "protected-v1-owner"
+      assignmentId: "protected-v2-owner"
     });
     assert.deepEqual([ownerB.state.authorizationRevision, ownerARevoked.state.authorizationRevision], [8, 9]);
     assert.deepEqual((await pool.query(
       "select assignment_id, state from k_nex_role_assignments where application_id=$1 and role_id='system.role.owner' order by assignment_id",
       [handoffApplicationId]
     )).rows, [
-      { assignment_id: "protected-v1-owner", state: "revoked" },
-      { assignment_id: "protected-v1-owner-b", state: "active" }
+      { assignment_id: "protected-v2-owner", state: "revoked" },
+      { assignment_id: "protected-v2-owner-b", state: "active" }
     ]);
     const handoffUpgraded = await reconcileProtectedRoleBaseline({
       store,
@@ -248,7 +249,7 @@ test("reconciles only an exact recognized protected baseline through real Postgr
       "select owner_assignment_id, owner_principal_id, protected_baseline_version, protected_baseline_digest, authorization_revision from k_nex_authorization_bootstrap_receipts where application_id=$1",
       [handoffApplicationId]
     )).rows, [{
-      owner_assignment_id: "protected-v1-owner",
+      owner_assignment_id: "protected-v2-owner",
       owner_principal_id: "user:owner",
       protected_baseline_version: currentProtectedPlatformRoleBaselineRelease.version,
       protected_baseline_digest: currentProtectedPlatformRoleBaselineRelease.digest,
@@ -273,7 +274,7 @@ test("reconciles only an exact recognized protected baseline through real Postgr
 
     for (const [suffix, options] of [["grant", { tamperGrant: true }], ["digest", { tamperDigest: true }]]) {
       const tamperedApplicationId = `customer-protected-${suffix}-tamper`;
-      await seedRecognizedV1(pool, tamperedApplicationId, options);
+      await seedRecognizedV2(pool, tamperedApplicationId, options);
       const tamperedState = await store.readState(tamperedApplicationId, environment);
       assert.ok(tamperedState);
       const tamperedBefore = await durableCounts(pool, tamperedApplicationId);

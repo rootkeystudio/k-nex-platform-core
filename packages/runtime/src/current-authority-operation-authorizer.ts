@@ -36,16 +36,15 @@ export interface CurrentAuthorityOperationSessionProvider {
   }> | undefined>;
 }
 
-type RequiredPermission = Readonly<{ permissionId: string; resource: "system.extensions" | "system.themes" }>;
+type RequiredPermission = Readonly<{ permissionId: string; resource: "system.extensions" }>;
 
 const planPermission = Object.freeze({ permissionId: "system.extensions.plan", resource: "system.extensions" } satisfies RequiredPermission);
 
 function operationPermission(request: OperationAuthorizationRequest): RequiredPermission | undefined {
   if (request.operation === "enable") return Object.freeze({ permissionId: "system.extensions.enable", resource: "system.extensions" });
   if (request.operation === "install") {
-    if (request.extension.deliveryClass === "hot-application") return Object.freeze({ permissionId: "system.extensions.install-hot", resource: "system.extensions" });
+    if (request.extension.deliveryClass === "hot-application" || request.extension.deliveryClass === "theme-skin") return Object.freeze({ permissionId: "system.extensions.install-live", resource: "system.extensions" });
     if (request.extension.deliveryClass === "platform-plugin") return Object.freeze({ permissionId: "system.extensions.deploy-platform-plugin", resource: "system.extensions" });
-    if (request.extension.deliveryClass === "theme-skin") return Object.freeze({ permissionId: "system.themes.manage", resource: "system.themes" });
   }
   const permissionId: Record<Exclude<ExtensionManagerOperation, "install">, string> = {
     update: "system.extensions.update",

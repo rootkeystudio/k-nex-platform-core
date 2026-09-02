@@ -72,10 +72,10 @@ function request(input: Partial<OperationAuthorizationRequest> = {}): OperationA
 
 describe("CurrentAuthorityOperationAuthorizer", () => {
   it.each([
-    ["hot install", request(), ["system.extensions.plan", "system.extensions.install-hot"], "system.extensions"],
+    ["hot install", request(), ["system.extensions.plan", "system.extensions.install-live"], "system.extensions"],
     ["re-enable", request({ operation: "enable" }), ["system.extensions.plan", "system.extensions.enable"], "system.extensions"],
     ["platform install", request({ extension: { deliveryClass: "platform-plugin", id: "module.sales" } }), ["system.extensions.plan", "system.extensions.deploy-platform-plugin"], "system.extensions"],
-    ["theme install", request({ extension: { deliveryClass: "theme-skin", id: "skin.minimal-accent" } }), ["system.extensions.plan", "system.themes.manage"], "system.themes"],
+    ["theme install", request({ extension: { deliveryClass: "theme-skin", id: "skin.minimal-accent" } }), ["system.extensions.plan", "system.extensions.install-live"], "system.extensions"],
     ["update", request({ operation: "update" }), ["system.extensions.plan", "system.extensions.update"], "system.extensions"],
     ["disable", request({ operation: "disable" }), ["system.extensions.plan", "system.extensions.disable"], "system.extensions"],
     ["rollback", request({ operation: "rollback" }), ["system.extensions.plan", "system.extensions.rollback"], "system.extensions"],
@@ -91,7 +91,7 @@ describe("CurrentAuthorityOperationAuthorizer", () => {
   });
 
   it("requires both plan and operation decisions, with a decision ID tied to both", async () => {
-    for (const deniedPermission of ["system.extensions.plan", "system.extensions.install-hot"] as const) {
+    for (const deniedPermission of ["system.extensions.plan", "system.extensions.install-live"] as const) {
       const value = harness({ decide: (input, trustedSession) => decision(trustedSession, input, input.permissionId === deniedPermission ? "deny" : "allow") });
       await expect(value.authorizer.authorize(baseRequest)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     }
@@ -173,7 +173,7 @@ describe("CurrentAuthorityOperationAuthorizer", () => {
       actor: { kind: "actor", id: "user:attacker", approvalId: "approval:forged" }
     }) as OperationAuthorizationRequest;
     await expect(value.authorizer.authorize(forged)).resolves.toMatchObject({ actor });
-    expect(value.authorize.mock.calls.map(([, input]) => input.permissionId).sort()).toEqual(["system.extensions.install-hot", "system.extensions.plan"]);
+    expect(value.authorize.mock.calls.map(([, input]) => input.permissionId).sort()).toEqual(["system.extensions.install-live", "system.extensions.plan"]);
     expect(value.authorize.mock.calls.map(([, input]) => input.scope)).toHaveLength(2);
     expect(value.authorize.mock.calls.every(([, input]) => input.scope.kind === "application" && input.scope.resource === "system.extensions")).toBe(true);
   });

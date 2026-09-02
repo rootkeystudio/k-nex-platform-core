@@ -144,5 +144,23 @@
     "schema": "authorization",
     "validator": "json-schema",
     "code": "SCHEMA_INVALID"
-  }
+  },
+  "fixtures/contracts/invalid/system-administration.administration-invalid-visible-value.json": { "schema": "system-administration", "validator": "json-schema", "code": "SCHEMA_INVALID" },
+  "fixtures/contracts/invalid/system-administration.administration-missing-fields.json": { "schema": "system-administration", "validator": "json-schema", "code": "SCHEMA_INVALID" },
+  "fixtures/contracts/invalid/system-administration.administration-required-unset.json": { "schema": "system-administration", "validator": "json-schema", "code": "SCHEMA_INVALID" },
+  "fixtures/contracts/invalid/system-administration.administration-secret-reference.json": { "schema": "system-administration", "validator": "json-schema", "code": "SCHEMA_INVALID" },
+  "fixtures/contracts/invalid/system-administration.backup-receipt-cross-authority.json": { "schema": "system-administration", "validator": "json-schema", "code": "SCHEMA_INVALID" },
+  "fixtures/contracts/invalid/system-administration.catalog-client-url.json": { "schema": "system-administration", "validator": "json-schema", "code": "SCHEMA_INVALID" },
+  "fixtures/contracts/invalid/system-administration.descriptor-default-out-of-bounds.json": { "schema": "system-administration", "validator": "json-schema", "code": "SCHEMA_INVALID" },
+  "fixtures/contracts/invalid/system-administration.descriptor-disallowed-default.json": { "schema": "system-administration", "validator": "json-schema", "code": "SCHEMA_INVALID" },
+  "fixtures/contracts/invalid/system-administration.descriptor-inverted-bounds.json": { "schema": "system-administration", "validator": "json-schema", "code": "SCHEMA_INVALID" },
+  "fixtures/contracts/invalid/system-administration.descriptor-redundant-digest.json": { "schema": "system-administration", "validator": "json-schema", "code": "SCHEMA_INVALID" },
+  "fixtures/contracts/invalid/system-administration.descriptor-reserved-field.json": { "schema": "system-administration", "validator": "json-schema", "code": "SCHEMA_INVALID" },
+  "fixtures/contracts/invalid/system-administration.descriptor-wrong-owner.json": { "schema": "system-administration", "validator": "json-schema", "code": "SCHEMA_INVALID" },
+  "fixtures/contracts/invalid/system-administration.empty-change.json": { "schema": "system-administration", "validator": "json-schema", "code": "SCHEMA_INVALID" },
+  "fixtures/contracts/invalid/system-administration.extension-action-permission.json": { "schema": "system-administration", "validator": "json-schema", "code": "SCHEMA_INVALID" },
+  "fixtures/contracts/invalid/system-administration.pending-identity-mismatch.json": { "schema": "system-administration", "validator": "json-schema", "code": "SCHEMA_INVALID" },
+  "fixtures/contracts/invalid/system-administration.positive-revision-zero.json": { "schema": "system-administration", "validator": "json-schema", "code": "SCHEMA_INVALID" },
+  "fixtures/contracts/invalid/system-administration.secret-like-visible-descriptor.json": { "schema": "system-administration", "validator": "json-schema", "code": "SCHEMA_INVALID" },
+  "fixtures/contracts/invalid/system-administration.settings-identity-cross-owner.json": { "schema": "system-administration", "validator": "json-schema", "code": "SCHEMA_INVALID" }
 }
