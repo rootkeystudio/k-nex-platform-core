@@ -319,9 +319,19 @@ export const ExtensionAuthorizationGenerationSchema = z.strictObject({
   applicationId: applicationIdSchema,
   owner: ExtensionAuthorizationOwnerRefSchema,
   runtimeGenerationIds: uniqueArray(runtimeGenerationIdSchema).min(1).max(16),
-  state: z.enum(["current", "retired"]),
+  state: z.enum(["pending-configuration", "current", "retired"]),
   authorizationRevision: revisionSchema,
   lifecycleRevision: revisionSchema
+}).superRefine((generation, context) => {
+  if (generation.state === "pending-configuration" && (
+    generation.owner.deliveryClass !== "hot-application" || generation.runtimeGenerationIds.length !== 1
+  )) {
+    context.addIssue({
+      code: "custom",
+      path: ["state"],
+      message: "Pending configuration is allowed only for one exact Hot Application runtime generation."
+    });
+  }
 });
 
 export const AuthorizationStateSchema = z.strictObject({

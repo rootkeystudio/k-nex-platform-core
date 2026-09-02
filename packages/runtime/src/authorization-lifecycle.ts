@@ -59,6 +59,13 @@ export interface AuthorizationLifecyclePlan {
   readonly replayed: boolean;
 }
 
+export interface PendingAuthorizationGenerationPlanInput {
+  readonly expected: AuthorizationExpectedRevision;
+  readonly extensionId: string;
+  readonly runtimeGenerationId: string;
+  readonly existingGenerations: readonly unknown[];
+}
+
 type Transition = Readonly<{
   applicationId: string;
   deliveryClass: "platform-plugin" | "hot-application";
@@ -90,6 +97,7 @@ export function planAuthorizationLifecycle(input: AuthorizationLifecyclePlanInpu
   const runtimeGenerationIds = parseRuntimeGenerationIds(input.runtimeGenerationIds, transition);
   const existing = parseExistingGenerations(input.existingGenerations, transition, expected);
   const current = currentGeneration(existing);
+  const pending = pendingGeneration(existing);
   const descriptors = parseDescriptors(input.descriptors, transition);
   const update = transition.operation === "update";
   const incompatible = update && input.updateCompatibility === "incompatible";
@@ -130,7 +138,19 @@ export function planAuthorizationLifecycle(input: AuthorizationLifecyclePlanInpu
     );
   } else {
     assertState(transition, "active");
-    if (incompatible && current && sameRuntimeGenerationIds(current.runtimeGenerationIds, runtimeGenerationIds) && current.lifecycleRevision === targetRevision) {
+    if (pending !== undefined) {
+      if (transition.deliveryClass !== "hot-application" || !sameRuntimeGenerationIds(pending.runtimeGenerationIds, runtimeGenerationIds)) {
+        fail("IDENTITY_MISMATCH", "Activation must promote the exact reserved Hot Application runtime generation.");
+      }
+      const promoted = generation(pending.owner.generation, "current", pending.runtimeGenerationIds, expected.authorizationRevision, targetRevision, transition);
+      const retired = current === undefined ? [] : [generation(current.owner.generation, "retired", current.runtimeGenerationIds, expected.authorizationRevision, targetRevision, transition)];
+      nextRows = canonicalRows([
+        ...existing.filter((row) => row.owner.generation !== pending.owner.generation && row.owner.generation !== current?.owner.generation),
+        ...retired,
+        promoted
+      ]);
+      if (current !== undefined && update) snapshots = createSnapshots(priorGenerationDescriptors!, current.owner, transition.applicationId, "inactive-generation-retired", targetRevision);
+    } else if (incompatible && current && sameRuntimeGenerationIds(current.runtimeGenerationIds, runtimeGenerationIds) && current.lifecycleRevision === targetRevision) {
       nextRows = existing;
     } else if (current && !incompatible) {
       const next = generation(current.owner.generation, "current", runtimeGenerationIds, expected.authorizationRevision, targetRevision, transition);
@@ -174,6 +194,48 @@ export function planAuthorizationLifecycle(input: AuthorizationLifecyclePlanInpu
     snapshots: Object.freeze(snapshots),
     mutations,
     replayed
+  });
+}
+
+/** Reserves an inert final owner fence for pre-activation Hot Application settings. */
+export function planPendingAuthorizationGeneration(input: PendingAuthorizationGenerationPlanInput): AuthorizationLifecyclePlan {
+  const expected = parseAuthorizationExpectedRevision(input.expected);
+  const identity = { deliveryClass: "hot-application" as const, extensionId: input.extensionId };
+  const transition = {
+    applicationId: expected.applicationId,
+    ...identity,
+    operation: "install" as const,
+    lifecycleState: "active" as const,
+    expectedRevision: 0,
+    revision: 1,
+    runtimeGenerationId: input.runtimeGenerationId
+  };
+  const runtimeGenerationIds = parseRuntimeGenerationIds([input.runtimeGenerationId], transition);
+  const existing = parseExistingGenerations(input.existingGenerations, transition, expected);
+  const matching = existing.find((row) => row.state === "pending-configuration" && sameRuntimeGenerationIds(row.runtimeGenerationIds, runtimeGenerationIds));
+  if (matching !== undefined) {
+    return Object.freeze({
+      applicationId: expected.applicationId,
+      authorizationRevision: expected.authorizationRevision,
+      lifecycleRevision: expected.lifecycleRevision,
+      generations: existing,
+      snapshots: Object.freeze([]),
+      mutations: Object.freeze([]),
+      replayed: true
+    });
+  }
+  if (pendingGeneration(existing) !== undefined) fail("REVISION_CONFLICT", "Another runtime generation already owns the pending configuration fence.");
+  const lifecycleRevision = nextLifecycleRevision(expected);
+  const reserved = generation(nextGenerationNumber(existing), "pending-configuration", runtimeGenerationIds, expected.authorizationRevision, lifecycleRevision, transition);
+  const generations = canonicalRows([...existing, reserved]);
+  return Object.freeze({
+    applicationId: expected.applicationId,
+    authorizationRevision: expected.authorizationRevision,
+    lifecycleRevision,
+    generations,
+    snapshots: Object.freeze([]),
+    mutations: Object.freeze([{ kind: "extension-generation" as const, generation: reserved }]),
+    replayed: false
   });
 }
 
@@ -282,9 +344,15 @@ function currentGeneration(rows: readonly ExtensionAuthorizationGeneration[]): E
   return current[0];
 }
 
+function pendingGeneration(rows: readonly ExtensionAuthorizationGeneration[]): ExtensionAuthorizationGeneration | undefined {
+  const pending = rows.filter((row) => row.state === "pending-configuration");
+  if (pending.length > 1) fail("AMBIGUOUS_GENERATION", "An extension may have only one pending configuration generation.");
+  return pending[0];
+}
+
 function generation(
   number: number,
-  state: "current" | "retired",
+  state: ExtensionAuthorizationGeneration["state"],
   runtimeGenerationIds: readonly string[],
   authorizationRevision: number,
   lifecycleRevision: number,

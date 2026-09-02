@@ -14,6 +14,7 @@ import {
 import {
   AuthorizationLifecycleError,
   planAuthorizationLifecycle,
+  planPendingAuthorizationGeneration,
   type AuthorizationLifecyclePlan
 } from "@k-nex/runtime";
 import type { StaticDeploymentReceipt } from "@k-nex/contracts";
@@ -48,6 +49,14 @@ export interface AuthorizationLifecycleProjection {
   readonly state: AuthorizationState;
 }
 
+export interface PendingAuthorizationGenerationReservationInput {
+  readonly session: RuntimeExtensionSession;
+  readonly applicationId: string;
+  readonly environment: string;
+  readonly extensionId: string;
+  readonly runtimeGenerationId: string;
+}
+
 export interface SharedStaticGenerationRebindInput {
   /** The runtime lifecycle transaction completing the target Platform Plugin operation. */
   readonly session: RuntimeExtensionSession;
@@ -80,6 +89,39 @@ export class SharedStaticPlatformPluginGenerationRebinder {
  */
 export class AuthorizationLifecycleProjector {
   constructor(private readonly resolveDescriptors: AuthorizationLifecycleDescriptorResolver) {}
+
+  async reservePendingConfiguration(input: PendingAuthorizationGenerationReservationInput): Promise<AuthorizationLifecycleProjection> {
+    const { session } = input;
+    await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [canonicalJson([input.applicationId, "authorization-state"])]);
+    await session.query("insert into k_nex_authorization_state (application_id) values ($1) on conflict do nothing", [input.applicationId]);
+    const lockedState = await session.query<Row>(
+      "select application_id, authorization_revision, lifecycle_revision from k_nex_authorization_state where application_id=$1 for update",
+      [input.applicationId]
+    );
+    const current = parseState(lockedState.rows[0], input.environment);
+    const lockedGenerations = await session.query<Row>(
+      "select application_id, delivery_class, extension_id, authorization_generation, runtime_generation_ids, state, authorization_revision, lifecycle_revision from k_nex_extension_authorization_generations where application_id=$1 and delivery_class='hot-application' and extension_id=$2 order by authorization_generation for update",
+      [input.applicationId, input.extensionId]
+    );
+    const plan = planPendingAuthorizationGeneration({
+      expected: current,
+      extensionId: input.extensionId,
+      runtimeGenerationId: input.runtimeGenerationId,
+      existingGenerations: lockedGenerations.rows.map(parseGeneration)
+    });
+    if (plan.replayed) return Object.freeze({ plan, state: current });
+    for (const mutation of plan.mutations) {
+      if (mutation.kind === "extension-generation") await upsertGeneration(session, mutation.generation);
+    }
+    const advanced = await session.query<Row>(
+      "update k_nex_authorization_state set lifecycle_revision=$2, updated_at=now() where application_id=$1 and authorization_revision=$3 and lifecycle_revision=$4 returning application_id, authorization_revision, lifecycle_revision",
+      [current.applicationId, plan.lifecycleRevision, current.authorizationRevision, current.lifecycleRevision]
+    );
+    if (advanced.rows.length !== 1) fail("REVISION_CONFLICT", "Authorization state revision changed before pending generation reservation.");
+    const state = parseState(advanced.rows[0], input.environment);
+    await writeAuthorizationInvalidationOutbox(session, { ...state, scope: "environment" });
+    return Object.freeze({ plan, state });
+  }
 
   async project(input: AuthorizationLifecycleProjectionInput): Promise<AuthorizationLifecycleProjection> {
     const transition = parseTransition(input.transition);

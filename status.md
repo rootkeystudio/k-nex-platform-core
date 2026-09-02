@@ -7,15 +7,15 @@
 
 ## Last completed
 
-P11.9 is complete: an exact-active-owner effective settings provider rejects pending/disabled/retired/stale values; delivered and lost invalidations re-read real PostgreSQL values for web/worker/runner boundaries. The focused attack runner composes current Phase 11 proofs with accepted Gate 9–10 escape, resurrection, and multi-process evidence.
+P11.3f reserves one final numeric Hot Application authorization generation in inert `pending-configuration`, bound to one runtime generation. The lifecycle planner promotes only that exact fence; mismatches fail closed. The v1 migration and contract enforce the same boundary.
 
 ## Validation
 
-Exact Node 24.19.0: P11.9 effective provider 3/3; focused attack corpus PASS with 53 unit and 7 real PostgreSQL/HTTP/Chromium tests across 13 attacks; runtime/customer builds and diff check pass. Docker clean. No cumulative/full suite run.
+Exact Node 24.19.0: authorization contract 8/8; authorization lifecycle 13/13; runtime and Payload adapter builds; diff check. No cumulative/full suite run.
 
 ## Next
 
-P11.3f add the inert `pending-configuration` authorization generation, coordinator, required-unset projection, and explicit reinstall adoption with isolated proofs.
+P11.3g add the restart-safe settings coordinator, required-unset projection, and explicit reinstall adoption with isolated proofs.
 
 ## Blockers
 
