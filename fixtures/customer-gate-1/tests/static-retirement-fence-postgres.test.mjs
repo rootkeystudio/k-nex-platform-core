@@ -323,6 +323,7 @@ test("rejected-generation retirement is atomic, durable, and owner scoped", { ti
     );
     assert.deepEqual(rows.rows, [{ application_id: alpha.applicationId, generation_id: sharedGenerationId, state: "completed", completed: true }]);
     assert.equal((await store.read(beta)).active.generationId, sharedGenerationId);
+    await pool.query("update runtime_worker_generation_fences set lease_expires_at=now()+interval '5 minutes' where application_id=$1 and environment=$2", [alpha.applicationId, alpha.environment]);
     const activeFence = await store.readFence(alpha);
     const renewal = { ...alpha, generationId: activeFence.activeExecutionGeneration, fencingToken: activeFence.fencingToken, owner: activeFence.lease.owner, expectedPromotionRevision: activeFence.promotionRevision, leaseDurationMs: 300_000 };
     const firstRenewal = await store.renewWorkerFence(renewal);
