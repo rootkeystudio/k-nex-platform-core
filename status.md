@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Review remediation slice 10 restores canonical key order for the decision-audit fixture so cumulative Phase 0 validation can run.
+Review remediation slices 10–11 restore canonical fixture validation and decouple protected-baseline release reconciliation from the revoked bootstrap Owner while preserving immutable receipt provenance.
 
 ## Validation
 
-Exact Node 24.19.0: architecture-contract tools build and generated-fixture validation PASS. Replacement cumulative exact-head run is not claimed yet.
+Exact Node 24.19.0: canonical generated-fixture validation PASS; affected adapter/fixture builds and real PostgreSQL Owner A→B handoff/reconciliation 1/1 PASS. Replacement cumulative exact-head run is not claimed yet.
 
 ## Next
 
-Fix transferable Owner receipt custody with real PostgreSQL handoff proof; then focused review/gates and replacement exact-head CI.
+Run focused Gate 10, reuse Sol-xhigh review, then push replacement exact head for focused and cumulative CI.
 
 ## Blockers
 

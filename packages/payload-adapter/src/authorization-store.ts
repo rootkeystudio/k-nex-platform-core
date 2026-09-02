@@ -498,11 +498,16 @@ export class PostgresAuthorizationStore implements AuthorizationStore, Protected
   }
 
   private async writeReceipt(session: RuntimeExtensionSession, value: BootstrapReceipt, reconciliation: boolean): Promise<void> {
-    const assignment = await session.query<Row>(`select role_id, subject_kind, subject_id, state from k_nex_role_assignments where application_id=$1 and assignment_id=$2 for update`, [value.applicationId, value.ownerAssignmentId]);
-    const row = assignment.rows[0];
-    if (row === undefined || string(row.role_id) !== value.ownerRoleId || string(row.subject_kind) !== value.ownerPrincipal.kind ||
-      string(row.subject_id) !== value.ownerPrincipal.id || string(row.state) !== "active") {
-      fail("REVISION_CONFLICT", "Bootstrap receipt requires its exact active owner assignment.");
+    if (reconciliation) {
+      const owner = await session.query<Row>(`select assignment_id from k_nex_role_assignments where application_id=$1 and role_id='system.role.owner' and subject_kind='user' and state='active' order by assignment_id limit 1 for update`, [value.applicationId]);
+      if (owner.rows[0] === undefined) fail("REVISION_CONFLICT", "Protected baseline reconciliation requires an active human owner.");
+    } else {
+      const assignment = await session.query<Row>(`select role_id, subject_kind, subject_id, state from k_nex_role_assignments where application_id=$1 and assignment_id=$2 for update`, [value.applicationId, value.ownerAssignmentId]);
+      const row = assignment.rows[0];
+      if (row === undefined || string(row.role_id) !== value.ownerRoleId || string(row.subject_kind) !== value.ownerPrincipal.kind ||
+        string(row.subject_id) !== value.ownerPrincipal.id || string(row.state) !== "active") {
+        fail("REVISION_CONFLICT", "Bootstrap receipt requires its exact active owner assignment.");
+      }
     }
     const result = await session.query<Row>(reconciliation
       ? `insert into k_nex_authorization_bootstrap_receipts (application_id, receipt_id, owner_role_id, owner_assignment_id, owner_principal_kind, owner_principal_id, protected_baseline_version, protected_baseline_digest, authorization_revision, state) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) on conflict (application_id) do update set protected_baseline_version=excluded.protected_baseline_version, protected_baseline_digest=excluded.protected_baseline_digest, authorization_revision=excluded.authorization_revision where k_nex_authorization_bootstrap_receipts.receipt_id=excluded.receipt_id and k_nex_authorization_bootstrap_receipts.owner_role_id=excluded.owner_role_id and k_nex_authorization_bootstrap_receipts.owner_assignment_id=excluded.owner_assignment_id and k_nex_authorization_bootstrap_receipts.owner_principal_kind=excluded.owner_principal_kind and k_nex_authorization_bootstrap_receipts.owner_principal_id=excluded.owner_principal_id and k_nex_authorization_bootstrap_receipts.state=excluded.state returning receipt_id`

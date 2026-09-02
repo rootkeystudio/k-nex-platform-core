@@ -5,6 +5,12 @@ import test from "node:test";
 
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import {
+  CurrentAuthorityAdapter,
+  EffectiveAuthorityResolver,
+  SystemAccessAdministrationService,
+  createAuthorizationCatalogProvider,
+  createEffectiveAuthorizationCatalog,
+  createTrustedAuthorizationSession,
   currentProtectedPlatformRoleBaselineRelease,
   protectedPlatformRoleLabels,
   protectedRoleBaselineReconciliationOperation,
@@ -125,7 +131,7 @@ test("reconciles only an exact recognized protected baseline through real Postgr
   const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
   try {
     await boot(container.getConnectionUri());
-    const store = new PostgresAuthorizationStore(pool);
+    const store = new PostgresAuthorizationStore(pool, { validate: (_applicationId, subject) => subject.kind === "user" && ["user:owner", "user:owner-b"].includes(subject.id) ? "accepted" : "rejected" });
     const misuseApplicationId = "customer-protected-direct-misuse";
     await seedRecognizedV1(pool, misuseApplicationId);
     const misuseState = await store.readState(misuseApplicationId, environment);
@@ -191,6 +197,79 @@ test("reconciles only an exact recognized protected baseline through real Postgr
       audit: audit(applicationId, upgraded.state, "replay")
     }), { code: "REVISION_CONFLICT" });
     assert.deepEqual(await durableCounts(pool, applicationId), afterSuccess, "Replay conflicts without writes.");
+
+    const handoffApplicationId = "customer-protected-owner-handoff";
+    await seedRecognizedV1(pool, handoffApplicationId);
+    const handoffCatalog = createEffectiveAuthorizationCatalog({ applicationId: handoffApplicationId, lifecycleRevision: 0, extensions: [], executables: [] });
+    const handoffProvider = createAuthorizationCatalogProvider(({ applicationId: requested, lifecycleRevision }) => requested === handoffApplicationId && lifecycleRevision === 0 ? { applicationId: handoffApplicationId, lifecycleRevision, catalog: handoffCatalog } : undefined);
+    const handoffSession = createTrustedAuthorizationSession({
+      schemaVersion: 1,
+      applicationId: handoffApplicationId,
+      environment,
+      correlationId: "protected-baseline-owner-handoff",
+      principal: { kind: "user", id: "user:owner" },
+      effectiveActor: { kind: "user", id: "user:owner" }
+    });
+    const handoffAuthority = new CurrentAuthorityAdapter({ current: () => handoffSession }, new EffectiveAuthorityResolver({ store, catalogProvider: handoffProvider }));
+    const handoffAccess = new SystemAccessAdministrationService({
+      store,
+      catalogProvider: handoffProvider,
+      authority: handoffAuthority,
+      protectedAssignmentAdmission: { verify: async () => ({ approval: "satisfied", reauthentication: "satisfied" }) }
+    });
+    const handoffBefore = await store.readState(handoffApplicationId, environment);
+    assert.ok(handoffBefore);
+    const ownerB = await handoffAccess.createAssignment({
+      context: undefined,
+      expected: expected(handoffBefore, handoffApplicationId),
+      assignment: { id: "protected-v1-owner-b", roleId: "system.role.owner", principal: { kind: "user", id: "user:owner-b" } }
+    });
+    const ownerARevoked = await handoffAccess.revokeAssignment({
+      context: undefined,
+      expected: expected(ownerB.state, handoffApplicationId),
+      assignmentId: "protected-v1-owner"
+    });
+    assert.deepEqual([ownerB.state.authorizationRevision, ownerARevoked.state.authorizationRevision], [8, 9]);
+    assert.deepEqual((await pool.query(
+      "select assignment_id, state from k_nex_role_assignments where application_id=$1 and role_id='system.role.owner' order by assignment_id",
+      [handoffApplicationId]
+    )).rows, [
+      { assignment_id: "protected-v1-owner", state: "revoked" },
+      { assignment_id: "protected-v1-owner-b", state: "active" }
+    ]);
+    const handoffUpgraded = await reconcileProtectedRoleBaseline({
+      store,
+      expected: expected(ownerARevoked.state, handoffApplicationId),
+      expectedPrior: { version: prior.version, digest: prior.digest },
+      audit: audit(handoffApplicationId, ownerARevoked.state, "owner-handoff")
+    });
+    assert.equal(handoffUpgraded.state.authorizationRevision, 10);
+    assert.deepEqual((await pool.query(
+      "select owner_assignment_id, owner_principal_id, protected_baseline_version, protected_baseline_digest, authorization_revision from k_nex_authorization_bootstrap_receipts where application_id=$1",
+      [handoffApplicationId]
+    )).rows, [{
+      owner_assignment_id: "protected-v1-owner",
+      owner_principal_id: "user:owner",
+      protected_baseline_version: currentProtectedPlatformRoleBaselineRelease.version,
+      protected_baseline_digest: currentProtectedPlatformRoleBaselineRelease.digest,
+      authorization_revision: 10
+    }]);
+    assert.deepEqual((await pool.query(
+      "select audit_json->>'operation' as operation, authorization_revision from k_nex_authorization_audit where application_id=$1 order by authorization_revision",
+      [handoffApplicationId]
+    )).rows, [
+      { operation: "create-assignment", authorization_revision: 7 },
+      { operation: "revoke-assignment", authorization_revision: 8 },
+      { operation: protectedRoleBaselineReconciliationOperation, authorization_revision: 9 }
+    ]);
+    assert.deepEqual((await pool.query(
+      "select authorization_revision, lifecycle_revision from k_nex_authorization_outbox where application_id=$1 order by authorization_revision",
+      [handoffApplicationId]
+    )).rows, [
+      { authorization_revision: 8, lifecycle_revision: 0 },
+      { authorization_revision: 9, lifecycle_revision: 0 },
+      { authorization_revision: 10, lifecycle_revision: 0 }
+    ]);
 
     for (const [suffix, options] of [["grant", { tamperGrant: true }], ["digest", { tamperDigest: true }]]) {
       const tamperedApplicationId = `customer-protected-${suffix}-tamper`;
