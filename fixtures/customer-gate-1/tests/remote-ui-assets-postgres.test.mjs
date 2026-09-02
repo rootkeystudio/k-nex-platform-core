@@ -19,6 +19,25 @@ const publisherKeys = generateKeyPairSync("ed25519");
 const catalogKeys = generateKeyPairSync("ed25519");
 const publisher = { identity: "customer-gate-1-remote-ui-publisher", publicKey: publisherKeys.publicKey.export({ type: "spki", format: "pem" }).toString() };
 const catalogSigner = { identity: "customer-gate-1-remote-ui-catalog", publicKey: catalogKeys.publicKey.export({ type: "spki", format: "pem" }).toString() };
+
+function fixtureCatalogMirror(policy) {
+  return {
+    async readSecuritySnapshot(requestOwner) {
+      assert.deepEqual(requestOwner, { applicationId: owner.applicationId, environment: owner.environment }, "Fixture catalog mirror owner must match the artifact store owner.");
+      const signedCatalog = policy.catalog;
+      assert.ok(signedCatalog, "Fixture catalog mirror requires an exact signed catalog snapshot.");
+      return {
+        snapshotId: `fixture-catalog-${sha256(Buffer.from(canonicalJson(signedCatalog)))}`,
+        signedCatalog,
+        signerIdentity: signedCatalog.signer.identity,
+        sequence: signedCatalog.payload.sequence,
+        digest: sha256(Buffer.from(canonicalJson(signedCatalog.payload))),
+        releaseCount: signedCatalog.payload.entries.length,
+        observedAt: "2026-09-02T00:00:00.000Z"
+      };
+    }
+  };
+}
 const owner = { applicationId: "customer-alpha", environment: "production", deliveryClass: "hot-application", extensionId: "app.sales-live" };
 
 function lifecycleStore(pool, clock, artifacts) {
@@ -125,6 +144,7 @@ async function warm(store, artifacts, request, releaseDefinition, signedCatalog,
   let current = await store.savePlan(operation.operationId, operation.leaseToken, plan(operation.operationId, request, releaseDefinition, currentGenerationId));
   current = (await store.transition({ operationId: current.operationId, leaseToken: current.leaseToken, expectedPhase: "planning", phase: "downloading" })).operation;
   const stagedRelease = staged(releaseDefinition, signedCatalog, now);
+  artifacts.setFixtureCatalog(signedCatalog);
   await artifacts.stage(stagedRelease.artifact);
   current = (await store.transition({ operationId: current.operationId, leaseToken: current.leaseToken, expectedPhase: "downloading", phase: "verified", authority: stagedRelease.authority })).operation;
   current = (await store.transition({ operationId: current.operationId, leaseToken: current.leaseToken, expectedPhase: "verified", phase: "staged", authority: stagedRelease.authority })).operation;
@@ -149,7 +169,12 @@ test("PostgreSQL Remote UI reads are generation-linearized, restart-safe, and fa
   const connectionString = container.getConnectionUri();
   let pool = new pg.Pool({ connectionString });
   const now = new Date("2026-08-31T10:00:00.000Z");
-  const makeArtifacts = (candidatePool) => new PostgresVerifiedArtifactStore(candidatePool, new ArtifactVerifier(new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, new InMemoryCatalogCheckpointStore(), () => now.valueOf()), { [publisher.identity]: publisher.publicKey }));
+  const makeArtifacts = (candidatePool, catalog) => {
+    const policy = { catalog };
+    const artifacts = new PostgresVerifiedArtifactStore(candidatePool, new ArtifactVerifier(new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, new InMemoryCatalogCheckpointStore(), () => now.valueOf()), { [publisher.identity]: publisher.publicKey }), fixtureCatalogMirror(policy), { applicationId: owner.applicationId, environment: owner.environment });
+    artifacts.setFixtureCatalog = (nextCatalog) => { policy.catalog = nextCatalog; };
+    return artifacts;
+  };
   try {
     await boot(connectionString);
     let artifacts = makeArtifacts(pool);
@@ -177,7 +202,7 @@ test("PostgreSQL Remote UI reads are generation-linearized, restart-safe, and fa
 
     await pool.end();
     pool = new pg.Pool({ connectionString });
-    artifacts = makeArtifacts(pool);
+    artifacts = makeArtifacts(pool, catalogA);
     store = lifecycleStore(pool, { now: () => now }, artifacts);
     const restartedService = new VerifiedRemoteUiAssetService(artifacts);
     assert.deepEqual(Buffer.from((await restartedService.read(assetRequest(a))).body), Buffer.from(a.marker), "a reconstructed pool/store must reverify and return the exact stored bytes");
@@ -189,7 +214,7 @@ test("PostgreSQL Remote UI reads are generation-linearized, restart-safe, and fa
       assertNoBytes(restartedService, { ...assetRequest(a), artifactDigest: digest("f") }, "another artifact cannot read A")
     ]);
 
-    await makeArtifacts(pool).stage(staged(b, catalogB, now).artifact);
+    await makeArtifacts(pool, catalogB).stage(staged(b, catalogB, now).artifact);
     await assertNoBytes(restartedService, assetRequest(b), "a merely staged artifact must never serve Remote UI bytes");
     const warmB = await warm(store, artifacts, change("update", b.version, activatedA.revisionAfter), b, catalogB, now, a.generationId);
 
@@ -213,7 +238,7 @@ test("PostgreSQL Remote UI reads are generation-linearized, restart-safe, and fa
           }
         };
       }
-    }, new ArtifactVerifier(new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, new InMemoryCatalogCheckpointStore(), () => now.valueOf()), { [publisher.identity]: publisher.publicKey }));
+    }, new ArtifactVerifier(new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, new InMemoryCatalogCheckpointStore(), () => now.valueOf()), { [publisher.identity]: publisher.publicKey }), fixtureCatalogMirror({ catalog: catalogB }), { applicationId: owner.applicationId, environment: owner.environment });
     const linearizedRead = new VerifiedRemoteUiAssetService(lockingArtifacts).read(assetRequest(a));
     await readerReached.promise;
     const activatingB = store.activateGeneration(warmB.operationId, warmB.leaseToken);

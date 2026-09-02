@@ -39,11 +39,33 @@ function lifecycleStore(pool, clock, artifacts, options = {}) {
   });
 }
 
+function fixtureCatalogMirror(owner, policy) {
+  return {
+    async readSecuritySnapshot(requestOwner) {
+      assert.deepEqual(requestOwner, owner, "Fixture catalog mirror owner must match the artifact store owner.");
+      const catalog = policy.catalog;
+      assert.ok(catalog, "Fixture catalog mirror requires an exact signed catalog snapshot.");
+      return {
+        snapshotId: `fixture-catalog-${sha256(Buffer.from(canonicalJson(catalog)))}`,
+        signedCatalog: catalog,
+        signerIdentity: catalog.signer.identity,
+        sequence: catalog.payload.sequence,
+        digest: sha256(Buffer.from(canonicalJson(catalog.payload))),
+        releaseCount: catalog.payload.entries.length,
+        observedAt: "2026-09-02T00:00:00.000Z"
+      };
+    }
+  };
+}
+
 function stateArtifacts(pool, now) {
-  return new PostgresVerifiedArtifactStore(pool, new ArtifactVerifier(
+  const policy = { catalog: undefined };
+  const artifacts = new PostgresVerifiedArtifactStore(pool, new ArtifactVerifier(
     new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, new InMemoryCatalogCheckpointStore(), () => now.valueOf()),
     { [publisher.identity]: publisher.publicKey }
-  ));
+  ), fixtureCatalogMirror({ applicationId: "customer-alpha", environment: "production" }, policy), { applicationId: "customer-alpha", environment: "production" });
+  artifacts.setFixtureCatalog = (catalog) => { policy.catalog = catalog; };
+  return artifacts;
 }
 function boot(connectionString) {
   return new Promise((resolve, reject) => {
@@ -214,6 +236,7 @@ function claimState(store, change, requestDigest, workerId) {
 
 async function prepareStateGeneration(store, artifacts, change, requestDigest, workerId, now) {
   const release = stateRelease(change);
+  artifacts.setFixtureCatalog(release.stage.verification.catalog);
   await artifacts.stage(release.stage);
   const claimed = await claimState(store, change, requestDigest, workerId);
   assert.equal(claimed.status, "claimed");
@@ -357,9 +380,9 @@ test("proves catalog-scoped verified-artifact acceptances preserve independent t
     const acceptedA = verifiedRelease(release, catalogA);
     const acceptedB = verifiedRelease({ ...release, generationId: "app-fixture-live-generation-98" }, catalogB);
     const acceptedC = verifiedRelease({ ...release, generationId: "app-fixture-live-generation-97" }, catalogC);
-    const artifactsA = new PostgresVerifiedArtifactStore(pool, new ArtifactVerifier(new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, new InMemoryCatalogCheckpointStore()), { [publisher.identity]: publisher.publicKey }));
-    const artifactsB = new PostgresVerifiedArtifactStore(pool, new ArtifactVerifier(new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, new InMemoryCatalogCheckpointStore()), { [publisher.identity]: publisher.publicKey }));
-    const artifactsC = new PostgresVerifiedArtifactStore(pool, new ArtifactVerifier(new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, new InMemoryCatalogCheckpointStore()), { [publisher.identity]: publisher.publicKey }));
+    const artifactsA = new PostgresVerifiedArtifactStore(pool, new ArtifactVerifier(new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, new InMemoryCatalogCheckpointStore()), { [publisher.identity]: publisher.publicKey }), fixtureCatalogMirror({ applicationId: "customer-alpha", environment: "production" }, { catalog: catalogA }), { applicationId: "customer-alpha", environment: "production" });
+    const artifactsB = new PostgresVerifiedArtifactStore(pool, new ArtifactVerifier(new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, new InMemoryCatalogCheckpointStore()), { [publisher.identity]: publisher.publicKey }), fixtureCatalogMirror({ applicationId: "customer-alpha", environment: "production" }, { catalog: catalogB }), { applicationId: "customer-alpha", environment: "production" });
+    const artifactsC = new PostgresVerifiedArtifactStore(pool, new ArtifactVerifier(new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, new InMemoryCatalogCheckpointStore()), { [publisher.identity]: publisher.publicKey }), fixtureCatalogMirror({ applicationId: "customer-alpha", environment: "production" }, { catalog: catalogC }), { applicationId: "customer-alpha", environment: "production" });
 
     await Promise.all([artifactsA.stage(acceptedA.stage), artifactsB.stage(acceptedB.stage)]);
     assert.deepEqual((await pool.query(`
@@ -422,7 +445,7 @@ test("preserves accepted artifacts while reconciling fresh revocation decisions 
     const acceptedCatalog = signedCatalog([release.entry], 1, "2026-08-29T09:01:00.000Z");
     const checkpoints = new PostgresCatalogCheckpointStore(pool, { applicationId: "customer-alpha", environment: "production" });
     const verifier = new ArtifactVerifier(new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, checkpoints, () => now.valueOf()), { [publisher.identity]: publisher.publicKey });
-    const artifacts = new PostgresVerifiedArtifactStore(pool, verifier);
+    const artifacts = new PostgresVerifiedArtifactStore(pool, verifier, fixtureCatalogMirror({ applicationId: "customer-alpha", environment: "production" }, { catalog: acceptedCatalog }), { applicationId: "customer-alpha", environment: "production" });
     const lifecycleArtifacts = stateArtifacts(pool, now);
     const storeA = lifecycleStore(pool, clock, lifecycleArtifacts);
     const storeB = lifecycleStore(pool, clock, lifecycleArtifacts);
@@ -942,7 +965,7 @@ test("proves PostgreSQL-backed Hot Application install, update, restore, rollbac
     const byVersion = new Map(releases.map((release) => [release.version, release]));
     const byGeneration = new Map(releases.map((release) => [release.generationId, release]));
     const verifier = new ArtifactVerifier(new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, new InMemoryCatalogCheckpointStore()), { [publisher.identity]: publisher.publicKey });
-    const artifacts = new PostgresVerifiedArtifactStore(pool, verifier);
+    const artifacts = new PostgresVerifiedArtifactStore(pool, verifier, fixtureCatalogMirror({ applicationId: "customer-alpha", environment: "production" }, { catalog }), { applicationId: "customer-alpha", environment: "production" });
     const storeA = lifecycleStore(pool, clock, artifacts);
     const storeB = lifecycleStore(pool, clock, artifacts);
     await Promise.all(releases.map((release) => artifacts.stage(release.stage)));

@@ -8,3 +8,4 @@ export * from "./tar.js";
 export * from "./theme-skin-assets.js";
 export * from "./verifier.js";
 export * from "./verified-settings-descriptors.js";
+export * from "./github-catalog-reader.js";

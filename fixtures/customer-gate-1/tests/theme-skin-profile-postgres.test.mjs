@@ -22,6 +22,24 @@ const catalogKeys = generateKeyPairSync("ed25519");
 const publisher = { identity: "customer-gate-1-skin-publisher", publicKey: publisherKeys.publicKey.export({ type: "spki", format: "pem" }).toString() };
 const catalogSigner = { identity: "customer-gate-1-skin-catalog", publicKey: catalogKeys.publicKey.export({ type: "spki", format: "pem" }).toString() };
 
+function fixtureCatalogMirror(catalog) {
+  const owner = { applicationId: "customer-alpha", environment: "production" };
+  return {
+    async readSecuritySnapshot(requestOwner) {
+      assert.deepEqual(requestOwner, owner, "Fixture catalog mirror owner must match the artifact store owner.");
+      return {
+        snapshotId: `fixture-catalog-${sha256(Buffer.from(canonicalJson(catalog)))}`,
+        signedCatalog: catalog,
+        signerIdentity: catalog.signer.identity,
+        sequence: catalog.payload.sequence,
+        digest: sha256(Buffer.from(canonicalJson(catalog.payload))),
+        releaseCount: catalog.payload.entries.length,
+        observedAt: "2026-09-02T00:00:00.000Z"
+      };
+    }
+  };
+}
+
 function boot(connectionString) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ["tests/boot-once.mjs"], {
@@ -184,7 +202,7 @@ test("delivers Theme Skins from signed durable artifacts through PluginManager i
     const releases = [releaseDefinition(1, "1.0.0", "#0088cc"), releaseDefinition(2, "1.1.0", "#0099cc"), releaseDefinition(3, "1.2.0", "#0088cc")];
     const catalog = signedCatalog(releases.map((release) => release.entry));
     const verifier = new ArtifactVerifier(new CatalogClient({ [catalogSigner.identity]: catalogSigner.publicKey }, new InMemoryCatalogCheckpointStore()), { [publisher.identity]: publisher.publicKey });
-    const artifacts = new PostgresVerifiedArtifactStore(pool, verifier);
+    const artifacts = new PostgresVerifiedArtifactStore(pool, verifier, fixtureCatalogMirror(catalog), { applicationId: "customer-alpha", environment: "production" });
     const activation = { compatibility: { status: "compatible", windowId: "skin-window", closesAt: "2030-01-01T00:00:00.000Z", migrationDigest: sha256(Buffer.from("skin")), dataRevision: 1 }, metadata: {}, settings: {}, storageSchemaVersions: {} };
     for (const release of releases) {
       const authority = {
@@ -242,7 +260,7 @@ test("delivers Theme Skins from signed durable artifacts through PluginManager i
     pool = new pg.Pool({ connectionString: container.getConnectionUri() });
     profiles = new PostgresThemeProfileStore(pool, clock, { authorize: () => true });
 
-    const recoveredArtifacts = new PostgresVerifiedArtifactStore(pool, verifier);
+    const recoveredArtifacts = new PostgresVerifiedArtifactStore(pool, verifier, fixtureCatalogMirror(catalog), { applicationId: "customer-alpha", environment: "production" });
     const recoveredResolver = new DurableThemeSkinResolver({ load: (authority) => recoveredArtifacts.loadThemeSkin(authority) });
     const recoveredManager = new PluginManager("theme-skin-recovery", new TrustedAutomationOperationAuthorizer("github-actions:phase-9"), planner, new PostgresRuntimeExtensionStore(pool, clock, sha256(Buffer.from("theme-skin-store")), { sharedStaticGenerationRebinder: new SharedStaticPlatformPluginGenerationRebinder() }), new DurableDynamicArtifactPipeline(recoveredArtifacts), { request: async () => { throw new Error("Static delivery is not used."); } }, { request: async () => { throw new Error("Static delivery is not used."); }, reverify: async () => false }, new DurableDynamicGenerationRuntime(recoveredArtifacts, new ReferenceThemeSkinGenerationWarmer({ skins: { prepareSkin: async ({ artifact }) => { await recoveredResolver.generation(artifact.authority); } }, clock })), clock);
     assert.equal((await recoveredManager.inventory("customer-alpha", "production")).extensions.themeSkins["skin.neobrutalism"].activeGeneration.generationId, releases[1].generationId);

@@ -1,6 +1,6 @@
 import { canonicalJson, ExtensionBundleManifestSchema, HotApplicationManifestSchema, type ActiveGenerationSecurityDisposition, type ExtensionBundleManifest, type HotApplicationManifest } from "@k-nex/contracts";
 
-import { CatalogClient, catalogPolicyDisposition, type CatalogEntry, type CatalogPolicyDisposition, type Digest, type SignedCatalog, verifyHostedBuildProvenance } from "./catalog.js";
+import { CatalogClient, catalogPolicyDisposition, type CatalogCheckpoint, type CatalogEntry, type CatalogPolicyDisposition, type Digest, type SignedCatalog, type VerifiedCatalogSnapshot, verifyHostedBuildProvenance } from "./catalog.js";
 import { inspectBundleImports, sha256 } from "./bundle.js";
 import { assertBundleInventory } from "./inventory.js";
 import { extractNormalizedTarGz, type ExtractionLimits } from "./tar.js";
@@ -88,6 +88,24 @@ export class ArtifactVerifier {
     return this.verifyEntry(request, entry);
   }
 
+  /** Verifies artifact bytes against one already staged, exact mirror snapshot without advancing a checkpoint. */
+  async verifyStagedSnapshot(request: VerificationRequest, checkpoint: CatalogCheckpoint): Promise<Readonly<{ verified: VerifiedArtifact; snapshot: VerifiedCatalogSnapshot }>> {
+    const snapshot = await this.#catalog.verifyStagedSnapshot(request.catalog, checkpoint);
+    const entry = snapshot.entries.find((candidate) => candidate.deliveryClass === request.deliveryClass && candidate.id === request.id && candidate.version === request.version);
+    if (!entry) throw new Error("Requested extension is not in the staged official catalog.");
+    if (catalogPolicyDisposition(entry) !== "clear") throw new Error("Staged catalog release is not currently installable.");
+    return Object.freeze({ verified: this.verifyEntry(request, entry), snapshot });
+  }
+
+  /** Verifies artifact bytes against the current mirror without CAS while retaining freshness checks. */
+  async verifyCurrentSnapshot(request: VerificationRequest, checkpoint: CatalogCheckpoint): Promise<Readonly<{ verified: VerifiedArtifact; snapshot: VerifiedCatalogSnapshot }>> {
+    const snapshot = await this.currentSnapshot(request.catalog, checkpoint);
+    const entry = snapshot.entries.find((candidate) => candidate.deliveryClass === request.deliveryClass && candidate.id === request.id && candidate.version === request.version);
+    if (!entry) throw new Error("Requested extension is not in the current official catalog.");
+    if (catalogPolicyDisposition(entry) !== "clear") throw new Error("Current catalog release is not installable.");
+    return Object.freeze({ verified: this.verifyEntry(request, entry), snapshot });
+  }
+
   /** Revalidates immutable acceptance evidence without consulting live catalog policy. */
   async verifyAccepted(request: VerificationRequest): Promise<VerifiedArtifact> {
     const entry = (await this.#catalog.readAcceptanceEvidence(request.catalog)).find((candidate) => candidate.deliveryClass === request.deliveryClass && candidate.id === request.id && candidate.version === request.version);
@@ -100,7 +118,34 @@ export class ArtifactVerifier {
 
   /** A fresh signed catalog is the complete policy snapshot: an absent or altered active release fails closed. */
   async currentSecurityDecision(catalog: SignedCatalog, release: ActiveReleaseIdentity): Promise<CurrentCatalogSecurityDecision> {
-    const entry = (await this.#catalog.read(catalog)).find((candidate) => candidate.deliveryClass === release.deliveryClass && candidate.id === release.id && candidate.version === release.version);
+    return this.securityDecision(catalog, await this.#catalog.read(catalog), release);
+  }
+
+  /** Evaluates already-verified staged policy without advancing its checkpoint again. */
+  currentSecurityDecisionFromSnapshot(snapshot: VerifiedCatalogSnapshot, release: ActiveReleaseIdentity): CurrentCatalogSecurityDecision {
+    return this.securityDecision(snapshot.catalog, snapshot.entries, release);
+  }
+
+  /** Revalidates the current mirror snapshot without advancing a checkpoint before applying policy. */
+  async currentSecurityDecisionFromStagedSnapshot(catalog: SignedCatalog, checkpoint: CatalogCheckpoint, release: ActiveReleaseIdentity): Promise<CurrentCatalogSecurityDecision> {
+    return this.currentSecurityDecisionFromSnapshot(await this.#catalog.verifyStagedSnapshot(catalog, checkpoint), release);
+  }
+
+  /** Applies current mirror policy with expiry checks and without checkpoint mutation. */
+  async currentSecurityDecisionFromCurrentSnapshot(catalog: SignedCatalog, checkpoint: CatalogCheckpoint, release: ActiveReleaseIdentity): Promise<CurrentCatalogSecurityDecision> {
+    return this.currentSecurityDecisionFromSnapshot(await this.currentSnapshot(catalog, checkpoint), release);
+  }
+
+  private async currentSnapshot(catalog: SignedCatalog, checkpoint: CatalogCheckpoint): Promise<VerifiedCatalogSnapshot> {
+    const snapshot = await this.#catalog.verifySnapshot(catalog);
+    if (snapshot.catalog.signer.identity !== checkpoint.signerIdentity || snapshot.catalog.payload.sequence !== checkpoint.sequence || snapshot.checkpoint.payloadDigest !== checkpoint.payloadDigest) {
+      throw new Error("Official current catalog does not match its durable mirror pointer.");
+    }
+    return snapshot;
+  }
+
+  private securityDecision(catalog: SignedCatalog, entries: readonly CatalogEntry[], release: ActiveReleaseIdentity): CurrentCatalogSecurityDecision {
+    const entry = entries.find((candidate) => candidate.deliveryClass === release.deliveryClass && candidate.id === release.id && candidate.version === release.version);
     const disposition: CatalogPolicyDisposition | ActiveGenerationSecurityDisposition = !entry ? "release-missing" :
       entry.source.commit !== release.sourceCommit || entry.artifactDigest !== release.artifactDigest ||
       entry.manifestDigest !== release.manifestDigest || entry.provenanceDigest !== release.provenanceDigest || entry.sbomDigest !== release.sbomDigest ? "release-evidence-mismatch" :

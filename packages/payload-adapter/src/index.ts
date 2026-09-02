@@ -17,6 +17,8 @@ export * from "./static-release-authority.js";
 export * from "./app-storage.js";
 export * from "./verified-artifact-store.js";
 export * from "./catalog-checkpoint-store.js";
+export * from "./catalog-mirror-store.js";
+export * from "./catalog-refresh-coordinator.js";
 export * from "./extension-capability-authority.js";
 export * from "./active-extension-security-reconciler.js";
 export * from "./runner-quarantine-adapter.js";

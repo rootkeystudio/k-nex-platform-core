@@ -65,6 +65,12 @@ export interface CatalogCheckpoint {
   readonly highestVersions: Readonly<Record<string, string>>;
 }
 
+export interface VerifiedCatalogSnapshot {
+  readonly catalog: SignedCatalog;
+  readonly entries: readonly CatalogEntry[];
+  readonly checkpoint: CatalogCheckpoint;
+}
+
 /** This store is owned by the host's durable runtime state, not by a catalog artifact. */
 export interface CatalogCheckpointStore {
   read(signerIdentity: string): Promise<CatalogCheckpoint | undefined>;
@@ -131,31 +137,56 @@ export class CatalogClient {
   }
 
   async read(input: unknown): Promise<readonly CatalogEntry[]> {
-    const { catalog, entries } = await this.signedCatalog(input);
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const signed = await this.signedCatalog(input);
+      const previous = await this.#checkpoints.read(signed.catalog.signer.identity);
+      const verified = this.verifiedSnapshot(signed, previous);
+      if (await this.#checkpoints.compareAndSet(previous, verified.checkpoint)) return verified.entries;
+    }
+    throw new Error("Official catalog checkpoint changed repeatedly; refusing an unconfirmed catalog read.");
+  }
+
+  /** Verifies one complete snapshot without mutating durable state. */
+  async verifySnapshot(input: unknown, previous?: CatalogCheckpoint): Promise<VerifiedCatalogSnapshot> {
+    return this.verifiedSnapshot(await this.signedCatalog(input), previous);
+  }
+
+  /** Rechecks an already staged immutable snapshot without applying fresh-only expiry or replay policy. */
+  async verifyStagedSnapshot(input: unknown, checkpoint: CatalogCheckpoint): Promise<VerifiedCatalogSnapshot> {
+    const signed = await this.signedCatalog(input);
+    const payloadDigest = `sha256:${createHash("sha256").update(canonicalJson(signed.catalog.payload)).digest("hex")}` as Digest;
+    if (signed.catalog.signer.identity !== checkpoint.signerIdentity || signed.catalog.payload.sequence !== checkpoint.sequence || payloadDigest !== checkpoint.payloadDigest) {
+      throw new Error("Official staged catalog does not match its durable checkpoint.");
+    }
+    return Object.freeze({ catalog: signed.catalog, entries: Object.freeze([...signed.entries]), checkpoint: freezeCheckpoint(checkpoint) });
+  }
+
+  private verifiedSnapshot(
+    signed: Readonly<{ catalog: SignedCatalog; entries: readonly CatalogEntry[] }>,
+    previous?: CatalogCheckpoint
+  ): VerifiedCatalogSnapshot {
+    const { catalog, entries } = signed;
     const expiry = Date.parse(catalog.payload.expiresAt);
     if (!Number.isFinite(expiry) || expiry <= this.#now()) throw new Error("Official catalog is expired.");
     const payloadDigest = `sha256:${createHash("sha256").update(canonicalJson(catalog.payload)).digest("hex")}` as Digest;
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      const previous = await this.#checkpoints.read(catalog.signer.identity);
-      if (previous && (catalog.payload.sequence < previous.sequence || (catalog.payload.sequence === previous.sequence && payloadDigest !== previous.payloadDigest))) {
-        throw new Error("Official catalog checkpoint is stale or replayed.");
-      }
-      const incomingHighest: Record<string, string> = {};
-      for (const entry of entries) {
-        const key = `${entry.deliveryClass}:${entry.id}`;
-        const incoming = incomingHighest[key];
-        if (incoming === undefined || compareExactSemverPrecedence(entry.version, incoming) > 0) incomingHighest[key] = entry.version;
-      }
-      const highestVersions = { ...(previous?.highestVersions ?? {}) };
-      for (const [key, incoming] of Object.entries(incomingHighest)) {
-        const highest = highestVersions[key];
-        if (highest && compareExactSemverPrecedence(incoming, highest) < 0) throw new Error("Official catalog attempts an unauthorized downgrade.");
-        if (highest === undefined || compareExactSemverPrecedence(incoming, highest) > 0) highestVersions[key] = incoming;
-      }
-      const next = freezeCheckpoint({ signerIdentity: catalog.signer.identity, sequence: catalog.payload.sequence, payloadDigest, highestVersions });
-      if (await this.#checkpoints.compareAndSet(previous, next)) return entries;
+    if (previous && previous.signerIdentity !== catalog.signer.identity) throw new Error("Official catalog checkpoint signer differs from the signed snapshot.");
+    if (previous && (catalog.payload.sequence < previous.sequence || (catalog.payload.sequence === previous.sequence && payloadDigest !== previous.payloadDigest))) {
+      throw new Error("Official catalog checkpoint is stale or replayed.");
     }
-    throw new Error("Official catalog checkpoint changed repeatedly; refusing an unconfirmed catalog read.");
+    const incomingHighest: Record<string, string> = {};
+    for (const entry of entries) {
+      const key = `${entry.deliveryClass}:${entry.id}`;
+      const incoming = incomingHighest[key];
+      if (incoming === undefined || compareExactSemverPrecedence(entry.version, incoming) > 0) incomingHighest[key] = entry.version;
+    }
+    const highestVersions = { ...(previous?.highestVersions ?? {}) };
+    for (const [key, incoming] of Object.entries(incomingHighest)) {
+      const highest = highestVersions[key];
+      if (highest && compareExactSemverPrecedence(incoming, highest) < 0) throw new Error("Official catalog attempts an unauthorized downgrade.");
+      if (highest === undefined || compareExactSemverPrecedence(incoming, highest) > 0) highestVersions[key] = incoming;
+    }
+    const checkpoint = freezeCheckpoint({ signerIdentity: catalog.signer.identity, sequence: catalog.payload.sequence, payloadDigest, highestVersions });
+    return Object.freeze({ catalog, entries: Object.freeze([...entries]), checkpoint });
   }
 
   private async signedEntries(input: unknown): Promise<readonly CatalogEntry[]> {

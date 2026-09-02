@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-09-02
 - **Phase:** Phase 11 — System Settings and Extension Operations
-- **Active task:** P11.3 — settings service and convergence
-- **State:** Blocked
+- **Active task:** P11.5 — complete extension lifecycle administration
+- **State:** In progress
 
 ## Last completed
 
-P11.2 passed. P11.3 checkpoint adds verified static/Hot descriptors, current-RBAC projected reads and immediate changes, generation-fenced store integration, scoped outbox/polling signals, and stale-revision/read-race fixes. It does not complete P11.3.
+P11.4 passed reused Sol-xhigh review: bounded official catalog reads, durable staged/accepted mirror, restart-safe lifecycle rebase and terminal security reconciliation are complete. P11.3's reviewed safe foundation remains checkpointed with its unresolved architecture decisions documented.
 
 ## Validation
 
-Exact Node 24.19.0: focused contracts 8/8, bundler 4/4, runtime P11.3 29/29, adapter descriptor/artifact/outbox 30/30, Sales 15/15; runtime/adapter/customer builds; focused real PostgreSQL settings storage, settings convergence, and authorization convergence proofs PASS; `git diff --check`; Docker empty.
+Exact Node 24.19.0: extension-bundler build + focused 23/23; payload-adapter build + focused 45/45; customer fixture build; real PostgreSQL/HTTP catalog refresh, checkpoint isolation, crash/restart lifecycle rebase, quarantine-before-acceptance, and revision-race proof 1/1; `git diff --check`; Docker empty. Migrated fixture callers: remote UI and theme proofs PASS; runtime proof 5/6, with only the pre-existing production AppArmor scenario unavailable on Docker Desktop after two attempts.
 
 ## Next
 
-Accepted plan/ADR amendment must resolve the documented P11.3 lifecycle/settings decisions. Under explicit project-manager skip authorization, checkpoint safe work and continue independent P11.4 without claiming P11.3 completion.
+Implement P11.5 authoritative inventory/catalog action projection and durable, actor/revision/approval/idempotency-bound lifecycle administration without a second state machine.
 
 ## Blockers
 

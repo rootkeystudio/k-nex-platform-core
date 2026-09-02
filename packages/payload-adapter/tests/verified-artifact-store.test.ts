@@ -37,6 +37,18 @@ const verified = {
   files: new Map()
 };
 
+function securityMirror() {
+  return { readSecuritySnapshot: vi.fn(async () => ({ snapshotId: "catalog-snapshot-1", signedCatalog: catalog, signerIdentity: "catalog", sequence: 1, digest: authority.catalogDigest, releaseCount: 1, observedAt: "2026-09-02T00:00:00.000Z" })) };
+}
+
+function currentSecurityDecision(disposition = "clear") {
+  return vi.fn(async () => ({ disposition }));
+}
+
+function stagedVerification() {
+  return vi.fn(async () => ({ verified, snapshot: { catalog, entries: [], checkpoint: { signerIdentity: "catalog", sequence: 1, payloadDigest: authority.catalogDigest, highestVersions: {} } } }));
+}
+
 function binding() {
   return {
     application_id: authority.applicationId, environment: authority.environment, delivery_class: authority.deliveryClass,
@@ -81,8 +93,9 @@ function resolverHarness(row: ReturnType<typeof binding> | null = binding()) {
   });
   const session = { query, release: vi.fn() };
   const pool = { connect: vi.fn(async () => { throw new Error("resolver must not open a transaction"); }), query: vi.fn(async () => { throw new Error("resolver must use its supplied session"); }) };
-  const verifier = { verifyAccepted: vi.fn(async () => verified) };
-  return { query, session, pool, verifier, store: new PostgresVerifiedArtifactStore(pool as any, verifier as any) };
+  const verifier = { verifyAccepted: vi.fn(async () => verified), currentSecurityDecisionFromCurrentSnapshot: currentSecurityDecision() };
+  const mirror = securityMirror();
+  return { query, session, pool, verifier, mirror, store: new PostgresVerifiedArtifactStore(pool as any, verifier as any, mirror as any, authority) };
 }
 
 const settingsIdentity = {
@@ -132,12 +145,158 @@ function settingsReaderHarness(options: Readonly<{
     verifyAccepted: vi.fn(async () => {
       if (options.corrupt) throw new Error("corrupt verified evidence");
       return verified;
-    })
+    }),
+    currentSecurityDecisionFromCurrentSnapshot: currentSecurityDecision()
   };
-  return { queries, session, pool, verifier, store: new PostgresVerifiedArtifactStore(pool as any, verifier as any) };
+  const mirror = securityMirror();
+  return { queries, session, pool, verifier, mirror, store: new PostgresVerifiedArtifactStore(pool as any, verifier as any, mirror as any, authority) };
 }
 
 describe("PostgresVerifiedArtifactStore Remote UI reader", () => {
+  it.each(["release-missing", "security-compromised"] as const)("rejects a staged %s release before binding it", async (disposition) => {
+    const writes: string[] = [];
+    const session = { query: vi.fn(async (text: string) => { writes.push(text); return { rows: [] }; }), release: vi.fn() };
+    const mirror = securityMirror();
+    const store = new PostgresVerifiedArtifactStore(
+      { connect: vi.fn(async () => session) } as any,
+      { verifyCurrentSnapshot: stagedVerification(), currentSecurityDecisionFromSnapshot: vi.fn(() => ({ disposition })) } as any,
+      mirror as any,
+      authority
+    );
+
+    await expect(store.stage({
+      owner: { applicationId: authority.applicationId, environment: authority.environment, deliveryClass: authority.deliveryClass, extensionId: authority.extensionId, generationId: authority.generationId },
+      verification: { catalog, artifact: Buffer.from("bundle"), provenance: Buffer.from("provenance"), deliveryClass: authority.deliveryClass, id: authority.extensionId, version: "1.0.0", runtimeAbi: "1.0.0" },
+      authority, activation: { compatibility: { mode: "compatible" }, metadata: {}, settings: {}, storageSchemaVersions: {} } as any
+    })).rejects.toMatchObject({ code: "ARTIFACT_UNAVAILABLE" });
+    expect(mirror.readSecuritySnapshot).toHaveBeenCalledOnce();
+    expect(writes).toEqual([]);
+  });
+
+  it("uses the exact nonmutating mirror snapshot for admission", async () => {
+    const writes: string[] = [];
+    const session = { query: vi.fn(async (text: string) => { writes.push(text); return { rows: [] }; }), release: vi.fn() };
+    const mirror = securityMirror();
+    const verifier = {
+      verify: vi.fn(),
+      verifyCurrentSnapshot: stagedVerification(),
+      currentSecurityDecisionFromSnapshot: vi.fn(() => ({ disposition: "clear" }))
+    };
+    const store = new PostgresVerifiedArtifactStore({ connect: vi.fn(async () => session) } as any, verifier as any, mirror as any, authority);
+
+    await expect(store.stage({
+      owner: { applicationId: authority.applicationId, environment: authority.environment, deliveryClass: authority.deliveryClass, extensionId: authority.extensionId, generationId: authority.generationId },
+      verification: { catalog, artifact: Buffer.from("bundle"), provenance: Buffer.from("provenance"), deliveryClass: authority.deliveryClass, id: authority.extensionId, version: "1.0.0", runtimeAbi: "1.0.0" },
+      authority, activation: { compatibility: { mode: "compatible" }, metadata: {}, settings: {}, storageSchemaVersions: {} } as any
+    })).rejects.toMatchObject({ code: "ARTIFACT_CONFLICT" });
+
+    expect(verifier.verify).not.toHaveBeenCalled();
+    expect(verifier.verifyCurrentSnapshot).toHaveBeenCalledWith(expect.anything(), {
+      signerIdentity: "catalog", sequence: 1, payloadDigest: authority.catalogDigest, highestVersions: {}
+    });
+    expect(mirror.readSecuritySnapshot).toHaveBeenCalledWith({ applicationId: authority.applicationId, environment: authority.environment });
+    expect(mirror.readSecuritySnapshot).toHaveBeenCalledTimes(2);
+    expect(writes.some((query) => query.includes("runtime_catalog_checkpoints"))).toBe(false);
+  });
+
+  it("denies cross-tenant reads before touching the catalog mirror", async () => {
+    const value = settingsReaderHarness();
+
+    await expect(value.store.resolve({
+      owner: { applicationId: "customer-beta", environment: authority.environment, deliveryClass: authority.deliveryClass, extensionId: authority.extensionId },
+      generationId: authority.generationId, artifactDigest
+    })).rejects.toMatchObject({ code: "ARTIFACT_UNAVAILABLE" });
+
+    expect(value.pool.query).not.toHaveBeenCalled();
+    expect(value.mirror.readSecuritySnapshot).not.toHaveBeenCalled();
+  });
+
+  it("denies admission when the mirror pointer or signer rotates during verification", async () => {
+    let releaseVerification: (() => void) | undefined;
+    let verificationStarted: (() => void) | undefined;
+    const pause = new Promise<void>((resolve) => { releaseVerification = resolve; });
+    const started = new Promise<void>((resolve) => { verificationStarted = resolve; });
+    const initial = { snapshotId: "catalog-snapshot-1", signedCatalog: catalog, signerIdentity: "catalog", sequence: 1, digest: authority.catalogDigest, releaseCount: 1, observedAt: "2026-09-02T00:00:00.000Z" };
+    const rotated = { ...initial, snapshotId: "catalog-snapshot-2", signerIdentity: "catalog-rotated", sequence: 2, digest: securityCatalogDigest };
+    const mirror = { readSecuritySnapshot: vi.fn(async () => mirror.readSecuritySnapshot.mock.calls.length === 1 ? initial : rotated) };
+    const verifier = {
+      verify: vi.fn(),
+      verifyCurrentSnapshot: vi.fn(async () => {
+        verificationStarted?.();
+        await pause;
+        return { verified, snapshot: { catalog, entries: [], checkpoint: { signerIdentity: "catalog", sequence: 1, payloadDigest: authority.catalogDigest, highestVersions: {} } } };
+      }),
+      currentSecurityDecisionFromSnapshot: vi.fn(() => ({ disposition: "clear" }))
+    };
+    const writes: string[] = [];
+    const session = { query: vi.fn(async (text: string) => { writes.push(text); return { rows: [] }; }), release: vi.fn() };
+    const store = new PostgresVerifiedArtifactStore({ connect: vi.fn(async () => session) } as any, verifier as any, mirror as any, authority);
+    const staging = store.stage({
+      owner: { applicationId: authority.applicationId, environment: authority.environment, deliveryClass: authority.deliveryClass, extensionId: authority.extensionId, generationId: authority.generationId },
+      verification: { catalog, artifact: Buffer.from("bundle"), provenance: Buffer.from("provenance"), deliveryClass: authority.deliveryClass, id: authority.extensionId, version: "1.0.0", runtimeAbi: "1.0.0" },
+      authority, activation: { compatibility: { mode: "compatible" }, metadata: {}, settings: {}, storageSchemaVersions: {} } as any
+    });
+
+    await started;
+    releaseVerification?.();
+    await expect(staging).rejects.toMatchObject({ code: "ARTIFACT_UNAVAILABLE" });
+    expect(verifier.verify).not.toHaveBeenCalled();
+    expect(writes).toEqual([]);
+  });
+
+  it("denies artifact staging when the current mirror snapshot is expired", async () => {
+    const writes: string[] = [];
+    const session = { query: vi.fn(async (text: string) => { writes.push(text); return { rows: [] }; }), release: vi.fn() };
+    const store = new PostgresVerifiedArtifactStore(
+      { connect: vi.fn(async () => session) } as any,
+      { verifyCurrentSnapshot: vi.fn(async () => { throw new Error("Official catalog is expired."); }) } as any,
+      securityMirror() as any,
+      authority
+    );
+
+    await expect(store.stage({
+      owner: { applicationId: authority.applicationId, environment: authority.environment, deliveryClass: authority.deliveryClass, extensionId: authority.extensionId, generationId: authority.generationId },
+      verification: { catalog, artifact: Buffer.from("bundle"), provenance: Buffer.from("provenance"), deliveryClass: authority.deliveryClass, id: authority.extensionId, version: "1.0.0", runtimeAbi: "1.0.0" },
+      authority, activation: { compatibility: { mode: "compatible" }, metadata: {}, settings: {}, storageSchemaVersions: {} } as any
+    })).rejects.toMatchObject({ code: "ARTIFACT_INVALID" });
+    expect(writes).toEqual([]);
+  });
+
+  it("blocks activation when the staged policy is compromised", async () => {
+    const query = vi.fn(async (text: string) => {
+      if (text.includes("from runtime_extension_artifact_bindings")) return { rows: [binding()] };
+      if (text.includes("from runtime_extension_artifacts")) return { rows: [{ artifact_digest: artifactDigest, artifact_bytes: Buffer.from("bundle") }] };
+      if (text.includes("from runtime_extension_artifact_acceptances")) return { rows: [{ artifact_digest: artifactDigest, catalog_digest: authority.catalogDigest, catalog_json: catalog, provenance_bytes: Buffer.from("provenance"), delivery_class: authority.deliveryClass, extension_id: authority.extensionId, version: "1.0.0", runtime_abi: "1.0.0" }] };
+      throw new Error(`Unexpected SQL: ${text}`);
+    });
+    const mirror = securityMirror();
+    const store = new PostgresVerifiedArtifactStore(
+      { query } as any,
+      { verifyAccepted: vi.fn(async () => verified), currentSecurityDecisionFromCurrentSnapshot: currentSecurityDecision("security-compromised") } as any,
+      mirror as any,
+      authority
+    );
+
+    await expect(store.resolve({ owner: { applicationId: authority.applicationId, environment: authority.environment, deliveryClass: authority.deliveryClass, extensionId: authority.extensionId }, generationId: authority.generationId, artifactDigest })).rejects.toMatchObject({ code: "ARTIFACT_UNAVAILABLE" });
+    expect(mirror.readSecuritySnapshot).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["release-missing", "security-compromised"] as const)("does not serve a staged %s release", async (disposition) => {
+    const value = settingsReaderHarness();
+    value.verifier.currentSecurityDecisionFromCurrentSnapshot.mockImplementation(currentSecurityDecision(disposition));
+
+    await expect(value.store.readSettingsDescriptors(settingsIdentity)).resolves.toBeUndefined();
+    expect(value.mirror.readSecuritySnapshot).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not serve artifacts under an expired accepted or staged mirror", async () => {
+    const value = settingsReaderHarness();
+    value.verifier.currentSecurityDecisionFromCurrentSnapshot.mockRejectedValue(new Error("Official catalog is expired."));
+
+    await expect(value.store.readSettingsDescriptors(settingsIdentity)).resolves.toBeUndefined();
+    expect(value.mirror.readSecuritySnapshot).toHaveBeenCalledOnce();
+  });
+
   it("rejects poisoned accepted evidence before creating a binding", async () => {
     const writes: string[] = [];
     const activation = { compatibility: { mode: "compatible" }, metadata: {}, settings: {}, storageSchemaVersions: {} } as any;
@@ -156,7 +315,9 @@ describe("PostgresVerifiedArtifactStore Remote UI reader", () => {
       connect: async () => session,
       query: vi.fn(async () => { throw new Error("stage must validate through its transaction session"); })
     };
-    const store = new PostgresVerifiedArtifactStore(pool as any, { verify: vi.fn(async () => verified) } as any);
+    const store = new PostgresVerifiedArtifactStore(pool as any, {
+      verifyCurrentSnapshot: stagedVerification(), currentSecurityDecisionFromSnapshot: vi.fn(() => ({ disposition: "clear" }))
+    } as any, securityMirror() as any, authority);
 
     await expect(store.stage({
       owner: { applicationId: authority.applicationId, environment: authority.environment, deliveryClass: authority.deliveryClass, extensionId: authority.extensionId, generationId: authority.generationId },
@@ -205,7 +366,9 @@ describe("PostgresVerifiedArtifactStore Remote UI reader", () => {
     };
     const store = new PostgresVerifiedArtifactStore(
       pool as any,
-      { verifyAccepted: vi.fn(async () => verified) } as any
+      { verifyAccepted: vi.fn(async () => verified), currentSecurityDecisionFromCurrentSnapshot: currentSecurityDecision() } as any,
+      securityMirror() as any,
+      authority
     );
 
     const reading = store.readRemoteUi({

@@ -192,6 +192,14 @@ describe("extension bundler", () => {
     await expect(decision(signedCatalog({ ...entry, source: { ...entry.source, commit: "a".repeat(40) } }))).resolves.toMatchObject({ disposition: "release-evidence-mismatch" });
     await expect(decision(signedCatalog({ ...entry, artifactDigest: sha256(Buffer.from("different")) }))).resolves.toMatchObject({ disposition: "release-evidence-mismatch" });
     await expect(decision(signedCatalog({ ...entry, publisher: { ...entry.publisher, publicKey: catalog.signer.publicKey } }))).resolves.toMatchObject({ disposition: "publisher-key-mismatch" });
+
+    const stagedCatalog = signedCatalog({ ...entry, revoked: true });
+    const checkpoints = new InMemoryCatalogCheckpointStore();
+    const client = new CatalogClient({ [stagedCatalog.signer.identity]: stagedCatalog.signer.publicKey }, checkpoints);
+    const verifier = new ArtifactVerifier(client, publishers);
+    const staged = await client.verifySnapshot(stagedCatalog);
+    expect(verifier.currentSecurityDecisionFromSnapshot(staged, releaseIdentity)).toMatchObject({ disposition: "revoked" });
+    expect(await checkpoints.read(stagedCatalog.signer.identity)).toBeUndefined();
   });
 
   it("rejects a missing or divergent complete Hot Application manifest even when the envelope and catalog are resigned", async () => {
@@ -244,6 +252,9 @@ describe("extension bundler", () => {
     const client = new CatalogClient({ [signer.identity]: signer.publicKey }, checkpoints, () => Date.parse("2030-01-01T00:00:00.000Z"));
     const clear = catalog.payload.entries[0]!;
     const fresh = signed(2, "2030-01-02T00:00:00.000Z", clear);
+    const verified = await client.verifySnapshot(fresh);
+    expect(verified).toMatchObject({ checkpoint: { signerIdentity: signer.identity, sequence: 2 }, entries: [clear] });
+    expect(await checkpoints.read(signer.identity)).toBeUndefined();
     await expect(client.read(fresh)).resolves.toHaveLength(1);
     const restarted = new CatalogClient({ [signer.identity]: signer.publicKey }, checkpoints, () => Date.parse("2030-01-01T00:00:00.000Z"));
     await expect(restarted.read(signed(1, "2030-01-02T00:00:00.000Z", { ...clear, revoked: false }))).rejects.toThrow(/checkpoint|stale|replay/i);
@@ -276,6 +287,24 @@ describe("extension bundler", () => {
     await expect(verifier.verifyAccepted({ ...request, catalog: accepted })).resolves.toMatchObject({ artifactDigest: request.catalog.payload.entries[0]!.artifactDigest });
     await expect(client.read(signed(2, "2030-01-04T00:00:00.000Z"))).resolves.toHaveLength(1);
     await expect(verifier.verifyAccepted({ ...request, catalog: accepted })).resolves.toMatchObject({ manifest: { id: request.id } });
+  });
+
+  it("revalidates staged immutable bytes against its exact durable checkpoint after expiry", async () => {
+    const { catalog, publishers, request } = release();
+    const checkpoints = new InMemoryCatalogCheckpointStore();
+    const staged = await new CatalogClient(
+      { [catalog.signer.identity]: catalog.signer.publicKey }, checkpoints, () => Date.parse("2029-01-01T00:00:00.000Z")
+    ).verifySnapshot(catalog);
+    const restarted = new CatalogClient(
+      { [catalog.signer.identity]: catalog.signer.publicKey }, checkpoints, () => Date.parse("2031-01-01T00:00:00.000Z")
+    );
+
+    await expect(restarted.verifySnapshot(catalog, staged.checkpoint)).rejects.toThrow(/expired/u);
+    await expect(restarted.verifyStagedSnapshot(catalog, staged.checkpoint)).resolves.toMatchObject({ checkpoint: staged.checkpoint });
+    await expect(restarted.verifyStagedSnapshot(catalog, { ...staged.checkpoint, payloadDigest: sha256(Buffer.from("wrong")) })).rejects.toThrow(/durable checkpoint/u);
+    await expect(new ArtifactVerifier(restarted, publishers).verifyStagedSnapshot({ ...request, catalog }, staged.checkpoint)).resolves.toMatchObject({ verified: { artifactDigest: request.catalog.payload.entries[0]!.artifactDigest }, snapshot: { checkpoint: staged.checkpoint } });
+    await expect(new ArtifactVerifier(restarted, publishers).verifyCurrentSnapshot({ ...request, catalog }, staged.checkpoint)).rejects.toThrow(/expired/u);
+    expect(await checkpoints.read(catalog.signer.identity)).toBeUndefined();
   });
 
   it("binds runner code to the verified owner, generation, artifact, and declared entrypoint", async () => {
