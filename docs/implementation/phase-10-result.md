@@ -3,9 +3,9 @@
 - **Date:** 2026-09-02
 - **Gate:** Gate 10
 - **Accepted base:** `2e510d77ac9ce3e62426f136cf56c492bb6a29ce`
-- **Delivery:** one Phase 10 branch and pull request; no merge or auto-merge
-- **Decision:** **READY FOR PHASE REVIEW**
-- **Review state:** Owner-review remediation passes the 15-test local focused Gate 10 corpus and reused Sol-xhigh review; final exact-head PR/cumulative CI remain required before merge.
+- **Delivery:** PR #29 merged as `1a1e6fd99db945575af681dfa6e93c7175b38f51`
+- **Decision:** **ACCEPTED**
+- **Review state:** Reused Sol-xhigh review, focused exact-head CI, and cumulative Linux/AppArmor Gate 0–10 passed; PR #29 merged on 2026-09-02.
 
 ## Scope proved
 
@@ -72,10 +72,10 @@ The executable corpus rejects role-label authority, hidden-UI authority, forged 
 
 ## Phase-result decision
 
-Every P10.1–P10.10 implementation slice, the 15-test local focused Gate 10 corpus, and the reused Sol-xhigh review pass. This result does not claim a final exact-head GitHub run: the focused PR check and one cumulative Linux/AppArmor `workflow_dispatch` run on the frozen final SHA are still required before owner merge review.
+Every P10.1–P10.10 implementation slice, the 15-test local focused Gate 10 corpus, and reused Sol-xhigh review passed. Focused run `33588831011` and cumulative Linux/AppArmor Gate 0–10 run `33589028547` passed exact head `6632b70d3b20beec11da0b2d1fbd633caba60085`; PR #29 merged as `1a1e6fd99db945575af681dfa6e93c7175b38f51`.
 
-**Decision:** **READY FOR PHASE REVIEW**
+**Decision:** **ACCEPTED**
 
 Gate decision on acceptance: **GO SYSTEM SETTINGS AND FULL EXTENSION ADMINISTRATION PRODUCTIZATION**.
 
-After project-manager PASS and merge, do not begin a broad CRM/CMS module. Start the next roadmap decision for system settings and full extension administration productization from the accepted Gate 10 contracts.
+Phase 11 starts system settings and full extension administration productization from these accepted contracts. Broad CRM/CMS remains frozen.

@@ -75,7 +75,7 @@ Rejected. It destroys rollback and may break still-draining old binaries.
 
 ## Validation
 
-ADR-0023 remains `design-only` until Gate 9 proves:
+Gate 9 promoted ADR-0023 to `executable-poc` by proving:
 
 ```text
 credentialless/opaque-origin remote UI and MessagePort-only host access
@@ -88,4 +88,4 @@ single-effect blue/green worker fencing and stale completion denial
 exact receipts/inventory reconciling source, image, traffic, worker, runner, and migration state
 ```
 
-Promotion to `executable-poc` is atomic only after the complete normative scope passes Gate 9.
+The linked Phase 9 result, gate, Linux/AppArmor/Docker fixtures, and deployment implementations record that atomic promotion.

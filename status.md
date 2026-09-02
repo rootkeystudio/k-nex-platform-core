@@ -1,22 +1,22 @@
 # Project Status
 
 - **Updated:** 2026-09-02
-- **Phase:** Phase 10 — RBAC, Authorization, and Extension Bootstrap
-- **Active task:** P10.10 — phase review handoff
-- **State:** Ready for phase review
+- **Phase:** Phase 11 — System Settings and Extension Operations
+- **Active task:** P11.1 — settings, catalog, operation, health, and receipt contracts
+- **State:** Ready to start
 
 ## Last completed
 
-Review remediation slice 15 restores Phase 8's exact gate-decision markers; isolated Gate 8 and reused Sol-xhigh review PASS.
+Phase 10 merged as PR #29 at `1a1e6fd`. Phase 11 plan, ADR-0024, Gate 11 definition, exact permission/risk matrix, and staged/effective recovery boundaries passed reused Sol-xhigh review.
 
 ## Validation
 
-Exact Node 24.19.0: isolated Gate 8, including hosted evidence checks and real PostgreSQL restore, PASS (`TMPDIR=/private/tmp` for canonical macOS temp path). Replacement exact-head checks are not claimed yet.
+GitHub focused run `33588831011` and cumulative Linux/AppArmor Gate 0–10 run `33589028547` passed exact head `6632b70`. Exact Node 24.19.0 targeted documentation/contracts/links/ADR validation and reused Sol-xhigh planning review PASS.
 
 ## Next
 
-Freeze this head; obtain focused PR and one replacement cumulative Linux/AppArmor exact-head run, then merge on owner authorization.
+Begin P11.1 from the accepted Phase 11 plan. Freeze closed contracts before persistence or UI implementation.
 
 ## Blockers
 
-Blocking owner review on PR #29; do not merge or begin Phase 11.
+None.

@@ -3,11 +3,11 @@
 - **Date:** 2026-09-01
 - **Gate:** Gate 9
 - **Accepted base:** `73d18886c36db5fc5c0d05a1d8e44dc784e460cc`
-- **Delivery:** one Phase 9 branch and pull request; no merge or auto-merge
-- **Decision:** **READY FOR PHASE REVIEW**
-- **Executable-evidence head:** `7caa115887da47f6f147eb905d677742d7d9a857`
-- **Executable evidence:** GitHub Actions [run `33446485924`](https://github.com/rootkeystudio/k-nex-platform-core/actions/runs/33446485924) passed strict Linux/AppArmor setup, Docker runner preflight, browser proofs, and the complete Gate 0–9 executable corpus; it failed only when the final closeout assertion correctly rejected this result artifact's former remediation marker.
-- **Review state:** The reused Sol-xhigh reviewer returned `PASS` on the remediation slice. Owner re-review found no remaining production-code blocker and confirmed the retirement-race correction passed both PostgreSQL executions. PR #28 remains review-only; the documentation-closeout exact-head check must be green before merge.
+- **Delivery:** PR #28 merged as `2e510d77ac9ce3e62426f136cf56c492bb6a29ce`
+- **Decision:** **ACCEPTED**
+- **Executable-evidence head:** `07f6678131320fcc91db5307715b6e1984e9e26e`
+- **Executable evidence:** GitHub Actions [run `33452111854`](https://github.com/rootkeystudio/k-nex-platform-core/actions/runs/33452111854) passed the exact-head Linux/AppArmor, Docker, PostgreSQL, Chromium, and complete Gate 0–9 corpus.
+- **Review state:** Reused Sol-xhigh and owner review passed; PR #28 merged on 2026-09-01.
 
 ## Scope proved
 
@@ -40,7 +40,7 @@ Phase 9 delivers the accepted Two-Path Extension Model. Hot Applications and The
 
 ## Validation and failure evidence
 
-Local evidence ran on Node 24.19.0, including Gates 0–8, the required unit and Chromium proofs, and 20/21 PostgreSQL journeys; the sole local-only refusal was the intended production-profile guard under macOS `local-docker-test-only`. GitHub Actions [run `33446485924`](https://github.com/rootkeystudio/k-nex-platform-core/actions/runs/33446485924) then passed strict Linux/AppArmor setup, Docker runner preflight, browser proofs, and every Gate 0–9 executable proof on implementation head `7caa115887da47f6f147eb905d677742d7d9a857`. Its only failure was the final documentation assertion against the intentionally stale pre-closeout decision marker now advanced by this result.
+Local evidence ran on Node 24.19.0, including Gates 0–8, required unit and Chromium proofs, and the supported PostgreSQL journeys. The macOS-only production-profile refusal remained intentional. GitHub Actions [run `33452111854`](https://github.com/rootkeystudio/k-nex-platform-core/actions/runs/33452111854) passed the final exact-head strict Linux/AppArmor setup, Docker runner preflight, browser proofs, and every Gate 0–9 executable proof on `07f6678131320fcc91db5307715b6e1984e9e26e`.
 
 PR #28 remediation additionally proves one exhaustive fresh-install/active-catalog policy classifier with ten exact persisted quarantine reasons, including authoritative release removal, immutable-evidence divergence, and publisher-key divergence; opaque-origin ESM Remote UI module workers; supervisor-scoped Docker startup cleanup; bounded exact-once reclamation of expired operation capacity; and short-transaction outbox claims with publish timeout, lease recovery, poison dead-lettering, and explicit at-least-once replay behavior.
 
@@ -50,7 +50,7 @@ The real customer PostgreSQL/Docker journeys run continuous HTTP probes with zer
 
 The Chromium remote-realm proof additionally exercises replayed, oversized, over-depth, rate-flooded, mixed-generation, navigation, and download attempts in fresh browser sessions. Every attack fails closed, detaches the realm, leaves the host healthy, and reaches no unauthorized source, action, navigation, or download authority.
 
-`scripts/gate-9.mjs` executes exact named Docker, PostgreSQL, Chromium, and unit evidence; PostgreSQL journeys emit scenario markers only after their assertions succeed; and the static journey emits each required crash-matrix key only after the corresponding process recovery. The gate fails if a proof or marker is missing, skipped, renamed, or failing, and also enforces required schemas, Sales-only scope, and this result matrix. Linux/AppArmor executable admission passed in GitHub Actions run `33446485924`; the new documentation-closeout head still requires its exact-head green check.
+`scripts/gate-9.mjs` executes exact named Docker, PostgreSQL, Chromium, and unit evidence; PostgreSQL journeys emit scenario markers only after assertions succeed; and the static journey emits each crash-matrix key only after process recovery. The gate fails if proof or marker is missing, skipped, renamed, or failing, and enforces required schemas, Sales-only scope, and this result matrix. Final exact-head Linux/AppArmor executable admission passed in GitHub Actions run `33452111854`.
 
 ## Known limits and deferred scope
 
@@ -62,10 +62,10 @@ The Chromium remote-realm proof additionally exercises replayed, oversized, over
 
 ## Phase-result decision
 
-Every Phase 9 task and owner-review remediation is implemented. GitHub Actions run `33446485924` passed the full executable Linux/AppArmor Gate 0–9 corpus and stopped only because the result artifact still carried its pre-closeout decision marker. The reused Sol-xhigh reviewer returned `PASS`, and owner re-review found no remaining production-code blocker. PR #28 remains review-only and unmerged; this documentation-closeout head requires a green exact-head check before merge.
+Every Phase 9 task and owner-review remediation is implemented. GitHub Actions run `33452111854` passed the final exact-head Linux/AppArmor Gate 0–9 corpus. Reused Sol-xhigh and owner review passed; PR #28 merged as `2e510d77ac9ce3e62426f136cf56c492bb6a29ce`.
 
-**Decision:** **READY FOR PHASE REVIEW**
+**Decision:** **ACCEPTED**
 
 Gate decision on acceptance: **GO PHASE 10 RBAC AND AUTHORIZATION**.
 
-After project-manager PASS and merge, the exact next task is **P10.1 — Freeze owner, role, grant, assignment, template, and revision contracts**. Do not start domain expansion; continue using Sales and the Gate 9 extension fixtures to harden platform authorization.
+Phase 10 subsequently passed and merged. Phase 11 continues the administration core; domain expansion remains frozen.

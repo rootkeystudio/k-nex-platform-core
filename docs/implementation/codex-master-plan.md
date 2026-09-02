@@ -1,7 +1,7 @@
 # K-Nex Implementation Master Plan — Codex Execution Contract
 
 - **Status:** active
-- **Scope:** Gates 0–10 and Gate 2A
+- **Scope:** Gates 0–11 and Gate 2A
 - **Execution authority:** `status.md`
 - **Architecture authority:** generated contracts, accepted ADRs, and architecture documents
 - **Gate definitions:** [`../30-executable-poc-gates.md`](../30-executable-poc-gates.md)
@@ -10,6 +10,7 @@
 - **Mandatory Phase 9 review hardening:** [`phase-9-plan-review-hardening.md`](./phase-9-plan-review-hardening.md)
 - **Phase 9 decisions:** [`ADR-0021`](../adr/0021-dynamic-application-runtime-and-zero-downtime-delivery.md), [`ADR-0023`](../adr/0023-phase-9-production-isolation-and-static-delivery-hardening.md)
 - **Phase 10 detail:** [`phase-10-rbac-and-authorization-control-plane.md`](./phase-10-rbac-and-authorization-control-plane.md)
+- **Phase 11 detail:** [`phase-11-system-settings-and-extension-operations.md`](./phase-11-system-settings-and-extension-operations.md)
 
 ## 1. Purpose and precedence
 
@@ -26,14 +27,13 @@ A plan is not evidence. A gate passes only through its named command and require
 
 ## 2. Current focus freeze
 
-Gate 8 is accepted. The selected next sequence is:
+Gates 9 and 10 are accepted. The selected next phase is:
 
 ```text
-Phase 9   Dynamic Application Runtime and Zero-Downtime Delivery
-Phase 10  RBAC, Authorization, and Extension Bootstrap
+Phase 11  System Settings and Extension Operations
 ```
 
-Until Gate 10 PASS:
+Until Gate 11 PASS:
 
 ```text
 module.sales remains the sole first-party domain reference
@@ -42,9 +42,7 @@ no logistics/restaurant/inventory/budgeting product module
 no public third-party marketplace launch
 ```
 
-Phase 9 may create one bounded Hot Application and one Theme Skin fixture. They prove runtime infrastructure and do not become new domain products.
-
-P9.1 cannot start from the original plan alone. It must incorporate ADR-0023 and the mandatory Phase 9 review-hardening addendum into the first machine-readable contracts and failure corpus.
+Phase 11 reuses the bounded Hot Application and Theme Skin fixtures. They remain infrastructure proofs and do not become new domain products.
 
 ## 3. Mandatory execution protocol
 
@@ -90,8 +88,9 @@ Phase 5   themes, UI runtime, atomic publication                complete
 Phase 6   plugin platform hardening and Sales reference         complete
 Phase 7   comprehensive headless components                     complete
 Phase 8   lifecycle, application factory, release/fleet safety  complete
-Phase 9   dynamic applications and zero-downtime delivery       active
-Phase 10  RBAC, authorization, extension bootstrap              planned
+Phase 9   dynamic applications and zero-downtime delivery       complete
+Phase 10  RBAC, authorization, extension bootstrap              complete
+Phase 11  system settings and extension operations              planned
 ```
 
 Required commands:
@@ -109,9 +108,10 @@ pnpm gate:7
 pnpm gate:8
 pnpm gate:9
 pnpm gate:10
+pnpm gate:11
 ```
 
-Do not add `gate:9` or `gate:10` as a marker-only command. It must fail unless the complete required evidence actually runs.
+Do not add a later gate as a marker-only command. It must fail unless the complete required evidence actually runs.
 
 ## 5. Historical task index
 
@@ -199,7 +199,32 @@ REWORK AUTHORIZATION OR EXTENSION BOOTSTRAP
 REJECT USER-OPERATED LIVE INSTALL
 ```
 
-## 8. Cross-phase invariants
+## 8. Phase 11 — System Settings and Extension Operations
+
+Detail: [`phase-11-system-settings-and-extension-operations.md`](./phase-11-system-settings-and-extension-operations.md)
+
+```text
+P11.1   settings, catalog, operation, health, and receipt contracts
+P11.2   PostgreSQL settings storage
+P11.3   settings service and convergence
+P11.4   official GitHub catalog consumption
+P11.5   full extension lifecycle administration
+P11.6   Theme Package, Skin, and Profile administration
+P11.7   deployment, backup, and health operations control plane
+P11.8   fixed accessible administration journeys
+P11.9   convergence and attack corpus
+P11.10  Gate 11 closeout
+```
+
+Outcome:
+
+```text
+GO EXPLICIT CRM/CMS PRODUCTIZATION DECISION
+REWORK SYSTEM ADMINISTRATION OR OPERATIONS AUTHORITY
+REJECT WEB-OWNED PRIVILEGED OPERATIONS
+```
+
+## 9. Cross-phase invariants
 
 ### Determinism and supply chain
 
@@ -289,7 +314,7 @@ real continuous-traffic Docker promotion proof
 failure injection at every lifecycle boundary
 ```
 
-## 9. Dependency protocol
+## 10. Dependency protocol
 
 Before adding a library:
 
@@ -302,15 +327,6 @@ Before adding a library:
 
 Remote UI, bundler, archive, signature, sandbox, proxy, builder, and orchestration libraries require bounded spikes rather than speculative adoption.
 
-## 10. Post-Gate 10 boundary
+## 11. Post-Gate 11 boundary
 
-The next roadmap layer is:
-
-```text
-system settings administration
-full Plugin Manager/theme administration
-official GitHub catalog operations
-Docker deployment/backup/health operations center
-```
-
-CRM/CMS breadth begins only through a separate accepted product plan after the administration core is usable and evidenced.
+CRM/CMS breadth begins only through a separate accepted product plan after the administration core is usable and evidenced by Gate 11.
