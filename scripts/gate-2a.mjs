@@ -433,9 +433,12 @@ async function directOutputProbe() {
       pluginId: "module.gate-2a",
       contracts(context) {
         context.register("permissions", "gate-2a.tools.read", {
-          id: "gate-2a.tools.read", ownerPluginId: "module.gate-2a", title: "Read Gate 2A tools",
+          schemaVersion: 1,
+          id: "gate-2a.tools.read",
+          publisher: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.gate-2a" },
+          title: "Read Gate 2A tools",
           description: "Execute the Gate 2A fixture tool.", audience: "authenticated", resource: "gate-2a.tools",
-          operation: "execute", policy: { id: "gate-2a.tools.read", scope: "application", recordScoped: false, fieldScoped: false }
+          operation: "execute", scope: "application"
         });
         context.register("actions", action.id, { descriptor: action, inputSchema: runtimeInputSchema, outputSchema: runtimeOutputSchema });
         context.register("tools", tool.id, tool);

@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-09-02
 - **Phase:** Phase 10 — RBAC, Authorization, and Extension Bootstrap
-- **Active task:** P10.10 — phase review handoff
-- **State:** Ready for phase review
+- **Active task:** P10.10 — cumulative cross-gate remediation
+- **State:** In progress
 
 ## Last completed
 
-Owner re-review remediation is complete; canonical fixture validation and transferable Owner custody are fixed, and the reused Sol-xhigh reviewer returned PASS.
+Review remediation slice 12 aligns the stale Gate 2A permission fixture with the canonical platform-plugin publisher identity without weakening production validation.
 
 ## Validation
 
-Exact Node 24.19.0: canonical generated-fixture validation PASS; affected builds, real PostgreSQL Owner A→B handoff 1/1, and focused Gate 10 15/15 PASS. Replacement cumulative exact-head run is not claimed yet.
+Exact Node 24.19.0: isolated Gate 2A attack corpus and direct output probe PASS. Replacement focused/cumulative exact-head runs are not claimed yet.
 
 ## Next
 
-Freeze this head; obtain focused PR and one replacement cumulative Linux/AppArmor exact-head run, then owner review.
+Run focused Gate 10, reuse Sol-xhigh review, then push replacement exact head for focused and cumulative CI.
 
 ## Blockers
 
