@@ -55,6 +55,7 @@ Rules:
 9. Disable/uninstall or generation change invalidates pending promotion. Rollback restores the retained effective document for the exact retained generation; reinstall requires explicit adoption.
 10. Settings revision is separate from authorization/lifecycle revision. Only successful pending promotion may trigger explicit lifecycle readiness reconciliation.
 11. Hot Application schema evolution uses no downloaded migration code. The host projects retained values onto declared keys, applies declared data-only defaults, validates all types/bounds, and enters `waiting-configuration` when a required value remains unresolved.
+12. Before such configuration, the trusted lifecycle coordinator reserves the final numeric authorization generation as `pending-configuration`, bound to the exact staged runtime generation. It is a foreign-key fence only and can never authorize. Successful validation promotes settings first; the activation transaction then promotes that exact reserved generation to `current`. Reinstall adoption is explicit, server-derived, revision-fenced, audited, and projects retained values onto the new descriptor.
 
 ## 3. Official catalog
 

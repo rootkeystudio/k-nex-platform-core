@@ -2,8 +2,8 @@
 
 - **Updated:** 2026-09-02
 - **Phase:** Phase 11 — System Settings and Extension Operations
-- **Active task:** P11.10 — Gate 11 closeout
-- **State:** Blocked
+- **Active task:** P11.3 — settings service and convergence decision completion
+- **State:** In progress
 
 ## Last completed
 
@@ -15,8 +15,8 @@ Exact Node 24.19.0: P11.9 effective provider 3/3; focused attack corpus PASS wit
 
 ## Next
 
-Accept one persisted P11.3 pre-activation settings identity and coordinator/adoption sequence in ADR-0024; then implement its isolated proofs before P11.10 result/gate/full run.
+P11.3f add the inert `pending-configuration` authorization generation, coordinator, required-unset projection, and explicit reinstall adoption with isolated proofs.
 
 ## Blockers
 
-P11.3 cannot complete until the persisted pre-activation identity, generation-validation coordinator claim/recovery sequence, required-unset administration view, and explicit reinstall adoption are specified. Effective-value consumption is resolved. See `docs/implementation/phase-11-p11.3-blocker.md`. The reused Sol-xhigh reviewer is also unavailable because the agent runtime retains exhausted task slots.
+None. Option A is accepted in ADR-0024; implementation proof is active. The reused Sol-xhigh reviewer remains temporarily unavailable because the agent runtime retains exhausted task slots.

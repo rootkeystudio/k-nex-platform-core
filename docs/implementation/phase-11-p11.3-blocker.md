@@ -1,6 +1,6 @@
 # P11.3 blockers — settings lifecycle coordination and consumption
 
-- **Status:** confirmed architecture blocker
+- **Status:** architecture decision accepted; implementation in progress
 - **Observed:** 2026-09-02
 - **Scope:** incompatible Hot Application update or reinstall with required settings
 
@@ -16,14 +16,9 @@ The accepted sequence requires a target Hot Application to enter `waiting-config
 
 This is not solvable with a compatibility alias, guessed generation number, activation JSON, or an unfenced settings row. Those paths weaken generation isolation or use a state store that ADR-0024 explicitly rejects.
 
-## Decision required
+## Accepted decision
 
-The architecture must choose and specify one persisted legal sequence, for example:
-
-- reserve a non-authorizing pending authorization generation before configuration, then atomically promote it during activation; or
-- persist a target-runtime-generation candidate under a distinct provisional identity, then atomically bind it to the newly minted authorization generation during activation.
-
-Either choice changes public/persisted state, transaction ordering, recovery, and lifecycle proofs. It requires an accepted plan/ADR amendment before implementation.
+Reserve the final numeric authorization generation before configuration in a new `pending-configuration` state. It binds exactly one verified staged runtime generation, exists only as a settings foreign-key fence, and is excluded from all effective authority. The coordinator promotes settings after exact-generation validation; activation promotes that reserved generation to `current`. A second provisional settings identity is rejected.
 
 ## Missing generation-validation coordinator
 

@@ -44,6 +44,9 @@ deployment, backup, and health operations center
 19. Health is derived from authoritative runtime, deployment, worker-fence, catalog, backup, and migration observations. Database-authored desired state and client-reported health are not authoritative.
 20. Every mutation is server-targeted, current-authority checked, expected-revision bound, idempotent, audited, and convergent through outbox plus polling.
 21. Phase 11 adds no backward-compatibility aliases or migrations for unreleased APIs. Every first-party package and fixture remains `1.0.0`; changed pre-v1 callers, schemas, fixtures, and generated artifacts update atomically.
+22. A staged Hot Application with generation-validated settings reserves its final numeric authorization generation in `pending-configuration` state, bound to exactly one verified runtime generation ID. This state exists only as a settings foreign-key fence: it grants no permission, contributes no policy/template, and is ignored by every effective-authority resolver.
+23. The settings coordinator leases one pending operation, validates the candidate through the exact staged generation, and either terminally fails it or promotes the settings document. Missing required fields remain non-effective and keep the runtime operation in `waiting-configuration`. Activation may proceed only with the exact immutable success receipt; the activation/lifecycle transaction changes the reserved generation to `current`. Crash replay returns the same receipt and resumes from PostgreSQL authority.
+24. Reinstall always reserves a new authorization generation. Retained values move only through a current-authority, server-derived old/new adoption operation that projects onto the new data-only descriptor, requires exact revisions, and emits audit, receipt, and invalidation atomically. It cannot copy executable content or expose secret-reference identifiers to the browser.
 
 ## Consequences
 
@@ -74,6 +77,10 @@ Rejected. Compromise of a browser, route, plugin, or web process would become ho
 ### Put every revision into authorization state
 
 Rejected. Settings do not author policy. Independent revision domains avoid unnecessary privilege-cache churn while lifecycle-affecting changes remain explicit.
+
+### Store pre-activation settings under a second provisional identity
+
+Rejected. Reserving a non-authorizing final generation reuses the existing settings owner fence and avoids a second identity/binding protocol. Database constraints and effective-authority filtering make `pending-configuration` inert until activation.
 
 ## Validation
 
