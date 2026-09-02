@@ -60,7 +60,8 @@ function renderNode(node: RemoteUiNode): HTMLElement {
 
 const session = sessions.open(snapshot, {
   sessionId: configuration.sessionId, remoteUiFrameUrl: configuration.remoteUiFrameUrl, route: configuration.route, surface: "sales.screen",
-  sources: new Set(configuration.sources), actions: new Set(configuration.actions), routes: new Set(configuration.routes), assets: new Set()
+  sources: new Set(configuration.sources), actions: new Set(configuration.actions), routes: new Set(configuration.routes), assets: new Set(),
+  presentation: { profileRevisionId: "sales-admin-profile-1", themeId: "theme.default", themeVersion: "1.0.0", surface: "admin", mode: "system" }
 }, registry, {
   async authorize(_identity, _frame, signal) {
     const query = new URLSearchParams({ sessionId: configuration.sessionId });
@@ -72,7 +73,7 @@ const session = sessions.open(snapshot, {
     const response = await fetch(`/api/extensions/remote-ui/authorize-target?${query}`, { method: "POST", credentials: "same-origin", cache: "no-store", signal });
     return response.status === 204;
   },
-  render(tree: RemoteUiNode) { root.replaceChildren(renderNode(tree)); },
+  render(tree: RemoteUiNode, presentation) { root.dataset.kNexThemeProfile = presentation.profileRevisionId; root.replaceChildren(renderNode(tree)); },
   fallback(code) { root.replaceChildren(Object.assign(document.createElement("div"), { role: "alert", textContent: code })); },
   focus() {}, navigate() {},
   async source(identity, targetId, input, signal) {
