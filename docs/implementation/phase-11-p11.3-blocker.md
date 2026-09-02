@@ -37,11 +37,9 @@ A valid descriptor may declare a required field without a default. Current proje
 
 The amendment must define a safe non-effective administration projection/state for required-but-unset target fields. It must remain configurable while being impossible to consume before terminal validation and promotion.
 
-## Missing effective-value consumption
+## Resolved: effective-value consumption
 
-The current convergence fixture proves invalidation and polling delivery only. It does not re-read an exact active settings document or apply changed values to web, worker, or runner consumers. Production code likewise has no generation-scoped effective-settings provider/cache.
-
-P11.3 still needs a provider that re-resolves the current descriptor and owner, reads only the exact active document after each revision, never serves pending/disabled/retired values, and proves both delivered and lost invalidation by observing changed values in all three consumer classes. Cross-process transport remains P11.9 scope.
+`EffectiveSettingsProvider` now re-resolves the exact active descriptor owner around every authoritative document read, rejects pending/disabled/retired/stale-owner/invalid values, and is driven by the existing revision consumer. The real PostgreSQL convergence proof observes changed effective values—not only revision counters—at web, worker, and runner boundaries after both delivered and lost invalidations. P11.9's focused attack corpus requires this proof.
 
 ## Missing explicit reinstall adoption
 
@@ -51,4 +49,4 @@ The amendment must define server-derived old/new identities, exact revision and 
 
 ## Completed safe work
 
-The P11.3 descriptor parsing, static/verified descriptor sources, RBAC-projected reads and immediate changes, generation-fenced store writes, deterministic replay, redaction/projection, application-scoped outbox delivery, and polling signal delivery remain independently valid. They do not claim generation-validation completion, unresolved-required rendering, effective-value consumption, or incompatible-update/reinstall adoption.
+The P11.3 descriptor parsing, static/verified descriptor sources, RBAC-projected reads and immediate changes, generation-fenced store writes, deterministic replay, redaction/projection, effective-value consumption, application-scoped outbox delivery, and polling recovery remain independently valid. They do not claim generation-validation coordination, unresolved-required rendering, or incompatible-update/reinstall adoption.
