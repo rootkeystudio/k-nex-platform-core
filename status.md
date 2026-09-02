@@ -11,7 +11,7 @@ Review remediation slice 12 aligns the stale Gate 2A permission fixture with the
 
 ## Validation
 
-Exact Node 24.19.0: isolated Gate 2A attack corpus and direct output probe PASS. Replacement focused/cumulative exact-head runs are not claimed yet.
+Exact Node 24.19.0: isolated Gate 2A attack corpus/direct output probe and focused Gate 10 15/15 PASS. Replacement cumulative exact-head run is not claimed yet.
 
 ## Next
 
