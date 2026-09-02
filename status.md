@@ -11,11 +11,11 @@ P11.5 accepted-catalog source, action projection, separate revision fences, rest
 
 ## Validation
 
-Exact Node 24.19.0: P11.5 runtime/payload-adapter builds + focused static preparation 51/51 and persistence 24/24, plan-authority 39/39, lifecycle evidence 27/27, lifecycle flow 42/42; accepted-catalog 4/4; customer build + real PostgreSQL/Chromium administration 1/1; `git diff --check`; Docker empty. P11.4 focused bundler 23/23, adapter 45/45, real PostgreSQL/HTTP 1/1. Migrated runtime fixture remains 5/6 because production AppArmor is unavailable on Docker Desktop after two attempts.
+Exact Node 24.19.0: P11.5 runtime/payload-adapter/customer builds + focused static preparation 52/52 and persistence 24/24, plan-authority 39/39, lifecycle evidence 27/27, lifecycle flow 42/42; accepted-catalog 4/4; PostgreSQL/Chromium administration 1/1; syntax and `git diff --check`; Docker empty. The static PostgreSQL/HTTP proof reached its late maintenance refusal, then exposed and fixed the fixture's stale pre-deferred phase expectation; final rerun remains pending. P11.4 passed focused evidence.
 
 ## Next
 
-Update and run the real PostgreSQL/HTTP static deployment proof for deferred preparation, then request one reused Sol-xhigh P11.5 slice review.
+Reused Sol-xhigh P11.5 slice review; then rerun the exact real PostgreSQL/HTTP static deployment proof if review confirms the corrected maintenance binding.
 
 ## Blockers
 

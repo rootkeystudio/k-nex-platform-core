@@ -433,9 +433,11 @@ function admittedAuthorizationOperation(request: ExtensionChangeRequest, invento
 
 function assertNoActiveDowngrade(request: ExtensionChangeRequest, inventory: ExtensionInventoryState): void {
   const comparison = inventory.currentVersion === undefined ? undefined : compareExactSemverPrecedence(request.targetVersion, inventory.currentVersion);
+  const sameVersionUpdate = request.operation === "update" && comparison === 0;
   if ((request.operation === "install" && comparison !== undefined && comparison < 0) ||
-    (["active", "quarantined"].includes(inventory.disposition) && request.operation === "update" && comparison !== undefined && comparison <= 0)) {
-    throw new PluginManagerError("PLAN_MISMATCH", "Install and update must target a newer extension version when one is active.");
+    (["active", "quarantined"].includes(inventory.disposition) && request.operation === "update" && comparison !== undefined &&
+      (comparison < 0 || sameVersionUpdate && !(request.extension.deliveryClass === "platform-plugin" && inventory.disposition === "active")))) {
+    throw new PluginManagerError("PLAN_MISMATCH", "Install and update cannot downgrade or reuse an ineligible active extension version.");
   }
 }
 

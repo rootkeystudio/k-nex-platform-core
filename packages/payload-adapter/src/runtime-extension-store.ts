@@ -395,12 +395,12 @@ function transitionEvidence(row: OperationRow, authority: VerifiedGenerationAuth
   const plan = row.plan_json;
   if (!plan) fail("STATE_INVALID", "A lifecycle transition requires a persisted plan.");
   if (plan.executionClass === "static-release") {
-    if (plan.preparation !== "prepared") fail("STATE_INVALID", "Static lifecycle transitions require a prepared source/build plan.");
+    if (plan.preparation === "impact-only") fail("STATE_INVALID", "Static lifecycle transitions require source preparation evidence.");
     return {
       sourceCommit: plan.sourceChange.targetSourceCommit,
       compositionChangePlanDigest: plan.sourceChange.planDigest,
-      buildRequestDigest: plan.deployment.buildRequestDigest,
       generationId: plan.generationId,
+      ...(plan.preparation === "prepared" ? { buildRequestDigest: plan.deployment.buildRequestDigest } : {}),
       ...(staticReceipt ? {
         buildEvidenceDigest: staticReceipt.buildEvidenceDigest,
         applicationDigest: staticReceipt.applicationDigest,
@@ -546,7 +546,9 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
         const row = failed.rows[0];
         if (!row) continue;
         // A claim without a persisted plan never reached the lifecycle evidence boundary; manufacturing bundle evidence for it would be false.
-        if (row.plan_json) await this.appendTransition(session, row, "failed", undefined);
+        if (row.plan_json && !(row.plan_json.executionClass === "static-release" && row.plan_json.preparation === "impact-only")) {
+          await this.appendTransition(session, row, "failed", undefined);
+        }
         await session.query(
           `update runtime_extension_operation_budget set active_count=greatest(active_count-1,0) where application_id=$1 and environment=$2`,
           [row.application_id, row.environment]
@@ -659,7 +661,9 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
       );
       const saved = updated.rows[0];
       if (!saved) fail("LEASE_CONFLICT", "Runtime extension plan lease changed.");
-      await this.appendTransition(session, saved, "planning", undefined, current.active_generation ?? undefined);
+      if (!(plan.executionClass === "static-release" && plan.preparation === "impact-only")) {
+        await this.appendTransition(session, saved, "planning", undefined, current.active_generation ?? undefined);
+      }
       return operation(saved);
     });
   }
@@ -680,6 +684,9 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
   async transition(input: Parameters<RuntimeExtensionStore["transition"]>[0]) {
     return this.transaction(async (session) => {
       const row = await this.lockOperation(session, input.operationId, input.leaseToken);
+      if (row.plan_json?.executionClass === "static-release" && row.plan_json.preparation !== "prepared") {
+        fail("PHASE_CONFLICT", "Static lifecycle transitions require a prepared source/build plan.");
+      }
       if (row.phase !== input.expectedPhase) fail("PHASE_CONFLICT", "Runtime extension operation phase changed.");
       if (!allowedTransitions[row.phase].includes(input.phase)) fail("PHASE_CONFLICT", `Runtime extension transition ${row.phase} -> ${input.phase} is invalid.`);
       if (input.authority) assertAuthorityOwner(row, input.authority);

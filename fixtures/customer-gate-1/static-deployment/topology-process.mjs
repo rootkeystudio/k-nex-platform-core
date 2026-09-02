@@ -141,15 +141,18 @@ async function regenerateStaticArtifacts(sourceDirectory) {
 
 function staticChangeRequest(source, plan, approved) {
   const operation = approved.operation ?? "update";
+  const operationId = approved.operationId;
+  if (!/^operation-[0-9a-f]{32}$/u.test(operationId ?? "")) throw new Error("Approved static change is missing its durable lifecycle operation identity.");
   const generationId = approved.generationId ?? "customer-alpha-green-12";
   const sequence = approved.releaseSequence ?? 12;
   return {
+    operationId,
     applicationId: source.applicationId,
     environment: source.environment,
     expectedSourceCommit: source.expectedBase,
     generationId,
     plan: {
-      schemaVersion: 1, planId: `platform-static-plan-${sequence}`, operationId: `platform-static-operation-${sequence}`, operation,
+      schemaVersion: 1, planId: `platform-static-plan-${sequence}`, operationId, operation,
       version: plan.plugin.version, artifactDigest: plan.plugin.releaseManifestDigest, expectedRevision: approved.expectedRevision ?? 0,
       ...(approved.currentGenerationId ? { currentGenerationId: approved.currentGenerationId } : {}),
       targetGenerationId: generationId, approvalRequired: true, rollback: { available: true, windowSeconds: 86_400 },
@@ -164,7 +167,7 @@ async function authorizeSourceChange(sourceDirectory, approved, source, buildRes
   if (!["built", "attested"].includes(built.state) || built.sourceResultDigest !== await fileDigest(requiredPath("P9_SOURCE_RESULT_PATH"))) throw new Error("Source authority rejected unbound builder materials.");
   const request = staticChangeRequest(source, built.plan, approved);
   const checkpoints = new PostgresStaticCompositionCheckpointStore(pool);
-  const checkpointId = digestJson({ authority: approved.authority.identity, authorization: approved.authorization, request });
+  const checkpointId = digestJson({ authority: approved.authority.identity, actor: approved.authorization.actor, request });
   const existing = await checkpoints.read(checkpointId);
   if (!existing) await git(sourceDirectory, ["checkout", "--quiet", "--detach", source.expectedBase]);
   const repository = {
@@ -367,12 +370,13 @@ async function builder() {
   const evidence = { ...statement, signature: { algorithm: "ed25519", keyId: trustPolicy.builderIdentity, value: sign(null, Buffer.from(canonicalJson(statement)), signingKey).toString("base64") } };
   await writeJson(resultPath, { state: "built", sourceResultDigest, plan, evidence, applicationDigest, applicationPath, imageDigest, imageReference: `knex-p9-customer-alpha@${imageDigest}`, tag, sbom, sbomPath, provenance, provenancePath, composition: source.target, pluginVersion: source.plugin.version });
   const authorized = await waitJson(authorityResultPath, artifactWaitTimeout);
-  if (authorized.checkpointId !== digestJson({ authority: approved.authority.identity, authorization: approved.authorization, request: staticChangeRequest(source, plan, approved) }) || canonicalJson(authorized.change.change) !== canonicalJson(plan)) {
+  const request = staticChangeRequest(source, plan, approved);
+  if (authorized.checkpointId !== digestJson({ authority: approved.authority.identity, actor: approved.authorization.actor, request }) || canonicalJson(authorized.change.change) !== canonicalJson(plan)) {
     throw new Error("Builder rejected an unbound source authority checkpoint.");
   }
   const change = authorized.change;
   const releases = new PostgresTrustedBuildDeploymentClient(pool);
-  const deployment = await releases.request(change, approved.authorization);
+  const deployment = await releases.request(change, approved.authorization, request.operationId);
   const evidenceDigest = digestJson(evidence);
   await releases.attestBuild({ buildRequestDigest: deployment.buildRequestDigest, expectedVersion: source.plugin.version, sourceCommit: source.targetSourceCommit, buildEvidenceDigest: evidenceDigest, applicationDigest, imageDigest });
   const result = { state: "attested", sourceResultDigest, plan, checkpointId: authorized.checkpointId, change, evidence, evidenceDigest, buildRequestDigest: deployment.buildRequestDigest, applicationDigest, applicationPath, imageDigest, imageReference: `knex-p9-customer-alpha@${imageDigest}`, tag, sbom, sbomPath, provenance, provenancePath, composition: source.target, pluginVersion: source.plugin.version };

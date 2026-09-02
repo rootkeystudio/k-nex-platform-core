@@ -197,15 +197,17 @@ async function supervisorCommand(url, command) {
 
 class SupervisorDeploymentClient {
   constructor(url) { this.url = url; }
-  async request(change, authorization) {
-    return (await supervisorCommand(this.url, {
-      commandId: `release-${digestJson({ change, authorization }).slice(7, 31)}`,
+  async request(change, authorization, operationId) {
+    const durable = (await supervisorCommand(this.url, {
+      commandId: `release-${digestJson({ operationId, actor: authorization.actor, change }).slice(7, 31)}`,
       operation: "release-request",
+      operationId,
       applicationId: change.change.applicationId,
       environment: change.change.environment,
       change,
       authorization
     })).result;
+    return { buildRequestDigest: durable.buildRequestDigest, sourceCommit: durable.sourceCommit, status: "build-requested" };
   }
   async reverify(authority) {
     return (await supervisorCommand(this.url, { commandId: `reverify-${digestJson(authority).slice(7, 31)}`, operation: "release-reverify", authority })).result.verified;
@@ -644,9 +646,11 @@ test("proves distinct customer binaries and deployment processes recover from Po
       operation: "update", targetVersion: "1.0.0", expectedRevision: 1,
       idempotencyKey: "static-web-admin-update-12", correlationId: "static-web-admin-correlation-12"
     };
+    const managedRequestDigest = digestJson(managedRequest);
+    const managedOperationId = `operation-${managedRequestDigest.slice("sha256:".length, "sha256:".length + 32)}`;
     const authorization = {
       actor: { kind: "trusted-automation", identity: "github-actions:phase-9" },
-      decisionId: digestJson({ authority: "github-actions:phase-9", request: { ...managedRequest, requestDigest: digestJson(managedRequest) } })
+      decisionId: digestJson({ authority: "github-actions:phase-9", request: { ...managedRequest, requestDigest: managedRequestDigest } })
     };
     const approvedInputPath = join(artifactsDirectory, "approved-static-update.json");
     const sourceResultPath = join(artifactsDirectory, "source-authority-result.json");
@@ -663,6 +667,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     await writeFile(builderSigningKeyPath, trustedBuilderKeys.privateKey.export({ type: "pkcs8", format: "pem" }));
     await writeFile(builderTrustPolicyPath, `${canonicalJson({ builderIdentity: trustedBuilderAuthority.builderIdentity, publicKey: trustedBuilderKeys.publicKey.export({ type: "spki", format: "pem" }).toString(), authority: trustedBuilderAuthority })}\n`);
     const approvedInput = {
+      operationId: managedOperationId,
       applicationId: "customer-alpha", environment: "production", plugin: { id: "module.sales", version: "1.0.0", packageSpec: "file:packages/k-nex-module-sales-1.0.0.tgz" },
       authority: { identity: "github-app:k-nex-change-authority" }, authorization, baseApplicationDigest: blueBuild.applicationDigest,
       rollbackClosesAt: new Date(now.valueOf() + 86_400_000).toISOString()
@@ -809,7 +814,16 @@ test("proves distinct customer binaries and deployment processes recover from Po
       authorizationLifecycleProjector: salesAuthorizationProjector,
       sharedStaticGenerationRebinder: new SharedStaticPlatformPluginGenerationRebinder()
     });
-    const deploymentBoundary = new SupervisorDeploymentClient(supervisorUrl);
+    const supervisorDeploymentBoundary = new SupervisorDeploymentClient(supervisorUrl);
+    let staticSourceRequests = 0;
+    let staticBuildRequests = 0;
+    const deploymentBoundary = {
+      request: async (...args) => {
+        staticBuildRequests += 1;
+        return supervisorDeploymentBoundary.request(...args);
+      },
+      reverify: (...args) => supervisorDeploymentBoundary.reverify(...args)
+    };
     const staticReleases = new SupervisorStaticReleaseOperator(supervisorUrl);
     const installPlan = {
       schemaVersion: 1, planId: "sales-static-plan-12", operation: "update", version: plan.plugin.version,
@@ -823,7 +837,10 @@ test("proves distinct customer binaries and deployment processes recover from Po
       { validate: async () => undefined, plan: async (request) => ({ plan: managedRequest.operation === "update" ? { ...installPlan, operationId: request.operationId } : assert.fail("Unexpected static manager operation"), sourceCommit: baseCommit, generationId: "customer-alpha-green-12" }) },
       managedStore,
       { stage: async () => assert.fail("Platform Plugin delivery must not stage a live artifact."), reverify: async () => false },
-      { request: async () => change },
+      { request: async () => {
+        staticSourceRequests += 1;
+        return change;
+      } },
       deploymentBoundary,
       undefined,
       { now: () => now }
@@ -845,8 +862,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
       databaseUrl: webAdminDatabase.toString(),
       operator: {
         workerId: "p9-web-admin", automationIdentity: "github-actions:phase-9", hostInventoryDigest: sha256("p9-static-web-admin-inventory"),
-        request: managedRequest, authorization, installPlan, sourceCommit: baseCommit, generationId: "customer-alpha-green-12",
-        sourceChange: change, deployment: deploymentRequest
+        request: managedRequest, installPlan, sourceCommit: baseCommit, generationId: "customer-alpha-green-12"
       },
       supervisorUrl: process.platform === "linux" ? `http://${networkGateway}:${supervisorPort}` : `http://host.docker.internal:${supervisorPort}`
     });
@@ -855,11 +871,23 @@ test("proves distinct customer binaries and deployment processes recover from Po
     assert.equal(initiated.status, 202, `The actual isolated web/admin client must initiate only its authorized change request: ${initiatedBody.error ?? "unknown error"}`);
     assert.match(initiatedBody.operationId, /^operation-[0-9a-f]{32}$/u);
     assert.equal(initiatedBody.executionClass, "static-release");
+    assert.equal(initiatedBody.preparation, "impact-only", "The isolated web/admin process must persist impact only, without source or build authority.");
     const managedPlan = await operatorApi.plan(managedRequest);
     assert.equal(managedPlan.executionClass, "static-release");
+    assert.equal(managedPlan.preparation, "impact-only", "Static planning must remain read-only until validation.");
     assert.equal(managedPlan.operationId, initiatedBody.operationId, "The controller must resume the exact operation durably planned inside the isolated web/admin image.");
-    assert.equal(managedPlan.deployment.buildRequestDigest, greenBuild.buildRequestDigest, "PluginManager must reuse the builder-owned durable request.");
+    assert.deepEqual((await manager.operation(managedPlan.operationId)).plan, managedPlan, "PluginManager must durably retain the read-only static impact plan.");
     assert.equal((await operatorApi.plan(managedRequest)).operationId, managedPlan.operationId, "web retries must reuse one durable PluginManager operation and release request");
+    assert.deepEqual({ staticSourceRequests, staticBuildRequests }, { staticSourceRequests: 0, staticBuildRequests: 0 }, "Planning and replay must not call trusted source or build authority.");
+    const validation = await operatorApi.validate(managedPlan.operationId);
+    assert.equal(validation.valid, true, "Validation must prepare the trusted static release.");
+    const preparedManagedOperation = await manager.operation(managedPlan.operationId);
+    assert.equal(preparedManagedOperation.plan?.executionClass, "static-release");
+    assert.equal(preparedManagedOperation.plan?.preparation, "prepared", "Validation must durably attach source and build evidence.");
+    assert.equal(preparedManagedOperation.plan?.sourceChange.planDigest, change.planDigest);
+    assert.equal(preparedManagedOperation.plan?.deployment.buildRequestDigest, greenBuild.buildRequestDigest, "Validation must reuse the exact builder-owned durable request.");
+    assert.equal((await operatorApi.validate(managedPlan.operationId)).valid, true, "Validation replay must reuse the prepared static release.");
+    assert.deepEqual({ staticSourceRequests, staticBuildRequests }, { staticSourceRequests: 1, staticBuildRequests: 1 }, "Validation must create or reuse source/build authority exactly once.");
     const relabeledMigration = { ...plan.migration, steps: plan.migration.steps.map((step) => step.stepId === "migration-expand-12" ? { ...step, stepId: "migration-expand-renamed-12" } : step) };
     const store = new PostgresStaticDeploymentStore(pool, { now: () => now }, build.authority);
     const liveStore = new PostgresStaticDeploymentStore(pool, { now: () => new Date() }, build.authority);
@@ -887,7 +915,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
          on conflict (operation_id) do update set expected_revision=excluded.expected_revision, phase=excluded.phase, plan_json=excluded.plan_json`,
         [operationId, currentOwner.applicationId, currentOwner.environment, `promote:${generationId}`, sha256(operationId), lifecycle.revision, leaseExpiresAt,
           JSON.stringify({
-            executionClass: "static-release", operationId, generationId, quarantineRecovery: false,
+            executionClass: "static-release", preparation: "prepared", operationId, sourceCommit: baseCommit, generationId, quarantineRecovery: false,
             plan: { ...installPlan, operationId, expectedRevision: lifecycle.revision, targetGenerationId: generationId },
             sourceChange: change,
             deployment: { buildRequestDigest: deploymentRequest.buildRequestDigest, sourceCommit: greenBuild.change.targetSourceCommit }
@@ -1674,8 +1702,14 @@ test("proves distinct customer binaries and deployment processes recover from Po
        ) values ($1,$2,$3,'platform-plugin','module.sales','rollback','static-rollback-blue-12',$4,'{}'::jsonb,'{}'::jsonb,$5,'completed',
          'worker:static-rollback','lease-static-rollback',now() + interval '5 minutes',$6::jsonb,$7::jsonb)`,
       [rollbackOperationId, owner.applicationId, owner.environment, sha256(rollbackOperationId), rollbackLifecycle.revision - 1,
-        JSON.stringify({ executionClass: "static-release", operationId: rollbackOperationId, generationId: lowLevelRollbackReceipt.activeGenerationId,
-          sourceChange: { targetSourceCommit: lowLevelRollbackReceipt.sourceCommit, planDigest: lowLevelRollbackReceipt.compositionChangePlanDigest } }),
+        JSON.stringify({
+          executionClass: "static-release", preparation: "prepared", operationId: rollbackOperationId, sourceCommit: lowLevelRollbackReceipt.sourceCommit,
+          generationId: lowLevelRollbackReceipt.activeGenerationId, quarantineRecovery: false,
+          plan: { ...installPlan, operationId: rollbackOperationId, operation: "rollback", expectedRevision: rollbackLifecycle.revision - 1,
+            currentGenerationId: lowLevelRollbackReceipt.previousGenerationId, targetGenerationId: lowLevelRollbackReceipt.activeGenerationId },
+          sourceChange: { status: "source-change-ready", targetSourceCommit: lowLevelRollbackReceipt.sourceCommit, planDigest: lowLevelRollbackReceipt.compositionChangePlanDigest },
+          deployment: { buildRequestDigest: deploymentRequest.buildRequestDigest, sourceCommit: lowLevelRollbackReceipt.sourceCommit, status: "deployed" }
+        }),
         JSON.stringify(lowLevelRollbackReceipt)]
     );
     await pool.query(
@@ -1907,6 +1941,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     )).rows[0].count, 0, "No helper-owned static fixture admission may block the maintenance plan.");
     const offlineManagedPlan = await offlineOperatorApi.plan(offlineRequest);
     assert.equal(offlineManagedPlan.executionClass, "static-release");
+    assert.equal(offlineManagedPlan.preparation, "impact-only");
     assert.deepEqual((await offlineManager.operation(offlineManagedPlan.operationId)).plan, offlineManagedPlan, "PluginManager must durably retain the offline static-release plan before the supervisor sees it.");
     assert.equal((await pool.query("select count(*)::int count from runtime_static_release_requests where request_digest=$1", [maintenancePlaceholder.buildRequestDigest])).rows[0].count, 0, "The maintenance placeholder must not mint a durable release request.");
     await assert.rejects(
@@ -1927,7 +1962,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     await assert.rejects(store.read(owner), { code: "INPUT_INVALID" }, "forged or out-of-order recovery checkpoints must fail closed");
     await pool.query("update runtime_static_deployments set transition_checkpoint=null where application_id=$1 and environment=$2", [owner.applicationId, owner.environment]);
     const releasedOfflineOperation = await pool.query(
-      "update runtime_extension_operations set phase='failed' where operation_id=$1 and phase='source-change-ready' returning operation_id",
+      "update runtime_extension_operations set phase='failed' where operation_id=$1 and phase='planning' returning operation_id",
       [offlineManagedPlan.operationId]
     );
     if (releasedOfflineOperation.rowCount === 1) {
@@ -2156,9 +2191,11 @@ test("proves distinct customer binaries and deployment processes recover from Po
       operation: "uninstall", targetVersion: "1.0.0", expectedRevision: staticStateBeforeUninstall.revision,
       idempotencyKey: "static-uninstall-realtime-provider-13", correlationId: "static-uninstall-realtime-provider-13"
     };
+    const providerRequestDigest = digestJson(providerRequest);
+    const providerOperationId = `operation-${providerRequestDigest.slice("sha256:".length, "sha256:".length + 32)}`;
     const providerAuthorization = {
       actor: authorization.actor,
-      decisionId: digestJson({ authority: "github-actions:phase-9", request: { ...providerRequest, requestDigest: digestJson(providerRequest) } })
+      decisionId: digestJson({ authority: "github-actions:phase-9", request: { ...providerRequest, requestDigest: providerRequestDigest } })
     };
     const providerApprovedPath = join(artifactsDirectory, "approved-provider-uninstall.json");
     const providerSourceResultPath = join(artifactsDirectory, "provider-source-result.json");
@@ -2166,6 +2203,7 @@ test("proves distinct customer binaries and deployment processes recover from Po
     const providerBuildResultPath = join(artifactsDirectory, "provider-build-result.json");
     const providerGenerationId = "customer-alpha-provider-uninstall-13";
     const providerApproved = {
+      operationId: providerOperationId,
       applicationId: owner.applicationId, environment: owner.environment,
       plugin: { id: providerExtension.id, version: "1.0.0", packageSpec: "file:packages/k-nex-provider-realtime-socketio-1.0.0.tgz" },
       operation: "uninstall", generationId: providerGenerationId, currentGenerationId: providerGeneration.generationId,

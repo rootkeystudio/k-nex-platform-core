@@ -49,15 +49,8 @@ const manager = new PluginManager(
   },
   operationStore,
   { stage: async () => { throw new Error("Static web/admin planning cannot stage runtime artifacts."); }, reverify: async () => false },
-  { request: async (request, decision) => {
-    const expected = { applicationId: operator.request.applicationId, environment: operator.request.environment, expectedSourceCommit: operator.sourceCommit, generationId: operator.generationId, plan: { ...operator.installPlan, operationId: request.plan.operationId } };
-    if (canonicalJson(request) !== canonicalJson(expected) || canonicalJson(decision) !== canonicalJson(operator.authorization)) throw new Error("Static source-change authority does not match the authorized web/admin operation.");
-    return operator.sourceChange;
-  } },
-  { request: async (sourceChange, decision) => {
-    if (canonicalJson(sourceChange) !== canonicalJson(operator.sourceChange) || canonicalJson(decision) !== canonicalJson(operator.authorization)) throw new Error("Trusted build request does not match the authorized web/admin operation.");
-    return operator.deployment;
-  }, reverify: async () => false },
+  { request: async () => { throw new Error("Web/admin planning cannot request a static source change."); } },
+  { request: async () => { throw new Error("Web/admin planning cannot request a trusted build."); }, reverify: async () => false },
   undefined,
   operationClock
 );
@@ -73,7 +66,7 @@ createServer(async (request, response) => {
   if (request.method === "POST" && request.url === "/p9-change-request") {
     try {
       const plan = await operatorApi.plan(operator.request);
-      return response.writeHead(202, { "content-type": "application/json" }).end(JSON.stringify({ operationId: plan.operationId, executionClass: plan.executionClass }));
+      return response.writeHead(202, { "content-type": "application/json" }).end(JSON.stringify({ operationId: plan.operationId, executionClass: plan.executionClass, preparation: plan.executionClass === "static-release" ? plan.preparation : undefined }));
     } catch (error) {
       const causes = error instanceof AggregateError ? [...error.errors].map((cause) => cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause)).join(" | ") : "";
       const diagnostic = error instanceof Error ? `${error.name}: ${error.message}${causes ? ` (${causes})` : ""}` : JSON.stringify(error);

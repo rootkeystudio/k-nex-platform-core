@@ -337,6 +337,43 @@ describe("PluginManager", () => {
     expect(runtime.planner.plan).not.toHaveBeenCalled();
   });
 
+  it("permits a same-version active Platform Plugin rebuild but not a same-version live update", async () => {
+    const activeGeneration = {
+      authority: "static-build" as const, generationId: "customer-alpha-blue-1", version: "1.0.0", sourceCommit: "a".repeat(40),
+      compositionChangePlanDigest: digest("a"), buildEvidenceDigest: digest("b"), applicationDigest: digest("c"), imageDigest: digest("d"),
+      migrationRevision: 1, workerFencingToken: 1, receiptId: "static-receipt-blue"
+    };
+    const runtime = manager();
+    runtime.store.inventoryValue = {
+      ...emptyInventory(), revision: 1, extensions: { hotApplications: {}, themeSkins: {}, platformPlugins: {
+        "module.fixture.plugin": { disposition: "active", revision: 1, lastOperationId: "extension-operation-active", lastReceiptId: "static-receipt-blue", stateDigest: digest("9"), activeGeneration }
+      } }
+    };
+    const update: ExtensionChangeRequest = {
+      ...request, extension: { deliveryClass: "platform-plugin", id: "module.fixture.plugin" }, operation: "update", expectedRevision: 1,
+      idempotencyKey: "update:module.fixture.plugin:same-version", correlationId: "update-module-fixture-plugin-same-version"
+    };
+    runtime.planner.plan.mockImplementation(async (planning) => ({
+      plan: { schemaVersion: 1, planId: "same-version-static-update", operationId: planning.operationId, operation: "update", version: "1.0.0", artifactDigest: digest("a"),
+        expectedRevision: 1, currentGenerationId: activeGeneration.generationId, targetGenerationId: "customer-alpha-green-2", approvalRequired: true,
+        rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "platform-plugin", id: "module.fixture.plugin",
+        availability: { outcome: "maintenance-required", reasons: ["destructive-migration"] } },
+      sourceCommit: activeGeneration.sourceCommit, generationId: "customer-alpha-green-2"
+    }));
+    await expect(runtime.value.plan(update)).resolves.toMatchObject({ executionClass: "static-release", preparation: "impact-only" });
+
+    const live = manager();
+    live.store.inventoryValue = {
+      ...emptyInventory(), revision: 1, extensions: { platformPlugins: {}, themeSkins: {}, hotApplications: {
+        "app.fixture.assistant": { disposition: "active", revision: 1, lastOperationId: "extension-operation-live", lastReceiptId: "extension-receipt-live", stateDigest: digest("8"),
+          activeGeneration: { authority: "verified-bundle", version: "1.0.0", receiptId: "extension-receipt-live", ...authority } }
+      } }
+    };
+    await expect(live.value.plan({ ...request, operation: "update", expectedRevision: 1, idempotencyKey: "update:app.fixture.assistant:same-version" }))
+      .rejects.toMatchObject({ code: "PLAN_MISMATCH" });
+    expect(live.planner.plan).not.toHaveBeenCalled();
+  });
+
   it("warms and atomically activates the staged generation", async () => {
     const runtime = manager();
     const planned = await runtime.value.plan(request);
