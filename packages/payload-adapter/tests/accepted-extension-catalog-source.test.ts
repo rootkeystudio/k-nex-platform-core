@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { canonicalJson } from "@k-nex/contracts";
 import { CatalogClient, InMemoryCatalogCheckpointStore } from "@k-nex/extension-bundler";
+import { ExtensionOperatorApi, projectExtensionAdministrationActions, type RuntimeExtensionInventory } from "@k-nex/runtime";
 
 import { AcceptedExtensionCatalogSource } from "../src/accepted-extension-catalog-source.js";
 
@@ -54,31 +55,79 @@ function snapshot(catalog: ReturnType<typeof signedCatalog>) {
   } as const;
 }
 
-function source(accepted: ReturnType<typeof snapshot> | undefined) {
+const salesManifest = {
+  apiVersion: 1,
+  id: "module.sales",
+  kind: "module",
+  displayName: "Sales",
+  version: "1.0.0",
+  package: "@k-nex/module-sales",
+  compatibility: {
+    core: "^1.0.0",
+    payload: "^3.88.0",
+    node: ">=24.0.0",
+    payloadDatabaseAdapters: ["postgres"]
+  },
+  lifecycle: {
+    ownsPayloadSchema: true,
+    ownsPersistentData: true,
+    disable: "supported",
+    purge: "supported",
+    uninstall: "unsupported"
+  }
+} as const;
+
+function source(accepted: ReturnType<typeof snapshot> | undefined, trustedPlatformPluginManifests: readonly unknown[] = []) {
   const mirror = { readAcceptedSnapshot: vi.fn(async () => accepted) };
   const catalog = new CatalogClient(
     { "catalog-signer": publicKey },
     new InMemoryCatalogCheckpointStore(),
     () => Date.parse("2030-01-01T00:00:00.000Z")
   );
-  return { mirror, source: new AcceptedExtensionCatalogSource(mirror as never, catalog) };
+  return { mirror, source: new AcceptedExtensionCatalogSource(mirror as never, catalog, trustedPlatformPluginManifests) };
 }
 
 describe("AcceptedExtensionCatalogSource", () => {
-  it("maps the accepted dynamic catalog to immutable, sorted live-generation records", async () => {
+  it("composes boot-frozen Platform Plugin releases with immutable, sorted live-generation records", async () => {
     const accepted = snapshot(signedCatalog([
       entry({ deliveryClass: "theme-skin", id: "skin.night", version: "1.0.0", support: "deprecated", review: "pending", security: "advisory", revoked: true }),
       entry({ deliveryClass: "hot-application", id: "app.weather", version: "2.0.0" })
     ]));
 
-    const result = await source(accepted).source.list();
+    const result = await source(accepted, [salesManifest]).source.list();
 
     expect(result).toEqual([
       { extension: { deliveryClass: "hot-application", id: "app.weather" }, version: "2.0.0", displayName: "app.weather", support: "supported", review: "approved", security: "clear", revoked: false, availability: "live-generation" },
+      { extension: { deliveryClass: "platform-plugin", id: "module.sales" }, version: "1.0.0", displayName: "Sales", support: "supported", review: "approved", security: "clear", revoked: false, availability: "static-release" },
       { extension: { deliveryClass: "theme-skin", id: "skin.night" }, version: "1.0.0", displayName: "skin.night", support: "deprecated", review: "pending", security: "advisory", revoked: true, availability: "live-generation" }
     ]);
     expect(Object.isFrozen(result)).toBe(true);
-    expect(Object.isFrozen(result[0]!)).toBe(true);
+    for (const record of result) {
+      expect(Object.isFrozen(record)).toBe(true);
+      expect(Object.isFrozen(record.extension)).toBe(true);
+    }
+  });
+
+  it("serves exact static list/detail and catalog-backed update/re-enable actions", async () => {
+    const accepted = snapshot(signedCatalog([entry({ deliveryClass: "hot-application", id: "app.weather", version: "1.0.0" })]));
+    const composed = source(accepted, [salesManifest]).source;
+    const operator = new ExtensionOperatorApi({} as never, composed, {} as never, {} as never);
+    const records = await operator.catalogList();
+    await expect(operator.catalogDetail({ deliveryClass: "platform-plugin", id: "module.sales" }, "1.0.0")).resolves.toMatchObject({ displayName: "Sales", availability: "static-release" });
+
+    const generation = { generationId: "sales-generation-1", version: "1.0.0", applicationId: "customer-alpha", environment: "production", deliveryClass: "platform-plugin", extensionId: "module.sales" } as const;
+    const inventory = (entry: object): RuntimeExtensionInventory => ({
+      schemaVersion: 1, applicationId: "customer-alpha", environment: "production", hostInventoryDigest: `sha256:${"a".repeat(64)}`, revision: 1,
+      observedAt: "2030-01-01T00:00:00.000Z", stateDigest: `sha256:${"b".repeat(64)}`,
+      extensions: { hotApplications: {}, themeSkins: {}, platformPlugins: { "module.sales": entry } }
+    }) as RuntimeExtensionInventory;
+    const common = { revision: 1, lastOperationId: "operation-sales-1", lastReceiptId: "receipt-sales-1", stateDigest: `sha256:${"c".repeat(64)}` };
+    expect(projectExtensionAdministrationActions(inventory({ ...common, disposition: "active", activeGeneration: generation }), records).map(({ action }) => action)).toContain("update");
+    expect(projectExtensionAdministrationActions(inventory({ ...common, disposition: "disabled", retainedGeneration: generation }), records).map(({ action }) => action)).toContain("re-enable");
+  });
+
+  it("rejects duplicate exact release identities across boot-frozen static input", () => {
+    expect(() => source(undefined, [salesManifest, salesManifest])).toThrow("duplicate extension releases");
   });
 
   it("fails closed when there is no accepted snapshot", async () => {

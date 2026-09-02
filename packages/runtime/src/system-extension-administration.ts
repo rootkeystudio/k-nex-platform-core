@@ -11,7 +11,7 @@ import {
 import { type AuthorizationExpectedRevision } from "./authorization-store.js";
 import { CurrentAuthorityAdapter, createCurrentAuthorityTarget } from "./current-authority-adapter.js";
 import { ExtensionOperatorApi, type ExtensionCatalogRecord, type ExtensionSystemStatus } from "./extension-operator-api.js";
-import { admittedExtensionOperations, extensionInventoryState, type ExtensionChangeRequest, type ExtensionInventoryState, type ExtensionOperationStatus, type PluginManagerPlan } from "./plugin-manager.js";
+import { admittedExtensionOperations, extensionInventoryState, isPreparedStaticPlan, type ExtensionChangeRequest, type ExtensionInventoryState, type ExtensionOperationStatus, type PluginManagerPlan } from "./plugin-manager.js";
 
 export type SystemExtensionAdministrationErrorCode = "UNAUTHORIZED" | "REVISION_CONFLICT" | "REQUEST_INVALID" | "APPROVAL_REQUIRED" | "EXECUTION_UNAVAILABLE";
 
@@ -115,22 +115,28 @@ export class SystemExtensionAdministrationService<TContext> {
   async list(input: Readonly<{ readonly context: TContext; readonly includeUnavailable?: boolean }>): Promise<readonly ExtensionCatalogRecord[]> {
     exactInput(input, ["context", "includeUnavailable"], ["includeUnavailable"]);
     if (input.includeUnavailable !== undefined && typeof input.includeUnavailable !== "boolean") invalid("Extension catalog input is invalid.");
-    await this.readDecision(input.context);
-    return (await this.operator(input.context)).catalogList(input.includeUnavailable === true ? { includeUnavailable: true } : {});
+    const decision = await this.readDecision(input.context);
+    const result = await (await this.operator(input.context)).catalogList(input.includeUnavailable === true ? { includeUnavailable: true } : {});
+    await this.confirmRead(input.context, decision);
+    return result;
   }
 
   async detail(input: Readonly<{ readonly context: TContext; readonly extension: unknown; readonly version: string }>): Promise<ExtensionCatalogRecord | undefined> {
     exactInput(input, ["context", "extension", "version"]);
     const extension = ExtensionIdentitySchema.safeParse(input.extension);
     if (!extension.success || typeof input.version !== "string") invalid("Extension catalog detail is invalid.");
-    await this.readDecision(input.context);
-    return (await this.operator(input.context)).catalogDetail(extension.data, input.version);
+    const decision = await this.readDecision(input.context);
+    const result = await (await this.operator(input.context)).catalogDetail(extension.data, input.version);
+    await this.confirmRead(input.context, decision);
+    return result;
   }
 
   async status(input: Readonly<{ readonly context: TContext }>): Promise<ExtensionSystemStatus> {
     exactInput(input, ["context"]);
     const decision = await this.readDecision(input.context);
-    return (await this.operator(input.context)).status(decision.applicationId, decision.environment);
+    const result = await (await this.operator(input.context)).status(decision.applicationId, decision.environment);
+    await this.confirmRead(input.context, decision);
+    return result;
   }
 
   /** Immutable server projection from the exact accepted catalog records and current verified inventory. */
@@ -142,7 +148,9 @@ export class SystemExtensionAdministrationService<TContext> {
       operator.catalogList({ includeUnavailable: true }),
       operator.status(decision.applicationId, decision.environment)
     ]);
-    return projectExtensionAdministrationActions(status.inventory, catalog);
+    const result = projectExtensionAdministrationActions(status.inventory, catalog);
+    await this.confirmRead(input.context, decision);
+    return result;
   }
 
   async operationStatus(input: Readonly<{ readonly context: TContext; readonly operationId: string }>): Promise<SystemExtensionOperationStatus> {
@@ -151,7 +159,9 @@ export class SystemExtensionAdministrationService<TContext> {
     const decision = await this.readDecision(input.context);
     const operation = await (await this.operator(input.context)).operation(input.operationId);
     if (operation.request.applicationId !== decision.applicationId || operation.request.environment !== decision.environment) unauthorized();
-    return operationStatus(operation);
+    const result = operationStatus(operation);
+    await this.confirmRead(input.context, decision);
+    return result;
   }
 
   async plan(input: Readonly<{ readonly context: TContext; readonly expected: unknown; readonly request: unknown }>): Promise<SystemExtensionPlan> {
@@ -184,6 +194,7 @@ export class SystemExtensionAdministrationService<TContext> {
     const operator = await this.operator(input.context);
     await this.current(expected, operator);
     const operation = await this.boundOperation(expected, operator, input.operationId);
+    if (staticExecutionUnavailable(operation)) unavailable("This Platform Plugin plan requires explicit maintenance or is not supported; web administration cannot prepare it.");
     await this.current(expected, operator, operation.request.extension);
     await this.verifyLifecycleEvidence(input.context, expected, operation, "validate");
     const report = await this.prepare(operator, expected, operation);
@@ -200,6 +211,9 @@ export class SystemExtensionAdministrationService<TContext> {
     await this.current(expected, operator);
     const operation = await this.boundOperation(expected, operator, input.operationId);
     if (staticExecutionUnavailable(operation)) unavailable("This Platform Plugin plan requires explicit maintenance or is not supported; web administration cannot execute it.");
+    if (operation.plan?.executionClass === "static-release" && !isPreparedStaticPlan(operation.plan)) {
+      unavailable("Platform Plugin execution requires prior evidence-gated validation and prepared source/build state.");
+    }
     await this.current(expected, operator, operation.request.extension);
     if (liveActivation(operation) || operation.plan!.executionClass === "static-release") {
       if (liveActivation(operation) && !validLiveActivationPhase(operation.phase)) {
@@ -218,8 +232,17 @@ export class SystemExtensionAdministrationService<TContext> {
     const decision = await this.options.authority.authorize(context, readTarget);
     if (!allowsRead(decision)) unauthorized();
     const current = await this.options.state.readState(decision.applicationId, decision.environment);
-    if (!current || current.authorizationRevision !== decision.authorizationRevision || current.lifecycleRevision !== decision.lifecycleRevision) conflict("Authorization state changed before extension administration.");
+    if (!current || current.applicationId !== decision.applicationId || current.environment !== decision.environment ||
+      current.authorizationRevision !== decision.authorizationRevision || current.lifecycleRevision !== decision.lifecycleRevision) conflict("Authorization state changed before extension administration.");
     return decision;
+  }
+
+  private async confirmRead(context: TContext, initial: AuthorizationDecision): Promise<void> {
+    const current = await this.readDecision(context);
+    if (current.decisionId !== initial.decisionId || current.applicationId !== initial.applicationId || current.environment !== initial.environment) unauthorized();
+    if (current.authorizationRevision !== initial.authorizationRevision || current.lifecycleRevision !== initial.lifecycleRevision) {
+      conflict("Authorization state changed while reading extension administration.");
+    }
   }
 
   private async operator(context: TContext): Promise<ExtensionOperatorApi> {
@@ -320,7 +343,9 @@ export function projectExtensionAdministrationActions(
       result.push(actionView(extension, state.disposition === "fresh" ? "catalog-available" : "removed", "install"));
     }
     if (state.disposition === "active") {
-      if (admitted.has("update") && state.currentVersion && releases.some((record) => compareExactSemverPrecedence(record.version, state.currentVersion!) > 0)) {
+      if (admitted.has("update") && state.currentVersion && releases.some((record) =>
+        compareExactSemverPrecedence(record.version, state.currentVersion!) > 0 ||
+        (extension.deliveryClass === "platform-plugin" && record.version === state.currentVersion))) {
         result.push(actionView(extension, "update-available", "update"));
       }
       if (admitted.has("disable")) result.push(actionView(extension, "active", "disable"));

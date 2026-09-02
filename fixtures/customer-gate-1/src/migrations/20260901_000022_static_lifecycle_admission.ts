@@ -42,6 +42,42 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
 
     REVOKE ALL ON FUNCTION public.k_nex_static_lifecycle_admission(character varying, character varying, character varying, character varying) FROM PUBLIC;
 
+    CREATE FUNCTION public.k_nex_static_impact_plan(
+      p_operation_id varchar,
+      p_application_id varchar,
+      p_environment varchar,
+      p_extension_id varchar
+    ) RETURNS TABLE (
+      operation_id varchar,
+      application_id varchar,
+      environment varchar,
+      expected_revision integer,
+      phase varchar,
+      plan_json jsonb,
+      authorization_json jsonb,
+      lifecycle_revision integer,
+      disposition varchar
+    )
+    LANGUAGE sql
+    SECURITY DEFINER
+    SET search_path = pg_catalog
+    AS $$
+      SELECT o.operation_id, o.application_id, o.environment, o.expected_revision, o.phase,
+        o.plan_json, o.authorization_json, e.revision, e.disposition
+      FROM public.runtime_extension_operations AS o
+      JOIN public.runtime_extensions AS e
+        ON e.application_id=o.application_id AND e.environment=o.environment
+        AND e.delivery_class=o.delivery_class AND e.extension_id=o.extension_id
+      WHERE o.operation_id=p_operation_id AND o.application_id=p_application_id
+        AND o.environment=p_environment AND o.delivery_class='platform-plugin'
+        AND o.extension_id=p_extension_id AND o.phase='planning'
+        AND o.expected_revision=e.revision
+        AND o.plan_json->>'executionClass'='static-release'
+        AND o.plan_json->>'preparation'='impact-only';
+    $$;
+
+    REVOKE ALL ON FUNCTION public.k_nex_static_impact_plan(character varying, character varying, character varying, character varying) FROM PUBLIC;
+
     CREATE FUNCTION public.k_nex_static_shared_generation_rebind(
       p_application_id varchar,
       p_environment varchar,
@@ -379,6 +415,7 @@ export async function down({ db }: MigrateDownArgs): Promise<void> {
   await db.execute(sql`
     DROP FUNCTION public.k_nex_static_serving_generation(character varying, character varying);
     DROP FUNCTION public.k_nex_static_shared_generation_rebind(character varying, character varying, character varying, jsonb, character varying, character varying);
+    DROP FUNCTION public.k_nex_static_impact_plan(character varying, character varying, character varying, character varying);
     DROP FUNCTION public.k_nex_static_lifecycle_admission(character varying, character varying, character varying, character varying);
     UPDATE "k_nex_migration_revision" SET "predecessor_revision"=20, "revision"=21 WHERE "id"=1;
   `);

@@ -555,6 +555,7 @@ async function provisionStaticBinarySchema(pool) {
     grant insert on p9_static_process_events to p9_static_blue, p9_static_green;
     grant select on runtime_static_deployments, runtime_worker_generation_fences to p9_static_source, p9_static_builder, p9_static_deployer, p9_static_supervisor, p9_static_worker, p9_static_gateway, p9_static_realtime;
     grant execute on function public.k_nex_static_lifecycle_admission(character varying, character varying, character varying, character varying) to p9_static_supervisor;
+    grant execute on function public.k_nex_static_impact_plan(character varying, character varying, character varying, character varying) to p9_static_supervisor;
     grant execute on function public.k_nex_static_shared_generation_rebind(character varying, character varying, character varying, jsonb, character varying, character varying) to p9_static_supervisor;
     grant execute on function public.k_nex_static_serving_generation(character varying, character varying) to p9_static_supervisor, p9_static_gateway;
     grant select on runtime_static_deployments, runtime_worker_generation_fences to p9_static_web_admin;
@@ -2323,8 +2324,13 @@ test("proves distinct customer binaries and deployment processes recover from Po
       { now: () => now }
     );
     const providerApi = new ExtensionOperatorApi(providerManager, { list: async () => [] }, staticReleases, { observe: async () => ({ health: [] }) });
-    const providerManagedPlan = await providerApi.plan(providerRequest);
+    const providerImpactPlan = await providerApi.plan(providerRequest);
+    assert.equal(providerImpactPlan.executionClass, "static-release");
+    assert.equal(providerImpactPlan.preparation, "impact-only");
+    await providerApi.validate(providerImpactPlan.operationId);
+    const providerManagedPlan = (await providerManager.operation(providerImpactPlan.operationId)).plan;
     assert.equal(providerManagedPlan.executionClass, "static-release");
+    assert.equal(providerManagedPlan.preparation, "prepared");
     assert.equal(providerManagedPlan.sourceChange.targetSourceCommit, providerSource.targetSourceCommit);
     assert.equal(providerManagedPlan.deployment.buildRequestDigest, providerBuild.buildRequestDigest);
     trafficProbe.transition("provider-uninstall", [providerGeneration.generationId, providerGenerationId]);
@@ -2351,14 +2357,14 @@ test("proves distinct customer binaries and deployment processes recover from Po
       "select event_json->>'operationPhase' phase, event_json->'evidence' evidence from runtime_extension_audit where operation_id=$1 order by revision",
       [providerManagedPlan.operationId]
     );
-    assert.deepEqual(providerAudit.rows.map(({ phase }) => phase), ["planning", "source-change-required", "source-change-ready", "completed"]);
+    assert.deepEqual(providerAudit.rows.map(({ phase }) => phase), ["source-change-required", "source-change-ready", "completed"]);
     const providerPlannedEvidence = {
       sourceCommit: providerSource.targetSourceCommit,
       compositionChangePlanDigest: providerBuild.change.planDigest,
       buildRequestDigest: providerBuild.buildRequestDigest,
       generationId: providerGenerationId
     };
-    assert.deepEqual(providerAudit.rows.slice(0, -1).map(({ evidence }) => evidence), [providerPlannedEvidence, providerPlannedEvidence, providerPlannedEvidence]);
+    assert.deepEqual(providerAudit.rows.slice(0, -1).map(({ evidence }) => evidence), [providerPlannedEvidence, providerPlannedEvidence]);
     assert.deepEqual(providerAudit.rows.at(-1).evidence, {
       ...providerPlannedEvidence,
       buildEvidenceDigest: providerReceipt.buildEvidenceDigest,

@@ -607,7 +607,7 @@ export async function runDeploymentSupervisor({ event, ready }) {
   async function maintenanceContext(command) {
     if (command.deliveryClass !== "platform-plugin") throw commandError(409, "Maintenance command has an invalid lifecycle delivery class.", "MAINTENANCE_OPERATION_MISMATCH");
     const operation = (await pool.query(
-      "select * from public.k_nex_static_lifecycle_admission($1,$2,$3,$4)",
+      "select * from public.k_nex_static_impact_plan($1,$2,$3,$4)",
       [command.operationId, command.applicationId, command.environment, command.extensionId]
     )).rows[0];
     if (!operation || operation.phase !== "planning" ||
