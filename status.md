@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-09-02
 - **Phase:** Phase 11 — System Settings and Extension Operations
-- **Active task:** P11.6 — complete Theme Package, Skin, and Profile administration
+- **Active task:** P11.7 — implement deployment, backup, and health operations control plane
 - **State:** In progress
 
 ## Last completed
 
-P11.6d binds Remote UI rendering to an independently validated host-owned Theme Profile presentation. Host publication changes rerender the current remote tree, while presentation is absent from app identity/protocol and forged frame fields fail closed. P11.6c pages, P11.6b projection/reference blocking, and P11.6a verified profile publication remain complete.
+P11.6 is complete: current-authority profile list/read/manage, fresh verified Package/Skin preview, atomic publication/rollback, distinct administration projections, reference blocking, fixed editable pages, and serialized host-owned Remote UI presentation. App frames cannot inject presentation. Local review fixes corrected semver release selection, list authority, and profile render/update ordering.
 
 ## Validation
 
-Exact Node 24.19.0: P11.6 Remote UI host 18/18 plus UI runtime and customer builds; administration pages 3/3; theme projection 2/2; authority/preview 4/4; real PostgreSQL/Chromium Theme Skin/Profile 1/1 with invalid preview, publication races, verified generation, reference, recovery, and accessibility evidence. Post-run Docker clean.
+Exact Node 24.19.0: P11.6 Remote UI host 18/18, administration pages 3/3, theme projection 3/3, authority/profile list 5/5; affected package builds pass. Real PostgreSQL/Chromium Theme Skin/Profile 1/1 covers invalid preview, publication races, verified generation, references, recovery, and accessibility. Docker clean.
 
 ## Next
 
-P11.6e run the focused P11.6 integrity set and reused Sol-xhigh slice review; fix every valid finding.
+P11.7a pre-task review, then freeze the narrow operation projection/request boundary without duplicating authoritative state.
 
 ## Blockers
 

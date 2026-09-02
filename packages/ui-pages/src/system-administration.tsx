@@ -15,6 +15,7 @@ export interface SystemAdministrationForm {
   readonly actionUrl: string;
   readonly method?: "post";
   readonly hiddenFields?: readonly SystemAdministrationHiddenField[];
+  readonly textArea?: Readonly<{ readonly name: string; readonly label: string; readonly value: string; readonly rows?: number }>;
   readonly selection?: Readonly<{
     readonly name: string;
     readonly label: string;
@@ -258,6 +259,7 @@ function administrationNavigation(current: string): ReactElement {
 function actionControl(action: SystemAdministrationAction): ReactElement {
   if (action.form !== undefined) return <form action={action.form.actionUrl} method={action.form.method ?? "post"}>
     {action.form.hiddenFields?.map((field) => <input key={field.name} type="hidden" name={field.name} value={field.value} />)}
+    {action.form.textArea === undefined ? null : <label>{action.form.textArea.label}<textarea name={action.form.textArea.name} defaultValue={action.form.textArea.value} rows={action.form.textArea.rows ?? 16} /></label>}
     {action.form.selection === undefined ? null : <fieldset><legend>{action.form.selection.label}</legend>{action.form.selection.options.map((option) => <label key={option.value}><input type="checkbox" name={action.form!.selection!.name} value={option.value} defaultChecked={option.selected === true} />{option.label}</label>)}</fieldset>}
     {action.confirmation === undefined ? null : <><Text element="p" weight="strong">{action.confirmation.title}</Text><Text element="p">{action.confirmation.description}</Text></>}
     <Button type="submit" {...(action.disabled === undefined ? {} : { isDisabled: action.disabled })}>{action.confirmation?.confirmLabel ?? action.label}</Button>

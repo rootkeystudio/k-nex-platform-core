@@ -67,4 +67,10 @@ describe("system theme administration projection", () => {
       profiles: [], inventory, catalog
     })).toThrow("Theme Package administration descriptor is invalid");
   });
+
+  it("projects the highest exact-semver skin release", () => {
+    const releases = [catalog[0]!, { ...catalog[0]!, version: "1.0.10" }, { ...catalog[0]!, version: "1.0.9" }];
+    const emptyInventory = { ...inventory, extensions: { ...inventory.extensions, themeSkins: {} } } as RuntimeExtensionInventory;
+    expect(projectSystemThemeAdministration({ packages: [], profiles: [], inventory: emptyInventory, catalog: releases }).skins[0]).toMatchObject({ version: "1.0.10" });
+  });
 });

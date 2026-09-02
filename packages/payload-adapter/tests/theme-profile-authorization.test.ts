@@ -23,12 +23,13 @@ describe("Theme Profile current authority", () => {
     const authorizer = new CurrentAuthorityThemeProfileAuthorizer(authority as never, () => ({ session: "owner" }), reauthentication as never);
     const owner = { applicationId: "customer-alpha", environment: "production", profileId: "workspace.default" };
 
+    await expect(authorizer.authorize({ operation: "list", owner: { applicationId: owner.applicationId, environment: owner.environment } })).resolves.toBe(true);
     await expect(authorizer.authorize({ operation: "read", owner })).resolves.toBe(true);
     await expect(authorizer.authorize({ operation: "stage", owner })).resolves.toBe(true);
     await expect(authorizer.authorize({ operation: "publish", owner })).resolves.toBe(true);
     await expect(authorizer.authorize({ operation: "rollback", owner })).resolves.toBe(true);
     expect(authority.authorize.mock.calls.map(([, target]) => target.permissionId)).toEqual([
-      "system.themes.read", "system.themes.manage", "system.themes.manage", "system.themes.manage"
+      "system.themes.read", "system.themes.read", "system.themes.manage", "system.themes.manage", "system.themes.manage"
     ]);
     expect(reauthentication.verify.mock.calls.map(([input]) => input.operation)).toEqual(["publish", "rollback"]);
 
@@ -42,6 +43,17 @@ describe("Theme Profile current authority", () => {
     const store = new PostgresThemeProfileStore(pool as never, clock, { authorize }, validator);
     await expect(store.read({ applicationId: "customer-alpha", environment: "production", profileId: "workspace.default" })).rejects.toMatchObject({ code: "ACCESS_DENIED" });
     expect(pool.query).toHaveBeenCalledOnce();
+    expect(authorize).toHaveBeenCalledTimes(2);
+  });
+
+  it("lists only the authorized application/environment and rechecks authority after PostgreSQL", async () => {
+    const authorize = vi.fn().mockResolvedValue(true);
+    const pool = { query: vi.fn(async () => ({ rows: [{ profile_id: "workspace.default", revision: 0, active_revision_id: null, active_profile: null, previous_revision_id: null, previous_profile: null, draft_revision_id: null, draft_profile: null, state_digest: null }] })) };
+    const store = new PostgresThemeProfileStore(pool as never, clock, { authorize }, validator);
+    await expect(store.list({ applicationId: "customer-alpha", environment: "production" })).resolves.toEqual([
+      expect.objectContaining({ applicationId: "customer-alpha", environment: "production", profileId: "workspace.default", revision: 0 })
+    ]);
+    expect(pool.query).toHaveBeenCalledWith(expect.stringContaining("where application_id=$1 and environment=$2"), ["customer-alpha", "production"]);
     expect(authorize).toHaveBeenCalledTimes(2);
   });
 

@@ -152,10 +152,16 @@ export class RemoteUiHostSession {
   realmCrashed(): void { void this.controlledFailure("APP_FAILURE"); }
 
   /** Host publication invalidation updates presentation without giving the app native UI authority. */
-  async updatePresentation(input: RemoteUiHostPresentation): Promise<void> {
+  updatePresentation(input: RemoteUiHostPresentation): Promise<void> {
     if (this.closed) fail("SESSION_CLOSED", "Remote UI presentation cannot update after session closure.");
-    this.presentation = remoteUiHostPresentation(input);
-    if (this.root) await this.adapter.render(this.root, this.presentation, this.abortController.signal);
+    const presentation = remoteUiHostPresentation(input);
+    const update = this.queue.then(async () => {
+      if (this.closed) return;
+      this.presentation = presentation;
+      if (this.root) await this.adapter.render(this.root, this.presentation, this.abortController.signal);
+    });
+    this.queue = update.catch((error) => this.controlledFailure(error instanceof RemoteUiProtocolError && error.code === "UNAUTHORIZED" ? "UNAUTHORIZED" : "PROTOCOL_FAILURE"));
+    return update;
   }
 
   dispatchEvent(nodeId: string, event: "press" | "change" | "submit" | "selection-change", payload: JsonValue): void {

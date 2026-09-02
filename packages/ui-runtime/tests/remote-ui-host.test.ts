@@ -195,7 +195,7 @@ describe("remote UI host session authority", () => {
 
     await session.updatePresentation({ profileRevisionId: "profile-revision-2", themeId: "theme.contrast", themeVersion: "1.0.0", surface: "admin", mode: "dark" });
     expect(host.render).toHaveBeenLastCalledWith(root, expect.objectContaining({ profileRevisionId: "profile-revision-2", themeId: "theme.contrast", mode: "dark" }), expect.any(AbortSignal));
-    channel.port2.postMessage(realmFrame(generation(), "render", { root, presentation: { themeId: "theme.forged" } }));
+    channel.port2.postMessage({ ...realmFrame(generation(), "render", { root, presentation: { themeId: "theme.forged" } }), sequence: 2 });
     await tick();
     expect(host.fallback).toHaveBeenCalledWith("PROTOCOL_FAILURE", expect.any(AbortSignal));
     channel.port2.close();

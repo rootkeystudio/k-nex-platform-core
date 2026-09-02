@@ -1,6 +1,7 @@
 import {
   ExactSemverSchema,
   PluginIdSchema,
+  compareExactSemverPrecedence,
   type ExtensionAdministrationActionView,
   type RuntimeExtensionInventory,
   type ThemeProfile
@@ -85,7 +86,7 @@ export function projectSystemThemeAdministration(input: Readonly<{
   const skinIds = new Set([...Object.keys(input.inventory.extensions.themeSkins), ...catalogSkins.map((record) => record.extension.id)]);
   const skins = [...skinIds].sort().map((id): SystemThemeSkinView => {
     const entry = input.inventory.extensions.themeSkins[id];
-    const release = catalogSkins.filter((record) => record.extension.id === id).sort((left, right) => right.version.localeCompare(left.version))[0];
+    const release = catalogSkins.filter((record) => record.extension.id === id).sort((left, right) => compareExactSemverPrecedence(right.version, left.version))[0];
     const generation = entry?.disposition === "active" ? entry.activeGeneration
       : entry && "retainedGeneration" in entry ? entry.retainedGeneration : undefined;
     const version = generation?.version ?? release?.version;
