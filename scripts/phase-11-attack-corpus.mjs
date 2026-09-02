@@ -40,7 +40,13 @@ const vitestProofs = [
   ["settings-admission", "@k-nex/runtime", "tests/system-settings-administration.test.ts", [
     "denies the fixed read target before descriptor source or store access",
     "fails closed when authorization or lifecycle changes while values are read",
-    "projects active, pending, disabled, and retired records without secret references"
+    "projects active, pending, disabled, and retired records without secret references",
+    "projects missing required values only for a pending configuration generation",
+    "starts reviewed adoption without accepting source generation or retained values from the browser"
+  ]],
+  ["settings-coordinator", "@k-nex/payload-adapter", "tests/settings-validation-coordinator.test.ts", [
+    "leases, validates, and promotes only the exact staged runtime generation",
+    "returns the immutable terminal receipt after response loss without validation"
   ]],
   ["settings-change", "@k-nex/runtime", "tests/system-settings-administration-change.test.ts", [
     "rejects forged top-level and change fields before authority",
@@ -88,7 +94,7 @@ const nodeTests = [
   "tests/system-settings-theme-operations-browser.test.mjs"
 ];
 const tap = run("Phase 11 PostgreSQL/HTTP/Chromium proofs", process.execPath, ["--test", "--test-concurrency=1", "--test-reporter=tap", ...nodeTests], fixture);
-assert.equal(Number(/^# pass (\d+)$/mu.exec(tap)?.[1]), 7, "Phase 11 process proofs must pass exactly seven tests.");
+assert.equal(Number(/^# pass (\d+)$/mu.exec(tap)?.[1]), 8, "Phase 11 process proofs must pass exactly eight tests.");
 for (const marker of ["P11_7_SYSTEM_OPERATIONS_POSTGRES_EVIDENCE=PASS", "P11_8_FIXED_ADMINISTRATION_POSTGRES_CHROMIUM_EVIDENCE=PASS", "P11_9_EFFECTIVE_SETTINGS_CONVERGENCE_EVIDENCE=PASS"]) {
   assert.match(tap, new RegExp(`^# ${marker}$`, "mu"), `Missing ${marker}.`);
 }
@@ -105,5 +111,5 @@ const attacks = [
 ];
 assert.equal(new Set(attacks).size, 13);
 
-console.log(JSON.stringify({ phase: 11, status: "PASS", attacks, focusedProofs: proofResults, processProofs: 7, inheritedGates: [9, 10] }, null, 2));
+console.log(JSON.stringify({ phase: 11, status: "PASS", attacks, focusedProofs: proofResults, processProofs: 8, inheritedGates: [9, 10] }, null, 2));
 console.log("P11_ATTACK_CORPUS_PASS");
