@@ -62,6 +62,7 @@ export interface SystemPermissionAction {
   readonly label: string;
   readonly description?: string;
   readonly add?: SystemAdministrationAction;
+  readonly remove?: SystemAdministrationAction;
 }
 
 export interface SystemPermissionOperationGroup {
@@ -125,6 +126,7 @@ export interface SystemAssignmentListItem {
   readonly revision: string;
   readonly detail?: string;
   readonly revoke?: SystemAdministrationAction;
+  readonly reactivate?: SystemAdministrationAction;
 }
 
 export interface SystemAssignmentsViewModel extends SystemAdministrationPageView {
@@ -256,7 +258,7 @@ export function SystemRolesPage({ view }: { readonly view: SystemRolesViewModel 
 export function SystemRoleDetailPage({ view }: { readonly view: SystemRoleDetailViewModel }): ReactElement {
   return administrationPage(view, "roles", <Stack gap="content">
     <section aria-label="Role summary"><Heading level={2}>{view.roleLabel}</Heading><Badge>{view.roleState}</Badge></section>
-    <section aria-label="Active permissions"><Heading level={2}>Active permissions</Heading>{view.activePermissionGroups.map((owner) => <section key={owner.owner} aria-label={`Owner ${owner.owner}`}><Heading level={3}>{owner.owner}</Heading>{owner.resources.map((resource) => <section key={resource.resource}><Heading level={4}>{resource.resource}</Heading>{resource.operations.map((operation) => <section key={operation.operation}><Heading level={5}>{operation.operation}</Heading><List>{operation.permissions.map((permission) => <li key={permission.label}><Stack gap="tight"><span>{permission.label}</span>{permission.description === undefined ? null : <Text>{permission.description}</Text>}{permission.add === undefined ? null : actionControl(permission.add)}</Stack></li>)}</List></section>)}</section>)}</section>)}</section>
+    <section aria-label="Active permissions"><Heading level={2}>Active permissions</Heading>{view.activePermissionGroups.map((owner) => <section key={owner.owner} aria-label={`Owner ${owner.owner}`}><Heading level={3}>{owner.owner}</Heading>{owner.resources.map((resource) => <section key={resource.resource}><Heading level={4}>{resource.resource}</Heading>{resource.operations.map((operation) => <section key={operation.operation}><Heading level={5}>{operation.operation}</Heading><List>{operation.permissions.map((permission) => <li key={permission.label}><Stack gap="tight"><span>{permission.label}</span>{permission.description === undefined ? null : <Text>{permission.description}</Text>}{permission.add === undefined ? null : actionControl(permission.add)}{permission.remove === undefined ? null : actionControl(permission.remove)}</Stack></li>)}</List></section>)}</section>)}</section>)}</section>
     <section aria-label="Role templates"><Heading level={2}>Role templates</Heading><List>{view.templates.map((template) => <li key={template.id}><Heading level={3}>{template.title}</Heading>{template.description === undefined ? null : <Text>{template.description}</Text>}{template.instantiate === undefined ? null : actionControl(template.instantiate)}{template.copySelected === undefined ? null : actionControl(template.copySelected)}</li>)}</List></section>
     <section aria-label="Inactive permission diagnostics"><Heading level={2}>Inactive permission diagnostics</Heading>{view.inactiveDiagnostics.length === 0 ? <Text>None.</Text> : <List>{view.inactiveDiagnostics.map((diagnostic) => <li key={diagnostic.id}><strong>{diagnostic.label}</strong> <Badge tone="warning">{diagnostic.state}</Badge><Text>{diagnostic.detail}</Text></li>)}</List>}</section>
     {view.save === undefined ? null : actionControl(view.save)}
@@ -270,7 +272,7 @@ export function SystemPermissionsPage({ view }: { readonly view: SystemPermissio
 export function SystemAssignmentsPage({ view }: { readonly view: SystemAssignmentsViewModel }): ReactElement {
   return administrationPage(view, "assignments", <Stack gap="content">
     {view.createAssignment === undefined && view.manageAssignments === undefined ? null : <section aria-label="Assignment actions">{view.createAssignment === undefined ? null : actionControl(view.createAssignment)}{view.manageAssignments === undefined ? null : actionControl(view.manageAssignments)}</section>}
-    {rows("Role assignments", ["Principal", "Role", "State", "Revision", "Action"], view.assignments.map((assignment) => [<span key={assignment.id}>{assignment.principal}{assignment.detail === undefined ? null : <><br /><small>{assignment.detail}</small></>}</span>, assignment.role, assignment.state, assignment.revision, assignment.revoke === undefined ? "—" : actionControl(assignment.revoke)]))}
+    {rows("Role assignments", ["Principal", "Role", "State", "Revision", "Action"], view.assignments.map((assignment) => [<span key={assignment.id}>{assignment.principal}{assignment.detail === undefined ? null : <><br /><small>{assignment.detail}</small></>}</span>, assignment.role, assignment.state, assignment.revision, assignment.revoke === undefined ? assignment.reactivate === undefined ? "—" : actionControl(assignment.reactivate) : actionControl(assignment.revoke)]))}
   </Stack>);
 }
 

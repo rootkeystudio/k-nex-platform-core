@@ -103,7 +103,7 @@ async function renderRoute<TContext extends Context>(options: SystemAdministrati
     const expected = await options.expected();
     page = createElement(SystemRoleDetailPage, { view: {
       title: "Role", revision: revision(expected), roleLabel: detail.role.label, roleState: detail.role.protectedRoleId ? "protected" : "active",
-      activePermissionGroups: permissionGroups(permissions.active, roleId, accessExpected(expected)),
+      activePermissionGroups: permissionGroups(permissions.active, roleId, accessExpected(expected), detail.grants, detail.role.protectedRoleId === undefined),
       templates: templates.map((template) => ({ id: template.template.id, title: template.template.title, description: `Version ${template.template.version}; ${template.template.permissionIds.length} active permissions.`,
         copySelected: selectionForm(`Copy ${template.template.id} permissions`, "/api/system/access/templates/copy", { expected: accessExpected(expected), templateId: template.template.id, roleId }, "permissionIds", "Permissions to copy", template.template.permissionIds) })),
       inactiveDiagnostics: detail.grants.filter((grant) => grant.state === "inactive").map((grant) => ({ id: grant.grant.id, label: grant.grant.permissionId, state: grant.inactiveReason ?? "inactive", detail: "This grant remains visible but cannot authorize." }))
@@ -125,7 +125,7 @@ async function renderRoute<TContext extends Context>(options: SystemAdministrati
     page = createElement(SystemAssignmentsPage, { view: { title: "Assignments", revision: revision(expected),
       createAssignment: form("Create fixture assignment", "/api/system/access/assignments", { expected: accessExpected(expected), assignment: { id: "customer.mixed-assignment", principal: { kind: "user", id: "user:inactive-role" }, roleId: "customer.mixed-role" } }),
       assignments: assignments.map((assignment) => ({ id: assignment.id, principal: `${assignment.principal.kind}:${assignment.principal.id}`, role: labels.get(assignment.roleId) ?? assignment.roleId, state: assignment.state, revision: String(assignment.revision),
-        ...(assignment.state === "revoked" ? { detail: "Inactive role assignment retained for diagnostics." } : { revoke: form(`Revoke ${assignment.id}`, `/api/system/access/assignments/${encodeURIComponent(assignment.id)}/revoke`, { expected: accessExpected(expected) }) }) })) } });
+        ...(assignment.state === "revoked" ? { detail: "Inactive role assignment retained for diagnostics.", reactivate: form(`Reactivate ${assignment.id}`, `/api/system/access/assignments/${encodeURIComponent(assignment.id)}/reactivate`, { expected: accessExpected(expected) }) } : { revoke: form(`Revoke ${assignment.id}`, `/api/system/access/assignments/${encodeURIComponent(assignment.id)}/revoke`, { expected: accessExpected(expected) }) }) })) } });
   } else if (path === "/system/access/templates") {
     const templates = await options.access.templates({ context });
     const expected = await options.expected();
@@ -170,6 +170,11 @@ async function action<TContext extends Context>(options: SystemAdministrationHos
     const value = exact(body, ["expected", "permissionId"]);
     return writeJson(response, 200, await options.access.addPermission({ context, expected: value.expected, roleId, permissionId: string(value.permissionId) }));
   }
+  if (path.startsWith("/api/system/access/grants/") && path.endsWith("/remove")) {
+    const grantId = decodePathSegment(path.slice(0, -"/remove".length), "/api/system/access/grants/");
+    const value = exact(body, ["expected"]);
+    return writeJson(response, 200, await options.access.removePermission({ context, expected: value.expected, grantId }));
+  }
   if (path === "/api/system/access/assignments") {
     const value = exact(body, ["assignment", "expected"]);
     return writeJson(response, 200, await options.access.createAssignment({ context, expected: value.expected, assignment: value.assignment }));
@@ -178,6 +183,11 @@ async function action<TContext extends Context>(options: SystemAdministrationHos
     const assignmentId = decodePathSegment(path.slice(0, -"/revoke".length), "/api/system/access/assignments/");
     const value = exact(body, ["expected"]);
     return writeJson(response, 200, await options.access.revokeAssignment({ context, expected: value.expected, assignmentId }));
+  }
+  if (path.startsWith("/api/system/access/assignments/") && path.endsWith("/reactivate")) {
+    const assignmentId = decodePathSegment(path.slice(0, -"/reactivate".length), "/api/system/access/assignments/");
+    const value = exact(body, ["expected"]);
+    return writeJson(response, 200, await options.access.reactivateAssignment({ context, expected: value.expected, assignmentId }));
   }
   if (path === "/api/system/extensions/plan") {
     const value = exact(body, ["expected", "request"]);
@@ -200,7 +210,8 @@ async function action<TContext extends Context>(options: SystemAdministrationHos
   throw new RouteError(404, "Action route not found.");
 }
 
-function permissionGroups(groups: readonly ActivePermissionGroup[], roleId: string, expected: ReturnType<typeof accessExpected>) {
+function permissionGroups(groups: readonly ActivePermissionGroup[], roleId: string, expected: ReturnType<typeof accessExpected>, grants: readonly Readonly<{ readonly grant: Readonly<{ readonly id: string; readonly permissionId: string }>; readonly state: "active" | "inactive" }>[], mutable: boolean) {
+  const grantsByPermission = new Map(grants.map((grant) => [grant.grant.permissionId, grant]));
   const owners = new Map<string, { owner: string; resources: Map<string, Map<string, { label: string; description?: string }[]>> }>();
   for (const group of groups) {
     const owner = ownerLabel(group.owner);
@@ -208,7 +219,15 @@ function permissionGroups(groups: readonly ActivePermissionGroup[], roleId: stri
     owners.set(owner, entry);
     const resource = entry.resources.get(group.resource) ?? new Map<string, { label: string; description?: string }[]>();
     entry.resources.set(group.resource, resource);
-    resource.set(group.operation, group.permissions.map(({ descriptor }) => ({ label: descriptor.id, ...(descriptor.description === undefined ? {} : { description: descriptor.description }), add: form(`Add ${descriptor.id}`, `/api/system/access/roles/${encodeURIComponent(roleId)}/permissions`, { expected, permissionId: descriptor.id }) })));
+    resource.set(group.operation, group.permissions.map(({ descriptor }) => {
+      const grant = grantsByPermission.get(descriptor.id);
+      return {
+        label: descriptor.id,
+        ...(descriptor.description === undefined ? {} : { description: descriptor.description }),
+        ...(grant === undefined && mutable ? { add: form(`Add ${descriptor.id}`, `/api/system/access/roles/${encodeURIComponent(roleId)}/permissions`, { expected, permissionId: descriptor.id }) } : {}),
+        ...(grant?.state === "active" && mutable ? { remove: form(`Remove ${descriptor.id}`, `/api/system/access/grants/${encodeURIComponent(grant.grant.id)}/remove`, { expected }) } : {})
+      };
+    }));
   }
   return [...owners.values()].map((owner) => ({ owner: owner.owner, resources: [...owner.resources].map(([resource, operations]) => ({ resource, operations: [...operations].map(([operation, permissions]) => ({ operation, permissions })) })) }));
 }

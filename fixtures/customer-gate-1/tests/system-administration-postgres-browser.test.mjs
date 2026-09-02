@@ -73,6 +73,10 @@ async function submit(page, label) {
   return navigation;
 }
 
+function authorityRequest(decisionId, permissionId, resource) {
+  return createEffectiveAuthorizationRequest({ schemaVersion: 1, decisionId, permissionId, scope: { kind: "application", resource }, facts: { boundary: "system-administration-ui" } });
+}
+
 test("P10.9 proves fixed host routes, RBAC actions, lifecycle truth, and Chromium semantics against PostgreSQL", { timeout: 180_000 }, async () => {
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE).withDatabase("system_administration").withStartupTimeout(120_000).start();
   const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
@@ -143,6 +147,12 @@ test("P10.9 proves fixed host routes, RBAC actions, lifecycle truth, and Chromiu
       const current = await expected();
       return { applicationId: current.applicationId, environment: current.environment, authorizationRevision: current.authorizationRevision, lifecycleRevision: current.lifecycleRevision };
     };
+    const assertRevisionOutbox = async (before, operation) => {
+      const after = await expected();
+      assert.equal(after.authorizationRevision, before.authorizationRevision + 1, `${operation} advances authorization revision`);
+      assert.equal((await pool.query("select count(*)::int as count from k_nex_authorization_outbox where application_id=$1 and environment=$2 and authorization_revision=$3 and lifecycle_revision=$4", [applicationId, environment, after.authorizationRevision, after.lifecycleRevision])).rows[0].count, 1, `${operation} writes one revision outbox`);
+      return after;
+    };
     const authorityProbe = await resolver.authorize(sessions.get("owner"), createEffectiveAuthorizationRequest({ schemaVersion: 1, decisionId: "p10-9-owner-read-roles", permissionId: "system.roles.read", scope: { kind: "application", resource: "system.roles" }, facts: { boundary: "system-access-administration" } }));
     assert.equal(authorityProbe.outcome, "allow", JSON.stringify(authorityProbe));
     await assert.doesNotReject(access.roles({ context: { session: "owner" } }));
@@ -173,6 +183,8 @@ test("P10.9 proves fixed host routes, RBAC actions, lifecycle truth, and Chromiu
     assert.match(roleEditorText, /Platform system/u);
     assert.match(roleEditorText, /system\.roles/u);
     assert.match(roleEditorText, /read/u);
+    const protectedEditor = await request(host.url, "/system/access/roles/system.role.owner", "owner");
+    assert.doesNotMatch(await protectedEditor.text(), /\/api\/system\/access\/grants\//u, "protected role grants have no removal action");
 
     const actionPage = await context.newPage();
     await actionPage.goto(`${host.url}/system/access/roles/customer.mixed-role`);
@@ -186,6 +198,15 @@ test("P10.9 proves fixed host routes, RBAC actions, lifecycle truth, and Chromiu
     const mixedGrants = (await access.roleDetail({ context: { session: "owner" }, roleId: "customer.mixed-role" })).grants.map(({ grant }) => grant.permissionId);
     assert.ok(mixedGrants.includes("sales.pipeline.read"), "Chromium can select the non-first template permission");
     assert.ok(!mixedGrants.includes("sales.pipeline.manage"), "unselected template permission is not copied");
+    await actionPage.goto(`${host.url}/system/access/assignments`);
+    assert.equal((await submit(actionPage, "Create fixture assignment"))?.status(), 200, "Chromium submits assignment creation form");
+    assert.equal((await resolver.authorize(sessions.get("limited"), authorityRequest("p10-9-sales-before-remove", "sales.pipeline.read", "sales.pipeline"))).outcome, "allow", "next request receives newly assigned role grant");
+    await actionPage.goto(`${host.url}/system/access/roles/customer.mixed-role`);
+    const beforeRemoval = await expected();
+    assert.equal((await submit(actionPage, "Remove sales.pipeline.read"))?.status(), 200, "Chromium removes an existing active role grant");
+    await assertRevisionOutbox(beforeRemoval, "grant removal");
+    assert.ok(!(await access.roleDetail({ context: { session: "owner" }, roleId: "customer.mixed-role" })).grants.some(({ grant }) => grant.permissionId === "sales.pipeline.read"), "removed role grant no longer exists");
+    assert.equal((await resolver.authorize(sessions.get("limited"), authorityRequest("p10-9-sales-after-remove", "sales.pipeline.read", "sales.pipeline"))).outcome, "deny", "next request loses removed role grant");
     const beforeStaleAudits = (await pool.query("select count(*)::int as count from k_nex_authorization_audit where application_id=$1", [applicationId])).rows[0].count;
     const beforeStaleGrants = (await pool.query("select count(*)::int as count from k_nex_role_permission_grants where application_id=$1", [applicationId])).rows[0].count;
     assert.equal((await request(host.url, "/api/system/access/templates/copy", "owner", { expected: beforeTemplate, templateId: "sales.manager", roleId: "customer.mixed-role", permissionIds: ["sales.pipeline.manage"] })).status, 409, "stale revisions must conflict");
@@ -196,10 +217,18 @@ test("P10.9 proves fixed host routes, RBAC actions, lifecycle truth, and Chromiu
     await actionPage.getByRole("checkbox", { name: "sales.pipeline.read", exact: true }).check();
     assert.equal((await submit(actionPage, "Copy sales.manager permissions"))?.status(), 200, "Chromium submits a multi-permission selection");
     assert.deepEqual((await access.roleDetail({ context: { session: "owner" }, roleId: "customer.second-role" })).grants.map(({ grant }) => grant.permissionId).sort(), ["sales.pipeline.manage", "sales.pipeline.read"]);
+    assert.equal((await resolver.authorize(sessions.get("limited"), authorityRequest("p10-9-settings-before-revoke", "system.settings.read", "system.settings"))).outcome, "allow", "active assignment authorizes current role grant");
     await actionPage.goto(`${host.url}/system/access/assignments`);
-    assert.equal((await submit(actionPage, "Create fixture assignment"))?.status(), 200, "Chromium submits assignment creation form");
-    await actionPage.goto(`${host.url}/system/access/assignments`);
+    const beforeRevoke = await expected();
     assert.equal((await submit(actionPage, "Revoke customer.mixed-assignment"))?.status(), 200, "Chromium submits assignment revocation form");
+    await assertRevisionOutbox(beforeRevoke, "assignment revocation");
+    assert.equal((await resolver.authorize(sessions.get("limited"), authorityRequest("p10-9-settings-after-revoke", "system.settings.read", "system.settings"))).outcome, "deny", "next request loses revoked assignment authority");
+    await actionPage.goto(`${host.url}/system/access/assignments`);
+    const beforeReactivate = await expected();
+    assert.equal((await submit(actionPage, "Reactivate customer.mixed-assignment"))?.status(), 200, "Chromium reactivates the same revoked assignment");
+    await assertRevisionOutbox(beforeReactivate, "assignment reactivation");
+    assert.equal((await access.assignments({ context: { session: "owner" } })).find(({ id }) => id === "customer.mixed-assignment")?.state, "active");
+    assert.equal((await resolver.authorize(sessions.get("limited"), authorityRequest("p10-9-settings-after-reactivate", "system.settings.read", "system.settings"))).outcome, "allow", "next request restores reactivated assignment authority");
     const audit = await request(host.url, "/system/access/audit", "owner");
     assert.match(await audit.text(), /system\.roles\.manage/u);
     assert.ok((await pool.query("select count(*)::int as count from k_nex_authorization_audit where application_id=$1", [applicationId])).rows[0].count >= 3, "role mutations must write real PostgreSQL audit rows");
