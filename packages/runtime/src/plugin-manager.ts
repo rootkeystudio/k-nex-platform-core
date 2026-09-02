@@ -16,8 +16,8 @@ import {
 } from "@k-nex/contracts";
 
 export type ExtensionManagerOperation = "install" | "update" | "disable" | "rollback" | "uninstall";
-/** Internal authorization-only operation: a disabled install re-enables its retained lifecycle. */
-type ExtensionAuthorizationOperation = ExtensionManagerOperation | "enable";
+/** Internal authorization-only operations; neither is a persisted lifecycle value or public contract. */
+type ExtensionAuthorizationOperation = ExtensionManagerOperation | "enable" | "plan";
 export type { ExtensionOperationPhase } from "@k-nex/contracts";
 
 export interface ExtensionChangeRequest {
@@ -576,8 +576,8 @@ export class PluginManager {
     const requestDigest = await extensionOperationRequestDigest(request);
     const inventory = inventoryGenerationState(await this.store.inventory(request.applicationId, request.environment), request);
     assertRetainedReleaseReenable(request, inventory);
-    const authorizationOperation = admittedAuthorizationOperation(request, inventory);
-    const authorization = await this.authorizer.authorize({ ...request, operation: authorizationOperation, requestDigest });
+    admittedAuthorizationOperation(request, inventory);
+    const authorization = await this.authorizer.authorize({ ...request, operation: "plan", requestDigest });
     await this.planner.validate(Object.freeze({ ...request }));
     await this.store.reconcileExpiredOperations({ applicationId: request.applicationId, environment: request.environment });
     let claim: ClaimOperationResult;
@@ -632,7 +632,6 @@ export class PluginManager {
     } else {
       result = Object.freeze({ executionClass: "live-generation", operationId, plan: parsed, sourceCommit: planned.sourceCommit, generationId: planned.generationId });
     }
-    await this.reauthorize(claimedOperation);
     const saved = await this.store.savePlan(operationId, claimedOperation.leaseToken, result);
     if (result.executionClass === "static-release") await this.checkpointStaticPlan(saved);
     return result;

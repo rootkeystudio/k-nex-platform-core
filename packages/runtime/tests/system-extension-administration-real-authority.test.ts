@@ -252,14 +252,25 @@ describe("system extension administration real authority chain", () => {
       lifecycleEvidence: { verify: async () => ({ approval: "not-required", reauthentication: "satisfied" }) }
     });
 
-    await expect(service.plan({ context: plannerOnly, expected, request: request() })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    const plannerPlan = await service.plan({ context: plannerOnly, expected, request: request() });
     expect(resolver.authorize.mock.calls.map(([, input]) => input.permissionId).sort()).toEqual([
-      "system.extensions.install-live",
       "system.extensions.plan",
       "system.extensions.plan"
     ]);
-    expect(plannerStore.plannerValidation).not.toHaveBeenCalled();
-    expect(plannerStore.claims).not.toHaveBeenCalled();
+    expect(plannerStore.operation).toMatchObject({ operationId: plannerPlan.operationId, authorization: { actor: plannerOnly.actor } });
+    expect(plannerStore.plannerValidation).toHaveBeenCalledOnce();
+    expect(plannerStore.claims).toHaveBeenCalledOnce();
+    await expect(service.operationStatus({ context: plannerOnly, operationId: plannerPlan.operationId })).resolves.toMatchObject({ operationId: plannerPlan.operationId });
+
+    resolver.authorize.mockClear();
+    await expect(service.validate({ context: plannerOnly, expected, operationId: plannerPlan.operationId })).rejects.toMatchObject({ code: "INVALID_STATE" });
+    expect(resolver.authorize.mock.calls.map(([, input]) => input.permissionId).sort()).toEqual([
+      "system.extensions.install-live",
+      "system.extensions.plan"
+    ]);
+    resolver.authorize.mockClear();
+    await expect(service.execute({ context: plannerOnly, expected, operationId: plannerPlan.operationId })).rejects.toMatchObject({ code: "EXECUTION_UNAVAILABLE" });
+    expect(resolver.authorize.mock.calls.map(([, input]) => input.permissionId)).toEqual(["system.extensions.plan"]);
     expect(artifacts.stage).not.toHaveBeenCalled();
     expect(staticChanges.request).not.toHaveBeenCalled();
     expect(deployments.request).not.toHaveBeenCalled();
@@ -267,9 +278,6 @@ describe("system extension administration real authority chain", () => {
     resolver.authorize.mockClear();
     const created = await service.plan({ context: extensionAdmin, expected, request: request() });
     expect(resolver.authorize.mock.calls.map(([, input]) => input.permissionId).sort()).toEqual([
-      "system.extensions.install-live",
-      "system.extensions.install-live",
-      "system.extensions.plan",
       "system.extensions.plan",
       "system.extensions.plan"
     ]);
@@ -279,7 +287,6 @@ describe("system extension administration real authority chain", () => {
 
     await expect(service.operationStatus({ context: plannerOnly, operationId: created.operationId })).rejects.toMatchObject({ code: "OPERATION_NOT_FOUND" });
     await expect(service.execute({ context: plannerOnly, expected, operationId: created.operationId })).rejects.toMatchObject({ code: "OPERATION_NOT_FOUND" });
-    expect(plannerStore.resumes).not.toHaveBeenCalled();
     expect(adminStore.resumes).not.toHaveBeenCalled();
   });
 });

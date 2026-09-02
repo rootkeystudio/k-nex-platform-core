@@ -72,29 +72,27 @@ function request(input: Partial<OperationAuthorizationRequest> = {}): OperationA
 
 describe("CurrentAuthorityOperationAuthorizer", () => {
   it.each([
-    ["hot install", request(), ["system.extensions.plan", "system.extensions.install-live"], "system.extensions"],
-    ["re-enable", request({ operation: "enable" }), ["system.extensions.plan", "system.extensions.enable"], "system.extensions"],
-    ["platform install", request({ extension: { deliveryClass: "platform-plugin", id: "module.sales" } }), ["system.extensions.plan", "system.extensions.deploy-platform-plugin"], "system.extensions"],
-    ["theme install", request({ extension: { deliveryClass: "theme-skin", id: "skin.minimal-accent" } }), ["system.extensions.plan", "system.extensions.install-live"], "system.extensions"],
-    ["update", request({ operation: "update" }), ["system.extensions.plan", "system.extensions.update"], "system.extensions"],
-    ["disable", request({ operation: "disable" }), ["system.extensions.plan", "system.extensions.disable"], "system.extensions"],
-    ["rollback", request({ operation: "rollback" }), ["system.extensions.plan", "system.extensions.rollback"], "system.extensions"],
-    ["uninstall", request({ operation: "uninstall" }), ["system.extensions.plan", "system.extensions.uninstall"], "system.extensions"]
-  ] as const)("requires plan plus fixed permission for %s", async (_name, operation, permissions, operationResource) => {
+    ["impact plan", request({ operation: "plan" }), "system.extensions.plan"],
+    ["hot install", request(), "system.extensions.install-live"],
+    ["re-enable", request({ operation: "enable" }), "system.extensions.enable"],
+    ["platform install", request({ extension: { deliveryClass: "platform-plugin", id: "module.sales" } }), "system.extensions.deploy-platform-plugin"],
+    ["theme install", request({ extension: { deliveryClass: "theme-skin", id: "skin.minimal-accent" } }), "system.extensions.install-live"],
+    ["update", request({ operation: "update" }), "system.extensions.update"],
+    ["disable", request({ operation: "disable" }), "system.extensions.disable"],
+    ["rollback", request({ operation: "rollback" }), "system.extensions.rollback"],
+    ["uninstall", request({ operation: "uninstall" }), "system.extensions.uninstall"]
+  ] as const)("requires only the fixed permission for %s", async (_name, operation, permission) => {
     const value = harness();
     await expect(value.authorizer.authorize(operation)).resolves.toMatchObject({ actor });
     expect(value.current).toHaveBeenCalledWith(expect.objectContaining(operation));
-    expect(value.authorize.mock.calls.map(([, input]) => input.permissionId).sort()).toEqual([...permissions].sort());
+    expect(value.authorize.mock.calls.map(([, input]) => input.permissionId)).toEqual([permission]);
     const scopes = value.authorize.mock.calls.map(([, input]) => input.scope);
     expect(scopes).toContainEqual({ kind: "application", resource: "system.extensions" });
-    expect(scopes).toContainEqual({ kind: "application", resource: operationResource });
   });
 
-  it("requires both plan and operation decisions, with a decision ID tied to both", async () => {
-    for (const deniedPermission of ["system.extensions.plan", "system.extensions.install-live"] as const) {
-      const value = harness({ decide: (input, trustedSession) => decision(trustedSession, input, input.permissionId === deniedPermission ? "deny" : "allow") });
-      await expect(value.authorizer.authorize(baseRequest)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
-    }
+  it("requires the selected operation decision, with a decision ID tied to its request context", async () => {
+    const denied = harness({ decide: (input, trustedSession) => decision(trustedSession, input, "deny") });
+    await expect(denied.authorizer.authorize(baseRequest)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
 
     const value = harness();
     const first = await value.authorizer.authorize(baseRequest);
@@ -121,20 +119,7 @@ describe("CurrentAuthorityOperationAuthorizer", () => {
       input.permissionId === "system.extensions.enable" ? "deny" : "allow"
     ) });
     await expect(value.authorizer.authorize(request({ operation: "enable" }))).rejects.toMatchObject({ code: "UNAUTHORIZED" });
-    expect(value.authorize.mock.calls.map(([, input]) => input.permissionId).sort()).toEqual(["system.extensions.enable", "system.extensions.plan"]);
-  });
-
-  it.each([
-    ["authorization", { authorizationRevision: 5, lifecycleRevision: 8 }],
-    ["lifecycle", { authorizationRevision: 4, lifecycleRevision: 9 }]
-  ] as const)("fails closed when plan and operation decisions have mixed %s revisions", async (_kind, revisions) => {
-    const value = harness({ decide: (input, trustedSession) => decision(
-      trustedSession,
-      input,
-      "allow",
-      input.permissionId === "system.extensions.plan" ? { authorizationRevision: 4, lifecycleRevision: 8 } : revisions
-    ) });
-    await expect(value.authorizer.authorize(baseRequest)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    expect(value.authorize.mock.calls.map(([, input]) => input.permissionId)).toEqual(["system.extensions.enable"]);
   });
 
   it("allows matching authority revisions", async () => {
@@ -173,8 +158,8 @@ describe("CurrentAuthorityOperationAuthorizer", () => {
       actor: { kind: "actor", id: "user:attacker", approvalId: "approval:forged" }
     }) as OperationAuthorizationRequest;
     await expect(value.authorizer.authorize(forged)).resolves.toMatchObject({ actor });
-    expect(value.authorize.mock.calls.map(([, input]) => input.permissionId).sort()).toEqual(["system.extensions.install-live", "system.extensions.plan"]);
-    expect(value.authorize.mock.calls.map(([, input]) => input.scope)).toHaveLength(2);
+    expect(value.authorize.mock.calls.map(([, input]) => input.permissionId)).toEqual(["system.extensions.install-live"]);
+    expect(value.authorize.mock.calls.map(([, input]) => input.scope)).toHaveLength(1);
     expect(value.authorize.mock.calls.every(([, input]) => input.scope.kind === "application" && input.scope.resource === "system.extensions")).toBe(true);
   });
 });

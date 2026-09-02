@@ -41,6 +41,7 @@ type RequiredPermission = Readonly<{ permissionId: string; resource: "system.ext
 const planPermission = Object.freeze({ permissionId: "system.extensions.plan", resource: "system.extensions" } satisfies RequiredPermission);
 
 function operationPermission(request: OperationAuthorizationRequest): RequiredPermission | undefined {
+  if (request.operation === "plan") return planPermission;
   if (request.operation === "enable") return Object.freeze({ permissionId: "system.extensions.enable", resource: "system.extensions" });
   if (request.operation === "install") {
     if (request.extension.deliveryClass === "hot-application" || request.extension.deliveryClass === "theme-skin") return Object.freeze({ permissionId: "system.extensions.install-live", resource: "system.extensions" });
@@ -58,7 +59,7 @@ function operationPermission(request: OperationAuthorizationRequest): RequiredPe
 
 function validRequest(request: OperationAuthorizationRequest): boolean {
   return /^[a-z][a-z0-9-]{2,127}$/u.test(request.applicationId) && /^[a-z][a-z0-9-]{1,63}$/u.test(request.environment) &&
-    ExtensionIdentitySchema.safeParse(request.extension).success && /^(?:install|enable|update|disable|rollback|uninstall)$/u.test(request.operation) &&
+    ExtensionIdentitySchema.safeParse(request.extension).success && /^(?:plan|install|enable|update|disable|rollback|uninstall)$/u.test(request.operation) &&
     /^sha256:[0-9a-f]{64}$/u.test(request.requestDigest) && Number.isSafeInteger(request.expectedRevision) && request.expectedRevision >= 0;
 }
 
@@ -88,7 +89,8 @@ async function digest(value: unknown): Promise<string> {
 
 /**
  * Adapts the current, server-owned authority session to the Phase 9 manager port.
- * Both plan and concrete lifecycle permission must allow for every operation.
+ * Planning is independently authorized. Every later lifecycle boundary is
+ * reauthorized by PluginManager with the admitted concrete operation.
  */
 export class CurrentAuthorityOperationAuthorizer implements ExtensionOperationAuthorizer {
   constructor(
@@ -137,12 +139,10 @@ export class CurrentAuthorityOperationAuthorizer implements ExtensionOperationAu
         return decision.data;
       };
 
-      const [plan, operation] = await Promise.all([evaluate(planPermission), evaluate(required)]);
-      if (plan.applicationId !== operation.applicationId || plan.environment !== operation.environment ||
-        plan.authorizationRevision !== operation.authorizationRevision || plan.lifecycleRevision !== operation.lifecycleRevision) throw new Error("incoherent authority");
+      const decision = await evaluate(required);
       return Object.freeze({
         actor: Object.freeze(actor.data),
-        decisionId: await digest({ context, planDecisionId: plan.decisionId, operationDecisionId: operation.decisionId })
+        decisionId: await digest({ context, authorizationDecisionId: decision.decisionId })
       });
     } catch {
       throw new CurrentAuthorityOperationAuthorizerError("UNAUTHORIZED");

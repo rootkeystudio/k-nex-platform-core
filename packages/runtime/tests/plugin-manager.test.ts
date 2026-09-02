@@ -216,6 +216,72 @@ describe("PluginManager", () => {
     expect(runtime.artifacts.stage).not.toHaveBeenCalled();
   });
 
+  it("persists a plan-only decision, permits a later same-actor grant, and rejects a different actor before staging", async () => {
+    const planner = { kind: "actor" as const, id: "user-planner", approvalId: "approval-planner" };
+    let lifecycleGranted = false;
+    const authorizer = {
+      authorize: vi.fn(async (input) => {
+        if (input.operation === "plan") return { actor: planner, decisionId: digest("1") };
+        if (!lifecycleGranted) throw new Error("lifecycle permission denied");
+        return { actor: planner, decisionId: digest("2") };
+      })
+    };
+    const runtime = manager(new MemoryStore(), true, authorizer);
+    const planned = await runtime.value.plan(request);
+    expect(runtime.store.operation).toMatchObject({ authorization: { actor: planner } });
+    expect(authorizer.authorize.mock.calls.map(([input]) => input.operation)).toEqual(["plan"]);
+
+    await expect(runtime.value.stage(planned.operationId)).rejects.toMatchObject({ code: "INVALID_STATE" });
+    expect(runtime.artifacts.stage).not.toHaveBeenCalled();
+
+    lifecycleGranted = true;
+    await expect(runtime.value.stage(planned.operationId)).resolves.toEqual(authority);
+    expect(runtime.artifacts.stage).toHaveBeenCalledOnce();
+
+    let actor = planner;
+    const crossActor = {
+      authorize: vi.fn(async (input) => ({
+        actor: input.operation === "plan" ? planner : actor,
+        decisionId: digest(input.operation === "plan" ? "3" : "4")
+      }))
+    };
+    const crossed = manager(new MemoryStore(), true, crossActor);
+    const crossPlan = await crossed.value.plan(request);
+    actor = { kind: "actor", id: "user-other", approvalId: "approval-other" };
+    await expect(crossed.value.stage(crossPlan.operationId)).rejects.toMatchObject({ code: "INVALID_STATE" });
+    expect(crossed.artifacts.stage).not.toHaveBeenCalled();
+  });
+
+  it("denies the admitted lifecycle permission before Platform Plugin source or deployment mutation", async () => {
+    const actor = { kind: "actor" as const, id: "user-planner", approvalId: "approval-planner" };
+    const authorizer = {
+      authorize: vi.fn(async (input) => {
+        if (input.operation === "plan") return { actor, decisionId: digest("1") };
+        throw new Error("lifecycle permission denied");
+      })
+    };
+    const runtime = manager(new MemoryStore(), true, authorizer);
+    const platformRequest: ExtensionChangeRequest = {
+      ...request,
+      extension: { deliveryClass: "platform-plugin", id: "module.fixture.plugin" },
+      idempotencyKey: "install:module.fixture.plugin:plan-only"
+    };
+    const platformPlan: ExtensionInstallPlan = {
+      schemaVersion: 1, planId: "platform-plan-only", operationId: "placeholder", operation: "install", version: "1.0.0",
+      artifactDigest: digest("a"), expectedRevision: 0, targetGenerationId: "customer-alpha-green-1", approvalRequired: false,
+      rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "platform-plugin", id: "module.fixture.plugin",
+      availability: { outcome: "maintenance-required", reasons: ["destructive-migration"] }
+    };
+    runtime.planner.plan.mockImplementation(async (planning) => ({
+      plan: { ...platformPlan, operationId: planning.operationId }, sourceCommit: "b".repeat(40), generationId: "customer-alpha-green-1"
+    }));
+
+    await expect(runtime.value.plan(platformRequest)).rejects.toMatchObject({ code: "INVALID_STATE" });
+    expect(authorizer.authorize.mock.calls.map(([input]) => input.operation)).toEqual(["plan", "install"]);
+    expect(runtime.staticChanges.request).not.toHaveBeenCalled();
+    expect(runtime.deployments.request).not.toHaveBeenCalled();
+  });
+
   it("runs mandatory lifecycle policy validation before claiming an operation", async () => {
     const runtime = manager();
     const claimOperation = vi.spyOn(runtime.store, "claimOperation");
@@ -596,7 +662,7 @@ describe("PluginManager", () => {
     expect(disabledClaim).not.toHaveBeenCalled();
 
     await expect(disabled.value.plan({ ...request, targetVersion: "1.0.0", expectedRevision: 3, idempotencyKey: "install:app.fixture.assistant:reenable" })).resolves.toMatchObject({ generationId: "fixture-assistant-generation-1" });
-    expect(reenableAuthorizer.authorize).toHaveBeenCalledWith(expect.objectContaining({ operation: "enable" }));
+    expect(reenableAuthorizer.authorize).toHaveBeenCalledWith(expect.objectContaining({ operation: "plan" }));
   });
 
   it("rejects an otherwise-valid authority copied to another extension owner", async () => {
