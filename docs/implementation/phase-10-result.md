@@ -5,7 +5,7 @@
 - **Accepted base:** `2e510d77ac9ce3e62426f136cf56c492bb6a29ce`
 - **Delivery:** one Phase 10 branch and pull request; no merge or auto-merge
 - **Decision:** **READY FOR PHASE REVIEW**
-- **Review state:** Owner-review remediation passes the 15-test local focused Gate 10 corpus; reused Sol-xhigh review and final exact-head PR/cumulative CI remain required before merge.
+- **Review state:** Owner-review remediation passes the 15-test local focused Gate 10 corpus and reused Sol-xhigh review; final exact-head PR/cumulative CI remain required before merge.
 
 ## Scope proved
 
@@ -72,7 +72,7 @@ The executable corpus rejects role-label authority, hidden-UI authority, forged 
 
 ## Phase-result decision
 
-Every P10.1–P10.10 implementation slice and the 15-test local focused Gate 10 corpus pass. This result does not claim a final exact-head GitHub run: the reused Sol-xhigh review, focused PR check, and one cumulative Linux/AppArmor `workflow_dispatch` run on the frozen final SHA are still required before owner merge review.
+Every P10.1–P10.10 implementation slice, the 15-test local focused Gate 10 corpus, and the reused Sol-xhigh review pass. This result does not claim a final exact-head GitHub run: the focused PR check and one cumulative Linux/AppArmor `workflow_dispatch` run on the frozen final SHA are still required before owner merge review.
 
 **Decision:** **READY FOR PHASE REVIEW**
 
