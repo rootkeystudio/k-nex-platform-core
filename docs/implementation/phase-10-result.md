@@ -1,12 +1,11 @@
 # Phase 10 Result — RBAC, Authorization, and Extension Bootstrap
 
-- **Date:** 2026-09-01
+- **Date:** 2026-09-02
 - **Gate:** Gate 10
-- **Accepted base:** `2e510d7b9d77a20d7b80be013e8f8d56dde24ab2`
+- **Accepted base:** `2e510d77ac9ce3e62426f136cf56c492bb6a29ce`
 - **Delivery:** one Phase 10 branch and pull request; no merge or auto-merge
 - **Decision:** **READY FOR PHASE REVIEW**
-- **Last accepted P10.9 head:** `79c088719c2e03169bd22fd5d6f28ea2750b1de4`
-- **Review state:** P10.1–P10.10 passed with the reused Sol-xhigh reviewer. Focused PR Gate 10 run `33565849308` passed on implementation head `4de24ad`.
+- **Review state:** Owner-review remediation passes the 15-test local focused Gate 10 corpus; reused Sol-xhigh review and final exact-head PR/cumulative CI remain required before merge.
 
 ## Scope proved
 
@@ -21,11 +20,11 @@ Phase 10 replaces role labels and trusted-automation-only lifecycle access with 
 | P10.3 | Added normalized customer PostgreSQL roles, grants, assignments, adoptions, snapshots, generations, revisions, bootstrap receipts, audit, and optimistic transactions |
 | P10.4 | Resolved current effective authority by principal, application, environment, owner generation, lifecycle, scope, delegation, and live revision without client-selected permission authority |
 | P10.5 | Wired current authority across source, action, Payload, tool, job, realtime, route, Remote UI, settings, theme, PluginManager, and deployment boundaries |
-| P10.6 | Added protected role baselines, one-time first owner, concurrent last-owner safety, automatic/manual Sales and Hot Application templates, tombstones, three-way comparison, and one-time selected copy |
+| P10.6 | Added version/digest-bound protected role baselines, trusted exact-predecessor reconciliation, one-time first owner, concurrent last-owner safety, Sales and Hot Application templates, tombstones, three-way comparison, and one-time selected copy |
 | P10.7 | Projected disable, re-enable, update, uninstall, reinstall, quarantine, retained-grant adoption, and Platform Plugin release lifecycle into authorization generations |
 | P10.8 | Added transactional authorization outbox delivery, polling recovery, signed runner revision floors, active cancellation, and browser/Remote UI/realtime cache or session invalidation |
-| P10.9 | Delivered eight fixed accessible administration pages with individual grants, real template selection, assignment management, durable audit time, session-bound canonical impact plans, server approval, and current lifecycle operators |
-| P10.10 | Added Gate 10/result artifacts, atomic static runtime/authorization convergence, current-v1 release evidence, and real multi-process zero-downtime proof |
+| P10.9 | Delivered an eight-route accessible administration kill-spike with reversible grants/assignments, real template selection, durable audit time, session-bound plans, and current-authority enforcement |
+| P10.10 | Added Gate 10/result artifacts, atomic static runtime/authorization convergence, nonblocking administration reads, current-v1 release evidence, and real multi-process zero-downtime proof |
 
 ## Public contracts and affected areas
 
@@ -34,7 +33,7 @@ Phase 10 replaces role labels and trusted-automation-only lifecycle access with 
 - `@k-nex/payload-adapter`: customer PostgreSQL authorization store, lifecycle projector, transactional authorization outbox, durable audit timestamps, and current authority at Payload/theme boundaries.
 - `@k-nex/extension-runner`, Remote UI, source/action/tool/settings/theme and deployment boundaries: current revision admission and active revocation.
 - Browser/UI: fixed `/system/access/*` and `/system/extensions/*` pages rendered from server-authorized view models with native accessible actions.
-- Customer fixture: customer-owned migrations 19–21 plus real PostgreSQL, HTTP, Chromium, lifecycle, convergence, and administration journeys.
+- Customer fixture: customer-owned migrations 19–22 plus real PostgreSQL, HTTP, Chromium, lifecycle, convergence, and administration journeys.
 
 ## Executable evidence
 
@@ -49,7 +48,7 @@ Phase 10 replaces role labels and trusted-automation-only lifecycle access with 
 
 The gate is not a marker-only assertion: it executes exact named test files, requires their TAP pass count and names, requires the Chromium evidence marker, validates the canonical authorization schema and Sales-only module boundary, and checks this task matrix and decision.
 
-The bounded `node scripts/gate-10.mjs` evidence passed all 11 named PostgreSQL/Chromium tests on Node 24.19.0. The inherited Gate 9 static proof now also passes with one narrow locked lifecycle-admission function, atomic manager completion that rebinds every active Platform Plugin runtime and authorization generation, and serving selection that remains on the prior generation until convergence. Real continuous HTTP evidence covers install, update, rollback, re-promotion, and schema-less provider uninstall without availability failure.
+The bounded `node scripts/gate-10.mjs` evidence passes all 15 named PostgreSQL/Chromium tests on Node 24.19.0. It now includes protected-baseline evolution, atomic Sales scope admission, public-boundary delegation dominance, target-specific protected assignment admission, reversible grant/assignment authority, and nonblocking repeatable-read administration. The inherited Gate 9 static proof supplies the locked lifecycle-admission and continuous HTTP topology evidence.
 
 ### Convergence evidence boundary
 
@@ -64,7 +63,7 @@ The executable corpus rejects role-label authority, hidden-UI authority, forged 
 ## Known limits and deferred scope
 
 - Role inheritance, explicit deny, direct per-user grants, temporal assignments, full SSO, and public marketplace governance remain out of scope.
-- User-operated lifecycle actions remain limited to the fixed server administration routes and current permission/approval model; deployment-specific approval and reauthentication providers remain adapters.
+- The fixed extension-detail route proves install planning/execution admission only; disable, rollback, update, and uninstall product controls remain outside this kill-spike. Deployment-specific approval and reauthentication providers remain adapters.
 - Maintenance-required delivery is classified and refused safely; a production maintenance workflow is not claimed.
 - Current Phase 9–10 first-party release fixtures, workspace packages, packed artifacts, customer manifests, and signed hosted evidence use `1.0.0`; no compatibility shim or supported prior product release exists. Upgrade behavior uses only neutral `@fixture` identities.
 - The seven-boundary P10 convergence fixture uses in-process adapters as described above. Independent-process lifecycle delivery remains proven by Gate 9 and is composed with focused Phase 10 revocation evidence; this result makes no broader claim.
@@ -73,7 +72,7 @@ The executable corpus rejects role-label authority, hidden-UI authority, forged 
 
 ## Phase-result decision
 
-Every P10.1–P10.10 slice is implemented and passed its focused acceptance and reused Sol-xhigh review. P10.10's isolated static, release, hosted-attestation, customer-build, restore, Hot Application, and retirement-fence evidence passes. Linux cumulative evidence passed the real Hot Application and static multi-process topology before exposing the later independent retirement fixture lease; that exact real-PostgreSQL proof passes after correction. Focused PR Gate 10 then passed all 11 named PostgreSQL/Chromium tests and its exact-head repository audit in run `33565849308`.
+Every P10.1–P10.10 implementation slice and the 15-test local focused Gate 10 corpus pass. This result does not claim a final exact-head GitHub run: the reused Sol-xhigh review, focused PR check, and one cumulative Linux/AppArmor `workflow_dispatch` run on the frozen final SHA are still required before owner merge review.
 
 **Decision:** **READY FOR PHASE REVIEW**
 

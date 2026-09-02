@@ -11,11 +11,11 @@ Review remediation slices 1–8 also bind protected assignments to locked server
 
 ## Validation
 
-Exact Node 24.19.0: focused Gate 10 passed 14/14 before xhigh corrections; corrected builds, store 19/19, runtime 24/24, protected-boundary PG 1/1, and public delegation PG 1/1 PASS. Final corrected focused/cumulative runs are not claimed yet.
+Exact Node 24.19.0: corrected focused Gate 10 passes 15/15 named PostgreSQL/Chromium tests; store 19/19 and runtime 24/24 focused tests PASS. Final cumulative exact-head run is not claimed yet.
 
 ## Next
 
-Rerun corrected focused Gate 10 and reused Sol-xhigh review; then freeze exact head for PR and cumulative Linux/AppArmor evidence.
+Obtain reused Sol-xhigh PASS, then freeze exact head for PR and cumulative Linux/AppArmor evidence.
 
 ## Blockers
 
