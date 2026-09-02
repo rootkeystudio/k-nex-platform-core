@@ -7,15 +7,15 @@
 
 ## Last completed
 
-P11.7a adds the narrow current-authority operations service. It projects only authoritative references and safe health, derives application/environment/inventory/actor server-side, fences revisions, requires reauthentication plus restore approval, and accepts only a context-bound trusted operator. P11.6 remains complete.
+P11.7b adds customer PostgreSQL backup/restore-drill authority: revision/inventory CAS, exact actor-bound replay, worker leases and expiry takeover, clean-environment completion proof, immutable accepted/terminal receipts, safe audit, and transactional outbox. P11.7a current-authority service remains complete.
 
 ## Validation
 
-Exact Node 24.19.0: P11.7 operations service 4/4 plus runtime build. P11.6 Remote UI 18/18, pages 3/3, projection 3/3, authority/profile list 5/5 and real PostgreSQL/Chromium Theme Skin/Profile 1/1 passed. Docker clean.
+Exact Node 24.19.0: P11.7 operations service 5/5 plus runtime/payload/customer builds; real PostgreSQL operations authority 1/1 covers response loss, restart leases, proof, immutability, audit, and outbox. P11.6 focused integrity and real PostgreSQL/Chromium fixture passed. Docker clean.
 
 ## Next
 
-P11.7b add durable request/receipt, audit, outbox, replay, crash-resume, and operator-restart authority in customer PostgreSQL.
+P11.7c add safe health/reference aggregation and deployment/backup operator adapters, then isolated integration proof.
 
 ## Blockers
 

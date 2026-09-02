@@ -22,6 +22,7 @@ import * as migration_20260901_000021_authorization_outbox from "./20260901_0000
 import * as migration_20260901_000022_static_lifecycle_admission from "./20260901_000022_static_lifecycle_admission.js";
 import * as migration_20260902_000023_system_settings from "./20260902_000023_system_settings.js";
 import * as migration_20260902_000024_catalog_mirror from "./20260902_000024_catalog_mirror.js";
+import * as migration_20260902_000025_system_operations from "./20260902_000025_system_operations.js";
 
 import type { CustomerPayloadMigration } from "@k-nex/payload-adapter";
 
@@ -145,5 +146,10 @@ export const migrations: CustomerPayloadMigration[] = [
     up: migration_20260902_000024_catalog_mirror.up,
     down: migration_20260902_000024_catalog_mirror.down,
     name: "20260902_000024_catalog_mirror"
+  },
+  {
+    up: migration_20260902_000025_system_operations.up,
+    down: migration_20260902_000025_system_operations.down,
+    name: "20260902_000025_system_operations"
   }
 ];

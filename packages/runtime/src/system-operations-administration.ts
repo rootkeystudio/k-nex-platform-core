@@ -41,6 +41,7 @@ export interface SystemOperationsProjectionSource {
 }
 
 export interface SystemOperationsOperator {
+  replay(input: Readonly<{ kind: SystemOperationKind; applicationId: string; environment: string; expectedOperationsRevision: number; requestedBy: AuthorizationDecision["effectiveActor"]; idempotencyKey: string }>): Promise<OperationsCenterReceipt | undefined>;
   submit(input: Readonly<{
     readonly kind: SystemOperationKind;
     readonly applicationId: string;
@@ -95,14 +96,16 @@ export class SystemOperationsAdministrationService<TContext> {
     if (!request.success) invalid();
     const decision = await this.authorize(input.context, input.kind);
     const state = await this.current(decision);
+    const operator = await this.operator(input.context);
+    const replay = await operator.replay({ kind: input.kind, applicationId: decision.applicationId, environment: decision.environment, expectedOperationsRevision: request.data.expectedOperationsRevision, requestedBy: decision.effectiveActor, idempotencyKey: request.data.idempotencyKey });
+    if (replay) return this.receipt(replay, input.kind, decision, undefined, request.data.idempotencyKey);
     if (request.data.expectedOperationsRevision !== state.operationsRevision) conflict();
     const evidence = await this.options.evidence.verify({ context: input.context, kind: input.kind, decision, state });
     if (evidence?.reauthentication !== "satisfied") unauthorized();
     if (input.kind === "restore-drill" && evidence.approval !== "satisfied") throw new SystemOperationsAdministrationError("APPROVAL_REQUIRED", "Restore drill requires current server approval.");
     if (input.kind === "backup" && evidence.approval !== "not-required" && evidence.approval !== "satisfied") unauthorized();
     await this.current(decision, state);
-    const operator = await this.operator(input.context);
-    const receipt = OperationsCenterReceiptSchema.safeParse(await operator.submit({
+    const receipt = await operator.submit({
       kind: input.kind,
       applicationId: decision.applicationId,
       environment: decision.environment,
@@ -110,11 +113,8 @@ export class SystemOperationsAdministrationService<TContext> {
       expectedInventoryDigest: state.inventoryDigest,
       requestedBy: decision.effectiveActor,
       idempotencyKey: request.data.idempotencyKey
-    }));
-    if (!receipt.success || receipt.data.kind !== input.kind || receipt.data.applicationId !== decision.applicationId ||
-      receipt.data.environment !== decision.environment || receipt.data.expectedInventoryDigest !== state.inventoryDigest ||
-      receipt.data.idempotencyKey !== request.data.idempotencyKey) throw new SystemOperationsAdministrationError("OPERATOR_UNAVAILABLE", "Trusted operation receipt is invalid.");
-    return Object.freeze(receipt.data);
+    });
+    return this.receipt(receipt, input.kind, decision, state.inventoryDigest, request.data.idempotencyKey);
   }
 
   private async authorize(context: TContext, operation: "read" | SystemOperationKind): Promise<AuthorizationDecision> {
@@ -137,6 +137,15 @@ export class SystemOperationsAdministrationService<TContext> {
       if (value) return value;
     } catch { /* fail closed */ }
     throw new SystemOperationsAdministrationError("OPERATOR_UNAVAILABLE", "Trusted operations operator is unavailable.");
+  }
+
+  private receipt(value: unknown, kind: SystemOperationKind, decision: AuthorizationDecision, inventoryDigest: string | undefined, idempotencyKey: string): OperationsCenterReceipt {
+    const receipt = OperationsCenterReceiptSchema.safeParse(value);
+    if (!receipt.success || receipt.data.kind !== kind || receipt.data.applicationId !== decision.applicationId ||
+      receipt.data.environment !== decision.environment || inventoryDigest !== undefined && receipt.data.expectedInventoryDigest !== inventoryDigest ||
+      receipt.data.requestedBy.kind !== decision.effectiveActor.kind || receipt.data.requestedBy.id !== decision.effectiveActor.id ||
+      receipt.data.idempotencyKey !== idempotencyKey) throw new SystemOperationsAdministrationError("OPERATOR_UNAVAILABLE", "Trusted operation receipt is invalid.");
+    return Object.freeze(receipt.data);
   }
 }
 
