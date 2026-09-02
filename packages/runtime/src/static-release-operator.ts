@@ -4,6 +4,7 @@ import type { StaticReleaseOperator } from "./extension-operator-api.js";
 import {
   extensionOperationActorMatches,
   extensionOperationRequestDigest,
+  isPreparedStaticPlan,
   type ExtensionOperationAuthorizer,
   type ExtensionOperationStatus,
   type ExtensionValidationReport,
@@ -118,7 +119,7 @@ export class DurableStaticReleaseOperator implements StaticReleaseOperator {
     const lease = await this.workerLeases.acquire(operation);
     await this.admit(operation);
     const plan = operation.plan;
-    if (!plan || plan.executionClass !== "static-release") throw new StaticReleaseOperatorError("INVALID_OPERATION", "Static release operator requires a static-release operation plan.");
+    if (!isPreparedStaticPlan(plan)) throw new StaticReleaseOperatorError("INVALID_OPERATION", "Static release operator requires a prepared static-release operation plan.");
     const outcome = await this.supervisor.deploy({
       build,
       generationId: plan.generationId,
@@ -165,13 +166,13 @@ export class DurableStaticReleaseOperator implements StaticReleaseOperator {
   async finalize(operation: ExtensionOperationStatus): Promise<void> {
     await this.admit(operation);
     const plan = operation.plan;
-    if (!plan || plan.executionClass !== "static-release") throw new StaticReleaseOperatorError("INVALID_OPERATION", "Static release finalization requires a static-release operation plan.");
+    if (!isPreparedStaticPlan(plan)) throw new StaticReleaseOperatorError("INVALID_OPERATION", "Static release finalization requires a prepared static-release operation plan.");
     await this.supervisor.recover({ applicationId: operation.request.applicationId, environment: operation.request.environment });
   }
 
   private async request(operation: ExtensionOperationStatus): Promise<DurableStaticReleaseRequest> {
     const plan = operation.plan;
-    if (!plan || plan.executionClass !== "static-release") throw new StaticReleaseOperatorError("INVALID_OPERATION", "Static release operator requires a static-release operation plan.");
+    if (!isPreparedStaticPlan(plan)) throw new StaticReleaseOperatorError("INVALID_OPERATION", "Static release operator requires a prepared static-release operation plan.");
     const request = await this.requests.readRequest(plan.deployment.buildRequestDigest);
     if (!request) throw new StaticReleaseOperatorError("AUTHORITY_UNAVAILABLE", "Durable static release request is unavailable.");
     this.assertRequest(operation, request);
@@ -191,7 +192,7 @@ export class DurableStaticReleaseOperator implements StaticReleaseOperator {
     if (!build) throw new StaticReleaseOperatorError("AUTHORITY_UNAVAILABLE", "Trusted build authority cannot reverify the durable static release request.");
     const verified = this.verifiedBuilds.read(build);
     const plan = operation.plan;
-    if (!plan || plan.executionClass !== "static-release") throw new StaticReleaseOperatorError("INVALID_OPERATION", "Static release operator requires a static-release operation plan.");
+    if (!isPreparedStaticPlan(plan)) throw new StaticReleaseOperatorError("INVALID_OPERATION", "Static release operator requires a prepared static-release operation plan.");
     if (verified.change.planDigest !== plan.sourceChange.planDigest || verified.change.targetSourceCommit !== plan.sourceChange.targetSourceCommit ||
       verified.evidenceDigest !== request.buildEvidenceDigest || verified.evidence.applicationSubject.digest !== request.applicationDigest || verified.evidence.imageSubject.digest !== request.imageDigest) {
       throw new StaticReleaseOperatorError("AUTHORITY_MISMATCH", "Trusted build token does not match the durable static release request.");
@@ -201,7 +202,7 @@ export class DurableStaticReleaseOperator implements StaticReleaseOperator {
 
   private assertRequest(operation: ExtensionOperationStatus, request: DurableStaticReleaseRequest): void {
     const plan = operation.plan;
-    if (!plan || plan.executionClass !== "static-release" || request.applicationId !== operation.request.applicationId || request.environment !== operation.request.environment ||
+    if (!isPreparedStaticPlan(plan) || request.applicationId !== operation.request.applicationId || request.environment !== operation.request.environment ||
       request.version !== plan.plan.version || request.sourceCommit !== plan.sourceChange.targetSourceCommit || request.changePlanDigest !== plan.sourceChange.planDigest ||
       request.buildRequestDigest !== plan.deployment.buildRequestDigest || plan.deployment.sourceCommit !== plan.sourceChange.targetSourceCommit) {
       throw new StaticReleaseOperatorError("AUTHORITY_MISMATCH", "Durable static release request does not bind this operation's exact source, version, and plan.");
@@ -212,7 +213,7 @@ export class DurableStaticReleaseOperator implements StaticReleaseOperator {
     if (request.status !== "deployed" || !request.receipt) throw new StaticReleaseOperatorError("AUTHORITY_UNAVAILABLE", "Deployed static release request is missing its authoritative receipt.");
     const plan = operation.plan;
     const receipt = request.receipt;
-    if (!plan || plan.executionClass !== "static-release" || receipt.applicationId !== request.applicationId || receipt.environment !== request.environment ||
+    if (!isPreparedStaticPlan(plan) || receipt.applicationId !== request.applicationId || receipt.environment !== request.environment ||
       receipt.activeGenerationId !== plan.generationId || receipt.sourceCommit !== request.sourceCommit || receipt.compositionChangePlanDigest !== request.changePlanDigest ||
       receipt.buildEvidenceDigest !== request.buildEvidenceDigest || receipt.applicationDigest !== request.applicationDigest || receipt.imageDigest !== request.imageDigest ||
       receipt.migrationRevision !== request.migrationRevision || receipt.workerFencingToken !== request.workerFencingToken ||
@@ -226,7 +227,7 @@ export class DurableStaticReleaseOperator implements StaticReleaseOperator {
 
   private async recover(operation: ExtensionOperationStatus, request: DurableStaticReleaseRequest, receiptOperation: "promote" | "rollback"): Promise<DurableStaticReleaseRequest | undefined> {
     const plan = operation.plan;
-    if (!plan || plan.executionClass !== "static-release") throw new StaticReleaseOperatorError("INVALID_OPERATION", "Static release operator requires a static-release operation plan.");
+    if (!isPreparedStaticPlan(plan)) throw new StaticReleaseOperatorError("INVALID_OPERATION", "Static release operator requires a prepared static-release operation plan.");
     const recovered = await this.requests.recoverDeployment({
       buildRequestDigest: request.buildRequestDigest,
       expectedVersion: request.version,

@@ -107,6 +107,12 @@ class MemoryStore implements RuntimeExtensionStore {
     return this.operation;
   }
 
+  async saveStaticPreparation(_id: string, _token: string, plan: Extract<PluginManagerPlan, { executionClass: "static-release" }>): Promise<RuntimeExtensionOperation> {
+    if (!this.operation) throw new Error("missing operation");
+    this.operation = { ...this.operation, plan };
+    return this.operation;
+  }
+
   async transition(input: Parameters<RuntimeExtensionStore["transition"]>[0]) {
     if (!this.operation || this.operation.phase !== input.expectedPhase) throw new Error("phase mismatch");
     this.transitions.push(`${input.expectedPhase}->${input.phase}`);
@@ -252,7 +258,7 @@ describe("PluginManager", () => {
     expect(crossed.artifacts.stage).not.toHaveBeenCalled();
   });
 
-  it("denies the admitted lifecycle permission before Platform Plugin source or deployment mutation", async () => {
+  it("lets a planner create a read-only Platform Plugin impact plan, then denies preparation before source or deployment mutation", async () => {
     const actor = { kind: "actor" as const, id: "user-planner", approvalId: "approval-planner" };
     const authorizer = {
       authorize: vi.fn(async (input) => {
@@ -276,8 +282,31 @@ describe("PluginManager", () => {
       plan: { ...platformPlan, operationId: planning.operationId }, sourceCommit: "b".repeat(40), generationId: "customer-alpha-green-1"
     }));
 
-    await expect(runtime.value.plan(platformRequest)).rejects.toMatchObject({ code: "INVALID_STATE" });
+    await expect(runtime.value.plan(platformRequest)).resolves.toMatchObject({ executionClass: "static-release", preparation: "impact-only" });
+    expect(authorizer.authorize.mock.calls.map(([input]) => input.operation)).toEqual(["plan"]);
+    expect(runtime.staticChanges.request).not.toHaveBeenCalled();
+    expect(runtime.deployments.request).not.toHaveBeenCalled();
+
+    await expect(runtime.value.prepareStaticRelease(runtime.store.operation!.operationId)).rejects.toMatchObject({ code: "INVALID_STATE" });
     expect(authorizer.authorize.mock.calls.map(([input]) => input.operation)).toEqual(["plan", "install"]);
+    expect(runtime.staticChanges.request).not.toHaveBeenCalled();
+    expect(runtime.deployments.request).not.toHaveBeenCalled();
+  });
+
+  it("rejects an actor swap before static source recovery", async () => {
+    const planner = { kind: "actor" as const, id: "user-planner", approvalId: "approval-planner" };
+    const other = { kind: "actor" as const, id: "user-other", approvalId: "approval-other" };
+    const runtime = manager(new MemoryStore(), true, { authorize: vi.fn(async (input) => ({ actor: input.operation === "plan" ? planner : other, decisionId: digest(input.operation === "plan" ? "1" : "2") })) });
+    const platformRequest: ExtensionChangeRequest = { ...request, extension: { deliveryClass: "platform-plugin", id: "module.fixture.plugin" }, idempotencyKey: "install:module.fixture.plugin:actor-swap" };
+    const platformPlan: ExtensionInstallPlan = {
+      schemaVersion: 1, planId: "platform-actor-swap", operationId: "placeholder", operation: "install", version: "1.0.0", artifactDigest: digest("a"), expectedRevision: 0,
+      targetGenerationId: "customer-alpha-green-1", approvalRequired: false, rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "platform-plugin", id: "module.fixture.plugin",
+      availability: { outcome: "maintenance-required", reasons: ["destructive-migration"] }
+    };
+    runtime.planner.plan.mockImplementation(async (planning) => ({ plan: { ...platformPlan, operationId: planning.operationId }, sourceCommit: "b".repeat(40), generationId: "customer-alpha-green-1" }));
+
+    const plan = await runtime.value.plan(platformRequest);
+    await expect(runtime.value.prepareStaticRelease(plan.operationId)).rejects.toMatchObject({ code: "INVALID_STATE" });
     expect(runtime.staticChanges.request).not.toHaveBeenCalled();
     expect(runtime.deployments.request).not.toHaveBeenCalled();
   });
@@ -317,7 +346,7 @@ describe("PluginManager", () => {
     expect(runtime.store.transitions.at(-1)).toBe("staged->warming");
   });
 
-  it("delegates module and executable theme Platform Plugins to source and trusted-build authorities", async () => {
+  it("prepares Platform Plugin source/build authority only after impact planning, then resumes without duplicate requests", async () => {
     const runtime = manager();
     const platformRequest: ExtensionChangeRequest = { ...request, extension: { deliveryClass: "platform-plugin", id: "module.fixture.plugin" }, idempotencyKey: "install:module.fixture.plugin:1" };
     const platformPlan: ExtensionInstallPlan = {
@@ -329,12 +358,16 @@ describe("PluginManager", () => {
     runtime.planner.plan.mockImplementation(async (planning) => ({ plan: { ...platformPlan, operationId: planning.operationId }, sourceCommit: "b".repeat(40), generationId: "customer-alpha-green-1" }));
     runtime.staticChanges.request.mockResolvedValue({ status: "source-change-ready", planDigest: digest("f"), targetSourceCommit: "b".repeat(40), change: staticChange });
     runtime.deployments.request.mockResolvedValue({ status: "build-requested", buildRequestDigest: digest("9"), sourceCommit: "b".repeat(40) });
-    await expect(runtime.value.plan(platformRequest)).resolves.toMatchObject({ executionClass: "static-release" });
+    await expect(runtime.value.plan(platformRequest)).resolves.toMatchObject({ executionClass: "static-release", preparation: "impact-only" });
+    expect(runtime.store.transitions).toEqual([]);
+    expect(runtime.staticChanges.request).not.toHaveBeenCalled();
+    expect(runtime.deployments.request).not.toHaveBeenCalled();
+    await expect(runtime.value.prepareStaticRelease(runtime.store.operation!.operationId)).resolves.toMatchObject({ phase: "source-change-ready", plan: { preparation: "prepared" } });
     expect(runtime.store.transitions).toEqual(["planning->source-change-required", "source-change-required->source-change-ready"]);
     expect(runtime.staticChanges.request).toHaveBeenCalledOnce();
     expect(runtime.deployments.request).toHaveBeenCalledOnce();
     runtime.store.operation = { ...runtime.store.operation!, phase: "source-change-required" };
-    await runtime.value.plan(platformRequest);
+    await runtime.value.prepareStaticRelease(runtime.store.operation!.operationId);
     expect(runtime.store.transitions.at(-1)).toBe("source-change-required->source-change-ready");
     expect(runtime.staticChanges.request).toHaveBeenCalledOnce();
     expect(runtime.deployments.request).toHaveBeenCalledOnce();
@@ -344,8 +377,35 @@ describe("PluginManager", () => {
     theme.planner.plan.mockImplementation(async (planning) => ({ plan: { ...platformPlan, id: "module.fixture.theme", operationId: planning.operationId }, sourceCommit: "b".repeat(40), generationId: "customer-alpha-green-1" }));
     theme.staticChanges.request.mockResolvedValue({ status: "source-change-ready", planDigest: digest("f"), targetSourceCommit: "b".repeat(40), change: staticChange });
     theme.deployments.request.mockResolvedValue({ status: "build-requested", buildRequestDigest: digest("9"), sourceCommit: "b".repeat(40) });
-    await expect(theme.value.plan(themeRequest)).resolves.toMatchObject({ executionClass: "static-release" });
+    await expect(theme.value.plan(themeRequest)).resolves.toMatchObject({ executionClass: "static-release", preparation: "impact-only" });
+    expect(theme.staticChanges.request).not.toHaveBeenCalled();
+    expect(theme.deployments.request).not.toHaveBeenCalled();
     expect(theme.artifacts.stage).not.toHaveBeenCalled();
+  });
+
+  it("persists source preparation before build dispatch and retries with a fresh concrete decision", async () => {
+    let decision = 0;
+    const actor = { kind: "trusted-automation" as const, identity: "github-actions:phase-9" };
+    const runtime = manager(new MemoryStore(), true, { authorize: vi.fn(async () => ({ actor, decisionId: digest(String(++decision)) })) });
+    const platformRequest: ExtensionChangeRequest = { ...request, extension: { deliveryClass: "platform-plugin", id: "module.fixture.plugin" }, idempotencyKey: "install:module.fixture.plugin:retry" };
+    const platformPlan: ExtensionInstallPlan = {
+      schemaVersion: 1, planId: hotPlan.planId, operationId: hotPlan.operationId, operation: "install", version: "1.0.0",
+      artifactDigest: digest("a"), expectedRevision: 0, targetGenerationId: "customer-alpha-green-1", approvalRequired: false,
+      rollback: { available: true, windowSeconds: 86_400 }, deliveryClass: "platform-plugin", id: "module.fixture.plugin",
+      availability: { outcome: "maintenance-required", reasons: ["destructive-migration"] }
+    };
+    runtime.planner.plan.mockImplementation(async (planning) => ({ plan: { ...platformPlan, operationId: planning.operationId }, sourceCommit: "b".repeat(40), generationId: "customer-alpha-green-1" }));
+    runtime.staticChanges.request.mockResolvedValue({ status: "source-change-ready", planDigest: digest("f"), targetSourceCommit: "b".repeat(40), change: staticChange });
+    runtime.deployments.request.mockRejectedValueOnce(new Error("interrupted after source commit")).mockResolvedValueOnce({ status: "build-requested", buildRequestDigest: digest("9"), sourceCommit: "b".repeat(40) });
+    const plan = await runtime.value.plan(platformRequest);
+
+    await expect(runtime.value.prepareStaticRelease(plan.operationId)).rejects.toThrow("interrupted after source commit");
+    expect(runtime.store.operation).toMatchObject({ plan: { preparation: "source-ready" } });
+    await runtime.value.prepareStaticRelease(plan.operationId);
+    expect(runtime.staticChanges.request).toHaveBeenCalledOnce();
+    expect(runtime.deployments.request).toHaveBeenCalledTimes(2);
+    expect(runtime.deployments.request.mock.calls[0]![1].actor).toEqual(runtime.deployments.request.mock.calls[1]![1].actor);
+    expect(runtime.deployments.request.mock.calls[0]![1].decisionId).not.toEqual(runtime.deployments.request.mock.calls[1]![1].decisionId);
   });
 
   it("durably marks a static update planned from quarantined inventory for rollback closure", async () => {
@@ -521,6 +581,7 @@ describe("PluginManager", () => {
     runtime.staticChanges.request.mockResolvedValue({ status: "source-change-ready", planDigest: digest("f"), targetSourceCommit: "b".repeat(40), change: staticChange });
     runtime.deployments.request.mockResolvedValue({ status: "build-requested", buildRequestDigest: digest("9"), sourceCommit: "b".repeat(40) });
     const plan = await runtime.value.plan(platformRequest);
+    await runtime.value.prepareStaticRelease(plan.operationId);
     const receipt = {
       schemaVersion: 1, receiptId: "static-promotion-1", operation: "promote", applicationId: "customer-alpha", environment: "production",
       activeGenerationId: "customer-alpha-green-1", previousGenerationId: "customer-alpha-blue-1", sourceCommit: "b".repeat(40),

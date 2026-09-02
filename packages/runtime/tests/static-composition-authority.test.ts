@@ -30,6 +30,7 @@ const installPlan: Extract<ExtensionInstallPlan, { deliveryClass: "platform-plug
   availability: { outcome: "zero-downtime-eligible", checks: ["source-build-evidence", "migration-overlap", "worker-fence", "gateway-capacity", "rollback-window"] }
 };
 const request: StaticCompositionChangeRequest = {
+  operationId: "operation-0123456789abcdef0123456789abcdef",
   applicationId: fixture.applicationId,
   environment: fixture.environment,
   expectedSourceCommit: fixture.base.sourceCommit,
@@ -128,9 +129,14 @@ describe("static source and trusted build authority", () => {
       { resolve: vi.fn(async () => fixture) },
       checkpoint
     );
-    await expect(recovered.request(request, authorization)).resolves.toMatchObject({ targetSourceCommit: fixture.target.sourceCommit });
+    const refreshed = { ...authorization, decisionId: digest("e") };
+    await expect(recovered.request(request, refreshed)).resolves.toMatchObject({ targetSourceCommit: fixture.target.sourceCommit });
     expect(commit).toHaveBeenCalledOnce();
     expect(checkpoint.commit).toHaveBeenCalledOnce();
+
+    const otherActor = { actor: { kind: "trusted-automation" as const, identity: "github-actions:other" }, decisionId: digest("f") };
+    await expect(recovered.request(request, otherActor)).rejects.toMatchObject({ code: "SOURCE_CONFLICT" });
+    expect(commit).toHaveBeenCalledOnce();
   });
 
   it("serializes concurrent checkpoint recovery to one customer source commit", async () => {

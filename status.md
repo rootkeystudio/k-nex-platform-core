@@ -7,15 +7,15 @@
 
 ## Last completed
 
-P11.5 accepted-catalog source, action projection, separate global/target revision fences, restart-safe validate/execute/progress, server-only lifecycle evidence, and plan-only authorization are complete. Planning persists the actor under `system.extensions.plan`; later lifecycle boundaries reauthorize the concrete operation and reject actor changes. PluginManager remains the sole durable state machine. P11.4 passed reused Sol-xhigh review. P11.3's safe foundation remains checkpointed with unresolved decisions documented.
+P11.5 accepted-catalog source, action projection, separate revision fences, restart-safe lifecycle execution, server-only evidence, plan-only authorization, and deferred static preparation are complete. Platform Plugin impact planning is read-only; evidence-gated validation performs monotonic `impact-only` → `source-ready` → `prepared` source/build requests with same-actor reauthorization and crash-stable operation/actor keys. PluginManager remains the sole durable state machine. P11.4 passed reused Sol-xhigh review. P11.3's safe foundation remains checkpointed with unresolved decisions documented.
 
 ## Validation
 
-Exact Node 24.19.0: P11.5 runtime build + focused plan-authority 39/39, lifecycle evidence 27/27, lifecycle flow 42/42; payload-adapter accepted-catalog 4/4; customer build + real PostgreSQL/Chromium administration 1/1; `git diff --check`; Docker empty. P11.4 focused bundler 23/23, adapter 45/45, real PostgreSQL/HTTP 1/1. Migrated runtime fixture remains 5/6 because production AppArmor is unavailable on Docker Desktop after two attempts.
+Exact Node 24.19.0: P11.5 runtime/payload-adapter builds + focused static preparation 51/51 and persistence 24/24, plan-authority 39/39, lifecycle evidence 27/27, lifecycle flow 42/42; accepted-catalog 4/4; customer build + real PostgreSQL/Chromium administration 1/1; `git diff --check`; Docker empty. P11.4 focused bundler 23/23, adapter 45/45, real PostgreSQL/HTTP 1/1. Migrated runtime fixture remains 5/6 because production AppArmor is unavailable on Docker Desktop after two attempts.
 
 ## Next
 
-Remove static source/build side effects from read-only impact planning; prepare the trusted static release only behind validation evidence and concrete lifecycle authorization.
+Update and run the real PostgreSQL/HTTP static deployment proof for deferred preparation, then request one reused Sol-xhigh P11.5 slice review.
 
 ## Blockers
 

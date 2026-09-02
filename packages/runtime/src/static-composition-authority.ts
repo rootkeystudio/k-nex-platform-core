@@ -77,10 +77,10 @@ export class DeterministicStaticCompositionChangeAuthority implements StaticComp
   }
 
   async request(request: StaticCompositionChangeRequest, authorization: OperationAuthorizationDecision): Promise<StaticCompositionChangeResult> {
-    if (!/^[0-9a-f]{40}$/u.test(request.expectedSourceCommit)) throw new StaticCompositionAuthorityError("CHANGE_INVALID", "Expected customer source commit is invalid.");
-    const checkpointId = digest({ authority: this.identity, authorization, request });
+    if (!/^operation-[0-9a-f]{32}$/u.test(request.operationId) || !/^[0-9a-f]{40}$/u.test(request.expectedSourceCommit)) throw new StaticCompositionAuthorityError("CHANGE_INVALID", "Static source operation identity or expected commit is invalid.");
+    const checkpointId = digest({ authority: this.identity, actor: authorization.actor, request });
     const checkpoint = await this.checkpoints.read(checkpointId) ?? await this.createCheckpoint(checkpointId, request, authorization);
-    this.assertCheckpoint(checkpoint, checkpointId, request, authorization);
+    this.assertCheckpoint(checkpoint, checkpointId, request);
     const current = await this.repository.current(request.applicationId, request.environment);
     if (current.sourceCommit === checkpoint.change.target.sourceCommit && same(current.composition, checkpoint.change.target.composition)) {
       const committed = checkpoint.status === "committed" ? checkpoint : await this.checkpoints.commit(checkpointId);
@@ -130,8 +130,7 @@ export class DeterministicStaticCompositionChangeAuthority implements StaticComp
   private assertCheckpoint(
     checkpoint: StaticCompositionCheckpoint,
     checkpointId: string,
-    request: StaticCompositionChangeRequest,
-    authorization: OperationAuthorizationDecision
+    request: StaticCompositionChangeRequest
   ): void {
     if (checkpoint.checkpointId !== checkpointId || checkpoint.applicationId !== request.applicationId || checkpoint.environment !== request.environment ||
       checkpoint.expectedSourceCommit !== request.expectedSourceCommit) {
@@ -140,7 +139,7 @@ export class DeterministicStaticCompositionChangeAuthority implements StaticComp
     const change = checkpoint.change;
     if (change.applicationId !== request.applicationId || change.environment !== request.environment || change.deliveryClass !== "platform-plugin" ||
       change.plugin.id !== request.plan.id || change.plugin.version !== request.plan.version || change.plugin.releaseManifestDigest !== request.plan.artifactDigest ||
-      change.authority.identity !== this.identity || change.authority.requestDigest !== authorization.decisionId ||
+      change.authority.identity !== this.identity ||
       change.base.sourceCommit !== request.expectedSourceCommit || change.target.sourceCommit !== change.migration.targetSourceCommit ||
       change.base.sourceCommit !== change.migration.sourceCommit) {
       throw new StaticCompositionAuthorityError("CHANGE_INVALID", "Persisted static composition checkpoint does not bind the authorized source graph.");

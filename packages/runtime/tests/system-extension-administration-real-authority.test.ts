@@ -131,6 +131,12 @@ class MemoryExtensionStore implements RuntimeExtensionStore {
     return this.operation;
   }
 
+  async saveStaticPreparation(operationId: string, _leaseToken: string, saved: Extract<PluginManagerPlan, { executionClass: "static-release" }>): Promise<RuntimeExtensionOperation> {
+    if (!this.operation || operationId !== this.operation.operationId) throw new Error("operation is not visible in this browser context");
+    this.operation = { ...this.operation, plan: saved };
+    return this.operation;
+  }
+
   async readOperation(operationId: string): Promise<RuntimeExtensionOperation | undefined> {
     return this.operation?.operationId === operationId ? this.operation : undefined;
   }

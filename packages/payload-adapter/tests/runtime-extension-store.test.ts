@@ -171,9 +171,9 @@ function staticUninstallHarness(
     authorization_json: { actor: { kind: "trusted-automation", identity: "test" }, decisionId: digest("2") }, expected_revision: 4,
     phase: "source-change-ready", lease_owner: "worker-1", lease_token: "lease-1", lease_expires_at: "2026-08-31T12:01:00.000Z",
     plan_json: {
-      executionClass: "static-release", operationId: "operation-static-uninstall-1", sourceCommit: "f".repeat(40), generationId: "static-generation-removal",
+      executionClass: "static-release", preparation: "prepared", operationId: "operation-static-uninstall-1", sourceCommit: "f".repeat(40), generationId: "static-generation-removal",
       quarantineRecovery,
-      sourceChange: { targetSourceCommit: "f".repeat(40), planDigest: digest("f") }, deployment: { buildRequestDigest: digest("0") },
+      sourceChange: { status: "source-change-ready", targetSourceCommit: "f".repeat(40), planDigest: digest("f") }, deployment: { status: "build-requested", buildRequestDigest: digest("0"), sourceCommit: "f".repeat(40) },
       plan: { operationId: "operation-static-uninstall-1", operation: operationKind, deliveryClass: staticOwner.deliveryClass, id: staticOwner.extensionId, expectedRevision: 4, currentGenerationId: planCurrentGenerationId, targetGenerationId: "static-generation-removal", version: "1.0.1", artifactDigest: digest("9") }
     },
     authority_json: null, result_json: null
