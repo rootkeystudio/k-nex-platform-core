@@ -1,14 +1,17 @@
 import {
+  compareExactSemverPrecedence,
+  ExtensionAdministrationActionViewSchema,
   ExtensionIdentitySchema,
   type AuthorizationDecision,
   type AuthorizationState,
+  type ExtensionAdministrationActionView,
   type ExtensionIdentity
 } from "@k-nex/contracts";
 
 import { type AuthorizationExpectedRevision } from "./authorization-store.js";
 import { CurrentAuthorityAdapter, createCurrentAuthorityTarget } from "./current-authority-adapter.js";
 import { ExtensionOperatorApi, type ExtensionCatalogRecord, type ExtensionSystemStatus } from "./extension-operator-api.js";
-import type { ExtensionChangeRequest, ExtensionOperationStatus, PluginManagerPlan } from "./plugin-manager.js";
+import { admittedExtensionOperations, extensionInventoryState, type ExtensionChangeRequest, type ExtensionInventoryState, type ExtensionOperationStatus, type PluginManagerPlan } from "./plugin-manager.js";
 
 export type SystemExtensionAdministrationErrorCode = "UNAUTHORIZED" | "REVISION_CONFLICT" | "REQUEST_INVALID" | "APPROVAL_REQUIRED";
 
@@ -118,6 +121,18 @@ export class SystemExtensionAdministrationService<TContext> {
     return (await this.operator(input.context)).status(decision.applicationId, decision.environment);
   }
 
+  /** Immutable server projection from the exact accepted catalog records and current verified inventory. */
+  async actions(input: Readonly<{ readonly context: TContext }>): Promise<readonly ExtensionAdministrationActionView[]> {
+    exactInput(input, ["context"]);
+    const decision = await this.readDecision(input.context);
+    const operator = await this.operator(input.context);
+    const [catalog, status] = await Promise.all([
+      operator.catalogList({ includeUnavailable: true }),
+      operator.status(decision.applicationId, decision.environment)
+    ]);
+    return projectExtensionAdministrationActions(status.inventory, catalog);
+  }
+
   async operationStatus(input: Readonly<{ readonly context: TContext; readonly operationId: string }>): Promise<SystemExtensionOperationStatus> {
     exactInput(input, ["context", "operationId"]);
     if (!validId(input.operationId)) invalid("Extension operation ID is invalid.");
@@ -201,6 +216,81 @@ export class SystemExtensionAdministrationService<TContext> {
     }
   }
 }
+
+type AdministrationAction = "install" | "re-enable" | "update" | "disable" | "rollback" | "uninstall";
+
+/**
+ * Projects only operations admitted by PluginManager's shared current-inventory
+ * admission table. The catalog merely supplies currently installable releases;
+ * it never supplies lifecycle state or authority.
+ */
+export function projectExtensionAdministrationActions(
+  inventory: ExtensionSystemStatus["inventory"],
+  catalog: readonly ExtensionCatalogRecord[]
+): readonly ExtensionAdministrationActionView[] {
+  const identities = new Map<string, ExtensionIdentity>();
+  for (const record of catalog) identities.set(identityKey(record.extension), ExtensionIdentitySchema.parse(record.extension));
+  for (const [id] of Object.entries(inventory.extensions.platformPlugins)) identities.set(identityKey({ deliveryClass: "platform-plugin", id }), { deliveryClass: "platform-plugin", id });
+  for (const [id] of Object.entries(inventory.extensions.hotApplications)) identities.set(identityKey({ deliveryClass: "hot-application", id }), { deliveryClass: "hot-application", id });
+  for (const [id] of Object.entries(inventory.extensions.themeSkins)) identities.set(identityKey({ deliveryClass: "theme-skin", id }), { deliveryClass: "theme-skin", id });
+
+  const result: ExtensionAdministrationActionView[] = [];
+  for (const extension of [...identities.values()].sort((left, right) => identityKey(left).localeCompare(identityKey(right)))) {
+    const state = extensionInventoryState(inventory, extension);
+    const releases = catalog.filter((record) => sameIdentity(record.extension, extension) && currentlyInstallable(record));
+    const admitted = new Set(admittedExtensionOperations(state.disposition));
+    if ((state.disposition === "fresh" || state.disposition === "removed") && admitted.has("install") && releases.length > 0) {
+      result.push(actionView(extension, state.disposition === "fresh" ? "catalog-available" : "removed", "install"));
+    }
+    if (state.disposition === "active") {
+      if (admitted.has("update") && state.currentVersion && releases.some((record) => compareExactSemverPrecedence(record.version, state.currentVersion!) > 0)) {
+        result.push(actionView(extension, "update-available", "update"));
+      }
+      if (admitted.has("disable")) result.push(actionView(extension, "active", "disable"));
+      if (admitted.has("rollback") && state.rollbackGenerationId) result.push(actionView(extension, "rollback-available", "rollback"));
+      if (admitted.has("uninstall")) result.push(actionView(extension, "active", "uninstall"));
+    }
+    if (state.disposition === "disabled") {
+      if (admitted.has("install") && state.currentGenerationId && state.currentVersion && releases.some((record) => record.version === state.currentVersion)) {
+        result.push(actionView(extension, "disabled", "re-enable"));
+      }
+      if (admitted.has("uninstall")) result.push(actionView(extension, "disabled", "uninstall"));
+    }
+    if (state.disposition === "quarantined") {
+      if (admitted.has("update") && state.currentVersion && releases.some((record) => compareExactSemverPrecedence(record.version, state.currentVersion!) > 0)) {
+        result.push(actionView(extension, "quarantined", "update"));
+      }
+      if (admitted.has("uninstall")) result.push(actionView(extension, "quarantined", "uninstall"));
+    }
+  }
+  return Object.freeze(result);
+}
+
+function actionView(extension: ExtensionIdentity, lifecycleState: ExtensionAdministrationActionView["lifecycleState"], action: AdministrationAction): ExtensionAdministrationActionView {
+  const base = { id: extension.id, deliveryClass: extension.deliveryClass, lifecycleState, availability: "available", reauthentication: "required" } as const;
+  switch (action) {
+    case "install": return Object.freeze(ExtensionAdministrationActionViewSchema.parse({
+      ...base, action, executableOperation: "install",
+      permissionId: extension.deliveryClass === "platform-plugin" ? "system.extensions.deploy-platform-plugin" : "system.extensions.install-live",
+      approval: extension.deliveryClass === "platform-plugin" ? "required" : "canonical-plan"
+    }));
+    case "re-enable": return Object.freeze(ExtensionAdministrationActionViewSchema.parse({ ...base, action, executableOperation: "install", permissionId: "system.extensions.enable", approval: "canonical-plan" }));
+    case "update": return Object.freeze(ExtensionAdministrationActionViewSchema.parse({ ...base, action, executableOperation: "update", permissionId: "system.extensions.update", approval: "canonical-plan" }));
+    case "disable": return Object.freeze(ExtensionAdministrationActionViewSchema.parse({ ...base, action, executableOperation: "disable", permissionId: "system.extensions.disable", approval: "canonical-plan" }));
+    case "rollback": return Object.freeze(ExtensionAdministrationActionViewSchema.parse({ ...base, action, executableOperation: "rollback", permissionId: "system.extensions.rollback", approval: "canonical-plan" }));
+    case "uninstall": return Object.freeze(ExtensionAdministrationActionViewSchema.parse({ ...base, action, executableOperation: "uninstall", permissionId: "system.extensions.uninstall", approval: "required" }));
+  }
+}
+
+function currentlyInstallable(record: ExtensionCatalogRecord): boolean {
+  return !record.revoked && record.review === "approved" && record.security === "clear" && record.support === "supported";
+}
+
+function sameIdentity(left: ExtensionIdentity, right: ExtensionIdentity): boolean {
+  return left.deliveryClass === right.deliveryClass && left.id === right.id;
+}
+
+function identityKey(extension: ExtensionIdentity): string { return `${extension.deliveryClass}:${extension.id}`; }
 
 async function execute(operator: ExtensionOperatorApi, operation: ExtensionOperationStatus): Promise<Awaited<ReturnType<ExtensionOperatorApi["activate"]>>> {
   switch (operation.request.operation) {

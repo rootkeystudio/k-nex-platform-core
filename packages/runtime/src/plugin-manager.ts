@@ -372,7 +372,7 @@ export function extensionOperationActorMatches(left: ExtensionOperationActor, ri
   return canonicalJson(left) === canonicalJson(right);
 }
 
-interface InventoryGenerationState {
+export interface ExtensionInventoryState {
   readonly revision: number;
   readonly disposition: "fresh" | "active" | "disabled" | "quarantined" | "retirement-pending" | "removed";
   readonly currentGenerationId?: string;
@@ -380,10 +380,11 @@ interface InventoryGenerationState {
   readonly currentVersion?: string;
 }
 
-function inventoryGenerationState(inventory: RuntimeExtensionInventory, request: ExtensionChangeRequest): InventoryGenerationState {
-  const entries = request.extension.deliveryClass === "platform-plugin" ? inventory.extensions.platformPlugins
-    : request.extension.deliveryClass === "hot-application" ? inventory.extensions.hotApplications : inventory.extensions.themeSkins;
-  const entry = entries[request.extension.id];
+/** Exact current lifecycle authority shared by planning and administration projection. */
+export function extensionInventoryState(inventory: RuntimeExtensionInventory, extension: ExtensionIdentity): ExtensionInventoryState {
+  const entries = extension.deliveryClass === "platform-plugin" ? inventory.extensions.platformPlugins
+    : extension.deliveryClass === "hot-application" ? inventory.extensions.hotApplications : inventory.extensions.themeSkins;
+  const entry = entries[extension.id];
   if (!entry) return Object.freeze({ revision: 0, disposition: "fresh" });
   if (entry.disposition === "removed") return Object.freeze({ revision: entry.revision, disposition: "removed" });
   if (entry.disposition !== "active") return Object.freeze({
@@ -400,9 +401,13 @@ function inventoryGenerationState(inventory: RuntimeExtensionInventory, request:
   });
 }
 
+function inventoryGenerationState(inventory: RuntimeExtensionInventory, request: ExtensionChangeRequest): ExtensionInventoryState {
+  return extensionInventoryState(inventory, request.extension);
+}
+
 type OperationAdmission = Readonly<Partial<Record<ExtensionManagerOperation, ExtensionAuthorizationOperation>>>;
 
-const operationAdmission: Readonly<Record<InventoryGenerationState["disposition"], OperationAdmission>> = Object.freeze({
+const operationAdmission: Readonly<Record<ExtensionInventoryState["disposition"], OperationAdmission>> = Object.freeze({
   fresh: Object.freeze({ install: "install" }),
   removed: Object.freeze({ install: "install" }),
   active: Object.freeze({ update: "update", disable: "disable", rollback: "rollback", uninstall: "uninstall" }),
@@ -411,25 +416,32 @@ const operationAdmission: Readonly<Record<InventoryGenerationState["disposition"
   "retirement-pending": Object.freeze({})
 });
 
-function admittedAuthorizationOperation(request: ExtensionChangeRequest, inventory: InventoryGenerationState): ExtensionAuthorizationOperation {
+/** Operations that may enter planning for the exact current inventory disposition. */
+export function admittedExtensionOperations(disposition: ExtensionInventoryState["disposition"]): readonly ExtensionManagerOperation[] {
+  return Object.freeze(Object.keys(operationAdmission[disposition]) as ExtensionManagerOperation[]);
+}
+
+function admittedAuthorizationOperation(request: ExtensionChangeRequest, inventory: ExtensionInventoryState): ExtensionAuthorizationOperation {
   const operation = operationAdmission[inventory.disposition][request.operation];
   if (!operation) throw new PluginManagerError("INVALID_STATE", `Extension ${request.operation} is not allowed while ${inventory.disposition}.`);
   return operation;
 }
 
-function assertNoActiveDowngrade(request: ExtensionChangeRequest, inventory: InventoryGenerationState): void {
-  if (["install", "update"].includes(request.operation) && inventory.currentVersion && compareExactSemverPrecedence(request.targetVersion, inventory.currentVersion) < 0) {
-    throw new PluginManagerError("PLAN_MISMATCH", "Install and update cannot downgrade the active extension version.");
+function assertNoActiveDowngrade(request: ExtensionChangeRequest, inventory: ExtensionInventoryState): void {
+  const comparison = inventory.currentVersion === undefined ? undefined : compareExactSemverPrecedence(request.targetVersion, inventory.currentVersion);
+  if ((request.operation === "install" && comparison !== undefined && comparison < 0) ||
+    (inventory.disposition === "active" && request.operation === "update" && comparison !== undefined && comparison <= 0)) {
+    throw new PluginManagerError("PLAN_MISMATCH", "Install and update must target a newer extension version when one is active.");
   }
 }
 
-function assertRetainedReleaseReenable(request: ExtensionChangeRequest, inventory: InventoryGenerationState): void {
+function assertRetainedReleaseReenable(request: ExtensionChangeRequest, inventory: ExtensionInventoryState): void {
   if (inventory.disposition === "disabled" && request.operation === "install" && request.targetVersion !== inventory.currentVersion) {
     throw new PluginManagerError("PLAN_MISMATCH", "Re-enable must target the exact retained extension release.");
   }
 }
 
-function assertInventoryCanPlan(request: ExtensionChangeRequest, inventory: InventoryGenerationState): void {
+function assertInventoryCanPlan(request: ExtensionChangeRequest, inventory: ExtensionInventoryState): void {
   assertNoActiveDowngrade(request, inventory);
   if (request.operation === "rollback" && (!inventory.currentGenerationId || !inventory.rollbackGenerationId)) {
     throw new PluginManagerError("PLAN_MISMATCH", "Rollback requires an active generation and a retained generation in current inventory.");
@@ -441,7 +453,7 @@ function assertPlanMatches(
   plan: ExtensionInstallPlan,
   operationId: string,
   plannerGenerationId: string,
-  inventory: InventoryGenerationState
+  inventory: ExtensionInventoryState
 ): void {
   if (plan.deliveryClass !== request.extension.deliveryClass || plan.id !== request.extension.id || plan.operation !== request.operation ||
     plan.version !== request.targetVersion || plan.expectedRevision !== request.expectedRevision || plan.operationId !== operationId ||

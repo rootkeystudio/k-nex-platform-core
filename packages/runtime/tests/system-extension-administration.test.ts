@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { AuthorizationDecision, AuthorizationState } from "@k-nex/contracts";
+import { ExtensionAdministrationActionViewSchema, type AuthorizationDecision, type AuthorizationState, type RuntimeExtensionInventory } from "@k-nex/contracts";
 
 import { CurrentAuthorityAdapter } from "../src/current-authority-adapter.js";
 import { createTrustedAuthorizationSession, type EffectiveAuthorizationRequest, type TrustedAuthorizationSession } from "../src/effective-authority.js";
 import { type ExtensionOperatorApi } from "../src/extension-operator-api.js";
 import { type ExtensionChangeRequest, type ExtensionOperationStatus, type PluginManagerPlan } from "../src/plugin-manager.js";
-import { SystemExtensionAdministrationError, SystemExtensionAdministrationService } from "../src/system-extension-administration.js";
+import { projectExtensionAdministrationActions, SystemExtensionAdministrationError, SystemExtensionAdministrationService } from "../src/system-extension-administration.js";
 
 const expected = Object.freeze({ applicationId: "customer-alpha", environment: "production", authorizationRevision: 4, lifecycleRevision: 7, extensionRevision: 3 });
 const session = createTrustedAuthorizationSession({ schemaVersion: 1, applicationId: expected.applicationId, environment: expected.environment, correlationId: "system-extension-test", principal: { kind: "user", id: "admin" }, effectiveActor: { kind: "user", id: "admin" } });
@@ -38,6 +38,37 @@ function plan(deliveryClass: "hot-application" | "theme-skin" | "platform-plugin
 
 function request(): unknown { return { extension: { deliveryClass: "hot-application", id: "app.sales-assistant" }, operation: "install", targetVersion: "1.0.0", idempotencyKey: "system-extension-install-1" }; }
 
+const projectionExtension = Object.freeze({ deliveryClass: "hot-application" as const, id: "app.sales-assistant" });
+const projectionDigest = (character: string) => `sha256:${character.repeat(64)}`;
+
+function projectionInventory(
+  disposition: "fresh" | "active" | "disabled" | "quarantined" | "retirement-pending" | "removed",
+  options: Readonly<{ rollback?: boolean; retained?: boolean; version?: string }> = {}
+): RuntimeExtensionInventory {
+  const version = options.version ?? "1.0.0";
+  const generation = { generationId: "generation-projection-1", version, applicationId: expected.applicationId, environment: expected.environment, deliveryClass: projectionExtension.deliveryClass, extensionId: projectionExtension.id };
+  const entry = disposition === "active"
+    ? { disposition, revision: 3, lastOperationId: "operation-projection-1", lastReceiptId: "receipt-projection-1", stateDigest: projectionDigest("a"), activeGeneration: generation, ...(options.rollback ? { rollbackGeneration: { ...generation, generationId: "generation-projection-rollback" } } : {}) }
+    : disposition === "fresh"
+      ? undefined
+      : { disposition, revision: 3, lastOperationId: "operation-projection-1", lastReceiptId: "receipt-projection-1", stateDigest: projectionDigest("a"), ...((options.retained ?? true) ? { retainedGeneration: generation } : {}) };
+  return {
+    schemaVersion: 1, applicationId: expected.applicationId, environment: expected.environment, hostInventoryDigest: projectionDigest("b"), revision: 3,
+    observedAt: "2026-09-02T00:00:00.000Z", stateDigest: projectionDigest("c"), extensions: { platformPlugins: {}, themeSkins: {}, hotApplications: entry ? { [projectionExtension.id]: entry } : {} }
+  } as unknown as RuntimeExtensionInventory;
+}
+
+function catalog(version: string, options: Readonly<{ revoked?: boolean; review?: "approved" | "pending" | "rejected"; security?: "clear" | "advisory" | "compromised"; support?: "supported" | "deprecated" | "unsupported" }> = {}) {
+  return {
+    extension: projectionExtension, version, displayName: projectionExtension.id, availability: "live-generation" as const,
+    revoked: options.revoked ?? false, review: options.review ?? "approved", security: options.security ?? "clear", support: options.support ?? "supported"
+  };
+}
+
+function actions(inventory: RuntimeExtensionInventory, records: readonly ReturnType<typeof catalog>[] = []) {
+  return projectExtensionAdministrationActions(inventory, records);
+}
+
 function harness(options: Readonly<{
   readonly outcome?: "allow" | "deny";
   readonly state?: () => AuthorizationState | undefined;
@@ -59,6 +90,55 @@ function harness(options: Readonly<{
 }
 
 describe("system extension administration", () => {
+  it("projects only contract-valid actions for every current inventory disposition", () => {
+    const cases = [
+      ["fresh", projectionInventory("fresh"), [catalog("1.0.0")], ["install"]],
+      ["removed", projectionInventory("removed"), [catalog("1.0.0")], ["install"]],
+      ["active", projectionInventory("active", { rollback: true }), [catalog("1.0.1")], ["update", "disable", "rollback", "uninstall"]],
+      ["disabled", projectionInventory("disabled"), [catalog("1.0.0")], ["re-enable", "uninstall"]],
+      ["quarantined", projectionInventory("quarantined"), [catalog("1.0.1")], ["update", "uninstall"]],
+      ["retirement pending", projectionInventory("retirement-pending"), [catalog("1.0.0")], []]
+    ] as const;
+    for (const [_name, inventory, records, expectedActions] of cases) {
+      const value = actions(inventory, records);
+      expect(value.map((action) => action.action)).toEqual(expectedActions);
+      for (const action of value) expect(ExtensionAdministrationActionViewSchema.safeParse(action).success).toBe(true);
+    }
+  });
+
+  it("binds install and update availability to an exact currently installable catalog release", () => {
+    expect(actions(projectionInventory("fresh"), []).map((action) => action.action)).toEqual([]);
+    expect(actions(projectionInventory("fresh"), [catalog("1.0.0", { security: "advisory" })]).map((action) => action.action)).toEqual([]);
+    expect(actions(projectionInventory("active"), [catalog("0.9.9")]).map((action) => action.action)).toEqual(["disable", "uninstall"]);
+    expect(actions(projectionInventory("active"), [catalog("1.0.0")]).map((action) => action.action)).toEqual(["disable", "uninstall"]);
+    expect(actions(projectionInventory("active"), [catalog("1.0.1")]).map((action) => action.action)).toEqual(["update", "disable", "uninstall"]);
+  });
+
+  it("requires the exact retained clear catalog release for re-enable and excludes non-clear quarantined updates", () => {
+    const retained = actions(projectionInventory("disabled"), [catalog("1.0.0")]);
+    expect(retained).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: "re-enable", executableOperation: "install", permissionId: "system.extensions.enable", lifecycleState: "disabled" }),
+      expect.objectContaining({ action: "uninstall" })
+    ]));
+    expect(actions(projectionInventory("disabled"), [catalog("1.0.1")]).map((action) => action.action)).toEqual(["uninstall"]);
+    expect(actions(projectionInventory("disabled"), []).map((action) => action.action)).toEqual(["uninstall"]);
+    expect(actions(projectionInventory("disabled"), [catalog("1.0.0", { security: "compromised" })]).map((action) => action.action)).toEqual(["uninstall"]);
+    expect(actions(projectionInventory("disabled", { retained: false }), [catalog("1.0.0")]).map((action) => action.action)).toEqual(["uninstall"]);
+    expect(actions(projectionInventory("quarantined"), [catalog("1.0.1", { security: "advisory" })]).map((action) => action.action)).toEqual(["uninstall"]);
+    expect(actions(projectionInventory("quarantined"), [catalog("1.0.0")]).map((action) => action.action)).toEqual(["uninstall"]);
+  });
+
+  it("excludes deprecated catalog releases from install and update actions", () => {
+    expect(actions(projectionInventory("fresh"), [catalog("1.0.0", { support: "deprecated" })]).map((action) => action.action)).toEqual([]);
+    expect(actions(projectionInventory("active"), [catalog("1.0.1", { support: "deprecated" })]).map((action) => action.action)).toEqual(["disable", "uninstall"]);
+  });
+
+  it("keeps Platform Plugin installs on the static-release action contract", () => {
+    const platform = { extension: { deliveryClass: "platform-plugin" as const, id: "module.sales" }, version: "1.0.0", displayName: "module.sales", availability: "static-release" as const, support: "supported" as const, review: "approved" as const, security: "clear" as const, revoked: false };
+    const value = projectExtensionAdministrationActions(projectionInventory("fresh"), [platform]);
+    expect(value).toEqual([expect.objectContaining({ deliveryClass: "platform-plugin", action: "install", executableOperation: "install", permissionId: "system.extensions.deploy-platform-plugin", approval: "required" })]);
+  });
+
   it("uses only the server-selected extension read permission for list, detail, and status", async () => {
     const value = harness();
     await value.service.list({ context: {} });

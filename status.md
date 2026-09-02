@@ -7,15 +7,15 @@
 
 ## Last completed
 
-P11.4 passed reused Sol-xhigh review: bounded official catalog reads, durable staged/accepted mirror, restart-safe lifecycle rebase and terminal security reconciliation are complete. P11.3's reviewed safe foundation remains checkpointed with its unresolved architecture decisions documented.
+P11.5 authoritative action projection is complete: PluginManager and administration share one inventory admission table; catalog policy, strict newer updates, exact retained-generation re-enable, rollback, quarantine, and retirement states fail closed. P11.4 passed reused Sol-xhigh review. P11.3's reviewed safe foundation remains checkpointed with its unresolved architecture decisions documented.
 
 ## Validation
 
-Exact Node 24.19.0: extension-bundler build + focused 23/23; payload-adapter build + focused 45/45; customer fixture build; real PostgreSQL/HTTP catalog refresh, checkpoint isolation, crash/restart lifecycle rebase, quarantine-before-acceptance, and revision-race proof 1/1; `git diff --check`; Docker empty. Migrated fixture callers: remote UI and theme proofs PASS; runtime proof 5/6, with only the pre-existing production AppArmor scenario unavailable on Docker Desktop after two attempts.
+Exact Node 24.19.0: P11.5 runtime build + focused administration 19/19; P11.4 extension-bundler build + 23/23, payload-adapter build + 45/45, customer fixture build, and real PostgreSQL/HTTP catalog proof 1/1; `git diff --check`; Docker empty. Migrated fixture callers: remote UI and theme proofs PASS; runtime proof 5/6, with only the pre-existing production AppArmor scenario unavailable on Docker Desktop after two attempts.
 
 ## Next
 
-Implement P11.5 authoritative inventory/catalog action projection and durable, actor/revision/approval/idempotency-bound lifecycle administration without a second state machine.
+Wire the accepted catalog mirror into the lifecycle catalog source, then complete durable actor/revision/approval/idempotency-bound lifecycle preparation, execution, progress, and retry without a second state machine.
 
 ## Blockers
 
