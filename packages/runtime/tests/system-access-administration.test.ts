@@ -91,11 +91,16 @@ function decision(request: EffectiveAuthorizationRequest, current: TrustedAuthor
   };
 }
 
-function service(store = new MemoryStore(), outcome: "allow" | "deny" = "allow", revisions: AuthorizationExpectedRevision | undefined = undefined, effectiveCatalog = catalog, current = session) {
+function service(store = new MemoryStore(), outcome: "allow" | "deny" = "allow", revisions: AuthorizationExpectedRevision | undefined = undefined, effectiveCatalog = catalog, current = session, protectedAdmission = true) {
   const resolver = { authorize: vi.fn(async (current: TrustedAuthorizationSession, request: EffectiveAuthorizationRequest) => decision(request, current, outcome, revisions ?? currentExpected(store.state))) } as unknown as Pick<EffectiveAuthorityResolver, "authorize">;
   const authority = new CurrentAuthorityAdapter({ current: async () => current }, resolver);
   const catalogProvider = createAuthorizationCatalogProvider(async ({ applicationId, lifecycleRevision }) => applicationId === expected.applicationId && lifecycleRevision === expected.lifecycleRevision ? { applicationId, lifecycleRevision, catalog: effectiveCatalog } : undefined);
-  return { store, resolver, service: new SystemAccessAdministrationService({ store, catalogProvider, authority }) };
+  return { store, resolver, service: new SystemAccessAdministrationService({
+    store,
+    catalogProvider,
+    authority,
+    ...(protectedAdmission ? { protectedAssignmentAdmission: { verify: async () => ({ approval: "satisfied" as const, reauthentication: "satisfied" as const }) } } : {})
+  }) };
 }
 
 function role(id: string): Role { return { schemaVersion: 1, id, applicationId: expected.applicationId, label: id, revision: expected.authorizationRevision }; }
@@ -331,6 +336,19 @@ describe("system access administration", () => {
 
     await expect(access.createAssignment({ context: {}, expected, assignment: { id: "owner-service", roleId: ownerRole.id, principal: { kind: "service", id: "automation" } } })).rejects.toMatchObject({ code: "MUTATION_INVALID" } satisfies Partial<SystemAccessAdministrationError>);
     await expect(access.createAssignment({ context: {}, expected, assignment: { id: "owner-human", roleId: ownerRole.id, principal: { kind: "user", id: "second-owner" } } })).resolves.toMatchObject({ value: { id: "owner-human", state: "active" } });
+    expect(store.audits.at(-1)?.audit).toMatchObject({
+      operation: "create-assignment",
+      approval: "satisfied",
+      reauthentication: "satisfied"
+    });
+    expect(store.audits.at(-1)?.audit.target).toMatch(/^access\.protected-assignment\.[0-9a-f]{64}$/u);
+  });
+
+  it("requires the server-only approval and reauthentication verifier for protected assignment changes", async () => {
+    const { store, service: access } = service(new MemoryStore(), "allow", undefined, catalog, session, false);
+    owner(store);
+    await expect(access.createAssignment({ context: {}, expected, assignment: { id: "owner-human", roleId: "system.role.owner", principal: { kind: "user", id: "second-owner" } } })).rejects.toMatchObject({ code: "UNAUTHORIZED" } satisfies Partial<SystemAccessAdministrationError>);
+    expect(store.writes).toEqual([]);
   });
 
   it("intersects principal and effective-actor closures for delegated administration", async () => {

@@ -94,7 +94,7 @@ test("P10.9 proves fixed host routes, RBAC actions, lifecycle truth, and Chromiu
       ["plan-only", createTrustedAuthorizationSession({ schemaVersion: 1, applicationId, environment, correlationId: "p10-9-plan-only", principal: { kind: "user", id: inactiveId }, effectiveActor: { kind: "user", id: inactiveId } })]
     ]);
     const authority = new CurrentAuthorityAdapter({ current(context) { return context?.session ? sessions.get(context.session) : undefined; } }, resolver);
-    const access = new SystemAccessAdministrationService({ store, catalogProvider: provider, authority });
+    const access = new SystemAccessAdministrationService({ store, catalogProvider: provider, authority, protectedAssignmentAdmission: { verify: async () => ({ approval: "satisfied", reauthentication: "satisfied" }) } });
     let approval = false;
     let operatorCalls = 0;
     let activationCalls = 0;

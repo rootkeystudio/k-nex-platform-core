@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import {
+  AuthorizationDecisionSchema,
   AuthorizationDecisionAuditSchema,
   AuthorizationSubjectSchema,
   RoleAssignmentSchema,
@@ -46,6 +47,22 @@ export interface SystemAccessAdministrationOptions<TContext> {
   readonly store: AuthorizationStore;
   readonly catalogProvider: AuthorizationCatalogProvider;
   readonly authority: CurrentAuthorityAdapter<TContext>;
+  /** Server-only proof for high-risk protected-role assignment changes. */
+  readonly protectedAssignmentAdmission?: ProtectedAssignmentAdmission<TContext>;
+}
+
+export type ProtectedAssignmentOperation = "create-assignment" | "reactivate-assignment" | "revoke-assignment";
+
+export interface ProtectedAssignmentAdmission<TContext> {
+  verify(input: Readonly<{
+    readonly context: TContext;
+    readonly expected: AuthorizationExpectedRevision;
+    readonly operation: ProtectedAssignmentOperation;
+    readonly role: Role;
+    readonly assignmentId: string;
+    readonly principal: AuthorizationSubject;
+    readonly decision: AuthorizationDecision;
+  }>): Promise<Readonly<{ readonly approval: "satisfied"; readonly reauthentication: "satisfied" }> | undefined>;
 }
 
 export interface ActivePermissionGroup {
@@ -92,6 +109,18 @@ const targets = Object.freeze({
 
 function target(permissionId: string, resource: string): CurrentAuthorityTarget {
   return createCurrentAuthorityTarget({ permissionId, scope: { kind: "application", resource }, facts: Object.freeze({ boundary: "system-access-administration" }) });
+}
+
+function protectedAssignmentAuthorityTarget(operation: ProtectedAssignmentOperation, role: Role, assignmentId: string, principal: AuthorizationSubject): CurrentAuthorityTarget {
+  return createCurrentAuthorityTarget({
+    permissionId: "system.role-assignments.manage",
+    scope: { kind: "application", resource: "system.role-assignments" },
+    facts: Object.freeze({ boundary: "system-access-administration", operation, roleId: role.id, protectedRoleId: role.protectedRoleId, assignmentId, principal: Object.freeze({ ...principal }) })
+  });
+}
+
+function protectedAssignmentAuditTarget(operation: ProtectedAssignmentOperation, role: Role, assignment: Pick<RoleAssignment, "id" | "principal">): string {
+  return id("protected-assignment", operation, role.id, role.protectedRoleId ?? "invalid", assignment.id, assignment.principal.kind, assignment.principal.id);
 }
 
 /**
@@ -203,29 +232,47 @@ export class SystemAccessAdministrationService<TContext> {
 
   async createAssignment(input: Readonly<{ readonly context: TContext; readonly expected: unknown; readonly assignment: unknown }>): Promise<AuthorizationTransactionOutcome<RoleAssignment>> {
     exactInput(input, ["assignment", "context", "expected"]);
-    return this.mutate(input.context, input.expected, targets.assignmentsManage, "create-assignment", async (transaction, expected, catalog, decision) => {
+    return this.storeErrorBoundary(async () => {
+      const expected = parseAuthorizationExpectedRevision(input.expected);
+      const genericDecision = await this.admitMutation(input.context, expected, targets.assignmentsManage);
+      const catalog = await this.catalog(expected.applicationId, expected.lifecycleRevision);
+      return this.options.store.transaction(expected, async (transaction) => {
       const value = exactObject(input.assignment, ["id", "principal", "roleId"]);
       const role = await requiredRole(transaction, expected.applicationId, stringValue(value.roleId), false);
       const assignment = RoleAssignmentSchema.safeParse({ schemaVersion: 1, applicationId: expected.applicationId, id: value.id, roleId: value.roleId, principal: value.principal, state: "active", revision: nextRevision(expected) });
       if (!assignment.success) invalid("Role assignment is invalid.");
+      const decision = isProtectedRole(role)
+        ? await this.admitProtectedAssignment(input.context, expected, "create-assignment", role, assignment.data.id, assignment.data.principal)
+        : genericDecision;
       assertAssignmentDelegable(await delegationAuthority(transaction, expected.applicationId, catalog, decision), role, assignment.data.principal);
       if ((await transaction.listAssignments(expected.applicationId)).some((candidate) => candidate.id === assignment.data.id)) conflict("Role assignment already exists.");
       await transaction.write({ kind: "assignment", assignment: assignment.data });
+      await transaction.write({ kind: "audit", audit: audit(decision, "create-assignment", isProtectedRole(role) ? protectedAssignmentAuditTarget("create-assignment", role, assignment.data) : auditSubject(assignment.data)) });
       return assignment.data;
+      });
     });
   }
 
   async revokeAssignment(input: Readonly<{ readonly context: TContext; readonly expected: unknown; readonly assignmentId: string }>): Promise<AuthorizationTransactionOutcome<RoleAssignment>> {
     exactInput(input, ["assignmentId", "context", "expected"]);
-    return this.mutate(input.context, input.expected, targets.assignmentsManage, "revoke-assignment", async (transaction, expected, catalog, decision) => {
+    return this.storeErrorBoundary(async () => {
+      const expected = parseAuthorizationExpectedRevision(input.expected);
+      const genericDecision = await this.admitMutation(input.context, expected, targets.assignmentsManage);
+      const catalog = await this.catalog(expected.applicationId, expected.lifecycleRevision);
+      return this.options.store.transaction(expected, async (transaction) => {
       const assignment = (await transaction.listAssignments(expected.applicationId)).find((candidate) => candidate.id === input.assignmentId);
       if (assignment === undefined) invalid("Role assignment does not exist.");
       if (assignment.state === "revoked") conflict("Role assignment is already revoked.");
       const role = await requiredRole(transaction, expected.applicationId, assignment.roleId, false);
+      const decision = isProtectedRole(role)
+        ? await this.admitProtectedAssignment(input.context, expected, "revoke-assignment", role, assignment.id, assignment.principal)
+        : genericDecision;
       assertProtectedAssignmentChange(await delegationAuthority(transaction, expected.applicationId, catalog, decision), role);
       const revoked = RoleAssignmentSchema.parse({ ...assignment, state: "revoked", revision: nextRevision(expected) });
       await transaction.write({ kind: "assignment", assignment: revoked });
+      await transaction.write({ kind: "audit", audit: audit(decision, "revoke-assignment", isProtectedRole(role) ? protectedAssignmentAuditTarget("revoke-assignment", role, revoked) : auditSubject(revoked)) });
       return revoked;
+      });
     });
   }
 
@@ -233,17 +280,20 @@ export class SystemAccessAdministrationService<TContext> {
     exactInput(input, ["assignmentId", "context", "expected"]);
     return this.storeErrorBoundary(async () => {
       const expected = parseAuthorizationExpectedRevision(input.expected);
-      const decision = await this.admitMutation(input.context, expected, targets.assignmentsManage);
+      const genericDecision = await this.admitMutation(input.context, expected, targets.assignmentsManage);
       const catalog = await this.catalog(expected.applicationId, expected.lifecycleRevision);
       return this.options.store.transaction(expected, async (transaction) => {
         const assignment = (await transaction.listAssignments(expected.applicationId)).find((candidate) => candidate.id === input.assignmentId);
         if (assignment === undefined) invalid("Role assignment does not exist.");
         if (assignment.state === "active") conflict("Role assignment is already active.");
         const role = await requiredRole(transaction, expected.applicationId, assignment.roleId, false);
+        const decision = isProtectedRole(role)
+          ? await this.admitProtectedAssignment(input.context, expected, "reactivate-assignment", role, assignment.id, assignment.principal)
+          : genericDecision;
         assertAssignmentDelegable(await delegationAuthority(transaction, expected.applicationId, catalog, decision), role, assignment.principal);
         const active = RoleAssignmentSchema.parse({ ...assignment, state: "active", revision: nextRevision(expected) });
         await transaction.write({ kind: "assignment", assignment: active });
-        await transaction.write({ kind: "audit", audit: audit(decision, "reactivate-assignment", active.id) });
+        await transaction.write({ kind: "audit", audit: audit(decision, "reactivate-assignment", isProtectedRole(role) ? protectedAssignmentAuditTarget("reactivate-assignment", role, active) : active.id) });
         return active;
       });
     });
@@ -337,6 +387,20 @@ export class SystemAccessAdministrationService<TContext> {
       unauthorized();
     }
     return decision;
+  }
+
+  private async admitProtectedAssignment(context: TContext, expected: AuthorizationExpectedRevision, operation: ProtectedAssignmentOperation, role: Role, assignmentId: string, principal: AuthorizationSubject): Promise<AuthorizationDecision> {
+    const target = protectedAssignmentAuthorityTarget(operation, role, assignmentId, principal);
+    const decision = await this.options.authority.authorize(context, target);
+    if (!allowed(decision, target) || decision.applicationId !== expected.applicationId || decision.environment !== expected.environment ||
+      decision.authorizationRevision !== expected.authorizationRevision || decision.lifecycleRevision !== expected.lifecycleRevision ||
+      decision.approval !== "not-required" || decision.reauthentication !== "not-required") {
+      if (decision !== undefined && (decision.authorizationRevision !== expected.authorizationRevision || decision.lifecycleRevision !== expected.lifecycleRevision)) conflict("Authorization decision revision is stale.");
+      unauthorized();
+    }
+    const verified = await this.options.protectedAssignmentAdmission?.verify({ context, expected, operation, role, assignmentId, principal, decision });
+    if (verified?.approval !== "satisfied" || verified.reauthentication !== "satisfied") unauthorized();
+    return AuthorizationDecisionSchema.parse({ ...decision, approval: "satisfied", reauthentication: "satisfied" });
   }
 
   private async catalog(applicationIdValue: string, lifecycleRevision: number): Promise<EffectiveAuthorizationCatalog> {
