@@ -70,11 +70,12 @@ test("migrates P10.3 authorization storage with customer isolation and generatio
       [tables]
     );
     assert.deepEqual(migrated.rows.map(({ table_name }) => table_name), [...tables].sort());
-    assert.deepEqual((await pool.query("select predecessor_revision, revision from k_nex_migration_revision where id=1")).rows, [{ predecessor_revision: 21, revision: 22 }]);
+    assert.deepEqual((await pool.query("select predecessor_revision, revision from k_nex_migration_revision where id=1")).rows, [{ predecessor_revision: 22, revision: 23 }]);
     assert.equal((await pool.query("select count(*)::int as count from payload_migrations where name='20260901_000019_authorization_storage'")).rows[0].count, 1);
     assert.equal((await pool.query("select count(*)::int as count from payload_migrations where name='20260901_000020_template_tombstones'")).rows[0].count, 1);
     assert.equal((await pool.query("select count(*)::int as count from payload_migrations where name='20260901_000021_authorization_outbox'")).rows[0].count, 1);
     assert.equal((await pool.query("select count(*)::int as count from payload_migrations where name='20260901_000022_static_lifecycle_admission'")).rows[0].count, 1);
+    assert.equal((await pool.query("select count(*)::int as count from payload_migrations where name='20260902_000023_system_settings'")).rows[0].count, 1);
 
     await assert.rejects(insertRole("customer-alpha", "system.role.owner"), /k_nex_roles_protected_marker_check/u);
     await assert.rejects(insertRole("customer-alpha", "system.role.owner", "system.role.auditor"), /k_nex_roles_protected_marker_check/u);
