@@ -3,6 +3,7 @@ import {
   OperationsCenterReferenceSchema,
   OperationsCenterRequestInputSchema,
   SystemHealthObservationSchema,
+  canonicalJson,
   type AuthorizationDecision,
   type AuthorizationState,
   type OperationsCenterReceipt,
@@ -38,6 +39,41 @@ export interface SystemOperationsProjectionSource {
     readonly references: readonly OperationsCenterReference[];
     readonly health: readonly SystemHealthObservation[];
   }>>;
+}
+
+export interface SystemOperationsProjectionStateSource {
+  read(applicationId: string, environment: string): Promise<Readonly<{ operationsRevision: number; inventoryDigest: string }> | undefined>;
+}
+
+export interface SystemOperationsReferenceSource {
+  read(applicationId: string, environment: string): Promise<readonly OperationsCenterReference[]>;
+}
+
+export interface SystemHealthSource {
+  read(applicationId: string, environment: string): Promise<readonly SystemHealthObservation[]>;
+}
+
+/** Joins references only; each owning subsystem remains the authoritative state machine. */
+export class CompositeSystemOperationsProjection implements SystemOperationsProjectionSource {
+  constructor(private readonly state: SystemOperationsProjectionStateSource, private readonly references: readonly SystemOperationsReferenceSource[], private readonly health: readonly SystemHealthSource[]) {}
+
+  async read(input: Readonly<{ applicationId: string; environment: string }>): Promise<Readonly<{ operationsRevision: number; inventoryDigest: string; references: readonly OperationsCenterReference[]; health: readonly SystemHealthObservation[] }>> {
+    const before = await this.state.read(input.applicationId, input.environment);
+    if (!before) conflict();
+    const [referenceGroups, healthGroups] = await Promise.all([
+      Promise.all(this.references.map((source) => source.read(input.applicationId, input.environment))),
+      Promise.all(this.health.map((source) => source.read(input.applicationId, input.environment)))
+    ]);
+    const references = unique(referenceGroups.flat().map((value) => Object.freeze(OperationsCenterReferenceSchema.parse(value))));
+    const health = unique(healthGroups.flat().map((value) => {
+      const parsed = SystemHealthObservationSchema.parse(value);
+      if (parsed.applicationId !== input.applicationId || parsed.environment !== input.environment) conflict();
+      return Object.freeze(parsed);
+    }));
+    const after = await this.state.read(input.applicationId, input.environment);
+    if (!after || after.operationsRevision !== before.operationsRevision || after.inventoryDigest !== before.inventoryDigest) conflict();
+    return Object.freeze({ operationsRevision: after.operationsRevision, inventoryDigest: after.inventoryDigest, references, health });
+  }
 }
 
 export interface SystemOperationsOperator {
@@ -158,6 +194,11 @@ function validateProjection(value: Awaited<ReturnType<SystemOperationsProjection
 function sameDecision(left: AuthorizationDecision, right: AuthorizationDecision): boolean {
   return left.decisionId === right.decisionId && left.applicationId === right.applicationId && left.environment === right.environment &&
     left.authorizationRevision === right.authorizationRevision && left.lifecycleRevision === right.lifecycleRevision;
+}
+
+function unique<T>(values: readonly T[]): readonly T[] {
+  const entries = new Map(values.map((value) => [canonicalJson(value), value]));
+  return Object.freeze([...entries.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([, value]) => value));
 }
 
 function exact(value: unknown, keys: readonly string[]): void {

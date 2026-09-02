@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AuthorizationDecision } from "@k-nex/contracts";
 
-import { SystemOperationsAdministrationService } from "../src/system-operations-administration.js";
+import { CompositeSystemOperationsProjection, SystemOperationsAdministrationService } from "../src/system-operations-administration.js";
 
 const digest = `sha256:${"a".repeat(64)}`;
 const actor = { kind: "user" as const, id: "user:owner" };
@@ -31,6 +31,17 @@ function harness(options: Readonly<{ outcome?: "allow" | "deny"; evidence?: { re
 }
 
 describe("system operations administration", () => {
+  it("joins and deduplicates only same-owner authoritative references and health", async () => {
+    const stateSource = { read: vi.fn(async () => ({ operationsRevision: 7, inventoryDigest: digest })) };
+    const reference = { source: "deployment" as const, receiptId: "deployment-receipt-1" };
+    const health = { schemaVersion: 1 as const, observationId: "health-observation-1", applicationId: state.applicationId, environment: state.environment, source: "deployment" as const, state: "ready" as const, revision: 1, checkIds: ["deployment.ready"], observedAt: "2026-09-02T00:00:00.000Z" };
+    const projection = new CompositeSystemOperationsProjection(stateSource, [{ read: async () => [reference] }, { read: async () => [reference] }], [{ read: async () => [health] }]);
+    await expect(projection.read({ applicationId: state.applicationId, environment: state.environment })).resolves.toMatchObject({ references: [reference], health: [health] });
+    expect(stateSource.read).toHaveBeenCalledTimes(2);
+    const forged = new CompositeSystemOperationsProjection(stateSource, [], [{ read: async () => [{ ...health, applicationId: "customer-other" }] }]);
+    await expect(forged.read({ applicationId: state.applicationId, environment: state.environment })).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+  });
+
   it("authorizes and reauthorizes safe projections against current state", async () => {
     const value = harness();
     await expect(value.service.read({ context: {} })).resolves.toMatchObject({ operationsRevision: 7, references: [{ source: "deployment" }], health: [{ state: "ready" }] });

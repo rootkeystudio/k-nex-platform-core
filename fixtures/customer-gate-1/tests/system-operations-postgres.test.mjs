@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
-import { PostgresSystemOperationsStore } from "@k-nex/payload-adapter";
+import { PostgresSystemOperationsStore, SystemOperationsWorker } from "@k-nex/payload-adapter";
 import pg from "pg";
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
@@ -59,7 +59,10 @@ test("P11.7 persists replay-safe backup and restore-drill authority with leases,
     assert.ok(secondLease);
     assert.notEqual(secondLease.leaseToken, firstLease.leaseToken);
     await assert.rejects(store.complete(firstLease.request.reference.operationId, firstLease.leaseToken, { outcome: "failed", reason: "operator-unavailable", referenceReceiptId: "restore-proof-old" }), { code: "LEASE_CONFLICT" });
-    const failed = await store.complete(secondLease.request.reference.operationId, secondLease.leaseToken, { outcome: "failed", reason: "operator-unavailable", referenceReceiptId: "restore-proof-1" });
+    await pool.query("update k_nex_system_operation_requests set state='pending', lease_owner=null, lease_token=null, lease_expires_at=null where operation_id=$1", [secondLease.request.reference.operationId]);
+    const worker = new SystemOperationsWorker(store, { async execute() { throw new Error("raw operator secret must be contained"); } });
+    const failed = await worker.runNext({ applicationId, environment, workerId: "restore-worker-3", leaseSeconds: 30 });
+    assert.ok(failed);
     assert.equal(failed.outcome, "failed");
     assert.equal(restoreAccepted.requestId, failed.requestId);
 

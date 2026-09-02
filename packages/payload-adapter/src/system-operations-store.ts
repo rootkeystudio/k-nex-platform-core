@@ -27,6 +27,10 @@ export interface SystemOperationCompletionProof {
   readonly reason?: "operator-unavailable" | "verification-failed";
 }
 
+export interface TrustedSystemOperationExecutor {
+  execute(request: OperationsCenterRequest): Promise<Readonly<{ referenceReceiptId: string; cleanEnvironmentRestore: true }>>;
+}
+
 export class PostgresSystemOperationsStore implements SystemOperationsOperator {
   constructor(private readonly pool: RuntimeExtensionPool, private readonly clock: RuntimeExtensionClock) {}
 
@@ -189,6 +193,22 @@ export class PostgresSystemOperationsStore implements SystemOperationsOperator {
     try { await session.query("begin"); const value = await work(session); await session.query("commit"); return value; }
     catch (error) { try { await session.query("rollback"); } catch {} throw error; }
     finally { session.release(); }
+  }
+}
+
+/** Runs only in the separate trusted operator process; web receives the store's submit/replay facade, never this executor. */
+export class SystemOperationsWorker {
+  constructor(private readonly store: PostgresSystemOperationsStore, private readonly executor: TrustedSystemOperationExecutor) {}
+
+  async runNext(input: Readonly<{ applicationId: string; environment: string; workerId: string; leaseSeconds: number }>): Promise<OperationsCenterReceipt | undefined> {
+    const claimed = await this.store.claim(input);
+    if (!claimed) return undefined;
+    try {
+      const proof = await this.executor.execute(claimed.request);
+      return this.store.complete(claimed.request.reference.operationId, claimed.leaseToken, { outcome: "completed", referenceReceiptId: proof.referenceReceiptId, cleanEnvironmentRestore: proof.cleanEnvironmentRestore });
+    } catch {
+      return this.store.complete(claimed.request.reference.operationId, claimed.leaseToken, { outcome: "failed", reason: "operator-unavailable", referenceReceiptId: `${claimed.request.kind}-failure-receipt` });
+    }
   }
 }
 
