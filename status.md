@@ -11,7 +11,7 @@ Review remediation slice 9 prechecks locked delegation authority before protecte
 
 ## Validation
 
-Exact Node 24.19.0: affected builds PASS; administration unit 15/15 and real PostgreSQL delegation 1/1 PASS. Earlier corrected focused Gate 10 passed 15/15; final cumulative exact-head run is not claimed yet.
+Exact Node 24.19.0: affected builds PASS; administration unit 15/15, real PostgreSQL delegation 1/1, and corrected focused Gate 10 15/15 PASS. Final cumulative exact-head run is not claimed yet.
 
 ## Next
 
