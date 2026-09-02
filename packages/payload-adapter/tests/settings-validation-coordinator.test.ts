@@ -54,7 +54,7 @@ describe("SettingsValidationCoordinator", () => {
   it("leases, validates, and promotes only the exact staged runtime generation", async () => {
     const terminal = promoted();
     const claimed = { ...pending, state: "validating", attempts: 1, revision: 2,
-      leaseOwner: "settings-worker-one", leaseExpiresAt: "2026-09-02T00:01:00.000Z" } as const;
+      leaseOwner: "settings-worker-one", leaseExpiresAt: "2026-09-02T00:05:00.000Z" } as const;
     const store = {
       readGenerationValidated: vi.fn(async () => pending),
       readGenerationValidatedAuthority: vi.fn(async () => ({ operation: pending, authority: authorityEnvelope })),
@@ -64,16 +64,17 @@ describe("SettingsValidationCoordinator", () => {
       failGenerationValidated: vi.fn()
     };
     const validator = { validate: vi.fn(async () => ({ ready: true as const })) };
-    const times = [new Date("2026-09-02T00:00:00.000Z"), new Date("2026-09-02T00:00:01.000Z")];
+    const times = [new Date("2026-09-02T00:00:00.000Z"), new Date("2026-09-02T00:02:00.000Z")];
     const coordinator = new SettingsValidationCoordinator({
       store: store as never, validator, readAuthority: async () => authority,
-      currentAuthority: { reauthorize: vi.fn(async () => true) },
-      leaseOwner: "settings-worker-one", now: () => times.shift()!
+      currentAuthority: { reauthorize: vi.fn(async () => authority) },
+      leaseOwner: "settings-worker-one", leaseMilliseconds: 300_000, now: () => times.shift()!
     });
 
     await expect(coordinator.run({ identity, operationId: pending.operationId })).resolves.toEqual(terminal);
     expect(validator.validate).toHaveBeenCalledWith(expect.objectContaining({ runtimeGenerationId: "weather-runtime-3", candidate: pending.pendingDocument }));
     expect(store.promoteGenerationValidated).toHaveBeenCalledWith(expect.objectContaining({ expectedOperationRevision: 2, leaseOwner: "settings-worker-one" }));
+    expect(store.promoteGenerationValidated).toHaveBeenCalledWith(expect.objectContaining({ receipt: expect.objectContaining({ occurredAt: "2026-09-02T00:02:00.000Z" }) }));
     expect(store.failGenerationValidated).not.toHaveBeenCalled();
   });
 

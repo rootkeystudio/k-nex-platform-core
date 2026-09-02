@@ -109,11 +109,11 @@ export class PostgresSystemOperationsStore implements SystemOperationsOperator {
       const requestId = await identifier(`${input.kind}-request`, fingerprint);
       const createdAt = timestamp(this.clock);
       const request = OperationsCenterRequestSchema.parse({ schemaVersion: 1, requestId, applicationId: input.applicationId, environment: input.environment, kind: input.kind,
-        expectedOperationsRevision: input.expectedOperationsRevision, expectedInventoryDigest: input.expectedInventoryDigest, requestedBy, authorityDigest, idempotencyKey: input.idempotencyKey,
+        expectedOperationsRevision: input.expectedOperationsRevision, expectedInventoryDigest: input.expectedInventoryDigest, requestedBy, authorityDigest, executionAuthority: "system-after-acceptance", idempotencyKey: input.idempotencyKey,
         reference: { source: input.kind, operationId }, createdAt });
       const receipt = OperationsCenterReceiptSchema.parse({ schemaVersion: 1, receiptId: await identifier(`${input.kind}-accepted`, fingerprint), requestId,
         applicationId: input.applicationId, environment: input.environment, kind: input.kind, expectedInventoryDigest: input.expectedInventoryDigest,
-        requestedBy, authorityDigest, idempotencyKey: input.idempotencyKey, reference: request.reference, outcome: "accepted", reason: "accepted", occurredAt: createdAt });
+        requestedBy, authorityDigest, executionAuthority: request.executionAuthority, idempotencyKey: input.idempotencyKey, reference: request.reference, outcome: "accepted", reason: "accepted", occurredAt: createdAt });
       await session.query(
         `insert into k_nex_system_operation_requests (operation_id, request_id, application_id, environment, kind, expected_operations_revision, expected_inventory_digest, idempotency_key, authority_json, authority_digest, request_json)
          values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11::jsonb)`,
@@ -158,7 +158,7 @@ export class PostgresSystemOperationsStore implements SystemOperationsOperator {
       const occurredAt = timestamp(this.clock);
       const receipt = OperationsCenterReceiptSchema.parse({ schemaVersion: 1, receiptId: await identifier(`${request.kind}-${proof.outcome}`, { operationId, proof }), requestId: request.requestId,
         applicationId: request.applicationId, environment: request.environment, kind: request.kind, expectedInventoryDigest: request.expectedInventoryDigest,
-        requestedBy: request.requestedBy, authorityDigest: request.authorityDigest, idempotencyKey: request.idempotencyKey, reference: { source: request.kind, operationId, receiptId: proof.referenceReceiptId },
+        requestedBy: request.requestedBy, authorityDigest: request.authorityDigest, executionAuthority: request.executionAuthority, idempotencyKey: request.idempotencyKey, reference: { source: request.kind, operationId, receiptId: proof.referenceReceiptId },
         outcome: proof.outcome, reason: proof.outcome === "completed" ? "completed" : proof.reason, occurredAt });
       await session.query(`update k_nex_system_operation_requests set state='terminal', lease_owner=null, lease_token=null, lease_expires_at=null, updated_at=now() where operation_id=$1`, [operationId]);
       await this.receipt(session, operationId, receipt, true);
@@ -184,7 +184,7 @@ export class PostgresSystemOperationsStore implements SystemOperationsOperator {
     const authorityRow = authorityResult.rows[0];
     if (!authorityRow || authorityRow.authority_digest !== request.authorityDigest) fail("INVALID", "System operation authority evidence is unavailable.");
     const authorityEnvelope = AdministrationActorEnvelopeSchema.parse(authorityRow.authority_json);
-    await session.query(`insert into k_nex_system_operation_audit (audit_id, application_id, environment, operation_id, kind, outcome, operations_revision, requested_by_kind, requested_by_id, authority_json, authority_digest, created_at) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12::timestamptz)`, [auditId, request.applicationId, request.environment, request.reference.operationId, request.kind, outcome, revision, request.requestedBy.kind, request.requestedBy.id, JSON.stringify(authorityEnvelope), request.authorityDigest, receipt.occurredAt]);
+    await session.query(`insert into k_nex_system_operation_audit (audit_id, application_id, environment, operation_id, kind, outcome, operations_revision, requested_by_kind, requested_by_id, authority_json, authority_digest, execution_authority, created_at) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13::timestamptz)`, [auditId, request.applicationId, request.environment, request.reference.operationId, request.kind, outcome, revision, request.requestedBy.kind, request.requestedBy.id, JSON.stringify(authorityEnvelope), request.authorityDigest, request.executionAuthority, receipt.occurredAt]);
     await this.outbox(session, request.applicationId, request.environment, revision, { type: "operations.receipt", operationId: request.reference.operationId, receipt });
   }
 

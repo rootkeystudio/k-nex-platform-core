@@ -67,8 +67,7 @@ test("P11.8 serves fixed settings, theme, and operations journeys with current a
     const catalog = new SystemCatalogAdministrationService({ authority,
       state: { async readState(id, env) { const state = await authorizationStore.readState(id, env); return state ? { ...state, catalogRevision: 0 } : undefined; } },
       observation: { async readObservation() { return { schemaVersion: 1, state: "no-accepted-snapshot", catalogRevision: 0 }; } },
-      operator: { resolve(context) { return context?.session === "owner" ? { async refresh(input) { return { schemaVersion: 1, receiptId: "catalog-browser-receipt", refreshId: input.refreshId, outcome: "rejected", reason: "fetch-failed", requestedBy: input.requestedBy, authorityDigest: `sha256:${createHash("sha256").update(canonicalJson(input.authorityEnvelope)).digest("hex")}`, idempotencyKey: input.idempotencyKey, occurredAt: "2026-09-02T00:00:00.000Z" }; } } : undefined; } },
-      id: () => "catalog-browser-refresh"
+      operator: { resolve(context) { return context?.session === "owner" ? { async read() { return undefined; }, async refresh(input) { return { schemaVersion: 1, receiptId: "catalog-browser-receipt", refreshId: input.refreshId, outcome: "rejected", reason: "fetch-failed", requestedBy: input.requestedBy, authorityDigest: `sha256:${createHash("sha256").update(canonicalJson(input.authorityEnvelope)).digest("hex")}`, idempotencyKey: input.idempotencyKey, occurredAt: "2026-09-02T00:00:00.000Z" }; } } : undefined; } }
     });
 
     host = await startSystemAdministrationHost({ access: {}, catalog, extensions: {}, settings, themes, operations, context(message) { return /system_session=owner/u.test(message.headers.cookie ?? "") ? { session: "owner" } : undefined; }, sessionKey(context) { return context?.session; }, async expected() { const state = await authorizationStore.readState(applicationId, environment); return { ...state, inventoryRevision: 0, extensionRevision: 0 }; } });
@@ -98,7 +97,8 @@ test("P11.8 serves fixed settings, theme, and operations journeys with current a
     await page.goto(`${host.url}/system/themes/profiles/profile.admin`); assert.equal((await submit(page, "Preview profile"))?.status(), 200);
     await page.goto(`${host.url}/system/operations`); assert.equal((await submit(page, "Request backup"))?.status(), 200);
     const catalogResult = await page.evaluate(async () => (await fetch("/api/system/catalog/refresh", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ request: { expectedCatalogRevision: 0, idempotencyKey: "catalog-browser-refresh-1" } }) })).json());
-    assert.deepEqual(catalogResult, { schemaVersion: 1, receiptId: "catalog-browser-receipt", refreshId: "catalog-browser-refresh", outcome: "rejected", reason: "fetch-failed", requestedBy: { kind: "user", id: ownerId }, authorityDigest: catalogResult.authorityDigest, idempotencyKey: "catalog-browser-refresh-1", occurredAt: "2026-09-02T00:00:00.000Z" });
+    assert.deepEqual(catalogResult, { schemaVersion: 1, receiptId: "catalog-browser-receipt", refreshId: catalogResult.refreshId, outcome: "rejected", reason: "fetch-failed", requestedBy: { kind: "user", id: ownerId }, authorityDigest: catalogResult.authorityDigest, idempotencyKey: "catalog-browser-refresh-1", occurredAt: "2026-09-02T00:00:00.000Z" });
+    assert.match(catalogResult.refreshId, /^catalog-refresh-[0-9a-f]{32}$/u);
     assert.match(catalogResult.authorityDigest, /^sha256:[0-9a-f]{64}$/u);
     await page.goto(`${host.url}/system/operations`); assert.match(await page.locator("body").innerText(), /backup-operation/u);
     const operationHref = await page.locator("a[href^='/system/operations/']").first().getAttribute("href"); assert.ok(operationHref);

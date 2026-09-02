@@ -1,5 +1,6 @@
 import {
   AdministrationActorEnvelopeSchema,
+  AuthorizationStateSchema,
   AuthorizationSubjectSchema,
   CatalogRefreshObservationSchema,
   CatalogRefreshReceiptSchema,
@@ -7,6 +8,7 @@ import {
   canonicalJson,
   ExactSemverSchema,
   type AuthorizationSubject,
+  type AuthorizationState,
   type AdministrationActorEnvelope,
   type CatalogRefreshObservation,
   type CatalogRefreshReceipt,
@@ -149,6 +151,14 @@ export class PostgresCatalogMirrorStore {
     return receipt.rows[0] ? exact(CatalogRefreshReceiptSchema, receipt.rows[0].receipt_json, "STATE") : undefined;
   }
 
+  async readRefreshAuthority(refreshId: string): Promise<CatalogMirrorRefresh | undefined> {
+    if (!recordPattern.test(refreshId)) throw new TypeError("Catalog refresh id is invalid.");
+    const result = await this.pool.query<Row>(`select refresh_id, expected_catalog_revision, requested_by_kind, requested_by_id, authority_json, idempotency_key from k_nex_catalog_refresh_operations where application_id=$1 and environment=$2 and refresh_id=$3`, [this.owner.applicationId, this.owner.environment, refreshId]);
+    const row = result.rows[0];
+    if (!row) return undefined;
+    return this.refresh({ refreshId: String(row.refresh_id), expectedCatalogRevision: integer(row.expected_catalog_revision, 0, 1_000_000_000, "operation revision"), requestedBy: { kind: String(row.requested_by_kind), id: String(row.requested_by_id) } as AuthorizationSubject, authorityEnvelope: exact(AdministrationActorEnvelopeSchema, row.authority_json, "STATE"), idempotencyKey: String(row.idempotency_key) });
+  }
+
   /** Replaces stale lifecycle requirements without advancing the staged catalog pointer. */
   async rebaseRequirements(input: Readonly<{ refreshId: string; expectedOperationRevision: number; expectedCatalogRevision: number; requirements: readonly CatalogReconciliationRequirement[] }>): Promise<ResumableCatalogRefreshOperation> {
     if (!recordPattern.test(input.refreshId) || !Number.isSafeInteger(input.expectedOperationRevision) || input.expectedOperationRevision < 1 || !Number.isSafeInteger(input.expectedCatalogRevision) || input.expectedCatalogRevision < 0) fail("INVALID", "Catalog reconciliation rebase input is invalid.");
@@ -173,11 +183,15 @@ export class PostgresCatalogMirrorStore {
   }
 
   /** Coordinator calls this only after all impacted release reconciliations reached terminal receipts. */
-  async acceptAfterTerminalReconciliation(input: Readonly<{ refresh: CatalogMirrorRefresh; expectedOperationRevision: number; expectedCatalogRevision: number; expectedInventoryRevision: number; receiptId: string; auditId: string; eventId: string; reconciledReleaseCount: number; occurredAt: string }>): Promise<CatalogRefreshReceipt> {
+  async acceptAfterTerminalReconciliation(input: Readonly<{ refresh: CatalogMirrorRefresh; authority: AuthorizationState; expectedOperationRevision: number; expectedCatalogRevision: number; expectedInventoryRevision: number; receiptId: string; auditId: string; eventId: string; reconciledReleaseCount: number; occurredAt: string }>): Promise<CatalogRefreshReceipt> {
     const refresh = this.refresh(input.refresh);
+    const authority = exact(AuthorizationStateSchema, input.authority);
+    if (authority.applicationId !== this.owner.applicationId || authority.environment !== this.owner.environment) fail("INVALID", "Catalog acceptance authority is invalid.");
     if (!recordPattern.test(input.receiptId) || !recordPattern.test(input.auditId) || !recordPattern.test(input.eventId) || !Number.isSafeInteger(input.expectedOperationRevision) || input.expectedOperationRevision < 1 || !Number.isSafeInteger(input.expectedCatalogRevision) || input.expectedCatalogRevision < 0 || !Number.isSafeInteger(input.expectedInventoryRevision) || input.expectedInventoryRevision < 0 || !Number.isSafeInteger(input.reconciledReleaseCount) || input.reconciledReleaseCount < 0 || input.reconciledReleaseCount > 10_000 || !Number.isFinite(Date.parse(input.occurredAt))) fail("INVALID", "Catalog acceptance input is invalid.");
     return this.transaction(async (session) => {
       await this.lock(session); await this.state(session);
+      const authorityState = await session.query<Row>(`select authorization_revision, lifecycle_revision from k_nex_authorization_state where application_id=$1 for update`, [this.owner.applicationId]);
+      if (integer(authorityState.rows[0]?.authorization_revision, 0, 1_000_000_000, "authorization revision") !== authority.authorizationRevision || integer(authorityState.rows[0]?.lifecycle_revision, 0, 1_000_000_000, "lifecycle revision") !== authority.lifecycleRevision) fail("REVISION", "Catalog authority changed before acceptance.");
       const replay = await this.receiptByRefresh(session, refresh.refreshId, refresh);
       if (replay) return replay;
       const state = await this.lockedState(session);
@@ -205,10 +219,10 @@ export class PostgresCatalogMirrorStore {
     const refresh = this.refresh(refreshValue);
     return this.transaction(async (session) => {
       await this.lock(session); await this.state(session);
-      const receipt = await this.receiptByRefresh(session, refresh.refreshId, refresh); if (receipt) return receipt;
+      const receipt = await this.receiptByRefresh(session, refresh.refreshId); if (receipt) return receipt;
       const existing = await this.operationByKeys(session, refresh);
       if (existing) {
-        if (!this.sameRefresh(existing, refresh)) fail("IDEMPOTENCY", "Catalog refresh idempotency key was reused with a different request.");
+        if (!this.sameRequest(existing, refresh)) fail("IDEMPOTENCY", "Catalog refresh idempotency key was reused with a different request.");
         return operation(existing, existing.staged_snapshot_id ? await this.snapshotById(session, String(existing.staged_snapshot_id)) : undefined);
       }
       const state = await this.lockedState(session);
@@ -219,7 +233,7 @@ export class PostgresCatalogMirrorStore {
     });
   }
 
-  async reject(input: Readonly<{ refresh: CatalogMirrorRefresh; expectedOperationRevision: number; receiptId: string; reason: "stale-revision" | "fetch-failed" | "snapshot-invalid" | "snapshot-replayed"; occurredAt: string }>): Promise<CatalogRefreshReceipt> {
+  async reject(input: Readonly<{ refresh: CatalogMirrorRefresh; expectedOperationRevision: number; receiptId: string; reason: "stale-revision" | "fetch-failed" | "snapshot-invalid" | "snapshot-replayed" | "permission-revoked"; occurredAt: string }>): Promise<CatalogRefreshReceipt> {
     const refresh = this.refresh(input.refresh);
     if (!recordPattern.test(input.receiptId) || !Number.isSafeInteger(input.expectedOperationRevision) || input.expectedOperationRevision < 1 || !Number.isFinite(Date.parse(input.occurredAt))) fail("INVALID", "Catalog rejection input is invalid.");
     return this.transaction(async (session) => {
@@ -228,6 +242,7 @@ export class PostgresCatalogMirrorStore {
       const active = await this.operationByKeys(session, refresh);
       if (!active || !this.sameRefresh(active, refresh) || integer(active.revision, 1, 1_000_000_000, "operation revision") !== input.expectedOperationRevision) fail("REVISION", "Catalog refresh state changed before rejection.");
       const receipt = exact(CatalogRefreshReceiptSchema, { schemaVersion: 1, receiptId: input.receiptId, refreshId: refresh.refreshId, outcome: "rejected", reason: input.reason, requestedBy: refresh.requestedBy, authorityDigest: authorityDigest(refresh.authorityEnvelope), idempotencyKey: refresh.idempotencyKey, occurredAt: new Date(input.occurredAt).toISOString() });
+      if (active.staged_snapshot_id) await session.query(`update k_nex_catalog_mirror_state set staged_snapshot_id=null, catalog_revision=catalog_revision+1, updated_at=now() where application_id=$1 and environment=$2 and staged_snapshot_id=$3`, [this.owner.applicationId, this.owner.environment, String(active.staged_snapshot_id)]);
       await session.query(`update k_nex_catalog_refresh_operations set state='terminal', revision=revision+1, updated_at=now() where refresh_id=$1 and revision=$2`, [refresh.refreshId, input.expectedOperationRevision]);
       await session.query(`insert into k_nex_catalog_refresh_receipts (receipt_id, refresh_id, application_id, environment, expected_catalog_revision, authority_digest, idempotency_key, receipt_json, occurred_at) values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9)`, [receipt.receiptId, refresh.refreshId, this.owner.applicationId, this.owner.environment, refresh.expectedCatalogRevision, receipt.authorityDigest, refresh.idempotencyKey, canonicalJson(receipt), receipt.occurredAt]);
       return receipt;
@@ -303,5 +318,6 @@ export class PostgresCatalogMirrorStore {
   private requirements(values: readonly CatalogReconciliationRequirement[]): readonly CatalogReconciliationRequirement[] { const seen = new Set<string>(); return values.map((value) => { if ((value.deliveryClass !== "hot-application" && value.deliveryClass !== "theme-skin") || !/^(app|skin)\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)*$/u.test(value.extensionId) || !recordPattern.test(value.generationId) || !digestPattern.test(value.decisionDigest)) fail("INVALID", "Catalog reconciliation requirement is invalid."); const key = canonicalJson([value.deliveryClass, value.extensionId, value.generationId]); if (seen.has(key)) fail("INVALID", "Catalog reconciliation requirement is duplicated."); seen.add(key); return Object.freeze({ ...value }); }).sort((left, right) => canonicalJson([left.deliveryClass, left.extensionId, left.generationId]).localeCompare(canonicalJson([right.deliveryClass, right.extensionId, right.generationId]))); }
   private assertOwner(owner: CatalogMirrorOwner): void { if (owner.applicationId !== this.owner.applicationId || owner.environment !== this.owner.environment) fail("INVALID", "Catalog mirror owner does not match this store."); }
   private sameRefresh(row: Row, refresh: CatalogMirrorRefresh): boolean { return String(row.refresh_id) === refresh.refreshId && integer(row.expected_catalog_revision, 0, 1_000_000_000, "operation revision") === refresh.expectedCatalogRevision && String(row.authority_digest) === authorityDigest(refresh.authorityEnvelope) && canonicalJson(row.authority_json) === canonicalJson(refresh.authorityEnvelope) && String(row.idempotency_key) === refresh.idempotencyKey && canonicalJson({ kind: row.requested_by_kind, id: row.requested_by_id }) === canonicalJson(refresh.requestedBy); }
+  private sameRequest(row: Row, refresh: CatalogMirrorRefresh): boolean { return String(row.refresh_id) === refresh.refreshId && integer(row.expected_catalog_revision, 0, 1_000_000_000, "operation revision") === refresh.expectedCatalogRevision && String(row.idempotency_key) === refresh.idempotencyKey && canonicalJson({ kind: row.requested_by_kind, id: row.requested_by_id }) === canonicalJson(refresh.requestedBy); }
   private async transaction<T>(work: (session: RuntimeExtensionSession) => Promise<T>): Promise<T> { const session = await this.pool.connect(); try { await session.query("begin"); const result = await work(session); await session.query("commit"); return result; } catch (error) { try { await session.query("rollback"); } catch { /* retain cause */ } throw error; } finally { session.release(); } }
 }

@@ -126,6 +126,8 @@ choose an arbitrary catalog/artifact target
 
 Maintenance-required delivery and destructive restore remain explicit external procedures with exact approval and inventory binding. Operations-center records are read-only projections/references over the authoritative settings operation, catalog refresh receipt, PluginManager operation, deployment/fence receipt, theme publication, or backup/restore-drill authority. They never form a second lifecycle or status state machine.
 
+Accepted backup and restore-drill requests transfer to explicit `system-after-acceptance` execution authority. Later requester permission or delegation revocation does not cancel that already accepted system duty; inventory binding, worker lease fencing, immutable receipts, and trusted-operator isolation remain mandatory. The request, every receipt, audit row, and outbox projection record this authority transition.
+
 ## 6. Permission and risk matrix
 
 Every scope below is server-derived `{ kind: "application", resource: <listed resource> }`. A service principal uses the same permission; automation identity never bypasses RBAC.
@@ -282,7 +284,7 @@ Join settings, catalog, extension/theme, and operations revisions across real we
 Acceptance:
 
 - loss of every invalidation still converges by polling;
-- catalog/permission/lifecycle/settings revocation cancels or denies affected work;
+- catalog/settings/lifecycle revocation and pre-acceptance permission revocation cancel or deny affected work; accepted backup/restore-drill work follows its recorded `system-after-acceptance` authority;
 - process crash before/after request commit preserves one logical operation;
 - SSRF, trust-root forgery, arbitrary artifact, Docker/API escape, secret exfiltration, stale approval, cross-customer, and generation resurrection attacks fail closed;
 - unrelated customer/runtime remains healthy.

@@ -8,6 +8,7 @@ import test from "node:test";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { ArtifactVerifier, CatalogClient, canonicalJson, OfficialGithubCatalogReader, sha256 } from "@k-nex/extension-bundler";
 import { ActiveExtensionSecurityReconciler, CatalogRefreshCoordinator, PostgresCatalogCheckpointStore, PostgresCatalogMirrorStore, PostgresRuntimeExtensionStore, PostgresVerifiedArtifactStore, SharedStaticPlatformPluginGenerationRebinder } from "@k-nex/payload-adapter";
+import { CurrentAuthorityAdapter, SystemCatalogAdministrationService, createTrustedAuthorizationSession } from "@k-nex/runtime";
 import pg from "pg";
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
@@ -106,13 +107,27 @@ function refresh(id, revision, targetOwner = owner) {
   return { refreshId: id, expectedCatalogRevision: revision, requestedBy, authorityEnvelope: { schemaVersion: 1, ...targetOwner, principal: requestedBy, effectiveActor: requestedBy, authorizationRevision: 1, lifecycleRevision: 1, permissions: [{ decisionId: "catalog-proof-decision", permissionId: "system.catalog.refresh", owner: { kind: "platform", namespace: "system" }, scope: { kind: "application", resource: "system.catalog" } }] }, idempotencyKey: `${id}-idempotency` };
 }
 
-function coordinator(pool, targetOwner, reader, catalog, verifier, reconciler) {
+function coordinator(pool, targetOwner, reader, catalog, verifier, reconciler, currentAuthority = { reauthorize: async () => ({ schemaVersion: 1, ...targetOwner, authorizationRevision: 1, lifecycleRevision: 1 }) }) {
   const mirror = new PostgresCatalogMirrorStore(pool, targetOwner);
   const extensions = new PostgresRuntimeExtensionStore(pool, clock, digest("9"), {
     sharedStaticGenerationRebinder: new SharedStaticPlatformPluginGenerationRebinder(),
     authorizationLifecycleProjector: { project: async () => undefined }
   });
-  return { mirror, extensions, value: new CatalogRefreshCoordinator({ owner: targetOwner, reader, catalog, checkpoints: new PostgresCatalogCheckpointStore(pool, targetOwner), verifier, mirror, extensions, reconciler }) };
+  return { mirror, extensions, value: new CatalogRefreshCoordinator({ owner: targetOwner, reader, catalog, checkpoints: new PostgresCatalogCheckpointStore(pool, targetOwner), verifier, mirror, extensions, reconciler, currentAuthority }) };
+}
+
+function catalogAdministration(targetOwner, mirror, operator) {
+  const actor = { kind: "service", id: "catalog-proof" };
+  const session = createTrustedAuthorizationSession({ schemaVersion: 1, ...targetOwner, correlationId: `catalog-${targetOwner.applicationId}`, principal: actor, effectiveActor: actor });
+  const authority = new CurrentAuthorityAdapter({ current: async () => session }, { authorize: async (current, request) => ({
+    schemaVersion: 1, decisionId: request.decisionId, correlationId: current.correlationId, ...targetOwner, permissionId: request.permissionId,
+    owner: { kind: "platform", namespace: "system" }, principal: current.principal, effectiveActor: current.effectiveActor, scope: request.scope,
+    authorizationRevision: 1, lifecycleRevision: 1, outcome: "allow", reason: "granted", approval: "not-required", reauthentication: "not-required"
+  }) });
+  return new SystemCatalogAdministrationService({ authority,
+    state: { async readState() { const observation = await mirror.readObservation(); return { schemaVersion: 1, ...targetOwner, authorizationRevision: 1, lifecycleRevision: 1, catalogRevision: observation.catalogRevision }; } },
+    observation: mirror, operator: { resolve: async () => operator }
+  });
 }
 
 test("P11.4 consumes a bounded official catalog through real HTTP and PostgreSQL without activation", { timeout: 180_000 }, async () => {
@@ -125,6 +140,7 @@ test("P11.4 consumes a bounded official catalog through real HTTP and PostgreSQL
   const http = await relay();
   try {
     await boot(container.getConnectionUri());
+    await pool.query("insert into k_nex_authorization_state (application_id, authorization_revision, lifecycle_revision) values ($1,1,1)", [owner.applicationId]);
     const checkpoints = new PostgresCatalogCheckpointStore(pool, owner);
     const catalog = new CatalogClient({ [signer.identity]: signer.publicKey }, checkpoints, now);
     const verifier = new ArtifactVerifier(catalog, { [v1.publisher.identity]: v1.publisher.publicKey });
@@ -144,6 +160,68 @@ test("P11.4 consumes a bounded official catalog through real HTTP and PostgreSQL
     assert.deepEqual((await pool.query("select release_count from k_nex_catalog_refresh_audit where receipt_id=$1", [accepted.receiptId])).rows, [{ release_count: 1 }], "Audit records catalog releases, not the zero active reconciliations.");
     assert.deepEqual(http.state.urls, [endpoint], "The relay only received the configured GitHub release endpoint.");
     assert.equal((await pool.query("select count(*)::int count from runtime_extensions")).rows[0].count, 0, "Refresh never activates extensions.");
+
+    const revokedOwner = { applicationId: "customer-catalog-revoked", environment: "production" };
+    await insertActive(pool, revokedOwner);
+    await pool.query("insert into k_nex_authorization_state (application_id, authorization_revision, lifecycle_revision) values ($1,1,1)", [revokedOwner.applicationId]);
+    await pool.query("insert into k_nex_roles (application_id, role_id, label) values ($1,'customer.catalog-admin','Catalog admin')", [revokedOwner.applicationId]);
+    await pool.query(`insert into k_nex_role_permission_grants (application_id, grant_id, role_id, permission_id, owner_kind, owner_namespace) values ($1,'customer.catalog-refresh-grant','customer.catalog-admin','system.catalog.refresh','platform','system')`, [revokedOwner.applicationId]);
+    await pool.query(`insert into k_nex_role_assignments (application_id, assignment_id, role_id, subject_kind, subject_id, state) values ($1,'customer.catalog-admin-assignment','customer.catalog-admin','service','catalog-proof','active')`, [revokedOwner.applicationId]);
+    const revokedAuthority = { async reauthorize(input) {
+      const [grant, state] = await Promise.all([
+        pool.query(`select permission.permission_id from k_nex_role_assignments assignment join k_nex_role_permission_grants permission on permission.application_id=assignment.application_id and permission.role_id=assignment.role_id where assignment.application_id=$1 and assignment.subject_kind=$2 and assignment.subject_id=$3 and assignment.state='active' and permission.permission_id='system.catalog.refresh'`, [revokedOwner.applicationId, input.authority.principal.kind, input.authority.principal.id]),
+        pool.query("select authorization_revision, lifecycle_revision from k_nex_authorization_state where application_id=$1", [revokedOwner.applicationId])
+      ]);
+      return grant.rows.length === 1 && state.rows.length === 1 && input.authority.applicationId === revokedOwner.applicationId && input.authority.environment === revokedOwner.environment
+        ? { schemaVersion: 1, ...revokedOwner, authorizationRevision: state.rows[0].authorization_revision, lifecycleRevision: state.rows[0].lifecycle_revision }
+        : undefined;
+    } };
+    const revokedCheckpoints = new PostgresCatalogCheckpointStore(pool, revokedOwner);
+    const revokedCatalog = new CatalogClient({ [signer.identity]: signer.publicKey }, revokedCheckpoints, now);
+    const revokedVerifier = new ArtifactVerifier(revokedCatalog, { [v1.publisher.identity]: v1.publisher.publicKey });
+    const revokedRuntime = new PostgresRuntimeExtensionStore(pool, clock, digest("7"), { sharedStaticGenerationRebinder: new SharedStaticPlatformPluginGenerationRebinder() });
+    const revokedReconciler = new ActiveExtensionSecurityReconciler(revokedVerifier, revokedRuntime);
+    let releaseReconciliation; let reconciliationStarted;
+    const reconciliationGate = new Promise((resolve) => { releaseReconciliation = resolve; });
+    const reconciliationReady = new Promise((resolve) => { reconciliationStarted = resolve; });
+    const revoked = coordinator(pool, revokedOwner, reader, revokedCatalog, revokedVerifier, { reconcileSnapshot: async (input) => { reconciliationStarted(); await reconciliationGate; return revokedReconciler.reconcileSnapshot(input); } }, revokedAuthority);
+    await send(signed(signer, catalogKeys.privateKey, 1, [v1]));
+    const revokedRun = revoked.value.refresh(refresh("catalog-refresh-revoked", 0, revokedOwner));
+    await reconciliationReady;
+    await pool.query("update k_nex_role_assignments set state='revoked', revision=revision+1 where application_id=$1 and assignment_id='customer.catalog-admin-assignment'", [revokedOwner.applicationId]);
+    await pool.query("update k_nex_authorization_state set authorization_revision=authorization_revision+1 where application_id=$1", [revokedOwner.applicationId]);
+    releaseReconciliation();
+    const revokedReceipt = await revokedRun;
+    assert.deepEqual({ outcome: revokedReceipt.outcome, reason: revokedReceipt.reason }, { outcome: "rejected", reason: "permission-revoked" });
+    assert.equal(await revoked.mirror.readAcceptedSnapshot(), undefined, "Revocation during reconciliation cannot advance the accepted pointer.");
+    assert.equal((await revoked.mirror.readObservation()).state, "no-accepted-snapshot", "Revocation clears the staged pointer after fail-closed reconciliation.");
+
+    const responseLoss = async (suffix, boundary) => {
+      const targetOwner = { applicationId: `customer-catalog-loss-${suffix}`, environment: "production" };
+      await pool.query("insert into k_nex_authorization_state (application_id, authorization_revision, lifecycle_revision) values ($1,1,1)", [targetOwner.applicationId]);
+      if (boundary === "stage") await insertActive(pool, targetOwner);
+      const targetCheckpoints = new PostgresCatalogCheckpointStore(pool, targetOwner);
+      const targetCatalog = new CatalogClient({ [signer.identity]: signer.publicKey }, targetCheckpoints, now);
+      const targetVerifier = new ArtifactVerifier(targetCatalog, { [v1.publisher.identity]: v1.publisher.publicKey });
+      const targetRuntime = new PostgresRuntimeExtensionStore(pool, clock, digest("6"), { sharedStaticGenerationRebinder: new SharedStaticPlatformPluginGenerationRebinder() });
+      const targetReconciler = new ActiveExtensionSecurityReconciler(targetVerifier, targetRuntime);
+      const target = coordinator(pool, targetOwner, reader, targetCatalog, targetVerifier, boundary === "stage" ? { reconcileSnapshot: async () => { throw new Error("response lost after staged checkpoint commit"); } } : targetReconciler);
+      const request = { expectedCatalogRevision: 0, idempotencyKey: `catalog-loss-${suffix}-request` };
+      await send(signed(signer, catalogKeys.privateKey, 1, [v1]));
+      const lossyOperator = boundary === "begin"
+        ? { read: target.value.read.bind(target.value), async refresh(input) { await target.mirror.begin(input); throw new Error("response lost after begin"); } }
+        : boundary === "terminal"
+          ? { read: target.value.read.bind(target.value), async refresh(input) { await target.value.refresh(input); throw new Error("response lost after terminal commit"); } }
+          : target.value;
+      await assert.rejects(catalogAdministration(targetOwner, target.mirror, lossyOperator).refresh({ context: {}, request }), /response lost/u);
+      const recovered = boundary === "stage" ? coordinator(pool, targetOwner, reader, targetCatalog, targetVerifier, targetReconciler) : target;
+      const receipt = await catalogAdministration(targetOwner, recovered.mirror, recovered.value).refresh({ context: {}, request });
+      assert.equal(receipt.outcome, "accepted", `${boundary} response loss resumes one durable refresh.`);
+      assert.deepEqual(await new PostgresCatalogMirrorStore(pool, targetOwner).readRefresh(receipt.refreshId), receipt, `${boundary} response loss returns the exact persisted receipt.`);
+    };
+    await responseLoss("begin", "begin");
+    await responseLoss("stage", "stage");
+    await responseLoss("terminal", "terminal");
 
     const acceptedPointer = async () => (await primary.mirror.readAcceptedSnapshot())?.sequence;
     const poisonCatalog = signed(signer, catalogKeys.privateKey, 2, [v1]);
@@ -222,6 +300,7 @@ test("P11.4 consumes a bounded official catalog through real HTTP and PostgreSQL
     assert.equal((await raceCheckpoints.read(signer.identity))?.sequence, 9, "Concurrent absent checkpoint reads cannot leave a lower sequence.");
 
     const finalOwner = { applicationId: "customer-catalog-final", environment: "production" };
+    await pool.query("insert into k_nex_authorization_state (application_id, authorization_revision, lifecycle_revision) values ($1,1,1)", [finalOwner.applicationId]);
     await insertActive(pool, finalOwner);
     const finalCheckpoints = new PostgresCatalogCheckpointStore(pool, finalOwner);
     const finalCatalog = new CatalogClient({ [signer.identity]: signer.publicKey }, finalCheckpoints, now);
@@ -235,7 +314,7 @@ test("P11.4 consumes a bounded official catalog through real HTTP and PostgreSQL
       }
     };
     const finalMirrorPort = {
-      begin: finalMirror.begin.bind(finalMirror), stageVerified: finalMirror.stageVerified.bind(finalMirror), readStaged: finalMirror.readStaged.bind(finalMirror),
+      begin: finalMirror.begin.bind(finalMirror), readRefresh: finalMirror.readRefresh.bind(finalMirror), readRefreshAuthority: finalMirror.readRefreshAuthority.bind(finalMirror), stageVerified: finalMirror.stageVerified.bind(finalMirror), readStaged: finalMirror.readStaged.bind(finalMirror),
       readRequirements: finalMirror.readRequirements.bind(finalMirror), rebaseRequirements: finalMirror.rebaseRequirements.bind(finalMirror), markReconciliationTerminal: finalMirror.markReconciliationTerminal.bind(finalMirror),
       readObservation: finalMirror.readObservation.bind(finalMirror), reject: finalMirror.reject.bind(finalMirror),
       async acceptAfterTerminalReconciliation(input) {
@@ -243,12 +322,13 @@ test("P11.4 consumes a bounded official catalog through real HTTP and PostgreSQL
         return finalMirror.acceptAfterTerminalReconciliation(input);
       }
     };
-    const finalCoordinator = new CatalogRefreshCoordinator({ owner: finalOwner, reader: finalReader, catalog: finalCatalog, checkpoints: finalCheckpoints, verifier: finalVerifier, mirror: finalMirrorPort, extensions: finalExtensions, reconciler: finalReconciler });
+    const finalCoordinator = new CatalogRefreshCoordinator({ owner: finalOwner, reader: finalReader, catalog: finalCatalog, checkpoints: finalCheckpoints, verifier: finalVerifier, mirror: finalMirrorPort, extensions: finalExtensions, reconciler: finalReconciler, currentAuthority: { reauthorize: async () => ({ schemaVersion: 1, ...finalOwner, authorizationRevision: 1, lifecycleRevision: 1 }) } });
     await send(signed(signer, catalogKeys.privateKey, 1, [v1]));
     await assert.rejects(finalCoordinator.refresh(refresh("catalog-refresh-final-check", 0, finalOwner)), /inventory changed before catalog acceptance/u);
     assert.equal(await finalMirror.readAcceptedSnapshot(), undefined, "An inventory revision change during final check cannot advance the pointer.");
 
     const replayOwner = { applicationId: "customer-catalog-replay", environment: "production" };
+    await pool.query("insert into k_nex_authorization_state (application_id, authorization_revision, lifecycle_revision) values ($1,1,1)", [replayOwner.applicationId]);
     const replayCheckpoints = new PostgresCatalogCheckpointStore(pool, replayOwner);
     const replayCatalog = new CatalogClient({ [signer.identity]: signer.publicKey }, replayCheckpoints, now);
     const replayVerifier = new ArtifactVerifier(replayCatalog, { [v1.publisher.identity]: v1.publisher.publicKey });
@@ -259,6 +339,7 @@ test("P11.4 consumes a bounded official catalog through real HTTP and PostgreSQL
     const outcomes = await Promise.all([replayStore.value.refresh(request), replayStore.value.refresh(request)]);
     assert.deepEqual(outcomes, [outcomes[0], outcomes[0]], "Concurrent replay returns one deterministic terminal receipt.");
     assert.equal(outcomes[0].outcome, "accepted");
+    console.log("P11_4_CATALOG_REFRESH_POSTGRES_HTTP_EVIDENCE=PASS");
   } finally {
     await http.close();
     await pool.end();

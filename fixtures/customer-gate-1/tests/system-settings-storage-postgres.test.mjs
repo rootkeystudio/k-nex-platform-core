@@ -873,8 +873,8 @@ test("P11.2c resumes generation-validated settings operations through real Postg
       (error) => error?.code === "REVISION"
     );
     const [promoted, promotedReplay] = await Promise.all([
-      new PostgresSystemSettingsStore(pool).promoteGenerationValidated({ ...first, expectedOperationRevision: 2 }),
-      new PostgresSystemSettingsStore(pool).promoteGenerationValidated({ ...first, expectedOperationRevision: 2 })
+      new PostgresSystemSettingsStore(pool).promoteGenerationValidated({ ...first, receipt: { ...first.receipt, occurredAt: "2026-09-04T00:00:00.000Z" }, expectedOperationRevision: 2 }),
+      new PostgresSystemSettingsStore(pool).promoteGenerationValidated({ ...first, receipt: { ...first.receipt, occurredAt: "2026-09-04T00:00:00.000Z" }, expectedOperationRevision: 2 })
     ]);
     assert.equal(promoted.outcome, "promoted");
     assert.deepEqual(promotedReplay, promoted, "Concurrent exact terminal calls serialize to the immutable receipt.");
@@ -923,8 +923,9 @@ test("P11.2c resumes generation-validated settings operations through real Postg
       store.failGenerationValidated({ ...failure, expectedOperationRevision: 1, reason: "descriptor-disabled" }),
       (error) => error?.code === "REVISION"
     );
-    const failed = await store.failGenerationValidated({ ...failure, expectedOperationRevision: blocked.revision, reason: "descriptor-disabled" });
-    assert.deepEqual(await store.failGenerationValidated({ ...failure, expectedOperationRevision: blocked.revision, reason: "descriptor-disabled" }), failed);
+    const expiredFailure = { ...failure, receipt: { ...failure.receipt, occurredAt: "2026-09-04T00:00:00.000Z" } };
+    const failed = await store.failGenerationValidated({ ...expiredFailure, expectedOperationRevision: blocked.revision, reason: "descriptor-disabled" });
+    assert.deepEqual(await store.failGenerationValidated({ ...expiredFailure, expectedOperationRevision: blocked.revision, reason: "descriptor-disabled" }), failed);
     assert.equal(failed.outcome, "promotion-invalidated");
     assert.equal((await store.read(failure.identity))?.document, undefined, "Terminal failure leaves no effective candidate.");
     assert.equal((await store.read(identity))?.state.settingsRevision, 1, "Terminal failure leaves global settings state unchanged.");
@@ -950,6 +951,7 @@ test("P11.2c resumes generation-validated settings operations through real Postg
     });
     const schemaFailed = await store.failGenerationValidated({
       ...schemaMigration,
+      receipt: { ...schemaMigration.receipt, occurredAt: "2026-09-04T00:00:00.000Z" },
       expectedOperationRevision: schemaValidating.revision,
       reason: "schema-validation-failed"
     });
@@ -1018,7 +1020,7 @@ test("P11.2c resumes generation-validated settings operations through real Postg
     assert.equal(losers.length, 1);
     assert.equal(losers[0].reason?.code, "REVISION", "The losing global revision race is deterministic.");
     const loser = raceResults[0].status === "rejected" ? [raceOne, raceOneValidating] : [raceTwo, raceTwoValidating];
-    const terminalized = await store.failGenerationValidated({ ...loser[0], expectedOperationRevision: loser[1].revision, reason: "generation-not-ready" });
+    const terminalized = await store.failGenerationValidated({ ...loser[0], receipt: { ...loser[0].receipt, occurredAt: "2026-09-04T00:00:00.000Z" }, expectedOperationRevision: loser[1].revision, reason: "generation-not-ready" });
     assert.equal(terminalized.outcome, "validation-failed", "The stale global-revision loser remains resumable and terminalizable.");
 
     await pool.query("insert into k_nex_roles (application_id, role_id, label) values ($1,'customer.settings-admin','Settings admin')", [applicationId]);
@@ -1066,7 +1068,7 @@ test("P11.2c resumes generation-validated settings operations through real Postg
     const coordinator = new SettingsValidationCoordinator({
       store, leaseOwner: "permission-race-worker", readAuthority: storeAuthority, currentAuthority: reauthorizer,
       validator: { validate: async () => { validationStarted(); await validationGate; return { ready: true }; } },
-      now: (() => { const values = [new Date("2026-09-02T00:00:00.000Z"), new Date("2026-09-02T00:00:01.000Z")]; return () => values.shift() ?? new Date("2026-09-02T00:00:01.000Z"); })()
+      now: (() => { const values = [new Date("2026-09-02T00:00:00.000Z"), new Date("2026-09-04T00:00:00.000Z")]; return () => values.shift() ?? new Date("2026-09-04T00:00:00.000Z"); })()
     });
     const racedValidation = coordinator.run({ identity: revocationRace.identity, operationId: permissionPending.operationId });
     await Promise.race([
@@ -1255,7 +1257,7 @@ test("P11.3 promotes settings before the exact pending Hot Application generatio
       store,
       validator: { validate: async ({ runtimeGenerationId }) => { validatedGenerations.push(runtimeGenerationId); return { ready: true }; } },
       readAuthority: async () => authority,
-      currentAuthority: { reauthorize: async ({ authority: intent }) => intent.effectiveActor.id === "admin" },
+      currentAuthority: { reauthorize: async ({ authority: intent }) => intent.effectiveActor.id === "admin" ? authority : undefined },
       leaseOwner: "replacement-worker",
       now: () => times.shift()
     });

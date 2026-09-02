@@ -4,7 +4,7 @@
 - **Gate:** Gate 11
 - **Accepted base:** Phase 10 / PR #29
 - **Decision:** **READY FOR PHASE REVIEW**
-- **Review state:** Blocking owner-review findings fixed; local focused Gate 11 passes; replacement exact-head CI/re-review remain pending.
+- **Review state:** Second owner-review findings fixed; local focused Gate 11 passes; replacement exact-head CI, cumulative Gate 0–11, and re-review remain pending.
 
 ## Scope proved
 
@@ -41,7 +41,8 @@ A staged Hot Application that needs generation-validated settings reserves one f
 - Settings changes, retained adoption, and secret bind/unbind require server-owned, operation-bound, expiring, one-use reauthentication evidence. Generation validation re-enters current authority before claim and promotion; concurrent revocation yields a durable `permission-revoked` terminal receipt.
 - Settings reads use one repeatable-read read-only PostgreSQL snapshot. Required secrets use explicit `secret-reference` fields and browser-safe host slot aliases; provider keys remain host-only.
 - Settings, catalog, and operations persist principal, effective actor, reducing delegation, concrete permission intents, revisions, and a canonical digest bound to replay, receipts, and audit.
-- Official catalog refresh is exposed only through the fixed `system.catalog.refresh` current-authority service and host route, with real HTTP/PostgreSQL/Chromium proof.
+- Official catalog refresh has a fixed `system.catalog.refresh` current-authority host route proven in Chromium, plus an independently exercised bounded HTTP/PostgreSQL coordinator kernel with durable replay and revocation fencing.
+- Accepted backup and restore-drill requests durably transfer to `system-after-acceptance` execution authority; request, receipt, audit, and outbox evidence make that irrevocable system-duty boundary explicit.
 - The thirteen attack classes now reference exact executed assertions/process markers and fail the corpus if any mapping is missing or unexecuted.
 - `fast-uri` is pinned to patched `3.1.6`; compatibility passed generated contract compilation and the 30-test architecture validator. `pnpm audit --audit-level high` reports no high-severity findings.
 

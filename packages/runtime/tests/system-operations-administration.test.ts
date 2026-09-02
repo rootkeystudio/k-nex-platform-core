@@ -35,7 +35,7 @@ function harness(options: Readonly<{ outcome?: "allow" | "deny"; evidence?: { re
   const operator = { replay: vi.fn(async () => undefined), submit: vi.fn(async (input: { kind: "backup" | "restore-drill"; applicationId: string; environment: string; expectedInventoryDigest: string; requestedBy: typeof actor; authorityEnvelope: AdministrationActorEnvelope; idempotencyKey: string }) => ({
     schemaVersion: 1 as const, receiptId: `${input.kind}-receipt-1`, requestId: `${input.kind}-request-1`, kind: input.kind,
     applicationId: input.applicationId, environment: input.environment, expectedInventoryDigest: input.expectedInventoryDigest, requestedBy: input.requestedBy, authorityDigest: await authorityDigest(input.authorityEnvelope),
-    idempotencyKey: input.idempotencyKey, reference: { source: input.kind, operationId: `${input.kind}-operation-1` }, outcome: "accepted" as const, reason: "accepted" as const,
+    executionAuthority: "system-after-acceptance" as const, idempotencyKey: input.idempotencyKey, reference: { source: input.kind, operationId: `${input.kind}-operation-1` }, outcome: "accepted" as const, reason: "accepted" as const,
     occurredAt: "2026-09-02T00:00:00.000Z"
   })) };
   const service = new SystemOperationsAdministrationService({ authority: authority as never, state: { readState: vi.fn(async () => state) }, projection: source, operator: { resolve: vi.fn(() => operator) }, evidence: { verify: vi.fn(async () => options.evidence ?? { reauthentication: "satisfied" as const, approval: "not-required" as const }) } });

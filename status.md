@@ -7,16 +7,16 @@
 
 ## Last completed
 
-P11.10 and the blocking owner-review fixes are complete: v2→v3 release boot, settings reauthentication/current-authority promotion, repeatable settings reads, secret binding, catalog administration, full actor provenance, patched dependency graph, and executable attack mapping.
+P11.10 and both owner-review fix rounds are complete: the Sales runner mismatch, catalog response-loss identity/current-authority fencing, settings expiry/current-revision terminalization, exact persisted identity binding, truthful route evidence, and explicit operations execution authority are closed.
 
 ## Validation
 
-Exact Node 24.19.0: focused Gate 11 and replacement PR CI PASS; 9 real process proofs, 13 machine-mapped attacks, architecture validator 30/30, and high-severity audit count zero. First cumulative run found three stale contract fixtures; isolated system-administration contracts now 6/6 PASS.
+Exact Node 24.19.0: local focused Gate 11 PASS with 9 process proofs and 13 machine-mapped attacks. Isolated contract/runtime/coordinator/Sales tests and real PostgreSQL catalog, settings, operations, plus Chromium administration proofs PASS.
 
 ## Next
 
-Push the Phase 11 review-fix head, obtain replacement exact-head focused CI/re-review, then run cumulative Linux/AppArmor Gate 0–11 before merge.
+Commit/push the Phase 11 owner-review fixes, obtain replacement exact-head focused CI, run cumulative Linux/AppArmor Gate 0–11, then request owner re-review.
 
 ## Blockers
 
-Replacement exact-head CI rerun, cumulative Gate 0–11 rerun, and owner re-review are pending.
+Replacement exact-head focused CI, cumulative Gate 0–11, and owner re-review are pending.

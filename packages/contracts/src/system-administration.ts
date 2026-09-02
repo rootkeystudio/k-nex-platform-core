@@ -375,7 +375,7 @@ export const CatalogRefreshReceiptSchema = z.discriminatedUnion("outcome", [
     receiptId: recordIdSchema,
     refreshId: recordIdSchema,
     outcome: z.literal("rejected"),
-    reason: z.enum(["stale-revision", "fetch-failed", "snapshot-invalid", "snapshot-replayed"]),
+    reason: z.enum(["stale-revision", "fetch-failed", "snapshot-invalid", "snapshot-replayed", "permission-revoked"]),
     requestedBy: AuthorizationSubjectSchema,
     authorityDigest: digestSchema,
     idempotencyKey: idempotencyKeySchema,
@@ -421,6 +421,7 @@ const operationsCenterRequestBase = {
   expectedInventoryDigest: digestSchema,
   requestedBy: AuthorizationSubjectSchema,
   authorityDigest: digestSchema,
+  executionAuthority: z.literal("system-after-acceptance"),
   idempotencyKey: idempotencyKeySchema,
   createdAt: MillisecondTimestampSchema
 } as const;
@@ -440,6 +441,7 @@ const operationsCenterReceiptBase = {
   expectedInventoryDigest: digestSchema,
   requestedBy: AuthorizationSubjectSchema,
   authorityDigest: digestSchema,
+  executionAuthority: z.literal("system-after-acceptance"),
   idempotencyKey: idempotencyKeySchema,
   occurredAt: MillisecondTimestampSchema
 } as const;

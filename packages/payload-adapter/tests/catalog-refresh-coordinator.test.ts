@@ -39,7 +39,7 @@ function inventory(quarantined = false): RuntimeExtensionInventory {
   } as RuntimeExtensionInventory;
 }
 
-function harness(options: Readonly<{ initial?: typeof fetching | typeof staged | ReturnType<typeof acceptedReceipt>; readerError?: Error; verifyError?: Error; stageError?: Error; reconciliation?: "clear" | "quarantined"; previousCheckpoint?: VerifiedCatalogSnapshot["checkpoint"] }> = {}) {
+function harness(options: Readonly<{ initial?: typeof fetching | typeof staged | ReturnType<typeof acceptedReceipt>; readerError?: Error; verifyError?: Error; stageError?: Error; reconciliation?: "clear" | "quarantined"; previousCheckpoint?: VerifiedCatalogSnapshot["checkpoint"]; revokeAt?: "begin" | "resume" | "accept" }> = {}) {
   let current = options.initial ?? fetching;
   let quarantined = false;
   const decision = { catalogDigest: digest("a"), catalogSignerIdentity: "catalog-signer", catalogSequence: 1, release: {}, disposition: "clear" };
@@ -58,6 +58,8 @@ function harness(options: Readonly<{ initial?: typeof fetching | typeof staged |
   };
   const mirror = {
     begin: vi.fn(async () => current),
+    readRefresh: vi.fn(async () => current),
+    readRefreshAuthority: vi.fn(async () => refresh),
     stageVerified: vi.fn(async (input) => {
       if (options.stageError) throw options.stageError;
       requirements.splice(0, requirements.length, ...input.requirements.map((requirement: typeof requirements[number]) => ({ ...requirement, terminalState: "pending" as const })));
@@ -95,14 +97,14 @@ function harness(options: Readonly<{ initial?: typeof fetching | typeof staged |
   const coordinator = new CatalogRefreshCoordinator({
     owner, reader, catalog, checkpoints: { read: vi.fn(async () => current.state === "staged-reconciliation" ? snapshot.checkpoint : options.previousCheckpoint) },
     verifier: { currentSecurityDecisionFromSnapshot: vi.fn(() => decision) },
-    mirror, extensions, reconciler,
+    mirror, extensions, reconciler, currentAuthority: { reauthorize: vi.fn(async ({ phase }) => phase === options.revokeAt ? undefined : ({ schemaVersion: 1, ...owner, authorizationRevision: 1, lifecycleRevision: 1 })) },
     now: () => new Date(stagedSnapshot.observedAt), ids: { snapshot: () => "catalog-snapshot-1", receipt: () => "catalog-receipt-1", audit: () => "catalog-audit-1", event: () => "catalog-event-1" }
   });
   return { coordinator, reader, catalog, mirror, reconciler, requirements, extensions, accepted };
 }
 
 function acceptedReceipt() { return { schemaVersion: 1, receiptId: "catalog-receipt-1", refreshId: refresh.refreshId, outcome: "accepted" as const, catalogRevision: 2, accepted: staged.staged, reconciledReleaseCount: 1, requestedBy: refresh.requestedBy, idempotencyKey: refresh.idempotencyKey, occurredAt: stagedSnapshot.observedAt }; }
-function rejectedReceipt(reason: "stale-revision" | "fetch-failed" | "snapshot-invalid" | "snapshot-replayed") { return { schemaVersion: 1, receiptId: "catalog-receipt-1", refreshId: refresh.refreshId, outcome: "rejected" as const, reason, requestedBy: refresh.requestedBy, idempotencyKey: refresh.idempotencyKey, occurredAt: stagedSnapshot.observedAt }; }
+function rejectedReceipt(reason: "stale-revision" | "fetch-failed" | "snapshot-invalid" | "snapshot-replayed" | "permission-revoked") { return { schemaVersion: 1, receiptId: "catalog-receipt-1", refreshId: refresh.refreshId, outcome: "rejected" as const, reason, requestedBy: refresh.requestedBy, idempotencyKey: refresh.idempotencyKey, occurredAt: stagedSnapshot.observedAt }; }
 
 describe("CatalogRefreshCoordinator", () => {
   it("verifies, stages, reconciles clear releases, then atomically accepts", async () => {
@@ -159,6 +161,22 @@ describe("CatalogRefreshCoordinator", () => {
     expect(value.reader.read).not.toHaveBeenCalled();
     expect(value.mirror.stageVerified).not.toHaveBeenCalled();
     expect(value.reconciler.reconcileSnapshot).toHaveBeenCalledTimes(1);
+  });
+
+  it("durably rejects a resumed refresh when requester authority was revoked", async () => {
+    const value = harness({ initial: staged, revokeAt: "resume" });
+
+    await expect(value.coordinator.refresh(refresh)).resolves.toMatchObject({ outcome: "rejected", reason: "permission-revoked" });
+    expect(value.reconciler.reconcileSnapshot).not.toHaveBeenCalled();
+    expect(value.mirror.acceptAfterTerminalReconciliation).not.toHaveBeenCalled();
+  });
+
+  it("rechecks requester authority immediately before accepted-pointer CAS", async () => {
+    const value = harness({ initial: staged, revokeAt: "accept" });
+
+    await expect(value.coordinator.refresh(refresh)).resolves.toMatchObject({ outcome: "rejected", reason: "permission-revoked" });
+    expect(value.reconciler.reconcileSnapshot).toHaveBeenCalledTimes(1);
+    expect(value.mirror.acceptAfterTerminalReconciliation).not.toHaveBeenCalled();
   });
 
   it("binds exact quarantine receipt before acceptance", async () => {

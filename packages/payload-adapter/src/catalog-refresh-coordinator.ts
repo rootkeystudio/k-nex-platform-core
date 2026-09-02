@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { canonicalJson, type CatalogRefreshReceipt, type ResumableCatalogRefreshOperation, type RuntimeExtensionInventory } from "@k-nex/contracts";
+import { canonicalJson, type AdministrationActorEnvelope, type AuthorizationState, type CatalogRefreshReceipt, type ResumableCatalogRefreshOperation, type RuntimeExtensionInventory } from "@k-nex/contracts";
 import { type ActiveReleaseIdentity, type ArtifactVerifier, type CatalogCheckpointStore, type CatalogClient, type OfficialGithubCatalogReader, sha256, type VerifiedCatalogSnapshot } from "@k-nex/extension-bundler";
 import type { RuntimeExtensionStore } from "@k-nex/runtime";
 
@@ -28,7 +28,8 @@ export interface CatalogRefreshCoordinatorOptions {
   readonly catalog: Pick<CatalogClient, "verifySnapshot" | "verifyStagedSnapshot">;
   readonly checkpoints: Pick<CatalogCheckpointStore, "read">;
   readonly verifier: Pick<ArtifactVerifier, "currentSecurityDecisionFromSnapshot">;
-  readonly mirror: Pick<PostgresCatalogMirrorStore, "begin" | "stageVerified" | "readStaged" | "readRequirements" | "rebaseRequirements" | "markReconciliationTerminal" | "readObservation" | "acceptAfterTerminalReconciliation" | "reject">;
+  readonly mirror: Pick<PostgresCatalogMirrorStore, "begin" | "readRefresh" | "readRefreshAuthority" | "stageVerified" | "readStaged" | "readRequirements" | "rebaseRequirements" | "markReconciliationTerminal" | "readObservation" | "acceptAfterTerminalReconciliation" | "reject">;
+  readonly currentAuthority: Readonly<{ reauthorize(input: Readonly<{ authority: AdministrationActorEnvelope; refreshId: string; phase: "begin" | "resume" | "accept" }>): Promise<AuthorizationState | undefined> }>;
   readonly extensions: Pick<RuntimeExtensionStore, "inventory">;
   readonly reconciler: Pick<ActiveExtensionSecurityReconciler, "reconcileSnapshot">;
   readonly now?: () => Date;
@@ -82,11 +83,17 @@ export class CatalogRefreshCoordinator {
   }
 
   async refresh(refresh: CatalogMirrorRefresh): Promise<RefreshResult> {
+    if (!await this.reauthorize(refresh, "begin")) throw new Error("Catalog refresh current authority is unavailable.");
     const current = await this.options.mirror.begin(refresh);
     if ("outcome" in current) return current;
-    if (current.state === "fetching") return this.fetchAndStage(refresh, current);
-    return this.reconcile(refresh, current.refreshId);
+    const persisted = await this.options.mirror.readRefreshAuthority(current.refreshId);
+    if (!persisted) throw new Error("Catalog refresh authority disappeared after its durable transition.");
+    if (!await this.reauthorize(persisted, "resume")) return this.reject(persisted, current.revision, "permission-revoked");
+    if (current.state === "fetching") return this.fetchAndStage(persisted, current);
+    return this.reconcile(persisted, current.refreshId);
   }
+
+  async read(refreshId: string): Promise<RefreshResult | undefined> { return this.options.mirror.readRefresh(refreshId); }
 
   private async fetchAndStage(refresh: CatalogMirrorRefresh, operation: ResumableCatalogRefreshOperation): Promise<RefreshResult> {
     let input: unknown;
@@ -167,13 +174,26 @@ export class CatalogRefreshCoordinator {
       const currentInventory = await this.options.extensions.inventory(this.options.owner.applicationId, this.options.owner.environment);
       const terminalRequirements = await this.options.mirror.readRequirements(refreshId);
       if (canonicalJson(terminalRequirements.filter((requirement) => requirement.terminalState !== "quarantined").map(({ terminalState: _terminalState, securityReceiptId: _securityReceiptId, ...requirement }) => requirement)) !== canonicalJson(this.requirements(snapshot, currentInventory))) continue;
+      const authority = await this.reauthorize(refresh, "accept");
+      if (!authority) return this.reject(refresh, staged.operation.revision, "permission-revoked");
       try {
-        return await this.options.mirror.acceptAfterTerminalReconciliation({ refresh, expectedOperationRevision: staged.operation.revision, expectedCatalogRevision: observation.catalogRevision, expectedInventoryRevision: currentInventory.revision, receiptId: this.#ids.receipt(), auditId: this.#ids.audit(), eventId: this.#ids.event(), reconciledReleaseCount: terminalRequirements.length, occurredAt: this.#now().toISOString() });
+        return await this.options.mirror.acceptAfterTerminalReconciliation({ refresh, authority, expectedOperationRevision: staged.operation.revision, expectedCatalogRevision: observation.catalogRevision, expectedInventoryRevision: currentInventory.revision, receiptId: this.#ids.receipt(), auditId: this.#ids.audit(), eventId: this.#ids.event(), reconciledReleaseCount: terminalRequirements.length, occurredAt: this.#now().toISOString() });
       } catch (error) {
         if (!(error instanceof CatalogMirrorStoreError) || error.code !== "REVISION" || attempt === 2) throw error;
       }
     }
     throw new Error("Catalog reconciliation did not stabilize.");
+  }
+
+  private reject(refresh: CatalogMirrorRefresh, expectedOperationRevision: number, reason: "permission-revoked"): Promise<CatalogRefreshReceipt> {
+    return this.options.mirror.reject({ refresh, expectedOperationRevision, receiptId: this.#ids.receipt(), reason, occurredAt: this.#now().toISOString() });
+  }
+
+  private async reauthorize(refresh: CatalogMirrorRefresh, phase: "begin" | "resume" | "accept"): Promise<AuthorizationState | undefined> {
+    try {
+      const authority = await this.options.currentAuthority.reauthorize({ authority: refresh.authorityEnvelope, refreshId: refresh.refreshId, phase });
+      return authority?.applicationId === this.options.owner.applicationId && authority.environment === this.options.owner.environment ? authority : undefined;
+    } catch { return undefined; }
   }
 
   private requirements(snapshot: VerifiedCatalogSnapshot, inventory: RuntimeExtensionInventory): readonly CatalogReconciliationRequirement[] {

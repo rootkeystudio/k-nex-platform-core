@@ -56,6 +56,7 @@ export * from "./system-access-administration.js";
 export * from "./system-extension-administration.js";
 export * from "./system-settings-administration.js";
 export * from "./system-catalog-administration.js";
+export * from "./catalog-operation-current-authority.js";
 export * from "./settings-operation-current-authority.js";
 export * from "./system-theme-administration.js";
 export * from "./system-operations-administration.js";

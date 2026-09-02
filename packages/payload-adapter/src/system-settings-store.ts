@@ -122,6 +122,7 @@ interface OperationRow {
   lease_owner: string | null;
   lease_expires_at: unknown | null;
   updated_at: unknown;
+  created_at: unknown;
 }
 
 interface ParsedWrite {
@@ -346,11 +347,15 @@ function operationScopeMatches(row: OperationRow, identity: SettingsDocumentIden
 function operationMatchesCore(row: OperationRow, input: ParsedWrite): ResumableSettingsOperation | undefined {
   if (!operationScopeMatches(row, input.identity)) return undefined;
   const parsed = operation(input.identity, row);
+  const persistedAuthority = parse(AdministrationAuthorityEnvelopeSchema, row.authority_json);
+  const acceptedAt = Date.parse(timestamp(row.created_at));
   if (row.request_digest !== input.requestDigest
     || parsed.expectedDocumentRevision !== input.expectedDocumentRevision || parsed.expectedSettingsRevision !== input.expectedSettingsRevision
     || parsed.idempotencyKey !== input.idempotencyKey || canonicalJson(parsed.requestedBy) !== canonicalJson(input.actor)
     || parsed.authorityDigest !== input.authorityDigest
-    || canonicalJson(parse(AdministrationAuthorityEnvelopeSchema, row.authority_json)) !== canonicalJson(input.authorityEnvelope)) {
+    || canonicalJson(persistedAuthority) !== canonicalJson(input.authorityEnvelope)
+    || Date.parse(persistedAuthority.reauthentication.verifiedAt) > acceptedAt
+    || Date.parse(persistedAuthority.reauthentication.expiresAt) <= acceptedAt) {
     return undefined;
   }
   return parsed;
@@ -595,12 +600,12 @@ export class PostgresSystemSettingsStore {
           `insert into k_nex_system_settings_operations
             (operation_id, application_id, environment, descriptor_id, descriptor_schema_version, owner_scope_key, owner_kind, owner_namespace,
              owner_delivery_class, owner_extension_id, owner_generation, pending_document_json, expected_document_revision, expected_settings_revision,
-             state, requested_by_kind, requested_by_id, idempotency_key, request_digest, authority_json, authority_digest)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,'pending-validation',$15,$16,$17,$18,$19::jsonb,$20)`,
+             state, requested_by_kind, requested_by_id, idempotency_key, request_digest, authority_json, authority_digest, created_at)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,'pending-validation',$15,$16,$17,$18,$19::jsonb,$20,$21::timestamptz)`,
           [input.operationId, input.identity.applicationId, input.identity.environment, input.identity.descriptorId, input.identity.descriptorSchemaVersion,
             owner.ownerScopeKey, owner.ownerKind, owner.ownerNamespace, owner.ownerDeliveryClass, owner.ownerExtensionId, owner.ownerGeneration,
             canonicalJson(pending), input.expectedDocumentRevision, input.expectedSettingsRevision, input.actor.kind, input.actor.id,
-            input.idempotencyKey, input.requestDigest, canonicalJson(input.authorityEnvelope), input.authorityDigest]
+            input.idempotencyKey, input.requestDigest, canonicalJson(input.authorityEnvelope), input.authorityDigest, input.occurredAt]
         );
         const inserted = await session.query<OperationRow>(
           `select ${this.operationColumns} from k_nex_system_settings_operations where operation_id=$1`, [input.operationId]
@@ -846,7 +851,7 @@ export class PostgresSystemSettingsStore {
   private readonly operationColumns = `operation_id, application_id, environment, descriptor_id, descriptor_schema_version,
     owner_scope_key, owner_kind, owner_namespace, owner_delivery_class, owner_extension_id, owner_generation,
     pending_document_json, expected_document_revision, expected_settings_revision, state, attempts, requested_by_kind,
-    requested_by_id, idempotency_key, request_digest, authority_json, authority_digest, revision, lease_owner, lease_expires_at, updated_at`;
+    requested_by_id, idempotency_key, request_digest, authority_json, authority_digest, revision, lease_owner, lease_expires_at, updated_at, created_at`;
 
   private readonly receiptColumns = `receipt_id, operation_id, application_id, environment, descriptor_id, descriptor_schema_version,
     owner_scope_key, owner_kind, owner_namespace, owner_delivery_class, owner_extension_id, owner_generation,
@@ -1146,9 +1151,9 @@ export class PostgresSystemSettingsStore {
     if (authorityEnvelope.applicationId !== identity.applicationId || authorityEnvelope.environment !== identity.environment
       || canonicalJson(authorityEnvelope.effectiveActor) !== canonicalJson(actor)
       || requireCurrentEnvelope && (authorityEnvelope.authorizationRevision !== authority.authorizationRevision
-        || authorityEnvelope.lifecycleRevision !== authority.lifecycleRevision)
-      || Date.parse(authorityEnvelope.reauthentication.verifiedAt) > Date.parse(String(receipt.occurredAt))
-      || Date.parse(authorityEnvelope.reauthentication.expiresAt) <= Date.parse(String(receipt.occurredAt))
+        || authorityEnvelope.lifecycleRevision !== authority.lifecycleRevision
+        || Date.parse(authorityEnvelope.reauthentication.verifiedAt) > Date.parse(String(receipt.occurredAt))
+        || Date.parse(authorityEnvelope.reauthentication.expiresAt) <= Date.parse(String(receipt.occurredAt)))
       || !authorityEnvelope.permissions.some(({ permissionId, scope }) => permissionId === "system.settings.manage"
         && scope.kind === "application" && scope.resource === "system.settings")
       || authorityEnvelope.permissions.length < 2) fail("INVALID", "System settings authority envelope is invalid.");

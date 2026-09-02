@@ -38,7 +38,7 @@ export interface SettingsValidationCoordinatorOptions {
       identity: SettingsDocumentIdentity;
       operationId: string;
       phase: "claim" | "promote";
-    }>): Promise<boolean>;
+    }>): Promise<AuthorizationState | undefined>;
   }>;
   readonly leaseOwner: string;
   readonly now?: () => Date;
@@ -73,8 +73,9 @@ export class SettingsValidationCoordinator {
     }
     const authorityIntent = AdministrationAuthorityEnvelopeSchema.parse(secure.authority);
 
-    const authority = await this.authority(identity);
-    if (!await this.reauthorize(authorityIntent, identity, resumable.operationId, "claim")) {
+    const claimAuthority = await this.reauthorize(authorityIntent, identity, resumable.operationId, "claim");
+    if (!claimAuthority) {
+      const authority = await this.authority(identity);
       const blocked = await this.options.store.transitionGenerationValidated({
         identity, operationId: resumable.operationId, expectedOperationRevision: resumable.revision,
         state: "promotion-blocked", authority
@@ -89,7 +90,7 @@ export class SettingsValidationCoordinator {
       identity,
       operationId: resumable.operationId,
       expectedOperationRevision: resumable.revision,
-      authority,
+      authority: claimAuthority,
       leaseOwner: this.options.leaseOwner,
       now: now.toISOString(),
       leaseExpiresAt: expires.toISOString()
@@ -99,10 +100,10 @@ export class SettingsValidationCoordinator {
       runtimeGenerationId: claim.runtimeGenerationId,
       candidate: claim.operation.pendingDocument
     });
-    const latestAuthority = await this.authority(identity);
     const finishedAt = (this.options.now ?? (() => new Date()))().toISOString();
-    const write = await this.write(claim.operation, authorityIntent, latestAuthority, finishedAt);
-    if (!await this.reauthorize(authorityIntent, identity, claim.operation.operationId, "promote")) {
+    const promoteAuthority = await this.reauthorize(authorityIntent, identity, claim.operation.operationId, "promote");
+    if (!promoteAuthority) {
+      const latestAuthority = await this.authority(identity);
       const blocked = await this.options.store.transitionGenerationValidated({
         identity, operationId: claim.operation.operationId, expectedOperationRevision: claim.operation.revision,
         state: "promotion-blocked", authority: latestAuthority
@@ -110,6 +111,7 @@ export class SettingsValidationCoordinator {
       const blockedWrite = await this.write(blocked, authorityIntent, latestAuthority, finishedAt);
       return this.options.store.failGenerationValidated({ ...blockedWrite, expectedOperationRevision: blocked.revision, reason: "permission-revoked" });
     }
+    const write = await this.write(claim.operation, authorityIntent, promoteAuthority, finishedAt);
     return validation.ready
       ? this.options.store.promoteGenerationValidated({ ...write, expectedOperationRevision: claim.operation.revision, leaseOwner: this.options.leaseOwner })
       : this.options.store.failGenerationValidated({ ...write, expectedOperationRevision: claim.operation.revision, leaseOwner: this.options.leaseOwner, reason: validation.reason });
@@ -151,9 +153,11 @@ export class SettingsValidationCoordinator {
     };
   }
 
-  private async reauthorize(authority: AdministrationAuthorityEnvelope, identity: SettingsDocumentIdentity, operationId: string, phase: "claim" | "promote"): Promise<boolean> {
-    try { return await this.options.currentAuthority.reauthorize({ authority, identity, operationId, phase }) === true; }
-    catch { return false; }
+  private async reauthorize(authority: AdministrationAuthorityEnvelope, identity: SettingsDocumentIdentity, operationId: string, phase: "claim" | "promote"): Promise<AuthorizationState | undefined> {
+    try {
+      const current = await this.options.currentAuthority.reauthorize({ authority, identity, operationId, phase });
+      return current?.applicationId === identity.applicationId && current.environment === identity.environment ? current : undefined;
+    } catch { return undefined; }
   }
 }
 

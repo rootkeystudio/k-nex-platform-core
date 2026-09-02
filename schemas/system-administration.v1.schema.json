@@ -793,21 +793,8 @@
       "type": "string"
     },
     "__schema60": {
-      "additionalProperties": false,
-      "properties": {
-        "operationId": {
-          "$ref": "#/$defs/__schema40"
-        },
-        "source": {
-          "const": "backup",
-          "type": "string"
-        }
-      },
-      "required": [
-        "source",
-        "operationId"
-      ],
-      "type": "object"
+      "const": "system-after-acceptance",
+      "type": "string"
     },
     "__schema61": {
       "additionalProperties": false,
@@ -816,7 +803,7 @@
           "$ref": "#/$defs/__schema40"
         },
         "source": {
-          "const": "restore-drill",
+          "const": "backup",
           "type": "string"
         }
       },
@@ -827,10 +814,31 @@
       "type": "object"
     },
     "__schema62": {
+      "additionalProperties": false,
+      "properties": {
+        "operationId": {
+          "$ref": "#/$defs/__schema40"
+        },
+        "source": {
+          "const": "restore-drill",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "operationId"
+      ],
+      "type": "object"
+    },
+    "__schema63": {
       "const": 1,
       "type": "number"
     },
-    "__schema63": {
+    "__schema64": {
+      "const": "system-after-acceptance",
+      "type": "string"
+    },
+    "__schema65": {
       "additionalProperties": false,
       "properties": {
         "operationId": {
@@ -851,7 +859,7 @@
       ],
       "type": "object"
     },
-    "__schema64": {
+    "__schema66": {
       "additionalProperties": false,
       "properties": {
         "operationId": {
@@ -872,7 +880,7 @@
       ],
       "type": "object"
     },
-    "__schema65": {
+    "__schema67": {
       "enum": [
         "catalog-available",
         "planning",
@@ -892,7 +900,7 @@
       ],
       "type": "string"
     },
-    "__schema66": {
+    "__schema68": {
       "enum": [
         "available",
         "unavailable",
@@ -900,10 +908,14 @@
       ],
       "type": "string"
     },
-    "__schema67": {
+    "__schema69": {
       "$ref": "#/$defs/__schema45"
     },
-    "__schema68": {
+    "__schema7": {
+      "const": "platform-plugin",
+      "type": "string"
+    },
+    "__schema70": {
       "oneOf": [
         {
           "additionalProperties": false,
@@ -1041,15 +1053,11 @@
         }
       ]
     },
-    "__schema69": {
+    "__schema71": {
       "const": "required",
       "type": "string"
     },
-    "__schema7": {
-      "const": "platform-plugin",
-      "type": "string"
-    },
-    "__schema70": {
+    "__schema72": {
       "enum": [
         "platform-plugin",
         "hot-application",
@@ -1780,7 +1788,8 @@
                     "stale-revision",
                     "fetch-failed",
                     "snapshot-invalid",
-                    "snapshot-replayed"
+                    "snapshot-replayed",
+                    "permission-revoked"
                   ],
                   "type": "string"
                 },
@@ -1846,6 +1855,9 @@
                 "environment": {
                   "$ref": "#/$defs/__schema26"
                 },
+                "executionAuthority": {
+                  "$ref": "#/$defs/__schema60"
+                },
                 "expectedInventoryDigest": {
                   "$ref": "#/$defs/__schema45"
                 },
@@ -1857,63 +1869,6 @@
                 },
                 "kind": {
                   "const": "backup",
-                  "type": "string"
-                },
-                "reference": {
-                  "$ref": "#/$defs/__schema60"
-                },
-                "requestId": {
-                  "$ref": "#/$defs/__schema40"
-                },
-                "requestedBy": {
-                  "$ref": "#/$defs/__schema43"
-                },
-                "schemaVersion": {
-                  "$ref": "#/$defs/__schema59"
-                }
-              },
-              "required": [
-                "schemaVersion",
-                "requestId",
-                "applicationId",
-                "environment",
-                "expectedOperationsRevision",
-                "expectedInventoryDigest",
-                "requestedBy",
-                "authorityDigest",
-                "idempotencyKey",
-                "createdAt",
-                "kind",
-                "reference"
-              ],
-              "type": "object"
-            },
-            {
-              "additionalProperties": false,
-              "properties": {
-                "applicationId": {
-                  "$ref": "#/$defs/__schema25"
-                },
-                "authorityDigest": {
-                  "$ref": "#/$defs/__schema45"
-                },
-                "createdAt": {
-                  "$ref": "#/$defs/__schema48"
-                },
-                "environment": {
-                  "$ref": "#/$defs/__schema26"
-                },
-                "expectedInventoryDigest": {
-                  "$ref": "#/$defs/__schema45"
-                },
-                "expectedOperationsRevision": {
-                  "$ref": "#/$defs/__schema35"
-                },
-                "idempotencyKey": {
-                  "$ref": "#/$defs/__schema36"
-                },
-                "kind": {
-                  "const": "restore-drill",
                   "type": "string"
                 },
                 "reference": {
@@ -1938,6 +1893,68 @@
                 "expectedInventoryDigest",
                 "requestedBy",
                 "authorityDigest",
+                "executionAuthority",
+                "idempotencyKey",
+                "createdAt",
+                "kind",
+                "reference"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "applicationId": {
+                  "$ref": "#/$defs/__schema25"
+                },
+                "authorityDigest": {
+                  "$ref": "#/$defs/__schema45"
+                },
+                "createdAt": {
+                  "$ref": "#/$defs/__schema48"
+                },
+                "environment": {
+                  "$ref": "#/$defs/__schema26"
+                },
+                "executionAuthority": {
+                  "$ref": "#/$defs/__schema60"
+                },
+                "expectedInventoryDigest": {
+                  "$ref": "#/$defs/__schema45"
+                },
+                "expectedOperationsRevision": {
+                  "$ref": "#/$defs/__schema35"
+                },
+                "idempotencyKey": {
+                  "$ref": "#/$defs/__schema36"
+                },
+                "kind": {
+                  "const": "restore-drill",
+                  "type": "string"
+                },
+                "reference": {
+                  "$ref": "#/$defs/__schema62"
+                },
+                "requestId": {
+                  "$ref": "#/$defs/__schema40"
+                },
+                "requestedBy": {
+                  "$ref": "#/$defs/__schema43"
+                },
+                "schemaVersion": {
+                  "$ref": "#/$defs/__schema59"
+                }
+              },
+              "required": [
+                "schemaVersion",
+                "requestId",
+                "applicationId",
+                "environment",
+                "expectedOperationsRevision",
+                "expectedInventoryDigest",
+                "requestedBy",
+                "authorityDigest",
+                "executionAuthority",
                 "idempotencyKey",
                 "createdAt",
                 "kind",
@@ -1961,6 +1978,9 @@
                 "environment": {
                   "$ref": "#/$defs/__schema26"
                 },
+                "executionAuthority": {
+                  "$ref": "#/$defs/__schema64"
+                },
                 "expectedInventoryDigest": {
                   "$ref": "#/$defs/__schema45"
                 },
@@ -1969,73 +1989,6 @@
                 },
                 "kind": {
                   "const": "backup",
-                  "type": "string"
-                },
-                "occurredAt": {
-                  "$ref": "#/$defs/__schema48"
-                },
-                "outcome": {
-                  "const": "accepted",
-                  "type": "string"
-                },
-                "reason": {
-                  "const": "accepted",
-                  "type": "string"
-                },
-                "receiptId": {
-                  "$ref": "#/$defs/__schema40"
-                },
-                "reference": {
-                  "$ref": "#/$defs/__schema60"
-                },
-                "requestId": {
-                  "$ref": "#/$defs/__schema40"
-                },
-                "requestedBy": {
-                  "$ref": "#/$defs/__schema43"
-                },
-                "schemaVersion": {
-                  "$ref": "#/$defs/__schema62"
-                }
-              },
-              "required": [
-                "schemaVersion",
-                "receiptId",
-                "requestId",
-                "applicationId",
-                "environment",
-                "expectedInventoryDigest",
-                "requestedBy",
-                "authorityDigest",
-                "idempotencyKey",
-                "occurredAt",
-                "kind",
-                "reference",
-                "outcome",
-                "reason"
-              ],
-              "type": "object"
-            },
-            {
-              "additionalProperties": false,
-              "properties": {
-                "applicationId": {
-                  "$ref": "#/$defs/__schema25"
-                },
-                "authorityDigest": {
-                  "$ref": "#/$defs/__schema45"
-                },
-                "environment": {
-                  "$ref": "#/$defs/__schema26"
-                },
-                "expectedInventoryDigest": {
-                  "$ref": "#/$defs/__schema45"
-                },
-                "idempotencyKey": {
-                  "$ref": "#/$defs/__schema36"
-                },
-                "kind": {
-                  "const": "restore-drill",
                   "type": "string"
                 },
                 "occurredAt": {
@@ -2062,7 +2015,7 @@
                   "$ref": "#/$defs/__schema43"
                 },
                 "schemaVersion": {
-                  "$ref": "#/$defs/__schema62"
+                  "$ref": "#/$defs/__schema63"
                 }
               },
               "required": [
@@ -2074,6 +2027,7 @@
                 "expectedInventoryDigest",
                 "requestedBy",
                 "authorityDigest",
+                "executionAuthority",
                 "idempotencyKey",
                 "occurredAt",
                 "kind",
@@ -2094,6 +2048,80 @@
                 },
                 "environment": {
                   "$ref": "#/$defs/__schema26"
+                },
+                "executionAuthority": {
+                  "$ref": "#/$defs/__schema64"
+                },
+                "expectedInventoryDigest": {
+                  "$ref": "#/$defs/__schema45"
+                },
+                "idempotencyKey": {
+                  "$ref": "#/$defs/__schema36"
+                },
+                "kind": {
+                  "const": "restore-drill",
+                  "type": "string"
+                },
+                "occurredAt": {
+                  "$ref": "#/$defs/__schema48"
+                },
+                "outcome": {
+                  "const": "accepted",
+                  "type": "string"
+                },
+                "reason": {
+                  "const": "accepted",
+                  "type": "string"
+                },
+                "receiptId": {
+                  "$ref": "#/$defs/__schema40"
+                },
+                "reference": {
+                  "$ref": "#/$defs/__schema62"
+                },
+                "requestId": {
+                  "$ref": "#/$defs/__schema40"
+                },
+                "requestedBy": {
+                  "$ref": "#/$defs/__schema43"
+                },
+                "schemaVersion": {
+                  "$ref": "#/$defs/__schema63"
+                }
+              },
+              "required": [
+                "schemaVersion",
+                "receiptId",
+                "requestId",
+                "applicationId",
+                "environment",
+                "expectedInventoryDigest",
+                "requestedBy",
+                "authorityDigest",
+                "executionAuthority",
+                "idempotencyKey",
+                "occurredAt",
+                "kind",
+                "reference",
+                "outcome",
+                "reason"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "applicationId": {
+                  "$ref": "#/$defs/__schema25"
+                },
+                "authorityDigest": {
+                  "$ref": "#/$defs/__schema45"
+                },
+                "environment": {
+                  "$ref": "#/$defs/__schema26"
+                },
+                "executionAuthority": {
+                  "$ref": "#/$defs/__schema64"
                 },
                 "expectedInventoryDigest": {
                   "$ref": "#/$defs/__schema45"
@@ -2120,7 +2148,7 @@
                   "$ref": "#/$defs/__schema40"
                 },
                 "reference": {
-                  "$ref": "#/$defs/__schema63"
+                  "$ref": "#/$defs/__schema65"
                 },
                 "requestId": {
                   "$ref": "#/$defs/__schema40"
@@ -2129,7 +2157,7 @@
                   "$ref": "#/$defs/__schema43"
                 },
                 "schemaVersion": {
-                  "$ref": "#/$defs/__schema62"
+                  "$ref": "#/$defs/__schema63"
                 }
               },
               "required": [
@@ -2141,6 +2169,7 @@
                 "expectedInventoryDigest",
                 "requestedBy",
                 "authorityDigest",
+                "executionAuthority",
                 "idempotencyKey",
                 "occurredAt",
                 "kind",
@@ -2161,6 +2190,9 @@
                 },
                 "environment": {
                   "$ref": "#/$defs/__schema26"
+                },
+                "executionAuthority": {
+                  "$ref": "#/$defs/__schema64"
                 },
                 "expectedInventoryDigest": {
                   "$ref": "#/$defs/__schema45"
@@ -2187,7 +2219,7 @@
                   "$ref": "#/$defs/__schema40"
                 },
                 "reference": {
-                  "$ref": "#/$defs/__schema64"
+                  "$ref": "#/$defs/__schema66"
                 },
                 "requestId": {
                   "$ref": "#/$defs/__schema40"
@@ -2196,7 +2228,7 @@
                   "$ref": "#/$defs/__schema43"
                 },
                 "schemaVersion": {
-                  "$ref": "#/$defs/__schema62"
+                  "$ref": "#/$defs/__schema63"
                 }
               },
               "required": [
@@ -2208,6 +2240,7 @@
                 "expectedInventoryDigest",
                 "requestedBy",
                 "authorityDigest",
+                "executionAuthority",
                 "idempotencyKey",
                 "occurredAt",
                 "kind",
@@ -2228,6 +2261,9 @@
                 },
                 "environment": {
                   "$ref": "#/$defs/__schema26"
+                },
+                "executionAuthority": {
+                  "$ref": "#/$defs/__schema64"
                 },
                 "expectedInventoryDigest": {
                   "$ref": "#/$defs/__schema45"
@@ -2258,7 +2294,7 @@
                   "$ref": "#/$defs/__schema40"
                 },
                 "reference": {
-                  "$ref": "#/$defs/__schema63"
+                  "$ref": "#/$defs/__schema65"
                 },
                 "requestId": {
                   "$ref": "#/$defs/__schema40"
@@ -2267,7 +2303,7 @@
                   "$ref": "#/$defs/__schema43"
                 },
                 "schemaVersion": {
-                  "$ref": "#/$defs/__schema62"
+                  "$ref": "#/$defs/__schema63"
                 }
               },
               "required": [
@@ -2279,6 +2315,7 @@
                 "expectedInventoryDigest",
                 "requestedBy",
                 "authorityDigest",
+                "executionAuthority",
                 "idempotencyKey",
                 "occurredAt",
                 "kind",
@@ -2299,6 +2336,9 @@
                 },
                 "environment": {
                   "$ref": "#/$defs/__schema26"
+                },
+                "executionAuthority": {
+                  "$ref": "#/$defs/__schema64"
                 },
                 "expectedInventoryDigest": {
                   "$ref": "#/$defs/__schema45"
@@ -2329,7 +2369,7 @@
                   "$ref": "#/$defs/__schema40"
                 },
                 "reference": {
-                  "$ref": "#/$defs/__schema64"
+                  "$ref": "#/$defs/__schema66"
                 },
                 "requestId": {
                   "$ref": "#/$defs/__schema40"
@@ -2338,7 +2378,7 @@
                   "$ref": "#/$defs/__schema43"
                 },
                 "schemaVersion": {
-                  "$ref": "#/$defs/__schema62"
+                  "$ref": "#/$defs/__schema63"
                 }
               },
               "required": [
@@ -2350,6 +2390,7 @@
                 "expectedInventoryDigest",
                 "requestedBy",
                 "authorityDigest",
+                "executionAuthority",
                 "idempotencyKey",
                 "occurredAt",
                 "kind",
@@ -2370,6 +2411,9 @@
                 },
                 "environment": {
                   "$ref": "#/$defs/__schema26"
+                },
+                "executionAuthority": {
+                  "$ref": "#/$defs/__schema64"
                 },
                 "expectedInventoryDigest": {
                   "$ref": "#/$defs/__schema45"
@@ -2399,7 +2443,7 @@
                   "$ref": "#/$defs/__schema40"
                 },
                 "reference": {
-                  "$ref": "#/$defs/__schema63"
+                  "$ref": "#/$defs/__schema65"
                 },
                 "requestId": {
                   "$ref": "#/$defs/__schema40"
@@ -2408,7 +2452,7 @@
                   "$ref": "#/$defs/__schema43"
                 },
                 "schemaVersion": {
-                  "$ref": "#/$defs/__schema62"
+                  "$ref": "#/$defs/__schema63"
                 }
               },
               "required": [
@@ -2420,6 +2464,7 @@
                 "expectedInventoryDigest",
                 "requestedBy",
                 "authorityDigest",
+                "executionAuthority",
                 "idempotencyKey",
                 "occurredAt",
                 "kind",
@@ -2440,6 +2485,9 @@
                 },
                 "environment": {
                   "$ref": "#/$defs/__schema26"
+                },
+                "executionAuthority": {
+                  "$ref": "#/$defs/__schema64"
                 },
                 "expectedInventoryDigest": {
                   "$ref": "#/$defs/__schema45"
@@ -2469,7 +2517,7 @@
                   "$ref": "#/$defs/__schema40"
                 },
                 "reference": {
-                  "$ref": "#/$defs/__schema64"
+                  "$ref": "#/$defs/__schema66"
                 },
                 "requestId": {
                   "$ref": "#/$defs/__schema40"
@@ -2478,7 +2526,7 @@
                   "$ref": "#/$defs/__schema43"
                 },
                 "schemaVersion": {
-                  "$ref": "#/$defs/__schema62"
+                  "$ref": "#/$defs/__schema63"
                 }
               },
               "required": [
@@ -2490,6 +2538,7 @@
                 "expectedInventoryDigest",
                 "requestedBy",
                 "authorityDigest",
+                "executionAuthority",
                 "idempotencyKey",
                 "occurredAt",
                 "kind",
@@ -2580,7 +2629,7 @@
                   "type": "string"
                 },
                 "availability": {
-                  "$ref": "#/$defs/__schema66"
+                  "$ref": "#/$defs/__schema68"
                 },
                 "deliveryClass": {
                   "const": "hot-application",
@@ -2594,20 +2643,20 @@
                   "$ref": "#/$defs/__schema2"
                 },
                 "impactDigest": {
-                  "$ref": "#/$defs/__schema67"
+                  "$ref": "#/$defs/__schema69"
                 },
                 "lifecycleState": {
-                  "$ref": "#/$defs/__schema65"
+                  "$ref": "#/$defs/__schema67"
                 },
                 "operationReference": {
-                  "$ref": "#/$defs/__schema68"
+                  "$ref": "#/$defs/__schema70"
                 },
                 "permissionId": {
                   "const": "system.extensions.install-live",
                   "type": "string"
                 },
                 "reauthentication": {
-                  "$ref": "#/$defs/__schema69"
+                  "$ref": "#/$defs/__schema71"
                 }
               },
               "required": [
@@ -2635,7 +2684,7 @@
                   "type": "string"
                 },
                 "availability": {
-                  "$ref": "#/$defs/__schema66"
+                  "$ref": "#/$defs/__schema68"
                 },
                 "deliveryClass": {
                   "const": "theme-skin",
@@ -2649,20 +2698,20 @@
                   "$ref": "#/$defs/__schema2"
                 },
                 "impactDigest": {
-                  "$ref": "#/$defs/__schema67"
+                  "$ref": "#/$defs/__schema69"
                 },
                 "lifecycleState": {
-                  "$ref": "#/$defs/__schema65"
+                  "$ref": "#/$defs/__schema67"
                 },
                 "operationReference": {
-                  "$ref": "#/$defs/__schema68"
+                  "$ref": "#/$defs/__schema70"
                 },
                 "permissionId": {
                   "const": "system.extensions.install-live",
                   "type": "string"
                 },
                 "reauthentication": {
-                  "$ref": "#/$defs/__schema69"
+                  "$ref": "#/$defs/__schema71"
                 }
               },
               "required": [
@@ -2690,7 +2739,7 @@
                   "type": "string"
                 },
                 "availability": {
-                  "$ref": "#/$defs/__schema66"
+                  "$ref": "#/$defs/__schema68"
                 },
                 "deliveryClass": {
                   "const": "platform-plugin",
@@ -2704,20 +2753,20 @@
                   "$ref": "#/$defs/__schema2"
                 },
                 "impactDigest": {
-                  "$ref": "#/$defs/__schema67"
+                  "$ref": "#/$defs/__schema69"
                 },
                 "lifecycleState": {
-                  "$ref": "#/$defs/__schema65"
+                  "$ref": "#/$defs/__schema67"
                 },
                 "operationReference": {
-                  "$ref": "#/$defs/__schema68"
+                  "$ref": "#/$defs/__schema70"
                 },
                 "permissionId": {
                   "const": "system.extensions.deploy-platform-plugin",
                   "type": "string"
                 },
                 "reauthentication": {
-                  "$ref": "#/$defs/__schema69"
+                  "$ref": "#/$defs/__schema71"
                 }
               },
               "required": [
@@ -2745,10 +2794,10 @@
                   "type": "string"
                 },
                 "availability": {
-                  "$ref": "#/$defs/__schema66"
+                  "$ref": "#/$defs/__schema68"
                 },
                 "deliveryClass": {
-                  "$ref": "#/$defs/__schema70"
+                  "$ref": "#/$defs/__schema72"
                 },
                 "executableOperation": {
                   "const": "install",
@@ -2758,20 +2807,20 @@
                   "$ref": "#/$defs/__schema2"
                 },
                 "impactDigest": {
-                  "$ref": "#/$defs/__schema67"
+                  "$ref": "#/$defs/__schema69"
                 },
                 "lifecycleState": {
-                  "$ref": "#/$defs/__schema65"
+                  "$ref": "#/$defs/__schema67"
                 },
                 "operationReference": {
-                  "$ref": "#/$defs/__schema68"
+                  "$ref": "#/$defs/__schema70"
                 },
                 "permissionId": {
                   "const": "system.extensions.enable",
                   "type": "string"
                 },
                 "reauthentication": {
-                  "$ref": "#/$defs/__schema69"
+                  "$ref": "#/$defs/__schema71"
                 }
               },
               "required": [
@@ -2799,10 +2848,10 @@
                   "type": "string"
                 },
                 "availability": {
-                  "$ref": "#/$defs/__schema66"
+                  "$ref": "#/$defs/__schema68"
                 },
                 "deliveryClass": {
-                  "$ref": "#/$defs/__schema70"
+                  "$ref": "#/$defs/__schema72"
                 },
                 "executableOperation": {
                   "const": "update",
@@ -2812,20 +2861,20 @@
                   "$ref": "#/$defs/__schema2"
                 },
                 "impactDigest": {
-                  "$ref": "#/$defs/__schema67"
+                  "$ref": "#/$defs/__schema69"
                 },
                 "lifecycleState": {
-                  "$ref": "#/$defs/__schema65"
+                  "$ref": "#/$defs/__schema67"
                 },
                 "operationReference": {
-                  "$ref": "#/$defs/__schema68"
+                  "$ref": "#/$defs/__schema70"
                 },
                 "permissionId": {
                   "const": "system.extensions.update",
                   "type": "string"
                 },
                 "reauthentication": {
-                  "$ref": "#/$defs/__schema69"
+                  "$ref": "#/$defs/__schema71"
                 }
               },
               "required": [
@@ -2853,10 +2902,10 @@
                   "type": "string"
                 },
                 "availability": {
-                  "$ref": "#/$defs/__schema66"
+                  "$ref": "#/$defs/__schema68"
                 },
                 "deliveryClass": {
-                  "$ref": "#/$defs/__schema70"
+                  "$ref": "#/$defs/__schema72"
                 },
                 "executableOperation": {
                   "const": "disable",
@@ -2866,20 +2915,20 @@
                   "$ref": "#/$defs/__schema2"
                 },
                 "impactDigest": {
-                  "$ref": "#/$defs/__schema67"
+                  "$ref": "#/$defs/__schema69"
                 },
                 "lifecycleState": {
-                  "$ref": "#/$defs/__schema65"
+                  "$ref": "#/$defs/__schema67"
                 },
                 "operationReference": {
-                  "$ref": "#/$defs/__schema68"
+                  "$ref": "#/$defs/__schema70"
                 },
                 "permissionId": {
                   "const": "system.extensions.disable",
                   "type": "string"
                 },
                 "reauthentication": {
-                  "$ref": "#/$defs/__schema69"
+                  "$ref": "#/$defs/__schema71"
                 }
               },
               "required": [
@@ -2907,10 +2956,10 @@
                   "type": "string"
                 },
                 "availability": {
-                  "$ref": "#/$defs/__schema66"
+                  "$ref": "#/$defs/__schema68"
                 },
                 "deliveryClass": {
-                  "$ref": "#/$defs/__schema70"
+                  "$ref": "#/$defs/__schema72"
                 },
                 "executableOperation": {
                   "const": "rollback",
@@ -2920,20 +2969,20 @@
                   "$ref": "#/$defs/__schema2"
                 },
                 "impactDigest": {
-                  "$ref": "#/$defs/__schema67"
+                  "$ref": "#/$defs/__schema69"
                 },
                 "lifecycleState": {
-                  "$ref": "#/$defs/__schema65"
+                  "$ref": "#/$defs/__schema67"
                 },
                 "operationReference": {
-                  "$ref": "#/$defs/__schema68"
+                  "$ref": "#/$defs/__schema70"
                 },
                 "permissionId": {
                   "const": "system.extensions.rollback",
                   "type": "string"
                 },
                 "reauthentication": {
-                  "$ref": "#/$defs/__schema69"
+                  "$ref": "#/$defs/__schema71"
                 }
               },
               "required": [
@@ -2961,10 +3010,10 @@
                   "type": "string"
                 },
                 "availability": {
-                  "$ref": "#/$defs/__schema66"
+                  "$ref": "#/$defs/__schema68"
                 },
                 "deliveryClass": {
-                  "$ref": "#/$defs/__schema70"
+                  "$ref": "#/$defs/__schema72"
                 },
                 "executableOperation": {
                   "const": "uninstall",
@@ -2974,20 +3023,20 @@
                   "$ref": "#/$defs/__schema2"
                 },
                 "impactDigest": {
-                  "$ref": "#/$defs/__schema67"
+                  "$ref": "#/$defs/__schema69"
                 },
                 "lifecycleState": {
-                  "$ref": "#/$defs/__schema65"
+                  "$ref": "#/$defs/__schema67"
                 },
                 "operationReference": {
-                  "$ref": "#/$defs/__schema68"
+                  "$ref": "#/$defs/__schema70"
                 },
                 "permissionId": {
                   "const": "system.extensions.uninstall",
                   "type": "string"
                 },
                 "reauthentication": {
-                  "$ref": "#/$defs/__schema69"
+                  "$ref": "#/$defs/__schema71"
                 }
               },
               "required": [

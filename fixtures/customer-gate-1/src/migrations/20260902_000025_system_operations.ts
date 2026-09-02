@@ -64,10 +64,11 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
       "requested_by_id" varchar(160) NOT NULL,
       "authority_json" jsonb NOT NULL,
       "authority_digest" varchar(71) NOT NULL,
+      "execution_authority" varchar(32) NOT NULL,
       "created_at" timestamp(3) with time zone NOT NULL,
       CONSTRAINT "k_nex_system_operation_audit_state_fk" FOREIGN KEY ("application_id", "environment") REFERENCES "k_nex_system_operations_state" ("application_id", "environment") ON DELETE RESTRICT,
       CONSTRAINT "k_nex_system_operation_audit_request_fk" FOREIGN KEY ("operation_id") REFERENCES "k_nex_system_operation_requests" ("operation_id") ON DELETE RESTRICT,
-      CONSTRAINT "k_nex_system_operation_audit_check" CHECK ("audit_id" ~ '^[a-z][a-z0-9-]{2,127}$' AND "kind" IN ('backup','restore-drill') AND "outcome" IN ('accepted','completed','failed') AND "operations_revision" BETWEEN 1 AND 1000000000 AND "requested_by_kind" IN ('user','service') AND "requested_by_id" ~ '^[A-Za-z0-9][A-Za-z0-9._:@/-]*$' AND "authority_digest" ~ '^sha256:[0-9a-f]{64}$' AND jsonb_typeof("authority_json")='object')
+      CONSTRAINT "k_nex_system_operation_audit_check" CHECK ("audit_id" ~ '^[a-z][a-z0-9-]{2,127}$' AND "kind" IN ('backup','restore-drill') AND "outcome" IN ('accepted','completed','failed') AND "operations_revision" BETWEEN 1 AND 1000000000 AND "requested_by_kind" IN ('user','service') AND "requested_by_id" ~ '^[A-Za-z0-9][A-Za-z0-9._:@/-]*$' AND "authority_digest" ~ '^sha256:[0-9a-f]{64}$' AND jsonb_typeof("authority_json")='object' AND "execution_authority"='system-after-acceptance')
     );
 
     CREATE TABLE "k_nex_system_operation_outbox" (

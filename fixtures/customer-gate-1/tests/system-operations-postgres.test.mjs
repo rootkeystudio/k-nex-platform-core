@@ -53,6 +53,7 @@ test("P11.7 persists replay-safe backup and restore-drill authority with leases,
 
     const accepted = await store.submit(request("backup", 0, "backup-idempotency-1"));
     assert.equal(accepted.outcome, "accepted");
+    assert.equal(accepted.executionAuthority, "system-after-acceptance");
     assert.deepEqual(await store.submit(request("backup", 0, "backup-idempotency-1")), accepted, "response-loss retry returns exact accepted receipt");
     assert.equal(accepted.authorityDigest, await authorityDigest(envelope("backup")));
     assert.deepEqual(await store.replay({ kind: "backup", applicationId, environment, expectedOperationsRevision: 0, requestedBy: actor, authorityEnvelope: envelope("backup"), idempotencyKey: "backup-idempotency-1" }), accepted);
@@ -64,6 +65,7 @@ test("P11.7 persists replay-safe backup and restore-drill authority with leases,
     await assert.rejects(store.complete(claimed.request.reference.operationId, claimed.leaseToken, { outcome: "completed", referenceReceiptId: "backup-proof-1" }), { code: "PROOF_INVALID" });
     const completed = await store.complete(claimed.request.reference.operationId, claimed.leaseToken, { outcome: "completed", referenceReceiptId: "backup-proof-1", cleanEnvironmentRestore: true });
     assert.equal(completed.outcome, "completed");
+    assert.equal(completed.executionAuthority, "system-after-acceptance");
     assert.deepEqual(await store.submit(request("backup", 0, "backup-idempotency-1")), completed, "terminal replay returns exact immutable receipt");
     assert.deepEqual(await store.complete(claimed.request.reference.operationId, claimed.leaseToken, { outcome: "completed", referenceReceiptId: "backup-proof-1", cleanEnvironmentRestore: true }), completed, "post-commit response loss is idempotent");
 
@@ -91,8 +93,9 @@ test("P11.7 persists replay-safe backup and restore-drill authority with leases,
       (select count(*)::int from k_nex_system_operation_outbox) outbox`)).rows[0];
     assert.deepEqual(counts, { requests: 2, receipts: 4, audits: 4, outbox: 4 });
     await assert.rejects(pool.query("update k_nex_system_operation_receipts set receipt_json='{}'::jsonb where receipt_id=$1", [accepted.receiptId]), /immutable/u);
-    const audit = (await pool.query("select authority_json, authority_digest from k_nex_system_operation_audit order by created_at limit 1")).rows[0];
+    const audit = (await pool.query("select authority_json, authority_digest, execution_authority from k_nex_system_operation_audit order by created_at limit 1")).rows[0];
     assert.equal(audit.authority_digest, accepted.authorityDigest);
+    assert.equal(audit.execution_authority, "system-after-acceptance");
     assert.deepEqual(audit.authority_json.principal, actor);
     const serialized = JSON.stringify(await pool.query("select request_json, authority_json, receipt_json from k_nex_system_operation_requests cross join k_nex_system_operation_receipts limit 1"));
     assert.doesNotMatch(serialized, /password|credential|encryptionKey|rawError/u);
