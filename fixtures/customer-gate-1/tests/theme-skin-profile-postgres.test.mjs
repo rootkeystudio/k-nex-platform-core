@@ -11,7 +11,7 @@ import { chromium } from "playwright";
 import { ArtifactVerifier, buildBundle, canonicalJson, CatalogClient, InMemoryCatalogCheckpointStore, sha256 } from "@k-nex/extension-bundler";
 import { PostgresRuntimeExtensionStore, PostgresThemeProfileStore, PostgresVerifiedArtifactStore, SharedStaticPlatformPluginGenerationRebinder } from "@k-nex/payload-adapter";
 import { DurableDynamicArtifactPipeline, DurableDynamicGenerationRuntime, PluginManager, ReferenceThemeSkinGenerationWarmer, TrustedAutomationOperationAuthorizer } from "@k-nex/runtime";
-import { createThemeSkinCss, DurableThemeSkinResolver } from "@k-nex/ui-design-system-contracts";
+import { createThemePresentation, createThemeRegistry, createThemeSkinCss, defineThemePackage, DurableThemeSkinResolver } from "@k-nex/ui-design-system-contracts";
 import { startThemeSkinFixedRouteHost } from "../dist/src/theme-skin-fixed-route-host.js";
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
@@ -21,6 +21,11 @@ const publisherKeys = generateKeyPairSync("ed25519");
 const catalogKeys = generateKeyPairSync("ed25519");
 const publisher = { identity: "customer-gate-1-skin-publisher", publicKey: publisherKeys.publicKey.export({ type: "spki", format: "pem" }).toString() };
 const catalogSigner = { identity: "customer-gate-1-skin-catalog", publicKey: catalogKeys.publicKey.export({ type: "spki", format: "pem" }).toString() };
+const fixtureThemePackage = defineThemePackage({
+  id: "theme.fixture.base", version: "1.0.0", surfaces: ["public"],
+  tokenSchema: { safeParse: (value) => typeof value === "object" && value !== null && !Array.isArray(value) ? { success: true, data: value } : { success: false, error: new Error("invalid tokens") } },
+  defaults: {}, palettes: [{ id: "light", values: {} }], recipes: {}, structuralCss: ":--k-nex-theme-root{}", migrations: []
+});
 
 function fixtureCatalogMirror(catalog) {
   const owner = { applicationId: "customer-alpha", environment: "production" };
@@ -213,6 +218,14 @@ test("delivers Theme Skins from signed durable artifacts through PluginManager i
       await artifacts.stage({ owner: authority, authority, activation, verification: { catalog, artifact: release.bundle.artifact, provenance: release.bundle.provenance, deliveryClass: "theme-skin", id: release.entry.id, version: release.version, runtimeAbi: "1.0.0" } });
     }
     const resolver = new DurableThemeSkinResolver({ load: (authority) => artifacts.loadThemeSkin(authority) });
+    let profileResolver = resolver;
+    const profileValidator = { validate: async ({ profile: candidate }) => {
+      const release = candidate.skin && releases.find(({ generationId }) => generationId === candidate.skin.generationId);
+      if (candidate.skin && !release) throw new Error("Theme Skin generation is not configured by the host.");
+      const resolvedSkin = release ? await profileResolver.resolve(release.authority, candidate) : undefined;
+      const registry = createThemeRegistry([fixtureThemePackage], resolvedSkin ? { resolve: () => resolvedSkin } : undefined);
+      createThemePresentation(registry.resolveProfile(candidate));
+    } };
     const warmer = new ReferenceThemeSkinGenerationWarmer({ skins: { prepareSkin: async ({ artifact }) => { await resolver.generation(artifact.authority); } }, clock });
     const extensionStore = new PostgresRuntimeExtensionStore(pool, clock, sha256(Buffer.from("theme-skin-store")), { sharedStaticGenerationRebinder: new SharedStaticPlatformPluginGenerationRebinder() });
     const byVersion = new Map(releases.map((release) => [release.version, release]));
@@ -234,8 +247,12 @@ test("delivers Theme Skins from signed durable artifacts through PluginManager i
     await manager.stage(install.operationId);
     const installed = await manager.activate(install.operationId);
     assert.equal(installed.generationId, releases[0].generationId);
-    let profiles = new PostgresThemeProfileStore(pool, clock, { authorize: () => true });
+    let profiles = new PostgresThemeProfileStore(pool, clock, { authorize: () => true }, profileValidator);
     const first = profile("published", "theme-skin.revision-1", releases[0].generationId, releases[0].version);
+    const unsafePreview = { ...profile("draft", first.revision.id, releases[0].generationId, releases[0].version), skin: { ...first.skin, values: { "--k-nex-skin-color-foreground": "#ffffff" } } };
+    await assert.rejects(profiles.preview({ applicationId: "customer-alpha", environment: "production", expectedRevision: 0, profile: unsafePreview }), { code: "PROFILE_INVALID" });
+    const preview = await profiles.preview({ applicationId: "customer-alpha", environment: "production", expectedRevision: 0, profile: profile("draft", first.revision.id, releases[0].generationId, releases[0].version) });
+    assert.equal(preview.skinGenerationId, releases[0].generationId);
     await profiles.stageDraft({ applicationId: "customer-alpha", environment: "production", profile: profile("draft", first.revision.id, releases[0].generationId, releases[0].version) });
     await profiles.publish({ applicationId: "customer-alpha", environment: "production", expectedRevision: 0, profile: first });
     assert.equal((await resolver.resolve(releases[0].authority, first)).generation.generationId, releases[0].generationId);
@@ -249,6 +266,32 @@ test("delivers Theme Skins from signed durable artifacts through PluginManager i
     assert.equal((await resolver.resolve(releases[1].authority, second)).generation.manifest.version, "1.1.0");
     await assert.rejects(resolver.resolve(releases[1].authority, { ...second, skin: { ...second.skin, generationId: releases[0].generationId } }), /Profile|generation/i);
 
+    const raceProfile = (state, revision, previousRevisionId) => ({ ...profile(state, revision, undefined, undefined, previousRevisionId), id: "theme.race.public" });
+    const race1 = raceProfile("published", "theme-race.revision-1");
+    await profiles.stageDraft({ applicationId: "customer-alpha", environment: "production", profile: raceProfile("draft", race1.revision.id) });
+    await profiles.publish({ applicationId: "customer-alpha", environment: "production", expectedRevision: 0, profile: race1 });
+    const race2 = raceProfile("published", "theme-race.revision-2", race1.revision.id);
+    await profiles.stageDraft({ applicationId: "customer-alpha", environment: "production", profile: raceProfile("draft", race2.revision.id, race1.revision.id) });
+    await profiles.publish({ applicationId: "customer-alpha", environment: "production", expectedRevision: 1, profile: race2 });
+    const race3 = raceProfile("published", "theme-race.revision-3", race2.revision.id);
+    await profiles.stageDraft({ applicationId: "customer-alpha", environment: "production", profile: raceProfile("draft", race3.revision.id, race2.revision.id) });
+    const publishRollbackRace = await Promise.allSettled([
+      profiles.publish({ applicationId: "customer-alpha", environment: "production", expectedRevision: 2, profile: race3 }),
+      profiles.rollback({ applicationId: "customer-alpha", environment: "production", profileId: race3.id, expectedRevision: 2 })
+    ]);
+    assert.equal(publishRollbackRace.filter(({ status }) => status === "fulfilled").length, 1, "Exactly one concurrent publish/rollback may commit.");
+    const afterPublishRollback = await profiles.read({ applicationId: "customer-alpha", environment: "production", profileId: race3.id });
+    assert.equal(afterPublishRollback.revision, 3);
+    const rollbackRace = await Promise.allSettled([
+      profiles.rollback({ applicationId: "customer-alpha", environment: "production", profileId: race3.id, expectedRevision: 3 }),
+      profiles.rollback({ applicationId: "customer-alpha", environment: "production", profileId: race3.id, expectedRevision: 3 })
+    ]);
+    assert.equal(rollbackRace.filter(({ status }) => status === "fulfilled").length, 1, "Exactly one concurrent rollback may commit.");
+    const afterRollbackRace = await profiles.read({ applicationId: "customer-alpha", environment: "production", profileId: race3.id });
+    assert.equal(afterRollbackRace.revision, 4);
+    assert.notEqual(afterRollbackRace.active.revision.id, afterRollbackRace.previous.revision.id);
+    assert.equal((await pool.query("select count(*)::int count from runtime_theme_profile_outbox where profile_id=$1", [race3.id])).rows[0].count, 4);
+
     const uri = new URL(container.getConnectionUri()); uri.hostname = "127.0.0.1"; uri.port = "5432";
     const dumped = await container.exec(["pg_dump", "--format=custom", "--file=/tmp/p9-theme-skin.dump", uri.toString()]);
     assert.equal(dumped.exitCode, 0, dumped.output);
@@ -258,10 +301,10 @@ test("delivers Theme Skins from signed durable artifacts through PluginManager i
     assert.equal(restored.exitCode, 0, restored.output);
     await pool.end();
     pool = new pg.Pool({ connectionString: container.getConnectionUri() });
-    profiles = new PostgresThemeProfileStore(pool, clock, { authorize: () => true });
-
     const recoveredArtifacts = new PostgresVerifiedArtifactStore(pool, verifier, fixtureCatalogMirror(catalog), { applicationId: "customer-alpha", environment: "production" });
     const recoveredResolver = new DurableThemeSkinResolver({ load: (authority) => recoveredArtifacts.loadThemeSkin(authority) });
+    profileResolver = recoveredResolver;
+    profiles = new PostgresThemeProfileStore(pool, clock, { authorize: () => true }, profileValidator);
     const recoveredManager = new PluginManager("theme-skin-recovery", new TrustedAutomationOperationAuthorizer("github-actions:phase-9"), planner, new PostgresRuntimeExtensionStore(pool, clock, sha256(Buffer.from("theme-skin-store")), { sharedStaticGenerationRebinder: new SharedStaticPlatformPluginGenerationRebinder() }), new DurableDynamicArtifactPipeline(recoveredArtifacts), { request: async () => { throw new Error("Static delivery is not used."); } }, { request: async () => { throw new Error("Static delivery is not used."); }, reverify: async () => false }, new DurableDynamicGenerationRuntime(recoveredArtifacts, new ReferenceThemeSkinGenerationWarmer({ skins: { prepareSkin: async ({ artifact }) => { await recoveredResolver.generation(artifact.authority); } }, clock })), clock);
     assert.equal((await recoveredManager.inventory("customer-alpha", "production")).extensions.themeSkins["skin.neobrutalism"].activeGeneration.generationId, releases[1].generationId);
     const recoveredSkin = await recoveredResolver.resolve(releases[1].authority, second);

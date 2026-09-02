@@ -7,15 +7,15 @@
 
 ## Last completed
 
-P11.5 passed reused Sol-xhigh review. Read results are final-authority fenced; direct/unprepared and maintenance static preparation/execution are blocked; same-version `1.0.0` Platform Plugin rebuilds remain distinct from live updates; boot-trusted static manifests compose with the accepted dynamic catalog. Deferred impact plans use a narrow current-revision maintenance read without becoming lifecycle transitions. PluginManager remains the sole durable state machine. P11.3's safe foundation remains checkpointed with unresolved decisions documented.
+P11.6a Theme Profile authority and validation are complete: read/manage permissions are distinct, publish/rollback require server-owned same-decision reauthentication, reads and mutations reauthorize after awaited work, and fresh host-owned Package plus exact active/verified Skin resolution gates preview/stage/publish/rollback. Accessibility-failing previews cannot write or publish. P11.5 passed reused Sol-xhigh review. P11.3's safe foundation remains checkpointed with unresolved decisions documented.
 
 ## Validation
 
-Exact Node 24.19.0: runtime focused administration 31/31, payload-adapter accepted catalog 6/6, runtime/payload-adapter/customer builds, syntax and `git diff --check`. Real PostgreSQL/HTTP static deployment topology 1/1 passed with maintenance, lifecycle, provider, recovery, continuous-HTTP evidence; post-run containers/networks/images empty. P11.5 and P11.4 passed reused Sol-xhigh review.
+Exact Node 24.19.0: P11.6 authority/preview 4/4 and customer build; real PostgreSQL/Chromium Theme Skin/Profile 1/1 with invalid preview, publish/rollback races, verified generation, reference, recovery, and accessibility evidence. P11.5 runtime 31/31, catalog 6/6, static topology 1/1 passed; post-run Docker clean. P11.5 and P11.4 passed reused Sol-xhigh review.
 
 ## Next
 
-Review P11.6 existing theme stores/contracts against the accepted task, then implement the smallest missing administration slice with focused PostgreSQL and browser proof.
+P11.6b add the typed Package/Skin/Profile administration projection and Package reference impact, then fixed routes/pages.
 
 ## Blockers
 

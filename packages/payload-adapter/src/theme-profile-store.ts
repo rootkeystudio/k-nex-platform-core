@@ -1,4 +1,5 @@
 import {
+  type AuthorizationDecision,
   canonicalJson,
   ResourceIdSchema,
   ThemeProfilePublicationEventSchema,
@@ -60,16 +61,55 @@ export interface ThemeProfileAuthorizer {
   authorize(input: Readonly<{ operation: "read" | "stage" | "publish" | "rollback"; owner: Owner }>): boolean | Promise<boolean>;
 }
 
+export interface ThemeProfileReauthenticationVerifier<TContext> {
+  verify(input: Readonly<{
+    context: TContext;
+    owner: Owner;
+    operation: "publish" | "rollback";
+    decision: AuthorizationDecision;
+  }>): boolean | Promise<boolean>;
+}
+
+export interface ThemeProfilePreviewValidator {
+  validate(input: Readonly<{ owner: Owner; profile: ThemeProfile }>): void | Promise<void>;
+}
+
+export interface ThemeProfilePreview {
+  readonly profileId: string;
+  readonly profileRevisionId: string;
+  readonly expectedRevision: number;
+  readonly contentDigest: string;
+  readonly themePackage: Readonly<{ readonly id: string; readonly version: string }>;
+  readonly skinGenerationId?: string;
+}
+
+const themeReadTarget = createCurrentAuthorityTarget({
+  permissionId: "system.themes.read",
+  scope: { kind: "application", resource: "system.themes" },
+  facts: { boundary: "theme-profile-administration" }
+});
+const themeManageTarget = createCurrentAuthorityTarget({
+  permissionId: "system.themes.manage",
+  scope: { kind: "application", resource: "system.themes" },
+  facts: { boundary: "theme-profile-administration" }
+});
+
 /** All Theme Profile mutations use the fixed platform-owned theme management permission. */
 export class CurrentAuthorityThemeProfileAuthorizer<TContext> implements ThemeProfileAuthorizer {
-  constructor(private readonly authority: CurrentAuthorityAdapter<TContext>, private readonly context: (owner: Owner) => TContext) {}
+  constructor(
+    private readonly authority: CurrentAuthorityAdapter<TContext>,
+    private readonly context: (owner: Owner) => TContext,
+    private readonly reauthentication: ThemeProfileReauthenticationVerifier<TContext>
+  ) {}
 
-  authorize(input: Parameters<ThemeProfileAuthorizer["authorize"]>[0]): Promise<boolean> {
-    return this.authority.allows(this.context(input.owner), createCurrentAuthorityTarget({
-      permissionId: "system.themes.manage",
-      scope: { kind: "application", resource: "system.themes" },
-      facts: { operation: input.operation, profileId: input.owner.profileId }
-    }));
+  async authorize(input: Parameters<ThemeProfileAuthorizer["authorize"]>[0]): Promise<boolean> {
+    const context = this.context(input.owner);
+    const target = input.operation === "read" ? themeReadTarget : themeManageTarget;
+    const decision = await this.authority.authorize(context, target);
+    if (decision?.outcome !== "allow" || decision.permissionId !== target.permissionId ||
+      decision.applicationId !== input.owner.applicationId || decision.environment !== input.owner.environment) return false;
+    if (input.operation !== "publish" && input.operation !== "rollback") return true;
+    return this.reauthentication.verify({ context, owner: input.owner, operation: input.operation, decision });
   }
 }
 
@@ -123,7 +163,8 @@ export class PostgresThemeProfileStore {
   constructor(
     private readonly pool: RuntimeExtensionPool,
     private readonly clock: RuntimeExtensionClock,
-    private readonly authorizer: ThemeProfileAuthorizer
+    private readonly authorizer: ThemeProfileAuthorizer,
+    private readonly previewValidator: ThemeProfilePreviewValidator
   ) {}
 
   async read(owner: Owner): Promise<ThemeProfilePublicationSnapshot | undefined> {
@@ -134,7 +175,33 @@ export class PostgresThemeProfileStore {
        from runtime_theme_profile_publications where application_id=$1 and environment=$2 and profile_id=$3`,
       [owner.applicationId, owner.environment, owner.profileId]
     );
-    return result.rows[0] ? snapshot(owner, result.rows[0]) : undefined;
+    const value = result.rows[0] ? snapshot(owner, result.rows[0]) : undefined;
+    await this.authorize("read", owner);
+    return value;
+  }
+
+  async preview(input: Readonly<{ applicationId: string; environment: string; profile: unknown; expectedRevision: number }>): Promise<ThemeProfilePreview> {
+    const profile = parseProfile(input.profile, "draft");
+    const owner = { applicationId: input.applicationId, environment: input.environment, profileId: profile.id };
+    assertOwner(owner);
+    this.assertRevision(input.expectedRevision, true);
+    await this.authorize("stage", owner);
+    return this.transaction(async (session) => {
+      await this.lockOwner(session, owner);
+      const current = await this.readLocked(session, owner);
+      if ((current?.revision ?? 0) !== input.expectedRevision) fail("REVISION_CONFLICT", "Theme profile preview revision changed.");
+      await this.assertSkinGeneration(session, owner, profile);
+      await this.validatePreview(owner, profile);
+      await this.authorize("stage", owner);
+      return Object.freeze({
+        profileId: profile.id,
+        profileRevisionId: profile.revision.id,
+        expectedRevision: input.expectedRevision,
+        contentDigest: await sha256({ ...owner, expectedRevision: input.expectedRevision, profile }),
+        themePackage: Object.freeze({ id: profile.themeId, version: profile.themeVersion }),
+        ...(profile.skin ? { skinGenerationId: profile.skin.generationId } : {})
+      });
+    });
   }
 
   async stageDraft(input: Readonly<{ applicationId: string; environment: string; profile: unknown }>): Promise<ThemeProfilePublicationSnapshot> {
@@ -160,6 +227,8 @@ export class PostgresThemeProfileStore {
         fail("DRAFT_CONFLICT", "A different draft already owns this immutable revision identity.");
       }
       await this.assertSkinGeneration(session, owner, profile);
+      await this.validatePreview(owner, profile);
+      await this.authorize("stage", owner);
       const updated = await session.query<PublicationRow>(
         `update runtime_theme_profile_publications set draft_revision_id=$4, draft_profile=$5::jsonb, updated_at=now()
          where application_id=$1 and environment=$2 and profile_id=$3 returning *`,
@@ -174,7 +243,7 @@ export class PostgresThemeProfileStore {
     const owner = { applicationId: input.applicationId, environment: input.environment, profileId: profile.id };
     assertOwner(owner);
     await this.authorize("publish", owner);
-    if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0 || input.expectedRevision > 999_999_999) fail("REVISION_CONFLICT", "Theme profile expected revision is invalid.");
+    this.assertRevision(input.expectedRevision, true);
     return this.transaction(async (session) => {
       await this.lockOwner(session, owner);
       const current = await this.readLocked(session, owner);
@@ -184,6 +253,8 @@ export class PostgresThemeProfileStore {
       if (publicationContent(draft) !== publicationContent(profile)) fail("DRAFT_CONFLICT", "Published Theme Profile content differs from its staged draft.");
       if (profile.revision.previousRevisionId !== (current.active_revision_id ?? undefined)) fail("REVISION_CONFLICT", "Theme profile publication does not extend the active revision.");
       await this.assertSkinGeneration(session, owner, profile);
+      await this.validatePreview(owner, profile);
+      await this.authorize("publish", owner);
       return this.commit(session, owner, current, profile, "publish");
     });
   }
@@ -192,7 +263,7 @@ export class PostgresThemeProfileStore {
     const owner = { applicationId: input.applicationId, environment: input.environment, profileId: input.profileId };
     assertOwner(owner);
     await this.authorize("rollback", owner);
-    if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 1 || input.expectedRevision > 999_999_999) fail("REVISION_CONFLICT", "Theme profile expected revision is invalid.");
+    this.assertRevision(input.expectedRevision, false);
     return this.transaction(async (session) => {
       await this.lockOwner(session, owner);
       const current = await this.readLocked(session, owner);
@@ -200,6 +271,8 @@ export class PostgresThemeProfileStore {
       if (!current.previous_profile || !current.previous_revision_id) fail("ROLLBACK_UNAVAILABLE", "No previous Theme Profile revision is retained.");
       const target = parseProfile(current.previous_profile, "published");
       await this.assertSkinGeneration(session, owner, target);
+      await this.validatePreview(owner, target);
+      await this.authorize("rollback", owner);
       return this.commit(session, owner, current, target, "rollback");
     });
   }
@@ -302,5 +375,14 @@ export class PostgresThemeProfileStore {
       if (await this.authorizer.authorize({ operation, owner }) === true) return;
     } catch { /* fail closed */ }
     fail("ACCESS_DENIED", "Current authority denied the Theme Profile operation.");
+  }
+
+  private async validatePreview(owner: Owner, profile: ThemeProfile): Promise<void> {
+    try { await this.previewValidator.validate({ owner, profile }); }
+    catch { fail("PROFILE_INVALID", "Theme Profile failed installed-package, generation, or accessibility validation."); }
+  }
+
+  private assertRevision(value: number, allowZero: boolean): void {
+    if (!Number.isSafeInteger(value) || value < (allowZero ? 0 : 1) || value > 999_999_999) fail("REVISION_CONFLICT", "Theme profile expected revision is invalid.");
   }
 }
