@@ -7,15 +7,15 @@
 
 ## Last completed
 
-P11.6a Theme Profile authority and validation are complete: read/manage permissions are distinct, publish/rollback require server-owned same-decision reauthentication, reads and mutations reauthorize after awaited work, and fresh host-owned Package plus exact active/verified Skin resolution gates preview/stage/publish/rollback. Accessibility-failing previews cannot write or publish. P11.5 passed reused Sol-xhigh review. P11.3's safe foundation remains checkpointed with unresolved decisions documented.
+P11.6b Theme administration now exposes explicitly distinct Package, Skin, and Profile projections. Package removal is blocked and explains every active, previous, or draft profile reference; Skin lifecycle actions remain the shared extension projection. P11.6a authority, exact verified-generation preview, atomic publication, and accessibility rejection remain complete. P11.5 passed reused Sol-xhigh review.
 
 ## Validation
 
-Exact Node 24.19.0: P11.6 authority/preview 4/4 and customer build; real PostgreSQL/Chromium Theme Skin/Profile 1/1 with invalid preview, publish/rollback races, verified generation, reference, recovery, and accessibility evidence. P11.5 runtime 31/31, catalog 6/6, static topology 1/1 passed; post-run Docker clean. P11.5 and P11.4 passed reused Sol-xhigh review.
+Exact Node 24.19.0: P11.6 theme projection 2/2 plus runtime build; authority/preview 4/4 and customer build; real PostgreSQL/Chromium Theme Skin/Profile 1/1 with invalid preview, publication races, verified generation, reference, recovery, and accessibility evidence. Post-run Docker clean. P11.5 passed reused Sol-xhigh review.
 
 ## Next
 
-P11.6b add the typed Package/Skin/Profile administration projection and Package reference impact, then fixed routes/pages.
+P11.6c add fixed current-authority theme routes/pages and their isolated PostgreSQL/Chromium journey.
 
 ## Blockers
 

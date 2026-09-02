@@ -54,3 +54,4 @@ export * from "./settings-revision-consumer.js";
 export * from "./system-access-administration.js";
 export * from "./system-extension-administration.js";
 export * from "./system-settings-administration.js";
+export * from "./system-theme-administration.js";
