@@ -7,15 +7,15 @@
 
 ## Last completed
 
-P12.10 focused Gate 12 passes: exact v1 builds and packed closure, selected contract/navigation/shell/administration/builder/service/generator/Sales proofs, two real PostgreSQL/HTTP/Chromium process proofs, and machine linkage for all 22 attack IDs. CSRF, malformed/oversized/deep document, XSS escaping, unsafe URL, replay, and focus-restoration evidence is explicit.
+The reusable Sol-xhigh phase review found ten closeout gaps. Executable TSX injection through generated application names is fixed with JSON-backed JSX expressions; braces, quotes, newlines, and control characters have isolated coverage.
 
 ## Validation
 
-Exact Node 24.19.0: focused Gate 12, Gates 8 and 11, all 15 Gate 10 technical proofs, and the real static deployment repeat proof PASS. Linux cumulative run `33746003254` passed the full Gate 9 technical corpus, then found its stale pre-merge result marker. Phase 9 and merged Phase 11 historical results now consistently say `ACCEPTED`; isolated marker checks and Linux rerun remain.
+Exact Node 24.19.0: application-factory isolated file 8/8 PASS; prior focused Gate 12, Gates 8/11, all 15 Gate 10 proofs, and static deployment repeat PASS. Linux cumulative run `33746003254` passed Gate 9 technical corpus before a repaired historical marker; exact-head rerun remains.
 
 ## Next
 
-Run exact cumulative Gate 0–12, obtain one reusable Sol xhigh phase review, fix until PASS, mark ready, then push/open the phase PR.
+Close verified page/action, server builder-policy, bootstrap, release trust/lock, invalidation, immutable snapshot, generated inventory/admin/readiness, and exact-evidence gaps; re-review the same Sol-xhigh session; then cumulative exact-head Gate 0–12.
 
 ## Blockers
 

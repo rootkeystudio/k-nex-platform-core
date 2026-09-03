@@ -8,12 +8,22 @@ import { fileURLToPath } from "node:url";
 import { ApplicationManifestSchema } from "@k-nex/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { applicationAuthFiles } from "../src/application-auth-files.js";
 import { applyCreateKnexApplication, planCreateKnexApplication } from "../src/index.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 describe("create-knex-app", () => {
+  it("serializes generated JSX application names", () => {
+    for (const applicationName of ["Workspace {alpha}", 'Workspace "alpha"', "Workspace\nalpha", "Workspace\u0000\u001f\talpha"]) {
+      const files = applicationAuthFiles({ applicationId: "customer-alpha", applicationName, theme: "minimal" });
+      const expression = `{${JSON.stringify(applicationName)}}`;
+      expect(files["src/app/(workspace)/page.tsx"]).toContain(`<h1>${expression}</h1>`);
+      expect(files["src/app/(workspace)/layout.tsx"]).toContain(`applicationLabel=${expression}`);
+    }
+  });
+
   it("plans deterministic exact Sales applications for local or external Postgres", () => {
     const options = { applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal", database: "docker-postgres" } as const;
     const first = planCreateKnexApplication(options);

@@ -4,6 +4,10 @@ export interface ApplicationAuthFilesOptions {
   readonly theme: "minimal" | "neobrutalism";
 }
 
+function jsxStringExpression(value: string): string {
+  return `{${JSON.stringify(value)}}`;
+}
+
 function identitySource(applicationId: string): string {
   return `function required(name: "K_NEX_ENVIRONMENT" | "K_NEX_PUBLIC_ORIGIN" | "PAYLOAD_SECRET"): string {
   const value = process.env[name];
@@ -364,7 +368,7 @@ export default async function WorkspaceHome() {
   const authentication = await payload.auth({ headers, canSetHeaders: false });
   if (!authentication.user) redirect("/login");
   if (!await authorizeRequest(payload, kNexRequestContext(headers, "workspace-home"), "system.workspace-pages.read", "system.workspace-pages")) redirect("/forbidden");
-  return <section className="workspace-home" data-k-nex-theme-profile={kNexThemePresentation.profileRevisionId}><style>{kNexThemePresentation.cssText}</style><p className="eyebrow">K-Nex workspace</p><h1>${applicationName.replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</h1><p>Authenticated workspace ready.</p><LogoutButton /></section>;
+  return <section className="workspace-home" data-k-nex-theme-profile={kNexThemePresentation.profileRevisionId}><style>{kNexThemePresentation.cssText}</style><p className="eyebrow">K-Nex workspace</p><h1>${jsxStringExpression(applicationName)}</h1><p>Authenticated workspace ready.</p><LogoutButton /></section>;
 }
 `;
 }
@@ -456,7 +460,7 @@ export default async function WorkspaceLayout({ children }: Readonly<{ children:
   const payload = await bootKnexApplication("workspace-web");
   const resolved = await resolveCurrentWorkspaceNavigation(payload, await getHeaders());
   if (resolved === undefined) redirect("/login");
-  return <KnexWorkspaceShell applicationLabel=${JSON.stringify(applicationName)} environment={kNexIdentity.environment} navigation={resolved.navigation} preferenceKey={resolved.preferenceKey}>{children}</KnexWorkspaceShell>;
+  return <KnexWorkspaceShell applicationLabel=${jsxStringExpression(applicationName)} environment={kNexIdentity.environment} navigation={resolved.navigation} preferenceKey={resolved.preferenceKey}>{children}</KnexWorkspaceShell>;
 }
 `;
 }
