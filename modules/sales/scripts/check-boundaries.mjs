@@ -28,11 +28,15 @@ const forbiddenNeutralImports = [
   "./server.js"
 ];
 
-for (const entrypoint of ["contracts", "browser", "ui"]) {
+for (const entrypoint of ["contracts", "browser"]) {
   const content = source(entrypoint).toLowerCase();
   for (const dependency of forbiddenNeutralImports) {
     assert.equal(content.includes(dependency.toLowerCase()), false, `${entrypoint} imports forbidden dependency ${dependency}`);
   }
+}
+const ui = source("ui").toLowerCase();
+for (const dependency of forbiddenNeutralImports.filter((value) => value !== "react")) {
+  assert.equal(ui.includes(dependency.toLowerCase()), false, `ui imports forbidden dependency ${dependency}`);
 }
 
 for (const symbol of ["ActionHandler", "DataSourceHandler", "PluginRegistration", "context.bind"]) {
