@@ -248,7 +248,8 @@ export const WorkspacePublishedRevisionSchema = z.strictObject({
   identity: WorkspacePageIdentitySchema,
   documentRevision: positiveRevisionSchema,
   document: UiDocumentSchema,
-  accessRevision: revisionSchema,
+  page: WorkspacePageSchema,
+  access: WorkspacePageAccessSnapshotSchema,
   themeProfile: WorkspaceThemeProfileRefSchema.optional(),
   dependencies: WorkspacePageDependencySnapshotSchema,
   publishedBy: AuthorizationSubjectSchema,
@@ -256,6 +257,18 @@ export const WorkspacePublishedRevisionSchema = z.strictObject({
 }).superRefine((publication, context) => {
   if (publication.document.id !== publication.identity.documentId || publication.document.version !== publication.documentRevision || publication.document.profile !== "workspace") {
     context.addIssue({ code: "custom", path: ["document"], message: "A publication must retain the canonical workspace document identity and revision." });
+  }
+  if (publication.access.identity.applicationId !== publication.identity.applicationId || publication.access.identity.environment !== publication.identity.environment ||
+    publication.access.identity.pageId !== publication.identity.pageId || publication.access.identity.documentId !== publication.identity.documentId) {
+    context.addIssue({ code: "custom", path: ["access", "identity"], message: "A publication must retain access for its canonical page identity." });
+  }
+  if (publication.page.identity.applicationId !== publication.identity.applicationId || publication.page.identity.environment !== publication.identity.environment ||
+    publication.page.identity.pageId !== publication.identity.pageId || publication.page.identity.documentId !== publication.identity.documentId ||
+    publication.page.state !== "published" || publication.page.publishedRevisionId !== publication.revisionId ||
+    publication.page.workingCopyRevision !== publication.documentRevision || publication.page.accessRevision !== publication.access.accessRevision ||
+    publication.page.themeProfile?.profileId !== publication.themeProfile?.profileId || publication.page.themeProfile?.revisionId !== publication.themeProfile?.revisionId ||
+    publication.page.themeProfile?.surface !== publication.themeProfile?.surface || publication.page.dependencyDigest !== publication.dependencies.digest) {
+    context.addIssue({ code: "custom", path: ["page"], message: "A publication page must exactly bind its identity, revision, access, theme, and dependencies." });
   }
 });
 

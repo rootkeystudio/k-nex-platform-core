@@ -102,9 +102,16 @@ describe("P12.1 workspace contracts", () => {
     expect(WorkspaceWorkingCopySchema.safeParse(working).success).toBe(true);
     expect(WorkspaceWorkingCopySchema.safeParse({ ...working, document: { ...document, id: "workspace.document.forged" } }).success).toBe(false);
     expect(WorkspaceWorkingCopySchema.safeParse({ ...working, document: { ...document, profile: "cms" } }).success).toBe(false);
-    const published = { schemaVersion: 1, revisionId: "workspace-publication-1", identity, documentRevision: 1, document, accessRevision: 4, dependencies: { entries: [{ kind: "block", id: "content.text", version: 1, owner: { kind: "platform" } }], digest: digest("a") }, publishedBy: working.updatedBy, publishedAt: timestamp } as const;
+    const access = { schemaVersion: 1, identity, accessRevision: 4, assignments: [{ subject: { kind: "role", roleId: "sales-manager" }, capability: "edit" }] } as const;
+    const dependencies = { entries: [{ kind: "block", id: "content.text", version: 1, owner: { kind: "platform" } }], digest: digest("a") } as const;
+    const page = { schemaVersion: 1, identity, title: "Sales board", state: "published", navigation: { state: "placed", parentNavigationId: salesRoot.id, order: 20 }, workingCopyRevision: 1, publishedRevisionId: "workspace-publication-1", accessRevision: access.accessRevision, dependencyDigest: dependencies.digest, revision: 3, createdBy: working.updatedBy, updatedBy: working.updatedBy, createdAt: timestamp, updatedAt: timestamp } as const;
+    const published = { schemaVersion: 1, revisionId: "workspace-publication-1", identity, documentRevision: 1, document, page, access, dependencies, publishedBy: working.updatedBy, publishedAt: timestamp } as const;
     expect(WorkspacePublishedRevisionSchema.safeParse(published).success).toBe(true);
     expect(WorkspacePublishedRevisionSchema.safeParse({ ...published, identity: { ...identity, documentId: "workspace.document.forged" } }).success).toBe(false);
+    expect(WorkspacePublishedRevisionSchema.safeParse({ ...published, access: { ...access, identity: { ...identity, pageId: "workspace.page.forged" } } }).success).toBe(false);
+    const { updatedAt: _updatedAt, ...pageWithoutAuditTimestamp } = page;
+    expect(WorkspacePublishedRevisionSchema.safeParse({ ...published, page: pageWithoutAuditTimestamp }).success).toBe(false);
+    expect(WorkspacePublishedRevisionSchema.safeParse({ ...published, page: { ...page, publishedRevisionId: "workspace-publication-forged" } }).success).toBe(false);
   });
 
   it("keeps browser autosave input free of application, environment, ACL, route, and executable authority", () => {

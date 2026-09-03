@@ -392,16 +392,17 @@ export class PostgresWorkspacePageStore {
     const revision = parsePublishedRevision(input.revision);
     const pointer = parsePointer(input.pointer);
     const receipt = parseReceipt(input.receipt);
-    assertAligned(page.identity, revision, pointer, receipt);
+    assertAligned(page.identity, revision, revision.page, revision.access, pointer, receipt);
     if (receipt.operation !== "publish" || receipt.publishedRevisionId !== revision.revisionId || pointer.publishedRevisionId !== revision.revisionId ||
-      receipt.pointerRevision !== pointer.pointerRevision || receipt.accessRevision !== revision.accessRevision || receipt.dependencyDigest !== revision.dependencies.digest ||
+      receipt.pointerRevision !== pointer.pointerRevision || receipt.accessRevision !== revision.access.accessRevision || receipt.dependencyDigest !== revision.dependencies.digest ||
       page.state !== "published" || page.publishedRevisionId !== revision.revisionId || page.dependencyDigest !== revision.dependencies.digest) fail("INVALID_INPUT", "Workspace publication values diverged.");
     return this.mutate(page.identity, "publish", receipt.idempotencyKey, input, receipt.requestedBy, parseReceipt, async (session) => {
       const current = await this.readPageLocked(session, page.identity);
       const currentPointer = await this.readPointerLocked(session, page.identity);
       const workingCopy = await this.readWorkingCopyLocked(session, page.identity);
+      const access = await this.readAccessLocked(session, page.identity, current.accessRevision);
       if (current.state === "archived" || page.revision !== current.revision + 1 || page.workingCopyRevision !== current.workingCopyRevision || revision.documentRevision !== workingCopy.revision ||
-        canonicalJson(revision.document) !== canonicalJson(workingCopy.document) || revision.accessRevision !== current.accessRevision ||
+        canonicalJson(revision.document) !== canonicalJson(workingCopy.document) || canonicalJson(revision.page) !== canonicalJson(page) || canonicalJson(revision.access) !== canonicalJson(access) ||
         pointer.pointerRevision !== (currentPointer?.pointerRevision ?? 0) + 1 || pointer.previousPublishedRevisionId !== currentPointer?.publishedRevisionId ||
         receipt.previousPublishedRevisionId !== currentPointer?.publishedRevisionId || receipt.accessRevision !== current.accessRevision ||
         canonicalJson(this.pagePublicationStable(current)) !== canonicalJson(this.pagePublicationStable(page)) || canonicalJson(current.themeProfile ?? null) !== canonicalJson(page.themeProfile ?? null) ||
@@ -566,6 +567,14 @@ export class PostgresWorkspacePageStore {
     );
     if (!result.rows[0]) fail("NOT_FOUND", "Workspace working copy was not found.");
     return parseWorkingCopy(result.rows[0].working_copy_json);
+  }
+
+  private async readAccessLocked(session: RuntimeExtensionSession, identity: WorkspacePageIdentity, accessRevision: number): Promise<WorkspacePageAccessSnapshot> {
+    const result = await session.query<AccessRow>(
+      `select access_revision, subject_kind, subject_id, capability from k_nex_workspace_page_access where application_id=$1 and environment=$2 and page_id=$3 order by subject_kind, subject_id for share`,
+      [identity.applicationId, identity.environment, identity.pageId]
+    );
+    return accessFromRows(identity, accessRevision, result.rows);
   }
 
   private async readPointerLocked(session: RuntimeExtensionSession, identity: WorkspacePageIdentity): Promise<WorkspacePublicationPointer | undefined> {

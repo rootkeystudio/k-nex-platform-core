@@ -262,20 +262,26 @@ describe("P12.6 current-authority workspace page service", () => {
     expect(receipt).toMatchObject({ operation: "publish", identity, publishedRevisionId: "workspace.publication-1", dependencyDigest });
     const publishedInput = publishValue.store.publish.mock.calls[0]![0] as any;
     expect(publishedInput.revision.document).toEqual(document);
+    expect(publishedInput.revision.page).toEqual(publishedInput.page);
+    expect(publishedInput.revision.access).toEqual(baseSnapshot.access);
     expect(publishedInput.revision.dependencies).toEqual({ entries: [], digest: dependencyDigest });
     expect(publishedInput.receipt.authorityDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
 
-    const target = { schemaVersion: 1, revisionId: "workspace.publication-old", identity, documentRevision: 1, document, accessRevision: 0, dependencies: { entries: [], digest: dependencyDigest }, publishedBy: actor, publishedAt: occurredAt } as const;
+    const targetTheme = { profileId: "workspace.theme-profile-old", revisionId: "workspace.theme-revision-old", surface: "admin" } as const;
+    const target = { schemaVersion: 1, revisionId: "workspace.publication-old", identity, documentRevision: 1, document, page: { ...baseSnapshot.page, title: "Historical title", description: "Historical description", state: "published", navigation: { state: "placed", parentNavigationId: "sales.navigation.root", order: 1 }, publishedRevisionId: "workspace.publication-old", themeProfile: targetTheme, dependencyDigest, revision: 2 }, access: { ...baseSnapshot.access, assignments: [{ subject: { kind: "user", userId: "user:historical-viewer" }, capability: "view" }] }, themeProfile: targetTheme, dependencies: { entries: [], digest: dependencyDigest }, publishedBy: actor, publishedAt: occurredAt } as const;
     const current = { ...target, revisionId: "workspace.publication-current" };
+    const currentAccess = { ...baseSnapshot.access, accessRevision: 1, assignments: [{ subject: { kind: "user", userId: "user:current-viewer" }, capability: "view" }] } as const;
     const publishedSnapshot = {
       ...baseSnapshot,
-      page: { ...baseSnapshot.page, state: "published", publishedRevisionId: current.revisionId, dependencyDigest, revision: 2 },
+      page: { ...baseSnapshot.page, state: "published", publishedRevisionId: current.revisionId, dependencyDigest, themeProfile: { profileId: "workspace.theme-profile-current", revisionId: "workspace.theme-revision-current", surface: "admin" }, accessRevision: currentAccess.accessRevision, revision: 2 },
+      access: currentAccess,
       publication: { pointer: { schemaVersion: 1, identity, pointerRevision: 1, publishedRevisionId: current.revisionId, publishedDocumentRevision: 1, updatedAt: occurredAt }, revision: current }
     } as unknown as WorkspacePageSnapshot;
     const rollbackValue = setup(publishedSnapshot);
     rollbackValue.store.readPublishedRevision.mockResolvedValue(target);
     const rolledBack = await rollbackValue.service.rollback(owner, scope, identity.pageId, target.revisionId, "workspace-rollback-one");
     expect(rolledBack).toMatchObject({ operation: "rollback", publishedRevisionId: target.revisionId, previousPublishedRevisionId: current.revisionId });
+    expect((rollbackValue.store.rollback.mock.calls[0]![0] as any).page).toMatchObject({ title: baseSnapshot.page.title, navigation: baseSnapshot.page.navigation, accessRevision: currentAccess.accessRevision, themeProfile: targetTheme, dependencyDigest: target.dependencies.digest });
     expect(rollbackValue.store.rollback).toHaveBeenCalledOnce();
   });
 });

@@ -86,26 +86,44 @@ test("P12.5 stores workspace pages, ACL, CAS copies, immutable publications, rol
     snapshot = await store.read(alpha.identity);
     assert.equal(snapshot.access.accessRevision, 1);
 
-    const firstRevision = { schemaVersion: 1, revisionId: "workspace-publication-one", identity: alpha.identity, documentRevision: snapshot.workingCopy.revision, document: snapshot.workingCopy.document, accessRevision: 1, themeProfile: snapshot.page.themeProfile, dependencies: { entries: [{ kind: "block", id: "content.text", version: 1, owner: { kind: "platform" } }], digest: digest("a") }, publishedBy: actor, publishedAt: instant };
-    const firstPage = nextPage(snapshot.page, { state: "published", publishedRevisionId: firstRevision.revisionId, dependencyDigest: firstRevision.dependencies.digest });
+    const firstRevisionId = "workspace-publication-one";
+    const firstDependencies = { entries: [{ kind: "block", id: "content.text", version: 1, owner: { kind: "platform" } }], digest: digest("a") };
+    const firstPage = nextPage(snapshot.page, { state: "published", publishedRevisionId: firstRevisionId, dependencyDigest: firstDependencies.digest });
+    const firstRevision = { schemaVersion: 1, revisionId: firstRevisionId, identity: alpha.identity, documentRevision: snapshot.workingCopy.revision, document: snapshot.workingCopy.document, page: firstPage, access: snapshot.access, themeProfile: snapshot.page.themeProfile, dependencies: firstDependencies, publishedBy: actor, publishedAt: instant };
     const firstPointer = { schemaVersion: 1, identity: alpha.identity, pointerRevision: 1, publishedRevisionId: firstRevision.revisionId, publishedDocumentRevision: firstRevision.documentRevision, updatedAt: instant };
     const firstReceipt = { schemaVersion: 1, receiptId: "workspace-receipt-one", operation: "publish", identity: alpha.identity, pointerRevision: 1, publishedRevisionId: firstRevision.revisionId, accessRevision: 1, dependencyDigest: firstRevision.dependencies.digest, requestedBy: actor, authorityDigest: digest("b"), idempotencyKey: "workspace-publish-one", occurredAt: instant };
+    for (const revision of [{ ...firstRevision, page: { ...firstRevision.page, title: "forged-title" } }, { ...firstRevision, access: { ...firstRevision.access, assignments: [] } }]) {
+      await assert.rejects(store.publish({ page: firstPage, revision, pointer: firstPointer, receipt: firstReceipt }), { code: "REVISION_CONFLICT" }, "publication snapshots must equal locked current metadata and ACL");
+    }
     assert.deepEqual(await store.publish({ page: firstPage, revision: firstRevision, pointer: firstPointer, receipt: firstReceipt }), firstReceipt);
     assert.deepEqual(await store.publish({ page: firstPage, revision: firstRevision, pointer: firstPointer, receipt: firstReceipt }), firstReceipt);
 
     snapshot = await store.read(alpha.identity);
+    const replacedMetadata = nextPage(snapshot.page, { title: "private-page-title-replaced", description: "private-page-description-replaced", navigation: { state: "unplaced", reason: "manual" } });
+    await store.updateMetadata({ currentRevision: snapshot.page.revision, page: replacedMetadata, idempotencyKey: "workspace-metadata-replaced" });
+    snapshot = await store.read(alpha.identity);
+    const replacementAccess = { ...snapshot.access, accessRevision: snapshot.access.accessRevision + 1, assignments: [{ subject: { kind: "role", roleId: "private-current-editor" }, capability: "edit" }] };
+    await store.replaceAccess({ access: replacementAccess, expectedPageRevision: snapshot.page.revision, expectedAccessRevision: snapshot.access.accessRevision, idempotencyKey: "workspace-access-replaced", updatedBy: actor });
+    snapshot = await store.read(alpha.identity);
+    const historical = await store.readPublishedRevision(alpha.identity, firstRevision.revisionId);
+    assert.deepEqual(historical.page, firstRevision.page, "published metadata must remain reconstructable after replacement");
+    assert.deepEqual(historical.access, firstRevision.access, "published ACL must remain reconstructable after replacement");
+    assert.deepEqual(snapshot.access, replacementAccess, "current ACL remains separate from published history");
     const secondSave = { expectedRevision: snapshot.workingCopy.revision, editorSessionId: "editor-session-two", idempotencyKey: "workspace-save-two", document: { ...snapshot.workingCopy.document, version: snapshot.workingCopy.revision + 1 } };
     await store.saveWorkingCopy(alpha.identity, secondSave, actor);
     snapshot = await store.read(alpha.identity);
-    const secondRevision = { ...firstRevision, revisionId: "workspace-publication-two", documentRevision: snapshot.workingCopy.revision, document: snapshot.workingCopy.document, dependencies: { ...firstRevision.dependencies, digest: digest("c") } };
-    const secondPage = nextPage(snapshot.page, { publishedRevisionId: secondRevision.revisionId, dependencyDigest: secondRevision.dependencies.digest });
+    const secondRevisionId = "workspace-publication-two";
+    const secondDependencies = { ...firstRevision.dependencies, digest: digest("c") };
+    const secondPage = nextPage(snapshot.page, { publishedRevisionId: secondRevisionId, dependencyDigest: secondDependencies.digest });
+    const secondRevision = { ...firstRevision, revisionId: secondRevisionId, documentRevision: snapshot.workingCopy.revision, document: snapshot.workingCopy.document, page: secondPage, access: snapshot.access, dependencies: secondDependencies };
     const secondPointer = { ...firstPointer, pointerRevision: 2, publishedRevisionId: secondRevision.revisionId, publishedDocumentRevision: secondRevision.documentRevision, previousPublishedRevisionId: firstRevision.revisionId };
-    const secondReceipt = { ...firstReceipt, receiptId: "workspace-receipt-two", pointerRevision: 2, publishedRevisionId: secondRevision.revisionId, previousPublishedRevisionId: firstRevision.revisionId, dependencyDigest: secondRevision.dependencies.digest, idempotencyKey: "workspace-publish-two" };
+    const secondReceipt = { ...firstReceipt, receiptId: "workspace-receipt-two", pointerRevision: 2, publishedRevisionId: secondRevision.revisionId, previousPublishedRevisionId: firstRevision.revisionId, accessRevision: snapshot.access.accessRevision, dependencyDigest: secondRevision.dependencies.digest, idempotencyKey: "workspace-publish-two" };
     await store.publish({ page: secondPage, revision: secondRevision, pointer: secondPointer, receipt: secondReceipt });
 
     snapshot = await store.read(alpha.identity);
-    const failedRevision = { ...secondRevision, revisionId: "workspace-publication-duplicate-document" };
-    const failedPage = nextPage(snapshot.page, { publishedRevisionId: failedRevision.revisionId });
+    const failedRevisionId = "workspace-publication-duplicate-document";
+    const failedPage = nextPage(snapshot.page, { publishedRevisionId: failedRevisionId });
+    const failedRevision = { ...secondRevision, revisionId: failedRevisionId, page: failedPage };
     const failedPointer = { ...secondPointer, pointerRevision: 3, publishedRevisionId: failedRevision.revisionId, previousPublishedRevisionId: secondRevision.revisionId };
     const failedReceipt = { ...secondReceipt, receiptId: "workspace-receipt-failed", pointerRevision: 3, publishedRevisionId: failedRevision.revisionId, previousPublishedRevisionId: secondRevision.revisionId, idempotencyKey: "workspace-publish-failed" };
     const beforeFailedMutation = await pool.query("select (select count(*)::int from k_nex_workspace_page_audit where application_id='customer-alpha') audit, (select count(*)::int from k_nex_workspace_page_outbox where application_id='customer-alpha') outbox");
@@ -119,6 +137,7 @@ test("P12.5 stores workspace pages, ACL, CAS copies, immutable publications, rol
     const rollbackReceipt = { ...secondReceipt, receiptId: "workspace-receipt-rollback", operation: "rollback", pointerRevision: 3, publishedRevisionId: firstRevision.revisionId, previousPublishedRevisionId: secondRevision.revisionId, dependencyDigest: firstRevision.dependencies.digest, idempotencyKey: "workspace-rollback-one" };
     await store.rollback({ page: rollbackPage, pointer: rollbackPointer, receipt: rollbackReceipt });
     snapshot = await store.read(alpha.identity);
+    assert.deepEqual(snapshot.access, replacementAccess, "rollback must preserve current ACL authority rather than restore the target snapshot");
     const archived = nextPage(snapshot.page, { state: "archived", navigation: { state: "unplaced", reason: "parent-inactive" } });
     await store.updateMetadata({ currentRevision: snapshot.page.revision, page: archived, idempotencyKey: "workspace-archive-one" });
 
