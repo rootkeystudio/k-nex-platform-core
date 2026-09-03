@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Generated session route now returns 409 for its two known retryable watermark races; editor retries 409/network loss while preserving fail-closed handling for real 404 denial.
+Retryable-session conflict fix is bound into a freshly regenerated immutable 1.0.0 composition archive, factory locks, release manifest, and customer lockfiles.
 
 ## Validation
 
-Exact Node 24.19.0: composition build and focused unit 6/6 PASS. Isolated generated-app PostgreSQL/HTTP/Chromium proof PASS, including transient retry, durable autosave, Sales-authority revocation, and ACL 404 revocation.
+Exact Node 24.19.0: focused unit 6/6, isolated generated-app PostgreSQL/HTTP/Chromium, clean 17-package regeneration, factory-lock/ABI/packed-closure, Gate 1 generated-clean, and both frozen customer installs PASS.
 
 ## Next
 
-Refresh immutable packed closure and exact hosted release evidence, then rerun focused and cumulative CI.
+Refresh exact hosted release evidence, then rerun focused and cumulative CI.
 
 ## Blockers
 
