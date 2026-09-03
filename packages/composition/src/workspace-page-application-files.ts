@@ -850,7 +850,7 @@ export async function GET(request: Request, { params }: Readonly<{ params: Promi
     const context = kNexRequestContext(await getHeaders(), mode === "edit" ? "workspace-page-editor-session" : "workspace-page-session");
     const pageId = (await params).pageId;
     const watermark = await readWorkspacePageWatermark(payload, context, pageId, mode === "edit" ? "edit" : "view", context.correlationId);
-    if (requested !== undefined && sameWatermark(requested, watermark)) return Response.json({ watermark }, { headers: { "cache-control": "no-store" } });
+    if (requested !== undefined && (mode === "edit" || sameWatermark(requested, watermark))) return Response.json({ watermark }, { headers: { "cache-control": "no-store" } });
     const projection = mode === "edit"
       ? await loadWorkspacePageEditorProjection(payload, context, pageId, context.correlationId)
       : await loadWorkspacePageViewProjection(payload, context, pageId, context.correlationId);

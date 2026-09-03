@@ -158,6 +158,7 @@ describe("generated workspace page builder policy", () => {
     expect(route).toContain("loadWorkspacePageEditorProjection");
     expect(route).toContain('requestedWatermark(new URL(request.url).searchParams.get("watermark"))');
     expect(route).toContain("readWorkspacePageWatermark");
+    expect(route).toContain('requested !== undefined && (mode === "edit" || sameWatermark(requested, watermark))');
     expect(route).toContain('Response.json({ watermark: projection.watermark, projection }');
     expect(runtime).toContain("publicationPointerRevision");
     expect(runtime).toContain("readWorkspacePageWatermark");
