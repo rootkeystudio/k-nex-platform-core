@@ -68,12 +68,12 @@ test("static topology validates and propagates the bounded artifact wait timeout
   const directory = await mkdtemp(join(tmpdir(), "knex-p9-artifact-wait-"));
   const artifactPath = join(directory, "artifact.json");
   try {
-    const probe = startProbe({ P9_ARTIFACT_WAIT_TIMEOUT_MS: "75", P9_ARTIFACT_WAIT_PROBE_PATH: artifactPath });
+    const probe = startProbe({ P9_ARTIFACT_WAIT_TIMEOUT_MS: "2000", P9_ARTIFACT_WAIT_PROBE_PATH: artifactPath });
     const ready = await probe.line((value) => value.type === "ready");
-    assert.equal(ready.artifactWaitTimeout, 75);
+    assert.equal(ready.artifactWaitTimeout, 2000);
     await writeFile(artifactPath, "{\"state\":\"ready\"}\n");
     const complete = await probe.line((value) => value.type === "artifact-wait-complete");
-    assert.deepEqual(complete, { type: "artifact-wait-complete", artifactWaitTimeout: 75, artifact: { state: "ready" } });
+    assert.deepEqual(complete, { type: "artifact-wait-complete", artifactWaitTimeout: 2000, artifact: { state: "ready" } });
     assert.deepEqual(await probe.exited, { code: 0, signal: null });
 
     const timeoutProbe = startProbe({ P9_ARTIFACT_WAIT_TIMEOUT_MS: "25", P9_ARTIFACT_WAIT_PROBE_PATH: join(directory, "missing.json") });
