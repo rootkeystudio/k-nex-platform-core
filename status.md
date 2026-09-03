@@ -7,15 +7,15 @@
 
 ## Last completed
 
-P12.10 now builds the complete affected package DAG in clean-checkout dependency order, including composition, UI design contracts, and extension bundler before their consumers.
+The deterministic two-target generator proof now has an explicit 15-second CI budget, matching the adjacent CLI proof, after cumulative parallel load exceeded Vitest's 5-second default.
 
 ## Validation
 
-Exact Node 24.19.0: clean-output forced build of all 14 Gate 12 packages PASS. Earlier generated editor proof, hosted run 33786152181, `P8_GENERATED_EVIDENCE_CLEAN`, and local `GATE_12_PASS` remain PASS.
+Exact Node 24.19.0: isolated deterministic generator proof 1/1 PASS; clean-output build of all 14 Gate 12 packages PASS. Earlier hosted run 33786152181, evidence check, and local `GATE_12_PASS` remain PASS.
 
 ## Next
 
-Push the complete clean-build DAG fix to PR #33. Require exact-head focused PR CI plus Linux/AppArmor cumulative Gate 0–12, then resume the same Sol-xhigh reviewer until PASS.
+Push the CI-budget fix to PR #33. Require exact-head focused PR CI plus Linux/AppArmor cumulative Gate 0–12, then resume the same Sol-xhigh reviewer until PASS.
 
 ## Blockers
 

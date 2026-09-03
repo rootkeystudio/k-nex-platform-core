@@ -245,7 +245,7 @@ describe("create-knex-app", () => {
     applyCreateKnexApplication(plan, first);
     applyCreateKnexApplication(plan, second);
     for (const path of Object.keys(plan.files)) expect(readFileSync(join(first, path))).toEqual(readFileSync(join(second, path)));
-  });
+  }, 15_000);
 
   it("uses workspace only for side-effect-free planning and defaults to the verified bundled release", () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), "create-knex-app-cli-"))); roots.push(root);
