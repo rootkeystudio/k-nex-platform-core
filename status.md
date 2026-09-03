@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Bounded denial confirmation is captured in a freshly regenerated immutable 1.0.0 composition archive, factory locks, release manifest, and customer lockfiles.
+Hosted release evidence run 33817749316 passed for source SHA 7b28f623 and is bound into the customer receipts, inventories, restore proofs, and Phase 8 release-evidence tree.
 
 ## Validation
 
-Exact Node 24.19.0: focused unit 6/6, isolated generated-app PostgreSQL/HTTP/Chromium, clean 17-package regeneration, factory-lock/ABI/packed-closure, Gate 1 generated-clean, and both frozen customer installs PASS.
+Exact Node 24.19.0: focused unit 6/6, isolated generated-app PostgreSQL/HTTP/Chromium, clean 17-package regeneration, factory-lock/ABI/packed-closure, Gate 1 generated-clean, both frozen customer installs, hosted release evidence 33817749316, customer evidence, missing-hosted-evidence rejection, and generated-evidence-clean PASS.
 
 ## Next
 
-Refresh exact hosted release evidence, then rerun focused and cumulative CI.
+Commit and push the bound evidence, then require exact-head focused CI, cumulative architecture contracts, and the same Sol-xhigh phase reviewer.
 
 ## Blockers
 
