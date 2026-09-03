@@ -7,11 +7,11 @@
 
 ## Last completed
 
-The reusable Sol-xhigh phase review found ten closeout gaps. Generated-name TSX injection is fixed. Owner bootstrap now supersedes stale tokens, serializes issuance/bootstrap with one PostgreSQL advisory boundary, and checks owner closure before user creation.
+The reusable Sol-xhigh review found ten closeout gaps. Generated-name injection and owner-bootstrap races are fixed. Server-side page create/autosave/publish now rebuild and enforce the current registered, authority-filtered Puck document policy.
 
 ## Validation
 
-Exact Node 24.19.0: application-factory isolated file 8/8 PASS; generated journey has new two-token/no-extra-user proof pending phase-end execution. Prior focused Gate 12, Gates 8/11, all Gate 10 proofs, and static deployment repeat PASS; exact-head Linux rerun remains.
+Exact Node 24.19.0: application-factory 8/8, workspace-page service 21/21, generated policy wiring 1/1 PASS. Generated journey has new two-token/no-extra-user proof pending phase-end execution. Prior focused Gate 12 and affected earlier gates PASS; exact-head Linux rerun remains.
 
 ## Next
 

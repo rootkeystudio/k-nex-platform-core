@@ -12,15 +12,20 @@ import {
   PostgresWorkspaceNavigationStore,
   PostgresWorkspacePageStore,
   type RuntimeExtensionPool,
+  type WorkspacePageDocumentValidator,
   type WorkspacePageScope,
   type WorkspacePageSnapshot
 } from "@k-nex/payload-adapter";
+import { createAuthorizedPuckBuilderProfile } from "@k-nex/builder-puck";
+import { salesOpportunitiesDescriptor, salesOpportunityStageUpdateDescriptor, salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor } from "@k-nex/module-sales/contracts";
+import { salesPuckBlockBridges } from "@k-nex/module-sales/puck";
 import { createCurrentAuthorityTarget } from "@k-nex/runtime";
 import type { Payload } from "payload";
 
 import { kNexAuthority, type KnexRequestContext } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
 import { kNexSalesRegistry, kNexThemePresentation } from "./k-nex-registry.js";
+import { workspaceSalesPermissions } from "./k-nex-sales-workspace.js";
 
 const platformBlocks = new Map([
   "content.stack", "content.grid", "content.section", "content.heading", "content.text", "content.card", "content.alert",
@@ -657,6 +662,37 @@ function contribution(kind: "blocks" | "sources" | "actions", id: string, versio
   return value !== undefined && value.version === version ? value : undefined;
 }
 
+async function workspaceBuilderProfile(payload: Payload, context: KnexRequestContext, signal: AbortSignal) {
+  if (signal.aborted) throw new TypeError("Workspace document validation was revoked.");
+  const permissions = new Set(await workspaceSalesPermissions(payload, context));
+  if (signal.aborted) throw new TypeError("Workspace document validation was revoked.");
+  const sources = [salesOpportunitiesDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor].flatMap((candidate) => {
+    const registered = contribution("sources", candidate.id, candidate.version) as typeof candidate | undefined;
+    if (registered === undefined || registered.id !== candidate.id || registered.version !== candidate.version || !permissions.has(registered.permission)) return [];
+    return [{ ...registered, ...(registered.outputFields === undefined ? {} : { outputFields: registered.outputFields.filter(({ permission }) => permissions.has(permission)) }) }];
+  });
+  const actions = [salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesOpportunityStageUpdateDescriptor].flatMap((candidate) => {
+    const registered = contribution("actions", candidate.id, candidate.version) as typeof candidate | undefined;
+    return registered === undefined || registered.id !== candidate.id || registered.version !== candidate.version || !permissions.has(registered.permission) ? [] : [{ id: registered.id, version: registered.version }];
+  });
+  const blocks = salesPuckBlockBridges.filter((bridge) => {
+    const registered = contribution("blocks", bridge.definition.id, bridge.definition.version) as { readonly id?: unknown; readonly version?: unknown; readonly permission?: unknown } | undefined;
+    return registered?.id === bridge.definition.id && registered.version === bridge.definition.version &&
+      (registered.permission === undefined || typeof registered.permission === "string" && permissions.has(registered.permission));
+  });
+  return createAuthorizedPuckBuilderProfile({
+    profile: "workspace", publication: "save-layout", blocks, sources,
+    authority: { blocks: blocks.map(({ definition }) => ({ id: definition.id, version: definition.version })), sources: sources.map(({ id, version }) => ({ id, version })), actions }
+  });
+}
+
+function workspaceDocumentValidator(payload: Payload): WorkspacePageDocumentValidator<KnexRequestContext> {
+  return {
+    async validateChange({ context, previous, document, signal }) { return (await workspaceBuilderProfile(payload, context, signal)).validateChange(previous, document); },
+    async validateDocument({ context, document, signal }) { return (await workspaceBuilderProfile(payload, context, signal)).validateDocument(document); }
+  };
+}
+
 function dependenciesFor(document: UiDocument): WorkspacePublishedRevision["dependencies"] {
   const entries = new Map<string, WorkspacePublishedRevision["dependencies"]["entries"][number]>();
   const add = (entry: WorkspacePublishedRevision["dependencies"]["entries"][number]): void => { entries.set(canonicalJson(entry), entry); };
@@ -733,6 +769,7 @@ function createRuntime(payload: Payload) {
     authority: authority.adapter,
     acl,
     catalog,
+    documents: workspaceDocumentValidator(payload),
     identities: {
       page: (owner: WorkspacePageScope) => {
         const value = "p" + randomUUID().replaceAll("-", "");

@@ -9,7 +9,8 @@ import {
   type WorkspacePageAccessSnapshot,
   type WorkspacePageIdentity,
   type WorkspacePublicationReceipt,
-  type WorkspacePublishedRevision
+  type WorkspacePublishedRevision,
+  type UiDocument
 } from "@k-nex/contracts";
 import { createCurrentAuthorityTarget, type CurrentAuthorityAdapter } from "@k-nex/runtime";
 
@@ -64,11 +65,29 @@ export interface WorkspacePageIdentityIssuer {
   publication(identity: WorkspacePageIdentity): Readonly<{ revisionId: string; receiptId: string }>;
 }
 
+/** Server-owned document policy; the browser may propose a document but cannot authorize it. */
+export interface WorkspacePageDocumentValidator<TContext> {
+  validateChange(input: Readonly<{
+    context: TContext;
+    snapshot: WorkspacePageSnapshot;
+    previous: UiDocument;
+    document: UiDocument;
+    signal: AbortSignal;
+  }>): UiDocument | Promise<UiDocument>;
+  validateDocument(input: Readonly<{
+    context: TContext;
+    snapshot?: WorkspacePageSnapshot;
+    document: UiDocument;
+    signal: AbortSignal;
+  }>): UiDocument | Promise<UiDocument>;
+}
+
 export interface WorkspacePageServiceOptions<TContext> {
   readonly store: PostgresWorkspacePageStore;
   readonly authority: Pick<CurrentAuthorityAdapter<TContext>, "authorize">;
   readonly acl: WorkspacePageAclPolicy<TContext>;
   readonly catalog: WorkspacePageCatalog<TContext>;
+  readonly documents: WorkspacePageDocumentValidator<TContext>;
   readonly identities: WorkspacePageIdentityIssuer;
   readonly now: () => Date;
 }
@@ -232,7 +251,9 @@ export class CurrentAuthorityWorkspacePageService<TContext> {
     ]);
     if (active.aborted) failure("ACCESS_DENIED", "Workspace page creation was revoked.");
     const occurredAt = iso(this.options.now);
-    const document = { schemaVersion: 1, id: identity.documentId, version: 1, profile: "workspace", regions: input.regions };
+    const proposedDocument = { schemaVersion: 1, id: identity.documentId, version: 1, profile: "workspace", regions: input.regions } as UiDocument;
+    const document = await safeCall(() => this.options.documents.validateDocument({ context, document: proposedDocument, signal: active }));
+    if (!document || active.aborted) failure("INVALID_INPUT", "Workspace page document is invalid.");
     const workingCopy = { schemaVersion: 1, identity, revision: 1, document, editorSessionId: "workspace-create-session", idempotencyKey: input.idempotencyKey, updatedBy: decision.effectiveActor, updatedAt: occurredAt };
     const access = { schemaVersion: 1, identity, accessRevision: 0, assignments: [{ subject: { kind: "user", userId: decision.effectiveActor.id }, capability: "edit" }] };
     const page = { schemaVersion: 1, identity, title: input.title, ...(input.description === undefined ? {} : { description: input.description }), state: "draft", navigation, workingCopyRevision: 1, accessRevision: 0, ...(themeProfile === undefined ? {} : { themeProfile }), revision: 1, createdBy: decision.effectiveActor, updatedBy: decision.effectiveActor, createdAt: occurredAt, updatedAt: occurredAt };
@@ -259,10 +280,12 @@ export class CurrentAuthorityWorkspacePageService<TContext> {
     const change = WorkspaceWorkingCopyChangeInputSchema.safeParse(changeValue);
     if (!change.success) failure("INVALID_INPUT", "Workspace autosave input is invalid.");
     const { snapshot, decision } = await this.authorizedSnapshot(context, scope, pageId, "system.workspace-pages.edit", "autosave", active, "edit");
-    const candidate = { ...snapshot, workingCopy: { ...snapshot.workingCopy, revision: change.data.document.version, document: change.data.document } };
+    const document = await safeCall(() => this.options.documents.validateChange({ context, snapshot, previous: snapshot.workingCopy.document, document: change.data.document, signal: active }));
+    if (!document || active.aborted) failure("INVALID_INPUT", "Workspace autosave document is invalid.");
+    const candidate = { ...snapshot, workingCopy: { ...snapshot.workingCopy, revision: document.version, document } };
     await safeCall(() => this.options.catalog.dependencies({ context, snapshot: candidate, signal: active })) ?? failure("DEPENDENCY_UNAVAILABLE", "Workspace autosave dependencies are unavailable.");
     await this.authorize(context, scope, "system.workspace-pages.edit", pageId, "autosave-commit", active);
-    return this.options.store.saveWorkingCopy((await this.locate(scope, pageId)).page.identity, change.data, decision.effectiveActor);
+    return this.options.store.saveWorkingCopy((await this.locate(scope, pageId)).page.identity, { ...change.data, document }, decision.effectiveActor);
   }
 
   async replaceAccess(context: TContext, scope: WorkspacePageScope, pageId: string, input: Readonly<{ expectedPageRevision: number; expectedAccessRevision: number; assignments: readonly WorkspacePageAccessAssignment[]; idempotencyKey: string }>, signal?: AbortSignal) {
@@ -292,12 +315,15 @@ export class CurrentAuthorityWorkspacePageService<TContext> {
     const active = combineSignals(signal);
     const { snapshot, decision } = await this.authorizedSnapshot(context, scope, pageId, "system.workspace-pages.publish", "publish", active, "edit");
     if (snapshot.workingCopy.revision !== input.workingCopyRevision) failure("REVISION_CONFLICT", "Workspace publication working copy changed.");
-    const dependencies = await this.options.catalog.dependencies({ context, snapshot, signal: active });
-    const impact = await this.options.catalog.impact({ context, snapshot, signal: active });
+    const document = await safeCall(() => this.options.documents.validateDocument({ context, snapshot, document: snapshot.workingCopy.document, signal: active }));
+    if (!document || active.aborted) failure("INVALID_INPUT", "Workspace publication document is invalid.");
+    const candidate = { ...snapshot, workingCopy: { ...snapshot.workingCopy, document } };
+    const dependencies = await this.options.catalog.dependencies({ context, snapshot: candidate, signal: active });
+    const impact = await this.options.catalog.impact({ context, snapshot: candidate, signal: active });
     if (impact.state !== "ready" || active.aborted) failure("DEPENDENCY_UNAVAILABLE", "Workspace page dependencies are unavailable.");
     const ids = this.options.identities.publication(snapshot.page.identity);
     const occurredAt = iso(this.options.now);
-    const revision = { schemaVersion: 1, revisionId: ids.revisionId, identity: snapshot.page.identity, documentRevision: snapshot.workingCopy.revision, document: snapshot.workingCopy.document, accessRevision: snapshot.access.accessRevision, ...(snapshot.page.themeProfile === undefined ? {} : { themeProfile: snapshot.page.themeProfile }), dependencies, publishedBy: decision.effectiveActor, publishedAt: occurredAt };
+    const revision = { schemaVersion: 1, revisionId: ids.revisionId, identity: snapshot.page.identity, documentRevision: snapshot.workingCopy.revision, document, accessRevision: snapshot.access.accessRevision, ...(snapshot.page.themeProfile === undefined ? {} : { themeProfile: snapshot.page.themeProfile }), dependencies, publishedBy: decision.effectiveActor, publishedAt: occurredAt };
     const pointerRevision = (snapshot.publication?.pointer.pointerRevision ?? 0) + 1;
     const pointer = { schemaVersion: 1, identity: snapshot.page.identity, pointerRevision, publishedRevisionId: ids.revisionId, publishedDocumentRevision: snapshot.workingCopy.revision, ...(snapshot.publication ? { previousPublishedRevisionId: snapshot.publication.pointer.publishedRevisionId } : {}), updatedAt: occurredAt };
     const page = { ...snapshot.page, state: "published", publishedRevisionId: ids.revisionId, dependencyDigest: dependencies.digest, revision: snapshot.page.revision + 1, updatedBy: decision.effectiveActor, updatedAt: occurredAt };

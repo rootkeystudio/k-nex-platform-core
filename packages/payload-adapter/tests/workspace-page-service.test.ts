@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { AuthorizationDecision } from "@k-nex/contracts";
+import type { AuthorizationDecision, UiDocument } from "@k-nex/contracts";
 import {
   CurrentAuthorityWorkspacePageService,
   ExactWorkspacePageAclPolicy,
@@ -91,19 +91,24 @@ function setup(initial: WorkspacePageSnapshot | null = baseSnapshot) {
     dependencies: vi.fn(async () => ({ entries: [], digest: dependencyDigest })),
     impact: vi.fn(async () => impact)
   };
+  const documents = {
+    validateChange: vi.fn(async ({ document }: { document: UiDocument }) => document),
+    validateDocument: vi.fn(async ({ document }: { document: UiDocument }) => document)
+  };
   let issued = 0;
   const service = new CurrentAuthorityWorkspacePageService<Context>({
     store: store as never,
     authority,
     acl,
     catalog,
+    documents,
     identities: {
       page: (scope) => ({ ...identity, ...scope }),
       publication: () => ({ revisionId: `workspace.publication-${++issued}`, receiptId: `workspace.receipt-${issued}` })
     },
     now: () => new Date(occurredAt)
   });
-  return { service, store, catalog, authorityCalls, setImpact: (value: WorkspacePageImpact) => { impact = value; }, snapshot: () => snapshot };
+  return { service, store, catalog, documents, authorityCalls, setImpact: (value: WorkspacePageImpact) => { impact = value; }, snapshot: () => snapshot };
 }
 
 const reader: Context = { userId: "user:viewer", permissions: ["system.workspace-pages.read"], roles: [] };
@@ -173,6 +178,38 @@ describe("P12.6 current-authority workspace page service", () => {
     expect(value.store.saveWorkingCopy).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["unsafe props", (prior: UiDocument): UiDocument => ({ ...prior, version: 2, regions: { main: [{ id: "task-table", type: "sales.task-table", version: 1, props: { title: "Safe", administratorOnly: true } }] } })],
+    ["binding substitution", (prior: UiDocument): UiDocument => ({ ...prior, version: 2, regions: { main: [{ id: "task-table", type: "sales.task-table", version: 1, props: { title: "Safe" }, bindings: { action: { id: "sales.opportunity.stage.update", version: 1 } } }] } })],
+    ["protected structural change", (prior: UiDocument): UiDocument => ({ ...prior, version: 2, regions: { main: [{ id: "task-table", type: "sales.opportunity-kanban", version: 1, props: { title: "Safe" }, bindings: { action: { id: "sales.task.update", version: 1 } } }] } })]
+  ])("fails closed before dependency lookup or persistence for malicious %s", async (_attack, change) => {
+    const prior: UiDocument = { ...document, regions: { main: [{ id: "task-table", type: "sales.task-table", version: 1, props: { title: "Safe" }, bindings: { action: { id: "sales.task.update", version: 1 } } }] } };
+    const maliciousDocument = change(prior);
+    const value = setup({ ...baseSnapshot, workingCopy: { ...baseSnapshot.workingCopy, document: prior } } as WorkspacePageSnapshot);
+    value.documents.validateChange.mockImplementation(async ({ previous, document: candidate }: { previous: unknown; document: unknown }) => {
+      expect(previous).toEqual(prior);
+      expect(candidate).toEqual(maliciousDocument);
+      throw new TypeError("Workspace builder policy rejected the candidate.");
+    });
+    await expect(value.service.autosave(editor, scope, identity.pageId, {
+      expectedRevision: 1, editorSessionId: "editor-session-one", idempotencyKey: "workspace-save-malicious", document: maliciousDocument
+    })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(value.catalog.dependencies).not.toHaveBeenCalled();
+    expect(value.store.saveWorkingCopy).not.toHaveBeenCalled();
+  });
+
+  it("validates the initial document before page creation", async () => {
+    const value = setup(null);
+    value.documents.validateDocument.mockRejectedValue(new TypeError("Workspace builder policy rejected the initial document."));
+    await expect(value.service.create(owner, scope, {
+      title: "Unsafe page",
+      placementSelection: "sales-parent",
+      regions: { main: [{ id: "forged", type: "forged.block", version: 1, props: {} }] },
+      idempotencyKey: "workspace-create-unsafe"
+    })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(value.store.create).not.toHaveBeenCalled();
+  });
+
   it("re-reads impact after a lost invalidation and rejects stale generation resurrection", async () => {
     const value = setup();
     expect((await value.service.detail(reader, scope, identity.pageId, "view")).impact.state).toBe("ready");
@@ -205,6 +242,17 @@ describe("P12.6 current-authority workspace page service", () => {
     const value = setup();
     value.setImpact({ state: "dependency-unavailable", code: "theme-unavailable", catalogRevision: 2, dependencyDigest });
     await expect(value.service.publish(owner, scope, identity.pageId, { workingCopyRevision: 1, idempotencyKey: "workspace-publish-one" })).rejects.toMatchObject({ code: "DEPENDENCY_UNAVAILABLE" });
+    expect(value.store.publish).not.toHaveBeenCalled();
+  });
+
+  it("revalidates the exact current working document before publication", async () => {
+    const value = setup();
+    value.documents.validateDocument.mockImplementation(async ({ document: candidate }: { document: unknown }) => {
+      expect(candidate).toEqual(document);
+      throw new TypeError("Workspace builder policy rejected the current document.");
+    });
+    await expect(value.service.publish(owner, scope, identity.pageId, { workingCopyRevision: 1, idempotencyKey: "workspace-publish-invalid" })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(value.catalog.dependencies).not.toHaveBeenCalled();
     expect(value.store.publish).not.toHaveBeenCalled();
   });
 
