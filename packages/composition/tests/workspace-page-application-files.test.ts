@@ -61,6 +61,9 @@ describe("generated workspace page builder policy", () => {
     expect(sales).toContain("new CurrentAuthorityDataSourcePolicy(");
     expect(sales).toContain("kNexSalesRegistry.scopedRegistration.contributions.sources");
     expect(sales).toContain("kNexSalesRegistry.scopedRegistration.bindings.sources");
+    expect(sales).toContain("const workspaceSalesBudget = new BoundedQueryBudgetEvaluator();");
+    expect(sales).toContain("budget: workspaceSalesBudget,");
+    expect(sales).not.toContain("budget: new BoundedQueryBudgetEvaluator()");
     expect(sales).toContain('source: (descriptor) => target(descriptor.permission)');
     expect(sales).toContain('field: (descriptor, fieldId) => {');
     expect(sales).toContain('state: response.body.code === "INSUFFICIENT_FIELD_PERMISSION" ? "insufficient-permission" : "forbidden"');
@@ -70,5 +73,41 @@ describe("generated workspace page builder policy", () => {
     expect(sales).not.toContain("salesTasksHandler");
     expect(sales).not.toContain("salesTotalPotentialRevenueHandler");
     expect(sales).not.toContain("const permissions = [descriptor.permission");
+  });
+
+  it("revalidates a page snapshot and fails projections closed when the current Sales watermark changes", () => {
+    const files = workspacePageApplicationFiles({ applicationId: "customer-alpha" });
+    const page = files["src/app/components/k-nex-workspace-page-runtime.tsx"]!;
+    const editor = files["src/app/components/k-nex-workspace-page-editor.tsx"]!;
+    const route = files["src/app/api/k-nex/workspace-pages/[pageId]/session/route.ts"]!;
+    const runtime = files["src/k-nex-workspace-pages.ts"]!;
+
+    expect(page).toContain("initialProjection");
+    expect(page).toContain("sameWatermark(current.watermark, nextWatermark)");
+    expect(page).toContain("setCurrent(next)");
+    expect(page).toContain("setRevoked(true)");
+    expect(page).toContain("setRevoked(false)");
+    expect(editor).toContain("/session?mode=edit");
+    expect(editor).toContain("function sameEditorAuthority(left: Watermark, right: Watermark): boolean {");
+    expect(editor).toContain("return left.authorizationRevision === right.authorizationRevision && left.lifecycleRevision === right.lifecycleRevision && left.accessRevision === right.accessRevision;");
+    expect(editor).toContain("const currentWatermark = useRef(initialProjection.watermark);");
+    expect(editor).toContain('if (!sameEditorAuthority(currentWatermark.current, next)) return failClosed("authority");');
+    expect(editor).toContain("currentWatermark.current = next;");
+    expect(editor).not.toContain('if (!sameWatermark(initialProjection.watermark, next)) failClosed("authority");');
+    expect(editor).toContain("Editor authority changed");
+    expect(route).toContain("loadWorkspacePageViewProjection");
+    expect(route).toContain("loadWorkspacePageEditorProjection");
+    expect(route).toContain('requestedWatermark(new URL(request.url).searchParams.get("watermark"))');
+    expect(route).toContain("readWorkspacePageWatermark");
+    expect(route).toContain('Response.json({ watermark: projection.watermark, projection }');
+    expect(runtime).toContain("publicationPointerRevision");
+    expect(runtime).toContain("readWorkspacePageWatermark");
+    expect(runtime).toContain("const initialState = await runtime.synchronizeInvalidations();");
+    expect(runtime.indexOf("const initialState = await runtime.synchronizeInvalidations();")).toBeLessThan(runtime.indexOf("const detail = await runtime.service.detail(context, scope, pageId, capability);"));
+    expect(runtime.indexOf("const state = await runtime.synchronizeInvalidations();")).toBeGreaterThan(runtime.indexOf("const detail = await runtime.service.detail(context, scope, pageId, capability);"));
+    expect(runtime).toContain("if (initialState.authorizationRevision !== state.authorizationRevision || initialState.lifecycleRevision !== state.lifecycleRevision) throw new TypeError(\"Workspace page session authority changed.\");");
+    expect(runtime).toContain("if (session.signal.aborted) { session.close(); throw new TypeError(\"Workspace page session was invalidated.\"); }");
+    expect(runtime).toContain("loadWorkspaceSalesSources(payload, context, document, session.signal)");
+    expect(runtime).toContain("Workspace page projection was invalidated.");
   });
 });

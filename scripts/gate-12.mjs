@@ -156,7 +156,9 @@ const processMarkers = [
   "P12_BOOTSTRAP_CRASH_SALES_AUTHORITY_RECOVERY=PASS",
   "P12_BOOTSTRAP_CRASH_TOKEN_CONSUMPTION_RECOVERY=PASS",
   "P12_ATK_19_BOOTSTRAP_SCOPE_AND_REPLAY_POSTGRES_DENIED=PASS",
+  "P12_QUERY_BUDGET_PROCESS_LIFETIME_HTTP_RATE_AND_CONCURRENCY=PASS",
   "P12_ATK_20_REVOKED_AUTOSAVE_POSTGRES_DENIED=PASS",
+  "P12_ATK_20_OPEN_PAGE_AND_EDITOR_SALES_AUTHORITY_REVOCATION_POSTGRES_HTTP_CHROMIUM_DENIED=PASS",
   "P12_ATK_20_REVOKED_STALE_PUBLISH_AND_LOST_INVALIDATION_DENIED=PASS"
 ];
 for (const marker of processMarkers) {
@@ -192,7 +194,7 @@ const attackProofs = {
   "P12-ATK-17": ["unit:generator:plans deterministic exact Sales applications for local or external Postgres"],
   "P12-ATK-18": ["unit:administration:renders server-projected native POST forms without client authority fields", "process:P12_ATK_18_FAILED_TRANSACTION_AUDIT_OUTBOX_LEAKAGE_POSTGRES_DENIED=PASS", "process:P12_ATK_18_AUDIT_OUTBOX_SECRET_LEAKAGE_POSTGRES_DENIED=PASS", "process:P12_ATK_18_GENERATED_HTML_AND_WORKER_SECRET_LEAKAGE_DENIED=PASS"],
   "P12-ATK-19": ["process:P12_BOOTSTRAP_CRASH_PROTECTED_OWNER_RECOVERY=PASS", "process:P12_BOOTSTRAP_CRASH_SALES_AUTHORITY_RECOVERY=PASS", "process:P12_BOOTSTRAP_CRASH_TOKEN_CONSUMPTION_RECOVERY=PASS", "process:P12_ATK_19_BOOTSTRAP_SCOPE_AND_REPLAY_POSTGRES_DENIED=PASS"],
-  "P12-ATK-20": ["unit:page-service:cancels pending editor work after page-access invalidation", "process:P12_ATK_20_REVOKED_AUTOSAVE_POSTGRES_DENIED=PASS", "process:P12_ATK_20_REVOKED_STALE_PUBLISH_AND_LOST_INVALIDATION_DENIED=PASS"],
+  "P12-ATK-20": ["unit:page-service:cancels pending editor work after page-access invalidation", "process:P12_ATK_20_REVOKED_AUTOSAVE_POSTGRES_DENIED=PASS", "process:P12_ATK_20_OPEN_PAGE_AND_EDITOR_SALES_AUTHORITY_REVOCATION_POSTGRES_HTTP_CHROMIUM_DENIED=PASS", "process:P12_ATK_20_REVOKED_STALE_PUBLISH_AND_LOST_INVALIDATION_DENIED=PASS"],
   "P12-ATK-21": ["unit:generator:writes byte-identical controlled source to different clean targets"],
   "P12-ATK-22": ["unit:generator:uses workspace only for side-effect-free planning and defaults to the verified bundled release", "unit:generator:rejects a coherently forged manifest, tarball, and lock before target write", "unit:generator:binds a generated application to every exact artifact in a packed release mirror", "unit:generator:rejects tampered mirrors and installs immutable bytes captured by the verified plan"]
 };

@@ -27,7 +27,7 @@ import type { Payload } from "payload";
 import { kNexAuthority, type KnexRequestContext } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
 import { kNexSalesRegistry, kNexThemePresentation } from "./k-nex-registry.js";
-import { workspaceSalesPermissions } from "./k-nex-sales-workspace.js";
+import { loadWorkspaceSalesSources, workspaceSalesPermissions } from "./k-nex-sales-workspace.js";
 
 const platformBlocks = new Map([
   "content.stack", "content.grid", "content.section", "content.heading", "content.text", "content.card", "content.alert",
@@ -152,6 +152,7 @@ for (const [id, definition] of sourceDefinitions) {
   const handler = sourceHandlers.get(id);
   if (handler !== undefined) sources.set(id, Object.freeze({ definition, handler }));
 }
+const workspaceSalesBudget = new BoundedQueryBudgetEvaluator();
 
 function target(permissionId: string, recordId = "collection") {
   const descriptor = kNexSalesRegistry.permissionDescriptors.find(({ id }) => id === permissionId);
@@ -176,34 +177,71 @@ import { createUiDocumentRuntime, createUiRuntimeRegistry, presentUiRuntimeResul
 import { useEffect, useMemo, useState } from "react";
 
 const runtime = createUiDocumentRuntime(createUiRuntimeRegistry({ blocks: salesUiBlockDefinitions, sources: [salesOpportunitiesDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor] }));
+type Watermark = Readonly<{ authorizationRevision: number; lifecycleRevision: number; pageRevision: number; accessRevision: number; publicationPointerRevision: number; publicationRevisionId: string }>;
+type Projection = Readonly<{ document: UiDocument; permissions: readonly string[]; sourceResults: Readonly<Record<string, DataSourceBindingResult<unknown>>>; themeRevision: string; themeCss: string; watermark: Watermark }>;
 
-export function WorkspacePageRuntime({ pageId, document, permissions, initialSourceResults, themeRevision, themeCss }: Readonly<{ pageId: string; document: UiDocument; permissions: readonly string[]; initialSourceResults: Readonly<Record<string, DataSourceBindingResult<unknown>>>; themeRevision: string; themeCss: string }>) {
-  const [sourceResults, setSourceResults] = useState(initialSourceResults);
+function projection(value: unknown): Projection | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const candidate = value as Record<string, unknown>;
+  const watermark = candidate.watermark;
+  if (watermark === null || typeof watermark !== "object" || Array.isArray(watermark) || candidate.document === null || typeof candidate.document !== "object" || Array.isArray(candidate.document) || !Array.isArray(candidate.permissions) || candidate.sourceResults === null || typeof candidate.sourceResults !== "object" || Array.isArray(candidate.sourceResults) || typeof candidate.themeRevision !== "string" || typeof candidate.themeCss !== "string") return undefined;
+  const revision = watermark as Record<string, unknown>;
+  if (![revision.authorizationRevision, revision.lifecycleRevision, revision.pageRevision, revision.accessRevision, revision.publicationPointerRevision].every((item) => typeof item === "number" && Number.isSafeInteger(item) && item >= 0) || typeof revision.publicationRevisionId !== "string" || !candidate.permissions.every((item) => typeof item === "string")) return undefined;
+  return candidate as Projection;
+}
+
+function watermark(value: unknown): Watermark | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const candidate = value as Record<string, unknown>;
+  if (![candidate.authorizationRevision, candidate.lifecycleRevision, candidate.pageRevision, candidate.accessRevision, candidate.publicationPointerRevision].every((item) => typeof item === "number" && Number.isSafeInteger(item) && item >= 0) || typeof candidate.publicationRevisionId !== "string") return undefined;
+  return candidate as Watermark;
+}
+
+function sameWatermark(left: Watermark, right: Watermark): boolean {
+  return left.authorizationRevision === right.authorizationRevision && left.lifecycleRevision === right.lifecycleRevision && left.pageRevision === right.pageRevision && left.accessRevision === right.accessRevision && left.publicationPointerRevision === right.publicationPointerRevision && left.publicationRevisionId === right.publicationRevisionId;
+}
+
+export function WorkspacePageRuntime({ pageId, initialProjection }: Readonly<{ pageId: string; initialProjection: Projection }>) {
+  const [current, setCurrent] = useState(initialProjection);
   const [revoked, setRevoked] = useState(false);
   useEffect(() => {
+    let active = true;
+    const failClosed = () => { if (active) setRevoked(true); };
+    const synchronize = async () => {
+      const response = await fetch("/api/k-nex/workspace-pages/" + encodeURIComponent(pageId) + "/session?watermark=" + encodeURIComponent(JSON.stringify(current.watermark)), { cache: "no-store" }).catch(() => undefined);
+      if (!response?.ok) return failClosed();
+      const body = await response.json().catch(() => undefined) as { watermark?: unknown; projection?: unknown } | undefined;
+      const nextWatermark = watermark(body?.watermark);
+      if (nextWatermark === undefined) return failClosed();
+      if (sameWatermark(current.watermark, nextWatermark)) { if (active) setRevoked(false); return; }
+      const next = projection(body?.projection);
+      if (next === undefined) return failClosed();
+      if (!sameWatermark(nextWatermark, next.watermark)) return failClosed();
+      if (active) { setCurrent(next); setRevoked(false); }
+    };
+    void synchronize();
     const timer = setInterval(async () => {
-      const response = await fetch("/api/k-nex/workspace-pages/" + encodeURIComponent(pageId) + "/session", { cache: "no-store" }).catch(() => undefined);
-      if (response?.status === 404 || response?.status === 403) setRevoked(true);
+      await synchronize();
     }, 1_000);
-    return () => clearInterval(timer);
-  }, [pageId]);
+    return () => { active = false; clearInterval(timer); };
+  }, [pageId, current.watermark]);
   const result = useMemo(() => runtime.render({
-    document, surface: "workspace", actor: { authenticated: true, permissions: new Set(permissions) }, sourceResults,
+    document: current.document, surface: "workspace", actor: { authenticated: true, permissions: new Set(current.permissions) }, sourceResults: current.sourceResults,
     dispatchAction: async (request) => {
       const response = await fetch("/api/k-nex/workspace-pages/" + encodeURIComponent(pageId) + "/actions/" + encodeURIComponent(request.action.id), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ input: request.input, idempotencyKey: "workspace-action-" + crypto.randomUUID() }) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.code ?? "Sales action failed.");
-      setSourceResults((current) => Object.fromEntries(Object.entries(current).map(([nodeId, value]) => {
+      setCurrent((current) => ({ ...current, sourceResults: Object.fromEntries(Object.entries(current.sourceResults).map(([nodeId, value]) => {
         const state = value as { state?: string; data?: { rows?: readonly { key: string; values: Record<string, unknown> }[] } };
         if (state.state !== "success" || !Array.isArray(state.data?.rows)) return [nodeId, value];
         const rows = state.data.rows.map((row) => row.key !== body.data.id ? row : { ...row, values: { ...row.values, stage: { kind: "status", value: body.data.stage }, revision: { kind: "text", value: body.data.revision } } });
         return [nodeId, { ...state, data: { ...state.data, rows } }];
-      })));
+      })) }));
       return body.data;
     }
-  }), [document, permissions, sourceResults]);
+  }), [current, pageId]);
   if (revoked) return <section role="alert"><h1>Page access revoked</h1><p>Current authority no longer permits this page.</p></section>;
-  return <section data-k-nex-theme-profile={themeRevision}><style>{themeCss}</style>{presentUiRuntimeReact(presentUiRuntimeResult(result))}</section>;
+  return <section data-k-nex-theme-profile={current.themeRevision}><style>{current.themeCss}</style>{presentUiRuntimeReact(presentUiRuntimeResult(result))}</section>;
 }
 `;
 }
@@ -214,9 +252,7 @@ import { notFound } from "next/navigation";
 
 import { bootKnexApplication } from "../../../../../boot.js";
 import { kNexRequestContext } from "../../../../../k-nex-authority.js";
-import { kNexThemePresentation } from "../../../../../k-nex-registry.js";
-import { loadWorkspaceSalesSources, workspaceSalesPermissions } from "../../../../../k-nex-sales-workspace.js";
-import { openWorkspacePageSession } from "../../../../../k-nex-workspace-pages.js";
+import { loadWorkspacePageViewProjection } from "../../../../../k-nex-workspace-pages.js";
 import { WorkspacePageRuntime } from "../../../../components/k-nex-workspace-page-runtime.js";
 
 export const dynamic = "force-dynamic";
@@ -226,15 +262,7 @@ export default async function WorkspacePage({ params }: Readonly<{ params: Promi
   const headers = await getHeaders();
   const context = kNexRequestContext(headers, "workspace-page-view");
   const pageId = (await params).pageId;
-  let session;
-  try { session = await openWorkspacePageSession(payload, context, pageId, "view", context.correlationId); } catch { return notFound(); }
-  try {
-    const detail = session.detail;
-    if (detail.page.state !== "published" || detail.impact.state !== "ready" || detail.publication === undefined) return notFound();
-    const document = detail.publication.revision.document;
-    const [permissions, sourceResults] = await Promise.all([workspaceSalesPermissions(payload, context, session.signal), loadWorkspaceSalesSources(payload, context, document, session.signal)]);
-    return <WorkspacePageRuntime pageId={pageId} document={document} permissions={permissions} initialSourceResults={sourceResults} themeRevision={detail.publication.revision.themeProfile?.revisionId ?? kNexThemePresentation.profileRevisionId} themeCss={kNexThemePresentation.cssText} />;
-  } finally { session.close(); }
+  try { return <WorkspacePageRuntime pageId={pageId} initialProjection={await loadWorkspacePageViewProjection(payload, context, pageId, context.correlationId)} />; } catch { return notFound(); }
 }
 `;
 }
@@ -251,25 +279,50 @@ import { WorkspacePuckEditorHost } from "@k-nex/builder-puck/editor";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type Resource = Readonly<{ id: string; version: number }>;
-export function WorkspacePageEditor({ pageId, workingCopy, permissions, authority, rollbackRevisions }: Readonly<{ pageId: string; workingCopy: { revision: number; document: UiDocument }; permissions: readonly string[]; authority: { blocks: readonly Resource[]; sources: readonly Resource[]; actions: readonly Resource[] }; rollbackRevisions: readonly { id: string; label: string }[] }>) {
-  const [revoked, setRevoked] = useState(false);
+type Watermark = Readonly<{ authorizationRevision: number; lifecycleRevision: number; pageRevision: number; accessRevision: number; publicationPointerRevision: number; publicationRevisionId: string }>;
+type Projection = Readonly<{ workingCopy: { revision: number; document: UiDocument }; permissions: readonly string[]; authority: { blocks: readonly Resource[]; sources: readonly Resource[]; actions: readonly Resource[] }; rollbackRevisions: readonly { id: string; label: string }[]; watermark: Watermark }>;
+
+function watermark(value: unknown): Watermark | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const candidate = value as Record<string, unknown>;
+  if (![candidate.authorizationRevision, candidate.lifecycleRevision, candidate.pageRevision, candidate.accessRevision, candidate.publicationPointerRevision].every((item) => typeof item === "number" && Number.isSafeInteger(item) && item >= 0) || typeof candidate.publicationRevisionId !== "string") return undefined;
+  return candidate as Watermark;
+}
+
+function sameEditorAuthority(left: Watermark, right: Watermark): boolean {
+  return left.authorizationRevision === right.authorizationRevision && left.lifecycleRevision === right.lifecycleRevision && left.accessRevision === right.accessRevision;
+}
+
+export function WorkspacePageEditor({ pageId, initialProjection }: Readonly<{ pageId: string; initialProjection: Projection }>) {
+  const [unavailable, setUnavailable] = useState<"access" | "authority" | undefined>();
   const operations = useRef(new AbortController());
+  const currentWatermark = useRef(initialProjection.watermark);
   useEffect(() => {
     const controller = new AbortController();
-    operations.current = controller;
+    let active = true;
+    const failClosed = (reason: "access" | "authority") => { if (active) { operations.current.abort(); setUnavailable(reason); } };
+    const synchronize = async () => {
+      const response = await fetch("/api/k-nex/workspace-pages/" + encodeURIComponent(pageId) + "/session?mode=edit&watermark=" + encodeURIComponent(JSON.stringify(currentWatermark.current)), { cache: "no-store", signal: controller.signal }).catch(() => undefined);
+      if (!response?.ok) return failClosed("access");
+      const body = await response.json().catch(() => undefined) as { watermark?: unknown } | undefined;
+      const next = watermark(body?.watermark);
+      if (next === undefined) return failClosed("access");
+      if (!sameEditorAuthority(currentWatermark.current, next)) return failClosed("authority");
+      currentWatermark.current = next;
+    };
+    void synchronize();
     const timer = setInterval(async () => {
-      const response = await fetch("/api/k-nex/workspace-pages/" + encodeURIComponent(pageId) + "/session", { cache: "no-store", signal: controller.signal }).catch(() => undefined);
-      if (response?.status === 404 || response?.status === 403) { controller.abort(); setRevoked(true); }
+      await synchronize();
     }, 1_000);
-    return () => { clearInterval(timer); controller.abort(); };
-  }, [pageId]);
+    return () => { active = false; clearInterval(timer); controller.abort(); operations.current.abort(); };
+  }, [pageId, initialProjection.watermark]);
   const profile = useMemo(() => createAuthorizedPuckBuilderProfile({
     profile: "workspace", publication: "save-layout", blocks: salesPuckBlockBridges,
-    sources: [salesOpportunitiesDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor], authority,
-    preview: { surface: "workspace", actor: { authenticated: true, permissions: new Set(permissions) }, present: presentUiRuntimeReact }
-  }), [authority, permissions]);
+    sources: [salesOpportunitiesDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor], authority: initialProjection.authority,
+    preview: { surface: "workspace", actor: { authenticated: true, permissions: new Set(initialProjection.permissions) }, present: presentUiRuntimeReact }
+  }), [initialProjection.authority, initialProjection.permissions]);
   const session = useMemo(() => new WorkspaceEditorSession({
-    profile, workingCopy, editorSessionId: "workspace-editor-" + crypto.randomUUID(), issueIdempotencyKey: (operation, sequence) => "workspace-" + operation + "-" + sequence + "-" + crypto.randomUUID(),
+    profile, workingCopy: initialProjection.workingCopy, editorSessionId: "workspace-editor-" + crypto.randomUUID(), issueIdempotencyKey: (operation, sequence) => "workspace-" + operation + "-" + sequence + "-" + crypto.randomUUID(),
     persistence: {
       async autosave(input) {
         const response = await fetch("/api/k-nex/workspace-pages/" + encodeURIComponent(pageId) + "/autosave", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input), signal: operations.current.signal });
@@ -287,22 +340,21 @@ export function WorkspacePageEditor({ pageId, workingCopy, permissions, authorit
         if (!response.ok) throw new Error((await response.json()).code ?? "Rollback failed.");
       }
     }
-  }), [pageId, profile, workingCopy]);
-  if (revoked) return <section role="alert"><h1>Editor access revoked</h1><p>Current authority no longer permits editing this page.</p></section>;
-  return <WorkspacePuckEditorHost profile={profile} session={session} rollbackRevisions={rollbackRevisions} authentication="Authenticated" router="Workspace" sidebar="Block library" topBar="Page editor" systemScreens={null} globalDialogs={null} />;
+  }), [pageId, profile, initialProjection.workingCopy]);
+  if (unavailable === "access") return <section role="alert"><h1>Editor access revoked</h1><p>Current authority no longer permits editing this page.</p></section>;
+  if (unavailable === "authority") return <section role="alert"><h1>Editor authority changed</h1><p>Current Sales capabilities were cleared.</p></section>;
+  return <WorkspacePuckEditorHost profile={profile} session={session} rollbackRevisions={initialProjection.rollbackRevisions} authentication="Authenticated" router="Workspace" sidebar="Block library" topBar="Page editor" systemScreens={null} globalDialogs={null} />;
 }
 `;
 }
 
 function workspacePageEditorSource(): string {
-  return `import { salesOpportunitiesDescriptor, salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesTotalPotentialRevenueDescriptor, salesTasksDescriptor, salesOpportunityStageUpdateDescriptor, salesUiBlockDescriptors } from "@k-nex/module-sales/contracts";
-import { headers as getHeaders } from "next/headers";
+  return `import { headers as getHeaders } from "next/headers";
 import { notFound } from "next/navigation";
 
 import { bootKnexApplication } from "../../../../../../boot.js";
 import { kNexRequestContext } from "../../../../../../k-nex-authority.js";
-import { workspaceSalesPermissions } from "../../../../../../k-nex-sales-workspace.js";
-import { openWorkspacePageSession } from "../../../../../../k-nex-workspace-pages.js";
+import { loadWorkspacePageEditorProjection } from "../../../../../../k-nex-workspace-pages.js";
 import { WorkspacePageEditor } from "../../../../../components/k-nex-workspace-page-editor.js";
 
 export const dynamic = "force-dynamic";
@@ -310,22 +362,7 @@ export default async function EditWorkspacePage({ params }: Readonly<{ params: P
   const payload = await bootKnexApplication("workspace-web");
   const context = kNexRequestContext(await getHeaders(), "workspace-page-editor");
   const pageId = (await params).pageId;
-  let session;
-  try { session = await openWorkspacePageSession(payload, context, pageId, "edit", context.correlationId); } catch { return notFound(); }
-  try {
-  const detail = session.detail;
-  if (detail.workingCopy === undefined) return notFound();
-  const permissions = await workspaceSalesPermissions(payload, context, session.signal);
-  const sources = [salesOpportunitiesDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor];
-  const actions = [salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesOpportunityStageUpdateDescriptor];
-  const authority = {
-    blocks: salesUiBlockDescriptors.filter(({ permission }) => permission === undefined || permissions.includes(permission)).map(({ id, version }) => ({ id, version })),
-    sources: sources.filter(({ permission }) => permissions.includes(permission)).map(({ id, version }) => ({ id, version })),
-    actions: actions.filter(({ permission }) => permissions.includes(permission)).map(({ id, version }) => ({ id, version }))
-  };
-  const rollbackIds = [detail.publication?.pointer.publishedRevisionId, detail.publication?.pointer.previousPublishedRevisionId].filter((id): id is string => id !== undefined);
-  return <WorkspacePageEditor pageId={pageId} workingCopy={{ revision: detail.workingCopy.revision, document: detail.workingCopy.document }} permissions={permissions} authority={authority} rollbackRevisions={rollbackIds.map((id, index) => ({ id, label: "Published revision " + (index + 1) }))} />;
-  } finally { session.close(); }
+  try { return <WorkspacePageEditor pageId={pageId} initialProjection={await loadWorkspacePageEditorProjection(payload, context, pageId, context.correlationId)} />; } catch { return notFound(); }
 }
 `;
 }
@@ -402,7 +439,7 @@ function workspaceSalesGateway(payload: Payload, context: KnexRequestContext): D
       },
       workspaceSalesPolicy
     )),
-    budget: new BoundedQueryBudgetEvaluator(),
+    budget: workspaceSalesBudget,
     dispatcher: new RegisteredHandlerDispatcher(),
     sourceSchema: new DefinitionSourceSchemaValidator(),
     outputContract: new CanonicalOutputContractValidator(),
@@ -785,16 +822,38 @@ function workspacePageSessionRouteSource(): string {
 
 import { bootKnexApplication } from "../../../../../../boot.js";
 import { kNexRequestContext } from "../../../../../../k-nex-authority.js";
-import { openWorkspacePageSession } from "../../../../../../k-nex-workspace-pages.js";
+import { loadWorkspacePageEditorProjection, loadWorkspacePageViewProjection, readWorkspacePageWatermark } from "../../../../../../k-nex-workspace-pages.js";
 
 export const dynamic = "force-dynamic";
-export async function GET(_request: Request, { params }: Readonly<{ params: Promise<{ pageId: string }> }>) {
+type Watermark = Readonly<{ authorizationRevision: number; lifecycleRevision: number; pageRevision: number; accessRevision: number; publicationPointerRevision: number; publicationRevisionId: string }>;
+function requestedWatermark(value: string | null): Watermark | undefined {
+  if (value === null) return undefined;
+  try {
+    const candidate = JSON.parse(value) as unknown;
+    if (candidate === null || typeof candidate !== "object" || Array.isArray(candidate)) return undefined;
+    const watermark = candidate as Record<string, unknown>;
+    if (Object.keys(watermark).sort().join("\\0") !== "accessRevision\\0authorizationRevision\\0lifecycleRevision\\0pageRevision\\0publicationPointerRevision\\0publicationRevisionId" || ![watermark.authorizationRevision, watermark.lifecycleRevision, watermark.pageRevision, watermark.accessRevision, watermark.publicationPointerRevision].every((item) => typeof item === "number" && Number.isSafeInteger(item) && item >= 0) || typeof watermark.publicationRevisionId !== "string") return undefined;
+    return watermark as Watermark;
+  } catch { return undefined; }
+}
+function sameWatermark(left: Watermark, right: Watermark): boolean {
+  return left.authorizationRevision === right.authorizationRevision && left.lifecycleRevision === right.lifecycleRevision && left.pageRevision === right.pageRevision && left.accessRevision === right.accessRevision && left.publicationPointerRevision === right.publicationPointerRevision && left.publicationRevisionId === right.publicationRevisionId;
+}
+export async function GET(request: Request, { params }: Readonly<{ params: Promise<{ pageId: string }> }>) {
   try {
     const payload = await bootKnexApplication("workspace-web");
-    const context = kNexRequestContext(await getHeaders(), "workspace-page-session");
-    const session = await openWorkspacePageSession(payload, context, (await params).pageId, "view", context.correlationId);
-    try { return Response.json({ pageRevision: session.detail.page.revision, accessRevision: session.detail.page.accessRevision }, { headers: { "cache-control": "no-store" } }); }
-    finally { session.close(); }
+    const mode = new URL(request.url).searchParams.get("mode");
+    if (mode !== null && mode !== "edit") throw new TypeError("Workspace page session mode is invalid.");
+    const requested = requestedWatermark(new URL(request.url).searchParams.get("watermark"));
+    if (new URL(request.url).searchParams.has("watermark") && requested === undefined) throw new TypeError("Workspace page watermark is invalid.");
+    const context = kNexRequestContext(await getHeaders(), mode === "edit" ? "workspace-page-editor-session" : "workspace-page-session");
+    const pageId = (await params).pageId;
+    const watermark = await readWorkspacePageWatermark(payload, context, pageId, mode === "edit" ? "edit" : "view", context.correlationId);
+    if (requested !== undefined && sameWatermark(requested, watermark)) return Response.json({ watermark }, { headers: { "cache-control": "no-store" } });
+    const projection = mode === "edit"
+      ? await loadWorkspacePageEditorProjection(payload, context, pageId, context.correlationId)
+      : await loadWorkspacePageViewProjection(payload, context, pageId, context.correlationId);
+    return Response.json({ watermark: projection.watermark, projection }, { headers: { "cache-control": "no-store" } });
   } catch {
     return Response.json({ code: "NOT_FOUND" }, { status: 404, headers: { "cache-control": "no-store" } });
   }
@@ -1031,10 +1090,49 @@ export function kNexWorkspacePages(payload: Payload) {
 
 export async function openWorkspacePageSession(payload: Payload, context: KnexRequestContext, pageId: string, capability: "view" | "edit", sessionId: string) {
   const runtime = kNexWorkspacePages(payload);
+  const initialState = await runtime.synchronizeInvalidations();
   const detail = await runtime.service.detail(context, scope, pageId, capability);
   const state = await runtime.synchronizeInvalidations();
+  if (initialState.authorizationRevision !== state.authorizationRevision || initialState.lifecycleRevision !== state.lifecycleRevision) throw new TypeError("Workspace page session authority changed.");
   const session = runtime.sessions.open({ ...scope, pageId, sessionId, authorizationRevision: state.authorizationRevision, lifecycleRevision: state.lifecycleRevision, accessRevision: detail.page.accessRevision, pageRevision: detail.page.revision });
-  return Object.freeze({ detail, signal: session.signal, close: session.close });
+  if (session.signal.aborted) { session.close(); throw new TypeError("Workspace page session was invalidated."); }
+  return Object.freeze({ detail, signal: session.signal, watermark: Object.freeze({ authorizationRevision: state.authorizationRevision, lifecycleRevision: state.lifecycleRevision, pageRevision: detail.page.revision, accessRevision: detail.page.accessRevision, publicationPointerRevision: detail.publication?.pointer.pointerRevision ?? 0, publicationRevisionId: detail.publication?.pointer.publishedRevisionId ?? "" }), close: session.close });
+}
+
+export async function readWorkspacePageWatermark(payload: Payload, context: KnexRequestContext, pageId: string, capability: "view" | "edit", sessionId: string) {
+  const session = await openWorkspacePageSession(payload, context, pageId, capability, sessionId);
+  try { return session.watermark; } finally { session.close(); }
+}
+
+export async function loadWorkspacePageViewProjection(payload: Payload, context: KnexRequestContext, pageId: string, sessionId: string) {
+  const session = await openWorkspacePageSession(payload, context, pageId, "view", sessionId);
+  try {
+    const detail = session.detail;
+    if (detail.page.state !== "published" || detail.impact.state !== "ready" || detail.publication === undefined) throw new TypeError("Workspace page publication is unavailable.");
+    const document = detail.publication.revision.document;
+    const [permissions, sourceResults] = await Promise.all([workspaceSalesPermissions(payload, context, session.signal), loadWorkspaceSalesSources(payload, context, document, session.signal)]);
+    if (session.signal.aborted) throw new TypeError("Workspace page projection was invalidated.");
+    return Object.freeze({ document, permissions, sourceResults, themeRevision: detail.publication.revision.themeProfile?.revisionId ?? kNexThemePresentation.profileRevisionId, themeCss: kNexThemePresentation.cssText, watermark: session.watermark });
+  } finally { session.close(); }
+}
+
+export async function loadWorkspacePageEditorProjection(payload: Payload, context: KnexRequestContext, pageId: string, sessionId: string) {
+  const session = await openWorkspacePageSession(payload, context, pageId, "edit", sessionId);
+  try {
+    const detail = session.detail;
+    if (detail.workingCopy === undefined) throw new TypeError("Workspace page working copy is unavailable.");
+    const permissions = await workspaceSalesPermissions(payload, context, session.signal);
+    const sources = [salesOpportunitiesDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor];
+    const actions = [salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesOpportunityStageUpdateDescriptor];
+    const authority = Object.freeze({
+      blocks: salesPuckBlockBridges.filter(({ definition }) => definition.permission === undefined || permissions.includes(definition.permission)).map(({ definition }) => ({ id: definition.id, version: definition.version })),
+      sources: sources.filter(({ permission }) => permissions.includes(permission)).map(({ id, version }) => ({ id, version })),
+      actions: actions.filter(({ permission }) => permissions.includes(permission)).map(({ id, version }) => ({ id, version }))
+    });
+    const rollbackIds = [detail.publication?.pointer.publishedRevisionId, detail.publication?.pointer.previousPublishedRevisionId].filter((id): id is string => id !== undefined);
+    if (session.signal.aborted) throw new TypeError("Workspace editor projection was invalidated.");
+    return Object.freeze({ workingCopy: { revision: detail.workingCopy.revision, document: detail.workingCopy.document }, permissions, authority, rollbackRevisions: rollbackIds.map((id, index) => ({ id, label: "Published revision " + (index + 1) })), watermark: session.watermark });
+  } finally { session.close(); }
 }
 
 async function folderDecision(payload: Payload, context: KnexRequestContext, operation: string) {

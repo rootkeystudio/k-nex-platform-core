@@ -326,14 +326,14 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const pageId = decodeURIComponent(pageLocation.pathname.split("/").at(-1));
     assert.match(pageId, /^workspace\.page\./u);
 
-    const pageSession = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/session`, { headers: { cookie: owner.cookie.header } });
+    const pageSession = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/session?mode=edit`, { headers: { cookie: owner.cookie.header } });
     assert.equal(pageSession.status, 200, `${await pageSession.clone().text()}\n${applicationProcess.output()}`);
     const pageState = await pageSession.json();
     const assignTheme = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/metadata`, {
       method: "POST", redirect: "manual",
       headers: { "content-type": "application/x-www-form-urlencoded", cookie: owner.cookie.header, origin: applicationProcess.origin },
       body: new URLSearchParams({
-        expectedRevision: String(pageState.pageRevision), title: "Sales command center", description: "Bounded Sales workspace",
+        expectedRevision: String(pageState.projection.watermark.pageRevision), title: "Sales command center", description: "Bounded Sales workspace",
         parentNavigationId: "sales.navigation.root", order: "100", themeRevision: inventoryBody.theme.profileRevisionId,
         idempotencyKey: `workspace-theme-${randomUUID()}`
       })
@@ -415,7 +415,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const restartedOwner = await login(applicationProcess.origin, ownerEmail, ownerPassword);
     assert.equal((await fetch(`${applicationProcess.origin}/`, { headers: { cookie: restartedOwner.cookie.header } })).status, 200);
 
-    const themedPageSession = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/session`, { headers: { cookie: restartedOwner.cookie.header } });
+    const themedPageSession = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/session?mode=edit`, { headers: { cookie: restartedOwner.cookie.header } });
     assert.equal(themedPageSession.status, 200);
     const themedPageState = await themedPageSession.json();
     const autosaveUrl = `${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/autosave`;
@@ -510,7 +510,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
       document: { ...attackCopy.document, regions: { main: [deepNode] } }
     }))).status, 400, "Deep canonical documents must fail closed.");
     console.log("P12_ATK_10_CSRF_REPLAY_AND_MALFORMED_AUTOSAVE_HTTP_DENIED=PASS");
-    const access = new URLSearchParams({ expectedPageRevision: String(themedPageState.pageRevision), expectedAccessRevision: String(themedPageState.accessRevision), idempotencyKey: `workspace-access-${randomUUID()}` });
+    const access = new URLSearchParams({ expectedPageRevision: String(themedPageState.projection.watermark.pageRevision), expectedAccessRevision: String(themedPageState.projection.watermark.accessRevision), idempotencyKey: `workspace-access-${randomUUID()}` });
     access.append("assignment", `user|${ownerUserId}|edit`);
     access.append("assignment", `user|${limitedUserId}|view`);
     access.append("assignment", "role|customer.sales-manager|view");
@@ -598,6 +598,54 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const moved = await pool.query("select name, stage from sales_opportunities order by id");
     assert.deepEqual(moved.rows, [{ name: "Alpha renewal", stage: "qualified" }, { name: "Beta expansion", stage: "won" }]);
     assert.equal(await page.locator("[data-k-nex-theme-profile]").getAttribute("data-k-nex-theme-profile"), inventoryBody.theme.profileRevisionId);
+
+    const workspacePageUrl = `${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`;
+    const budgetHeaders = { cookie: restartedOwner.cookie.header };
+    assert.equal((await fetch(workspacePageUrl, { headers: budgetHeaders })).status, 200, "The authorized owner must have a working source request before budget exhaustion.");
+    const holdSalesMetricRequests = async (count) => {
+      const lock = await pool.connect();
+      let released = false;
+      try {
+        await lock.query("begin");
+        await lock.query("lock table sales_tasks in access exclusive mode");
+      } catch (error) {
+        lock.release();
+        throw error;
+      }
+      const statuses = [];
+      const requests = Array.from({ length: count }, () => fetch(workspacePageUrl, { headers: budgetHeaders }).then(async (response) => {
+        statuses.push(response.status);
+        await response.text();
+        return response.status;
+      }));
+      return {
+        statuses,
+        requests,
+        async release() {
+          if (released) return;
+          released = true;
+          await lock.query("rollback");
+          lock.release();
+        }
+      };
+    };
+    const concurrent = await holdSalesMetricRequests(5);
+    try {
+      await new Promise((resolveWait) => setTimeout(resolveWait, 1_000));
+      assert.equal(concurrent.statuses.includes(404), true, "The fifth in-flight high-cost metric request must exhaust the shared concurrency budget before the Sales query lock releases.");
+    } finally {
+      await concurrent.release();
+    }
+    await Promise.all(concurrent.requests);
+
+    let rateExhausted = false;
+    for (let request = 0; request < 48 && !rateExhausted; request += 1) {
+      const response = await fetch(workspacePageUrl, { headers: budgetHeaders });
+      rateExhausted = response.status === 404;
+      await response.text();
+    }
+    assert.equal(rateExhausted, true, "Sequential direct HTTP source requests must exhaust the shared process-lifetime rate budget after the Sales query lock releases.");
+    console.log("P12_QUERY_BUDGET_PROCESS_LIFETIME_HTTP_RATE_AND_CONCURRENCY=PASS");
 
     const salesRow = async (kind, id) => {
       const result = await pool.query(kind === "opportunity"
@@ -696,6 +744,26 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal(managerEditorResponse?.status(), 200, "An assigned editor must enter the current editor route.");
     await managerEditorPage.getByRole("region", { name: "Canvas block keyboard controls" }).waitFor();
 
+    const managerSalesAuthority = await store.readState(applicationId, environmentName);
+    assert.ok(managerSalesAuthority);
+    await store.transaction(expected(managerSalesAuthority), async (transaction) => {
+      for (const permissionId of ["sales.opportunities.read", "sales.tasks.title.read", "sales.opportunities.write"]) {
+        await transaction.removeGrant(applicationId, `customer.sales-manager.${permissionId}`);
+      }
+    });
+    const revokedSalesPage = await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: manager.cookie.header } });
+    const revokedSalesHtml = await revokedSalesPage.text();
+    assert.equal(revokedSalesPage.status, 200, "Revoking Sales authority must not revoke the granted page ACL.");
+    const managerRuntime = managerPage.locator("section[data-k-nex-theme-profile]");
+    try { await managerRuntime.filter({ hasText: "Unavailable: PERMISSION_DENIED" }).waitFor({ timeout: 10_000 }); }
+    catch (error) { throw new Error(`${error}\nserver=${revokedSalesHtml}\nbrowser=${await managerPage.locator("body").innerText()}\nprocess=${applicationProcess.output()}`); }
+    await managerRuntime.filter({ hasText: "Unavailable: SOURCE_FIELD_PERMISSION_DENIED" }).waitFor({ timeout: 10_000 });
+    assert.equal(await managerPage.getByText("Alpha renewal", { exact: true }).count(), 0, "An already-open page cannot retain revoked Sales source data.");
+    assert.equal(await managerPage.locator(`[data-opportunity-id="${String(alpha.rows[0].id)}"]`).getByRole("button", { name: "Move to qualified" }).count(), 0, "An already-open page cannot retain revoked Sales actions.");
+    await managerEditorPage.getByRole("alert").getByText("Editor authority changed", { exact: true }).waitFor({ timeout: 10_000 });
+    assert.equal(await managerEditorPage.getByRole("region", { name: "Canvas block keyboard controls" }).count(), 0, "An already-open editor must fail closed after its Sales authority changes.");
+    console.log("P12_ATK_20_OPEN_PAGE_AND_EDITOR_SALES_AUTHORITY_REVOCATION_POSTGRES_HTTP_CHROMIUM_DENIED=PASS");
+
     workerProcess = start("node", ["dist/k-nex-worker.js"], { cwd: application, env: applicationEnvironment });
     await until(async () => workerProcess.output().includes("K_NEX_WORKER_READY"), `Generated worker did not restart.\n${workerProcess.output()}`, workerProcess.child);
     await until(async () => (await pool.query("select count(*)::int as count from k_nex_workspace_page_outbox where application_id=$1 and environment=$2 and status<>'delivered'", [applicationId, environmentName])).rows[0].count === 0, "Workspace page outbox did not converge after worker restart.", workerProcess.child);
@@ -704,7 +772,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const currentPageSession = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/session`, { headers: { cookie: restartedOwner.cookie.header } });
     assert.equal(currentPageSession.status, 200);
     const currentPageState = await currentPageSession.json();
-    const revokeAccess = new URLSearchParams({ expectedPageRevision: String(currentPageState.pageRevision), expectedAccessRevision: String(currentPageState.accessRevision), idempotencyKey: `workspace-revoke-${randomUUID()}` });
+    const revokeAccess = new URLSearchParams({ expectedPageRevision: String(currentPageState.projection.watermark.pageRevision), expectedAccessRevision: String(currentPageState.projection.watermark.accessRevision), idempotencyKey: `workspace-revoke-${randomUUID()}` });
     revokeAccess.append("assignment", `user|${ownerUserId}|edit`);
     const revoke = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/access`, {
       method: "POST", redirect: "manual",
