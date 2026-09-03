@@ -4,6 +4,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
 
 import { ApplicationManifestSchema, PackageReleaseManifestSchema, canonicalJson, type ApplicationManifest, type PackageReleaseManifest } from "@k-nex/contracts";
+import { runnableApplicationFiles } from "./runnable-application-files.js";
 
 export type SalesPresetTheme = "minimal" | "neobrutalism";
 export type ApplicationDatabaseMode = "docker-postgres" | "external";
@@ -54,7 +55,8 @@ const exactDependencies = Object.freeze({
   "next": "16.3.1",
   "payload": "3.88.0",
   "react": "19.2.8",
-  "react-dom": "19.2.8"
+  "react-dom": "19.2.8",
+  "sharp": "0.35.3"
 });
 
 const verifiedPlanArtifacts = new WeakMap<ApplicationFactoryPlan, ReadonlyMap<string, Uint8Array>>();
@@ -192,7 +194,7 @@ function applicationManifest(options: CreateKnexApplicationOptions, packageVersi
     themes: { active: options.theme, package: `@k-nex/theme-${options.theme}`, version: packageVersions.get(`@k-nex/theme-${options.theme}`) ?? "1.0.0" },
     development: { database: options.database === "docker-postgres" ? { mode: "docker-postgres", serviceName: "postgres" } : { mode: "external" } },
     build: { dockerfile: false, commitGeneratedRegistries: true, validateGeneratedFilesInCI: true },
-    environment: { required: ["DATABASE_URL", "PAYLOAD_SECRET"] }
+    environment: { required: ["DATABASE_URL", "K_NEX_ENVIRONMENT", "PAYLOAD_SECRET"] }
   });
 }
 
@@ -227,12 +229,13 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
   }));
   const manifest = applicationManifest(options, releasedPackages);
   const files: Record<string, string> = {
-    ".env.example": "DATABASE_URL=postgres://knex:knex@127.0.0.1:5432/knex\nPAYLOAD_SECRET=replace-with-a-long-random-secret\n",
+    ...runnableApplicationFiles({ applicationId: options.applicationId, applicationName: options.applicationName, database: options.database }),
+    ".env.example": "DATABASE_URL=\nK_NEX_BOOTSTRAP_TOKEN=\nK_NEX_ENVIRONMENT=\nPAYLOAD_SECRET=\n",
     ".k-nex/application-plan.json": json({
       planVersion: 1,
       preset: "sales-reference",
       composition: { plugins: [`module.sales@${manifest.plugins[0]!.version}`], theme: `${options.theme}@${manifest.themes.version}`, databaseAdapter: "postgres" },
-      packageSource: release === undefined ? { kind: "registry" } : {
+      packageSource: release === undefined ? { kind: "workspace" } : {
         kind: "packed-mirror", release: release.release.version,
         manifestDigest: `sha256:${createHash("sha256").update(canonicalJson(release)).digest("hex")}`
       },
@@ -248,10 +251,22 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
     "k-nex.app.json": json(manifest),
     "package.json": json({
       name: options.applicationId, version: "1.0.0", private: true, type: "module", packageManager: "pnpm@11.9.0",
-      engines: { node: "24.19.0", pnpm: "11.9.0" },
-      scripts: { build: "tsc -p tsconfig.json", migrate: "payload migrate", readiness: "node dist/k-nex-readiness.js" },
+      engines: { node: ">=24 <25", pnpm: "11.9.0" },
+      scripts: {
+        build: "pnpm build:scripts && next build --webpack",
+        "build:scripts": "tsc -p tsconfig.scripts.json",
+        dev: "next dev --webpack",
+        "knex:bootstrap-owner": "node dist/k-nex-bootstrap-owner.js",
+        ...(options.database === "docker-postgres" ? { "knex:db:up": "docker compose up -d postgres" } : {}),
+        "knex:doctor": "node dist/k-nex-doctor.js",
+        "knex:migrate": "payload migrate",
+        "knex:readiness": "node dist/k-nex-readiness.js",
+        start: "next start",
+        test: "node --test dist/tests/*.test.js",
+        "knex:worker": "node dist/k-nex-worker.js"
+      },
       dependencies,
-      devDependencies: { "@types/node": "24.13.3", typescript: "6.0.3" }
+      devDependencies: { "@types/node": "24.13.3", "@types/react": "19.2.18", "@types/react-dom": "19.2.4", typescript: "6.0.3" }
     }),
     "src/boot.ts": bootSource(),
     "src/k-nex-registry.ts": registrySource(),
@@ -260,10 +275,6 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
     "src/migrations/20260827_000002_knex_bootstrap.ts": bootstrapMigrationSource(options.applicationId, release?.release.version ?? "1.0.0"),
     "src/migrations/index.ts": `import * as baseline from "./20260827_000001_sales_baseline.js";\nimport * as bootstrap from "./20260827_000002_knex_bootstrap.js";\n\nexport const migrations = [\n  { name: "20260827_000001_sales_baseline", up: baseline.up, down: baseline.down },\n  { name: "20260827_000002_knex_bootstrap", up: bootstrap.up, down: bootstrap.down }\n];\n`,
     "src/payload.config.ts": payloadConfigSource(options.applicationId),
-    "tsconfig.json": json({ compilerOptions: {
-      target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true, skipLibCheck: true,
-      outDir: "dist", rootDir: "src", types: ["node"]
-    }, include: ["src/**/*.ts"] })
   };
   if (release !== undefined && options.packageSource !== undefined) {
     const overrides = Object.fromEntries([...release.packages].sort((left, right) => left.package.localeCompare(right.package)).map((entry) => [entry.package,
