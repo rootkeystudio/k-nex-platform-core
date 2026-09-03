@@ -115,6 +115,24 @@ export function Dialog({ triggerLabel, title, children, closeLabel = "Close", di
   return <div data-k-nex-component="dialog" data-slot="root"><DialogTrigger><AriaButton data-slot="trigger">{triggerLabel}</AriaButton><ModalOverlay isDismissable={dismissable} data-slot="backdrop"><AriaModal data-slot="modal"><AriaDialog data-slot="content">{({ close }) => <><AriaHeading slot="title" data-slot="title">{title}</AriaHeading>{children}<AriaButton onPress={close} data-slot="close">{closeLabel}</AriaButton></>}</AriaDialog></AriaModal></ModalOverlay></DialogTrigger></div>;
 }
 
+export interface WorkspaceNavigationDrawerProps {
+  readonly applicationLabel: string;
+  readonly children: (close: () => void) => ReactNode;
+}
+export function WorkspaceNavigationDrawer({ applicationLabel, children }: WorkspaceNavigationDrawerProps): ReactElement {
+  return <DialogTrigger>
+    <AriaButton className="workspace-mobile-trigger" aria-label="Open navigation">☰</AriaButton>
+    <ModalOverlay className="workspace-drawer-overlay" isDismissable>
+      <AriaModal className="workspace-drawer">
+        <AriaDialog aria-label="Mobile workspace navigation">{({ close }) => <>
+          <div className="workspace-drawer-heading"><AriaHeading slot="title">{applicationLabel}</AriaHeading><AriaButton aria-label="Close navigation" onPress={close}>×</AriaButton></div>
+          {children(close)}
+        </>}</AriaDialog>
+      </AriaModal>
+    </ModalOverlay>
+  </DialogTrigger>;
+}
+
 export type ModalProps = DialogProps;
 export function Modal(props: ModalProps): ReactElement { return <div data-k-nex-component="modal" data-slot="root"><Dialog {...props} /></div>; }
 export interface DrawerProps extends DialogProps { readonly side?: "start" | "end"; }

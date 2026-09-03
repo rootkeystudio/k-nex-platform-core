@@ -11,7 +11,7 @@ P12.10 focused Gate 12 passes: exact v1 builds and packed closure, selected cont
 
 ## Validation
 
-Exact Node 24.19.0: `pnpm gate:12:focused` PASS, including 19 contract tests, two real process proofs, and 22/22 attack mappings. Cumulative Gate 0–12 found and regenerated one stale generated workspace schema; exact cumulative rerun remains pending.
+Exact Node 24.19.0: `pnpm gate:12:focused` PASS, including 19 contract tests, two real process proofs, and 22/22 attack mappings. Cumulative Gate 0–12 found one direct React Aria boundary escape; the focused UI build/tests and semantic boundary checker PASS after routing the drawer through the K-Nex adapter. Exact cumulative rerun remains pending.
 
 ## Next
 

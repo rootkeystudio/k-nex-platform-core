@@ -1,16 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from "react";
-import {
-  Button as AriaButton,
-  Dialog as AriaDialog,
-  DialogTrigger,
-  Heading as AriaHeading,
-  Modal as AriaModal,
-  ModalOverlay
-} from "react-aria-components";
 
 import type { ResolvedWorkspaceNavigation } from "@k-nex/ui-runtime";
+import { WorkspaceNavigationDrawer } from "./navigation.js";
 
 export interface WorkspaceShellProps {
   readonly applicationLabel: string;
@@ -58,21 +51,11 @@ export function WorkspaceShell({ applicationLabel, environment, currentHref, nav
     <a className="workspace-skip-link" href="#workspace-main">Skip to main content</a>
     <aside className="workspace-sidebar" aria-label="Desktop workspace navigation">
       <div className="workspace-brand"><strong>{applicationLabel}</strong><span>{environment}</span></div>
-      <AriaButton aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!collapsed} onPress={() => setSidebar(!collapsed)}>☰</AriaButton>
+      <button type="button" aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!collapsed} onClick={() => setSidebar(!collapsed)}>☰</button>
       <div className="workspace-desktop-navigation">{navigationContent(navigation, currentHref)}</div>
     </aside>
     <header className="workspace-header">
-      <DialogTrigger>
-        <AriaButton className="workspace-mobile-trigger" aria-label="Open navigation">☰</AriaButton>
-        <ModalOverlay className="workspace-drawer-overlay" isDismissable>
-          <AriaModal className="workspace-drawer">
-            <AriaDialog aria-label="Mobile workspace navigation">{({ close }) => <>
-              <div className="workspace-drawer-heading"><AriaHeading slot="title">{applicationLabel}</AriaHeading><AriaButton aria-label="Close navigation" onPress={close}>×</AriaButton></div>
-              {navigationContent(navigation, currentHref, close)}
-            </>}</AriaDialog>
-          </AriaModal>
-        </ModalOverlay>
-      </DialogTrigger>
+      <WorkspaceNavigationDrawer applicationLabel={applicationLabel}>{(close) => navigationContent(navigation, currentHref, close)}</WorkspaceNavigationDrawer>
       <nav aria-label="Breadcrumb"><ol><li><a href="/">Workspace</a></li>{currentHref === "/" ? null : <li aria-current="page">{currentLabel}</li>}</ol></nav>
       <span className="workspace-environment">{environment}</span>
     </header>
