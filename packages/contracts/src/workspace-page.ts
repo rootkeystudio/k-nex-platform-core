@@ -310,6 +310,7 @@ export type WorkspacePage = z.infer<typeof WorkspacePageSchema>;
 export type WorkspacePageAccessSnapshot = z.infer<typeof WorkspacePageAccessSnapshotSchema>;
 export type WorkspaceWorkingCopy = z.infer<typeof WorkspaceWorkingCopySchema>;
 export type WorkspaceWorkingCopyChangeInput = z.infer<typeof WorkspaceWorkingCopyChangeInputSchema>;
+export type WorkspacePageDependencySnapshot = z.infer<typeof WorkspacePageDependencySnapshotSchema>;
 export type WorkspacePublishedRevision = z.infer<typeof WorkspacePublishedRevisionSchema>;
 export type WorkspacePublicationPointer = z.infer<typeof WorkspacePublicationPointerSchema>;
 export type WorkspacePublicationReceipt = z.infer<typeof WorkspacePublicationReceiptSchema>;

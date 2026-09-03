@@ -393,6 +393,7 @@ import type { Payload } from "payload";
 import { authorizeNavigationPermission, kNexAuthority, kNexRequestContext } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
 import { kNexSalesRegistry } from "./k-nex-registry.js";
+import { kNexWorkspacePages, kNexWorkspacePageScope } from "./k-nex-workspace-pages.js";
 
 export async function resolveCurrentWorkspaceNavigation(payload: Payload, headers: Headers) {
   const authentication = await payload.auth({ headers, canSetHeaders: false });
@@ -400,16 +401,25 @@ export async function resolveCurrentWorkspaceNavigation(payload: Payload, header
   const state = await kNexAuthority(payload).store.readState(kNexIdentity.applicationId, kNexIdentity.environment);
   if (state === undefined) return undefined;
   const context = kNexRequestContext(headers, "workspace-navigation");
+  const workspace = kNexWorkspacePages(payload);
+  const canReadPages = await authorizeNavigationPermission(payload, context, "system.workspace-pages.read");
+  const [pageItems, folderItems] = canReadPages ? await Promise.all([
+    workspace.service.list(context, kNexWorkspacePageScope), workspace.folders.list(kNexWorkspacePageScope)
+  ]) : [[], []];
+  const pages = pageItems.map(({ page, impact }) => impact.code === "plugin-removed" || impact.code === "plugin-disabled" || impact.code === "plugin-quarantined"
+    ? { ...page, navigation: { state: "unplaced" as const, reason: impact.code === "plugin-removed" ? "parent-missing" as const : "parent-inactive" as const } }
+    : page);
+  const visiblePageIds = new Set(pageItems.filter(({ impact }) => impact.state === "ready").map(({ page }) => page.identity.pageId));
   const navigation = await resolveWorkspaceNavigation({
     applicationId: kNexIdentity.applicationId,
     environment: kNexIdentity.environment,
     revision: state.authorizationRevision,
     plugins: [kNexSalesRegistry.navigationSection],
-    customerFolders: [],
-    pages: [],
+    customerFolders: folderItems.map(({ node }) => node),
+    pages,
     preferences: { sidebar: "expanded", favoritePageIds: [], recentPageIds: [] },
     authorize: (permissionId) => authorizeNavigationPermission(payload, context, permissionId),
-    pageAccess: async () => false
+    pageAccess: async (pageId) => visiblePageIds.has(pageId)
   });
   return Object.freeze({ navigation, preferenceKey: kNexIdentity.applicationId + ":user:" + String(authentication.user.id) + ":workspace-sidebar" });
 }

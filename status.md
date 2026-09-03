@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-09-03
 - **Phase:** Phase 12 — Runnable Customer Workspace and Dashboard Builder
-- **Active task:** P12.8 — productize page navigation, access, and theme administration
+- **Active task:** P12.9 — run the clean generated-application integration journey
 - **State:** In progress
 
 ## Last completed
 
-P12.7 adds exact-authority block/source/action palette resolution, canonical Puck editing, serialized debounced autosave with same-key lost-response replay, explicit stale-tab recovery, fixed publish/rollback controls, keyboard add/select/reorder/move/delete/edit/publish, and strict production renderer separation.
+P12.8 adds current-authority page/folder administration, CAS folder persistence/reorder/restore, exact role/user ACL replacement, exact admin Theme Profile selection, safe audit/impact views, durable parent-removal unplacement, and generated mutation boundaries with same-origin validation.
 
 ## Validation
 
-Exact Node 24.19.0: builder-puck build PASS; focused editor/profile/security suite 41/41 PASS; real Sales Puck library 3/3 PASS; UI production dependency boundary PASS; Chromium keyboard editor journey PASS; packed v1.0.0 ABI/release closure 17 PASS. Inherited P12.5 real-PostgreSQL and P12.6 authority proofs remain PASS. Cumulative Gate 0–11 remains deferred to phase closeout.
+Exact Node 24.19.0: touched-package builds and focused page/folder/service/admin/theme/navigation/factory tests PASS; real PostgreSQL page/folder CAS and restore PASS; generated Next build/migration/auth/browser assertions PASS; packed v1.0.0 ABI/release closure 17 PASS. Node test runner retained one post-proof handle and was stopped after the passing assertion; use force-exit for the P12.9 journey. Cumulative Gate 0–11 remains deferred to phase closeout.
 
 ## Next
 
-Execute P12.8 page creation/placement/access/theme/archive/diagnostic/audit administration with focused authority and journey proof.
+Execute P12.9 clean generated-app owner/editor/viewer journey with real Sales blocks, autosave/publish/render/action/revoke/rollback/restart proof.
 
 ## Blockers
 

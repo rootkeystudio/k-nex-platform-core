@@ -6,6 +6,7 @@ import { gunzipSync } from "node:zlib";
 import { ApplicationManifestSchema, PackageReleaseManifestSchema, canonicalJson, type ApplicationManifest, type PackageReleaseManifest } from "@k-nex/contracts";
 import { applicationAuthFiles } from "./application-auth-files.js";
 import { runnableApplicationFiles } from "./runnable-application-files.js";
+import { workspacePageApplicationFiles } from "./workspace-page-application-files.js";
 
 export type SalesPresetTheme = "minimal" | "neobrutalism";
 export type ApplicationDatabaseMode = "docker-postgres" | "external";
@@ -38,6 +39,7 @@ export interface ApplicationFactoryApplyResult {
 }
 
 const exactDependencies = Object.freeze({
+  "@k-nex/builder-puck": "1.0.0",
   "@k-nex/composition": "1.0.0",
   "@k-nex/contracts": "1.0.0",
   "@k-nex/module-sales": "1.0.0",
@@ -124,7 +126,7 @@ const initialThemeTime = new Date(0).toISOString();
 export const kNexThemePresentation = ${themeExport}({
   schemaVersion: 1,
   id: "workspace.default-theme",
-  surface: "public",
+  surface: "admin",
   themeId: "theme.${theme}",
   themeVersion: "1.0.0",
   palette: "light",
@@ -269,6 +271,7 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
   const files: Record<string, string> = {
     ...runnableApplicationFiles({ applicationId: options.applicationId, applicationName: options.applicationName, database: options.database, theme: options.theme }),
     ...applicationAuthFiles({ applicationId: options.applicationId, applicationName: options.applicationName, theme: options.theme }),
+    ...workspacePageApplicationFiles({ applicationId: options.applicationId }),
     ".env.example": "DATABASE_URL=\nK_NEX_ENVIRONMENT=\nK_NEX_OWNER_EMAIL=\nK_NEX_OWNER_PASSWORD=\nK_NEX_PUBLIC_ORIGIN=\nPAYLOAD_SECRET=\n",
     ".k-nex/application-plan.json": json({
       planVersion: 1,

@@ -22,7 +22,7 @@ describe("create-knex-app", () => {
     const manifest = ApplicationManifestSchema.parse(JSON.parse(first.files["k-nex.app.json"]!));
     expect(manifest.plugins).toEqual([{ id: "module.sales", package: "@k-nex/module-sales", version: "1.0.0", enabled: true }]);
     expect(manifest.environment.required).toEqual(["DATABASE_URL", "K_NEX_ENVIRONMENT", "K_NEX_PUBLIC_ORIGIN", "PAYLOAD_SECRET"]);
-    expect(JSON.parse(first.files["package.json"]!).dependencies).toMatchObject({ payload: "3.88.0", "@k-nex/module-sales": "1.0.0", "@k-nex/theme-minimal": "1.0.0" });
+    expect(JSON.parse(first.files["package.json"]!).dependencies).toMatchObject({ payload: "3.88.0", "@k-nex/builder-puck": "1.0.0", "@k-nex/module-sales": "1.0.0", "@k-nex/theme-minimal": "1.0.0" });
     expect(first.files["src/payload.config.ts"]).toContain("kNexSalesRegistry.collections");
     expect(first.files["src/payload.config.ts"]).toContain("prodMigrations: migrations");
     expect(first.files["src/payload.config.ts"]).toContain('kNexApplicationId: "customer-alpha"');
@@ -31,6 +31,8 @@ describe("create-knex-app", () => {
     expect(first.files["tsconfig.json"]).toContain('"moduleResolution": "bundler"');
     expect(first.files["tsconfig.scripts.json"]).toContain('"module": "NodeNext"');
     expect(first.files["src/k-nex-registry.ts"]).toContain("salesRegistration");
+    expect(first.files["src/k-nex-registry.ts"]).toContain('surface: "admin"');
+    expect(first.files["src/k-nex-workspace-pages.ts"]).toContain("CurrentAuthorityWorkspacePageService");
     expect(first.files["src/k-nex-readiness.ts"]).toContain("K_NEX_APPLICATION_READY");
     expect(first.files["src/app/(payload)/api/[...slug]/route.ts"]).toContain("REST_GET(config)");
     expect(first.files["src/app/(workspace)/page.tsx"]).toContain("Customer Alpha");

@@ -88,6 +88,7 @@ const fixedRoutes = Object.freeze([
   ["system.route.permissions", "/system/access/permissions", "system.permissions.read", "Permissions", undefined, "system.navigation.root", "system.navigation.permissions", 20],
   ["system.route.assignments", "/system/access/assignments", "system.role-assignments.read", "Assignments", undefined, "system.navigation.root", "system.navigation.assignments", 30],
   ["system.route.extensions", "/system/extensions", "system.extensions.read", "Extensions", "apps", "system.navigation.root", "system.navigation.extensions", 40],
+  ["system.route.workspace-pages", "/system/workspace-pages", "system.workspace-pages.read", "Workspace pages", "dashboard", "system.navigation.root", "system.navigation.workspace-pages", 45],
   ["system.route.themes", "/system/themes", "system.themes.read", "Themes", undefined, "system.navigation.root", "system.navigation.themes", 50],
   ["system.route.settings", "/system/settings", "system.settings.read", "Settings", undefined, "system.navigation.root", "system.navigation.settings", 60],
   ["system.route.operations", "/system/operations", "system.operations.read", "Operations", undefined, "system.navigation.root", "system.navigation.operations", 70]

@@ -13,7 +13,7 @@ import {
 } from "@k-nex/contracts";
 import { createCurrentAuthorityTarget, type CurrentAuthorityAdapter } from "@k-nex/runtime";
 
-import { PostgresWorkspacePageStore, type WorkspacePageScope, type WorkspacePageSnapshot } from "./workspace-page-store.js";
+import { PostgresWorkspacePageStore, type WorkspacePageAuditEntry, type WorkspacePageScope, type WorkspacePageSnapshot } from "./workspace-page-store.js";
 
 type WorkspaceNavigationPlacement = WorkspacePage["navigation"];
 type WorkspacePageAccessAssignment = WorkspacePageAccessSnapshot["assignments"][number];
@@ -220,7 +220,7 @@ export class CurrentAuthorityWorkspacePageService<TContext> {
     return this.project(snapshot, impact, capability);
   }
 
-  async create(context: TContext, scope: WorkspacePageScope, input: Readonly<{ title: string; description?: string; placementSelection: unknown; themeSelection?: unknown; document: unknown; idempotencyKey: string }>, signal?: AbortSignal): Promise<WorkspacePageDetail> {
+  async create(context: TContext, scope: WorkspacePageScope, input: Readonly<{ title: string; description?: string; placementSelection: unknown; themeSelection?: unknown; regions: unknown; idempotencyKey: string }>, signal?: AbortSignal): Promise<WorkspacePageDetail> {
     const active = combineSignals(signal);
     const decision = await this.authorize(context, scope, "system.workspace-pages.create", undefined, "create", active);
     if (decision.effectiveActor.kind !== "user") failure("ACCESS_DENIED", "Workspace pages require a user actor.");
@@ -232,7 +232,8 @@ export class CurrentAuthorityWorkspacePageService<TContext> {
     ]);
     if (active.aborted) failure("ACCESS_DENIED", "Workspace page creation was revoked.");
     const occurredAt = iso(this.options.now);
-    const workingCopy = { schemaVersion: 1, identity, revision: 1, document: input.document, editorSessionId: "workspace-create-session", idempotencyKey: input.idempotencyKey, updatedBy: decision.effectiveActor, updatedAt: occurredAt };
+    const document = { schemaVersion: 1, id: identity.documentId, version: 1, profile: "workspace", regions: input.regions };
+    const workingCopy = { schemaVersion: 1, identity, revision: 1, document, editorSessionId: "workspace-create-session", idempotencyKey: input.idempotencyKey, updatedBy: decision.effectiveActor, updatedAt: occurredAt };
     const access = { schemaVersion: 1, identity, accessRevision: 0, assignments: [{ subject: { kind: "user", userId: decision.effectiveActor.id }, capability: "edit" }] };
     const page = { schemaVersion: 1, identity, title: input.title, ...(input.description === undefined ? {} : { description: input.description }), state: "draft", navigation, workingCopyRevision: 1, accessRevision: 0, ...(themeProfile === undefined ? {} : { themeProfile }), revision: 1, createdBy: decision.effectiveActor, updatedBy: decision.effectiveActor, createdAt: occurredAt, updatedAt: occurredAt };
     await this.authorize(context, scope, "system.workspace-pages.create", undefined, "create-commit", active);
@@ -276,6 +277,13 @@ export class CurrentAuthorityWorkspacePageService<TContext> {
     const { snapshot } = await this.authorizedSnapshot(context, scope, pageId, "system.workspace-pages.access.manage", "access-read", active, "edit");
     await this.authorize(context, scope, "system.workspace-pages.access.manage", pageId, "access-read-complete", active);
     return snapshot.access;
+  }
+
+  async audit(context: TContext, scope: WorkspacePageScope, pageId: string, limit = 100, signal?: AbortSignal): Promise<readonly WorkspacePageAuditEntry[]> {
+    const active = combineSignals(signal);
+    await this.authorizedSnapshot(context, scope, pageId, "system.workspace-pages.read", "audit", active, "view");
+    await this.authorize(context, scope, "system.workspace-pages.read", pageId, "audit-complete", active);
+    return this.options.store.listAudit((await this.locate(scope, pageId)).page.identity, limit);
   }
 
   async publish(context: TContext, scope: WorkspacePageScope, pageId: string, idempotencyKey: string, signal?: AbortSignal): Promise<WorkspacePublicationReceipt> {
@@ -322,7 +330,27 @@ export class CurrentAuthorityWorkspacePageService<TContext> {
   }
 
   async reconcile(context: TContext, scope: WorkspacePageScope, signal?: AbortSignal): Promise<readonly WorkspacePageListItem[]> {
-    return this.list(context, scope, signal);
+    const active = combineSignals(signal);
+    await this.authorize(context, scope, "system.workspace-pages.edit", undefined, "reconcile", active);
+    for (const page of await this.options.store.list(scope)) {
+      if (page.state === "archived" || page.navigation.state !== "placed" || active.aborted) continue;
+      const snapshot = await this.options.store.read(page.identity);
+      if (!snapshot) continue;
+      const impact = await this.impact(context, snapshot, active);
+      const reason = impact.code === "plugin-removed" ? "parent-missing"
+        : impact.code === "plugin-disabled" || impact.code === "plugin-quarantined" ? "parent-inactive" : undefined;
+      if (reason === undefined) continue;
+      const decision = await this.authorize(context, scope, "system.workspace-pages.edit", page.identity.pageId, "reconcile-page", active, false);
+      if (!decision || await safeCall(() => this.options.acl.allows({ context, decision, snapshot, capability: "edit", signal: active })) !== true) continue;
+      const reconciled = { ...snapshot.page, navigation: { state: "unplaced" as const, reason }, revision: snapshot.page.revision + 1, updatedBy: decision.effectiveActor, updatedAt: iso(this.options.now) };
+      await this.authorize(context, scope, "system.workspace-pages.edit", page.identity.pageId, "reconcile-commit", active);
+      await this.options.store.updateMetadata({
+        currentRevision: snapshot.page.revision,
+        page: reconciled,
+        idempotencyKey: `workspace-reconcile-${snapshot.page.revision}-${impact.catalogRevision}`
+      });
+    }
+    return this.list(context, scope, active);
   }
 
   private async locate(scope: WorkspacePageScope, pageId: string): Promise<WorkspacePageSnapshot> {

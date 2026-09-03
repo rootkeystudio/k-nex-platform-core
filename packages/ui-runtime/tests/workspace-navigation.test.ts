@@ -103,8 +103,8 @@ describe("P12.4 workspace navigation resolution", () => {
       authorize: async (permissionId) => permissionId === "system.workspace-pages.read",
       pageAccess: async () => false
     }));
-    expect(resolved.tree.nodes.map(({ id }) => id)).toEqual(["k-nex.navigation.root", "k-nex.navigation.workspace", "system.navigation.root"]);
-    expect(resolved.routes.map(({ href }) => href)).toEqual(["/"]);
+    expect(resolved.tree.nodes.map(({ id }) => id)).toEqual(["k-nex.navigation.root", "k-nex.navigation.workspace", "system.navigation.workspace-pages", "system.navigation.root"]);
+    expect(resolved.routes.map(({ href }) => href)).toEqual(["/", "/system/workspace-pages"]);
     expect(resolved.favorites).toEqual([]);
     expect(JSON.stringify(resolved)).not.toContain("sales.route.overview");
     expect(JSON.stringify(resolved)).not.toContain("customer.page.pipeline");

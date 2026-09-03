@@ -30,10 +30,10 @@ if (releaseManifestPath !== undefined && packageMirror !== undefined) {
 const plan = planCreateKnexApplication({ applicationId, applicationName, theme, database, ...(packageSource === undefined ? {} : { packageSource }) });
 if (args.includes("--plan-only")) {
   process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
-  process.exit(0);
+} else {
+  const result = applyCreateKnexApplication(plan, directory);
+  if (!args.includes("--no-install")) {
+    for (const [command, ...commandArgs] of plan.installCommands) execFileSync(command, commandArgs, { cwd: directory, stdio: "inherit" });
+  }
+  process.stdout.write(`Created ${plan.applicationId}: ${result.written.length} written, ${result.unchanged.length} unchanged.\n`);
 }
-const result = applyCreateKnexApplication(plan, directory);
-if (!args.includes("--no-install")) {
-  for (const [command, ...commandArgs] of plan.installCommands) execFileSync(command, commandArgs, { cwd: directory, stdio: "inherit" });
-}
-process.stdout.write(`Created ${plan.applicationId}: ${result.written.length} written, ${result.unchanged.length} unchanged.\n`);

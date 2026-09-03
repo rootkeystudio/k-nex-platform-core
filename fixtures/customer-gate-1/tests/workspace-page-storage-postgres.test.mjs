@@ -6,7 +6,7 @@ import test from "node:test";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import pg from "pg";
 
-import { PostgresWorkspacePageStore } from "@k-nex/payload-adapter";
+import { PostgresWorkspaceNavigationStore, PostgresWorkspacePageStore } from "@k-nex/payload-adapter";
 
 const POSTGRES_IMAGE = "postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94";
 const fixtureDirectory = fileURLToPath(new URL("..", import.meta.url));
@@ -49,6 +49,7 @@ test("P12.5 stores workspace pages, ACL, CAS copies, immutable publications, rol
   try {
     await boot(container.getConnectionUri());
     const store = new PostgresWorkspacePageStore(pool, () => new Date(instant));
+    const navigationStore = new PostgresWorkspaceNavigationStore(pool, () => new Date(instant));
     const alpha = values();
     const beta = values("customer-beta");
 
@@ -58,6 +59,12 @@ test("P12.5 stores workspace pages, ACL, CAS copies, immutable publications, rol
     await store.create({ page: beta.page, access: beta.access, workingCopy: beta.workingCopy, idempotencyKey: "workspace-create-beta" });
     assert.equal((await store.list({ applicationId: "customer-alpha", environment: "production" })).length, 1);
     assert.equal((await store.list({ applicationId: "customer-beta", environment: "production" })).length, 1);
+
+    const folder = { id: "customer.folder.reports", owner: { kind: "customer" }, kind: "folder", parentId: "sales.navigation.root", label: "Reports", icon: "folder", order: 20 };
+    assert.deepEqual(await navigationStore.create({ applicationId: "customer-alpha", environment: "production" }, folder, actor), { node: folder, revision: 1 });
+    assert.deepEqual(await navigationStore.update({ applicationId: "customer-alpha", environment: "production" }, { ...folder, order: 30 }, 1, actor), { node: { ...folder, order: 30 }, revision: 2 });
+    await assert.rejects(navigationStore.update({ applicationId: "customer-alpha", environment: "production" }, { ...folder, order: 40 }, 1, actor), { code: "REVISION_CONFLICT" });
+    assert.equal((await navigationStore.list({ applicationId: "customer-beta", environment: "production" })).length, 0);
 
     const save = { expectedRevision: 1, editorSessionId: "editor-session-one", idempotencyKey: "workspace-save-one", document: { ...alpha.document, version: 2 } };
     const saved = await store.saveWorkingCopy(alpha.identity, save, actor);
@@ -136,6 +143,7 @@ test("P12.5 stores workspace pages, ACL, CAS copies, immutable publications, rol
     restoredPool = new pg.Pool({ connectionString: restoredUrl.toString() });
     const restored = await new PostgresWorkspacePageStore(restoredPool).read(alpha.identity);
     assert.deepEqual(restored, persisted, "physical restore must preserve working copy, ACL, theme, pointer, dependency snapshot, and archive state");
+    assert.deepEqual(await new PostgresWorkspaceNavigationStore(restoredPool).list({ applicationId: "customer-alpha", environment: "production" }), [{ node: { ...folder, order: 30 }, revision: 2 }], "physical restore must preserve customer folders and order");
   } finally {
     await restoredPool?.end().catch(() => {});
     await pool.end().catch(() => {});

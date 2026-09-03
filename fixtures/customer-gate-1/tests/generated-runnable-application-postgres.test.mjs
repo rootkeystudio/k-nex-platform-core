@@ -158,7 +158,7 @@ test("P12.4 generated app serves an authority-filtered accessible workspace shel
     const foreignPlan = planCreateKnexApplication({ applicationId: "p12-foreign-proof", applicationName: "P12 Foreign Proof", theme: "minimal", database: "external", packageSource });
     applyCreateKnexApplication(foreignPlan, foreignApplication);
     symlinkSync(join(application, "node_modules"), join(foreignApplication, "node_modules"), "dir");
-    run("pnpm", ["build:scripts"], { cwd: foreignApplication, env: applicationEnvironment, stdio: "pipe" });
+    run(join(foreignApplication, "node_modules", ".bin", "tsc"), ["-p", "tsconfig.scripts.json"], { cwd: foreignApplication, env: applicationEnvironment, stdio: "pipe" });
     const wrongApplicationOutput = failedRun("node", ["dist/k-nex-bootstrap-owner.js", "--token-file", tokenFile], {
       cwd: foreignApplication, env: ownerEnvironment, stdio: "pipe"
     });

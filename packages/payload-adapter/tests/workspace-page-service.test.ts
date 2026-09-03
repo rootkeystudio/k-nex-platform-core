@@ -62,6 +62,7 @@ function setup(initial: WorkspacePageSnapshot | null = baseSnapshot) {
   const replaceAccess = vi.fn(async (input: any) => input.access);
   const saveWorkingCopy = vi.fn(async (_identity: unknown, change: any, updatedBy: unknown) => ({ schemaVersion: 1, identity, revision: change.document.version, document: change.document, editorSessionId: change.editorSessionId, idempotencyKey: change.idempotencyKey, updatedBy, updatedAt: occurredAt }));
   const rollback = vi.fn(async (input: any) => input.receipt);
+  const listAudit = vi.fn(async () => [{ auditId: "audit-one", operation: "create", pageRevision: 1, workingCopyRevision: 1, accessRevision: 0, actor, occurredAt }]);
   const store = {
     list: vi.fn(async () => snapshot ? [snapshot.page] : []),
     read: vi.fn(async () => snapshot),
@@ -70,6 +71,7 @@ function setup(initial: WorkspacePageSnapshot | null = baseSnapshot) {
     create,
     publish,
     rollback,
+    listAudit,
     replaceAccess,
     saveWorkingCopy,
     updateMetadata: vi.fn(async (input: any) => input.page)
@@ -123,16 +125,18 @@ describe("P12.6 current-authority workspace page service", () => {
     const [listed] = await value.service.list(reader, scope);
     expect(listed).toEqual({ page: baseSnapshot.page, impact: { state: "ready", catalogRevision: 1, dependencyDigest } });
     expect("snapshot" in listed!).toBe(false);
+    expect(await value.service.audit(reader, scope, identity.pageId, 10)).toEqual([{ auditId: "audit-one", operation: "create", pageRevision: 1, workingCopyRevision: 1, accessRevision: 0, actor, occurredAt }]);
     expect(value.authorityCalls.every((target) => target.permissionId.startsWith("system.workspace-pages."))).toBe(true);
   });
 
   it("derives page, placement, theme, actor, and document identity on the server", async () => {
     const value = setup(null);
-    const created = await value.service.create(owner, scope, { title: "Pipeline", placementSelection: "sales-parent", themeSelection: "minimal", document, idempotencyKey: "workspace-create-one" });
+    const created = await value.service.create(owner, scope, { title: "Pipeline", placementSelection: "sales-parent", themeSelection: "minimal", regions: document.regions, idempotencyKey: "workspace-create-one" });
     expect(created.page.identity).toEqual(identity);
     expect(created.page.navigation).toEqual({ state: "placed", parentNavigationId: "sales.navigation.root", order: 20 });
     expect(created.page.themeProfile).toEqual({ profileId: "workspace.theme-profile", revisionId: "workspace.theme-revision", surface: "admin" });
     expect((value.store.create.mock.calls[0]![0] as any).access.assignments).toEqual([{ subject: { kind: "user", userId: owner.userId }, capability: "edit" }]);
+    expect((value.store.create.mock.calls[0]![0] as any).workingCopy.document).toEqual(document);
     expect(value.store.create).toHaveBeenCalledOnce();
   });
 
@@ -175,6 +179,18 @@ describe("P12.6 current-authority workspace page service", () => {
     value.setImpact({ state: "ready", catalogRevision: 1, dependencyDigest });
     expect((await value.service.detail(reader, scope, identity.pageId, "view")).impact).toMatchObject({ state: "dependency-unavailable", catalogRevision: 2 });
     expect(value.catalog.impact).toHaveBeenCalledTimes(3);
+  });
+
+  it("durably unplaces an authorized page after its plugin parent disappears", async () => {
+    const value = setup();
+    value.setImpact({ state: "dependency-unavailable", code: "plugin-removed", catalogRevision: 2, dependencyDigest });
+    const result = await value.service.reconcile(owner, scope);
+    expect(value.store.updateMetadata).toHaveBeenCalledWith(expect.objectContaining({
+      currentRevision: 1,
+      idempotencyKey: "workspace-reconcile-1-2",
+      page: expect.objectContaining({ navigation: { state: "unplaced", reason: "parent-missing" }, revision: 2 })
+    }));
+    expect(result).toHaveLength(1);
   });
 
   it.each(["plugin-disabled", "plugin-updated", "plugin-removed", "theme-unavailable", "source-unavailable", "action-unavailable"] as const)("projects %s from fresh catalog truth", async (code) => {

@@ -28,6 +28,20 @@ export const kNexWorkspacePageSchemaMigration = Object.freeze({
       );
       CREATE INDEX "k_nex_workspace_pages_list_idx" ON "k_nex_workspace_pages" ("application_id", "environment", "state", "page_id");
 
+      CREATE TABLE "k_nex_workspace_navigation_folders" (
+        "application_id" varchar(128) NOT NULL,
+        "environment" varchar(64) NOT NULL,
+        "folder_id" varchar(160) NOT NULL,
+        "revision" integer NOT NULL,
+        "node_json" jsonb NOT NULL,
+        "updated_by_json" jsonb NOT NULL,
+        "updated_at" timestamp(3) with time zone NOT NULL,
+        PRIMARY KEY ("application_id", "environment", "folder_id"),
+        CONSTRAINT "k_nex_workspace_navigation_folders_revision_check" CHECK ("revision" BETWEEN 1 AND 1000000000),
+        CONSTRAINT "k_nex_workspace_navigation_folders_node_json_check" CHECK (jsonb_typeof("node_json")='object'),
+        CONSTRAINT "k_nex_workspace_navigation_folders_actor_json_check" CHECK (jsonb_typeof("updated_by_json")='object')
+      );
+
       CREATE TABLE "k_nex_workspace_page_access" (
         "application_id" varchar(128) NOT NULL,
         "environment" varchar(64) NOT NULL,
@@ -173,6 +187,7 @@ export const kNexWorkspacePageSchemaMigration = Object.freeze({
       DROP TABLE "k_nex_workspace_published_revisions";
       DROP TABLE "k_nex_workspace_working_copies";
       DROP TABLE "k_nex_workspace_page_access";
+      DROP TABLE "k_nex_workspace_navigation_folders";
       DROP TABLE "k_nex_workspace_pages";
     `);
   }

@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest";
 import {
   SystemAuthorizationAuditPage, SystemAssignmentsPage, SystemExtensionDetailPage, SystemExtensionsPage,
   SystemPermissionsPage, SystemRoleDetailPage, SystemRolesPage, SystemTemplatesPage,
-  SystemOperationDetailPage, SystemOperationsPage, SystemSettingsDetailPage, SystemSettingsPage, SystemThemeProfileDetailPage, SystemThemesPage
+  SystemOperationDetailPage, SystemOperationsPage, SystemSettingsDetailPage, SystemSettingsPage, SystemThemeProfileDetailPage, SystemThemesPage,
+  SystemWorkspacePageDetailPage, SystemWorkspacePagesPage
 } from "../src/index.js";
 
 const action = { label: "Review and apply", confirmation: { title: "Confirm change", description: "The server will recheck authority, revision, impact, approval, and audit requirements." } };
@@ -24,7 +25,7 @@ function formAction(label: string, actionUrl: string) {
 }
 
 describe("system administration pages", () => {
-  it("renders the fourteen fixed administration routes from server-produced view models", () => {
+  it("renders the sixteen fixed administration routes from server-produced view models", () => {
     const pages = [
       <SystemRolesPage view={{ title: "Roles", roles: [{ id: "owner", label: "Owner", href: "/system/access/roles/owner", permissionCount: "2", assignmentCount: "1", state: "active" }], createRole: formAction("Create role", "/api/system/access/roles") }} />,
       <SystemRoleDetailPage view={{ title: "Role", roleLabel: "Manager", roleState: "active", activePermissionGroups: [{ owner: "Platform system", resources: [{ resource: "roles", operations: [{ operation: "manage", permissions: [{ label: "system.roles.manage", add: formAction("Add permission", "/api/system/access/roles/manager/permissions"), remove: formAction("Remove permission", "/api/system/access/grants/grant-roles-manage/remove") }] }] }] }], templates: [{ id: "sales-manager", title: "Sales manager", instantiate: formAction("Instantiate template", "/api/system/access/templates/instantiate"), copySelected: formAction("Copy template permissions", "/api/system/access/templates/copy") }], inactiveDiagnostics: [{ id: "retired", label: "sales.pipeline.manage", state: "inactive-generation-retired", detail: "The retired generation cannot authorize." }], save: action }} />,
@@ -39,15 +40,18 @@ describe("system administration pages", () => {
       <SystemOperationsPage view={{ title: "Operations", revision: "7", operations: [{ id: "backup-operation-1", source: "backup", href: "/system/operations/backup-operation-1", state: "completed", receipt: "backup-receipt-1" }], health: [{ id: "health-1", source: "backup", state: "ready", revision: "7", checks: "backup.fresh, restore.clean" }], backup: formAction("Request backup", "/api/system/operations/backup"), restoreDrill: { ...formAction("Request restore drill", "/api/system/operations/restore-drill"), confirmation: { title: "Approve clean restore drill", description: "A separate operator restores into a clean environment.", confirmLabel: "Approve restore drill" } } }} />,
       <SystemOperationDetailPage view={{ title: "Operation", operationId: "backup-operation-1", source: "backup", operationState: "completed", receipt: "backup-receipt-1", inventory: "sha256:aaaa", audit: "user:owner" }} />,
       <SystemSettingsPage view={{ title: "Settings", settings: [{ id: "platform.general", label: "General", href: "/system/settings/platform.general", owner: "Platform system", state: "effective", revision: "3" }] }} />,
-      <SystemSettingsDetailPage view={{ title: "Settings", settingsId: "platform.general", settingsLabel: "General", owner: "Platform system", documentState: "effective", fields: [{ id: "siteName", label: "Site name", value: "K-Nex", state: "visible" }, { id: "apiKey", label: "API key", value: "••••••", state: "secret-reference" }], save: { ...formAction("Save settings", "/api/system/settings/platform.general"), form: { ...formAction("Save settings", "/api/system/settings/platform.general").form, textArea: { name: "values", label: "Settings JSON", value: '{"siteName":"K-Nex"}' } } } }} />
+      <SystemSettingsDetailPage view={{ title: "Settings", settingsId: "platform.general", settingsLabel: "General", owner: "Platform system", documentState: "effective", fields: [{ id: "siteName", label: "Site name", value: "K-Nex", state: "visible" }, { id: "apiKey", label: "API key", value: "••••••", state: "secret-reference" }], save: { ...formAction("Save settings", "/api/system/settings/platform.general"), form: { ...formAction("Save settings", "/api/system/settings/platform.general").form, textArea: { name: "values", label: "Settings JSON", value: '{"siteName":"K-Nex"}' } } } }} />,
+      <SystemWorkspacePagesPage view={{ title: "Workspace pages", folders: [{ id: "customer.folder.reports", label: "Reports", parent: "Sales", order: "20", revision: "1", update: formAction("Update folder", "/api/system/workspace-folders/customer.folder.reports") }], pages: [{ id: "workspace.page.sales", title: "Sales board", href: "/system/workspace-pages/workspace.page.sales", state: "published", placement: "Sales / 20", theme: "workspace.theme.default@workspace.theme.revision", impact: "ready", revision: "3/2/1" }], create: { label: "Create page", form: { actionUrl: "/api/system/workspace-pages", inputs: [{ name: "title", label: "Title", type: "text" }, { name: "parent", label: "Folder", type: "select", options: [{ value: "sales.navigation.root", label: "Sales" }] }] } }, createFolder: { label: "Create folder", form: { actionUrl: "/api/system/workspace-folders", inputs: [{ name: "label", label: "Folder name", type: "text" }] } } }} />,
+      <SystemWorkspacePageDetailPage view={{ title: "Workspace page", pageId: "workspace.page.sales", pageTitle: "Sales board", pageState: "published", placement: "Sales / 20", theme: "workspace.theme.default@workspace.theme.revision", impact: "ready", viewHref: "/workspace/pages/workspace.page.sales", editorHref: "/workspace/pages/workspace.page.sales/edit", access: [{ subject: "role:customer.sales-manager", capability: "view" }], audit: [{ id: "audit-one", operation: "publish", actor: "user:owner", revision: "3/2/1", occurredAt: "2026-09-03T08:00:00.000Z" }], archive: { ...formAction("Archive page", "/api/system/workspace-pages/workspace.page.sales/archive"), confirmation: { title: "Archive Sales board", description: "The page leaves navigation but retains its history." } } }} />
     ];
     const markup = pages.map((page) => renderToStaticMarkup(page)).join("\n");
-    expect(markup.match(/<main/g)).toHaveLength(14);
-    expect(markup.match(/data-k-nex-component="skip-link"/g)).toHaveLength(14);
-    expect(markup.match(/aria-label="System administration"/g)).toHaveLength(14);
+    expect(markup.match(/<main/g)).toHaveLength(16);
+    expect(markup.match(/data-k-nex-component="skip-link"/g)).toHaveLength(16);
+    expect(markup.match(/aria-label="System administration"/g)).toHaveLength(16);
     expect(markup).toContain("Active permissions");
     expect(markup).toContain("inactive-generation-retired");
     expect(markup).toContain("Data may be stale");
+    expect(markup).toContain("Create folder");
     expect(markup).toContain("Access denied");
     expect(markup).toContain("maintenance-required");
     expect(markup).toContain('aria-label="Roles"');
@@ -68,6 +72,10 @@ describe("system administration pages", () => {
     expect(markup).toContain('aria-label="System health"');
     expect(markup).toContain('action="/api/system/settings/platform.general"');
     expect(markup).toContain("••••••");
+    expect(markup).toContain('action="/api/system/workspace-pages"');
+    expect(markup).toContain('name="parent"');
+    expect(markup).toContain('aria-label="Workspace page access"');
+    expect(markup).toContain('aria-label="Workspace page audit"');
   });
 
   it("renders server-projected native POST forms without client authority fields", () => {

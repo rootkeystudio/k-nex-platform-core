@@ -21,6 +21,15 @@ export interface SystemAdministrationForm {
     readonly label: string;
     readonly options: readonly Readonly<{ readonly value: string; readonly label: string; readonly selected?: boolean }>[];
   }>;
+  readonly inputs?: readonly Readonly<{
+    readonly name: string;
+    readonly label: string;
+    readonly type: "text" | "number" | "select";
+    readonly value?: string | number;
+    readonly min?: number;
+    readonly max?: number;
+    readonly options?: readonly Readonly<{ readonly value: string; readonly label: string }>[];
+  }>[];
 }
 
 export interface SystemAdministrationAction {
@@ -303,6 +312,62 @@ export interface SystemSettingsDetailViewModel extends SystemAdministrationPageV
   readonly save?: SystemAdministrationAction;
 }
 
+export interface SystemWorkspacePageListItem {
+  readonly id: string;
+  readonly title: string;
+  readonly href: string;
+  readonly state: string;
+  readonly placement: string;
+  readonly theme: string;
+  readonly impact: string;
+  readonly revision: string;
+}
+
+export interface SystemWorkspaceFolderListItem {
+  readonly id: string;
+  readonly label: string;
+  readonly parent: string;
+  readonly order: string;
+  readonly revision: string;
+  readonly update?: SystemAdministrationAction;
+}
+
+export interface SystemWorkspacePagesViewModel extends SystemAdministrationPageView {
+  readonly pages: readonly SystemWorkspacePageListItem[];
+  readonly folders: readonly SystemWorkspaceFolderListItem[];
+  readonly create?: SystemAdministrationAction;
+  readonly createFolder?: SystemAdministrationAction;
+}
+
+export interface SystemWorkspacePageAccessItem {
+  readonly subject: string;
+  readonly capability: "view" | "edit";
+}
+
+export interface SystemWorkspacePageAuditItem {
+  readonly id: string;
+  readonly operation: string;
+  readonly actor: string;
+  readonly revision: string;
+  readonly occurredAt: string;
+}
+
+export interface SystemWorkspacePageDetailViewModel extends SystemAdministrationPageView {
+  readonly pageId: string;
+  readonly pageTitle: string;
+  readonly pageState: string;
+  readonly placement: string;
+  readonly theme: string;
+  readonly impact: string;
+  readonly viewHref?: string;
+  readonly editorHref?: string;
+  readonly access: readonly SystemWorkspacePageAccessItem[];
+  readonly audit: readonly SystemWorkspacePageAuditItem[];
+  readonly saveMetadata?: SystemAdministrationAction;
+  readonly replaceAccess?: SystemAdministrationAction;
+  readonly archive?: SystemAdministrationAction;
+}
+
 const systemNavigation = [
   { id: "settings", label: "Settings", href: "/system/settings" },
   { id: "roles", label: "Roles", href: "/system/access/roles" },
@@ -312,7 +377,8 @@ const systemNavigation = [
   { id: "audit", label: "Authorization audit", href: "/system/access/audit" },
   { id: "extensions", label: "Extensions", href: "/system/extensions" },
   { id: "themes", label: "Themes", href: "/system/themes" },
-  { id: "operations", label: "Operations", href: "/system/operations" }
+  { id: "operations", label: "Operations", href: "/system/operations" },
+  { id: "workspace-pages", label: "Workspace pages", href: "/system/workspace-pages" }
 ] as const;
 
 function administrationNavigation(current: string): ReactElement {
@@ -324,6 +390,9 @@ function actionControl(action: SystemAdministrationAction): ReactElement {
     {action.form.hiddenFields?.map((field) => <input key={field.name} type="hidden" name={field.name} value={field.value} />)}
     {action.form.textArea === undefined ? null : <label>{action.form.textArea.label}<textarea name={action.form.textArea.name} defaultValue={action.form.textArea.value} rows={action.form.textArea.rows ?? 16} /></label>}
     {action.form.selection === undefined ? null : <fieldset><legend>{action.form.selection.label}</legend>{action.form.selection.options.map((option) => <label key={option.value}><input type="checkbox" name={action.form!.selection!.name} value={option.value} defaultChecked={option.selected === true} />{option.label}</label>)}</fieldset>}
+    {action.form.inputs?.map((input) => <label key={input.name}>{input.label}{input.type === "select"
+      ? <select name={input.name} defaultValue={String(input.value ?? "")}>{input.options?.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
+      : <input name={input.name} type={input.type} defaultValue={input.value} {...(input.min === undefined ? {} : { min: input.min })} {...(input.max === undefined ? {} : { max: input.max })} />}</label>)}
     {action.confirmation === undefined ? null : <><Text element="p" weight="strong">{action.confirmation.title}</Text><Text element="p">{action.confirmation.description}</Text></>}
     <Button type="submit" {...(action.disabled === undefined ? {} : { isDisabled: action.disabled })}>{action.confirmation?.confirmLabel ?? action.label}</Button>
   </form>;
@@ -452,5 +521,25 @@ export function SystemSettingsDetailPage({ view }: { readonly view: SystemSettin
     <section aria-label="Settings identity"><Heading level={2}>{view.settingsLabel}</Heading><Text>{view.settingsId}</Text><Text>{view.owner}</Text><Badge>{view.documentState}</Badge></section>
     {rows("Settings fields", ["Field", "Value", "State"], view.fields.map((field) => [field.label, field.value, field.state]))}
     {view.save === undefined ? null : <section aria-label="Settings action">{actionControl(view.save)}</section>}
+  </Stack>);
+}
+
+export function SystemWorkspacePagesPage({ view }: { readonly view: SystemWorkspacePagesViewModel }): ReactElement {
+  return administrationPage(view, "workspace-pages", <Stack gap="content">
+    {view.create === undefined ? null : <section aria-label="Create workspace page"><Heading level={2}>Create page</Heading>{actionControl(view.create)}</section>}
+    {view.createFolder === undefined ? null : <section aria-label="Create workspace folder"><Heading level={2}>Create folder</Heading>{actionControl(view.createFolder)}</section>}
+    {rows("Workspace folders", ["Folder", "Parent", "Order", "Revision", "Action"], view.folders.map((folder) => [folder.label, folder.parent, folder.order, folder.revision, folder.update === undefined ? "—" : actionControl(folder.update)]))}
+    {rows("Workspace pages", ["Page", "State", "Placement", "Theme", "Dependencies", "Revision"], view.pages.map((page) => [<a key={page.id} href={page.href}>{page.title}</a>, page.state, page.placement, page.theme, page.impact, page.revision]))}
+  </Stack>);
+}
+
+export function SystemWorkspacePageDetailPage({ view }: { readonly view: SystemWorkspacePageDetailViewModel }): ReactElement {
+  return administrationPage(view, "workspace-pages", <Stack gap="content">
+    <section aria-label="Workspace page identity"><Heading level={2}>{view.pageTitle}</Heading><Text>{view.pageId}</Text><Badge>{view.pageState}</Badge>{view.viewHref === undefined ? null : <a href={view.viewHref}>Open page</a>}{view.editorHref === undefined ? null : <a href={view.editorHref}>Edit page</a>}</section>
+    {rows("Workspace page state", ["Placement", "Theme", "Dependencies"], [[view.placement, view.theme, view.impact]])}
+    <section aria-label="Workspace page metadata"><Heading level={2}>Metadata</Heading>{view.saveMetadata === undefined ? <Text>No metadata action available.</Text> : actionControl(view.saveMetadata)}</section>
+    <section aria-label="Workspace page access"><Heading level={2}>Access</Heading>{rows("Workspace page access assignments", ["Subject", "Capability"], view.access.map((item) => [item.subject, item.capability]))}{view.replaceAccess === undefined ? null : actionControl(view.replaceAccess)}</section>
+    <section aria-label="Workspace page audit"><Heading level={2}>Audit</Heading>{rows("Workspace page audit events", ["Time", "Operation", "Actor", "Revision"], view.audit.map((item) => [item.occurredAt, item.operation, item.actor, item.revision]))}</section>
+    {view.archive === undefined ? null : <section aria-label="Archive workspace page"><Heading level={2}>Archive</Heading>{actionControl(view.archive)}</section>}
   </Stack>);
 }

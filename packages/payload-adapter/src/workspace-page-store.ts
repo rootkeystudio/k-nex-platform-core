@@ -54,6 +54,17 @@ export interface WorkspacePageSnapshot {
   }>;
 }
 
+export interface WorkspacePageAuditEntry {
+  readonly auditId: string;
+  readonly operation: WorkspacePageOperationKind;
+  readonly pageRevision: number;
+  readonly workingCopyRevision: number;
+  readonly accessRevision: number;
+  readonly pointerRevision?: number;
+  readonly actor: AuthorizationSubject;
+  readonly occurredAt: string;
+}
+
 export type WorkspacePageOperationKind = "create" | "metadata" | "working-copy" | "access" | "publish" | "rollback";
 
 interface PageRow {
@@ -83,6 +94,13 @@ interface OperationRow {
   operation_kind: string;
   request_digest: string;
   result_json: unknown;
+}
+
+interface AuditRow {
+  audit_id: string;
+  operation_kind: string;
+  event_json: unknown;
+  created_at: Date | string;
 }
 
 interface MutationResult<T> {
@@ -421,6 +439,39 @@ export class PostgresWorkspacePageStore {
       [identity.applicationId, identity.environment, identity.pageId, revisionId]
     );
     return result.rows[0] ? parsePublishedRevision(result.rows[0].revision_json) : undefined;
+  }
+
+  async listAudit(identityValue: unknown, limit = 100): Promise<readonly WorkspacePageAuditEntry[]> {
+    const identity = parseIdentity(identityValue);
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500) fail("INVALID_INPUT", "Workspace page audit limit is invalid.");
+    const result = await this.pool.query<AuditRow>(
+      `select audit_id, operation_kind, event_json, created_at from k_nex_workspace_page_audit where application_id=$1 and environment=$2 and page_id=$3 order by created_at desc, audit_id desc limit $4`,
+      [identity.applicationId, identity.environment, identity.pageId, limit]
+    );
+    return Object.freeze(result.rows.map((row) => {
+      const event = row.event_json;
+      if (typeof event !== "object" || event === null || Array.isArray(event)) fail("RESTORE_INVALID", "Workspace page audit event is invalid.");
+      const value = event as Record<string, unknown>;
+      const actor = AuthorizationSubjectSchema.safeParse(value.actor);
+      const occurredAt = row.created_at instanceof Date ? row.created_at : new Date(row.created_at);
+      const operation = row.operation_kind;
+      const validOperation = ["create", "metadata", "working-copy", "access", "publish", "rollback"].includes(operation);
+      if (!actor.success || !validOperation || value.applicationId !== identity.applicationId || value.environment !== identity.environment || value.pageId !== identity.pageId ||
+        ![value.pageRevision, value.workingCopyRevision, value.accessRevision].every((revision) => Number.isSafeInteger(revision) && Number(revision) >= 0) ||
+        value.pointerRevision !== undefined && (!Number.isSafeInteger(value.pointerRevision) || Number(value.pointerRevision) < 1) || Number.isNaN(occurredAt.valueOf())) {
+        fail("RESTORE_INVALID", "Workspace page audit projection is invalid.");
+      }
+      return Object.freeze({
+        auditId: row.audit_id,
+        operation: operation as WorkspacePageOperationKind,
+        pageRevision: value.pageRevision as number,
+        workingCopyRevision: value.workingCopyRevision as number,
+        accessRevision: value.accessRevision as number,
+        ...(value.pointerRevision === undefined ? {} : { pointerRevision: value.pointerRevision as number }),
+        actor: actor.data,
+        occurredAt: occurredAt.toISOString()
+      });
+    }));
   }
 
   private async mutate<T>(
