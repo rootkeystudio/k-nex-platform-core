@@ -84,7 +84,7 @@
       "package": "@k-nex/payload-adapter",
       "version": "1.0.0",
       "role": "core",
-      "integrity": "sha512-BK1RjgaNTKZ+Pcd/QO+hGpag+iyYjSgT+VxMCBy6XT/8tGxnHTfzoWSsUDkzp2y2fHq5lxT31dXF40MmG6Rj5Q==",
+      "integrity": "sha512-ACMI4UkppuCn2t5rTNIHQpTiyR3K71loUVvnN8jZTEtJsV5OZhVs0llf26U5nOiRwB23k2QTtT2mrnZYjSXdUw==",
       "peerCompatibility": {
         "core": "1.0.0",
         "payload": "3.88.0",

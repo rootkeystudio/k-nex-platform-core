@@ -252,6 +252,16 @@ export class PostgresWorkspacePageStore {
     }
   }
 
+  async readByPageId(scope: WorkspacePageScope, pageId: string): Promise<WorkspacePageSnapshot | undefined> {
+    assertScope(scope);
+    const result = await this.pool.query<PageRow>(
+      `select page_json from k_nex_workspace_pages where application_id=$1 and environment=$2 and page_id=$3`,
+      [scope.applicationId, scope.environment, pageId]
+    );
+    if (!result.rows[0]) return undefined;
+    return this.read(parsePage(result.rows[0].page_json).identity);
+  }
+
   async create(input: Readonly<{
     page: unknown;
     access: unknown;
@@ -289,7 +299,7 @@ export class PostgresWorkspacePageStore {
     if (change.data.document.id !== identity.documentId || change.data.document.version !== change.data.expectedRevision + 1) fail("INVALID_INPUT", "Workspace working-copy document revision is invalid.");
     return this.mutate(identity, "working-copy", change.data.idempotencyKey, change.data, updatedBy, parseWorkingCopy, async (session) => {
       const current = await this.readPageLocked(session, identity);
-      if (current.workingCopyRevision !== change.data.expectedRevision) fail("REVISION_CONFLICT", "Workspace working copy changed in another editor.");
+      if (current.state === "archived" || current.workingCopyRevision !== change.data.expectedRevision) fail("REVISION_CONFLICT", "Workspace working copy changed or is archived.");
       const occurredAt = timestamp(this.now);
       const workingCopy = parseWorkingCopy({ schemaVersion: 1, identity, revision: change.data.document.version, document: change.data.document, editorSessionId: change.data.editorSessionId, idempotencyKey: change.data.idempotencyKey, updatedBy, updatedAt: occurredAt });
       const page = parsePage({ ...current, workingCopyRevision: workingCopy.revision, revision: current.revision + 1, updatedBy, updatedAt: occurredAt });
@@ -337,7 +347,7 @@ export class PostgresWorkspacePageStore {
     if (access.accessRevision !== input.expectedAccessRevision + 1) fail("REVISION_CONFLICT", "Workspace page access revision is not the next revision.");
     return this.mutate(access.identity, "access", input.idempotencyKey, input, updatedBy, parseAccess, async (session) => {
       const current = await this.readPageLocked(session, access.identity);
-      if (current.revision !== input.expectedPageRevision || current.accessRevision !== input.expectedAccessRevision) fail("REVISION_CONFLICT", "Workspace page access changed.");
+      if (current.state === "archived" || current.revision !== input.expectedPageRevision || current.accessRevision !== input.expectedAccessRevision) fail("REVISION_CONFLICT", "Workspace page access changed or is archived.");
       const occurredAt = timestamp(this.now);
       const page = parsePage({ ...current, accessRevision: access.accessRevision, revision: current.revision + 1, updatedBy, updatedAt: occurredAt });
       await session.query(`delete from k_nex_workspace_page_access where application_id=$1 and environment=$2 and page_id=$3`, [access.identity.applicationId, access.identity.environment, access.identity.pageId]);
@@ -368,7 +378,7 @@ export class PostgresWorkspacePageStore {
         canonicalJson(revision.document) !== canonicalJson(workingCopy.document) || revision.accessRevision !== current.accessRevision ||
         pointer.pointerRevision !== (currentPointer?.pointerRevision ?? 0) + 1 || pointer.previousPublishedRevisionId !== currentPointer?.publishedRevisionId ||
         receipt.previousPublishedRevisionId !== currentPointer?.publishedRevisionId || receipt.accessRevision !== current.accessRevision ||
-        canonicalJson(this.pagePublicationStable(current)) !== canonicalJson(this.pagePublicationStable(page)) ||
+        canonicalJson(this.pagePublicationStable(current)) !== canonicalJson(this.pagePublicationStable(page)) || canonicalJson(current.themeProfile ?? null) !== canonicalJson(page.themeProfile ?? null) ||
         canonicalJson(page.themeProfile ?? null) !== canonicalJson(revision.themeProfile ?? null) || canonicalJson(page.updatedBy) !== canonicalJson(receipt.requestedBy)) fail("REVISION_CONFLICT", "Workspace publication inputs are stale.");
       await session.query(
         `insert into k_nex_workspace_published_revisions (application_id, environment, page_id, revision_id, document_id, document_revision, dependency_digest, revision_json, published_at) values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9)`,
@@ -557,7 +567,6 @@ export class PostgresWorkspacePageStore {
       navigation: page.navigation,
       workingCopyRevision: page.workingCopyRevision,
       accessRevision: page.accessRevision,
-      themeProfile: page.themeProfile ?? null,
       createdBy: page.createdBy,
       createdAt: page.createdAt
     };

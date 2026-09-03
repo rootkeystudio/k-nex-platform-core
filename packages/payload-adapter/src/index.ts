@@ -30,6 +30,7 @@ export * from "./authorization-lifecycle-projector.js";
 export * from "./authorization-outbox.js";
 export * from "./workspace-page-store.js";
 export * from "./workspace-page-schema-migration.js";
+export * from "./workspace-page-service.js";
 export * from "./platform-plugin-authorization-descriptors.js";
 export * from "./system-settings-store.js";
 export * from "./system-settings-outbox.js";
