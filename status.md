@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-09-03
 - **Phase:** Phase 12 — Runnable Customer Workspace and Dashboard Builder
-- **Active task:** P12.7 — productize the Puck dashboard editor
+- **Active task:** P12.8 — productize page navigation, access, and theme administration
 - **State:** In progress
 
 ## Last completed
 
-P12.6 adds closed list/detail/create/edit/autosave/publish/rollback/archive/access services, exact current-authority plus ACL intersection, server-derived identities/dependencies, safe output projection, session cancellation, fresh dependency impact, and monotonic stale-generation rejection.
+P12.7 adds exact-authority block/source/action palette resolution, canonical Puck editing, serialized debounced autosave with same-key lost-response replay, explicit stale-tab recovery, fixed publish/rollback controls, keyboard add/select/reorder/move/delete/edit/publish, and strict production renderer separation.
 
 ## Validation
 
-Exact Node 24.19.0: payload-adapter build PASS; P12.6 focused service/session suite 15/15 PASS; inherited P12.5 real-PostgreSQL proof PASS after store hardening; packed v1.0.0 closure PASS. Proof covers non-enumerating denial, authority/ACL intersection, server-derived identity/catalog values, anti-escalation, safe projection, pending-work cancellation, every page operation, lost invalidation, plugin/theme/source/action impacts, and stale-generation rejection. Cumulative Gate 0–11 remains deferred to phase closeout.
+Exact Node 24.19.0: builder-puck build PASS; focused editor/profile/security suite 41/41 PASS; real Sales Puck library 3/3 PASS; UI production dependency boundary PASS; Chromium keyboard editor journey PASS; packed v1.0.0 ABI/release closure 17 PASS. Inherited P12.5 real-PostgreSQL and P12.6 authority proofs remain PASS. Cumulative Gate 0–11 remains deferred to phase closeout.
 
 ## Next
 
-Execute P12.7 fixed Puck editor shell, authorized compatible component library, conflict autosave, canonical preview/production rendering, and focused keyboard/security proof.
+Execute P12.8 page creation/placement/access/theme/archive/diagnostic/audit administration with focused authority and journey proof.
 
 ## Blockers
 

@@ -19,7 +19,7 @@ describe("fixed builder shell", () => {
   it("keeps security and platform regions outside the editor canvas", () => {
     const profile = createPuckBuilderProfileRegistry({
       blocks: [block], sources: [],
-      profiles: [{ id: "cms", blocks: [{ id: "content.text", version: 1 }], sources: [], publication: "draft-preview-publish" }]
+      profiles: [{ id: "cms", blocks: [{ id: "content.text", version: 1 }], sources: [], actions: [], publication: "draft-preview-publish" }]
     }).resolve("cms");
     if (profile === undefined) throw new Error("Expected CMS profile.");
     const shell = PuckFixedShellHost({
@@ -52,7 +52,7 @@ describe("fixed builder shell", () => {
   it("validates the canonical document through profile readiness before publishing", () => {
     const profile = createPuckBuilderProfileRegistry({
       blocks: [block], sources: [],
-      profiles: [{ id: "cms", blocks: [{ id: "content.text", version: 1 }], sources: [], publication: "draft-preview-publish" }]
+      profiles: [{ id: "cms", blocks: [{ id: "content.text", version: 1 }], sources: [], actions: [], publication: "draft-preview-publish" }]
     }).resolve("cms");
     if (profile === undefined) throw new Error("Expected CMS profile.");
     const published: unknown[] = [];

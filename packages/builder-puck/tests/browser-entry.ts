@@ -1,4 +1,5 @@
 import "@puckeditor/core/puck.css";
+import { createElement } from "react";
 import { createRoot } from "react-dom/client";
 
 import type { DataSourceDescriptor } from "@k-nex/contracts";
@@ -10,8 +11,8 @@ import {
   createWorkspaceTaskTableBlockDefinition,
   presentUiRuntimeResult
 } from "@k-nex/ui-runtime";
-import { createPuckBuilderProfileRegistry, type PuckBlockBridge } from "../src/index.js";
-import { PuckFixedShellHost } from "../src/editor.js";
+import { WorkspaceEditorSession, createPuckBuilderProfileRegistry, type PuckBlockBridge } from "../src/index.js";
+import { WorkspacePuckEditorHost } from "../src/editor.js";
 
 const source: DataSourceDescriptor = {
   id: "sales.tasks",
@@ -108,6 +109,7 @@ const profile = createPuckBuilderProfileRegistry({
     id: "workspace",
     blocks: bridges.map(({ definition }) => ({ id: definition.id, version: definition.version })),
     sources: [{ id: source.id, version: source.version }],
+    actions: [],
     publication: "save-layout"
   }],
   preview: { workspace: { surface: "workspace", actor, sourceResults, present: presentUiRuntimeReact } }
@@ -115,21 +117,36 @@ const profile = createPuckBuilderProfileRegistry({
 if (profile === undefined) throw new Error("Workspace builder profile is missing.");
 
 declare global {
-  interface Window { __kNexDocument: any }
+  interface Window { __kNexDocument: any; __kNexPublication: string[] }
 }
 window.__kNexDocument = uiDocument;
+window.__kNexPublication = [];
 const root = document.getElementById("root");
 const production = document.getElementById("production");
 if (root === null || production === null) throw new Error("Browser fixture roots are missing.");
 createRoot(production).render(presentUiRuntimeReact(presentUiRuntimeResult(productionResult)));
-createRoot(root).render(PuckFixedShellHost({
+const session = new WorkspaceEditorSession({
   profile,
-  document: uiDocument,
+  workingCopy: { revision: 1, document: uiDocument },
+  editorSessionId: "workspace-browser-session",
+  debounceMs: 60_000,
+  lostResponseRetryMs: 10,
+  issueIdempotencyKey: (operation, sequence) => `workspace-${operation}-${sequence}`,
+  persistence: {
+    autosave: async (input) => ({ status: "saved", workingCopy: { revision: input.document.version, document: input.document } }),
+    publish: async () => { window.__kNexPublication.push("publish"); },
+    rollback: async ({ revisionId }) => { window.__kNexPublication.push(`rollback:${revisionId}`); }
+  }
+});
+session.subscribe(() => { window.__kNexDocument = session.snapshot().document; });
+createRoot(root).render(createElement(WorkspacePuckEditorHost, {
+  profile,
+  session,
+  rollbackRevisions: [{ id: "workspace.publication-one", label: "Published revision 1" }],
   authentication: "Authenticated",
   router: "Router",
   sidebar: "Sidebar",
   topBar: "Top bar",
   systemScreens: "System screens",
-  globalDialogs: "Global dialogs",
-  onChange: (next) => { window.__kNexDocument = next; }
+  globalDialogs: "Global dialogs"
 }));

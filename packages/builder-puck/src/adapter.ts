@@ -31,6 +31,7 @@ const childSlotKey = "__kNexChildren";
 const documentKey = "__kNexDocument";
 const fieldPrefix = "__kNexField:";
 const canMoveKey = "__kNexCanMove";
+const canDeleteKey = "__kNexCanDelete";
 const puckBridgeSnapshots = new WeakSet<object>();
 
 export type PuckBridgeField =
@@ -117,6 +118,11 @@ function editableFields(bridge: PuckBlockBridge, nodeConstraints?: UiLayoutConst
 function nodeCanMove(bridge: PuckBlockBridge, nodeConstraints?: UiLayoutConstraints): boolean {
   return bridge.constraints?.locked !== true && bridge.constraints?.canMove !== false &&
     nodeConstraints?.locked !== true && nodeConstraints?.canMove !== false;
+}
+
+function nodeCanDelete(bridge: PuckBlockBridge, nodeConstraints?: UiLayoutConstraints): boolean {
+  return bridge.constraints?.locked !== true && bridge.constraints?.canDelete !== false &&
+    nodeConstraints?.locked !== true && nodeConstraints?.canDelete !== false;
 }
 
 function assertBridge(bridge: PuckBlockBridge): void {
@@ -267,7 +273,8 @@ function toComponent(node: UiNode, profile: UiDocument["profile"], bridges: Read
   const props: Record<string, unknown> = {
     id: node.id,
     [canonicalNodeKey]: storedNode(node, profile),
-    [canMoveKey]: nodeCanMove(bridge, node.layout?.constraints)
+    [canMoveKey]: nodeCanMove(bridge, node.layout?.constraints),
+    [canDeleteKey]: nodeCanDelete(bridge, node.layout?.constraints)
   };
   for (const field of editableFields(bridge, node.layout?.constraints)) {
     props[fieldKey(field.prop)] = cloneJson(node.props[field.prop] ?? bridge.defaultProps[field.prop] ?? null);
@@ -358,6 +365,7 @@ function createConfig(bridges: ReadonlyMap<string, PuckBlockBridge>, preview?: P
     if (defaultProfile === undefined) throw new TypeError("Puck bridge requires a supported document profile.");
     defaultProps[canonicalNodeKey] = storedNode({ id: "new-block", type: bridge.definition.id, version: bridge.definition.version, props: bridge.defaultProps }, defaultProfile);
     defaultProps[canMoveKey] = nodeCanMove(bridge);
+    defaultProps[canDeleteKey] = nodeCanDelete(bridge);
     if (bridge.allowChildren) defaultProps[childSlotKey] = [];
     components[key] = {
       label: bridge.label,

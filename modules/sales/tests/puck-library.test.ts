@@ -6,7 +6,7 @@ import { createPuckBuilderProfileRegistry } from "@k-nex/builder-puck";
 import { createUiDocumentRuntime, createUiRuntimeRegistry, type BrowserDataTransport } from "@k-nex/ui-runtime";
 import { createGenericPuckBlockBridges } from "@k-nex/ui-builder-blocks";
 import { salesCreateTaskMutation } from "../src/browser.js";
-import { salesPageTemplates, salesOpportunitiesDescriptor, salesTaskCreateDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor } from "../src/contracts.js";
+import { salesPageTemplates, salesOpportunitiesDescriptor, salesOpportunityStageUpdateDescriptor, salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor } from "../src/contracts.js";
 import { salesPuckBlockBridges } from "../src/ui.js";
 
 const sources = [salesTasksDescriptor, salesOpportunitiesDescriptor, salesTotalPotentialRevenueDescriptor];
@@ -14,6 +14,7 @@ const profile = {
   id: "workspace" as const,
   blocks: salesPuckBlockBridges.map(({ definition }) => ({ id: definition.id, version: definition.version })),
   sources: sources.map(({ id, version }) => ({ id, version })),
+  actions: [salesTaskCreateDescriptor, salesTaskUpdateDescriptor, salesOpportunityStageUpdateDescriptor].map(({ id, version }) => ({ id, version })),
   publication: "save-layout" as const
 };
 
@@ -32,7 +33,7 @@ describe("Sales Puck block library", () => {
     const taskTemplate = salesPageTemplates.find(({ id }) => id === "sales.page.tasks")!;
     const changed = structuredClone(taskTemplate.document);
     changed.regions.main[1]!.bindings!.action = { id: "sales.task.update", version: 1 };
-    expect(() => resolved.validateDocument(changed)).toThrow(/ACTION_NOT_ACCEPTED/);
+    expect(() => resolved.validateDocument(changed)).toThrow(/forbids action/);
   });
 
   it("composes the generic form with the registered Sales action and standard browser gateway", async () => {

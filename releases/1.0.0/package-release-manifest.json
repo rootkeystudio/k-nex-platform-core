@@ -19,7 +19,7 @@
       "package": "@k-nex/builder-puck",
       "version": "1.0.0",
       "role": "builder",
-      "integrity": "sha512-nd1HWgNjQ0k64hloMZj/ZiIM6OzXNkTdwQv4CmBirEEzg+QgNKtSRlOSykHWWUzOzPrguoQcbEQ1Dl4eK5zhxw==",
+      "integrity": "sha512-UPR/z/b51Im/zFGwdDudA3ztx/OTfAjqgRk4gi2rP0/oI404rfqoS1894zhztdCPFI6B+pEAqxNiOnLP6c9fmg==",
       "peerCompatibility": {
         "core": "1.0.0",
         "payload": "3.88.0",
