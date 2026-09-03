@@ -7,15 +7,15 @@
 
 ## Last completed
 
-The generated workspace editor now installs one fresh mutation controller per effect setup. React development Strict Mode setup-cleanup-setup no longer leaves autosave, publish, or rollback permanently aborted.
+The StrictMode-safe composition package is bound into a freshly regenerated immutable 1.0.0 release closure and both customer lockfiles.
 
 ## Validation
 
-Exact Node 24.19.0: generated editor focused proof 6/6 and composition build PASS. Earlier canonical closure, generated app PostgreSQL/HTTP/Chromium journey, hosted run 33783631612, and local `P8_GENERATED_EVIDENCE_CLEAN` PASS.
+Exact Node 24.19.0: generated editor focused proof 6/6; clean 17-package regeneration; factory/release lock checks; packed ABI/closure; both frozen customer installs; customer fixture reconciliation PASS.
 
 ## Next
 
-Regenerate the immutable release closure for the composition change, refresh hosted release evidence, then run final focused and exact-head Linux/AppArmor cumulative Gate 12. Update result/PR and resume the same Sol-xhigh reviewer until PASS.
+Refresh hosted release evidence for this closure, then run final focused and exact-head Linux/AppArmor cumulative Gate 12. Update result/PR and resume the same Sol-xhigh reviewer until PASS.
 
 ## Blockers
 
