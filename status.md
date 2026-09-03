@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Editor watermark polling now retries transient network loss while preserving fail-closed behavior for real HTTP denial. Deterministic generated-app coverage drops the first poll response.
+Transient editor-poll retry is bound into a freshly regenerated immutable 1.0.0 composition archive, both factory locks, release manifest, and customer lockfiles.
 
 ## Validation
 
-Exact Node 24.19.0 composition build and six focused unit tests PASS. Isolated generated-app PostgreSQL/HTTP/Chromium proof PASS, including transient poll retry, durable autosave, Sales-authority revocation, and ACL revocation.
+Exact Node 24.19.0: clean 17-package regeneration; factory-lock, ABI, packed-closure, Gate 1 generated-clean, and both frozen customer installs PASS. Focused unit 6/6 and isolated generated-app PostgreSQL/HTTP/Chromium proof PASS.
 
 ## Next
 
-Refresh packed release closure and exact-head hosted release evidence.
+Refresh exact-head hosted release evidence, then require focused and cumulative CI.
 
 ## Blockers
 
