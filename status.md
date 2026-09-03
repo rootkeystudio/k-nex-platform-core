@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Both process-heavy generator proofs now have the existing 15-second CI budget after cumulative parallel load exceeded Vitest's 5-second default; their assertions and failure behavior are unchanged.
+The inherited realtime-provider pack proof now treats tar entry order as non-semantic while still requiring the exact entry set and byte-identical content for every file.
 
 ## Validation
 
-Exact Node 24.19.0: isolated deterministic and workspace-denial generator proofs PASS; clean-output build of all 14 Gate 12 packages PASS. Hosted run 33786152181, evidence check, and local `GATE_12_PASS` remain PASS.
+Exact Node 24.19.0: realtime provider packed-content proof PASS; generator process proofs and clean 14-package build PASS. Hosted run 33786152181, evidence check, and local `GATE_12_PASS` remain PASS.
 
 ## Next
 
-Push the complete process-test budget fix to PR #33. Require exact-head focused PR CI plus Linux/AppArmor cumulative Gate 0–12, then resume the same Sol-xhigh reviewer until PASS.
+Push the inherited pack-proof fix to PR #33. Require exact-head focused PR CI plus Linux/AppArmor cumulative Gate 0–12, then resume the same Sol-xhigh reviewer until PASS.
 
 ## Blockers
 
