@@ -11,7 +11,7 @@ P12.10 focused Gate 12 passes: exact v1 builds and packed closure, selected cont
 
 ## Validation
 
-Exact Node 24.19.0: `pnpm gate:12:focused` PASS, including 19 contract tests, two real process proofs, and 22/22 attack mappings. Cumulative checks fixed stale pre-v1 assertions, React/UI boundaries, composition/lock evidence, generated-app runtime identity/migration expectations, and older Sales action fixtures for current CAS inputs. Isolated fixture rerun and exact cumulative rerun are required.
+Exact Node 24.19.0: `pnpm gate:12:focused` PASS, including 19 contract tests, two real process proofs, and 22/22 attack mappings. Cumulative checks fixed stale pre-v1 assertions, composition/lock evidence, generated-app fixtures, Sales CAS callers, and both package boundary checkers now permit React only in the registered UI implementation. Downstream gates and Linux/AppArmor cumulative rerun are required.
 
 ## Next
 

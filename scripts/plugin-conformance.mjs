@@ -196,7 +196,9 @@ export function runBoundaryProof(pluginRoot) {
   for (const entrypoint of ["contracts", "browser", "ui"]) {
     walkImports(inside(pluginRoot, `src/${entrypoint}.ts`, `${entrypoint} source`), pluginRoot, ({ content, file, specifiers }) => {
       const normalized = content.toLowerCase();
-      for (const dependency of forbidden) assert.equal(normalized.includes(dependency.toLowerCase()), false, `${file} imports forbidden dependency ${dependency}`);
+      for (const dependency of entrypoint === "ui" ? forbidden.filter((value) => value !== "react") : forbidden) {
+        assert.equal(normalized.includes(dependency.toLowerCase()), false, `${file} imports forbidden dependency ${dependency}`);
+      }
       assert.equal(specifiers.some((specifier) => specifier.startsWith(".") && specifier.includes("server")), false, `${file} reaches a server entrypoint.`);
     });
   }

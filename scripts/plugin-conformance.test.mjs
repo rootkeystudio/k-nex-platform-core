@@ -77,6 +77,23 @@ test("plugin conformance rejects transitive forbidden entrypoint imports", () =>
   }
 });
 
+test("plugin conformance permits React only in the registered UI implementation", () => {
+  const root = mkdtempSync(join(tmpdir(), "k-nex-boundary-ui-react-"));
+  try {
+    mkdirSync(join(root, "src"));
+    mkdirSync(join(root, "dist"));
+    writeFileSync(join(root, "src", "contracts.ts"), "export {};\n");
+    writeFileSync(join(root, "src", "browser.ts"), "export {};\n");
+    writeFileSync(join(root, "src", "ui.ts"), 'import { createElement } from "react";\nexport const view = createElement("div");\n');
+    for (const entrypoint of ["contracts", "browser", "ui", "migrations", "testing"]) writeFileSync(join(root, "dist", `${entrypoint}.d.ts`), "export {};\n");
+    assert.doesNotThrow(() => runBoundaryProof(root));
+    writeFileSync(join(root, "src", "browser.ts"), 'import { createElement } from "react";\nexport const view = createElement("div");\n');
+    assert.throws(() => runBoundaryProof(root), /forbidden dependency react/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("plugin conformance accepts only one exact passed Vitest file and test", () => {
   const report = {
     success: true, numTotalTests: 1, numPassedTests: 1, numFailedTests: 0, numFailedTestSuites: 0, numPendingTests: 0, numTodoTests: 0,

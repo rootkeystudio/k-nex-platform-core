@@ -4,14 +4,14 @@
 
 - Plugin: `module.sales`
 - Package: `@k-nex/module-sales@1.0.0`
-- Entrypoints: `./browser`, `./contracts`, `./manifest`, `./migrations`, `./pages`, `./payload-baseline-down.sql`, `./payload-baseline-up.sql`, `./server`, `./testing`, `./ui`
+- Entrypoints: `./browser`, `./contracts`, `./manifest`, `./migrations`, `./pages`, `./payload-baseline-down.sql`, `./payload-baseline-up.sql`, `./puck`, `./server`, `./testing`, `./ui`
 
 ## Contributions
 
 | Category | IDs |
 |---|---|
 | actions | sales.opportunity.stage.update, sales.task.create, sales.task.update |
-| blocks | sales.opportunity-detail, sales.opportunity-list, sales.revenue-metric, sales.settings-summary, sales.task-quick-create, sales.task-table |
+| blocks | sales.opportunity-detail, sales.opportunity-kanban, sales.opportunity-list, sales.revenue-metric, sales.settings-summary, sales.task-quick-create, sales.task-table |
 | components | sales.detail.opportunity, sales.form.task-quick-create, sales.list.opportunities, sales.metric.total-potential-revenue, sales.status.pipeline-stage, sales.table.tasks |
 | events | sales.event.opportunity-changed, sales.event.task-changed |
 | healthAudit | sales.health.runtime |
@@ -21,7 +21,7 @@
 | migrations | sales.migration.initial |
 | navigation | sales.navigation.opportunities, sales.navigation.overview, sales.navigation.settings, sales.navigation.tasks |
 | pageTemplates | sales.page.opportunities, sales.page.overview, sales.page.settings, sales.page.tasks |
-| permissions | sales.opportunities.name.read, sales.opportunities.read, sales.opportunities.stage.read, sales.opportunities.value.read, sales.opportunities.write, sales.settings.read, sales.settings.write, sales.tasks.private-note.read, sales.tasks.read, sales.tasks.revenue.read, sales.tasks.status.read, sales.tasks.title.read, sales.tasks.write |
+| permissions | sales.navigation.read, sales.opportunities.name.read, sales.opportunities.read, sales.opportunities.stage.read, sales.opportunities.value.read, sales.opportunities.write, sales.settings.read, sales.settings.write, sales.tasks.private-note.read, sales.tasks.read, sales.tasks.revenue.read, sales.tasks.status.read, sales.tasks.title.read, sales.tasks.write |
 | policyBindings | sales.policy.opportunities.name.read, sales.policy.opportunities.read, sales.policy.opportunities.stage.read, sales.policy.opportunities.value.read, sales.policy.opportunities.write, sales.policy.tasks.private-note.read, sales.policy.tasks.read, sales.policy.tasks.revenue.read, sales.policy.tasks.status.read, sales.policy.tasks.title.read, sales.policy.tasks.write |
 | realtimeTopics | sales.realtime.opportunities, sales.realtime.tasks |
 | roleTemplates | sales.template.administrator, sales.template.manager, sales.template.representative, sales.template.viewer |
