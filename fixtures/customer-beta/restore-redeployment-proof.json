@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "backupRestoreFixture": "fixtures/customer-gate-1/tests/backup-restore-postgres.test.mjs",
-  "expectedOperationalInventoryDigest": "sha256:13936f6b874a82dbe6205f124407cae9e21d05f9c7df5b58965b88df8588e9f5",
+  "expectedOperationalInventoryDigest": "sha256:c817b16620e2a0f99021ec3c2f294adb6d8f3df9a672f652fd4d5b35ebf62f95",
   "observation": "clean-restored PostgreSQL runtime inventory",
   "execution": "required-by-customer-postgres-suite",
   "externalEffects": "disabled-before-readiness"

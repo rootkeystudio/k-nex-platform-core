@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Hosted run 33781453580 exposed orphaned incremental TypeScript outputs in two local release archives. Release packing now clean-rebuilds every TypeScript package before packing; the canonical 17-package closure and both customer locks were regenerated without stale files.
+Hosted release-evidence run 33783631612 passed at exact source head 09c03ed: clean 17-package closure, both customer bundles, five attestations, hosted verification, runtime inventories, receipts, restore proofs, and fleet evidence are committed.
 
 ## Validation
 
-Exact Node 24.19.0: clean-pack regression 2/2; canonical package/factory/release regeneration; packed ABI and closure checks; both customer frozen installs and fixture reconciliation PASS. Generated app PostgreSQL/HTTP/Chromium remediation journey PASS. Hosted run 33781453580 correctly failed the stale closure before attestation.
+Exact Node 24.19.0: clean-pack regression 2/2; canonical package/factory/release regeneration; packed ABI and closure checks; both customer frozen installs and fixture reconciliation PASS. Generated app PostgreSQL/HTTP/Chromium remediation journey PASS. Hosted run 33783631612 and local `P8_GENERATED_EVIDENCE_CLEAN` PASS.
 
 ## Next
 
-Commit/push the clean closure, regenerate and verify exact-head hosted release evidence, then resume the same Sol-xhigh reviewer until PASS. Run final focused Gate 12 and exact-head Linux/AppArmor cumulative Gate 0–12; update result and phase PR.
+Commit/push hosted evidence; resume the same Sol-xhigh reviewer until PASS. Run final focused Gate 12 and exact-head Linux/AppArmor cumulative Gate 0–12; update result and phase PR.
 
 ## Blockers
 

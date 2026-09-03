@@ -10,23 +10,23 @@
         "name": "application-manifest"
       },
       {
-        "digest": "sha256:8bbbd3199abfcb70eff6d5e1ec6526a234263f975ddefe5431288e6376c8cb0e",
+        "digest": "sha256:124f42cf7e3a8542bce4f4366b38d49e1ce124ee86db0276a3bf1568f431d74e",
         "name": "generated-application-tree"
       },
       {
-        "digest": "sha256:3b9e499e688783724dbe385b91e731ea0312eed98b769a00da4d71b90d4da905",
+        "digest": "sha256:48679bb18eeec82d3fad197ba23934105b6d002a9bc59d26872eb0e69ffdf3d0",
         "name": "lock-runtime-closure"
       },
       {
-        "digest": "sha256:037d7d388bc67425f04fd364977ecffcf5c87aa86041cd406924080748f4fd1f",
+        "digest": "sha256:903e26d22931f5a9a79b7605388f21e21d15f866623399b3ee96548384aa6715",
         "name": "lockfile"
       },
       {
-        "digest": "sha256:895fabbb5330a4862e6bf17b80cdd0399db522fa86254bd07b11be939bb71e19",
+        "digest": "sha256:4486f0032190bb01da1195d8d0e8deb03ee5dc1ae4775a332225ca0f0af91ec4",
         "name": "package-release-manifest"
       },
       {
-        "digest": "sha256:3b9e499e688783724dbe385b91e731ea0312eed98b769a00da4d71b90d4da905",
+        "digest": "sha256:48679bb18eeec82d3fad197ba23934105b6d002a9bc59d26872eb0e69ffdf3d0",
         "name": "release-closure"
       },
       {
@@ -34,16 +34,16 @@
         "name": "resolved-graph-or-plan"
       },
       {
-        "digest": "sha256:e62ceb60c4384467fc68619f40ed8c966ef6ba8ecf8408716db6b635869a0c43",
+        "digest": "sha256:1af55f88b6e0264ef9bd3dced112f2702f14e758d1c8956dda753611d32df5d6",
         "name": "sbom"
       }
     ],
-    "sourceCommit": "699d00069dcf8ac6c19381578faa3a829b33314f",
-    "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@699d00069dcf8ac6c19381578faa3a829b33314f"
+    "sourceCommit": "09c03edd6b9919d50c92bc07c01c8d3a5d19f908",
+    "workflowIdentity": "rootkeystudio/k-nex-platform-core/.github/workflows/release-evidence.yml@09c03edd6b9919d50c92bc07c01c8d3a5d19f908"
   },
   "predicateType": "https://k-nex.dev/provenance/v1",
   "subject": {
-    "digest": "sha256:39db955c3edf51173ad61c90e422391ca27f78ebcd5fce5d8462d02d87728258",
+    "digest": "sha256:4b5920d692c32b52a7bed55128cffee9244de769fd52f87928fa986b10f979d9",
     "name": "customer-alpha.application-bundle.json"
   }
 }
