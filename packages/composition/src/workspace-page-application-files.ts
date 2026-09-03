@@ -299,8 +299,9 @@ export function WorkspacePageEditor({ pageId, initialProjection }: Readonly<{ pa
   const currentWatermark = useRef(initialProjection.watermark);
   useEffect(() => {
     const controller = new AbortController();
+    operations.current = controller;
     let active = true;
-    const failClosed = (reason: "access" | "authority") => { if (active) { operations.current.abort(); setUnavailable(reason); } };
+    const failClosed = (reason: "access" | "authority") => { if (active) { controller.abort(); setUnavailable(reason); } };
     const synchronize = async () => {
       const response = await fetch("/api/k-nex/workspace-pages/" + encodeURIComponent(pageId) + "/session?mode=edit&watermark=" + encodeURIComponent(JSON.stringify(currentWatermark.current)), { cache: "no-store", signal: controller.signal }).catch(() => undefined);
       if (!response?.ok) return failClosed("access");
@@ -314,7 +315,7 @@ export function WorkspacePageEditor({ pageId, initialProjection }: Readonly<{ pa
     const timer = setInterval(async () => {
       await synchronize();
     }, 1_000);
-    return () => { active = false; clearInterval(timer); controller.abort(); operations.current.abort(); };
+    return () => { active = false; clearInterval(timer); controller.abort(); };
   }, [pageId, initialProjection.watermark]);
   const profile = useMemo(() => createAuthorizedPuckBuilderProfile({
     profile: "workspace", publication: "save-layout", blocks: salesPuckBlockBridges,

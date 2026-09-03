@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Hosted release-evidence run 33783631612 passed at exact source head 09c03ed: clean 17-package closure, both customer bundles, five attestations, hosted verification, runtime inventories, receipts, restore proofs, and fleet evidence are committed.
+The generated workspace editor now installs one fresh mutation controller per effect setup. React development Strict Mode setup-cleanup-setup no longer leaves autosave, publish, or rollback permanently aborted.
 
 ## Validation
 
-Exact Node 24.19.0: clean-pack regression 2/2; canonical package/factory/release regeneration; packed ABI and closure checks; both customer frozen installs and fixture reconciliation PASS. Generated app PostgreSQL/HTTP/Chromium remediation journey PASS. Hosted run 33783631612 and local `P8_GENERATED_EVIDENCE_CLEAN` PASS.
+Exact Node 24.19.0: generated editor focused proof 6/6 and composition build PASS. Earlier canonical closure, generated app PostgreSQL/HTTP/Chromium journey, hosted run 33783631612, and local `P8_GENERATED_EVIDENCE_CLEAN` PASS.
 
 ## Next
 
-Commit/push hosted evidence; resume the same Sol-xhigh reviewer until PASS. Run final focused Gate 12 and exact-head Linux/AppArmor cumulative Gate 0–12; update result and phase PR.
+Regenerate the immutable release closure for the composition change, refresh hosted release evidence, then run final focused and exact-head Linux/AppArmor cumulative Gate 12. Update result/PR and resume the same Sol-xhigh reviewer until PASS.
 
 ## Blockers
 
