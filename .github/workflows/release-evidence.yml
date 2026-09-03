@@ -21,7 +21,15 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @k-nex/contracts build && pnpm --filter @k-nex/composition build && pnpm --filter @k-nex/runtime build
+      - run: pnpm build
+      - name: Verify packed package and factory lock release inputs
+        run: |
+          node scripts/generate-phase-8-packed-packages.mjs
+          node scripts/generate-phase-12-factory-locks.mjs
+          node scripts/generate-phase-8-release-manifests.mjs
+          node scripts/generate-phase-12-factory-locks.mjs --check
+          node scripts/check-phase-8-packed-packages.mjs
+          git diff --exit-code -- releases/1.0.0/package-release-manifest.json fixtures/customer-gate-1/packages
       - name: Build both current customer bundles
         run: |
           pnpm --dir fixtures/customer-alpha install --frozen-lockfile
@@ -54,6 +62,11 @@ jobs:
       - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         with:
           subject-path: release-evidence/phase-8-v1/release-manifest.json
+          predicate-type: https://k-nex.dev/release-manifest/v1
+          predicate-path: release-evidence/phase-8-v1/release-manifest-predicate.json
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: releases/1.0.0/package-release-manifest.json
           predicate-type: https://k-nex.dev/release-manifest/v1
           predicate-path: release-evidence/phase-8-v1/release-manifest-predicate.json
       - name: Download and verify hosted v1 attestations
@@ -89,6 +102,9 @@ jobs:
           download_attestation "${evidence}/release-manifest.json" "${evidence}/hosted/manifest" https://k-nex.dev/release-manifest/v1 manifest-attestation.jsonl
           gh attestation verify "${evidence}/release-manifest.json" --bundle "${evidence}/hosted/manifest/manifest-attestation.jsonl" --repo "$GITHUB_REPOSITORY" --predicate-type https://k-nex.dev/release-manifest/v1 --format json |
             jq --arg sha "$GITHUB_SHA" '[.[] | select(.verificationResult.statement.predicate.sourceCommit == $sha)]' > "${evidence}/hosted/manifest-verification.json"
+          download_attestation "releases/1.0.0/package-release-manifest.json" "${evidence}/hosted/package-manifest" https://k-nex.dev/release-manifest/v1 package-manifest-attestation.jsonl
+          gh attestation verify "releases/1.0.0/package-release-manifest.json" --bundle "${evidence}/hosted/package-manifest/package-manifest-attestation.jsonl" --repo "$GITHUB_REPOSITORY" --predicate-type https://k-nex.dev/release-manifest/v1 --format json |
+            jq --arg sha "$GITHUB_SHA" '[.[] | select(.verificationResult.statement.predicate.sourceCommit == $sha)]' > "${evidence}/hosted/package-manifest-verification.json"
       - name: Generate v1 runtime and fleet evidence
         run: |
           node scripts/generate-phase-8-deployment-evidence.mjs

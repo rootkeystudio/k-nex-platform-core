@@ -11,6 +11,7 @@ import {
   parseAuthorizationExpectedRevision,
   type AuthorizationExpectedRevision,
   type AuthorizationStore,
+  type AuthorizationStoreReadTransaction,
   type AuthorizationStoreTransaction,
   type AuthorizationTransactionOutcome,
   type ProtectedRoleBaselineReconciliationStore
@@ -128,7 +129,7 @@ export async function reconcileProtectedRoleBaseline(
 }
 
 export async function assertExactProtectedRoleBaselineState(
-  transaction: AuthorizationStoreTransaction,
+  transaction: AuthorizationStoreReadTransaction,
   expected: AuthorizationExpectedRevision,
   release: ProtectedPlatformRoleBaselineRelease
 ): Promise<void> {

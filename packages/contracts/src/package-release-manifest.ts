@@ -6,6 +6,7 @@ import { uniqueArray } from "./schema-helpers.js";
 
 const packageNamePattern = /^@?[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)?$/;
 const sha512IntegrityPattern = /^sha512-[A-Za-z0-9+/]{86}==$/;
+const sha256DigestPattern = /^sha256:[0-9a-f]{64}$/;
 
 export const ReleasePackageSchema = z.strictObject({
   package: z.string().regex(packageNamePattern),
@@ -14,6 +15,12 @@ export const ReleasePackageSchema = z.strictObject({
   integrity: z.string().regex(sha512IntegrityPattern),
   peerCompatibility: SupportedFrameworkTupleSchema
 });
+
+const factoryLockTemplate = <Theme extends "minimal" | "neobrutalism">(theme: Theme) => z.strictObject({
+  preset: z.literal("sales-reference"), theme: z.literal(theme), digest: z.string().regex(sha256DigestPattern)
+});
+
+export const FactoryLockTemplateSchema = z.discriminatedUnion("theme", [factoryLockTemplate("minimal"), factoryLockTemplate("neobrutalism")]);
 
 export const PackageReleaseManifestSchema = z.strictObject({
   "$schema": z.string().optional(),
@@ -26,6 +33,10 @@ export const PackageReleaseManifestSchema = z.strictObject({
   }),
   framework: SupportedFrameworkTupleSchema,
   packages: z.array(ReleasePackageSchema).min(1),
+  factoryLockTemplates: z.strictObject({
+    minimal: factoryLockTemplate("minimal"),
+    neobrutalism: factoryLockTemplate("neobrutalism")
+  }),
   supportWindow: z.strictObject({
     policy: z.literal("single-current-release"),
     supportedReleases: uniqueArray(ExactSemverSchema).length(1),
@@ -47,3 +58,13 @@ export const PackageReleaseManifestSchema = z.strictObject({
 
 export type ReleasePackage = z.infer<typeof ReleasePackageSchema>;
 export type PackageReleaseManifest = z.infer<typeof PackageReleaseManifestSchema>;
+
+declare const verifiedPackageReleaseManifest: unique symbol;
+export interface VerifiedPackageReleaseManifest {
+  readonly [verifiedPackageReleaseManifest]: true;
+}
+
+export interface PackageReleaseManifestAuthority<Attestation = unknown> {
+  verify(manifest: PackageReleaseManifest, attestation: unknown): Promise<VerifiedPackageReleaseManifest>;
+  read(token: VerifiedPackageReleaseManifest): Readonly<{ manifest: PackageReleaseManifest; digest: string; attestation: Attestation }>;
+}

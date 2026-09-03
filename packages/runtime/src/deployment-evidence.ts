@@ -1,7 +1,9 @@
 import { createHash, sign, verify } from "node:crypto";
 import { valid as validSemver } from "semver";
 
-import { DeploymentReceiptSchema, PackageReleaseManifestSchema, RuntimeInventorySchema, canonicalJson, type DeploymentReceipt, type PackageReleaseManifest, type RuntimeInventory } from "@k-nex/contracts";
+import { DeploymentReceiptSchema, PackageReleaseManifestSchema, RuntimeInventorySchema, canonicalJson, type DeploymentReceipt, type PackageReleaseManifest, type PackageReleaseManifestAuthority, type RuntimeInventory, type VerifiedPackageReleaseManifest } from "@k-nex/contracts";
+
+export type { PackageReleaseManifestAuthority, VerifiedPackageReleaseManifest } from "@k-nex/contracts";
 
 function freeze<T>(value: T): T {
   if (value !== null && typeof value === "object") {
@@ -80,16 +82,6 @@ export function createGitHubHostedAttestationVerifier(input: {
       });
     }
   });
-}
-
-declare const verifiedPackageReleaseManifest: unique symbol;
-export interface VerifiedPackageReleaseManifest {
-  readonly [verifiedPackageReleaseManifest]: true;
-}
-
-export interface PackageReleaseManifestAuthority {
-  verify(manifest: PackageReleaseManifest, attestation: unknown): Promise<VerifiedPackageReleaseManifest>;
-  read(token: VerifiedPackageReleaseManifest): Readonly<{ manifest: PackageReleaseManifest; digest: string; attestation: VerifiedHostedAttestation }>;
 }
 
 export interface ApplicationBundle {
@@ -200,9 +192,9 @@ export function createApplicationBundleAuthority(verifier: HostedAttestationVeri
   return Object.freeze(authority);
 }
 
-export function createPackageReleaseManifestAuthority(verifier: HostedAttestationVerifier): PackageReleaseManifestAuthority {
+export function createPackageReleaseManifestAuthority(verifier: HostedAttestationVerifier): PackageReleaseManifestAuthority<VerifiedHostedAttestation> {
   const tokens = new WeakMap<object, Readonly<{ manifest: PackageReleaseManifest; digest: string; attestation: VerifiedHostedAttestation }>>();
-  const authority: PackageReleaseManifestAuthority = {
+  const authority: PackageReleaseManifestAuthority<VerifiedHostedAttestation> = {
     async verify(value, attestationInput) {
       const manifest = PackageReleaseManifestSchema.parse(value);
       const digest = `sha256:${createHash("sha256").update(canonicalJson(manifest)).digest("hex")}`;
@@ -251,7 +243,7 @@ function verifyDeploymentReceipt(envelope: SignedDeploymentReceipt, publicKey: s
 
 export function createDeploymentEvidenceAuthority(input: {
   readonly applicationBundleAuthority: ApplicationBundleAuthority;
-  readonly packageReleaseAuthority: PackageReleaseManifestAuthority;
+  readonly packageReleaseAuthority: PackageReleaseManifestAuthority<VerifiedHostedAttestation>;
   readonly deploymentPublicKey: string;
   readonly trustedDeploymentWorkflow: string;
 }): DeploymentEvidenceAuthority {

@@ -28,6 +28,7 @@ const builds = [
 for (const workspace of builds) run(`${workspace} build`, "pnpm", ["--filter", workspace, "build"]);
 run("customer fixture build", "pnpm", ["--filter", "@k-nex/customer-gate-1", "build"]);
 run("packed v1 closure", process.execPath, ["scripts/check-phase-8-packed-packages.mjs"]);
+run("factory lock generation check", process.execPath, ["scripts/generate-phase-12-factory-locks.mjs", "--check"]);
 
 const passedProofs = new Set();
 function vitest(id, workspace, files, selected) {
@@ -44,11 +45,13 @@ function vitest(id, workspace, files, selected) {
 }
 
 const unitProofs = [
-  vitest("contracts", "@k-nex/contracts", ["tests/workspace-page.test.ts", "tests/ui-document.test.ts"], [
+  vitest("contracts", "@k-nex/contracts", ["tests/package-release-manifest.test.ts", "tests/workspace-page.test.ts", "tests/ui-document.test.ts"], [
+    "binds exactly the two content-addressed Sales factory lock templates",
     "freezes the exact fixed route classes without browser-authored paths",
     "accepts one closed server-produced shell and rejects foreign navigation identity",
     "rejects duplicate, cyclic, missing-parent, cross-owner, and System-shadowing navigation",
     "separates page ACL from platform and block data authority",
+    "binds mutable working copies and immutable publications to one page/document identity",
     "keeps browser autosave input free of application, environment, ACL, route, and executable authority",
     "keeps generated envelope semantics and all 22 attack IDs closed and unique",
     "rejects unrestricted URL/style/SQL/package/JS fields and non-namespaced engine metadata",
@@ -81,10 +84,12 @@ const unitProofs = [
   ]),
   vitest("page-service", "@k-nex/payload-adapter", ["tests/workspace-page-service.test.ts", "tests/workspace-navigation-store.test.ts"], [
     "returns the same non-enumerating denial for missing and unauthorized direct pages",
+    "derives page, placement, theme, actor, and document identity on the server",
     "denies non-owner ACL expansion beyond the editor's exact held capability",
     "cancels pending editor work after page-access invalidation",
     "re-reads impact after a lost invalidation and rejects stale generation resurrection",
     "requires current publish authority and fresh ready dependencies before storage",
+    "fails closed before page or pointer mutation and store rollback for missing or dependency-unavailable target revisions",
     "derives publication and rollback identities, authority digest, and dependencies server-side",
     "rejects plugin-owned folders, links, invalid actors, and invalid scope before SQL"
   ]),
@@ -92,6 +97,9 @@ const unitProofs = [
     "plans deterministic exact Sales applications for local or external Postgres",
     "binds a generated application to every exact artifact in a packed release mirror",
     "rejects tampered mirrors and installs immutable bytes captured by the verified plan",
+    "uses workspace only for side-effect-free planning and defaults to the verified bundled release",
+    "rejects a coherently forged manifest, tarball, and lock before target write",
+    "rejects nonofficial hosted workflow and source identities before target write",
     "applies idempotently and refuses to overwrite customer files",
     "writes byte-identical controlled source to different clean targets",
     "preflights every destination and never partially writes or follows symlinks"
@@ -118,47 +126,72 @@ const processTap = run("Phase 12 PostgreSQL/HTTP/Chromium proofs", process.execP
   "tests/workspace-page-storage-postgres.test.mjs", "tests/generated-runnable-application-postgres.test.mjs"
 ], fixture);
 assert.equal(Number(/^# pass (\d+)$/mu.exec(processTap)?.[1]), 2, "Phase 12 process proofs must pass exactly two tests.");
-for (const marker of ["P12_5_WORKSPACE_STORAGE_POSTGRES_EVIDENCE=PASS", "P12_9_GENERATED_APP_POSTGRES_HTTP_CHROMIUM_EVIDENCE=PASS"]) {
+const processMarkers = [
+  "P12_5_WORKSPACE_STORAGE_POSTGRES_EVIDENCE=PASS",
+  "P12_9_GENERATED_APP_POSTGRES_HTTP_CHROMIUM_EVIDENCE=PASS",
+  "P12_ATK_02_CROSS_CUSTOMER_READ_POSTGRES_DENIED=PASS",
+  "P12_ATK_05_UNAUTHORIZED_DIRECT_URL_AND_ENUMERATION_HTTP_DENIED=PASS",
+  "P12_ATK_08_STALE_AUTOSAVE_CAS_POSTGRES_DENIED=PASS",
+  "P12_ATK_09_CHANGED_IDEMPOTENCY_PAYLOAD_POSTGRES_DENIED=PASS",
+  "P12_ATK_10_CSRF_REPLAY_AND_MALFORMED_AUTOSAVE_HTTP_DENIED=PASS",
+  "P12_ATK_01_PROTECTED_SHELL_HTTP_POSTGRES_DENIED=PASS",
+  "P12_ATK_11_UNSAFE_PROPS_HTTP_POSTGRES_DENIED=PASS",
+  "P12_ATK_12_SOURCE_SUBSTITUTION_HTTP_POSTGRES_DENIED=PASS",
+  "P12_ATK_12_PUBLISH_DOCUMENT_HTTP_POSTGRES_DENIED=PASS",
+  "P12_ATK_12_PUBLISH_REVISION_HTTP_POSTGRES_DENIED=PASS",
+  "P12_ATK_13_ACTION_SUBSTITUTION_HTTP_POSTGRES_DENIED=PASS",
+  "P12_ATK_07_PAGE_ACL_ONLY_SALES_ACTION_HTTP_POSTGRES_DENIED=PASS",
+  "P12_ATK_13_UNBOUND_ACTION_HTTP_POSTGRES_DENIED=PASS",
+  "P12_ATK_13_CROSS_PAGE_ACTION_HTTP_POSTGRES_DENIED=PASS",
+  "P12_ATK_13_REVOKED_PAGE_ACTION_HTTP_POSTGRES_DENIED=PASS",
+  "P12_ATK_16_IMMUTABLE_HISTORY_POSTGRES_DENIED=PASS",
+  "P12_ATK_18_FAILED_TRANSACTION_AUDIT_OUTBOX_LEAKAGE_POSTGRES_DENIED=PASS",
+  "P12_ATK_18_AUDIT_OUTBOX_SECRET_LEAKAGE_POSTGRES_DENIED=PASS",
+  "P12_ATK_18_GENERATED_HTML_AND_WORKER_SECRET_LEAKAGE_DENIED=PASS",
+  "P12_ATK_19_BOOTSTRAP_SCOPE_AND_REPLAY_POSTGRES_DENIED=PASS",
+  "P12_ATK_20_REVOKED_STALE_PUBLISH_AND_LOST_INVALIDATION_DENIED=PASS"
+];
+for (const marker of processMarkers) {
   assert.match(processTap, new RegExp(`^# ${marker}$`, "mu"), `Missing ${marker}.`);
   passedProofs.add(`process:${marker}`);
 }
 
 const { phase12AttackMap } = await import("../packages/contracts/dist/index.js");
-const journey = "process:P12_9_GENERATED_APP_POSTGRES_HTTP_CHROMIUM_EVIDENCE=PASS";
-const storage = "process:P12_5_WORKSPACE_STORAGE_POSTGRES_EVIDENCE=PASS";
 const attackProofs = {
-  "P12-ATK-01": ["unit:contracts:keeps browser autosave input free of application, environment, ACL, route, and executable authority"],
-  "P12-ATK-02": ["unit:contracts:accepts one closed server-produced shell and rejects foreign navigation identity", storage],
+  "P12-ATK-01": ["unit:contracts:keeps browser autosave input free of application, environment, ACL, route, and executable authority", "unit:contracts:rejects unrestricted URL/style/SQL/package/JS fields and non-namespaced engine metadata", "process:P12_ATK_01_PROTECTED_SHELL_HTTP_POSTGRES_DENIED=PASS"],
+  "P12-ATK-02": ["unit:contracts:binds mutable working copies and immutable publications to one page/document identity", "unit:page-service:derives page, placement, theme, actor, and document identity on the server", "process:P12_ATK_02_CROSS_CUSTOMER_READ_POSTGRES_DENIED=PASS"],
   "P12-ATK-03": ["unit:contracts:rejects duplicate, cyclic, missing-parent, cross-owner, and System-shadowing navigation"],
   "P12-ATK-04": ["unit:navigation:rejects duplicate, inactive, missing-route, foreign-parent, missing-parent, and cyclic graphs"],
-  "P12-ATK-05": ["unit:page-service:returns the same non-enumerating denial for missing and unauthorized direct pages", journey],
-  "P12-ATK-06": ["unit:page-service:denies non-owner ACL expansion beyond the editor's exact held capability", journey],
-  "P12-ATK-07": ["unit:contracts:separates page ACL from platform and block data authority", journey],
-  "P12-ATK-08": [storage],
-  "P12-ATK-09": [storage],
-  "P12-ATK-10": ["unit:contracts:bounds depth, arrays, strings, and canonical document bytes", storage, journey],
+  "P12-ATK-05": ["unit:page-service:returns the same non-enumerating denial for missing and unauthorized direct pages", "process:P12_ATK_05_UNAUTHORIZED_DIRECT_URL_AND_ENUMERATION_HTTP_DENIED=PASS"],
+  "P12-ATK-06": ["unit:page-service:denies non-owner ACL expansion beyond the editor's exact held capability"],
+  "P12-ATK-07": ["process:P12_ATK_07_PAGE_ACL_ONLY_SALES_ACTION_HTTP_POSTGRES_DENIED=PASS"],
+  "P12-ATK-08": ["process:P12_ATK_08_STALE_AUTOSAVE_CAS_POSTGRES_DENIED=PASS"],
+  "P12-ATK-09": ["process:P12_ATK_09_CHANGED_IDEMPOTENCY_PAYLOAD_POSTGRES_DENIED=PASS"],
+  "P12-ATK-10": ["unit:contracts:bounds depth, arrays, strings, and canonical document bytes", "process:P12_ATK_10_CSRF_REPLAY_AND_MALFORMED_AUTOSAVE_HTTP_DENIED=PASS"],
   "P12-ATK-11": [
     "unit:contracts:rejects unrestricted URL/style/SQL/package/JS fields and non-namespaced engine metadata",
     "unit:administration:escapes workspace page titles and descriptions as text",
     "unit:generic-blocks:escapes persisted text props in editor preview and production output",
     "unit:rich-text:renders validated structured content without an HTML injection surface",
-    "unit:rich-text:rejects script URLs, arbitrary fields, duplicate marks, and unknown nodes"
+    "unit:rich-text:rejects script URLs, arbitrary fields, duplicate marks, and unknown nodes",
+    "process:P12_ATK_11_UNSAFE_PROPS_HTTP_POSTGRES_DENIED=PASS"
   ],
-  "P12-ATK-12": ["unit:sales-builder:rejects missing blocks and unauthorized action replacement", "unit:page-service:requires current publish authority and fresh ready dependencies before storage"],
-  "P12-ATK-13": ["sales:Sales rejects a stale opportunity card without a blind update", "unit:sales-builder:inserts the Kanban with its trusted existing source and action bindings", journey],
+  "P12-ATK-12": ["process:P12_ATK_12_SOURCE_SUBSTITUTION_HTTP_POSTGRES_DENIED=PASS", "process:P12_ATK_12_PUBLISH_DOCUMENT_HTTP_POSTGRES_DENIED=PASS", "process:P12_ATK_12_PUBLISH_REVISION_HTTP_POSTGRES_DENIED=PASS"],
+  "P12-ATK-13": ["sales:Sales rejects a stale opportunity card without a blind update", "unit:sales-builder:rejects missing blocks and unauthorized action replacement", "unit:sales-builder:inserts the Kanban with its trusted existing source and action bindings", "process:P12_ATK_12_SOURCE_SUBSTITUTION_HTTP_POSTGRES_DENIED=PASS", "process:P12_ATK_13_ACTION_SUBSTITUTION_HTTP_POSTGRES_DENIED=PASS", "process:P12_ATK_13_UNBOUND_ACTION_HTTP_POSTGRES_DENIED=PASS", "process:P12_ATK_13_CROSS_PAGE_ACTION_HTTP_POSTGRES_DENIED=PASS", "process:P12_ATK_13_REVOKED_PAGE_ACTION_HTTP_POSTGRES_DENIED=PASS"],
   "P12-ATK-14": ["unit:page-service:re-reads impact after a lost invalidation and rejects stale generation resurrection"],
-  "P12-ATK-15": ["unit:page-service:requires current publish authority and fresh ready dependencies before storage", journey],
-  "P12-ATK-16": ["unit:page-service:derives publication and rollback identities, authority digest, and dependencies server-side", journey],
-  "P12-ATK-17": ["unit:generator:plans deterministic exact Sales applications for local or external Postgres", journey],
-  "P12-ATK-18": ["unit:administration:renders server-projected native POST forms without client authority fields", storage, journey],
-  "P12-ATK-19": [journey],
-  "P12-ATK-20": ["unit:page-service:cancels pending editor work after page-access invalidation", journey],
+  "P12-ATK-15": ["unit:page-service:requires current publish authority and fresh ready dependencies before storage"],
+  "P12-ATK-16": ["unit:page-service:fails closed before page or pointer mutation and store rollback for missing or dependency-unavailable target revisions"],
+  "P12-ATK-17": ["unit:generator:plans deterministic exact Sales applications for local or external Postgres"],
+  "P12-ATK-18": ["unit:administration:renders server-projected native POST forms without client authority fields", "process:P12_ATK_18_FAILED_TRANSACTION_AUDIT_OUTBOX_LEAKAGE_POSTGRES_DENIED=PASS", "process:P12_ATK_18_AUDIT_OUTBOX_SECRET_LEAKAGE_POSTGRES_DENIED=PASS", "process:P12_ATK_18_GENERATED_HTML_AND_WORKER_SECRET_LEAKAGE_DENIED=PASS"],
+  "P12-ATK-19": ["process:P12_ATK_19_BOOTSTRAP_SCOPE_AND_REPLAY_POSTGRES_DENIED=PASS"],
+  "P12-ATK-20": ["unit:page-service:cancels pending editor work after page-access invalidation", "process:P12_ATK_20_REVOKED_STALE_PUBLISH_AND_LOST_INVALIDATION_DENIED=PASS"],
   "P12-ATK-21": ["unit:generator:writes byte-identical controlled source to different clean targets"],
-  "P12-ATK-22": ["unit:generator:rejects tampered mirrors and installs immutable bytes captured by the verified plan"]
+  "P12-ATK-22": ["unit:generator:uses workspace only for side-effect-free planning and defaults to the verified bundled release", "unit:generator:rejects a coherently forged manifest, tarball, and lock before target write", "unit:generator:binds a generated application to every exact artifact in a packed release mirror", "unit:generator:rejects tampered mirrors and installs immutable bytes captured by the verified plan"]
 };
 assert.deepEqual(Object.keys(attackProofs), phase12AttackMap.map(({ id }) => id), "Gate 12 attack proof IDs must match the contract exactly.");
 for (const attack of phase12AttackMap) {
   assert.ok(attack.expectedDenial.length > 0, `${attack.id} has no expected denial.`);
+  assert.ok(attackProofs[attack.id].length > 0, `${attack.id} has no exact executed denial proof.`);
   for (const proof of attackProofs[attack.id]) assert.ok(passedProofs.has(proof), `${attack.id} references unexecuted proof ${proof}.`);
 }
 

@@ -112,12 +112,16 @@ test("boots both customer apps from packed packages and verifies protected runti
       const filename = `${entry.package.slice(1).replace("/", "-")}-${entry.version}.tgz`;
       copyFileSync(resolve(repositoryRoot, "fixtures/customer-gate-1/packages", filename), resolve(mirror, filename));
     }
-    for (const [label, releaseManifest] of [["current", supportManifest]]) {
+    for (const entry of Object.values(supportManifest.factoryLockTemplates)) {
+      const filename = `factory-lock-sales-reference-${entry.theme}-${entry.digest.slice(7)}.yaml`;
+      copyFileSync(resolve(repositoryRoot, "fixtures/customer-gate-1/packages", filename), resolve(mirror, filename));
+    }
+    for (const label of ["current"]) {
       const applicationId = `gate-eight-${label}`;
       const generatedApplication = resolve(generatedRoot, `application-${label}`);
       const generatedPlan = planCreateKnexApplication({
         applicationId, applicationName: `Gate Eight ${label}`, theme: "minimal", database: "external",
-        packageSource: { kind: "packed-mirror", directory: mirror, releaseManifest }
+        packageSource: { kind: "packed-mirror", directory: mirror, authority: verifier.packageReleaseAuthority, release: supportRelease }
       });
       applyCreateKnexApplication(generatedPlan, generatedApplication);
       for (const command of generatedPlan.installCommands) {

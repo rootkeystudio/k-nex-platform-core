@@ -251,7 +251,10 @@ export async function resolveWorkspaceNavigation(input: ResolveWorkspaceNavigati
     visibleRoutes.set(targetKey(route.target), { target: route.target, href: route.href });
   }
 
-  const visibleNodes = new Set(visibleLinks);
+  const visibleNodes = new Set([
+    ...visibleLinks,
+    ...[...sections.values()].filter(({ acceptsCustomerChildren }) => acceptsCustomerChildren === true).map(({ id }) => id)
+  ]);
   for (const id of visibleLinks) {
     let parentId = nodes.get(id)?.parentId;
     while (parentId !== undefined) { visibleNodes.add(parentId); parentId = nodes.get(parentId)?.parentId; }

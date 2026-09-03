@@ -9,6 +9,7 @@ import test from "node:test";
 
 import { applyCreateKnexApplication, planCreateKnexApplication } from "@k-nex/composition";
 import { PackageReleaseManifestSchema, canonicalJson } from "@k-nex/contracts";
+import { salesOpportunitiesDescriptor, salesOpportunityStageUpdateDescriptor, salesTaskUpdateDescriptor, salesTasksDescriptor } from "@k-nex/module-sales/contracts";
 import { PostgresAuthorizationStore } from "@k-nex/payload-adapter";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import pg from "pg";
@@ -202,8 +203,9 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const replayOutput = failedRun("pnpm", ["knex:issue-bootstrap-token", "--output", replayTokenFile], { cwd: application, env: applicationEnvironment, stdio: "pipe" });
     assert.match(replayOutput, /First owner already exists/u);
     assert.equal(existsSync(replayTokenFile), false);
+    console.log("P12_ATK_19_BOOTSTRAP_SCOPE_AND_REPLAY_POSTGRES_DENIED=PASS");
 
-    const readinessOutput = run("pnpm", ["knex:readiness"], { cwd: application, env: applicationEnvironment, stdio: "pipe" });
+    const readinessOutput = run("pnpm", ["knex:doctor"], { cwd: application, env: applicationEnvironment, stdio: "pipe" });
     assert.match(readinessOutput, /K_NEX_APPLICATION_READY/u);
     applicationProcess = await startApplication(application, applicationEnvironment);
     const readiness = await fetch(`${applicationProcess.origin}/api/readiness`);
@@ -232,8 +234,9 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal(inventory.status, 200);
     const inventoryBody = await inventory.json();
     assert.deepEqual(inventoryBody.plugins, ["module.sales"]);
-    assert.equal((await fetch(`${applicationProcess.origin}/sales`, { headers: { cookie: owner.cookie.header } })).status, 200);
-    assert.equal((await fetch(`${applicationProcess.origin}/system/access/roles`, { headers: { cookie: owner.cookie.header } })).status, 200);
+    assert.equal((await fetch(`${applicationProcess.origin}/sales`, { headers: { cookie: owner.cookie.header } })).status, 404, "Phase 12 must not invent a Sales product page before Phase 13.");
+    assert.equal((await fetch(`${applicationProcess.origin}/system/workspace-pages`, { headers: { cookie: owner.cookie.header } })).status, 200);
+    assert.equal((await fetch(`${applicationProcess.origin}/system/access/roles`, { headers: { cookie: owner.cookie.header } })).status, 404, "Generated navigation must not claim unimplemented System administration routes.");
 
     const createLimited = await fetch(`${applicationProcess.origin}/api/users`, {
       method: "POST",
@@ -311,6 +314,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal((await fetch(`${applicationProcess.origin}/sales`, { headers: { cookie: limited.cookie.header } })).status, 404);
     assert.equal((await fetch(`${applicationProcess.origin}/api/k-nex/inventory`, { headers: { cookie: limited.cookie.header } })).status, 403);
     assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: limited.cookie.header } })).status, 404);
+    console.log("P12_ATK_05_UNAUTHORIZED_DIRECT_URL_AND_ENUMERATION_HTTP_DENIED=PASS");
 
     const manager = await login(applicationProcess.origin, managerEmail, managerPassword);
     assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: manager.cookie.header } })).status, 404, "Draft pages cannot be viewed through the normal route.");
@@ -347,6 +351,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     notificationClient.release();
     notificationClient = undefined;
     assert.equal(workerProcess.output().includes(ownerEmail) || workerProcess.output().includes(ownerPassword) || workerProcess.output().includes(limitedPassword) || workerProcess.output().includes(managerPassword), false);
+    console.log("P12_ATK_18_GENERATED_HTML_AND_WORKER_SECRET_LEAKAGE_DENIED=PASS");
     await stop(workerProcess.child, "authorization worker");
     workerProcess = undefined;
 
@@ -369,6 +374,78 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal((await unsafeWrite(JSON.stringify({ padding: "x".repeat(1_048_576) }))).status, 400, "Oversized autosave must fail closed.");
     const attackCopyResult = await pool.query("select working_copy_json from k_nex_workspace_working_copies where application_id=$1 and environment=$2 and page_id=$3", [applicationId, environmentName, pageId]);
     const attackCopy = attackCopyResult.rows[0].working_copy_json;
+    const workspaceAuthoritySnapshot = async () => {
+      const result = await pool.query(`select working_copy.working_copy_json, working_copy.working_copy_revision, page.working_copy_revision as page_working_copy_revision,
+        pointer.pointer_json, (select count(*)::int from k_nex_workspace_published_revisions where application_id=$1 and environment=$2 and page_id=$3) as published_revision_count
+        from k_nex_workspace_working_copies working_copy
+        join k_nex_workspace_pages page on page.application_id=working_copy.application_id and page.environment=working_copy.environment and page.page_id=working_copy.page_id
+        left join k_nex_workspace_publication_pointers pointer on pointer.application_id=working_copy.application_id and pointer.environment=working_copy.environment and pointer.page_id=working_copy.page_id
+        where working_copy.application_id=$1 and working_copy.environment=$2 and working_copy.page_id=$3`, [applicationId, environmentName, pageId]);
+      assert.equal(result.rowCount, 1, "The attack target must retain one working copy.");
+      return result.rows[0];
+    };
+    const assertAutosaveDenied = async (marker, document) => {
+      const before = await workspaceAuthoritySnapshot();
+      const response = await unsafeWrite(JSON.stringify({
+        expectedRevision: attackCopy.revision,
+        editorSessionId: `workspace-attacker-${randomUUID()}`,
+        idempotencyKey: `workspace-attacker-${randomUUID()}`,
+        document
+      }));
+      assert.equal(response.status, 400, `${marker} must map a rejected canonical-policy write to INVALID_INPUT.`);
+      assert.deepEqual(await response.json(), { code: "INVALID_INPUT" });
+      assert.deepEqual(await workspaceAuthoritySnapshot(), before, `${marker} cannot persist a working copy or publication change.`);
+      console.log(`${marker}=PASS`);
+    };
+    const kanban = {
+      id: "attacker-kanban", type: "sales.opportunity-kanban", version: 1, props: { title: "Sales opportunity Kanban" },
+      bindings: {
+        source: {
+          source: { id: salesOpportunitiesDescriptor.id, version: salesOpportunitiesDescriptor.version }, input: {},
+          structuralCompatibilityHash: salesOpportunitiesDescriptor.structuralCompatibilityHash, selectedFields: ["name", "stage", "revision", "value"]
+        },
+        action: { id: salesOpportunityStageUpdateDescriptor.id, version: salesOpportunityStageUpdateDescriptor.version }
+      }
+    };
+    const attackerDocument = (regions) => ({ ...attackCopy.document, version: attackCopy.revision + 1, regions });
+    await assertAutosaveDenied("P12_ATK_11_UNSAFE_PROPS_HTTP_POSTGRES_DENIED", attackerDocument({ main: [{
+      ...kanban, props: { title: "<img src=x onerror=alert(1)>", url: "javascript:alert(1)" }
+    }] }));
+    await assertAutosaveDenied("P12_ATK_01_PROTECTED_SHELL_HTTP_POSTGRES_DENIED", attackerDocument({ ...attackCopy.document.regions, "system-shell": [] }));
+    await assertAutosaveDenied("P12_ATK_12_SOURCE_SUBSTITUTION_HTTP_POSTGRES_DENIED", attackerDocument({ main: [{
+      ...kanban,
+      bindings: {
+        ...kanban.bindings,
+        source: {
+          ...kanban.bindings.source,
+          source: { id: salesTasksDescriptor.id, version: salesTasksDescriptor.version + 1 },
+          structuralCompatibilityHash: salesTasksDescriptor.structuralCompatibilityHash
+        }
+      }
+    }] }));
+    await assertAutosaveDenied("P12_ATK_13_ACTION_SUBSTITUTION_HTTP_POSTGRES_DENIED", attackerDocument({ main: [{
+      ...kanban, bindings: { ...kanban.bindings, action: { id: salesTaskUpdateDescriptor.id, version: salesTaskUpdateDescriptor.version + 1 } }
+    }] }));
+    const publishUrl = `${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/publish`;
+    const assertPublishDenied = async (marker, body, status, code) => {
+      const before = await workspaceAuthoritySnapshot();
+      const response = await fetch(publishUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: restartedOwner.cookie.header, origin: applicationProcess.origin },
+        body: JSON.stringify(body)
+      });
+      assert.equal(response.status, status, `${marker} returned an unexpected denial status.`);
+      assert.deepEqual(await response.json(), { code });
+      assert.deepEqual(await workspaceAuthoritySnapshot(), before, `${marker} cannot publish an attacker document or revision.`);
+      console.log(`${marker}=PASS`);
+    };
+    await assertPublishDenied("P12_ATK_12_PUBLISH_DOCUMENT_HTTP_POSTGRES_DENIED", {
+      workingCopyRevision: attackCopy.revision, idempotencyKey: `workspace-attacker-publish-${randomUUID()}`,
+      document: attackerDocument({ main: [{ ...kanban, props: { title: "<script>alert(1)</script>" } }] })
+    }, 400, "INVALID_INPUT");
+    await assertPublishDenied("P12_ATK_12_PUBLISH_REVISION_HTTP_POSTGRES_DENIED", {
+      workingCopyRevision: attackCopy.revision + 1, idempotencyKey: `workspace-attacker-publish-${randomUUID()}`
+    }, 409, "REVISION_CONFLICT");
     let deepNode = { id: "deep-0", type: "content.text", version: 1, props: { text: "deep" } };
     for (let depth = 1; depth <= 18; depth += 1) deepNode = { id: `deep-${depth}`, type: "layout.section", version: 1, props: {}, children: [deepNode] };
     assert.equal((await unsafeWrite(JSON.stringify({
@@ -377,8 +454,10 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
       idempotencyKey: `workspace-deep-${randomUUID()}`,
       document: { ...attackCopy.document, regions: { main: [deepNode] } }
     }))).status, 400, "Deep canonical documents must fail closed.");
+    console.log("P12_ATK_10_CSRF_REPLAY_AND_MALFORMED_AUTOSAVE_HTTP_DENIED=PASS");
     const access = new URLSearchParams({ expectedPageRevision: String(themedPageState.pageRevision), expectedAccessRevision: String(themedPageState.accessRevision), idempotencyKey: `workspace-access-${randomUUID()}` });
     access.append("assignment", `user|${ownerUserId}|edit`);
+    access.append("assignment", `user|${limitedUserId}|view`);
     access.append("assignment", "role|customer.sales-manager|view");
     access.append("assignment", `user|${managerUserId}|edit`);
     const replaceAccess = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/access`, {
@@ -389,7 +468,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
 
     const alpha = await pool.query("insert into sales_opportunities (name, stage, value) values ('Alpha renewal','lead','12000') returning id");
     const beta = await pool.query("insert into sales_opportunities (name, stage, value) values ('Beta expansion','lead','8000') returning id");
-    await pool.query("insert into sales_tasks (title, status, potential_revenue) values ('Prepare Alpha proposal','open','12000')");
+    const task = await pool.query("insert into sales_tasks (title, status, potential_revenue) values ('Prepare Alpha proposal','open','12000') returning id");
 
     browser = await chromium.launch();
     const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: "reduce" });
@@ -461,6 +540,65 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.deepEqual(moved.rows, [{ name: "Alpha renewal", stage: "qualified" }, { name: "Beta expansion", stage: "won" }]);
     assert.equal(await page.locator("[data-k-nex-theme-profile]").getAttribute("data-k-nex-theme-profile"), inventoryBody.theme.profileRevisionId);
 
+    const salesRow = async (kind, id) => {
+      const result = await pool.query(kind === "opportunity"
+        ? "select id::text as id, name, stage, updated_at as revision from sales_opportunities where id=$1"
+        : "select id::text as id, title, status, updated_at as revision from sales_tasks where id=$1", [id]);
+      assert.equal(result.rowCount, 1, `Sales ${kind} target must exist.`);
+      return result.rows[0];
+    };
+    const postPageAction = (targetPageId, actionId, actionCookie, input) => fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(targetPageId)}/actions/${encodeURIComponent(actionId)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: actionCookie, origin: applicationProcess.origin },
+      body: JSON.stringify({ input, idempotencyKey: `workspace-direct-action-${randomUUID()}` })
+    });
+    const opportunityInput = (row, stage) => ({ id: row.id, expectedStage: row.stage, expectedRevision: new Date(row.revision).toISOString(), stage });
+
+    const limitedAuthority = await store.readState(applicationId, environmentName);
+    assert.ok(limitedAuthority);
+    await store.transaction(expected(limitedAuthority), async (transaction) => {
+      await transaction.write({ kind: "assignment", assignment: { schemaVersion: 1, id: "customer.workspace-viewer.assignment", applicationId, roleId: "customer.workspace-viewer", principal: { kind: "user", id: limitedUserId }, state: "active", revision: 2 } });
+    });
+    assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: limited.cookie.header } })).status, 200, "Exact page view access must not grant Sales action authority.");
+    const pageAclOnlyBefore = await salesRow("opportunity", String(alpha.rows[0].id));
+    const pageAclOnly = await postPageAction(pageId, salesOpportunityStageUpdateDescriptor.id, limited.cookie.header, opportunityInput(pageAclOnlyBefore, "won"));
+    assert.equal(pageAclOnly.status, 403);
+    const { correlationId: pageAclOnlyCorrelationId, ...pageAclOnlyBody } = await pageAclOnly.json();
+    assert.deepEqual(pageAclOnlyBody, { code: "ACTION_FORBIDDEN", status: 403, detail: "Current authority does not permit this action." });
+    assert.match(pageAclOnlyCorrelationId, /^workspace-sales-action-[0-9a-f-]+$/u);
+    assert.deepEqual(await salesRow("opportunity", String(alpha.rows[0].id)), pageAclOnlyBefore, "Page ACL cannot grant Sales action authority or mutate its target.");
+    console.log("P12_ATK_07_PAGE_ACL_ONLY_SALES_ACTION_HTTP_POSTGRES_DENIED=PASS");
+
+    const unboundBefore = await salesRow("task", String(task.rows[0].id));
+    const unbound = await postPageAction(pageId, salesTaskUpdateDescriptor.id, restartedOwner.cookie.header, { id: unboundBefore.id, status: "done" });
+    assert.equal(unbound.status, 404);
+    assert.deepEqual(await unbound.json(), { code: "NOT_FOUND" });
+    assert.deepEqual(await salesRow("task", String(task.rows[0].id)), unboundBefore, "An action absent from the published document cannot mutate a Sales row.");
+    console.log("P12_ATK_13_UNBOUND_ACTION_HTTP_POSTGRES_DENIED=PASS");
+
+    const createUnboundPage = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages`, {
+      method: "POST", redirect: "manual",
+      headers: { "content-type": "application/x-www-form-urlencoded", cookie: restartedOwner.cookie.header, origin: applicationProcess.origin },
+      body: new URLSearchParams({ title: "Sales action-free page", description: "Published without Sales action bindings", parentNavigationId: "sales.navigation.root", order: "101", themeRevision: "", idempotencyKey: `workspace-create-unbound-${randomUUID()}` })
+    });
+    assert.equal(createUnboundPage.status, 303, await createUnboundPage.clone().text());
+    const unboundPageId = decodeURIComponent(new URL(createUnboundPage.headers.get("location"), applicationProcess.origin).pathname.split("/").at(-1));
+    const unboundWorkingCopy = await pool.query("select working_copy_revision from k_nex_workspace_pages where application_id=$1 and environment=$2 and page_id=$3", [applicationId, environmentName, unboundPageId]);
+    assert.equal(unboundWorkingCopy.rowCount, 1);
+    const publishUnboundPage = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(unboundPageId)}/publish`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: restartedOwner.cookie.header, origin: applicationProcess.origin },
+      body: JSON.stringify({ workingCopyRevision: unboundWorkingCopy.rows[0].working_copy_revision, idempotencyKey: `workspace-publish-unbound-${randomUUID()}` })
+    });
+    assert.equal(publishUnboundPage.status, 200, await publishUnboundPage.clone().text());
+    assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(unboundPageId)}`, { headers: { cookie: restartedOwner.cookie.header } })).status, 200);
+    const crossPageBefore = await salesRow("opportunity", String(beta.rows[0].id));
+    const crossPage = await postPageAction(unboundPageId, salesOpportunityStageUpdateDescriptor.id, restartedOwner.cookie.header, opportunityInput(crossPageBefore, "lost"));
+    assert.equal(crossPage.status, 404);
+    assert.deepEqual(await crossPage.json(), { code: "NOT_FOUND" });
+    assert.deepEqual(await salesRow("opportunity", String(beta.rows[0].id)), crossPageBefore, "A bound action cannot be replayed through another published page.");
+    console.log("P12_ATK_13_CROSS_PAGE_ACTION_HTTP_POSTGRES_DENIED=PASS");
+
     const managerContext = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: "reduce" });
     const managerPage = await managerContext.newPage();
     await managerPage.goto(`${applicationProcess.origin}/login`);
@@ -495,6 +633,12 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal((await fetch(`${applicationProcess.origin}/workspace/pages/${encodeURIComponent(pageId)}`, { headers: { cookie: manager.cookie.header } })).status, 404);
     const revokedNavigation = await fetch(`${applicationProcess.origin}/`, { headers: { cookie: manager.cookie.header } });
     assert.equal((await revokedNavigation.text()).includes("Sales command center"), false, "Revoked page must leave current sidebar authority.");
+    const revokedActionBefore = await salesRow("opportunity", String(beta.rows[0].id));
+    const revokedAction = await postPageAction(pageId, salesOpportunityStageUpdateDescriptor.id, manager.cookie.header, opportunityInput(revokedActionBefore, "lost"));
+    assert.equal(revokedAction.status, 404);
+    assert.deepEqual(await revokedAction.json(), { code: "NOT_FOUND" });
+    assert.deepEqual(await salesRow("opportunity", String(beta.rows[0].id)), revokedActionBefore, "Revoked page access cannot execute a formerly bound Sales action.");
+    console.log("P12_ATK_13_REVOKED_PAGE_ACTION_HTTP_POSTGRES_DENIED=PASS");
     const staleWorkingCopy = (await pool.query("select working_copy_revision from k_nex_workspace_pages where application_id=$1 and environment=$2 and page_id=$3", [applicationId, environmentName, pageId])).rows[0].working_copy_revision;
     const stalePublication = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/publish`, {
       method: "POST", headers: { "content-type": "application/json", cookie: manager.cookie.header, origin: applicationProcess.origin },
@@ -504,6 +648,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     workerProcess = start("node", ["dist/k-nex-worker.js"], { cwd: application, env: applicationEnvironment });
     await until(async () => workerProcess.output().includes("K_NEX_WORKER_READY"), `Generated worker did not recover the lost page invalidation.\n${workerProcess.output()}`, workerProcess.child);
     await until(async () => (await pool.query("select count(*)::int as count from k_nex_workspace_page_outbox where application_id=$1 and environment=$2 and status<>'delivered'", [applicationId, environmentName])).rows[0].count === 0, "Lost workspace invalidation did not converge from the durable outbox.", workerProcess.child);
+    console.log("P12_ATK_20_REVOKED_STALE_PUBLISH_AND_LOST_INVALIDATION_DENIED=PASS");
 
     const rollback = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/rollback`, {
       method: "POST",

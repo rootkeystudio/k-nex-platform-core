@@ -514,8 +514,7 @@ export async function GET() {
 
 function readinessRouteSource(): string {
   return `import { bootKnexApplication } from "../../../boot.js";
-import { kNexAuthority } from "../../../k-nex-authority.js";
-import { kNexIdentity } from "../../../k-nex-identity.js";
+import { reconcileKnexReadiness } from "../../../k-nex-readiness.js";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -523,11 +522,8 @@ export const runtime = "nodejs";
 export async function GET() {
   try {
     const payload = await bootKnexApplication("readiness");
-    const authority = kNexAuthority(payload);
-    const state = await authority.store.readState(kNexIdentity.applicationId, kNexIdentity.environment);
-    const receipt = await authority.store.readProtectedRoleBaselineReceipt(kNexIdentity.applicationId);
-    if (state === undefined || receipt === undefined || state.authorizationRevision < 1) throw new Error("Owner bootstrap is incomplete.");
-    return Response.json({ schemaVersion: 1, status: "ready", applicationId: kNexIdentity.applicationId, authorizationRevision: state.authorizationRevision, lifecycleRevision: state.lifecycleRevision }, { headers: { "cache-control": "no-store" } });
+    const readiness = await reconcileKnexReadiness(payload);
+    return Response.json({ schemaVersion: 1, status: "ready", applicationId: readiness.applicationId, authorizationRevision: readiness.authorizationRevision, lifecycleRevision: readiness.lifecycleRevision }, { headers: { "cache-control": "no-store" } });
   } catch {
     return Response.json({ schemaVersion: 1, status: "not-ready" }, { status: 503, headers: { "cache-control": "no-store" } });
   }
@@ -535,18 +531,242 @@ export async function GET() {
 `;
 }
 
-function readinessCommandSource(): string {
-  return `import { bootKnexApplication } from "./boot.js";
+function readinessSource(theme: ApplicationAuthFilesOptions["theme"]): string {
+  const themeResolver = theme === "minimal" ? "resolveMinimalThemeProfile" : "resolveNeobrutalismThemeProfile";
+  return `import { createHash } from "node:crypto";
+import { lstatSync, readFileSync, readdirSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
+
+import { createAuthorizedPuckBuilderProfile } from "@k-nex/builder-puck";
+import { ApplicationManifestSchema, PackageReleaseManifestSchema, PluginManifestSchema, canonicalJson } from "@k-nex/contracts";
+import manifestJson from "@k-nex/module-sales/manifest" with { type: "json" };
+import type { RuntimeExtensionPool } from "@k-nex/payload-adapter";
+import { assertExactProtectedRoleBaselineState, assertMigrationReadiness, currentProtectedPlatformRoleBaselineRelease, protectedRoleBootstrapId } from "@k-nex/runtime";
+import { ${themeResolver} as resolveSelectedThemeProfile } from "@k-nex/theme-${theme}";
+import type { Payload } from "payload";
+
 import { kNexAuthority } from "./k-nex-authority.js";
 import { kNexIdentity } from "./k-nex-identity.js";
+import { kNexSalesRegistry, kNexThemePresentation } from "./k-nex-registry.js";
+import { migrations } from "./migrations/index.js";
 
-const payload = await bootKnexApplication("readiness-command");
-try {
+export const kNexApplicationReadyMarker = "K_NEX_APPLICATION_READY";
+
+const expectedMigrationNames = Object.freeze([
+  "20260827_000001_sales_baseline",
+  "20260827_000002_knex_bootstrap",
+  "20260903_000003_knex_authorization",
+  "20260903_000004_knex_workspace_pages",
+  "20260903_000005_knex_event_outbox"
+]);
+const expectedRouteSources = Object.freeze([
+  "src/app/(auth)/forbidden/page.tsx",
+  "src/app/(auth)/login/page.tsx",
+  "src/app/(payload)/api/[...slug]/route.ts",
+  "src/app/(payload)/api/graphql-playground/route.ts",
+  "src/app/(payload)/api/graphql/route.ts",
+  "src/app/(workspace)/page.tsx",
+  "src/app/(workspace)/system/workspace-pages/[pageId]/page.tsx",
+  "src/app/(workspace)/system/workspace-pages/page.tsx",
+  "src/app/(workspace)/workspace/pages/[pageId]/edit/page.tsx",
+  "src/app/(workspace)/workspace/pages/[pageId]/page.tsx",
+  "src/app/api/health/route.ts",
+  "src/app/api/k-nex/inventory/route.ts",
+  "src/app/api/k-nex/workspace-folders/[folderId]/route.ts",
+  "src/app/api/k-nex/workspace-folders/route.ts",
+  "src/app/api/k-nex/workspace-pages/[pageId]/[operation]/route.ts",
+  "src/app/api/k-nex/workspace-pages/[pageId]/actions/[actionId]/route.ts",
+  "src/app/api/k-nex/workspace-pages/[pageId]/session/route.ts",
+  "src/app/api/k-nex/workspace-pages/route.ts",
+  "src/app/api/readiness/route.ts"
+].sort());
+const expectedPackageDependencies = Object.freeze([
+  "@k-nex/builder-puck", "@k-nex/composition", "@k-nex/contracts", "@k-nex/module-sales",
+  "@k-nex/payload-adapter", "@k-nex/runtime", "@k-nex/theme-${theme}", "@k-nex/ui-builder-blocks",
+  "@k-nex/ui-components", "@k-nex/ui-data", "@k-nex/ui-design-system-contracts", "@k-nex/ui-forms",
+  "@k-nex/ui-pages", "@k-nex/ui-runtime"
+].sort());
+
+type ApplicationPlan = Readonly<{
+  composition: Readonly<{ plugins: readonly string[]; builder: string; theme: string; databaseAdapter: string }>;
+  packageSource: Readonly<{ kind: string; release: string; manifestDigest: string }>;
+  migration: Readonly<{ owner: string; action: string; expectedPredecessorRevision: number }>;
+}>;
+
+function fail(message: string): never { throw new Error("K-Nex readiness failed: " + message); }
+function same(left: unknown, right: unknown): boolean { return canonicalJson(left) === canonicalJson(right); }
+function exactRecord(value: unknown, keys: readonly string[], label: string): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value) || !same(Object.keys(value).sort(), [...keys].sort())) fail(label + " is invalid.");
+  return value as Record<string, unknown>;
+}
+function regular(path: string, label: string): void {
+  const stat = lstatSync(path);
+  if (!stat.isFile() || stat.isSymbolicLink()) fail(label + " must be a regular file.");
+}
+function jsonFile(path: string, label: string): Readonly<{ source: string; value: unknown }> {
+  regular(path, label);
+  const source = readFileSync(path, "utf8");
+  return Object.freeze({ source, value: JSON.parse(source) as unknown });
+}
+function sha256(value: string | Buffer): string { return "sha256:" + createHash("sha256").update(value).digest("hex"); }
+function archiveName(packageName: string, version: string): string { return packageName.slice(1).replace("/", "-") + "-" + version + ".tgz"; }
+
+function parseApplicationPlan(value: unknown): ApplicationPlan {
+  const plan = exactRecord(value, ["planVersion", "preset", "composition", "packageSource", "migration", "readiness", "lifecyclePlans"], "Application plan");
+  const composition = exactRecord(plan.composition, ["plugins", "builder", "theme", "databaseAdapter"], "Application composition");
+  const packageSource = exactRecord(plan.packageSource, ["kind", "release", "manifestDigest"], "Application package source");
+  const migration = exactRecord(plan.migration, ["owner", "action", "expectedPredecessorRevision"], "Application migration plan");
+  if (plan.planVersion !== 1 || plan.preset !== "sales-reference" || packageSource.kind !== "packed-mirror" ||
+    typeof packageSource.release !== "string" || typeof packageSource.manifestDigest !== "string" ||
+    !Array.isArray(composition.plugins) || composition.plugins.some((value) => typeof value !== "string") ||
+    typeof composition.builder !== "string" || typeof composition.theme !== "string" || composition.databaseAdapter !== "postgres" ||
+    migration.owner !== "customer" || migration.action !== "review-and-apply" || migration.expectedPredecessorRevision !== 0 ||
+    !same(plan.readiness, ["exact-package-inventory", "migration-revision", "sales-registration"]) ||
+    !same(plan.lifecyclePlans, ["add", "disable", "enable", "upgrade"])) fail("Application plan is incompatible.");
+  return { composition: composition as ApplicationPlan["composition"], packageSource: packageSource as ApplicationPlan["packageSource"], migration: migration as ApplicationPlan["migration"] };
+}
+
+function routeSources(root: string): readonly string[] {
+  const found: string[] = [];
+  const visit = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (entry.isSymbolicLink()) fail("Generated route tree contains a symlink.");
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) visit(path);
+      else if (entry.isFile() && (entry.name === "page.tsx" || entry.name === "route.ts")) found.push(relative(root, path));
+    }
+  };
+  visit(join(root, "src/app"));
+  return found.sort();
+}
+
+function reconcileSource(root: string) {
+  const applicationFile = jsonFile(join(root, "k-nex.app.json"), "Application manifest");
+  const planFile = jsonFile(join(root, ".k-nex/application-plan.json"), "Application plan");
+  const releaseFile = jsonFile(join(root, ".k-nex/package-release-manifest.json"), "Package release manifest");
+  const application = ApplicationManifestSchema.parse(applicationFile.value);
+  const release = PackageReleaseManifestSchema.parse(releaseFile.value);
+  const plan = parseApplicationPlan(planFile.value);
+  if (releaseFile.source !== canonicalJson(release) || sha256(releaseFile.source) !== plan.packageSource.manifestDigest) fail("Package release manifest digest mismatch.");
+  if (plan.packageSource.release !== release.release.version) fail("Package release revision mismatch.");
+  if (application.application.id !== kNexIdentity.applicationId || application.application.type !== "customer-platform") fail("Application identity mismatch.");
+
+  const salesRelease = release.packages.find((entry) => entry.package === "@k-nex/module-sales" && entry.role === "plugin");
+  const builderRelease = release.packages.find((entry) => entry.package === "@k-nex/builder-puck" && entry.role === "builder");
+  const themeRelease = release.packages.find((entry) => entry.package === "@k-nex/theme-${theme}" && entry.role === "theme");
+  const salesPlugin = application.plugins[0];
+  const builder = application.builder;
+  const selectedTheme = exactRecord(application.themes, ["active", "package", "version"], "Selected theme");
+  if (application.plugins.length !== 1 || salesRelease === undefined || salesPlugin?.id !== "module.sales" || salesPlugin.package !== salesRelease.package || salesPlugin.version !== salesRelease.version || !salesPlugin.enabled) fail("Sales application manifest mismatch.");
+  if (builderRelease === undefined || builder?.plugin !== "builder.puck" || builder.package !== builderRelease.package || builder.version !== builderRelease.version || !same(builder.profiles, { workspace: { enabled: true, drafts: true, surfaces: ["workspace"] } })) fail("Puck builder manifest mismatch.");
+  if (themeRelease === undefined || selectedTheme.active !== "${theme}" || selectedTheme.package !== themeRelease.package || selectedTheme.version !== themeRelease.version) fail("Theme manifest mismatch.");
+  if (!same(plan.composition.plugins, ["module.sales@" + salesRelease.version]) || plan.composition.builder !== "builder.puck@" + builderRelease.version || plan.composition.theme !== "${theme}@" + themeRelease.version) fail("Application composition mismatch.");
+
+  const packageFile = jsonFile(join(root, "package.json"), "Package manifest");
+  const packageJson = exactRecord(packageFile.value, ["name", "version", "private", "type", "packageManager", "engines", "scripts", "dependencies", "devDependencies"], "Package manifest");
+  const dependencies = exactRecord(packageJson.dependencies, Object.keys(packageJson.dependencies as object), "Package dependencies");
+  const fileDependencies = Object.entries(dependencies).filter(([, value]) => typeof value === "string" && value.startsWith("file:"));
+  const actualPackageDependencies = fileDependencies.map(([name]) => name).sort();
+  if (!same(actualPackageDependencies, expectedPackageDependencies)) fail("Package file dependency inventory mismatch.");
+  for (const packageName of expectedPackageDependencies) {
+    const entry = release.packages.find((candidate) => candidate.package === packageName);
+    if (entry === undefined || dependencies[packageName] !== "file:.k-nex/packages/" + archiveName(entry.package, entry.version)) fail("Package dependency closure mismatch for " + packageName + ".");
+  }
+  const packageDirectory = join(root, ".k-nex/packages");
+  const actualArchives = readdirSync(packageDirectory, { withFileTypes: true });
+  if (actualArchives.some((entry) => !entry.isFile() || entry.isSymbolicLink())) fail("Package archive directory contains an unsupported entry.");
+  const expectedArchives = release.packages.map((entry) => archiveName(entry.package, entry.version)).sort();
+  if (!same(actualArchives.map((entry) => entry.name).sort(), expectedArchives)) fail("Package archive inventory mismatch.");
+  for (const entry of release.packages) {
+    const archive = readFileSync(join(packageDirectory, archiveName(entry.package, entry.version)));
+    if ("sha512-" + createHash("sha512").update(archive).digest("base64") !== entry.integrity) fail("Package archive integrity mismatch for " + entry.package + ".");
+  }
+  const lockPath = join(root, "pnpm-lock.yaml");
+  regular(lockPath, "Package lock");
+  if (sha256(readFileSync(lockPath)) !== release.factoryLockTemplates["${theme}"].digest) fail("Package lock digest mismatch.");
+  if (!same(routeSources(root), expectedRouteSources)) fail("Generated route source inventory mismatch.");
+
+  const salesManifest = PluginManifestSchema.parse(manifestJson);
+  const salesInventory = kNexSalesRegistry.scopedRegistration.inventory;
+  const expectedContributions = Object.fromEntries(Object.entries(salesManifest.contributions ?? {}).flatMap(([kind, values]) => {
+    const ids = Object.keys(values as object).sort();
+    return ids.length === 0 ? [] : [[kind, ids]];
+  }));
+  if (salesManifest.id !== salesPlugin.id || salesManifest.package !== salesPlugin.package || salesManifest.version !== salesPlugin.version ||
+    kNexSalesRegistry.registration.pluginId !== salesManifest.id || salesInventory.length !== 1 || salesInventory[0]?.id !== salesManifest.id ||
+    !same(salesInventory[0].contributions, expectedContributions) ||
+    Object.values(kNexSalesRegistry.scopedRegistration.contributions as Readonly<Record<string, readonly { pluginId: string }[]>>).flat().some((entry) => entry.pluginId !== salesManifest.id) ||
+    Object.values(kNexSalesRegistry.scopedRegistration.bindings as Readonly<Record<string, readonly { pluginId: string }[]>>).flat().some((entry) => entry.pluginId !== salesManifest.id)) fail("Sales static registration identity mismatch.");
+  if (!same(kNexSalesRegistry.collections.map(({ slug }) => slug).sort(), ["sales-opportunities", "sales-tasks"]) ||
+    kNexSalesRegistry.readiness.currentRevision !== 2 || !same(kNexSalesRegistry.readiness.predecessorRevisions, [1])) fail("Sales registry readiness mismatch.");
+  if (typeof createAuthorizedPuckBuilderProfile !== "function" || typeof resolveSelectedThemeProfile !== "function" ||
+    kNexThemePresentation.themeId !== "theme.${theme}" || kNexThemePresentation.themeVersion !== themeRelease.version ||
+    kNexThemePresentation.profileRevisionId !== "workspace.theme.initial") fail("Imported builder or theme registry mismatch.");
+  if (!same(migrations.map(({ name }) => name), expectedMigrationNames) || migrations.some(({ up, down }) => typeof up !== "function" || typeof down !== "function")) fail("Generated migration inventory mismatch.");
+  return { release };
+}
+
+async function assertSalesSchema(pool: RuntimeExtensionPool): Promise<void> {
+  const columns = await pool.query<{ table_name: string; column_name: string; udt_name: string; is_nullable: string }>(
+    "select table_name,column_name,udt_name,is_nullable from information_schema.columns where table_schema='public' and table_name=any($1::text[]) order by table_name,ordinal_position",
+    [["sales_opportunities", "sales_tasks"]]
+  );
+  const actualColumns = columns.rows.map((row) => [row.table_name, row.column_name, row.udt_name, row.is_nullable].join(":"));
+  const expectedColumns = [
+    "sales_opportunities:id:int4:NO", "sales_opportunities:name:varchar:NO", "sales_opportunities:stage:enum_sales_opportunities_stage:NO", "sales_opportunities:value:varchar:YES", "sales_opportunities:updated_at:timestamptz:NO", "sales_opportunities:created_at:timestamptz:NO",
+    "sales_tasks:id:int4:NO", "sales_tasks:title:varchar:NO", "sales_tasks:status:enum_sales_tasks_status:NO", "sales_tasks:potential_revenue:varchar:YES", "sales_tasks:private_note:varchar:YES", "sales_tasks:updated_at:timestamptz:NO", "sales_tasks:created_at:timestamptz:NO"
+  ];
+  if (!same(actualColumns, expectedColumns)) fail("Sales table schema mismatch.");
+  const enums = await pool.query<{ typname: string; enumlabel: string }>(
+    "select t.typname,e.enumlabel from pg_type t join pg_enum e on e.enumtypid=t.oid join pg_namespace n on n.oid=t.typnamespace where n.nspname='public' and t.typname=any($1::text[]) order by t.typname,e.enumsortorder",
+    [["enum_sales_opportunities_stage", "enum_sales_tasks_status"]]
+  );
+  if (!same(enums.rows.map((row) => row.typname + ":" + row.enumlabel), ["enum_sales_opportunities_stage:lead", "enum_sales_opportunities_stage:qualified", "enum_sales_opportunities_stage:won", "enum_sales_opportunities_stage:lost", "enum_sales_tasks_status:open", "enum_sales_tasks_status:done"])) fail("Sales enum schema mismatch.");
+}
+
+export async function reconcileKnexReadiness(payload: Payload) {
+  const root = resolve(process.cwd());
+  const { release } = reconcileSource(root);
+  const pool = payload.db.pool as RuntimeExtensionPool;
+  await assertMigrationReadiness({ pool, applicationId: kNexIdentity.applicationId, artifactRevision: 1, releaseRevision: "platform-" + release.release.version + "-bootstrap" });
+  await assertSalesSchema(pool);
   const authority = kNexAuthority(payload);
   const state = await authority.store.readState(kNexIdentity.applicationId, kNexIdentity.environment);
-  const receipt = await authority.store.readProtectedRoleBaselineReceipt(kNexIdentity.applicationId);
-  if (state === undefined || receipt === undefined || state.authorizationRevision < 1) throw new Error("K-Nex owner bootstrap is incomplete.");
-  console.log("K_NEX_APPLICATION_READY");
+  if (state === undefined || state.lifecycleRevision !== kNexSalesRegistry.authorizationGeneration.lifecycleRevision || state.authorizationRevision < kNexSalesRegistry.authorizationGeneration.authorizationRevision) fail("Authorization lifecycle state mismatch.");
+  const expected = { applicationId: state.applicationId, environment: state.environment, authorizationRevision: state.authorizationRevision, lifecycleRevision: state.lifecycleRevision };
+  await authority.store.readTransaction(expected, async (transaction) => {
+    await assertExactProtectedRoleBaselineState(transaction, expected, currentProtectedPlatformRoleBaselineRelease);
+    const receipt = await transaction.readBootstrapReceipt(expected.applicationId);
+    if (receipt === undefined || receipt.applicationId !== expected.applicationId || receipt.ownerRoleId !== "system.role.owner" || receipt.state !== "committed" || receipt.authorizationRevision !== 1 ||
+      receipt.protectedBaselineVersion !== currentProtectedPlatformRoleBaselineRelease.version || receipt.protectedBaselineDigest !== currentProtectedPlatformRoleBaselineRelease.digest ||
+      receipt.ownerAssignmentId !== protectedRoleBootstrapId(expected.applicationId, "owner-assignment", receipt.ownerPrincipal.id) || receipt.id !== protectedRoleBootstrapId(expected.applicationId, "receipt", receipt.ownerAssignmentId)) fail("Protected role baseline receipt mismatch.");
+    const assignments = await transaction.listAssignments(expected.applicationId);
+    const receiptOwners = assignments.filter((assignment) => assignment.id === receipt.ownerAssignmentId && assignment.roleId === receipt.ownerRoleId && assignment.principal.kind === "user" && assignment.principal.id === receipt.ownerPrincipal.id && assignment.state === "active" && assignment.revision === 1);
+    if (receiptOwners.length !== 1) fail("Bootstrap owner assignment mismatch.");
+    const salesRole = await transaction.readRole(expected.applicationId, "customer.initial-sales-administrator");
+    if (!same(salesRole, { schemaVersion: 1, id: "customer.initial-sales-administrator", applicationId: expected.applicationId, label: "Sales administrator", revision: 0 })) fail("Initial Sales administrator role mismatch.");
+    const expectedSalesGrants = kNexSalesRegistry.permissionDescriptors.map(({ id }) => ({ schemaVersion: 1, id: "customer.initial-sales-administrator." + id, applicationId: expected.applicationId, roleId: "customer.initial-sales-administrator", permissionId: id, owner: kNexSalesRegistry.authorizationGeneration.owner, revision: 0 })).sort((left, right) => left.id.localeCompare(right.id));
+    const salesGrants = [...await transaction.listGrants(expected.applicationId, "customer.initial-sales-administrator")].sort((left, right) => left.id.localeCompare(right.id));
+    if (!same(salesGrants, expectedSalesGrants)) fail("Initial Sales permission grants mismatch.");
+    const salesGenerations = (await transaction.listExtensionGenerations(expected.applicationId)).filter((generation) => generation.owner.deliveryClass === "platform-plugin" && generation.owner.extensionId === "module.sales");
+    if (!same(salesGenerations, [kNexSalesRegistry.authorizationGeneration])) fail("Sales authorization generation mismatch.");
+    const salesAssignment = assignments.filter((assignment) => assignment.id === "customer.initial-sales-administrator.owner");
+    if (!same(salesAssignment, [{ schemaVersion: 1, id: "customer.initial-sales-administrator.owner", applicationId: expected.applicationId, roleId: "customer.initial-sales-administrator", principal: receipt.ownerPrincipal, state: "active", revision: 0 }])) fail("Initial Sales owner assignment mismatch.");
+  });
+  return Object.freeze({ applicationId: kNexIdentity.applicationId, authorizationRevision: state.authorizationRevision, lifecycleRevision: state.lifecycleRevision });
+}
+`;
+}
+
+function doctorSource(): string {
+  return `import { bootKnexApplication } from "./boot.js";
+import { kNexApplicationReadyMarker, reconcileKnexReadiness } from "./k-nex-readiness.js";
+
+const payload = await bootKnexApplication("doctor");
+try {
+  await reconcileKnexReadiness(payload);
+  console.log(kNexApplicationReadyMarker);
+  console.log("K_NEX_DOCTOR_PASS");
 } finally { await payload.destroy(); }
 process.exit(0);
 `;
@@ -612,9 +832,10 @@ export function applicationAuthFiles(options: ApplicationAuthFilesOptions): Read
     "src/k-nex-authority.ts": authoritySource(),
     "src/k-nex-bootstrap-owner.ts": bootstrapOwnerSource(),
     "src/k-nex-bootstrap-token.ts": bootstrapTokenSource(),
+    "src/k-nex-doctor.ts": doctorSource(),
     "src/k-nex-identity.ts": identitySource(options.applicationId),
     "src/k-nex-issue-bootstrap-token.ts": issueTokenSource(),
-    "src/k-nex-readiness.ts": readinessCommandSource(),
+    "src/k-nex-readiness.ts": readinessSource(options.theme),
     "src/k-nex-worker.ts": workerSource(),
     "src/k-nex-users.ts": usersSource(),
     "src/k-nex-workspace-navigation.ts": workspaceNavigationSource()

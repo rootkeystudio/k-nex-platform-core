@@ -7,15 +7,15 @@
 
 ## Last completed
 
-The Sol-xhigh closeout gaps for generated-name safety, owner bootstrap, server-side Puck policy, bound actions, immutable page/ACL publication, and durable invalidation are fixed. Generated navigation and page views now accept only caller-supplied implemented System routes; generated app exposes only workspace-page administration, keeps Sales as a customer-page parent, and emits no placeholder catch-alls.
+The Sol-xhigh closeout gaps are fixed: generated-name safety, serialized owner bootstrap, server-side Puck policy, page-bound actions, immutable page/ACL publication, durable invalidation, verified release manifests, content-addressed frozen factory locks, exact readiness, and attack evidence. Generated navigation exposes only implemented System routes and retains Sales solely as an empty customer-page parent without inventing `/sales`.
 
 ## Validation
 
-Exact Node 24.19.0: page/auth outbox unit 11/11, invalidation generation 4/4, navigation 4/4, System UI 5/5, workspace application files 3/3, payload/composition/ui-pages/ui-runtime/customer builds PASS, authorization PostgreSQL convergence PASS. Generated PostgreSQL/HTTP/Chromium invalidation journey PASS before final packed type refresh.
+Exact Node 24.19.0: touched contract/composition/runtime/page-service/navigation tests PASS; affected builds, generated schemas, packed v1 closure, and both frozen-lock regeneration checks PASS. Real generated frozen-install/build/PostgreSQL/HTTP/Chromium journey and separate PostgreSQL storage/restore proof PASS with direct malicious document/action/revocation denials.
 
 ## Next
 
-Close release trust/lock, generated readiness, malicious HTTP, and exact-evidence gaps; refresh packed artifacts; re-review same Sol-xhigh session; then cumulative exact-head Gate 0–12.
+Run focused Gate 12; refresh hosted release evidence; re-review with the same Sol-xhigh session; fix until PASS; then run cumulative exact-head Linux/AppArmor Gate 0–12 and open/update the phase PR.
 
 ## Blockers
 

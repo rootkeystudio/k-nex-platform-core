@@ -256,6 +256,31 @@ describe("P12.6 current-authority workspace page service", () => {
     expect(value.store.publish).not.toHaveBeenCalled();
   });
 
+  it("fails closed before page or pointer mutation and store rollback for missing or dependency-unavailable target revisions", async () => {
+    const targetTheme = { profileId: "workspace.theme-profile-old", revisionId: "workspace.theme-revision-old", surface: "admin" } as const;
+    const target = { schemaVersion: 1, revisionId: "workspace.publication-old", identity, documentRevision: 1, document, page: { ...baseSnapshot.page, state: "published", publishedRevisionId: "workspace.publication-old", themeProfile: targetTheme, dependencyDigest, revision: 2 }, access: baseSnapshot.access, themeProfile: targetTheme, dependencies: { entries: [], digest: dependencyDigest }, publishedBy: actor, publishedAt: occurredAt } as const;
+    const current = { ...target, revisionId: "workspace.publication-current" };
+    const publishedSnapshot = {
+      ...baseSnapshot,
+      page: { ...baseSnapshot.page, state: "published", publishedRevisionId: current.revisionId, dependencyDigest, revision: 2 },
+      publication: { pointer: { schemaVersion: 1, identity, pointerRevision: 1, publishedRevisionId: current.revisionId, publishedDocumentRevision: 1, updatedAt: occurredAt }, revision: current }
+    } as unknown as WorkspacePageSnapshot;
+
+    const missingSnapshot = structuredClone(publishedSnapshot);
+    const missing = setup(missingSnapshot);
+    await expect(missing.service.rollback(owner, scope, identity.pageId, "workspace.publication-missing", "workspace-rollback-missing")).rejects.toMatchObject({ code: "DEPENDENCY_UNAVAILABLE" });
+    expect(missing.store.rollback).not.toHaveBeenCalled();
+    expect(missing.snapshot()).toEqual(publishedSnapshot);
+
+    const unavailableSnapshot = structuredClone(publishedSnapshot);
+    const unavailable = setup(unavailableSnapshot);
+    unavailable.store.readPublishedRevision.mockResolvedValue(target);
+    unavailable.setImpact({ state: "dependency-unavailable", code: "plugin-removed", catalogRevision: 2, dependencyDigest });
+    await expect(unavailable.service.rollback(owner, scope, identity.pageId, target.revisionId, "workspace-rollback-unavailable")).rejects.toMatchObject({ code: "DEPENDENCY_UNAVAILABLE" });
+    expect(unavailable.store.rollback).not.toHaveBeenCalled();
+    expect(unavailable.snapshot()).toEqual(publishedSnapshot);
+  });
+
   it("derives publication and rollback identities, authority digest, and dependencies server-side", async () => {
     const publishValue = setup();
     const receipt = await publishValue.service.publish(owner, scope, identity.pageId, { workingCopyRevision: 1, idempotencyKey: "workspace-publish-one" });

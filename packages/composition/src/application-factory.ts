@@ -3,7 +3,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { dirname, join, relative, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
 
-import { ApplicationManifestSchema, PackageReleaseManifestSchema, canonicalJson, type ApplicationManifest, type PackageReleaseManifest } from "@k-nex/contracts";
+import { ApplicationManifestSchema, canonicalJson, type ApplicationManifest, type PackageReleaseManifestAuthority, type VerifiedPackageReleaseManifest } from "@k-nex/contracts";
 import { applicationAuthFiles } from "./application-auth-files.js";
 import { runnableApplicationFiles } from "./runnable-application-files.js";
 import { workspacePageApplicationFiles } from "./workspace-page-application-files.js";
@@ -19,7 +19,8 @@ export interface CreateKnexApplicationOptions {
   readonly packageSource?: {
     readonly kind: "packed-mirror";
     readonly directory: string;
-    readonly releaseManifest: PackageReleaseManifest;
+    readonly authority: PackageReleaseManifestAuthority;
+    readonly release: VerifiedPackageReleaseManifest;
   };
 }
 
@@ -68,6 +69,10 @@ function artifactFilename(packageName: string, version: string): string {
   return `${packageName.slice(1).replace("/", "-")}-${version}.tgz`;
 }
 
+function factoryLockFilename(theme: SalesPresetTheme, digest: string): string {
+  return `factory-lock-sales-reference-${theme}-${digest.slice("sha256:".length)}.yaml`;
+}
+
 function packageIdentity(archive: Uint8Array): { readonly name: string; readonly version: string } {
   const tar = gunzipSync(archive);
   for (let offset = 0; offset + 512 <= tar.byteLength;) {
@@ -92,7 +97,6 @@ function registrySource(theme: SalesPresetTheme, applicationId: string, salesInt
 import manifestJson from "@k-nex/module-sales/manifest" with { type: "json" };
 import { salesNavigationDescriptors, salesOpportunitiesCollection, salesPermissionDescriptors, salesPermissionPolicyBindings, salesPermissionPolicyExecutors, salesReferenceMetadata, salesRegistration, salesRouteDescriptors, salesTasksCollection } from "@k-nex/module-sales/server";
 import { salesMigrationReadiness, salesUpgradeMigrations } from "@k-nex/module-sales/migrations";
-import { salesPageTemplates } from "@k-nex/module-sales/contracts";
 import { createPlatformPluginLifecycleState, executeRegistration, reconcilePlatformPluginAvailability, scopePlatformPluginRegistration } from "@k-nex/runtime";
 import { ${themeExport} } from "@k-nex/theme-${theme}";
 
@@ -118,8 +122,7 @@ export const kNexSalesRegistry = Object.freeze({
   navigationSection: Object.freeze({ id: "sales.navigation.root", pluginId: "module.sales", label: "Sales", icon: "sales" as const, order: 100, active: true, acceptsCustomerChildren: true, routes: salesRouteDescriptors, navigation: salesNavigationDescriptors, messages: salesReferenceMetadata.localization.messages }),
   collections: Object.freeze([salesTasksCollection, salesOpportunitiesCollection]),
   migrations: salesUpgradeMigrations,
-  readiness: salesMigrationReadiness,
-  defaultPages: salesPageTemplates
+  readiness: salesMigrationReadiness
 });
 
 const initialThemeTime = new Date(0).toISOString();
@@ -231,6 +234,7 @@ function applicationManifest(options: CreateKnexApplicationOptions, packageVersi
     framework: { payload: { database: { adapter: "postgres", package: "@payloadcms/db-postgres", connectionEnvironmentVariable: "DATABASE_URL" } } },
     plugins: [{ id: "module.sales", package: "@k-nex/module-sales", version: packageVersions.get("@k-nex/module-sales") ?? "1.0.0", enabled: true }],
     providers: {},
+    builder: { plugin: "builder.puck", package: "@k-nex/builder-puck", version: packageVersions.get("@k-nex/builder-puck") ?? "1.0.0", profiles: { workspace: { enabled: true, drafts: true, surfaces: ["workspace"] } } },
     themes: { active: options.theme, package: `@k-nex/theme-${options.theme}`, version: packageVersions.get(`@k-nex/theme-${options.theme}`) ?? "1.0.0" },
     development: { database: options.database === "docker-postgres" ? { mode: "docker-postgres", serviceName: "postgres" } : { mode: "external" } },
     build: { dockerfile: false, commitGeneratedRegistries: true, validateGeneratedFilesInCI: true },
@@ -240,11 +244,14 @@ function applicationManifest(options: CreateKnexApplicationOptions, packageVersi
 
 export function planCreateKnexApplication(options: CreateKnexApplicationOptions): ApplicationFactoryPlan {
   validOptions(options);
-  const release = options.packageSource === undefined ? undefined : PackageReleaseManifestSchema.parse(options.packageSource.releaseManifest);
+  const release = options.packageSource === undefined ? undefined : options.packageSource.authority.read(options.packageSource.release).manifest;
+  const releaseManifest = release === undefined ? undefined : canonicalJson(release);
+  const releaseManifestDigest = releaseManifest === undefined ? undefined : `sha256:${createHash("sha256").update(releaseManifest).digest("hex")}`;
   const releasedPackages = new Map(release?.packages.map((entry) => [entry.package, entry.version]) ?? []);
   const dependencyVersions = { ...exactDependencies, [`@k-nex/theme-${options.theme}`]: "1.0.0" };
   const artifacts = new Map<string, Uint8Array>();
   const artifactDigests: Record<string, string> = {};
+  let factoryLock: string | undefined;
   if (release !== undefined && options.packageSource !== undefined) {
     for (const entry of release.packages) {
       const filename = artifactFilename(entry.package, entry.version);
@@ -259,6 +266,16 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
       if (identity.name !== entry.package || identity.version !== entry.version) throw new Error(`Packed release package identity mismatch for ${entry.package}@${entry.version}.`);
       artifacts.set(filename, new Uint8Array(bytes));
       artifactDigests[filename] = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+    }
+    const lock = release.factoryLockTemplates[options.theme];
+    const filename = factoryLockFilename(options.theme, lock.digest);
+    const path = resolve(options.packageSource.directory, filename);
+    if (dirname(path) !== resolve(options.packageSource.directory) || !existsSync(path) || lstatSync(path).isSymbolicLink()) {
+      throw new Error(`Packed release factory lock is unavailable for ${options.theme}.`);
+    }
+    factoryLock = readFileSync(path, "utf8");
+    if (`sha256:${createHash("sha256").update(factoryLock).digest("hex")}` !== lock.digest) {
+      throw new Error(`Packed release factory lock integrity mismatch for ${options.theme}.`);
     }
   }
   const dependencies = Object.fromEntries(Object.entries(dependencyVersions).map(([name, version]) => {
@@ -276,20 +293,15 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
     ".k-nex/application-plan.json": json({
       planVersion: 1,
       preset: "sales-reference",
-      composition: { plugins: [`module.sales@${manifest.plugins[0]!.version}`], theme: `${options.theme}@${manifest.themes.version}`, databaseAdapter: "postgres" },
+      composition: { plugins: [`module.sales@${manifest.plugins[0]!.version}`], builder: `${manifest.builder!.plugin}@${manifest.builder!.version}`, theme: `${options.theme}@${manifest.themes.version}`, databaseAdapter: "postgres" },
       packageSource: release === undefined ? { kind: "workspace" } : {
         kind: "packed-mirror", release: release.release.version,
-        manifestDigest: `sha256:${createHash("sha256").update(canonicalJson(release)).digest("hex")}`
+        manifestDigest: releaseManifestDigest
       },
       migration: { owner: "customer", action: "review-and-apply", expectedPredecessorRevision: 0 },
-      readiness: ["exact-package-inventory", "migration-revision", "sales-registration", "default-pages"],
-      defaultPages: ["sales.page.tasks", "sales.page.opportunities"],
+      readiness: ["exact-package-inventory", "migration-revision", "sales-registration"],
       lifecyclePlans: ["add", "disable", "enable", "upgrade"]
     }),
-    ".k-nex/default-pages.json": json({ schemaVersion: 1, instances: [
-      { templateId: "sales.page.tasks", ownership: "customer", instantiate: "if-missing" },
-      { templateId: "sales.page.opportunities", ownership: "customer", instantiate: "if-missing" }
-    ] }),
     "k-nex.app.json": json(manifest),
     "package.json": json({
       name: options.applicationId, version: "1.0.0", private: true, type: "module", packageManager: "pnpm@11.9.0",
@@ -303,7 +315,6 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
         "knex:doctor": "node dist/k-nex-doctor.js",
         "knex:issue-bootstrap-token": "node dist/k-nex-issue-bootstrap-token.js",
         "knex:migrate": "payload migrate",
-        "knex:readiness": "node dist/k-nex-readiness.js",
         start: "next start",
         test: "node --test dist/tests/*.test.js",
         "knex:worker": "node dist/k-nex-worker.js"
@@ -321,6 +332,8 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
     "src/migrations/index.ts": `import * as baseline from "./20260827_000001_sales_baseline.js";\nimport * as bootstrap from "./20260827_000002_knex_bootstrap.js";\nimport * as authorization from "./20260903_000003_knex_authorization.js";\nimport * as workspacePages from "./20260903_000004_knex_workspace_pages.js";\nimport * as eventOutbox from "./20260903_000005_knex_event_outbox.js";\n\nexport const migrations = [\n  { name: "20260827_000001_sales_baseline", up: baseline.up, down: baseline.down },\n  { name: "20260827_000002_knex_bootstrap", up: bootstrap.up, down: bootstrap.down },\n  { name: "20260903_000003_knex_authorization", up: authorization.up, down: authorization.down },\n  { name: "20260903_000004_knex_workspace_pages", up: workspacePages.up, down: workspacePages.down },\n  { name: "20260903_000005_knex_event_outbox", up: eventOutbox.up, down: eventOutbox.down }\n];\n`,
     "src/payload.config.ts": payloadConfigSource(options.applicationId),
   };
+  if (releaseManifest !== undefined) files[".k-nex/package-release-manifest.json"] = releaseManifest;
+  if (factoryLock !== undefined) files["pnpm-lock.yaml"] = factoryLock;
   if (release !== undefined && options.packageSource !== undefined) {
     const overrides = Object.fromEntries([...release.packages].sort((left, right) => left.package.localeCompare(right.package)).map((entry) => [entry.package,
       `file:.k-nex/packages/${artifactFilename(entry.package, entry.version)}`]));
@@ -340,7 +353,7 @@ export function planCreateKnexApplication(options: CreateKnexApplicationOptions)
     digest,
     files: orderedFiles,
     artifactDigests: orderedArtifactDigests,
-    installCommands: Object.freeze([Object.freeze(["pnpm", "install", "--lockfile-only"]), Object.freeze(["pnpm", "install", "--frozen-lockfile"])])
+    installCommands: Object.freeze(options.packageSource === undefined ? [] : [Object.freeze(["pnpm", "install", "--frozen-lockfile"])])
   });
   verifiedPlanArtifacts.set(plan, new Map([...artifacts].map(([name, bytes]) => [name, new Uint8Array(bytes)])));
   return plan;

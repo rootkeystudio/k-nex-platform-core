@@ -101,12 +101,28 @@ describe("P12.4 workspace navigation resolution", () => {
     expect(resolveAuthorizedWorkspacePath(resolved, "/missing")).toBeUndefined();
   });
 
+  it("keeps an empty customer-page parent without synthesizing a plugin route", async () => {
+    const resolved = await resolveWorkspaceNavigation(input({
+      plugins: [
+        { ...input().plugins[0]!, routes: [], navigation: [] },
+        { ...input().plugins[0]!, id: "support.navigation.root", pluginId: "module.support", label: "Support", order: 200, acceptsCustomerChildren: false }
+      ],
+      pages: [],
+      preferences: { sidebar: "expanded", favoritePageIds: [], recentPageIds: [] }
+    }));
+    expect(resolved.tree.nodes.map(({ id }) => id)).toEqual(expect.arrayContaining(["sales.navigation.root"]));
+    expect(resolved.tree.nodes.map(({ id }) => id)).not.toEqual(expect.arrayContaining(["support.navigation.root"]));
+    expect(resolved.tree.nodes.find(({ id }) => id === "sales.navigation.root")).toMatchObject({ kind: "folder" });
+    expect(resolved.routes.map(({ href }) => href)).not.toContain("/sales");
+    expect(resolveAuthorizedWorkspacePath(resolved, "/sales")).toBeUndefined();
+  });
+
   it("omits unauthorized links, routes, descendants, and shortcuts before serialization", async () => {
     const resolved = await resolveWorkspaceNavigation(input({
       authorize: async (permissionId) => permissionId === "system.workspace-pages.read",
       pageAccess: async () => false
     }));
-    expect(resolved.tree.nodes.map(({ id }) => id)).toEqual(["k-nex.navigation.root", "k-nex.navigation.workspace", "system.navigation.workspace-pages", "system.navigation.root"]);
+    expect(resolved.tree.nodes.map(({ id }) => id)).toEqual(["k-nex.navigation.root", "k-nex.navigation.workspace", "system.navigation.workspace-pages", "sales.navigation.root", "system.navigation.root"]);
     expect(resolved.routes.map(({ href }) => href)).toEqual(["/", "/system/workspace-pages"]);
     expect(resolved.favorites).toEqual([]);
     expect(JSON.stringify(resolved)).not.toContain("sales.route.overview");
@@ -120,7 +136,7 @@ describe("P12.4 workspace navigation resolution", () => {
       pages: [],
       preferences: { sidebar: "expanded", favoritePageIds: [], recentPageIds: [] }
     }));
-    expect(resolved.tree.nodes.map(({ id }) => id)).toEqual(["system.navigation.root"]);
+    expect(resolved.tree.nodes.map(({ id }) => id)).toEqual(["sales.navigation.root", "system.navigation.root"]);
     expect(resolved.routes).toEqual([]);
   });
 

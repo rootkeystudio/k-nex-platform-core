@@ -56,6 +56,7 @@ test("P12.5 stores workspace pages, ACL, CAS copies, immutable publications, rol
     assert.deepEqual(await store.create({ page: alpha.page, access: alpha.access, workingCopy: alpha.workingCopy, idempotencyKey: "workspace-create-one" }), alpha.page);
     assert.deepEqual(await store.create({ page: alpha.page, access: alpha.access, workingCopy: alpha.workingCopy, idempotencyKey: "workspace-create-one" }), alpha.page, "response-loss replay must return the first result");
     await assert.rejects(store.create({ page: { ...alpha.page, title: "different" }, access: alpha.access, workingCopy: alpha.workingCopy, idempotencyKey: "workspace-create-one" }), { code: "IDEMPOTENCY_CONFLICT" });
+    console.log("P12_ATK_09_CHANGED_IDEMPOTENCY_PAYLOAD_POSTGRES_DENIED=PASS");
     await store.create({ page: beta.page, access: beta.access, workingCopy: beta.workingCopy, idempotencyKey: "workspace-create-beta" });
     assert.equal((await store.list({ applicationId: "customer-alpha", environment: "production" })).length, 1);
     assert.equal((await store.list({ applicationId: "customer-beta", environment: "production" })).length, 1);
@@ -78,6 +79,7 @@ test("P12.5 stores workspace pages, ACL, CAS copies, immutable publications, rol
     ]);
     assert.deepEqual(race.map(({ status }) => status).sort(), ["fulfilled", "rejected"]);
     assert.equal(race.find(({ status }) => status === "rejected").reason.code, "REVISION_CONFLICT", "stale tab must receive a conflict");
+    console.log("P12_ATK_08_STALE_AUTOSAVE_CAS_POSTGRES_DENIED=PASS");
 
     let snapshot = await store.read(alpha.identity);
     assert.ok(snapshot);
@@ -130,6 +132,7 @@ test("P12.5 stores workspace pages, ACL, CAS copies, immutable publications, rol
     await assert.rejects(store.publish({ page: failedPage, revision: failedRevision, pointer: failedPointer, receipt: failedReceipt }));
     const afterFailedMutation = await pool.query("select (select count(*)::int from k_nex_workspace_page_audit where application_id='customer-alpha') audit, (select count(*)::int from k_nex_workspace_page_outbox where application_id='customer-alpha') outbox");
     assert.deepEqual(afterFailedMutation.rows[0], beforeFailedMutation.rows[0], "failed transaction cannot leak audit/outbox rows");
+    console.log("P12_ATK_18_FAILED_TRANSACTION_AUDIT_OUTBOX_LEAKAGE_POSTGRES_DENIED=PASS");
 
     snapshot = await store.read(alpha.identity);
     const rollbackPage = nextPage(snapshot.page, { publishedRevisionId: firstRevision.revisionId, dependencyDigest: firstRevision.dependencies.digest });
@@ -147,12 +150,15 @@ test("P12.5 stores workspace pages, ACL, CAS copies, immutable publications, rol
     assert.equal(persisted.publication.pointer.publishedRevisionId, firstRevision.revisionId);
     assert.equal(persisted.publication.revision.dependencies.digest, firstRevision.dependencies.digest);
     assert.equal((await new PostgresWorkspacePageStore(pool).read({ ...alpha.identity, applicationId: "customer-gamma" })), undefined);
+    console.log("P12_ATK_02_CROSS_CUSTOMER_READ_POSTGRES_DENIED=PASS");
 
     const unsafe = ["private-board-value", "private-page-title", "private-sales-manager", "private-page-viewer", "private.theme-profile", "private.theme-revision"];
     const metadataRows = await pool.query("select event_json from k_nex_workspace_page_audit union all select event_json from k_nex_workspace_page_outbox");
     for (const row of metadataRows.rows) for (const value of unsafe) assert.equal(JSON.stringify(row.event_json).includes(value), false, "generic metadata must not contain document, ACL, or theme values");
+    console.log("P12_ATK_18_AUDIT_OUTBOX_SECRET_LEAKAGE_POSTGRES_DENIED=PASS");
     await assert.rejects(pool.query("update k_nex_workspace_published_revisions set revision_json='{}'::jsonb where application_id='customer-alpha'"), /immutable history/u);
     await assert.rejects(pool.query("delete from k_nex_workspace_publication_receipts where application_id='customer-alpha'"), /immutable history/u);
+    console.log("P12_ATK_16_IMMUTABLE_HISTORY_POSTGRES_DENIED=PASS");
 
     const user = container.getUsername();
     const sourceDatabase = container.getDatabase();
