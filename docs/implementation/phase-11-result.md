@@ -4,7 +4,7 @@
 - **Gate:** Gate 11
 - **Accepted base:** Phase 10 / PR #29
 - **Decision:** **READY FOR PHASE REVIEW**
-- **Review state:** Third owner-review findings fixed; local focused Gate 11 passes; replacement exact-head CI, cumulative Gate 0–11, and re-review remain pending.
+- **Review state:** Fourth owner-review finding fixed with the canonical Gate 1 generator; replacement exact-head focused CI, cumulative Gate 0–11, and re-review remain pending.
 
 ## Scope proved
 
@@ -47,6 +47,7 @@ A staged Hot Application that needs generation-validated settings reserves one f
 - Accepted backup and restore-drill requests durably transfer to `system-after-acceptance` execution authority; request, receipt, audit, and outbox evidence make that irrevocable system-duty boundary explicit.
 - The thirteen attack classes now reference exact executed assertions/process markers and fail the corpus if any mapping is missing or unexecuted.
 - `fast-uri` is pinned to patched `3.1.6`; compatibility passed generated contract compilation and the 30-test architecture validator. `pnpm audit --audit-level high` reports no high-severity findings.
+- The canonical composition writer refreshed the committed current-v1 Sales package integrity in the Gate 1 resolved graph; its isolated reproducibility check passes.
 
 ## Known limits and next decision
 

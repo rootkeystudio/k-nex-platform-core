@@ -150,7 +150,7 @@
         "names": []
       },
       "id": "module.sales",
-      "integrity": "sha512-q3xcws+tBSk4pu9EBZ8m57YRZlcT4iZRv0vq7oIlTXrVDPcWoIxlbb7omezN6aMWXAHppCQDPop3WN4n3x5o1A==",
+      "integrity": "sha512-UfiRH5HcPFfRsek4Jv9/Fl/aiH4rE+np4GmfrCjQ4PeTQjlDmDU2F9bVdcZPlPg+nFre1r6HOoyT+YN0+q2Img==",
       "kind": "module",
       "lifecycle": {
         "disable": "supported",

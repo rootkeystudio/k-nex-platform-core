@@ -7,15 +7,15 @@
 
 ## Last completed
 
-P11.10 and the third owner-review fixes are complete: the cumulative Remote UI fixture now carries and verifies host-owned presentation updates, and catalog recovery fails closed when its persisted authority JSON and canonical digest diverge.
+P11.10 and the fourth owner-review fix are complete: the canonical Gate 1 writer refreshed the committed Sales package integrity in the deterministic customer resolved graph.
 
 ## Validation
 
-Exact Node 24.19.0: local focused Gate 11 PASS with 9 process proofs and 13 machine-mapped attacks. Isolated Remote UI Chromium and real PostgreSQL catalog authority-tamper proofs PASS; no receipt or pointer mutation occurs on corruption.
+Exact Node 24.19.0: canonical composition build/generate/check PASS. Prior exact-head focused CI passed; cumulative CI reached Gate 1 and failed only on the now-regenerated stale resolved graph.
 
 ## Next
 
-Commit/push the third owner-review fixes, obtain replacement exact-head focused CI, run cumulative Linux/AppArmor Gate 0–11, then request owner re-review.
+Commit/push the generated Gate 1 evidence, obtain replacement exact-head focused CI, run cumulative Linux/AppArmor Gate 0–11, then request owner re-review.
 
 ## Blockers
 
