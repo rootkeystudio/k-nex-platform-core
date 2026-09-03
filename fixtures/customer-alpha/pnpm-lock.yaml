@@ -943,7 +943,7 @@ packages:
       react: ^18.0.0 || ^19.0.0
 
   '@k-nex/composition@file:../customer-gate-1/packages/k-nex-composition-1.0.0.tgz':
-    resolution: {integrity: sha512-KKQd6IAEQrFgn0pwHrRKdjJ8XOx1/brYyui3h2PxG7qNQoLdlFS4w1lLGI4ZHbgH+o+T3JwA6VEBb9I5OL2Hig==, tarball: file:../customer-gate-1/packages/k-nex-composition-1.0.0.tgz}
+    resolution: {integrity: sha512-NT0eyeOwYZviO3T+nwAJ/BpytOdFw58QECfwzOn8D+qbJKE+Q8G5fZ7LEN5iNYwheS2hqJIFt+urZ65xGqlDag==, tarball: file:../customer-gate-1/packages/k-nex-composition-1.0.0.tgz}
     version: 1.0.0
 
   '@k-nex/contracts@file:../customer-gate-1/packages/k-nex-contracts-1.0.0.tgz':
