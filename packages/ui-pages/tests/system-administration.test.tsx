@@ -94,6 +94,27 @@ describe("system administration pages", () => {
     expect(markup).not.toMatch(/<input[^>]+name="(?:actor|approvalId|authorityTarget|generation|owner|permissionAuthority)"/u);
   });
 
+  it("escapes workspace page titles and descriptions as text", () => {
+    const unsafe = '<script>alert("workspace")</script>';
+    const markup = renderToStaticMarkup(<SystemWorkspacePagesPage view={{
+      title: unsafe,
+      description: unsafe,
+      folders: [],
+      pages: [{
+        id: "workspace.page.unsafe",
+        title: unsafe,
+        href: "/system/workspace-pages/workspace.page.unsafe",
+        state: "draft",
+        placement: "Unplaced",
+        theme: "Default",
+        impact: "ready",
+        revision: "1/0/0"
+      }]
+    }} />);
+    expect(markup).not.toContain("<script>");
+    expect(markup.match(/&lt;script&gt;/gu)).toHaveLength(3);
+  });
+
   it("renders accessible copy-permission selection instead of a fixed hidden subset", () => {
     const markup = renderToStaticMarkup(<SystemRoleDetailPage view={{
       title: "Role", roleLabel: "Manager", roleState: "active", activePermissionGroups: [], inactiveDiagnostics: [],

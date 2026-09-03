@@ -7,15 +7,15 @@
 
 ## Last completed
 
-P12.9 proves the complete generated packed-app journey: owner bootstrap/login, nested Sales page navigation, real Puck authoring, lost-response autosave recovery, exact page ACL and Sales authority, Theme Profile publication, pointer/keyboard Kanban actions, live revocation, rollback, and restart durability. Generated v1 now includes the current transactional outbox schema and bundles Sales UI with Next's React runtime.
+P12.10 focused Gate 12 passes: exact v1 builds and packed closure, selected contract/navigation/shell/administration/builder/service/generator/Sales proofs, two real PostgreSQL/HTTP/Chromium process proofs, and machine linkage for all 22 attack IDs. CSRF, malformed/oversized/deep document, XSS escaping, unsafe URL, replay, and focus-restoration evidence is explicit.
 
 ## Validation
 
-Exact Node 24.19.0: affected package builds and focused contract/composition/Sales/page-service tests PASS; real PostgreSQL workspace storage PASS; P12.9 generated Next/Payload/PostgreSQL/Chromium journey PASS in 100.3s. Production page runtime excludes Puck/editor imports. Cumulative Gate 0–11 remains deferred to P12.10.
+Exact Node 24.19.0: `pnpm gate:12:focused` PASS, including 19 contract tests, two real process proofs, and 22/22 attack mappings. Cumulative Gate 0–12 found and regenerated one stale generated workspace schema; exact cumulative rerun remains pending.
 
 ## Next
 
-Create Phase 12 result and Gate 12, run exact closeout evidence, obtain one reusable Sol xhigh phase review, fix until PASS, then push/open the phase PR.
+Run exact cumulative Gate 0–12, obtain one reusable Sol xhigh phase review, fix until PASS, mark ready, then push/open the phase PR.
 
 ## Blockers
 

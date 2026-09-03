@@ -320,6 +320,25 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     const themedPageSession = await fetch(`${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/session`, { headers: { cookie: restartedOwner.cookie.header } });
     assert.equal(themedPageSession.status, 200);
     const themedPageState = await themedPageSession.json();
+    const autosaveUrl = `${applicationProcess.origin}/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/autosave`;
+    const unsafeWrite = (body, headers = {}) => fetch(autosaveUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: restartedOwner.cookie.header, origin: applicationProcess.origin, ...headers },
+      body
+    });
+    assert.equal((await unsafeWrite("{}", { origin: "https://attacker.example" })).status, 400, "Cross-origin autosave must fail closed.");
+    assert.equal((await unsafeWrite("{")).status, 400, "Malformed JSON autosave must fail closed.");
+    assert.equal((await unsafeWrite(JSON.stringify({ padding: "x".repeat(1_048_576) }))).status, 400, "Oversized autosave must fail closed.");
+    const attackCopyResult = await pool.query("select working_copy_json from k_nex_workspace_working_copies where application_id=$1 and environment=$2 and page_id=$3", [applicationId, environmentName, pageId]);
+    const attackCopy = attackCopyResult.rows[0].working_copy_json;
+    let deepNode = { id: "deep-0", type: "content.text", version: 1, props: { text: "deep" } };
+    for (let depth = 1; depth <= 18; depth += 1) deepNode = { id: `deep-${depth}`, type: "layout.section", version: 1, props: {}, children: [deepNode] };
+    assert.equal((await unsafeWrite(JSON.stringify({
+      expectedRevision: attackCopy.revision,
+      editorSessionId: `workspace-editor-${randomUUID()}`,
+      idempotencyKey: `workspace-deep-${randomUUID()}`,
+      document: { ...attackCopy.document, regions: { main: [deepNode] } }
+    }))).status, 400, "Deep canonical documents must fail closed.");
     const access = new URLSearchParams({ expectedPageRevision: String(themedPageState.pageRevision), expectedAccessRevision: String(themedPageState.accessRevision), idempotencyKey: `workspace-access-${randomUUID()}` });
     access.append("assignment", `user|${ownerUserId}|edit`);
     access.append("assignment", "role|customer.sales-manager|view");
@@ -461,6 +480,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.ok(bounds && bounds.x + bounds.width >= 374, "RTL drawer must anchor to logical start.");
     await page.keyboard.press("Escape");
     await drawer.waitFor({ state: "hidden" });
+    await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Open navigation");
     assert.equal(await openNavigation.evaluate((element) => document.activeElement === element), true);
     await context.close();
     browser = undefined;
@@ -482,6 +502,7 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     assert.equal(durablePointer.rows[0].pointer_json.publishedRevisionId, firstPublishedRevisionId);
     const durableSales = await pool.query("select name, stage from sales_opportunities order by id");
     assert.deepEqual(durableSales.rows, [{ name: "Alpha renewal", stage: "qualified" }, { name: "Beta expansion", stage: "won" }]);
+    console.log("P12_9_GENERATED_APP_POSTGRES_HTTP_CHROMIUM_EVIDENCE=PASS");
   } finally {
     await stop(workerProcess?.child).catch(() => {});
     await stop(applicationProcess?.child).catch(() => {});

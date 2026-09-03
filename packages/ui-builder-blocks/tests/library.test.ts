@@ -178,6 +178,16 @@ describe("generic Puck block library", () => {
     }
   });
 
+  it("escapes persisted text props in editor preview and production output", () => {
+    const text = nestedBridge("content.text");
+    const unsafe = '<img src=x onerror="alert(1)">';
+    const node = { id: "unsafe-text", type: text.definition.id, version: 1, props: { text: unsafe } };
+    const output = text.definition.render({ node, props: node.props, surface: "public", actor });
+    const markup = renderToStaticMarkup(output.element as Parameters<typeof renderToStaticMarkup>[0]);
+    expect(markup).not.toContain("<img");
+    expect(markup).toContain("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;");
+  });
+
   it("declares standard source/action policies for the generic data components", () => {
     const table = genericPuckBlockBridges.find(({ definition }) => definition.id === "content.data-table")!;
     const form = genericPuckBlockBridges.find(({ definition }) => definition.id === "content.form")!;

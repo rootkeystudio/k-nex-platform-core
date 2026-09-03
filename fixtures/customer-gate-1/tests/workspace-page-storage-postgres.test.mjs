@@ -146,6 +146,7 @@ test("P12.5 stores workspace pages, ACL, CAS copies, immutable publications, rol
     const restored = await new PostgresWorkspacePageStore(restoredPool).read(alpha.identity);
     assert.deepEqual(restored, persisted, "physical restore must preserve working copy, ACL, theme, pointer, dependency snapshot, and archive state");
     assert.deepEqual(await new PostgresWorkspaceNavigationStore(restoredPool).list({ applicationId: "customer-alpha", environment: "production" }), [{ node: { ...folder, order: 30 }, revision: 2 }], "physical restore must preserve customer folders and order");
+    console.log("P12_5_WORKSPACE_STORAGE_POSTGRES_EVIDENCE=PASS");
   } finally {
     await restoredPool?.end().catch(() => {});
     await pool.end().catch(() => {});
