@@ -7,15 +7,15 @@
 
 ## Last completed
 
-The generated editor's watermark poll now returns the freshly reauthorized edit watermark directly, avoiding a redundant second projection that could be invalidated by the editor's own concurrent autosave.
+The editor watermark-race fix is bound into a freshly regenerated immutable 1.0.0 composition archive, both factory locks, release manifest, and customer lockfiles.
 
 ## Validation
 
-Exact Node 24.19.0: editor source unit tests 6/6 and isolated generated app PostgreSQL/HTTP/Chromium journey PASS; artifact-wait proof 10/10 and Gate 1 generated-clean remain PASS.
+Exact Node 24.19.0: clean 17-package regeneration; factory-lock, ABI, packed closure, Gate 1 generated-clean, and both frozen customer installs PASS. Editor unit 6/6 and isolated generated app PostgreSQL/HTTP/Chromium journey PASS.
 
 ## Next
 
-Refresh the immutable v1 release closure and hosted evidence, then require exact-head focused and cumulative CI before resuming the same Sol-xhigh reviewer.
+Refresh hosted release evidence for this closure, then require exact-head focused and cumulative CI before resuming the same Sol-xhigh reviewer.
 
 ## Blockers
 
