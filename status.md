@@ -11,7 +11,7 @@ All six Sol-xhigh findings are closed in code: canonical archives, gateway-only 
 
 ## Validation
 
-Exact Node 24.19.0: clean 22-package build; canonical 17-package release regeneration, updated trusted tarball lock checksums, frozen install, packed ABI/closure, and factory-lock checks PASS; focused unit and generated app PostgreSQL/HTTP/Chromium review-remediation proofs PASS.
+Exact Node 24.19.0: clean 22-package build; canonical 17-package release regeneration; root plus customer-alpha/beta trusted tarball checksums and frozen installs; packed ABI/closure and factory-lock checks PASS; focused unit and generated app PostgreSQL/HTTP/Chromium remediation proofs PASS.
 
 ## Next
 
