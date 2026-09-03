@@ -11,7 +11,7 @@ P12.10 focused Gate 12 passes: exact v1 builds and packed closure, selected cont
 
 ## Validation
 
-Exact Node 24.19.0: focused Gate 12, Gate 8, Gate 11, and all 15 Gate 10 technical proofs PASS. The real static deployment repeat proof passes with disposable lock caches. Linux retry then exposed only a cold concurrent-CI timeout: the real two-process factory CLI test completed in 6.2s after its inherited 5s bound. That test alone now has a 15s bound; isolated proof and Linux rerun remain.
+Exact Node 24.19.0: focused Gate 12, Gates 8 and 11, all 15 Gate 10 technical proofs, and the real static deployment repeat proof PASS. Linux cumulative run `33746003254` passed the full Gate 9 technical corpus, then found Gate 9's stale pre-merge result marker. The historical result is correctly `ACCEPTED`; its isolated marker check and Linux rerun remain.
 
 ## Next
 
