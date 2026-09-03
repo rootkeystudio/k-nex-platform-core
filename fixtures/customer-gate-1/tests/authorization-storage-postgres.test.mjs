@@ -70,7 +70,7 @@ test("migrates P10.3 authorization storage with customer isolation and generatio
       [tables]
     );
     assert.deepEqual(migrated.rows.map(({ table_name }) => table_name), [...tables].sort());
-    assert.deepEqual((await pool.query("select predecessor_revision, revision from k_nex_migration_revision where id=1")).rows, [{ predecessor_revision: 22, revision: 23 }]);
+    assert.deepEqual((await pool.query("select predecessor_revision, revision from k_nex_migration_revision where id=1")).rows, [{ predecessor_revision: 23, revision: 24 }]);
     assert.equal((await pool.query("select count(*)::int as count from payload_migrations where name='20260901_000019_authorization_storage'")).rows[0].count, 1);
     assert.equal((await pool.query("select count(*)::int as count from payload_migrations where name='20260901_000020_template_tombstones'")).rows[0].count, 1);
     assert.equal((await pool.query("select count(*)::int as count from payload_migrations where name='20260901_000021_authorization_outbox'")).rows[0].count, 1);
