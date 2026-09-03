@@ -150,7 +150,8 @@ describe("generated workspace page builder policy", () => {
     expect(editor).toContain("function sameEditorAuthority(left: Watermark, right: Watermark): boolean {");
     expect(editor).toContain("return left.authorizationRevision === right.authorizationRevision && left.lifecycleRevision === right.lifecycleRevision && left.accessRevision === right.accessRevision;");
     expect(editor).toContain("const currentWatermark = useRef(initialProjection.watermark);");
-    expect(editor).toContain("if (response?.status === 404) response = await request();");
+    expect(editor).toContain("for (let confirmation = 0; response?.status === 404 && confirmation < 2; confirmation += 1)");
+    expect(editor).toContain("await new Promise((resolveWait) => setTimeout(resolveWait, 100));");
     expect(editor).toContain("if (response === undefined || response.status === 409) return;");
     expect(editor).toContain('if (!response.ok) return failClosed("access");');
     expect(editor).toContain('if (!sameEditorAuthority(currentWatermark.current, next)) return failClosed("authority");');

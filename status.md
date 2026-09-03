@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Hosted release evidence run 33816263901 binds the confirmed-denial closure and both customer bundles to source head 60b40efc.
+Editor allows two 100 ms confirmation retries before treating consecutive 404 responses as durable denial; mutations remain independently authorized server-side.
 
 ## Validation
 
-Exact Node 24.19.0: focused unit 6/6, isolated generated-app PostgreSQL/HTTP/Chromium, 17-package closure, frozen installs, hosted attestations, customer fixture regeneration, and generated-evidence clean check PASS.
+Exact Node 24.19.0: composition build and focused unit 6/6 PASS. Isolated generated-app PostgreSQL/HTTP/Chromium proof PASS for forced network loss, false 404 recovery, durable autosave, Sales-authority revocation, and real ACL denial.
 
 ## Next
 
-Require exact-head focused PR CI and Linux/AppArmor cumulative Gate 0–12, then resume the same Sol-xhigh reviewer until PASS.
+Refresh immutable packed closure and exact hosted release evidence, then rerun focused and cumulative CI.
 
 ## Blockers
 

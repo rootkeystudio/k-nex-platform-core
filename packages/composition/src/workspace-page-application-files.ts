@@ -305,7 +305,10 @@ export function WorkspacePageEditor({ pageId, initialProjection }: Readonly<{ pa
     const synchronize = async () => {
       const request = () => fetch("/api/k-nex/workspace-pages/" + encodeURIComponent(pageId) + "/session?mode=edit&watermark=" + encodeURIComponent(JSON.stringify(currentWatermark.current)), { cache: "no-store", signal: controller.signal }).catch(() => undefined);
       let response = await request();
-      if (response?.status === 404) response = await request();
+      for (let confirmation = 0; response?.status === 404 && confirmation < 2; confirmation += 1) {
+        await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+        response = await request();
+      }
       if (response === undefined || response.status === 409) return;
       if (!response.ok) return failClosed("access");
       const body = await response.json().catch(() => undefined) as { watermark?: unknown } | undefined;
