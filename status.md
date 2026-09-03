@@ -7,15 +7,15 @@
 
 ## Last completed
 
-The Sol-xhigh closeout gaps are fixed: generated-name safety, serialized owner bootstrap, server-side Puck policy, page-bound actions, immutable page/ACL publication, durable invalidation, verified release manifests, content-addressed frozen factory locks, exact readiness, and attack evidence. Generated navigation exposes only implemented System routes and retains Sales solely as an empty customer-page parent without inventing `/sales`.
+Packed v1 artifacts now exclude host-sensitive TypeScript build caches and use canonical tar/gzip metadata. Clean Node 24.19.0 macOS and Linux builds produced byte-identical archives for all 17 packages; repeated generation, packed ABI, and release-closure checks pass.
 
 ## Validation
 
-Exact Node 24.19.0: `pnpm gate:12:focused` PASS. It built the exact Phase 12 graph, verified the packed v1 closure and frozen locks, ran 114 focused unit proofs plus Sales TAP, and passed two real PostgreSQL/HTTP/Chromium process journeys with all 22 attack IDs mapped to executed evidence.
+Exact Node 24.19.0: `pnpm gate:12:focused` PASS before final review remediation. Packaging unit proof PASS; `CROSS_OS_PACK_BYTES_PASS 17`; repeated archive generation PASS; `P8_PACKED_ABI_EXPORT_PASS`; `P8_PACKED_RELEASE_CLOSURE_PASS 17`.
 
 ## Next
 
-Refresh hosted release evidence; re-review with the same Sol-xhigh session; fix until PASS; then run cumulative exact-head Linux/AppArmor Gate 0–12 and open/update the phase PR.
+Close the five remaining Sol-xhigh code findings, regenerate the clean release closure, refresh hosted evidence, resume the same reviewer until PASS, then run cumulative exact-head Linux/AppArmor Gate 0–12 and open/update the phase PR.
 
 ## Blockers
 
