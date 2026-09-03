@@ -30,7 +30,7 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
       "extension_id" varchar(128) NOT NULL,
       "authorization_generation" bigint NOT NULL,
       "runtime_generation_ids" jsonb NOT NULL,
-      "state" varchar(16) NOT NULL,
+      "state" varchar(24) NOT NULL,
       "authorization_revision" integer DEFAULT 0 NOT NULL,
       "lifecycle_revision" integer DEFAULT 0 NOT NULL,
       "created_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
@@ -42,11 +42,15 @@ export async function up({ db }: MigrateUpArgs): Promise<void> {
       ),
       CONSTRAINT "k_nex_extension_authorization_generations_reserved_namespace_check" CHECK (substring("extension_id" FROM position('.' IN "extension_id") + 1) <> 'system' AND substring("extension_id" FROM position('.' IN "extension_id") + 1) NOT LIKE 'system.%'),
       CONSTRAINT "k_nex_extension_authorization_generations_generation_check" CHECK ("authorization_generation" BETWEEN 1 AND 9007199254740991),
-      CONSTRAINT "k_nex_extension_authorization_generations_state_check" CHECK ("state" IN ('current', 'retired')),
+      CONSTRAINT "k_nex_extension_authorization_generations_state_check" CHECK (
+        "state" IN ('pending-configuration', 'current', 'retired')
+        AND ("state" <> 'pending-configuration' OR ("delivery_class" = 'hot-application' AND jsonb_array_length("runtime_generation_ids") = 1))
+      ),
       CONSTRAINT "k_nex_extension_authorization_generations_revision_check" CHECK ("authorization_revision" BETWEEN 0 AND 1000000000 AND "lifecycle_revision" BETWEEN 0 AND 1000000000),
       CONSTRAINT "k_nex_extension_authorization_generations_runtime_ids_check" CHECK (jsonb_typeof("runtime_generation_ids") = 'array')
     );
     CREATE UNIQUE INDEX "k_nex_extension_authorization_generations_current_key" ON "k_nex_extension_authorization_generations" ("application_id", "delivery_class", "extension_id") WHERE "state"='current';
+    CREATE UNIQUE INDEX "k_nex_extension_authorization_generations_pending_configuration_key" ON "k_nex_extension_authorization_generations" ("application_id", "delivery_class", "extension_id") WHERE "state"='pending-configuration';
 
     CREATE TABLE "k_nex_role_permission_grants" (
       "application_id" varchar(128) NOT NULL,

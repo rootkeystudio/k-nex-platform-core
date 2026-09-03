@@ -17,40 +17,25 @@ Gate 5   themes/accessibility/atomic publication            complete
 Gate 6   plugin platform and Sales reference                complete
 Gate 7   comprehensive component system                     complete
 Gate 8   lifecycle/application factory/release/fleet safety complete
+Gate 9   dynamic runtime and zero-downtime delivery         complete
+Gate 10  RBAC, authorization, extension bootstrap           complete
 ```
 
 ## Active hypotheses
 
-### Gate 9 — Dynamic application runtime
+### Gate 11 — System settings and extension operations
 
 Questions:
 
 ```text
-Can an official app bundle download/verify without executing package code?
-Can server logic run outside the host with real capability isolation?
-Can remote UI remain useful and accessible without host-realm React/DOM authority?
-Can app/skin generations activate/update/rollback atomically without host restart?
-Can full Platform Plugins deploy blue/green with continuous successful traffic?
-Can incompatible migrations be detected and refused before a false promotion?
-Can all processes converge after lost activation/deployment invalidation?
-Can backup/restore reproduce exact host and dynamic extension inventory?
+Can schema-valid settings persist, migrate, activate, and converge without creating executable runtime control?
+Can a signed GitHub catalog refresh safely reconcile every active release before acceptance?
+Can administrators operate the complete extension and theme lifecycle through current RBAC and exact revisions?
+Can authenticated web administration request deployment, backup, and restore drills without privileged operator credentials?
+Can protected inventory, health, approval, and receipts remain truthful across crash, replay, and lost invalidation?
 ```
 
-Kill criteria are in the Phase 9 plan. Raw host-process package injection is not an experimental fallback.
-
-### Gate 10 — RBAC and extension bootstrap
-
-Questions:
-
-```text
-Can platform and extension permissions share one stable owner model?
-Can users edit mixed roles without role-label authorization?
-Can extensions offer role templates without assigning users or overwriting edits?
-Can disable hide noise and revoke authority while preserving data?
-Can uninstall/reinstall prevent retired grants from reactivating?
-Can revocation reach web, worker, runner, remote UI, and realtime?
-Can PluginManager/deployment operations be safely user-operated?
-```
+Kill criteria are in the Phase 11 plan. Web-owned Docker, repository, backup, or trust-root authority is not an experimental fallback.
 
 ## Twenty reference study
 
@@ -71,13 +56,13 @@ K-Nex differs because its existing Platform Plugins are statically composed into
 
 `module.sales` remains the sole first-party domain reference.
 
-Gate 9 may introduce:
+Gate 11 reuses:
 
 ```text
-one bounded Hot Application fixture using Sales-compatible host contracts
-one Theme Skin fixture
-a test-only schema-less extension/runtime fixture
-a Docker blue/green customer topology
+the bounded Hot Application and Theme Skin fixtures
+the Sales Platform Plugin reference
+the existing Docker blue/green customer topology
+a test-only settings/catalog/operations proof fixture
 ```
 
 These prove infrastructure and do not authorize another domain product.
@@ -86,38 +71,37 @@ These prove infrastructure and do not authorize another domain product.
 
 ```text
 contract/schema generation and invalid fixture corpus
-protected hosted artifact/signature/provenance proof
-real process/container runner isolation
-real PostgreSQL activation/race/crash/restore
-real Chromium remote UI/CSP/accessibility/skin journeys
-real web/worker/runner revision convergence
-real Docker gateway blue/green continuous traffic
-failure injection before and after every commit/promotion boundary
+real PostgreSQL settings, revision, audit, outbox, race, crash, and generation proof
+bounded real HTTP signed-catalog refresh and staged/accepted reconciliation
+real authenticated Chromium settings, extension, theme, and operations journeys
+real web/worker/runner/operator revision convergence
+Docker/repository/DB-superuser/backup-key denial from unprivileged processes
+backup plus clean-restore-drill inventory receipts
+failure injection before and after every settings/catalog/operation terminal boundary
 ```
 
 Mocks may support unit tests but cannot satisfy the gate alone.
 
 ## Development versus production
 
-Development may use a local watcher and unsigned source sync only under an explicit development mode. Production requires prebuilt immutable signed bundles and never runs package install scripts at activation.
+Development may use a local watcher and unsigned source sync only under an explicit development mode. Production uses prebuilt immutable signed bundles; settings/catalog administration never runs package install scripts or downloaded migrations.
 
 ## Immediate work
 
-P9.1 freezes:
+P11.1 freezes:
 
 ```text
-extension class taxonomy
-app.* and skin.* identities
-Hot Application and Theme Skin manifests
-bundle/file/digest/provenance shape
-capability and resource budgets
-install plans/receipts/generations
-zero-downtime eligibility result
-invalid class-crossing fixtures
+settings owner/generation, pending/effective, operation, and receipt contracts
+official catalog staged/accepted refresh contracts
+exact action/permission/scope/reauthentication/approval mapping
+protected role baseline v3 with exact v2 predecessor
+extension/theme operation presentation
+projection-only operations-center request/status/receipt contracts
+invalid trust, secret, lifecycle, and authority fixtures
 ```
 
-No runner, UI engine, proxy, package, or deployment implementation is selected before those contracts and kill criteria are accepted in code.
+No persistence, catalog transport, UI route, or operator implementation starts before those contracts and kill criteria are accepted in code.
 
 ## Expansion freeze
 
-Before Gate 10 PASS, do not begin broad CRM/CMS or another first-party vertical. The next product layer is system settings, full extension/theme administration, official catalog operations, and Docker operations center.
+Before Gate 11 PASS, do not begin broad CRM/CMS or another first-party vertical. Phase 11 is system settings, full extension/theme administration, official catalog operations, and Docker operations center.

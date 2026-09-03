@@ -12,7 +12,7 @@ import {
   PluginNavigationDescriptorSchema,
   PluginPageTemplateDescriptorSchema,
   PluginRouteDescriptorSchema,
-  PluginSettingsDescriptorSchema,
+  SystemSettingsDescriptorSchema,
   PluginUiContributionDescriptorSchema,
   RoleTemplateSchema,
   canonicalJson
@@ -133,7 +133,7 @@ test("Sales registers three single-output data sources with valid descriptors", 
 });
 
 test("Sales settings, permissions, routes, and navigation use strict platform contracts", () => {
-  assert.equal(PluginSettingsDescriptorSchema.safeParse(salesWorkspaceSettingsDescriptor).success, true);
+  assert.equal(SystemSettingsDescriptorSchema.safeParse(salesWorkspaceSettingsDescriptor).success, true);
   assert.equal(salesPermissionDescriptors.every((descriptor) => AuthorizationPermissionDescriptorSchema.safeParse(descriptor).success), true);
   assert.equal(salesRouteDescriptors.every((descriptor) => PluginRouteDescriptorSchema.safeParse(descriptor).success), true);
   assert.equal(salesNavigationDescriptors.every((descriptor) => PluginNavigationDescriptorSchema.safeParse(descriptor).success), true);
@@ -141,7 +141,7 @@ test("Sales settings, permissions, routes, and navigation use strict platform co
   assert.equal(PluginPageTemplateDescriptorSchema.safeParse(salesTaskPageTemplate).success, true);
   assert.equal(PluginUiContributionDescriptorSchema.safeParse(salesTaskTableComponentDescriptor).success, true);
   assert.equal(PluginUiContributionDescriptorSchema.safeParse(salesTaskTableBlockDescriptor).success, true);
-  assert.deepEqual(salesDefaultSettings.values, {
+  assert.deepEqual(salesDefaultSettings, {
     defaultTaskPageSize: 25, showPotentialRevenue: true, defaultPage: "tasks",
     pipelineStages: ["lead", "qualified", "won", "lost"]
   });

@@ -95,7 +95,7 @@ test("P10.9 proves fixed host routes, RBAC actions, lifecycle truth, and Chromiu
     ]);
     const authority = new CurrentAuthorityAdapter({ current(context) { return context?.session ? sessions.get(context.session) : undefined; } }, resolver);
     const access = new SystemAccessAdministrationService({ store, catalogProvider: provider, authority, protectedAssignmentAdmission: { verify: async () => ({ approval: "satisfied", reauthentication: "satisfied" }) } });
-    let approval = false;
+    let lifecycleEvidence = { approval: "not-required", reauthentication: "satisfied" };
     let operatorCalls = 0;
     let activationCalls = 0;
     const operations = new Map();
@@ -106,21 +106,22 @@ test("P10.9 proves fixed host routes, RBAC actions, lifecycle truth, and Chromiu
     const operator = {
       async catalogList() { operatorCalls += 1; return records; }, async catalogDetail(identity) { return records.find((record) => record.extension.id === identity.id); },
       async status() { operatorCalls += 1; return { applicationId, environment, inventory: { revision: 7, extensions: {
-        hotApplications: { "app.sales-assistant": { disposition: "active" } },
-        themeSkins: { "skin.accent": { disposition: "active" } },
-        platformPlugins: { "module.reports": { disposition: "active" }, "module.sales": { disposition: "disabled" } }
+        hotApplications: { "app.sales-assistant": { disposition: "active", revision: 4 } },
+        themeSkins: { "skin.accent": { disposition: "active", revision: 5 } },
+        platformPlugins: { "module.reports": { disposition: "active", revision: 6 }, "module.sales": { disposition: "disabled", revision: 7 } }
       } }, health: records.map(({ extension }) => ({ extension, state: extension.id === "module.sales" ? "healthy" : "degraded" })) }; },
-      async plan(input) { operatorCalls += 1; const current = operation(input); operations.set(input.idempotencyKey, current); return current.plan; }, async operation(operationId) { operatorCalls += 1; return [...operations.values()].find((current) => current.operationId === operationId) ?? operation({ applicationId, environment, extension: { deliveryClass: "hot-application", id: "app.sales-assistant" }, operation: "install", targetVersion: "1.0.0", expectedRevision: 7, idempotencyKey: "system-administration-plan" }); },
+      async plan(input) { operatorCalls += 1; const current = operation(input); operations.set(input.idempotencyKey, current); return current.plan; }, async operation(operationId) { operatorCalls += 1; return [...operations.values()].find((current) => current.operationId === operationId) ?? operation({ applicationId, environment, extension: { deliveryClass: "hot-application", id: "app.sales-assistant" }, operation: "install", targetVersion: "1.0.0", expectedRevision: 4, idempotencyKey: "system-administration-plan" }); },
+      async validate(operationId) { operatorCalls += 1; const current = [...operations.values()].find((candidate) => candidate.operationId === operationId); assert.ok(current, "only a stored operation can be validated"); return { operationId, executionClass: current.plan.executionClass, phase: current.phase, valid: true, checks: ["fixture-validated-operation"] }; },
       async activate() { operatorCalls += 1; activationCalls += 1; return { receiptId: "receipt-system-administration" }; }, async rollback() { throw new Error("not used"); }, async disable() { throw new Error("not used"); }, async uninstall() { throw new Error("not used"); }
     };
     const planOnlyOperator = Object.freeze({ ...operator, async activate() { throw new SystemExtensionAdministrationError("UNAUTHORIZED", "Bound plan-only operator denies lifecycle execution."); } });
-    const extensions = new SystemExtensionAdministrationService({ operator: { resolve(context) { return context?.session === "plan-only" ? planOnlyOperator : context?.session === "owner" ? operator : undefined; } }, authority, state: store, approval: { verify: async () => approval } });
-    host = await startSystemAdministrationHost({ access, extensions, context(requestMessage) { const token = /(?:^|;\\s*)system_session=([^;]+)/u.exec(requestMessage.headers.cookie ?? "")?.[1]; return token ? { session: token } : undefined; }, sessionKey(context) { return context?.session; }, async expected() { const state = await store.readState(applicationId, environment); assert.ok(state); return { ...state, extensionRevision: 7 }; } });
+    const extensions = new SystemExtensionAdministrationService({ operator: { resolve(context) { return context?.session === "plan-only" ? planOnlyOperator : context?.session === "owner" ? operator : undefined; } }, authority, state: store, lifecycleEvidence: { verify: async () => lifecycleEvidence } });
+    host = await startSystemAdministrationHost({ access, extensions, context(requestMessage) { const token = /(?:^|;\\s*)system_session=([^;]+)/u.exec(requestMessage.headers.cookie ?? "")?.[1]; return token ? { session: token } : undefined; }, sessionKey(context) { return context?.session; }, async expected(extension) { const state = await store.readState(applicationId, environment); assert.ok(state); const revision = extension?.id === "app.sales-assistant" ? 4 : extension?.id === "skin.accent" ? 5 : extension?.id === "module.reports" ? 6 : extension?.id === "module.sales" ? 7 : 0; return { ...state, inventoryRevision: 7, extensionRevision: revision }; } });
 
     const beforeDenied = operatorCalls;
     assert.equal((await request(host.url, "/system/access/roles")).status, 403);
-    assert.equal((await request(host.url, "/api/system/extensions/plan", undefined, { expected: { applicationId, environment, authorizationRevision: 1, lifecycleRevision: 0, extensionRevision: 7 }, request: { extension: { deliveryClass: "hot-application", id: "app.sales-assistant" }, operation: "install", targetVersion: "1.0.0", idempotencyKey: "system-administration-plan" } })).status, 403);
-    assert.equal((await request(host.url, "/api/system/extensions/plan", undefined, { expected: { applicationId, environment, authorizationRevision: 1, lifecycleRevision: 0, extensionRevision: 7 }, request: { extension: { deliveryClass: "hot-application", id: "app.sales-assistant" }, operation: "install", targetVersion: "1.0.0", idempotencyKey: "system-administration-plan", owner: { kind: "platform" } } })).status, 400);
+    assert.equal((await request(host.url, "/api/system/extensions/plan", undefined, { expected: { applicationId, environment, authorizationRevision: 1, lifecycleRevision: 0, inventoryRevision: 7, extensionRevision: 4 }, request: { extension: { deliveryClass: "hot-application", id: "app.sales-assistant" }, operation: "install", targetVersion: "1.0.0", idempotencyKey: "system-administration-plan" } })).status, 403);
+    assert.equal((await request(host.url, "/api/system/extensions/plan", undefined, { expected: { applicationId, environment, authorizationRevision: 1, lifecycleRevision: 0, inventoryRevision: 7, extensionRevision: 4 }, request: { extension: { deliveryClass: "hot-application", id: "app.sales-assistant" }, operation: "install", targetVersion: "1.0.0", idempotencyKey: "system-administration-plan", owner: { kind: "platform" } } })).status, 400);
     assert.equal(operatorCalls, beforeDenied, "unauthenticated route/action attacks must stop before the extension operator");
     assert.equal((await request(host.url, "/system/extensions", "limited")).status, 403);
 
@@ -138,10 +139,11 @@ test("P10.9 proves fixed host routes, RBAC actions, lifecycle truth, and Chromiu
       await transaction.write({ kind: "assignment", assignment: { schemaVersion: 1, id: "plan-only-assignment", applicationId, roleId: "customer.plan-only-role", principal: { kind: "user", id: inactiveId }, state: "active", revision: initial.authorizationRevision + 1 } });
       await transaction.write({ kind: "catalog-snapshot", snapshot: { schemaVersion: 1, id: "sales.inactive-snapshot", applicationId, source: "administrative-non-authoritative", permission: { schemaVersion: 1, id: "sales.pipeline.read", publisher: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales" }, title: "Sales pipeline read", description: "Disabled extension", audience: "authenticated", resource: "sales.pipeline", operation: "read", scope: "application" }, state: "inactive-extension-disabled", owner: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales", generation: 2 }, revision: initial.authorizationRevision + 1 } });
     });
-    const expected = async () => {
+    const expected = async (extension) => {
       const state = await store.readState(applicationId, environment);
       assert.ok(state);
-      return { applicationId, environment, authorizationRevision: state.authorizationRevision, lifecycleRevision: state.lifecycleRevision, extensionRevision: 7 };
+      const revision = extension?.id === "app.sales-assistant" ? 4 : extension?.id === "skin.accent" ? 5 : extension?.id === "module.reports" ? 6 : extension?.id === "module.sales" ? 7 : 0;
+      return { applicationId, environment, authorizationRevision: state.authorizationRevision, lifecycleRevision: state.lifecycleRevision, inventoryRevision: 7, extensionRevision: revision };
     };
     const accessExpected = async () => {
       const current = await expected();
@@ -244,16 +246,17 @@ test("P10.9 proves fixed host routes, RBAC actions, lifecycle truth, and Chromiu
     await actionPage.goto(`${host.url}/system/extensions/app.sales-assistant`);
     assert.equal((await submit(actionPage, "Plan install"))?.status(), 200, "Chromium submits extension plan form");
     await actionPage.goto(`${host.url}/system/extensions/app.sales-assistant`);
-    assert.equal((await submit(actionPage, "Execute planned operation"))?.status(), 403, "approval-required browser execution must not activate without a verifier");
-    approval = true;
+    assert.equal((await submit(actionPage, "Execute planned operation"))?.status(), 403, "approval-required browser execution must not activate without current server evidence");
+    lifecycleEvidence = { approval: "satisfied", reauthentication: "satisfied" };
     await actionPage.goto(`${host.url}/system/extensions/app.sales-assistant`);
     assert.equal((await submit(actionPage, "Execute planned operation"))?.status(), 200, "Chromium submits approved extension execution form");
-    const planOnly = { expected: await expected(), request: { extension: { deliveryClass: "hot-application", id: "app.sales-assistant" }, operation: "install", targetVersion: "1.0.0", idempotencyKey: "plan-only-administration" } };
+    const planOnlyExtension = { deliveryClass: "hot-application", id: "app.sales-assistant" };
+    const planOnly = { expected: await expected(planOnlyExtension), request: { extension: planOnlyExtension, operation: "install", targetVersion: "1.0.0", idempotencyKey: "plan-only-administration" } };
     assert.equal((await request(host.url, "/api/system/extensions/plan", "plan-only", planOnly)).status, 200, "plan-only session receives only its bound planner facade");
-    assert.equal((await request(host.url, "/api/system/extensions/app.sales-assistant/execute", "plan-only", { expected: await expected(), operationId: "plan-only-administration" })).status, 403, "plan-only bound operator cannot reach lifecycle execution");
+    assert.equal((await request(host.url, "/api/system/extensions/app.sales-assistant/execute", "plan-only", { expected: await expected(planOnlyExtension), operationId: "plan-only-administration" })).status, 403, "plan-only bound operator cannot reach lifecycle execution");
     assert.equal(activationCalls, 1, "plan-only facade must not invoke the owner lifecycle operator");
     for (const [extension, expectedOutcome] of [[{ deliveryClass: "theme-skin", id: "skin.accent" }, "install-live"], [{ deliveryClass: "platform-plugin", id: "module.reports" }, "no-outage-deployment"], [{ deliveryClass: "platform-plugin", id: "module.sales" }, "maintenance-required"]]) {
-      const response = await request(host.url, "/api/system/extensions/plan", "owner", { expected: await expected(), request: { extension, operation: "install", targetVersion: "1.0.0", idempotencyKey: `system-plan-${extension.id.replace(/[^a-z]/gu, "")}` } });
+      const response = await request(host.url, "/api/system/extensions/plan", "owner", { expected: await expected(extension), request: { extension, operation: "install", targetVersion: "1.0.0", idempotencyKey: `system-plan-${extension.id.replace(/[^a-z]/gu, "")}` } });
       assert.equal(response.status, 200); assert.equal((await response.json()).display.outcome, expectedOutcome);
     }
     const extensionsPage = await request(host.url, "/system/extensions", "owner");
@@ -268,7 +271,7 @@ test("P10.9 proves fixed host routes, RBAC actions, lifecycle truth, and Chromiu
     await actionPage.goto(`${host.url}/system/extensions/module.sales`);
     const salesBrowserText = await actionPage.locator("body").innerText();
     assert.ok(salesBrowserText.indexOf("incompatible-overlap") >= 0 && salesBrowserText.indexOf("incompatible-overlap") < salesBrowserText.indexOf("Execute planned operation"), "canonical maintenance impact appears before execution");
-    assert.equal((await request(host.url, "/api/system/extensions/module.sales/execute", "owner", { expected: await expected(), operationId: "forged-operation" })).status, 403, "forged execution identity must not reach the operator");
+    assert.equal((await request(host.url, "/api/system/extensions/module.sales/execute", "owner", { expected: await expected({ deliveryClass: "platform-plugin", id: "module.sales" }), operationId: "forged-operation" })).status, 403, "forged execution identity must not reach the operator");
     console.log("P10_9_SYSTEM_ADMIN_POSTGRES_CHROMIUM_EVIDENCE=PASS");
     await context.close();
   } finally {

@@ -179,12 +179,12 @@ export class PostgresStaticCompositionCheckpointStore implements StaticCompositi
 export class PostgresTrustedBuildDeploymentClient implements TrustedBuildDeploymentClient, StaticReleaseRequestAuthority {
   constructor(private readonly pool: RuntimeExtensionPool) {}
 
-  async request(change: StaticCompositionChangeResult, authorization: OperationAuthorizationDecision): Promise<TrustedDeploymentRequest> {
+  async request(change: StaticCompositionChangeResult, authorization: OperationAuthorizationDecision, operationId: string): Promise<TrustedDeploymentRequest> {
     const parsed = StaticCompositionChangePlanSchema.parse(change.change);
-    if (change.targetSourceCommit !== parsed.target.sourceCommit || change.planDigest !== digest(parsed)) {
+    if (!/^operation-[0-9a-f]{32}$/u.test(operationId) || change.targetSourceCommit !== parsed.target.sourceCommit || change.planDigest !== digest(parsed)) {
       throw new StaticReleaseAuthorityStoreError("AUTHORITY_MISMATCH", "Static release request does not bind the deterministic source change.");
     }
-    const buildRequestDigest = digest({ change, authorization });
+    const buildRequestDigest = digest({ operationId, actor: authorization.actor, change });
     const result = await this.pool.query<ReleaseRequestRow>(
       `insert into runtime_static_release_requests
          (request_digest, application_id, environment, version, source_commit, change_plan_digest, change_json, authorization_json, status)

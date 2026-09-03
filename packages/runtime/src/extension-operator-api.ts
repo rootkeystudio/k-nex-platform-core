@@ -71,7 +71,7 @@ export interface ExtensionSystemStatus extends ExtensionRuntimeStatusObservation
   readonly inventory: RuntimeExtensionInventory;
 }
 
-type OperatorManager = Pick<PluginManager, "plan" | "stage" | "validate" | "operation" | "activate" | "rollback" | "disable" | "uninstall" | "inventory" | "completeStaticRelease">;
+type OperatorManager = Pick<PluginManager, "plan" | "stage" | "validate" | "operation" | "activate" | "rollback" | "disable" | "uninstall" | "inventory" | "completeStaticRelease" | "prepareStaticRelease">;
 type OperatorMutationResult = ExtensionActivationReceipt | ExtensionDispositionReceipt | StaticDeploymentOutcome | StaticDeploymentReceipt;
 
 function validOwner(applicationId: string, environment: string): boolean {
@@ -108,7 +108,11 @@ export class ExtensionOperatorApi {
   operation(operationId: string): Promise<ExtensionOperationStatus> { return this.manager.operation(operationId); }
 
   async validate(operationId: string): Promise<ExtensionValidationReport> {
-    const operation = await this.manager.operation(operationId);
+    let operation = await this.manager.operation(operationId);
+    if (operation.plan?.executionClass === "static-release") {
+      await this.manager.prepareStaticRelease(operationId);
+      operation = await this.manager.operation(operationId);
+    }
     return operation.plan?.executionClass === "static-release" ? this.staticReleases.validate(operation) : this.manager.validate(operationId);
   }
 

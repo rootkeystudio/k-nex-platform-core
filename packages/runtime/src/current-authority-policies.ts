@@ -13,9 +13,8 @@ import type {
 } from "./data-source-authorization.js";
 import type { RealtimeSubscriptionContext, RealtimeTopicDefinition } from "./realtime.js";
 import type { HotApplicationCapabilityAuthorizer, HotApplicationCapabilityAuthorizationResult } from "./hot-application-runtime.js";
-import type { PluginSettingsAuthorizer } from "./plugin-settings.js";
 import { ToolGatewayError, type ToolAuthorizationEvaluator, type ToolExecutionContext } from "./tool-gateway.js";
-import { canonicalJson, ExtensionCapabilityRequestSchema, type AgentToolDescriptor, type DataSourceDescriptor, type PluginSettingsDescriptor } from "@k-nex/contracts";
+import { canonicalJson, ExtensionCapabilityRequestSchema, type AgentToolDescriptor, type DataSourceDescriptor, type SystemSettingsDescriptor } from "@k-nex/contracts";
 
 import { CurrentAuthorityAdapter, isCurrentAuthorityTarget, type CurrentAuthorityTarget } from "./current-authority-adapter.js";
 
@@ -126,32 +125,26 @@ export class CurrentAuthorityRealtimeTopicAuthorization<TContext> {
 }
 
 /** Admission helpers for existing settings reads and changes. The callbacks run only after current RBAC allow. */
-export class CurrentAuthoritySettingsAuthorization<TContext> implements PluginSettingsAuthorizer<TContext> {
+export class CurrentAuthoritySettingsAuthorization<TContext> {
   constructor(
     private readonly authority: CurrentAuthorityAdapter<TContext>,
-    private readonly readTarget: (descriptor: PluginSettingsDescriptor) => CurrentAuthorityTarget,
-    private readonly changeTarget: (descriptor: PluginSettingsDescriptor) => CurrentAuthorityTarget
+    private readonly readTarget: (descriptor: SystemSettingsDescriptor) => CurrentAuthorityTarget,
+    private readonly changeTarget: (descriptor: SystemSettingsDescriptor) => CurrentAuthorityTarget
   ) {}
 
-  allowsRead(context: TContext, descriptor: PluginSettingsDescriptor, signal?: AbortSignal): Promise<boolean> {
+  allowsRead(context: TContext, descriptor: SystemSettingsDescriptor, signal?: AbortSignal): Promise<boolean> {
     return permits(this.authority, context, () => this.readTarget(descriptor), signal);
   }
 
-  allowsChange(context: TContext, descriptor: PluginSettingsDescriptor, signal?: AbortSignal): Promise<boolean> {
+  allowsChange(context: TContext, descriptor: SystemSettingsDescriptor, signal?: AbortSignal): Promise<boolean> {
     return permits(this.authority, context, () => this.changeTarget(descriptor), signal);
   }
 
-  authorize(input: Parameters<PluginSettingsAuthorizer<TContext>["authorize"]>[0]): Promise<boolean> {
-    return input.operation === "read"
-      ? this.allowsRead(input.context, input.descriptor, input.signal)
-      : this.allowsChange(input.context, input.descriptor, input.signal);
-  }
-
-  async read<TResult>(context: TContext, descriptor: PluginSettingsDescriptor, operation: () => TResult | Promise<TResult>, signal?: AbortSignal): Promise<TResult | undefined> {
+  async read<TResult>(context: TContext, descriptor: SystemSettingsDescriptor, operation: () => TResult | Promise<TResult>, signal?: AbortSignal): Promise<TResult | undefined> {
     return await this.allowsRead(context, descriptor, signal) ? operation() : undefined;
   }
 
-  async change<TResult>(context: TContext, descriptor: PluginSettingsDescriptor, operation: () => TResult | Promise<TResult>, signal?: AbortSignal): Promise<TResult | undefined> {
+  async change<TResult>(context: TContext, descriptor: SystemSettingsDescriptor, operation: () => TResult | Promise<TResult>, signal?: AbortSignal): Promise<TResult | undefined> {
     return await this.allowsChange(context, descriptor, signal) ? operation() : undefined;
   }
 }

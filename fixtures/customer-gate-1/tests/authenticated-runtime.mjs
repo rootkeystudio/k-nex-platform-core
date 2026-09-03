@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
 import { createPayloadRequest } from "payload";
+import { canonicalJson } from "@k-nex/contracts";
 import { PostgresAuthorizationStore } from "@k-nex/payload-adapter";
 import { bootstrapFirstOwner } from "@k-nex/runtime";
 
@@ -300,7 +301,7 @@ assert.equal(inventoryResponse.headers.get("cache-control"), "private, no-store"
 const inventory = await inventoryResponse.json();
 assert.equal(inventory.applicationId, "customer-gate-1");
 const resolvedGraphDigest = `sha256:${createHash("sha256")
-  .update(readFileSync(new URL("../.k-nex/generated/k-nex.resolved.json", import.meta.url)))
+  .update(canonicalJson(JSON.parse(readFileSync(new URL("../.k-nex/generated/k-nex.resolved.json", import.meta.url), "utf8"))))
   .digest("hex")}`;
 assert.equal(inventory.resolvedGraphDigest, resolvedGraphDigest);
 assert.match(inventory.sourceArtifact.digest, /^sha256:[0-9a-f]{64}$/);
@@ -444,9 +445,9 @@ assert.deepEqual(inventory.plugins, [{
   actualContributions: {}
 }]);
 assert.deepEqual(inventory.migrationRevision, {
-  migrationName: "20260901_000022_static_lifecycle_admission",
-  predecessor: 21,
-  current: 22
+  migrationName: "20260902_000024_catalog_mirror",
+  predecessor: 23,
+  current: 24
 });
 const serializedInventory = JSON.stringify(inventory);
 for (const forbidden of [process.env.DATABASE_URL, process.env.PAYLOAD_SECRET, login.token, password, "gate1@example.test"]) {

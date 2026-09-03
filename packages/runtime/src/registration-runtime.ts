@@ -7,7 +7,7 @@ import {
   PluginNavigationDescriptorSchema,
   PluginEventDescriptorSchema, PluginHealthAuditDescriptorSchema, PluginJobDescriptorSchema,
   PluginLifecycleDescriptorSchema, PluginLocalizationDescriptorSchema, PluginMigrationDescriptorSchema,
-  PluginPageTemplateDescriptorSchema, PluginRouteDescriptorSchema, PluginSettingsDescriptorSchema,
+  PluginPageTemplateDescriptorSchema, PluginRouteDescriptorSchema, SystemSettingsDescriptorSchema,
   PluginRealtimeTopicDescriptorSchema, PluginServiceDescriptorSchema, PluginTestingMetadataDescriptorSchema,
   PluginUiContributionDescriptorSchema, RoleTemplateSchema, assertDataSourceDefinition,
   pluginContributionCategoryKeys, pluginContributionRegistry, registrationPhases
@@ -181,7 +181,7 @@ function frozenClone<T>(value: T): T {
 }
 
 function configurationContribution(kind: ContributionKind, id: string, pluginId: string, value: unknown): unknown {
-  const schema = kind === "settings" ? PluginSettingsDescriptorSchema
+  const schema = kind === "settings" ? SystemSettingsDescriptorSchema
     : kind === "permissions" ? AuthorizationPermissionDescriptorSchema
       : kind === "policyBindings" ? PermissionPolicyBindingSchema
         : kind === "roleTemplates" ? RoleTemplateSchema
@@ -205,7 +205,7 @@ function configurationContribution(kind: ContributionKind, id: string, pluginId:
     ? (parsed.data as { readonly publisher?: { readonly kind?: string; readonly deliveryClass?: string; readonly extensionId?: string } }).publisher
     : undefined;
   const authorizationContribution = kind === "permissions" || kind === "policyBindings" || kind === "roleTemplates";
-  const identityMatches = parsed.success && (authorizationContribution
+  const identityMatches = parsed.success && (authorizationContribution || kind === "settings"
     ? publisher?.kind === "extension" && publisher.deliveryClass === "platform-plugin" && publisher.extensionId === pluginId
     : (parsed.data as { readonly ownerPluginId?: string }).ownerPluginId === pluginId);
   if (!parsed.success || parsed.data.id !== id || !identityMatches) {

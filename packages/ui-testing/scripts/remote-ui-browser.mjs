@@ -147,6 +147,7 @@ self.onmessage = async (event) => {
   page.on("requestfailed", (request) => browserDiagnostics.push(`${request.url()}: ${request.failure()?.errorText}`));
   await page.goto(hostOrigin);
   await page.waitForFunction(() => window.__K_NEX_REMOTE_READY__ === true).catch((error) => { throw new Error(`Remote UI did not become ready: ${error.message}; requests=${extensionRequests.join(",")}; page=${pageErrors.join(" | ")}; browser=${browserDiagnostics.join(" | ")}`); });
+  assert.deepEqual(await page.evaluate(() => window.__K_NEX_REMOTE_PRESENTATIONS__), [{ profileRevisionId: "profile-revision-1", themeId: "theme.default", themeVersion: "1.0.0", surface: "admin", mode: "light" }], "host adapter did not receive the initial presentation");
   const probe = await page.evaluate(() => window.__K_NEX_REMOTE_PROBE__);
   assert.deepEqual(probe, {
     document: "undefined", window: "undefined", localStorage: "undefined", sessionStorage: "undefined", sharedWorker: "undefined", serviceWorker: "undefined", popup: "undefined", top: "undefined",
@@ -165,6 +166,9 @@ self.onmessage = async (event) => {
   assert.equal(await refresh.evaluate((element) => element === document.activeElement), true, "Tab did not reach the host semantic control");
   await page.keyboard.press("Enter");
   await page.getByText("Loaded 2 tasks").waitFor();
+  await page.evaluate(() => window.__K_NEX_REMOTE_UPDATE_PRESENTATION__?.());
+  await page.waitForFunction(() => window.__K_NEX_REMOTE_PRESENTATIONS__?.length === 3);
+  assert.deepEqual((await page.evaluate(() => window.__K_NEX_REMOTE_PRESENTATIONS__))?.at(-1), { profileRevisionId: "profile-revision-2", themeId: "theme.contrast", themeVersion: "1.0.0", surface: "admin", mode: "dark" }, "host adapter did not receive the published presentation update");
   await page.waitForFunction(() => (window.__K_NEX_REMOTE_HEARTBEATS__ ?? 0) >= 2);
   const heartbeatsBeforeFailure = await page.evaluate(() => window.__K_NEX_REMOTE_HEARTBEATS__);
   await page.getByRole("button", { name: "Trigger invalid application tree" }).click();

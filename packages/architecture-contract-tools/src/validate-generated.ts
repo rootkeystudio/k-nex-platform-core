@@ -33,6 +33,7 @@ import {
   RuntimeExtensionInventorySchema,
   StaticCompositionChangePlanSchema,
   StaticDeploymentReceiptSchema,
+  SystemAdministrationContractsSchema,
   TrustedApplicationBuildEvidenceSchema,
   UiDocumentSchema,
   WorkerGenerationFenceSchema,
@@ -45,6 +46,7 @@ import { registerPluginContributionOwnershipKeyword } from "./plugin-contributio
 import { registerMigrationRevisionKeyword } from "./migration-compatibility-plan.js";
 import { registerAuthorizationOwnershipKeyword } from "./authorization-ownership.js";
 import { registerHotApplicationAuthorizationKeyword } from "./hot-application-authorization.js";
+import { registerSystemAdministrationInvariantsKeyword } from "./system-administration-invariants.js";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const ajv = new Ajv2020({ allErrors: true, strict: true });
@@ -53,6 +55,7 @@ registerPluginContributionOwnershipKeyword(ajv);
 registerMigrationRevisionKeyword(ajv);
 registerAuthorizationOwnershipKeyword(ajv);
 registerHotApplicationAuthorizationKeyword(ajv);
+registerSystemAdministrationInvariantsKeyword(ajv);
 ajv.addKeyword({
   keyword: "kNexMaxCanonicalBytes",
   type: "object",
@@ -153,6 +156,7 @@ for (const relativePath of [
   "schemas/ui-document.v1.schema.json",
   "schemas/cms-page-metadata.v1.schema.json",
   "schemas/authorization.v1.schema.json",
+  "schemas/system-administration.v1.schema.json",
   "fixtures/actions/valid/complete.json",
   "fixtures/actions/invalid/non-canonical-id.json",
   "fixtures/agent-tools/valid/read.json",
@@ -202,6 +206,13 @@ const authorizationFixtures = (await Promise.all(["valid", "invalid"].map(async 
     .map((name) => ({ path: `fixtures/contracts/${category}/${name}`, valid: category === "valid" }))
 ))).flat().sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
 for (const { path } of authorizationFixtures) await loadCanonical(path);
+const systemAdministrationFixtures = (await Promise.all(["valid", "invalid"].map(async (category) =>
+  (await readdir(resolve(repositoryRoot, "fixtures/contracts", category)))
+    .filter((name) => name.startsWith("system-administration.") && name.endsWith(".json"))
+    .sort()
+    .map((name) => ({ path: `fixtures/contracts/${category}/${name}`, valid: category === "valid" }))
+))).flat().sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+for (const { path } of systemAdministrationFixtures) await loadCanonical(path);
 
 const pluginSchema = await load<AnySchema>("schemas/plugin-manifest.v1.schema.json");
 const actionSchema = await load<AnySchema>("schemas/action.v1.schema.json");
@@ -215,6 +226,7 @@ const themeProfilePublicationEventSchema = await load<AnySchema>("schemas/theme-
 const uiDocumentSchema = await load<AnySchema>("schemas/ui-document.v1.schema.json");
 const cmsPageMetadataSchema = await load<AnySchema>("schemas/cms-page-metadata.v1.schema.json");
 const authorizationSchema = await load<AnySchema>("schemas/authorization.v1.schema.json");
+const systemAdministrationSchema = await load<AnySchema>("schemas/system-administration.v1.schema.json");
 const validatePlugin = ajv.compile(pluginSchema);
 const validateAction = ajv.compile(actionSchema);
 const validateAgentTool = ajv.compile(agentToolSchema);
@@ -227,6 +239,7 @@ const validateThemeProfilePublicationEvent = ajv.compile(themeProfilePublication
 const validateUiDocument = ajv.compile(uiDocumentSchema);
 const validateCmsPageMetadata = ajv.compile(cmsPageMetadataSchema);
 const validateAuthorization = ajv.compile(authorizationSchema);
+const validateSystemAdministration = ajv.compile(systemAdministrationSchema);
 
 const extensionSchemas = {
   "extension-bundle-manifest": { authoring: ExtensionBundleManifestSchema, generated: "schemas/extension-bundle-manifest.v1.schema.json" },
@@ -282,6 +295,9 @@ if (!generatedContracts.artifacts.includes("schemas/cms-page-metadata.v1.schema.
 if (!generatedContracts.artifacts.includes("schemas/authorization.v1.schema.json")) {
   throw new Error("Generated artifact inventory is missing schemas/authorization.v1.schema.json.");
 }
+if (!generatedContracts.artifacts.includes("schemas/system-administration.v1.schema.json")) {
+  throw new Error("Generated artifact inventory is missing schemas/system-administration.v1.schema.json.");
+}
 
 for (const fixture of authorizationFixtures) {
   const value = await load(fixture.path);
@@ -289,6 +305,17 @@ for (const fixture of authorizationFixtures) {
   const jsonSchemaValid = validateAuthorization(value);
   if (fixture.valid && (!zodValid || !jsonSchemaValid)) {
     throw new Error(`Valid ${fixture.path} must pass both Zod and generated JSON Schema validation: ${ajv.errorsText(validateAuthorization.errors)}`);
+  }
+  if (!fixture.valid && (zodValid || jsonSchemaValid)) {
+    throw new Error(`Invalid ${fixture.path} must fail both Zod and generated JSON Schema validation.`);
+  }
+}
+for (const fixture of systemAdministrationFixtures) {
+  const value = await load(fixture.path);
+  const zodValid = SystemAdministrationContractsSchema.safeParse(value).success;
+  const jsonSchemaValid = validateSystemAdministration(value);
+  if (fixture.valid && (!zodValid || !jsonSchemaValid)) {
+    throw new Error(`Valid ${fixture.path} must pass both Zod and generated JSON Schema validation: ${ajv.errorsText(validateSystemAdministration.errors)}`);
   }
   if (!fixture.valid && (zodValid || jsonSchemaValid)) {
     throw new Error(`Invalid ${fixture.path} must fail both Zod and generated JSON Schema validation.`);

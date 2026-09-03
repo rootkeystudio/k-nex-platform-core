@@ -32,6 +32,7 @@ import {
   RunnerIsolationProfileSchema,
   StaticCompositionChangePlanSchema,
   StaticDeploymentReceiptSchema,
+  SystemAdministrationContractsSchema,
   TrustedApplicationBuildEvidenceSchema,
   WorkerGenerationFenceSchema,
   DeploymentReceiptSchema,
@@ -170,6 +171,16 @@ function authorizationContractsJsonSchema(): unknown {
   return generated;
 }
 
+function systemAdministrationContractsJsonSchema(): unknown {
+  const generated = identifiedJsonSchema(
+    SystemAdministrationContractsSchema,
+    "https://schemas.k-nex.dev/system-administration/v1.schema.json",
+    "K-Nex System Administration Contracts v1"
+  ) as Record<string, unknown>;
+  generated.kNexSystemAdministrationInvariants = true;
+  return generated;
+}
+
 function referencedDefinition(schema: Record<string, any>, property: string): Record<string, any> {
   const reference = schema.properties?.[property]?.$ref as string | undefined;
   const definition = reference?.startsWith("#/$defs/") ? schema.$defs?.[reference.slice("#/$defs/".length)] : undefined;
@@ -247,7 +258,8 @@ const primaryArtifacts = [
   { path: "schemas/theme-profile-publication-event.v1.schema.json", value: jsonSchema(ThemeProfilePublicationEventSchema) },
   { path: "schemas/ui-document.v1.schema.json", value: uiDocumentJsonSchema() },
   { path: "schemas/cms-page-metadata.v1.schema.json", value: cmsPageMetadataJsonSchema() },
-  { path: "schemas/authorization.v1.schema.json", value: authorizationContractsJsonSchema() }
+  { path: "schemas/authorization.v1.schema.json", value: authorizationContractsJsonSchema() },
+  { path: "schemas/system-administration.v1.schema.json", value: systemAdministrationContractsJsonSchema() }
 ] satisfies readonly Artifact[];
 
 const outputContractSchemas = [

@@ -12,11 +12,15 @@ export * from "./transactional-outbox.js";
 export * from "./runtime-extension-store.js";
 export * from "./runtime-extension-outbox.js";
 export * from "./theme-profile-store.js";
+export * from "./system-operations-store.js";
 export * from "./static-deployment-store.js";
 export * from "./static-release-authority.js";
 export * from "./app-storage.js";
 export * from "./verified-artifact-store.js";
 export * from "./catalog-checkpoint-store.js";
+export * from "./catalog-mirror-store.js";
+export * from "./accepted-extension-catalog-source.js";
+export * from "./catalog-refresh-coordinator.js";
 export * from "./extension-capability-authority.js";
 export * from "./active-extension-security-reconciler.js";
 export * from "./runner-quarantine-adapter.js";
@@ -24,6 +28,10 @@ export * from "./authorization-store.js";
 export * from "./authorization-lifecycle-projector.js";
 export * from "./authorization-outbox.js";
 export * from "./platform-plugin-authorization-descriptors.js";
+export * from "./system-settings-store.js";
+export * from "./system-settings-outbox.js";
+export * from "./system-settings-descriptor-source.js";
+export * from "./settings-validation-coordinator.js";
 
 export type PayloadCompositionErrorCode =
   | "INVALID_DATABASE_URL"

@@ -86,14 +86,15 @@ A plan or ADR at `design-only` is direction, not executable evidence.
 - [ADR-0021 Dynamic Applications and Zero-Downtime Delivery](./adr/0021-dynamic-application-runtime-and-zero-downtime-delivery.md)
 - [ADR-0022 RBAC and Extension Role Templates](./adr/0022-rbac-authorization-and-extension-role-templates.md)
 - [ADR-0023 Phase 9 Production Isolation and Static Delivery Hardening](./adr/0023-phase-9-production-isolation-and-static-delivery-hardening.md)
+- [ADR-0024 System Settings and Extension Operations](./adr/0024-system-settings-and-extension-operations.md)
 - [Machine-readable evidence registry](./adr/evidence-registry.json)
 
 ## Current sequence
 
 ```text
 Gate 8   accepted platform foundation
-Gate 9   hot applications, theme skins, zero-downtime Platform Plugin delivery
-Gate 10  RBAC, role templates, extension administration authority
-next     system settings, full catalog/deployment operations productization
+Gate 9   accepted hot applications, theme skins, zero-downtime delivery
+Gate 10  accepted RBAC, role templates, extension authority
+Gate 11  system settings, full catalog/deployment operations productization
 then     separately selected CRM/CMS product breadth
 ```

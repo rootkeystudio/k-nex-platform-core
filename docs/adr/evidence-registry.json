@@ -132,9 +132,21 @@
       ]
     },
     "0022": {
-      "level": "design-only",
+      "level": "executable-poc",
       "evidence": [
-        "docs/implementation/phase-10-rbac-and-authorization-control-plane.md"
+        "docs/implementation/phase-10-rbac-and-authorization-control-plane.md",
+        "docs/implementation/phase-10-result.md",
+        "packages/contracts/src/authorization.ts",
+        "packages/payload-adapter/src/authorization-store.ts",
+        "packages/runtime/src/effective-authority.ts",
+        "packages/runtime/src/system-access-administration.ts",
+        "packages/runtime/src/system-extension-administration.ts",
+        "packages/runtime/tests/effective-authority.test.ts",
+        "packages/runtime/tests/system-access-administration.test.ts",
+        "packages/runtime/tests/system-extension-administration-real-authority.test.ts",
+        "fixtures/customer-gate-1/tests/authorization-storage-postgres.test.mjs",
+        "fixtures/customer-gate-1/tests/system-administration-postgres-browser.test.mjs",
+        "scripts/gate-10.mjs"
       ]
     },
     "0023": {
@@ -159,6 +171,12 @@
         "fixtures/customer-gate-1/tests/static-deployment-postgres.test.mjs",
         "scripts/phase-9-attack-corpus.mjs",
         "scripts/gate-9.mjs"
+      ]
+    },
+    "0024": {
+      "level": "design-only",
+      "evidence": [
+        "docs/implementation/phase-11-system-settings-and-extension-operations.md"
       ]
     }
   }

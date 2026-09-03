@@ -108,7 +108,7 @@ test("P10.4 resolves current PostgreSQL authority without cache or client-forger
     const seeded = await store.transaction({ applicationId, environment, authorizationRevision: 0, lifecycleRevision: 0 }, async (transaction) => {
       await transaction.write({ kind: "role", role: role("extensions-admin") });
       await transaction.write({ kind: "grant", grant: grant("plan", "extensions-admin", "system.extensions.plan", platform) });
-      await transaction.write({ kind: "grant", grant: grant("install-hot", "extensions-admin", "system.extensions.install-hot", platform) });
+      await transaction.write({ kind: "grant", grant: grant("install-live", "extensions-admin", "system.extensions.install-live", platform) });
       await transaction.write({ kind: "assignment", assignment: assignment("admin-assignment", "extensions-admin", "user:admin") });
     });
     assert.deepEqual([seeded.state.authorizationRevision, seeded.state.lifecycleRevision], [1, 0]);

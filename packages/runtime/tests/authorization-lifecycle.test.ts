@@ -4,7 +4,8 @@ import type { ExtensionAuthorizationGeneration } from "@k-nex/contracts";
 
 import {
   AuthorizationLifecycleError,
-  planAuthorizationLifecycle
+  planAuthorizationLifecycle,
+  planPendingAuthorizationGeneration
 } from "../src/authorization-lifecycle.js";
 
 const applicationId = "customer-alpha";
@@ -13,6 +14,44 @@ const platform = { deliveryClass: "platform-plugin", extensionId: "module.sales"
 const hot = { deliveryClass: "hot-application", extensionId: "app.sales" } as const;
 
 describe("authorization lifecycle planner", () => {
+  it("reserves an inert Hot Application generation and promotes that exact fence on activation", () => {
+    const reserved = planPendingAuthorizationGeneration({
+      expected: expected(3, 7), extensionId: hot.extensionId,
+      runtimeGenerationId: "sales-generation-2", existingGenerations: [generation(hot, 1, "current", ["sales-generation-1"], 3, 7)]
+    });
+    expect(reserved.generations).toEqual([
+      generation(hot, 1, "current", ["sales-generation-1"], 3, 7),
+      generation(hot, 2, "pending-configuration", ["sales-generation-2"], 3, 8)
+    ]);
+    expect(planPendingAuthorizationGeneration({
+      expected: expected(3, 8), extensionId: hot.extensionId,
+      runtimeGenerationId: "sales-generation-2", existingGenerations: reserved.generations
+    })).toMatchObject({ replayed: true, lifecycleRevision: 8, mutations: [] });
+
+    const activated = plan({
+      identity: hot,
+      expected: expected(3, 8),
+      transition: lifecycle(hot, "update", "active", 9, "sales-generation-2"),
+      existingGenerations: reserved.generations,
+      descriptors: [descriptor(hot, "sales.orders.v2.read")],
+      priorGenerationDescriptors: [descriptor(hot)],
+      runtimeGenerationIds: ["sales-generation-2"],
+      updateCompatibility: "incompatible"
+    });
+    expect(activated.generations).toEqual([
+      generation(hot, 1, "retired", ["sales-generation-1"], 3, 9),
+      generation(hot, 2, "current", ["sales-generation-2"], 3, 9)
+    ]);
+  });
+
+  it("rejects pending fences for the wrong runtime generation", () => {
+    const existing = [generation(hot, 1, "pending-configuration", ["sales-generation-2"], 3, 8)];
+    expect(() => plan({
+      identity: hot, expected: expected(3, 8), transition: lifecycle(hot, "install", "active", 9, "sales-generation-3"),
+      existingGenerations: existing, runtimeGenerationIds: ["sales-generation-3"]
+    })).toThrow(expect.objectContaining({ code: "IDENTITY_MISMATCH" } satisfies Partial<AuthorizationLifecycleError>));
+  });
+
   it("keeps Phase 9 extension revisions independent from authorization lifecycle revisions", () => {
     const result = plan({
       expected: expected(3, 7),
@@ -299,7 +338,7 @@ function descriptor(identity: typeof platform | typeof hot, id = "sales.orders.r
   } as const;
 }
 
-function generation(identity: typeof platform | typeof hot, number: number, state: "current" | "retired", runtimeGenerationIds: readonly string[], authorizationRevision: number, lifecycleRevision: number): ExtensionAuthorizationGeneration {
+function generation(identity: typeof platform | typeof hot, number: number, state: ExtensionAuthorizationGeneration["state"], runtimeGenerationIds: readonly string[], authorizationRevision: number, lifecycleRevision: number): ExtensionAuthorizationGeneration {
   return {
     schemaVersion: 1,
     applicationId,

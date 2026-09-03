@@ -113,6 +113,8 @@ export interface AuthorizationStore {
  * surface provided to customer administration services.
  */
 export interface ProtectedRoleBaselineReconciliationStore {
+  /** Release-read boundary; customer administration never receives this store surface. */
+  readProtectedRoleBaselineReceipt(applicationId: string): Promise<BootstrapReceipt | undefined>;
   reconcileProtectedRoleBaselineTransaction<T>(
     expected: AuthorizationExpectedRevision,
     expectedPrior: Readonly<{ readonly version: number; readonly digest: string }>,

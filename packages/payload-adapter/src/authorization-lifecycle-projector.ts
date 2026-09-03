@@ -4,6 +4,7 @@ import {
   ExtensionAuthorizationGenerationSchema,
   ExtensionLifecycleEventSchema,
   ExtensionSecurityQuarantineEventSchema,
+  SettingsTerminalReceiptSchema,
   canonicalJson,
   type AuthorizationState,
   type ExtensionAuthorizationGeneration,
@@ -14,6 +15,7 @@ import {
 import {
   AuthorizationLifecycleError,
   planAuthorizationLifecycle,
+  planPendingAuthorizationGeneration,
   type AuthorizationLifecyclePlan
 } from "@k-nex/runtime";
 import type { StaticDeploymentReceipt } from "@k-nex/contracts";
@@ -46,6 +48,14 @@ export interface AuthorizationLifecycleProjectionInput {
 export interface AuthorizationLifecycleProjection {
   readonly plan: AuthorizationLifecyclePlan;
   readonly state: AuthorizationState;
+}
+
+export interface PendingAuthorizationGenerationReservationInput {
+  readonly session: RuntimeExtensionSession;
+  readonly applicationId: string;
+  readonly environment: string;
+  readonly extensionId: string;
+  readonly runtimeGenerationId: string;
 }
 
 export interface SharedStaticGenerationRebindInput {
@@ -81,6 +91,44 @@ export class SharedStaticPlatformPluginGenerationRebinder {
 export class AuthorizationLifecycleProjector {
   constructor(private readonly resolveDescriptors: AuthorizationLifecycleDescriptorResolver) {}
 
+  async reservePendingConfiguration(input: PendingAuthorizationGenerationReservationInput): Promise<AuthorizationLifecycleProjection> {
+    const { session } = input;
+    await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [canonicalJson([input.applicationId, "authorization-state"])]);
+    await session.query("insert into k_nex_authorization_state (application_id) values ($1) on conflict do nothing", [input.applicationId]);
+    const lockedState = await session.query<Row>(
+      "select application_id, authorization_revision, lifecycle_revision from k_nex_authorization_state where application_id=$1 for update",
+      [input.applicationId]
+    );
+    const current = parseState(lockedState.rows[0], input.environment);
+    const lockedGenerations = await session.query<Row>(
+      "select application_id, delivery_class, extension_id, authorization_generation, runtime_generation_ids, state, authorization_revision, lifecycle_revision from k_nex_extension_authorization_generations where application_id=$1 and delivery_class='hot-application' and extension_id=$2 order by authorization_generation for update",
+      [input.applicationId, input.extensionId]
+    );
+    const plan = planPendingAuthorizationGeneration({
+      expected: {
+        applicationId: current.applicationId,
+        environment: current.environment,
+        authorizationRevision: current.authorizationRevision,
+        lifecycleRevision: current.lifecycleRevision
+      },
+      extensionId: input.extensionId,
+      runtimeGenerationId: input.runtimeGenerationId,
+      existingGenerations: lockedGenerations.rows.map(parseGeneration)
+    });
+    if (plan.replayed) return Object.freeze({ plan, state: current });
+    for (const mutation of plan.mutations) {
+      if (mutation.kind === "extension-generation") await upsertGeneration(session, mutation.generation);
+    }
+    const advanced = await session.query<Row>(
+      "update k_nex_authorization_state set lifecycle_revision=$2, updated_at=now() where application_id=$1 and authorization_revision=$3 and lifecycle_revision=$4 returning application_id, authorization_revision, lifecycle_revision",
+      [current.applicationId, plan.lifecycleRevision, current.authorizationRevision, current.lifecycleRevision]
+    );
+    if (advanced.rows.length !== 1) fail("REVISION_CONFLICT", "Authorization state revision changed before pending generation reservation.");
+    const state = parseState(advanced.rows[0], input.environment);
+    await writeAuthorizationInvalidationOutbox(session, { ...state, scope: "environment" });
+    return Object.freeze({ plan, state });
+  }
+
   async project(input: AuthorizationLifecycleProjectionInput): Promise<AuthorizationLifecycleProjection> {
     const transition = parseTransition(input.transition);
     const { session } = input;
@@ -98,6 +146,27 @@ export class AuthorizationLifecycleProjector {
       [transition.applicationId, transition.deliveryClass, transition.id]
     );
     const existingGenerations = Object.freeze(lockedGenerations.rows.map(parseGeneration));
+    const pending = existingGenerations.find((generation) => generation.state === "pending-configuration");
+    if (pending && transition.eventType === "extension.lifecycle-transition" && transition.lifecycleState === "active") {
+      const receipts = await session.query<Row>(
+        `select receipt_json from k_nex_system_settings_receipts
+         where application_id=$1 and environment=$2 and owner_delivery_class=$3 and owner_extension_id=$4
+           and owner_generation=$5 and outcome='promoted' for share`,
+        [transition.applicationId, transition.environment, transition.deliveryClass, transition.id, pending.owner.generation]
+      );
+      const operations = await session.query<Row>(
+        `select operation_id from k_nex_system_settings_operations
+         where application_id=$1 and environment=$2 and owner_delivery_class=$3 and owner_extension_id=$4 and owner_generation=$5 for share`,
+        [transition.applicationId, transition.environment, transition.deliveryClass, transition.id, pending.owner.generation]
+      );
+      const valid = receipts.rows.length > 0 && receipts.rows.every(({ receipt_json }) => {
+        const receipt = SettingsTerminalReceiptSchema.safeParse(receipt_json);
+        return receipt.success && receipt.data.outcome === "promoted" && canonicalJson(receipt.data.identity.owner) === canonicalJson(pending.owner);
+      });
+      if (!valid || operations.rows.length > 0) {
+        fail("REVISION_CONFLICT", "Pending Hot Application authorization cannot activate before exact-generation settings terminalize.");
+      }
+    }
     assertPriorEvidenceFence(input.priorGenerationEvidence, input.updateCompatibility, existingGenerations);
     const descriptors = transition.deliveryClass === "theme-skin" ? [] : await this.resolveDescriptors(session, transition);
     const descriptorIds = descriptors.map((descriptor) => {

@@ -11,6 +11,7 @@ import { registerPluginContributionOwnershipKeyword } from "./plugin-contributio
 import { registerMigrationRevisionKeyword } from "./migration-compatibility-plan.js";
 import { registerAuthorizationOwnershipKeyword } from "./authorization-ownership.js";
 import { registerHotApplicationAuthorizationKeyword } from "./hot-application-authorization.js";
+import { registerSystemAdministrationInvariantsKeyword } from "./system-administration-invariants.js";
 
 export type RepositoryDiagnosticCode =
   | "ADR_EVIDENCE_INVALID"
@@ -302,6 +303,7 @@ export function declaredFixtureSchema(value: unknown): FixtureSchema | undefined
   if (schema.endsWith("/worker-generation-fence.v1.schema.json")) return "worker-generation-fence";
   if (schema.endsWith("/zero-downtime-eligibility.v1.schema.json")) return "zero-downtime-eligibility";
   if (schema.endsWith("/authorization.v1.schema.json")) return "authorization";
+  if (schema.endsWith("/system-administration/v1.schema.json")) return "system-administration";
   return undefined;
 }
 
@@ -402,9 +404,10 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
   const workerGenerationFenceSchema = await loadJson(root, "schemas/worker-generation-fence.v1.schema.json", diagnostics);
   const zeroDowntimeEligibilitySchema = await loadJson(root, "schemas/zero-downtime-eligibility.v1.schema.json", diagnostics);
   const authorizationSchema = await loadJson(root, "schemas/authorization.v1.schema.json", diagnostics);
+  const systemAdministrationSchema = await loadJson(root, "schemas/system-administration.v1.schema.json", diagnostics);
   const expectedValue = await loadJson(root, "fixtures/contracts/expected-diagnostics.json", diagnostics);
   const extensionExpectedValue = await loadJson(root, "fixtures/extensions/expected-diagnostics.json", diagnostics);
-  if (registryValue === undefined || pluginSchema === undefined || applicationSchema === undefined || hotApplicationSchema === undefined || themeSkinSchema === undefined || extensionBundleSchema === undefined || extensionCapabilitySchema === undefined || extensionBudgetSchema === undefined || extensionInstallPlanSchema === undefined || extensionInstallReceiptSchema === undefined || extensionGenerationSchema === undefined || extensionLifecycleEventSchema === undefined || extensionSharedStaticGenerationRebindEventSchema === undefined || migrationCompatibilityPlanSchema === undefined || remoteUiIsolationProfileSchema === undefined || runnerIsolationProfileSchema === undefined || runtimeExtensionInventorySchema === undefined || staticCompositionChangePlanSchema === undefined || staticDeploymentReceiptSchema === undefined || trustedApplicationBuildEvidenceSchema === undefined || workerGenerationFenceSchema === undefined || zeroDowntimeEligibilitySchema === undefined || authorizationSchema === undefined || expectedValue === undefined || extensionExpectedValue === undefined) return sortDiagnostics(diagnostics);
+  if (registryValue === undefined || pluginSchema === undefined || applicationSchema === undefined || hotApplicationSchema === undefined || themeSkinSchema === undefined || extensionBundleSchema === undefined || extensionCapabilitySchema === undefined || extensionBudgetSchema === undefined || extensionInstallPlanSchema === undefined || extensionInstallReceiptSchema === undefined || extensionGenerationSchema === undefined || extensionLifecycleEventSchema === undefined || extensionSharedStaticGenerationRebindEventSchema === undefined || migrationCompatibilityPlanSchema === undefined || remoteUiIsolationProfileSchema === undefined || runnerIsolationProfileSchema === undefined || runtimeExtensionInventorySchema === undefined || staticCompositionChangePlanSchema === undefined || staticDeploymentReceiptSchema === undefined || trustedApplicationBuildEvidenceSchema === undefined || workerGenerationFenceSchema === undefined || zeroDowntimeEligibilitySchema === undefined || authorizationSchema === undefined || systemAdministrationSchema === undefined || expectedValue === undefined || extensionExpectedValue === undefined) return sortDiagnostics(diagnostics);
 
   const registry = registryValue as Registry;
   const expectedResult = validateExpectedDiagnostics(expectedValue);
@@ -418,6 +421,14 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
   registerMigrationRevisionKeyword(ajv);
   registerAuthorizationOwnershipKeyword(ajv);
   registerHotApplicationAuthorizationKeyword(ajv);
+  registerSystemAdministrationInvariantsKeyword(ajv);
+  ajv.addKeyword({
+    keyword: "kNexMaxCanonicalBytes",
+    type: "object",
+    schemaType: "number",
+    errors: false,
+    validate: (maximum: number, data: unknown) => new TextEncoder().encode(canonicalJson(data)).byteLength <= maximum
+  });
   let validators: Partial<Record<FixtureSchema, ValidateFunction>>;
   try {
     validators = {
@@ -442,7 +453,8 @@ export async function validateRepository(root: string): Promise<RepositoryDiagno
       "trusted-application-build-evidence": ajv.compile(trustedApplicationBuildEvidenceSchema as AnySchema),
       "worker-generation-fence": ajv.compile(workerGenerationFenceSchema as AnySchema),
       "zero-downtime-eligibility": ajv.compile(zeroDowntimeEligibilitySchema as AnySchema),
-      authorization: ajv.compile(authorizationSchema as AnySchema)
+      authorization: ajv.compile(authorizationSchema as AnySchema),
+      "system-administration": ajv.compile(systemAdministrationSchema as AnySchema)
     };
   } catch (error) {
     diagnostics.push(diagnostic("schemas", "SCHEMA_INVALID", "$", error instanceof Error ? error.message : "Generated schema compilation failed.", "Regenerate or correct the contract schemas.", "json-schema"));

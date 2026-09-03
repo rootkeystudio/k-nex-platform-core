@@ -35,13 +35,24 @@ export interface RemoteUiSessionIdentity extends RemoteUiGenerationOwner {
   readonly assets: ReadonlySet<string>;
 }
 
-export type RemoteUiSessionRequest = Readonly<Omit<RemoteUiSessionIdentity, "applicationId" | "environment" | "appId" | "generationId" | "artifactDigest">>;
+/** Host-selected presentation. It is never serialized into the app protocol or session identity. */
+export interface RemoteUiHostPresentation {
+  readonly profileRevisionId: string;
+  readonly themeId: string;
+  readonly themeVersion: string;
+  readonly surface: "admin" | "public";
+  readonly mode: "light" | "dark" | "system";
+}
+
+export type RemoteUiSessionRequest = Readonly<Omit<RemoteUiSessionIdentity, "applicationId" | "environment" | "appId" | "generationId" | "artifactDigest"> & {
+  readonly presentation: RemoteUiHostPresentation;
+}>;
 
 export interface RemoteUiHostAdapter {
   authorize(identity: RemoteUiSessionIdentity, frame: RemoteUiFrame, signal: AbortSignal): boolean | Promise<boolean>;
   /** Reauthorizes the exact server-declared target before source/action dispatch. */
   authorizeTarget(identity: RemoteUiSessionIdentity, operation: "source" | "action", targetId: string, signal: AbortSignal): boolean | Promise<boolean>;
-  render(root: RemoteUiNode, signal: AbortSignal): void | Promise<void>;
+  render(root: RemoteUiNode, presentation: RemoteUiHostPresentation, signal: AbortSignal): void | Promise<void>;
   fallback(code: "APP_FAILURE" | "PROTOCOL_FAILURE" | "UNAUTHORIZED", signal: AbortSignal): void | Promise<void>;
   focus(nodeId: string, signal: AbortSignal): void | Promise<void>;
   navigate(route: string, signal: AbortSignal): void | Promise<void>;
@@ -105,6 +116,8 @@ export class RemoteUiHostSession {
   private closed = false;
   private realmDisposer: (() => void) | undefined;
   private nodes: ReadonlyMap<string, RemoteUiNode> = new Map();
+  private root: RemoteUiNode | undefined;
+  private presentation: RemoteUiHostPresentation;
   private readonly requestTimes: number[] = [];
   private readonly abortController = new AbortController();
 
@@ -114,9 +127,11 @@ export class RemoteUiHostSession {
     private readonly adapter: RemoteUiHostAdapter,
     private readonly now: () => number,
     admission: symbol,
-    private readonly unregister: (session: RemoteUiHostSession) => void
+    private readonly unregister: (session: RemoteUiHostSession) => void,
+    presentation: RemoteUiHostPresentation
   ) {
     if (admission !== sessionAdmission) throw new TypeError("Remote UI sessions must be created by an admitted generation handle.");
+    this.presentation = remoteUiHostPresentation(presentation);
   }
 
   start(port: MessagePort): void {
@@ -136,6 +151,19 @@ export class RemoteUiHostSession {
 
   realmCrashed(): void { void this.controlledFailure("APP_FAILURE"); }
 
+  /** Host publication invalidation updates presentation without giving the app native UI authority. */
+  updatePresentation(input: RemoteUiHostPresentation): Promise<void> {
+    if (this.closed) fail("SESSION_CLOSED", "Remote UI presentation cannot update after session closure.");
+    const presentation = remoteUiHostPresentation(input);
+    const update = this.queue.then(async () => {
+      if (this.closed) return;
+      this.presentation = presentation;
+      if (this.root) await this.adapter.render(this.root, this.presentation, this.abortController.signal);
+    });
+    this.queue = update.catch((error) => this.controlledFailure(error instanceof RemoteUiProtocolError && error.code === "UNAUTHORIZED" ? "UNAUTHORIZED" : "PROTOCOL_FAILURE"));
+    return update;
+  }
+
   dispatchEvent(nodeId: string, event: "press" | "change" | "submit" | "selection-change", payload: JsonValue): void {
     if (this.closed) return;
     const binding = this.nodes.get(nodeId)?.events.find((candidate) => candidate.event === event);
@@ -152,6 +180,7 @@ export class RemoteUiHostSession {
     this.port = undefined;
     this.realmDisposer = undefined;
     this.nodes = new Map();
+    this.root = undefined;
     try { if (port) try { this.post(port, "dispose", { reason }); } catch {} }
     finally {
       try { try { port?.close(); } catch {} }
@@ -183,7 +212,8 @@ export class RemoteUiHostSession {
     if (frame.type === "ready") return;
     if (frame.type === "render") {
       this.nodes = validateTree(frame.root, this.registry, this.identity.assets);
-      await this.adapter.render(frame.root, signal);
+      this.root = frame.root;
+      await this.adapter.render(frame.root, this.presentation, signal);
       return;
     }
     if (frame.type === "focus") {
@@ -274,8 +304,9 @@ export class RemoteUiGenerationSessions {
     const active = this.active.get(remoteUiGenerationOwnerKey(snapshot));
     if (!active || active.disposition !== "active" || !sameSnapshot(active, snapshot)) fail("IDENTITY_MISMATCH", "New Remote UI sessions require the current active generation snapshot.");
     if (!validRecordId(request.sessionId)) fail("IDENTITY_MISMATCH", "Remote UI session identity is invalid.");
-    const identity = Object.freeze({ ...request, applicationId: active.applicationId, environment: active.environment, appId: active.appId, generationId: active.generationId, artifactDigest: active.artifactDigest });
-    const session = new RemoteUiHostSession(identity, registry, adapter, now, sessionAdmission, (value) => this.unregister(value));
+    const { presentation, ...sessionRequest } = request;
+    const identity = Object.freeze({ ...sessionRequest, applicationId: active.applicationId, environment: active.environment, appId: active.appId, generationId: active.generationId, artifactDigest: active.artifactDigest });
+    const session = new RemoteUiHostSession(identity, registry, adapter, now, sessionAdmission, (value) => this.unregister(value), presentation);
     const key = remoteUiGenerationKey(active, active.generationId);
     const sessions = this.sessions.get(key) ?? new Set<RemoteUiHostSession>();
     sessions.add(session);
@@ -393,6 +424,15 @@ function remoteUiGenerationSnapshot(snapshot: RemoteUiGenerationSnapshot): Remot
   const owner = remoteUiGenerationOwner(snapshot);
   if (!validGenerationId(snapshot.generationId) || !/^sha256:[0-9a-f]{64}$/u.test(snapshot.artifactDigest) || !Number.isSafeInteger(snapshot.revision) || snapshot.revision < 0 || !["active", "disabled", "quarantined", "removed"].includes(snapshot.disposition)) throw new TypeError("Remote UI generation snapshot is invalid.");
   return Object.freeze({ ...owner, generationId: snapshot.generationId, artifactDigest: snapshot.artifactDigest, revision: snapshot.revision, disposition: snapshot.disposition });
+}
+
+function remoteUiHostPresentation(input: RemoteUiHostPresentation): RemoteUiHostPresentation {
+  if (!validRecordId(input.profileRevisionId) || !/^theme(?:\.[a-z][a-z0-9-]*)+$/u.test(input.themeId) ||
+    !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u.test(input.themeVersion) ||
+    !["admin", "public"].includes(input.surface) || !["light", "dark", "system"].includes(input.mode)) {
+    throw new TypeError("Remote UI host presentation is invalid.");
+  }
+  return Object.freeze({ ...input });
 }
 
 function sameSnapshot(left: RemoteUiGenerationSnapshot, right: RemoteUiGenerationSnapshot): boolean {

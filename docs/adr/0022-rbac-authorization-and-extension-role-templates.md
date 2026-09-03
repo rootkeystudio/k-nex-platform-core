@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-08-29
 - Decision owners: K-Nex platform maintainers
-- Evidence: design-only
+- Evidence: executable-poc
 - Entry: Gate 9 dynamic application runtime and zero-downtime delivery PASS
 - Related: [Phase 10 plan](../implementation/phase-10-rbac-and-authorization-control-plane.md), [ADR-0021](./0021-dynamic-application-runtime-and-zero-downtime-delivery.md), [Permissions, events, actions, and jobs](../09-permissions-events-and-jobs.md)
 
@@ -89,7 +89,7 @@ Rejected. Clock transitions would bypass transactional revision and invalidation
 
 ## Validation
 
-ADR-0022 remains `design-only` until Gate 10 proves:
+Gate 10 promoted ADR-0022 to `executable-poc` by proving:
 
 ```text
 platform/extension owner and generation contracts
@@ -103,3 +103,5 @@ PluginManager/DeploymentSupervisor authorization
 multi-process/runner/realtime revocation
 real Chromium access and extension administration journeys
 ```
+
+The linked Phase 10 result, gate, PostgreSQL/Chromium fixtures, and authorization implementations record that atomic promotion.

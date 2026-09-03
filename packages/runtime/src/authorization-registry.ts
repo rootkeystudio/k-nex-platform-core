@@ -216,8 +216,9 @@ export const platformPermissionDescriptors: readonly AuthorizationPermissionDesc
   ["system.role-assignments.manage", "Manage role assignments", "Create and revoke role assignments.", "system.role-assignments", "manage"],
   ["system.authorization.audit.read", "Read authorization audit", "View authorization audit records.", "system.authorization.audit", "read"],
   ["system.extensions.read", "Read extensions", "View extension state and inventory.", "system.extensions", "read"],
+  ["system.catalog.refresh", "Refresh catalog", "Refresh the verified extension catalog.", "system.catalog", "execute"],
   ["system.extensions.plan", "Plan extension changes", "Preview extension lifecycle changes.", "system.extensions", "manage"],
-  ["system.extensions.install-hot", "Install Hot Applications", "Install a verified Hot Application generation.", "system.extensions", "execute"],
+  ["system.extensions.install-live", "Install live extensions", "Install a verified Hot Application or Theme Skin generation.", "system.extensions", "execute"],
   ["system.extensions.deploy-platform-plugin", "Deploy Platform Plugins", "Request a verified Platform Plugin deployment.", "system.extensions", "execute"],
   ["system.extensions.enable", "Enable extensions", "Enable a ready extension generation.", "system.extensions", "execute"],
   ["system.extensions.disable", "Disable extensions", "Disable an extension generation.", "system.extensions", "execute"],
@@ -227,7 +228,11 @@ export const platformPermissionDescriptors: readonly AuthorizationPermissionDesc
   ["system.extensions.quarantine", "Quarantine extensions", "Quarantine an unsafe extension generation.", "system.extensions", "execute"],
   ["system.settings.read", "Read system settings", "View system settings.", "system.settings", "read"],
   ["system.settings.manage", "Manage system settings", "Change system settings.", "system.settings", "manage"],
-  ["system.themes.manage", "Manage themes", "Change active themes and theme settings.", "system.themes", "manage"]
+  ["system.themes.read", "Read themes", "View themes and theme profiles.", "system.themes", "read"],
+  ["system.themes.manage", "Manage themes", "Change active themes and theme settings.", "system.themes", "manage"],
+  ["system.operations.read", "Read operations", "View operations, health, and receipts.", "system.operations", "read"],
+  ["system.operations.backup", "Request backups", "Request a protected backup operation.", "system.operations", "execute"],
+  ["system.operations.restore-drill", "Request restore drills", "Request a clean-environment restore drill.", "system.operations", "execute"]
 ].map(([id, title, description, resource, operation]) => deepFreeze(AuthorizationPermissionDescriptorSchema.parse({
   schemaVersion: 1, id, publisher: { kind: "platform", namespace: "system" }, title, description,
   audience: "authenticated", resource, operation, scope: "application"

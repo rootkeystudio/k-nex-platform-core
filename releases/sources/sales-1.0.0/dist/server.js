@@ -1,10 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { canonicalJson } from "@k-nex/contracts";
 import { createOutboxRealtimeRelay, writeTransactionalOutboxEvent } from "@k-nex/payload-adapter";
-import { DataSourceGatewayError, definePluginRegistration, resolvePluginSettings } from "@k-nex/runtime";
-import { salesCreateTaskToolDescriptor, salesCreateTaskInputRuntimeSchema, salesCreateTaskOutputRuntimeSchema, salesEmptyInputRuntimeSchema, salesEventDescriptors, salesNavigationDescriptors, salesOpportunitiesDescriptor, salesOpportunitiesOutputRuntimeSchema, salesOpportunityStageInputRuntimeSchema, salesOpportunityStageOutputRuntimeSchema, salesOpportunityStageUpdateDescriptor, salesPageTemplates, salesPermissionDescriptors, salesRealtimeTopicDescriptors, salesReferenceMetadata, salesRouteDescriptors, salesSearchTasksDescriptor, salesTaskCreateDescriptor, salesTaskFields, salesTaskUpdateDescriptor, salesTasksDescriptor, salesTasksOutputRuntimeSchema, salesTotalPotentialRevenueDescriptor, salesTotalPotentialRevenueOutputRuntimeSchema, salesUiBlockDescriptors, salesUiComponentDescriptors, salesUpdateTaskInputRuntimeSchema, salesUpdateTaskOutputRuntimeSchema, salesWorkspaceSettingsDescriptor } from "./contracts.js";
+import { DataSourceGatewayError, definePluginRegistration, projectSystemSettingsValues } from "@k-nex/runtime";
+import { salesCreateTaskToolDescriptor, salesCreateTaskInputRuntimeSchema, salesCreateTaskOutputRuntimeSchema, salesEmptyInputRuntimeSchema, salesEventDescriptors, salesNavigationDescriptors, salesOpportunitiesDescriptor, salesOpportunitiesOutputRuntimeSchema, salesOpportunityStageInputRuntimeSchema, salesOpportunityStageOutputRuntimeSchema, salesOpportunityStageUpdateDescriptor, salesPageTemplates, salesPermissionDescriptors, salesPermissionPolicyBindings, salesRealtimeTopicDescriptors, salesReferenceMetadata, salesRouteDescriptors, salesRoleTemplates, salesSearchTasksDescriptor, salesTaskCreateDescriptor, salesTaskFields, salesTaskUpdateDescriptor, salesTasksDescriptor, salesTasksOutputRuntimeSchema, salesTotalPotentialRevenueDescriptor, salesTotalPotentialRevenueOutputRuntimeSchema, salesUiBlockDescriptors, salesUiComponentDescriptors, salesUpdateTaskInputRuntimeSchema, salesUpdateTaskOutputRuntimeSchema, salesWorkspaceSettingsDescriptor } from "./contracts.js";
 import { salesUiBlockDefinitions, salesUiComponentDefinitions } from "./ui.js";
-export { salesCreateTaskToolDescriptor, salesNavigationDescriptors, salesPermissionDescriptors, salesRouteDescriptors, salesSearchTasksDescriptor, salesTaskCreateDescriptor, salesTaskPageTemplate, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor, salesWorkspaceSettingsDescriptor } from "./contracts.js";
+export { salesCreateTaskToolDescriptor, salesNavigationDescriptors, salesPermissionDescriptors, salesPermissionPolicyBindings, salesRouteDescriptors, salesRoleTemplates, salesSearchTasksDescriptor, salesTaskCreateDescriptor, salesTaskPageTemplate, salesTasksDescriptor, salesTotalPotentialRevenueDescriptor, salesWorkspaceSettingsDescriptor } from "./contracts.js";
 const salesTaskFieldStorage = {
     title: "title",
     status: "status",
@@ -522,27 +522,16 @@ export const salesOpportunitiesCollection = {
     ],
     indexes: [{ fields: ["stage"] }]
 };
-export const salesWorkspaceSettingsDefinition = {
-    descriptor: salesWorkspaceSettingsDescriptor,
-    migrations: [],
-    schema: {
-        safeParse(value) {
-            if (!isRecord(value) || Object.keys(value).sort().join("\u0000") !== "defaultPage\u0000defaultTaskPageSize\u0000pipelineStages\u0000showPotentialRevenue" ||
-                !Number.isSafeInteger(value.defaultTaskPageSize) || Number(value.defaultTaskPageSize) < 1 || Number(value.defaultTaskPageSize) > 100 ||
-                typeof value.showPotentialRevenue !== "boolean" || !["overview", "tasks", "opportunities"].includes(value.defaultPage) ||
-                !Array.isArray(value.pipelineStages) || value.pipelineStages.join("\u0000") !== "lead\u0000qualified\u0000won\u0000lost") {
-                return invalidOutput("Sales workspace settings must match the strict current schema.");
-            }
-            return { success: true, data: value };
-        }
-    }
-};
-export const salesDefaultSettings = resolvePluginSettings(salesWorkspaceSettingsDefinition);
+export const salesDefaultSettings = projectSystemSettingsValues(salesWorkspaceSettingsDescriptor);
 export const salesRegistration = definePluginRegistration({
     pluginId: "module.sales",
     contracts: (context) => {
         for (const descriptor of salesPermissionDescriptors)
             context.register("permissions", descriptor.id, descriptor);
+        for (const binding of salesPermissionPolicyBindings)
+            context.register("policyBindings", binding.id, binding);
+        for (const template of salesRoleTemplates)
+            context.register("roleTemplates", template.id, template);
         context.register("settings", salesWorkspaceSettingsDescriptor.id, salesWorkspaceSettingsDescriptor);
         context.register("sources", salesTotalPotentialRevenueDescriptor.id, salesTotalPotentialRevenueDefinition);
         context.register("sources", salesTasksDescriptor.id, salesTasksDefinition);

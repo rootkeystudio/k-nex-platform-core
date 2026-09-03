@@ -443,39 +443,29 @@
       "$ref": "#/$defs/__schema33"
     },
     "__schema56": {
-      "pattern": "^[a-z][a-z0-9-]{2,127}$",
-      "type": "string"
-    },
-    "__schema57": {
-      "maxLength": 64,
-      "minLength": 1,
-      "pattern": "^[a-z][a-z0-9-]*$",
-      "type": "string"
-    },
-    "__schema58": {
       "const": 1,
       "type": "number"
     },
-    "__schema59": {
-      "additionalProperties": false,
-      "properties": {
-        "delegationId": {
-          "$ref": "#/$defs/__schema26"
-        },
-        "delegator": {
-          "$ref": "#/$defs/__schema37"
-        },
-        "effect": {
-          "const": "reducing",
-          "type": "string"
-        }
+    "__schema57": {
+      "items": {
+        "$ref": "#/$defs/__schema58"
       },
-      "required": [
-        "delegationId",
-        "delegator",
-        "effect"
+      "maxItems": 16,
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "__schema58": {
+      "pattern": "^[a-z][a-z0-9-]{2,127}$",
+      "type": "string"
+    },
+    "__schema59": {
+      "enum": [
+        "pending-configuration",
+        "current",
+        "retired"
       ],
-      "type": "object"
+      "type": "string"
     },
     "__schema6": {
       "additionalProperties": false,
@@ -498,6 +488,37 @@
       "type": "object"
     },
     "__schema60": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "type": "string"
+    },
+    "__schema61": {
+      "const": 1,
+      "type": "number"
+    },
+    "__schema62": {
+      "additionalProperties": false,
+      "properties": {
+        "delegationId": {
+          "$ref": "#/$defs/__schema26"
+        },
+        "delegator": {
+          "$ref": "#/$defs/__schema37"
+        },
+        "effect": {
+          "const": "reducing",
+          "type": "string"
+        }
+      },
+      "required": [
+        "delegationId",
+        "delegator",
+        "effect"
+      ],
+      "type": "object"
+    },
+    "__schema63": {
       "oneOf": [
         {
           "additionalProperties": false,
@@ -564,14 +585,14 @@
         }
       ]
     },
-    "__schema61": {
+    "__schema64": {
       "enum": [
         "allow",
         "deny"
       ],
       "type": "string"
     },
-    "__schema62": {
+    "__schema65": {
       "enum": [
         "granted",
         "permission-not-granted",
@@ -584,7 +605,7 @@
       ],
       "type": "string"
     },
-    "__schema63": {
+    "__schema66": {
       "enum": [
         "not-required",
         "required",
@@ -592,7 +613,7 @@
       ],
       "type": "string"
     },
-    "__schema64": {
+    "__schema67": {
       "enum": [
         "not-required",
         "required",
@@ -600,21 +621,25 @@
       ],
       "type": "string"
     },
-    "__schema65": {
+    "__schema68": {
       "const": 1,
       "type": "number"
     },
-    "__schema66": {
+    "__schema69": {
       "$ref": "#/$defs/__schema26"
     },
-    "__schema67": {
+    "__schema7": {
+      "const": "extension",
+      "type": "string"
+    },
+    "__schema70": {
       "enum": [
         "allow",
         "deny"
       ],
       "type": "string"
     },
-    "__schema68": {
+    "__schema71": {
       "enum": [
         "not-required",
         "required",
@@ -622,16 +647,12 @@
       ],
       "type": "string"
     },
-    "__schema69": {
+    "__schema72": {
       "enum": [
         "not-required",
         "required",
         "satisfied"
       ],
-      "type": "string"
-    },
-    "__schema7": {
-      "const": "extension",
       "type": "string"
     },
     "__schema8": {
@@ -986,24 +1007,13 @@
               "$ref": "#/$defs/__schema46"
             },
             "runtimeGenerationIds": {
-              "items": {
-                "$ref": "#/$defs/__schema56"
-              },
-              "maxItems": 16,
-              "minItems": 1,
-              "type": "array",
-              "uniqueItems": true
+              "$ref": "#/$defs/__schema57"
             },
             "schemaVersion": {
-              "const": 1,
-              "type": "number"
+              "$ref": "#/$defs/__schema56"
             },
             "state": {
-              "enum": [
-                "current",
-                "retired"
-              ],
-              "type": "string"
+              "$ref": "#/$defs/__schema59"
             }
           },
           "required": [
@@ -1027,7 +1037,7 @@
               "$ref": "#/$defs/__schema31"
             },
             "environment": {
-              "$ref": "#/$defs/__schema57"
+              "$ref": "#/$defs/__schema60"
             },
             "lifecycleRevision": {
               "$ref": "#/$defs/__schema31"
@@ -1118,7 +1128,7 @@
               "$ref": "#/$defs/__schema27"
             },
             "approval": {
-              "$ref": "#/$defs/__schema63"
+              "$ref": "#/$defs/__schema66"
             },
             "authorizationRevision": {
               "$ref": "#/$defs/__schema31"
@@ -1130,19 +1140,19 @@
               "$ref": "#/$defs/__schema26"
             },
             "delegation": {
-              "$ref": "#/$defs/__schema59"
+              "$ref": "#/$defs/__schema62"
             },
             "effectiveActor": {
               "$ref": "#/$defs/__schema37"
             },
             "environment": {
-              "$ref": "#/$defs/__schema57"
+              "$ref": "#/$defs/__schema60"
             },
             "lifecycleRevision": {
               "$ref": "#/$defs/__schema31"
             },
             "outcome": {
-              "$ref": "#/$defs/__schema61"
+              "$ref": "#/$defs/__schema64"
             },
             "owner": {
               "$ref": "#/$defs/__schema33"
@@ -1154,16 +1164,16 @@
               "$ref": "#/$defs/__schema37"
             },
             "reason": {
-              "$ref": "#/$defs/__schema62"
+              "$ref": "#/$defs/__schema65"
             },
             "reauthentication": {
-              "$ref": "#/$defs/__schema64"
+              "$ref": "#/$defs/__schema67"
             },
             "schemaVersion": {
-              "$ref": "#/$defs/__schema58"
+              "$ref": "#/$defs/__schema61"
             },
             "scope": {
-              "$ref": "#/$defs/__schema60"
+              "$ref": "#/$defs/__schema63"
             }
           },
           "required": [
@@ -1193,7 +1203,7 @@
               "$ref": "#/$defs/__schema27"
             },
             "approval": {
-              "$ref": "#/$defs/__schema68"
+              "$ref": "#/$defs/__schema71"
             },
             "auditId": {
               "$ref": "#/$defs/__schema26"
@@ -1208,13 +1218,13 @@
               "$ref": "#/$defs/__schema26"
             },
             "delegationId": {
-              "$ref": "#/$defs/__schema66"
+              "$ref": "#/$defs/__schema69"
             },
             "effectiveActor": {
               "$ref": "#/$defs/__schema37"
             },
             "environment": {
-              "$ref": "#/$defs/__schema57"
+              "$ref": "#/$defs/__schema60"
             },
             "lifecycleRevision": {
               "$ref": "#/$defs/__schema31"
@@ -1223,7 +1233,7 @@
               "$ref": "#/$defs/__schema26"
             },
             "outcome": {
-              "$ref": "#/$defs/__schema67"
+              "$ref": "#/$defs/__schema70"
             },
             "owner": {
               "$ref": "#/$defs/__schema33"
@@ -1235,16 +1245,16 @@
               "$ref": "#/$defs/__schema37"
             },
             "reason": {
-              "$ref": "#/$defs/__schema62"
-            },
-            "reauthentication": {
-              "$ref": "#/$defs/__schema69"
-            },
-            "schemaVersion": {
               "$ref": "#/$defs/__schema65"
             },
+            "reauthentication": {
+              "$ref": "#/$defs/__schema72"
+            },
+            "schemaVersion": {
+              "$ref": "#/$defs/__schema68"
+            },
             "scope": {
-              "$ref": "#/$defs/__schema60"
+              "$ref": "#/$defs/__schema63"
             },
             "target": {
               "$ref": "#/$defs/__schema26"

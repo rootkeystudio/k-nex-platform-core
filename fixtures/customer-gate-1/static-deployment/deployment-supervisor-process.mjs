@@ -607,39 +607,33 @@ export async function runDeploymentSupervisor({ event, ready }) {
   async function maintenanceContext(command) {
     if (command.deliveryClass !== "platform-plugin") throw commandError(409, "Maintenance command has an invalid lifecycle delivery class.", "MAINTENANCE_OPERATION_MISMATCH");
     const operation = (await pool.query(
-      "select * from public.k_nex_static_lifecycle_admission($1,$2,$3,$4)",
+      "select * from public.k_nex_static_impact_plan($1,$2,$3,$4)",
       [command.operationId, command.applicationId, command.environment, command.extensionId]
     )).rows[0];
-    if (!operation || operation.phase !== "source-change-ready" ||
+    if (!operation || operation.phase !== "planning" ||
       operation.expected_revision !== command.expectedRevision) {
       throw commandError(409, "Maintenance command does not bind the persisted runtime operation owner or revision.", "MAINTENANCE_OPERATION_MISMATCH");
     }
     let plan;
-    let sourceChange;
-    let change;
     try {
       plan = operation.plan_json;
       if (plan?.executionClass !== "static-release" || plan.operationId !== operation.operation_id || plan.generationId !== command.generationId ||
-        plan.sourceChange?.status !== "source-change-ready" || plan.sourceChange?.targetSourceCommit !== plan.sourceChange?.change?.target?.sourceCommit) {
+        plan.preparation !== "impact-only") {
         throw new Error("invalid static operation plan");
       }
       const install = ExtensionInstallPlanSchema.parse(plan.plan);
-      sourceChange = plan.sourceChange;
-      change = StaticCompositionChangePlanSchema.parse(sourceChange.change);
       if (install.deliveryClass !== "platform-plugin" || install.id !== command.extensionId || install.operationId !== operation.operation_id ||
         install.expectedRevision !== operation.expected_revision || install.targetGenerationId !== command.generationId ||
-        change.applicationId !== command.applicationId || change.environment !== command.environment || change.plugin.id !== command.extensionId ||
-        change.plugin.version !== install.version || change.authority.requestDigest !== operation.authorization_json?.decisionId ||
-        sourceChange.planDigest !== digestJson(change)) {
+        operation.application_id !== command.applicationId || operation.environment !== command.environment) {
         throw new Error("static plan binding mismatch");
       }
-      if (install.availability.outcome !== "maintenance-required" || !change.migration.steps.some((step) => step.phase === "offline-required" && step.availability === "maintenance-required")) {
+      if (install.availability.outcome !== "maintenance-required") {
         throw new Error("online operation cannot be relabeled as maintenance");
       }
     } catch {
       throw commandError(409, "Maintenance command is not bound to an offline-required persisted static plan.", "MAINTENANCE_OPERATION_MISMATCH");
     }
-    return { plan, sourceChange, change };
+    return { plan };
   }
   async function receiptForRevision(owner, revision) {
     const row = await pool.query("select event_json from runtime_static_deployment_outbox where application_id=$1 and environment=$2 and revision=$3", [owner.applicationId, owner.environment, revision]);
@@ -663,7 +657,7 @@ export async function runDeploymentSupervisor({ event, ready }) {
       return { operation: "bootstrap", generationId: blue.generationId, revision: 0 };
     }
     if (command.operation === "release-request") {
-      const request = await releases.readRequest(digestJson({ change: command.change, authorization: command.authorization }));
+      const request = await releases.readRequest(digestJson({ operationId: command.operationId, actor: command.authorization?.actor, change: command.change }));
       if (!request || canonicalJson(command.change) !== canonicalJson(greenBuild.change) || request.buildRequestDigest !== greenBuild.buildRequestDigest) throw commandError(409, "PluginManager release intent does not match the builder-owned durable request.", "AUTHORITY_MISMATCH");
       return request;
     }

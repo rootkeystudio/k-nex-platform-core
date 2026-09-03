@@ -35,7 +35,8 @@
     "schemas/theme-profile-publication-event.v1.schema.json",
     "schemas/ui-document.v1.schema.json",
     "schemas/cms-page-metadata.v1.schema.json",
-    "schemas/authorization.v1.schema.json"
+    "schemas/authorization.v1.schema.json",
+    "schemas/system-administration.v1.schema.json"
   ],
   "generator": "@k-nex/architecture-contract-tools",
   "outputContracts": [

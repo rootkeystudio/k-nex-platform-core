@@ -247,6 +247,21 @@ describe("P10.1 authorization contracts", () => {
     expect(AuthorizationDecisionSchema.safeParse({ ...decision, roleLabel: "Administrator" }).success).toBe(false);
   });
 
+  it("permits pending configuration only as one exact Hot Application fence", () => {
+    const pending = {
+      schemaVersion: 1,
+      applicationId: "customer-alpha",
+      owner: { kind: "extension", deliveryClass: "hot-application", extensionId: "app.sales", generation: 8 },
+      runtimeGenerationIds: ["sales-generation-3"],
+      state: "pending-configuration",
+      authorizationRevision: 3,
+      lifecycleRevision: 5
+    } as const;
+    expect(ExtensionAuthorizationGenerationSchema.safeParse(pending).success).toBe(true);
+    expect(ExtensionAuthorizationGenerationSchema.safeParse({ ...pending, owner }).success).toBe(false);
+    expect(ExtensionAuthorizationGenerationSchema.safeParse({ ...pending, runtimeGenerationIds: ["sales-generation-3", "sales-generation-4"] }).success).toBe(false);
+  });
+
   it("requires deterministic protected/template permissions and stable protected IDs", () => {
     expect(ProtectedRoleBaselineSchema.safeParse({
       schemaVersion: 1,

@@ -30,5 +30,6 @@ export * from "./realtime-topology.js";
 export * from "./table-records.js";
 export * from "./theme-profile.js";
 export * from "./theme-skin-svg.js";
+export * from "./system-administration.js";
 export * from "./ui-document.js";
 export * from "./ui-document-migration.js";

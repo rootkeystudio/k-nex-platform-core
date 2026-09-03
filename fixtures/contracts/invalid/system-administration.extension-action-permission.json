@@ -1,0 +1,1 @@
+{"$schema":"https://schemas.k-nex.dev/system-administration/v1.schema.json","contract":{"action":"install","approval":"canonical-plan","availability":"available","deliveryClass":"hot-application","executableOperation":"install","id":"sales.reports","lifecycleState":"disabled","permissionId":"system.extensions.enable","reauthentication":"required"}}

@@ -15,6 +15,7 @@ export interface SystemAdministrationForm {
   readonly actionUrl: string;
   readonly method?: "post";
   readonly hiddenFields?: readonly SystemAdministrationHiddenField[];
+  readonly textArea?: Readonly<{ readonly name: string; readonly label: string; readonly value: string; readonly rows?: number }>;
   readonly selection?: Readonly<{
     readonly name: string;
     readonly label: string;
@@ -193,13 +194,125 @@ export interface SystemExtensionDetailViewModel extends SystemAdministrationPage
   readonly actions?: readonly SystemAdministrationAction[];
 }
 
+export interface SystemThemePackageListItem {
+  readonly id: string;
+  readonly label: string;
+  readonly version: string;
+  readonly surfaces: string;
+  readonly availability: string;
+  readonly referenceImpact: string;
+}
+
+export interface SystemThemeSkinListItem {
+  readonly id: string;
+  readonly label: string;
+  readonly version: string;
+  readonly lifecycle: string;
+  readonly actions: string;
+}
+
+export interface SystemThemeProfileListItem {
+  readonly id: string;
+  readonly label: string;
+  readonly href: string;
+  readonly surface: string;
+  readonly package: string;
+  readonly skin: string;
+  readonly revision: string;
+  readonly accessibility: string;
+}
+
+export interface SystemThemesViewModel extends SystemAdministrationPageView {
+  readonly packages: readonly SystemThemePackageListItem[];
+  readonly skins: readonly SystemThemeSkinListItem[];
+  readonly profiles: readonly SystemThemeProfileListItem[];
+}
+
+export interface SystemThemeProfileDetailViewModel extends SystemAdministrationPageView {
+  readonly profileLabel: string;
+  readonly profileId: string;
+  readonly surface: string;
+  readonly package: string;
+  readonly skin: string;
+  readonly publication: string;
+  readonly accessibility: string;
+  readonly preview?: SystemAdministrationAction;
+  readonly stage?: SystemAdministrationAction;
+  readonly publish?: SystemAdministrationAction;
+  readonly rollback?: SystemAdministrationAction;
+}
+
+export interface SystemOperationListItem {
+  readonly id: string;
+  readonly source: string;
+  readonly href: string;
+  readonly state: string;
+  readonly receipt: string;
+}
+
+export interface SystemHealthListItem {
+  readonly id: string;
+  readonly source: string;
+  readonly state: string;
+  readonly revision: string;
+  readonly checks: string;
+}
+
+export interface SystemOperationsViewModel extends SystemAdministrationPageView {
+  readonly operations: readonly SystemOperationListItem[];
+  readonly health: readonly SystemHealthListItem[];
+  readonly backup?: SystemAdministrationAction;
+  readonly restoreDrill?: SystemAdministrationAction;
+}
+
+export interface SystemOperationDetailViewModel extends SystemAdministrationPageView {
+  readonly operationId: string;
+  readonly source: string;
+  readonly operationState: string;
+  readonly receipt: string;
+  readonly inventory: string;
+  readonly audit: string;
+}
+
+export interface SystemSettingsListItem {
+  readonly id: string;
+  readonly label: string;
+  readonly href: string;
+  readonly owner: string;
+  readonly state: string;
+  readonly revision: string;
+}
+
+export interface SystemSettingsViewModel extends SystemAdministrationPageView {
+  readonly settings: readonly SystemSettingsListItem[];
+}
+
+export interface SystemSettingsFieldItem {
+  readonly id: string;
+  readonly label: string;
+  readonly value: string;
+  readonly state: string;
+}
+
+export interface SystemSettingsDetailViewModel extends SystemAdministrationPageView {
+  readonly settingsId: string;
+  readonly settingsLabel: string;
+  readonly owner: string;
+  readonly documentState: string;
+  readonly fields: readonly SystemSettingsFieldItem[];
+  readonly save?: SystemAdministrationAction;
+}
+
 const systemNavigation = [
+  { id: "settings", label: "Settings", href: "/system/settings" },
   { id: "roles", label: "Roles", href: "/system/access/roles" },
   { id: "permissions", label: "Permissions", href: "/system/access/permissions" },
   { id: "assignments", label: "Assignments", href: "/system/access/assignments" },
   { id: "templates", label: "Templates", href: "/system/access/templates" },
   { id: "audit", label: "Authorization audit", href: "/system/access/audit" },
-  { id: "extensions", label: "Extensions", href: "/system/extensions" }
+  { id: "extensions", label: "Extensions", href: "/system/extensions" },
+  { id: "themes", label: "Themes", href: "/system/themes" },
+  { id: "operations", label: "Operations", href: "/system/operations" }
 ] as const;
 
 function administrationNavigation(current: string): ReactElement {
@@ -209,6 +322,7 @@ function administrationNavigation(current: string): ReactElement {
 function actionControl(action: SystemAdministrationAction): ReactElement {
   if (action.form !== undefined) return <form action={action.form.actionUrl} method={action.form.method ?? "post"}>
     {action.form.hiddenFields?.map((field) => <input key={field.name} type="hidden" name={field.name} value={field.value} />)}
+    {action.form.textArea === undefined ? null : <label>{action.form.textArea.label}<textarea name={action.form.textArea.name} defaultValue={action.form.textArea.value} rows={action.form.textArea.rows ?? 16} /></label>}
     {action.form.selection === undefined ? null : <fieldset><legend>{action.form.selection.label}</legend>{action.form.selection.options.map((option) => <label key={option.value}><input type="checkbox" name={action.form!.selection!.name} value={option.value} defaultChecked={option.selected === true} />{option.label}</label>)}</fieldset>}
     {action.confirmation === undefined ? null : <><Text element="p" weight="strong">{action.confirmation.title}</Text><Text element="p">{action.confirmation.description}</Text></>}
     <Button type="submit" {...(action.disabled === undefined ? {} : { isDisabled: action.disabled })}>{action.confirmation?.confirmLabel ?? action.label}</Button>
@@ -295,5 +409,48 @@ export function SystemExtensionDetailPage({ view }: { readonly view: SystemExten
     <section aria-label="Delivery truth">{rows("Extension delivery truth", ["Class", "Availability", "Lifecycle"], [[view.deliveryClassLabel, view.availabilityLabel, view.lifecycleLabel]])}</section>
     <section aria-label="Operation safeguards"><Heading level={2}>Operation safeguards</Heading><dl><dt>Impact</dt><dd>{view.impact}</dd><dt>Approval</dt><dd>{view.approval}</dd><dt>Audit</dt><dd>{view.audit}</dd></dl></section>
     <section aria-label="Extension actions"><Heading level={2}>Extension actions</Heading>{actions.length === 0 ? <Text>No server-authorized actions are available.</Text> : <List>{actions.map((action, index) => <li key={`${action.label}-${index}`}>{actionControl(action)}</li>)}</List>}</section>
+  </Stack>);
+}
+
+export function SystemThemesPage({ view }: { readonly view: SystemThemesViewModel }): ReactElement {
+  return administrationPage(view, "themes", <Stack gap="content">
+    <section aria-label="Theme Packages"><Heading level={2}>Theme Packages</Heading>{rows("Theme Packages", ["Package", "Version", "Surfaces", "Availability", "Reference impact"], view.packages.map((item) => [item.label, item.version, item.surfaces, item.availability, item.referenceImpact]))}</section>
+    <section aria-label="Theme Skins"><Heading level={2}>Theme Skins</Heading>{rows("Theme Skins", ["Skin", "Version", "Lifecycle", "Actions"], view.skins.map((item) => [item.label, item.version, item.lifecycle, item.actions]))}</section>
+    <section aria-label="Theme Profiles"><Heading level={2}>Theme Profiles</Heading>{rows("Theme Profiles", ["Profile", "Surface", "Package", "Skin", "Revision", "Accessibility"], view.profiles.map((item) => [<a key={item.id} href={item.href}>{item.label}</a>, item.surface, item.package, item.skin, item.revision, item.accessibility]))}</section>
+  </Stack>);
+}
+
+export function SystemThemeProfileDetailPage({ view }: { readonly view: SystemThemeProfileDetailViewModel }): ReactElement {
+  const actions = [view.preview, view.stage, view.publish, view.rollback].filter((action): action is SystemAdministrationAction => action !== undefined);
+  return administrationPage(view, "themes", <Stack gap="content">
+    <section aria-label="Theme Profile identity"><Heading level={2}>{view.profileLabel}</Heading><Text>{view.profileId}</Text></section>
+    {rows("Theme Profile state", ["Surface", "Package", "Skin", "Publication", "Accessibility"], [[view.surface, view.package, view.skin, view.publication, view.accessibility]])}
+    <section aria-label="Theme Profile actions"><Heading level={2}>Theme Profile actions</Heading>{actions.length === 0 ? <Text>No server-authorized actions are available.</Text> : <List>{actions.map((action) => <li key={action.label}>{actionControl(action)}</li>)}</List>}</section>
+  </Stack>);
+}
+
+export function SystemOperationsPage({ view }: { readonly view: SystemOperationsViewModel }): ReactElement {
+  return administrationPage(view, "operations", <Stack gap="content">
+    <section aria-label="Operation requests"><Heading level={2}>Operations</Heading>{view.backup === undefined ? null : actionControl(view.backup)}{view.restoreDrill === undefined ? null : actionControl(view.restoreDrill)}{rows("Operations", ["Operation", "Source", "State", "Receipt"], view.operations.map((item) => [<a key={item.id} href={item.href}>{item.id}</a>, item.source, item.state, item.receipt]))}</section>
+    <section aria-label="System health"><Heading level={2}>System health</Heading>{rows("System health", ["Source", "State", "Revision", "Checks"], view.health.map((item) => [item.source, item.state, item.revision, item.checks]))}</section>
+  </Stack>);
+}
+
+export function SystemOperationDetailPage({ view }: { readonly view: SystemOperationDetailViewModel }): ReactElement {
+  return administrationPage(view, "operations", <Stack gap="content">
+    <section aria-label="Operation identity"><Heading level={2}>{view.operationId}</Heading><Badge>{view.operationState}</Badge></section>
+    <dl><dt>Source</dt><dd>{view.source}</dd><dt>Receipt</dt><dd>{view.receipt}</dd><dt>Inventory</dt><dd>{view.inventory}</dd><dt>Audit</dt><dd>{view.audit}</dd></dl>
+  </Stack>);
+}
+
+export function SystemSettingsPage({ view }: { readonly view: SystemSettingsViewModel }): ReactElement {
+  return administrationPage(view, "settings", rows("Settings", ["Settings", "Owner", "State", "Revision"], view.settings.map((item) => [<a key={item.id} href={item.href}>{item.label}</a>, item.owner, item.state, item.revision])));
+}
+
+export function SystemSettingsDetailPage({ view }: { readonly view: SystemSettingsDetailViewModel }): ReactElement {
+  return administrationPage(view, "settings", <Stack gap="content">
+    <section aria-label="Settings identity"><Heading level={2}>{view.settingsLabel}</Heading><Text>{view.settingsId}</Text><Text>{view.owner}</Text><Badge>{view.documentState}</Badge></section>
+    {rows("Settings fields", ["Field", "Value", "State"], view.fields.map((field) => [field.label, field.value, field.state]))}
+    {view.save === undefined ? null : <section aria-label="Settings action">{actionControl(view.save)}</section>}
   </Stack>);
 }

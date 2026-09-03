@@ -5,12 +5,13 @@ import { fileURLToPath } from "node:url";
 import { Ajv2020, type AnySchema } from "ajv/dist/2020.js";
 import addFormatsModule from "ajv-formats";
 import { describe, expect, it } from "vitest";
-import { HotApplicationManifestSchema, TemplateAdoptionSchema } from "@k-nex/contracts";
+import { HotApplicationManifestSchema, TemplateAdoptionSchema, canonicalJson } from "@k-nex/contracts";
 
 import { type FixtureInput, type FixtureSchema, validateFixtures } from "../src/fixture-validation.js";
 import { registerAuthorizationOwnershipKeyword } from "../src/authorization-ownership.js";
 import { registerHotApplicationAuthorizationKeyword } from "../src/hot-application-authorization.js";
 import { registerPluginContributionOwnershipKeyword } from "../src/plugin-contribution-ownership.js";
+import { registerSystemAdministrationInvariantsKeyword } from "../src/system-administration-invariants.js";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -32,11 +33,20 @@ addFormatsModule.default(ajv);
 registerPluginContributionOwnershipKeyword(ajv);
 registerAuthorizationOwnershipKeyword(ajv);
 registerHotApplicationAuthorizationKeyword(ajv);
+registerSystemAdministrationInvariantsKeyword(ajv);
+ajv.addKeyword({
+  keyword: "kNexMaxCanonicalBytes",
+  type: "object",
+  schemaType: "number",
+  errors: false,
+  validate: (maximum: number, data: unknown) => new TextEncoder().encode(canonicalJson(data)).byteLength <= maximum
+});
 const validators = {
   application: ajv.compile(await load<AnySchema>("schemas/application-manifest.v1.schema.json")),
   plugin: ajv.compile(await load<AnySchema>("schemas/plugin-manifest.v1.schema.json")),
   "hot-application-manifest": ajv.compile(await load<AnySchema>("schemas/hot-application-manifest.v1.schema.json")),
-  authorization: ajv.compile(await load<AnySchema>("schemas/authorization.v1.schema.json"))
+  authorization: ajv.compile(await load<AnySchema>("schemas/authorization.v1.schema.json")),
+  "system-administration": ajv.compile(await load<AnySchema>("schemas/system-administration.v1.schema.json"))
 };
 
 const validPaths = [

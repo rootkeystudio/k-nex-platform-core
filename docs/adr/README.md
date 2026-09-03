@@ -48,8 +48,9 @@ Evidence maturity is atomic per ADR. A phase may provide task-level evidence wit
 | [0018](./0018-agent-tool-contracts-and-safe-execution.md) | Agent tool contracts and safe execution gateway | accepted | executable-poc |
 | [0019](./0019-official-payload-plugin-adoption-boundaries.md) | Official Payload plugins as bounded implementation adapters | accepted | design-only |
 | [0020](./0020-reference-sales-and-headless-component-system.md) | Sales reference plugin and platform-owned headless component system | accepted | design-only |
-| [0021](./0021-dynamic-application-runtime-and-zero-downtime-delivery.md) | Dynamic applications and zero-downtime extension delivery | accepted | design-only |
-| [0022](./0022-rbac-authorization-and-extension-role-templates.md) | Central RBAC and extension role templates | accepted | design-only |
-| [0023](./0023-phase-9-production-isolation-and-static-delivery-hardening.md) | Phase 9 production isolation and static delivery hardening | accepted | design-only |
+| [0021](./0021-dynamic-application-runtime-and-zero-downtime-delivery.md) | Dynamic applications and zero-downtime extension delivery | accepted | executable-poc |
+| [0022](./0022-rbac-authorization-and-extension-role-templates.md) | Central RBAC and extension role templates | accepted | executable-poc |
+| [0023](./0023-phase-9-production-isolation-and-static-delivery-hardening.md) | Phase 9 production isolation and static delivery hardening | accepted | executable-poc |
+| [0024](./0024-system-settings-and-extension-operations.md) | System settings and extension operations | accepted | design-only |
 
 An accepted design-only ADR directs implementation but is not a production-readiness claim. Consequential changes update the decision register, evidence registry, machine-readable contracts, fixtures, tests, and lower-authority prose atomically.

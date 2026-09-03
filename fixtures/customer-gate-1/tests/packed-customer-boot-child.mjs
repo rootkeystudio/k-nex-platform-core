@@ -38,7 +38,7 @@ try {
       ["sales.block", "block", { descriptor: contracts.salesUiBlockDescriptors[0] }],
       ["sales.theme", "theme", { preset: application.preset, theme: application.theme }],
       ["sales.template", "template", { descriptor: contracts.salesTaskPageTemplate }],
-      ["sales.settings", "settings", { descriptor: contracts.salesWorkspaceSettingsDescriptor, values: server.salesDefaultSettings.values }]
+      ["sales.settings", "settings", { descriptor: contracts.salesWorkspaceSettingsDescriptor, values: server.salesDefaultSettings }]
     ];
     await payload.db.pool.query(`create table if not exists k_nex_upgrade_artifacts (
       artifact_id text primary key, kind text not null, revision integer not null, document jsonb not null

@@ -150,8 +150,8 @@ K-Nex succeeds when it can:
 ## Current roadmap boundary
 
 ```text
-Gate 9   Dynamic Application Runtime and Zero-Downtime Delivery
-Gate 10  RBAC, Authorization, and Extension Bootstrap
-next     System Settings and Full Extension Administration
+Gate 9   accepted Dynamic Application Runtime and Zero-Downtime Delivery
+Gate 10  accepted RBAC, Authorization, and Extension Bootstrap
+Gate 11  System Settings and Extension Operations
 then     explicit CRM/CMS productization decision
 ```

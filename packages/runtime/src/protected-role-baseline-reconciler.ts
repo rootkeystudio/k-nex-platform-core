@@ -34,6 +34,42 @@ export interface ReconcileProtectedRoleBaselineInput {
   readonly audit: unknown;
 }
 
+export interface EnsureProtectedRoleBaselineReleaseInput {
+  readonly store: AuthorizationStore & ProtectedRoleBaselineReconciliationStore;
+  readonly applicationId: string;
+  readonly environment: string;
+  readonly audit: (state: AuthorizationExpectedRevision) => unknown;
+}
+
+/** Release/startup gate: upgrades the sole compiled predecessor or fails closed. */
+export async function ensureProtectedRoleBaselineRelease(
+  input: EnsureProtectedRoleBaselineReleaseInput
+): Promise<"uninitialized" | "current" | "upgraded"> {
+  const state = await input.store.readState(input.applicationId, input.environment);
+  if (state === undefined) return "uninitialized";
+  const receipt = await input.store.readProtectedRoleBaselineReceipt(input.applicationId);
+  if (receipt === undefined) fail("REVISION_CONFLICT", "Initialized authorization state has no protected baseline receipt.");
+  if (receipt.protectedBaselineVersion === currentProtectedPlatformRoleBaselineRelease.version
+    && receipt.protectedBaselineDigest === currentProtectedPlatformRoleBaselineRelease.digest) return "current";
+  const prior = recognizedProtectedPlatformRoleBaselineRelease(receipt.protectedBaselineVersion, receipt.protectedBaselineDigest);
+  if (prior === undefined || prior.version >= currentProtectedPlatformRoleBaselineRelease.version) {
+    fail("REVISION_CONFLICT", "Stored protected role baseline is not the compiled release predecessor.");
+  }
+  const expected = parseAuthorizationExpectedRevision({
+    applicationId: state.applicationId,
+    environment: state.environment,
+    authorizationRevision: state.authorizationRevision,
+    lifecycleRevision: state.lifecycleRevision
+  });
+  await reconcileProtectedRoleBaseline({
+    store: input.store,
+    expected,
+    expectedPrior: { version: prior.version, digest: prior.digest },
+    audit: input.audit(expected)
+  });
+  return "upgraded";
+}
+
 /**
  * Reconciles only a recognized compiled predecessor to the compiled current
  * protected baseline. Customer administration never receives this capability.

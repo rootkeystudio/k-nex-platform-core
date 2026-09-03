@@ -105,6 +105,9 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
         (select count(*)::int from payload_migrations where name = '20260901_000020_template_tombstones') as template_tombstones_migration_count,
         (select count(*)::int from payload_migrations where name = '20260901_000021_authorization_outbox') as authorization_outbox_migration_count,
         (select count(*)::int from payload_migrations where name = '20260901_000022_static_lifecycle_admission') as static_lifecycle_admission_migration_count,
+        (select count(*)::int from payload_migrations where name = '20260902_000023_system_settings') as system_settings_migration_count,
+        (select count(*)::int from payload_migrations where name = '20260902_000024_catalog_mirror') as catalog_mirror_migration_count,
+        (select count(*)::int from payload_migrations where name = '20260902_000025_system_operations') as system_operations_migration_count,
         to_regclass('public.runtime_extensions')::text as runtime_extensions,
         to_regclass('public.runtime_extension_storage_records')::text as app_storage_records,
         to_regclass('public.runtime_theme_profile_publications')::text as theme_profile_publications,
@@ -121,6 +124,8 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
         to_regclass('public.runtime_static_composition_checkpoints')::text as static_composition_checkpoints,
         to_regclass('public.runtime_static_release_requests')::text as static_release_requests,
         to_regclass('public.runtime_extension_runner_quarantine_receipts')::text as runner_quarantine_receipts,
+        to_regclass('public.k_nex_catalog_mirror_state')::text as catalog_mirror_state,
+        to_regclass('public.k_nex_system_operations_state')::text as system_operations_state,
         (select predecessor_revision from k_nex_migration_revision where id = 1) as predecessor_revision,
         (select revision from k_nex_migration_revision where id = 1) as revision
     `);
@@ -152,6 +157,9 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
       template_tombstones_migration_count: 1,
       authorization_outbox_migration_count: 1,
       static_lifecycle_admission_migration_count: 1,
+      system_settings_migration_count: 1,
+      catalog_mirror_migration_count: 1,
+      system_operations_migration_count: 1,
       runtime_extensions: "runtime_extensions",
       app_storage_records: "runtime_extension_storage_records",
       theme_profile_publications: "runtime_theme_profile_publications",
@@ -168,8 +176,10 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
       static_composition_checkpoints: "runtime_static_composition_checkpoints",
       static_release_requests: "runtime_static_release_requests",
       runner_quarantine_receipts: "runtime_extension_runner_quarantine_receipts",
-      predecessor_revision: 21,
-      revision: 22
+      catalog_mirror_state: "k_nex_catalog_mirror_state",
+      system_operations_state: "k_nex_system_operations_state",
+      predecessor_revision: 23,
+      revision: 24
     }]);
 
     const outboxSchema = await runFixtureProcess("tests/outbox-schema.mjs", connectionString);
@@ -195,7 +205,7 @@ test("proves customer-owned migrations and revision-aware Postgres boot", { time
     assert.equal(currentBoot.code, 0, `${currentBoot.stdout}\n${currentBoot.stderr}`);
     assert.match(currentBoot.stdout, /^READY$/m);
     const current = await query(connectionString, "select count(*)::int as count from payload_migrations");
-    assert.equal(current.rows[0].count, 22);
+    assert.equal(current.rows[0].count, 25);
 
     const authenticated = await runFixtureProcess("tests/authenticated-runtime.mjs", connectionString, {
       BOOT_KEY: "gate1-authenticated-runtime"

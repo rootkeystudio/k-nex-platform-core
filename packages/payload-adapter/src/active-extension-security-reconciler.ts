@@ -1,4 +1,4 @@
-import { ArtifactVerifier, type SignedCatalog } from "@k-nex/extension-bundler";
+import { ArtifactVerifier, type ActiveReleaseIdentity, type CurrentCatalogSecurityDecision, type SignedCatalog, type VerifiedCatalogSnapshot } from "@k-nex/extension-bundler";
 import type { ExtensionIdentity } from "@k-nex/contracts";
 import type { ExtensionSecurityQuarantineReceipt, RuntimeExtensionStore } from "@k-nex/runtime";
 import { RuntimeExtensionStoreError } from "./runtime-extension-store.js";
@@ -8,6 +8,13 @@ export interface ActiveExtensionSecurityReconcileRequest {
   readonly environment: string;
   readonly extension: Extract<ExtensionIdentity, { deliveryClass: "hot-application" | "theme-skin" }>;
   readonly catalog: SignedCatalog;
+}
+
+export interface ActiveExtensionSecuritySnapshotReconcileRequest {
+  readonly applicationId: string;
+  readonly environment: string;
+  readonly extension: Extract<ExtensionIdentity, { deliveryClass: "hot-application" | "theme-skin" }>;
+  readonly snapshot: VerifiedCatalogSnapshot;
 }
 
 export type ActiveExtensionSecurityReconcileResult =
@@ -25,6 +32,18 @@ export class ActiveExtensionSecurityReconciler {
   ) {}
 
   async reconcile(input: ActiveExtensionSecurityReconcileRequest): Promise<ActiveExtensionSecurityReconcileResult> {
+    return this.reconcileWith(input, (release) => this.verifier.currentSecurityDecision(input.catalog, release));
+  }
+
+  /** Reconciles a verified staged snapshot without advancing its checkpoint again. */
+  async reconcileSnapshot(input: ActiveExtensionSecuritySnapshotReconcileRequest): Promise<ActiveExtensionSecurityReconcileResult> {
+    return this.reconcileWith(input, (release) => Promise.resolve(this.verifier.currentSecurityDecisionFromSnapshot(input.snapshot, release)));
+  }
+
+  private async reconcileWith(
+    input: Pick<ActiveExtensionSecurityReconcileRequest, "applicationId" | "environment" | "extension">,
+    decisionFor: (release: ActiveReleaseIdentity) => Promise<CurrentCatalogSecurityDecision>
+  ): Promise<ActiveExtensionSecurityReconcileResult> {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const inventory = await this.store.inventory(input.applicationId, input.environment);
       const entries = input.extension.deliveryClass === "hot-application" ? inventory.extensions.hotApplications : inventory.extensions.themeSkins;
@@ -42,7 +61,7 @@ export class ActiveExtensionSecurityReconciler {
       }
       if (active.disposition !== "active" || !active.activeGeneration) return Object.freeze({ status: "not-active" });
       const generation = active.activeGeneration;
-      const decision = await this.verifier.currentSecurityDecision(input.catalog, {
+      const decision = await decisionFor({
         deliveryClass: generation.deliveryClass,
         id: generation.extensionId,
         version: generation.version,

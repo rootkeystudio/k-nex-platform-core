@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-08-29
 - Decision owners: K-Nex platform maintainers
-- Evidence: design-only
+- Evidence: executable-poc
 - Related: [Dynamic applications and zero-downtime delivery](../35-dynamic-applications-and-zero-downtime-delivery.md), [Phase 9 plan](../implementation/phase-9-dynamic-application-runtime.md), [Plugin lifecycle](../19-plugin-lifecycle-and-package-management.md), [Deployment and operations](../11-deployment-and-operations.md)
 
 ## Context
@@ -102,7 +102,7 @@ Rejected. A compromised web/plugin path would gain host-level container control.
 
 ## Validation
 
-ADR-0021 remains `design-only` until Gate 9 proves:
+Gate 9 promoted ADR-0021 to `executable-poc` by proving:
 
 ```text
 closed extension/bundle schemas and deterministic build
@@ -117,4 +117,4 @@ maintenance-required refusal for incompatible migrations
 backup/restore and exact active-generation inventory
 ```
 
-Promotion is atomic only after the full normative scope passes Gate 9.
+The linked Phase 9 result, gate, fixtures, and runtime implementations record that atomic promotion.

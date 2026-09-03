@@ -9,6 +9,7 @@ import {
   currentProtectedPlatformRoleBaselineRelease,
   digestTemplateBaseline,
   protectedPlatformRoleBaselines,
+  recognizedProtectedPlatformRoleBaselineRelease,
   recognizedProtectedPlatformRoleBaselineReleases
 } from "../src/protected-role-baselines.js";
 
@@ -23,7 +24,7 @@ describe("protected role and template baseline kernel", () => {
   it("grants the owner every planned system permission", () => {
     const owner = protectedPlatformRoleBaselines.find(({ id }) => id === "system.role.owner")!;
     expect(owner.permissionIds).toEqual(platformPermissionDescriptors.map(({ id }) => id).sort());
-    expect(owner.permissionIds).toHaveLength(19);
+    expect(owner.permissionIds).toHaveLength(24);
   });
 
   it("keeps non-owner protected roles least-privilege and explicit", () => {
@@ -32,20 +33,44 @@ describe("protected role and template baseline kernel", () => {
       "system.authorization.audit.read", "system.permissions.read", "system.role-assignments.manage", "system.role-assignments.read", "system.roles.manage", "system.roles.read"
     ]);
     expect(byId["system.role.extension-admin"]).toEqual([
-      "system.extensions.deploy-platform-plugin", "system.extensions.disable", "system.extensions.enable", "system.extensions.install-hot", "system.extensions.plan", "system.extensions.quarantine", "system.extensions.read", "system.extensions.rollback", "system.extensions.uninstall", "system.extensions.update", "system.permissions.read"
+      "system.catalog.refresh", "system.extensions.deploy-platform-plugin", "system.extensions.disable", "system.extensions.enable", "system.extensions.install-live", "system.extensions.plan", "system.extensions.quarantine", "system.extensions.read", "system.extensions.rollback", "system.extensions.uninstall", "system.extensions.update", "system.operations.read", "system.themes.manage", "system.themes.read"
     ]);
     expect(byId["system.role.user-admin"]).toEqual(["system.role-assignments.manage", "system.role-assignments.read", "system.roles.read"]);
-    expect(byId["system.role.auditor"]).toEqual(["system.authorization.audit.read", "system.permissions.read", "system.role-assignments.read", "system.roles.read"]);
+    expect(byId["system.role.auditor"]).toEqual(["system.authorization.audit.read", "system.operations.read", "system.permissions.read", "system.role-assignments.read", "system.roles.read", "system.themes.read"]);
+    expect(byId["system.role.owner"]).toContain("system.operations.backup");
+    expect(byId["system.role.owner"]).toContain("system.operations.restore-drill");
+    for (const roleId of ["system.role.security-admin", "system.role.extension-admin", "system.role.user-admin", "system.role.auditor"] as const) {
+      expect(byId[roleId]).not.toContain("system.operations.backup");
+      expect(byId[roleId]).not.toContain("system.operations.restore-drill");
+    }
   });
 
-  it("freezes the recognized v1 source while making the v2 permission delta explicit", () => {
-    const v1 = recognizedProtectedPlatformRoleBaselineReleases.find(({ version }) => version === 1)!;
-    expect(v1.digest).toBe("sha256:c6e4f32c71cd2b1a90536302a7c3b3dd800147c3b6b8909462546bb1b8e3b341");
-    expect(v1.baselines.find(({ id }) => id === "system.role.owner")?.permissionIds).toHaveLength(19);
-    expect(v1.baselines.find(({ id }) => id === "system.role.extension-admin")?.permissionIds).not.toContain("system.extensions.deploy-platform-plugin");
-    expect(currentProtectedPlatformRoleBaselineRelease.baselines.find(({ id }) => id === "system.role.extension-admin")?.permissionIds).toContain("system.extensions.deploy-platform-plugin");
-    expect(v1.baselines.find(({ id }) => id === "system.role.user-admin")?.permissionIds).toContain("system.permissions.read");
-    expect(currentProtectedPlatformRoleBaselineRelease.baselines.find(({ id }) => id === "system.role.user-admin")?.permissionIds).not.toContain("system.permissions.read");
+  it("pins the v2 predecessor as a literal immutable snapshot", () => {
+    const v2 = recognizedProtectedPlatformRoleBaselineReleases.find(({ version }) => version === 2)!;
+    expect(recognizedProtectedPlatformRoleBaselineReleases.map(({ version }) => version)).toEqual([2, 3]);
+    expect(currentProtectedPlatformRoleBaselineRelease.version).toBe(3);
+    expect(v2.digest).toBe("sha256:d149e0acfc0ffcdeed9577e27ad885a83217d129a6d244ca5d9d283f1d821426");
+    expect(v2.baselines.find(({ id }) => id === "system.role.owner")?.permissionIds).toEqual([
+      "system.authorization.audit.read", "system.extensions.deploy-platform-plugin", "system.extensions.disable", "system.extensions.enable", "system.extensions.install-hot", "system.extensions.plan", "system.extensions.quarantine", "system.extensions.read", "system.extensions.rollback", "system.extensions.uninstall", "system.extensions.update", "system.permissions.read", "system.role-assignments.manage", "system.role-assignments.read", "system.roles.manage", "system.roles.read", "system.settings.manage", "system.settings.read", "system.themes.manage"
+    ]);
+    expect(v2.baselines.find(({ id }) => id === "system.role.extension-admin")?.permissionIds).toEqual([
+      "system.extensions.deploy-platform-plugin", "system.extensions.disable", "system.extensions.enable", "system.extensions.install-hot", "system.extensions.plan", "system.extensions.quarantine", "system.extensions.read", "system.extensions.rollback", "system.extensions.uninstall", "system.extensions.update", "system.permissions.read"
+    ]);
+    expect(v2.baselines.find(({ id }) => id === "system.role.security-admin")?.permissionIds).toEqual([
+      "system.authorization.audit.read", "system.permissions.read", "system.role-assignments.manage", "system.role-assignments.read", "system.roles.manage", "system.roles.read"
+    ]);
+    expect(v2.baselines.find(({ id }) => id === "system.role.user-admin")?.permissionIds).toEqual([
+      "system.role-assignments.manage", "system.role-assignments.read", "system.roles.read"
+    ]);
+    expect(v2.baselines.find(({ id }) => id === "system.role.auditor")?.permissionIds).toEqual([
+      "system.authorization.audit.read", "system.permissions.read", "system.role-assignments.read", "system.roles.read"
+    ]);
+    expect(v2.baselines.find(({ id }) => id === "system.role.extension-admin")?.permissionIds).toContain("system.extensions.install-hot");
+    expect(v2.baselines.find(({ id }) => id === "system.role.user-admin")?.permissionIds).not.toContain("system.permissions.read");
+    expect(currentProtectedPlatformRoleBaselineRelease.baselines.find(({ id }) => id === "system.role.extension-admin")?.permissionIds).toContain("system.extensions.install-live");
+    expect(v2.baselines.find(({ id }) => id === "system.role.owner")?.permissionIds).not.toContain("system.catalog.refresh");
+    expect(recognizedProtectedPlatformRoleBaselineRelease(1, v2.digest)).toBeUndefined();
+    expect(recognizedProtectedPlatformRoleBaselineRelease(2, `sha256:${"0".repeat(64)}`)).toBeUndefined();
   });
 
   it("creates deterministic baseline digests and rejects a tampered stored baseline", () => {

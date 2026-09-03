@@ -37,7 +37,7 @@ function harness() {
   const manager = {
     plan: vi.fn(), stage: vi.fn(), validate: vi.fn(async () => ({ operationId: dynamicOperation.operationId, executionClass: "live-generation", phase: "staged", valid: true, checks: ["verified-bundle"] })),
     operation: vi.fn(async (id: string) => operations.get(id)!), activate: vi.fn(async () => ({ operation: "install" })), rollback: vi.fn(async () => ({ operation: "rollback" })),
-    disable: vi.fn(async () => ({ operation: "disable" })), uninstall: vi.fn(async () => ({ operation: "uninstall" })), inventory: vi.fn(async () => inventory), completeStaticRelease: vi.fn(async () => ({ operation: "rollback" }))
+    disable: vi.fn(async () => ({ operation: "disable" })), uninstall: vi.fn(async () => ({ operation: "uninstall" })), inventory: vi.fn(async () => inventory), completeStaticRelease: vi.fn(async () => ({ operation: "rollback" })), prepareStaticRelease: vi.fn(async () => undefined)
   };
   const catalog = { list: vi.fn(async () => [
     { extension: { deliveryClass: "theme-skin", id: "skin.minimal-accent" }, version: "1.0.0", displayName: "Minimal Accent", support: "supported", review: "approved", security: "clear", revoked: false, availability: "live-generation" },
@@ -92,6 +92,7 @@ describe("ExtensionOperatorApi", () => {
     await expect(value.api.uninstall("operation-static-release-uninstall")).resolves.toEqual({ outcome: "maintenance-required", reasons: ["offline-migration"] });
     await value.api.rollback("operation-static-release-rollback");
     expect(value.staticReleases.validate).toHaveBeenCalledOnce();
+    expect(value.manager.prepareStaticRelease).toHaveBeenCalledWith(staticOperation.operationId);
     expect(value.staticReleases.execute).toHaveBeenCalledTimes(2);
     expect(value.staticReleases.rollback).toHaveBeenCalledOnce();
     expect(value.staticReleases.finalize).toHaveBeenCalledOnce();
@@ -138,7 +139,8 @@ describe("DurableStaticReleaseOperator", () => {
   const operation = {
     ...staticOperation,
     plan: {
-      executionClass: "static-release", operationId: "operation-static-1", generationId: "customer-alpha-green-1",
+      executionClass: "static-release", preparation: "prepared", operationId: "operation-static-1", sourceCommit,
+      generationId: "customer-alpha-green-1",
       plan: { version: "1.0.0" },
       sourceChange: { planDigest, targetSourceCommit: sourceCommit },
       deployment: { buildRequestDigest: `sha256:${"a".repeat(64)}`, sourceCommit }, quarantineRecovery: true
@@ -224,6 +226,16 @@ describe("DurableStaticReleaseOperator", () => {
     await expect(value.rollback(rollbackOperation)).rejects.toMatchObject({ code: "AUTHORITY_UNAVAILABLE" });
 
     expect(denied.admit).toHaveBeenCalledTimes(3);
+    expect(requests.readRequest).not.toHaveBeenCalled();
+  });
+
+  it("rejects an impact-only static plan before any durable build request", async () => {
+    const requests = { readRequest: vi.fn(), requestDeployment: vi.fn(), recordDeployment: vi.fn(), recoverDeployment: vi.fn() };
+    const value = new DurableStaticReleaseOperator(requests, { verifiedBuild: vi.fn() }, { read: vi.fn() }, {} as never, { acquire: vi.fn() }, admission());
+    const impactOnly = { ...operation, plan: { ...operation.plan, preparation: "impact-only" } } as unknown as ExtensionOperationStatus;
+
+    await expect(value.validate(impactOnly)).rejects.toMatchObject({ code: "INVALID_OPERATION" } satisfies Partial<StaticReleaseOperatorError>);
+    await expect(value.execute(impactOnly)).rejects.toMatchObject({ code: "INVALID_OPERATION" } satisfies Partial<StaticReleaseOperatorError>);
     expect(requests.readRequest).not.toHaveBeenCalled();
   });
 

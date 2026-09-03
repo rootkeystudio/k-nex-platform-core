@@ -69,7 +69,7 @@ export class CustomerAuthorizationConvergence {
         }
       );
     }));
-    const dispatcher = new PostgresAuthorizationOutboxDispatcher(pool);
+    const dispatcher = new PostgresAuthorizationOutboxDispatcher(pool, { applicationId });
     this.worker = new AuthorizationOutboxWorker(dispatcher, {
       publish: async (invalidation: AuthorizationRevisionInvalidation) => {
         const pending = this.consumers.filter((consumer) => consumer.invalidate(invalidation));

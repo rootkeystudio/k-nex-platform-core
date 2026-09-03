@@ -43,15 +43,15 @@ jobs:
           K_NEX_RUNNER_ISOLATION_POLICY: apparmor
       - name: Install browser proofs
         run: pnpm exec playwright install --with-deps chromium
-      - name: Build Phase 10 contract dependencies
+      - name: Build Phase 11 focused dependencies
         if: github.event_name == 'pull_request'
-        run: pnpm --filter '@k-nex/architecture-contract-tools...' --filter '@k-nex/customer-gate-1...' -r build
-      - name: Run Phase 10 focused evidence
+        run: pnpm --filter '@k-nex/extension-bundler...' --filter '@k-nex/payload-adapter...' --filter '@k-nex/customer-gate-1...' -r build
+      - name: Run Phase 11 focused evidence
         if: github.event_name == 'pull_request'
-        run: node scripts/gate-10.mjs
-      - name: Run Phase 0 through Gate 10
+        run: pnpm gate:11:focused
+      - name: Run Phase 0 through Gate 11
         if: github.event_name != 'pull_request'
-        run: pnpm gate:10
+        run: pnpm gate:11
         env:
           K_NEX_RUNNER_ISOLATION_POLICY: apparmor
       - name: Verify exact-head repository evidence

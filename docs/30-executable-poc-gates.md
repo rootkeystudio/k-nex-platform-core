@@ -199,6 +199,45 @@ REWORK AUTHORIZATION OR EXTENSION BOOTSTRAP
 REJECT USER-OPERATED LIVE INSTALL
 ```
 
+## Gate 11 — System settings and extension operations
+
+Scope:
+
+```text
+static descriptor-owned settings and PostgreSQL values
+settings revision, audit, outbox, lifecycle, and generation fencing
+bounded official GitHub signed-catalog consumption and durable mirror
+complete Plugin Manager install/update/enable/disable/rollback/uninstall controls
+Theme Package, Theme Skin, and Theme Profile administration
+authenticated deployment, backup, restore-drill, and health request/status surface without privileged operator credentials
+fixed accessible settings/extension/theme/operations routes
+multi-process convergence and administration attack corpus
+```
+
+Excluded: arbitrary settings JSON, database-authored definitions or code, catalog publication, browser-selected repositories/URLs/trust roots, direct web-process Docker/GitHub/backup authority, live destructive restore, public marketplace launch, broad CRM/CMS.
+
+Exit:
+
+- settings are schema-valid, generation-bound, isolated, revisioned, audited, and invalidated atomically in real PostgreSQL;
+- disabled/retired settings remain diagnostic and ineffective, and reinstall cannot resurrect old values;
+- invalid, stale, replayed, downgraded, partial, or oversized catalog refresh leaves the prior accepted mirror and runtime unchanged;
+- every extension/theme action derives from current server authority, inventory, catalog, impact, revision, and approval;
+- Theme Package/Skin/Profile identities and lifecycle cannot be confused;
+- web administration can request and observe deployment/backup/health work without receiving privileged operator credentials;
+- backup freshness and clean-restore proof bind exact protected inventory;
+- lost invalidations and process restarts converge to one logical operation;
+- real PostgreSQL, bounded HTTP, multi-process operator, Docker-denial, and Chromium administration journeys pass.
+
+Kill/rework: runtime settings can author executable behavior, browser input selects supply-chain trust or privileged targets, settings/generation resurrection occurs, or web-owned privileged operations are required.
+
+Decision:
+
+```text
+GO EXPLICIT CRM/CMS PRODUCTIZATION DECISION
+REWORK SYSTEM ADMINISTRATION OR OPERATIONS AUTHORITY
+REJECT WEB-OWNED PRIVILEGED OPERATIONS
+```
+
 ## Evidence promotion
 
 After a gate passes, link implementation PR/commit, fixtures, CI, failure injection, benchmark, migration/restore proof, and production-observed receipt where applicable. An accepted design remains `design-only` until its complete scope is executable.

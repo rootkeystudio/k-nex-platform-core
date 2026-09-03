@@ -287,16 +287,14 @@ function completeConsumer(
         permissionIds: ["consumer.permission"]
       });
       context.register("settings", "consumer.setting", {
-        id: "consumer.setting",
-        ownerPluginId: "module.consumer",
         schemaVersion: 1,
+        id: "consumer.setting",
+        publisher: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.consumer" },
+        descriptorSchemaVersion: 1,
+        validation: "immediate",
         fields: { enabled: { type: "boolean", required: true, default: true } },
-        surface: "workspace",
-        audience: "authenticated",
         readPermission: "consumer.permission",
-        changePermission: "consumer.permission",
-        featureRevision: 1,
-        publicationRevision: 1
+        changePermission: "consumer.permission"
       });
       context.register("sources", "consumer.source", sourceDefinition);
       context.register("actions", "consumer.action", actionDefinition());
@@ -568,6 +566,12 @@ describe("phased registration runtime", () => {
         context.register("settings", "consumer.setting", {} as never);
       }
     }]), "INVALID_CONTRIBUTION");
+  });
+
+  it("validates system settings descriptors during registration", () => {
+    expectCode(() => run([providerRegistration(), corruptedReference(
+      "contracts", "settings", "consumer.setting", (value) => ({ ...(value as object), descriptorSchemaVersion: 0 })
+    )]), "INVALID_CONTRIBUTION");
   });
 
   it("requires permissions to be published by the registering platform plugin", () => {

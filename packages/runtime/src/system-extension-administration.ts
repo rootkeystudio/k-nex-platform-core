@@ -1,16 +1,19 @@
 import {
+  compareExactSemverPrecedence,
+  ExtensionAdministrationActionViewSchema,
   ExtensionIdentitySchema,
   type AuthorizationDecision,
   type AuthorizationState,
+  type ExtensionAdministrationActionView,
   type ExtensionIdentity
 } from "@k-nex/contracts";
 
 import { type AuthorizationExpectedRevision } from "./authorization-store.js";
 import { CurrentAuthorityAdapter, createCurrentAuthorityTarget } from "./current-authority-adapter.js";
 import { ExtensionOperatorApi, type ExtensionCatalogRecord, type ExtensionSystemStatus } from "./extension-operator-api.js";
-import type { ExtensionChangeRequest, ExtensionOperationStatus, PluginManagerPlan } from "./plugin-manager.js";
+import { admittedExtensionOperations, extensionInventoryState, isPreparedStaticPlan, type ExtensionChangeRequest, type ExtensionInventoryState, type ExtensionOperationStatus, type PluginManagerPlan } from "./plugin-manager.js";
 
-export type SystemExtensionAdministrationErrorCode = "UNAUTHORIZED" | "REVISION_CONFLICT" | "REQUEST_INVALID" | "APPROVAL_REQUIRED";
+export type SystemExtensionAdministrationErrorCode = "UNAUTHORIZED" | "REVISION_CONFLICT" | "REQUEST_INVALID" | "APPROVAL_REQUIRED" | "EXECUTION_UNAVAILABLE";
 
 export class SystemExtensionAdministrationError extends Error {
   constructor(readonly code: SystemExtensionAdministrationErrorCode, message: string) {
@@ -24,12 +27,23 @@ export interface SystemExtensionAdministrationStateSource {
   readState(applicationId: string, environment: string): Promise<AuthorizationState | undefined>;
 }
 
-export interface SystemExtensionOperationApprovalVerifier<TContext> {
+/**
+ * Server-owned lifecycle evidence bound to one mutation boundary. Browser
+ * requests never carry approval or reauthentication evidence.
+ */
+export interface SystemExtensionLifecycleEvidenceVerifier<TContext> {
   verify(input: Readonly<{
-    context: TContext;
-    expected: SystemExtensionExpectedRevision;
-    operation: ExtensionOperationStatus;
-  }>): Promise<boolean> | boolean;
+    readonly context: TContext;
+    readonly expected: SystemExtensionExpectedRevision;
+    readonly operation: ExtensionOperationStatus;
+    readonly boundary: "validate" | "execute";
+  }>): Promise<Readonly<{
+    readonly approval: "not-required" | "satisfied";
+    readonly reauthentication: "satisfied";
+  }> | undefined> | Readonly<{
+    readonly approval: "not-required" | "satisfied";
+    readonly reauthentication: "satisfied";
+  }> | undefined;
 }
 
 /** Trusted server boundary that binds the Phase 9 operator to the current opaque request context. */
@@ -41,10 +55,11 @@ export interface SystemExtensionAdministrationOptions<TContext> {
   readonly operator: SystemExtensionOperatorProvider<TContext>;
   readonly authority: CurrentAuthorityAdapter<TContext>;
   readonly state: SystemExtensionAdministrationStateSource;
-  readonly approval?: SystemExtensionOperationApprovalVerifier<TContext>;
+  readonly lifecycleEvidence: SystemExtensionLifecycleEvidenceVerifier<TContext>;
 }
 
 export interface SystemExtensionExpectedRevision extends AuthorizationExpectedRevision {
+  readonly inventoryRevision: number;
   readonly extensionRevision: number;
 }
 
@@ -100,22 +115,42 @@ export class SystemExtensionAdministrationService<TContext> {
   async list(input: Readonly<{ readonly context: TContext; readonly includeUnavailable?: boolean }>): Promise<readonly ExtensionCatalogRecord[]> {
     exactInput(input, ["context", "includeUnavailable"], ["includeUnavailable"]);
     if (input.includeUnavailable !== undefined && typeof input.includeUnavailable !== "boolean") invalid("Extension catalog input is invalid.");
-    await this.readDecision(input.context);
-    return (await this.operator(input.context)).catalogList(input.includeUnavailable === true ? { includeUnavailable: true } : {});
+    const decision = await this.readDecision(input.context);
+    const result = await (await this.operator(input.context)).catalogList(input.includeUnavailable === true ? { includeUnavailable: true } : {});
+    await this.confirmRead(input.context, decision);
+    return result;
   }
 
   async detail(input: Readonly<{ readonly context: TContext; readonly extension: unknown; readonly version: string }>): Promise<ExtensionCatalogRecord | undefined> {
     exactInput(input, ["context", "extension", "version"]);
     const extension = ExtensionIdentitySchema.safeParse(input.extension);
     if (!extension.success || typeof input.version !== "string") invalid("Extension catalog detail is invalid.");
-    await this.readDecision(input.context);
-    return (await this.operator(input.context)).catalogDetail(extension.data, input.version);
+    const decision = await this.readDecision(input.context);
+    const result = await (await this.operator(input.context)).catalogDetail(extension.data, input.version);
+    await this.confirmRead(input.context, decision);
+    return result;
   }
 
   async status(input: Readonly<{ readonly context: TContext }>): Promise<ExtensionSystemStatus> {
     exactInput(input, ["context"]);
     const decision = await this.readDecision(input.context);
-    return (await this.operator(input.context)).status(decision.applicationId, decision.environment);
+    const result = await (await this.operator(input.context)).status(decision.applicationId, decision.environment);
+    await this.confirmRead(input.context, decision);
+    return result;
+  }
+
+  /** Immutable server projection from the exact accepted catalog records and current verified inventory. */
+  async actions(input: Readonly<{ readonly context: TContext }>): Promise<readonly ExtensionAdministrationActionView[]> {
+    exactInput(input, ["context"]);
+    const decision = await this.readDecision(input.context);
+    const operator = await this.operator(input.context);
+    const [catalog, status] = await Promise.all([
+      operator.catalogList({ includeUnavailable: true }),
+      operator.status(decision.applicationId, decision.environment)
+    ]);
+    const result = projectExtensionAdministrationActions(status.inventory, catalog);
+    await this.confirmRead(input.context, decision);
+    return result;
   }
 
   async operationStatus(input: Readonly<{ readonly context: TContext; readonly operationId: string }>): Promise<SystemExtensionOperationStatus> {
@@ -124,7 +159,9 @@ export class SystemExtensionAdministrationService<TContext> {
     const decision = await this.readDecision(input.context);
     const operation = await (await this.operator(input.context)).operation(input.operationId);
     if (operation.request.applicationId !== decision.applicationId || operation.request.environment !== decision.environment) unauthorized();
-    return operationStatus(operation);
+    const result = operationStatus(operation);
+    await this.confirmRead(input.context, decision);
+    return result;
   }
 
   async plan(input: Readonly<{ readonly context: TContext; readonly expected: unknown; readonly request: unknown }>): Promise<SystemExtensionPlan> {
@@ -133,7 +170,7 @@ export class SystemExtensionAdministrationService<TContext> {
     const request = parseRequest(input.request, expected);
     await this.planDecision(input.context, expected);
     const operator = await this.operator(input.context);
-    await this.current(expected, operator);
+    await this.current(expected, operator, request.extension);
     const plan = await operator.plan(request);
     return Object.freeze({
       operationId: plan.operationId,
@@ -144,6 +181,27 @@ export class SystemExtensionAdministrationService<TContext> {
     });
   }
 
+  /**
+   * Stages only live install/update bytes, then asks the owning authority for
+   * validation. The durable PluginManager operation remains the only state
+   * record across page reloads and worker recreation.
+   */
+  async validate(input: Readonly<{ readonly context: TContext; readonly expected: unknown; readonly operationId: string }>): Promise<Awaited<ReturnType<ExtensionOperatorApi["validate"]>>> {
+    exactInput(input, ["context", "expected", "operationId"]);
+    const expected = parseExpected(input.expected);
+    if (!validId(input.operationId)) invalid("Extension operation ID is invalid.");
+    await this.planDecision(input.context, expected);
+    const operator = await this.operator(input.context);
+    await this.current(expected, operator);
+    const operation = await this.boundOperation(expected, operator, input.operationId);
+    if (staticExecutionUnavailable(operation)) unavailable("This Platform Plugin plan requires explicit maintenance or is not supported; web administration cannot prepare it.");
+    await this.current(expected, operator, operation.request.extension);
+    await this.verifyLifecycleEvidence(input.context, expected, operation, "validate");
+    const report = await this.prepare(operator, expected, operation);
+    await this.current(expected, operator, operation.request.extension);
+    return report;
+  }
+
   async execute(input: Readonly<{ readonly context: TContext; readonly expected: unknown; readonly operationId: string }>): Promise<SystemExtensionExecution> {
     exactInput(input, ["context", "expected", "operationId"]);
     const expected = parseExpected(input.expected);
@@ -151,15 +209,21 @@ export class SystemExtensionAdministrationService<TContext> {
     await this.planDecision(input.context, expected);
     const operator = await this.operator(input.context);
     await this.current(expected, operator);
-    const operation = await operator.operation(input.operationId);
-    if (operation.request.applicationId !== expected.applicationId || operation.request.environment !== expected.environment ||
-      operation.request.expectedRevision !== expected.extensionRevision || !operation.plan) conflict("Extension operation is stale or unavailable.");
-    if (operation.plan.plan.approvalRequired) {
-      if (!this.options.approval || !await this.options.approval.verify({ context: input.context, expected, operation })) {
-        throw new SystemExtensionAdministrationError("APPROVAL_REQUIRED", "A server-verified approval is required for this extension operation.");
-      }
+    const operation = await this.boundOperation(expected, operator, input.operationId);
+    if (staticExecutionUnavailable(operation)) unavailable("This Platform Plugin plan requires explicit maintenance or is not supported; web administration cannot execute it.");
+    if (operation.plan?.executionClass === "static-release" && !isPreparedStaticPlan(operation.plan)) {
+      unavailable("Platform Plugin execution requires prior evidence-gated validation and prepared source/build state.");
     }
-    await this.current(expected, operator);
+    await this.current(expected, operator, operation.request.extension);
+    if (liveActivation(operation) || operation.plan!.executionClass === "static-release") {
+      if (liveActivation(operation) && !validLiveActivationPhase(operation.phase)) {
+        unavailable("Live extension install and update must be staged and validated before execution.");
+      }
+      const report = await operator.validate(operation.operationId);
+      if (!report.valid) unavailable("The current extension operation is not ready for execution.");
+      await this.current(expected, operator, operation.request.extension);
+    }
+    await this.verifyLifecycleEvidence(input.context, expected, operation, "execute");
     const result = await execute(operator, operation);
     return Object.freeze({ result, status: operationStatus(await operator.operation(operation.operationId)) });
   }
@@ -168,8 +232,17 @@ export class SystemExtensionAdministrationService<TContext> {
     const decision = await this.options.authority.authorize(context, readTarget);
     if (!allowsRead(decision)) unauthorized();
     const current = await this.options.state.readState(decision.applicationId, decision.environment);
-    if (!current || current.authorizationRevision !== decision.authorizationRevision || current.lifecycleRevision !== decision.lifecycleRevision) conflict("Authorization state changed before extension administration.");
+    if (!current || current.applicationId !== decision.applicationId || current.environment !== decision.environment ||
+      current.authorizationRevision !== decision.authorizationRevision || current.lifecycleRevision !== decision.lifecycleRevision) conflict("Authorization state changed before extension administration.");
     return decision;
+  }
+
+  private async confirmRead(context: TContext, initial: AuthorizationDecision): Promise<void> {
+    const current = await this.readDecision(context);
+    if (current.decisionId !== initial.decisionId || current.applicationId !== initial.applicationId || current.environment !== initial.environment) unauthorized();
+    if (current.authorizationRevision !== initial.authorizationRevision || current.lifecycleRevision !== initial.lifecycleRevision) {
+      conflict("Authorization state changed while reading extension administration.");
+    }
   }
 
   private async operator(context: TContext): Promise<ExtensionOperatorApi> {
@@ -182,7 +255,7 @@ export class SystemExtensionAdministrationService<TContext> {
     }
   }
 
-  private async current(expected: SystemExtensionExpectedRevision, operator: ExtensionOperatorApi): Promise<void> {
+  private async current(expected: SystemExtensionExpectedRevision, operator: ExtensionOperatorApi, extension?: ExtensionIdentity): Promise<void> {
     const [current, status] = await Promise.all([
       this.options.state.readState(expected.applicationId, expected.environment),
       operator.status(expected.applicationId, expected.environment)
@@ -190,7 +263,49 @@ export class SystemExtensionAdministrationService<TContext> {
     if (!current || current.authorizationRevision !== expected.authorizationRevision || current.lifecycleRevision !== expected.lifecycleRevision) {
       conflict("Authorization or lifecycle state changed before extension operation.");
     }
-    if (status.inventory.revision !== expected.extensionRevision) conflict("Extension inventory changed before extension operation.");
+    if (status.inventory.revision !== expected.inventoryRevision) conflict("Extension inventory changed before extension operation.");
+    if (extension && inventoryEntryRevision(status.inventory, extension) !== expected.extensionRevision) {
+      conflict("Target extension changed before extension operation.");
+    }
+  }
+
+  private async boundOperation(expected: SystemExtensionExpectedRevision, operator: ExtensionOperatorApi, operationId: string): Promise<ExtensionOperationStatus> {
+    const operation = await operator.operation(operationId);
+    if (operation.request.applicationId !== expected.applicationId || operation.request.environment !== expected.environment ||
+      operation.request.expectedRevision !== expected.extensionRevision || !operation.plan) conflict("Extension operation is stale or unavailable.");
+    return operation;
+  }
+
+  private async prepare(
+    operator: ExtensionOperatorApi,
+    expected: SystemExtensionExpectedRevision,
+    operation: ExtensionOperationStatus
+  ): Promise<Awaited<ReturnType<ExtensionOperatorApi["validate"]>>> {
+    if (operation.plan!.executionClass === "live-generation" && ["install", "update"].includes(operation.request.operation)) {
+      await operator.stage(operation.operationId);
+      const staged = await this.boundOperation(expected, operator, operation.operationId);
+      await this.current(expected, operator, staged.request.extension);
+      return operator.validate(staged.operationId);
+    }
+    return operator.validate(operation.operationId);
+  }
+
+  private async verifyLifecycleEvidence(
+    context: TContext,
+    expected: SystemExtensionExpectedRevision,
+    operation: ExtensionOperationStatus,
+    boundary: "validate" | "execute"
+  ): Promise<void> {
+    const evidence = await this.options.lifecycleEvidence.verify({ context, expected, operation, boundary });
+    if (operation.plan!.plan.approvalRequired && evidence?.approval !== "satisfied") {
+      throw new SystemExtensionAdministrationError("APPROVAL_REQUIRED", "A server-verified approval is required for this extension operation.");
+    }
+    if (evidence?.reauthentication !== "satisfied") {
+      unauthorized();
+    }
+    if (!operation.plan!.plan.approvalRequired && evidence.approval !== "not-required" && evidence.approval !== "satisfied") {
+      unauthorized();
+    }
   }
 
   private async planDecision(context: TContext, expected: SystemExtensionExpectedRevision): Promise<void> {
@@ -202,6 +317,90 @@ export class SystemExtensionAdministrationService<TContext> {
   }
 }
 
+type AdministrationAction = "install" | "re-enable" | "update" | "disable" | "rollback" | "uninstall";
+
+/**
+ * Projects only operations admitted by PluginManager's shared current-inventory
+ * admission table. The catalog merely supplies currently installable releases;
+ * it never supplies lifecycle state or authority.
+ */
+export function projectExtensionAdministrationActions(
+  inventory: ExtensionSystemStatus["inventory"],
+  catalog: readonly ExtensionCatalogRecord[]
+): readonly ExtensionAdministrationActionView[] {
+  const identities = new Map<string, ExtensionIdentity>();
+  for (const record of catalog) identities.set(identityKey(record.extension), ExtensionIdentitySchema.parse(record.extension));
+  for (const [id] of Object.entries(inventory.extensions.platformPlugins)) identities.set(identityKey({ deliveryClass: "platform-plugin", id }), { deliveryClass: "platform-plugin", id });
+  for (const [id] of Object.entries(inventory.extensions.hotApplications)) identities.set(identityKey({ deliveryClass: "hot-application", id }), { deliveryClass: "hot-application", id });
+  for (const [id] of Object.entries(inventory.extensions.themeSkins)) identities.set(identityKey({ deliveryClass: "theme-skin", id }), { deliveryClass: "theme-skin", id });
+
+  const result: ExtensionAdministrationActionView[] = [];
+  for (const extension of [...identities.values()].sort((left, right) => identityKey(left).localeCompare(identityKey(right)))) {
+    const state = extensionInventoryState(inventory, extension);
+    const releases = catalog.filter((record) => sameIdentity(record.extension, extension) && currentlyInstallable(record));
+    const admitted = new Set(admittedExtensionOperations(state.disposition));
+    if ((state.disposition === "fresh" || state.disposition === "removed") && admitted.has("install") && releases.length > 0) {
+      result.push(actionView(extension, state.disposition === "fresh" ? "catalog-available" : "removed", "install"));
+    }
+    if (state.disposition === "active") {
+      if (admitted.has("update") && state.currentVersion && releases.some((record) =>
+        compareExactSemverPrecedence(record.version, state.currentVersion!) > 0 ||
+        (extension.deliveryClass === "platform-plugin" && record.version === state.currentVersion))) {
+        result.push(actionView(extension, "update-available", "update"));
+      }
+      if (admitted.has("disable")) result.push(actionView(extension, "active", "disable"));
+      if (admitted.has("rollback") && state.rollbackGenerationId) result.push(actionView(extension, "rollback-available", "rollback"));
+      if (admitted.has("uninstall")) result.push(actionView(extension, "active", "uninstall"));
+    }
+    if (state.disposition === "disabled") {
+      if (admitted.has("install") && state.currentGenerationId && state.currentVersion && releases.some((record) => record.version === state.currentVersion)) {
+        result.push(actionView(extension, "disabled", "re-enable"));
+      }
+      if (admitted.has("uninstall")) result.push(actionView(extension, "disabled", "uninstall"));
+    }
+    if (state.disposition === "quarantined") {
+      if (admitted.has("update") && state.currentVersion && releases.some((record) => compareExactSemverPrecedence(record.version, state.currentVersion!) > 0)) {
+        result.push(actionView(extension, "quarantined", "update"));
+      }
+      if (admitted.has("uninstall")) result.push(actionView(extension, "quarantined", "uninstall"));
+    }
+  }
+  return Object.freeze(result);
+}
+
+function actionView(extension: ExtensionIdentity, lifecycleState: ExtensionAdministrationActionView["lifecycleState"], action: AdministrationAction): ExtensionAdministrationActionView {
+  const base = { id: extension.id, deliveryClass: extension.deliveryClass, lifecycleState, availability: "available", reauthentication: "required" } as const;
+  switch (action) {
+    case "install": return Object.freeze(ExtensionAdministrationActionViewSchema.parse({
+      ...base, action, executableOperation: "install",
+      permissionId: extension.deliveryClass === "platform-plugin" ? "system.extensions.deploy-platform-plugin" : "system.extensions.install-live",
+      approval: extension.deliveryClass === "platform-plugin" ? "required" : "canonical-plan"
+    }));
+    case "re-enable": return Object.freeze(ExtensionAdministrationActionViewSchema.parse({ ...base, action, executableOperation: "install", permissionId: "system.extensions.enable", approval: "canonical-plan" }));
+    case "update": return Object.freeze(ExtensionAdministrationActionViewSchema.parse({ ...base, action, executableOperation: "update", permissionId: "system.extensions.update", approval: "canonical-plan" }));
+    case "disable": return Object.freeze(ExtensionAdministrationActionViewSchema.parse({ ...base, action, executableOperation: "disable", permissionId: "system.extensions.disable", approval: "canonical-plan" }));
+    case "rollback": return Object.freeze(ExtensionAdministrationActionViewSchema.parse({ ...base, action, executableOperation: "rollback", permissionId: "system.extensions.rollback", approval: "canonical-plan" }));
+    case "uninstall": return Object.freeze(ExtensionAdministrationActionViewSchema.parse({ ...base, action, executableOperation: "uninstall", permissionId: "system.extensions.uninstall", approval: "required" }));
+  }
+}
+
+function currentlyInstallable(record: ExtensionCatalogRecord): boolean {
+  return !record.revoked && record.review === "approved" && record.security === "clear" && record.support === "supported";
+}
+
+function sameIdentity(left: ExtensionIdentity, right: ExtensionIdentity): boolean {
+  return left.deliveryClass === right.deliveryClass && left.id === right.id;
+}
+
+function identityKey(extension: ExtensionIdentity): string { return `${extension.deliveryClass}:${extension.id}`; }
+
+/** Revision fencing reads only the target entry's persisted revision, not generation evidence. */
+function inventoryEntryRevision(inventory: ExtensionSystemStatus["inventory"], extension: ExtensionIdentity): number {
+  const entries = extension.deliveryClass === "platform-plugin" ? inventory.extensions.platformPlugins
+    : extension.deliveryClass === "hot-application" ? inventory.extensions.hotApplications : inventory.extensions.themeSkins;
+  return entries[extension.id]?.revision ?? 0;
+}
+
 async function execute(operator: ExtensionOperatorApi, operation: ExtensionOperationStatus): Promise<Awaited<ReturnType<ExtensionOperatorApi["activate"]>>> {
   switch (operation.request.operation) {
     case "install":
@@ -210,6 +409,19 @@ async function execute(operator: ExtensionOperatorApi, operation: ExtensionOpera
     case "disable": return operator.disable(operation.operationId);
     case "uninstall": return operator.uninstall(operation.operationId);
   }
+}
+
+function liveActivation(operation: ExtensionOperationStatus): boolean {
+  return operation.plan?.executionClass === "live-generation" && ["install", "update"].includes(operation.request.operation);
+}
+
+function validLiveActivationPhase(phase: ExtensionOperationStatus["phase"]): boolean {
+  return phase === "staged" || phase === "warming";
+}
+
+function staticExecutionUnavailable(operation: ExtensionOperationStatus): boolean {
+  return operation.plan?.executionClass === "static-release" &&
+    ["maintenance-required", "unsupported"].includes(operation.plan.plan.availability.outcome);
 }
 
 function display(plan: PluginManagerPlan): SystemExtensionDisplay {
@@ -236,11 +448,11 @@ function operationStatus(operation: ExtensionOperationStatus): SystemExtensionOp
 }
 
 function parseExpected(value: unknown): SystemExtensionExpectedRevision {
-  const input = exactObject(value, ["applicationId", "authorizationRevision", "environment", "extensionRevision", "lifecycleRevision"]);
-  if (!validOwner(input.applicationId) || !validOwnerEnvironment(input.environment) || !revision(input.authorizationRevision) || !revision(input.lifecycleRevision) || !revision(input.extensionRevision)) {
+  const input = exactObject(value, ["applicationId", "authorizationRevision", "environment", "extensionRevision", "inventoryRevision", "lifecycleRevision"]);
+  if (!validOwner(input.applicationId) || !validOwnerEnvironment(input.environment) || !revision(input.authorizationRevision) || !revision(input.lifecycleRevision) || !revision(input.inventoryRevision) || !revision(input.extensionRevision)) {
     conflict("Extension administration expected revision is invalid.");
   }
-  return Object.freeze({ applicationId: input.applicationId, environment: input.environment, authorizationRevision: input.authorizationRevision, lifecycleRevision: input.lifecycleRevision, extensionRevision: input.extensionRevision });
+  return Object.freeze({ applicationId: input.applicationId, environment: input.environment, authorizationRevision: input.authorizationRevision, lifecycleRevision: input.lifecycleRevision, inventoryRevision: input.inventoryRevision, extensionRevision: input.extensionRevision });
 }
 
 function parseRequest(value: unknown, expected: SystemExtensionExpectedRevision): ExtensionChangeRequest {
@@ -290,4 +502,5 @@ function revision(value: unknown): value is number { return typeof value === "nu
 function validId(value: string): boolean { return /^[a-z][a-z0-9-]{2,127}$/u.test(value); }
 function invalid(message: string): never { throw new SystemExtensionAdministrationError("REQUEST_INVALID", message); }
 function conflict(message: string): never { throw new SystemExtensionAdministrationError("REVISION_CONFLICT", message); }
+function unavailable(message: string): never { throw new SystemExtensionAdministrationError("EXECUTION_UNAVAILABLE", message); }
 function unauthorized(): never { throw new SystemExtensionAdministrationError("UNAUTHORIZED", "Current authority does not permit extension administration."); }

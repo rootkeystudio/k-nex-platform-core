@@ -11,7 +11,8 @@ const authorization = (authorizationRevision = 1, authorizationProof = "authoriz
 const generation = (generationId = "sales-generation-1", revision = 1, disposition: RemoteUiGenerationSnapshot["disposition"] = "active"): RemoteUiGenerationSnapshot => ({ ...owner, generationId, artifactDigest, revision, disposition });
 const request = (sessionId = "remote-session-1", generationId = "sales-generation-1"): RemoteUiSessionRequest => ({
   sessionId, remoteUiFrameUrl: `https://extensions.example/api/extensions/apps/app.sales-assistant/assets/${generationId}/sha256:${assetDigest}/frame.html`, route: "/apps/sales-assistant", surface: "sales.assistant-screen",
-  sources: new Set(["sales.tasks"]), actions: new Set(["sales.refresh"]), routes: new Set(["/", "/tasks/:taskid"]), assets: new Set([`asset:sha256:${assetDigest}`])
+  sources: new Set(["sales.tasks"]), actions: new Set(["sales.refresh"]), routes: new Set(["/", "/tasks/:taskid"]), assets: new Set([`asset:sha256:${assetDigest}`]),
+  presentation: { profileRevisionId: "profile-revision-1", themeId: "theme.default", themeVersion: "1.0.0", surface: "admin", mode: "light" }
 });
 const registry = new Map([
   ["stack", { events: new Set<"press">(), validateProps(props: Record<string, unknown>) { if (Object.keys(props).some((key) => key !== "gap")) throw new Error(); } }],
@@ -183,6 +184,23 @@ describe("remote UI host session authority", () => {
     channel.port2.close();
   });
 
+  it("follows host profile changes without exposing presentation to app identity or frames", async () => {
+    const { session, host } = opened();
+    const channel = new MessageChannel();
+    session.start(channel.port1 as unknown as MessagePort);
+    channel.port2.postMessage(realmFrame(generation(), "render", { root }));
+    await tick();
+    expect(host.render).toHaveBeenLastCalledWith(root, expect.objectContaining({ profileRevisionId: "profile-revision-1", themeId: "theme.default" }), expect.any(AbortSignal));
+    expect(session.identity).not.toHaveProperty("presentation");
+
+    await session.updatePresentation({ profileRevisionId: "profile-revision-2", themeId: "theme.contrast", themeVersion: "1.0.0", surface: "admin", mode: "dark" });
+    expect(host.render).toHaveBeenLastCalledWith(root, expect.objectContaining({ profileRevisionId: "profile-revision-2", themeId: "theme.contrast", mode: "dark" }), expect.any(AbortSignal));
+    channel.port2.postMessage({ ...realmFrame(generation(), "render", { root, presentation: { themeId: "theme.forged" } }), sequence: 2 });
+    await tick();
+    expect(host.fallback).toHaveBeenCalledWith("PROTOCOL_FAILURE", expect.any(AbortSignal));
+    channel.port2.close();
+  });
+
   it("reauthorizes the exact declared target before browser-facing dispatch", async () => {
     const { session, host } = opened();
     host.authorizeTarget.mockResolvedValueOnce(false);
@@ -287,7 +305,7 @@ describe("remote UI host session authority", () => {
     expect(host.render).not.toHaveBeenCalled();
 
     const rendering = opened(generation("sales-generation-render", 1));
-    rendering.host.render.mockImplementationOnce((_root, signal) => new Promise<void>((resolve) => { expect(signal?.aborted).toBe(false); resolveRender = resolve; }));
+    rendering.host.render.mockImplementationOnce((_root, _presentation, signal) => new Promise<void>((resolve) => { expect(signal?.aborted).toBe(false); resolveRender = resolve; }));
     const renderingChannel = new MessageChannel();
     rendering.session.start(renderingChannel.port1 as unknown as MessagePort);
     renderingChannel.port2.postMessage(realmFrame(generation("sales-generation-render", 1), "render", { root }));

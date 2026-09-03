@@ -3,13 +3,16 @@ import * as z from "zod";
 import { PluginIdSchema, ResourceIdSchema } from "./identity.js";
 import { uniqueArray } from "./schema-helpers.js";
 
-const settingKeyPattern = /^[a-z][A-Za-z0-9]*$/;
 const routeParameterNamePattern = /^[A-Za-z][A-Za-z0-9]*$/;
 const secretLikeSettingKeyPattern = /(password|secret|token|credential|privateKey|apiKey)$/i;
 const reservedSettingTerms = [
   "action", "block", "component", "contribution", "entrypoint", "import", "job",
   "migration", "plugin", "provider", "route", "schema", "source", "tool", "topology"
 ] as const;
+
+export function isSecretLikeSettingKey(key: string): boolean {
+  return secretLikeSettingKeyPattern.test(key);
+}
 
 export const SecretReferenceSchema = z.strictObject({
   kind: z.literal("secret-reference"),
@@ -61,11 +64,39 @@ export const PluginSettingFieldSchema = z.discriminatedUnion("type", [
   })
 ]);
 
-const settingFieldsSchema = z.record(z.string().regex(settingKeyPattern), PluginSettingFieldSchema)
-  .check((context) => {
-    if (Object.keys(context.value).length === 0) context.issues.push({ code: "custom", input: context.value, message: "Settings fields cannot be empty." });
-  })
-  .meta({ minProperties: 1 });
+export interface PluginSettingFieldIssue {
+  readonly input: unknown;
+  readonly path: readonly string[];
+  readonly message: string;
+}
+
+/** Shared semantic validation for every trusted data-only settings descriptor. */
+export function pluginSettingFieldIssues(
+  fields: Readonly<Record<string, z.infer<typeof PluginSettingFieldSchema>>>
+): readonly PluginSettingFieldIssue[] {
+  const issues: PluginSettingFieldIssue[] = [];
+  for (const [key, field] of Object.entries(fields)) {
+    const normalizedKey = key.toLowerCase();
+    if (reservedSettingTerms.some((term) => normalizedKey.includes(term))) {
+      issues.push({ input: key, path: [key], message: "Settings cannot control executable contributions or application topology." });
+    }
+    if (isSecretLikeSettingKey(key) && field.type !== "secret-reference") {
+      issues.push({ input: key, path: [key], message: "Secret-like settings must use secret references." });
+    }
+    if (field.type === "integer") {
+      if (field.minimum !== undefined && field.maximum !== undefined && field.minimum > field.maximum) {
+        issues.push({ input: field, path: [key], message: "Integer setting bounds are invalid." });
+      }
+      if (field.default !== undefined && (field.minimum !== undefined && field.default < field.minimum || field.maximum !== undefined && field.default > field.maximum)) {
+        issues.push({ input: field.default, path: [key, "default"], message: "Integer setting default is outside its bounds." });
+      }
+    }
+    if (field.type === "string" && field.default !== undefined && field.allowed !== undefined && !field.allowed.includes(field.default)) {
+      issues.push({ input: field.default, path: [key, "default"], message: "String setting default is not allowed." });
+    }
+  }
+  return Object.freeze(issues.map((issue) => Object.freeze({ ...issue, path: Object.freeze([...issue.path]) })));
+}
 
 const surfaceSchema = z.enum(["workspace", "cms", "public", "driver", "mobile", "system"]);
 const audienceSchema = z.enum(["public", "authenticated", "system"]);
@@ -73,51 +104,6 @@ const audienceSchema = z.enum(["public", "authenticated", "system"]);
 function ownedByPlugin(pluginId: string, resourceId: string): boolean {
   return resourceId.startsWith(`${pluginId.split(".")[1]}.`);
 }
-
-export const PluginSettingsDescriptorSchema = z.strictObject({
-  id: ResourceIdSchema,
-  ownerPluginId: PluginIdSchema,
-  schemaVersion: z.number().int().positive(),
-  fields: settingFieldsSchema,
-  surface: surfaceSchema,
-  audience: audienceSchema,
-  readPermission: ResourceIdSchema,
-  changePermission: ResourceIdSchema,
-  featureRevision: z.number().int().nonnegative(),
-  publicationRevision: z.number().int().nonnegative()
-}).check((context) => {
-  const descriptor = context.value;
-  if (!ownedByPlugin(descriptor.ownerPluginId, descriptor.id)) {
-    context.issues.push({ code: "custom", input: descriptor.id, path: ["id"], message: "Settings ID must use the owner plugin namespace." });
-  }
-  for (const [key, field] of Object.entries(descriptor.fields)) {
-    const normalizedKey = key.toLowerCase();
-    if (reservedSettingTerms.some((term) => normalizedKey.includes(term))) {
-      context.issues.push({ code: "custom", input: key, path: ["fields", key], message: "Settings cannot control executable contributions or application topology." });
-    }
-    if (secretLikeSettingKeyPattern.test(key) && field.type !== "secret-reference") {
-      context.issues.push({ code: "custom", input: key, path: ["fields", key], message: "Secret-like settings must use secret references." });
-    }
-    if (field.type === "integer") {
-      if (field.minimum !== undefined && field.maximum !== undefined && field.minimum > field.maximum) {
-        context.issues.push({ code: "custom", input: field, path: ["fields", key], message: "Integer setting bounds are invalid." });
-      }
-      if (field.default !== undefined && (field.minimum !== undefined && field.default < field.minimum || field.maximum !== undefined && field.default > field.maximum)) {
-        context.issues.push({ code: "custom", input: field.default, path: ["fields", key, "default"], message: "Integer setting default is outside its bounds." });
-      }
-    }
-    if (field.type === "string" && field.default !== undefined && field.allowed !== undefined && !field.allowed.includes(field.default)) {
-      context.issues.push({ code: "custom", input: field.default, path: ["fields", key, "default"], message: "String setting default is not allowed." });
-    }
-  }
-});
-
-export const PluginSettingsDocumentSchema = z.strictObject({
-  settingsId: ResourceIdSchema,
-  schemaVersion: z.number().int().positive(),
-  revision: z.number().int().positive(),
-  values: z.record(z.string().regex(settingKeyPattern), PluginSettingValueSchema)
-});
 
 export const RouteParameterDescriptorSchema = z.strictObject({
   type: z.enum(["string", "integer", "boolean"])
@@ -167,8 +153,6 @@ export const PluginNavigationDescriptorSchema = z.strictObject({
 export type SecretReference = z.infer<typeof SecretReferenceSchema>;
 export type PluginSettingValue = z.infer<typeof PluginSettingValueSchema>;
 export type PluginSettingField = z.infer<typeof PluginSettingFieldSchema>;
-export type PluginSettingsDescriptor = z.infer<typeof PluginSettingsDescriptorSchema>;
-export type PluginSettingsDocument = z.infer<typeof PluginSettingsDocumentSchema>;
 export type RouteParameterDescriptor = z.infer<typeof RouteParameterDescriptorSchema>;
 export type PluginRouteDescriptor = z.infer<typeof PluginRouteDescriptorSchema>;
 export type PluginRouteParameterValue = z.infer<typeof PluginRouteParameterValueSchema>;

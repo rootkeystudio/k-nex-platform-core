@@ -44,19 +44,20 @@ describe("authorization outbox", () => {
       if (text.startsWith("update k_nex_authorization_outbox\n         set status='delivered'")) return { rows: [], rowCount: 1 };
       return { rows: [], rowCount: 0 };
     });
-    const dispatcher = new PostgresAuthorizationOutboxDispatcher({ query } as never, { leaseMs: 20, publishTimeoutMs: 10 });
+    const dispatcher = new PostgresAuthorizationOutboxDispatcher({ query } as never, { applicationId: "customer-alpha", leaseMs: 20, publishTimeoutMs: 10 });
     const publish = vi.fn(async () => undefined);
 
     await expect(dispatcher.dispatchNext({ publish })).resolves.toMatchObject({ status: "delivered", invalidation });
     expect(publish).toHaveBeenCalledWith(invalidation, expect.any(AbortSignal));
     expect(query.mock.calls.some(([text]) => String(text).includes("for update skip locked"))).toBe(true);
+    expect(query.mock.calls.find(([text]) => String(text).includes("returning event.event_id"))?.[1]?.slice(0, 2)).toEqual([3, "customer-alpha"]);
   });
 
   it("releases malformed and timed-out claims for retry or dead-letter handling", async () => {
     const malformedQuery = vi.fn(async (text: string) => text.includes("returning event.event_id")
       ? { rows: [row({ event_json: { ...invalidation, authorizationRevision: 4 } })] }
       : { rows: [], rowCount: 0 });
-    const malformed = new PostgresAuthorizationOutboxDispatcher({ query: malformedQuery } as never, { leaseMs: 20, publishTimeoutMs: 10 });
+    const malformed = new PostgresAuthorizationOutboxDispatcher({ query: malformedQuery } as never, { applicationId: "customer-alpha", leaseMs: 20, publishTimeoutMs: 10 });
 
     await expect(malformed.dispatchNext({ publish: async () => undefined })).rejects.toThrow("does not match");
     expect(malformedQuery.mock.calls.some(([text]) => String(text).includes("last_error_code='DELIVERY_FAILED'"))).toBe(true);
@@ -64,7 +65,7 @@ describe("authorization outbox", () => {
     const timeoutQuery = vi.fn(async (text: string) => text.includes("returning event.event_id")
       ? { rows: [row()] }
       : { rows: [], rowCount: 0 });
-    const timeout = new PostgresAuthorizationOutboxDispatcher({ query: timeoutQuery } as never, { leaseMs: 20, publishTimeoutMs: 5 });
+    const timeout = new PostgresAuthorizationOutboxDispatcher({ query: timeoutQuery } as never, { applicationId: "customer-alpha", leaseMs: 20, publishTimeoutMs: 5 });
 
     await expect(timeout.dispatchNext({ publish: async () => new Promise<void>(() => {}) })).rejects.toThrow("timed out");
     expect(timeoutQuery.mock.calls.some(([text]) => String(text).includes("last_error_code='DELIVERY_FAILED'"))).toBe(true);

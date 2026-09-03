@@ -1,14 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { AuthorizationDecision, AuthorizationState } from "@k-nex/contracts";
+import { ExtensionAdministrationActionViewSchema, type AuthorizationDecision, type AuthorizationState, type RuntimeExtensionInventory } from "@k-nex/contracts";
 
 import { CurrentAuthorityAdapter } from "../src/current-authority-adapter.js";
 import { createTrustedAuthorizationSession, type EffectiveAuthorizationRequest, type TrustedAuthorizationSession } from "../src/effective-authority.js";
 import { type ExtensionOperatorApi } from "../src/extension-operator-api.js";
 import { type ExtensionChangeRequest, type ExtensionOperationStatus, type PluginManagerPlan } from "../src/plugin-manager.js";
-import { SystemExtensionAdministrationError, SystemExtensionAdministrationService } from "../src/system-extension-administration.js";
+import { projectExtensionAdministrationActions, SystemExtensionAdministrationError, SystemExtensionAdministrationService } from "../src/system-extension-administration.js";
 
-const expected = Object.freeze({ applicationId: "customer-alpha", environment: "production", authorizationRevision: 4, lifecycleRevision: 7, extensionRevision: 3 });
+const expected = Object.freeze({ applicationId: "customer-alpha", environment: "production", authorizationRevision: 4, lifecycleRevision: 7, inventoryRevision: 9, extensionRevision: 0 });
 const session = createTrustedAuthorizationSession({ schemaVersion: 1, applicationId: expected.applicationId, environment: expected.environment, correlationId: "system-extension-test", principal: { kind: "user", id: "admin" }, effectiveActor: { kind: "user", id: "admin" } });
 
 type TestContext = Readonly<Record<never, never>>;
@@ -38,33 +38,146 @@ function plan(deliveryClass: "hot-application" | "theme-skin" | "platform-plugin
 
 function request(): unknown { return { extension: { deliveryClass: "hot-application", id: "app.sales-assistant" }, operation: "install", targetVersion: "1.0.0", idempotencyKey: "system-extension-install-1" }; }
 
+const projectionExtension = Object.freeze({ deliveryClass: "hot-application" as const, id: "app.sales-assistant" });
+const projectionDigest = (character: string) => `sha256:${character.repeat(64)}`;
+
+function projectionInventory(
+  disposition: "fresh" | "active" | "disabled" | "quarantined" | "retirement-pending" | "removed",
+  options: Readonly<{ rollback?: boolean; retained?: boolean; version?: string }> = {}
+): RuntimeExtensionInventory {
+  const version = options.version ?? "1.0.0";
+  const generation = { generationId: "generation-projection-1", version, applicationId: expected.applicationId, environment: expected.environment, deliveryClass: projectionExtension.deliveryClass, extensionId: projectionExtension.id };
+  const entry = disposition === "active"
+    ? { disposition, revision: 3, lastOperationId: "operation-projection-1", lastReceiptId: "receipt-projection-1", stateDigest: projectionDigest("a"), activeGeneration: generation, ...(options.rollback ? { rollbackGeneration: { ...generation, generationId: "generation-projection-rollback" } } : {}) }
+    : disposition === "fresh"
+      ? undefined
+      : { disposition, revision: 3, lastOperationId: "operation-projection-1", lastReceiptId: "receipt-projection-1", stateDigest: projectionDigest("a"), ...((options.retained ?? true) ? { retainedGeneration: generation } : {}) };
+  return {
+    schemaVersion: 1, applicationId: expected.applicationId, environment: expected.environment, hostInventoryDigest: projectionDigest("b"), revision: 3,
+    observedAt: "2026-09-02T00:00:00.000Z", stateDigest: projectionDigest("c"), extensions: { platformPlugins: {}, themeSkins: {}, hotApplications: entry ? { [projectionExtension.id]: entry } : {} }
+  } as unknown as RuntimeExtensionInventory;
+}
+
+function catalog(version: string, options: Readonly<{ revoked?: boolean; review?: "approved" | "pending" | "rejected"; security?: "clear" | "advisory" | "compromised"; support?: "supported" | "deprecated" | "unsupported" }> = {}) {
+  return {
+    extension: projectionExtension, version, displayName: projectionExtension.id, availability: "live-generation" as const,
+    revoked: options.revoked ?? false, review: options.review ?? "approved", security: options.security ?? "clear", support: options.support ?? "supported"
+  };
+}
+
+function actions(inventory: RuntimeExtensionInventory, records: readonly ReturnType<typeof catalog>[] = []) {
+  return projectExtensionAdministrationActions(inventory, records);
+}
+
 function harness(options: Readonly<{
   readonly outcome?: "allow" | "deny";
   readonly state?: () => AuthorizationState | undefined;
   readonly inventoryRevision?: number;
+  readonly targetRevision?: number;
   readonly operation?: ExtensionOperationStatus;
-  readonly approval?: boolean;
+  readonly evidence?: "missing" | "forged" | "expired" | Readonly<{ readonly approval: "not-required" | "satisfied"; readonly reauthentication: "satisfied" }>;
+  readonly session?: () => TrustedAuthorizationSession;
   readonly provider?: (context: TestContext, fallback: ExtensionOperatorApi) => Promise<ExtensionOperatorApi | undefined> | ExtensionOperatorApi | undefined;
 }> = {}) {
   const resolver = { authorize: vi.fn(async (current: TrustedAuthorizationSession, input: EffectiveAuthorizationRequest) => decision(input, current, options.outcome)) };
-  const authority = new CurrentAuthorityAdapter({ current: async () => session }, resolver as never);
+  const authority = new CurrentAuthorityAdapter({ current: async () => options.session?.() ?? session }, resolver as never);
   const operator = {
-    catalogList: vi.fn(async () => []), catalogDetail: vi.fn(async () => undefined), status: vi.fn(async () => ({ applicationId: expected.applicationId, environment: expected.environment, inventory: { revision: options.inventoryRevision ?? expected.extensionRevision } })),
-    plan: vi.fn(async () => plan("hot-application")), operation: vi.fn(async () => options.operation), activate: vi.fn(async () => ({ receiptId: "receipt-system-extension-1" })), rollback: vi.fn(), disable: vi.fn(), uninstall: vi.fn()
+    catalogList: vi.fn(async () => []), catalogDetail: vi.fn(async () => undefined), status: vi.fn(async () => ({ applicationId: expected.applicationId, environment: expected.environment, inventory: {
+      revision: options.inventoryRevision ?? expected.inventoryRevision,
+      extensions: { platformPlugins: { "module.reports": { disposition: "removed", revision: expected.inventoryRevision } }, themeSkins: {}, hotApplications: options.targetRevision === undefined ? {} : {
+        "app.sales-assistant": { disposition: "active", revision: options.targetRevision }
+      } }
+    } })),
+    plan: vi.fn(async () => plan("hot-application")), operation: vi.fn(async () => options.operation), stage: vi.fn(async () => ({ generationId: "generation-system-extension-1" })),
+    validate: vi.fn(async () => ({ operationId: options.operation?.operationId ?? "operation-system-extension-1", executionClass: "live-generation", phase: "staged", valid: true, checks: ["verified-bundle", "generation-authority"] })),
+    activate: vi.fn(async () => ({ receiptId: "receipt-system-extension-1" })), rollback: vi.fn(), disable: vi.fn(), uninstall: vi.fn()
   } as unknown as ExtensionOperatorApi;
   const state = { readState: vi.fn(async () => options.state ? options.state() : authorizationState()) };
-  const approval = options.approval === undefined ? undefined : { verify: vi.fn(async () => options.approval) };
+  const lifecycleEvidence = { verify: vi.fn(async () => {
+    if (options.evidence === "missing" || options.evidence === "expired") return undefined;
+    if (options.evidence === "forged") return { approval: "satisfied", reauthentication: "not-required" } as never;
+    return options.evidence ?? { approval: "not-required" as const, reauthentication: "satisfied" as const };
+  }) };
   const operatorProvider = { resolve: vi.fn(async (context: TestContext) => options.provider ? options.provider(context, operator) : operator) };
-  return { resolver, operator, operatorProvider, state, approval, service: new SystemExtensionAdministrationService<TestContext>({ operator: operatorProvider, authority, state, ...(approval ? { approval } : {}) }) };
+  return { resolver, authority, operator, operatorProvider, state, lifecycleEvidence, service: new SystemExtensionAdministrationService<TestContext>({ operator: operatorProvider, authority, state, lifecycleEvidence }) };
 }
 
 describe("system extension administration", () => {
+  it("projects only contract-valid actions for every current inventory disposition", () => {
+    const cases = [
+      ["fresh", projectionInventory("fresh"), [catalog("1.0.0")], ["install"]],
+      ["removed", projectionInventory("removed"), [catalog("1.0.0")], ["install"]],
+      ["active", projectionInventory("active", { rollback: true }), [catalog("1.0.1")], ["update", "disable", "rollback", "uninstall"]],
+      ["disabled", projectionInventory("disabled"), [catalog("1.0.0")], ["re-enable", "uninstall"]],
+      ["quarantined", projectionInventory("quarantined"), [catalog("1.0.1")], ["update", "uninstall"]],
+      ["retirement pending", projectionInventory("retirement-pending"), [catalog("1.0.0")], []]
+    ] as const;
+    for (const [_name, inventory, records, expectedActions] of cases) {
+      const value = actions(inventory, records);
+      expect(value.map((action) => action.action)).toEqual(expectedActions);
+      for (const action of value) expect(ExtensionAdministrationActionViewSchema.safeParse(action).success).toBe(true);
+    }
+  });
+
+  it("binds install and update availability to an exact currently installable catalog release", () => {
+    expect(actions(projectionInventory("fresh"), []).map((action) => action.action)).toEqual([]);
+    expect(actions(projectionInventory("fresh"), [catalog("1.0.0", { security: "advisory" })]).map((action) => action.action)).toEqual([]);
+    expect(actions(projectionInventory("active"), [catalog("0.9.9")]).map((action) => action.action)).toEqual(["disable", "uninstall"]);
+    expect(actions(projectionInventory("active"), [catalog("1.0.0")]).map((action) => action.action)).toEqual(["disable", "uninstall"]);
+    expect(actions(projectionInventory("active"), [catalog("1.0.1")]).map((action) => action.action)).toEqual(["update", "disable", "uninstall"]);
+  });
+
+  it("offers an equal-version Platform Plugin rebuild but not an equal-version live update", () => {
+    const live = projectionInventory("active");
+    const active = live.extensions.hotApplications[projectionExtension.id]!;
+    const platform = {
+      ...live,
+      extensions: {
+        hotApplications: {}, themeSkins: {},
+        platformPlugins: {
+          "module.sales": {
+            ...active,
+            activeGeneration: { ...active.activeGeneration, deliveryClass: "platform-plugin", extensionId: "module.sales" }
+          }
+        }
+      }
+    } as RuntimeExtensionInventory;
+    const staticRelease = { ...catalog("1.0.0"), extension: { deliveryClass: "platform-plugin" as const, id: "module.sales" }, availability: "static-release" as const };
+    expect(actions(live, [catalog("1.0.0")]).map((action) => action.action)).toEqual(["disable", "uninstall"]);
+    expect(projectExtensionAdministrationActions(platform, [staticRelease]).map((action) => action.action)).toEqual(["update", "disable", "uninstall"]);
+  });
+
+  it("requires the exact retained clear catalog release for re-enable and excludes non-clear quarantined updates", () => {
+    const retained = actions(projectionInventory("disabled"), [catalog("1.0.0")]);
+    expect(retained).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: "re-enable", executableOperation: "install", permissionId: "system.extensions.enable", lifecycleState: "disabled" }),
+      expect.objectContaining({ action: "uninstall" })
+    ]));
+    expect(actions(projectionInventory("disabled"), [catalog("1.0.1")]).map((action) => action.action)).toEqual(["uninstall"]);
+    expect(actions(projectionInventory("disabled"), []).map((action) => action.action)).toEqual(["uninstall"]);
+    expect(actions(projectionInventory("disabled"), [catalog("1.0.0", { security: "compromised" })]).map((action) => action.action)).toEqual(["uninstall"]);
+    expect(actions(projectionInventory("disabled", { retained: false }), [catalog("1.0.0")]).map((action) => action.action)).toEqual(["uninstall"]);
+    expect(actions(projectionInventory("quarantined"), [catalog("1.0.1", { security: "advisory" })]).map((action) => action.action)).toEqual(["uninstall"]);
+    expect(actions(projectionInventory("quarantined"), [catalog("1.0.0")]).map((action) => action.action)).toEqual(["uninstall"]);
+  });
+
+  it("excludes deprecated catalog releases from install and update actions", () => {
+    expect(actions(projectionInventory("fresh"), [catalog("1.0.0", { support: "deprecated" })]).map((action) => action.action)).toEqual([]);
+    expect(actions(projectionInventory("active"), [catalog("1.0.1", { support: "deprecated" })]).map((action) => action.action)).toEqual(["disable", "uninstall"]);
+  });
+
+  it("keeps Platform Plugin installs on the static-release action contract", () => {
+    const platform = { extension: { deliveryClass: "platform-plugin" as const, id: "module.sales" }, version: "1.0.0", displayName: "module.sales", availability: "static-release" as const, support: "supported" as const, review: "approved" as const, security: "clear" as const, revoked: false };
+    const value = projectExtensionAdministrationActions(projectionInventory("fresh"), [platform]);
+    expect(value).toEqual([expect.objectContaining({ deliveryClass: "platform-plugin", action: "install", executableOperation: "install", permissionId: "system.extensions.deploy-platform-plugin", approval: "required" })]);
+  });
+
   it("uses only the server-selected extension read permission for list, detail, and status", async () => {
     const value = harness();
     await value.service.list({ context: {} });
     await value.service.detail({ context: {}, extension: { deliveryClass: "hot-application", id: "app.sales-assistant" }, version: "1.0.0" });
     await value.service.status({ context: {} });
-    expect(value.resolver.authorize.mock.calls.map(([, input]) => input.permissionId)).toEqual(["system.extensions.read", "system.extensions.read", "system.extensions.read"]);
+    expect(value.resolver.authorize.mock.calls.map(([, input]) => input.permissionId)).toEqual(Array(6).fill("system.extensions.read"));
     expect(value.operator.status).toHaveBeenCalledWith(expected.applicationId, expected.environment);
     await expect(value.service.list({ context: {}, permissionId: "system.roles.manage" } as never)).rejects.toMatchObject({ code: "REQUEST_INVALID" } satisfies Partial<SystemExtensionAdministrationError>);
   });
@@ -73,6 +186,32 @@ describe("system extension administration", () => {
     const value = harness({ outcome: "deny" });
     await expect(value.service.status({ context: {} })).rejects.toMatchObject({ code: "UNAUTHORIZED" } satisfies Partial<SystemExtensionAdministrationError>);
     expect(value.operator.status).not.toHaveBeenCalled();
+  });
+
+  it("does not release a catalog read when authority is revoked while the source is blocked", async () => {
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const value = harness();
+    (value.operator.catalogList as ReturnType<typeof vi.fn>).mockImplementationOnce(async () => { await blocked; return []; });
+    const pending = value.service.list({ context: {} });
+    await vi.waitFor(() => expect(value.operator.catalogList).toHaveBeenCalledOnce());
+    (value.resolver.authorize as ReturnType<typeof vi.fn>).mockImplementation(async (current: TrustedAuthorizationSession, input: EffectiveAuthorizationRequest) => decision(input, current, "deny"));
+    release();
+    await expect(pending).rejects.toMatchObject({ code: "UNAUTHORIZED" } satisfies Partial<SystemExtensionAdministrationError>);
+  });
+
+  it("does not release inventory and health after the opaque session remaps while status is blocked", async () => {
+    let current = session;
+    const remapped = createTrustedAuthorizationSession({ schemaVersion: 1, applicationId: "customer-beta", environment: expected.environment, correlationId: "system-extension-remapped", principal: { kind: "user", id: "other-admin" }, effectiveActor: { kind: "user", id: "other-admin" } });
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const value = harness({ session: () => current });
+    (value.operator.status as ReturnType<typeof vi.fn>).mockImplementationOnce(async () => { await blocked; return { applicationId: expected.applicationId, environment: expected.environment, inventory: { revision: expected.inventoryRevision, extensions: { platformPlugins: {}, themeSkins: {}, hotApplications: {} } }, health: [] }; });
+    const pending = value.service.status({ context: {} });
+    await vi.waitFor(() => expect(value.operator.status).toHaveBeenCalledOnce());
+    current = remapped;
+    release();
+    await expect(pending).rejects.toMatchObject({ code: "REVISION_CONFLICT" } satisfies Partial<SystemExtensionAdministrationError>);
   });
 
   it("fails closed when the context-bound operator is unavailable", async () => {
@@ -118,15 +257,18 @@ describe("system extension administration", () => {
     await expect(value.service.plan({ context: {}, expected, request: request() })).resolves.toMatchObject({ impact: nextPlan.plan, display });
   });
 
-  it("binds lifecycle input to current server owner and all three expected revisions", async () => {
+  it("separately fences global inventory history and a target revision without reading generation evidence", async () => {
     const value = harness();
     await value.service.plan({ context: {}, expected, request: request() });
     expect(value.operator.plan).toHaveBeenCalledWith(expect.objectContaining({ applicationId: expected.applicationId, environment: expected.environment, expectedRevision: expected.extensionRevision }));
     await expect(value.service.plan({ context: {}, expected: { ...expected, authorizationRevision: 5 }, request: request() })).rejects.toMatchObject({ code: "REVISION_CONFLICT" } satisfies Partial<SystemExtensionAdministrationError>);
     await expect(value.service.plan({ context: {}, expected, request: { ...request() as object, actor: { kind: "actor", approvalId: "forged" } } })).rejects.toMatchObject({ code: "REQUEST_INVALID" } satisfies Partial<SystemExtensionAdministrationError>);
-    const staleInventory = harness({ inventoryRevision: expected.extensionRevision + 1 });
+    const staleInventory = harness({ inventoryRevision: expected.inventoryRevision + 1 });
     await expect(staleInventory.service.plan({ context: {}, expected, request: request() })).rejects.toMatchObject({ code: "REVISION_CONFLICT" } satisfies Partial<SystemExtensionAdministrationError>);
     expect(staleInventory.operator.plan).not.toHaveBeenCalled();
+    const staleTarget = harness({ targetRevision: 1 });
+    await expect(staleTarget.service.plan({ context: {}, expected, request: request() })).rejects.toMatchObject({ code: "REVISION_CONFLICT" } satisfies Partial<SystemExtensionAdministrationError>);
+    expect(staleTarget.operator.plan).not.toHaveBeenCalled();
   });
 
   it("denies plan dispatch before the operator sees a revoked caller", async () => {
@@ -147,21 +289,176 @@ describe("system extension administration", () => {
     expect(operationAuthorizer).toHaveBeenCalledWith(expect.objectContaining({ operation: "install" }));
   });
 
-  it("requires a server-side operation-bound approval and rechecks state before execution", async () => {
+  it("requires server-owned operation-bound lifecycle evidence and rechecks state before execution", async () => {
     const operation = {
       operationId: "operation-system-extension-1", request: { applicationId: expected.applicationId, environment: expected.environment, extension: { deliveryClass: "hot-application", id: "app.sales-assistant" }, operation: "install", targetVersion: "1.0.0", expectedRevision: expected.extensionRevision, idempotencyKey: "system-extension-install-1", correlationId: "system-extension-administration" },
       requestDigest: `sha256:${"b".repeat(64)}`, actor: { kind: "actor", id: "admin", approvalId: "server-approval" }, phase: "staged", plan: { ...plan("hot-application"), plan: { ...plan("hot-application").plan, approvalRequired: true } }
     } as unknown as ExtensionOperationStatus;
-    const denied = harness({ operation });
+    const denied = harness({ operation, evidence: "missing" });
     await expect(denied.service.execute({ context: {}, expected, operationId: operation.operationId })).rejects.toMatchObject({ code: "APPROVAL_REQUIRED" } satisfies Partial<SystemExtensionAdministrationError>);
     expect(denied.operator.activate).not.toHaveBeenCalled();
 
-    const admitted = harness({ operation, approval: true });
+    const admitted = harness({ operation, evidence: { approval: "satisfied", reauthentication: "satisfied" } });
     await expect(admitted.service.execute({ context: {}, expected, operationId: operation.operationId })).resolves.toMatchObject({ status: { operationId: operation.operationId } });
-    expect(admitted.approval!.verify).toHaveBeenCalledWith(expect.objectContaining({ operation, expected }));
+    expect(admitted.lifecycleEvidence.verify).toHaveBeenCalledWith(expect.objectContaining({ operation, expected, boundary: "execute" }));
     expect(admitted.operator.activate).toHaveBeenCalledWith(operation.operationId);
-    expect(admitted.state.readState).toHaveBeenCalledTimes(2);
+    expect(admitted.state.readState).toHaveBeenCalledTimes(3);
     expect(admitted.operatorProvider.resolve).toHaveBeenCalledTimes(1);
+  });
+
+  it("checks fresh lifecycle evidence after validation so lost reauthentication cannot activate a staged generation", async () => {
+    const operation = {
+      operationId: "operation-system-extension-1", request: { applicationId: expected.applicationId, environment: expected.environment, extension: { deliveryClass: "hot-application", id: "app.sales-assistant" }, operation: "install", targetVersion: "1.0.0", expectedRevision: expected.extensionRevision, idempotencyKey: "system-extension-install-1", correlationId: "system-extension-administration" },
+      requestDigest: `sha256:${"b".repeat(64)}`, actor: { kind: "actor", id: "admin", approvalId: "server-approval" }, phase: "staged", plan: { ...plan("hot-application"), plan: { ...plan("hot-application").plan, approvalRequired: true } }
+    } as unknown as ExtensionOperationStatus;
+    const value = harness({ operation, evidence: { approval: "satisfied", reauthentication: "satisfied" } });
+    let reauthenticated = true;
+    (value.lifecycleEvidence.verify as ReturnType<typeof vi.fn>).mockImplementation(async () => ({
+      approval: "satisfied" as const,
+      reauthentication: reauthenticated ? "satisfied" as const : "not-required"
+    } as never));
+    (value.operator.validate as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      reauthenticated = false;
+      return { operationId: operation.operationId, executionClass: "live-generation", phase: "staged", valid: true, checks: ["verified-bundle", "generation-authority"] };
+    });
+    await expect(value.service.execute({ context: {}, expected, operationId: operation.operationId })).rejects.toMatchObject({ code: "UNAUTHORIZED" } satisfies Partial<SystemExtensionAdministrationError>);
+    expect(value.lifecycleEvidence.verify).toHaveBeenCalledOnce();
+    expect(value.operator.activate).not.toHaveBeenCalled();
+  });
+
+  it("requires unforgeable reauthentication before validation staging and accepts no-approval plans without fabricated approval", async () => {
+    const operation = {
+      operationId: "operation-system-extension-1", request: { applicationId: expected.applicationId, environment: expected.environment, extension: { deliveryClass: "hot-application", id: "app.sales-assistant" }, operation: "install", targetVersion: "1.0.0", expectedRevision: expected.extensionRevision, idempotencyKey: "system-extension-install-1", correlationId: "system-extension-administration" },
+      requestDigest: `sha256:${"b".repeat(64)}`, actor: { kind: "actor", id: "admin", approvalId: "server-approval" }, phase: "planning", plan: plan("hot-application")
+    } as unknown as ExtensionOperationStatus;
+    const missing = harness({ operation, evidence: "missing" });
+    await expect(missing.service.validate({ context: {}, expected, operationId: operation.operationId })).rejects.toMatchObject({ code: "UNAUTHORIZED" } satisfies Partial<SystemExtensionAdministrationError>);
+    expect(missing.lifecycleEvidence.verify).toHaveBeenCalledWith(expect.objectContaining({ boundary: "validate", operation }));
+    expect(missing.operator.stage).not.toHaveBeenCalled();
+    expect(missing.operator.validate).not.toHaveBeenCalled();
+
+    const forged = harness({ operation, evidence: "forged" });
+    await expect(forged.service.validate({ context: {}, expected, operationId: operation.operationId })).rejects.toMatchObject({ code: "UNAUTHORIZED" } satisfies Partial<SystemExtensionAdministrationError>);
+    expect(forged.operator.stage).not.toHaveBeenCalled();
+
+    const expired = harness({ operation, evidence: "expired" });
+    await expect(expired.service.validate({ context: {}, expected, operationId: operation.operationId })).rejects.toMatchObject({ code: "UNAUTHORIZED" } satisfies Partial<SystemExtensionAdministrationError>);
+    expect(expired.operator.stage).not.toHaveBeenCalled();
+
+    const noApproval = harness({ operation, evidence: { approval: "not-required", reauthentication: "satisfied" } });
+    (noApproval.operator.stage as ReturnType<typeof vi.fn>).mockImplementation(async () => { (operation as { phase: string }).phase = "staged"; });
+    await expect(noApproval.service.validate({ context: {}, expected, operationId: operation.operationId })).resolves.toMatchObject({ valid: true });
+    await expect(noApproval.service.execute({ context: {}, expected, operationId: operation.operationId })).resolves.toMatchObject({ status: { operationId: operation.operationId } });
+    expect(noApproval.lifecycleEvidence.verify.mock.calls.map(([input]) => input.boundary)).toEqual(["validate", "execute"]);
+  });
+
+  it("rejects client-supplied lifecycle evidence fields", async () => {
+    const value = harness();
+    await expect(value.service.validate({ context: {}, expected, operationId: "operation-system-extension-1", evidence: { approval: "satisfied", reauthentication: "satisfied" } } as never)).rejects.toMatchObject({ code: "REQUEST_INVALID" } satisfies Partial<SystemExtensionAdministrationError>);
+    expect(value.lifecycleEvidence.verify).not.toHaveBeenCalled();
+    expect(value.operator.stage).not.toHaveBeenCalled();
+  });
+
+  it("requires durable live preparation before activation and returns the persisted terminal status", async () => {
+    const operation = {
+      operationId: "operation-system-extension-1", request: { applicationId: expected.applicationId, environment: expected.environment, extension: { deliveryClass: "hot-application", id: "app.sales-assistant" }, operation: "install", targetVersion: "1.0.0", expectedRevision: expected.extensionRevision, idempotencyKey: "system-extension-install-1", correlationId: "system-extension-administration" },
+      requestDigest: `sha256:${"b".repeat(64)}`, actor: { kind: "actor", id: "admin", approvalId: "server-approval" }, phase: "planning", plan: plan("hot-application")
+    } as unknown as ExtensionOperationStatus;
+    const value = harness({ operation });
+    await expect(value.service.execute({ context: {}, expected, operationId: operation.operationId })).rejects.toMatchObject({ code: "EXECUTION_UNAVAILABLE" } satisfies Partial<SystemExtensionAdministrationError>);
+    expect(value.operator.activate).not.toHaveBeenCalled();
+
+    (value.operator.stage as ReturnType<typeof vi.fn>).mockImplementationOnce(async () => {
+      (operation as { phase: string }).phase = "staged";
+    });
+    await expect(value.service.validate({ context: {}, expected, operationId: operation.operationId })).resolves.toMatchObject({ valid: true, phase: "staged" });
+    expect(value.operator.stage).toHaveBeenCalledWith(operation.operationId);
+
+    (value.operator.activate as ReturnType<typeof vi.fn>).mockImplementationOnce(async () => {
+      (operation as { phase: string; result?: unknown }).phase = "completed";
+      (operation as { result?: unknown }).result = { receiptId: "receipt-system-extension-terminal" };
+      return { receiptId: "receipt-system-extension-terminal" };
+    });
+    const recreated = new SystemExtensionAdministrationService<TestContext>({ operator: value.operatorProvider, authority: value.authority, state: value.state, lifecycleEvidence: value.lifecycleEvidence });
+    await expect(recreated.execute({ context: {}, expected, operationId: operation.operationId })).resolves.toMatchObject({
+      status: { operationId: operation.operationId, phase: "completed", result: { receiptId: "receipt-system-extension-terminal" } }
+    });
+    expect(value.operator.validate).toHaveBeenCalledTimes(2);
+  });
+
+  it("delegates static validation and fences stale or revoked preparation before staging", async () => {
+    const staticOperation = {
+      operationId: "operation-system-extension-static", request: { applicationId: expected.applicationId, environment: expected.environment, extension: { deliveryClass: "platform-plugin", id: "module.sales" }, operation: "install", targetVersion: "1.0.0", expectedRevision: expected.extensionRevision, idempotencyKey: "system-extension-static-1", correlationId: "system-extension-administration" },
+      requestDigest: `sha256:${"b".repeat(64)}`, actor: { kind: "actor", id: "admin", approvalId: "server-approval" }, phase: "source-change-ready", plan: plan("platform-plugin")
+    } as unknown as ExtensionOperationStatus;
+    const delegated = harness({ operation: staticOperation });
+    (delegated.operator.validate as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ operationId: staticOperation.operationId, executionClass: "static-release", phase: "build-attested", valid: true, checks: ["trusted-build"] });
+    await expect(delegated.service.validate({ context: {}, expected, operationId: staticOperation.operationId })).resolves.toMatchObject({ executionClass: "static-release", valid: true });
+    expect(delegated.operator.stage).not.toHaveBeenCalled();
+    expect(delegated.operator.validate).toHaveBeenCalledWith(staticOperation.operationId);
+
+    const stale = harness({ operation: staticOperation, inventoryRevision: expected.inventoryRevision + 1 });
+    await expect(stale.service.validate({ context: {}, expected, operationId: staticOperation.operationId })).rejects.toMatchObject({ code: "REVISION_CONFLICT" } satisfies Partial<SystemExtensionAdministrationError>);
+    expect(stale.operator.stage).not.toHaveBeenCalled();
+    const staleTargetOperation = {
+      ...staticOperation,
+      request: { ...staticOperation.request, extension: { deliveryClass: "hot-application", id: "app.sales-assistant" } },
+      phase: "planning",
+      plan: plan("hot-application")
+    } as unknown as ExtensionOperationStatus;
+    const staleTarget = harness({ operation: staleTargetOperation, targetRevision: expected.extensionRevision + 1 });
+    await expect(staleTarget.service.validate({ context: {}, expected, operationId: staleTargetOperation.operationId })).rejects.toMatchObject({ code: "REVISION_CONFLICT" } satisfies Partial<SystemExtensionAdministrationError>);
+    expect(staleTarget.operator.stage).not.toHaveBeenCalled();
+    expect(staleTarget.operator.validate).not.toHaveBeenCalled();
+    const revoked = harness({ operation: staticOperation, outcome: "deny" });
+    await expect(revoked.service.validate({ context: {}, expected, operationId: staticOperation.operationId })).rejects.toMatchObject({ code: "UNAUTHORIZED" } satisfies Partial<SystemExtensionAdministrationError>);
+    expect(revoked.operator.validate).not.toHaveBeenCalled();
+  });
+
+  it("returns an invalid static validation report as retryable progress and still refuses execution", async () => {
+    const operation = {
+      operationId: "operation-system-extension-static", request: { applicationId: expected.applicationId, environment: expected.environment, extension: { deliveryClass: "platform-plugin", id: "module.sales" }, operation: "install", targetVersion: "1.0.0", expectedRevision: expected.extensionRevision, idempotencyKey: "system-extension-static-1", correlationId: "system-extension-administration" },
+      requestDigest: `sha256:${"b".repeat(64)}`, actor: { kind: "actor", id: "admin", approvalId: "server-approval" }, phase: "source-change-ready", plan: plan("platform-plugin")
+    } as unknown as ExtensionOperationStatus;
+    const value = harness({ operation });
+    (value.operator.validate as ReturnType<typeof vi.fn>).mockResolvedValue({ operationId: operation.operationId, executionClass: "static-release", phase: "source-change-ready", valid: false, checks: [] });
+    await expect(value.service.validate({ context: {}, expected, operationId: operation.operationId })).resolves.toMatchObject({ valid: false, phase: "source-change-ready" });
+    await expect(value.service.execute({ context: {}, expected, operationId: operation.operationId })).rejects.toMatchObject({ code: "EXECUTION_UNAVAILABLE" } satisfies Partial<SystemExtensionAdministrationError>);
+    expect(value.operator.activate).not.toHaveBeenCalled();
+  });
+
+  it("does not prepare or deploy an impact-only static plan through direct execute", async () => {
+    const operation = {
+      operationId: "operation-system-extension-static", request: { applicationId: expected.applicationId, environment: expected.environment, extension: { deliveryClass: "platform-plugin", id: "module.sales" }, operation: "install", targetVersion: "1.0.0", expectedRevision: expected.extensionRevision, idempotencyKey: "system-extension-static-1", correlationId: "system-extension-administration" },
+      requestDigest: `sha256:${"b".repeat(64)}`, actor: { kind: "actor", id: "admin", approvalId: "server-approval" }, phase: "planning", plan: { ...plan("platform-plugin"), preparation: "impact-only" }
+    } as unknown as ExtensionOperationStatus;
+    const value = harness({ operation });
+    await expect(value.service.execute({ context: {}, expected, operationId: operation.operationId })).rejects.toMatchObject({ code: "EXECUTION_UNAVAILABLE" } satisfies Partial<SystemExtensionAdministrationError>);
+    expect(value.operator.validate).not.toHaveBeenCalled();
+    expect(value.operator.activate).not.toHaveBeenCalled();
+    expect(value.lifecycleEvidence.verify).not.toHaveBeenCalled();
+  });
+
+  it("refuses maintenance-required static plans before they reach a deployment operator", async () => {
+    const operation = {
+      operationId: "operation-system-extension-static", request: { applicationId: expected.applicationId, environment: expected.environment, extension: { deliveryClass: "platform-plugin", id: "module.sales" }, operation: "install", targetVersion: "1.0.0", expectedRevision: expected.extensionRevision, idempotencyKey: "system-extension-static-1", correlationId: "system-extension-administration" },
+      requestDigest: `sha256:${"b".repeat(64)}`, actor: { kind: "actor", id: "admin", approvalId: "server-approval" }, phase: "source-change-ready", plan: plan("platform-plugin", "maintenance-required")
+    } as unknown as ExtensionOperationStatus;
+    const value = harness({ operation });
+    await expect(value.service.execute({ context: {}, expected, operationId: operation.operationId })).rejects.toMatchObject({ code: "EXECUTION_UNAVAILABLE" } satisfies Partial<SystemExtensionAdministrationError>);
+    expect(value.operator.activate).not.toHaveBeenCalled();
+  });
+
+  it("refuses maintenance-required static validation before preparation", async () => {
+    const operation = {
+      operationId: "operation-system-extension-static", request: { applicationId: expected.applicationId, environment: expected.environment, extension: { deliveryClass: "platform-plugin", id: "module.sales" }, operation: "install", targetVersion: "1.0.0", expectedRevision: expected.extensionRevision, idempotencyKey: "system-extension-static-1", correlationId: "system-extension-administration" },
+      requestDigest: `sha256:${"b".repeat(64)}`, actor: { kind: "actor", id: "admin", approvalId: "server-approval" }, phase: "planning", plan: { ...plan("platform-plugin", "maintenance-required"), preparation: "impact-only" }
+    } as unknown as ExtensionOperationStatus;
+    const value = harness({ operation });
+    await expect(value.service.validate({ context: {}, expected, operationId: operation.operationId })).rejects.toMatchObject({ code: "EXECUTION_UNAVAILABLE" } satisfies Partial<SystemExtensionAdministrationError>);
+    expect(value.lifecycleEvidence.verify).not.toHaveBeenCalled();
+    expect(value.operator.validate).not.toHaveBeenCalled();
+    expect(value.operator.stage).not.toHaveBeenCalled();
   });
 
   it("keeps execute approval and revision fenced after resolving its operator", async () => {
@@ -170,9 +467,9 @@ describe("system extension administration", () => {
       requestDigest: `sha256:${"b".repeat(64)}`, actor: { kind: "actor", id: "admin", approvalId: "server-approval" }, phase: "staged", plan: { ...plan("hot-application"), plan: { ...plan("hot-application").plan, approvalRequired: true } }
     } as unknown as ExtensionOperationStatus;
     let reads = 0;
-    const value = harness({ operation, approval: true, state: () => ++reads === 1 ? authorizationState() : { ...authorizationState(), lifecycleRevision: expected.lifecycleRevision + 1 } });
+    const value = harness({ operation, state: () => ++reads === 1 ? authorizationState() : { ...authorizationState(), lifecycleRevision: expected.lifecycleRevision + 1 } });
     await expect(value.service.execute({ context: {}, expected, operationId: operation.operationId })).rejects.toMatchObject({ code: "REVISION_CONFLICT" } satisfies Partial<SystemExtensionAdministrationError>);
-    expect(value.approval!.verify).toHaveBeenCalledWith(expect.objectContaining({ operation, expected }));
+    expect(value.lifecycleEvidence.verify).not.toHaveBeenCalled();
     expect(value.operator.activate).not.toHaveBeenCalled();
     expect(value.operatorProvider.resolve).toHaveBeenCalledTimes(1);
   });

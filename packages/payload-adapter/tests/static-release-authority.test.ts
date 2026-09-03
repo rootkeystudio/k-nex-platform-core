@@ -1,3 +1,7 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+
+import { canonicalJson, type StaticCompositionChangePlan } from "@k-nex/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import { PostgresTrustedBuildDeploymentClient, StaticReleaseAuthorityStoreError } from "../src/static-release-authority.js";
@@ -11,6 +15,7 @@ const retained = {
   sourceCommit: "f".repeat(40), compositionChangePlanDigest: digest("0"), buildEvidenceDigest: digest("1"), applicationDigest: digest("2"), imageDigest: digest("3")
 };
 const requestDigest = digest("4");
+const staticChange = JSON.parse(readFileSync(new URL("../../../fixtures/extensions/valid/static-composition-change-plan.json", import.meta.url), "utf8")) as StaticCompositionChangePlan;
 
 const rollbackReceipt = {
   schemaVersion: 1,
@@ -105,6 +110,34 @@ function client(options: Readonly<{ recoveryReceipt?: unknown; deployed?: boolea
 }
 
 describe("PostgresTrustedBuildDeploymentClient rollback authority", () => {
+  it("reuses one durable build request after a refreshed same-actor source authorization", async () => {
+    const planDigest = `sha256:${createHash("sha256").update(canonicalJson(staticChange)).digest("hex")}`;
+    const change = { status: "source-change-ready" as const, planDigest, targetSourceCommit: staticChange.target.sourceCommit, change: staticChange };
+    const query = vi.fn(async <T extends object>(text: string, values: readonly unknown[] = []) => {
+      if (text.startsWith("insert into runtime_static_release_requests")) return { rows: [] as T[] };
+      if (text.startsWith("select request_digest")) return { rows: [{
+        request_digest: values[0], application_id: staticChange.applicationId, environment: staticChange.environment, version: staticChange.plugin.version,
+        source_commit: staticChange.target.sourceCommit, change_plan_digest: planDigest, status: "build-requested", generation_id: null,
+        build_evidence_digest: null, application_digest: null, image_digest: null, migration_revision: null, worker_fencing_token: null, receipt_id: null, receipt_json: null
+      }] as T[] };
+      throw new Error(`Unexpected query: ${text}`);
+    });
+    const value = new PostgresTrustedBuildDeploymentClient({ query } as RuntimeExtensionPool);
+    const actor = { kind: "actor" as const, id: "user-1", approvalId: "approval-1" };
+
+    const operationId = "operation-0123456789abcdef0123456789abcdef";
+    await value.request(change, { actor, decisionId: digest("1") }, operationId);
+    await value.request(change, { actor, decisionId: digest("2") }, operationId);
+    await value.request(change, { actor: { ...actor, id: "user-2" }, decisionId: digest("3") }, operationId);
+    await value.request(change, { actor, decisionId: digest("4") }, "operation-fedcba9876543210fedcba9876543210");
+    const inserts = query.mock.calls.filter(([text]) => String(text).startsWith("insert into runtime_static_release_requests"));
+    expect(inserts).toHaveLength(4);
+    expect(inserts[0]![1][0]).toBe(inserts[1]![1][0]);
+    expect(inserts[0]![1][7]).not.toEqual(inserts[1]![1][7]);
+    expect(inserts[2]![1][0]).not.toBe(inserts[0]![1][0]);
+    expect(inserts[3]![1][0]).not.toBe(inserts[0]![1][0]);
+  });
+
   it("binds every rollback evidence field to the retained generation receipt chain", async () => {
     const value = client();
     await expect(value.client.recordDeployment({ buildRequestDigest: requestDigest, expectedVersion: "1.1.0", receipt: rollbackReceipt })).resolves.toMatchObject({

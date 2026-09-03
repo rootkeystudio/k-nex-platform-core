@@ -2,13 +2,17 @@ import { canonicalJson } from "@k-nex/contracts";
 import {
   ArtifactVerifier,
   sha256,
+  type CatalogCheckpoint,
   type Digest,
+  type SignedCatalog,
   type StagedArtifact,
   type VerificationRequest,
   type VerifiedArtifact,
   type VerifiedArtifactGenerationOwner,
   type VerifiedArtifactRunnerSource,
   type VerifiedRemoteUiArtifactReader,
+  type VerifiedSettingsDescriptorArtifactIdentity,
+  type VerifiedSettingsDescriptorArtifactReader,
   type VerifiedThemeSkinArtifactReader
 } from "@k-nex/extension-bundler";
 import type {
@@ -24,6 +28,7 @@ import type {
   AuthorizationLifecycleCommittedTransition,
   AuthorizationLifecycleDescriptorResolver
 } from "./authorization-lifecycle-projector.js";
+import type { CatalogMirrorOwner, PostgresCatalogMirrorStore, VerifiedCatalogMirrorSnapshot } from "./catalog-mirror-store.js";
 import { runtimeExtensionIdentityKey, type RuntimeExtensionPool, type RuntimeExtensionSession } from "./runtime-extension-store.js";
 
 export class VerifiedArtifactStoreError extends Error {
@@ -74,7 +79,22 @@ interface BindingRow {
   version: string;
 }
 
-interface ActiveRemoteUiRow extends BindingRow {}
+interface ActiveHotApplicationRow extends BindingRow {}
+
+type ActiveHotApplicationArtifactIdentity = Readonly<{
+  applicationId: string;
+  environment: string;
+  extensionId: string;
+  generationId: string;
+  artifactDigest: Digest;
+}>;
+
+export type VerifiedSettingsDescriptorGenerationIdentity = Readonly<{
+  applicationId: string;
+  environment: string;
+  extensionId: string;
+  generationId: string;
+}>;
 
 function fail(code: VerifiedArtifactStoreError["code"], message: string): never {
   throw new VerifiedArtifactStoreError(code, message);
@@ -135,8 +155,18 @@ function priorHotGenerationEvidence(value: unknown, transition: AuthorizationLif
  * restored database cannot silently turn an inventory row into executable UI
  * or runner source.
  */
-export class PostgresVerifiedArtifactStore implements DurableDynamicArtifactStore, VerifiedRemoteUiArtifactReader, VerifiedThemeSkinArtifactReader {
-  constructor(private readonly pool: RuntimeExtensionPool, private readonly verifier: ArtifactVerifier) {}
+export class PostgresVerifiedArtifactStore implements DurableDynamicArtifactStore, VerifiedRemoteUiArtifactReader, VerifiedSettingsDescriptorArtifactReader, VerifiedThemeSkinArtifactReader {
+  private readonly owner: CatalogMirrorOwner;
+
+  constructor(
+    private readonly pool: RuntimeExtensionPool,
+    private readonly verifier: ArtifactVerifier,
+    private readonly mirror: Pick<PostgresCatalogMirrorStore, "readSecuritySnapshot">,
+    owner: CatalogMirrorOwner
+  ) {
+    if (!owner.applicationId || !owner.environment) throw new TypeError("Verified artifact store owner is invalid.");
+    this.owner = Object.freeze({ applicationId: owner.applicationId, environment: owner.environment });
+  }
 
   /** Resolves authorization descriptors only from the immutable generation named by a committed Hot Application transition. */
   async resolveAuthorizationLifecycleDescriptors(
@@ -144,6 +174,7 @@ export class PostgresVerifiedArtifactStore implements DurableDynamicArtifactStor
     transition: AuthorizationLifecycleCommittedTransition,
     priorGenerationEvidence?: unknown
   ): ReturnType<AuthorizationLifecycleDescriptorResolver> {
+    this.assertOwner(transition);
     if (transition.deliveryClass !== "hot-application") {
       fail("ARTIFACT_UNAVAILABLE", "Authorization descriptors are unavailable for this delivery class.");
     }
@@ -187,8 +218,19 @@ export class PostgresVerifiedArtifactStore implements DurableDynamicArtifactStor
   }
 
   async stage(input: VerifiedDynamicArtifactStage): Promise<DurableDynamicArtifact> {
-    const verified = await this.verifier.verify(input.verification);
+    this.assertOwner(input.owner);
+    this.assertOwner(input.authority);
+    const mirror = await this.securitySnapshot();
+    if (!same(input.verification.catalog, mirror.signedCatalog)) {
+      fail("ARTIFACT_UNAVAILABLE", "Artifact catalog does not match the current catalog security snapshot.");
+    }
+    let staged;
+    try { staged = await this.verifier.verifyCurrentSnapshot(input.verification, this.checkpoint(mirror)); }
+    catch { fail("ARTIFACT_INVALID", "Artifact bytes do not verify against the current catalog security snapshot."); }
+    const verified = staged.verified;
     assertAuthority(input, verified);
+    this.admitSnapshot(staged.snapshot, verified);
+    await this.assertUnchangedSecuritySnapshot(mirror);
     const manifest = verified.manifest;
     if (manifest.deliveryClass !== input.owner.deliveryClass) fail("ARTIFACT_INVALID", "Verified artifact delivery class is not dynamic.");
     const artifact = Buffer.from(input.verification.artifact);
@@ -237,35 +279,75 @@ export class PostgresVerifiedArtifactStore implements DurableDynamicArtifactStor
   }
 
   async resolve(input: Readonly<{ owner: VerifiedGenerationAuthorityOwner; generationId: string; artifactDigest: string }>): Promise<DurableDynamicArtifact | undefined> {
+    this.assertOwner(input.owner);
     const binding = await this.binding(this.pool, { ...input.owner, generationId: input.generationId }, input.artifactDigest as Digest);
     if (!binding) return undefined;
     const verified = await this.verified(this.pool, binding.artifact_digest, binding.catalog_digest);
-    return verified ? this.durable(binding, verified, binding.catalog_digest) : undefined;
+    if (!verified) return undefined;
+    await this.admitCurrentCatalogPolicy(verified);
+    return this.durable(binding, verified, binding.catalog_digest);
   }
 
   async read(artifactDigest: Digest, catalogDigest: Digest): Promise<StagedArtifact | undefined> {
     const verified = await this.verified(this.pool, artifactDigest, catalogDigest, true);
-    return verified ? Object.freeze({ artifactDigest, catalogDigest, verified }) : undefined;
+    if (!verified) return undefined;
+    await this.admitCurrentCatalogPolicy(verified);
+    return Object.freeze({ artifactDigest, catalogDigest, verified });
   }
 
-  async readRemoteUi(identity: Readonly<{
-    applicationId: string;
-    environment: string;
-    extensionId: string;
-    generationId: string;
-    artifactDigest: Digest;
-  }>): Promise<StagedArtifact | undefined> {
-    return this.transaction(async (session) => {
+  async readRemoteUi(identity: ActiveHotApplicationArtifactIdentity): Promise<StagedArtifact | undefined> {
+    this.assertOwner(identity);
+    return this.readActiveHotApplicationArtifact(identity);
+  }
+
+  async readSettingsDescriptors(identity: VerifiedSettingsDescriptorArtifactIdentity): Promise<StagedArtifact | undefined> {
+    try {
+      this.assertOwner(identity);
+      return await this.readActiveHotApplicationArtifact({
+        applicationId: identity.applicationId,
+        environment: identity.environment,
+        extensionId: identity.appId,
+        generationId: identity.generationId,
+        artifactDigest: identity.artifactDigest
+      });
+    } catch (error) {
+      if (error instanceof VerifiedArtifactStoreError) return undefined;
+      throw error;
+    }
+  }
+
+  /** Re-verifies one immutable Hot Application binding for diagnostic settings discovery. Lifecycle authority stays with the caller. */
+  async readSettingsDescriptorGeneration(identity: VerifiedSettingsDescriptorGenerationIdentity): Promise<StagedArtifact | undefined> {
+    this.assertOwner(identity);
+    const result = await this.pool.query<BindingRow>(
+      `select application_id, environment, delivery_class, extension_id, generation_id, artifact_digest, catalog_digest, authority_json, activation_json, version
+       from runtime_extension_artifact_bindings
+       where application_id=$1 and environment=$2 and delivery_class='hot-application' and extension_id=$3 and generation_id=$4`,
+      [identity.applicationId, identity.environment, identity.extensionId, identity.generationId]
+    );
+    const binding = result.rows[0];
+    if (!binding) return undefined;
+    const verified = await this.verified(this.pool, binding.artifact_digest, binding.catalog_digest, true);
+    if (!verified) return undefined;
+    await this.durable(binding, verified, binding.catalog_digest);
+    return Object.freeze({ artifactDigest: binding.artifact_digest, catalogDigest: binding.catalog_digest, verified });
+  }
+
+  private async readActiveHotApplicationArtifact(identity: ActiveHotApplicationArtifactIdentity): Promise<StagedArtifact | undefined> {
+    const staged = await this.transaction(async (session) => {
       await session.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [runtimeExtensionIdentityKey({
         applicationId: identity.applicationId, environment: identity.environment, deliveryClass: "hot-application", extensionId: identity.extensionId
       })]);
-      const binding = await this.activeRemoteUiBinding(session, identity);
+      const binding = await this.activeHotApplicationBinding(session, identity);
       if (!binding) return undefined;
       const verified = await this.verified(session, binding.artifact_digest, binding.catalog_digest);
       if (!verified) return undefined;
       await this.durable(binding, verified, binding.catalog_digest);
       return Object.freeze({ artifactDigest: binding.artifact_digest, catalogDigest: binding.catalog_digest, verified });
     });
+    if (!staged) return undefined;
+    await this.admitCurrentCatalogPolicy(staged.verified);
+    return staged;
   }
 
   async readThemeSkin(identity: Readonly<{
@@ -275,6 +357,7 @@ export class PostgresVerifiedArtifactStore implements DurableDynamicArtifactStor
     generationId: string;
     artifactDigest: Digest;
   }>): Promise<StagedArtifact | undefined> {
+    this.assertOwner(identity);
     const binding = await this.binding(this.pool, {
       applicationId: identity.applicationId,
       environment: identity.environment,
@@ -285,6 +368,7 @@ export class PostgresVerifiedArtifactStore implements DurableDynamicArtifactStor
     if (!binding) return undefined;
     const verified = await this.verified(this.pool, binding.artifact_digest, binding.catalog_digest, true);
     if (!verified) return undefined;
+    await this.admitCurrentCatalogPolicy(verified);
     await this.durable(binding, verified, binding.catalog_digest);
     return Object.freeze({ artifactDigest: binding.artifact_digest, catalogDigest: binding.catalog_digest, verified });
   }
@@ -294,6 +378,7 @@ export class PostgresVerifiedArtifactStore implements DurableDynamicArtifactStor
     bundleManifest: unknown;
     files: ReadonlyMap<string, Uint8Array>;
   }>> {
+    this.assertOwner(authority);
     if (authority.deliveryClass !== "theme-skin") fail("ARTIFACT_UNAVAILABLE", "Theme Skin source is unavailable for this delivery class.");
     const binding = await this.binding(this.pool, authority, authority.artifactDigest as Digest, authority.catalogDigest as Digest);
     if (!binding) fail("ARTIFACT_UNAVAILABLE", "Theme Skin generation is not bound to the verified artifact.");
@@ -301,6 +386,7 @@ export class PostgresVerifiedArtifactStore implements DurableDynamicArtifactStor
     if (!verified || verified.manifest.deliveryClass !== "theme-skin" || verified.manifest.id !== authority.extensionId) {
       fail("ARTIFACT_UNAVAILABLE", "Theme Skin artifact identity does not match its generation.");
     }
+    await this.admitCurrentCatalogPolicy(verified);
     const durable = await this.durable(binding, verified, binding.catalog_digest);
     if (!same(durable.authority, authority)) fail("ARTIFACT_INVALID", "Theme Skin generation authority no longer matches its durable binding.");
     return Object.freeze({
@@ -313,11 +399,13 @@ export class PostgresVerifiedArtifactStore implements DurableDynamicArtifactStor
   runnerSource(): VerifiedArtifactRunnerSource {
     return {
       load: async ({ owner, artifactDigest, serverEntrypoint }) => {
+        this.assertOwner(owner);
         if (owner.deliveryClass !== "hot-application") fail("ARTIFACT_UNAVAILABLE", "Runner source is unavailable for this delivery class.");
         const binding = await this.binding(this.pool, owner, artifactDigest);
         if (!binding) fail("ARTIFACT_UNAVAILABLE", "Runner generation is not bound to the verified artifact.");
         const verified = await this.verified(this.pool, binding.artifact_digest, binding.catalog_digest);
         if (!verified) fail("ARTIFACT_UNAVAILABLE", "Verified artifact bytes are unavailable.");
+        await this.admitCurrentCatalogPolicy(verified);
         await this.durable(binding, verified, binding.catalog_digest);
         if (verified.manifest.deliveryClass !== "hot-application" || verified.manifest.id !== owner.extensionId || !verified.manifest.entrypoints.server.includes(serverEntrypoint)) {
           fail("ARTIFACT_UNAVAILABLE", "Runner entrypoint is not declared by the verified Hot Application manifest.");
@@ -354,6 +442,72 @@ export class PostgresVerifiedArtifactStore implements DurableDynamicArtifactStor
         hotApplicationManifest: structuredClone(verified.hotApplicationManifest!)
       } : {})
     });
+  }
+
+  /** The mirror's staged pointer is current policy while reconciliation is in flight. */
+  private async admitCurrentCatalogPolicy(verified: VerifiedArtifact): Promise<void> {
+    const snapshot = await this.securitySnapshot();
+    let decision;
+    try {
+      decision = await this.verifier.currentSecurityDecisionFromCurrentSnapshot(
+        snapshot.signedCatalog as SignedCatalog,
+        this.checkpoint(snapshot),
+        this.release(verified)
+      );
+    } catch {
+      fail("ARTIFACT_UNAVAILABLE", "Current catalog security policy is unavailable.");
+    }
+    await this.assertUnchangedSecuritySnapshot(snapshot);
+    if (decision.disposition !== "clear") fail("ARTIFACT_UNAVAILABLE", "Current catalog security policy denies this release.");
+  }
+
+  private admitSnapshot(snapshot: Parameters<ArtifactVerifier["currentSecurityDecisionFromSnapshot"]>[0], verified: VerifiedArtifact): void {
+    if (this.verifier.currentSecurityDecisionFromSnapshot(snapshot, this.release(verified)).disposition !== "clear") {
+      fail("ARTIFACT_UNAVAILABLE", "Current catalog security policy denies this release.");
+    }
+  }
+
+  private release(verified: VerifiedArtifact) {
+    if (verified.manifest.deliveryClass !== "hot-application" && verified.manifest.deliveryClass !== "theme-skin") {
+      fail("ARTIFACT_UNAVAILABLE", "Current catalog security policy does not admit this delivery class.");
+    }
+    return {
+      deliveryClass: verified.manifest.deliveryClass,
+      id: verified.manifest.id,
+      version: verified.manifest.version,
+      sourceCommit: verified.entry.source.commit,
+      artifactDigest: verified.artifactDigest,
+      manifestDigest: verified.entry.manifestDigest,
+      provenanceDigest: verified.entry.provenanceDigest,
+      sbomDigest: verified.entry.sbomDigest
+    } as const;
+  }
+
+  private checkpoint(snapshot: VerifiedCatalogMirrorSnapshot): CatalogCheckpoint {
+    return Object.freeze({ signerIdentity: snapshot.signerIdentity, sequence: snapshot.sequence, payloadDigest: snapshot.digest as Digest, highestVersions: Object.freeze({}) });
+  }
+
+  private async securitySnapshot(): Promise<VerifiedCatalogMirrorSnapshot> {
+    let snapshot;
+    try { snapshot = await this.mirror.readSecuritySnapshot(this.owner); }
+    catch { fail("ARTIFACT_UNAVAILABLE", "Current catalog security policy is unavailable."); }
+    if (!snapshot) fail("ARTIFACT_UNAVAILABLE", "Current catalog security policy is unavailable.");
+    return snapshot;
+  }
+
+  private async assertUnchangedSecuritySnapshot(expected: VerifiedCatalogMirrorSnapshot): Promise<void> {
+    const current = await this.securitySnapshot();
+    if (current.snapshotId !== expected.snapshotId || current.signerIdentity !== expected.signerIdentity || current.sequence !== expected.sequence ||
+      current.digest !== expected.digest || current.releaseCount !== expected.releaseCount || current.observedAt !== expected.observedAt ||
+      !same(current.signedCatalog, expected.signedCatalog)) {
+      fail("ARTIFACT_UNAVAILABLE", "Current catalog security policy changed during artifact verification.");
+    }
+  }
+
+  private assertOwner(identity: Readonly<{ applicationId: string; environment: string }>): void {
+    if (identity.applicationId !== this.owner.applicationId || identity.environment !== this.owner.environment) {
+      fail("ARTIFACT_UNAVAILABLE", "Artifact store owner does not match this operation.");
+    }
   }
 
   private async verified(session: Pick<RuntimeExtensionSession, "query">, artifactDigest: Digest, catalogDigest: Digest, absentOk = false): Promise<VerifiedArtifact | undefined> {
@@ -410,19 +564,13 @@ export class PostgresVerifiedArtifactStore implements DurableDynamicArtifactStor
   }
 
   /**
-   * This is the Remote UI read linearization point. The serving path accepts
-   * bytes only when the immutable artifact binding, canonical active evidence,
-   * activation receipt, and unified server/UI/storage generation are all the
-   * same durable row.
+   * This is the active Hot Application artifact read linearization point.
+   * Remote UI and settings accept bytes only when the immutable binding,
+   * canonical active evidence, activation receipt, and unified server/UI/
+   * storage generation are all the same durable row.
    */
-  private async activeRemoteUiBinding(session: Pick<RuntimeExtensionSession, "query">, identity: Readonly<{
-    applicationId: string;
-    environment: string;
-    extensionId: string;
-    generationId: string;
-    artifactDigest: Digest;
-  }>): Promise<ActiveRemoteUiRow | undefined> {
-    const result = await session.query<ActiveRemoteUiRow>(
+  private async activeHotApplicationBinding(session: Pick<RuntimeExtensionSession, "query">, identity: ActiveHotApplicationArtifactIdentity): Promise<ActiveHotApplicationRow | undefined> {
+    const result = await session.query<ActiveHotApplicationRow>(
       `select b.application_id as application_id, b.environment as environment, b.delivery_class as delivery_class,
               b.extension_id as extension_id, b.generation_id as generation_id, b.artifact_digest as artifact_digest, b.catalog_digest as catalog_digest,
               b.authority_json as authority_json, b.activation_json as activation_json, b.version as version

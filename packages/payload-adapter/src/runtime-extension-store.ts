@@ -371,15 +371,36 @@ function assertPlanIdentity(row: OperationRow, plan: PluginManagerPlan, state: E
   }
 }
 
+function assertStaticPreparation(row: OperationRow, plan: Extract<PluginManagerPlan, { executionClass: "static-release" }>): void {
+  const previous = row.plan_json;
+  if (row.phase !== "planning" || !previous || previous.executionClass !== "static-release" ||
+    canonicalJson({ operationId: previous.operationId, plan: previous.plan, sourceCommit: previous.sourceCommit, generationId: previous.generationId, quarantineRecovery: previous.quarantineRecovery }) !==
+      canonicalJson({ operationId: plan.operationId, plan: plan.plan, sourceCommit: plan.sourceCommit, generationId: plan.generationId, quarantineRecovery: plan.quarantineRecovery })) {
+    fail("PHASE_CONFLICT", "Static release preparation does not match the persisted impact plan.");
+  }
+  if (previous.preparation === "impact-only") {
+    if (plan.preparation !== "source-ready" || plan.sourceChange.status !== "source-change-ready") {
+      fail("PHASE_CONFLICT", "Static release source preparation transition is invalid.");
+    }
+    return;
+  }
+  if (previous.preparation !== "source-ready" || plan.preparation !== "prepared" ||
+    canonicalJson(plan.sourceChange) !== canonicalJson(previous.sourceChange) || plan.deployment.status !== "build-requested" ||
+    plan.deployment.sourceCommit !== plan.sourceChange.targetSourceCommit) {
+    fail("PHASE_CONFLICT", "Static release preparation transition is invalid.");
+  }
+}
+
 function transitionEvidence(row: OperationRow, authority: VerifiedGenerationAuthority | undefined, staticReceipt?: StaticDeploymentReceipt, retainedGeneration?: Record<string, unknown>) {
   const plan = row.plan_json;
   if (!plan) fail("STATE_INVALID", "A lifecycle transition requires a persisted plan.");
   if (plan.executionClass === "static-release") {
+    if (plan.preparation === "impact-only") fail("STATE_INVALID", "Static lifecycle transitions require source preparation evidence.");
     return {
       sourceCommit: plan.sourceChange.targetSourceCommit,
       compositionChangePlanDigest: plan.sourceChange.planDigest,
-      buildRequestDigest: plan.deployment.buildRequestDigest,
       generationId: plan.generationId,
+      ...(plan.preparation === "prepared" ? { buildRequestDigest: plan.deployment.buildRequestDigest } : {}),
       ...(staticReceipt ? {
         buildEvidenceDigest: staticReceipt.buildEvidenceDigest,
         applicationDigest: staticReceipt.applicationDigest,
@@ -525,7 +546,9 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
         const row = failed.rows[0];
         if (!row) continue;
         // A claim without a persisted plan never reached the lifecycle evidence boundary; manufacturing bundle evidence for it would be false.
-        if (row.plan_json) await this.appendTransition(session, row, "failed", undefined);
+        if (row.plan_json && !(row.plan_json.executionClass === "static-release" && row.plan_json.preparation === "impact-only")) {
+          await this.appendTransition(session, row, "failed", undefined);
+        }
         await session.query(
           `update runtime_extension_operation_budget set active_count=greatest(active_count-1,0) where application_id=$1 and environment=$2`,
           [row.application_id, row.environment]
@@ -638,14 +661,32 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
       );
       const saved = updated.rows[0];
       if (!saved) fail("LEASE_CONFLICT", "Runtime extension plan lease changed.");
-      await this.appendTransition(session, saved, "planning", undefined, current.active_generation ?? undefined);
+      if (!(plan.executionClass === "static-release" && plan.preparation === "impact-only")) {
+        await this.appendTransition(session, saved, "planning", undefined, current.active_generation ?? undefined);
+      }
       return operation(saved);
+    });
+  }
+
+  async saveStaticPreparation(id: string, token: string, plan: Extract<PluginManagerPlan, { executionClass: "static-release" }>): Promise<RuntimeExtensionOperation> {
+    return this.transaction(async (session) => {
+      const row = await this.lockOperation(session, id, token);
+      assertStaticPreparation(row, plan);
+      const updated = await session.query<OperationRow>(
+        `update runtime_extension_operations set plan_json=$3::jsonb, updated_at=now() where operation_id=$1 and lease_token=$2 returning *`,
+        [id, token, JSON.stringify(plan)]
+      );
+      if (!updated.rows[0]) fail("LEASE_CONFLICT", "Runtime extension preparation lease changed.");
+      return operation(updated.rows[0]);
     });
   }
 
   async transition(input: Parameters<RuntimeExtensionStore["transition"]>[0]) {
     return this.transaction(async (session) => {
       const row = await this.lockOperation(session, input.operationId, input.leaseToken);
+      if (row.plan_json?.executionClass === "static-release" && row.plan_json.preparation !== "prepared") {
+        fail("PHASE_CONFLICT", "Static lifecycle transitions require a prepared source/build plan.");
+      }
       if (row.phase !== input.expectedPhase) fail("PHASE_CONFLICT", "Runtime extension operation phase changed.");
       if (!allowedTransitions[row.phase].includes(input.phase)) fail("PHASE_CONFLICT", `Runtime extension transition ${row.phase} -> ${input.phase} is invalid.`);
       if (input.authority) assertAuthorityOwner(row, input.authority);
@@ -930,7 +971,7 @@ export class PostgresRuntimeExtensionStore implements RuntimeExtensionStore {
         return replay.result_json;
       }
       const row = await this.lockOperation(session, id, token);
-      if (row.delivery_class !== "platform-plugin" || row.plan_json?.executionClass !== "static-release" ||
+      if (row.delivery_class !== "platform-plugin" || row.plan_json?.executionClass !== "static-release" || row.plan_json.preparation !== "prepared" ||
         !["source-change-ready", "build-attested", "zero-downtime-eligible", "rollback-window-open"].includes(row.phase)) {
         fail("PHASE_CONFLICT", "Static deployment receipt cannot complete this runtime operation.");
       }
