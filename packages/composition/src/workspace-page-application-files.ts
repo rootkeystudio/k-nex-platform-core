@@ -304,7 +304,7 @@ export function WorkspacePageEditor({ pageId, initialProjection }: Readonly<{ pa
     const failClosed = (reason: "access" | "authority") => { if (active) { controller.abort(); setUnavailable(reason); } };
     const synchronize = async () => {
       const response = await fetch("/api/k-nex/workspace-pages/" + encodeURIComponent(pageId) + "/session?mode=edit&watermark=" + encodeURIComponent(JSON.stringify(currentWatermark.current)), { cache: "no-store", signal: controller.signal }).catch(() => undefined);
-      if (response === undefined) return;
+      if (response === undefined || response.status === 409) return;
       if (!response.ok) return failClosed("access");
       const body = await response.json().catch(() => undefined) as { watermark?: unknown } | undefined;
       const next = watermark(body?.watermark);
@@ -856,7 +856,10 @@ export async function GET(request: Request, { params }: Readonly<{ params: Promi
       ? await loadWorkspacePageEditorProjection(payload, context, pageId, context.correlationId)
       : await loadWorkspacePageViewProjection(payload, context, pageId, context.correlationId);
     return Response.json({ watermark: projection.watermark, projection }, { headers: { "cache-control": "no-store" } });
-  } catch {
+  } catch (error) {
+    if (error instanceof TypeError && ["Workspace page session authority changed.", "Workspace page session was invalidated."].includes(error.message)) {
+      return Response.json({ code: "REVISION_CONFLICT" }, { status: 409, headers: { "cache-control": "no-store" } });
+    }
     return Response.json({ code: "NOT_FOUND" }, { status: 404, headers: { "cache-control": "no-store" } });
   }
 }

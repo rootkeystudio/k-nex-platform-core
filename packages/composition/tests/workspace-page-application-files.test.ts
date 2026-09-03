@@ -150,7 +150,7 @@ describe("generated workspace page builder policy", () => {
     expect(editor).toContain("function sameEditorAuthority(left: Watermark, right: Watermark): boolean {");
     expect(editor).toContain("return left.authorizationRevision === right.authorizationRevision && left.lifecycleRevision === right.lifecycleRevision && left.accessRevision === right.accessRevision;");
     expect(editor).toContain("const currentWatermark = useRef(initialProjection.watermark);");
-    expect(editor).toContain("if (response === undefined) return;");
+    expect(editor).toContain("if (response === undefined || response.status === 409) return;");
     expect(editor).toContain('if (!response.ok) return failClosed("access");');
     expect(editor).toContain('if (!sameEditorAuthority(currentWatermark.current, next)) return failClosed("authority");');
     expect(editor).toContain("currentWatermark.current = next;");
@@ -162,6 +162,9 @@ describe("generated workspace page builder policy", () => {
     expect(route).toContain("readWorkspacePageWatermark");
     expect(route).toContain('requested !== undefined && (mode === "edit" || sameWatermark(requested, watermark))');
     expect(route).toContain('Response.json({ watermark: projection.watermark, projection }');
+    expect(route).toContain('["Workspace page session authority changed.", "Workspace page session was invalidated."].includes(error.message)');
+    expect(route).toContain('Response.json({ code: "REVISION_CONFLICT" }, { status: 409');
+    expect(route).toContain('Response.json({ code: "NOT_FOUND" }, { status: 404');
     expect(runtime).toContain("publicationPointerRevision");
     expect(runtime).toContain("readWorkspacePageWatermark");
     expect(runtime).toContain("const initialState = await runtime.synchronizeInvalidations();");

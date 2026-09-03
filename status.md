@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Retirement-race proof now completes the required worker-activation ticket when promotion wins, preserving the product invariant before later recovery assertions.
+Generated session route now returns 409 for its two known retryable watermark races; editor retries 409/network loss while preserving fail-closed handling for real 404 denial.
 
 ## Validation
 
-Hosted evidence run 33808512371 and focused CI 33809074142 PASS. Isolated PostgreSQL proof explicitly executed `P9_RETIREMENT_PROMOTION_RACE=promotion-won` and PASS after cumulative run 33809088473 exposed the stale fixture branch.
+Exact Node 24.19.0: composition build and focused unit 6/6 PASS. Isolated generated-app PostgreSQL/HTTP/Chromium proof PASS, including transient retry, durable autosave, Sales-authority revocation, and ACL 404 revocation.
 
 ## Next
 
-Require exact-head focused PR CI and Linux/AppArmor cumulative Gate 0–12, then resume the same Sol-xhigh reviewer until PASS.
+Refresh immutable packed closure and exact hosted release evidence, then rerun focused and cumulative CI.
 
 ## Blockers
 
