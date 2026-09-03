@@ -11,7 +11,7 @@ P12.10 focused Gate 12 passes: exact v1 builds and packed closure, selected cont
 
 ## Validation
 
-Exact Node 24.19.0: `pnpm gate:12:focused` PASS, including 19 contract tests, two real process proofs, and 22/22 attack mappings. Cumulative checks found and fixed a direct React Aria boundary escape and one old Sales form spike still submitting the removed pre-v1 action shape. Focused boundary and form reruns are required before cumulative resumes.
+Exact Node 24.19.0: `pnpm gate:12:focused` PASS, including 19 contract tests, two real process proofs, and 22/22 attack mappings. Cumulative checks fixed a direct React Aria boundary escape and stale pre-v1 Sales form input. The current failure is an old Phase-0 assertion counting five valid-fixture categories after workspace became the sixth; focused validator rerun is required.
 
 ## Next
 

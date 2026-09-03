@@ -121,6 +121,7 @@ describe("P0.4 executable repository validation", () => {
       "VALID_FIXTURE_MISSING",
       "VALID_FIXTURE_MISSING",
       "VALID_FIXTURE_MISSING",
+      "VALID_FIXTURE_MISSING",
       "VALID_FIXTURE_MISSING"
     ]);
   });
