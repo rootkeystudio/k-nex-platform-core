@@ -187,7 +187,7 @@ describe("Payload application composition", () => {
     expect(Object.hasOwn(packageJson.exports, ".")).toBe(false);
     expect(Object.keys(packageJson.exports).sort()).toEqual([
       "./browser", "./contracts", "./manifest", "./migrations", "./pages", "./payload-baseline-down.sql",
-      "./payload-baseline-up.sql", "./server", "./testing", "./ui"
+      "./payload-baseline-up.sql", "./puck", "./server", "./testing", "./ui"
     ]);
     expect(salesTaskFixture).toEqual({ title: "Prepare customer follow-up", status: "open" });
   });
