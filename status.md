@@ -15,7 +15,7 @@ Exact Node 24.19.0: clean 22-package build; canonical 17-package release regener
 
 ## Next
 
-Commit regenerated release closure; refresh hosted evidence; resume the same Sol-xhigh reviewer until PASS; run final focused Gate 12 and exact-head Linux/AppArmor cumulative Gate 0–12; update result and phase PR.
+Rerun hosted evidence after removing duplicate manifest signing; verify and commit evidence; resume the same Sol-xhigh reviewer until PASS; run final focused Gate 12 and exact-head Linux/AppArmor cumulative Gate 0–12; update result and phase PR.
 
 ## Blockers
 
