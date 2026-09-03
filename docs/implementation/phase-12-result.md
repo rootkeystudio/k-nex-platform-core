@@ -4,7 +4,7 @@
 - **Gate:** Gate 12
 - **Accepted base:** Phase 11
 - **Decision:** **READY FOR PHASE REVIEW**
-- **Review state:** Focused Gate 12, cumulative Gate 0–12, and independent phase review are required at the exact PR head.
+- **Review state:** Local focused Gate 12 and hosted release evidence pass. Exact-head PR-focused CI, Linux/AppArmor cumulative Gate 0–12, and independent phase review remain required.
 
 ## Scope proved
 
@@ -23,13 +23,15 @@ Phase 12 turns the platform into a runnable generated customer application. A fi
 | P12.7 | Productized one guarded Puck editor with CAS autosave, idempotency, publication, rollback, and protected regions |
 | P12.8 | Added fixed page/folder administration, placement, access, Theme Profile, archive, audit, and diagnostics views |
 | P12.9 | Proved the generated packed-app owner/editor/viewer journey with real PostgreSQL, Next/Payload HTTP, and Chromium |
-| P12.10 | Added focused Gate 12/result artifacts and the cumulative Gate 0–12 command |
+| P12.10 | Added focused/cumulative Gate 12 closure, refreshed signed v1 evidence, and fixed generated-editor React Strict Mode mutation cancellation |
 
 ## Executable evidence
 
 `pnpm gate:12:focused` builds the affected Phase 12 graph, verifies the exact v1 packed closure, runs selected contract/navigation/shell/administration/builder/service/generator/Sales proofs, then runs real PostgreSQL storage/restore and the generated Next/Payload/PostgreSQL/Chromium journey. It machine-maps all 22 contracted attack IDs to evidence that actually passed.
 
 `pnpm gate:12` first runs cumulative Gate 0–11, then the exact focused Gate 12 evidence. Pull requests may run the focused command, but one exact-head cumulative run is required before merge.
+
+Local `pnpm gate:12:focused` returned `GATE_12_PASS`. Hosted release-evidence run `33786152181` passed for source head `f9a9c394bae91ced207186c987ac7a0a3b667a05`, producing the two customer bundles, five attestations, hosted verification records, runtime inventories, receipts, restore proofs, and fleet evidence committed in this result.
 
 ## Boundaries retained
 
