@@ -460,6 +460,7 @@ export default async function WorkspacePagesAdministration() {
   const idempotency = () => \`workspace-admin-\${randomUUID()}\`;
   return <SystemWorkspacePagesPage view={{
     title: "Workspace pages",
+    navigation: [{ id: "workspace-pages", label: "Workspace pages", href: "/system/workspace-pages" }],
     description: "Create, place, theme, authorize, inspect, and archive customer pages.",
     folders: folders.map(({ node, revision }) => ({
       id: node.id, label: node.label, parent: node.parentId ?? "Workspace", order: String(node.order), revision: String(revision),
@@ -528,6 +529,7 @@ export default async function WorkspacePageAdministration({ params }: Readonly<{
   const page = detail.page;
   return <SystemWorkspacePageDetailPage view={{
     title: "Workspace page", pageId, pageTitle: page.title, pageState: page.state,
+    navigation: [{ id: "workspace-pages", label: "Workspace pages", href: "/system/workspace-pages" }],
     placement: page.navigation.state === "placed" ? \`\${page.navigation.parentNavigationId} / \${page.navigation.order}\` : \`unplaced / \${page.navigation.reason}\`,
     theme: page.themeProfile === undefined ? "application default" : \`\${page.themeProfile.profileId}@\${page.themeProfile.revisionId}\`, impact: detail.impact.code ?? detail.impact.state,
     ...(page.state === "published" && detail.impact.state === "ready" ? { viewHref: \`/workspace/pages/\${encodeURIComponent(pageId)}\` } : {}),

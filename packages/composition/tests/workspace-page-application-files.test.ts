@@ -3,6 +3,20 @@ import { describe, expect, it } from "vitest";
 import { workspacePageApplicationFiles } from "../src/workspace-page-application-files.js";
 
 describe("generated workspace page builder policy", () => {
+  it("limits generated System workspace-page navigation to its implemented route", () => {
+    const files = workspacePageApplicationFiles({ applicationId: "customer-alpha" });
+    const sources = [
+      files["src/app/(workspace)/system/workspace-pages/page.tsx"]!,
+      files["src/app/(workspace)/system/workspace-pages/[pageId]/page.tsx"]!
+    ];
+
+    for (const source of sources) {
+      expect(source).toContain('navigation: [{ id: "workspace-pages", label: "Workspace pages", href: "/system/workspace-pages" }],');
+      expect(source.match(/navigation: \[/gu)).toHaveLength(1);
+      expect(source).not.toMatch(/href: "\/system\/(?:access\/(?:roles|permissions|assignments|templates|audit)|extensions|themes|settings|operations)"/u);
+    }
+  });
+
   it("injects a server-owned Puck validator built from current registered authority", () => {
     const source = workspacePageApplicationFiles({ applicationId: "customer-alpha" })["src/k-nex-workspace-pages.ts"]!;
 

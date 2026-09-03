@@ -48,8 +48,15 @@ export interface SystemAdministrationState {
   readonly refresh?: SystemAdministrationAction;
 }
 
+export interface SystemAdministrationNavigationItem {
+  readonly id: string;
+  readonly label: string;
+  readonly href: string;
+}
+
 export interface SystemAdministrationPageView extends SystemAdministrationState {
   readonly title: string;
+  readonly navigation: readonly SystemAdministrationNavigationItem[];
   readonly description?: string;
   readonly revision?: string;
 }
@@ -368,21 +375,8 @@ export interface SystemWorkspacePageDetailViewModel extends SystemAdministration
   readonly archive?: SystemAdministrationAction;
 }
 
-const systemNavigation = [
-  { id: "settings", label: "Settings", href: "/system/settings" },
-  { id: "roles", label: "Roles", href: "/system/access/roles" },
-  { id: "permissions", label: "Permissions", href: "/system/access/permissions" },
-  { id: "assignments", label: "Assignments", href: "/system/access/assignments" },
-  { id: "templates", label: "Templates", href: "/system/access/templates" },
-  { id: "audit", label: "Authorization audit", href: "/system/access/audit" },
-  { id: "extensions", label: "Extensions", href: "/system/extensions" },
-  { id: "themes", label: "Themes", href: "/system/themes" },
-  { id: "operations", label: "Operations", href: "/system/operations" },
-  { id: "workspace-pages", label: "Workspace pages", href: "/system/workspace-pages" }
-] as const;
-
-function administrationNavigation(current: string): ReactElement {
-  return <nav aria-label="System administration"><List>{systemNavigation.map((item) => <li key={item.id}><a href={item.href} aria-current={item.id === current ? "page" : undefined}>{item.label}</a></li>)}</List></nav>;
+function administrationNavigation(navigation: readonly SystemAdministrationNavigationItem[], current: string): ReactElement {
+  return <nav aria-label="System administration"><List>{navigation.map((item) => <li key={item.id}><a href={item.href} aria-current={item.id === current ? "page" : undefined}>{item.label}</a></li>)}</List></nav>;
 }
 
 function actionControl(action: SystemAdministrationAction): ReactElement {
@@ -419,7 +413,7 @@ function fixedPage(page: ReactElement): ReactElement {
 }
 
 function administrationPage(view: SystemAdministrationPageView, current: string, children: ReactNode): ReactElement {
-  return fixedPage(<SettingsPage {...pageProps(view)} navigation={administrationNavigation(current)}>
+  return fixedPage(<SettingsPage {...pageProps(view)} navigation={administrationNavigation(view.navigation, current)}>
     {pageState(view)}
     {view.revision === undefined ? null : <Status>Server revision: {view.revision}</Status>}
     {view.state === "denied" ? null : children}
