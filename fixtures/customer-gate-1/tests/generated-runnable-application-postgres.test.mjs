@@ -537,6 +537,13 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     await page.getByRole("navigation", { name: "Workspace navigation" }).getByText("System", { exact: true }).waitFor();
     assert.equal(await page.locator('[data-k-nex-component="workspace-shell"]').evaluate((element) => getComputedStyle(element).transitionDuration), "0s");
 
+    let lostEditorPoll = false;
+    const editorPollPattern = `**/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/session?mode=edit*`;
+    await page.route(editorPollPattern, async (route) => {
+      if (lostEditorPoll) return route.continue();
+      lostEditorPoll = true;
+      await route.abort("failed");
+    });
     let lostAutosaveResponse = false;
     const autosaveTraffic = [];
     page.on("response", (response) => { if (response.url().endsWith(`/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/autosave`)) autosaveTraffic.push(`response:${response.status()}`); });
@@ -558,6 +565,8 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     }
     try { await page.getByText("All changes saved.", { exact: true }).waitFor({ timeout: 15_000 }); }
     catch (error) { throw new Error(`${error}\nautosave=${JSON.stringify(autosaveTraffic)}\nui=${await page.locator("body").innerText()}\nprocess=${applicationProcess.output()}`); }
+    assert.equal(lostEditorPoll, true);
+    await page.unroute(editorPollPattern);
     assert.equal(lostAutosaveResponse, true);
     await page.unroute(`**/api/k-nex/workspace-pages/${encodeURIComponent(pageId)}/autosave`);
     const savedWorkingCopy = await pool.query("select working_copy_json from k_nex_workspace_working_copies where application_id=$1 and environment=$2 and page_id=$3", [applicationId, environmentName, pageId]);
@@ -763,6 +772,15 @@ test("P12.9 generated app completes the durable authorized workspace journey", {
     await managerEditorPage.getByRole("alert").getByText("Editor authority changed", { exact: true }).waitFor({ timeout: 10_000 });
     assert.equal(await managerEditorPage.getByRole("region", { name: "Canvas block keyboard controls" }).count(), 0, "An already-open editor must fail closed after its Sales authority changes.");
     console.log("P12_ATK_20_OPEN_PAGE_AND_EDITOR_SALES_AUTHORITY_REVOCATION_POSTGRES_HTTP_CHROMIUM_DENIED=PASS");
+    const revokedManagerSalesAuthority = await store.readState(applicationId, environmentName);
+    assert.ok(revokedManagerSalesAuthority);
+    await store.transaction(expected(revokedManagerSalesAuthority), async (transaction) => {
+      for (const permissionId of ["sales.opportunities.read", "sales.tasks.title.read", "sales.opportunities.write"]) {
+        await transaction.write({ kind: "grant", grant: { schemaVersion: 1, id: `customer.sales-manager.${permissionId}`, applicationId, roleId: "customer.sales-manager", permissionId, owner: { kind: "extension", deliveryClass: "platform-plugin", extensionId: "module.sales", generation: 1 }, revision: 0 } });
+      }
+    });
+    await managerEditorPage.reload();
+    await managerEditorPage.getByRole("region", { name: "Canvas block keyboard controls" }).waitFor();
 
     workerProcess = start("node", ["dist/k-nex-worker.js"], { cwd: application, env: applicationEnvironment });
     await until(async () => workerProcess.output().includes("K_NEX_WORKER_READY"), `Generated worker did not restart.\n${workerProcess.output()}`, workerProcess.child);
