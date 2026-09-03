@@ -4,6 +4,17 @@ import { applicationAuthFiles } from "../src/application-auth-files.js";
 import { workspacePageApplicationFiles } from "../src/workspace-page-application-files.js";
 
 describe("generated workspace invalidation runtime", () => {
+  it("generates only implemented System navigation and no catch-all workspace routes", () => {
+    const files = applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal" });
+    const navigation = files["src/k-nex-workspace-navigation.ts"]!;
+
+    expect(navigation).toContain('implementedSystemRouteIds: ["system.route.workspace", "system.route.workspace-pages"]');
+    expect(navigation).toContain("plugins: [{ ...kNexSalesRegistry.navigationSection, routes: [], navigation: [] }]");
+    expect(files["src/app/(workspace)/sales/[[...path]]/page.tsx"]).toBeUndefined();
+    expect(files["src/app/(workspace)/system/[[...path]]/page.tsx"]).toBeUndefined();
+    expect(JSON.stringify(files)).not.toContain("Registered workspace route.");
+  });
+
   it("dispatches both durable outboxes through one PostgreSQL channel", () => {
     const worker = applicationAuthFiles({ applicationId: "customer-alpha", applicationName: "Customer Alpha", theme: "minimal" })["src/k-nex-worker.ts"]!;
 

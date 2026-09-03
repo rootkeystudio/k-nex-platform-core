@@ -444,7 +444,8 @@ export async function resolveCurrentWorkspaceNavigation(payload: Payload, header
     applicationId: kNexIdentity.applicationId,
     environment: kNexIdentity.environment,
     revision: state.authorizationRevision,
-    plugins: [kNexSalesRegistry.navigationSection],
+    implementedSystemRouteIds: ["system.route.workspace", "system.route.workspace-pages"],
+    plugins: [{ ...kNexSalesRegistry.navigationSection, routes: [], navigation: [] }],
     customerFolders: folderItems.map(({ node }) => node),
     pages,
     preferences: { sidebar: "expanded", favoritePageIds: [], recentPageIds: [] },
@@ -487,31 +488,6 @@ export default async function WorkspaceLayout({ children }: Readonly<{ children:
   const resolved = await resolveCurrentWorkspaceNavigation(payload, await getHeaders());
   if (resolved === undefined) redirect("/login");
   return <KnexWorkspaceShell applicationLabel=${jsxStringExpression(applicationName)} environment={kNexIdentity.environment} navigation={resolved.navigation} preferenceKey={resolved.preferenceKey}>{children}</KnexWorkspaceShell>;
-}
-`;
-}
-
-function registeredRoutePageSource(routeClass: "sales" | "system"): string {
-  const prefix = `/${routeClass}`;
-  return `import { resolveAuthorizedWorkspacePath } from "@k-nex/ui-runtime";
-import { headers as getHeaders } from "next/headers";
-import { notFound } from "next/navigation";
-
-import { bootKnexApplication } from "../../../../boot.js";
-import { resolveCurrentWorkspaceNavigation } from "../../../../k-nex-workspace-navigation.js";
-
-export const dynamic = "force-dynamic";
-
-export default async function Registered${routeClass === "sales" ? "Sales" : "System"}Page({ params }: Readonly<{ params: Promise<{ path?: string[] }> }>) {
-  const payload = await bootKnexApplication("workspace-web");
-  const resolved = await resolveCurrentWorkspaceNavigation(payload, await getHeaders());
-  if (resolved === undefined) return notFound();
-  const segments = (await params).path ?? [];
-  const pathname = ${JSON.stringify(prefix)} + (segments.length === 0 ? "" : "/" + segments.map(encodeURIComponent).join("/"));
-  const route = resolveAuthorizedWorkspacePath(resolved.navigation, pathname);
-  if (route === undefined || route.target.class !== ${JSON.stringify(routeClass === "sales" ? "platform-plugin" : "system")}) return notFound();
-  const label = resolved.navigation.tree.nodes.find((node) => node.target !== undefined && JSON.stringify(node.target) === JSON.stringify(route.target))?.label ?? ${JSON.stringify(routeClass === "sales" ? "Sales" : "System")};
-  return <section><p className="eyebrow">${routeClass === "sales" ? "Sales" : "K-Nex administration"}</p><h1>{label}</h1><p>Registered workspace route.</p></section>;
 }
 `;
 }
@@ -628,8 +604,6 @@ export function applicationAuthFiles(options: ApplicationAuthFilesOptions): Read
     "src/app/(auth)/login/page.tsx": loginPageSource(),
     "src/app/(workspace)/layout.tsx": workspaceLayoutSource(options.applicationName),
     "src/app/(workspace)/page.tsx": workspacePageSource(options.applicationName),
-    "src/app/(workspace)/sales/[[...path]]/page.tsx": registeredRoutePageSource("sales"),
-    "src/app/(workspace)/system/[[...path]]/page.tsx": registeredRoutePageSource("system"),
     "src/app/api/k-nex/inventory/route.ts": inventoryRouteSource(),
     "src/app/api/readiness/route.ts": readinessRouteSource(),
     "src/app/components/login-form.tsx": loginFormSource(),

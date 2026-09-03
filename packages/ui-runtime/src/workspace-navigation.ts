@@ -74,6 +74,7 @@ export interface ResolveWorkspaceNavigationInput {
   readonly applicationId: string;
   readonly environment: string;
   readonly revision: number;
+  readonly implementedSystemRouteIds: readonly string[];
   readonly plugins: readonly WorkspacePluginNavigationSection[];
   readonly customerFolders: readonly WorkspaceNavigationNode[];
   readonly pages: readonly WorkspacePage[];
@@ -146,9 +147,25 @@ function assertParentOwnership(nodes: ReadonlyMap<string, WorkspaceNavigationNod
 
 function uniquePreferenceIds(values: readonly string[]): readonly string[] { return Object.freeze([...new Set(values)]); }
 
+function implementedSystemRoutes(ids: readonly string[]): readonly (typeof fixedRoutes)[number][] {
+  if (!Array.isArray(ids)) fail("INPUT_INVALID", "Implemented System route IDs are invalid.");
+  const selected = new Set<string>();
+  let previous = -1;
+  for (const id of ids) {
+    const index = fixedRoutes.findIndex(([routeId]) => routeId === id);
+    if (typeof id !== "string" || index < 0) fail("INPUT_INVALID", "Implemented System route IDs are invalid.");
+    if (selected.has(id)) fail("DUPLICATE_ROUTE", `Duplicate workspace identity ${id}.`);
+    if (index <= previous) fail("INPUT_INVALID", "Implemented System route IDs are invalid.");
+    selected.add(id);
+    previous = index;
+  }
+  return fixedRoutes.filter(([routeId]) => selected.has(routeId));
+}
+
 export async function resolveWorkspaceNavigation(input: ResolveWorkspaceNavigationInput): Promise<ResolvedWorkspaceNavigation> {
   if (typeof input.authorize !== "function" || typeof input.pageAccess !== "function") fail("INPUT_INVALID", "Workspace authority ports are required.");
   validatePreferences(input.preferences);
+  const systemRoutes = implementedSystemRoutes(input.implementedSystemRouteIds);
   const nodes = new Map<string, WorkspaceNavigationNode>();
   const routes = new Map<string, ResolvedWorkspaceRoute & { readonly permissionId: string }>();
   const routeIds = new Map<string, string>();
@@ -156,7 +173,7 @@ export async function resolveWorkspaceNavigation(input: ResolveWorkspaceNavigati
 
   register(nodes, "k-nex.navigation.root", WorkspaceNavigationNodeSchema.parse({ id: "k-nex.navigation.root", owner: { kind: "platform" }, kind: "folder", label: "K-Nex", icon: "dashboard", order: 0 }), "DUPLICATE_ID");
   register(nodes, "system.navigation.root", WorkspaceNavigationNodeSchema.parse({ id: "system.navigation.root", owner: { kind: "platform" }, kind: "folder", label: "System", icon: "system", order: 1_000_000 }), "DUPLICATE_ID");
-  for (const [routeId, href, permissionId, label, icon, parentId, id, order] of fixedRoutes) {
+  for (const [routeId, href, permissionId, label, icon, parentId, id, order] of systemRoutes) {
     const target = { class: "system" as const, routeId };
     register(routeIds, routeId, href, "DUPLICATE_ROUTE");
     register(routes, targetKey(target), { target, href, permissionId }, "DUPLICATE_ROUTE");

@@ -51,6 +51,7 @@ function input(overrides: Partial<ResolveWorkspaceNavigationInput> = {}): Resolv
     applicationId: "customer-alpha",
     environment: "production",
     revision: 4,
+    implementedSystemRouteIds: ["system.route.workspace", "system.route.workspace-pages"],
     plugins: [{
       id: "sales.navigation.root",
       pluginId: "module.sales",
@@ -59,9 +60,9 @@ function input(overrides: Partial<ResolveWorkspaceNavigationInput> = {}): Resolv
       order: 100,
       active: true,
       acceptsCustomerChildren: true,
-      routes: [salesRoute],
-      navigation: [salesNavigation],
-      messages: { "sales.message.navigation-overview": "Overview" }
+      routes: [],
+      navigation: [],
+      messages: {}
     }],
     customerFolders: [],
     pages: [page],
@@ -83,18 +84,20 @@ async function expectCode(value: Promise<unknown>, code: WorkspaceNavigationReso
 }
 
 describe("P12.4 workspace navigation resolution", () => {
-  it("resolves fixed System, registered Sales, nested customer pages, and user-local shortcuts", async () => {
+  it("resolves only implemented System routes and keeps Sales as a customer-page parent", async () => {
     const resolved = await resolveWorkspaceNavigation(input());
     expect(resolved.sidebar).toBe("collapsed");
     expect(resolved.tree.nodes.map(({ id }) => id)).toEqual(expect.arrayContaining([
-      "k-nex.navigation.root", "k-nex.navigation.workspace", "sales.navigation.root", "sales.navigation.overview",
-      "customer.page.pipeline", "system.navigation.root", "system.navigation.roles"
+      "k-nex.navigation.root", "k-nex.navigation.workspace", "sales.navigation.root",
+      "customer.page.pipeline", "system.navigation.root", "system.navigation.workspace-pages"
     ]));
+    expect(resolved.tree.nodes.map(({ id }) => id)).not.toEqual(expect.arrayContaining(["sales.navigation.overview", "system.navigation.roles"]));
     expect(resolved.tree.nodes.find(({ id }) => id === page.identity.pageId)?.parentId).toBe("sales.navigation.root");
     expect(resolved.favorites).toEqual([{ pageId: page.identity.pageId, label: page.title, href: "/workspace/pages/customer.page.pipeline" }]);
     expect(resolved.recent).toHaveLength(1);
-    expect(resolveAuthorizedWorkspacePath(resolved, "/sales")?.target).toEqual({ class: "platform-plugin", ownerPluginId: "module.sales", routeId: salesRoute.id });
+    expect(resolveAuthorizedWorkspacePath(resolved, "/sales")).toBeUndefined();
     expect(resolveAuthorizedWorkspacePath(resolved, "/workspace/pages/customer.page.pipeline")?.target).toEqual({ class: "workspace-page", pageId: page.identity.pageId, mode: "view" });
+    expect(resolveAuthorizedWorkspacePath(resolved, "/system/access/roles")).toBeUndefined();
     expect(resolveAuthorizedWorkspacePath(resolved, "/missing")).toBeUndefined();
   });
 
@@ -111,11 +114,24 @@ describe("P12.4 workspace navigation resolution", () => {
     expect(resolveAuthorizedWorkspacePath(resolved, "/sales")).toBeUndefined();
   });
 
-  it("rejects duplicate, inactive, missing-route, foreign-parent, missing-parent, and cyclic graphs", async () => {
+  it("registers no System link or route outside the explicit implemented subset", async () => {
+    const resolved = await resolveWorkspaceNavigation(input({
+      implementedSystemRouteIds: [],
+      pages: [],
+      preferences: { sidebar: "expanded", favoritePageIds: [], recentPageIds: [] }
+    }));
+    expect(resolved.tree.nodes.map(({ id }) => id)).toEqual(["system.navigation.root"]);
+    expect(resolved.routes).toEqual([]);
+  });
+
+  it("rejects invalid or duplicate implemented System IDs alongside invalid graphs", async () => {
+    await expectCode(resolveWorkspaceNavigation(input({ implementedSystemRouteIds: ["system.route.workspace", "system.route.workspace"] })), "DUPLICATE_ROUTE");
+    await expectCode(resolveWorkspaceNavigation(input({ implementedSystemRouteIds: ["system.route.workspace-pages", "system.route.workspace"] })), "INPUT_INVALID");
+    await expectCode(resolveWorkspaceNavigation(input({ implementedSystemRouteIds: ["system.route.not-real"] })), "INPUT_INVALID");
     await expectCode(resolveWorkspaceNavigation(input({ plugins: [{ ...input().plugins[0]!, id: "system.navigation.root" }] })), "DUPLICATE_ID");
     await expectCode(resolveWorkspaceNavigation(input({ plugins: [{ ...input().plugins[0]!, active: false }] })), "PLUGIN_INACTIVE");
-    await expectCode(resolveWorkspaceNavigation(input({ plugins: [{ ...input().plugins[0]!, routes: [] }] })), "ROUTE_MISSING");
-    await expectCode(resolveWorkspaceNavigation(input({ plugins: [{ ...input().plugins[0]!, navigation: [{ ...salesNavigation, parentId: "system.navigation.root" }] }] })), "FOREIGN_PARENT");
+    await expectCode(resolveWorkspaceNavigation(input({ plugins: [{ ...input().plugins[0]!, navigation: [salesNavigation] }] })), "ROUTE_MISSING");
+    await expectCode(resolveWorkspaceNavigation(input({ plugins: [{ ...input().plugins[0]!, routes: [salesRoute], navigation: [{ ...salesNavigation, parentId: "system.navigation.root" }], messages: { "sales.message.navigation-overview": "Overview" } }] })), "FOREIGN_PARENT");
     await expectCode(resolveWorkspaceNavigation(input({ pages: [{ ...page, navigation: { state: "placed", parentNavigationId: "customer.folder.missing", order: 20 } }] })), "PARENT_MISSING");
     await expectCode(resolveWorkspaceNavigation(input({
       customerFolders: [
