@@ -2,20 +2,20 @@
 
 - **Updated:** 2026-09-03
 - **Phase:** Phase 12 — Runnable Customer Workspace and Dashboard Builder
-- **Active task:** P12.5 — build PostgreSQL custom-page storage
+- **Active task:** P12.6 — add current-authority page services and impact reconciliation
 - **State:** In progress
 
 ## Last completed
 
-P12.4 delivers the fixed K-Nex/System shell, statically registered Sales navigation, customer-page placement, server authority filtering, direct-route denial, desktop/mobile navigation, presentation-only sidebar persistence, and accessible keyboard/RTL/forced-colors/reduced-motion behavior.
+P12.5 adds clean-database workspace-page migrations and a PostgreSQL adapter for normalized ACL, CAS/idempotent working copies, immutable publications, pointer/receipt rollback, safe atomic audit/outbox, archival placement, and cross-customer persistence.
 
 ## Validation
 
-Exact Node 24.19.0: Sales, ui-runtime, ui-components, and composition focused suites/builds PASS; packed v1.0.0 closure PASS. Isolated P12.4 generated-app proof PASS with fresh PostgreSQL, frozen install, production build/start, owner/limited/revoked authority, worker/restart, HTTP direct-route denial, and Chromium desktop/mobile/keyboard/RTL/forced-colors/reduced-motion checks. Cumulative Gate 0–11 remains deferred to phase closeout.
+Exact Node 24.19.0: payload-adapter/composition/customer fixture builds PASS; composition focused tests PASS; packed v1.0.0 closure PASS. Isolated P12.5 real-PostgreSQL proof PASS for transaction rollback, stale-tab CAS, replay, race, ACL/audit/outbox atomicity, immutable revisions/receipts, rollback, archive/dependency retention, restart, cross-customer isolation, safe metadata, and physical dump/clean restore. Cumulative Gate 0–11 remains deferred to phase closeout.
 
 ## Next
 
-Execute P12.5 PostgreSQL workspace-page documents, revisions, placement, preferences, optimistic concurrency, audit/outbox, and restart proof.
+Execute P12.6 current-authority page reads/mutations, exact server-derived identities, session invalidation, and dependency-impact convergence.
 
 ## Blockers
 

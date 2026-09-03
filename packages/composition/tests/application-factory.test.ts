@@ -41,6 +41,7 @@ describe("create-knex-app", () => {
     expect(first.files["src/k-nex-bootstrap-token.ts"]).toContain("timingSafeEqual");
     expect(first.files["src/k-nex-bootstrap-owner.ts"]).toContain("bootstrapFirstOwner");
     expect(first.files["src/migrations/20260903_000003_knex_authorization.ts"]).toContain("kNexAuthorizationSchemaMigration");
+    expect(first.files["src/migrations/20260903_000004_knex_workspace_pages.ts"]).toContain("kNexWorkspacePageSchemaMigration");
     expect(first.files["src/app/api/k-nex/inventory/route.ts"]).toContain("system.extensions.read");
     expect(Object.values(first.files).every((source) => !source.includes("fixtures/customer-gate-1"))).toBe(true);
     const packageJson = JSON.parse(first.files["package.json"]!);
