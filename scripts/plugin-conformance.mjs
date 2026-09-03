@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
-import { gzipSync, gunzipSync } from "node:zlib";
+import { constants, gzipSync, gunzipSync } from "node:zlib";
 
 export const requiredPluginEvidence = Object.freeze([
   "accessibility-smoke", "component-runtime-puck", "default-page-seed", "deterministic-inventory",
@@ -181,14 +181,14 @@ function tarEntries(file) {
 export function canonicalPackageArchive(archive) {
   assert.ok(archive.length >= 10, "Package gzip archive is truncated.");
   assert.deepEqual([...archive.subarray(0, 3)], [0x1f, 0x8b, 0x08], "Package archive must use gzip.");
-  const canonical = gzipSync(gunzipSync(archive), { level: 6, mtime: 0 });
+  const canonical = gzipSync(gunzipSync(archive), { level: constants.Z_BEST_COMPRESSION, mtime: 0 });
   canonical[9] = 0xff;
   return canonical;
 }
 
 export function assertByteReproducible(first, second, committed, filename) {
   assert.equal(first.equals(second), true, `${filename} repeated pack bytes are non-deterministic.`);
-  assert.equal(committed.equals(canonicalPackageArchive(committed)), true, `${filename} committed gzip OS marker is not cross-platform.`);
+  assert.equal(committed.equals(canonicalPackageArchive(committed)), true, `${filename} committed gzip metadata is not canonical and cross-platform.`);
 }
 
 export function runBoundaryProof(pluginRoot) {

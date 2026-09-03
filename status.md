@@ -7,11 +7,11 @@
 
 ## Last completed
 
-Hosted release evidence now binds the editor watermark-race closure to source head `1904bdc4a94ca1a38cca6b14b0cbc6ac668b2e7f`.
+Hosted release evidence binds the editor watermark-race closure. Gate 6 generic plugin conformance now uses the same canonical level-9, zero-mtime, cross-platform gzip metadata as the Sales package proof.
 
 ## Validation
 
-Hosted run 33794782982 and `P8_GENERATED_EVIDENCE_CLEAN` PASS. Exact Node 24.19.0: clean 17-package closure, both frozen customer installs, editor unit 6/6, and isolated generated app PostgreSQL/HTTP/Chromium journey PASS.
+Hosted run 33794782982 and `P8_GENERATED_EVIDENCE_CLEAN` PASS. Exact Node 24.19.0: clean 17-package closure, both frozen customer installs, editor unit 6/6, isolated generated app PostgreSQL/HTTP/Chromium journey, and focused generic/Sales canonical pack proofs PASS.
 
 ## Next
 

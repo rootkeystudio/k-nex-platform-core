@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { gzipSync } from "node:zlib";
+import { constants, gzipSync } from "node:zlib";
 
 import { assertByteReproducible, assertNoShellWrapper, assertVitestExactTestProof, requiredPluginEvidence, runBoundaryProof, validateConformancePlan } from "./plugin-conformance.mjs";
 
@@ -113,11 +113,14 @@ test("plugin conformance requires repeated pack bytes and canonical committed gz
   const payload = Buffer.from("sales package payload");
   const linux = gzipSync(payload, { level: 1, mtime: 0 });
   linux[9] = 0x03;
-  const committed = gzipSync(payload, { level: 6, mtime: 0 });
+  const committed = gzipSync(payload, { level: constants.Z_BEST_COMPRESSION, mtime: 0 });
   committed[9] = 0xff;
   assert.doesNotThrow(() => assertByteReproducible(linux, Buffer.from(linux), committed, "sales.tgz"));
-  const differentlyCompressed = gzipSync(payload, { level: 9, mtime: 0 });
+  const nonCanonical = gzipSync(payload, { level: 6, mtime: 0 });
+  nonCanonical[9] = 0xff;
+  assert.throws(() => assertByteReproducible(linux, Buffer.from(linux), nonCanonical, "sales.tgz"), /gzip metadata is not canonical and cross-platform/);
+  const differentlyCompressed = gzipSync(payload, { level: constants.Z_BEST_COMPRESSION, mtime: 0 });
   differentlyCompressed[9] = 0x03;
   assert.throws(() => assertByteReproducible(linux, differentlyCompressed, committed, "sales.tgz"), /repeated pack bytes are non-deterministic/);
-  assert.throws(() => assertByteReproducible(linux, Buffer.from(linux), linux, "sales.tgz"), /gzip OS marker is not cross-platform/);
+  assert.throws(() => assertByteReproducible(linux, Buffer.from(linux), linux, "sales.tgz"), /gzip metadata is not canonical and cross-platform/);
 });
