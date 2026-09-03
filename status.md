@@ -7,15 +7,15 @@
 
 ## Last completed
 
-Sol-xhigh follow-up findings are closed: generated Sales source budgets persist for process lifetime, and open page/editor projections clear revoked Sales data and capabilities through current authority watermarks.
+Sol-xhigh follow-up fixes are bound into the canonical 17-package v1 release closure and both deterministic customer locks.
 
 ## Validation
 
-Exact Node 24.19.0: composition build; focused workspace application test 5/5; generated app PostgreSQL/HTTP/Chromium journey PASS, including direct HTTP rate/concurrency exhaustion and live page/editor Sales-authority revocation.
+Exact Node 24.19.0: 22-package build; canonical package/factory/release regeneration; packed ABI and closure checks; both customer frozen installs and fixture reconciliation PASS. Generated app PostgreSQL/HTTP/Chromium remediation journey PASS.
 
 ## Next
 
-Regenerate and verify the exact v1 package/factory/release closure and hosted evidence; resume the same Sol-xhigh reviewer until PASS; run final focused Gate 12 and exact-head Linux/AppArmor cumulative Gate 0–12; update result and phase PR.
+Generate and verify exact-head hosted release evidence; resume the same Sol-xhigh reviewer until PASS; run final focused Gate 12 and exact-head Linux/AppArmor cumulative Gate 0–12; update result and phase PR.
 
 ## Blockers
 
