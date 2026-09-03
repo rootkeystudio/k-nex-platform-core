@@ -7,15 +7,15 @@
 
 ## Last completed
 
-The StrictMode-safe composition package is bound into a freshly regenerated immutable 1.0.0 release closure and both customer lockfiles.
+Hosted release-evidence run 33786152181 passed for source head f9a9c39. Its exact customer bundles, five attestations, verification records, runtime inventories, receipts, restore proofs, and fleet evidence are committed.
 
 ## Validation
 
-Exact Node 24.19.0: generated editor focused proof 6/6; clean 17-package regeneration; factory/release lock checks; packed ABI/closure; both frozen customer installs; customer fixture reconciliation PASS.
+Exact Node 24.19.0: generated editor proof 6/6; clean 17-package closure; frozen customer installs; hosted run 33786152181; `P8_GENERATED_EVIDENCE_CLEAN`; and local `pnpm gate:12:focused` / `GATE_12_PASS` PASS.
 
 ## Next
 
-Refresh hosted release evidence for this closure, then run final focused and exact-head Linux/AppArmor cumulative Gate 12. Update result/PR and resume the same Sol-xhigh reviewer until PASS.
+Finalize the Phase 12 result/status and PR, then require exact-head focused PR CI plus Linux/AppArmor cumulative Gate 0–12. Resume the same Sol-xhigh reviewer until PASS.
 
 ## Blockers
 
