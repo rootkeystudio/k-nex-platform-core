@@ -11,7 +11,7 @@ P12.10 focused Gate 12 passes: exact v1 builds and packed closure, selected cont
 
 ## Validation
 
-Exact Node 24.19.0: focused Gate 12, Gates 8 and 11, all 15 Gate 10 technical proofs, and the real static deployment repeat proof PASS. Linux cumulative run `33746003254` passed the full Gate 9 technical corpus, then found Gate 9's stale pre-merge result marker. The historical result is correctly `ACCEPTED`; its isolated marker check and Linux rerun remain.
+Exact Node 24.19.0: focused Gate 12, Gates 8 and 11, all 15 Gate 10 technical proofs, and the real static deployment repeat proof PASS. Linux cumulative run `33746003254` passed the full Gate 9 technical corpus, then found its stale pre-merge result marker. Phase 9 and merged Phase 11 historical results now consistently say `ACCEPTED`; isolated marker checks and Linux rerun remain.
 
 ## Next
 

@@ -3,8 +3,9 @@
 - **Date:** 2026-09-03
 - **Gate:** Gate 11
 - **Accepted base:** Phase 10 / PR #29
-- **Decision:** **READY FOR PHASE REVIEW**
-- **Review state:** Sixth owner-review findings fixed with one coherent current-v1 package closure, current migration evidence, exact signed catalog policy, and regenerated hosted release evidence; replacement exact-head focused CI, cumulative Gate 0–11, and re-review remain pending.
+- **Delivery:** PR #30 merged as `9cb386e649aca5dfa90f04f3f1e3121b5debef93`; hosted-evidence follow-up PR #31 merged as `9a1f2509f78392444d38dd20bcb9a585c68a8f51`
+- **Decision:** **ACCEPTED**
+- **Review state:** Owner review closed and both Phase 11 delivery PRs merged on 2026-09-03.
 
 ## Scope proved
 
@@ -33,9 +34,9 @@ A staged Hot Application that needs generation-validated settings reserves one f
 
 `pnpm gate:11:focused` runs the Phase 11 contract/unit selection plus real PostgreSQL settings, catalog, operations, convergence, real HTTP, and Chromium journeys. It requires exact named tests, evidence markers, all 13 required attack classes, accepted inherited Gate 9–10 results, the Sales-only boundary, and this task matrix.
 
-`pnpm gate:11` is the cumulative manual/main command and first runs Gate 0–10. Pull requests run only the focused Phase 11 command so they do not repeat the hour-long cumulative chain. One explicit exact-head Linux/AppArmor cumulative Gate 0–11 run is still required before merge.
+`pnpm gate:11` is the cumulative manual/main command and first runs Gate 0–10. Pull requests run only the focused Phase 11 command so they do not repeat the hour-long cumulative chain.
 
-## Blocking review closure
+## Review closure
 
 - Application boot now reconciles only the exact protected-baseline v2 predecessor to v3 before readiness; real PostgreSQL upgrade proof authorizes the new Phase 11 control-plane permissions.
 - Settings changes, retained adoption, and secret bind/unbind require server-owned, operation-bound, expiring, one-use reauthentication evidence. Generation validation re-enters current authority before claim and promotion; concurrent revocation yields a durable `permission-revoked` terminal receipt.
@@ -60,6 +61,6 @@ A staged Hot Application that needs generation-validated settings reserves one f
 - No compatibility alias, shim, or historical product migration exists; every unreleased package and fixture remains `1.0.0`.
 - Phase 12 requires an explicit product decision rather than silently starting another domain.
 
-**Decision:** **READY FOR PHASE REVIEW**
+**Decision:** **ACCEPTED**
 
 Gate decision on acceptance: **GO EXPLICIT CRM/CMS PRODUCTIZATION DECISION**.
